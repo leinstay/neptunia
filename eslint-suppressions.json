@@ -2506,36 +2506,33 @@
       "count": 2
     }
   },
-  "tests/events.test.js": {
+  "tests/events.test.ts": {
     "@typescript-eslint/await-thenable": {
       "count": 1
     },
-    "@typescript-eslint/no-base-to-string": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 49
+      "count": 47
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 398
+      "count": 174
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 181
+      "count": 138
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 768
+      "count": 613
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 194
+      "count": 125
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 6
     },
     "@typescript-eslint/require-await": {
-      "count": 55
+      "count": 52
     },
     "@typescript-eslint/restrict-template-expressions": {
-      "count": 16
+      "count": 6
     },
     "@typescript-eslint/unbound-method": {
       "count": 1
@@ -2704,18 +2701,15 @@
       "count": 1
     }
   },
-  "tests/format.test.js": {
+  "tests/format.test.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 2
     },
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 6
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 9
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
+      "count": 4
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -2920,30 +2914,30 @@
       "count": 21
     }
   },
-  "tests/inner.test.js": {
+  "tests/inner.test.ts": {
     "@typescript-eslint/await-thenable": {
       "count": 3
     },
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 6
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 40
+      "count": 22
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 47
+      "count": 32
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 280
+      "count": 112
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 38
+      "count": 16
     },
     "@typescript-eslint/require-await": {
-      "count": 10
+      "count": 8
     },
     "prefer-const": {
-      "count": 3
+      "count": 2
     }
   },
   "tests/intention-due-jitter.test.ts": {

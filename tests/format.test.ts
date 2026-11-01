@@ -20,38 +20,14 @@ import {
   withCalls,
 } from '../src/format.ts';
 import { labels } from './fixtures/labels.ts';
+import { grLabels, msg, triggerScene } from './fixtures/format-rig.ts';
+import type { Untyped } from '../src/tools/types.ts';
+import { wrongly, present } from './fixtures/loose-types.ts';
 
 const TZ = 'Europe/Moscow'; // fixed UTC+3, no DST -- safe for exact arithmetic in tests
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
-
-// A handful of non-Latin (Greek) values proves the code never assumes
-// English/labels language; only the values differ, the code path is identical.
-const grLabels = {
-  ...labels,
-  locale: 'el-GR',
-  self: '{name} (εσύ)',
-  units: { lessThanMinute: 'λιγότερο από ένα λεπτό', minute: 'λεπτό', hour: 'ώρα', day: 'μέρα' },
-  transcript: {
-    ...labels.transcript,
-    gap: '--- πέρασαν {duration} ---',
-    empty: '(κενό)',
-  },
-};
-
-function msg(id, ts, overrides = {}) {
-  return {
-    id,
-    ts,
-    authorId: 'u1',
-    authorName: 'Nick',
-    content: 'text',
-    channelId: 'c1',
-    channelName: 'general',
-    ...overrides,
-  };
-}
 
 // --- fill --------------------------------------------------------------
 
@@ -60,9 +36,9 @@ test('fill: leaves unknown keys untouched', () => {
 });
 
 test('fill: a missing/empty template returns an empty string', () => {
-  assert.equal(fill(undefined, { duration: '5 min' }), '');
+  assert.equal(fill(wrongly(undefined), { duration: '5 min' }), '');
   assert.equal(fill('', { duration: '5 min' }), '');
-  assert.equal(fill(null, {}), '');
+  assert.equal(fill(wrongly(null), {}), '');
 });
 
 // --- clock / date / now / localHour -------------------------------------
@@ -323,7 +299,7 @@ test('formatTranscript: no offset keeps 1..N', () => {
   ];
   assert.deepEqual(formatTranscript(offsetMessages(), offsetOptions), expected);
   assert.deepEqual(formatTranscript(offsetMessages(), { ...offsetOptions, indexOffset: undefined }), expected);
-  assert.deepEqual(formatTranscript(offsetMessages(), { ...offsetOptions, indexOffset: null }), expected);
+  assert.deepEqual(formatTranscript(offsetMessages(), { ...offsetOptions, indexOffset: wrongly(null) }), expected);
   assert.deepEqual(formatTranscript(offsetMessages(), { ...offsetOptions, indexOffset: 0 }), expected);
 });
 
@@ -367,7 +343,7 @@ test('formatTranscript: an indexOffset given but not a whole number of at least 
   // renumber a second block from #1 over the chat's own indices.
   for (const indexOffset of [-3, 2.5, Number.NaN, Infinity, '4', {}]) {
     assert.throws(
-      () => formatTranscript(offsetMessages(), { ...offsetOptions, indexOffset }),
+      () => formatTranscript(offsetMessages(), { ...offsetOptions, indexOffset: wrongly(indexOffset) }),
       RangeError,
       String(indexOffset)
     );
@@ -570,7 +546,7 @@ test('formatTranscript: mode "memory" for the persona\'s own line omits the id',
   });
   assert.ok(items[0].text.includes('Nept (you): hi'));
   const messageLine = items[0].text.split('\n').at(-1);
-  assert.ok(!messageLine.includes('(id:'));
+  assert.ok(!present(messageLine).includes('(id:'));
 });
 
 // --- formatTranscript: mode "memory" groups by channel ----------------------
@@ -741,7 +717,7 @@ test('formatTranscript: an older labels.json with no thumbnailDescribed key rend
 
 // --- formatTranscript: video states ------------------------------------
 
-function videoTranscript(messages, extra = {}) {
+function videoTranscript(messages: Array<Record<string, Untyped>>, extra = {}) {
   return formatTranscript(messages, {
     timezone: TZ,
     gapMinutes: 20,
@@ -847,7 +823,7 @@ test("formatTranscript: a forwarded snapshot's video also reads its state", () =
 });
 
 test('formatTranscript: labels without the video keys render byte-for-byte as before, video states ignored', () => {
-  const oldTranscript = { ...labels.transcript };
+  const oldTranscript: Record<string, Untyped> = { ...labels.transcript };
   for (const key of [
     'videoWatched',
     'videoNotWatched',
@@ -888,7 +864,7 @@ test('formatTranscript: labels without the video keys render byte-for-byte as be
 
 // --- formatTranscript: stickers ---------------------------------------
 
-function stickerItem(id, name, url) {
+function stickerItem(id: string, name: Untyped, url: Untyped) {
   return { id, name, url };
 }
 
@@ -1387,7 +1363,7 @@ test('formatTranscript: an older labels.json with no linkRead key ignores reads,
 
 // --- formatTranscript: reactions ---------------------------------------
 
-function reactionTranscript(messages, extra = {}) {
+function reactionTranscript(messages: Array<Record<string, Untyped>>, extra = {}) {
   return formatTranscript(messages, {
     timezone: TZ,
     gapMinutes: 20,
@@ -1532,7 +1508,14 @@ const GIF_FILE = {
 };
 const GIF_FULL = { reaction: 'accord ferme', action: 'un chat lève le menton', screen: 'ναι' };
 
-function gifLines(fields, { labelSet = labels, handles = true, item = GIF_LINK } = {}) {
+function gifLines(
+  fields: Untyped,
+  {
+    labelSet = labels,
+    handles = true,
+    item = GIF_LINK,
+  }: { labelSet?: Untyped; handles?: boolean; item?: typeof GIF_LINK | typeof GIF_FILE } = {}
+) {
   const message = msg('m1', GIF_T, item === GIF_FILE ? { attachments: [item] } : { links: [item] });
   return formatTranscript([message], {
     timezone: TZ,
@@ -1597,33 +1580,6 @@ test('fillGifFields: a field the template names but the values lack is left out;
 
 // --- the turn trigger of the persona's own lines -------------------------
 
-// Two questions, then the persona's lines: #3 posted by the turn #1 started, #4 a reply to #2
-// posted by the same turn, #5 a reply to #2 posted by the turn #2 started.
-function triggerScene(overrides = {}) {
-  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  return [
-    msg('q1', t0, { authorName: 'Éloïse', content: 'tu viens ce soir ?' }),
-    msg('q2', t0 + 30_000, { authorName: 'Nick', content: 'et le lapin ?' }),
-    msg('a1', t0 + MIN, { self: true, authorName: 'Nept', content: 'ναι', triggerId: 'q1', ...overrides.a1 }),
-    msg('a2', t0 + 2 * MIN, {
-      self: true,
-      authorName: 'Nept',
-      content: 'κοιμάται',
-      replyToId: 'q2',
-      triggerId: 'q1',
-      ...overrides.a2,
-    }),
-    msg('a3', t0 + 3 * MIN, {
-      self: true,
-      authorName: 'Nept',
-      content: 'ακόμα',
-      replyToId: 'q2',
-      triggerId: 'q2',
-      ...overrides.a3,
-    }),
-  ];
-}
-
 test('formatTranscript: a plain line of the persona names the message that started its turn', () => {
   const items = formatTranscript(triggerScene(), offsetOptions);
   assert.equal(items[2].text, '#3 [13:01] Nept (you) (turn triggered by #1): ναι');
@@ -1660,7 +1616,7 @@ test('formatTranscript: lines without a trigger render exactly as before', () =>
     offsetOptions
   );
   const bare = formatTranscript(
-    triggerScene().map(({ triggerId, ...message }) => message),
+    triggerScene().map(wrongly(({ triggerId, ...message }: { triggerId?: Untyped; message?: Untyped }) => message)),
     offsetOptions
   );
   assert.deepEqual(linked, bare);
@@ -1688,7 +1644,7 @@ test("formatTranscript: a trigger on another member's line, in memory mode or wi
 
 test("withTriggers: the persona's lines with a known link carry their trigger id; every other line is the same object", () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const lines = [
+  const lines: Array<Record<string, Untyped>> = [
     msg('q1', t0),
     msg('a1', t0 + MIN, { self: true }),
     msg('a2', t0 + 2 * MIN, { self: true }),
@@ -1709,7 +1665,7 @@ test("withTriggers: the persona's lines with a known link carry their trigger id
   // A lookup function serves as well; no links or no list changes nothing.
   assert.equal(withTriggers(lines, (id) => (id === 'a2' ? 'q1' : null))[2].triggerId, 'q1');
   assert.equal(withTriggers(lines, null), lines);
-  assert.deepEqual(withTriggers(null, links), []);
+  assert.deepEqual(withTriggers(wrongly(null), links), []);
 });
 
 // --- the persona's skill calls on her own lines ---------------------------
@@ -1729,8 +1685,8 @@ const channelNames = new Map([
   ['c1', 'général'],
   ['c9', 'νέα'],
 ]);
-const LINK = (channelId, messageId) => `https://discord.com/channels/g1/${channelId}/${messageId}`;
-const resolvers = { nameOf: (id) => channelNames.get(id) ?? null, linkOf: LINK };
+const LINK = (channelId: string, messageId: Untyped) => `https://discord.com/channels/g1/${channelId}/${messageId}`;
+const resolvers = { nameOf: (id: string) => channelNames.get(id) ?? null, linkOf: LINK };
 /** A call that names no message and no conversation. */
 const NO_TARGET = { messageId: null, channelId: null };
 const call = (overrides = {}) => ({
@@ -1745,7 +1701,7 @@ const call = (overrides = {}) => ({
 });
 
 test('withCalls: a call rides on the last line its turn posted in the channel where it was made', () => {
-  const lines = callScene();
+  const lines: Array<Record<string, Untyped>> = callScene();
   const out = withCalls(lines, { calls: [call()] }, resolvers);
   assert.equal(out[1], lines[1], 'an earlier line of the same turn is left alone');
   assert.deepEqual(out[2].calls, [
@@ -1776,7 +1732,11 @@ test('withCalls: a turn that posted nothing here shows the call as a standalone 
     resolvers
   );
   assert.equal(out[2].calls, undefined);
-  assert.equal(out[2].callsAfter.length, 1, 'after the last line at or before the call');
+  assert.equal(
+    wrongly<{ callsAfter: Array<unknown> }>(out[2]).callsAfter.length,
+    1,
+    'after the last line at or before the call'
+  );
   const items = formatTranscript(out, offsetOptions);
   assert.equal(items.length, 4, 'no item and no number of its own');
   assert.equal(
@@ -1831,12 +1791,10 @@ test('withCalls: a call that posted in another channel names it and links the po
 });
 
 test('formatTranscript: a call status renders through transcript.callStatus, an unlisted one as its code', () => {
+  const callStatus: Record<string, string> = labels.transcript.callStatus;
   for (const status of ['ok', 'denied', 'invalid', 'not_configured', 'unknown', 'partial', 'failed']) {
     const items = formatTranscript(withCalls(callScene(), { calls: [call({ status })] }, resolvers), offsetOptions);
-    assert.ok(
-      items[2].text.endsWith(`[called message.edit on #2: ${labels.transcript.callStatus[status]}]`),
-      items[2].text
-    );
+    assert.ok(items[2].text.endsWith(`[called message.edit on #2: ${callStatus[status]}]`), items[2].text);
   }
   const odd = formatTranscript(
     withCalls(callScene(), { calls: [call({ status: 'strange' })] }, resolvers),
@@ -1847,13 +1805,13 @@ test('formatTranscript: a call status renders through transcript.callStatus, an 
 
 test("formatTranscript: a call that did not work says why: its argument, its message or its channel, else the code's reason, else the status alone", () => {
   const reasons = labels.transcript.callReasons;
-  const ended = (detail, extra = {}) =>
+  const ended = (detail: Untyped, extra = {}) =>
     formatTranscript(
       withCalls(callScene(), { calls: [call({ status: 'invalid', detail, ...extra })] }, resolvers),
       offsetOptions
     )[2].text;
   const status = labels.transcript.callStatus.invalid;
-  const withReason = (reason) => fill(labels.transcript.callStatusReason, { status, reason });
+  const withReason = (reason: string) => fill(labels.transcript.callStatusReason, { status, reason });
   // The live failure: a deletion without the message it should delete.
   assert.ok(
     ended({ kind: 'missing-arg', code: 'invalid-args', arg: 'message' }).endsWith(
@@ -1923,7 +1881,7 @@ test("formatTranscript: a call that did not work says why: its argument, its mes
 });
 
 test('formatTranscript: an errand without its agent says so through tools.refusals.agentRequired, naming the agents', () => {
-  const ended = (detail, over = labels) =>
+  const ended = (detail: Record<string, Untyped>, over = labels) =>
     formatTranscript(
       withCalls(
         callScene(),
@@ -1935,7 +1893,7 @@ test('formatTranscript: an errand without its agent says so through tools.refusa
       { ...offsetOptions, labels: over }
     )[2].text;
   const status = labels.transcript.callStatus.invalid;
-  const withReason = (reason) => fill(labels.transcript.callStatusReason, { status, reason });
+  const withReason = (reason: string) => fill(labels.transcript.callStatusReason, { status, reason });
   const detail = { kind: 'agent-required', code: 'agent-required', arg: 'agent', values: ['web', 'server'] };
   const said = ended(detail);
   assert.ok(
@@ -1947,7 +1905,7 @@ test('formatTranscript: an errand without its agent says so through tools.refusa
   assert.ok(said.includes('web, server'), said);
   // Without the agents to name, or without the label, the generic reason as for any other code.
   assert.ok(ended({ ...detail, values: undefined }).endsWith(`: ${withReason(labels.tools.result.reasons.other)}]`));
-  const unlabelled = { ...labels, tools: { ...labels.tools, refusals: {} } };
+  const unlabelled: Untyped = { ...labels, tools: { ...labels.tools, refusals: {} } };
   assert.ok(ended(detail, unlabelled).endsWith(`: ${withReason(labels.tools.result.reasons.other)}]`));
 });
 
@@ -1988,7 +1946,7 @@ test('formatTranscript: blanked call labels, memory mode and no marks render the
     memory.map((item) => item.text).join('\n')
   );
   assert.equal(withCalls(callScene(), null, resolvers).length, 4);
-  assert.deepEqual(withCalls(null, { calls: [call()] }, resolvers), []);
+  assert.deepEqual(withCalls(wrongly(null), { calls: [call()] }, resolvers), []);
 });
 
 test('withCalls: marking lines again replaces the marks, never doubles them', () => {
@@ -1996,8 +1954,8 @@ test('withCalls: marking lines again replaces the marks, never doubles them', ()
   const once = withCalls(callScene(), marks, resolvers);
   const twice = withCalls(once, marks, resolvers);
   assert.deepEqual(formatTranscript(twice, offsetOptions), formatTranscript(once, offsetOptions));
-  assert.equal(twice[2].calls.length, 1);
-  assert.equal(twice[2].callsAfter.length, 1);
+  assert.equal(wrongly<{ calls: Array<unknown> }>(twice[2]).calls.length, 1);
+  assert.equal(wrongly<{ callsAfter: Array<unknown> }>(twice[2]).callsAfter.length, 1);
   // No marks any more: the old ones are dropped.
   const cleared = withCalls(once, { calls: [] }, resolvers);
   assert.deepEqual(formatTranscript(cleared, offsetOptions), formatTranscript(callScene(), offsetOptions));
