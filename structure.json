@@ -312,7 +312,7 @@
       "path": "scripts/",
       "purpose": "Scripts for development and measurement, never run by the engine.",
       "layer": "public",
-      "imports": ["node:*", "src/**", "interfaces/**", "scripts/**", "typescript", "discord.js"],
+      "imports": ["node:*", "src/**", "interfaces/**", "scripts/**", "typescript", "discord.js", "eslint", "estree"],
       "test": "none"
     },
     {

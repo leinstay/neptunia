@@ -48,7 +48,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `interfaces/discord/setup.ts` | public | The setup of the Discord interface, which refuses until the neptunia CLI runs it. No behaviour to test. | nothing | none |
 | `tests/` | public | The node:test files, one per module. | `discord.js`, `eslint`, `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `bin/**`, `tests/**` | none |
 | `tests/fixtures/` | public | Fakes, harnesses and sample data the tests share. | `discord.js`, `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `bin/**`, `tests/**` | none |
-| `scripts/` | public | Scripts for development and measurement, never run by the engine. | `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `typescript`, `discord.js` | none |
+| `scripts/` | public | Scripts for development and measurement, never run by the engine. | `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `typescript`, `discord.js`, `eslint`, `estree` | none |
 | `scripts/lib/` | public | What the scripts under `scripts/` share. | `node:*`, `src/**`, `interfaces/**`, `scripts/**` | none |
 | `scripts/fixtures/` | public | Sample data for the virtual-week harness. | nothing | none |
 | `scripts/prompts/` | public | Example scenario files for the scripts. | nothing | none |
