@@ -552,7 +552,7 @@
     },
     {
       "path": "src/turn/lookup-input.ts",
-      "purpose": "The transcript and trigger input of the re-watch and search classifiers. Tested through the turn and search policy eval tests.",
+      "purpose": "The transcript and trigger input of the splitter's classifier request. Tested through the turn and search policy eval tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -566,14 +566,14 @@
     },
     {
       "path": "src/turn/targets.ts",
-      "purpose": "Where a post or a reaction lands, the link a post carries, a post's check arguments and the dry-run mirror's parts. Tested through the turn tests.",
+      "purpose": "Where a post or a reaction lands, the link a post carries, and a post's check arguments. Tested through the turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
     },
     {
       "path": "src/turn/media.ts",
-      "purpose": "The re-watch classifier's tokens and the media of a history a turn's preparation works on. Tested through the turn tests.",
+      "purpose": "The re-watch tokens and the media of a history a turn's preparation works on. Tested through the turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -636,14 +636,14 @@
     },
     {
       "path": "src/turn/draw-gif.ts",
-      "purpose": "The pictures and GIFs of a turn: her `draw.create` tool, the image prompt the dry run shows, the day's GIF count, a `<gif>` resolved and posted, and the GIF picker. Tested through the turn, media draw, draw parity and gifs tests.",
+      "purpose": "The pictures and GIFs of a turn: her `draw.create` tool, a `<gif>` resolved and posted, and the GIF picker. Tested through the turn, media draw, draw parity and gifs tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
     },
     {
       "path": "src/turn/sends.ts",
-      "purpose": "How her words are rendered and timed before they go out: a post's mentions, emoji and links, the settle wait for the trigger's author, her diary's place name and the dry-run mirror. Tested through the turn, message links and channel links tests.",
+      "purpose": "How her words are rendered and timed before they go out: a post's mentions, emoji and links, the settle wait for the trigger's author, and her diary's place name. Tested through the turn, message links and channel links tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -678,7 +678,7 @@
     },
     {
       "path": "src/turn/inputs.ts",
-      "purpose": "The port references, the gateway's check of one effect, the memory context of an attempt, skills discovery for a classifier and the errands, intentions and places inputs of a request. Tested through the turn, turn errands and inner turn tests.",
+      "purpose": "The port references, the gateway's check of one effect, the memory context of an attempt and the errands, intentions and places inputs of a request. Tested through the turn, turn errands and inner turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -706,14 +706,14 @@
     },
     {
       "path": "src/turn/rewatch.ts",
-      "purpose": "The second look on a question: the media list a re-watch classifier or the planner is offered, the classifier's request, the describer's look again, and the transcript input of a turn's classifiers. Tested through the turn tests.",
+      "purpose": "The video state a turn knows and the `<transcript>` context its classifiers read. Tested through the turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
     },
     {
       "path": "src/turn/lookup.ts",
-      "purpose": "What a turn looks up before its reply: the memory prefetch, the search classifier with its web and server searches, the turn planner, the splitter, and the directory and private partner. Tested through the turn and events tests.",
+      "purpose": "What a turn looks up before its reply: the memory prefetch, the splitter, and the directory and private partner. Tested through the turn and events tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -832,7 +832,7 @@
     },
     {
       "path": "src/turn/phases/act.ts",
-      "purpose": "The fourth phase of an attempt: how her answer reaches the chat, the recovery turn's last check and the dry run. Tested through the turn and journal turn tests.",
+      "purpose": "The fourth phase of an attempt: how her answer reaches the chat, and the recovery turn's last check. Tested through the turn and journal turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1014,7 +1014,7 @@
     },
     {
       "path": "src/pipeline/classifier-request.ts",
-      "purpose": "The request the address and room classifiers send about one new line: the channel's last lines, the author's stored aliases and the line itself as the candidate. Tested through the events tests.",
+      "purpose": "The request the address classifier sends about one new line: the channel's last lines, the author's stored aliases and the line itself as the candidate. Tested through the events tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1056,7 +1056,7 @@
     },
     {
       "path": "src/pipeline/handle-message.ts",
-      "purpose": "What happens to one new message: ignored, observed, eavesdropped, classified or answered as a call, once across the live path and the start's catch-up. Tested through the events and catch-up tests.",
+      "purpose": "What happens to one new message: ignored, observed, classified or answered as a call, once across the live path and the start's catch-up. Tested through the events and catch-up tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

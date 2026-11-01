@@ -46,7 +46,7 @@ export function readableLinkCandidates(
 
 /**
  * The pictures of `history` a second look on a question may be offered for
- * (features.imageRelook): every `image` item of collectPictures -- an attached
+ *: every `image` item of collectPictures -- an attached
  * picture, the persona's own posted drawings included -- newest message first.
  */
 export function relookCandidates(history: ReadonlyArray<MediaMessage>): Array<Picture> {
@@ -59,7 +59,7 @@ export function relookCandidates(history: ReadonlyArray<MediaMessage>): Array<Pi
 
 /**
  * The GIFs of `history` a second look on a question may be offered for
- * (features.videoRewatch): every `gif` item of collectPictures -- an
+ *: every `gif` item of collectPictures -- an
  * attached .gif, a tenor/giphy embed -- newest message first. Which of them
  * were watched is the describer's to say (describer.watchedGifs).
  */

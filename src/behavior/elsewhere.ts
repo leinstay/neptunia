@@ -163,7 +163,7 @@ export function recordPing(
 
 /**
  * Stamp a call answered (a turn that showed it spoke, a reaction alone
- * included; never in dry-run -- the caller's rule). An earlier stamp is kept.
+ * included). An earlier stamp is kept.
  * An answer wins over an earlier skip (`pingStatus`).
  * The stored ring is not mutated.
  */

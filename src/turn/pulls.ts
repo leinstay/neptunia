@@ -477,7 +477,7 @@ export function createPulls(ctx: PullsContext): Pulls {
   /**
    * The ring of calls (`state.json` `elsewherePings`, read by every later
    * pull) after a turn that reached a decision -- it chose silence, or it
-   * spoke for real (a dry run that spoke reached nobody and stamps nothing):
+   * spoke:
    * every call of the ring among the lines it showed of a channel the bot
    * cannot write in (buildRequest's `pulledKept`) is stamped answered when
    * what reached the chat answered it (`answered`, from act), else skipped --

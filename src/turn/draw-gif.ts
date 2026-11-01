@@ -1,7 +1,7 @@
-// The pictures and GIFs of a turn: the image prompt the dry run shows, one picture and her `draw.create` tool, the day's
+// The pictures and GIFs of a turn: one picture and her `draw.create` tool, the day's
 // GIF count, a `<gif>` resolved against the library, the GIF's post, and the GIF picker that may answer her first
 // message with a GIF. createTurnRunner (src/behavior/turn.js) builds it once per runner with createDrawGif; the act,
-// the dry act, her calls and the attempt call its functions.
+// her calls and the attempt call its functions.
 
 import { imageFileName } from '../behavior/mirror.ts';
 import { setSettings } from '../behavior/diary.ts';
@@ -29,7 +29,7 @@ import { ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
 import { cacheTtlMs, railReason, roleRequestOptions } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
-import { drawPicture, drawPromptOf } from '../media/draw.js';
+import { drawPicture } from '../media/draw.js';
 import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl } from '../media/gif-post.js';
 import { rankGifs } from '../memory/index.js';
 import type { ConversationInfo, ConversationRef, MessageRef } from '../protocol/adapter.ts';
@@ -164,7 +164,6 @@ type PickArgs = {
 };
 
 export type DrawGif = {
-  drawPromptFor: (selfName: string, draw: { text: string; self?: unknown }) => string;
   drawTool: (
     args: { self?: unknown; text?: unknown; channelId?: unknown; replyTo?: unknown } | null | undefined,
     at: {
@@ -222,17 +221,6 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     lastPostAt,
     diaryPictureGate,
   } = ctx;
-
-  /**
-   * The image prompt for `draw` (a `draw.create` call's `{ text, self }`), as the core builds it
-   * (src/media/draw.js#drawPromptOf): prompts read now, the request clamped to
-   * image.maxPromptChars, the local date and time now (`bot.timezone`, read now) as its
-   * `{{when}}` -- every picture, so its light and season follow the clock. Only the dry run
-   * shows it; a live picture is made by `makePicture`.
-   */
-  function drawPromptFor(selfName: string, draw: { text: string; self?: unknown }): string {
-    return drawPromptOf({ hot, selfName, scene: draw.text, self: draw.self === true, withTime: true, now: clock });
-  }
 
   /**
    * One picture (src/media/draw.js#drawPicture): her scene verbatim into the drawing prompt, the avatar reference for a
@@ -461,8 +449,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    * Post the persona's GIF (after its messages, or in place of the first one
    * when the GIF picker chose it): a link GIF as its stored
    * URL (the platform embeds tenor and giphy links), an attached one as a fresh URL of
-   * its attachment, the stored one when that fails. Counted against
-   * `gifs.maxPerDay` once sent, and stamped on its library entry of
+   * its attachment, the stored one when that fails. Stamped once sent on its library entry of
    * `guildId` (store.recordOwnGif: `ownLast`/`ownUses`, the `<gifs>` list's
    * own-post mark). Never throws; resolves `{ message, op }` once sent
    * (`message`: postedOf the port's answer; `op`: its journal operation),
@@ -522,9 +509,8 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
   /**
    * The GIF picker (src/behavior/gif-pick.js), on the turn's FIRST message as
    * the model wrote it (a picked GIF takes its place; the rest are posted as
-   * written): with features.gifPicker and features.gifs on (a missing key counts as
-   * on), prompts['gif-pick'] present, the guild's library readable, room left
-   * under `gifs.maxPerDay` (gifsToday) and pickCandidates saying yes (a first
+   * written): with prompts['gif-pick'] present, the guild's library readable
+   * and pickCandidates saying yes (a first
    * message of at most `gifs.pick.maxChars` code points, no `<gif>` of the
    * turn's own -- the model's own GIF is never second-guessed --, at least one
    * captioned entry), ONE `analyzer` request on the classifier model
@@ -690,5 +676,5 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     });
   }
 
-  return { drawPromptFor, drawTool, resolveGif, postGif, pickedInTime, pickGifSafely };
+  return { drawTool, resolveGif, postGif, pickedInTime, pickGifSafely };
 }

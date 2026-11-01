@@ -6,7 +6,7 @@
 // runner, quoted as it was, no summary) and `conversation.read` (a channel read in order, from the
 // record and the interface's history; hers alone, no slash command: catalog.js `personaOnly`).
 // Her own calls of them run inside her turn with its context (src/behavior/turn.js, the tool
-// loop of features.coreTools); a command runs the same code (src/tools/tools.ts) over what an
+// loop); a command runs the same code (src/tools/tools.ts) over what an
 // operation knows: the channel it was typed in, no chat window to leave out. Reads, open to
 // every member while features.memberCommands is on (rights.member), as `errand.status` is.
 

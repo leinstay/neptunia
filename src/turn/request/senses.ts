@@ -55,25 +55,21 @@ export type SkillRow = {
  * under the live config (see docs/prompt-contract.md, "`<senses>`"), in two
  * halves for the prompt cache: `stable`, the lines that read only the config,
  * the prompts and the server's lists (the same on every turn of a day), and
- * `turn`, the lines that depend on this turn -- `senses.recall` (the server
- * search's daily caps), the drawing line (the quotas), `senses.participation`
+ * `turn`, the lines that depend on this turn -- `senses.recallTool` (the server
+ * search), the drawing line (`drawOn`), `senses.participation`
  * (whether `<participation>` is shown) and `senses.privateChat` (this turn is
  * a private chat). Each half keeps the lines in the order described below.
  * Both are '' when `labels.senses` is missing entirely, so an older
  * deployment's labels.json never breaks — the block is simply omitted.
  * `drawOn` (an image client and Attach Files) adds the drawing line.
  * `privateChat` adds `senses.privateChat`; outside a private chat,
- * `features.privateMessages === true` adds `senses.privateAware` instead.
- * `recallAvailable` (outside a private chat) adds `senses.recall` right after the search line.
- * With `features.coreTools` exactly true no search runs before her reply: the search line is
- * `senses.searchTool` and the recall line `senses.recallTool`, each only when `toolsGranted`
- * (her granted in-turn tools) holds `web.search` / `memory.search`; else neither. With the switch
- * on, features.webLookup on and `web.read` granted, `senses.readTool` follows the links lines.
- * With the switch on `senses.videoRewatch` is not shown (no classifier gives her a second look);
- * `senses.lookTool` stands in its place when `media.look` is granted and the image second look
- * (features.imageRelook) or video vision is on.
+ * `private.enabled` true adds `senses.privateAware` instead.
+ * No search runs before her reply: the search line is `senses.searchTool` (with a search key configured) and the
+ * recall line `senses.recallTool` (`recallAvailable`), each only when `toolsGranted`
+ * (her granted in-turn tools) holds `web.search` / `memory.search`; else neither. With `web.read` granted,
+ * `senses.readTool` follows the links lines, and `senses.lookTool` shows when `media.look` is granted.
  * `customEmoji` (the `<emoji>` block is possible) adds `senses.customEmoji`;
- * `gifs` (features.gifs on and a non-empty library) adds `senses.gifs` right after it.
+ * `gifs` (a non-empty library) adds `senses.gifs` right after it.
  * `gifWatching` (GIFs are watched now, src/memory/gif-watch.js#gifWatchBlocker)
  * swaps `senses.gifDescribed` for `senses.gifWatched` when the labels have it.
  * Right after the files line, `senses.time` (how to read clock times, line
@@ -300,7 +296,7 @@ export function sensesOf(given: RequestInput & Base & MemoryViews): SensesOf {
   const sensesOptions: SensesOptions = {
     searchAvailable: given.searchAvailable === true,
     recallAvailable: given.recallAvailable === true,
-    // Her own in-turn tools granted to her (features.coreTools): the search lines say she calls them.
+    // Her own in-turn tools granted to her: the search lines say she calls them.
     toolsGranted: Array.isArray(given.toolsGranted)
       ? // The names of the tools exposed to her this turn (src/tools/discovery.ts#exposedSkillNames).
         (given.toolsGranted as Array<string>).filter((name) => IN_TURN_TOOLS.includes(name))
@@ -317,7 +313,7 @@ export function sensesOf(given: RequestInput & Base & MemoryViews): SensesOf {
     participation: participationOffered,
   };
   const senses = renderSenses(config, labels, sensesOptions);
-  // The persona's skills (features.tools and features.toolsDiscovery, read now): the catalogue
+  // The persona's skills: the catalogue
   // with her access only on a turn whose question was what she can do (`skillsInventory`), in the
   // tail. Her tools travel as the request's `tools` (or, on the text transport, as `<tools>`).
   const skillsShown = true;

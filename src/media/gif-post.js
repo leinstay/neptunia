@@ -1,7 +1,7 @@
 // The pieces of posting one of the persona's library GIFs that the reply turn
 // (src/behavior/turn.js#postGif, a `<gif>`) and `message.create`'s `gif` option
 // (src/tools/impl/message.ts) share: a fresh URL of an attached GIF, the URL a GIF
-// posts as, and the daily count against `gifs.maxPerDay`. No wording here.
+// posts as. No wording here.
 
 /**
  * A fresh URL of an attached GIF: its original message is read again (attachment URLs of a platform expire)

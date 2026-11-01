@@ -225,7 +225,7 @@ function isoOf(ms) {
 }
 
 /**
- * A fresh trace record of one run (`features.recallTrace`), filled as the
+ * A fresh trace record of one run, filled as the
  * run goes (clusters, summary) and completed by traceLine.
  */
 function newTrace({ started, channelId, candidate, server }) {
@@ -1275,7 +1275,7 @@ export function createRecall({
     const own = inCommunity(channel) && Array.isArray(history) ? history.filter((m) => m?.id) : [];
     const ownIds = new Set(own.map((m) => m.id));
 
-    // 0a. Meaning (features.meaningSearch): one embedding, the vector index; a failure leaves words only.
+    // 0a. Meaning: one embedding, the vector index; a failure leaves words only.
     const chatLines = [...(Array.isArray(history) ? history : []), ...(Array.isArray(context) ? context : [])];
     const meaning = await meaningSearch({
       config,
@@ -1950,8 +1950,7 @@ export function createRecall({
   }
 
   /**
-   * The automatic memory prefetch of a turn (src/behavior/prefetch.js; features.coreTools with
-   * features.memoryPrefetch, decided by the caller): no model request but one embedding, no
+   * The automatic memory prefetch of a turn (src/behavior/prefetch.js, decided by the caller): no model request but one embedding, no
    * message search, no daily recall run counted. Each lane (`lanes`, prefetchLanes') goes through
    * the local searches, all at once:
    * - the memory database (src/memory/db/recall.js#search, while it is open): words, letters,

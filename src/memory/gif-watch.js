@@ -1,12 +1,7 @@
 // Pure rules of the GIF watch (src/memory/describe.js#watchGif), shared by
 // the describer, the `<senses>` block (src/behavior/prompt.js) and the owner's
 // status lines (src/admin.js), so all three agree on whether GIFs are watched
-// right now, which prompt a watch uses and how many watches today has left.
-// A GIF watch has its own daily counter (`state.data.gifWatchDay` /
-// `gifWatchCount`, `media.gif.maxPerDay`), separate from the video one.
-
-/** The state.json fields of the daily GIF watch counter (counted by src/memory/describe.js). */
-/** The state.json fields of the daily counter of GIFs the persona posted (counted by src/behavior/turn.js). */
+// right now and which prompt a watch uses.
 
 /** The prompt files a GIF watch can use, the dedicated one first. */
 const GIF_PROMPTS = ['describe-gif', 'describe-video'];

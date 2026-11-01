@@ -131,7 +131,7 @@ export function headSections(
     // recall.answerChars / recall.stretchChars, and ahead of the chat so a
     // tight budget trims old messages first.
     { name: 'lookup', items: [lookupItem].filter(Boolean) },
-    // The automatic memory prefetch (features.coreTools): one piece, bounded by recall.prefetch.maxTokens.
+    // The automatic memory prefetch: one piece, bounded by recall.prefetch.maxTokens.
     ...(given.prefetch
       ? [{ name: 'prefetch', items: [prefetchText(given.prefetch, labels, timezone)].filter(Boolean) }]
       : []),

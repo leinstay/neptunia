@@ -60,10 +60,7 @@ const handlers = perEnv((env) => {
   }
 
   /** `/nep gifs status`: how many GIFs the library holds, the top 10 (rank order,
-   * `GIF_HALF_LIFE_DAYS`) as `g<n> xCOUNT — caption or name`, the history backfill stamp, how
-   * many GIFs the persona posted today (UTC) against `gifs.maxPerDay`
-   * (src/memory/gif-watch.js#gifPostsToday), how many GIFs it watched
-   * today against `media.gif.maxPerDay` (src/memory/gif-watch.js), and -- last, unless the
+   * `GIF_HALF_LIFE_DAYS`) as `g<n> xCOUNT — caption or name`, the history backfill stamp, and -- last, unless the
    * library is empty and no recache runs -- how the library's captions stand (watched /
    * one-frame / failed watch / none, see src/memory/gif-recache.js#gifCaptionCounts) with a
    * note while a recache runs, then the move to three-field captions (watched with fields /

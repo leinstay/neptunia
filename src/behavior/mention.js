@@ -190,26 +190,6 @@ export function followUpTriggerKind(answer) {
   return answer === 'overheard' ? 'overheard' : null;
 }
 
-// --- Room questions ------------------------------------------------------------
-// Outside a conversation window, an untagged line put to everyone present may
-// get a higher chance of an unprompted answer (spontaneous.roomQuestionChance,
-// src/behavior/pipeline.js): a cheap classifier (prompts/room.md) is asked first.
-// The check below runs before any money is spent on it.
-
-/**
- * Whether `normalized` may be a line put to the whole room, before the room
- * classifier is asked: it has text (non-empty after trim), replies to nothing
- * and mentions no member. `normalized` is the shape
- * of src/protocol/events.js#Message.
- * @param {{ content?: string, replyToId?: string|null, mentionedUserIds?: string[] }} normalized
- * @returns {boolean}
- */
-export function roomPreFilter(normalized) {
-  if (String(normalized?.content ?? '').trim() === '') return false;
-  if (normalized.replyToId) return false;
-  return (normalized.mentionedUserIds ?? []).length === 0;
-}
-
 // The model roles are resolved by src/llm/roles.js#roleModel (one resolver for every model role).
 // The per-feature model keys older than the `classifier` block are never read;
 // deprecatedModelKeys lets startup warn about them.

@@ -132,7 +132,7 @@ export async function gatherRequest(
         : [],
     captions: Boolean(captions) && !captions?.done && captionCandidates.length > 0,
   };
-  // A picture's second look on a question (features.imageRelook): rendered under its line.
+  // A picture's second look on a question: rendered under its line.
   const imageAnswers =
     rewatchStage?.done && (rewatchStage.value?.imageAnswers?.size ?? 0) > 0
       ? (rewatchStage.value?.imageAnswers ?? null)

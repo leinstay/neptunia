@@ -119,7 +119,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
   } = ctx;
 
   /**
-   * Her in-turn tools for one turn (src/tools/tools.ts, whatever features.coreTools says): skill name -> `(args) =>
+   * Her in-turn tools for one turn (src/tools/tools.ts): skill name -> `(args) =>
    * result`, run by src/tools/executors.ts#executeCall in place of the operation's command, over the turn's own context
    * -- `web.search` through the turn's `lookup`, `web.read` too (a `#N` message she names read as its first link in
    * `history`: an embedded one, else one written in its text), `media.look` through the turn's `describer` (a `#N`

@@ -1,7 +1,6 @@
 // Up to `NEIGHBOR_MESSAGES` recent messages from each neighbouring conversation that saw activity within
 // `NEIGHBOR_MAX_AGE_MINUTES`, read from the turn's snapshot: conversations are filtered by the time of their newest
-// message, so quiet ones cost no read. Only conversations the persona may read are neighbours (never the dry-run
-// mirror), and only those `accept` takes (the caller's rail, the audience rule), judged among the active ones BEFORE the
+// message, so quiet ones cost no read. Only conversations the persona may read are neighbours, and only those `accept` takes (the caller's rail, the audience rule), judged among the active ones BEFORE the
 // `NEIGHBOR_MAX_CHANNELS` cut, so a refused conversation takes no slot and costs no read; no `accept` takes every one.
 // `readOnly` marks a neighbour the persona cannot send in. A turn in a private chat has no neighbours.
 

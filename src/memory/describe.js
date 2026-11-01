@@ -9,8 +9,8 @@
 // LRU-trimmed to `MEDIA_CACHE_ENTRIES` (src/web/cache.js). A failure is cached as a miss for an
 // hour, so a broken picture is not retried on every turn/batch -- except a
 // refusal by `llm.maxRequestsPerDay`, which says nothing about the picture.
-// Once that cap is spent (llm.capLeft) nothing is downloaded, no daily video,
-// re-watch or GIF slot is taken and no miss is cached, so the pictures and
+// Once that cap is spent (llm.capLeft) nothing is downloaded
+// and no miss is cached, so the pictures and
 // videos of the last hours are still described after 00:00 UTC. Descriptions
 // are data: never logged. A caption is capped at `media.descriptionChars`
 // (the describe prompt may learn the cap through `{{maxChars}}`).
@@ -49,10 +49,7 @@
 // `size` miss, or an `error`
 // miss (retried after `media.video.errorRetryMinutes`, default 60, or at
 // once on a forced attempt -- describeVideo's `force`, used when the person
-// asks to try a video that did not load again). A separate daily
-// counter (`state.data.videoDay` / `videoCount`, `media.video.maxPerDay`)
-// caps how many videos are attempted per day: the slot is reserved before the
-// fetch and kept even when the fetch or the request fails. Summaries are
+// asks to try a video that did not load again). Summaries are
 // data: never logged. `checkYoutube()` probes one canary video to tell the
 // operator which link of the YouTube duration chain works here.
 //
@@ -70,20 +67,16 @@
 // prompt learns the cap through `{{maxChars}}`). `rewatchVideo()` is the
 // second look on a question (features.videoRewatch, a missing key counts as
 // on): the same media fetch as a watch, asked one question through the
-// `rewatch-answer` prompt. It has its own daily counter
-// (`state.data.rewatchDay` / `rewatchCount`, `media.video.rewatch.maxPerDay`)
-// on top of the ordinary video one; its answer is cached for an hour under
+// `rewatch-answer` prompt. Its answer is cached for an hour under
 // `video:<itemId>:q:<hash of the question>`, failures never. `relookImage()`
-// is the same second look at a picture (features.imageRelook): the picture
+// is the same second look at a picture: the picture
 // downloaded as for a caption, the question asked through the same prompt on
-// the media model. It takes the same re-watch counter (one counter for both
-// kinds), never a video slot, and its answer is cached apart from the
+// the media model. Its answer is cached apart from the
 // picture's caption, under `image:<itemId>:q:<hash>`. `rewatchGif()` is the
 // same second look at a watched GIF (features.videoRewatch, GIFs watched now):
 // its clip fetched again exactly as the GIF watch fetches it (the first
 // `media.gif.maxSeconds`), the question asked through the same prompt on the
-// video model. It takes a re-watch slot and a GIF watch slot
-// (`media.gif.maxPerDay`), never a video slot; its answer is cached for an
+// video model. Its answer is cached for an
 // hour under `gif:<itemId>:q:<hash>`. `watchedGifs()` tells, from the cache
 // alone, which GIFs were watched (the re-watch classifier's candidates).
 //
@@ -92,9 +85,7 @@
 // describe-video prompt, see src/memory/gif-watch.js): its animation -- the
 // mp4 of a tenor/giphy embed, an attached .gif, a .gif link -- is converted
 // to a short mp4 (the first `media.gif.maxSeconds`) and summarised by the
-// video model under the video request rails, but with its own daily counter
-// (`state.data.gifWatchDay` / `gifWatchCount`, `media.gif.maxPerDay`): a GIF
-// never takes a video slot, nor a video a GIF one. The caption is cached under the
+// video model under the video request rails. The caption is cached under the
 // GIF's own item id like a picture's (so the transcript, the analyzer and
 // the GIF library read it unchanged), marked `watched: true`, with the
 // answer's three fields beside it (`reaction`, `action`, `screen`: what reply
@@ -117,11 +108,10 @@
 // at the moment of use; null = off) a cached description whose `describedAt`
 // is missing or earlier is stale: it is treated as a miss and described
 // again through the normal path, under every cap of a new one
-// (`llm.maxRequestsPerDay`, the caller's `maxNew`, the daily video and GIF
-// counters). A failed attempt keeps the old text (better a stale
+// (`llm.maxRequestsPerDay`, the caller's `maxNew`). A failed attempt keeps the old text (better a stale
 // description than none), stamps the entry `refreshFailedAt` and is not
 // tried again for the miss TTL (an hour; `media.video.errorRetryMinutes` for
-// a video); a refusal by the daily cap or a spent daily slot only serves the
+// a video); a refusal by the daily cap only serves the
 // old text. A stale watched GIF is never replaced by a one-frame caption.
 
 import { isPlainObject } from '../config.js';
@@ -714,9 +704,7 @@ export function createDescriber({
    * (`{{maxChars}}` = `media.descriptionChars` -- a GIF caption keeps a
    * picture caption's length -- and `{{seconds}}` = `media.gif.maxSeconds`),
    * else the `describe-video` prompt with `{{maxChars}}` alone as before;
-   * under the video token cap and output budget, and a slot of the GIF's own
-   * `media.gif.maxPerDay` (never the video one) reserved before the fetch and
-   * kept on failure. The answer is read as three fields (parseGifDescription,
+   * under the video token cap and output budget. The answer is read as three fields (parseGifDescription,
    * each kept whole under `media.descriptionChars`) and cached under the
    * GIF's own item id as `{ text, reaction, action, screen, ts, watched: true,
    * gif: true }`; nothing is cached otherwise.
@@ -724,7 +712,7 @@ export function createDescriber({
    * 'failed', reason }` (the fetch, the conversion, the request or an empty
    * answer) or `{ state: 'unavailable', reason: 'daily'|'daily-cap' }` (a
    * daily rail is spent: no failure of this GIF; with `llm.maxRequestsPerDay`
-   * spent before the watch, nothing is fetched and no GIF slot is taken). One
+   * spent before the watch, nothing is fetched). One
    * `describe: gif` log line, codes only.
    */
   async function watchGifNow(guildId, item, source) {
@@ -1403,12 +1391,9 @@ export function createDescriber({
    * too, never left literal) and the question goes as a text part of the user
    * message next to the video. Needs video vision on,
    * `features.videoRewatch` not false, the prompt, a video candidate and a
-   * non-empty question. Both daily counters must have room
-   * (`media.video.rewatch.maxPerDay` and `media.video.maxPerDay`); both
-   * slots are reserved before the fetch and kept on failure. An answer is
+   * non-empty question. An answer is
    * cached for an hour under `video:<itemId>:q:<hash>`; a failure is never
-   * cached. With `llm.maxRequestsPerDay` spent nothing is fetched and no slot
-   * is taken. The question and the answer are data: never logged.
+   * cached. With `llm.maxRequestsPerDay` spent nothing is fetched. The question and the answer are data: never logged.
    * @param {string} guildId
    * @param {object} item  One collectVideos candidate.
    * @param {string} question
@@ -1499,12 +1484,9 @@ export function createDescriber({
    * `media.video.rewatch.answerChars`; a `{{question}}` still in it is filled
    * too, never left literal) and the question goes as a text part of the user
    * message next to the picture. Only an `image` item with a URL and a
-   * non-empty question. It shares the one second-look counter with
-   * rewatchVideo (`media.video.rewatch.maxPerDay`, `state.data.rewatchDay` /
-   * `rewatchCount`), reserved before the download and kept on failure; it
-   * never takes a video slot. The answer is NOT the picture's caption: it is
+   * non-empty question. The answer is NOT the picture's caption: it is
    * cached for an hour under `image:<itemId>:q:<hash>`, failures never. With
-   * `llm.maxRequestsPerDay` spent nothing is downloaded and no slot is taken.
+   * `llm.maxRequestsPerDay` spent nothing is downloaded.
    * The question and the answer are data: never logged.
    * @param {string} guildId
    * @param {object} item  One collectPictures item of kind `image`.
@@ -1631,15 +1613,11 @@ export function createDescriber({
    * (`{{question}}`, `{{maxChars}}` = `media.video.rewatch.answerChars`,
    * output capped at `media.video.rewatch.maxOutputTokens`), under the video
    * request rails. Needs GIFs watched now (gifWatchBlocker),
-   * `features.videoRewatch` not false, the prompt, a `gif` item with an
-   * animation and a non-empty question. Two daily counters must have room:
-   * the second-look one (`media.video.rewatch.maxPerDay`, shared with
-   * rewatchVideo and relookImage) and the GIF watch one
-   * (`media.gif.maxPerDay`) -- never a video slot; both are reserved before
-   * the fetch and kept on failure. An answer is cached for an hour under
+   * the prompt, a `gif` item with an
+   * animation and a non-empty question. An answer is cached for an hour under
    * `gif:<itemId>:q:<hash>` (the GIF's own item id, `<message>#e<n>` for an
    * embed); a failure never. With `llm.maxRequestsPerDay` spent nothing is
-   * fetched and no slot is taken. One `describe: rewatch` line with
+   * fetched. One `describe: rewatch` line with
    * `kind: 'gif'`; the question and the answer are data: never logged.
    * @param {string} guildId
    * @param {object} item  One collectPictures item of kind `gif`.

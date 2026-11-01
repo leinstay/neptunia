@@ -47,7 +47,7 @@ export function createPauseNotice({
    * rules of the live path without its model request: on the server a
    * mention, a reply to one of its messages or its name (each behind its
    * switch) in the served guild, outside threads, in a channel the bot can
-   * send in, not the dry-run mirror, from a human; in a private chat
+   * send in, from a human; in a private chat
    * (private.enabled) an author the private gate lets through. `{ channel, trigger, kind }`, or null for anything else
    * (an untagged follow-up included: it would need the address classifier).
    */

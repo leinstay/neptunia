@@ -1,4 +1,4 @@
-// The request of a classifier about one new message, shared by the address classifier and the room classifier: the
+// The request of the address classifier about one new message: the
 // prompt with the persona's name, the channel's last lines, the author's stored aliases and the new message as the
 // candidate. createMessageHandler (src/behavior/pipeline.js) builds it once with createClassifierRequest.
 
@@ -44,9 +44,8 @@ export function createClassifierRequest({ reads, store, refOf, cachedFollowUpMed
   buildClassifierRequest: (params: ClassifierParams) => Promise<ClassifierRequest | null>;
 } {
   /**
-   * The request of a classifier about one new message, shared by the address
-   * classifier and the room classifier: system = `prompt` (address.md or
-   * room.md, `{{name}}` filled), user = the last `mention.followUpContext`
+   * The request of the address classifier about one new message: system =
+   * `prompt` (address.md, `{{name}}` filled), user = the last `mention.followUpContext`
    * lines of the channel, then an `<author>` block when the new message's
    * author has stored aliases (followUpAuthorLine), then the new message
    * wrapped in a `<candidate>` block (tags structural, not model-facing

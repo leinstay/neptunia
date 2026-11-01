@@ -1,4 +1,4 @@
-// Avatar descriptions (features.avatars), the queue: the persona knows what every profiled
+// Avatar descriptions, the queue: the persona knows what every profiled
 // member's avatar looks like, so a joke about one lands. Each avatar version is described ONCE by
 // the vision model (prompts/avatar.md, purpose `avatar`) and stored as the member's current
 // `avatar` field (src/memory/avatars.js; a platform's default avatar is stored without any request).

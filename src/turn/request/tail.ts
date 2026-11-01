@@ -165,14 +165,14 @@ export function assembleUser({
     block('found', (kept.found ?? []).join('\n')),
     // Right before the chat it answers a question from.
     block('lookup', (kept.lookup ?? []).join('\n')),
-    // What the automatic memory prefetch found for this trigger (features.coreTools): per turn, next to the chat.
+    // What the automatic memory prefetch found for this trigger: per turn, next to the chat.
     block('retrieved', (kept.prefetch ?? []).join('\n')),
     // The persona's skills with her access here, when she was asked what she can do.
     block('skills', (kept.skills ?? []).join('\n')),
     // Her errands under way or newly finished, then the one whose end opened this turn: per turn (ages move).
     block('errands', errands?.list ?? ''),
     block('errand_result', errands?.result ?? ''),
-    // Her intentions and the candidates proposed from her own lines (features.intentions): per turn.
+    // Her intentions and the candidates proposed from her own lines: per turn.
     block('intentions', intentions),
     // An inner turn's reason to be awake (src/behavior/wake.ts, mode `inner` only): per turn.
     block('wake', wake),

@@ -254,7 +254,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   keeps its file (diary-turn.ts#diaryVoiceTool), and the entry is recorded (diary-turn.ts#recordEntry; a set kind
    *   with fewer than `diary.set.minPosted` pictures staged is not: `turn: set short`, `{ outcome: 'refused', reason:
    *   'set-short' }`). Its outcome carries `diary: { kind, picture, search, messages, pictures }` and the entry
-   *   (`diary.entry`) the mirrors publish (src/behavior/mirror.ts); a dry run records nothing.
+   *   (`diary.entry`) the mirrors publish (src/behavior/mirror.ts).
    *
    * A private chat (`channel` without a guild) works like a server turn on behalf of its partner
    * (the trigger's author, fetched as a member of the served guild: privatePartner) with

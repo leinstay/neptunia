@@ -1,5 +1,5 @@
 // `conversation.read`: the persona's in-turn tool for reading a channel she may read, in order
-// (features.coreTools; docs/inner-life.md). Her arguments pick a span of one channel -- the
+// (docs/inner-life.md). Her arguments pick a span of one channel -- the
 // newest `last` messages, the ones `around` a message, `before` or `after` a message, or every
 // one `since` a moment --, the span is read from the record first (src/memory/record.js, the
 // newest revision of each message, a deleted one as a placeholder) and from the interface's

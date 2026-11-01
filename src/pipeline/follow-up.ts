@@ -69,7 +69,7 @@ export function createFollowUp({
    * Whether an untagged `normalized` message was fully handled by the address
    * classifier (pre-filter or a real model verdict, any answer, or
    * held for a classifier call already in flight in its channel) -- the
-   * caller must then NOT also hand it to the spontaneous scheduler. Never
+   * caller must then NOT handle it any further. Never
    * throws: an LLM/context-building error is treated as a "no" per the
    * contract. `false` means none of this applied (feature off, no open
    * window, a turn running that blocks this one with mention.classifyWhileBusy

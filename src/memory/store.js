@@ -1022,7 +1022,7 @@ function normalizeChannel(channel) {
  *   row and its mirror's `sent` publication). `flushSettled({ final: true })` (the shutdown) waits for the outbox and
  *   keeps what still fails in `memory-pending/` (`memoryDb.keepPending`, replayed by the service at its next open);
  *   `dropCaches` keeps the entries the outbox holds; `validate` (`/nep resume`) checks the operational JSON files.
- *   Without a `memoryDb` (tests, a tool's dry run) the memory units live in the cache only: nothing is read or
+ *   Without a `memoryDb` (tests, a tool) the memory units live in the cache only: nothing is read or
  *   written for them.
  */
 export function createStore({

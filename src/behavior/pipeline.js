@@ -58,7 +58,7 @@ import { createSettles } from '../pipeline/settle.ts';
  *   absent, no description request is ever made from this pipeline. When present, every observed human
  *   message's first pictures (src/pipeline/media-prefill.ts) are handed to it fire-and-forget -- errors
  *   swallowed -- so the cache is already warm by the time a turn wants a caption for one of them. Only the
- *   address and room classifiers await a message's own prefill, then read captions from the cache alone
+ *   address classifier awaits a message's own prefill, then read captions from the cache alone
  *   (`describer.cachedDescriptions` / `cachedVideos`), never a new request. The message's first videos are
  *   handed to `describer.describeVideos` the same way.
  * @param {object} [deps.lookup]  From createLookup() (src/web/lookup.js), optional: the message's first readable
@@ -201,7 +201,7 @@ export function createMessageHandler({
     passRoutedCall,
   });
 
-  // The address classifier, the follow-up path and the room classifier.
+  // The address classifier and the follow-up path.
   const { classifyFollowUp } = createAddressClassifier({
     hot,
     llm,

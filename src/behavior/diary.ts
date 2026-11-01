@@ -1,8 +1,8 @@
 // The persona keeps a diary: one owner-chosen channel where it posts on its
 // own, rarely and irregularly, the way a person runs a personal feed. This
 // module owns the diary's decisions: which local times of a day get a post
-// (configured windows in `bot.timezone`, quiet days, a minimum gap, a daily
-// cap, and the hunger that empty windows and quiet days carry into later
+// (configured windows in `bot.timezone`, quiet days, a minimum gap,
+// and the hunger that empty windows and quiet days carry into later
 // ones), which planned slot is due now (a slot missed by more than the grace
 // while the bot was down is dropped, never fired late in a burst), which kind
 // of post a plan names (validated against the weighted `diary.kinds`, with a
@@ -683,17 +683,15 @@ export type DiaryDeps = {
 
 /**
  * The diary's scheduler and its owner-facing edge. `tick()` (every 30 s,
- * src/index.js) does nothing while `features.diary` is false (a missing key
- * counts as on) or the bot is paused (`diary: skip` with `reason` `off` or
- * `paused`, once per local day and reason). Otherwise it keeps the day plan of the
+ * src/index.js) does nothing while the bot is paused (`diary: skip` with `reason`
+ * `paused`, once per local day). Otherwise it keeps the day plan of the
  * served guild in state.json (`diary[guildId] = { day, slots, done, quiet,
  * posted, hunger, quietStreak }`, `day` the local date in `bot.timezone`):
  * nextHunger from the stored plan, then planDay once per local day (`diary:
  * plan` with `hunger` and `quietStreak`), the not-done slots of the previous plan still ahead or
  * within the grace merged in. A due slot (dueSlot, `diary.slotGraceMinutes`)
  * is marked done before its post runs; slots missed by more than the grace
- * are marked done unfired (`diary: skip`, `grace`). The post needs the day's
- * posts under `diary.maxPerDay` (`cap`); then, with an empty history,
+ * are marked done unfired (`diary: skip`, `grace`). Then, with an empty history,
  * `backfill` once per place and process from the place her diary is posted to
  * (`diary: backfill` with `count`), and the selfreflection wake
  * `turns.runTurn({ mode: 'diary', diary: { kind, forced }, guildId })`, which

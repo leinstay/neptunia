@@ -1,5 +1,5 @@
-// What happens to one new message: ignored, observed into memory, handed to the spontaneous scheduler, put to the
-// address or room classifier, or answered as a call, here or in the main channel once its channel settles. A message
+// What happens to one new message: ignored, observed into memory, put to the
+// address classifier, or answered as a call, here or in the main channel once its channel settles. A message
 // the gateway delivered and one the start's catch-up delivered are handled once, whichever path reaches it first.
 // createMessageHandler (src/behavior/pipeline.js) builds it once with createHandleMessage and returns its onMessage.
 
@@ -130,7 +130,7 @@ export function createHandleMessage({
       // 1. System / webhook messages are not conversation.
       if (event.message.system === true) return 'ignored';
 
-      // 1a. Paused (/nep pause): no trigger, no turn, no eavesdrop, nothing marks the store dirty. A live line is observed
+      // 1a. Paused (/nep pause): no trigger, no turn, nothing marks the store dirty. A live line is observed
       // into the memory database and the core holds it for the resume, which hands it back through the catch-up path
       // (core-pause.ts), so it is not noted as live; a direct call also gets the pause notice (maybePauseNotice).
       if (store?.state?.data?.paused) {

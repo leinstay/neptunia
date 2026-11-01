@@ -1,4 +1,4 @@
-// The persona's in-turn tools (features.coreTools): `web.search`, `web.read`, `media.look` and `memory.search`,
+// The persona's in-turn tools: `web.search`, `web.read`, `media.look` and `memory.search`,
 // skills she calls herself in a turn whose result comes back in the same turn (src/behavior/turn.js,
 // the tool loop). No model role chooses for her or reads for her: her query goes to the existing
 // web search engines as she wrote it and their results come back raw (src/web/lookup.js#searchResults:
@@ -395,9 +395,9 @@ function cutWindowLines(value: string, limit: number): { text: string; dropped: 
 
 /**
  * One web.search: `args.query` (her words, as she wrote them) through `lookup.searchResults` (the
- * existing engines, their cache, the daily web slot `web.maxPerDay`; the results raw, no
+ * existing engines, their cache, the results raw, no
  * summary), `args.goal` only echoed back with the result. `not_configured` (`not-configured`)
- * without the client, the feature (features.webLookup, read now) or a search engine; `invalid`
+ * without the client, the feature or a search engine; `invalid`
  * (`invalid-args`) without a query; `failed` with `daily-cap` once the day's web slots are spent,
  * `error` when the search gave nothing back; the lookup's own failures by their code: `not-configured`,
  * `invalid` (`empty-query`), `cap`, `failed` (`provider`, with the last engine status in `values.status`); else `ok` with webSearchText (cut by

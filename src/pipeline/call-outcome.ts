@@ -79,7 +79,7 @@ export function missingReason(missing: 'gone' | 'error'): 'gone' | 'fetch-failed
 export function createCallOutcome({ hot, store, now, turns, reads, refOf, port }: CallOutcomeContext): CallOutcome {
   /**
    * Post the limit notice in `channel` (src/behavior/limits.js#postLimitNotice:
-   * labels, dry-run and the mirror read now). A follow-up's notice is never a
+   * labels read now). A follow-up's notice is never a
    * platform reply, like the follow-up turn itself; nor is one posted `plain`
    * (a routed call's, whose trigger lives in another channel). Never throws.
    */
@@ -150,8 +150,7 @@ export function createCallOutcome({ hot, store, now, turns, reads, refOf, port }
    * calls of the ring the turn showed -- one this call replaced, an earlier
    * one still waiting -- are the turn's to stamp, by what its output answered
    * (src/behavior/turn.js#stampShownCalls); one it did not show stays as it
-   * was. A dry run that spoke reached nobody and stamps nothing (the call
-   * stays unanswered); a dry run that skipped stamps it like any skip --
+   * was. A turn that skipped stamps it like any skip --
    * silence is the persona's choice, not a post. Any other outcome (an error,
    * a refusal, busy, paused) stamps nothing.
    */
@@ -167,8 +166,7 @@ export function createCallOutcome({ hot, store, now, turns, reads, refOf, port }
    * decision for the burst the settle grouped: the call and every call it
    * took the place of (`superseded`: replaced in the settle wait, or
    * outranked by it) are stamped skipped (stampRing), so a
-   * later pull never presents them as waiting. Safe in a dry run: a skip
-   * claims no answer.
+   * later pull never presents them as waiting. A skip claims no answer.
    */
   function passRoutedCall(messageId: string, superseded: Array<string> = []): void {
     stampRing([messageId, ...superseded].map((id) => ({ messageId: id, status: 'skipped' as const })));
@@ -178,11 +176,10 @@ export function createCallOutcome({ hot, store, now, turns, reads, refOf, port }
    * A routed call a turn that spoke already had in view
    * (turns.spokeAfterSeeing): the call and every other call of its source in
    * the ring that turn showed are stamped skipped (stampRing) -- in view, so
-   * a later pull never presents them as waiting. A turn that spoke for real
+   * a later pull never presents them as waiting. A turn that spoke
    * stamped them itself already (src/behavior/turn.js#stampShownCalls; an
-   * answer it gave is kept), a rehearsal did not. A call of the source that
-   * turn did not show is left as it was. Safe in a dry run: a skip claims no
-   * answer.
+   * answer it gave is kept). A call of the source that
+   * turn did not show is left as it was.
    */
   function skipSeenCalls(sourceId: string, messageId: string): void {
     const seen = ringCalls(sourceId)

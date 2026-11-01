@@ -285,8 +285,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  *   something). A web result without `server` renders exactly as before the server part existed;
  *   the server part needs `labels.lookup.serverHeader`, its stretch `labels.lookup.stretch`.
  * @param {{ status: 'ok'|'none'|'timeout'|'unavailable', basis: string[], excerpts: object[] }|null} [input.prefetch]
- *   The automatic memory prefetch of this turn (features.coreTools with features.memoryPrefetch:
- *   src/behavior/recall-run.js `prefetch`), rendered as `<retrieved>` in the tail right after
+ *   The automatic memory prefetch of this turn (src/behavior/recall-run.js `prefetch`), rendered as `<retrieved>` in the tail right after
  *   `<lookup>` (prefetchText): `labels.prefetch.header`, the query basis, the caution and one
  *   `<excerpt>` per excerpt, or the status line when nothing qualified, the deadline passed or
  *   the search was unavailable. One piece, ahead of the chat, already bounded by
@@ -423,7 +422,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  *   after `found`). Omitted or null -> no `<skills>`.
  * @param {string[]|null} [input.toolsGranted]  The names of the tools exposed to her this turn
  *   (src/tools/discovery.ts#exposedSkillNames): only the in-turn ones (`web.search`, `web.read`,
- *   `media.look`, `memory.search`) matter here, to `<senses>` under `features.coreTools` (the search
+ *   `media.look`, `memory.search`) matter here, to `<senses>` (the search
  *   lines say she calls them). The tools themselves travel as the request's `tools`, not in a block.
  * @param {string|null} [input.toolsBlock]  The `<tools>` body (src/llm/tool-text.js#toolsBlockText), the text
  *   transport only: in the stable part where the three skills blocks used to stand, fixed, never cut.

@@ -2411,8 +2411,7 @@ export function fallbackLookupPlan({ text, profiles = [], selfId = null, selfNam
 const TOOL_LIST_SPLIT_RE = /[,;\n]/;
 
 /**
- * The server search the persona's own `memory.search` call asks for (features.coreTools,
- * src/tools/tools.ts): no model role, only the deterministic expansion -- her `terms` (exact
+ * The server search the persona's own `memory.search` call asks for (src/tools/tools.ts): no model role, only the deterministic expansion -- her `terms` (exact
  * words or phrases, comma-separated) and `people` (names, comma-separated) cleaned as the
  * classifier's `server:` and `who:` values are (2 to 40 characters, at most three words each,
  * lowercased, each once), then what fallbackLookupPlan finds in her `question` (its long words,

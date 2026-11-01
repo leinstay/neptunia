@@ -650,7 +650,7 @@ export function renderProfileShown(
   restLines.push(
     ...nameLines(profile, labels, { maxAliases, aliasHalfLifeDays, addressHalfLifeDays, validity, now: day, reads })
   );
-  // What their avatar looks like (`features.avatars`): shown, but not something learned about them.
+  // What their avatar looks like: shown, but not something learned about them.
   const avatarText = avatars ? avatarLine(profile.avatar, p) : '';
   if (avatarText) restLines.push(avatarText);
   if (profile.character) restLines.push(fill(p.character, { text: resolveChatText(profile.character, nameOf) }));

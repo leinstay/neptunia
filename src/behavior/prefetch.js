@@ -1,4 +1,4 @@
-// The pure core of the automatic memory prefetch (features.coreTools with features.memoryPrefetch):
+// The pure core of the automatic memory prefetch:
 // before a turn of the persona's tool loop that a person's new message opened, the server's own
 // history and her stored memory are searched once with that message, so a reference to an old
 // shared story reaches her without anyone choosing a query for her. No model writes the query and
@@ -45,9 +45,8 @@ const MAX_PHRASES = 3;
 const MEMORY_WEIGHT = 0.5;
 
 /**
- * Whether the automatic memory prefetch runs at all under `config` (read now): features.coreTools
- * exactly true (the switch off leaves every turn as before), features.memoryPrefetch not false
- * (a missing key counts as on) and features.recall on (recallSettings). Pure.
+ * Whether the automatic memory prefetch runs at all under `config` (read now): whenever recall has
+ * settings (recallSettings). Pure.
  * @param {object} config
  * @returns {boolean}
  */

@@ -27,7 +27,7 @@ export const KEEP_CLOSED = 50;
  * (src/memory/db/unit-outbox.js) that sends them through the database's writer. The list in memory stays the truth
  * meanwhile, so `add` and `update` answer at once; a write that failed waits in the outbox and goes again at the
  * next change or `flush`, and `flush({ final: true })` (the shutdown) keeps what still fails in `memory-pending/`,
- * replayed by the service at its next start. Without a `memoryDb` (tests, a tool's dry run) nothing is read or written:
+ * replayed by the service at its next start. Without a `memoryDb` (tests, a tool) nothing is read or written:
  * the list lives in memory only.
  */
 export function createIntentionStore({

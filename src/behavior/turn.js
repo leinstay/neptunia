@@ -180,8 +180,7 @@ export { fallbackLookupPlan };
  * Participation (src/memory/participation.js; features.participation and features.memory,
  * a missing key counts as on; never in a private chat or a place of her diary): every message a
  * turn sends for real in a server channel is recorded in the guild's participation store with
- * the history lines before it and the line it replies to (recordOwnParticipation; a dry run
- * records nothing). A server turn that builds a reply request (not a diary post) hands the
+ * the history lines before it and the line it replies to (recordOwnParticipation). A server turn that builds a reply request (not a diary post) hands the
  * store to buildRequest as `<participation>`; beside its preparation the pick classifier
  * (src/behavior/participation-pick.js) chooses which stored episodes
  * of other channels come first, under the same deadline -- late, the newest are shown.
@@ -226,7 +225,7 @@ export { fallbackLookupPlan };
  * (src/format.js#withTriggers), so the request's `<chat>` and `<channel_view>` and every
  * analyzer transcript built from that history name the message that started the turn which posted
  * each line (`transcript.triggeredBy` / `triggeredByOlder`). The neighbours' lines show no `#n`
- * and carry none. A spontaneous turn, a diary post or a dry run links nothing.
+ * and carry none. A spontaneous turn or a diary post links nothing.
  *
  * Call marks: every skill call she makes (runCall: its skill, status, target and the messages its
  * turn posted) is remembered in process, `seedCallMarks` adding the ones the journal kept from
@@ -244,8 +243,7 @@ export { fallbackLookupPlan };
  * `reason`) and nothing is done; no picture or diary set is generated for a post the check
  * already refuses, and no typing indicator shows), then made through the interface port `port`
  * (src/interface/port.js). Nothing counts as posted (journal, record, stats, lastPostAt) unless the port
- * answered `ok`; `unknown` is journaled as unknown and never sent again. A dry run calls neither
- * the gateway nor the port.
+ * answered `ok`; `unknown` is journaled as unknown and never sent again.
  *
  * Skill calls: her skills are the owner's /nep commands (src/tools/registry.ts; `skills`: the
  * registry checked against, default skillRegistry()). Her tools -- the skills granted to her and the
@@ -260,8 +258,7 @@ export { fallbackLookupPlan };
  * `runOwnOp`, src/admin.js#runOwnSkillOp, her grant alone; an inner turn's calls through
  * `runInitiativeOp`, src/admin.js#runInitiativeSkillOp, her grant alone). Her speech goes out after
  * the calls, when all of them worked and none gave her something to read; else it is held and the
- * results come back to her in one more request (runSteps), bounded by `tools.loop`. A dry run only
- * logs the call (`dry-run: would call`).
+ * results come back to her in one more request (runSteps), bounded by `tools.loop`.
  *
  * Reactors: `reactors` (src/behavior/reactor-store.ts#createReactorStore, null: none) is the store of
  * who reacted to her messages, fed by `reaction.changed`; the turn's history read names them on her lines
@@ -721,7 +718,7 @@ export function createTurnRunner({
     lastPostAt: (channelId) => lastPostAt.get(channelId) ?? 0,
     notePost: (channelId, ts) => lastPostAt.set(channelId, ts),
     /**
-     * Whether the last turn that spoke in `channelId` (this process, dry-run included) had
+     * Whether the last turn that spoke in `channelId` (this process) had
      * `messageId` in its channel history -- so a direct ping queued while that turn ran was
      * already in front of the model and is not answered a second time. For a channel the bot
      * cannot write in: whether the last turn that spoke while showing that channel's lines

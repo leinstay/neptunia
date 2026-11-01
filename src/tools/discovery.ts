@@ -5,8 +5,8 @@
 // with her access, src/behavior/prompt.js) or `skills: <name>, <name>` (up to four registry
 // skills relevant to the message: shadow only, logged and journaled, never rendered yet). The
 // classifiers read the registry's names through `{{skills}}` (skillsIndex: static texts only, no
-// grants). Behind `features.tools` and `features.toolsDiscovery` (a missing key counts as on).
-// Apart from both, every turn shows her the names of the skills granted to her (grantedSkillNames,
+// grants).
+// Besides that, every turn shows her the names of the skills granted to her (grantedSkillNames,
 // rendered in the request's cached stable part, src/behavior/prompt.js), so she knows what she
 // can do without a classifier naming it.
 // Pure; the texts are `hot.prompts.tools`, read by the caller at the moment of use.
@@ -17,7 +17,7 @@ import { CODE } from './codes.ts';
 import { objOf } from './types.ts';
 import type { DescribedSkill, Skill } from './types.ts';
 
-/** The skills that run inside the persona's turn and come back in it (src/tools/tools.ts; features.coreTools). */
+/** The skills that run inside the persona's turn and come back in it (src/tools/tools.ts). */
 // `conversation.read` and `media.find` are built on their own branches; a name with no registered skill is skipped everywhere it is used.
 export const IN_TURN_TOOLS: ReadonlyArray<string> = Object.freeze([
   'web.search',

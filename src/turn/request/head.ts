@@ -111,10 +111,10 @@ export function requestHead(given: RequestInput): Base {
       : null;
   const frozen = <T>(key: string, signature: string, compute: () => T): T =>
     freezePerBucket(stableFreeze, key, { now, bucketMs: cacheTtlMs(config), signature }, compute);
-  // Mention handles (features.mentionHandles, a missing key counts as on): every member with a
+  // Mention handles: every member with a
   // stored profile gets one in `<directory>` (the stable part), the authors in view on their lines.
   const handlesOn = true;
-  // `<people_now>`'s live part (features.around, a missing key counts as on): the snapshot of
+  // `<people_now>`'s live part: the snapshot of
   // the gateway's voice states and presences, never in a private chat or a diary post.
   // The live glance as the turn hands it: checked to be an object with a snapshot below.
   const aroundInput = given.around as
@@ -193,7 +193,7 @@ export function requestHead(given: RequestInput): Base {
   // heading and at the start of their `<people_now>` entry, as `<directory>` lists it.
   const handleFor = (memberId: string | null) =>
     memberId !== null && handleById ? (handleById.get(memberId) ?? null) : null;
-  // `<now>`: the clock, then the persona's recent time away (features.offPeriods, read now).
+  // `<now>`: the clock, then the persona's recent time away.
   const nowText = nowBlock(now, timezone, labels, given.offPeriods);
   const relationships = true;
   // How many attitude moves follow the attitude in a `<people_now>` entry (profileStateFields).
@@ -222,7 +222,7 @@ export function requestHead(given: RequestInput): Base {
     // neighbour and pulled channels alike.
     now,
     seeReactions: true,
-    // Who reacted to the persona's own lines, named like authors (features.reactionNames).
+    // Who reacted to the persona's own lines, named like authors.
     reactionNames: true,
     emojiInline: !emojiOnce,
     descriptions,
@@ -233,7 +233,7 @@ export function requestHead(given: RequestInput): Base {
     // Each author in view carries their mention handle (transcript.author).
     handles: handleById ?? undefined,
     memberNames: memberNames ?? undefined,
-    // A message link to a line of the same rendering reads as its `#n` (features.messageLinks).
+    // A message link to a line of the same rendering reads as its `#n`.
     messageNumbers: true,
     // Each channel a line mentions carries its handle (transcript.channel).
     channels: channelHandleById
@@ -261,7 +261,7 @@ export function requestHead(given: RequestInput): Base {
   ]
     .filter(Boolean)
     .join('\n\n');
-  // The anchored window (features.anchoredWindow): the reply parents leave `<chat>` for
+  // The anchored window: the reply parents leave `<chat>` for
   // `<earlier>` but keep their numbers, so a reply marker or a link in the chat still names them.
   const anchored = anchoredOn(config, labels, privateChat);
   const chatOptions = anchored

@@ -395,7 +395,7 @@ async function buildCore(options, cleanups) {
     paused: () => store.state.data.paused === true,
     memoryDb,
   });
-  // The persona's drawings (features.imageGeneration): its own daily rails, counted on the same state.
+  // The persona's drawings: its own daily rails, counted on the same state.
   // Pictures are paid with the drawing role's key (`llm.keyByRole.drawing`, the agents' key), read at
   // each request; the main key when the role names none.
   const images = createImageGen({
@@ -403,7 +403,7 @@ async function buildCore(options, cleanups) {
     getConfig: () => hot.config,
     state: store.state,
   });
-  // The persona's voice messages (features.speech): the preparation pass on the analyzer, the synthesis on the
+  // The persona's voice messages: the preparation pass on the analyzer, the synthesis on the
   // voice role's key and model, the conversion with the system ffmpeg. Without ffmpeg there is no `speech` at
   // all (the skill answers `speech-not-configured`), reported once.
   const speechReady = ffmpegAvailable();
@@ -634,7 +634,7 @@ async function buildCore(options, cleanups) {
   if (hello !== null) greet(hello);
   // The around store tells a presence event from a voice one by what the interface declares in `hello`: whether it
   // reports presences at all (intents are fixed at login, the interface reads its own at its start).
-  // The live glance at the voice channels and the scene's statuses (features.around): a snapshot in process memory,
+  // The live glance at the voice channels and the scene's statuses: a snapshot in process memory,
   // fed by the interface's voice, presence and connection events through the door below, never written anywhere.
   const around = createAroundStore({ presences: () => coreLink.adapter.capabilities().presence === true });
   // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
@@ -674,9 +674,9 @@ async function buildCore(options, cleanups) {
   });
   // Who reacted to her messages, fed by `reaction.changed` (the door below) and by the `reactors` read.
   const reactors = createReactorStore();
-  // The route classifier (features.channelRoute): picks a channel the conversation is about for <channel_view>.
+  // The route classifier: picks a channel the conversation is about for <channel_view>.
   const routeChannels = createChannelRouter({ hot, store, llm });
-  // The search of the server's own history beside the web search (features.recall): the lookup's server part.
+  // The search of the server's own history beside the web search: the lookup's server part.
   // It reads the archive and the record too (read only), and with features.meaningSearch the meaning
   // index (one embedding of the question per run).
   const recall = createRecall({
@@ -752,7 +752,7 @@ async function buildCore(options, cleanups) {
     log,
     onFinished: (task, guildId) => submitErrandEnd(task, guildId),
   });
-  // The persona's intentions (features.intentions): data/guilds/<id>/intentions.json, her own
+  // The persona's intentions: data/guilds/<id>/intentions.json, her own
   // `intent.*` calls, the analyzer's candidates from her lines, and the waits on her errands.
   // Both stores send their writes to the database; `flush` is their retry and shutdown step.
   const intentionStores = createIntentionStores({ log, memoryDb });
@@ -807,7 +807,7 @@ async function buildCore(options, cleanups) {
     errands,
     // What a turn writes to her diary with message.create, published by the diary's mirrors when it ends.
     mirrors,
-    // `<intentions>`: her open intentions and the candidates from her lines (features.intentions).
+    // `<intentions>`: her open intentions and the candidates from her lines.
     intentions,
     // `<places>` on an addressed turn (context.places): the inner life's places view, read at call time.
     places: (guildId, options) => inner.places(guildId, options),
@@ -1192,7 +1192,7 @@ async function buildCore(options, cleanups) {
   }
 
   /**
-   * The journal's operations left open by the last run (features.journal, read now), yesterday's
+   * The journal's operations left open by the last run, yesterday's
    * and today's: a post is looked for among the persona's own messages, everything else is marked
    * unknown; nothing is sent again. Only operations started before this start are touched.
    */
@@ -1235,7 +1235,7 @@ async function buildCore(options, cleanups) {
   /** Whether the journal is written now (features.journal exactly true, read now). */
   const journalOn = () => true;
 
-  /** Delete the request dumps older than journal.keepRequests days (features.journal, read now). */
+  /** Delete the request dumps older than journal.keepRequests days. */
   async function pruneJournalRequests(guildId) {
     if (!journalOn()) return;
     const { removed } = await journal.pruneRequests(guildId);
@@ -1552,7 +1552,7 @@ async function buildCore(options, cleanups) {
   // starting meanwhile is never touched (only earlier operations are), and it never sends.
   await startupStep('journal.reconcile', () => reconcileJournal(instance.guildId).finally(journalReconciled));
 
-  // The messages posted while the bot was down (features.offlineCatchUp): observed, and a call
+  // The messages posted while the bot was down: observed, and a call
   // younger than offlineCatchUp.windowMinutes answered as live. Fire-and-forget: REST per
   // channel, never throws; the gateway's own messages are not held up meanwhile.
   await startupStep('offlineCatchUp.run', () => offlineCatchUp.run(instance.guildId));

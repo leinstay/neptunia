@@ -214,7 +214,7 @@ export async function responsePhase(
     gif: Boolean(parsed.gif),
     ...(first.calls.length > 0 ? { calls: first.calls.length } : {}),
   });
-  // The pulled channels whose block was in the request sent (a skip and a dry run included):
+  // The pulled channels whose block was in the request sent (a skip included):
   // their seen marks move to the newest line shown; a block the budget dropped moves none.
   const shownPulled = request.pulledKept ?? [];
   // What a private chat showed of the server stays there: no seen mark, no stamp, no pending ping.

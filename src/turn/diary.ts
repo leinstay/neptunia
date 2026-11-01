@@ -148,7 +148,7 @@ export function createDiary(ctx: DiaryContext): Diary {
    * (`params.kind`) is the only kind offered and replaces the answer's kind,
    * its brief kept (a forced picture kind with pictures off never gets here:
    * runTurn refuses it first, diaryPictureGate). Then the search the plan asks for (lookup.search, its own
-   * switch, cache and daily cap): its text is `found`; a failure or nothing
+   * cache): its text is `found`; a failure or nothing
    * found logs `diary: search failed` and the post goes without it. A request
    * or token cap on the plan request throws (the turn is refused); any other
    * failure of it falls back. A planned kind in `diary.setKinds` (a set post) also draws

@@ -176,7 +176,7 @@ export async function setupRequest(
   // What the analyzer requests judge: the trigger, or on a part of a split message the trigger with
   // that part's text (same id, author and time).
   const candidate = part && trigger ? { ...trigger, content: part.parts[part.index - 1] ?? trigger.content } : trigger;
-  // The automatic memory prefetch (features.coreTools with features.memoryPrefetch): started now,
+  // The automatic memory prefetch started now,
   // alongside the preparation, bounded by its own deadline (startPrefetch).
   const prefetching = startPrefetch({
     config,

@@ -695,11 +695,10 @@ function sandboxChannels(given, view, channel) {
  * opens, as src/errands/turns.ts runs it: trigger kind `errand` whatever the mode, and `errands`
  * carrying its `<errand_result>` body (src/errands/blocks.ts#errandResultText, cut to
  * `errands.resultMaxChars` read now) with no `<errands>` list -- a replay knows no other errand of
- * hers. `coreTools` (`{ recallAvailable, prefetch? }`, a skill scenario run with features.coreTools on)
+ * hers. `coreTools` (`{ recallAvailable, prefetch? }`, a skill scenario run with her tool loop)
  * hands in whether the server search could run (`recallAvailable`) and the automatic memory prefetch of
  * the trigger (`prefetch`, `<retrieved>`), which every other sandbox turn leaves out (SANDBOX_OMITS). The view is
- * read now and nothing is written. `preTurn` (`{ lookup, recallAvailable }`, tools/replay.mjs with
- * features.coreTools off) hands in what a live turn's search classifier and searches found before her
+ * read now and nothing is written. `preTurn` (`{ lookup, recallAvailable }`, an input no replay mode hands in now) hands in what a live turn's search classifier and searches found before her
  * reply (`<lookup>`) and whether the server search could run. `toolset` (sandboxToolset's) hands in her
  * tools: their names (`<senses>`), the `<tools>` block of the text transport and the tokens the native
  * `tools` field takes off the room.
@@ -796,7 +795,7 @@ export function sandboxRequestInput({
     privateChat: null,
     privateProfile: null,
     reads: null,
-    // Absent (SANDBOX_OMITS) but with features.coreTools off (tools/replay.mjs `preTurn`): what the searches found, as live.
+    // Absent (SANDBOX_OMITS) unless a caller hands in `preTurn`: what a search classifier found before her reply.
     lookup: preTurn?.lookup ?? null,
     // Absent (SANDBOX_OMITS) but with her tool loop (`coreTools.prefetch`): the memory prefetch a live turn would show.
     prefetch: coreTools?.prefetch ?? null,
@@ -875,7 +874,7 @@ export function sandboxToolset({ view, selfId = null, registry = skillRegistry()
  * at `at` and the members' moments of those hours (`recentLinesOf`; a
  * `momentView` holds the lines added before the moment). Left out, unlike a
  * real turn: every input of `SANDBOX_OMITS` (neighbours, other channels, the
- * web lookup, the server search, a drawing offer, a room question, the recent
+ * web lookup, the server search, a drawing offer, the recent
  * lines of other channels, a private chat), pictures (a user message with
  * image parts is sent as its text-only re-render), an owner-forced turn's
  * text, the daily GIF cap, and a custom-emoji reaction is kept as written
@@ -1121,8 +1120,7 @@ export function personaGrantsConfig(config, selfId, names) {
  * (src/tools/gateway.ts#listSkills over `config`, `selfId`, the skills layer `texts`) whole
  * when the search classifier would have answered `skills: inventory` (`discovery`
  * `'inventory'`), the rows of the skills it would have named (`discovery` a list of names:
- * proposalVerdicts, proposedRows), none for `'none'`. Null with discovery off
- * (`features.tools` / `features.toolsDiscovery`) or nothing to show. Pure.
+ * proposalVerdicts, proposedRows), none for `'none'`. Null when there is nothing to show. Pure.
  * @param {{ config: object, selfId: string, texts?: object, requester: object|null, conversationId: string,
  *   registry: Map<string, object>, discovery?: 'inventory'|'none'|string[], getOp?: Function }} input
  * @returns {object[]|null}
@@ -1326,7 +1324,7 @@ function channelNamesOf(view, channel) {
  * `loop` (`{ settings?, now? }`: src/behavior/turn.js#loopSettings's bounds, the clock; the bounds
  * default to the config's) sets the bounds and the clock. `coreTools` (`{ recallAvailable, prefetch? }`)
  * puts the server search's senses line and the memory prefetch into the request, as
- * features.coreTools does live (sandboxRequestInput).
+ * a live turn does (sandboxRequestInput).
  * What a run keeps: `run.loop = { steps: [{ step, answer, calls: [{ call, outcome, ms }], dropped,
  * capped, held, thinkMissing, coerced, usage, ms, requestChars, requests?, error? }], ms }` (step 0 the
  * reply), and for the single-call fields `call` / `callError` / `outcome` (the reply's first call),

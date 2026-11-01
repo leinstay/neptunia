@@ -661,7 +661,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
             typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
               ? timeoutMs
               : (hot.config.tools?.callTimeoutMs ?? 120000),
-          // Her in-turn tools (features.coreTools): run here, in the turn, over its context.
+          // Her in-turn tools: run here, in the turn, over its context.
           ...(inTurn ? { inTurn } : {}),
         });
         // A post the hold kept goes out when the wake completes: she is told so, and it has no message yet.

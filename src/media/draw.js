@@ -21,7 +21,7 @@ import { clampAtBoundary } from '../memory/clamp.js';
  * The drawing prompt of `scene`: prompts `draw` and `appearance` (read now) around the request,
  * cut to `image.maxPromptChars` at a boundary, with `{{when}}` the local date and time now
  * (`bot.timezone`) when `withTime` and a timezone is set (the owner's command carries none), and
- * the appearance only when `self`. The one builder of the prompt: the picture and the dry run share it.
+ * the appearance only when `self`. The one builder of the prompt.
  * @param {{ hot: { config: object, prompts: object }, selfName: string, scene: string, self?: boolean, withTime?: boolean, now?: () => number }} args
  * @returns {string}
  */

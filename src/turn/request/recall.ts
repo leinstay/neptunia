@@ -120,7 +120,7 @@ function renderServerLookup(server: ServerLookup | null | undefined, labels: Lab
 }
 
 /**
- * The `<retrieved>` block body (the automatic memory prefetch, features.coreTools): `labels.prefetch.header`,
+ * The `<retrieved>` block body (the automatic memory prefetch): `labels.prefetch.header`,
  * `labels.prefetch.basis` with `{basis}` (the lanes searched, `labels.prefetch.lanes.<kind>`
  * joined), then with excerpts `labels.prefetch.caution` and each excerpt as an `<excerpt>`: a
  * history stretch under `labels.prefetch.excerpt` (`{n}`, `{source}` =

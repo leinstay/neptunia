@@ -1,4 +1,4 @@
-// Calls from a channel the persona cannot write in (features.elsewhere). A call (a mention, a reply or the persona's
+// Calls from a channel the persona cannot write in. A call (a mention, a reply or the persona's
 // name) written where the bot can read but not send has nowhere to be answered. When a destination is usable (the
 // first usable id of memory.mainChannelIds, src/behavior/turn.js#usableDestination) and everyone who can view it can
 // view the source too (the audience rail, context.pull.sameAudience; src/behavior/turn.js#routeFor), the call is

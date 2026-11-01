@@ -118,12 +118,12 @@ export function createEdits({
    * record with its next revision (`recordEdit`). Some platforms attach embeds late -- a Tenor link's
    * `gifv` embed comes in an update, not with the message -- so the media the message as it was
    * (`previous` of the event) did not carry is counted into the GIF library
-   * (features.gifs) and handed to the media prefill under the same switches as on arrival
-   * (warmMediaCache). Nothing else: no trigger, no turn, no eavesdrop, no counters, no channel map,
+   * and handed to the media prefill under the same switches as on arrival
+   * (warmMediaCache). Nothing else: no trigger, no turn, no counters, no channel map,
    * no affinity. Without the earlier message (the interface did not hold it) what it carried is unknown: an
    * accepted miss, logged with counts only. Off with features.embedUpdates (a missing key counts as
    * on), with features.memory off and while paused. Only the served community, a conversation outside threads
-   * and the dry-run mirror, and a human author's message with media. Config read now. Never throws.
+   * and a human author's message with media. Config read now. Never throws.
    * The edit event, a partial one read whole here.
    */
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/pipeline.js in stage 5d, a pure move

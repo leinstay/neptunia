@@ -963,7 +963,7 @@ export function createMissed({
 
   /**
    * One channel's sweep (the timer's, or a test's): the code's filter (sweepPlan), the analyzer
-   * for what is left, then a recovery turn for the owed ones (features.missedRecovery) or, in
+   * for what is left, then a recovery turn for the owed ones or, in
    * shadow mode, nothing posted. Skipped while paused.
    */
   async function sweep(channelId) {

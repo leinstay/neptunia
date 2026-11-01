@@ -612,7 +612,7 @@ export type MemoryViews = {
 
 /**
  * `<participation>`, the persona's own exchanges on other channels without a line the request already shows, and
- * `<earlier>`, the anchors of this channel (features.anchoredWindow). Neither in a private chat.
+ * `<earlier>`, the anchors of this channel. Neither in a private chat.
  */
 export function memoryViews(given: RequestInput & Base & PulledView): MemoryViews {
   const { config, history, neighbors, trigger, currentChannelId, channels, now, selfName } = given;

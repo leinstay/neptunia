@@ -141,7 +141,7 @@ export function buildTurnRequest(
     drawOn,
     // The `<emoji>` block: the index's emoji (ranked by guildMemory.emojiUsage) and their cached captions.
     customEmoji: emoji ? (emoji.list() ?? []) : [],
-    // The `<gifs>` block and the transcript's GIF handles: the guild's library (features.gifs).
+    // The `<gifs>` block and the transcript's GIF handles: the guild's library.
     gifs: typeof store.getGifs === 'function' ? (store.getGifs(guildId) ?? null) : null,
     // The cached captions of both lists.
     mediaCache: emoji || typeof store.getGifs === 'function' ? (store.getMediaCache(guildId) ?? null) : null,
