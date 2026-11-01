@@ -43,7 +43,7 @@ test('renderRequest lays out the model, the system prompt and every message verb
       },
       { role: 'assistant', content: 'ok' },
     ],
-  } as unknown as Parameters<typeof renderRequest>[0]);
+  });
   assert.equal(
     text,
     'model: anthropic/claude-x\npurpose: reply\n\n## system\n\nsys  line\n  indented\n\n## user\n\na\n[image]\nb\n\n## assistant\n\nok\n'

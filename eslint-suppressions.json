@@ -349,13 +349,13 @@
       "count": 1739
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 596
+      "count": 594
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1602
+      "count": 1601
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 205
+      "count": 204
     },
     "@typescript-eslint/require-await": {
       "count": 8
@@ -2911,19 +2911,19 @@
   },
   "tests/inner-week.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 23
+      "count": 21
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 22
+      "count": 9
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 29
+      "count": 14
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 145
+      "count": 75
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 25
+      "count": 21
     }
   },
   "tests/inner.test.js": {
@@ -3310,7 +3310,7 @@
   },
   "tests/memory-db-graph.test.js": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 4
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 23
@@ -3989,9 +3989,6 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 6
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 2
     }
   },
   "tests/replay-inner.test.ts": {
@@ -4002,10 +3999,10 @@
       "count": 2
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 5
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 16
+      "count": 12
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
@@ -4016,16 +4013,16 @@
   },
   "tests/replay-loop.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 7
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 45
+      "count": 42
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 68
+      "count": 59
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 208
+      "count": 187
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 23
@@ -4039,10 +4036,10 @@
   },
   "tests/replay-skills.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 25
+      "count": 23
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 66
+      "count": 63
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 57
@@ -4252,16 +4249,16 @@
   },
   "tests/tools-answers-dir.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 6
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 12
+      "count": 7
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 32
+      "count": 21
     },
     "@typescript-eslint/require-await": {
       "count": 9
@@ -4349,10 +4346,10 @@
       "count": 14
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 10
+      "count": 8
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 35
+      "count": 32
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 14
@@ -4383,13 +4380,13 @@
       "count": 6
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 4
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 9
+      "count": 7
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 21
+      "count": 19
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 5

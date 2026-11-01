@@ -947,11 +947,11 @@ test('the tool: a 429 is waited out (Retry-After first) and tried again, three t
   };
   let calls = 0;
   const flaky = withBackoff(
-    (async () => {
+    async () => {
       calls += 1;
       if (calls < 3) throw limited({ retryAfterMs: 500 * calls });
       return 'done';
-    }) as unknown as Parameters<typeof withBackoff>[0], // the call answers a string, not a completion object
+    }, // the call answers a string, not a completion object
     { sleep }
   );
   assert.equal(await flaky([], {}), 'done');

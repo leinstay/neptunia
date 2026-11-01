@@ -167,7 +167,7 @@ test('labels: a code without its entry, an entry without its code and a value th
     catalogueProblems({
       catalogue: CATALOGUE,
       labels: shipped,
-      docs: contract.replace(renderCodesTable(CATALOGUE as unknown as Parameters<typeof renderCodesTable>[0]), ''),
+      docs: contract.replace(renderCodesTable(CATALOGUE), ''),
     })[0],
     /no generated codes table/
   );

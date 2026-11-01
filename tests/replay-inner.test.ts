@@ -84,7 +84,7 @@ test("innerReplayWake: the scheduler's wake for the intention, its budgets from 
     now: NOW,
     timezone: 'UTC',
     day: '2026-10-19',
-  } as unknown as Parameters<typeof innerReplayWake>[0]);
+  });
   assert.equal(asRecord(wake).id, `inner.wake:intention_due:i1:${NOW - 5_000}`);
   assert.deepEqual(asRecord(info).items, [
     { kind: 'intention_due', reason: 'due', intentionIds: ['i1'], errandId: null },
@@ -100,7 +100,7 @@ test("innerReplayWake: the scheduler's wake for the intention, its budgets from 
     timezone: 'UTC',
     day: '2026-10-19',
     channelNames: ['général'],
-  } as unknown as Parameters<typeof innerReplayWake>[0]);
+  });
   assert.equal(asRecord(review.wake).kind, 'review');
   assert.deepEqual(asRecord(review.info).channels, ['général']);
   assert.deepEqual(asRecord(review.info).intentions, []);
@@ -406,9 +406,7 @@ test('recordingLlm notes the failure code of a failed completion', async () => {
       },
     },
     calls,
-    { errorCodeOf: (e: Untyped) => (e.statusCode === 429 ? 'provider-limit' : 'error') } as unknown as Parameters<
-      typeof recordingLlm
-    >[2]
+    { errorCodeOf: (e: Untyped) => (e.statusCode === 429 ? 'provider-limit' : 'error') }
   );
   await assert.rejects(llm.complete([], { purpose: 'reply' }));
   assert.equal(calls[0].code, 'provider-limit');

@@ -22,6 +22,8 @@ import { CliError } from '../scripts/lib/cli.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { Pair } from '../scripts/replay-compare.ts';
+import { wrongly } from './fixtures/loose-types.ts';
 
 const CHANNEL = '123456789012345678';
 const TRIGGER = (n: number) => `22345678901234567${n}`;
@@ -139,7 +141,6 @@ function newLine(id: string, triggerId: string, steps: Untyped) {
   });
   return {
     id,
-    scenario: id,
     channelId: CHANNEL,
     triggerId,
     context: [{ author: 'Alice', text: 'hello there' }],
@@ -274,11 +275,12 @@ test('replay-compare: speech posted beside a call that failed or has to be read 
     newLine('p2', TRIGGER(4), [step(0, { messages: ['sent'], calls: [['message.create', { text: 'x' }, 'ok']] })])
   );
   assert.equal(tidy.leaks, 0);
-  const pair = (label: string, turn: unknown) => ({
-    label,
-    old: { requests: 1, cost: 0.2, calls: [], tokens: {}, ms: 1 },
-    new: turn,
-  });
+  const pair = (label: string, turn: unknown) =>
+    wrongly<Pair>({
+      label,
+      old: { requests: 1, cost: 0.2, calls: [], tokens: {}, ms: 1 },
+      new: turn,
+    });
   const checks = passBar([
     pair('S11', leaky),
     pair('S26', {
@@ -296,11 +298,11 @@ test('replay-compare: speech posted beside a call that failed or has to be read 
   assert.equal(by('S08')?.pass, null);
   // Too many requests and too dear.
   const dear = passBar([
-    {
+    wrongly<Pair>({
       label: 'S01',
       old: { requests: 1, cost: 0.1, calls: [] },
       new: { ...tidy, requests: 3, cost: 0.2, label: 'S01' },
-    },
+    }),
   ]);
   assert.deepEqual(
     [

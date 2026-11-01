@@ -14,6 +14,8 @@ import { parseBlindScores, parseQueries, seededShuffle, tallySearchScores } from
 import { NotByokError } from '../src/llm/openrouter.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { Hot } from '../src/hot.ts';
+import { wrongly } from './fixtures/loose-types.ts';
 import { asRecord } from './fixtures/records.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
@@ -127,7 +129,7 @@ function run(argv: Untyped, { dir, env = ENV }: Untyped) {
       cwd: dir,
       rootDir: dir,
       now: () => clock.t,
-      hot: hotFixture(),
+      hot: wrongly<Hot>(hotFixture()),
       llmClient: f.llm,
       searches: f.searches,
       env,
@@ -373,7 +375,7 @@ test('search-compare: --max-usd stops starting rows; --repeat records each run; 
       main([file, '--out', 'x', '--key', 'sk-or-abc'], {
         cwd: dir,
         rootDir: dir,
-        hot: hotFixture(),
+        hot: wrongly<Hot>(hotFixture()),
         searches: fakes({ clock: { t: 0 } }).searches,
         env: {},
       })

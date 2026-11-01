@@ -340,7 +340,7 @@ test('recall-eval: the local guild runs the record stage of the real recall, sur
     llm,
     record,
     now: () => NOW,
-  } as unknown as Parameters<typeof createRecall>[0]);
+  });
   const windows: Array<Untyped> = [];
   const candidate = {
     id: 'q',

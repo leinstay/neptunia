@@ -1,20 +1,19 @@
 {
   "files": {
-    "scripts/replay.ts": 7367,
+    "scripts/replay.ts": 7366,
     "src/behavior/recall-run.ts": 2143,
     "src/behavior/recall.ts": 2375,
     "src/behavior/sandbox.ts": 2063,
-    "tests/admin.test.js": 3769,
-    "tests/describe.test.js": 3115,
+    "tests/admin.test.ts": 3698,
+    "tests/describe.test.ts": 3098,
     "tests/events.test.js": 7253,
     "tests/format.test.js": 2020,
     "tests/inner.test.js": 2437,
-    "tests/memory-db-session.test.js": 2109,
-    "tests/openrouter.test.js": 3557,
-    "tests/prompt.test.js": 6640,
-    "tests/recall.test.js": 2442,
-    "tests/store.test.js": 3230,
-    "tests/turn.test.js": 9136
+    "tests/openrouter.test.ts": 3557,
+    "tests/prompt.test.ts": 6595,
+    "tests/recall.test.ts": 2419,
+    "tests/store.test.ts": 3169,
+    "tests/turn.test.ts": 9082
   },
   "functions": {
     "interfaces/discord/collect.ts": {

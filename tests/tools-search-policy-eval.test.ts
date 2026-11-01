@@ -13,6 +13,8 @@ import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { Hot } from '../src/hot.ts';
+import { wrongly } from './fixtures/loose-types.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -185,9 +187,7 @@ test('search-policy-eval: three rows -> decisions, results.jsonl, the confusion 
   const { history, trigger } = rowChat({ ...ROWS[1], context: ROWS[1].context }, { now: NOW, selfName: 'Persona' });
   assert.equal(
     messages[1].content,
-    lookupClassifierInput({ config, labels, selfName: 'Persona', history, trigger } as unknown as Parameters<
-      typeof lookupClassifierInput
-    >[0]).user
+    lookupClassifierInput({ config, labels, selfName: 'Persona', history, trigger }).user
   );
   assert.match(
     messages[1].content,
@@ -268,7 +268,7 @@ test('search-policy-eval: refuses a bad sheet, a missing --out, an --out under d
         cwd: dir,
         rootDir: dir,
         now: () => NOW,
-        hot: hotFixture(),
+        hot: wrongly<Hot>(hotFixture()),
         env: {},
       })
     ),
@@ -280,7 +280,7 @@ test('search-policy-eval: refuses a bad sheet, a missing --out, an --out under d
         cwd: dir,
         rootDir: dir,
         now: () => NOW,
-        hot: hotFixture(),
+        hot: wrongly<Hot>(hotFixture()),
         env: {},
       })
     ),

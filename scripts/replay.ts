@@ -555,9 +555,7 @@ import { parseArgs, MAX_BEFORE, SNOWFLAKE } from './lib/replay-args.ts';
 /** What one mode of the script is handed: the parsed options and the objects `runMain` builds, read by name. */
 /** The part of the live view the script reads: the settings and the prompt files. */
 type HotView = Pick<Hot, 'config' | 'prompts'>;
-
 type ModeCtx = { args: ReplayArgs; root: string; hot: HotView; signal?: AbortSignal; [key: string]: Untyped };
-
 export { INNER_KINDS, parseArgs } from './lib/replay-args.ts';
 import type {
   Rec,
@@ -2317,9 +2315,10 @@ export function hiddenRecord(record: Untyped, hide: Rec): Rec {
 }
 
 /** The places list without the hidden channels (the channel directory is another list and stays whole). */
-export function hiddenPlaces(places: Rec, hide: Rec): Rec | ((...args: Array<Untyped>) => Untyped) {
-  if (!hide?.any || typeof places !== 'function') return places;
-  return (...args: Array<Untyped>) => places(...args).filter((entry: Rec) => !hide.channels.has(String(entry?.id)));
+export function hiddenPlaces(places: unknown, hide: Rec): (...args: Array<Untyped>) => Array<Rec> {
+  const listed = places as (...args: Array<Untyped>) => Array<Rec>;
+  if (!hide?.any || typeof places !== 'function') return listed;
+  return (...args) => listed(...args).filter((entry) => !hide.channels.has(String(entry?.id)));
 }
 
 /**

@@ -14,13 +14,14 @@ type Rec = Record<string, Untyped>;
 
 /** How one question scored: whether the expected line was in the first window, in the first five, anywhere, or in chat. */
 export type Score = {
-  hit1?: boolean;
-  hit5?: boolean;
-  seen?: boolean;
-  inChat?: boolean;
-  outcome?: string;
-  falseConfident?: boolean;
+  hit1?: boolean | null;
+  hit5?: boolean | null;
+  seen?: boolean | null;
+  inChat?: boolean | null;
+  outcome?: string | null;
+  falseConfident?: boolean | null;
   surfaced?: Array<string>;
+  [field: string]: Untyped;
 };
 
 /** One question's result as `ask` returns it; the fields past these depend on the mode that asked. */
@@ -250,7 +251,7 @@ export function percentile(values: Array<number> | null | undefined, p: number):
 }
 
 /** What one completion cost, in USD: the upstream cost OpenRouter reports (a BYOK key), else its own `cost`, else 0. */
-export function costOf(usage: Rec): number {
+export function costOf(usage: Rec | null): number {
   const value = Number(usage?.cost_details?.upstream_inference_cost ?? usage?.cost ?? 0);
   return Number.isFinite(value) && value > 0 ? value : 0;
 }

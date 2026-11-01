@@ -535,7 +535,9 @@ export async function runComparison({
 
 /** Per model: items, failures, total cost, median latency, prompt and completion tokens. */
 export function summarizeModels(
-  rows: Array<{ cells: Array<Cell> }>,
+  rows: Array<{
+    cells: Array<Pick<Cell, 'model' | 'ok' | 'latencyMs' | 'promptTokens' | 'completionTokens' | 'costUsd'>>;
+  }>,
   models: Array<string>
 ): Array<{
   model: string;

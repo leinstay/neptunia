@@ -54,9 +54,9 @@ export type PolicyResult = {
   source: string;
   tier: string;
   decision: string;
-  query: string | null;
-  forms: Array<string>;
-  who: Array<string>;
+  query?: string | null;
+  forms?: Array<string>;
+  who?: Array<string>;
   ms: number;
   ok: boolean;
   error?: string;
