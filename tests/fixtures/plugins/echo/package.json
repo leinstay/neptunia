@@ -1,0 +1,9 @@
+{
+  "name": "@neptunia/plugin-echo",
+  "version": "0.1.0",
+  "description": "The test plugin of the plugin mechanism: one tool that says back what it is given, and one skill that uses it",
+  "private": true,
+  "type": "module",
+  "exports": "./index.ts",
+  "license": "MIT"
+}
