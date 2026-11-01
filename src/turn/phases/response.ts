@@ -55,7 +55,7 @@ export async function responsePhase(
 ): Promise<Ended | Answered> {
   const { hot, store, llm, calibrator, clock, skills, pullViews } = ctx;
   const { dumpTurnRequest, emojiLookup, resolveGif, noteThink, markPulledSeen, stampShownCalls, journalOn } = ctx;
-  const { trigger = null, triggerKind = null, source = null, focus = null } = params;
+  const { trigger = null, triggerKind = null, source = null } = params;
   const { opened, setup, pulled: pulledStep, waited, gathered, request } = prepared;
   const { channel, guildId, isPrivate, settledMs, life } = opened;
   const { transport, startedAt, now, bar, beforeBar, replyOptions } = setup;
@@ -194,10 +194,9 @@ export async function responsePhase(
   log.info('turn: model answered', {
     mode: finalMode,
     trigger: triggerKind ?? null,
-    // Only on a turn about another channel, with channels pulled, or with a line put to the room.
+    // Only on a turn about another channel or with channels pulled.
     ...(source ? { source: source.channelId ?? null } : {}),
     ...(pulled.length > 0 ? { pulled: pulled.length } : {}),
-    ...(focus ? { focus: true } : {}),
     // Active neighbours the audience rail left out.
     ...(neighborsHidden > 0 ? { neighborsHidden } : {}),
     secondsToAnswer: Math.round((clock() - startedAt) / 100) / 10,

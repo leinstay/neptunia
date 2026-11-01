@@ -61,7 +61,7 @@ export function buildTurnRequest(
   const { store, calibrator, skills, lookup, emoji, memoryReads, turnContextOf } = ctx;
   const { aroundInputFor, errandsInputFor, intentionsInputFor, placesInputFor, earlierThinkFor } = ctx;
   const { liveChannelName, diaryChannelName, stableFreezeOf, withSeenBefore, linkCalls, linkTriggers } = ctx;
-  const { trigger = null, triggerKind = null, forced = false, source = null, focus = null } = params;
+  const { trigger = null, triggerKind = null, forced = false, source = null } = params;
   const { taskResult = null } = params;
   const diaryParams = params.diary ?? null;
   const { channel, guildId, isPrivate } = opened;
@@ -168,7 +168,6 @@ export function buildTurnRequest(
       now
     ),
     source,
-    focus,
     tasks: tasks.input,
     elsewhereDestination: destination?.name ? { name: destination.name } : null,
     readOnlyIds,

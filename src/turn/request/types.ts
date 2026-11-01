@@ -295,7 +295,6 @@ export type RequestInput = {
   readonly gifs?: unknown;
   readonly pulled?: unknown;
   readonly source?: { readonly channelId: string; readonly reason: string } | null;
-  readonly focus?: { readonly id: string; readonly authorName?: string } | null;
   readonly tasks?: Tasks | null;
   readonly elsewhereDestination?: { readonly name?: string } | null;
   readonly readOnlyIds?: unknown;

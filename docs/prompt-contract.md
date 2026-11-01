@@ -645,7 +645,6 @@ memory.privateChannel                    heading used in place of a channel name
 memory.redaction                         the neutral token that replaces a forgotten member's mention inside a diary post (one word)
 limits.notice                            {limit} {used} {cap}: posted as a plain reply when a rail refuses a triggered action; limit is the config key, used/cap are the numbers
 limits.paused                            posted as a plain reply when the persona is called while paused. No placeholders. At most once per channel per 10 minutes (`src/behavior/limits.js#PAUSE_NOTICE_MINUTES`)
-room.focus                               {target} {author}: appended to the reply task when a room question triggers the turn
 address.author                           {name} {aliases}: the candidate author's display name and known aliases, shown to the address classifier when the member has aliases
 recent.header                            REQUIRED {hours}: the block's first line. A missing header or a missing `recent.line` means no `<recent>` block
 recent.line                              REQUIRED {date} {time} {text}: one note from the turn's own channel or an unnamed channel

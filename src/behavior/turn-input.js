@@ -51,7 +51,6 @@ export const TURN_INPUT_KEYS = Object.freeze([
   'gifs',
   'pulled',
   'source',
-  'focus',
   'tasks',
   'elsewhereDestination',
   'readOnlyIds',

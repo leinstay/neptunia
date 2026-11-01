@@ -203,7 +203,6 @@ export type PhaseParams = {
   chooseMode?: ((history: Array<object>, now: number, context: { pulled: Array<object> }) => string | null) | null;
   forced?: boolean;
   source?: { channelId: string; reason: 'routed' | 'noticed' } | null;
-  focus?: unknown;
   queued?: (() => unknown) | null;
   added?: ReadonlyArray<{ id?: string; text?: unknown } | null> | null;
   maySplit?: boolean;

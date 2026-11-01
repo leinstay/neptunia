@@ -147,7 +147,6 @@ export const SANDBOX_OMITS = Object.freeze({
   imageAnswers: 'no second look at a picture is run: no imageAnswered line',
   recallAvailable: 'no server search is run: <senses> does not offer it',
   drawOn: 'no drawing is offered: a sandbox never draws, so <senses> has no drawing line',
-  focus: 'no room question: a live turn has no caller for it either',
   tasks:
     "no part of a split message, no queued or folded call: a replay knows none (a skill scenario's burst hands in its waiting calls: `queued`)",
   recentAudience: "no guild to compare audiences in: <recent> shows the lines of the turn's own channel only",

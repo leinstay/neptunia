@@ -215,8 +215,6 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   in `not-now`. `channel` is where the words go and the one marked busy; the first post
    *   links to the routed call, or to the newest line of the source shown (none when the budget
    *   dropped its block).
-   * @param {object|null} [params.focus]  A normalized message of this chat put to everyone present
-   *   (a room question): buildRequest appends `labels.room.focus` to the task.
    * @param {boolean} [params.forced]  True for a turn someone asked for (`/nep message create`; was `/nep interject`, `/nep
    *   initiate`) -- passed straight through to buildRequest, which appends prompts.forced (when
    *   present) to the task text so the model knows `<skip/>` is not the expected outcome this time.
@@ -263,7 +261,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * features.privateLikeServer on (a missing key counts as on): the explicit `<#id>` mentions and
    * the route hook's ids are pulled from the served guild when the partner has View Channel on
    * them (checkPull), and the search classifier may ask for the server search (recall), its hits
-   * judged by the same rule. It never has neighbours, a source or a focus, and the channels it
+   * judged by the same rule. It has neither neighbours nor a source, and the channels it
    * shows move no seen mark, stamp no call of the ring and count for no pending ping there: the
    * persona answered in private, not on the server. The switch off, or no partner: no pull, no
    * route hook, no server search, as before.

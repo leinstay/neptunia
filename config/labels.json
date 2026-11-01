@@ -345,9 +345,6 @@
       "called": "This call came from #{channel}, where you cannot write. Your answer goes to #{destination} with a link to the call. A reaction you put on a #{channel} line lands there.",
       "link": "{text}\n{link}"
     },
-    "room": {
-      "focus": "Message {target} by {author} is for everyone in the room. Pick it up or let it pass."
-    },
     "recent": {
       "header": "The last {hours} hours on the server, oldest first. Draw on any of it when it comes up; don't bring it up on its own or list it out.",
       "line": "{date} {time}: {text}",

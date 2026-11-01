@@ -338,9 +338,6 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  *   destination has no name) follows the mode's task text -- when it is not, `{{target}}` is ''
  *   and no called text follows. The pulled block is fitted before the chat, and `<tempo>` is
  *   measured to `now` without saying that nobody answered the persona.
- * @param {object|null} [input.focus]  A message of the chat put to everyone present (a room
- *   question): `labels.room.focus` (`{author}` `{target}`) follows the task text when it is in
- *   the chat.
  * @param {{ part: { index: number, total: number, parts: string[] }|null, queued: string[],
  *   queuedOthers?: { author: string, text: string }[], added: string[], failedEarlier?: { author: string, messageId: string, link?: string, at: number, code: string }[] }|null} [input.tasks]  What else the trigger's author is waiting for, after
  *   the task text (src/behavior/turn.js). `part`: this turn answers one part of a message that
@@ -575,7 +572,6 @@ export function buildRequest(input) {
     gifs: input.gifs,
     pulled: input.pulled,
     source: input.source,
-    focus: input.focus,
     tasks: input.tasks,
     elsewhereDestination: input.elsewhereDestination,
     readOnlyIds: input.readOnlyIds,

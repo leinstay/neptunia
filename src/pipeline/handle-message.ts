@@ -112,8 +112,7 @@ export function createHandleMessage({
    * One message posted while the bot was offline (src/behavior/catch-up.js, at start), handled
    * like a live one with three differences: it is dropped when the gateway (or an earlier
    * catch-up) already delivered it; nothing at all happens while paused (no pause notice), in a
-   * private chat or for a line that is no call (no follow-up, eavesdrop or room question for
-   * stale chatter); and a call (a mention, a reply to the persona, her name -- the live
+   * private chat or for a line that is no call (no follow-up for stale chatter); and a call (a mention, a reply to the persona, her name -- the live
    * detectTrigger) reaches the ordinary call path (answerCall, or the settle wait of a channel
    * she cannot write in) only with `trigger` true, otherwise it is only observed. Never throws.
    */
