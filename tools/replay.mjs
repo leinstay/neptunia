@@ -63,7 +63,7 @@
 // left of her caps as data/guilds/<id>/inner.json has them now. The real turn runner over
 // Discord REST (GET only, every write refused), an in-memory port and an unflushed copy of the
 // memory store; `innerLife.mode` forced to `shadow`, so her reads run (on the simulator key)
-// and every other call is only proposed; features.dryRun and the journal off (a journal read, `memory.journal.read`, answers from the journal of the data read, read only); intentions read
+// and every other call is only proposed; the journal is not written (a journal read, `memory.journal.read`, answers from the journal of the data read, read only); intentions read
 // only (an expiry sweep writes nothing). Prints the request's blocks (`--show-request`: the
 // whole request), her answers, her proposed and executed actions, the cost.
 //
@@ -304,8 +304,8 @@
 // its diary history from the channel, and so compares with her diary. Not the sandbox: the sandbox never
 // builds a diary post (src/behavior/sandbox.js#SANDBOX_OMITS). `--topic`: the owner's topic as `/nep diary post <kind>
 // <topic>` threads it (trimmed, blank is none, then src/behavior/diary.ts#diaryTopic). What keeps the bot and its
-// memory untouched here: hot is seen with `features.dryRun = true` and `bot.dryRunChannelId = ''` (the turn ends in its
-// dry-run branch: nothing acted, drawn, recorded or mirrored); every Discord REST call but GET is refused; the store is
+// memory untouched here: every Discord REST call but GET is refused (`refuseDiscordWrites`: nothing is posted, edited or
+// typed, whatever the turn or her tools try); the memory database is opened read only; the store is
 // the real one with an in-memory copy of its state that is never flushed (flush, forget, wipe and reload methods
 // throw); the image client keeps its quota and refuses to generate; in that in-memory state only, today's diary picture
 // and image counts read 0 so the picture gate opens. Requests carry `origin: 'replay'` and never count against
@@ -325,9 +325,7 @@
 // compose request, the pictures generated, and the entry recorded, which the slot reports as what its publication would
 // send. A post a slot made is kept in the in-memory diary and counters, so the next slot sees it as the live diary
 // would. What keeps the bot and its memory untouched: every Discord REST call but GET is refused; the turn acts through
-// an in-memory interface port only (src/interface/fake.js); hot is seen with `features.dryRun` off (the engine's
-// dry-run branch generates no picture, the very thing recorded here), `features.typingSimulation` off and
-// `bot.dryRunChannelId` empty; the store is the real one over an in-memory copy of its state that is never flushed,
+// an in-memory interface port only (src/interface/fake.js); the store is the real one over an in-memory copy of its state that is never flushed,
 // with today's diary post, diary picture and image counts at 0; no journal and no record are wired; requests carry
 // `origin: 'replay'` and never count against `llm.maxRequestsPerDay`.
 // `--draw fake` (the default): the image client is the real one
@@ -2085,25 +2083,6 @@ export function overlayPromptsHot(createHot, root, promptsDir, { mergeJson = nul
 }
 
 /**
- * `hot` as a `--diary` turn sees it: `features.dryRun` on and
- * `bot.dryRunChannelId` empty (the turn acts on nothing and mirrors nothing);
- * everything else, the config's other keys included, read from `hot` at use.
- * @param {object} hot  From src/hot.js#createHot.
- */
-export function dryRunHot(hot) {
-  return new Proxy(hot, {
-    get(target, prop) {
-      if (prop === 'config') {
-        const config = target.config ?? {};
-        return config;
-      }
-      const value = Reflect.get(target, prop, target);
-      return typeof value === 'function' ? value.bind(target) : value;
-    },
-  });
-}
-
-/**
  * Whether a live turn's web search could run (`<senses>`'s search line): the
  * lookup's own `hasSearch()` for the configured `web.search.engine`, wired as
  * src/index.js wires it (`brave` needs BRAVE_SEARCH_API_KEY, `exa` and
@@ -2269,7 +2248,7 @@ function addUsage(usage, mine) {
  * and never posts, edits or types there.
  * @param {unknown} given  a discord.js client
  */
-function refuseDiscordWrites(given) {
+export function refuseDiscordWrites(given) {
   // discord.js's client: its REST manager queues every request.
   const client = /** @type {{ rest: { queueRequest: (request: { method?: string }) => Promise<unknown> } }} */ (given);
   const queueRequest = client.rest.queueRequest.bind(client.rest);
@@ -2400,7 +2379,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       layered = overlayPromptsHot(createHot, root, args.prompts);
       log.info('replay-cli: diary prompt layers', { layers: diaryPromptLayers(root, args.prompts).length });
     }
-    const hot = dryRunHot(layered?.hot ?? liveHot);
+    const hot = layered?.hot ?? liveHot;
     const config = hot.config;
     const weight = DIARY_KINDS[kind];
     if (!(Number.isFinite(weight) && weight > 0))
@@ -2568,10 +2547,9 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
 // ---- an inner turn (--inner) ----------------------------------------------------
 
 /**
- * `hot` as an `--inner` turn sees it: `features.innerLife` on and `innerLife.mode` forced to
- * `shadow` (her reads run, nothing else does), `features.dryRun` off (shadow keeps everything in;
- * a dry run would not run her tool loop), `features.journal` off (nothing is journalled), the
- * dry-run mirror off. Every other value as the config read has it; the live config untouched.
+ * `hot` as an `--inner` turn sees it: `innerLife.mode` forced to `shadow` (her reads run, nothing else
+ * does). Every other value as the config read has it; the live config untouched. The journal stays
+ * off because the runner is given none (`journal: null`).
  */
 export function innerReplayHot(hot) {
   return new Proxy(hot, {
@@ -3316,25 +3294,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
 // ---- a diary day (--diary-day) ---------------------------------------------------
 
 /**
- * `hot` as a `--diary-day` turn sees it: `features.dryRun` off (its branch generates no
- * picture: the posts go to an in-memory port instead), `features.typingSimulation` off (no
- * waits) and `bot.dryRunChannelId` empty; everything else read from `hot` at use.
- * @param {object} hot  From src/hot.js#createHot.
- */
-export function noPostHot(hot) {
-  return new Proxy(hot, {
-    get(target, prop) {
-      if (prop === 'config') {
-        const config = target.config ?? {};
-        return config;
-      }
-      const value = Reflect.get(target, prop, target);
-      return typeof value === 'function' ? value.bind(target) : value;
-    },
-  });
-}
-
-/**
  * The OpenRouter key of a `--diary-day` run: with `--draw live` OPENROUTER_SIM_KEY only (a
  * CliError without it: live pictures never fall back to the bot's key), else the tools' slot
  * (tools/lib/cli.mjs#simKey). Never printed.
@@ -3398,8 +3357,7 @@ export function diaryDayGate(args, config, { planDay, zonedEpoch, localDayKey },
 async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, signal }) {
   const mods = await loadDiaryMods(load);
   const { localDayKey, planDay } = mods;
-  const { createStore, createCalibrator, createLlm, createImageGen, ImageCapError, resolveGuild, createFakeAdapter } =
-    mods;
+  const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild, createFakeAdapter } = mods;
   const { parseJsonObject, zonedEpoch } = mods;
 
   // The day plan, before anything is read from Discord or sent: its slots are the estimate.
@@ -3468,7 +3426,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
 
   let client = null;
   try {
-    const hot = noPostHot(liveHot);
+    const hot = liveHot;
     const config = hot.config;
 
     // The clock of the turn runner and the image client: the slot's instant, running on from there.
@@ -3495,7 +3453,6 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
     });
     const images = recordingImages({
       images: realImages,
-      ImageCapError,
       maxPictures: live ? args.maxPictures : null,
       onPicture: live
         ? (picture, index) => {

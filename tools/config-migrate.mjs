@@ -125,7 +125,9 @@ function compareSettings(before, after, selfId) {
     if (stable(old) === stable(now)) equal += 1;
     else differ.push(`${name}: before ${stable(old)}, after ${stable(now)}`);
   };
-  for (const key of ERRAND_KEYS)
+  // A key the cut turned into a constant is no longer a setting: the live value is reported as cut, not as a move.
+  const cut = new Set(CUT_KEYS.map((entry) => entry.key));
+  for (const key of ERRAND_KEYS.filter((name) => !cut.has(`errands.${name}`)))
     check(`agents.${key} -> errands.${key}`, objectOf(before.agents)[key], objectOf(after.errands)[key]);
   for (const [name, keys] of COMPARED_AGENTS) {
     const old = objectOf(objectOf(before.agents)[name]);

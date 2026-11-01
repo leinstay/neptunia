@@ -1303,7 +1303,6 @@ async function triggerRun({ single, transport = null, answers, config = toolConf
   const tools = { run: async () => okTool('Η Ana κέρδισε.'), prefetch: async () => null, recallAvailable: () => true };
   const loopDeps = {
     toolsFor: () => tools,
-    coreToolsOn: () => true,
     loopSettings,
     IN_TURN_TOOLS,
     transportOf,
