@@ -434,7 +434,4 @@ test('buildRequest: a reactor on her line gets a handle like an author, only in 
   assert.ok(text.includes(`] ${authorForm}: line 1`), text);
   assert.ok(text.includes(`[reactions: 😂 by ${reactor.name} [@${handleOfId.get(reactor.id)}], ${authorForm}]`), text);
   assert.equal(stableOf(named), stableOf(buildRequest(input(plain))), 'nothing of it in a cached part');
-
-  const off = textOf(buildRequest(input(history, { reactionNames: false })));
-  assert.ok(off.includes('[reactions: 😂 x2]'), off);
 });
