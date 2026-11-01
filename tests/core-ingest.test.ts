@@ -23,6 +23,8 @@ type Db = { prepare(sql: string): { all(...args: Array<unknown>): Array<Row> } }
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const PRIVATE_CONFIG = {
   bot: { timezone: 'UTC', owners: [], guildId: 'g1' },
+  // No video role, so the start sends no canary probe to YouTube.
+  models: { base: { video: false } },
   pace: { settleMs: 0, settleMaxMs: 0 },
   typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },
   features: {
