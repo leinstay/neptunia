@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { backupsIn } from '../src/memory/db/backup.js';
+import { backupsIn } from '../src/memory/db/backup.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';

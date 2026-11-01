@@ -24,7 +24,7 @@ import { memoryHealth } from '../../health/memory.ts';
 import { serverHealth, systemProbe, worse } from '../../health/server.ts';
 import type { HealthStatus } from '../../health/server.ts';
 import { DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../../llm/roles.js';
-import { backupDatabase, backupName, backupSettings, backupsIn, partialOf } from '../../memory/db/backup.js';
+import { backupDatabase, backupName, backupSettings, backupsIn, partialOf } from '../../memory/db/backup.ts';
 import { grantedSkillNames } from '../../tools/discovery.ts';
 import { ownValueAt, splitPath } from '../../tools/impl/shared.ts';
 import { skillRegistry } from '../../tools/registry.ts';
@@ -57,7 +57,7 @@ export type ConsoleDeps = {
   /** The private directory, where config.local/config.json lives. */
   privateDir: string;
   dataDir: string;
-  /** The memory database (src/memory/db/service.js): `database()` is its read connection, null while it is closed. */
+  /** The memory database (src/memory/db/service.ts): `database()` is its read connection, null while it is closed. */
   memoryDb: unknown;
   usage: { byRole(): Array<RoleRow>; sumDays(days: number): DaysSum } | null;
   /** The speed figures (src/tools/impl/metrics.ts): `samples('reply', 24)` are the reply durations of the last day. */
@@ -187,7 +187,7 @@ export function createConsole(deps: ConsoleDeps): {
   run(name: string, args: Record<string, unknown>, requester: { id: string }): Promise<Answer>;
 } {
   const config = (): unknown => objOf(deps.hot).config;
-  // The read connection is a DatabaseSync (src/memory/db/open.js), null while the database is closed.
+  // The read connection is a DatabaseSync (src/memory/db/open.ts), null while the database is closed.
   const database = (): DatabaseSync | null => (callMethod(deps.memoryDb, 'database') as DatabaseSync | null) ?? null;
   const replyDurations = (): Array<number> =>
     listOf(callMethod(deps.metrics, 'samples', 'reply', 24)).filter((ms): ms is number => typeof ms === 'number');

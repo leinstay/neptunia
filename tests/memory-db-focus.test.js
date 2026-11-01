@@ -9,8 +9,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openMemoryDb } from '../src/memory/db/open.js';
-import { insertRows } from '../src/memory/db/rows.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { insertRows } from '../src/memory/db/rows.ts';
 import {
   MOVE_REASONS,
   affinity01,
@@ -21,8 +21,8 @@ import {
   runFocusDay,
   scoreOf,
   setOverride,
-} from '../src/memory/db/focus.js';
-import { createMemoryDb } from '../src/memory/db/service.js';
+} from '../src/memory/db/focus.ts';
+import { createMemoryDb } from '../src/memory/db/service.ts';
 import { tableHashes } from '../tools/memory-db.mjs';
 import { buildDataDir } from './fixtures/memory-db/datadir.js';
 
@@ -378,14 +378,14 @@ test('focus fixture: the reader gives member ids of the interface, close then ex
       const abs = path.join(dir, entry.name);
       if (entry.isDirectory()) walkDir(abs);
       else if (
-        entry.name.endsWith('.js') &&
+        /\.(js|ts)$/.test(entry.name) &&
         /focus_members|focus_events|relationship_daily/.test(fs.readFileSync(abs, 'utf8'))
       )
         readers.push(path.relative('src', abs));
     }
   };
   walkDir('src');
-  assert.deepEqual(readers.sort(), ['memory/db/focus.js', 'memory/db/schema.js']);
+  assert.deepEqual(readers.sort(), ['memory/db/focus.ts', 'memory/db/schema.ts']);
 });
 
 // ---------- the daily job ----------

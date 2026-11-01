@@ -9,7 +9,7 @@
 // request, one kind of request) to a model of its own whatever its model role.
 // models.base
 // - `core`       speaks as the persona: the reply;
-// - `memory`     her memory session and description review (src/memory/db/session.js); its default
+// - `memory`     her memory session and description review (src/memory/db/session.ts); its default
 //                is the core's, it is not listed by `/nep model`, and its key never falls back;
 // - `analyzer`   the core's classifier model: picks one of a few given options (address, room,
 //                merge, route-channel, participation-pick, rewatch, split, gif-pick, missed),
@@ -41,7 +41,7 @@ import { isPlainObject } from '../config.js';
 export const CORE_ROLE = 'core';
 
 /**
- * Her memory session and description review (src/memory/db/session.js): words in her voice, so the model role sits beside
+ * Her memory session and description review (src/memory/db/session.ts): words in her voice, so the model role sits beside
  * the core (`models.base.memory`, built-in default the core's), but it is not one of ROLES: `/nep model` does not list it.
  * Its key (`llm.keyByRole.memory`) never falls back to another key.
  */
@@ -171,7 +171,7 @@ export const PURPOSE_ROLES = Object.freeze({
 });
 
 /**
- * The purposes of the model role `memory` (her memory session and description review, src/memory/db/session.js and
+ * The purposes of the model role `memory` (her memory session and description review, src/memory/db/session.ts and
  * describe.js): not in PURPOSE_ROLES, as that model role is not one of ROLES.
  */
 export const MEMORY_PURPOSES = Object.freeze(['memory-session', 'description-draft', 'description-check']);

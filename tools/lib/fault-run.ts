@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startCore } from '../../src/core.js';
 import { createFakeAdapter } from '../../src/interface/fake.js';
-import { openMemoryDb } from '../../src/memory/db/open.js';
+import { openMemoryDb } from '../../src/memory/db/open.ts';
 import { start as startFake } from '../../src/interface/fake-interface.ts';
 import type { FakeInterface } from '../../src/interface/fake-interface.ts';
 import type { ConversationInfo, MessageEvent } from '../../src/protocol/adapter.ts';

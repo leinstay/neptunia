@@ -6,9 +6,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.js';
-import { exportOne } from '../src/memory/db/export.js';
-import { applyUnitWrite } from '../src/memory/db/unit-write.js';
+import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
+import { exportOne } from '../src/memory/db/export.ts';
+import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
 import { GUILD, MEMBER, seen, writeJson, writeLines } from './fixtures/memory-db/datadir.js';
 import { tempDir } from './fixtures/tmp.js';

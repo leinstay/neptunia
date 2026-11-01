@@ -18,8 +18,8 @@ import { readConfig } from '../src/config.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
 import { moveConfigKeys } from '../src/config-moves.ts';
-import { openMemoryDb } from '../src/memory/db/open.js';
-import { insertRows } from '../src/memory/db/rows.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { insertRows } from '../src/memory/db/rows.ts';
 
 type Settings = Record<string, unknown>;
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

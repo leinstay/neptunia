@@ -12,7 +12,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { openMemoryDb } from '../../src/memory/db/open.js';
+import { openMemoryDb } from '../../src/memory/db/open.ts';
 
 /**
  * The read-only memory of `dataDir` (see the head of this file). `close()` closes the database; `found` says whether

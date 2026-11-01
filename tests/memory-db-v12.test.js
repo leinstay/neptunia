@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.js';
+import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
 import { channelPlaceId } from '../src/memory/db/ids.ts';
 import { CHANNEL, buildDataDir } from './fixtures/memory-db/datadir.js';

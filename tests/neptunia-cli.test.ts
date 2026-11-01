@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { join } from 'node:path';
-import { lockPathOf, openMemoryDb } from '../src/memory/db/open.js';
+import { lockPathOf, openMemoryDb } from '../src/memory/db/open.ts';
 import {
   ANSWER,
   CLI_CLIENT,

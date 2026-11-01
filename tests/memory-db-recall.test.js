@@ -1,4 +1,4 @@
-// Recall over the memory database (src/memory/db/recall.js) and the stems the unit writes fill (src/memory/db/stems.js), on
+// Recall over the memory database (src/memory/db/recall.ts) and the stems the unit writes fill (src/memory/db/stems.ts), on
 // synthetic Greek and accented Latin text: inflected forms, phrases, the trigram fallback, fusion, date ranking, scope
 // filtering with the hidden marker, and window reads at the edges and across a hidden line.
 import { test } from 'node:test';
@@ -11,11 +11,11 @@ import { createRecall } from '../src/behavior/recall-run.js';
 import { snapshotOf } from '../src/behavior/snapshot.ts';
 import { channel as channelInfo, privateChannel } from './fixtures/reads-rig.ts';
 import { memorySearchText, runMemorySearch } from '../src/tools/tools.ts';
-import { openMemoryDb } from '../src/memory/db/open.js';
-import { search, window, quotesOf, dbSettings } from '../src/memory/db/recall.js';
-import { fillStems, loadStemmer, stemsOf } from '../src/memory/db/stems.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { search, window, quotesOf, dbSettings } from '../src/memory/db/recall.ts';
+import { fillStems, loadStemmer, stemsOf } from '../src/memory/db/stems.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
-import { insertRows } from '../src/memory/db/rows.js';
+import { insertRows } from '../src/memory/db/rows.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.js';
 import { channelPlaceId, dmPlaceId, messageSourceId, personId } from '../src/memory/db/ids.ts';
 import { dmContext, dmScope, groupContext, groupScope, internalContext } from '../src/memory/db/scope.ts';
@@ -1192,7 +1192,7 @@ test('words: a wide pool is ranked by the distinct terms a line holds; relevance
 });
 
 test('gate: a hit holding the most distinct terms passes even under the share of the best fused score', async () => {
-  const { passGate } = await import('../src/memory/db/recall.js');
+  const { passGate } = await import('../src/memory/db/recall.ts');
   const visible = [
     { id: 'a', score: 0.032 },
     { id: 'b', score: 0.016 },

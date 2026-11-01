@@ -1,8 +1,8 @@
 // Round trips of intentions.js and errands.js through the real schema.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as intentions from '../src/memory/db/map/intentions.js';
-import * as errands from '../src/memory/db/map/errands.js';
+import * as intentions from '../src/memory/db/map/intentions.ts';
+import * as errands from '../src/memory/db/map/errands.ts';
 import { assertRoundTrip, roundTrip } from './fixtures/memory-db/roundtrip.js';
 
 const intention = (id, extra = {}) => ({

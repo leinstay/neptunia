@@ -374,7 +374,7 @@ function fileStateOf(state: InnerState): Omit<InnerState, 'queue' | 'handled' | 
 }
 
 /**
- * One write of the turn's wake run through the memory database's writer (src/memory/db/wakes.js), in order with the
+ * One write of the turn's wake run through the memory database's writer (src/memory/db/wakes.ts), in order with the
  * others; a failure is logged with a code. Never throws.
  */
 export function wakeWrite(life: InnerContext, update: WakeUpdate): void {

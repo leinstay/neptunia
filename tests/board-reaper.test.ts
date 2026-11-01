@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { openBoard } from '../src/board/board.ts';
 import type { BoardSettings } from '../src/board/board.ts';
 import { startReaper } from '../src/board/reaper.ts';

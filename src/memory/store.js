@@ -1,4 +1,4 @@
-// Persistent memory: the memory database (src/memory/db/service.js) holds it, this module caches it -- it survives
+// Persistent memory: the memory database (src/memory/db/service.ts) holds it, this module caches it -- it survives
 // restarts, hot reloads and prompt edits; nothing in the codebase ever wipes it. Each cached value is one unit of the
 // database, named by the path it had under data/ (`guilds/<g>/users/<u>.json`; the mappers of src/memory/db/map/
 // turn a unit into rows and back); the operational files beside it stay JSON files under data/:
@@ -37,7 +37,7 @@
 //
 // The errand tasks (src/errands/store.ts) and the intentions (src/intentions/store.ts) are units of their own
 // stores, not cached here. Everything is cached in memory, marked dirty on change and flushed on a timer and on
-// shutdown: a memory unit's whole value goes to the database's writer through an outbox (src/memory/db/unit-outbox.js),
+// shutdown: a memory unit's whole value goes to the database's writer through an outbox (src/memory/db/unit-outbox.ts),
 // an operational file is written atomically (temp file + rename; when the OS refuses the rename the file is written
 // in place instead, with a warning, see writeJsonAtomic).
 //
@@ -103,10 +103,10 @@ import { PARTICIPATION_DEFAULTS, emptyParticipation, expireEpisodes, normalizePa
 import { ITEM_ID_PREFIX, archiveEntry, archiveRevision } from './archive.js';
 import { normalizeAvatar } from './avatars.js';
 import { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR, memoryRootOf } from './root.js';
-import { createReadSeam, unitValue } from './db/readers/common.js';
-import { idsUnderDir } from './db/export.js';
-import { classify } from './db/map/index.js';
-import { createUnitOutbox } from './db/unit-outbox.js';
+import { createReadSeam, unitValue } from './db/readers/common.ts';
+import { idsUnderDir } from './db/export.ts';
+import { classify } from './db/map/index.ts';
+import { createUnitOutbox } from './db/unit-outbox.ts';
 
 const DIARY_HISTORY_POSTS = 150; // diary.historyPosts
 
@@ -358,7 +358,7 @@ function findInvalidJsonFiles(dataDir, { only = null } = {}) {
 }
 
 /**
- * The JSON files written as files (src/memory/db/paths.js#OPERATIONAL_PATTERNS lists every operational path): the
+ * The JSON files written as files (src/memory/db/paths.ts#OPERATIONAL_PATTERNS lists every operational path): the
  * process's operational state, the request dumps and tool lists, the backfill folder, the vault and the snapshots, the
  * GIF library and the vision cache, the participation file, and the unit writes a shutdown could not make
  * (`memory-pending/`). Paths relative to the data directory. `/nep resume` checks only these (`validate`).
@@ -369,7 +369,7 @@ export function operationalJsonPath(rel) {
   const name = String(rel).replace(/\\/g, '/');
   if (/^(?:state|usage|metrics)\.json$/.test(name)) return true;
   if (/^(?:vault|snapshots)\//.test(name)) return true;
-  // The unit writes a shutdown could not make (src/memory/db/service.js#keepPending).
+  // The unit writes a shutdown could not make (src/memory/db/service.ts#keepPending).
   if (/^memory-pending\//.test(name)) return true;
   const inGuild = /^guilds\/[^/]+\/(?:private\/[^/]+\/)?(.+)$/.exec(name)?.[1];
   if (!inGuild) return false;
@@ -1014,7 +1014,7 @@ function normalizeChannel(channel) {
  *   `memoryDb` (the memory database service): every memory unit of the cache (users, private layers, channels, the
  *   guild, lore, recent, versions, the diary) is loaded from it (`unitValue`; a unit it does not hold is new; a closed
  *   database throws, with a code), whether it exists is the database's `files` row (`known`), a directory's ids
- *   are the database's (`idsUnder`), and a flush hands its whole value to the outbox (src/memory/db/unit-outbox.js,
+ *   are the database's (`idsUnder`), and a flush hands its whole value to the outbox (src/memory/db/unit-outbox.ts,
  *   op `value`): the entry stays the truth and counts as written only when the outbox no longer holds it (the write
  *   resolved); a failed write waits there and goes again at the next flush. The operational files
  *   (`operationalJsonPath`: state, gifs, media, participation, ...) are read and written as files; `media.json` and
@@ -3060,7 +3060,7 @@ export function createStore({
      * The flush before a shutdown or a pause: waits up to `holdMaxMs` (`archive.holdMaxMs`,
      * config.json's 5000 when missing) for the archive to take what holds files back, then writes
      * everything, held or not; files written while still held are logged as `store: flushed held`. It then
-     * waits for the database to take what the flush handed over (unit-outbox.js#flush) and, with `final`
+     * waits for the database to take what the flush handed over (unit-outbox.ts#flush) and, with `final`
      * (the shutdown), keeps what still fails in `memory-pending/` (`pending` counts them; an error is logged).
      * @param {{ holdMaxMs?: number, final?: boolean }} [opts]
      * @returns {Promise<{ written: number, failed: number, held: number, waiting?: number, pending?: number }>}
@@ -3268,7 +3268,7 @@ export function createStore({
 
     /**
      * Her memory session moved these people's attitude in the database (`[{ personId, applied }]`,
-     * src/memory/db/service.js#onAffinityMoves, any person id `person:<interface>:<id>`). A member's cached profile
+     * src/memory/db/service.ts#onAffinityMoves, any person id `person:<interface>:<id>`). A member's cached profile
      * holds the attitude as it was before the move, so it is dropped: a clean entry no write holds at once, any other
      * (changed since, or its write still under way) once its write has landed (`stale`, see `entry`). Its write keeps
      * the session's score and reason (src/memory/db/session-rows.ts#sessionHold), and the next read takes the

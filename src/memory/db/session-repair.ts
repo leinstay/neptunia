@@ -1,4 +1,4 @@
-// Schema v17's data step (schema.js, MIGRATIONS): a repair of what the unit sync undid before her memory session's rows were kept apart from the files' (upsert.js wrote the
+// Schema v17's data step (schema.ts, MIGRATIONS): a repair of what the unit sync undid before her memory session's rows were kept apart from the files' (upsert.ts wrote the
 // file's copy of a row back over her session's change). For each row a file owns, it takes the latest state her
 // session recorded and sets the row back to it, when that state is newer than the row's last change by the file:
 //   - a claim: her session's newest version (`claim_versions`, origin `session`) gives the text, the last-seen time
@@ -125,7 +125,7 @@ function repairAttitudes(db: Db): number {
 
 /** Schema v17 on `connection` (a node:sqlite connection, inside the migration's transaction). */
 export function repairSessionRows(connection: unknown): void {
-  const db = connection as Db; // open.js#migrate hands every step its connection
+  const db = connection as Db; // open.ts#migrate hands every step its connection
   const claims = repairClaims(db);
   const descriptions = repairDescriptions(db);
   const reasons = repairAttitudes(db);

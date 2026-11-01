@@ -1,7 +1,7 @@
 // The archive: every memory item that leaves a hot list, kept for good. Hot memory forgets by
 // design (caps, expiry, the analyzer's removes and replaces); before an item leaves, its last
 // version is written here, so nothing the persona once held is lost to a cap. One line per event
-// in the memory database (src/memory/db/service.js), in the unit of its month,
+// in the memory database (src/memory/db/service.ts), in the unit of its month,
 // `guilds/<guildId>/archive/<YYYY-MM>.jsonl` by the entry's `recordedAt`; a private layer's
 // items go under `private/<userId>/archive/` instead and never into the guild archive.
 //
@@ -30,8 +30,8 @@ import { stripUrls } from './clamp.js';
 import { TEACHER_TOKEN_RE, tokenIds } from './mentions.ts';
 import { isoOf, revisionOf } from './record.js';
 import { memoryRootOf } from './root.js';
-import { createReadSeam } from './db/readers/common.js';
-import { archiveLayers, archiveLines, archiveMonths } from './db/readers/archive.js';
+import { createReadSeam } from './db/readers/common.ts';
+import { archiveLayers, archiveLines, archiveMonths } from './db/readers/archive.ts';
 
 /** The schema version every entry carries. */
 export const ARCHIVE_VERSION = 1;
@@ -301,8 +301,8 @@ function parse(line) {
  * @param {(() => Promise<void>)|null} [options.writerGate]  awaited before every append, queue and
  *   drain: the journal's `waitUnlocked`, so its writer lock (src/memory/journal.js#withWriterLock)
  *   holds the archive's writers too
- * @param {object|null} options.memoryDb  the memory database service (src/memory/db/service.js): `iterate` and
- *   `find` are answered from it (src/memory/db/readers/archive.js), a failed read rejects with a code; `append`
+ * @param {object|null} options.memoryDb  the memory database service (src/memory/db/service.ts): `iterate` and
+ *   `find` are answered from it (src/memory/db/readers/archive.ts), a failed read rejects with a code; `append`
  *   writes the entries it does not refuse as lines of the month's unit (`memoryDb.writeUnit`, op `lines`), and a
  *   failed write rejects as a failed append does (the store then queues the entries in the pending file and the
  *   drain writes them through `append` again)

@@ -1408,8 +1408,8 @@ The config keys that can appear as `{limit}`: `llm.maxRequestsPerDay` and `llm.m
 
 ## Her memory session and description review
 
-The memory database's session (`src/memory/db/session.js`, `memoryDb.session.mode` `shadow` or `apply`) and the
-description review (`src/memory/db/describe.js`). Prompts: `prompts/memory-session.md`, `prompts/description-draft.md`,
+The memory database's session (`src/memory/db/session.ts`, `memoryDb.session.mode` `shadow` or `apply`) and the
+description review (`src/memory/db/describe.ts`). Prompts: `prompts/memory-session.md`, `prompts/description-draft.md`,
 `prompts/description-check.md`. They are neutral engine text; the persona comes in through her card, rules and the
 memory blocks, as in her turns. The requests go out on the role `memory` (`models.memory`, its own key
 `llm.keyByRole.memory`, no fallback to another key), purposes `memory-session`, `description-draft` and
@@ -1460,7 +1460,7 @@ Everything in the request apart from the batch (profiles, claims, episodes) is a
 again after it is left out.
 
 One request per scope and page of people: the public channels of an interface together, each private conversation
-alone, at most `maxMessages` lines, read after the scope's cursor and never newer than ten minutes (`src/memory/db/session.js#DEFAULTS.settleMinutes`).
+alone, at most `maxMessages` lines, read after the scope's cursor and never newer than ten minutes (`src/memory/db/session.ts#DEFAULTS.settleMinutes`).
 
 ### Memory session answer
 

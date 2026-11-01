@@ -387,7 +387,7 @@ export type CostMeter = {
 /** The `inner.wake` event the life hands to the door. */
 export type InnerWakeEvent = { kind: 'inner.wake'; at: number; id: string; communityId: string; wake: Wake };
 
-/** One write of a wake run to the memory database (src/memory/db/wakes.js). */
+/** One write of a wake run to the memory database (src/memory/db/wakes.ts). */
 export type WakeUpdate = { kind: 'wake'; op: 'start' | 'actions' | 'finish' } & Obj;
 
 /** What the inner life logs through. */
@@ -452,7 +452,7 @@ export type InnerContext = {
   sleep: { windows: Array<readonly [number, number]>; pausedFrom: number | null; slept: Map<string, number> };
 };
 
-/** The memory database as the inner life uses it (src/memory/db/service.js): wake runs, the writer, the reads. */
+/** The memory database as the inner life uses it (src/memory/db/service.ts): wake runs, the writer, the reads. */
 export type InnerMemoryDb = {
   recordWake?(update: WakeUpdate): unknown;
   memoryWrite?(update: WakeQueueUpdate): Promise<unknown>;

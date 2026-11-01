@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import {
   acquireLease,
   claimWake,

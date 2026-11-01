@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { memoryHealth } from '../src/health/memory.ts';
 import { tempDir } from './fixtures/tmp.js';
 

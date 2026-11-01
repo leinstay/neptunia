@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { main, tableHashes } from '../tools/memory-db.mjs';
 import type { BoardDb } from '../src/board/schema.ts';
 import { ARCHIVE, archiveDataDir } from './fixtures/errand-archive.ts';

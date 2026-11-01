@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import {
   SKILL_USE_KINDS,
   activateSkill,

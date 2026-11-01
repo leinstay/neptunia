@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createMemoryDb } from '../src/memory/db/service.js';
+import { createMemoryDb } from '../src/memory/db/service.ts';
 import { createStore, operationalJsonPath } from '../src/memory/store.js';
 import { createRecord } from '../src/memory/record.js';
 import { createVectors } from '../src/memory/vectors.js';

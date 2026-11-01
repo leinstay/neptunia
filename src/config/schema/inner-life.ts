@@ -76,7 +76,7 @@ export const INNER_LIFE: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'innerLife.loop.timeBudgetMs',
     'types': ['number'],
-    'reader': 'src/memory/db/service.js',
+    'reader': 'src/memory/db/service.ts',
     'default': 180000,
     'text': "Time budget of an inner turn's calls",
   },

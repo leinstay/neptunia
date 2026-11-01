@@ -18,7 +18,7 @@ export type Route = { destination: Conv | null; reason?: string | null };
 /** What createConversations reads: the dependencies of createMessageHandler. */
 export type ConversationsContext = {
   reads: Reads;
-  /** The memory database (src/memory/db/service.js), read for the places of her diary. */
+  /** The memory database (src/memory/db/service.ts), read for the places of her diary. */
   memoryDb: Parameters<typeof isMirrorPlace>[0];
   getGuildId: () => string | null;
 };

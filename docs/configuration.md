@@ -200,14 +200,14 @@ The memory database. One SQLite file, kept in sync with the stored memory. See [
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `memoryDb.file` | string | `"memory.db"` | The database file under `data/`. Tools open it read-only | `src/memory/db/service.js` |
-| `memoryDb.closeTimeoutMs` | number | `10000` | At shutdown, how long to wait for the pass under way before the worker is terminated | `src/memory/db/service.js` |
+| `memoryDb.file` | string | `"memory.db"` | The database file under `data/`. Tools open it read-only | `src/memory/db/service.ts` |
+| `memoryDb.closeTimeoutMs` | number | `10000` | At shutdown, how long to wait for the pass under way before the worker is terminated | `src/memory/db/service.ts` |
 | `memoryDb.observeTimeoutMs` | number | `5000` | How long the message handler waits for an observation's commit before going on | `src/behavior/pipeline.js` |
 | `memoryDb.ingestKeepDays` | number | `7` | How many days the `ingest` table keeps an event the core took, the window in which a redelivered event is still a duplicate after a restart | `src/memory/db/ingest.ts` |
-| `memoryDb.backup.enabled` | boolean | `false` | Daily backup of the memory database. See the settings below | `src/memory/db/backup.js` |
-| `memoryDb.backup.hour` | number | `3` | The UTC hour (0 to 23) from which the day's backup is taken | `src/memory/db/backup.js` |
-| `memoryDb.backup.dir` | string | `"../backups/memory"` | Where the backups go, relative to the data directory or absolute | `src/memory/db/backup.js` |
-| `memoryDb.backup.keep` | number | `7` | How many finished backups are kept | `src/memory/db/backup.js` |
+| `memoryDb.backup.enabled` | boolean | `false` | Daily backup of the memory database. See the settings below | `src/memory/db/backup.ts` |
+| `memoryDb.backup.hour` | number | `3` | The UTC hour (0 to 23) from which the day's backup is taken | `src/memory/db/backup.ts` |
+| `memoryDb.backup.dir` | string | `"../backups/memory"` | Where the backups go, relative to the data directory or absolute | `src/memory/db/backup.ts` |
+| `memoryDb.backup.keep` | number | `7` | How many finished backups are kept | `src/memory/db/backup.ts` |
 
 ### `memoryDb.session`
 
@@ -215,21 +215,21 @@ Her memory session: she reads new chat lines of one scope and says what she keep
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `memoryDb.session.mode` | string | `"off"` | `off`: nothing runs. `shadow`: proposed changes are recorded as decisions, nothing applied. `apply`: changes are written to the database | `src/memory/db/describe.js` |
-| `memoryDb.session.maxMessages` | number | `200` | Lines in one request | `src/memory/db/session.js` |
-| `memoryDb.session.minMessages` | number | `5` | A scope with fewer new lines waits | `src/memory/db/session.js` |
-| `memoryDb.session.sweepsPerScopePerDay` | number | `24` | Sweeps that reach one scope per UTC day | `src/memory/db/session.js` |
-| `memoryDb.session.everyMinutes` | number | `60` | Minutes between sweeps (with `mode` `apply`) | `src/memory/db/session.js` |
-| `memoryDb.session.reviewsPerDay` | number | `6` | Description reviews per UTC day. `0` disables | `src/memory/db/service.js` |
-| `memoryDb.session.since` | string, null | `null` | An ISO date; a scope with no cursor starts from this date. `null`: the first line | `src/memory/db/session.js` |
-| `memoryDb.session.maxPeople` | number | `12` | People shown per request, most active first | `src/memory/db/session.js` |
-| `memoryDb.session.claimsPerPerson` | number | `30` | Claims listed per person | `src/memory/db/session.js` |
-| `memoryDb.session.selfMax` | number | `40` | Her own claims listed | `src/memory/db/session.js` |
-| `memoryDb.session.episodesMax` | number | `20` | Episodes listed | `src/memory/db/session.js` |
-| `memoryDb.session.maxOutputTokens` | number | `8000` | Token limit for a session request | `src/memory/db/session.js` |
-| `memoryDb.session.timeoutMs` | number | `300000` | Timeout of a session request | `src/memory/db/session.js` |
-| `memoryDb.session.descriptionMaxOutputTokens` | number | `1500` | Token limit for each call of a description review | `src/memory/db/session.js` |
-| `memoryDb.session.retryLimit` | number | `3` | How many sweeps an `all_dropped` batch is retried before it is skipped | `src/memory/db/session.js` |
+| `memoryDb.session.mode` | string | `"off"` | `off`: nothing runs. `shadow`: proposed changes are recorded as decisions, nothing applied. `apply`: changes are written to the database | `src/memory/db/describe.ts` |
+| `memoryDb.session.maxMessages` | number | `200` | Lines in one request | `src/memory/db/session.ts` |
+| `memoryDb.session.minMessages` | number | `5` | A scope with fewer new lines waits | `src/memory/db/session.ts` |
+| `memoryDb.session.sweepsPerScopePerDay` | number | `24` | Sweeps that reach one scope per UTC day | `src/memory/db/session.ts` |
+| `memoryDb.session.everyMinutes` | number | `60` | Minutes between sweeps (with `mode` `apply`) | `src/memory/db/session.ts` |
+| `memoryDb.session.reviewsPerDay` | number | `6` | Description reviews per UTC day. `0` disables | `src/memory/db/service.ts` |
+| `memoryDb.session.since` | string, null | `null` | An ISO date; a scope with no cursor starts from this date. `null`: the first line | `src/memory/db/session.ts` |
+| `memoryDb.session.maxPeople` | number | `12` | People shown per request, most active first | `src/memory/db/session.ts` |
+| `memoryDb.session.claimsPerPerson` | number | `30` | Claims listed per person | `src/memory/db/session.ts` |
+| `memoryDb.session.selfMax` | number | `40` | Her own claims listed | `src/memory/db/session.ts` |
+| `memoryDb.session.episodesMax` | number | `20` | Episodes listed | `src/memory/db/session.ts` |
+| `memoryDb.session.maxOutputTokens` | number | `8000` | Token limit for a session request | `src/memory/db/session.ts` |
+| `memoryDb.session.timeoutMs` | number | `300000` | Timeout of a session request | `src/memory/db/session.ts` |
+| `memoryDb.session.descriptionMaxOutputTokens` | number | `1500` | Token limit for each call of a description review | `src/memory/db/session.ts` |
+| `memoryDb.session.retryLimit` | number | `3` | How many sweeps an `all_dropped` batch is retried before it is skipped | `src/memory/db/session.ts` |
 
 ## `embed`
 
@@ -417,9 +417,9 @@ Database backend settings.
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `recall.db.vectorDays` | number | `90` | Days a line's vector is kept by the index policy | `src/memory/db/index-policy.js` |
-| `recall.db.touchDays` | number | `30` | Days a touch keeps a vector | `src/memory/db/index-policy.js` |
-| `recall.db.vectorEviction` | boolean | `false` | Evict vectors outside the kept classes once per UTC day | `src/memory/db/index-policy.js` |
+| `recall.db.vectorDays` | number | `90` | Days a line's vector is kept by the index policy | `src/memory/db/index-policy.ts` |
+| `recall.db.touchDays` | number | `30` | Days a touch keeps a vector | `src/memory/db/index-policy.ts` |
+| `recall.db.vectorEviction` | boolean | `false` | Evict vectors outside the kept classes once per UTC day | `src/memory/db/index-policy.ts` |
 | `recall.db.reembed` | boolean | `false` | Re-embed the evicted vectors of touched lines | `src/core.js` |
 
 ### `recall.prefetch`
@@ -489,7 +489,7 @@ Settings for the diary. See [Diary](diary.md).
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `diary.channelId` | string | `""` | The seed of the diary's first mirror: schema v15 makes this channel's place a `diary` mirror, and `tools/config-migrate.mjs --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it | `src/memory/db/service.js` |
+| `diary.channelId` | string | `""` | The seed of the diary's first mirror: schema v15 makes this channel's place a `diary` mirror, and `tools/config-migrate.mjs --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it | `src/memory/db/service.ts` |
 | `diary.world` | boolean | `false` | Include `prompts/world.md` as a `<world>` block in diary requests | `src/behavior/prompt.js` |
 | `diary.windows` | array | `[{ "from": 7, "to": 11, "posts": [0, 0] }, { "from": 12, "to": 16, "posts": [0, 1] }, { "from": 18, "to": 1, "posts": [0, 2] }, { "from": 1, "to": 5, "posts": [0, 1] }]` | Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]` | `src/behavior/diary.ts` |
 | `diary.quietDayChance` | number | `0.3` | Chance of no posts for the whole day | `src/behavior/diary.ts` |
@@ -605,7 +605,7 @@ Settings for the persona's inner life. See [Inner life](inner-life.md).
 | `innerLife.heartbeat.maxTokens` | number | `2500` | Token cap of the whole heartbeat block. `0` turns the cap off | `src/behavior/inner/settings.ts` |
 | `innerLife.caps.perChain` | number | `3` | Inner turns of one chain per local day | `src/behavior/inner.ts` |
 | `innerLife.loop.maxSteps` | number | `4` | Tool loop bounds of an inner turn | `src/turn/settings.ts` |
-| `innerLife.loop.timeBudgetMs` | number | `180000` | Time budget of an inner turn's calls | `src/memory/db/service.js` |
+| `innerLife.loop.timeBudgetMs` | number | `180000` | Time budget of an inner turn's calls | `src/memory/db/service.ts` |
 | `innerLife.loop.maxCallsPerStep` | number | `4` | Calls per answer of an inner turn | `src/turn/settings.ts` |
 | `innerLife.loop.callTimeoutMs` | number | `60000` | Max time per call of an inner turn | `src/turn/tool-round.ts` |
 | `innerLife.retry.delaysMinutes` | array | `[1, 5, 15, 60]` | Retry delays after a provider failure (minutes) | `src/behavior/inner/settings.ts` |

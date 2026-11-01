@@ -6,7 +6,7 @@
 // core's read connection. Pure over the database and the backups folder.
 
 import type { DatabaseSync } from 'node:sqlite';
-import { backupsIn } from '../memory/db/backup.js';
+import { backupsIn } from '../memory/db/backup.ts';
 import { worse } from './server.ts';
 import type { HealthStatus } from './server.ts';
 

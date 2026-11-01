@@ -4,9 +4,9 @@
 // malformed rows, every reader returns the same rows whether it reads the triple or `audience_id`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openMemoryDb } from '../src/memory/db/open.js';
-import { insertRows } from '../src/memory/db/rows.js';
-import { SCOPED_TABLES } from '../src/memory/db/schema.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { insertRows } from '../src/memory/db/rows.ts';
+import { SCOPED_TABLES } from '../src/memory/db/schema.ts';
 import {
   AUD_INTERNAL,
   AUD_NONE,
@@ -30,10 +30,10 @@ import {
   whereFor,
 } from '../src/memory/db/scope.ts';
 import { channelPlaceId, dmPlaceId, messageSourceId, personId } from '../src/memory/db/ids.ts';
-import { search, window } from '../src/memory/db/recall.js';
-import { fillStems } from '../src/memory/db/stems.js';
-import { batchOf, buildSessionRequest, scopesOf } from '../src/memory/db/session.js';
-import { gatherReview } from '../src/memory/db/describe.js';
+import { search, window } from '../src/memory/db/recall.ts';
+import { fillStems } from '../src/memory/db/stems.ts';
+import { batchOf, buildSessionRequest, scopesOf } from '../src/memory/db/session.ts';
+import { gatherReview } from '../src/memory/db/describe.ts';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');

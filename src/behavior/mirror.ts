@@ -1,6 +1,6 @@
 // The diary's mirrors (stage 3 design, section 5). A mirror is one place her diary entries are posted to, a `mirrors`
 // row of schema v15 the owner set up; there may be none or many. `createMirrors` (wired in src/core.js) publishes a
-// recorded entry once to every enabled mirror: each mirror gets one `publications` row (src/memory/db/publish.js), keyed
+// recorded entry once to every enabled mirror: each mirror gets one `publications` row (src/memory/db/publish.ts), keyed
 // `diary:<entry id>:<place id>`, prepared `queued` under the mirror's standing grant, then sent through the interface
 // port and marked `sent` with the message ids as receipts, `failed` with the port's code, or `unknown` when the port
 // could not tell. A second publication of the same entry to the same place reuses the row and sends nothing. With no
@@ -12,7 +12,7 @@
 // the pictures in messages of files (`sendEntry`). The turn's act path (src/behavior/turn.js#act) splits a set with
 // the same `chunkPictures` and names its files with `pictureAttachments`; `voice.say` (src/tools/impl/voice.ts) builds
 // its file with `voiceAttachment`. Before any send the entry's pictures and voice file are kept in memory as files
-// under the data directory and `media` rows (memoryWrite kind `entry-media`, src/memory/db/diary-media.js), so a row
+// under the data directory and `media` rows (memoryWrite kind `entry-media`, src/memory/db/diary-media.ts), so a row
 // still queued after a restart goes out whole: `drainQueued` rebuilds the entry from its `diary` row (`send`: her
 // messages as sent, their mentions, the set's byte limit) and its media.
 //
@@ -28,7 +28,7 @@ import path from 'node:path';
 import { log } from '../log.js';
 import { portLimit } from '../interface/capabilities.ts';
 import { issueContext } from '../memory/db/scope.ts';
-import { mirrorReceipts } from '../memory/db/publish.js';
+import { mirrorReceipts } from '../memory/db/publish.ts';
 import { setSettings } from './diary.ts';
 import {
   diaryConversationIds,

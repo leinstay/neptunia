@@ -81,9 +81,9 @@ import { createSettles } from '../pipeline/settle.ts';
  *   served guild writes a `deleted` line (onMessageDelete) and an edited one a `seen` line with
  *   the next revision (src/pipeline/edits.ts). Absent: nothing is recorded here.
  * @param {{ observe: (envelope: object) => (Promise<object>|null) }|null} [deps.memoryDb]  From
- *   src/memory/db/service.js#createMemoryDb, optional: every message memory observes and every edit
+ *   src/memory/db/service.ts#createMemoryDb, optional: every message memory observes and every edit
  *   the record writes is sent to the memory database as an observation
- *   (src/memory/db/observe-event.js#observationOf), through its writer; never a message's failure (a
+ *   (src/memory/db/observe-event.ts#observationOf), through its writer; never a message's failure (a
  *   refusal is logged with its code at debug). The observation is the line's record: it names the
  *   line's record (`{ guildId, privateUserId }`) and the handler awaits its commit, at most
  *   `memoryDb.observeTimeoutMs` (5000), before it goes on (a failed write waits in the service's queue

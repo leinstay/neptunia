@@ -101,9 +101,9 @@ const NOT_BUILT = {
   'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.ts#pickSeeds), never sent whole',
   // Her memory session and the description review build their requests over the memory database, not from a turn:
   // tests/memory-db-session.test.js and tests/memory-db-describe.test.js check what they load.
-  'memory-session': 'built over the memory database (src/memory/db/session.js)',
-  'description-draft': 'built over the memory database (src/memory/db/describe.js)',
-  'description-check': 'built over the memory database (src/memory/db/describe.js)',
+  'memory-session': 'built over the memory database (src/memory/db/session.ts)',
+  'description-draft': 'built over the memory database (src/memory/db/describe.ts)',
+  'description-check': 'built over the memory database (src/memory/db/describe.ts)',
   // PR 7d: her own tools are code, so these load only behind a call of hers (web.search, web.read, memory.search,
   // media.look), which no request built here makes; the tests of those tools check what they send.
   'rewatch-answer': 'loaded behind her media.look call (src/memory/describe.js), which no turn here makes',

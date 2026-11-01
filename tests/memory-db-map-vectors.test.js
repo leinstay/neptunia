@@ -1,7 +1,7 @@
 // Round trips of vectors.js: one month of the vector index (manifest, jsonl, int8 data) through the real schema.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as mapper from '../src/memory/db/map/vectors.js';
+import * as mapper from '../src/memory/db/map/vectors.ts';
 import { roundTrip } from './fixtures/memory-db/roundtrip.js';
 
 const DIR = 'vectors/2026-10';

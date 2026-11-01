@@ -3,8 +3,8 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createVectors, dequantize, quantize } from '../src/memory/vectors.js';
-import { classify } from '../src/memory/db/map/index.js';
-import { filesOfUnit } from '../src/memory/db/export.js';
+import { classify } from '../src/memory/db/map/index.ts';
+import { filesOfUnit } from '../src/memory/db/export.ts';
 import { openTestMemory } from './fixtures/memory-db/service.js';
 
 const quiet = { info() {}, warn() {}, error() {} };

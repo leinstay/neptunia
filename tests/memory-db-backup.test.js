@@ -7,9 +7,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openMemoryDb, schemaVersion, MIGRATIONS } from '../src/memory/db/open.js';
+import { openMemoryDb, schemaVersion, MIGRATIONS } from '../src/memory/db/open.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
-import { startRun } from '../src/memory/db/wakes.js';
+import { startRun } from '../src/memory/db/wakes.ts';
 import { backupDatabase, main, restoreDatabase, tableHashes } from '../tools/memory-db.mjs';
 import { buildDataDir } from './fixtures/memory-db/datadir.js';
 

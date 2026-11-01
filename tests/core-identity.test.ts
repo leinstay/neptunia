@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startCore } from '../src/core.js';
 import { start } from '../src/interface/fake-interface.ts';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { channelInfo, deliver } from './fixtures/core-over-fake.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 

@@ -421,7 +421,7 @@ test('checkStructure: reports a module of a required-test entry that has no test
 });
 
 test('checkStructure: a test named with a tail of the folder path counts', () => {
-  const files = { 'src/memory/db/open.js': file(), 'tests/memory-db-open.test.js': file() };
+  const files = { 'src/memory/db/open.ts': file(), 'tests/memory-db-open.test.js': file() };
   const nested = [{ path: 'src/memory/db/', layer: 'public', purpose: 'p', imports: [], test: 'required' }];
   assert.deepEqual(checkStructure(nested, files).missingTests, []);
 });

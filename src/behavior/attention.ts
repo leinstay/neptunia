@@ -14,7 +14,7 @@ import type { WakeQueueUpdate } from '../memory/db/wake-queue.ts';
 const TURN_LEASE_MS = 300_000;
 
 /**
- * What the attention needs: the memory database (src/memory/db/service.js, its `memoryWrite`), the live config
+ * What the attention needs: the memory database (src/memory/db/service.ts, its `memoryWrite`), the live config
  * (`hot.config`), a holder name, the clock and the log (its `warn`). The core's objects come from untyped JS, so they
  * are checked where they are used.
  */

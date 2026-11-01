@@ -6,7 +6,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import '../src/tools/impl/index.ts';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { applySkillsWrite } from '../src/memory/db/skills.ts';
 import type { SkillsUpdate } from '../src/memory/db/skills.ts';
 import { wireSkills } from '../src/skills/wiring.ts';

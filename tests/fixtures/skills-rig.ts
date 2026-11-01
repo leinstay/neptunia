@@ -3,7 +3,7 @@
 // agent would: a folder with a SKILL.md in `skills.local/`. Synthetic data only.
 import fs from 'node:fs';
 import path from 'node:path';
-import { openMemoryDb } from '../../src/memory/db/open.js';
+import { openMemoryDb } from '../../src/memory/db/open.ts';
 import type { SkillsHandle } from '../../src/memory/db/skills.ts';
 import { loadSkills } from '../../src/skills/load.ts';
 import { createSkillsPort } from '../../src/skills/port.ts';

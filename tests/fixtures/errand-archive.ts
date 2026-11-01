@@ -4,8 +4,8 @@
 // and resolved, running on the `server` agent. Synthetic data only.
 import fs from 'node:fs';
 import path from 'node:path';
-import { openMemoryDb } from '../../src/memory/db/open.js';
-import { applyUnitWrite } from '../../src/memory/db/unit-write.js';
+import { openMemoryDb } from '../../src/memory/db/open.ts';
+import { applyUnitWrite } from '../../src/memory/db/unit-write.ts';
 import { BOARD_MIGRATIONS } from '../../src/board/schema.ts';
 import type { ErrandRecord, ErrandState } from '../../src/errands/types.ts';
 import { tempDir } from './tmp.js';

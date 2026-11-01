@@ -3,7 +3,7 @@
 // createObserve; a new line, an edit and a private message observe through it.
 
 import { log } from '../log.js';
-import { observationOf } from '../memory/db/observe-event.js';
+import { observationOf } from '../memory/db/observe-event.ts';
 import type { MessageEvent, Observed } from './edits.ts';
 import type { PipelineHot, Thrown } from './types.ts';
 

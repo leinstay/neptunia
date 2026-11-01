@@ -1,5 +1,5 @@
 // The errand store's side of the board (src/errands/store.ts): its reads and its one write. `saveErrand` runs inside
-// the memory writer's transaction (src/memory/db/unit-write.js, op `errand`) as the principal `core`: the task filed
+// the memory writer's transaction (src/memory/db/unit-write.ts, op `errand`) as the principal `core`: the task filed
 // when the errand is new, then brought to the errand as it stands, an end moved through the board's own `move` (which
 // writes the outbox row to the subscriber, `persona`) with the closing journal line written by the caller in the same
 // transaction. `errandsOf` and `pendingEnds` read a guild's errands and its undelivered ends. The rows and the record
@@ -130,7 +130,7 @@ function saveErrand(db: BoardDb, save: ErrandSave, onEnd: () => void): void {
 /**
  * The answer of an op `lines` or `value` write of an errand unit the writer skips, its count as `skipped` (the lines
  * of an op `lines`, 1 for an op `value`); null while the board has not taken the errands over (before board v3) or
- * for any other unit. `unitOf` is unit-write.js#unitOf, which throws for an unmapped owner.
+ * for any other unit. `unitOf` is unit-write.ts#unitOf, which throws for an unmapped owner.
  */
 export function skippedErrandUnit(
   db: unknown,
@@ -148,7 +148,7 @@ export function skippedErrandUnit(
 export type ClosingLines = { owner: string; lines: Array<Record<string, unknown>>; iface: unknown };
 
 /**
- * One op `errand` write of the memory writer (src/memory/db/unit-write.js) on its connection, inside its transaction:
+ * One op `errand` write of the memory writer (src/memory/db/unit-write.ts) on its connection, inside its transaction:
  * `update.value` is an ErrandSave with its `closing` (`{ owner, line }` or null), and `writeClosing` writes that line
  * when the save moves the errand to an end. Throws an Error coded `UNIT_BAD_OP` for a value with no errand id or guild.
  */

@@ -1,4 +1,4 @@
-// A memory database for a test: the real service (src/memory/db/service.js) over a temporary data directory, on the
+// A memory database for a test: the real service (src/memory/db/service.ts) over a temporary data directory, on the
 // calling thread (no worker), opened by its first tick, every job off unless the test's config turns it on. The
 // memory modules a test builds take it as their `memoryDb`, as src/index.js wires them. `seed` (optional) fills it
 // from the data directory first (seed.js: the memory units a fixture wrote there). `openTestMemorySync` is the same
@@ -8,10 +8,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createMemoryDb } from '../../../src/memory/db/service.js';
-import { openMemoryDb } from '../../../src/memory/db/open.js';
-import { classify } from '../../../src/memory/db/map/index.js';
-import { filesOfUnit } from '../../../src/memory/db/export.js';
+import { createMemoryDb } from '../../../src/memory/db/service.ts';
+import { openMemoryDb } from '../../../src/memory/db/open.ts';
+import { classify } from '../../../src/memory/db/map/index.ts';
+import { filesOfUnit } from '../../../src/memory/db/export.ts';
 import { seedUnits } from './seed.js';
 
 const silent = { info() {}, debug() {}, warn() {}, error() {} };

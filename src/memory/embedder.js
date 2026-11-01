@@ -41,8 +41,8 @@ import {
   recordChunk,
 } from './chunks.js';
 import { isoOf } from './record.js';
-import { createReadSeam } from './db/readers/common.js';
-import { recordLayers } from './db/readers/record.js';
+import { createReadSeam } from './db/readers/common.ts';
+import { recordLayers } from './db/readers/record.ts';
 
 // The embedding queue's measures. Production values, config cut of 2026-10-31.
 /** The lines one embedding request carries. */
@@ -85,7 +85,7 @@ const layerOf = (privateUserId) => (typeof privateUserId === 'string' && private
  * @param {(guildId: string) => string} [deps.selfName]  The persona's display name.
  * @param {() => boolean} [deps.paused]  Whether the bot is paused (`/nep pause`): no catch-up then.
  * @param {object|null} deps.memoryDb  The memory database service: the private layers come from it
- *   (src/memory/db/readers/record.js; a failed read is an error of the pass); the lines come through
+ *   (src/memory/db/readers/record.ts; a failed read is an error of the pass); the lines come through
  *   `record.iterate`.
  * @returns {{
  *   enqueue(guildId: string, lines: object[], opts?: { privateUserId?: string|null }): number,

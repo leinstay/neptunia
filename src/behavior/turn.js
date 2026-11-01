@@ -315,7 +315,7 @@ export function createTurnRunner({
   intentions = null,
   // The places view of the inner life (src/behavior/inner.ts#places): `<places>` on an addressed turn with `context.places` on.
   places = null,
-  // The memory rows a request carried (src/memory/db/service.js#recordTurnReads) and a turn's execution context (#issueContext, `(spec) => ctx`); null: none.
+  // The memory rows a request carried (src/memory/db/service.ts#recordTurnReads) and a turn's execution context (#issueContext, `(spec) => ctx`); null: none.
   memoryReads = null,
   memoryContext = null,
   // Her attention, one turn at a time (src/behavior/attention.ts mirrors it as leases; a plain set without them), the model roles that are down (src/llm/role-health.ts, her tool roles route on it) and the plugins' registered tools (src/plugins/registry.ts); null: none.

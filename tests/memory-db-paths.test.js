@@ -13,8 +13,8 @@ import {
   isMemoryPath,
   isOperational,
   pathClass,
-} from '../src/memory/db/paths.js';
-import { MAPPERS, classify } from '../src/memory/db/map/index.js';
+} from '../src/memory/db/paths.ts';
+import { MAPPERS, classify } from '../src/memory/db/map/index.ts';
 import { operationalJsonPath } from '../src/memory/store.js';
 import { GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
 

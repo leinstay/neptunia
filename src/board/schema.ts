@@ -1,5 +1,5 @@
 // The task board's tables in the memory database and their migrations. The board keeps its own version table,
-// `board_schema_version`, beside the memory's `schema_version`, and src/memory/db/open.js runs `migrateBoard` after
+// `board_schema_version`, beside the memory's `schema_version`, and src/memory/db/open.ts runs `migrateBoard` after
 // the memory migrations in a transaction of its own, so a failing board migration leaves her memory open and the
 // board down. The tables are internal-only: no graph projection, recall, export or sync reads them.
 

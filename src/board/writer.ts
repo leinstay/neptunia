@@ -1,6 +1,6 @@
 // The task board's writes as writes of the memory writer. The core never holds a board of its own: each agent's
 // command, each board call of her tools and each beat of the reaper is one write of kind `board` of the memory
-// database's writer (src/memory/db/service.js#memoryWrite), and `applyBoardWrite` runs it there on the writer's
+// database's writer (src/memory/db/service.ts#memoryWrite), and `applyBoardWrite` runs it there on the writer's
 // connection, at once and whole, so nothing else writes between a `task.next` list and its claim.
 // The message carries everything the board reads: the caller, the core's clock at the call (`at`), the live
 // `board.*` settings (src/board/board.ts#boardSettings), the brief wait and the private directory whose
@@ -60,7 +60,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const WRITE_KINDS: ReadonlyArray<unknown> = ['command', 'call', 'reap'];
 
 /**
- * Runs one `board` write of the memory writer (src/memory/db/session-write.js#applyMemoryWrite) on its handle's
+ * Runs one `board` write of the memory writer (src/memory/db/session-write.ts#applyMemoryWrite) on its handle's
  * connection: a command's answer, a call's answer, or the reaped ids. `update` is `{ kind: 'board', write }`. Throws
  * an Error coded `BAD_UPDATE` for a handle with no connection or a write of no known kind.
  */

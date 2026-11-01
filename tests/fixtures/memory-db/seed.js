@@ -1,17 +1,17 @@
 // Fills a memory database from a data directory written the way the memory units are laid out (a fixture written
 // by datadir.js, readers.js or a test): every memory unit under `guilds/` goes in through the database's own writers
-// (src/memory/db/unit-write.js), as the engine writes it, JSON units whole (op `value`), JSONL units line by line (op
-// `lines`), a month of vectors from its three files (op `vectors`). The operational files (src/memory/db/paths.js)
+// (src/memory/db/unit-write.ts), as the engine writes it, JSON units whole (op `value`), JSONL units line by line (op
+// `lines`), a month of vectors from its three files (op `vectors`). The operational files (src/memory/db/paths.ts)
 // and the request dumps stay files: nothing reads them from the database; participation.json and media.json are both,
 // as the store writes them (the file, and its memory rows sent). The stems and the graph projection are
 // finished at the end, as the writers' projection job does. Synthetic fixtures only.
 import fs from 'node:fs';
 import path from 'node:path';
-import { classify } from '../../../src/memory/db/map/index.js';
-import { applyUnitWrite } from '../../../src/memory/db/unit-write.js';
-import { currentUnitPath, isOperational } from '../../../src/memory/db/paths.js';
-import { fillStems } from '../../../src/memory/db/stems.js';
-import { projectPending } from '../../../src/memory/db/graph.js';
+import { classify } from '../../../src/memory/db/map/index.ts';
+import { applyUnitWrite } from '../../../src/memory/db/unit-write.ts';
+import { currentUnitPath, isOperational } from '../../../src/memory/db/paths.ts';
+import { fillStems } from '../../../src/memory/db/stems.ts';
+import { projectPending } from '../../../src/memory/db/graph.ts';
 
 /** The JSONL kinds the writers take line by line. */
 const LINE_KINDS = new Set(['record', 'journal', 'archive', 'intentions', 'errands']);

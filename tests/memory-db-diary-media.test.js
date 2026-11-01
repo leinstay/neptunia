@@ -1,4 +1,4 @@
-// The diary media job (src/memory/db/diary-media.js): the text and the pictures of her diary posts come from the
+// The diary media job (src/memory/db/diary-media.ts): the text and the pictures of her diary posts come from the
 // interface into the database and `data/media/diary/`. A fake port, a fake image fetcher, synthetic data only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -6,11 +6,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { openMemoryDb } from '../src/memory/db/open.js';
-import { insertRows } from '../src/memory/db/rows.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { insertRows } from '../src/memory/db/rows.ts';
 import { channelPlaceId } from '../src/memory/db/ids.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
-import { createDiaryMedia, applyDiaryUpdate, DEFAULT_AUDIO_MAX_BYTES, GAP_MS } from '../src/memory/db/diary-media.js';
+import { createDiaryMedia, applyDiaryUpdate, DEFAULT_AUDIO_MAX_BYTES, GAP_MS } from '../src/memory/db/diary-media.ts';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { createDiscordAdapter } from '../interfaces/discord/port.js';
 import { buildDataDir, guildDir, writeJson } from './fixtures/memory-db/datadir.js';
@@ -432,7 +432,7 @@ test('the Discord adapter reads messages by id: text, attachments, and missing f
 
 // PR 7d: `memoryDb.diaryMedia` is code, so the job always runs.
 test('the service runs the job once the database is open', async () => {
-  const { createMemoryDb } = await import('../src/memory/db/service.js');
+  const { createMemoryDb } = await import('../src/memory/db/service.ts');
   const env = setup({ posts: [post('d-1', ['x'])] });
   try {
     const a = env.say('served');

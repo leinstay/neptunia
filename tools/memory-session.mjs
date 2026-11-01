@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Operations tool: run her memory session (src/memory/db/session.js) once, on a copy of the memory database, in
+// Operations tool: run her memory session (src/memory/db/session.ts) once, on a copy of the memory database, in
 // shadow, and say what she proposed. It exists so a session can be judged on real chat before the engine acts on it.
 //
 //   cd <checkout> && node tools/memory-session.mjs --db <memory.db> [--data <dir>] [--scope <scope key>] [--limit N]
@@ -120,7 +120,7 @@ export function opKinds(plan) {
 }
 
 async function copyDatabase(source, target) {
-  const { openMemoryDb } = await import('../src/memory/db/open.js');
+  const { openMemoryDb } = await import('../src/memory/db/open.ts');
   const handle = openMemoryDb(source, { readOnly: true });
   try {
     handle.db.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
@@ -324,9 +324,9 @@ export async function runCompare({
   usage = { requests: 0, prompt: 0, completion: 0, cost: null },
   log = {},
 }) {
-  const { sweep } = await import('../src/memory/db/session.js');
-  const { showsClaim } = await import('../src/memory/db/describe.js');
-  const { applyMemoryWrite } = await import('../src/memory/db/session-write.js');
+  const { sweep } = await import('../src/memory/db/session.ts');
+  const { showsClaim } = await import('../src/memory/db/describe.ts');
+  const { applyMemoryWrite } = await import('../src/memory/db/session-write.ts');
   const start = Date.parse(`${day}T00:00:00.000Z`);
   const end = start + DAY_MS;
   const lines = [];
@@ -422,7 +422,7 @@ async function compareMain(argv) {
 
   const { createHot } = await import('../src/hot.js');
   const { loadDotEnv } = await import('../src/config.js');
-  const { openMemoryDb } = await import('../src/memory/db/open.js');
+  const { openMemoryDb } = await import('../src/memory/db/open.ts');
   let apiKey = null;
   if (!shadowOnly) {
     loadDotEnv(privateDirOf(ROOT));
@@ -528,10 +528,10 @@ export async function main(argv) {
   const { loadDotEnv } = await import('../src/config.js');
   const { createLlm } = await import('../src/llm/openrouter.js');
   const { createCalibrator } = await import('../src/llm/tokens.js');
-  const { openMemoryDb } = await import('../src/memory/db/open.js');
-  const { sweep, sessionSettings } = await import('../src/memory/db/session.js');
-  const { reviewDescription } = await import('../src/memory/db/describe.js');
-  const { applyMemoryWrite } = await import('../src/memory/db/session-write.js');
+  const { openMemoryDb } = await import('../src/memory/db/open.ts');
+  const { sweep, sessionSettings } = await import('../src/memory/db/session.ts');
+  const { reviewDescription } = await import('../src/memory/db/describe.ts');
+  const { applyMemoryWrite } = await import('../src/memory/db/session-write.ts');
 
   loadDotEnv(privateDirOf(ROOT));
   const apiKey = process.env[keyEnv];

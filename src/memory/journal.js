@@ -1,6 +1,6 @@
 // The persona's journal: one record per thing that happened -- a turn started, a turn
 // ended (what it saw, what it thought, what it posted), an action's phase, a memory change, a
-// system event -- written to the memory database (src/memory/db/service.js, `memoryDb.writeUnit`) in
+// system event -- written to the memory database (src/memory/db/service.ts, `memoryDb.writeUnit`) in
 // the unit of its day, `guilds/<g>/journal/<YYYY-MM-DD>.jsonl`, as the journal mapper maps it, so it
 // keeps its order. The day is the UTC day of the record's `occurredAt`; a private chat has its own
 // units under the partner's private directory and is never written to the guild's journal. Every record carries the same envelope (`v`, `id`,
@@ -59,8 +59,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { clampText, oneLine } from './clamp.js';
 import { memoryRootOf } from './root.js';
-import { createReadSeam } from './db/readers/common.js';
-import { journalLastWrite, journalLines } from './db/readers/journal.js';
+import { createReadSeam } from './db/readers/common.ts';
+import { journalLastWrite, journalLines } from './db/readers/journal.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../time.js';
 import { currentToolName } from '../tools/definitions.ts';
 
@@ -588,9 +588,9 @@ function scopeOf({ privateUserId = null, channelId = null } = {}) {
  * @param {object} [options.fs]  a `node:fs/promises`-shaped API (the `.running` marker and the request dumps)
  * @param {Array<{ flush: Function }>} [options.lockStores]  other append stores `withWriterLock`
  *   flushes before `fn` (the record's and the archive's, src/index.js)
- * @param {object|null} options.memoryDb  the memory database service (src/memory/db/service.js): the day reads
+ * @param {object|null} options.memoryDb  the memory database service (src/memory/db/service.ts): the day reads
  *   (`read`, `timeline`, and so `findTurn`, `turnOperations`, `pending`, `triggerLinks`, `callMarks`,
- *   `reconcile`'s scan) and `stats` are answered from it (src/memory/db/readers/journal.js; a failed read rejects
+ *   `reconcile`'s scan) and `stats` are answered from it (src/memory/db/readers/journal.ts; a failed read rejects
  *   with a code), and every line the writers write goes to it as the journal mapper maps it (`day`, `decisions`,
  *   her answers' `sources`, `affinity_events`, in the day's unit, `memoryDb.writeUnit`): the request dumps and the
  *   `.running` marker stay files.

@@ -8,14 +8,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.js';
+import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
 import { channelPlaceId } from '../src/memory/db/ids.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
 import { CHANNEL, buildDataDir } from './fixtures/memory-db/datadir.js';
 import { tempDir } from './fixtures/tmp.js';
-import { insertRows } from '../src/memory/db/rows.js';
-import { applyUnitWrite } from '../src/memory/db/unit-write.js';
-import { applyDiaryUpdate, createDiaryMedia } from '../src/memory/db/diary-media.js';
+import { insertRows } from '../src/memory/db/rows.ts';
+import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
+import { applyDiaryUpdate, createDiaryMedia } from '../src/memory/db/diary-media.ts';
 import { createFakeAdapter } from '../src/interface/fake.js';
 
 const NOW = Date.parse('2026-11-03T12:00:00.000Z');

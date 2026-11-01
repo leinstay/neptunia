@@ -35,8 +35,8 @@ import {
 } from '../tools/replay.mjs';
 import { labels } from './fixtures/labels.js';
 import { tempDir } from './fixtures/tmp.js';
-import { openMemoryDb } from '../src/memory/db/open.js';
-import { applyUnitWrite } from '../src/memory/db/unit-write.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
 import { readOnlyMemory } from '../tools/lib/memory-read.mjs';
 
 const OWNER = '100000000000000042';

@@ -9,7 +9,7 @@
 //              else the profile's `lastSeen` with no place), the top 3 interests of the profile, the
 //              places where they wrote lately (no presence or do-not-disturb state: the owner, 2026-10-20);
 //              the members come from her focus set when the memory database gives it (the injected
-//              `focusPeople()`, src/memory/db/focus.js): the close members first, then the exploring ones with a share of
+//              `focusPeople()`, src/memory/db/focus.ts): the close members first, then the exploring ones with a share of
 //              `focus.exploringShare` of `heartbeat.people` (rounded, at least one when there are any; more when the
 //              close set leaves room). The reader returns null while the switch is off or the database is closed, and
 //              the ranking by affinity applies as before;

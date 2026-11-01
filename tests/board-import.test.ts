@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { openBoard, readBoard } from '../src/board/board.ts';
 import type { BoardSettings } from '../src/board/board.ts';
 import type { BoardDb } from '../src/board/schema.ts';

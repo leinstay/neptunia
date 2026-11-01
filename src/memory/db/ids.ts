@@ -330,7 +330,7 @@ export function uniqueIds(): (id: unknown) => string {
 }
 
 // ---------- one id per account and place of an interface ----------
-// The observation (observe.js) and the store's unit mappers (map/) name a generation-1 account and a channel, guild or
+// The observation (observe.ts) and the store's unit mappers (map/) name a generation-1 account and a channel, guild or
 // DM place of the same interface with the same id: the spelling the mappers write (`accountId`, `channelPlaceId`,
 // `guildPlaceId`, `dmPlaceId`), so a unit write that brings a row the observation made lands on that row and a reopen
 // replays no conflict. On the legacy interface that spelling is `legacyAccountIdOf` and `legacyPlaceOf`, whose stored

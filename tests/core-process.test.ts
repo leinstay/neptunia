@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { startCore } from '../src/core.js';
 import { start as startFake } from '../src/interface/fake-interface.ts';
 import { onLog } from '../src/log.js';
-import { lockPathOf, openMemoryDb } from '../src/memory/db/open.js';
+import { lockPathOf, openMemoryDb } from '../src/memory/db/open.ts';
 import { applyWakeQueueWrite } from '../src/memory/db/wake-queue.ts';
 import { ANSWER, COMMUNITY, SELF, channelInfo, lineEvent } from './fixtures/core-over-fake.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';

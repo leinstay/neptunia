@@ -81,7 +81,7 @@ function storeOver(memoryDb: MemoryDb, journal: ReturnType<typeof createJournal>
 /** The read connection of the service, as the board's reads take it. */
 function readDb(memoryDb: MemoryDb): BoardDb {
   // service.js types its read handle loosely; it is open.js's handle, `{ db }`, or null while the database is closed.
-  const handle: { db: object } | null = memoryDb.readHandle() as { db: object } | null;
+  const handle: { db: object } | null = memoryDb.readHandle();
   if (!handle) throw new Error('the memory database is not open');
   // The read handle's connection is node:sqlite's DatabaseSync, which has every method BoardDb names.
   return handle.db as BoardDb;

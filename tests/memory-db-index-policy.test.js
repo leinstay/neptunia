@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.js';
+import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
 import {
   checkMedia,
@@ -18,9 +18,9 @@ import {
   reembedTouched,
   touch,
   applyReembed,
-} from '../src/memory/db/index-policy.js';
-import { applyMemoryWrite } from '../src/memory/db/session-write.js';
-import { search, dbSettings } from '../src/memory/db/recall.js';
+} from '../src/memory/db/index-policy.ts';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
+import { search, dbSettings } from '../src/memory/db/recall.ts';
 import { channelPlaceId, messageSourceId } from '../src/memory/db/ids.ts';
 import { dmScope, groupContext, groupScope } from '../src/memory/db/scope.ts';
 import { quantize } from '../src/memory/vectors.js';
