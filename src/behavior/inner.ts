@@ -99,7 +99,18 @@ import { selfimprovementDue } from './inner/selfimprovement.ts';
 import { attendWakes, places, refreshPlaces } from './inner/places.ts';
 import { admitListed, beforeTick, releaseAlive } from './inner/recovery.ts';
 import type { PlacesQuery } from './inner/places.ts';
-import { addFact, deadlineWakes, mayAct, note, onWake, save, stateOf, wakeFields, wakeOfDue } from './inner/queue.ts';
+import {
+  addFact,
+  deadlineWakes,
+  enqueue,
+  mayAct,
+  note,
+  onWake,
+  save,
+  stateOf,
+  wakeFields,
+  wakeOfDue,
+} from './inner/queue.ts';
 import type { WakeAnswer } from './inner/queue.ts';
 import { reviewDue } from './inner/review.ts';
 import { innerSettings } from './inner/settings.ts';
@@ -211,6 +222,8 @@ export type InnerLife = {
   tick: () => Promise<TickAnswer>;
   drain: (guildId: string) => Promise<DrainAnswer>;
   onWake: (event: unknown) => WakeAnswer;
+  /** Queues `wake` through the door as the life's own wakes are (a plugin's `ability.added`, src/plugins/announce.ts). */
+  enqueue: (guildId: string, wake: Wake) => Promise<unknown>;
   onTaskFinished: (task: unknown, guildId?: string | null) => boolean;
   mayAct: (guildId: unknown) => boolean;
   stop: (guildId?: string | null, options?: SwitchOptions) => SwitchAnswer;
@@ -399,6 +412,7 @@ export function createInnerLife({
     tick,
     drain: (guildId) => drain(life, guildId),
     onWake: (event) => onWake(life, event),
+    enqueue: (guildId, wake) => enqueue(life, guildId, wake),
     onTaskFinished: (task, guildId) => onTaskFinished(life, task, guildId),
     mayAct: (guildId) => mayAct(life, guildId),
     stop: (guildId, options) => stop(life, guildId, options),

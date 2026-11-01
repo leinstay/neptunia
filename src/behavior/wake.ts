@@ -709,6 +709,15 @@ export function wakeBlockText(
       const note = typeof noteLabel === 'string' ? fill(noteLabel, { task: '' }) : '';
       lines.push(note ? `${line} · ${note}` : line);
     }
+    // A plugin's new tools (src/plugins/announce.ts): the line after the kind's own that names them.
+    if (item.reason === 'ability.added' && Array.isArray(item.tools) && item.tools.length > 0) {
+      const added = part(l, 'abilityAdded', {
+        tools: listOf(item.tools)
+          .map((tool) => oneLine(asText(tool)))
+          .join(', '),
+      });
+      if (added) lines.push(added);
+    }
     // A wake that ran late because its first turn failed: how long since it was due, and the failure's code.
     const delayed = objOf(item.delayed);
     if (item.delayed && typeof l.delayed === 'string' && l.delayed)

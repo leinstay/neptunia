@@ -422,6 +422,7 @@ function wakeInfoOf(life: InnerContext, guildId: string, group: ReadonlyArray<Wa
       reason: wake.reason,
       intentionIds: wake.intentionIds,
       errandId: wake.errandId ?? null,
+      ...(wake.tools ? { tools: wake.tools } : {}),
       ...attendFactsOf(life, guildId, wake),
       ...(wake.retry
         ? {
@@ -666,7 +667,13 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   for (const cap of freshCaps) log.info('inner: capped', { guildId, cap, wakes: heldFresh[cap] });
   if (freshCaps.length > 0) save(life, guildId);
   // A wake of a failed turn waits for its retry time (`notBefore`).
-  const eligible = state.queue.filter((wake) => !held.includes(wake) && !(Number(wake.notBefore) > at));
+  // A heartbeat wake waits while the heartbeat is off (a plugin's `ability.added` wake is one): its turn is a heartbeat turn.
+  const eligible = state.queue.filter(
+    (wake) =>
+      !held.includes(wake) &&
+      !(Number(wake.notBefore) > at) &&
+      !(wake.kind === 'heartbeat' && !settings.heartbeat.enabled)
+  );
   if (eligible.length === 0) {
     if (held.length === 0) return { deferred: 'retry' };
     // No turn is coming to carry the new holds of an intention's wake: a feedback wake in its conversation tells her.
