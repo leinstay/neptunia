@@ -15,8 +15,6 @@ import {
   createAdmin,
   buildProfileSummary,
 } from '../src/admin.ts';
-import { emptyAffinity, applyDelta } from '../src/memory/affinity.ts';
-import { upsertLore } from '../src/memory/lore.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { createStore } from '../src/memory/store.ts';
 import { MEMORY_LIMITS } from '../src/memory/text-limits.ts';
@@ -34,6 +32,10 @@ import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { world } from './fixtures/turn-world.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
+import { makeStore } from './fixtures/admin-store.ts';
+import type { StoreFake } from './fixtures/admin-store.ts';
+
+type Field = { name: string; value: string };
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -223,153 +225,31 @@ function makeRoot(): string {
   return rootDir;
 }
 
-type Hot = {
-  config: Record<string, Untyped>;
-  prompts: Record<string, Untyped>;
-  promptSources: Record<string, string>;
-  promptsDir: string;
-  localPromptsDir: string;
-  rootDir: string;
-  reloadConfigCalls: number;
-  reloadPromptsCalls: number;
-  reloadConfig: () => boolean;
-  reloadPrompts: () => boolean;
-};
+type Hot = ReturnType<typeof makeHot>;
 
-function makeHot(rootDir: string): Hot {
+function makeHot(rootDir: string) {
   return {
     config: {
       bot: { owners: ['42'] },
       models: { base: { core: 'anthropic/claude-opus-4.6' } },
       llm: { maxRequestsPerDay: 300 },
-    },
-    prompts: { persona: 'who she is', labels: { locale: 'en-US' } },
-    promptSources: { persona: 'base', labels: 'base' },
+    } as Record<string, Untyped>,
+    prompts: { persona: 'who she is', labels: { locale: 'en-US' } } as Record<string, Untyped>,
+    promptSources: { persona: 'base', labels: 'base' } as Record<string, string>,
     promptsDir: path.join(rootDir, 'prompts'),
     localPromptsDir: path.join(rootDir, 'prompts.local'),
     rootDir,
     reloadConfigCalls: 0,
     reloadPromptsCalls: 0,
-    reloadConfig(this: Hot) {
+    reloadConfig(this: Record<string, Untyped>) {
       this.reloadConfigCalls += 1;
       return true;
     },
-    reloadPrompts(this: Hot) {
+    reloadPrompts(this: Record<string, Untyped>) {
       this.reloadPromptsCalls += 1;
       return true;
     },
   };
-}
-
-// The store's records are still JavaScript in the tests, so each one is Untyped.
-function buildStore() {
-  const profiles = new Map<string, Untyped>();
-  const forgotten: Array<Untyped> = [];
-  const privates = new Map<string, Untyped>(); // `${guildId}:${userId}` -> private layer
-  const forgottenPrivate: Array<Untyped> = [];
-  const lore = new Map<string, Array<Untyped>>(); // guildId -> entries[]
-  const channels = new Map<string, Untyped>(); // `${guildId}:${channelId}` -> channel entry
-  const guilds = new Map<string, Untyped>(); // guildId -> guild notes
-  const store = {
-    profiles,
-    forgotten,
-    lore,
-    channels,
-    guilds,
-    getChannel(guildId: string, channelId: string) {
-      return channels.get(`${guildId}:${channelId}`) ?? null;
-    },
-    listChannels(guildId: string) {
-      const prefix = `${guildId}:`;
-      return [...channels.entries()].filter(([key]) => key.startsWith(prefix)).map(([, value]) => value);
-    },
-    getGuild(guildId: string) {
-      return guilds.get(guildId) ?? { patterns: '', starters: '', injokes: [], self: [], updatedAt: null };
-    },
-    recent: new Map<string, Untyped>(), // guildId -> { nextId, lines }
-    getRecent(this: { recent: Map<string, Untyped> }, guildId: string) {
-      return structuredClone(this.recent.get(guildId) ?? { nextId: 1, lines: [] });
-    },
-    state: { data: { llmCount: 5, llmDay: '2026-09-20' } as Record<string, Untyped>, markDirty() {} },
-    flushCalls: 0,
-    flush(this: { flushCalls: number }) {
-      this.flushCalls += 1;
-    },
-    dropCachesCalls: 0,
-    dropCaches(this: { dropCachesCalls: number }) {
-      this.dropCachesCalls += 1;
-      return 0;
-    },
-    reloadStateCalls: 0,
-    reloadState(this: { reloadStateCalls: number }) {
-      this.reloadStateCalls += 1;
-    },
-    validateResult: [] as Array<string>,
-    validate(this: { validateResult: Array<string> }) {
-      return this.validateResult;
-    },
-    getUser(guildId: string, userId: string) {
-      return profiles.get(`${guildId}:${userId}`) ?? null;
-    },
-    getLore(guildId: string) {
-      return lore.get(guildId) ?? [];
-    },
-    setLore(guildId: string, incoming: unknown, opts: Parameters<typeof upsertLore>[2]) {
-      const { entries, upserted } = upsertLore(lore.get(guildId) ?? [], incoming, opts);
-      lore.set(guildId, entries);
-      return upserted;
-    },
-    removeLore(guildId: string, id: string) {
-      const current = lore.get(guildId) ?? [];
-      const next = current.filter((e: Untyped) => e.id !== id);
-      lore.set(guildId, next);
-      return next.length !== current.length;
-    },
-    adjustAffinity(
-      guildId: string,
-      userId: string,
-      delta: number,
-      reason: string,
-      opts: Parameters<typeof applyDelta>[3]
-    ) {
-      const key = `${guildId}:${userId}`;
-      const profile = profiles.get(key) ?? { id: String(userId), affinity: emptyAffinity() };
-      profile.affinity = applyDelta(profile.affinity ?? emptyAffinity(), delta, reason, opts);
-      profiles.set(key, profile);
-      return profile.affinity;
-    },
-    privates,
-    forgottenPrivate,
-    getPrivate(guildId: string, userId: string) {
-      return privates.get(`${guildId}:${userId}`) ?? null;
-    },
-    listPrivate(guildId: string) {
-      const prefix = `${guildId}:`;
-      return [...privates.keys()].filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length));
-    },
-    countUsers() {
-      return profiles.size;
-    },
-    listUserProfiles(guildId: string) {
-      const prefix = `${guildId}:`;
-      return [...profiles.entries()].filter(([key]) => key.startsWith(prefix)).map(([, value]) => value);
-    },
-    participation: new Map<string, Untyped>(), // guildId -> { episodes, nextId }
-    getParticipation(this: { participation: Map<string, Untyped> }, guildId: string) {
-      return structuredClone(this.participation.get(guildId) ?? { episodes: [], nextId: 1 });
-    },
-    getBuffer() {
-      return [];
-    },
-  };
-  return store;
-}
-
-// A test adds the store methods it needs after the fact, so the type is open.
-type StoreFake = ReturnType<typeof buildStore> & Record<string, Untyped>;
-
-function makeStore(): StoreFake {
-  return buildStore();
 }
 
 // PR 7b: admin.isAllowed is gone; a caller may run `op` when runSkillOp, which checks the rights, does not deny it.
@@ -1787,7 +1667,7 @@ test('status: the card carries the fields in order and the member variant drops 
   assert.equal(owner.text, '', 'the card alone, no long form');
   const fields = owner.fields;
   assert.deepEqual(
-    fields.map((f: { name: string; value: string }) => f.name),
+    fields.map((f: Field) => f.name),
     [
       'state',
       'tasks',
@@ -1804,7 +1684,7 @@ test('status: the card carries the fields in order and the member variant drops 
       'speed',
     ]
   );
-  const value = (name: string) => fields.find((f: { name: string; value: string }) => f.name === name).value;
+  const value = (name: string) => fields.find((f: Field) => f.name === name).value;
   const stateLines = value('state').split('\n');
   assert.deepEqual(
     stateLines.slice(0, 3),
@@ -1870,7 +1750,7 @@ test('status: the card carries the fields in order and the member variant drops 
   const member = await admin.run('status.show', {}, { userId: '999' });
   const memberFields = member.fields;
   assert.deepEqual(
-    memberFields.map((f: { name: string; value: string }) => f.name),
+    memberFields.map((f: Field) => f.name),
     ['state', 'tasks', 'models.base', 'models.errands', 'models.development', 'limits']
   );
   assert.deepEqual(
@@ -1920,9 +1800,7 @@ test('status: the owner card shows the limit of each key with its usage under it
   hot.config.llm.probeTimeoutMs = 1234;
 
   const fieldOf = async (name: string) =>
-    (await admin.run('status.show', {}, { userId: '42' })).fields.find(
-      (f: { name: string; value: string }) => f.name === name
-    ).value;
+    (await admin.run('status.show', {}, { userId: '42' })).fields.find((f: Field) => f.name === name).value;
   assert.deepEqual((await fieldOf('keys.base')).split('\n'), [
     'main 8.45/30.00 USD (resets daily at 2026-10-16 00:00 UTC; BYOK in)',
     'usage day 0.10 USD',
@@ -1962,10 +1840,7 @@ test('status: the owner card shows the limit of each key with its usage under it
   assert.equal(await fieldOf('costs.base'), 'today by role: none');
 
   const member = await admin.run('status.show', {}, { userId: '999' });
-  assert.ok(
-    !member.fields.some((f: { name: string; value: string }) => f.name.startsWith('costs')),
-    'no costs field for a member'
-  );
+  assert.ok(!member.fields.some((f: Field) => f.name.startsWith('costs')), 'no costs field for a member');
   assert.equal(reads.length, 4, 'a member card sends no account read');
 });
 
@@ -1999,7 +1874,7 @@ test('status: the field option renders that field alone and runs only its work',
   const only = async (field: string, userId = '42') => (await admin.run('status.show', { field }, { userId })).fields;
   const limits = await only('limits');
   assert.deepEqual(
-    limits.map((f: { name: string; value: string }) => f.name),
+    limits.map((f: Field) => f.name),
     ['limits']
   );
   assert.match(limits[0].value, /^requests \d+\/300\n/);
@@ -2010,30 +1885,30 @@ test('status: the field option renders that field alone and runs only its work',
   );
 
   assert.deepEqual(
-    (await only('costs.base')).map((f: { name: string; value: string }) => f.name),
+    (await only('costs.base')).map((f: Field) => f.name),
     ['costs.base']
   );
   assert.deepEqual([llm.calls.length, reads.length], [0, 0], 'the role costs read no key');
 
   const keys = await only('keys.base');
   assert.deepEqual(
-    keys.map((f: { name: string; value: string }) => f.name),
+    keys.map((f: Field) => f.name),
     ['keys.base']
   );
   assert.deepEqual(reads.sort(), ['activity', 'key'], 'the key and its activity read once each');
   assert.equal(llm.calls.length, 0, 'no model probe for the key field');
 
   assert.deepEqual(
-    (await only('models.errands')).map((f: { name: string; value: string }) => f.name),
+    (await only('models.errands')).map((f: Field) => f.name),
     ['models.errands']
   );
   assert.deepEqual(
-    (await only('models.development')).map((f: { name: string; value: string }) => f.name),
+    (await only('models.development')).map((f: Field) => f.name),
     ['models.development']
   );
   assert.deepEqual([llm.calls.length, llm.listings.length], [0, 0], 'the errand and development fields probe nothing');
   assert.deepEqual(
-    (await only('models.base')).map((f: { name: string; value: string }) => f.name),
+    (await only('models.base')).map((f: Field) => f.name),
     ['models.base']
   );
   assert.ok(llm.calls.length > 0, 'the models.base field probes');
@@ -2042,7 +1917,7 @@ test('status: the field option renders that field alone and runs only its work',
   // An owner-only field asked by a member, or an unknown one: the whole card the caller may see.
   hot.config.bot.access = { 'status.show': { everyone: true, roles: [], users: [] } };
   assert.deepEqual(
-    (await only('memory', '999')).map((f: { name: string; value: string }) => f.name),
+    (await only('memory', '999')).map((f: Field) => f.name),
     ['state', 'tasks', 'models.base', 'models.errands', 'models.development', 'limits']
   );
   // PR 7d: the inner life is code, so the whole card carries its `inner` field too.
@@ -2082,12 +1957,9 @@ test('status: the memory field shows the coverage of every kind of memory, compu
     async indexSummary() {
       return { rows: 1234, missing: 5 };
     },
-    async coverage(
-      guildId: string,
-      options: Untyped
-    ): Promise<{ messages: number; indexed: number; missing: number; oldestMissing: string | null }> {
+    async coverage(guildId: string, options: Untyped) {
       coverageAsked.push([guildId, options.hours]);
-      return { messages: 200, indexed: 150, missing: 50, oldestMissing: '2026-10-12T08:00:00.000Z' };
+      return { messages: 200, indexed: 150, missing: 50, oldestMissing: '2026-10-12T08:00:00.000Z' as string | null };
     },
   };
   const { admin, store } = makeAdmin(rootDir, { record, archive, embedQueue, now });
@@ -2128,7 +2000,7 @@ test('status: the memory field shows the coverage of every kind of memory, compu
   });
   const memoryLines = async () =>
     (await admin.run('status.show', {}, { userId: '42' })).fields
-      .find((f: { name: string; value: string }) => f.name === 'memory')
+      .find((f: Field) => f.name === 'memory')
       .value.split('\n');
 
   assert.deepEqual(await memoryLines(), [
@@ -2169,7 +2041,7 @@ test('status: the speed field gives the median and the mean of the last 24 h wit
   const { admin } = makeAdmin(rootDir, { metrics, now });
   const speedLines = async () =>
     (await admin.run('status.show', {}, { userId: '42' })).fields
-      .find((f: { name: string; value: string }) => f.name === 'speed')
+      .find((f: Field) => f.name === 'speed')
       .value.split('\n');
 
   assert.deepEqual(await speedLines(), [
@@ -2207,9 +2079,7 @@ test("status: the speed field ends with today's missed-answer figures from the j
   };
   const { admin } = makeAdmin(rootDir, { journal, now });
   const speed = async (userId = '42') =>
-    (await admin.run('status.show', {}, { userId })).fields.find(
-      (f: { name: string; value: string }) => f.name === 'speed'
-    )?.value;
+    (await admin.run('status.show', {}, { userId })).fields.find((f: Field) => f.name === 'speed')?.value;
   assert.equal(await speed(), 'not available\nmissed: 2 candidates, 1 owed, 1 recovered');
   assert.deepEqual(asked, [['g1', { day: '2026-10-14', kind: 'answer', n: Number.MAX_SAFE_INTEGER }]]);
   assert.equal(await speed('999'), undefined, 'a member has no speed field');
@@ -2304,10 +2174,9 @@ test('status: the card lists one item per line in every field, the models one li
   probeConfig(hot);
 
   const { fields } = await admin.run('status.show', {}, { userId: '42' });
-  const lines = (name: string) =>
-    fields.find((f: { name: string; value: string }) => f.name === name).value.split('\n');
+  const lines = (name: string) => fields.find((f: Field) => f.name === name).value.split('\n');
   assert.deepEqual(
-    fields.map((f: { name: string; value: string }) => f.name),
+    fields.map((f: Field) => f.name),
     [
       'state',
       'tasks',
@@ -2415,13 +2284,9 @@ test("status: the owner card probes every role's model and shows its provider an
   const modelOf = { core: 'anthropic/claude-opus-4.6', analyzer: 'x/text', vision: 'x/media', video: 'x/video' };
 
   const { result, logs } = await withCapturedLogs(() => admin.run('status.show', {}, { userId: '42' }));
-  const lines = roleLinesOf(result.fields.find((f: { name: string; value: string }) => f.name === 'models.base').value);
-  const errands = roleLinesOf(
-    result.fields.find((f: { name: string; value: string }) => f.name === 'models.errands').value
-  );
-  const development = roleLinesOf(
-    result.fields.find((f: { name: string; value: string }) => f.name === 'models.development').value
-  );
+  const lines = roleLinesOf(result.fields.find((f: Field) => f.name === 'models.base').value);
+  const errands = roleLinesOf(result.fields.find((f: Field) => f.name === 'models.errands').value);
+  const development = roleLinesOf(result.fields.find((f: Field) => f.name === 'models.development').value);
 
   assert.deepEqual(
     llm.calls.map((call) => call.options.role).sort(),
@@ -2476,7 +2341,7 @@ test('status: the member card shows the models one line per role without probing
   hot.config.bot.access = { 'status.show': { everyone: true, roles: [], users: [] } };
 
   const { fields } = await admin.run('status.show', {}, { userId: '999' });
-  const valueOf = (name: string) => fields.find((f: { name: string; value: string }) => f.name === name).value;
+  const valueOf = (name: string) => fields.find((f: Field) => f.name === name).value;
   assert.equal(
     valueOf('models.base'),
     [
@@ -2521,7 +2386,7 @@ test('status: identical probes are sent once, each role shows its own model, the
   hot.config.llm.providerByModel = { 'x/@video': { only: ['video-host'] } };
 
   const { result, logs } = await withCapturedLogs(() => admin.run('status.show', {}, { userId: '42' }));
-  const lines = roleLinesOf(result.fields.find((f: { name: string; value: string }) => f.name === 'models.base').value);
+  const lines = roleLinesOf(result.fields.find((f: Field) => f.name === 'models.base').value);
 
   assert.deepEqual(
     llm.calls.map((call) => [call.options.role, call.options.model]).sort(),
@@ -2563,7 +2428,7 @@ test('status: without an embedding client the embedding role is shown unchecked;
   const unchecked = await none.admin.run('status.show', {}, { userId: '42' });
   assert.ok(
     unchecked.fields
-      .find((f: { name: string; value: string }) => f.name === 'models.base')
+      .find((f: Field) => f.name === 'models.base')
       .value.split('\n')
       .includes('embedding · x/embed · not checked (no embedding client)')
   );
@@ -2578,7 +2443,7 @@ test('status: without an embedding client the embedding role is shown unchecked;
   const { result } = await withCapturedLogs(() => failing.admin.run('status.show', {}, { userId: '42' }));
   assert.ok(
     result.fields
-      .find((f: { name: string; value: string }) => f.name === 'models.base')
+      .find((f: Field) => f.name === 'models.base')
       .value.split('\n')
       .includes('embedding · x/embed · failed: HTTP 404: no such model')
   );

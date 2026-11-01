@@ -20,8 +20,8 @@ const lookup = (name: string) => matchEmojiName(EMOJIS, name);
 
 test('CUSTOM_EMOJI_MARKUP: groups are the animated flag, the name and the id; Discord bounds on both', () => {
   const whole = new RegExp(`^${CUSTOM_EMOJI_MARKUP}$`);
-  assert.deepEqual(loose(whole.exec('<a:dance:222222222222222222>')).slice(1), ['a', 'dance', '222222222222222222']);
-  assert.deepEqual(loose(whole.exec('<:pepe_cry:111>')).slice(1), ['', 'pepe_cry', '111']);
+  assert.deepEqual(whole.exec('<a:dance:222222222222222222>')?.slice(1), ['a', 'dance', '222222222222222222']);
+  assert.deepEqual(whole.exec('<:pepe_cry:111>')?.slice(1), ['', 'pepe_cry', '111']);
   assert.equal(whole.test('<:x:111>'), false, 'a one-character name');
   assert.equal(whole.test(`<:${'n'.repeat(33)}:111>`), false, 'a name over 32 characters');
   assert.equal(whole.test(`<:dance:${'1'.repeat(26)}>`), false, 'an id over 25 digits');

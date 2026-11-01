@@ -41,6 +41,10 @@ import type { Untyped } from '../src/tools/types.ts';
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
 
+// The stand-ins hold only the part of a discord.js channel that the code under test reads, so each is cast once, here.
+const fakeOf = <T>(value: object): T => value as T;
+type Chan = Parameters<typeof fetchHistory>[0];
+
 function flagsWith(names: Untyped) {
   const set = new Set(names);
   return { has: (name: string) => set.has(name) };
@@ -831,14 +835,14 @@ test('fetchHistory: threads embedTextChars through to the embed classification',
   const raw = rawMessage({
     embeds: [{ url: 'https://example.com', title: 'x'.repeat(50), description: 'y'.repeat(50) }],
   });
-  const channel: Untyped = { messages: { fetch: async () => new Map([[raw.id, raw]]) } };
+  const channel = fakeOf<Chan>({ messages: { fetch: async () => new Map([[raw.id, raw]]) } });
   const [message] = await fetchHistory(channel, { limit: 10, selfId: 'self', embedTextChars: 10 });
   assert.equal(loose(message).links[0].title, `${'x'.repeat(10)}…`);
 });
 
 test('fetchHistory: threads videoSites through, a typed video-site URL becomes a link item', async () => {
   const raw = rawMessage({ cleanContent: 'regarde https://www.youtube.com/watch?v=abc' });
-  const channel: Untyped = { messages: { fetch: async () => new Map([[raw.id, raw]]) } };
+  const channel = fakeOf<Chan>({ messages: { fetch: async () => new Map([[raw.id, raw]]) } });
 
   const [withSites] = await fetchHistory(channel, {
     limit: 10,
@@ -857,7 +861,7 @@ test('fetchHistory: asks for at most one page of messages, oldest first in the r
   const older = rawMessage({ id: 'm1', createdTimestamp: 1000 });
   const newer = rawMessage({ id: 'm2', createdTimestamp: 2000 });
   const queries: Array<Untyped> = [];
-  const channel: Untyped = {
+  const channel = fakeOf<Chan>({
     messages: {
       fetch: async (query: Untyped) => {
         queries.push(query);
@@ -867,7 +871,7 @@ test('fetchHistory: asks for at most one page of messages, oldest first in the r
         ]);
       },
     },
-  };
+  });
   const messages = await fetchHistory(channel, { limit: 500, selfId: 'self' });
   assert.deepEqual(queries, [{ limit: 100 }]);
   assert.deepEqual(
@@ -881,7 +885,7 @@ test('fetchHistory: asks for at most one page of messages, oldest first in the r
 test('fetchMessage: a cached message is returned without a fetch', async () => {
   const cached = rawMessage({ id: 'm7' });
   const fetches: Array<Untyped> = [];
-  const channel: Untyped = {
+  const channel = fakeOf<Chan>({
     messages: {
       cache: new Map([['m7', cached]]),
       fetch: async (id: string) => {
@@ -889,7 +893,7 @@ test('fetchMessage: a cached message is returned without a fetch', async () => {
         return null;
       },
     },
-  };
+  });
   assert.equal(await fetchMessage(channel, 'm7'), cached);
   assert.deepEqual(fetches, []);
 });
@@ -897,7 +901,7 @@ test('fetchMessage: a cached message is returned without a fetch', async () => {
 test('fetchMessage: an uncached message is fetched by id', async () => {
   const fetched = rawMessage({ id: 'm8' });
   const fetches: Array<Untyped> = [];
-  const channel: Untyped = {
+  const channel = fakeOf<Chan>({
     messages: {
       cache: new Map(),
       fetch: async (id: string) => {
@@ -905,25 +909,25 @@ test('fetchMessage: an uncached message is fetched by id', async () => {
         return fetched;
       },
     },
-  };
+  });
   assert.equal(await fetchMessage(channel, 'm8'), fetched);
   assert.deepEqual(fetches, ['m8']);
 });
 
 test('fetchMessage: a failed or empty fetch, or a channel without a message cache, is null', async () => {
-  const failing: Untyped = {
+  const failing = fakeOf<Chan>({
     messages: {
       cache: new Map(),
       fetch: async () => {
         throw new Error('Unknown Message');
       },
     },
-  };
+  });
   assert.equal(await fetchMessage(failing, 'gone'), null);
-  const empty: Untyped = { messages: { cache: new Map(), fetch: async () => undefined } };
+  const empty = fakeOf<Chan>({ messages: { cache: new Map(), fetch: async () => undefined } });
   assert.equal(await fetchMessage(empty, 'gone'), null);
   const uncached = rawMessage({ id: 'm9' });
-  const noCache: Untyped = { messages: { fetch: async () => uncached } };
+  const noCache = fakeOf<Chan>({ messages: { fetch: async () => uncached } });
   assert.equal(await fetchMessage(noCache, 'm9'), uncached);
 });
 
@@ -1106,12 +1110,12 @@ function audienceChannel({
   clientUserId = null,
   members = null,
 }: {
-  roles?: Untyped;
-  overwrites?: Untyped;
-  thread?: Untyped;
-  meId?: Untyped;
-  clientUserId?: Untyped;
-  members?: Untyped;
+  roles?: Array<string>;
+  overwrites?: Array<{ id: string; type: number; allow?: bigint; deny?: bigint }>;
+  thread?: boolean;
+  meId?: string | null;
+  clientUserId?: string | null;
+  members?: Array<{ id: string; bot: boolean; roleIds?: Array<string> }> | null;
 } = {}) {
   const everyone = { id: GUILD_ID, permissions: new PermissionsBitField(VIEW) };
   const all = [everyone, ...roles.map((id: string) => ({ id, permissions: new PermissionsBitField(0n) }))];
@@ -1419,9 +1423,9 @@ test('normalizeMessage: a Discord CDN picture link stays a link', () => {
 
 test('fetchMessage: a missing or empty id is null without a request', async () => {
   const fetches: Array<Untyped> = [];
-  const channel: Untyped = {
+  const channel = fakeOf<Chan>({
     messages: { cache: new Map(), fetch: async (id: string) => (fetches.push(id), rawMessage({ id: 'x' })) },
-  };
+  });
   for (const id of [undefined, null, '']) assert.equal(await fetchMessage(channel, id), null, String(id));
   assert.deepEqual(fetches, []);
 });
@@ -1461,10 +1465,12 @@ test('normalizeMessage: a reaction whose emoji getter throws (a REST-only client
 // --- normalizeMessage: a posted link's URL stays readable ---------------------
 
 /** The chat-mode transcript line of the last of `messages`, as the persona reads it. */
-function lineOf(messages: Untyped) {
-  return loose(
-    formatTranscript(messages, { timezone: 'UTC', gapMinutes: 20, maxChars: 2000, selfName: 'Bot', labels }).at(-1)
-  ).text;
+function lineOf(messages: Parameters<typeof formatTranscript>[0]): string {
+  return String(
+    loose(
+      formatTranscript(messages, { timezone: 'UTC', gapMinutes: 20, maxChars: 2000, selfName: 'Bot', labels }).at(-1)
+    ).text
+  );
 }
 
 test('normalizeMessage: a posted link keeps its URL, tracking parameters included, before its link tag in the transcript', () => {
@@ -1810,8 +1816,8 @@ test('normalizeMessage: editedAt is the edit stamp, null for a message never edi
 
 test('fetchMessage: a partial message in the cache is fetched whole', async () => {
   const whole = { id: 'm1', partial: false, author: { id: 'self' } };
-  const channel: Untyped = {
+  const channel = fakeOf<Chan>({
     messages: { cache: new Map([['m1', { id: 'm1', partial: true, author: null }]]), fetch: async () => whole },
-  };
+  });
   assert.equal(await fetchMessage(channel, 'm1'), whole);
 });

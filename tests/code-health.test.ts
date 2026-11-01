@@ -21,7 +21,7 @@ const NOW = new Date('2026-10-26T12:00:00Z');
 /**
  * A function named `name` whose text is exactly `total` lines long.
  */
-function fnOfLines(name: string, total: Untyped) {
+function fnOfLines(name: string, total: number) {
   const filler = Array.from({ length: total - 2 }, (_, i) => `  const v${i} = ${i};`);
   return [`function ${name}() {`, ...filler, '}'].join('\n');
 }
@@ -29,7 +29,7 @@ function fnOfLines(name: string, total: Untyped) {
 /**
  * A function nested `depth` levels of `if` deep.
  */
-function fnNested(name: string, depth: Untyped) {
+function fnNested(name: string, depth: number) {
   const open = Array.from({ length: depth }, () => 'if (a) {').join('\n');
   const close = '}\n'.repeat(depth);
   return `function ${name}(a) {\n${open}\n  a++;\n${close}}\n`;
@@ -38,15 +38,13 @@ function fnNested(name: string, depth: Untyped) {
 /**
  * A function with `branches` plain `if` statements, so complexity is branches + 1.
  */
-function fnBranches(name: string, branches: Untyped) {
+function fnBranches(name: string, branches: number) {
   const body = Array.from({ length: branches }, () => '  if (a) a++;').join('\n');
   return `function ${name}(a) {\n${body}\n}\n`;
 }
 
-/**
- */
-function byKey(measure: Untyped, key: string) {
-  const found = measure.functions.find((f: Untyped) => f.key === key);
+function byKey(measure: ReturnType<typeof measureSource>, key: string) {
+  const found = measure.functions.find((f) => f.key === key);
   if (!found) throw new Error(`no function ${key}`);
   return found;
 }
@@ -173,8 +171,6 @@ test('measureSource: parses TypeScript syntax in a .ts file', () => {
 
 // ---- waivers ----
 
-/**
- */
 const waived = (rule: Untyped, tail = 'until 2026-12-01 -- one switch over every wake kind') =>
   `// health: allow ${rule} ${tail}\n`;
 

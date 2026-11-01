@@ -745,7 +745,7 @@ function diaryChannelFake({
   send = true,
   attach = true,
   guildId = 'g1',
-}: { send?: Untyped; attach?: Untyped; guildId?: Untyped } = {}) {
+}: { send?: boolean; attach?: boolean; guildId?: string } = {}) {
   return { send, attach, guildId };
 }
 

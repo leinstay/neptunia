@@ -26,12 +26,20 @@ import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { MEDIA_CACHE_ENTRIES } from '../src/web/cache.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import {
+  CLIP_DATA_URL,
+  SUCCESSFUL_DOWNLOAD,
+  fakeImageFetcher,
+  fakeLlm,
+  fakeState,
+  fakeVideoFetcher,
+} from './fixtures/describe-fakes.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
 
-// The stand-ins hold only the part of the real dependencies that the code under test reads, so each is cast once, here.
-const fakeOf = <T>(value: object): T => value as T;
+// The stand-in dependencies hold only the part that createLlm reads, so each set is cast once, here.
+const makeLlm = (deps: Untyped) => createLlm(deps as Parameters<typeof createLlm>[0]);
 
 // One directory under the system temp dir per run, removed when the process exits (tests/fixtures/tmp.ts);
 // every call gets its own empty subdirectory of it, so a run leaves nothing behind.
@@ -59,45 +67,20 @@ function fakeHot(overrides = {}) {
   };
 }
 
-// The describer helpers default to these fakes. A test that passes another one never reads `calls` or the counters of it,
-// so the helpers hand the fakes back as their own types.
-type FakeLlm = ReturnType<typeof fakeLlm>;
-type FakeVideoFetcher = ReturnType<typeof fakeVideoFetcher>;
-type FakeImageFetcher = ReturnType<typeof fakeImageFetcher>;
-type FakeState = ReturnType<typeof fakeState>;
+// What the describer helpers hand back: the fakes they default to, which a test that passes another one never reads.
+type Opts = Record<string, Untyped>;
+type Rig = {
+  describer: ReturnType<typeof createDescriber>;
+  store: ReturnType<typeof createStore>;
+  llm: ReturnType<typeof fakeLlm>;
+  videoFetcher: ReturnType<typeof fakeVideoFetcher>;
+  imageFetcher: ReturnType<typeof fakeImageFetcher>;
+  state: ReturnType<typeof fakeState>;
+  hot: Untyped;
+};
 
 function pictureItem(itemId: Untyped, overrides = {}) {
   return { itemId, kind: 'image', url: 'https://cdn.discordapp.com/x/pic.png', ...overrides };
-}
-
-function fakeLlm(responses: Untyped) {
-  let call = 0;
-  const calls: Array<{ messages: Untyped; options: Untyped }> = [];
-  return {
-    calls,
-    complete: async (messages: Untyped, options: Untyped) => {
-      calls.push({ messages, options });
-      const response = Array.isArray(responses) ? responses[call] : responses;
-      call += 1;
-      if (response instanceof Error) throw response;
-      return response;
-    },
-  };
-}
-
-const SUCCESSFUL_DOWNLOAD = { dataUrl: 'data:image/webp;base64,ZmFrZQ==', bytes: 4, contentType: 'image/webp' };
-
-/** A fake createImageFetcher()-shaped dependency. `result` may be `null` (every download fails), a fixed
- * success object, or a function `(url, options) => result|null` for per-call behaviour. */
-function fakeImageFetcher(result: Untyped = SUCCESSFUL_DOWNLOAD) {
-  const calls: Array<Untyped> = [];
-  return {
-    calls,
-    fetchAsDataUrl: async (url: string, options: Untyped) => {
-      calls.push({ url, options });
-      return typeof result === 'function' ? result(url, options) : result;
-    },
-  };
 }
 
 test('describe: missing prompts.describe returns null without any request', async () => {
@@ -492,23 +475,21 @@ test('describe: a picture describe through the real client never reaches the cal
     },
   });
   const observed: Array<Untyped> = [];
-  const llm = createLlm(
-    fakeOf<Parameters<typeof createLlm>[0]>({
-      apiKey: 'k',
-      getConfig: () => hot.config,
-      calibrator: {
-        ratio: 1,
-        apply: (n: number) => n,
-        observe: (raw: number, counted: number) => observed.push({ raw, counted }),
-      },
-      state: { data: {}, markDirty() {} },
-      fetchImpl: async () => ({
-        ok: true,
-        status: 200,
-        json: async () => ({ choices: [{ message: { content: 'a cat' } }], usage: { prompt_tokens: 1500 } }),
-      }),
-    })
-  );
+  const llm = makeLlm({
+    apiKey: 'k',
+    getConfig: () => hot.config,
+    calibrator: {
+      ratio: 1,
+      apply: (n: number) => n,
+      observe: (raw: number, counted: number) => observed.push({ raw, counted }),
+    },
+    state: { data: {}, markDirty() {} },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content: 'a cat' } }], usage: { prompt_tokens: 1500 } }),
+    }),
+  });
   const describer = createDescriber({
     hot,
     store: createStore({ dataDir: tmpDataDir() }),
@@ -729,7 +710,7 @@ const VIDEO_CFG = {
   errorRetryMinutes: 60,
 };
 
-function videoHot({ video = {}, prompts = {} }: { video?: Untyped; prompts?: Untyped } = {}) {
+function videoHot({ video = {}, prompts = {} }: Opts = {}) {
   return {
     config: {
       models: { base: { vision: 'x/haiku', video: 'x/video-model' } },
@@ -740,51 +721,8 @@ function videoHot({ video = {}, prompts = {} }: { video?: Untyped; prompts?: Unt
   };
 }
 
-function fakeState(data = {}) {
-  let dirty = 0;
-  return {
-    data,
-    markDirty() {
-      dirty += 1;
-    },
-    get dirtyCount() {
-      return dirty;
-    },
-  };
-}
-
-const CLIP_DATA_URL = 'data:video/mp4;base64,Y2xpcA==';
 // What media.video.audioMap resolves to when the config has no such key.
 const AUDIO_MAP_ON = { noiseDb: -50, minSilenceSeconds: 0.5, mapBelowShare: 0.8, maxSpans: 20 };
-
-/** A fake createVideoFetcher()-shaped dependency; every method records its call and returns the given result. */
-function fakeVideoFetcher({
-  attachment = { ok: true, dataUrl: CLIP_DATA_URL, mimeType: 'video/mp4', seconds: 12, bytes: 4 },
-  probe = { ok: true, durationSec: 30, title: 'Ελληνικό' },
-  clip = { ok: true, dataUrl: CLIP_DATA_URL, mimeType: 'video/mp4', seconds: 60, bytes: 4 },
-  youtube = { ok: false, reason: 'download' },
-}: { attachment?: Untyped; probe?: Untyped; clip?: Untyped; youtube?: Untyped } = {}) {
-  const calls: Array<{ fn: string; url: string; options: Untyped }> = [];
-  return {
-    calls,
-    fetchAttachment: async (url: string, options: Untyped) => {
-      calls.push({ fn: 'fetchAttachment', url, options });
-      return attachment;
-    },
-    probeSite: async (url: string, options: Untyped) => {
-      calls.push({ fn: 'probeSite', url, options });
-      return probe;
-    },
-    fetchSiteClip: async (url: string, options: Untyped) => {
-      calls.push({ fn: 'fetchSiteClip', url, options });
-      return clip;
-    },
-    probeYoutube: async (url: string, options: Untyped) => {
-      calls.push({ fn: 'probeYoutube', url, options });
-      return youtube;
-    },
-  };
-}
 
 function videoAttachment(itemId = 'v1', overrides = {}) {
   return {
@@ -821,14 +759,7 @@ function videoDescriber({
   state = fakeState(),
   now,
   youtubeApiKey,
-}: {
-  hot?: Untyped;
-  llm?: Untyped;
-  videoFetcher?: Untyped;
-  state?: Untyped;
-  now?: () => number;
-  youtubeApiKey?: string;
-} = {}) {
+}: Opts = {}): Pick<Rig, 'describer' | 'store' | 'llm' | 'videoFetcher' | 'state' | 'hot'> {
   const store = createStore({ dataDir: tmpDataDir() });
   const describer = createDescriber({
     hot,
@@ -840,14 +771,7 @@ function videoDescriber({
     ...(now ? { now } : {}),
     ...(youtubeApiKey !== undefined ? { youtubeApiKey } : {}),
   });
-  return {
-    describer,
-    store,
-    llm: llm as FakeLlm,
-    videoFetcher: videoFetcher as FakeVideoFetcher,
-    state: state as FakeState,
-    hot,
-  };
+  return { describer, store, llm, videoFetcher, state, hot };
 }
 
 test('describeVideo: attachment is watched through a data URL with the video settings', async () => {
@@ -1134,22 +1058,20 @@ test('describeVideo: the request body carries the video reasoning through the re
       retries: 0,
     };
     const bodies: Array<Untyped> = [];
-    const llm = createLlm(
-      fakeOf<Parameters<typeof createLlm>[0]>({
-        apiKey: 'k',
-        getConfig: () => hot.config,
-        calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
-        state: { data: {}, markDirty() {} },
-        fetchImpl: async (url: string, init: Untyped) => {
-          bodies.push(JSON.parse(loose(init).body));
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({ choices: [{ message: { content: 'someone dances' } }], usage: {} }),
-          };
-        },
-      })
-    );
+    const llm = makeLlm({
+      apiKey: 'k',
+      getConfig: () => hot.config,
+      calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
+      state: { data: {}, markDirty() {} },
+      fetchImpl: async (url: string, init: Untyped) => {
+        bodies.push(JSON.parse(loose(init).body));
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ choices: [{ message: { content: 'someone dances' } }], usage: {} }),
+        };
+      },
+    });
     const { describer } = videoDescriber({ hot, llm });
     assert.equal(loose(await describer.describeVideo('g1', videoAttachment())).state, 'watched');
     return bodies[0];
@@ -1675,22 +1597,20 @@ function realVideoLlm(hot: Untyped) {
     retries: 0,
   };
   const bodies: Array<Untyped> = [];
-  const llm = createLlm(
-    fakeOf<Parameters<typeof createLlm>[0]>({
-      apiKey: 'k',
-      getConfig: () => hot.config,
-      calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
-      state: { data: {}, markDirty() {} },
-      fetchImpl: async (url: string, init: Untyped) => {
-        bodies.push(JSON.parse(loose(init).body));
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ choices: [{ message: { content: 'someone talks' } }], usage: {} }),
-        };
-      },
-    })
-  );
+  const llm = makeLlm({
+    apiKey: 'k',
+    getConfig: () => hot.config,
+    calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
+    state: { data: {}, markDirty() {} },
+    fetchImpl: async (url: string, init: Untyped) => {
+      bodies.push(JSON.parse(loose(init).body));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: 'someone talks' } }], usage: {} }),
+      };
+    },
+  });
   return { llm, bodies };
 }
 
@@ -1866,11 +1786,7 @@ const REWATCH_PROMPT = 'Question: {{question}}. At most {{maxChars}} characters.
 // PR 7d: the second look's daily cap is gone and its answer length (1200) is the describer's constant.
 const REWATCH_CFG = { maxOutputTokens: 600 };
 
-function rewatchHot({
-  video = {},
-  rewatch = {},
-  prompts = {},
-}: { video?: Untyped; rewatch?: Untyped; prompts?: Untyped } = {}) {
+function rewatchHot({ video = {}, rewatch = {}, prompts = {} }: Opts = {}) {
   return videoHot({
     video: { rewatch: { ...REWATCH_CFG, ...rewatch }, ...video },
     prompts: { 'rewatch-answer': REWATCH_PROMPT, ...prompts },
@@ -1987,7 +1903,7 @@ test('rewatchVideo: logs one describe: rewatch line -- never the question, the a
 // --- relookImage: the second look at a picture on a question ----------------------
 
 /** rewatchHot with the picture switches on and the image settings the download reads. */
-function relookHot({ rewatch = {}, prompts = {} }: { rewatch?: Untyped; prompts?: Untyped } = {}) {
+function relookHot({ rewatch = {}, prompts = {} }: Opts = {}) {
   return rewatchHot({ rewatch, prompts });
 }
 
@@ -1997,13 +1913,7 @@ function relookDescriber({
   imageFetcher = fakeImageFetcher(),
   state = fakeState(),
   now,
-}: {
-  hot?: Untyped;
-  llm?: Untyped;
-  imageFetcher?: Untyped;
-  state?: Untyped;
-  now?: () => number;
-} = {}) {
+}: Opts = {}): Pick<Rig, 'describer' | 'store' | 'llm' | 'imageFetcher' | 'state'> {
   const store = createStore({ dataDir: tmpDataDir() });
   const describer = createDescriber({
     hot,
@@ -2014,13 +1924,7 @@ function relookDescriber({
     state,
     ...(now ? { now } : {}),
   });
-  return {
-    describer,
-    store,
-    llm: llm as FakeLlm,
-    imageFetcher: imageFetcher as FakeImageFetcher,
-    state: state as FakeState,
-  };
+  return { describer, store, llm, imageFetcher, state };
 }
 
 test('relookImage: one download and one vision request with the question; the answer is not the picture caption', async () => {
@@ -2186,11 +2090,7 @@ const GIF_VIDEO_PROMPT = 'Account of this clip, up to {{maxChars}} characters.';
 /** videoHot plus the GIF settings and a describe-video prompt that shows its cap. */
 // PR 7d: GIF watching is code, its length (15 s) and the caption length (500) are the describer's constants, and the
 // daily GIF cap is gone.
-function gifHot({
-  video = {},
-  media = {},
-  prompts = {},
-}: { video?: Untyped; media?: Untyped; prompts?: Untyped } = {}) {
+function gifHot({ video = {}, media = {}, prompts = {} }: Opts = {}) {
   const hot = videoHot({ video, prompts: { 'describe-video': GIF_VIDEO_PROMPT, ...prompts } });
   hot.config.media = { ...hot.config.media, ...media };
   return hot;
@@ -2221,25 +2121,10 @@ function gifDescriber({
   imageFetcher = fakeImageFetcher(),
   state = fakeState(),
   now,
-}: {
-  hot?: Untyped;
-  llm?: Untyped;
-  videoFetcher?: Untyped;
-  imageFetcher?: Untyped;
-  state?: Untyped;
-  now?: () => number;
-} = {}) {
+}: Opts = {}): Rig {
   const store = createStore({ dataDir: tmpDataDir() });
   const describer = createDescriber({ hot, store, llm, imageFetcher, videoFetcher, state, ...(now ? { now } : {}) });
-  return {
-    describer,
-    store,
-    llm: llm as FakeLlm,
-    videoFetcher: videoFetcher as FakeVideoFetcher,
-    imageFetcher: imageFetcher as FakeImageFetcher,
-    state: state as FakeState,
-    hot,
-  };
+  return { describer, store, llm, videoFetcher, imageFetcher, state, hot };
 }
 
 const TENOR_MP4 = 'https://images-ext-1.discordapp.net/external/v/https/media.tenor.com/x/AAAPo/loop.mp4';
@@ -2361,11 +2246,7 @@ test('describe: the watched caption keeps media.descriptionChars, collapsed to o
 });
 
 /** Asserts the one-frame path ran: the still frame from the preview address, the picture model, a `gif` entry. */
-function assertOneFrame(
-  { imageFetcher, llm, store }: { imageFetcher: Untyped; llm: Untyped; store: Untyped },
-  itemId: Untyped,
-  { watchFailed = false } = {}
-) {
+function assertOneFrame({ imageFetcher, llm, store }: Opts, itemId: Untyped, { watchFailed = false } = {}) {
   assert.equal(imageFetcher.calls.length, 1, 'the still frame is fetched');
   assert.equal(imageFetcher.calls[0].url, GIF_STILL_PREVIEW);
   const last = llm.calls[llm.calls.length - 1];
@@ -2687,7 +2568,7 @@ test('watchGif: an old-format watched entry (no reaction field) is watched again
 // --- rewatchGif / watchedGifs: the second look at a watched GIF -----------------
 
 /** gifHot with the re-watch prompt and settings. */
-function gifRewatchHot({ rewatch = {} }: { rewatch?: Untyped } = {}) {
+function gifRewatchHot({ rewatch = {} }: Opts = {}) {
   return gifHot({
     video: { rewatch: { ...REWATCH_CFG, ...rewatch } },
     prompts: { 'rewatch-answer': REWATCH_PROMPT },

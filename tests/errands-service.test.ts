@@ -30,6 +30,12 @@ const MEMORY = new Map<string, ReturnType<typeof openTestMemorySync>>();
 after(async () => {
   for (const { close } of MEMORY.values()) await close();
 });
+// A store the service hands out is null only before its first use; every read here follows a write.
+function present<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error('the test expects this store to exist');
+  return value;
+}
+
 function memoryOf(dataDir: string) {
   let memory = MEMORY.get(dataDir);
   if (memory === undefined) {
@@ -307,7 +313,7 @@ test('errands service: with the runner socket absent the flag goes down, submit 
     assert.equal(errands.runnerUp('scout'), false);
     const refused = errands.submit(ask('scout'));
     assert.deepEqual(refused, { ok: false, code: 'runner-down' }, 'refused synchronously');
-    assert.deepEqual(loose(errands.store('g1')).recent(10), [], 'no task row');
+    assert.deepEqual(present(errands.store('g1')).recent(10), [], 'no task row');
     const downs = log.calls.filter((c) => c.msg === 'errands: runner down');
     assert.equal(downs.length, 1, 'logged once per change');
     assert.equal(downs[0].fields.agent, 'scout');
@@ -327,7 +333,7 @@ test('errands service: with the runner socket absent the flag goes down, submit 
     assert.equal(log.calls.filter((c) => c.msg === 'errands: runner up').length, 1);
     const queued = errands.submit(ask('scout'));
     assert.equal(queued.ok, true);
-    assert.equal(loose(errands.store('g1')).recent(10).length, 1);
+    assert.equal(present(errands.store('g1')).recent(10).length, 1);
     errands.cancel({ guildId: 'g1', id: queued.errand.id, by: 'owner' });
   } finally {
     client.close();
@@ -477,12 +483,12 @@ test("errands service: a private chat's unread result is in the view only in tha
       errands.view({ guildId: 'g1', privateChannelId: 'dm2' }).map((task) => task.id),
       [group]
     );
-    await loose(stores.get('g1')).flush();
+    await present(stores.get('g1')).flush();
     const again = createErrandStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get(
       'g1'
     );
     assert.deepEqual(
-      loose(again)
+      present(again)
         .unread()
         .map((task: Untyped) => task.id),
       [dm, group]
@@ -494,7 +500,7 @@ test("errands service: a private chat's unread result is in the view only in tha
       [dm, true],
       [group, false],
     ]) {
-      const task = loose(again).get(id);
+      const task = present(again).get(id);
       delete loose(task).readAt;
       delete loose(task).resolvedAt;
       await memoryOf(dataDir).writeUnit({
@@ -507,7 +513,7 @@ test("errands service: a private chat's unread result is in the view only in tha
       'g1'
     );
     assert.deepEqual(
-      loose(legacy)
+      present(legacy)
         .unread()
         .map((task: Untyped) => task.id),
       [group]
@@ -527,10 +533,10 @@ test('errands service: at start the finished errands whose result turn never ran
     );
     const unseen = finishedTask(before);
     const seen = finishedTask(before);
-    loose(before).markSeen(seen);
-    const running = loose(before).add(ask('scout')).errand.id;
-    loose(before).start(running);
-    await loose(before).flush();
+    present(before).markSeen(seen);
+    const running = loose(present(before).add(ask('scout')).errand).id;
+    present(before).start(running);
+    await present(before).flush();
     const reopened: Array<Untyped> = [];
     const stores = createErrandStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() });
     const errands = createErrandService({

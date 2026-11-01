@@ -41,7 +41,7 @@ const L = {
 };
 
 /** A normalized chat message at `NOW - ago` hours. */
-function message(id: string, hoursAgo: Untyped, text: string, extra = {}) {
+function message(id: string, hoursAgo: number, text: string, extra: Record<string, unknown> = {}) {
   return {
     id,
     channelId: 'c2',
@@ -71,9 +71,12 @@ function render() {
 }
 
 function registry() {
-  const taken: Array<Untyped> = [];
-  return { taken, next: () => 40 + taken.length, take: (shown: Untyped) => taken.push(...shown) };
+  const taken: Array<{ n: number; id: string; channelId: string }> = [];
+  return { taken, next: () => 40 + taken.length, take: (shown: typeof taken) => taken.push(...shown) };
 }
+
+// The text of a read's data; the data is typed unknown, and the tests read the text of the one that has it.
+const textOf = (result: { data?: unknown }): string => String(loose(result.data).text);
 
 function runner(overrides = {}) {
   const calls = { record: [] as Array<Untyped>, live: [] as Array<Untyped> };
@@ -156,7 +159,7 @@ test('pickSpan: each mode takes its part and says whether the list holds all of 
 });
 
 /** A record line of channel c2. */
-function line(id: string, hoursAgo: Untyped, text: string, extra = {}) {
+function line(id: string, hoursAgo: number, text: string, extra: Record<string, unknown> = {}) {
   const at = new Date(NOW - hoursAgo * HOUR).toISOString();
   return {
     kind: 'seen',
@@ -173,11 +176,11 @@ function line(id: string, hoursAgo: Untyped, text: string, extra = {}) {
   };
 }
 
-function fakeRecord(lines: Untyped) {
+function fakeRecord(lines: Array<{ scope: { channel: string }; occurredAt: string } & Record<string, unknown>>) {
   const reads: Array<Untyped> = [];
   return {
     reads,
-    iterate: async function* iterate(guildId: string, query: Untyped) {
+    iterate: async function* iterate(guildId: string, query: { channelIds?: Array<string>; from?: string }) {
       reads.push(query);
       for (const entry of lines) {
         if (query.channelIds && !query.channelIds.includes(entry.scope.channel)) continue;
@@ -245,7 +248,7 @@ test('last: the newest lines from the record with their handles, the paging line
   assert.equal(result.status, 'ok');
   assert.equal(calls.live.length, 0);
   assert.equal(calls.record.length, 1, 'the first rung held it');
-  const lines = loose(result.data).text.split('\n');
+  const lines = textOf(result).split('\n');
   assert.equal(lines[0], 'from conversation.read #general');
   assert.equal(lines[1], 'lines carry message numbers');
   assert.match(lines[2], /^#40 \[\d\d:\d\d\] Éloïse: γραμμή 27$/);
@@ -266,7 +269,7 @@ test('around: the lines each side of the message, both ways to read on', async (
   const refs = registry();
   const { run } = runner({ refs });
   const result = await run({ channelId: 'c2', around: 'm10', before: '2', after: '1' });
-  const text = loose(result.data).text;
+  const text = textOf(result);
   assert.ok(text.startsWith('from conversation.read #jardin\n'));
   assert.deepEqual(
     [...text.matchAll(/γραμμή (\d+)/g)].map((m) => Number(m[1])),
@@ -285,10 +288,10 @@ test('since: the lines from that moment on, cut at last with a way to read on', 
   const { run, calls } = runner({ refs: registry() });
   const result = await run({ since: '3h', last: 2 });
   assert.deepEqual(
-    [...loose(result.data).text.matchAll(/γραμμή (\d+)/g)].map((m) => Number(m[1])),
+    [...textOf(result).matchAll(/γραμμή (\d+)/g)].map((m) => Number(m[1])),
     [27, 28]
   );
-  assert.ok(loose(result.data).text.endsWith('later: after=#41'), loose(result.data).text);
+  assert.ok(textOf(result).endsWith('later: after=#41'), textOf(result));
   assert.equal(calls.record[0].from, NOW - 3 * HOUR, 'the record is read from the moment asked');
 });
 
@@ -296,12 +299,12 @@ test('before and after a message: the paging a closing line hands over', async (
   const { run } = runner({ refs: registry() });
   const earlier = await run({ before: 'm10', last: 2 });
   assert.deepEqual(
-    [...loose(earlier.data).text.matchAll(/γραμμή (\d+)/g)].map((m) => Number(m[1])),
+    [...textOf(earlier).matchAll(/γραμμή (\d+)/g)].map((m) => Number(m[1])),
     [8, 9]
   );
   const later = await run({ after: 'm10', last: 2 });
   assert.deepEqual(
-    [...loose(later.data).text.matchAll(/γραμμή (\d+)/g)].map((m) => Number(m[1])),
+    [...textOf(later).matchAll(/γραμμή (\d+)/g)].map((m) => Number(m[1])),
     [11, 12]
   );
 });
@@ -312,9 +315,9 @@ test('the room: lines that do not fit are cut from the far end and counted, only
   const result = await run({ last: 20 });
   const shown = refs.taken.length;
   assert.ok(shown > 0 && shown < 20, String(shown));
-  assert.ok(loose(result.data).text.includes(`(${20 - shown} lines cut)`), loose(result.data).text);
-  assert.equal(refs.taken.at(-1).id, 'm29', 'the newest lines stay');
-  assert.ok(loose(result.data).text.length <= 700 + 200);
+  assert.ok(textOf(result).includes(`(${20 - shown} lines cut)`), textOf(result));
+  assert.equal(refs.taken.at(-1)?.id, 'm29', 'the newest lines stay');
+  assert.ok(textOf(result).length <= 700 + 200);
 });
 
 test('the record lacks the span: the history is asked and joins, the answer comes from both', async () => {
@@ -326,7 +329,7 @@ test('the record lacks the span: the history is asked and joins, the answer come
   const result = await run({ channelId: 'c2', last: 2 });
   assert.equal(calls.live.length, 1);
   assert.deepEqual(calls.live[0], { channelId: 'c2', mode: 'last', anchor: null, limit: 2, minTs: 0 });
-  assert.ok(loose(result.data).text.includes('από το ιστορικό') && loose(result.data).text.includes('και άλλη μία'));
+  assert.ok(textOf(result).includes('από το ιστορικό') && textOf(result).includes('και άλλη μία'));
 });
 
 test('an anchor in neither the record nor the history is an unknown message; a history that failed with an empty record is a failure', async () => {
