@@ -567,7 +567,11 @@ test('envelope: a hello whose community is not an id and a name is refused', () 
 
 test('envelope: every type validates in its documented body, and a bad one is refused with a reason', () => {
   // The list gains `cancel`, the envelope that names an action to cancel (stage 4 design, "PR A in detail", Actions).
-  assert.deepEqual([...ENVELOPE_TYPES], ['hello', 'event', 'ack', 'action', 'action_result', 'ping', 'cancel']);
+  // PR 7f: the list gains `tool.register` and `tool.call`, the plugin envelopes (docs/plugins.md).
+  assert.deepEqual(
+    [...ENVELOPE_TYPES],
+    ['hello', 'event', 'ack', 'action', 'action_result', 'ping', 'cancel', 'tool.register', 'tool.call']
+  );
   const event = EVENTS['reaction.changed'];
   const valid = [
     envelope('hello', { ...HELLO_BODY, capabilities: ['message.send'], resume: null }, { id: 'h1' }),

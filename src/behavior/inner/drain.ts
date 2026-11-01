@@ -590,10 +590,10 @@ export type DrainAnswer =
   | { outcome: unknown; wakes: number; usd: number; feedback?: string }
   | null;
 
-/** Whether `wake` may run now: not held by a cap, not waiting for its retry time, and not a heartbeat wake while the heartbeat is off (a plugin's `ability.added` wake is one: its turn is a heartbeat turn). */
+/** Whether `wake` may run now: not held by a cap, not waiting for its retry time, and not a plugin's `ability.added` wake while the heartbeat is off (its turn is a heartbeat turn). */
 function isEligible(wake: Wake, now: { held: ReadonlyArray<Wake>; at: number; settings: InnerSettings }): boolean {
   if (now.held.includes(wake) || Number(wake.notBefore) > now.at) return false;
-  return !(wake.kind === 'heartbeat' && !now.settings.heartbeat.enabled);
+  return !(wake.kind === 'heartbeat' && wake.reason === 'ability.added' && !now.settings.heartbeat.enabled);
 }
 
 /**
