@@ -635,7 +635,7 @@ test('the step engine: reads run together, a data result holds her speech, the n
   assert.ok(report.includes('cost: 0.0220'));
 });
 
-test('the step engine: her tools are in every request and the server search line says she calls it; no <skills> list', async () => {
+test('the step engine: her tools are in every request and the server search line says she calls it; no <tool_catalogue> list', async () => {
   const { llm } = await loopRun(
     [toolAnswer(THINK, [call('web.search', { query: 'τελικός' })]), `${THINK}<msg>ok</msg>`],
     { tool: () => okTool('κάτι') }
@@ -643,7 +643,7 @@ test('the step engine: her tools are in every request and the server search line
   for (const recorded of llm.calls) {
     const user = userOf(recorded);
     assert.ok(user.includes(labels.senses.recallTool), 'the server search line says she calls it');
-    assert.ok(!user.includes('<skills>\n'), 'no classifier names her skills');
+    assert.ok(!user.includes('<tool_catalogue>\n'), 'no classifier names her skills');
     assert.ok(!user.includes('<tools>'), 'the native transport sends the tools as a field');
   }
 });
