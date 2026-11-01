@@ -1,4 +1,4 @@
-// Tests for src/web/fetch-page.js: the SSRF guard (scheme, localhost, IP
+// Tests for src/web/fetch-page.ts: the SSRF guard (scheme, localhost, IP
 // literals, hostnames resolving to private space, redirects re-checked on
 // every hop, the request pinned to the checked address), the header set, the
 // content-type and size rules (declared and mid-stream), timeouts, HTTP and
@@ -7,7 +7,7 @@
 // are fakes; nothing touches the network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createPageFetcher, isForbiddenAddress } from '../src/web/fetch-page.js';
+import { createPageFetcher, isForbiddenAddress } from '../src/web/fetch-page.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const OPTS = { maxBytes: 10_000, timeoutMs: 5_000 };

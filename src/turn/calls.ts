@@ -6,8 +6,8 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { parseToolCallBlocks } from '../llm/tool-text.js';
-import { REPLY_REQUEST } from '../llm/openrouter.js';
+import { parseToolCallBlocks } from '../llm/tool-text.ts';
+import { REPLY_REQUEST } from '../llm/openrouter.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { CallView } from '../tools/executors.ts';
@@ -335,7 +335,7 @@ export function defaultSkills(): SkillMap {
 
 /**
  * One answer of the model split into its speech and its tool calls. Native: the speech text is `completion.text` and
- * the calls are `completion.toolCalls`. Text: the calls are the `<tool_call>` blocks of the text (src/llm/tool-text.js)
+ * the calls are `completion.toolCalls`. Text: the calls are the `<tool_call>` blocks of the text (src/llm/tool-text.ts)
  * and the speech text is what is left of it. The calls come out as records, ids made unique within the answer
  * (src/tools/tool-calls.ts#normalizeCalls; `step` numbers them `s<step>c<n>`, 1 for the reply's answer). Pure.
  */

@@ -1,7 +1,7 @@
 // The pure side of a tool call (native or text transport): what her answer's calls become before
 // anything runs, the narrow repair of an argument's type, and the words of a call's result.
-// `normalizeCalls` turns the transport's calls (`toolCallsOf` in src/llm/openrouter.js, or
-// `parseToolCallBlocks` in src/llm/tool-text.js) into records the step engine plans one by one;
+// `normalizeCalls` turns the transport's calls (`toolCallsOf` in src/llm/openrouter.ts, or
+// `parseToolCallBlocks` in src/llm/tool-text.ts) into records the step engine plans one by one;
 // `coerceArgs` reads `"true"` as true and `"5"` as 5 where the schema says so and tells which;
 // `toolResultText` is the text of the result she reads for each call;
 // `coversSpeech` says whether a finished call lets the speech of its step go out. No I/O, no clock,

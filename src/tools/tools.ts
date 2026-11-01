@@ -1,9 +1,9 @@
 // The persona's in-turn tools: `web.search`, `web.read`, `media.look` and `memory.search`,
 // skills she calls herself in a turn whose result comes back in the same turn (src/behavior/turn.js,
 // the tool loop). No model role chooses for her or reads for her: her query goes to the existing
-// web search engines as she wrote it and their results come back raw (src/web/lookup.js#searchResults:
+// web search engines as she wrote it and their results come back raw (src/web/lookup.ts#searchResults:
 // title, link, site, date, the engine's snippet; no summary), a page she reads comes back as its
-// own extracted text, cut (src/web/lookup.js#readPage), her question, people, channel, time range and exact
+// own extracted text, cut (src/web/lookup.ts#readPage), her question, people, channel, time range and exact
 // terms go to the recall machinery through its deterministic expansion only
 // (src/behavior/recall.js#memorySearchPlan, src/behavior/recall-run.js with `quotes`: no summary
 // request). Every result says where it came from and what kind of evidence it is -- for the web,
@@ -27,8 +27,8 @@ import { fill } from '../format.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { zonedDay } from '../time.js';
 import { RECALL_DEFAULTS, memorySearchPlan, recallSettings } from '../behavior/recall.js';
-import { collectPictures, collectVideos } from '../media/classify.js';
-import { videoSiteFor, videoUrlCacheKey } from '../media/video-sites.js';
+import { collectPictures, collectVideos } from '../media/classify.ts';
+import { videoSiteFor, videoUrlCacheKey } from '../media/video-sites.ts';
 import { foldText } from '../memory/recent.js';
 import { GIF_HALF_LIFE_DAYS, rankGifs } from '../memory/gifs.js';
 import { gifFieldChars, gifFields, gifLine } from '../behavior/prompt.js';
@@ -162,7 +162,7 @@ function cleanLink(raw: unknown): { href: string; key: string } | null {
 }
 
 /**
- * The text of a web.search result (`found`: src/web/lookup.js#searchResults' `{ query, results }`,
+ * The text of a web.search result (`found`: src/web/lookup.ts#searchResults' `{ query, results }`,
  * raw, no model role between): `labels.tools.tools.web.source` (`{query}`), `.goal` (`{goal}`) when
  * she named what she needs to establish, then each result as the engine gave it -- `<n>. <title>`,
  * its link (cleanLink; a result without an http(s) link and a page listed twice are left out),
@@ -239,7 +239,7 @@ export function webSearchText(
 }
 
 /**
- * The text of a web.read result (`page`: src/web/lookup.js#readPage's `{ url, title, text, cut }`):
+ * The text of a web.read result (`page`: src/web/lookup.ts#readPage's `{ url, title, text, cut }`):
  * `labels.tools.tools.read.source` (`{url}`: where the page ended up, `{maxChars}`), `.title`
  * (`{title}`) when the page has one, the page's own text as extracted, then `.cut` (`{maxChars}`)
  * when it was cut. A missing label adds nothing. Pure.
@@ -429,7 +429,7 @@ export async function runWebSearch({
     const answer = await lookup.searchResults(guildId, query);
     if (!isObj(answer)) return { status: 'failed', code: CODE.ERROR };
     const found = answer;
-    // The lookup's own coded failure (src/web/lookup.js#searchResults): said as it was.
+    // The lookup's own coded failure (src/web/lookup.ts#searchResults): said as it was.
     if (found.failed) {
       const failure = objOf(found.failed);
       const code = plain(failure.code);
@@ -467,7 +467,7 @@ export function firstLinkIn(value: unknown): string | null {
   return match?.[0] ?? null;
 }
 
-/** The page codes of src/web/lookup.js#readPage that mean the call itself was not right. */
+/** The page codes of src/web/lookup.ts#readPage that mean the call itself was not right. */
 const READ_INVALID = new Set(['scheme']);
 
 /**
@@ -706,7 +706,7 @@ export function lookPerTurn(): number {
 
 /**
  * What media.look can look at in one normalized message, in the order the message shows them
- * (src/media/classify.js#collectPictures: attachments, then embeds, the forwarded parts after),
+ * (src/media/classify.ts#collectPictures: attachments, then embeds, the forwarded parts after),
  * numbered 1.. by that order: an attached or embedded picture (`image`), a GIF (`gif`: watched
  * as a clip), a video (`video`: an attachment, or a link of a `videoSites` site --
  * collectVideos -- listed once, where it first shows; one without a preview picture after the

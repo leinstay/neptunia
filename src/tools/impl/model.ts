@@ -3,7 +3,7 @@
 // the operation's `ctx` as the command context.
 
 import { MODEL_SET_PATHS, MODEL_SET_ROLES } from './catalog.ts';
-import { IMAGE_ROLE } from '../../llm/images.js';
+import { IMAGE_ROLE } from '../../llm/images.ts';
 import {
   CORE_ROLE,
   DEVELOPMENT_ROLES,
@@ -11,7 +11,7 @@ import {
   NON_CORE_ROLES,
   roleConfigKeys,
   roleModel,
-} from '../../llm/roles.js';
+} from '../../llm/roles.ts';
 import { reloadNote, setPath, MODEL_ID_RE, modelForRole } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { objOf } from '../types.ts';

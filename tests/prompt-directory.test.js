@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildRequest, userText } from '../src/behavior/prompt.js';
 import { assignHandles, handleOf } from '../src/behavior/handles.js';
-import { estimateTokens } from '../src/llm/tokens.js';
+import { estimateTokens } from '../src/llm/tokens.ts';
 import { labels as fixtureLabels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 9, 15, 10, 0, 0);

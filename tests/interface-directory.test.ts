@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createConversationDirectory } from '../src/interface/directory.ts';
-import type { ConversationChanged } from '../src/protocol/events.js';
+import type { ConversationChanged } from '../src/protocol/events.ts';
 
 function changed(change: ConversationChanged['change'], id: string, name: string | null): ConversationChanged {
   return {

@@ -49,7 +49,7 @@ export function createTagHistory() {
 }
 
 /**
- * Whether `normalized` (src/protocol/events.js#Message) tags the
+ * Whether `normalized` (src/protocol/events.ts#Message) tags the
  * persona for real: `selfId` is among its mentioned users and not only
  * because of the platform's reply ping (`replyPingUserId`). A reply to the
  * persona that only carries the reply ping is untagged (decideMention).
@@ -132,7 +132,7 @@ export function isFollowUpOpen(state, now) {
  * classifier is ever asked — see the prompt contract. A reply to another
  * member's message goes to the classifier like plain text; the reply ping
  * the platform adds for the replied-to author (`replyPingUserId`) is not a
- * mention. `normalized` is the shape of src/protocol/events.js#Message.
+ * mention. `normalized` is the shape of src/protocol/events.ts#Message.
  * @param {{ replyToId: string|null, mentionedUserIds: string[], replyPingUserId?: string|null }} normalized
  * @param {string} selfId
  * @returns {boolean} true = never the persona's: the answer is "no" without asking the model
@@ -190,7 +190,7 @@ export function followUpTriggerKind(answer) {
   return answer === 'overheard' ? 'overheard' : null;
 }
 
-// The model roles are resolved by src/llm/roles.js#roleModel (one resolver for every model role).
+// The model roles are resolved by src/llm/roles.ts#roleModel (one resolver for every model role).
 // The per-feature model keys older than the `classifier` block are never read;
 // deprecatedModelKeys lets startup warn about them.
 

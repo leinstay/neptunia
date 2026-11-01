@@ -14,7 +14,7 @@ import {
   fetchHistoryWindow,
   lastActivity,
   normalizeOptions,
-} from '../interfaces/discord/index.js';
+} from '../interfaces/discord/index.ts';
 import { lineOf } from '../src/behavior/line-of.js';
 import type { MessageEvent } from '../src/protocol/adapter.ts';
 

@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:f
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { connectSocket, encodeEnvelope, envelope } from '../src/protocol/index.js';
+import { connectSocket, encodeEnvelope, envelope } from '../src/protocol/index.ts';
 import { listenSocket } from '../src/interface/socket.ts';
 import type { Transport } from '../src/protocol/wire.ts';
 

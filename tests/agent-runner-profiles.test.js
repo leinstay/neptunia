@@ -1,4 +1,4 @@
-// Tests for src/agent-runner/profiles.js: the generated OpenCode config (the
+// Tests for src/agent-runner/profiles.ts: the generated OpenCode config (the
 // V1 shape of release v1.19.3) for each profile -- the agent's prompt, step
 // cap, model and cost, the permission map (deny-all first, then the profile's
 // allows), the bash allow-list order (catch-all deny first, specifics after,
@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { readPromptFile } from '../src/agent-runner/opencode.js';
+import { readPromptFile } from '../src/agent-runner/opencode.ts';
 import { onLog } from '../src/log.js';
 import {
   SCOUT,
@@ -45,15 +45,15 @@ import {
   SCOUT_TMP_DIR,
   YT_DLP_DENIES,
   withheldShellDenies,
-} from '../src/agent-runner/profiles.js';
+} from '../src/agent-runner/profiles.ts';
 import {
   WITHHELD_GLOBS,
   WITHHELD_NAMES,
   WITHHELD_ROOTS,
   withheldGlobsOf,
   withheldRootsOf,
-} from '../src/agent-runner/policy.js';
-import { DEVELOPMENT_ROLES, OPENCODE_ROLES, ROLE_DEFAULTS } from '../src/llm/roles.js';
+} from '../src/agent-runner/policy.ts';
+import { DEVELOPMENT_ROLES, OPENCODE_ROLES, ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import { resolvePaths } from '../src/paths.js';
 import { tempDir } from './fixtures/tmp.js';
 
@@ -155,9 +155,9 @@ test("scout shell: the web-search command runs, through the wrapper on the child
   // Stage 4 PR D ("PR D in detail", the errand runner): bin/web-search.mjs moves next to its wrapper in agents/scout/.
   assert.match(
     fs.readFileSync(wrapper, 'utf8'),
-    /^#!\/bin\/sh\n[\s\S]*exec node "\$\{0%\/\*\}\/\.\.\/web-search\.mjs" "\$@"\n$/
+    /^#!\/bin\/sh\n[\s\S]*exec node "\$\{0%\/\*\}\/\.\.\/web-search\.ts" "\$@"\n$/
   );
-  assert.ok(fs.existsSync(path.join(ROOT, 'agents', 'scout', 'web-search.mjs')));
+  assert.ok(fs.existsSync(path.join(ROOT, 'agents', 'scout', 'web-search.ts')));
   assert.deepEqual([...SERVER.pathDirs], [], 'the server agent gets no command of its own');
 });
 

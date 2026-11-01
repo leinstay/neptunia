@@ -19,34 +19,34 @@
     "tools/replay.mjs": 7553
   },
   "functions": {
-    "interfaces/discord/collect.js": {
+    "interfaces/discord/collect.ts": {
       "audienceOf": {
         "complexity": 22
       }
     },
-    "src/agent-runner/opencode.js": {
+    "src/agent-runner/opencode.ts": {
       "createOpencodeRunner": {
-        "function-length": 354
+        "function-length": 352
       },
       "createOpencodeRunner>run": {
-        "complexity": 42,
-        "function-length": 311
+        "complexity": 40,
+        "function-length": 310
       },
       "createOpencodeRunner>run><anonymous>#2>handleEvent": {
-        "complexity": 29
+        "complexity": 24
       }
     },
-    "src/agent-runner/policy.js": {
+    "src/agent-runner/policy.ts": {
       "withheldInToolUse": {
         "complexity": 29
       }
     },
-    "src/agent-runner/profiles.js": {
+    "src/agent-runner/profiles.ts": {
       "validateProfile": {
         "complexity": 26
       }
     },
-    "src/agent-runner/protocol.js": {
+    "src/agent-runner/protocol.ts": {
       "validateRun": {
         "complexity": 42
       }
@@ -247,37 +247,37 @@
         "complexity": 49
       }
     },
-    "src/llm/embed.js": {
+    "src/llm/embed.ts": {
       "createEmbedder>embed": {
         "complexity": 32
       }
     },
-    "src/llm/images.js": {
+    "src/llm/images.ts": {
       "createImageGen>generate": {
-        "complexity": 31
+        "complexity": 30
       }
     },
-    "src/llm/openrouter.js": {
+    "src/llm/openrouter.ts": {
       "createLlm": {
-        "function-length": 620
+        "function-length": 618
       },
       "createLlm>complete": {
         "complexity": 45
       }
     },
-    "src/llm/parse.js": {
+    "src/llm/parse.ts": {
       "parseOutput": {
         "complexity": 27
       }
     },
-    "src/media/classify.js": {
+    "src/media/classify.ts": {
       "mediaLabelFor": {
         "complexity": 41
       }
     },
-    "src/media/fetch-video.js": {
+    "src/media/fetch-video.ts": {
       "createVideoFetcher": {
-        "function-length": 701
+        "function-length": 697
       }
     },
     "src/memory/append-store.js": {
@@ -600,25 +600,20 @@
         "complexity": 35
       }
     },
-    "src/web/exa.js": {
-      "createExaSearch>search": {
-        "complexity": 21
-      }
-    },
-    "src/web/fetch-page.js": {
+    "src/web/fetch-page.ts": {
       "createPageFetcher>fetchText": {
-        "complexity": 34
+        "complexity": 30
       }
     },
-    "src/web/lookup.js": {
+    "src/web/lookup.ts": {
       "createLookup": {
-        "function-length": 542
+        "function-length": 540
       },
       "createLookup>search": {
         "complexity": 21
       }
     },
-    "src/web/readable.js": {
+    "src/web/readable.ts": {
       "attributes": {
         "complexity": 23
       }
@@ -788,30 +783,30 @@
   },
   "structure": {
     "imports": {
-      "interfaces/discord/audience-warm.js": [
+      "interfaces/discord/audience-warm.ts": [
         "src/log.js"
       ],
-      "interfaces/discord/collect.js": [
+      "interfaces/discord/collect.ts": [
         "src/behavior/emoji.js",
         "src/log.js",
         "src/memory/mentions.ts"
       ],
-      "interfaces/discord/port.js": [
-        "src/interface/port.js",
+      "interfaces/discord/port.ts": [
+        "src/interface/port.ts",
         "src/tools/codes.ts"
       ],
-      "interfaces/discord/pull-fetch.js": [
+      "interfaces/discord/pull-fetch.ts": [
         "src/behavior/elsewhere.ts",
         "src/behavior/pull.js"
       ],
-      "interfaces/discord/search.js": [
+      "interfaces/discord/search.ts": [
         "src/log.js"
       ]
     },
     "tests": [
-      "interfaces/discord/gateway.js",
-      "interfaces/discord/index.js",
-      "interfaces/discord/port.js",
+      "interfaces/discord/gateway.ts",
+      "interfaces/discord/index.ts",
+      "interfaces/discord/port.ts",
       "src/behavior/pipeline.js",
       "src/behavior/random.js",
       "src/behavior/route-channel.js",
@@ -821,11 +816,11 @@
       "src/handles-text.js",
       "src/intentions/blocks.ts",
       "src/intentions/sources.ts",
-      "src/interface/fake.js",
-      "src/interface/port.js",
+      "src/interface/fake.ts",
+      "src/interface/port.ts",
       "src/log.js",
-      "src/media/classify.js",
-      "src/media/gif-post.js",
+      "src/media/classify.ts",
+      "src/media/gif-post.ts",
       "src/memory/avatar-queue.js",
       "src/memory/db/export.ts",
       "src/memory/db/graph-manifest.ts",
@@ -851,13 +846,13 @@
       "src/memory/db/writer-worker.ts",
       "src/memory/index.js",
       "src/memory/update.js",
-      "src/protocol/actions.js",
-      "src/protocol/envelope.js",
-      "src/protocol/index.js",
-      "src/protocol/origin.js",
-      "src/protocol/validate.js",
-      "src/speech/index.js",
-      "src/speech/synth.js",
+      "src/protocol/actions.ts",
+      "src/protocol/envelope.ts",
+      "src/protocol/index.ts",
+      "src/protocol/origin.ts",
+      "src/protocol/validate.ts",
+      "src/speech/index.ts",
+      "src/speech/synth.ts",
       "src/tools/call-args.ts",
       "src/tools/gateway.ts",
       "src/tools/impl/alias.ts",

@@ -1,8 +1,8 @@
-// Tests for src/web/cache.js: the media cache helpers of the web lookup (LRU order, trimming).
+// Tests for src/web/cache.ts: the media cache helpers of the web lookup (LRU order, trimming).
 // Pure: plain objects in, plain objects out.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { touchKey, trimCache } from '../src/web/cache.js';
+import { touchKey, trimCache } from '../src/web/cache.ts';
 
 test('touchKey: a new key is appended; an existing one moves to the end with its new value', () => {
   const cache = { a: 1, b: 2, c: 3 };

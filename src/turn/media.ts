@@ -3,7 +3,7 @@
 // newest first, and whether a direct call brought something to look at. src/behavior/turn.js calls them while it
 // prepares a turn.
 
-import { collectEmojiItems, collectPictures, collectReadableLinks, isDescribable } from '../media/classify.js';
+import { collectEmojiItems, collectPictures, collectReadableLinks, isDescribable } from '../media/classify.ts';
 
 export const REWATCH_SUMMARY_CHARS = 200;
 // Protocol tokens of the re-watch classifier (docs/prompt-contract.md), not wording:
@@ -18,19 +18,19 @@ export const REWATCH_STATUS_WATCHED = 'watched';
 export const REWATCH_STATUS_NOT_LOADED = 'not loaded';
 export const REWATCH_STATUS_DESCRIBED = 'described';
 
-/** A normalized message (src/protocol/events.js#Message), as the media collectors read it. */
+/** A normalized message (src/protocol/events.ts#Message), as the media collectors read it. */
 type MediaMessage = object;
 
 type ReadableLink = ReturnType<typeof collectReadableLinks>[number];
 type Picture = ReturnType<typeof collectPictures>[number];
-/** A custom emoji of a message's text as a describable item (src/media/classify.js#collectEmojiItems). */
+/** A custom emoji of a message's text as a describable item (src/media/classify.ts#collectEmojiItems). */
 type EmojiItem = { source: 'emoji'; messageId: unknown; itemId: string; kind?: unknown } & Record<string, unknown>;
 
 // collectEmojiItems is JavaScript whose return type TypeScript cannot infer; this is its shape.
 const emojiItemsOf: (message: MediaMessage) => Array<EmojiItem> = collectEmojiItems;
 
 /**
- * The link items of `history` the web lookup may read (src/media/classify.js#collectReadableLinks:
+ * The link items of `history` the web lookup may read (src/media/classify.ts#collectReadableLinks:
  * no video-site link, no gif embed), newest message first.
  */
 export function readableLinkCandidates(
@@ -73,7 +73,7 @@ export function gifRewatchItems(history: ReadonlyArray<MediaMessage>): Array<Pic
 
 /**
  * Describable pictures (image/gif/video/sticker/link-thumbnail, plus custom
- * emoji — see src/media/classify.js#isDescribable) of `history`, newest
+ * emoji — see src/media/classify.ts#isDescribable) of `history`, newest
  * message first — so a per-turn cap spends its budget on what the persona
  * just saw. Pictures (collectPictures) come before that message's emoji.
  */
@@ -88,7 +88,7 @@ export function describableCandidates(history: ReadonlyArray<MediaMessage>): Arr
   return out;
 }
 
-/** The picture kinds (src/media/classify.js) that make a direct call's own media something to look at. */
+/** The picture kinds (src/media/classify.ts) that make a direct call's own media something to look at. */
 const LOOKED_AT_KINDS: ReadonlySet<unknown> = new Set(['image', 'gif', 'video']);
 
 /**

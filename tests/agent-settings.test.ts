@@ -1,4 +1,4 @@
-// `agentSettings(name, config)` (src/agent-runner/profiles.js) is the one reader of an agent's settings for the core,
+// `agentSettings(name, config)` (src/agent-runner/profiles.ts) is the one reader of an agent's settings for the core,
 // the runner and the dispatcher: the tracked profile of the agent (`agents/<name>/profile.json`) with the deployment's
 // override, `config.agents.<name>` of the live config, laid over it. It returns `{ enabled, cost, socket, out, limits,
 // daily, searchProvider }` for a worker and the keys the profile has for a development agent, and null for a name that
@@ -7,7 +7,7 @@
 // merged key by key.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentSettings } from '../src/agent-runner/profiles.js';
+import { agentSettings } from '../src/agent-runner/profiles.ts';
 
 type Settings = Record<string, unknown> | null;
 

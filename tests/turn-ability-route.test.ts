@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRoleHealth } from '../src/llm/role-health.ts';
-import { ImageGenError } from '../src/llm/images.js';
+import { ImageGenError } from '../src/llm/images.ts';
 import { createDescriber } from '../src/memory/describe.js';
 import { fill } from '../src/format.js';
 import { labels } from './fixtures/labels.js';

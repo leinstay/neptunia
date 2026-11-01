@@ -1,9 +1,9 @@
 // A feed for tests that render the `<people_now>` rows: a core around store (src/behavior/around-store.ts) fed
 // the way production feeds it, discord.js-shaped states and presences turned into protocol events by the
-// builders of interfaces/discord/around.js, each stamped with the injected clock. Its methods take the same
+// builders of interfaces/discord/around.ts, each stamped with the injected clock. Its methods take the same
 // objects the Discord gateway delivers, and `snapshot()` is the store's `view()`.
 import { createAroundStore } from '../../src/behavior/around-store.ts';
-import { presenceEvent, presenceSnapshotEvent, voiceEvent } from '../../interfaces/discord/around.js';
+import { presenceEvent, presenceSnapshotEvent, voiceEvent } from '../../interfaces/discord/around.ts';
 
 const GUILD = { id: 'g1' };
 

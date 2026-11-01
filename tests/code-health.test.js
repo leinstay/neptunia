@@ -454,7 +454,7 @@ for (const name of ['src/index.js', 'src/core.js']) {
 
 test('structure.json: src/core.js may import the door, the link and the protocol', () => {
   const source = [
-    "import { createEventDoor } from './interface/door.js';",
+    "import { createEventDoor } from './interface/door.ts';",
     "import { openAdapterLink } from './interface/link.ts';",
     "import { connectSocket } from './protocol/wire.ts';",
     "import { createHot } from './hot.js';",

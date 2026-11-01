@@ -11,7 +11,7 @@ import path from 'node:path';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { applyDiaryUpdate, createDiaryMedia } from '../src/memory/db/diary-media.ts';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 import { tempDir } from './fixtures/tmp.js';
 
 const AT = '2026-10-27T12:00:00.000Z';

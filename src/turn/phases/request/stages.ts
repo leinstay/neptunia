@@ -7,7 +7,7 @@ import { createDeadline } from '../../../behavior/turn-parts.ts';
 import type { Deadline } from '../../../behavior/turn-parts.ts';
 import { splitCandidate } from '../../../behavior/split.js';
 import { withTextPreviews } from '../../../media/text-preview.ts';
-import { collectVideos } from '../../../media/classify.js';
+import { collectVideos } from '../../../media/classify.ts';
 import { log } from '../../../log.js';
 import { journalled } from '../../journal.ts';
 import type { Lookup } from '../../lookup.ts';
@@ -31,7 +31,7 @@ const MEDIA_PER_TURN = 6;
 /** The new videos watched per turn. */
 export const VIDEOS_PER_TURN = 5;
 
-/** A caption or a video watch's candidate (src/turn/media.ts, src/media/classify.js). */
+/** A caption or a video watch's candidate (src/turn/media.ts, src/media/classify.ts). */
 export type MediaItem = { itemId: string; messageId: string; name: string; kind?: unknown; [key: string]: unknown };
 
 /** What the stages step made: the deadline, the stages it started and how a classifier reads what they have. */

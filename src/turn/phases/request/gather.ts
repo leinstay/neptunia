@@ -7,7 +7,7 @@ import { DELETED_LINES_MAX, deletedLinesOf, withDeletedLines } from '../../../be
 import { DEFAULT_SET_KINDS, isSetKind } from '../../../behavior/diary.ts';
 import type { Neighbor } from '../../../behavior/neighbors.ts';
 import type { PulledChannel } from '../../../behavior/pull-fetch.ts';
-import { lateVideoStates } from '../../../media/classify.js';
+import { lateVideoStates } from '../../../media/classify.ts';
 import { log } from '../../../log.js';
 import type { Diary } from '../../diary.ts';
 import type { Draft } from '../../draft.ts';

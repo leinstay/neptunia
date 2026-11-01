@@ -122,7 +122,7 @@ test('selectTestFiles: picks the test named after the file', () => {
 });
 
 test('selectTestFiles: matches a tail of the folder path joined by hyphens', () => {
-  assert.deepEqual(selectTestFiles(['interfaces/discord/gateway.js'], [], existing), ['tests/discord-gateway.test.js']);
+  assert.deepEqual(selectTestFiles(['interfaces/discord/gateway.ts'], [], existing), ['tests/discord-gateway.test.js']);
   assert.deepEqual(selectTestFiles(['src/memory/db.js'], [], existing), ['tests/memory-db.test.js']);
 });
 
@@ -148,11 +148,11 @@ const reader = (files) => (/** @type {string} */ file) => files[file];
 
 test('selectTestFiles: picks a test of another name that imports the module', () => {
   const read = reader({
-    'tests/protocol.test.js': "import { validate } from '../src/protocol/validate.js';\n",
-    'tests/protocol-events.test.ts': "import { validate } from '../src/protocol/validate.js';\n",
+    'tests/protocol.test.js': "import { validate } from '../src/protocol/validate.ts';\n",
+    'tests/protocol-events.test.ts': "import { validate } from '../src/protocol/validate.ts';\n",
     'tests/time.test.js': "import { parse } from '../src/time.js';\n",
   });
-  assert.deepEqual(selectTestFiles(['src/protocol/validate.js'], [], protocolTests, read), [
+  assert.deepEqual(selectTestFiles(['src/protocol/validate.ts'], [], protocolTests, read), [
     'tests/protocol-events.test.ts',
     'tests/protocol.test.js',
   ]);
@@ -160,11 +160,11 @@ test('selectTestFiles: picks a test of another name that imports the module', ()
 
 test('selectTestFiles: follows an export from and a literal dynamic import', () => {
   const read = reader({
-    'tests/protocol.test.js': "export { validate } from '../src/protocol/validate.js';\n",
-    'tests/protocol-events.test.ts': "const m = await import('../src/protocol/validate.js');\n",
+    'tests/protocol.test.js': "export { validate } from '../src/protocol/validate.ts';\n",
+    'tests/protocol-events.test.ts': "const m = await import('../src/protocol/validate.ts');\n",
     'tests/time.test.js': '',
   });
-  assert.deepEqual(selectTestFiles(['src/protocol/validate.js'], [], protocolTests, read), [
+  assert.deepEqual(selectTestFiles(['src/protocol/validate.ts'], [], protocolTests, read), [
     'tests/protocol-events.test.ts',
     'tests/protocol.test.js',
   ]);
@@ -173,10 +173,10 @@ test('selectTestFiles: follows an export from and a literal dynamic import', () 
 test('selectTestFiles: does not pick a test that imports other modules only', () => {
   const read = reader({
     'tests/protocol.test.js': "import { send } from '../src/protocol/send.js';\n",
-    'tests/protocol-events.test.ts': "import { validate } from '../src/protocol/validate.js';\n",
+    'tests/protocol-events.test.ts': "import { validate } from '../src/protocol/validate.ts';\n",
     'tests/time.test.js': "import { parse } from '../src/time.js';\n",
   });
-  assert.deepEqual(selectTestFiles(['src/protocol/validate.js'], [], protocolTests, read), [
+  assert.deepEqual(selectTestFiles(['src/protocol/validate.ts'], [], protocolTests, read), [
     'tests/protocol-events.test.ts',
   ]);
 });
@@ -187,7 +187,7 @@ test('selectTestFiles: a module neither named nor imported selects nothing', () 
     'tests/protocol-events.test.ts': '',
     'tests/time.test.js': "import { parse } from '../src/time.js';\n",
   });
-  assert.deepEqual(selectTestFiles(['src/protocol/validate.js'], [], protocolTests, read), []);
+  assert.deepEqual(selectTestFiles(['src/protocol/validate.ts'], [], protocolTests, read), []);
 });
 
 test('selectTestFiles: does not follow a test that imports the module through a fixture', () => {
@@ -197,17 +197,17 @@ test('selectTestFiles: does not follow a test that imports the module through a 
     'tests/protocol-events.test.ts': '',
     'tests/time.test.js': '',
   });
-  assert.deepEqual(selectTestFiles(['src/protocol/validate.js'], [], protocolTests, read), []);
+  assert.deepEqual(selectTestFiles(['src/protocol/validate.ts'], [], protocolTests, read), []);
 });
 
 test('selectTestFiles: keeps the named test next to the importing ones', () => {
   const tests = ['tests/protocol-validate.test.js', 'tests/protocol.test.js', 'tests/time.test.js'];
   const read = reader({
     'tests/protocol-validate.test.js': "import { other } from '../src/other.js';\n",
-    'tests/protocol.test.js': "import { validate } from '../src/protocol/validate.js';\n",
+    'tests/protocol.test.js': "import { validate } from '../src/protocol/validate.ts';\n",
     'tests/time.test.js': '',
   });
-  assert.deepEqual(selectTestFiles(['src/protocol/validate.js'], [], tests, read), [
+  assert.deepEqual(selectTestFiles(['src/protocol/validate.ts'], [], tests, read), [
     'tests/protocol-validate.test.js',
     'tests/protocol.test.js',
   ]);
@@ -219,16 +219,16 @@ test('selectTestFiles: lists a test once when the name and an import both pick i
 });
 
 test('selectTestFiles: a test file the reader cannot find selects nothing', () => {
-  assert.deepEqual(selectTestFiles(['src/protocol/validate.js'], [], protocolTests, reader({})), []);
+  assert.deepEqual(selectTestFiles(['src/protocol/validate.ts'], [], protocolTests, reader({})), []);
 });
 
 test('filesWithoutTest: does not name a module that a test of another name imports', () => {
   const read = reader({
-    'tests/protocol.test.js': "import { validate } from '../src/protocol/validate.js';\n",
+    'tests/protocol.test.js': "import { validate } from '../src/protocol/validate.ts';\n",
     'tests/protocol-events.test.ts': '',
     'tests/time.test.js': '',
   });
-  assert.deepEqual(filesWithoutTest(['src/protocol/validate.js', 'src/orphan.js'], protocolTests, read), [
+  assert.deepEqual(filesWithoutTest(['src/protocol/validate.ts', 'src/orphan.js'], protocolTests, read), [
     'src/orphan.js',
   ]);
 });

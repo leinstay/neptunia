@@ -9,7 +9,7 @@
 // nothing written under data/; never logs the URL or the key.
 
 import { log as defaultLog } from '../log.js';
-import { proxyFor } from '../media/video-sites.js';
+import { proxyFor } from '../media/video-sites.ts';
 
 /** The canary video probed. Production value, config cut of 2026-10-31. */
 const CANARY_URL = 'https://www.youtube.com/watch?v=jNQXAC9IVRw';

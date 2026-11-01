@@ -19,7 +19,7 @@ import path from 'node:path';
 import { MINUTE_MS, DAY_MS, utcDay, utcMinute } from '../../time.js';
 import { fill } from '../../format.js';
 import { log as defaultLog } from '../../log.js';
-import { IMAGE_ROLE } from '../../llm/images.js';
+import { IMAGE_ROLE } from '../../llm/images.ts';
 import { isObj, objOf } from '../types.ts';
 import type { Obj, Untyped } from '../types.ts';
 
@@ -81,7 +81,7 @@ export const SAVE_EVERY_MS = MINUTE_MS;
 /** The file's schema version. */
 const VERSION = 1;
 
-/** The role a generated picture counts under (src/llm/images.js#IMAGE_ROLE). */
+/** The role a generated picture counts under (src/llm/images.ts#IMAGE_ROLE). */
 const DRAWING_ROLE = IMAGE_ROLE;
 
 /** The role code of a usage line that names none. */
@@ -293,9 +293,9 @@ export function createUsage({
 /**
  * A log listener (src/log.js#onLog) feeding `usage` from every `llm: usage` line: its role, its interface, prompt,
  * cached and completion tokens, and its cost (`upstreamCost` when the line has one, else `cost`);
- * and from every `images: generated` line (src/llm/images.js, which logs no `llm: usage`): one
+ * and from every `images: generated` line (src/llm/images.ts, which logs no `llm: usage`): one
  * request of the `drawing` role with its `cost` and no tokens, and every `speech: synthesized` line
- * (src/speech/synth.js): one request of the `speech` role, its estimated `cost`.
+ * (src/speech/synth.ts): one request of the `speech` role, its estimated `cost`.
  * Never throws on an odd entry.
  */
 export function usageTap(usage: Pick<Usage, 'record'>): (entry: unknown) => void {
@@ -306,7 +306,7 @@ export function usageTap(usage: Pick<Usage, 'record'>): (entry: unknown) => void
       usage.record({ role: DRAWING_ROLE, cost: entry.cost });
       return;
     }
-    // A voice synthesis (src/speech/synth.js): one request of the `speech` role with its estimated cost and no tokens.
+    // A voice synthesis (src/speech/synth.ts): one request of the `speech` role with its estimated cost and no tokens.
     if (entry.msg === 'speech: synthesized') {
       usage.record({ role: typeof entry.role === 'string' ? entry.role : null, cost: entry.cost });
       return;
@@ -324,7 +324,7 @@ export function usageTap(usage: Pick<Usage, 'record'>): (entry: unknown) => void
 }
 
 /**
- * One read-only account GET of the llm client (`keyInfo`, src/llm/openrouter.js),
+ * One read-only account GET of the llm client (`keyInfo`, src/llm/openrouter.ts),
  * reduced to `{ ok: true, data }` (the answer's `data` object) or `{ ok: false, reason, status? }`
  * with `reason` one of `no-client` (no such method), `http` (a non-2xx answer, with its status),
  * `bad-answer` (no `data` object), `timeout`, `network`. Never rejects.
@@ -337,7 +337,7 @@ export async function readAccount(call: AccountCall): Promise<AccountRead> {
 export type AccountCall = (() => Promise<{ ok: boolean; status: number; json: Obj | null }>) | null | undefined;
 
 /**
- * One activity GET of the llm client (`activity`, src/llm/openrouter.js), reduced like
+ * One activity GET of the llm client (`activity`, src/llm/openrouter.ts), reduced like
  * `readAccount`, its `data` being the answer's array of rows. Never rejects.
  */
 export async function readActivity(call: AccountCall): Promise<AccountRead> {

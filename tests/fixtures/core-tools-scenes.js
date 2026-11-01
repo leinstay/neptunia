@@ -3,7 +3,7 @@
 // import of `path` from the repository root) so it can run over another checkout's src/. Fakes only: no
 // network, no data/, no prompts.local/.
 
-import { createFakeAdapter } from '../../src/interface/fake.js';
+import { createFakeAdapter } from '../../src/interface/fake.ts';
 import { createReads } from '../../src/interface/reads.ts';
 import { labels } from './labels.js';
 import { completionOf } from './tool-answers.js';
@@ -155,7 +155,7 @@ export async function singleScene(load, { content = 'γεια', classifier = 'no
   await load('src/tools/impl/index.ts');
   const { skillRegistry } = await load('src/tools/registry.ts');
   const { createAdmin } = await load('src/admin.js');
-  const { createDiscordInterface } = await load('interfaces/discord/index.js');
+  const { createDiscordInterface } = await load('interfaces/discord/index.ts');
   const discord = createDiscordInterface().capabilities;
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });

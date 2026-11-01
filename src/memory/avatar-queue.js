@@ -12,14 +12,14 @@
 // scan (no tight loop). Nothing here ever throws into a gateway handler or blocks a turn.
 // Logs carry counts and codes, never the description or a URL.
 
-import { roleRequestOptions, railReason } from '../llm/openrouter.js';
-import { roleModel } from '../llm/roles.js';
+import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
+import { roleModel } from '../llm/roles.ts';
 import { fillPromptTemplate } from '../behavior/prompt.js';
 import { clampText, oneLine } from './clamp.js';
 import { DAY_MS } from '../time.js';
 import { log as defaultLog } from '../log.js';
 import { hashOrNull, isAvatarDue } from './avatars.js';
-import { VISION_MAX_BYTES } from '../media/fetch-image.js';
+import { VISION_MAX_BYTES } from '../media/fetch-image.ts';
 
 // The queue's measures. Production values, config cut of 2026-10-31.
 /** The wait between two avatar requests, in ms. */
@@ -33,7 +33,7 @@ const DESCRIPTION_CHARS = 200;
  * @param {{ config: object, prompts: object }} deps.hot  Read at the moment of use.
  * @param {{ getUser: Function, listUserProfiles: Function, setAvatar: Function }} deps.store
  * @param {{ complete: Function, capLeft?: Function }} deps.llm
- * @param {{ fetchAsDataUrl: Function }} deps.imageFetcher  src/media/fetch-image.js.
+ * @param {{ fetchAsDataUrl: Function }} deps.imageFetcher  src/media/fetch-image.ts.
  * @param {() => string|null} deps.getGuildId
  * @param {() => string|null} deps.selfId  The persona's user id.
  * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface: `memberInfo` gives a

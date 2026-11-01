@@ -2,7 +2,7 @@
 // the plugin's end of the link. The core's end is driven by hand over the loopback, as a core would answer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ENVELOPE_TYPES, createLoopback, envelope, validateEnvelope } from '../src/protocol/index.js';
+import { ENVELOPE_TYPES, createLoopback, envelope, validateEnvelope } from '../src/protocol/index.ts';
 import { PLUGIN_IFACE, servePlugin, validateToolCall, validateToolRegister } from '../src/protocol/plugin.ts';
 import type { ToolAnswer, ToolCallBody } from '../src/protocol/plugin.ts';
 import { echoHandler, echoTool, quiet, rawClient } from './fixtures/plugin-rig.ts';

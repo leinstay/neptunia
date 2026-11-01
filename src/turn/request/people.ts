@@ -4,7 +4,7 @@
 // calls them.
 
 import { liveFields, liveNotices, personRow, voiceOccupants } from '../../behavior/around.js';
-import { fitSections } from '../../llm/budget.js';
+import { fitSections } from '../../llm/budget.ts';
 import { topEpisodes } from '../../memory/index.js';
 import { isWordChar, occursAsWholeWord } from '../../memory/mentions.ts';
 import { topByRank } from '../../memory/ranking.js';
@@ -76,7 +76,7 @@ function profileNames(
  * priority (b)): the trigger message plus the last `ASKED_ABOUT_SCAN_MESSAGES`
  * messages of `history` (trigger is usually already the newest of those, but
  * is added explicitly in case it is not). Real mention ids
- * (`normalizeMessage`'s `mentionedUserIds`, src/protocol/events.js#Message) are the
+ * (`normalizeMessage`'s `mentionedUserIds`, src/protocol/events.ts#Message) are the
  * strongest signal; the plain lower-cased text is the fallback for a name/alias
  * match (`nameOccurs` above).
  */

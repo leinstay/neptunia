@@ -15,7 +15,7 @@ import {
 } from '../src/behavior/route.js';
 import { userText } from '../src/behavior/prompt.js';
 import { createChannelRouter } from '../src/behavior/route-channel.js';
-import { DailyCapError } from '../src/llm/openrouter.js';
+import { DailyCapError } from '../src/llm/openrouter.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { takeSnapshot } from '../src/behavior/snapshot.ts';

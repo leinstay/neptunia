@@ -33,11 +33,11 @@
 // message cannot be found is left as it is (counted `unlocated`); with
 // `media.recacheBefore` set it is still described again when it comes up.
 
-import { collectPictures } from '../media/classify.js';
+import { collectPictures } from '../media/classify.ts';
 import { lineOf } from '../behavior/line-of.js';
 import { collectGifItems, normalizeGifs } from './gifs.js';
 import { isStaleDescription, recacheCutoffMs } from './describe.js';
-import { roleModel } from '../llm/roles.js';
+import { roleModel } from '../llm/roles.ts';
 import { DAY_MS, MINUTE_MS } from '../time.js';
 import { log as defaultLog } from '../log.js';
 
@@ -51,7 +51,7 @@ export const RECACHE_DAYS = Object.freeze({ default: 7, min: 1, max: 60 });
 const EMBED_ID_RE = /#e\d+$/;
 // An attachment's item id: its snowflake, the platform's own id.
 const ATTACHMENT_ID_RE = /^\d+$/;
-// The other picture item ids (src/media/classify.js#collectPictures, collectEmojiItems).
+// The other picture item ids (src/media/classify.ts#collectPictures, collectEmojiItems).
 const PICTURE_KEY_PREFIXES = ['emoji:', 'sticker:', 'link:', 'video:url:'];
 // The start of the snowflake clock that dates an attachment id of the media cache keys (the keys keep the platform's own ids).
 const SNOWFLAKE_EPOCH_MS = 1_420_070_400_000;

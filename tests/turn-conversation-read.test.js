@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 import { onWorld, useIface, world } from './fixtures/turn-world.ts';
 import '../src/tools/impl/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';

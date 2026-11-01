@@ -6,7 +6,7 @@ export const AGENTS: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'agents',
     'types': ['map'],
-    'reader': 'src/agent-runner/profiles.js',
+    'reader': 'src/agent-runner/profiles.ts',
     'default': {},
     'text':
       'Per agent name, overrides of the settings in `agents/<name>/profile.json`, laid over the profile key by key',

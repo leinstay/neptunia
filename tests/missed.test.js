@@ -36,7 +36,7 @@ const MIN = 60_000;
 const SELF = 'self1';
 
 /**
- * A normalized message (interfaces/discord/collect.js#normalizeMessage's shape, the fields read here).
+ * A normalized message (interfaces/discord/collect.ts#normalizeMessage's shape, the fields read here).
  * @param {{ id: string, authorId?: string, authorName?: string, content?: string, ts?: number, self?: boolean,
  *   replyToId?: string|null, channelId?: string }} fields
  */

@@ -21,14 +21,14 @@ import { MEMORY_LIMITS } from '../src/memory/text-limits.js';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { createArchive } from '../src/memory/archive.js';
 import { buildDrawPrompt } from '../src/behavior/prompt.js';
-import { familyOf, ImageGenError } from '../src/llm/images.js';
-import { ROLE_DEFAULTS } from '../src/llm/roles.js';
+import { familyOf, ImageGenError } from '../src/llm/images.ts';
+import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import { createMetrics } from '../src/tools/impl/metrics.ts';
 import { getOp } from '../src/tools/impl/registry.ts';
 import { splitPath } from '../src/tools/impl/shared.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
+import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { world } from './fixtures/turn-world.ts';
 import { openTestMemory } from './fixtures/memory-db/service.js';
@@ -2778,7 +2778,7 @@ test('run: memory.show/lore.list/lore.show drop caches first while paused, so a 
 });
 
 // ---------------------------------------------------------------------------
-// draw / the image lines of status and model.show (src/llm/images.js)
+// draw / the image lines of status and model.show (src/llm/images.ts)
 // ---------------------------------------------------------------------------
 
 /** A fake image client: records every generate() call, answers with `picture` or throws `error`. */

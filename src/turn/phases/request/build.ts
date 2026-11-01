@@ -6,9 +6,9 @@ import { buildRequest } from '../../../behavior/prompt.js';
 import { diaryConversationIds } from '../../../behavior/mirror.ts';
 import { turnRequestInput } from '../../../behavior/turn-input.js';
 import { wakeBlockText } from '../../../behavior/wake.ts';
-import { budgetDrops } from '../../../llm/budget.js';
-import { toolsBlockText } from '../../../llm/tool-text.js';
-import { estimateTools } from '../../../llm/tokens.js';
+import { budgetDrops } from '../../../llm/budget.ts';
+import { toolsBlockText } from '../../../llm/tool-text.ts';
+import { estimateTools } from '../../../llm/tokens.ts';
 import { log } from '../../../log.js';
 import { exposedSkillNames } from '../../../tools/discovery.ts';
 import { buildTools } from '../../../tools/tools-json.ts';
@@ -33,7 +33,7 @@ export type BuiltRequest = ReturnType<typeof buildRequest> & {
   memoryReads?: Array<unknown>;
 };
 
-/** The budget's line of a request: one entry per section (src/llm/budget.js). */
+/** The budget's line of a request: one entry per section (src/llm/budget.ts). */
 function statsOf(request: BuiltRequest): Record<string, { dropped?: number }> {
   return request.stats as Record<string, { dropped?: number }>;
 }

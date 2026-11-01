@@ -1,12 +1,12 @@
-// Tests for the fake adapter's replay of recorded inbound events (src/interface/fake.js#replayFixture)
+// Tests for the fake adapter's replay of recorded inbound events (src/interface/fake.ts#replayFixture)
 // through the event door: no discord.js anywhere, every kind of event enters through the one door,
 // and a redelivered event is handled once.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { createEventDoor } from '../src/interface/door.js';
-import { createFakeAdapter, replayFixture } from '../src/interface/fake.js';
-import { originOf, validateEvent } from '../src/protocol/index.js';
+import { createEventDoor } from '../src/interface/door.ts';
+import { createFakeAdapter, replayFixture } from '../src/interface/fake.ts';
+import { originOf, validateEvent } from '../src/protocol/index.ts';
 
 const fixture = JSON.parse(fs.readFileSync(new URL('./fixtures/events/basic-chat.json', import.meta.url), 'utf8'));
 const quiet = { info() {}, warn() {} };

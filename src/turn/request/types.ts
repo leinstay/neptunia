@@ -132,7 +132,7 @@ export type NameOf = (id: string) => string | null;
 /** One custom emoji of a message, or of the server's index. */
 export type EmojiRef = { readonly id: string; readonly name: string; readonly animated?: boolean };
 
-/** A normalized chat message (src/protocol/events.js#Message), as the request builders read it. */
+/** A normalized chat message (src/protocol/events.ts#Message), as the request builders read it. */
 export type Message = {
   readonly id: string;
   readonly ts: number;
@@ -226,7 +226,7 @@ export type Profile = {
 /** What a request carried from memory, in the memory's own identity (the collector, see src/turn/request/reads.ts). */
 export type MemoryRead = { kind: string; id: string; block?: string };
 
-/** A budget section (src/llm/budget.js#Section). */
+/** A budget section (src/llm/budget.ts#Section). */
 export type Section = {
   name: string;
   items: Array<string>;
@@ -245,7 +245,7 @@ export type Fit = {
   used: number;
 };
 
-/** The price of a text in tokens (src/llm/budget.js#sectionCost). */
+/** The price of a text in tokens (src/llm/budget.ts#sectionCost). */
 export type Cost = (text: string) => number;
 
 /** A neighbouring channel's recent lines (src/behavior/neighbors.ts#fetchNeighbors). */

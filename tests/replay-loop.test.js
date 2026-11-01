@@ -31,14 +31,14 @@ import {
 } from '../src/behavior/turn.js';
 import { transportOf } from '../src/tools/tool-calls.ts';
 import { createErrandStore } from '../src/errands/store.ts';
-import { createImageGen } from '../src/llm/images.js';
+import { createImageGen } from '../src/llm/images.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { fill } from '../src/format.js';
 import { fillPromptTemplate } from '../src/behavior/prompt.js';
 import { parseLookupAnswer, recallSettings } from '../src/behavior/recall.js';
 import { zonedDay } from '../src/time.js';
-import { roleModel } from '../src/llm/roles.js';
-import { cacheTtlFor, roleRequestOptions, withCacheMarker } from '../src/llm/openrouter.js';
+import { roleModel } from '../src/llm/roles.ts';
+import { cacheTtlFor, roleRequestOptions, withCacheMarker } from '../src/llm/openrouter.ts';
 import * as sandbox from '../src/behavior/sandbox.js';
 import {
   afterScenarioTurn,

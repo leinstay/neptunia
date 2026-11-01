@@ -1,8 +1,8 @@
 // A discord.js member as the core sees it: the avatar the queue describes (`memberView`, from `avatarHashOf`) and
 // the `membership.changed` event that carries the same view. A message's author carries the view's hash and url
-// as `author.avatar` (collect.js#toEvent).
+// as `author.avatar` (collect.ts#toEvent).
 
-import { DISCORD_IFACE } from './port.js';
+import { DISCORD_IFACE } from './port.ts';
 
 /** The avatar picture asked for: a static 256 px PNG (an animated one's first frame). */
 const AVATAR_URL_OPTIONS = Object.freeze({ extension: 'png', size: 256, forceStatic: true });

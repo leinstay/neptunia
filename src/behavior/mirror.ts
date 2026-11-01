@@ -41,7 +41,7 @@ import {
 } from '../memory/db/mirrors.ts';
 import type { DiaryPlace } from '../memory/db/mirrors.ts';
 import { CODE } from '../tools/codes.ts';
-import type { Attachment, Content } from '../protocol/actions.js';
+import type { Attachment, Content } from '../protocol/actions.ts';
 import type { ConversationRef, Delivery, SendOptions } from '../protocol/adapter.ts';
 import type { Context } from '../memory/db/scope.ts';
 

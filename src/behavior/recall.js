@@ -43,7 +43,7 @@
 // exclude the answer. A `when:` alone, or one marked scope, stays a hard bound.
 
 import { isPlainObject } from '../config.js';
-import { estimateTokens } from '../llm/tokens.js';
+import { estimateTokens } from '../llm/tokens.ts';
 import { block, fillPromptTemplate } from './prompt.js';
 import { fill, formatTranscript, GAP_MARKER_MINUTES, MAX_MESSAGE_CHARS, renderTranscript } from '../format.js';
 import { clampText, oneLine } from '../memory/clamp.js';
@@ -1662,7 +1662,7 @@ function timeCueText(cue, labels, timezone) {
  * message holds `<people>` (one line per found member, see personLine; left
  * out when none), `<memory>` (one line per item of `memory`, matchMemory's
  * order, as memoryLine renders it: `kind | date | name | text`, in order
- * until the next line would pass `memoryTokens` (the src/llm/tokens.js
+ * until the next line would pass `memoryTokens` (the src/llm/tokens.ts
  * estimate of each line; no cap when it is not a number of at least 0);
  * left out when none fits), `<found>` (one section per window, numbered from
  * 1 in the order given: a header `## n | YYYY-MM-DD | #channel` with the

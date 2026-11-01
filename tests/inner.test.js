@@ -28,7 +28,7 @@ import {
   turnsToday,
   WAKE_KINDS,
 } from '../src/behavior/inner.ts';
-import { createEventDoor } from '../src/interface/door.js';
+import { createEventDoor } from '../src/interface/door.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntention } from '../src/intentions/model.ts';

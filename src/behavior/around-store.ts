@@ -12,7 +12,7 @@
 // removed (cleanText), at most three activities per member.
 
 import { cleanText } from './around.js';
-import type { ConnectionChanged, PresenceChanged, PresenceSnapshot, VoiceChanged } from '../protocol/events.js';
+import type { ConnectionChanged, PresenceChanged, PresenceSnapshot, VoiceChanged } from '../protocol/events.ts';
 
 const MAX_ACTIVITIES = 3;
 

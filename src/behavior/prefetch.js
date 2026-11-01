@@ -15,7 +15,7 @@
 // (`labels.prefetch.*`, rendered by src/behavior/prompt.js); this module holds the decisions only.
 // Pure: no I/O, no clock.
 
-import { estimateTokens } from '../llm/tokens.js';
+import { estimateTokens } from '../llm/tokens.ts';
 import { oneLine } from '../memory/clamp.js';
 import { fromTokens, isWordChar } from '../memory/mentions.ts';
 import { foldText } from '../memory/recent.js';

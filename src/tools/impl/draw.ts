@@ -2,10 +2,10 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { drawPicture } from '../../media/draw.js';
+import { drawPicture } from '../../media/draw.ts';
 import { imageFileName } from '../../behavior/mirror.ts';
-import { ImageGenError, UnsupportedImageModelError } from '../../llm/images.js';
-import { roleModel } from '../../llm/roles.js';
+import { ImageGenError, UnsupportedImageModelError } from '../../llm/images.ts';
+import { roleModel } from '../../llm/roles.ts';
 import { log } from '../../log.js';
 import { messageRefOf, postingConversation } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
@@ -21,7 +21,7 @@ const handlers = perEnv((env) => {
   const port = env.port as Adapter | null | undefined;
 
   /**
-   * `/nep draw`: one picture (src/media/draw.js), the same prompt
+   * `/nep draw`: one picture (src/media/draw.ts), the same prompt
    * a turn builds (prompts read now, the request clamped to `image.maxPromptChars`, the avatar as
    * reference for `self` when `image.reference` is `'avatar'`; no local time). Answers `{ text, files }`:
    * one line with the model, seconds and cost, plus the picture. A rail or

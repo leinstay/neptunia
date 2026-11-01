@@ -9,7 +9,7 @@ import { isLimitNotice } from '../behavior/limits.js';
 import { lineOf } from '../behavior/line-of.js';
 import { detectTrigger } from '../behavior/mention.js';
 import { log } from '../log.js';
-import type { MessageReceived } from '../protocol/events.js';
+import type { MessageReceived } from '../protocol/events.ts';
 import type { Answer } from './answer.ts';
 import type { Conversations } from './conversations.ts';
 import type { MessageEvent } from './edits.ts';
@@ -207,7 +207,7 @@ export function createHandleMessage({
       // by its own feature switch so detectTrigger itself stays pure. Done
       // BEFORE memory observes the message, so the buffer can mark it. A
       // forward of the persona's own message has no replyToId: not a reply.
-      // The door refuses a whole message without its addressing (src/protocol/validate.js).
+      // The door refuses a whole message without its addressing (src/protocol/validate.ts).
       const mentionsSelf = event.addressing!.mentioned;
       // The adapter's cached answer first; else the reference is fetched as before.
       const repliesToSelf =

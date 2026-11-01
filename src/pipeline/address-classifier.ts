@@ -4,8 +4,8 @@
 // createAddressClassifier; the follow-up path (src/pipeline/follow-up.ts) calls it once the gate passed.
 
 import { parseAddressAnswer } from '../behavior/mention.js';
-import { roleRequestOptions } from '../llm/openrouter.js';
-import { roleModel } from '../llm/roles.js';
+import { roleRequestOptions } from '../llm/openrouter.ts';
+import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.js';
 import { MINUTE_MS } from '../time.js';
 import type { ClassifierParams, ClassifierRequest } from './classifier-request.ts';
@@ -173,7 +173,7 @@ export function createAddressClassifier({
             }),
           }
         );
-        // A completion carries its text (src/llm/openrouter.js#complete).
+        // A completion carries its text (src/llm/openrouter.ts#complete).
         const done = completion as { text?: unknown };
         // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the model's answer as it came, read as text
         if (String(done.text ?? '').trim()) {

@@ -1,5 +1,5 @@
 // The token limit buildRequest (src/behavior/prompt.js) fits a request under: 0.9 of the request cap
-// (src/llm/budget.js#requestTokenLimit, SAFETY_MARGIN); a picture in the chat
+// (src/llm/budget.ts#requestTokenLimit, SAFETY_MARGIN); a picture in the chat
 // reserves nothing (none is attached, the persona reads its caption). Then where
 // a pulled channel (`<channel_view>`) sits in that budget: capped by `context.caps.pulled`, after
 // the chat on an ordinary turn, before it on a routed one, never a reason to fail the request.
@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildRequest, userText as contentText } from '../src/behavior/prompt.js';
-import { estimateTokens } from '../src/llm/tokens.js';
+import { estimateTokens } from '../src/llm/tokens.ts';
 import { fill, formatClock, formatDate, formatDuration } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 

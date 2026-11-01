@@ -1,5 +1,5 @@
 // The observation of a message event (stage 8a of spec 2026-10-24-memory-schema-v7): the core maps an interface's
-// normalised `message.received` event (src/protocol/events.js) to the envelope observe.ts writes. Nothing here knows a
+// normalised `message.received` event (src/protocol/events.ts) to the envelope observe.ts writes. Nothing here knows a
 // platform: the interface is the event's `iface`, its namespace `<iface>/global`, and every id is the opaque string the
 // adapter gave. Pure, no I/O.
 //

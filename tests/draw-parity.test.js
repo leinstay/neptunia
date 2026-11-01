@@ -1,5 +1,5 @@
 // The "before" record of every picture the persona draws: the exact `{ prompt, reference,
-// userId }` each call site hands to the image client (src/llm/images.js#createImageGen's
+// userId }` each call site hands to the image client (src/llm/images.ts#createImageGen's
 // `generate`) -- a reply turn's draw.create call, a diary post's single picture, a diary set's pictures,
 // and `/nep draw` with `self`. Asserted at the image-client boundary only, with literal
 // expectations: wherever the prompt building, the avatar fetch or the caps move, these calls must
@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { createAdmin } from '../src/admin.js';
-import { familyOf } from '../src/llm/images.js';
+import { familyOf } from '../src/llm/images.ts';
 import { onWorld, world } from './fixtures/turn-world.ts';
 import { labels as baseLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';

@@ -2,7 +2,7 @@
 // errands with no ledger service anywhere. The core runs in the test process as the units run it
 // (tests/fixtures/core-units.ts), over temporary folders and a scripted model; the development agents are
 // `neptunia task` children over the core's socket with their tokens; her errand goes to a fake scout runner on its own
-// socket, which answers the runner protocol (src/agent-runner/protocol.js). A listening socket stands where the ledger
+// socket, which answers the runner protocol (src/agent-runner/protocol.ts). A listening socket stands where the ledger
 // mirror's was, so any connection to it shows. No dollar cap is read: a spent `daily.usd` of an agent changes nothing.
 // The tests read ids, statuses, generations, codes, exit codes and row counts, never a label's wording.
 import { test } from 'node:test';
@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import net from 'node:net';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { endEvent, encodeLine, pongEvent } from '../src/agent-runner/protocol.js';
+import { endEvent, encodeLine, pongEvent } from '../src/agent-runner/protocol.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
 import type { Handoff, TaskRecord, TaskView } from '../src/board/board.ts';
 import {

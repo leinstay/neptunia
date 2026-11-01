@@ -1,4 +1,4 @@
-// Tests for src/agent-runner/policy.js: the scope default, the withheld-path
+// Tests for src/agent-runner/policy.ts: the scope default, the withheld-path
 // check over tool-call events (a read or a bash reader that opens a sensitive
 // path is withheld in dm/group, a listing is not, core withholds nothing),
 // and the secret redaction (keys, tokens, assignments, SSH material, URL
@@ -22,7 +22,7 @@ import {
   WITHHELD_GLOBS,
   withheldRootsOf,
   withheldGlobsOf,
-} from '../src/agent-runner/policy.js';
+} from '../src/agent-runner/policy.ts';
 import { resolvePaths } from '../src/paths.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

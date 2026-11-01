@@ -1,10 +1,10 @@
-// The voice client (src/speech/index.js#createSpeech) with no daily cap (PR 7d, plan section 4.5): a voice message is
+// The voice client (src/speech/index.ts#createSpeech) with no daily cap (PR 7d, plan section 4.5): a voice message is
 // never refused for a count of the day, and a local layer not yet cut that still sets `speech.maxPerDay` changes
 // nothing. Each call here gets through the pronunciation pass and fails at the synthesis, whose fetch is a fake that
 // answers 500, so no provider and no ffmpeg is reached.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSpeech, SpeechError } from '../src/speech/index.js';
+import { createSpeech, SpeechError } from '../src/speech/index.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const NOW = Date.parse('2026-10-31T12:00:00Z');

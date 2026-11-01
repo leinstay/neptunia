@@ -30,21 +30,21 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
     why: 'the settings schema names the interfaces it starts',
   },
   { file: 'src/config/cut.ts', pattern: /discord/i, why: 'the config cut moves the Discord keys to their package' },
-  { file: 'src/web/lookup.js', pattern: /discordapp\.(com|net)/, why: 'media hosts the link reader never reads' },
+  { file: 'src/web/lookup.ts', pattern: /discordapp\.(com|net)/, why: 'media hosts the link reader never reads' },
   {
     file: 'src/tools/impl/metrics.ts',
     pattern: /'discord search'|`?discordMs`?/,
     why: 'the /nep metrics name and an old log field',
   },
   {
-    file: 'src/interface/fake.js',
+    file: 'src/interface/fake.ts',
     pattern: /https:\/\/discord\.com\/channels\//,
     why: "the fake's jump links the tests read",
   },
 ];
 
 const HELPER_ALLOWED: ReadonlyArray<Allowed> = [
-  { file: 'src/llm/limits.js', pattern: /'helper-(timeout|fallback)'/, why: 'limit kinds the journal stores' },
+  { file: 'src/llm/limits.ts', pattern: /'helper-(timeout|fallback)'/, why: 'limit kinds the journal stores' },
   { file: 'src/turn/phases/request/wait.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/behavior/participation-pick.js', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/turn/act.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },

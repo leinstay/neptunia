@@ -85,6 +85,16 @@ export function errorCode(error: unknown): string | null {
   return typeof code === 'string' ? code : null;
 }
 
+/** `value` written out when it is a string, a number, a boolean or a bigint, else the empty string (never an object's `[object Object]`). */
+export function scalarText(value: unknown): string {
+  return typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+    ? String(value)
+    : '';
+}
+
 /** An id as text: a string or a number, nothing else (an object or a missing value is the empty string). */
 export function idText(value: unknown): string {
   return typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '';

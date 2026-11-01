@@ -275,7 +275,7 @@ export function renderChannelDirectory(entries, handles, labels) {
 /**
  * Every member's names for one request: the directory entries' names and aliases, then the names
  * the lines carry -- an author's name (never the persona's or a bot's) and the names of the members
- * a line mentions (`mentionedUsers`, `{ id, name }`, src/protocol/events.js). id -> names,
+ * a line mentions (`mentionedUsers`, `{ id, name }`, src/protocol/events.ts). id -> names,
  * each once, in the order met. Pure.
  * @param {{ id: string, names: string[], aliases: string[] }[]} entries  directoryEntries'.
  * @param {Iterable<object>} lines  Normalized messages.

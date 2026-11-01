@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { ConversationInfo, MessageEvent } from '../src/protocol/adapter.ts';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 
 function info(id: string, over: Partial<ConversationInfo> = {}): ConversationInfo {
   return {

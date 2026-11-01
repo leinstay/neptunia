@@ -7,15 +7,15 @@
 // interface would never send what the test sends, and is the real serveAdapter over the fake adapter elsewhere.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createLoopback, envelope } from '../src/protocol/index.js';
+import { createLoopback, envelope } from '../src/protocol/index.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
 import type { Hello } from '../src/protocol/serve.ts';
 import type { Capabilities } from '../src/protocol/adapter.ts';
 import type { Envelope, Transport } from '../src/protocol/wire.ts';
 import type { Principal } from '../src/interface/principals.ts';
 import { openAdapterLink } from '../src/interface/link.ts';
-import { createEventDoor } from '../src/interface/door.js';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createEventDoor } from '../src/interface/door.ts';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 
 type Log = {
   info(msg: string, meta?: unknown): void;

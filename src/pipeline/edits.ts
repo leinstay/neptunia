@@ -7,7 +7,7 @@ import { lineOf } from '../behavior/line-of.js';
 import type { Reads } from '../interface/reads.ts';
 import { log } from '../log.js';
 import { appendRevision, gifOpts, slimMessage, toRecordLine } from '../memory/index.js';
-import type { Message, MessageReceived } from '../protocol/events.js';
+import type { Message, MessageReceived } from '../protocol/events.ts';
 import { utcDay } from '../time.js';
 
 /** A `message.received` event of a whole message, with the message as it was before an edit. */

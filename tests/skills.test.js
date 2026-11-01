@@ -15,7 +15,7 @@ import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { EFFECT_CLASSES, OP_EFFECTS, SELF_OWNED_OPS } from '../src/tools/impl/effects.ts';
 import { PERSONA_GOVERNED_CONFIG, governsPersona } from '../src/tools/impl/rights.ts';
 import { RENAMED_OPS, renameGrants } from '../src/tools/impl/access.ts';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
+import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import {
   loadSkills,
   skillRegistry,

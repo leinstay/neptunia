@@ -28,20 +28,20 @@
 // the data `/nep task inner status` reads): its mode and switch, the day's turns, chains, dollars, public
 // posts, the next wake, the last turn and the open intentions; its words are `labels.status.inner`.
 
-import { keyHashOf, llmCountToday, resolveProvider } from '../../llm/openrouter.js';
-import { familyOf as imageFamilyOf, IMAGE_ROLE } from '../../llm/images.js';
-import { SPEECH_ROLE } from '../../speech/synth.js';
+import { keyHashOf, llmCountToday, resolveProvider } from '../../llm/openrouter.ts';
+import { familyOf as imageFamilyOf, IMAGE_ROLE } from '../../llm/images.ts';
+import { SPEECH_ROLE } from '../../speech/synth.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, utcMinute } from '../../time.js';
 import { ARCHIVE_EVENTS } from '../../memory/index.js';
 import { clampChars, oneLine } from '../../memory/clamp.js';
 import { isOwnerCaller } from './grants.ts';
 import { MODEL_ROLES, STATUS_FIELDS, STATUS_PARTS } from './catalog.ts';
-import { CORE_ROLE, DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.js';
-import { EMBED_ROLE } from '../../llm/embed.js';
+import { CORE_ROLE, DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.ts';
+import { EMBED_ROLE } from '../../llm/embed.ts';
 import { missedCounts, missedStatusLine } from '../../behavior/missed.js';
 import { SPEED_METRICS } from './metrics.ts';
 import { activitySums, agentCostsLines, keyCostsLines, roleCostsLines, readAccount, readActivity } from './usage.ts';
-import { PROFILES } from '../../agent-runner/profiles.js';
+import { PROFILES } from '../../agent-runner/profiles.ts';
 import { fill } from '../../format.js';
 import { log } from '../../log.js';
 import { modelForRole } from './shared.ts';
@@ -87,7 +87,7 @@ const OWNER_FIELDS = new Set([
   'speed',
 ]);
 
-/** The model roles of the errand agents (src/agent-runner/profiles.js) and `drawing`, which shares
+/** The model roles of the errand agents (src/agent-runner/profiles.ts) and `drawing`, which shares
  * their key: a key only they use is the errands' key, which `keys.base` leaves out. */
 const ERRAND_KEY_ROLES = new Set([
   ...(Object.values(PROFILES) as Array<Untyped>).map((profile) => profile.modelRole as string),
@@ -97,7 +97,7 @@ const ERRAND_KEY_ROLES = new Set([
 /**
  * The `models.base` field's groups before drawing, in order: one line per role, then the
  * `models.byPurpose` overrides of the purposes that go out on those roles
- * (src/llm/roles.js#PURPOSE_ROLES; a purpose it does not list follows the analyzer).
+ * (src/llm/roles.ts#PURPOSE_ROLES; a purpose it does not list follows the analyzer).
  */
 const MODEL_GROUPS = Object.freeze([
   { name: 'core', roles: [CORE_ROLE] },

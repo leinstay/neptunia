@@ -1,4 +1,4 @@
-// Tests for src/llm/tool-text.js: the text transport's tool description and the parser of the
+// Tests for src/llm/tool-text.ts: the text transport's tool description and the parser of the
 // <tool_call> blocks a model without native tools writes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -6,7 +6,7 @@ import '../src/tools/impl/index.ts';
 import { buildSkills } from '../src/tools/registry.ts';
 import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { buildTools } from '../src/tools/tools-json.ts';
-import { parseToolCallBlocks, toolsBlockText } from '../src/llm/tool-text.js';
+import { parseToolCallBlocks, toolsBlockText } from '../src/llm/tool-text.ts';
 
 const block = (json) => `<tool_call>${typeof json === 'string' ? json : JSON.stringify(json)}</tool_call>`;
 

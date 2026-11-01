@@ -1,4 +1,4 @@
-// Tests for src/media/video-sites.js: site matching, URL extraction, the
+// Tests for src/media/video-sites.ts: site matching, URL extraction, the
 // stable cache key, the yt-dlp / ffmpeg argument arrays, probe parsing and
 // the query-free log location.
 import { test } from 'node:test';
@@ -22,7 +22,7 @@ import {
   parseIsoDuration,
   parseYoutubeDataApi,
   bareContentType,
-} from '../src/media/video-sites.js';
+} from '../src/media/video-sites.ts';
 
 const SITES = [
   'youtube.com',

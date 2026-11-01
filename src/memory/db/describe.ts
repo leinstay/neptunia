@@ -25,7 +25,7 @@
 //   ctx:     { llm, hot ({ config, prompts }), env, now, write, log, selfName, readCtx (a scope context, group by default) }
 //   The review reads (and finds its description) through `audience_id`, not the triple.
 
-import { MEMORY_ROLE, roleModel } from '../../llm/roles.js';
+import { MEMORY_ROLE, roleModel } from '../../llm/roles.ts';
 import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.js';
 import { shortHash } from './ids.ts';
 import { ifaceOrLegacy } from './legacy-namespace.ts';

@@ -21,7 +21,7 @@ import { transportOf } from '../src/tools/tool-calls.ts';
 import { safeModeOn } from '../src/tools/access.ts';
 import { grantedSkillNames } from '../src/tools/discovery.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
-import { agentSettings } from '../src/agent-runner/profiles.js';
+import { agentSettings } from '../src/agent-runner/profiles.ts';
 
 type Settings = Record<string, unknown>;
 const SELF = 'self-1';

@@ -21,7 +21,7 @@ import { skillArgs } from './discovery.ts';
 import { MINUTE_MS } from '../time.js';
 import { SELF_OWNED_OPS } from './impl/effects.ts';
 import { CODE } from './codes.ts';
-import { CORE_ROLE, ROLE_ABILITY, modelAbilities, roleModel } from '../llm/roles.js';
+import { CORE_ROLE, ROLE_ABILITY, modelAbilities, roleModel } from '../llm/roles.ts';
 import type { RoleDownReason, RoleHealth } from '../llm/role-health.ts';
 import { idText, isObj, objOf } from './types.ts';
 import type { Skill, SkillMap } from './types.ts';
@@ -333,7 +333,7 @@ export type AbilityRoute =
 
 const isToolRole = (role: string): boolean => TOOL_ROLES.some((name) => name === role);
 
-/** The ability a model role serves (src/llm/roles.js#ROLE_ABILITY), `text` for one that names none. */
+/** The ability a model role serves (src/llm/roles.ts#ROLE_ABILITY), `text` for one that names none. */
 function abilityOf(role: string): string {
   const table: Readonly<Record<string, string>> = ROLE_ABILITY;
   return Object.hasOwn(table, role) ? (table[role] ?? 'text') : 'text';

@@ -34,7 +34,7 @@ export type CallsConfig = { tools?: { callTimeoutMs?: number } | null };
 
 type CallsLabels = Parameters<typeof untaggedNote>[2];
 
-/** The interface port (src/interface/port.js), as a call posts through it. */
+/** The interface port (src/interface/port.ts), as a call posts through it. */
 type CallsPort = ExecuteDeps['port'] & { iface: string };
 
 /** The errands service (src/errands/service.ts), as far as a call reads its files and budgets. */

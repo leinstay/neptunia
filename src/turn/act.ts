@@ -9,7 +9,7 @@ import type { EntryPicture } from '../behavior/mirror.ts';
 import { between, typingMs } from '../behavior/random.js';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { Reads } from '../interface/reads.ts';
-import { sleep } from '../llm/openrouter.js';
+import { sleep } from '../llm/openrouter.ts';
 import { log } from '../log.js';
 import type { ConversationInfo, ConversationRef, MessageRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
@@ -38,7 +38,7 @@ export type ActConfig = {
 /** An answer of the interface port: its result, and a platform's own code for a refused send. */
 type ActResult = NonNullable<PortResult> & { code?: unknown };
 
-/** The interface port (src/interface/port.js), as the act posts, reacts and types through it. */
+/** The interface port (src/interface/port.ts), as the act posts, reacts and types through it. */
 type ActPort = {
   typing: (conversation: ConversationRef) => Promise<ActResult>;
   react: (message: MessageRef, emoji: string) => Promise<ActResult>;

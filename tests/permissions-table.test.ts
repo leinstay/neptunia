@@ -1,11 +1,11 @@
 // The four permission booleans of a conversation as the Discord adapter reports them (`conversationInfo`), against
-// the old `canRead`, `canSend`, `canAttach` and `canReact` of interfaces/discord/collect.js over every branch: a
+// the old `canRead`, `canSend`, `canAttach` and `canReact` of interfaces/discord/collect.ts over every branch: a
 // channel without a guild, an unviewable one, no member `me`, no resolved permissions, and each flag alone and together.
 // A false boolean makes the persona go quiet, so each row also names the literal answer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ChannelType, PermissionFlagsBits } from 'discord.js';
-import { canAttach, canReact, canRead, canSend, createDiscordAdapter } from '../interfaces/discord/index.js';
+import { canAttach, canReact, canRead, canSend, createDiscordAdapter } from '../interfaces/discord/index.ts';
 
 type Raw = Record<string, unknown>;
 type Granted = ReadonlyArray<bigint>;

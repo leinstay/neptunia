@@ -3,7 +3,7 @@
 // caller at the moment of use). Our names stay dotted everywhere; only this boundary carries the API
 // name (`draw.create` <-> `draw_create`, src/tools/definitions.ts). `buildTools` serves the live turn
 // (src/behavior/turn.js) and the replay sandbox (src/behavior/sandbox.js); `canonicalJson` also keeps the
-// text transport's description stable (src/llm/tool-text.js).
+// text transport's description stable (src/llm/tool-text.ts).
 
 import { skillRegistry, describeSkill, skillArgTexts } from './registry.ts';
 import { apiNameOf, skillNameOfApi } from './definitions.ts';

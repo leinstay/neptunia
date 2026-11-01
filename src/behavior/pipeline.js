@@ -33,8 +33,8 @@ import { createPendingQueue, turnBlocked as isTurnBlocked } from '../pipeline/pe
 import { createPrivateGate } from '../pipeline/private-gate.ts';
 import { createSettles } from '../pipeline/settle.ts';
 
-/** @typedef {import('../protocol/events.js').Message} Msg */
-/** @typedef {Omit<import('../protocol/events.js').MessageReceived, 'message'|'previous'> & { message: Msg, previous?: Msg|null }} Ev */
+/** @typedef {import('../protocol/events.ts').Message} Msg */
+/** @typedef {Omit<import('../protocol/events.ts').MessageReceived, 'message'|'previous'> & { message: Msg, previous?: Msg|null }} Ev */
 
 /**
  * @param {object} deps
@@ -47,7 +47,7 @@ import { createSettles } from '../pipeline/settle.ts';
  * @param {ReturnType<import('./turn.js').createTurnRunner>} deps.turns
  * @param {ReturnType<import('../memory/update.js').createMemoryUpdater>} deps.memory
  * @param {ReturnType<import('./mention.js').createTagHistory>} deps.tagHistory
- * @param {object} [deps.llm]  From createLlm() (src/llm/openrouter.js), used for the address
+ * @param {object} [deps.llm]  From createLlm() (src/llm/openrouter.ts), used for the address
  *   classifier: a message with no trigger, arriving while a conversation window this instance opened by
  *   answering is still open, is checked here before ever running a turn. Absent -- an older/direct caller, or a test
  *   that never opens a window -- the follow-up never fires (nothing reaches this dependency otherwise).
@@ -61,7 +61,7 @@ import { createSettles } from '../pipeline/settle.ts';
  *   address classifier awaits a message's own prefill, then read captions from the cache alone
  *   (`describer.cachedDescriptions` / `cachedVideos`), never a new request. The message's first videos are
  *   handed to `describer.describeVideos` the same way.
- * @param {object} [deps.lookup]  From createLookup() (src/web/lookup.js), optional: the message's first readable
+ * @param {object} [deps.lookup]  From createLookup() (src/web/lookup.ts), optional: the message's first readable
  *   link (MAX_WARM_LINKS_PER_MESSAGE) is handed to `lookup.readLinks` the same way. Absent -> no
  *   link is ever read from this pipeline.
  * @param {() => number} [deps.rng]
@@ -95,7 +95,7 @@ import { createSettles } from '../pipeline/settle.ts';
  *   follow-up replaced by a newer one (`replaced-deferred`, both ids) are noted as facts, and
  *   every message of a served channel as activity there. Absent: nothing is noted.
  * @param {{ iface: string, send: Function }} [deps.port]  The adapter the limit and pause notices go out through.
- * @returns {(event: import('../protocol/index.js').MessageReceived) => Promise<void>}
+ * @returns {(event: import('../protocol/index.ts').MessageReceived) => Promise<void>}
  *   Takes the `message.received` event of a new message (the interface builds it, the door validates it): the
  *   pipeline reads the line, the mention and the reply from the event, and asks the interface for the
  *   conversation's permissions and history when it needs them. Also carries a

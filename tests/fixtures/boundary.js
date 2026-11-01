@@ -3,8 +3,8 @@
 // no data/. `innerRig` is one core; `rig.restart()` is the same core after a restart (a new inner life and a new door
 // over the same data directory and the same memory database).
 import { createInnerLife } from '../../src/behavior/inner.ts';
-import { createEventDoor } from '../../src/interface/door.js';
-import { createFakeAdapter } from '../../src/interface/fake.js';
+import { createEventDoor } from '../../src/interface/door.ts';
+import { createFakeAdapter } from '../../src/interface/fake.ts';
 import { skillRegistry } from '../../src/tools/registry.ts';
 import { createTurnRunner, fakeChannel, fakeStore, hotWith, rawMessage, sequenceLlm } from './turn-harness.js';
 import { freshWorld, world } from './turn-world.ts';

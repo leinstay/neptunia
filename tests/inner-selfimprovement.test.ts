@@ -10,7 +10,7 @@ import { INNER_DEFAULTS, WAKE_KINDS, innerSettings } from '../src/behavior/inner
 import { failureCause, selfimprovementWake, weeklyWake } from '../src/behavior/inner/selfimprovement.ts';
 import { shapesOf } from '../src/behavior/selfimprovement-view.ts';
 import type { Chain } from '../src/behavior/selfimprovement-view.ts';
-import { createEventDoor } from '../src/interface/door.js';
+import { createEventDoor } from '../src/interface/door.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
 import { utcDay } from '../src/time.js';

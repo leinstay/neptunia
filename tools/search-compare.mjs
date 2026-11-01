@@ -11,11 +11,11 @@
 // The queries (tools/lib/search-compare.mjs#parseQueries): one JSON row per line, `{ id, query,
 // asked?, note? }`.
 //
-// Each row and engine runs src/web/lookup.js#createLookup(...).search() under the live config and
+// Each row and engine runs src/web/lookup.ts#createLookup(...).search() under the live config and
 // prompts with `web.search.engine` forced to that engine and `web.search.fallback` to [] (through
 // a config view of this process only; `features.webLookup` and `web.search.enabled` forced on,
-// `web.maxPerDay` forced to 1 over a fresh counter), with the real clients: src/web/brave.js
-// (BRAVE_SEARCH_API_KEY), src/web/exa.js (keyless; EXA_API_KEY when set), and the summary on the
+// `web.maxPerDay` forced to 1 over a fresh counter), with the real clients: src/web/brave.ts
+// (BRAVE_SEARCH_API_KEY), src/web/exa.ts (keyless; EXA_API_KEY when set), and the summary on the
 // `analyzer` as production sends it. The cache is bypassed: every search gets a fresh lookup over a
 // fresh in-memory state and a store stub whose media cache is a new empty object, so the cache key
 // (`search:<sha1 of the normalized query>`) never hits and nothing is kept. An engine the lookup
@@ -170,8 +170,8 @@ export async function main(
     );
   if (rows.length === 0) throw new CliError('search-compare: the queries file has no row');
 
-  const { createLookup, SEARCH_ENGINES } = await import('../src/web/lookup.js');
-  const { NotByokError } = await import('../src/llm/openrouter.js');
+  const { createLookup, SEARCH_ENGINES } = await import('../src/web/lookup.ts');
+  const { NotByokError } = await import('../src/llm/openrouter.ts');
   const { onLog } = await import('../src/log.js');
   const { utcDay } = await import('../src/time.js');
 
@@ -348,8 +348,8 @@ export async function main(
 
     let llm = llmClient;
     if (!llm) {
-      const { createLlm } = await import('../src/llm/openrouter.js');
-      const { createCalibrator } = await import('../src/llm/tokens.js');
+      const { createLlm } = await import('../src/llm/openrouter.ts');
+      const { createCalibrator } = await import('../src/llm/tokens.ts');
       const apiKey = keyOf(flags['--key'], env);
       // Per-role keys are not looked up (env {}): the given key pays; the daily counters are a throwaway copy.
       llm = createLlm({
@@ -362,8 +362,8 @@ export async function main(
     }
     let searches = givenSearches;
     if (!searches) {
-      const { createBraveSearch } = await import('../src/web/brave.js');
-      const { createExaSearch } = await import('../src/web/exa.js');
+      const { createBraveSearch } = await import('../src/web/brave.ts');
+      const { createExaSearch } = await import('../src/web/exa.ts');
       searches = { brave: createBraveSearch(), exa: createExaSearch() };
     }
 

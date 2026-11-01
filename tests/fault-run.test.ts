@@ -7,7 +7,7 @@
 // a bigger plan.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 import { CliError } from '../tools/lib/cli.mjs';
 import { parseArgs } from '../tools/fault-run.ts';
 import {

@@ -7,8 +7,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLoopback } from '../src/protocol/wire.ts';
 import { openAdapterLink } from '../src/interface/link.ts';
-import { createEventDoor } from '../src/interface/door.js';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createEventDoor } from '../src/interface/door.ts';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 import { start } from '../src/interface/fake-interface.ts';
 import type { InterfaceHost } from '../src/protocol/host.ts';
 

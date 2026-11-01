@@ -1,4 +1,4 @@
-// Tests for src/agent-runner/server.js: the Unix-socket server with a FAKE
+// Tests for src/agent-runner/server.ts: the Unix-socket server with a FAKE
 // task engine. A client sends run/cancel/ping lines; the server answers
 // progress then one end per task, runs one task at a time (a second waits in
 // the queue), cancels a running task, answers a bad line with an error, and
@@ -10,8 +10,8 @@ import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createRunnerServer } from '../src/agent-runner/server.js';
-import { encodeLine } from '../src/agent-runner/protocol.js';
+import { createRunnerServer } from '../src/agent-runner/server.ts';
+import { encodeLine } from '../src/agent-runner/protocol.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 function socketPath() {

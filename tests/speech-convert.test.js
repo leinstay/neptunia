@@ -1,9 +1,9 @@
-// Tests for src/speech/convert.js: the waveform over synthetic PCM (pure) and the conversion of
+// Tests for src/speech/convert.ts: the waveform over synthetic PCM (pure) and the conversion of
 // a one-second tone made with the system ffmpeg (skipped without it).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { SpeechConvertError, ffmpegAvailable, toVoiceNote, waveformOf } from '../src/speech/convert.js';
+import { SpeechConvertError, ffmpegAvailable, toVoiceNote, waveformOf } from '../src/speech/convert.ts';
 
 const haveFfmpeg = ffmpegAvailable();
 

@@ -11,7 +11,7 @@ import { RECALL_DEFAULTS, recallSettings } from '../behavior/recall.js';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { TurnRoutes } from '../behavior/turn-ability-route.ts';
 import type { Reads } from '../interface/reads.ts';
-import { collectReadableLinks } from '../media/classify.js';
+import { collectReadableLinks } from '../media/classify.ts';
 import type { ConversationInfo, ConversationRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import { fetchSpan, recordMessages, runConversationRead } from '../tools/conversation-read.ts';
@@ -336,7 +336,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
   return { inTurnTools };
 }
 
-/** The first link of a message that a page read can open (src/media/classify.js#collectReadableLinks). */
+/** The first link of a message that a page read can open (src/media/classify.ts#collectReadableLinks). */
 function firstReadableLink(message: object): string | undefined {
   return collectReadableLinks(message)[0]?.url;
 }

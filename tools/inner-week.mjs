@@ -189,7 +189,7 @@ function snowflakeOf(ts, seq) {
 }
 
 /**
- * The fixture's scripted chat of one conversation as fetchHistory's lines (interfaces/discord/collect.js
+ * The fixture's scripted chat of one conversation as fetchHistory's lines (interfaces/discord/collect.ts
  * normalizeMessage's shape), in the real channel `channel`, up to `now`, the last `limit`.
  */
 export function scriptedHistory(lines, { channel, selfId, selfName, now, limit }) {

@@ -13,7 +13,7 @@
 // marks the errand seen and read (`readAt`: its `<errand_result>` was in front of her); an errand not
 // read stays in her `<errands>` block until `errand.read` or `errand.resolve`. Settings are read at the moment of
 // use; logs carry ids and outcomes, never a goal or a result. An errand's end reaches this module
-// as an `errand.done` event through the core's event door (src/interface/door.js): the service
+// as an `errand.done` event through the core's event door (src/interface/door.ts): the service
 // calls `errandDoneEvent(errand, guildId)` and submits it, the door's handler is `onEvent`; the
 // errand itself rides along in-process under `raw.errand` (the event holds its id and status), and
 // when it does not, the errand store of the event's guild is asked for it. Before the result turn,
@@ -60,7 +60,7 @@ export const DEFAULT_COOLDOWN_SECONDS = 60;
 export const RESULT_ATTEMPTS = 20;
 
 /**
- * The `errand.done` event of a finished errand (src/protocol/events.js): the whole errand
+ * The `errand.done` event of a finished errand (src/protocol/events.ts): the whole errand
  * rides along as `raw.errand`, which validation never reads. Its id is left to the door (errand and
  * status), so a second delivery of the same end is the same event.
  */

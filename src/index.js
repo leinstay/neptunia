@@ -48,7 +48,7 @@ async function inProcessDiscord() {
 
   // The interface is loaded by name at run time.
   const loaded = /** @type {unknown} */ (
-    await import(pathToFileURL(path.join(paths.rootDir, 'interfaces', 'discord', 'index.js')).href)
+    await import(pathToFileURL(path.join(paths.rootDir, 'interfaces', 'discord', 'index.ts')).href)
   );
   const discordPackage =
     /** @type {{ start(host: import('./protocol/host.ts').InterfaceHost): Promise<import('./protocol/host.ts').RunningInterface> }} */ (

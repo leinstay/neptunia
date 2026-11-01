@@ -1,5 +1,5 @@
 // Answers of a fake model that calls tools: what `llm.complete` resolves for a turn on the native
-// transport (src/llm/openrouter.js: `text`, `toolCalls` as `toolCallsOf` gives them, `finishReason`).
+// transport (src/llm/openrouter.ts: `text`, `toolCalls` as `toolCallsOf` gives them, `finishReason`).
 // `call` builds one tool call by the skill's dotted name (the API name is derived, the arguments are
 // JSON as the model writes them), `badCall` one whose arguments could not be read, `toolAnswer` the
 // answer holding them. A plain string is a speech-only answer and needs none of this.

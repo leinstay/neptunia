@@ -15,7 +15,7 @@ import {
   followUpTriggerKind,
   isTaggedCall,
 } from '../src/behavior/mention.js';
-import { ROLE_DEFAULTS, roleModel } from '../src/llm/roles.js';
+import { ROLE_DEFAULTS, roleModel } from '../src/llm/roles.ts';
 
 const NAME_TRIGGERS = ['νεπτούνια'];
 

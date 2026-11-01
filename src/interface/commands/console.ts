@@ -23,7 +23,7 @@ import { coreHealth } from '../../health/core.ts';
 import { memoryHealth } from '../../health/memory.ts';
 import { serverHealth, systemProbe, worse } from '../../health/server.ts';
 import type { HealthStatus } from '../../health/server.ts';
-import { DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../../llm/roles.js';
+import { DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../../llm/roles.ts';
 import { backupDatabase, backupName, backupSettings, backupsIn, partialOf } from '../../memory/db/backup.ts';
 import { grantedSkillNames } from '../../tools/discovery.ts';
 import { ownValueAt, splitPath } from '../../tools/impl/shared.ts';

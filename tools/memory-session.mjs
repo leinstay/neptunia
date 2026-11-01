@@ -445,8 +445,8 @@ async function compareMain(argv) {
     const usage = { requests: 0, prompt: 0, completion: 0, cost: null };
     let llm = null;
     if (!shadowOnly) {
-      const { createLlm } = await import('../src/llm/openrouter.js');
-      const { createCalibrator } = await import('../src/llm/tokens.js');
+      const { createLlm } = await import('../src/llm/openrouter.ts');
+      const { createCalibrator } = await import('../src/llm/tokens.ts');
       const client = createLlm({
         apiKey,
         env: { [keyEnv]: apiKey },
@@ -526,8 +526,8 @@ export async function main(argv) {
 
   const { createHot } = await import('../src/hot.js');
   const { loadDotEnv } = await import('../src/config.js');
-  const { createLlm } = await import('../src/llm/openrouter.js');
-  const { createCalibrator } = await import('../src/llm/tokens.js');
+  const { createLlm } = await import('../src/llm/openrouter.ts');
+  const { createCalibrator } = await import('../src/llm/tokens.ts');
   const { openMemoryDb } = await import('../src/memory/db/open.ts');
   const { sweep, sessionSettings } = await import('../src/memory/db/session.ts');
   const { reviewDescription } = await import('../src/memory/db/describe.ts');

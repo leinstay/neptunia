@@ -13,7 +13,7 @@ import path from 'node:path';
 import { createHot as createHotUntyped } from '../src/hot.js';
 import * as files from '../src/config/files.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
+import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { ROOT } from './fixtures/private-layer.ts';
 import { tempDir } from './fixtures/tmp.js';

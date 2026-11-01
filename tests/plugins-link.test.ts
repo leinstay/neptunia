@@ -3,7 +3,7 @@
 // late answer dropped (spec test 4).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createLoopback, envelope } from '../src/protocol/index.js';
+import { createLoopback, envelope } from '../src/protocol/index.ts';
 import type { RegisterOutcome } from '../src/protocol/plugin.ts';
 import { openPluginLink, routeConnection } from '../src/plugins/link.ts';
 import type { PluginLink } from '../src/plugins/link.ts';

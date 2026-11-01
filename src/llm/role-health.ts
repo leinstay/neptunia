@@ -1,14 +1,14 @@
 // Which model roles are globally failing, kept in memory per role for the life of the process. A role is down when
 // its model is switched off (`models.base.<role>: false`), when its key is missing (`hasKey`, the core's own
 // resolution of `llm.keyByRole`), after a 401, a 402 or a 404, after a 429 whose answer says the daily limit is spent
-// (src/llm/openrouter.js#providerLimitOf), or after three malformed answers in a row. One failed request of any other
+// (src/llm/openrouter.ts#providerLimitOf), or after three malformed answers in a row. One failed request of any other
 // kind leaves the role up. A failing role is tried again on a backoff of 1, 5, 15 and then every 60 minutes, and it
 // clears on its first success. src/core.js builds one tracker and hands it to the turn runner, the admin and the
 // describer's model client; the tool gateway (src/tools/gateway.ts#abilityRoute) reads it to route a tool role's call,
 // and `/status` lists `failing`. Pure apart from the injected clock.
 
-import { BASE_ROLES, CORE_ROLE, roleModel } from './roles.js';
-import { providerLimitOf, roleApiKey } from './openrouter.js';
+import { BASE_ROLES, CORE_ROLE, roleModel } from './roles.ts';
+import { providerLimitOf, roleApiKey } from './openrouter.ts';
 
 /** Why a role is down. */
 export type RoleDownReason =
@@ -162,7 +162,7 @@ function configOf(hot: unknown): unknown {
 }
 
 /**
- * The `hasKey` of the core's tracker: whether the key a request of `role` goes out on (src/llm/openrouter.js#roleApiKey
+ * The `hasKey` of the core's tracker: whether the key a request of `role` goes out on (src/llm/openrouter.ts#roleApiKey
  * over `llm.keyByRole` in the live config of `hot`, the parsed `.env` and the main key) is set.
  */
 export function roleKeyCheck({
@@ -177,7 +177,7 @@ export function roleKeyCheck({
   return (role) => {
     const config = configOf(hot);
     // roleApiKey reads the config as a loose object and copes with any shape.
-    const key: unknown = roleApiKey(config as object, env, role, mainKey);
+    const key: unknown = roleApiKey(config, env, role, mainKey);
     return typeof key === 'string' && key !== '';
   };
 }

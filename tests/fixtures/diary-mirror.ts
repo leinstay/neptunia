@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { after } from 'node:test';
 import { channelPlaceId } from '../../src/memory/db/ids.ts';
 import { insertRows } from '../../src/memory/db/rows.ts';
-import type { createFakeAdapter } from '../../src/interface/fake.js';
+import type { createFakeAdapter } from '../../src/interface/fake.ts';
 import { openTestMemory } from './memory-db/service.js';
 
 /**

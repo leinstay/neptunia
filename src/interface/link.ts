@@ -39,7 +39,7 @@
 // served interface and the owner's command line behind one adapter, routed by the `iface` of each reference.
 
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
-import { ackOf, declaredHooks, envelope, portAction, validateEnvelope } from '../protocol/index.js';
+import { ackOf, declaredHooks, envelope, portAction, validateEnvelope } from '../protocol/index.ts';
 import type { Adapter, Capabilities, Delivery, SendOptions } from '../protocol/adapter.ts';
 import type { AckStatus, Hello, Logger, Named } from '../protocol/serve.ts';
 import type { Envelope, Transport } from '../protocol/wire.ts';

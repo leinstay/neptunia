@@ -1,9 +1,9 @@
-// Tests for src/llm/openrouter.js: the two hard safety rails (token cap,
+// Tests for src/llm/openrouter.ts: the two hard safety rails (token cap,
 // daily request cap), retry behaviour, calibration feedback and the usage log
 // line. No network: fetchImpl is always a fake. Only the few retry tests marked
 // below exercise a real retry sleep (~1.5s) -- the backoff sleep in src is not touched.
 import { test } from 'node:test';
-import { estimateMessages, estimateTools } from '../src/llm/tokens.js';
+import { estimateMessages, estimateTools } from '../src/llm/tokens.ts';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
@@ -29,9 +29,9 @@ import {
   fullPromptTokens,
   REPLY_REQUEST,
   countLlmRequest,
-} from '../src/llm/openrouter.js';
+} from '../src/llm/openrouter.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createLimits } from '../src/llm/limits.js';
+import { createLimits } from '../src/llm/limits.ts';
 
 /** `model` is the voice model (`models.base.core`), the one a request without a model goes out on. */
 function baseConfig({ model = 'test-model', ...overrides } = {}) {
@@ -2339,7 +2339,7 @@ test('complete: the token-cap warning uses the same full prompt count', async ()
   assert.equal(await warned(1400), 1, '1400 is over it');
 });
 
-// --- shared transport helpers (also used by src/llm/images.js) ---
+// --- shared transport helpers (also used by src/llm/images.ts) ---
 
 test('openRouterHeaders: bearer key, JSON body and the neutral X-Title', () => {
   assert.deepEqual(openRouterHeaders('k1'), {

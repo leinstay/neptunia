@@ -1,10 +1,10 @@
-// Tests for src/llm/images.js: the request body per model family, retries and
+// Tests for src/llm/images.ts: the request body per model family, retries and
 // error reasons (PR 7d: the daily caps and the quota view are gone). No network: fetchImpl is always a fake. Only ONE test exercises
 // the real retry backoff sleep (~1.5s), as in the chat client's tests.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createImageGen, familyOf, ImageGenError, UnsupportedImageModelError } from '../src/llm/images.js';
-import { NotByokError } from '../src/llm/openrouter.js';
+import { createImageGen, familyOf, ImageGenError, UnsupportedImageModelError } from '../src/llm/images.ts';
+import { NotByokError } from '../src/llm/openrouter.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const NOW = Date.parse('2026-09-28T12:00:00Z');

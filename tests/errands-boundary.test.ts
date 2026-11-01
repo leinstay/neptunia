@@ -17,7 +17,7 @@ import { createErrandStores } from '../src/errands/store.ts';
 import { errandsBlockText } from '../src/errands/blocks.ts';
 import { createInnerLife } from '../src/behavior/inner.ts';
 import { wakeBlockText } from '../src/behavior/wake.ts';
-import { createEventDoor } from '../src/interface/door.js';
+import { createEventDoor } from '../src/interface/door.ts';
 import { intentionsBlockText } from '../src/intentions/blocks.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
@@ -25,7 +25,7 @@ import { currentToolName, SKILL_DEFINITIONS } from '../src/tools/definitions.ts'
 import { buildSkills } from '../src/tools/registry.ts';
 import { normalizeCalls } from '../src/tools/tool-calls.ts';
 import '../src/tools/impl/index.ts';
-import { toolCallsOf } from '../src/llm/openrouter.js';
+import { toolCallsOf } from '../src/llm/openrouter.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.js';
 import { tempDir } from './fixtures/tmp.js';
 import { useIface, world } from './fixtures/turn-world.ts';

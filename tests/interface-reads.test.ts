@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Adapter } from '../src/protocol/adapter.ts';
 import { createReads } from '../src/interface/reads.ts';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 
 type Warning = { message: string; fields: unknown };
 

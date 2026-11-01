@@ -1,8 +1,8 @@
-// Tests for interfaces/discord/search.js: Discord's message search, member search
+// Tests for interfaces/discord/search.ts: Discord's message search, member search
 // and the window around a message, over a fake REST client and channel.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchAfter, fetchAround, fetchBefore, searchMembers, searchMessages } from '../interfaces/discord/index.js';
+import { fetchAfter, fetchAround, fetchBefore, searchMembers, searchMessages } from '../interfaces/discord/index.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 /** A guild whose REST client records each GET and answers with `answer(route, query)`. */

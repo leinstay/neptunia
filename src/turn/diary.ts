@@ -24,9 +24,9 @@ import type { PictureGate } from '../behavior/diary-turn.ts';
 import { diaryConversationIds } from '../behavior/mirror.ts';
 import { buildDiaryPlanRequest } from '../behavior/prompt.js';
 import type { Snapshot } from '../behavior/snapshot.ts';
-import { DailyCapError, TokenLimitError, hedgeSettings, railReason, roleRequestOptions } from '../llm/openrouter.js';
-import { parseJsonObject } from '../llm/parse.js';
-import { roleModel } from '../llm/roles.js';
+import { DailyCapError, TokenLimitError, hedgeSettings, railReason, roleRequestOptions } from '../llm/openrouter.ts';
+import { parseJsonObject } from '../llm/parse.ts';
+import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.js';
 import type { ConversationInfo } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
@@ -63,17 +63,17 @@ export type DiaryStore = {
   state: { data: Parameters<typeof pictureGate>[0]['data'] };
 };
 
-/** The language model client (src/llm/openrouter.js#createLlm), as the plan request uses it. */
+/** The language model client (src/llm/openrouter.ts#createLlm), as the plan request uses it. */
 export type DiaryLlm = {
   complete: (messages: ReturnType<typeof buildDiaryPlanRequest>['messages'], options: object) => Promise<unknown>;
 };
 
-/** The web lookup (src/web/lookup.js#createLookup), as the plan's search uses it. */
+/** The web lookup (src/web/lookup.ts#createLookup), as the plan's search uses it. */
 export type DiaryLookup = {
   search?: (guildId: string, query: string) => Promise<{ text?: unknown; sources?: unknown } | null | undefined>;
 } | null;
 
-/** The image client (src/llm/images.js#createImageGen), as far as its cap is read. */
+/** The image client (src/llm/images.ts#createImageGen), as far as its cap is read. */
 export type DiaryImages = { quota?: (options: object) => { used: number; cap: number } | null } | null;
 
 /** What createDiary reads: the dependencies and the functions of the notes and of participation it calls. */

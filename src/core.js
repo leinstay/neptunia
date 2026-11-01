@@ -37,13 +37,13 @@ import {
   startYoutubeCheck,
 } from './memory/index.js';
 import { DAY_MS, utcDay } from './time.js';
-import { createCalibrator } from './llm/tokens.js';
-import { createLlm, roleApiKey } from './llm/openrouter.js';
+import { createCalibrator } from './llm/tokens.ts';
+import { createLlm, roleApiKey } from './llm/openrouter.ts';
 import { createRoleHealth, reportingLlm, roleKeyCheck } from './llm/role-health.ts';
-import { createEmbedder } from './llm/embed.js';
-import { createImageGen } from './llm/images.js';
-import { createSpeech } from './speech/index.js';
-import { ffmpegAvailable } from './speech/convert.js';
+import { createEmbedder } from './llm/embed.ts';
+import { createImageGen } from './llm/images.ts';
+import { createSpeech } from './speech/index.ts';
+import { ffmpegAvailable } from './speech/convert.ts';
 import { createTurnRunner } from './behavior/turn.js';
 import { createActivity } from './behavior/activity.js';
 import { createMissed } from './behavior/missed.js';
@@ -57,12 +57,12 @@ import { createSpontaneous } from './behavior/spontaneous.js';
 import { createInnerLife, innerSettings } from './behavior/inner.ts';
 import { createDiary } from './behavior/diary.ts';
 import { createMirrors, guardMirrorPort } from './behavior/mirror.ts';
-import { createImageFetcher } from './media/fetch-image.js';
-import { createVideoFetcher } from './media/fetch-video.js';
-import { createPageFetcher } from './web/fetch-page.js';
-import { createBraveSearch } from './web/brave.js';
-import { createExaSearch } from './web/exa.js';
-import { createLookup } from './web/lookup.js';
+import { createImageFetcher } from './media/fetch-image.ts';
+import { createVideoFetcher } from './media/fetch-video.ts';
+import { createPageFetcher } from './web/fetch-page.ts';
+import { createBraveSearch } from './web/brave.ts';
+import { createExaSearch } from './web/exa.ts';
+import { createLookup } from './web/lookup.ts';
 import { createAdmin } from './admin.js';
 import { createErrandClient } from './errands/client.ts';
 import { createErrandStores } from './errands/store.ts';
@@ -70,7 +70,7 @@ import { createErrandService } from './errands/service.ts';
 import { channelPlaceId } from './memory/db/ids.ts';
 import { createMemberDirectory } from './interface/members.ts';
 import { createErrandTurns, errandDoneEvent } from './errands/turns.ts';
-import { createEventDoor } from './interface/door.js';
+import { createEventDoor } from './interface/door.ts';
 import { createConversationDirectory } from './interface/directory.ts';
 import { isReadable, takeSnapshot } from './behavior/snapshot.ts';
 import {
@@ -108,7 +108,7 @@ import { loadPlugins } from './plugins/folders.ts';
 import { openPluginLink, routeConnection } from './plugins/link.ts';
 import { createPluginRegistry } from './plugins/registry.ts';
 import { pluginCallDeadlineMs, pluginEnabled } from './plugins/settings.ts';
-import { PROFILES as AGENT_PROFILES } from './agent-runner/profiles.js';
+import { PROFILES as AGENT_PROFILES } from './agent-runner/profiles.ts';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './behavior/pipeline.js';
 import { createLeasedAttention } from './behavior/attention.ts';
@@ -416,7 +416,7 @@ async function buildCore(options, cleanups) {
 
   const calibrator = createCalibrator(store.state.data.calibration);
   // Which model roles are down (src/llm/role-health.ts): one tracker for the turns, the operations, the describer and
-  // `/status`. A role has no key when the key it resolves to is empty (src/llm/openrouter.js#roleApiKey).
+  // `/status`. A role has no key when the key it resolves to is empty (src/llm/openrouter.ts#roleApiKey).
   const roleHealth = createRoleHealth({
     now: () => Date.now(),
     hasKey: roleKeyCheck({ hot, env, mainKey: openrouterKey }),
@@ -757,7 +757,7 @@ async function buildCore(options, cleanups) {
   // The live glance at the voice channels and the scene's statuses: a snapshot in process memory,
   // fed by the interface's voice, presence and connection events through the door below, never written anywhere.
   const around = createAroundStore({ presences: () => coreLink.adapter.capabilities().presence === true });
-  // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
+  // The persona's interface (src/interface/port.ts): every effect of her replies goes through it,
   // after the skill gateway (src/tools/gateway.ts) let the call pass. It is the guarded port: a send to a diary
   // mirror's place goes nowhere (`diary-mirror`); only the mirrors' publisher below holds the link's own adapter.
   // Her replies in the owner's chat (`iface: 'cli'`) go to the chat's link, every other effect to the served
@@ -1253,7 +1253,8 @@ async function buildCore(options, cleanups) {
   // Once at startup, fire-and-forget: tell the operator whether YouTube links can
   // be watched here (only when the video role is up: a role switched off watches nothing, so there is nothing to
   // probe, and the probe's request would leave the host). Logs the status, never the URL or key.
-  if (roleHealth.down(settings.config, 'video') === null) startYoutubeCheck({ checkYoutube: describer.checkYoutube });
+  if (roleHealth.down(settings.config, 'video') === null)
+    void startYoutubeCheck({ checkYoutube: describer.checkYoutube });
 
   const timers = [];
 
@@ -1480,7 +1481,7 @@ async function buildCore(options, cleanups) {
   }
 
   // The interface's events reach the core as protocol events (src/protocol/, built by the interface) over the
-  // link, through the event door (src/interface/door.js), the one entry of the mind: it validates each event at the
+  // link, through the event door (src/interface/door.ts), the one entry of the mind: it validates each event at the
   // boundary, drops a repeated id, and hands the event to the handler of its kind. An event that cannot be built
   // or is malformed is dropped with one warn line (its kind and the reason, never its content), so
   // nothing behind it ever sees a half-formed one. The core's own events (an errand's end, the scheduler's tick)

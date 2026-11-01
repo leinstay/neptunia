@@ -1,10 +1,10 @@
-// Tests for interfaces/discord/audience-warm.js: which member overwrite ids need a
+// Tests for interfaces/discord/audience-warm.ts: which member overwrite ids need a
 // fetch, the sequential fetch loop and its counts, and the warmer that runs
 // it over a fake guild (coalesced runs, members who left not asked again).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { OverwriteType } from 'discord.js';
-import { overwriteMemberIds, fetchMembers, createAudienceWarmer } from '../interfaces/discord/index.js';
+import { overwriteMemberIds, fetchMembers, createAudienceWarmer } from '../interfaces/discord/index.ts';
 
 /** A channel with permission overwrites `{ id, type }`; `null` for a channel without them (a thread). */
 function channel(overwrites) {

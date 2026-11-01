@@ -61,10 +61,10 @@ import { appendStep, cutToFit, roomLeft, segments, stepNote, stepVerdict, thinkM
 import { diagnosticText } from './wake.ts';
 import { callReason, MAX_MESSAGE_CHARS, withCalls } from '../format.js';
 import { grant as accessGrant, revoke as accessRevoke } from '../tools/impl/grants.ts';
-import { collectEmojiItems, collectPictures, collectVideos, isDescribable, watchedLengths } from '../media/classify.js';
-import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.js';
-import { roleModel } from '../llm/roles.js';
-import { parseOutput } from '../llm/parse.js';
+import { collectEmojiItems, collectPictures, collectVideos, isDescribable, watchedLengths } from '../media/classify.ts';
+import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.ts';
+import { roleModel } from '../llm/roles.ts';
+import { parseOutput } from '../llm/parse.ts';
 import { log } from '../log.js';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { findGif } from '../memory/index.js';
@@ -76,9 +76,9 @@ import { outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts
 import { coerceArgs, toolResultText, transportOf } from '../tools/tool-calls.ts';
 import { buildTools } from '../tools/tools-json.ts';
 import { skillRegistry } from '../tools/registry.ts';
-import { toolsBlockText } from '../llm/tool-text.js';
-import { requestTokenLimit } from '../llm/budget.js';
-import { estimateMessages, estimateTools } from '../llm/tokens.js';
+import { toolsBlockText } from '../llm/tool-text.ts';
+import { requestTokenLimit } from '../llm/budget.ts';
+import { estimateMessages, estimateTools } from '../llm/tokens.ts';
 import { isPlainObject } from '../config.js';
 import { diaryConversationIds, viewDiaryIds } from './mirror.ts';
 import { utcDay } from '../time.js';
@@ -92,7 +92,7 @@ const IDENTITY_CALIBRATOR = Object.freeze({ ratio: 1, apply: (n) => n, observe: 
 const SANDBOX_GUILD = 'sandbox';
 /**
  * A cache breakpoint on the user part. A JSON field, not prompt text: the llm client
- * (src/llm/openrouter.js#withCacheMarker) gives it its own TTL, or removes it when the
+ * (src/llm/openrouter.ts#withCacheMarker) gives it its own TTL, or removes it when the
  * request is not cached.
  */
 const USER_CACHE_MARKER = Object.freeze({ type: 'ephemeral' });
@@ -256,7 +256,7 @@ function seenText(entry, { watched, before }) {
 /**
  * The media item ids of one normalized message a live turn could have had
  * described (its forwarded snapshots included), as the live turn collects
- * them: pictures (src/media/classify.js#collectPictures and
+ * them: pictures (src/media/classify.ts#collectPictures and
  * #collectEmojiItems, describable ones) and videos (#collectVideos over `sites`).
  */
 function mediaItemsOf(message, sites) {
@@ -275,7 +275,7 @@ function mediaItemsOf(message, sites) {
  * time), read only. A cached miss, a limit or error state and an entry written
  * after `before` are no description; a watched summary is the video state
  * `{ state: 'watched', text }` plus the entry's `watchedSeconds` / `totalSeconds` when stored. Without a cache, empty maps. Pure.
- * @param {object[]} history  Normalized messages (src/protocol/events.js#Message).
+ * @param {object[]} history  Normalized messages (src/protocol/events.ts#Message).
  * @param {{ cache?: object|null, sites?: string[], before?: number|null }} [options]  `cache`: the
  *   describer's cache (`store.getMediaCache(guildId)`), or null.
  * @returns {{ descriptions: Map<string, string>, videos: Map<string, { state: 'watched', text: string }> }}
@@ -884,7 +884,7 @@ export function sandboxToolset({ view, selfId = null, registry = skillRegistry()
  * passes `role: 'core'`, `purpose: 'reply'` (`REPLY_REQUEST`), `origin:
  * 'replay'`, `countAgainstDailyCap: false` and `skipCalibration: true`; the
  * per-request token cap stays in force. With `samples` > 1 and a request the
- * llm client caches (src/llm/openrouter.js#cacheTtlFor: `features.promptCache`,
+ * llm client caches (src/llm/openrouter.ts#cacheTtlFor: `features.promptCache`,
  * role `core`, the model), the user message is one text part carrying a
  * cache marker, so samples 2..N read the cache instead of paying for it again.
  * An answer's `gif` (a handle of the library, `features.gifs` on) counts as an
@@ -1152,7 +1152,7 @@ export function scenarioInventory({
 const SANDBOX_SPEECH = Object.freeze({ quota: () => ({ used: 0, cap: 1, spent: false }) });
 
 /**
- * One `<call>` of the persona (`call`, src/llm/parse.js's) taken through what a live turn does
+ * One `<call>` of the persona (`call`, src/llm/parse.ts's) taken through what a live turn does
  * before the operation runs (src/behavior/turn.js#planToolCall and #runCall): resolved on the
  * server's side over `view` (src/tools/executors.ts#resolveCall; src/behavior/turn.js#callViewOf),
  * checked by the gateway (src/tools/gateway.ts#checkSkill: the persona as principal, `requester`,

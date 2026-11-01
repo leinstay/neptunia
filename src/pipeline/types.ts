@@ -137,7 +137,7 @@ export type PipelineTurns = {
   lastPostAt?: (channelId: string) => number;
 };
 
-/** The model client (src/llm/openrouter.js#createLlm), as the classifiers call it. */
+/** The model client (src/llm/openrouter.ts#createLlm), as the classifiers call it. */
 export type PipelineLlm = {
   complete: (
     messages: Array<{ role: 'system' | 'user'; content: string }>,

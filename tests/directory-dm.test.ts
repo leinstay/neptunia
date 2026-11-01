@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createConversationDirectory } from '../src/interface/directory.ts';
-import type { Conversation, ConversationChanged, MessageReceived } from '../src/protocol/events.js';
+import type { Conversation, ConversationChanged, MessageReceived } from '../src/protocol/events.ts';
 
 function message(conversation: Conversation, id = 'm1'): MessageReceived {
   return {

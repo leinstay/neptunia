@@ -3,14 +3,14 @@
 // The operations under src/tools/impl/, her tool definitions (src/tools/definitions.ts) and the owner's command table
 // read them, and `leafPaths` lists every setting of a config.
 
-import { CORE_ROLES, OPENCODE_ROLES, ROLES, roleConfigKeys } from '../../llm/roles.js';
+import { CORE_ROLES, OPENCODE_ROLES, ROLES, roleConfigKeys } from '../../llm/roles.ts';
 import { isObj, objOf } from '../types.ts';
 
 /**
- * The core's model roles (src/llm/roles.js#CORE_ROLES: the core, then the model roles other than `core`), each with the
+ * The core's model roles (src/llm/roles.ts#CORE_ROLES: the core, then the model roles other than `core`), each with the
  * config path of its model (src/tools/impl/model.ts): the roles the status card probes; with the other
  * roles they make `MODEL_SET_PATHS`; every role choice list is derived from this one. `core` is
- * the one model that speaks as the persona: its replies. `embedding` serves the embeddings (src/llm/embed.js), which
+ * the one model that speaks as the persona: its replies. `embedding` serves the embeddings (src/llm/embed.ts), which
  * take no chat completion.
  */
 export const MODEL_ROLE_PATHS = Object.freeze(
@@ -22,9 +22,9 @@ export const MODEL_ROLES = Object.freeze(Object.keys(MODEL_ROLE_PATHS));
 
 /**
  * The roles whose model `model.show` lists and `model.set` changes, each with the config path
- * `set` writes (`models.<group>.<role>`, src/llm/roles.js#ROLES): the base roles (the core, the
+ * `set` writes (`models.<group>.<role>`, src/llm/roles.ts#ROLES): the base roles (the core, the
  * other model roles, drawing), then the errand and development roles, which take no request of the bot
- * (OpenCode workers run them). Drawing (src/llm/images.js#IMAGE_ROLE) takes no chat completion.
+ * (OpenCode workers run them). Drawing (src/llm/images.ts#IMAGE_ROLE) takes no chat completion.
  */
 export const MODEL_SET_PATHS = Object.freeze(
   Object.fromEntries(ROLES.map((role) => [role, (roleConfigKeys(role) ?? []).join('.')]))
@@ -85,7 +85,7 @@ export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system'
 /** The `mode` choices of `pings.set`. */
 export const PINGS_MODES = Object.freeze(['on', 'off']);
 
-/** The `agent` choices of `errand.run`: the errand agents (src/agent-runner/profiles.js). */
+/** The `agent` choices of `errand.run`: the errand agents (src/agent-runner/profiles.ts). */
 export const TASK_AGENTS = Object.freeze(['scout', 'server']);
 
 /** Every dotted leaf path of a plain config object, depth-first in key order; an empty object or an array is a leaf. */

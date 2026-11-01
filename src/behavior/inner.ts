@@ -2,7 +2,7 @@
 // what is due for her -- an intention whose time came, an errand she waits for that ran past its
 // deadline, and one review a day at a random moment inside the hours she usually speaks in (drawn
 // from her own `said` lines in the record, re-drawn every local day) -- and hands each as an
-// `inner.wake` event through the core's event door (src/interface/door.js). Listing is not
+// `inner.wake` event through the core's event door (src/interface/door.ts). Listing is not
 // choosing: no model runs here, nothing ranks or invents a reason. A queued wake keeps its due
 // time while people's turns hold the lease; compatible wakes (the same conversation, and
 // the day's review with any server one) coalesce into one inner turn; a queue past

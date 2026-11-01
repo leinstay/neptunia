@@ -28,7 +28,7 @@ export type ErrandOrigin = { channelId: string | null; messageId: string | null;
 /** One output file of a finished errand, as the runner lists it. */
 export type ErrandFile = { path?: string; name: string; contentType: string; bytes: number };
 
-/** A result as the runner's protocol shapes it (src/agent-runner/protocol.js#normalizeResult). */
+/** A result as the runner's protocol shapes it (src/agent-runner/protocol.ts#normalizeResult). */
 export type NormalizedResult = {
   text: string;
   sources: Array<string>;
@@ -46,7 +46,7 @@ export type ErrandResult = {
   filesDropped?: Array<string | { name: string }>;
 };
 
-/** A usage as the runner's protocol shapes it (src/agent-runner/protocol.js#normalizeUsage). */
+/** A usage as the runner's protocol shapes it (src/agent-runner/protocol.ts#normalizeUsage). */
 export type ErrandUsage = {
   input: number;
   output: number;

@@ -1,7 +1,7 @@
-// Tests for src/llm/limits.js: the per-turn / per-batch collector of the limits that bit.
+// Tests for src/llm/limits.ts: the per-turn / per-batch collector of the limits that bit.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LIMIT_KINDS, createLimits } from '../src/llm/limits.js';
+import { LIMIT_KINDS, createLimits } from '../src/llm/limits.ts';
 
 test('limits: collects and lists', () => {
   const limits = createLimits();

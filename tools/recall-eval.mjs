@@ -34,7 +34,7 @@
 // -- the web search.
 //
 // `--web`: the classifier's `web:` query, when it gives one, goes to the live web lookup
-// (src/web/lookup.js#createLookup `search`, on the configured web.search.engine: `brave` with
+// (src/web/lookup.ts#createLookup `search`, on the configured web.search.engine: `brave` with
 // BRAVE_SEARCH_API_KEY from .env and `exa` condensed through prompts.search-summary, `openrouter`
 // through its web plugin; `--web` refuses to start when that engine cannot run), as the live turn runs it
 // beside the server part, with features.webLookup switched on for this process only; its daily
@@ -151,7 +151,7 @@ export function webSearchKeys(env = process.env) {
  * `web.search.engine` (`brave` needs BRAVE_SEARCH_API_KEY, `exa` and `openrouter` need no key).
  * Builds the lookup only to ask; nothing is searched, read or written.
  * @param {{ hot: object, createLookup: Function, searches: object, env?: object }} input
- *   `createLookup` from src/web/lookup.js; `searches` the engine clients (`{ brave, exa }`).
+ *   `createLookup` from src/web/lookup.ts; `searches` the engine clients (`{ brave, exa }`).
  * @returns {boolean}
  */
 export function webSearchReady({ hot, createLookup, searches, env = process.env }) {
@@ -418,7 +418,7 @@ async function traces(flags, { dataDir, guildId, now, cwd }) {
     let embed = null;
     if (meaningOn) {
       loadDotEnv(privateDirOf(ROOT));
-      const { createEmbedder } = await import('../src/llm/embed.js');
+      const { createEmbedder } = await import('../src/llm/embed.ts');
       const embedder = createEmbedder({ apiKey: simKey(ORIGIN), env: {}, state: { data: {}, markDirty() {} } });
       embed = (texts, options = {}) =>
         embedder.embed(texts, { ...options, origin: ORIGIN, countAgainstDailyCap: false });
@@ -608,10 +608,10 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const { fallbackLookupPlan } = await import('../src/behavior/turn.js');
   const { prefetchLanes } = await import('../src/behavior/prefetch.js');
   const { classifierTranscript, fillPromptTemplate } = await import('../src/behavior/prompt.js');
-  const { createLlm, roleRequestOptions, railReason } = await import('../src/llm/openrouter.js');
-  const { createEmbedder } = await import('../src/llm/embed.js');
-  const { createCalibrator } = await import('../src/llm/tokens.js');
-  const { roleModel } = await import('../src/llm/roles.js');
+  const { createLlm, roleRequestOptions, railReason } = await import('../src/llm/openrouter.ts');
+  const { createEmbedder } = await import('../src/llm/embed.ts');
+  const { createCalibrator } = await import('../src/llm/tokens.ts');
+  const { roleModel } = await import('../src/llm/roles.ts');
   const { zonedDay } = await import('../src/time.js');
 
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
@@ -647,9 +647,9 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   if (!dry || useDiscord) loadDotEnv(privateDirOf(ROOT));
   let webParts = null;
   if (useWeb) {
-    const { createLookup } = await import('../src/web/lookup.js');
-    const { createBraveSearch } = await import('../src/web/brave.js');
-    const { createExaSearch } = await import('../src/web/exa.js');
+    const { createLookup } = await import('../src/web/lookup.ts');
+    const { createBraveSearch } = await import('../src/web/brave.ts');
+    const { createExaSearch } = await import('../src/web/exa.ts');
     webParts = { createLookup, searches: { brave: createBraveSearch(), exa: createExaSearch() } };
     if (!webSearchReady({ hot: evalHot, ...webParts })) {
       throw new CliError(
@@ -711,7 +711,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   let webSearch = null;
   if (useWeb) {
     const { createLookup, searches } = webParts;
-    const { createPageFetcher } = await import('../src/web/fetch-page.js');
+    const { createPageFetcher } = await import('../src/web/fetch-page.ts');
     const media = { ...(store.getMediaCache(guildId) ?? {}) };
     const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
     const pageFetcher = createPageFetcher();

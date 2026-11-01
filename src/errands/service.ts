@@ -8,9 +8,9 @@
 // that brings it back to the persona (src/errands/turns.ts); an errand cancelled meanwhile ends
 // without one. At start the errands a restart left open are failed (`restarted`): the runner sends
 // an errand's end on the connection that brought it, which is gone. Every run carries the errand's
-// secrets (`secrets` of src/agent-runner/protocol.js), since every key lives in the core's .env
+// secrets (`secrets` of src/agent-runner/protocol.ts), since every key lives in the core's .env
 // and the runner cannot read it: the key of the agent's model role (`scout`, `server`)
-// as the bot resolves a role's key (src/llm/openrouter.js#roleApiKey over `llm.keyByRole`; never
+// as the bot resolves a role's key (src/llm/openrouter.ts#roleApiKey over `llm.keyByRole`; never
 // the persona's main key), and for `scout` the residential proxy of the video fetches
 // (MEDIA_VIDEO_PROXY, the same proxy serving http too, so a `socks5h://` URL is sent in its http
 // form) and the search key (OPENCODE_WEBSEARCH_KEY) when set. Without the role's key no secrets
@@ -30,9 +30,9 @@
 // The flag is logged once per change (`errands: runner up` / `errands: runner down`).
 
 import { log as defaultLog } from '../log.js';
-import { PROFILES, agentSettings, profileOf } from '../agent-runner/profiles.js';
-import { roleApiKey } from '../llm/openrouter.js';
-import { MAX_RECENT_ENTRIES, RECENT_CHARS, httpProxyForm } from '../agent-runner/protocol.js';
+import { PROFILES, agentSettings, profileOf } from '../agent-runner/profiles.ts';
+import { roleApiKey } from '../llm/openrouter.ts';
+import { MAX_RECENT_ENTRIES, RECENT_CHARS, httpProxyForm } from '../agent-runner/protocol.ts';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { isOpenState } from './store.ts';
 import { CODE } from '../tools/codes.ts';
@@ -59,7 +59,7 @@ import type {
   SubmitInput,
 } from './types.ts';
 
-/** The limit keys an errand may carry to its runner (src/agent-runner/protocol.js#LIMIT_KEYS). */
+/** The limit keys an errand may carry to its runner (src/agent-runner/protocol.ts#LIMIT_KEYS). */
 const ERRAND_LIMIT_KEYS = Object.freeze(['steps', 'seconds'] as const);
 /** The origin channel's lines an errand carries. Production value, config cut of 2026-10-31. */
 export const DEFAULT_RECENT_LINES = 6;
@@ -69,7 +69,7 @@ export const RUNNER_RECHECK_MS = 10_000;
 /** The limits an errand of `agent` runs under: its profile's `limits` under the deployment's override. */
 function limitsFor(agent: string, config: Untyped): Limits {
   const set: Record<string, number> = agentSettings(agent, config)?.limits ?? {};
-  // profiles.js types a profile as `object`, so its default limits are read through objOf.
+  // profiles.ts types a profile as `object`, so its default limits are read through objOf.
   const defaults = objOf(objOf(profileOf(agent)).defaultLimits);
   const out: Limits = {};
   for (const key of ERRAND_LIMIT_KEYS) {

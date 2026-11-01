@@ -1,7 +1,7 @@
 // The typing indicator of a turn: a lease on a channel, shown while a direct call's tool loop runs. createTurnRunner
 // (src/behavior/turn.js) builds it once per runner with createTyping; the tool loop starts and stops the lease.
 
-import { startTypingLease } from '../interface/typing.js';
+import { startTypingLease } from '../interface/typing.ts';
 import { log } from '../log.js';
 import type { ConversationRef } from '../protocol/adapter.ts';
 import { portError } from './journal.ts';
@@ -31,7 +31,7 @@ export type Typing = {
 
 export function createTyping({ iface, schedule, clock, conversationOf }: TypingContext): Typing {
   /**
-   * A typing lease on `channel` (src/interface/typing.js): refreshed until stopped, and lapsing on its own if nobody
+   * A typing lease on `channel` (src/interface/typing.ts): refreshed until stopped, and lapsing on its own if nobody
    * stops it. Sent through the port; one that does not answer `ok` logs `turn: typing failed`. `preparing` tells the
    * log which wait it covers (the preparation, or the tool loop's calls). Answers the function that stops the lease.
    */

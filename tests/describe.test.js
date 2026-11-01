@@ -20,11 +20,11 @@ import {
   videoStateFromCache,
 } from '../src/memory/describe.js';
 import { createHash } from 'node:crypto';
-import { createLlm, roleRequestOptions, TokenLimitError, DailyCapError } from '../src/llm/openrouter.js';
-import { ROLE_DEFAULTS } from '../src/llm/roles.js';
+import { createLlm, roleRequestOptions, TokenLimitError, DailyCapError } from '../src/llm/openrouter.ts';
+import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
-import { MEDIA_CACHE_ENTRIES } from '../src/web/cache.js';
+import { MEDIA_CACHE_ENTRIES } from '../src/web/cache.ts';
 
 // One directory under the system temp dir per run, removed when the process exits (tests/fixtures/tmp.js);
 // every call gets its own empty subdirectory of it, so a run leaves nothing behind.
@@ -281,7 +281,7 @@ test('describe: an empty caption is treated as a miss, not cached as a success, 
 });
 
 /**
- * Fills the guild's media cache with old entries up to `MEDIA_CACHE_ENTRIES` (src/web/cache.js), the cache's size.
+ * Fills the guild's media cache with old entries up to `MEDIA_CACHE_ENTRIES` (src/web/cache.ts), the cache's size.
  * @param {{ getMediaCache: (guildId: string) => Record<string, unknown> }} store
  */
 function fillCache(store) {
@@ -2168,7 +2168,7 @@ function gifDescriber({
 const TENOR_MP4 = 'https://images-ext-1.discordapp.net/external/v/https/media.tenor.com/x/AAAPo/loop.mp4';
 const GIF_STILL_PREVIEW = 'https://previews.example/still.png'; // the adapter's preview, downloaded as given
 
-/** A tenor gifv embed's picture item (src/media/classify.js#collectPictures). */
+/** A tenor gifv embed's picture item (src/media/classify.ts#collectPictures). */
 function gifEmbedItem(itemId = 'm1#e0', overrides = {}) {
   return {
     source: 'embed',

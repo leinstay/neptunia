@@ -15,7 +15,7 @@ import { readBoard } from '../src/board/board.ts';
 import type { BoardDb } from '../src/board/schema.ts';
 import type { Obj } from '../src/tools/types.ts';
 import type { ErrandClient, ErrandService, ErrandStores, RunOutcome } from '../src/errands/types.ts';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
+import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { openTestMemorySync } from './fixtures/memory-db/service.js';
 import { writeArchive } from './fixtures/errand-archive.ts';

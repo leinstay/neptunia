@@ -12,7 +12,7 @@ import { runOpPrechecked } from '../src/tools/impl/index.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { grantedToPersona } from '../src/tools/access.ts';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
+import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import type { SkillsPort } from '../src/skills/port.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { skillText, skillsRig } from './fixtures/skills-rig.ts';

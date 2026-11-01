@@ -36,7 +36,7 @@ export async function withReplyParents(
   return parents.length > 0 ? [...parents.map((parent) => ({ ...parent, replyParent: true })), ...history] : history;
 }
 
-/** The list fields of a normalized message (src/protocol/events.js#Message), empty on a line built here. */
+/** The list fields of a normalized message (src/protocol/events.ts#Message), empty on a line built here. */
 const EMPTY_LINE_LISTS = Object.freeze([
   'mentionedUserIds',
   'mentionedChannelIds',

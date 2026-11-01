@@ -1,7 +1,7 @@
-// Tests for src/llm/tokens.js: token estimation and the usage calibrator.
+// Tests for src/llm/tokens.ts: token estimation and the usage calibrator.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { estimateTokens, estimateMessages, estimateTools, createCalibrator } from '../src/llm/tokens.js';
+import { estimateTokens, estimateMessages, estimateTools, createCalibrator } from '../src/llm/tokens.ts';
 
 test('estimateTokens: non-ASCII costs more tokens than the same length of ASCII', () => {
   const ascii = estimateTokens('a'.repeat(20));

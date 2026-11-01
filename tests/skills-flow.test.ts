@@ -26,7 +26,7 @@ import { skillUsesOfTurn } from '../src/skills/uses.ts';
 import type { TurnCall } from '../src/skills/uses.ts';
 import { runOpPrechecked } from '../src/tools/impl/index.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
+import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { utcDay } from '../src/time.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { SKILLS_T0, skillText, skillsRig } from './fixtures/skills-rig.ts';

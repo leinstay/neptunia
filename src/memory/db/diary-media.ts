@@ -29,7 +29,7 @@ import { audienceOf } from './scope.ts';
 import { ensureAudience } from './rows.ts';
 import { projectRow } from './graph.ts';
 import { diaryPlaces } from './mirrors.ts';
-import { REFERENCE_MAX_BYTES } from '../../media/fetch-image.js';
+import { REFERENCE_MAX_BYTES } from '../../media/fetch-image.ts';
 import { dbOf, asText, isFiniteNumber } from './types.ts';
 import type { Config, Db, Log, MemoryHandle, Row } from './types.ts';
 

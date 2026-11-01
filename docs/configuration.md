@@ -128,14 +128,14 @@ Three groups, the same three the status card shows (`/status full`). Each role i
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `models.base.core` | string, boolean, null | `"anthropic/claude-opus-4.6"` | The persona's model. Purposes: `reply`, `memory-voice` | `src/llm/openrouter.js` |
-| `models.base.memory` | string, boolean, null | `"anthropic/claude-opus-4.6"` | Her memory session and description review model. Same default as `core`, not a copy. Its key is `llm.keyByRole.memory` and never falls back | `src/llm/roles.js` |
+| `models.base.core` | string, boolean, null | `"anthropic/claude-opus-4.6"` | The persona's model. Purposes: `reply`, `memory-voice` | `src/llm/openrouter.ts` |
+| `models.base.memory` | string, boolean, null | `"anthropic/claude-opus-4.6"` | Her memory session and description review model. Same default as `core`, not a copy. Its key is `llm.keyByRole.memory` and never falls back | `src/llm/roles.ts` |
 | `models.base.analyzer` | string, boolean, null | `"openai/gpt-6.1-sol"` | Picks options (address, room, route, split, gif-pick, missed, etc.), plans searches and turns sources into notes. Pin one purpose to another model with `byPurpose` | `src/behavior/mention.js` |
 | `models.base.vision` | string, boolean, null | `"google/gemini-3.8-flash"` | Describes pictures (describe, relook, avatar) | `src/behavior/mention.js` |
 | `models.base.video` | string, boolean, null | `"google/gemini-3.8-flash"` | Watches video, looks again on questions | `src/behavior/mention.js` |
-| `models.base.embedding` | string, boolean, null | `"openai/text-embedding-3-large"` | Turns text into vectors for meaning search. `embed.dimensions` sets the width | `src/llm/embed.js` |
-| `models.base.speech` | string, boolean, null | `"elevenlabs/eleven-v4"` | Speaks her text aloud through the speech endpoint. Named on the status card, never probed | `src/speech/synth.js` |
-| `models.base.drawing` | string, boolean, null | `"openai/gpt-image-2.5-flare"` | Generates pictures through the Images API. Only `openai/*` and `google/*` families | `src/llm/images.js` |
+| `models.base.embedding` | string, boolean, null | `"openai/text-embedding-3-large"` | Turns text into vectors for meaning search. `embed.dimensions` sets the width | `src/llm/embed.ts` |
+| `models.base.speech` | string, boolean, null | `"elevenlabs/eleven-v4"` | Speaks her text aloud through the speech endpoint. Named on the status card, never probed | `src/speech/synth.ts` |
+| `models.base.drawing` | string, boolean, null | `"openai/gpt-image-2.5-flare"` | Generates pictures through the Images API. Only `openai/*` and `google/*` families | `src/llm/images.ts` |
 
 A role set to `false` has no model. Its tool calls (`media.look` for `vision` and `video`, `draw.create` for `drawing`, `voice.say` for `speech`) go to the core model when the core declares the role's ability in `models.abilities`, and answer `ability-unavailable` otherwise. `/status` lists the role as failing and `neptunia doctor` warns about it. `null` or a missing key is the role's default model. The same route applies while a role is failing globally (see [Media](media.md#when-a-model-role-is-down)).
 
@@ -143,27 +143,27 @@ A role set to `false` has no model. Its tool calls (`media.look` for `vision` an
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `models.abilities` | map | `{ "anthropic/claude-opus-4.6": ["text", "imagesIn"], "google/gemini-3.8-flash": ["text", "imagesIn", "videoIn"], "openai/text-embedding-3-large": ["embeddings"], "elevenlabs/eleven-v4": ["audioOut"], "openai/gpt-image-2.5-flare": ["imagesOut"] }` | What each model can do, keyed by model id: a list of `text`, `imagesIn`, `imagesOut`, `videoIn`, `audioOut` and `embeddings`. A model without an entry has `text` only | `src/llm/roles.js` |
+| `models.abilities` | map | `{ "anthropic/claude-opus-4.6": ["text", "imagesIn"], "google/gemini-3.8-flash": ["text", "imagesIn", "videoIn"], "openai/text-embedding-3-large": ["embeddings"], "elevenlabs/eleven-v4": ["audioOut"], "openai/gpt-image-2.5-flare": ["imagesOut"] }` | What each model can do, keyed by model id: a list of `text`, `imagesIn`, `imagesOut`, `videoIn`, `audioOut` and `embeddings`. A model without an entry has `text` only | `src/llm/roles.ts` |
 
 Only the core model's list in `models.abilities` is read, by `src/tools/gateway.ts#abilityRoute`, when a tool role is down. A core model without an entry has `text` only, so a down tool role answers `ability-unavailable`. A deployment whose core reads pictures gives its core model the list `["text", "imagesIn"]`.
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `models.byPurpose` | map | `{}` | Model ids keyed by purpose string (`reply`, `lookup`, `recall-summary`, `diary-plan`, `planner`, `web-search` and the like). A match on purpose wins over the role's model. Not probed by the status card | `src/llm/embed.js` |
+| `models.byPurpose` | map | `{}` | Model ids keyed by purpose string (`reply`, `lookup`, `recall-summary`, `diary-plan`, `planner`, `web-search` and the like). A match on purpose wins over the role's model. Not probed by the status card | `src/llm/embed.ts` |
 
 ### `models.errands`
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `models.errands.scout` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the scout errand agent | `src/agent-runner/opencode.js` |
-| `models.errands.server` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the server errand agent | `src/agent-runner/opencode.js` |
+| `models.errands.scout` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the scout errand agent | `src/agent-runner/opencode.ts` |
+| `models.errands.server` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the server errand agent | `src/agent-runner/opencode.ts` |
 
 ### `models.development`
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `models.development.thinker` | string | `"openrouter/anthropic/claude-opus-5.5"` | OpenCode model id of the orchestrator | `src/tools/impl/status.ts` |
-| `models.development.dev` | string | `"openrouter/anthropic/claude-sonnet-5.5"` | OpenCode model id of the coding and writing worker | `src/llm/roles.js` |
+| `models.development.dev` | string | `"openrouter/anthropic/claude-sonnet-5.5"` | OpenCode model id of the coding and writing worker | `src/llm/roles.ts` |
 
 Errand and development roles run on OpenCode, not the bot's client. They take OpenCode model ids (`openrouter/<vendor>/<model>`), unlike the base roles' bare OpenRouter ids. The status card does not probe them and `/route set` cannot route them.
 
@@ -171,24 +171,24 @@ Errand and development roles run on OpenCode, not the bot's client. They take Op
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `llm.baseUrl` | string | `"https://openrouter.ai/api/v1"` | Chat completions endpoint | `src/llm/openrouter.js` |
-| `llm.maxOutputTokens` | number | `2000` | Max output tokens | `src/llm/openrouter.js` |
+| `llm.baseUrl` | string | `"https://openrouter.ai/api/v1"` | Chat completions endpoint | `src/llm/openrouter.ts` |
+| `llm.maxOutputTokens` | number | `2000` | Max output tokens | `src/llm/openrouter.ts` |
 | `llm.maxRequestTokens` | number | `50000` | Hard token cap per request | `src/behavior/sandbox.js` |
-| `llm.timeoutMs` | number | `300000` | Request timeout (ms) | `src/llm/openrouter.js` |
+| `llm.timeoutMs` | number | `300000` | Request timeout (ms) | `src/llm/openrouter.ts` |
 | `llm.probeTimeoutMs` | number | `30000` | Timeout of each model probe and of the key reads of the status card (ms) | `src/tools/impl/status.ts` |
-| `llm.analyzerTimeoutMs` | number | `30000` | Timeout of a request on a model role other than the core's, made alongside the turn (route classifier, search classifier, recall summary). Past this the request is abandoned | `src/llm/embed.js` |
-| `llm.retries` | number | `2` | Retries on transient HTTP errors (408/429/5xx) and network failures. A daily-quota 429 is thrown at once | `src/llm/embed.js` |
+| `llm.analyzerTimeoutMs` | number | `30000` | Timeout of a request on a model role other than the core's, made alongside the turn (route classifier, search classifier, recall summary). Past this the request is abandoned | `src/llm/embed.ts` |
+| `llm.retries` | number | `2` | Retries on transient HTTP errors (408/429/5xx) and network failures. A daily-quota 429 is thrown at once | `src/llm/embed.ts` |
 | `llm.maxRequestsPerDay` | number | `5000` | Daily request cap | `src/behavior/pull-fetch.ts` |
-| `llm.provider` | map, null | `null` | OpenRouter `provider` routing object, passed verbatim | `src/llm/openrouter.js` |
-| `llm.providerByModel` | map | `{}` | Per-model provider routing. See the resolution order below | `src/llm/embed.js` |
+| `llm.provider` | map, null | `null` | OpenRouter `provider` routing object, passed verbatim | `src/llm/openrouter.ts` |
+| `llm.providerByModel` | map | `{}` | Per-model provider routing. See the resolution order below | `src/llm/embed.ts` |
 | `llm.keyByRole` | map | `{ "scout": "OPENROUTER_ERRAND_KEY", "server": "OPENROUTER_ERRAND_KEY", "drawing": "OPENROUTER_ERRAND_KEY", "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "memory": "OPENROUTER_MEMORY_KEY" }` | Maps a role name to the NAME of a `.env` variable holding an OpenRouter key. Read at every request. A role not in the map falls back to `OPENROUTER_CORE_KEY`. The `memory` role is the exception: with `OPENROUTER_MEMORY_KEY` unset, the session is not configured and no request goes out on any other key | `src/core.js` |
 | `llm.cache.ttl` | string | `"1h"` | Cache TTL for the markers on the system message and the stable user prefix: `"1h"` or `"5m"` | `src/behavior/prompt.js` |
-| `llm.cache.roles` | array | `["core"]` | Model roles whose requests get the cache marker. Add `analyzer` to cache its requests too | `src/llm/openrouter.js` |
-| `llm.cache.models` | array | `["anthropic/"]` | Model id prefixes whose provider accepts the `cache_control` marker | `src/llm/openrouter.js` |
-| `llm.hedge.roles` | array | `["analyzer"]` | Roles whose calls are hedged (two concurrent attempts, first to finish wins) | `src/llm/openrouter.js` |
-| `llm.hedge.afterMs` | number | `2500` | Milliseconds before the second attempt starts. `0` or below turns hedging off | `src/llm/openrouter.js` |
-| `llm.hedge.timeoutMs` | number | `8000` | Milliseconds from the first attempt's start at which both are aborted if neither returned | `src/llm/openrouter.js` |
-| `llm.hedge.longTimeoutMs` | number | `20000` | Timeout used when the caller marks the request `long: true` (the route classifier does this for a large channel list) | `src/llm/openrouter.js` |
+| `llm.cache.roles` | array | `["core"]` | Model roles whose requests get the cache marker. Add `analyzer` to cache its requests too | `src/llm/openrouter.ts` |
+| `llm.cache.models` | array | `["anthropic/"]` | Model id prefixes whose provider accepts the `cache_control` marker | `src/llm/openrouter.ts` |
+| `llm.hedge.roles` | array | `["analyzer"]` | Roles whose calls are hedged (two concurrent attempts, first to finish wins) | `src/llm/openrouter.ts` |
+| `llm.hedge.afterMs` | number | `2500` | Milliseconds before the second attempt starts. `0` or below turns hedging off | `src/llm/openrouter.ts` |
+| `llm.hedge.timeoutMs` | number | `8000` | Milliseconds from the first attempt's start at which both are aborted if neither returned | `src/llm/openrouter.ts` |
+| `llm.hedge.longTimeoutMs` | number | `20000` | Timeout used when the caller marks the request `long: true` (the route classifier does this for a large channel list) | `src/llm/openrouter.ts` |
 
 ### Provider routing resolution
 
@@ -235,7 +235,7 @@ Her memory session: she reads new chat lines of one scope and says what she keep
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `embed.dimensions` | number | `1024` | Dimensions requested from the embedding model | `src/llm/embed.js` |
+| `embed.dimensions` | number | `1024` | Dimensions requested from the embedding model | `src/llm/embed.ts` |
 
 ## `context`
 
@@ -259,7 +259,7 @@ Her memory session: she reads new chat lines of one scope and says what she keep
 | `context.caps.earlier` | number | `2500` | Token cap: the `<earlier>` block | `src/behavior/prompt.js` |
 | `context.caps.attitudes` | number | `400` | Token cap: attitude list | `src/behavior/prompt.js` |
 | `context.caps.intentions` | number | `600` | Token cap: `<intentions>` | `src/behavior/prompt.js` |
-| `context.vision.fetchTimeoutMs` | number | `10000` | Download timeout per picture (ms) | `src/media/fetch-image.js` |
+| `context.vision.fetchTimeoutMs` | number | `10000` | Download timeout per picture (ms) | `src/media/fetch-image.ts` |
 
 ### `context.pull`
 
@@ -317,7 +317,7 @@ How long each stage of a turn may take. A request on a model role other than `co
 | `pace.prepareSearchMs` | number | `18000` | Extended deadline while the search classifier runs. `0` removes the limit | `src/turn/settings.ts` |
 | `pace.prepareMediaMs` | number | `20000` | Extended deadline on a direct call whose trigger carries a picture, GIF or video. `0` removes it | `src/turn/settings.ts` |
 | `pace.dropAfterMs` | number | `120000` | If the finished answer has not arrived by this time, the turn is dropped. `0` removes it | `src/turn/phases/request/setup.ts` |
-| `pace.replyHedgeMs` | number | `30000` | On a direct call, when the reply has no answer after this long, a second request is sent. `0` = one attempt only | `src/llm/openrouter.js` |
+| `pace.replyHedgeMs` | number | `30000` | On a direct call, when the reply has no answer after this long, a second request is sent. `0` = one attempt only | `src/llm/openrouter.ts` |
 | `pace.settleMs` | number | `3000` | Wait for the person to stop writing before reading the chat, so quick messages are answered whole | `src/behavior/pipeline.js` |
 | `pace.settleMaxMs` | number | `8000` | The longest that wait may run from the calling message | `src/turn/sends.ts` |
 
@@ -359,16 +359,16 @@ Settings for the media describer. The describer model is `models.base.vision`. S
 | `media.maxOutputTokens` | number | `2000` | Max output tokens per description | `src/memory/avatar-queue.js` |
 | `media.recacheBefore` | string, null | `null` | ISO date-time, or `null` (off). Descriptions written before it are described again when they come up | `src/memory/describe.js` |
 | `media.video.provider` | map, null | `{ "order": ["google-ai-studio"], "allow_fallbacks": false }` | Provider routing for the direct-URL path. `null` uses the normal resolution | `src/memory/describe.js` |
-| `media.video.maxOutputTokens` | number | `800` | Max output tokens per video summary | `src/llm/openrouter.js` |
+| `media.video.maxOutputTokens` | number | `800` | Max output tokens per video summary | `src/llm/openrouter.ts` |
 | `media.video.maxRequestTokens` | number | `60000` | Token cap per video request | `src/memory/describe.js` |
-| `media.video.timeoutMs` | number | `90000` | LLM request timeout for video (ms) | `src/media/fetch-image.js` |
-| `media.video.toolTimeoutMs` | number | `120000` | Timeout for `yt-dlp` and `ffmpeg` subprocesses (ms) | `src/media/fetch-video.js` |
+| `media.video.timeoutMs` | number | `90000` | LLM request timeout for video (ms) | `src/media/fetch-image.ts` |
+| `media.video.toolTimeoutMs` | number | `120000` | Timeout for `yt-dlp` and `ffmpeg` subprocesses (ms) | `src/media/fetch-video.ts` |
 | `media.video.sites` | array | `["youtube.com", "youtu.be", "tiktok.com", "vk.com", "vkvideo.ru", "x.com", "twitter.com", "reddit.com", "twitch.tv"]` | Hostnames treated as video | `src/tools/tools.ts` |
-| `media.video.ytdlpPath` | string | `"yt-dlp"` | Path to `yt-dlp` | `src/media/fetch-video.js` |
-| `media.video.ffmpegPath` | string | `"ffmpeg"` | Path to `ffmpeg` | `src/media/fetch-video.js` |
-| `media.video.proxy` | string | `""` | A proxy URL for `yt-dlp`. `""` = no proxy | `src/media/video-sites.js` |
+| `media.video.ytdlpPath` | string | `"yt-dlp"` | Path to `yt-dlp` | `src/media/fetch-video.ts` |
+| `media.video.ffmpegPath` | string | `"ffmpeg"` | Path to `ffmpeg` | `src/media/fetch-video.ts` |
+| `media.video.proxy` | string | `""` | A proxy URL for `yt-dlp`. `""` = no proxy | `src/media/video-sites.ts` |
 | `media.video.proxySites` | array | `["youtube.com", "youtu.be"]` | Sites that use the proxy | `src/memory/describe.js` |
-| `media.video.proxyRetryMinutes` | number | `10` | Minutes links skip the proxy after a failure | `src/media/fetch-video.js` |
+| `media.video.proxyRetryMinutes` | number | `10` | Minutes links skip the proxy after a failure | `src/media/fetch-video.ts` |
 | `media.video.errorRetryMinutes` | number | `60` | Minutes before an error-cached video is retried | `src/memory/describe.js` |
 | `media.video.rewatch.maxOutputTokens` | number | `600` | Max output tokens for the re-watch answer | `src/memory/describe.js` |
 
@@ -378,17 +378,17 @@ Settings for web lookup. See [Media](media.md).
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `web.acceptLanguage` | string | `"en,ru;q=0.8"` | Accept-Language header when a page is read | `src/web/lookup.js` |
-| `web.links.readCacheHours` | number | `6` | Hours a page read by `web.read` is cached | `src/web/lookup.js` |
+| `web.acceptLanguage` | string | `"en,ru;q=0.8"` | Accept-Language header when a page is read | `src/web/lookup.ts` |
+| `web.links.readCacheHours` | number | `6` | Hours a page read by `web.read` is cached | `src/web/lookup.ts` |
 | `web.links.maxOutputTokens` | number | `4000` | Max output tokens for the condenser | `src/behavior/recall.js` |
-| `web.links.fetchTimeoutMs` | number | `10000` | Download timeout per page (ms) | `src/web/lookup.js` |
+| `web.links.fetchTimeoutMs` | number | `10000` | Download timeout per page (ms) | `src/web/lookup.ts` |
 | `web.search.enabled` | boolean | `true` | Run a search when the classifier fires | `src/tools/impl/status.ts` |
 | `web.search.engine` | string | `"brave"` | Search engine: `brave`, `exa` or `openrouter` | `src/core.js` |
 | `web.search.fallback` | array | `[]` | Engines tried in order on failure | `src/core.js` |
-| `web.search.rawOutputTokens` | number | `256` | Max output tokens of the `openrouter` engine's request for `web.search` | `src/web/lookup.js` |
-| `web.search.maxOutputTokens` | number | `4000` | Max output tokens for the condenser | `src/llm/openrouter.js` |
+| `web.search.rawOutputTokens` | number | `256` | Max output tokens of the `openrouter` engine's request for `web.search` | `src/web/lookup.ts` |
+| `web.search.maxOutputTokens` | number | `4000` | Max output tokens for the condenser | `src/llm/openrouter.ts` |
 | `web.search.classifierMaxOutputTokens` | number | `2000` | Max output tokens for the search classifier the measuring tools ask (no live turn asks it) | `tools/search-policy-eval.mjs` |
-| `web.search.cacheHours` | number | `24` | Hours a cached search result is served | `src/web/lookup.js` |
+| `web.search.cacheHours` | number | `24` | Hours a cached search result is served | `src/web/lookup.ts` |
 | `web.search.timeoutMs` | number | `10000` | Search request timeout (ms) | `src/behavior/recall-run.js` |
 
 ## `participation`
@@ -441,13 +441,13 @@ Settings for drawing. See [Media](media.md).
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `image.maxPromptChars` | number | `1600` | Scene text clamped to this length | `src/behavior/prompt.js` |
-| `image.reference` | string | `"avatar"` | Visual reference when the persona is in the picture. `"avatar"` downloads the bot's avatar; anything else sends nothing | `src/media/draw.js` |
-| `image.timeoutMs` | number | `120000` | Request timeout (ms) | `src/media/draw.js` |
-| `image.retries` | number | `1` | Retries on transient failures | `src/llm/images.js` |
-| `image.provider` | map, null | `null` | Provider routing for image requests. `null` sends nothing | `src/llm/images.js` |
-| `image.openai.quality` | string | `"medium"` | Image quality for `openai/*` models | `src/llm/images.js` |
-| `image.openai.moderation` | string | `"low"` | Moderation level for `openai/*` models | `src/llm/images.js` |
-| `image.google.resolution` | string | `"1K"` | Output resolution for `google/*` models | `src/llm/images.js` |
+| `image.reference` | string | `"avatar"` | Visual reference when the persona is in the picture. `"avatar"` downloads the bot's avatar; anything else sends nothing | `src/media/draw.ts` |
+| `image.timeoutMs` | number | `120000` | Request timeout (ms) | `src/media/draw.ts` |
+| `image.retries` | number | `1` | Retries on transient failures | `src/llm/images.ts` |
+| `image.provider` | map, null | `null` | Provider routing for image requests. `null` sends nothing | `src/llm/images.ts` |
+| `image.openai.quality` | string | `"medium"` | Image quality for `openai/*` models | `src/llm/images.ts` |
+| `image.openai.moderation` | string | `"low"` | Moderation level for `openai/*` models | `src/llm/images.ts` |
+| `image.google.resolution` | string | `"1K"` | Output resolution for `google/*` models | `src/llm/images.ts` |
 
 ## `speech`
 
@@ -455,11 +455,11 @@ Settings for voice messages. The persona's `voice.say` skill sends text through 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `speech.voice` | string | `"jessica"` | Voice name passed to the speech endpoint | `src/speech/synth.js` |
-| `speech.maxChars` | number | `1500` | Max text characters per voice message | `src/speech/index.js` |
-| `speech.usdPerMillionChars` | number | `40` | Estimated cost for the tool gateway's budget | `src/speech/synth.js` |
-| `speech.timeoutMs` | number | `60000` | Speech request timeout (ms) | `src/speech/synth.js` |
-| `speech.prepareMaxOutputTokens` | number | `1500` | Max output tokens for the pronunciation preparation pass | `src/speech/index.js` |
+| `speech.voice` | string | `"jessica"` | Voice name passed to the speech endpoint | `src/speech/synth.ts` |
+| `speech.maxChars` | number | `1500` | Max text characters per voice message | `src/speech/index.ts` |
+| `speech.usdPerMillionChars` | number | `40` | Estimated cost for the tool gateway's budget | `src/speech/synth.ts` |
+| `speech.timeoutMs` | number | `60000` | Speech request timeout (ms) | `src/speech/synth.ts` |
+| `speech.prepareMaxOutputTokens` | number | `1500` | Max output tokens for the pronunciation preparation pass | `src/speech/index.ts` |
 
 ## `tools`
 
@@ -536,18 +536,18 @@ The settings every errand reads, whichever agent runs it. See [Errands](errands.
 |---|---|---|---|---|
 | `errands.opencodePath` | string | `"/opt/opencode/bin/opencode"` | Path to the OpenCode binary | `bin/neptunia.ts` |
 | `errands.toolResultChars` | number | `6000` | Cap on each tool result the agent sees | `bin/neptunia.ts` |
-| `errands.keepFilesHours` | number | `24` | Hours a task's output files are kept | `src/agent-runner/sweep.js` |
+| `errands.keepFilesHours` | number | `24` | Hours a task's output files are kept | `src/agent-runner/sweep.ts` |
 | `errands.maxOpen` | number | `3` | Errands open at once, all agents together | `src/errands/store.ts` |
 | `errands.resultMaxChars` | number | `3000` | Characters of an errand's result in the `<errand_result>` block | `src/behavior/sandbox.js` |
 | `errands.resultRetrySeconds` | number | `30` | Seconds before a result turn is tried again | `src/errands/turns.ts` |
 
 ## `agents`
 
-The settings of one agent live in its profile, `agents/<name>/profile.json` (see [the agents folder](../agents/README.md)). A deployment overrides a setting under `agents.<name>` of `config.local/config.json`, and `agentSettings(name, config)` in `src/agent-runner/profiles.js` lays the override over the profile, a nested object merged key by key. The core, the agent runner and the dispatcher all read an agent's settings through it.
+The settings of one agent live in its profile, `agents/<name>/profile.json` (see [the agents folder](../agents/README.md)). A deployment overrides a setting under `agents.<name>` of `config.local/config.json`, and `agentSettings(name, config)` in `src/agent-runner/profiles.ts` lays the override over the profile, a nested object merged key by key. The core, the agent runner and the dispatcher all read an agent's settings through it.
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `agents` | map | `{}` | Per agent name, overrides of the settings in `agents/<name>/profile.json`, laid over the profile key by key | `src/agent-runner/profiles.js` |
+| `agents` | map | `{}` | Per agent name, overrides of the settings in `agents/<name>/profile.json`, laid over the profile key by key | `src/agent-runner/profiles.ts` |
 
 The keys of a profile and the values the shipped profiles carry:
 

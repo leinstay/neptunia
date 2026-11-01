@@ -25,12 +25,12 @@ import {
 import type { PictureGate } from '../behavior/diary-turn.ts';
 import { replyMarker } from '../format.js';
 import type { Reads } from '../interface/reads.ts';
-import { ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
-import { cacheTtlMs, railReason, roleRequestOptions } from '../llm/openrouter.js';
-import { roleModel } from '../llm/roles.js';
+import { ImageGenError, UnsupportedImageModelError } from '../llm/images.ts';
+import { cacheTtlMs, railReason, roleRequestOptions } from '../llm/openrouter.ts';
+import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.js';
-import { drawPicture } from '../media/draw.js';
-import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl } from '../media/gif-post.js';
+import { drawPicture } from '../media/draw.ts';
+import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl } from '../media/gif-post.ts';
 import { rankGifs } from '../memory/index.js';
 import type { ConversationInfo, ConversationRef, MessageRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
@@ -85,18 +85,18 @@ export type DrawGifStore = {
   recordOwnGif?: (guildId: string, key: string, at: number) => void;
 };
 
-/** The language model client (src/llm/openrouter.js#createLlm), as the GIF picker uses it. */
+/** The language model client (src/llm/openrouter.ts#createLlm), as the GIF picker uses it. */
 type DrawGifLlm = {
   complete: (messages: Array<{ role: string; content: unknown }>, options: object) => Promise<unknown>;
 };
 
-/** The image client (src/llm/images.js#createImageGen). */
+/** The image client (src/llm/images.ts#createImageGen). */
 type DrawGifImages = NonNullable<Parameters<typeof drawPicture>[0]>['images'];
 
-/** A picture as the image client made it (src/llm/images.js#createImageGen's generate). */
+/** A picture as the image client made it (src/llm/images.ts#createImageGen's generate). */
 type Picture = { buffer?: Buffer; mediaType: string; cost: number | null; seconds: number };
 
-/** The interface port (src/interface/port.js), as the pictures and GIFs post through it. */
+/** The interface port (src/interface/port.ts), as the pictures and GIFs post through it. */
 type DrawGifPort = { send: (ref: ConversationRef, payload: object) => Promise<PortResult> };
 
 /** The gateway's verdict on one effect of her reply. */
@@ -223,7 +223,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
   } = ctx;
 
   /**
-   * One picture (src/media/draw.js#drawPicture): her scene verbatim into the drawing prompt, the avatar reference for a
+   * One picture (src/media/draw.ts#drawPicture): her scene verbatim into the drawing prompt, the avatar reference for a
    * picture she is in, one generation. `userId` is the member whose rail counts it (null: nobody's); `avatar` the
    * holder a diary set reuses the avatar through; `model` the core model's id when the call is routed there (null: the
    * drawing role's own, whose outcome the role health is told). Throws what the image client throws (ImageCapError,
@@ -368,7 +368,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
         }
         throw err;
       }
-      // src/media/draw.js#drawPicture hands on the image client's picture (src/llm/images.js, generate).
+      // src/media/draw.ts#drawPicture hands on the image client's picture (src/llm/images.ts, generate).
       const picture = made.picture as Picture;
       const { referenceMissing } = made;
       if (referenceMissing) log.warn('turn: avatar reference unavailable', { channel: channel.id });

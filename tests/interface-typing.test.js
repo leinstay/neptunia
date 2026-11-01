@@ -1,8 +1,8 @@
-// Tests for src/interface/typing.js: the typing lease is sent at once, refreshed on the caller's
+// Tests for src/interface/typing.ts: the typing lease is sent at once, refreshed on the caller's
 // timer, stopped by its owner, and lapses on its own after its lease.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TYPING_LEASE_MS, startTypingLease } from '../src/interface/typing.js';
+import { TYPING_LEASE_MS, startTypingLease } from '../src/interface/typing.ts';
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 

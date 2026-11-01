@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isAvatarDue, normalizeAvatar } from '../src/memory/avatars.js';
 import { createAvatarQueue } from '../src/memory/avatar-queue.js';
-import { VISION_MAX_BYTES } from '../src/media/fetch-image.js';
+import { VISION_MAX_BYTES } from '../src/media/fetch-image.ts';
 import { createStore } from '../src/memory/store.js';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory, unitFile } from './fixtures/memory-db/service.js';

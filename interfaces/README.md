@@ -22,24 +22,26 @@ A package imports nothing of the core beyond `src/protocol/`.
 
 Package `@neptunia/interface-discord` (`interfaces/discord/package.json`). Depends on discord.js 14. Its [README](discord/README.md) says how it runs in each mode.
 
-Entry point: `index.js`, which exports `start(host)` and `createDiscordInterface({ client })`. The core calls `start(host)`: it builds the discord.js client, logs in, resolves the guild, connects the link, serves the adapter and resolves with a running interface (`iface`, `open()`, `stop()`, `reconnect()`). Gateway events are held until `open()`, and an outbox under the interface's data folder keeps them until the core acknowledges them. On its first connect the session deletes every slash command its bot still has on the guild, and it registers none. [docs/interfaces.md](../docs/interfaces.md) describes the host and the fields. `createDiscordInterface` returns the outbound port (the persona's effects in Discord), a frozen capabilities object (permission checks, history, the pull rails, searches, the presence snapshot, the emoji index, the member cache warmer) and the client itself.
+Entry point: `index.ts`, which exports `start(host)` and `createDiscordInterface({ client })`. The core calls `start(host)`: it builds the discord.js client, logs in, resolves the guild, connects the link, serves the adapter and resolves with a running interface (`iface`, `open()`, `stop()`, `reconnect()`). Gateway events are held until `open()`, and an outbox under the interface's data folder keeps them until the core acknowledges them. On its first connect the session deletes every slash command its bot still has on the guild, and it registers none. [docs/interfaces.md](../docs/interfaces.md) describes the host and the fields. `createDiscordInterface` returns the outbound port (the persona's effects in Discord), a frozen capabilities object (permission checks, history, the pull rails, searches, the presence snapshot, the emoji index, the member cache warmer) and the client itself.
 
 The modules:
 
 | File | What |
 |---|---|
-| `port.js` | The Discord adapter of the interface port: send, edit, delete, react, unreact, typing, and the conversation reads it takes from `reads.ts`. Maps discord.js errors to result statuses. |
+| `port.ts` | The Discord adapter of the interface port: send, edit, delete, react, unreact, typing, and the conversation reads it takes from `reads.ts`. Maps discord.js errors to result statuses. |
 | `reads.ts` | The reads of the adapter over discord.js: the conversations of a community with their permissions, audiences and viewers, the history, messages by id, members, search, emoji, links and reactors. |
-| `collect.js` | Turns discord.js messages into normalised plain objects. Builds `message.received` and `reaction.changed` protocol events (`toEvent`, `reactionEvent`). Permission checks, audience. |
+| `collect.ts` | Turns discord.js messages into normalised plain objects. Builds `message.received` and `reaction.changed` protocol events (`toEvent`, `reactionEvent`). Permission checks, audience. |
 | `session.ts` | `start(host)`: the client, the login, the guild, the link and every gateway event as a protocol event, held until `open()`. |
 | `members.ts` | A member as the avatar queue sees it (`memberView`, `avatarHashOf`) and the `membership.changed` event. |
-| `gateway.js` | Creates the discord.js client with the intents and partials the engine needs. |
-| `guild.js` | Resolves which single guild this instance serves. |
-| `pull-fetch.js` | The rails of a pull of another channel over discord.js objects, for the recall runner. A turn pulls through the reads. |
-| `search.js` | Guild message search and member search for recall. |
-| `around.js` | Voice and presence state of members, the live snapshot for `<people_now>`. |
+| `gateway.ts` | Creates the discord.js client with the intents and partials the engine needs. |
+| `guild.ts` | Resolves which single guild this instance serves. |
+| `pull-fetch.ts` | The rails of a pull of another channel over discord.js objects, for the recall runner. A turn pulls through the reads. |
+| `search.ts` | Guild message search and member search for recall. |
+| `around.ts` | Voice and presence state of members, the live snapshot for `<people_now>`. |
 | `emoji.js` | The server's custom emoji index. |
-| `audience-warm.js` | Fills the member cache for the audience rail. |
+| `audience-warm.ts` | Fills the member cache for the audience rail. |
+| `platform-types.ts` | The parts of the discord.js objects the package reads (message, channel, guild, member, reaction), every field optional. Types only. |
+| `values.ts` | The package's copies of the three small helpers that read an unknown value: a thrown error's fields, a record, a scalar as text. |
 
 ## Starting the core with an interface
 

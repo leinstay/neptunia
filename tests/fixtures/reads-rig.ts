@@ -1,10 +1,10 @@
-// The pieces the tools-on-the-reads tests share: the fake adapter (src/interface/fake.js) seeded with a community, the
+// The pieces the tools-on-the-reads tests share: the fake adapter (src/interface/fake.ts) seeded with a community, the
 // core's wrapper over its reads (src/interface/reads.ts), and builders for the conversations and the whole
 // `message.received` events a read returns. A test seeds what it needs, runs the code under test on `reads`, and
 // reads what reached the adapter from `fake.calls` (one entry per read, under the method's name).
 import type { ConversationInfo, MemberInfo, MessageEvent, Permissions } from '../../src/protocol/adapter.ts';
 import { createReads } from '../../src/interface/reads.ts';
-import { createFakeAdapter } from '../../src/interface/fake.js';
+import { createFakeAdapter } from '../../src/interface/fake.ts';
 
 export const IFACE = 'fake';
 export const SELF_ID = 'self-id';

@@ -1,7 +1,7 @@
 // Tests for her own tools in a turn (src/tools/tools.ts over src/behavior/turn.js): web.search, web.read,
 // memory.search, media.look and draw.create run inside the turn and come back in it as the tool message of
 // her call; the step engine itself is tests/turn-tool-steps.test.js. Over a real admin and the fake interface
-// adapter (src/interface/fake.js); no network, no data/.
+// adapter (src/interface/fake.ts); no network, no data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -789,7 +789,7 @@ test('draw.create in the loop: the turn makes the picture from her scene and pos
 });
 
 test('draw.create: the generation failures come back as results with their own codes; no limit notice', async () => {
-  const { ImageGenError } = await import('../src/llm/images.js');
+  const { ImageGenError } = await import('../src/llm/images.ts');
   const cases = [
     [new ImageGenError('moderation'), 'image-moderation'],
     [new ImageGenError('timeout'), 'image-timeout'],

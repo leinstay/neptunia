@@ -1,9 +1,9 @@
-// The interface field of a model call (src/llm/openrouter.js#createLlm): the turn hands its interface as `iface`,
+// The interface field of a model call (src/llm/openrouter.ts#createLlm): the turn hands its interface as `iface`,
 // the usage line names it, and the request body never carries it (PR 7a). Kept apart from tests/openrouter.test.js,
 // which is at its recorded length.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createLlm } from '../src/llm/openrouter.js';
+import { createLlm } from '../src/llm/openrouter.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 function baseConfig() {

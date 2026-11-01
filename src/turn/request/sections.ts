@@ -2,7 +2,7 @@
 // interlocutor, what was looked up, what the server's memory offers, the chat, and the lists fitted last. The block
 // builders of src/turn/request/ fill them, and buildRequest (src/behavior/prompt.js) has the budget fit them.
 
-import { fitSections } from '../../llm/budget.js';
+import { fitSections } from '../../llm/budget.ts';
 import { emojiCaption, emojiItems, seenEmoji } from './emoji-gifs.ts';
 import { lookupCandidates, prefetchText } from './recall.ts';
 import { aboutChatItems, learnedConfig, loreItems, serverItems } from './server.ts';

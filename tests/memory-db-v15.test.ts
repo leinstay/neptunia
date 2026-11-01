@@ -16,7 +16,7 @@ import { tempDir } from './fixtures/tmp.js';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
 import { applyDiaryUpdate, createDiaryMedia } from '../src/memory/db/diary-media.ts';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 
 const NOW = Date.parse('2026-11-03T12:00:00.000Z');
 const PLACE = channelPlaceId('discord', CHANNEL);

@@ -2,9 +2,9 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { IMAGE_ROLE } from '../../llm/images.js';
-import { matchRoute } from '../../llm/openrouter.js';
-import { OPENCODE_ROLES } from '../../llm/roles.js';
+import { IMAGE_ROLE } from '../../llm/images.ts';
+import { matchRoute } from '../../llm/openrouter.ts';
+import { OPENCODE_ROLES } from '../../llm/roles.ts';
 import {
   NONE,
   onOff,
@@ -68,7 +68,7 @@ const handlers = perEnv((env) => {
     const fallbackName = role === IMAGE_ROLE ? 'image.provider' : 'llm.provider';
     const fallback = role === IMAGE_ROLE ? cfg?.image?.provider : cfg?.llm?.provider;
     let applied = 'none';
-    if (match) applied = `${match.key} ${routingSummary(match.value as Obj)}`;
+    if (match) applied = `${match.key} ${routingSummary(match.value)}`;
     else if (isObj(fallback)) applied = `${fallbackName} ${routingSummary(fallback)}`;
     const pin = cfg?.media?.video?.provider;
     const pinned =
@@ -111,7 +111,7 @@ const handlers = perEnv((env) => {
   }
 
   /** `/nep route set`: `{ only: [providers], allow_fallbacks }` under `<prefix>` or `<prefix>@<role>`,
-   * with `byok: true` when asked (src/llm/openrouter.js#assertByok; off writes no key). */
+   * with `byok: true` when asked (src/llm/openrouter.ts#assertByok; off writes no key). */
   function cmdRouteSet(args: Obj): string {
     const prefix = routePrefixArg(args);
     const role = routeRoleArg(args);

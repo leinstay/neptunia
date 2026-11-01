@@ -3,16 +3,16 @@
 // request's tail while she has an open or newly finished errand and gone when she has none; a
 // finished errand opens her own turn in the conversation it was asked in, with `<errand_result>`
 // (its text, its sources numbered, its files as handles), through the fake interface
-// (src/interface/fake.js); a turn held back by the attention is tried again later.
+// (src/interface/fake.ts); a turn held back by the attention is tried again later.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 import { errandsBlockText, errandResultText } from '../src/errands/blocks.ts';
 import { createErrandTurns, errandDoneEvent } from '../src/errands/turns.ts';
-import { createEventDoor } from '../src/interface/door.js';
-import { validateEvent } from '../src/protocol/index.js';
+import { createEventDoor } from '../src/interface/door.ts';
+import { validateEvent } from '../src/protocol/index.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { onWorld, useIface, world } from './fixtures/turn-world.ts';

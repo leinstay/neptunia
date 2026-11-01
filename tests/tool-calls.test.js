@@ -6,7 +6,7 @@ import '../src/tools/impl/index.ts';
 import { buildSkills } from '../src/tools/registry.ts';
 import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { schemaError } from '../src/tools/schema.ts';
-import { toolCallsOf } from '../src/llm/openrouter.js';
+import { toolCallsOf } from '../src/llm/openrouter.ts';
 import { coerceArgs, coversSpeech, normalizeCalls, toolResultText } from '../src/tools/tool-calls.ts';
 import { labels } from './fixtures/labels.js';
 

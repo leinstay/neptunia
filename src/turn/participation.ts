@@ -9,7 +9,7 @@ import { diaryConversationIds } from '../behavior/mirror.ts';
 import { audienceAllows, everyMemberAudience, railAudience } from '../behavior/snapshot.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { log } from '../log.js';
-import { collectPictures } from '../media/classify.js';
+import { collectPictures } from '../media/classify.ts';
 import { participationSettings, recordOwnLine } from '../memory/index.js';
 import { liveRecent, recentSettings } from '../memory/recent.js';
 import type { ConversationInfo } from '../protocol/adapter.ts';

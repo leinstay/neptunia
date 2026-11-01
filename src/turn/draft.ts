@@ -14,7 +14,7 @@ import type { noteDiagnostics } from './journal.ts';
 import type { ToolRoundDraft } from './tool-round.ts';
 import type { IndexedSkill } from '../skills/uses.ts';
 
-/** What bit during the attempt (src/llm/limits.js#createLimits). */
+/** What bit during the attempt (src/llm/limits.ts#createLimits). */
 export type Limits = {
   add: (entry: { kind: string; where?: string | null; lost?: number | null; detail?: string }) => void;
   list: () => Array<{ kind: string; where: string | null; lost: number | null; detail?: string }>;

@@ -6,8 +6,8 @@ import type { MessageEvent } from '../../src/protocol/adapter.ts';
 import type { Reads } from '../../src/interface/reads.ts';
 import { createReads } from '../../src/interface/reads.ts';
 import { takeSnapshot } from '../../src/behavior/snapshot.ts';
-import { createFakeAdapter } from '../../src/interface/fake.js';
-import { createDiscordAdapter } from '../../interfaces/discord/index.js';
+import { createFakeAdapter } from '../../src/interface/fake.ts';
+import { createDiscordAdapter } from '../../interfaces/discord/index.ts';
 import { createEmojiIndex } from '../../src/behavior/emoji-index.ts';
 import type { IndexedEmoji } from '../../src/behavior/emoji-index.ts';
 

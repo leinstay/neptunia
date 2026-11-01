@@ -23,7 +23,7 @@
 // `failed` (with the code), counts only -- never the goal or the result; the line's `errandId` references the board
 // task (`day.work_id`). An errand's files are named to the persona by a handle `file:<errand id>/<name>` (fileOf
 // resolves it, only for a name the errand's result lists, inside the profile's `out`). The runner deletes an errand's
-// directory after `errands.keepFilesHours` (src/agent-runner/sweep.js); a finished errand whose result lists files is
+// directory after `errands.keepFilesHours` (src/agent-runner/sweep.ts); a finished errand whose result lists files is
 // marked `filesExpired` once its directory is gone from an out dir that is still there (checked when the errands are
 // read), and its handles name nothing from then on.
 // A finished errand's result stays until she has read it: the record carries `readAt` (null until a turn that showed
@@ -39,11 +39,11 @@ import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { DAY_MS } from '../time.js';
 import { agentCosts, costRecord, KEEP_DAYS } from './costs.ts';
-import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.js';
+import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.ts';
 import { createReadSeam } from '../memory/db/readers/common.ts';
 import { createUnitOutbox } from '../memory/db/unit-outbox.ts';
 import { errandsOf, pendingEnds as boardEnds } from '../board/errands.ts';
-import { agentSettings, profileOf } from '../agent-runner/profiles.js';
+import { agentSettings, profileOf } from '../agent-runner/profiles.ts';
 import { CODE } from '../tools/codes.ts';
 import { errorCode, idText, isFiniteNumber, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';

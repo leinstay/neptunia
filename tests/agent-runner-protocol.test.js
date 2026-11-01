@@ -1,4 +1,4 @@
-// Tests for src/agent-runner/protocol.js: validation of the core's `run`,
+// Tests for src/agent-runner/protocol.ts: validation of the core's `run`,
 // `cancel` and `ping` (ids, goal length, context scope, limit keys, model,
 // cost, search provider, secrets -- never echoed back -- and the shared
 // preamble), the decode of a line
@@ -21,7 +21,7 @@ import {
   SECRET_KEYS,
   httpProxyForm,
   MAX_PREAMBLE_CHARS,
-} from '../src/agent-runner/protocol.js';
+} from '../src/agent-runner/protocol.ts';
 
 test('validateRequest: a full run passes and is normalised', () => {
   const r = validateRequest({

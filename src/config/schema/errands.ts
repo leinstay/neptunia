@@ -20,7 +20,7 @@ export const ERRANDS: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'errands.keepFilesHours',
     'types': ['number'],
-    'reader': 'src/agent-runner/sweep.js',
+    'reader': 'src/agent-runner/sweep.ts',
     'default': 24,
     'text': "Hours a task's output files are kept",
   },

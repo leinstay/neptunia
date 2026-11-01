@@ -1,7 +1,7 @@
-// Tests for src/llm/parse.js: the model output tag parser and JSON extractor.
+// Tests for src/llm/parse.ts: the model output tag parser and JSON extractor.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseOutput, parseJsonObject } from '../src/llm/parse.js';
+import { parseOutput, parseJsonObject } from '../src/llm/parse.ts';
 
 test('parseOutput: a single <msg> with no reply', () => {
   const result = parseOutput('<msg>γεια</msg>');
@@ -21,7 +21,7 @@ test('parseOutput: reply="87" (no #) is also parsed as replyTo 87', () => {
 });
 
 test('parseOutput: a fourth message is joined into the third on its own line, recorded as message-merge', async () => {
-  const { createLimits } = await import('../src/llm/limits.js');
+  const { createLimits } = await import('../src/llm/limits.ts');
   const limits = createLimits();
   const result = parseOutput('<msg>1</msg><msg>2</msg><msg reply="#7">τρία</msg><msg reply="#9">τέσσερα  ok</msg>', {
     limits,
@@ -35,7 +35,7 @@ test('parseOutput: a fourth message is joined into the third on its own line, re
 });
 
 test('parseOutput: messages four and five are joined into the third in order', async () => {
-  const { createLimits } = await import('../src/llm/limits.js');
+  const { createLimits } = await import('../src/llm/limits.ts');
   const limits = createLimits();
   const result = parseOutput('<msg>a</msg><msg>b</msg><msg>c</msg><msg>d\ne</msg><msg>f</msg>', { limits });
   assert.deepEqual(
@@ -51,7 +51,7 @@ test('parseOutput: messages four and five are joined into the third in order', a
 });
 
 test('parseOutput: three messages stay as they are, nothing recorded', async () => {
-  const { createLimits } = await import('../src/llm/limits.js');
+  const { createLimits } = await import('../src/llm/limits.ts');
   const limits = createLimits();
   const result = parseOutput('<msg>a</msg><msg reply="#2">b</msg><msg>c</msg>', { limits });
   assert.deepEqual(result.messages, [
@@ -65,7 +65,7 @@ test('parseOutput: three messages stay as they are, nothing recorded', async () 
 // PR 2: the parser no longer cuts a message at 1900 characters; the adapter splits it for the platform. The merge of
 // the third and later messages stays, and it reports only the merge.
 test('parseOutput: a merged message over 1900 characters stays whole, only the merge recorded', async () => {
-  const { createLimits } = await import('../src/llm/limits.js');
+  const { createLimits } = await import('../src/llm/limits.ts');
   const limits = createLimits();
   const third = 'γ'.repeat(1000);
   const fourth = 'δ'.repeat(1000);
@@ -207,7 +207,7 @@ test('parseJsonObject: throws when there is no JSON object at all', () => {
 
 // PR 2: nothing is cut at parse time, so no `message-cut` is reported for a long message.
 test('parse: a message of 1950 characters comes out whole and reports no message-cut', async () => {
-  const { createLimits } = await import('../src/llm/limits.js');
+  const { createLimits } = await import('../src/llm/limits.ts');
   const limits = createLimits();
   const long = 'α'.repeat(1950);
   const result = parseOutput(`<msg>${long}</msg><msg>short</msg>`, { limits });

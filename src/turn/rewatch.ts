@@ -7,7 +7,7 @@ import type { ClassifierContextInput } from './lookup-input.ts';
 /** What the turn knows of a video: its watch state, its caption and an answer to a question about it. */
 export type VideoState = { state: string; text?: string; answer?: unknown; [key: string]: unknown };
 
-/** The language model client (src/llm/openrouter.js#createLlm), as a classifier asks it. */
+/** The language model client (src/llm/openrouter.ts#createLlm), as a classifier asks it. */
 export type ClassifierLlm = {
   complete: (messages: Array<{ role: string; content: string }>, options: object) => Promise<{ text?: string | null }>;
 };

@@ -6,14 +6,14 @@ The package `@neptunia/interface-discord` connects the persona's core to one Dis
 
 | File | What it is |
 |---|---|
-| `index.js` | The entry. It exports `start(host)`, which the core or the interface runner calls, and `createDiscordInterface`. |
+| `index.ts` | The entry. It exports `start(host)`, which the core or the interface runner calls, and `createDiscordInterface`. |
 | `config.json` | The package's own settings, laid over the core's settings with `config.local/interfaces/discord.json` over both (`src/config/files.ts#readInterfaceConfig`): the privileged intents `discord.intents.presences` and `discord.intents.members` (default `false`), the longest URL a message text keeps, `context.maxUrlChars` (default `200`), and the characters of an embed's title and text, `media.embedTextChars` (default `200`). `bot.guildId` stays in the core's settings. |
 | `setup.ts` | The setup of the interface. It refuses until the `neptunia` CLI brings `neptunia interface setup discord`. |
 | `package.json` | The package and its one dependency. |
 
 ## Running it
 
-With `interfaces.mode: inprocess`, `src/index.js` loads `index.js` and the core starts the interface in its own process with `DISCORD_TOKEN` from the private directory's `.env`.
+With `interfaces.mode: inprocess`, `src/index.js` loads `index.ts` and the core starts the interface in its own process with `DISCORD_TOKEN` from the private directory's `.env`.
 
 With `interfaces.mode: units`, the unit `neptunia-interface@discord` runs `neptunia interface run discord` as the user `neptunia-discord-interface`. The interface reads `DISCORD_TOKEN` from the unit's environment file and its client token from `clients/discord.token` in the private directory. [`deploy/README.md`](../../deploy/README.md) gives the steps.
 

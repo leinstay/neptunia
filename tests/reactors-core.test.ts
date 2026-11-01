@@ -4,7 +4,7 @@
 // The last tests run the core over the fake interface and read the request.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { ReactionChanged } from '../src/protocol/events.js';
+import type { ReactionChanged } from '../src/protocol/events.ts';
 import {
   applyReactionChanged,
   backfillPlan,

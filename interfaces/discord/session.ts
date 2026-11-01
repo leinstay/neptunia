@@ -17,8 +17,8 @@ import { Events, MessageFlags } from 'discord.js';
 import type { InterfaceHost, RunningInterface } from '../../src/protocol/host.ts';
 import { createOutbox } from '../../src/protocol/outbox.ts';
 import { serveAdapter } from '../../src/protocol/serve.ts';
-import { createAudienceWarmer } from './audience-warm.js';
-import { connectionEvent, presenceEvent, presenceSnapshotEvent, voiceEvent } from './around.js';
+import { createAudienceWarmer } from './audience-warm.ts';
+import { connectionEvent, presenceEvent, presenceSnapshotEvent, voiceEvent } from './around.ts';
 import {
   canRead,
   isReadableChannel,
@@ -27,12 +27,12 @@ import {
   reactionClearEmojiEvent,
   reactionEvent,
   toEvent,
-} from './collect.js';
-import { createDiscordClient } from './gateway.js';
-import { resolveGuild } from './guild.js';
-import { createDiscordInterface } from './index.js';
+} from './collect.ts';
+import { createDiscordClient } from './gateway.ts';
+import { resolveGuild } from './guild.ts';
+import { createDiscordInterface } from './index.ts';
 import { memberView, membershipUpdatedEvent } from './members.ts';
-import { DISCORD_IFACE } from './port.js';
+import { DISCORD_IFACE } from './port.ts';
 
 type Obj = Record<string, unknown>;
 

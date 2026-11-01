@@ -7,7 +7,7 @@ import { DIARY_MAX_MESSAGES, stripUrls } from '../../behavior/diary.ts';
 import { resolveReactionEmoji } from '../../behavior/emoji.js';
 import { innerOutputCalls } from '../../behavior/inner-output.js';
 import { thinkMissing } from '../../behavior/tool-step.js';
-import { parseOutput } from '../../llm/parse.js';
+import { parseOutput } from '../../llm/parse.ts';
 import { log } from '../../log.js';
 import { countDashes, stripDashes } from '../../memory/clamp.js';
 import { answerOf, defaultSkills } from '../calls.ts';
@@ -22,7 +22,7 @@ import type { Prepared } from './request.ts';
 /** One completion of the reply request. */
 type Completion = Awaited<ReturnType<PhaseLlm['complete']>>;
 
-/** Her answer as the parser reads it (src/llm/parse.js#parseOutput). */
+/** Her answer as the parser reads it (src/llm/parse.ts#parseOutput). */
 type RawParsed = ReturnType<typeof parseOutput>;
 
 /** Her answer shaped by the feature switches, an inner turn's tags lowered into the calls they stand for. */
@@ -158,7 +158,7 @@ export async function responsePhase(
   draft.format = { thinkMissing: 0, coerced: 0, malformed: 0, truncated: 0, capped: 0, held: 0 };
   draft.steps = 0;
   const readAnswer = (answered: StepCompletion, number: number): ReadAnswer => {
-    // The language model client answers its tool calls as a list (src/llm/openrouter.js#complete).
+    // The language model client answers its tool calls as a list (src/llm/openrouter.ts#complete).
     const split = answerOf(answered as Parameters<typeof answerOf>[0], {
       transport,
       step: number,

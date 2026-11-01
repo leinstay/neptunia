@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildRequest, freezePerBucket } from '../src/behavior/prompt.js';
-import { cacheTtlMs } from '../src/llm/openrouter.js';
+import { cacheTtlMs } from '../src/llm/openrouter.ts';
 import { labels } from './fixtures/labels.js';
 
 const HOUR = 3_600_000;

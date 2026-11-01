@@ -11,7 +11,7 @@ import { createStore } from '../src/memory/store.js';
 import { HIT_MARK } from '../src/behavior/recall.js';
 import { snapshotOf } from '../src/behavior/snapshot.ts';
 import { toRecordLine } from '../src/memory/record.js';
-import { DailyCapError } from '../src/llm/openrouter.js';
+import { DailyCapError } from '../src/llm/openrouter.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';

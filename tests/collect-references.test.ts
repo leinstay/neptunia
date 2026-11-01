@@ -1,6 +1,6 @@
 // Tests for what the Discord package puts on a normalised message and its event for the core: message links as
 // neutral references, and attachments and links that expire with the address of their preview
-// (interfaces/discord/collect.js#messageRefsOf and normalizeMessage). Discord objects are plain fixtures.
+// (interfaces/discord/collect.ts#messageRefsOf and normalizeMessage). Discord objects are plain fixtures.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -8,9 +8,9 @@ import {
   normalizeMessage as normalizeRaw,
   normalizeOptions,
   toEvent,
-} from '../interfaces/discord/index.js';
-import { collectPictures } from '../src/media/classify.js';
-import { validateEvent } from '../src/protocol/index.js';
+} from '../interfaces/discord/index.ts';
+import { collectPictures } from '../src/media/classify.ts';
+import { validateEvent } from '../src/protocol/index.ts';
 
 type Item = {
   id?: string;

@@ -245,10 +245,10 @@
       "test": "none"
     },
     {
-      "path": "agents/scout/web-search.mjs",
-      "purpose": "The scout's web search command, run by its wrapper `agents/scout/bin/web-search` on the agent's PATH. Its logic is `src/web/web-search.js`, tested there.",
+      "path": "agents/scout/web-search.ts",
+      "purpose": "The scout's web search command, run by its wrapper `agents/scout/bin/web-search` on the agent's PATH. Its logic is `src/web/web-search.ts`, tested there.",
       "layer": "public",
-      "imports": ["src/web/web-search.js"],
+      "imports": ["src/web/web-search.ts"],
       "test": "none"
     },
     {
@@ -276,7 +276,15 @@
       "path": "interfaces/discord/",
       "purpose": "The Discord interface: the only code that imports discord.js, translating between the platform and the protocol. It reads the core's media classifier and video-site matcher, pure modules, and classifies Discord's embeds and media addresses itself.",
       "layer": "public",
-      "imports": ["node:*", "discord.js", "src/media/classify.js", "src/media/video-sites.js", "src/protocol/**"],
+      "imports": [
+        "node:*",
+        "discord.js",
+        "src/media/classify.ts",
+        "src/media/video-sites.ts",
+        "src/protocol/**",
+        "interfaces/discord/platform-types.ts",
+        "interfaces/discord/values.ts"
+      ],
       "test": "required"
     },
     {
@@ -350,6 +358,34 @@
       "test": "none"
     },
     {
+      "path": "interfaces/discord/platform-types.ts",
+      "purpose": "The parts of the discord.js objects the package reads (message, channel, guild, member, reaction), every field optional. Types only.",
+      "layer": "public",
+      "imports": ["discord.js", "interfaces/discord/embed.ts"],
+      "test": "none"
+    },
+    {
+      "path": "interfaces/discord/values.ts",
+      "purpose": "The package's copies of the small helpers that read an unknown value: a thrown error's fields, a record, a scalar as text. Tested through the files that call them.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "src/web/search-types.ts",
+      "purpose": "The shapes the web search clients share: a result, a failure, the options of a search. Types only.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "src/error-fields.ts",
+      "purpose": "Reads the fields the engine looks at on a thrown value, `name`, `code` and `statusCode` among them, without a check at every use. Tested through the clients that read it.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
       "path": "src/config-moves.ts",
       "purpose": "The config keys of an earlier name and the new name each one is read under, applied to the local config before it is laid over `config/config.json`.",
       "layer": "public",
@@ -386,7 +422,7 @@
         "src/tools/**",
         "src/web/**",
         "src/interface/directory.ts",
-        "src/interface/door.js",
+        "src/interface/door.ts",
         "src/interface/link.ts",
         "src/interface/members.ts",
         "src/interface/neptunia-cli.ts",

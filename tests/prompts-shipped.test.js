@@ -34,17 +34,17 @@ import { createParticipationPicker } from '../src/behavior/participation-pick.js
 import { createTagHistory } from '../src/behavior/mention.js';
 import { createMissed } from '../src/behavior/missed.js';
 import { createMessageHandler } from '../src/behavior/pipeline.js';
-import { normalizeMessage, normalizeOptions, toEvent } from '../interfaces/discord/index.js';
+import { normalizeMessage, normalizeOptions, toEvent } from '../interfaces/discord/index.ts';
 import { takeSnapshot } from '../src/behavior/snapshot.ts';
 import { onWorld, onWorldIface, useIface, useSelf, world, worldChannels } from './fixtures/turn-world.ts';
 
 /** @param {Parameters<typeof worldChannels>[1]} channels */
 const worldChannelsOf = (channels) => worldChannels(GUILD, channels);
 import { withTextPreviews } from '../src/media/text-preview.ts';
-import { createCalibrator } from '../src/llm/tokens.js';
+import { createCalibrator } from '../src/llm/tokens.ts';
 import { createDescriber } from '../src/memory/describe.js';
 import { createAvatarQueue } from '../src/memory/avatar-queue.js';
-import { createLookup } from '../src/web/lookup.js';
+import { createLookup } from '../src/web/lookup.ts';
 import { loadSkills } from '../src/tools/registry.ts';
 import { listSkills } from '../src/tools/gateway.ts';
 import { CATALOGUE } from '../src/tools/codes.ts';
@@ -91,8 +91,8 @@ const SHIPPED = {
 const LABELS = SHIPPED.prompts.labels;
 /** Tracked prompt files no request here can build, each with the reason. */
 const NOT_BUILT = {
-  // The voice-message preparation pass (src/speech/prepare.js) runs inside the speech pipeline, whose request tests/speech-prepare.test.js checks.
-  'speech-prepare': 'built by the speech pipeline (src/speech/prepare.js), checked in tests/speech-prepare.test.js',
+  // The voice-message preparation pass (src/speech/prepare.ts) runs inside the speech pipeline, whose request tests/speech-prepare.test.js checks.
+  'speech-prepare': 'built by the speech pipeline (src/speech/prepare.ts), checked in tests/speech-prepare.test.js',
   // Built inside the createMessageHandler closure of src/behavior/pipeline.js (buildFollowUpRequest),
   // which fetches its own history: no seam reaches it (owner decision O-9).
   address: 'built inside the src/behavior/pipeline.js closure (O-9)',
@@ -108,10 +108,10 @@ const NOT_BUILT = {
   // media.look), which no request built here makes; the tests of those tools check what they send.
   'rewatch-answer': 'loaded behind her media.look call (src/memory/describe.js), which no turn here makes',
   lookup: 'loaded behind her search calls (src/turn/phases/request), which no turn here makes',
-  'search-summary': 'loaded behind her web.search call (src/web/lookup.js), which no turn here makes',
+  'search-summary': 'loaded behind her web.search call (src/web/lookup.ts), which no turn here makes',
   'recall-summary': 'loaded behind her memory.search call (src/behavior/recall-run.js), which no turn here makes',
   // The errand agents' prompts are not here: they live in agents/<id>/prompt.md, read by the
-  // agent runner process (src/agent-runner/profiles.js), never by a bot request.
+  // agent runner process (src/agent-runner/profiles.ts), never by a bot request.
 };
 
 /**

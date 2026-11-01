@@ -10,7 +10,7 @@
 // with `deadline-passed`, a call for a tool it did not register `invalid` with `unknown-tool`, a call with a bad body
 // `invalid` with `invalid-call`, and a handler that throws or rejects `failed` with `handler-threw`. It never throws.
 
-import { ackOf, envelope, validateEnvelope } from './envelope.js';
+import { ackOf, envelope, validateEnvelope } from './envelope.ts';
 import type { Logger } from './serve.ts';
 import type { Envelope, Transport } from './wire.ts';
 

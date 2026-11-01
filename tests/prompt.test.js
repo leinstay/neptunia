@@ -17,8 +17,8 @@ import {
   userText as contentText,
   usesFollowUpTask,
 } from '../src/behavior/prompt.js';
-import { estimateTokens } from '../src/llm/tokens.js';
-import { SAFETY_MARGIN } from '../src/llm/budget.js';
+import { estimateTokens } from '../src/llm/tokens.ts';
+import { SAFETY_MARGIN } from '../src/llm/budget.ts';
 import { createFedAround as createAroundStore } from './fixtures/around-feed.ts';
 import { fill, formatClock, formatDate, formatDuration } from '../src/format.js';
 import { zonedDay } from '../src/time.js';
@@ -62,7 +62,7 @@ function fakeConfig(overrides = {}) {
   };
 }
 
-// PR 7d: llm.safetyMargin is the constant 0.9 (SAFETY_MARGIN of src/llm/budget.js), so a request limit of exactly
+// PR 7d: llm.safetyMargin is the constant 0.9 (SAFETY_MARGIN of src/llm/budget.ts), so a request limit of exactly
 // `tokens` needs a maxRequestTokens of tokens / 0.9.
 const exactly = (tokens) => Math.ceil(tokens / SAFETY_MARGIN);
 
@@ -3899,7 +3899,7 @@ function destMessage(id, ts, overrides = {}) {
   return makeMessage(id, ts, { channelId: DEST, channelName: 'général', ...overrides });
 }
 
-/** A pulled channel record, the shape interfaces/discord/pull-fetch.js#fetchPull hands to buildRequest. */
+/** A pulled channel record, the shape interfaces/discord/pull-fetch.ts#fetchPull hands to buildRequest. */
 function pulledChannel(overrides = {}) {
   const messages = overrides.messages ?? [
     pulledMessage('p1', NOW - 130 * MIN, { content: 'πρώτη σελίδα' }),
@@ -4511,7 +4511,7 @@ test('buildRequest: ping marks come from pingState', () => {
   );
   assert.ok(lineOf(older, 'p3').endsWith('ligne p3'), 'a skipped call without its label is never shown as unanswered');
 
-  // Only a Map is read (what interfaces/discord/pull-fetch.js builds).
+  // Only a Map is read (what interfaces/discord/pull-fetch.ts builds).
   const plainObject = bodyOf(
     userText(
       buildRequest(baseInput({ pulled: [pulledChannel({ messages, pingState: Object.fromEntries(pingState) })] }))

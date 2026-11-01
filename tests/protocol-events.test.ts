@@ -1,10 +1,10 @@
-// Tests for the inbound event kinds added in stage 2 PR 4 (src/protocol/events.js, validate.js):
+// Tests for the inbound event kinds added in stage 2 PR 4 (src/protocol/events.ts, validate.js):
 // presence.changed, presence.snapshot, conversation.changed and connection.changed, and the optional
 // fields added to voice.changed, Author and membership.changed.member. Everything is checked through
 // the public validateEvent and EVENT_KINDS.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CORE_KINDS, EVENT_KINDS, validateEvent } from '../src/protocol/index.js';
+import { CORE_KINDS, EVENT_KINDS, validateEvent } from '../src/protocol/index.ts';
 
 type Json = Record<string, unknown>;
 

@@ -22,14 +22,14 @@
 // out at once, and on a closed link it is answered `failed`.
 
 import type { Adapter, Capabilities } from './adapter.ts';
-import { ackOf, envelope, validateEnvelope } from './envelope.js';
-import { MESSAGES_FETCH } from './actions.js';
+import { ackOf, envelope, validateEnvelope } from './envelope.ts';
+import { MESSAGES_FETCH } from './actions.ts';
 import type { Outbox } from './outbox.ts';
 import { isReadAction } from './reads.ts';
-import { validateAction, validateEvent } from './validate.js';
+import { validateAction, validateEvent } from './validate.ts';
 import type { Envelope, Transport } from './wire.ts';
 
-/** The statuses of an `ack` (envelope.js#ACK_STATUSES). */
+/** The statuses of an `ack` (envelope.ts#ACK_STATUSES). */
 export type AckStatus = 'ok' | 'duplicate' | 'invalid' | 'unhandled' | 'failed';
 
 /** Who an interface says it is: an id and the name people see. */

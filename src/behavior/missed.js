@@ -35,8 +35,8 @@
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
 import { formatTranscript, MAX_MESSAGE_CHARS, renderTranscript, withTriggers } from '../format.js';
-import { roleRequestOptions } from '../llm/openrouter.js';
-import { roleModel } from '../llm/roles.js';
+import { roleRequestOptions } from '../llm/openrouter.ts';
+import { roleModel } from '../llm/roles.ts';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { fillPromptTemplate } from './prompt.js';
 import { historyLines } from './lines.ts';

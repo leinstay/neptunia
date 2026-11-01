@@ -1,7 +1,7 @@
 // The conversation reads of the Discord adapter (src/protocol/adapter.ts), each a thin answer over the functions of this
 // package: what a conversation allows and holds, its newest messages and the messages around one, a member and his
 // groups, the server's search, its custom emoji, the messages a text links to and who reacted. `createDiscordReads`
-// builds the methods `port.js#createDiscordAdapter` spreads into the adapter. Every read answers `{ status: 'ok', ... }` or
+// builds the methods `port.ts#createDiscordAdapter` spreads into the adapter. Every read answers `{ status: 'ok', ... }` or
 // a failure and never throws. The messages of a read are events (`toEvent`) without the discord.js handles, so they
 // cross the link as plain data. The config is read at each call (`normalizeOptions(config())`), so no read takes media
 // options from its caller.
@@ -31,9 +31,9 @@ import {
   lastActivity,
   normalizeOptions,
   toEvent,
-} from './collect.js';
+} from './collect.ts';
 import { memberView } from './members.ts';
-import { searchMembers, searchMessages } from './search.js';
+import { searchMembers, searchMessages } from './search.ts';
 
 type Obj = Record<string, unknown>;
 type Failure = { status: 'failed' | 'unsupported' | 'forbidden'; error: PortError };
@@ -531,7 +531,7 @@ export function createDiscordReads(deps: {
       const { message, result } = await resolveMessage(ref);
       if (result || message === undefined) return result ?? failed('error');
       try {
-        return { status: 'ok' as const, memberIds: (await fetchReactorIds(message, emoji, limit)) as Array<string> };
+        return { status: 'ok' as const, memberIds: await fetchReactorIds(message, emoji, limit) };
       } catch (err) {
         return failure(err);
       }

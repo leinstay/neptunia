@@ -11,7 +11,7 @@ import { onLog } from '../../log.js';
 import { HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../time.js';
 import { HEARTBEAT_ORIGIN, attendCounter, expiredToShow, nextOccurrence } from '../../intentions/model.ts';
 import type { Intention } from '../../intentions/types.ts';
-import { errorCodeOf } from '../../llm/openrouter.js';
+import { errorCodeOf } from '../../llm/openrouter.ts';
 import { CODE } from '../../tools/codes.ts';
 import { WAKE_POLICY_VERSION } from '../../tools/access.ts';
 import { errorCode as codeOf, isFiniteNumber, listOf, objOf } from '../../tools/types.ts';

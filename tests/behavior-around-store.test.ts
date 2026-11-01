@@ -1,12 +1,12 @@
 // Tests for the live glance in the core (src/behavior/around-store.ts), fed by protocol events through the door,
-// and for the builders that turn discord.js objects into those events (interfaces/discord/around.js). The rows
+// and for the builders that turn discord.js objects into those events (interfaces/discord/around.ts). The rows
 // the store's view feeds are tested in tests/around.test.js and tests/prompt.test.js.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createAroundStore } from '../src/behavior/around-store.ts';
 import { liveFields } from '../src/behavior/around.js';
-import { validateEvent } from '../src/protocol/index.js';
-import { presenceEvent, presenceSnapshotEvent, voiceEvent } from '../interfaces/discord/around.js';
+import { validateEvent } from '../src/protocol/index.ts';
+import { presenceEvent, presenceSnapshotEvent, voiceEvent } from '../interfaces/discord/around.ts';
 import { labels } from './fixtures/labels.js';
 
 type Flags = { muted?: boolean; deafened?: boolean; streaming?: boolean; camera?: boolean };

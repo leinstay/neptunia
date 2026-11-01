@@ -16,7 +16,7 @@
 // goes to the plugin link, anything else to the adapter link (src/interface/link.ts).
 
 import { randomUUID } from 'node:crypto';
-import { ackOf, envelope, validateEnvelope } from '../protocol/envelope.js';
+import { ackOf, envelope, validateEnvelope } from '../protocol/envelope.ts';
 import { PLUGIN_IFACE, TOOL_CALL } from '../protocol/plugin.ts';
 import type { RegisterOutcome, ToolAnswer, ToolCallBody } from '../protocol/plugin.ts';
 import type { Logger } from '../protocol/serve.ts';

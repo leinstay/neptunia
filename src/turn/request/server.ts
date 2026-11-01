@@ -49,7 +49,7 @@ type LoreEntry = { readonly id?: unknown; readonly title?: string; readonly text
  * stored note yet (see below): the platform's facts (name, category, topic) read off
  * whichever `history` message actually belongs to `currentChannelId` (every
  * message `buildRequest` is given for `<chat>` comes from that one channel,
- * see src/protocol/events.js#Message) -- so the persona still knows
+ * see src/protocol/events.ts#Message) -- so the persona still knows
  * where it is even before the analyzer has touched this channel once. `null`
  * when no message carries a usable channel name (nothing to render then; a
  * channel with counters but no name never happens in practice).
