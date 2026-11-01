@@ -451,6 +451,27 @@ function wakeInfoOf(life: InnerContext, guildId: string, group: ReadonlyArray<Wa
   };
 }
 
+/** The facts of the wake kinds that carry their own view: the heartbeat's and the selfimprovement wake's, each null for a group without it. */
+async function kindFacts(
+  life: InnerContext,
+  guildId: string,
+  group: ReadonlyArray<Wake>,
+  when: { settings: InnerSettings; at: number }
+): Promise<{
+  heartbeat: HeartbeatFacts | null;
+  selfimprovement: SelfimprovementFacts | null;
+  improvementWake: Wake | null;
+}> {
+  const improvementWake = group.find((wake) => wake.kind === 'selfimprovement') ?? null;
+  return {
+    heartbeat: group.some((wake) => wake.kind === 'heartbeat')
+      ? await heartbeatFacts(life, guildId, when.settings, when.at)
+      : null,
+    selfimprovement: improvementWake ? await selfimprovementFacts(life, guildId, when.at) : null,
+    improvementWake,
+  };
+}
+
 /** The wake run of a turn as it starts: what its view showed, ids with their versions. */
 function startWakeRun(
   life: InnerContext,
@@ -715,11 +736,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   })
     .filter((fact) => !ownFactIds.has(fact.id))
     .slice(0, FACTS_SHOWN_MAX);
-  const heartbeat = group.some((wake) => wake.kind === 'heartbeat')
-    ? await heartbeatFacts(life, guildId, settings, at)
-    : null;
-  const improvementWake = group.find((wake) => wake.kind === 'selfimprovement') ?? null;
-  const selfimprovement = improvementWake ? await selfimprovementFacts(life, guildId, at) : null;
+  const { heartbeat, selfimprovement, improvementWake } = await kindFacts(life, guildId, group, { settings, at });
   const info = wakeInfoOf(life, guildId, group, {
     anchor,
     at,
@@ -908,9 +925,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   save(life, guildId);
   const recorded = await finishTurn(life, guildId, group, after, deliveriesOf(hold, { turnId: turnKey, chainId }));
   await sendDeliveries(life, guildId, recorded);
-  // The completion of a selfimprovement wake committed: its time is the last one and what its view showed is delivered.
-  if (improvementWake && outcome !== 'error')
-    await committedSelfimprovement(life, guildId, improvementWake, selfimprovement);
+  await committedSelfimprovement(life, guildId, { wake: improvementWake, facts: selfimprovement, outcome });
   let feedbackWakeId: string | null = null;
   if (feedback.length > 0 && !isFeedback && !comesBack) {
     feedbackWakeId = `inner.wake:feedback:${asText(turnId ?? ended)}`;

@@ -61,6 +61,7 @@ export function createSkillsClient(
       await sync();
       return reads()?.active() ?? [];
     },
+    problems: () => deps.load().problems,
     async list() {
       await sync();
       return reads()?.list() ?? [];

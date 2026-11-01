@@ -155,15 +155,17 @@ export async function selfimprovementFacts(
 }
 
 /**
- * Once a selfimprovement turn's completion committed: the wake's time is the last one, and the outbox rows its view
- * showed are marked delivered. A failing mark is logged and leaves the rows for the next wake. Never throws.
+ * Once a selfimprovement turn's completion committed (its outcome is not an error): the wake's time is the last one,
+ * and the outbox rows its view showed are marked delivered. A failing mark is logged and leaves the rows for the next
+ * wake. Does nothing for a turn of another kind. Never throws.
  */
 export async function committedSelfimprovement(
   life: InnerContext,
   guildId: string,
-  wake: Wake,
-  facts: SelfimprovementFacts | null
+  turn: { wake: Wake | null; facts: SelfimprovementFacts | null; outcome: unknown }
 ): Promise<void> {
+  const { wake, facts, outcome } = turn;
+  if (wake === null || outcome === 'error') return;
   const state = stateOf(life, guildId);
   const at = isFiniteNumber(wake.dueAt) ? wake.dueAt : life.now();
   state.selfimprovement = { lastAt: at, raisedAt: state.selfimprovement?.raisedAt ?? null };

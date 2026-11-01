@@ -67,6 +67,9 @@ export type ConsoleDeps = {
   skills?: SkillsAccess | null;
 };
 
+/** The prefix of the `/skills` commands, which `skillsCommand` answers. */
+const SKILLS_PREFIX = 'skills.';
+
 /** How many stored lines `/memory conversation` prints. */
 const CONVERSATION_LINES = 30;
 
@@ -439,16 +442,6 @@ export function createConsole(deps: ConsoleDeps): {
         if ('status' in given && typeof given.status === 'string') return given as Answer;
         return op(name, name === 'tools.grant' ? 'access.grant' : 'access.revoke', given, args, requester);
       }
-      case 'skills.list':
-      case 'skills.show':
-      case 'skills.review':
-      case 'skills.pending':
-      case 'skills.activate':
-      case 'skills.rollback':
-      case 'skills.reject':
-      case 'skills.enable':
-      case 'skills.disable':
-        return skillsCommand(deps.skills, name, args);
       case 'interface.command':
         return refused(name, args, `the interface ${text(args.name)} has no commands of its own`);
       default: {
@@ -462,5 +455,9 @@ export function createConsole(deps: ConsoleDeps): {
     }
   }
 
-  return { run };
+  // `/skills` has a module of its own; every other command is answered above.
+  return {
+    run: (name, args, requester) =>
+      name.startsWith(SKILLS_PREFIX) ? skillsCommand(deps.skills, name, args) : run(name, args, requester),
+  };
 }

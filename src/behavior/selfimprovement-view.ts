@@ -43,37 +43,26 @@ function statusOf(phase: unknown): ChainCall['status'] {
   return phase === 'succeeded' ? 'ok' : phase === 'failed' ? 'failed' : 'unknown';
 }
 
-/**
- * Her chains from parsed journal lines: the `skill` actions grouped by turn (a turn's calls in the order they first
- * appear, an operation's `started` line giving the tool and the argument names and its closing line the outcome), the
- * cost of each turn from its `inner` line. An operation a `shadow` line marks never ran and is left out, and a turn
- * with no call is no chain. Oldest first.
- */
-export function chainsOfJournal(records: ReadonlyArray<unknown>): Array<Chain> {
-  const turns = new Map<string, Map<string, Operation | null>>();
-  const costs = new Map<string, number>();
+/** The operations of each turn from the journal's `skill` action lines, in the order they first appear, and the keys of the shadowed ones. */
+function operationsOf(records: ReadonlyArray<unknown>): {
+  turns: Map<string, Map<string, Operation>>;
+  shadowed: Set<string>;
+} {
+  const turns = new Map<string, Map<string, Operation>>();
   const shadowed = new Set<string>();
   for (const entry of records) {
-    if (!isObj(entry)) continue;
+    if (!isObj(entry) || entry.kind !== 'action' || entry.name !== 'skill') continue;
     const turnId = typeof entry.turnId === 'string' ? entry.turnId : null;
-    if (turnId === null) continue;
-    if (entry.kind === 'inner' && entry.event === 'turn') {
-      const usd = objOf(entry.cost).usd;
-      if (isFiniteNumber(usd)) costs.set(turnId, (costs.get(turnId) ?? 0) + usd);
-      continue;
-    }
     const opId = typeof entry.opId === 'string' ? entry.opId : null;
-    if (entry.kind !== 'action' || entry.name !== 'skill' || opId === null) continue;
-    const key = `${turnId}\n${opId}`;
-    if (entry.shadow === true) shadowed.add(key);
-    const operations = turns.get(turnId) ?? new Map<string, Operation | null>();
+    if (turnId === null || opId === null) continue;
+    if (entry.shadow === true) shadowed.add(`${turnId}\n${opId}`);
+    const operations = turns.get(turnId) ?? new Map<string, Operation>();
     turns.set(turnId, operations);
     const input = objOf(entry.input);
     if (entry.phase === 'started') {
-      const tool = typeof input.skill === 'string' ? input.skill : null;
-      if (tool !== null && !operations.has(opId)) {
+      if (typeof input.skill === 'string' && !operations.has(opId)) {
         operations.set(opId, {
-          tool,
+          tool: input.skill,
           args: argNamesOf(input.args),
           at: timeOf(entry.occurredAt),
           status: 'unknown',
@@ -89,12 +78,34 @@ export function chainsOfJournal(records: ReadonlyArray<unknown>): Array<Chain> {
       known.code = typeof code === 'string' ? code : null;
     }
   }
+  return { turns, shadowed };
+}
+
+/** The cost of each turn from the journal's `inner` lines of event `turn`. */
+function costsOf(records: ReadonlyArray<unknown>): Map<string, number> {
+  const costs = new Map<string, number>();
+  for (const entry of records) {
+    if (!isObj(entry) || entry.kind !== 'inner' || entry.event !== 'turn' || typeof entry.turnId !== 'string') continue;
+    const usd = objOf(entry.cost).usd;
+    if (isFiniteNumber(usd)) costs.set(entry.turnId, (costs.get(entry.turnId) ?? 0) + usd);
+  }
+  return costs;
+}
+
+/**
+ * Her chains from parsed journal lines: the `skill` actions grouped by turn (a turn's calls in the order they first
+ * appear, an operation's `started` line giving the tool and the argument names and its closing line the outcome), the
+ * cost of each turn from its `inner` line. An operation a `shadow` line marks never ran and is left out, and a turn
+ * with no call is no chain. Oldest first.
+ */
+export function chainsOfJournal(records: ReadonlyArray<unknown>): Array<Chain> {
+  const { turns, shadowed } = operationsOf(records);
+  const costs = costsOf(records);
   const chains: Array<Chain> = [];
   for (const [turnId, operations] of turns) {
-    const calls = [...operations]
+    const made = [...operations]
       .filter(([opId]) => !shadowed.has(`${turnId}\n${opId}`))
       .map(([, operation]) => operation);
-    const made = calls.filter((operation): operation is Operation => operation !== null);
     const first = made[0];
     if (first === undefined) continue;
     chains.push({
@@ -104,7 +115,7 @@ export function chainsOfJournal(records: ReadonlyArray<unknown>): Array<Chain> {
       calls: made.map(({ tool, args, status, code }) => ({ tool, args, status, code })),
     });
   }
-  return chains.sort((a, b) => a.at - b.at);
+  return chains.sort((x, y) => x.at - y.at);
 }
 
 /** The shape of a chain: its tool names in order, each with its sorted argument names. */

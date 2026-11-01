@@ -75,7 +75,9 @@ export async function skillsCommand(
   switch (name) {
     case 'skills.list': {
       const rows = await access.list();
-      return { text: rows.length === 0 ? 'no skill yet' : rows.map(listLine).join('\n'), status: 'ok' };
+      const refused = (await access.problems()).map((one) => `refused: ${one.dir} (${one.code})`);
+      const lines = [...(rows.length === 0 ? ['no skill yet'] : rows.map(listLine)), ...refused];
+      return { text: lines.join('\n'), status: 'ok' };
     }
     case 'skills.pending': {
       const pending = await access.pending();

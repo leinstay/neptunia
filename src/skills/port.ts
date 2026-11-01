@@ -29,6 +29,8 @@ export type SkillsPort = {
   sync(): { skills: number; versions: number; stale: number };
   active(): Array<ActiveSkill>;
   list(): Array<SkillListRow>;
+  /** The skill folders the loader refused, with the reason. */
+  problems(): Array<SkillProblem>;
   show(name: string): { row: SkillListRow; text: string | null } | null;
   pending(): Array<VersionView & { skill: string }>;
   review(name: string): { active: VersionView | null; candidates: Array<VersionView> } | null;
@@ -131,6 +133,7 @@ export function createSkillsPort(deps: {
       sync();
       return reads.list();
     },
+    problems: () => deps.load().problems,
     show(name) {
       sync();
       return reads.show(name);
