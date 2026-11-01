@@ -1726,7 +1726,6 @@ const EMPTY_PRIVATE = {
   affinity: { score: 0, reason: '', history: [] },
   firstSeen: '',
   lastSeen: '',
-  replies: { day: '', count: 0, noticedDay: '' },
   buffer: [],
 };
 
@@ -1780,7 +1779,7 @@ test('getPrivate: a hand-edited file is normalised on read: defaults filled, det
   ]);
   assert.equal(priv.detailsSeq, 3);
   assert.deepEqual(priv.affinity, { score: 12, reason: '', history: [] });
-  assert.deepEqual(priv.replies, { day: '2026-09-29', count: 0, noticedDay: '' });
+  assert.equal(priv.replies, undefined, 'a stored replies field nothing reads is dropped');
   assert.deepEqual(priv.buffer, []);
   assert.deepEqual(priv.episodes, []);
   assert.equal(priv.firstSeen, '');
@@ -1878,30 +1877,6 @@ test('addPrivateEpisodes: appends via mergeEpisodes to the private file only', (
   assert.equal(store.getPrivate('g1', 'u1').episodes[0].what, 'told the persona a secret');
   assert.deepEqual(store.getUser('g1', 'u1').episodes, []);
   assert.equal(store.addPrivateEpisodes('g1', 'u1', [], { maxEpisodes: 20, now: 2000 }), 0);
-});
-
-test('bumpPrivateReplies: counts within a day, rolls over on a new day, persists', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const store = createStore({ dataDir: dir, memoryDb });
-  assert.deepEqual(store.bumpPrivateReplies('g1', 'u1', '2026-09-29'), { day: '2026-09-29', count: 1 });
-  assert.deepEqual(store.bumpPrivateReplies('g1', 'u1', '2026-09-29'), { day: '2026-09-29', count: 2 });
-  assert.deepEqual(store.bumpPrivateReplies('g1', 'u1', '2026-09-30'), { day: '2026-09-30', count: 1 });
-  store.flush();
-  await store.flushSettled({});
-  const storeB = createStore({ dataDir: dir, memoryDb });
-  assert.deepEqual(storeB.getPrivate('g1', 'u1').replies, { day: '2026-09-30', count: 1, noticedDay: '' });
-});
-
-test('markPrivateNoticed: records the day the cap notice was posted, keeps the reply count', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const store = createStore({ dataDir: dir, memoryDb });
-  store.bumpPrivateReplies('g1', 'u1', '2026-09-29');
-  store.markPrivateNoticed('g1', 'u1', '2026-09-29');
-  assert.deepEqual(store.getPrivate('g1', 'u1').replies, { day: '2026-09-29', count: 1, noticedDay: '2026-09-29' });
-  store.flush();
-  await store.flushSettled({});
-  const storeB = createStore({ dataDir: dir, memoryDb });
-  assert.equal(storeB.getPrivate('g1', 'u1').replies.noticedDay, '2026-09-29');
 });
 
 test('touchPrivateSeen: stamps lastSeen every time, firstSeen only while empty; never touches the public profile', async () => {
