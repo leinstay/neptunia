@@ -8,6 +8,12 @@ import { CAPABILITIES, STATUSES } from '../src/interface/port.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import * as discordInterface from '../interfaces/discord/index.ts';
 import { createDiscordAdapter, createDiscordInterface, discordFailure } from '../interfaces/discord/index.ts';
+import type { Untyped } from '../src/tools/types.ts';
+import { table, wrongly, present } from './fixtures/loose-types.ts';
+import type { Adapter, MessageRef } from '../src/protocol/adapter.ts';
+
+/** No typing lease: the tests of the port contract ask for a typing indicator without naming how long. */
+const noLease = wrongly<{ untilMs: number }>(undefined);
 
 const SELF = 'self-id';
 const OTHER = 'other-id';
@@ -16,9 +22,9 @@ const ROOM = 'c1';
 // ---------------------------------------------------------------------------
 // Harnesses: `make(options)` -> { port, foreign(), view(ref), lastSent(), timeoutNextSend(), effects() }.
 
-function fakeHarness({ operations = null } = {}) {
+function fakeHarness({ operations = null }: { operations?: Untyped } = {}) {
   const port = createFakeAdapter({ iface: 'fake', selfId: SELF, operations, now: () => 1000 });
-  const view = (ref) => {
+  const view = (ref: Record<string, Untyped>) => {
     const message = port.messages.get(`${ref.conversationId}/${ref.messageId}`);
     if (!message || message.deleted) return null;
     return { text: message.text, authorId: message.authorId, reactions: [...message.reactions] };
@@ -31,10 +37,10 @@ function fakeHarness({ operations = null } = {}) {
       const all = port.messagesIn(ROOM).filter((message) => message.authorId === SELF);
       const message = all.at(-1);
       return {
-        text: message.text,
-        replyToId: message.replyTo?.messageId ?? null,
-        mentions: message.mentions,
-        attachments: message.attachments.map((attachment) => attachment.name),
+        text: present(message).text,
+        replyToId: present(message).replyTo?.messageId ?? null,
+        mentions: present(message).mentions,
+        attachments: present(message).attachments.map((attachment) => attachment.name),
       };
     },
     timeoutNextSend: () => port.failNext('send', { status: 'unknown', error: { code: 'timeout', retryable: false } }),
@@ -43,35 +49,35 @@ function fakeHarness({ operations = null } = {}) {
 }
 
 /** A fake discord.js client with one text channel; messages keep their author and reactions. */
-function discordHarness({ operations = null } = {}) {
+function discordHarness({ operations = null }: { operations?: Untyped } = {}) {
   const store = new Map();
-  const payloads = [];
-  let failSend = null;
+  const payloads: Array<Untyped> = [];
+  let failSend: Untyped = null;
   let next = 0;
   const notFound = () => Object.assign(new Error('Unknown Message'), { status: 404, code: 10008 });
-  const makeMessage = (authorId, content) => {
+  const makeMessage = (authorId: string, content: Untyped) => {
     next += 1;
     const id = `d${next}`;
-    const message = {
+    const message: Untyped = {
       id,
       author: { id: authorId },
       content,
       createdTimestamp: 5000 + next,
       reacted: new Set(),
       deleted: false,
-      async edit(payload) {
+      async edit(payload: Record<string, Untyped>) {
         this.content = payload.content;
         return this;
       },
       async delete() {
         this.deleted = true;
       },
-      async react(emoji) {
+      async react(emoji: string) {
         this.reacted.add(emoji);
       },
     };
     message.reactions = {
-      resolve: (key) =>
+      resolve: (key: string) =>
         message.reacted.has(key) ? { users: { remove: async () => message.reacted.delete(key) } } : null,
     };
     store.set(id, message);
@@ -79,7 +85,7 @@ function discordHarness({ operations = null } = {}) {
   };
   const channel = {
     id: ROOM,
-    async send(payload) {
+    async send(payload: Record<string, Untyped>) {
       payloads.push(payload);
       if (failSend) {
         const err = failSend;
@@ -90,7 +96,7 @@ function discordHarness({ operations = null } = {}) {
     },
     async sendTyping() {},
     messages: {
-      fetch: async (id) => {
+      fetch: async (id: string) => {
         const message = store.get(id);
         if (!message || message.deleted) throw notFound();
         return message;
@@ -112,7 +118,7 @@ function discordHarness({ operations = null } = {}) {
     payloads,
     client,
     foreign: () => ({ iface: 'discord', conversationId: ROOM, messageId: makeMessage(OTHER, 'καλημέρα').id }),
-    view(ref) {
+    view(ref: Record<string, Untyped>) {
       const message = store.get(ref.messageId);
       if (!message || message.deleted) return null;
       return { text: message.content, authorId: message.author.id, reactions: [...message.reacted] };
@@ -124,7 +130,7 @@ function discordHarness({ operations = null } = {}) {
         text: payload.content ?? '',
         replyToId: payload.reply?.messageReference ?? null,
         mentions: { users: allowed.users ?? [], repliedUser: allowed.repliedUser === true },
-        attachments: (payload.files ?? []).map((file) => file.name),
+        attachments: (payload.files ?? []).map((file: Record<string, Untyped>) => file.name),
       };
     },
     timeoutNextSend() {
@@ -137,26 +143,33 @@ function discordHarness({ operations = null } = {}) {
 // ---------------------------------------------------------------------------
 // The shared suite.
 
-/** @typedef {import('../src/protocol/adapter.ts').Adapter} Adapter */
-/** @typedef {import('../src/protocol/adapter.ts').MessageRef} MessageRef */
-/** @typedef {{ port: Adapter, view(ref: MessageRef): { text: string } | null, effects(): number }} Harness */
+type Harness = {
+  port: Adapter;
+  foreign(): MessageRef;
+  view(ref: MessageRef): { text: string; authorId: string; reactions: Array<string> } | null;
+  lastSent(): { text: string; replyToId: string | null; mentions: unknown; attachments: Array<string> };
+  timeoutNextSend(): void;
+  effects(): number;
+};
 
-for (const [name, make] of [
+for (const [name, makeAny] of table([
   ['fake', fakeHarness],
   ['discord', discordHarness],
-]) {
-  const room = (port) => ({ iface: port.iface, conversationId: ROOM });
+])) {
+  const room = (port: Adapter) => ({ iface: port.iface, conversationId: ROOM });
   // The same harness `make` builds, typed for the split tests (the pair of harnesses is a union the checker cannot call).
-  const build = /** @type {() => Harness} */ (/** @type {unknown} */ (make));
+  const make = wrongly<(options?: { operations?: Untyped }) => Harness>(makeAny);
+  const build = make;
 
   test(`port contract (${name}): send answers ok with the new message's reference`, async () => {
-    const { port, view } = make();
+    const harness = make();
+    const { port } = harness;
     const result = await port.send(room(port), { text: 'γεια σας' });
     assert.equal(result.status, 'ok');
-    assert.equal(result.ref.iface, port.iface);
-    assert.equal(result.ref.conversationId, ROOM);
-    assert.equal(typeof result.ref.messageId, 'string');
-    assert.deepEqual(view(result.ref), { text: 'γεια σας', authorId: SELF, reactions: [] });
+    assert.equal(present(result.ref).iface, port.iface);
+    assert.equal(present(result.ref).conversationId, ROOM);
+    assert.equal(typeof present(result.ref).messageId, 'string');
+    assert.deepEqual(harness.view(present(result.ref)), { text: 'γεια σας', authorId: SELF, reactions: [] });
   });
 
   test(`port contract (${name}): a reply carries its target and the mentions it names`, async () => {
@@ -194,20 +207,20 @@ for (const [name, make] of [
 
   test(`port contract (${name}): edit changes the persona's own message, never someone else's`, async () => {
     const h = make();
-    const own = (await h.port.send(room(h.port), { text: 'πρώτο' })).ref;
+    const own = present((await h.port.send(room(h.port), { text: 'πρώτο' })).ref);
     assert.equal((await h.port.edit(own, { text: 'δεύτερο' })).status, 'ok');
-    assert.equal(h.view(own).text, 'δεύτερο');
+    assert.equal(present(h.view(own)).text, 'δεύτερο');
 
     const theirs = h.foreign();
     const refused = await h.port.edit(theirs, { text: 'άλλο' });
     assert.equal(refused.status, 'forbidden');
-    assert.equal(refused.error.code, 'not-own-message');
-    assert.equal(h.view(theirs).text, 'καλημέρα');
+    assert.equal(present(refused.error).code, 'not-own-message');
+    assert.equal(present(h.view(theirs)).text, 'καλημέρα');
   });
 
   test(`port contract (${name}): delete removes the persona's own message, never someone else's`, async () => {
     const h = make();
-    const own = (await h.port.send(room(h.port), { text: 'λάθος' })).ref;
+    const own = present((await h.port.send(room(h.port), { text: 'λάθος' })).ref);
     assert.equal((await h.port.delete(own)).status, 'ok');
     assert.equal(h.view(own), null);
 
@@ -220,21 +233,21 @@ for (const [name, make] of [
     const h = make();
     const target = h.foreign();
     assert.equal((await h.port.react(target, '\u{1F389}')).status, 'ok');
-    assert.deepEqual(h.view(target).reactions, ['\u{1F389}']);
+    assert.deepEqual(present(h.view(target)).reactions, ['\u{1F389}']);
     assert.equal((await h.port.unreact(target, '\u{1F389}')).status, 'ok');
-    assert.deepEqual(h.view(target).reactions, []);
+    assert.deepEqual(present(h.view(target)).reactions, []);
   });
 
   test(`port contract (${name}): typing answers ok`, async () => {
     const { port } = make();
-    assert.equal((await port.typing(room(port))).status, 'ok');
+    assert.equal((await port.typing(room(port), noLease)).status, 'ok');
   });
 
   // The capabilities take the shape of src/protocol/adapter.ts (`maxChars`, `maxFiles`, `maxFileBytes`) in place of
   // the old `limits` object, since the adapter now splits by `maxChars` and the core reads the same names.
   test(`port contract (${name}): capabilities name every operation and the limits`, () => {
     const { port } = make();
-    const caps = port.capabilities();
+    const caps: Record<string, Untyped> = port.capabilities();
     assert.deepEqual([...caps.operations].sort(), Object.values(CAPABILITIES).sort());
     for (const key of ['maxChars', 'maxFiles', 'maxFileBytes']) assert.ok(caps[key] > 0, key);
   });
@@ -245,7 +258,7 @@ for (const [name, make] of [
     const before = h.effects();
     const result = await h.port.send(room(h.port), { text: 'χάθηκε;' });
     assert.equal(result.status, 'unknown');
-    assert.equal(result.error.retryable, false);
+    assert.equal(present(result.error).retryable, false);
     assert.equal(h.effects(), before, 'the port did not send it again');
   });
 
@@ -253,10 +266,10 @@ for (const [name, make] of [
     const h = make({
       operations: Object.values(CAPABILITIES).filter((capability) => capability !== CAPABILITIES.edit),
     });
-    const own = (await h.port.send(room(h.port), { text: 'μένει' })).ref;
+    const own = present((await h.port.send(room(h.port), { text: 'μένει' })).ref);
     const result = await h.port.edit(own, { text: 'αλλαγμένο' });
     assert.equal(result.status, 'unsupported');
-    assert.equal(h.view(own).text, 'μένει');
+    assert.equal(present(h.view(own)).text, 'μένει');
     // `operations` is a list in the adapter contract; spreading it holds for a list or a set.
     assert.equal([...h.port.capabilities().operations].includes(CAPABILITIES.edit), false);
   });
@@ -265,9 +278,9 @@ for (const [name, make] of [
     const h = make();
     const before = h.effects();
     const foreign = await h.port.send({ iface: 'elsewhere', conversationId: ROOM }, { text: 'όχι' });
-    assert.deepEqual([foreign.status, foreign.error.code], ['failed', 'foreign-reference']);
+    assert.deepEqual([foreign.status, present(foreign.error).code], ['failed', 'foreign-reference']);
     const empty = await h.port.send(room(h.port), { text: '' });
-    assert.deepEqual([empty.status, empty.error.code], ['failed', 'empty-content']);
+    assert.deepEqual([empty.status, present(empty.error).code], ['failed', 'empty-content']);
     assert.equal(h.effects(), before);
   });
 
@@ -290,7 +303,7 @@ for (const [name, make] of [
 
   test(`port contract (${String(name)}): an edit over the limit is still refused as text-too-long`, async () => {
     const h = build();
-    const own = (await h.port.send({ iface: h.port.iface, conversationId: ROOM }, { text: 'μένει' })).ref;
+    const own = present((await h.port.send({ iface: h.port.iface, conversationId: ROOM }, { text: 'μένει' })).ref);
     assert.ok(own);
     const result = await h.port.edit(own, { text: 'α'.repeat(h.port.capabilities().maxChars + 1) });
     assert.deepEqual([result.status, result.error?.code], ['failed', 'text-too-long']);
@@ -300,12 +313,12 @@ for (const [name, make] of [
   test(`port contract (${name}): no operation throws on malformed arguments`, async () => {
     const { port } = make();
     for (const call of [
-      () => port.send(null, null),
-      () => port.edit({}, {}),
-      () => port.delete(undefined),
-      () => port.react({ iface: port.iface, conversationId: ROOM }, ''),
-      () => port.unreact(null, null),
-      () => port.typing({}),
+      () => port.send(wrongly(null), wrongly(null)),
+      () => port.edit(wrongly({}), {}),
+      () => port.delete(wrongly(undefined)),
+      () => port.react(wrongly({ iface: port.iface, conversationId: ROOM }), ''),
+      () => port.unreact(wrongly(null), wrongly(null)),
+      () => port.typing(wrongly({}), noLease),
     ]) {
       const result = await call();
       assert.ok(STATUSES.includes(result.status));
@@ -330,10 +343,13 @@ test('discord adapter: absent mentions are allowedMentions { parse: [] }, given 
 
 test('discord adapter: a channel the caller holds is used before the client', async () => {
   const sent = [];
-  const held = { id: 'c9', send: async (payload) => (sent.push(payload), { id: 'x1', createdTimestamp: 42 }) };
+  const held = {
+    id: 'c9',
+    send: async (payload: Record<string, Untyped>) => (sent.push(payload), { id: 'x1', createdTimestamp: 42 }),
+  };
   const port = createDiscordAdapter({
     client: { user: { id: SELF } },
-    lookupChannel: (id) => (id === 'c9' ? held : null),
+    lookupChannel: wrongly((id: string) => (id === 'c9' ? held : null)),
   });
   const result = await port.send({ iface: 'discord', conversationId: 'c9' }, { text: 'ναι' });
   // A send answers a Delivery (it also carries `parts` and an idempotency key), so the fields that matter are read.
@@ -351,7 +367,7 @@ test('discord adapter: a text over the limit posts one message per part, replyin
   const replyTo = { iface: 'discord', conversationId: ROOM, messageId: 'target-1' };
   const delivery = await h.port.send({ iface: 'discord', conversationId: ROOM }, { text, replyTo });
   assert.equal(delivery.status, 'ok');
-  const payloads = /** @type {Array<{ content?: string, reply?: { messageReference: string } }>} */ (h.payloads);
+  const payloads = h.payloads;
   assert.equal(payloads.length, 2, 'one channel.send per part');
   assert.deepEqual(
     delivery.parts.map((ref) => ref.messageId),
@@ -375,7 +391,7 @@ test('discord adapter: a failure on the second part is unknown and keeps the fir
   };
   const port = createDiscordAdapter({
     client: { user: { id: SELF } },
-    lookupChannel: (id) => (id === 'c9' ? held : null),
+    lookupChannel: wrongly((id: string) => (id === 'c9' ? held : null)),
   });
   const delivery = await port.send(
     { iface: 'discord', conversationId: 'c9' },
@@ -397,9 +413,12 @@ test('discord adapter: an unknown channel fails without a send', async () => {
 });
 
 test('createDiscordInterface: the port is the Discord adapter over the given client', async () => {
-  const sent = [];
-  const channel = { id: 'c9', send: async (payload) => (sent.push(payload), { id: 'x1', createdTimestamp: 42 }) };
-  const client = { user: { id: SELF }, channels: { cache: new Map([['c9', channel]]) } };
+  const sent: Array<Untyped> = [];
+  const channel = {
+    id: 'c9',
+    send: async (payload: Record<string, Untyped>) => (sent.push(payload), { id: 'x1', createdTimestamp: 42 }),
+  };
+  const client: Record<string, Untyped> = { user: { id: SELF }, channels: { cache: new Map([['c9', channel]]) } };
   const built = createDiscordInterface({ client });
   assert.deepEqual(Object.keys(built), ['port', 'capabilities', 'client']);
   assert.equal(built.client, client);
@@ -441,7 +460,8 @@ test("createDiscordInterface: the capabilities are the package's own functions, 
     'fetchBefore',
     'toEvent',
   ]);
-  for (const [name, value] of Object.entries(capabilities)) assert.equal(value, discordInterface[name], name);
+  const discordExports: Record<string, unknown> = discordInterface;
+  for (const [name, value] of Object.entries(capabilities)) assert.equal(value, discordExports[name], name);
   assert.ok(Object.isFrozen(capabilities));
 });
 
@@ -456,7 +476,7 @@ test('snowflakeTime and createDiscordClient: the creation time of an id, and the
       (1 << 8) + (1 << 1),
       'presences and members add their intents'
     );
-    assert.equal(plain.options.partials.length, 4);
+    assert.equal(present(plain.options.partials).length, 4);
   } finally {
     plain.destroy();
     wide.destroy();
@@ -464,8 +484,8 @@ test('snowflakeTime and createDiscordClient: the creation time of an id, and the
 });
 
 test('discordFailure: Discord answers are normalised', () => {
-  const http = (status) => Object.assign(new Error('x'), { status });
-  const view = (result) => [result.status, result.error.code, result.error.retryable];
+  const http = (status: number) => Object.assign(new Error('x'), { status });
+  const view = (result: Record<string, Untyped>) => [result.status, result.error.code, result.error.retryable];
   assert.deepEqual(view(discordFailure(http(429), { sent: true })), ['failed', 'http-429', true]);
   assert.deepEqual(view(discordFailure(http(403), { sent: true })), ['forbidden', 'http-403', false]);
   assert.deepEqual(view(discordFailure(http(404), { sent: true })), ['failed', 'http-404', false]);
@@ -477,7 +497,10 @@ test('discordFailure: Discord answers are normalised', () => {
     'timeout',
     true,
   ]);
-  assert.ok(discordFailure(http(403), { sent: true }).error.cause instanceof Error, 'the cause is kept for the logs');
+  assert.ok(
+    present(discordFailure(http(403), { sent: true }).error).cause instanceof Error,
+    'the cause is kept for the logs'
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -487,24 +510,24 @@ test('fake adapter: a malformed action is refused as failed invalid-action, reco
   const h = fakeHarness();
   const before = h.effects();
   const target = h.foreign();
-  for (const [op, call] of [
-    ['send', () => h.port.send({ iface: 'fake' }, { text: 'όχι' })],
-    ['send', () => h.port.send({ iface: 'fake', conversationId: ROOM }, 'όχι')],
-    ['edit', () => h.port.edit({ iface: 'fake', conversationId: ROOM }, { text: 'όχι' })],
-    ['delete', () => h.port.delete({ ...target, messageId: 7 })],
-    ['react', () => h.port.react(target, null)],
-    ['typing', () => h.port.typing(null)],
-  ]) {
+  for (const [op, call] of table([
+    ['send', () => h.port.send(wrongly({ iface: 'fake' }), { text: 'όχι' })],
+    ['send', () => h.port.send({ iface: 'fake', conversationId: ROOM }, wrongly('όχι'))],
+    ['edit', () => h.port.edit(wrongly({ iface: 'fake', conversationId: ROOM }), { text: 'όχι' })],
+    ['delete', () => h.port.delete({ ...target, messageId: wrongly(7) })],
+    ['react', () => h.port.react(target, wrongly(null))],
+    ['typing', () => h.port.typing(wrongly(null), noLease)],
+  ])) {
     const result = await call();
     assert.deepEqual(
-      [result.status, result.error.code, result.error.retryable],
+      [result.status, present(result.error).code, present(result.error).retryable],
       ['failed', 'invalid-action', false],
-      op
+      wrongly(op)
     );
-    assert.equal(h.port.calls.at(-1).op, op);
+    assert.equal(present(h.port.calls.at(-1)).op, op);
   }
   assert.equal(h.effects(), before + 1, 'only the seeded message');
-  assert.deepEqual(h.view(target).reactions, []);
+  assert.deepEqual(present(h.view(target)).reactions, []);
   assert.deepEqual(h.port.typings, []);
 });
 
@@ -513,5 +536,5 @@ test("fake adapter: a well-formed action keeps the port's own refusal codes", as
   const foreign = await h.port.send({ iface: 'elsewhere', conversationId: ROOM }, { text: 'όχι' });
   assert.equal(foreign.error?.code, 'foreign-reference');
   const emptyEmoji = await h.port.react(h.foreign(), '');
-  assert.equal(emptyEmoji.error.code, 'invalid-emoji');
+  assert.equal(present(emptyEmoji.error).code, 'invalid-emoji');
 });

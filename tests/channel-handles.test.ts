@@ -35,7 +35,7 @@ const loose = (value: unknown): Record<string, Untyped> => value as Record<strin
 const fakeOf = <T>(value: object): T => value as T;
 type BuildInput = Parameters<typeof buildRequest>[0];
 
-// Two ids whose four-digit hashes collide (the fixture of tests/handles.test.js).
+// Two ids whose four-digit hashes collide (the fixture of tests/handles.test.ts).
 const OLDER = '400000000000807738';
 const NEWER = '400000000005693761';
 

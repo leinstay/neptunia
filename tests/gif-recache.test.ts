@@ -25,19 +25,33 @@ import { createStore } from '../src/memory/store.ts';
 import { normalizeOptions, toEvent } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { IFACE, channel, rig } from './fixtures/reads-rig.ts';
+import type { Untyped } from '../src/tools/types.ts';
+import { wrongly, removeField } from './fixtures/loose-types.ts';
+import type { GifEntry } from '../src/memory/gifs.ts';
+import type { Store } from '../src/memory/store.ts';
 
 const T0 = Date.UTC(2026, 8, 1);
-const TENOR = (n) => `https://tenor.com/view/danse-${n}`;
+const TENOR = (n: number) => `https://tenor.com/view/danse-${n}`;
 
-function withStore(fn) {
+/** The store with the library typed as it is kept: `getGifs` answers entries of the library, not bare objects. */
+type GifStore = Omit<Store, 'getGifs' | 'getMediaCache'> & {
+  getMediaCache(guildId: string): Record<string, Untyped>;
+  getGifs(guildId: string): {
+    nextId: number;
+    entries: Record<string, GifEntry>;
+    backfill: { at: string; channels: number; messages: number } | null;
+  };
+};
+
+function withStore(fn: (store: GifStore) => unknown) {
   const dir = tempDir('nep-gif-recache-');
   return Promise.resolve()
-    .then(() => fn(createStore({ dataDir: dir })))
+    .then(() => fn(wrongly<GifStore>(createStore({ dataDir: dir }))))
     .finally(() => fs.rmSync(dir, { recursive: true, force: true }));
 }
 
 /** A library entry for a tenor GIF `n`, last seen in message `m<n>` of channel c1. */
-function linkEntry(n, overrides = {}) {
+function linkEntry(n: number, overrides = {}) {
   return {
     id: `g${n}`,
     kind: 'link',
@@ -53,10 +67,10 @@ function linkEntry(n, overrides = {}) {
   };
 }
 
-function library(entries) {
+function library(entries: Record<string, Untyped>) {
   return {
     nextId: entries.length + 1,
-    entries: Object.fromEntries(entries.map((entry) => [entry.itemId, entry])),
+    entries: Object.fromEntries(entries.map((entry: Record<string, Untyped>) => [entry.itemId, entry])),
     backfill: null,
   };
 }
@@ -69,7 +83,7 @@ test('gifCaptionState: watched, failed, one-frame or none', () => {
   assert.equal(gifCaptionState({ miss: true, ts: 1, watchFailed: 5 }), 'failed');
   assert.equal(gifCaptionState({ text: 'a still', ts: 1 }), 'one-frame');
   assert.equal(gifCaptionState({ miss: true, ts: 1 }), 'none');
-  assert.equal(gifCaptionState(undefined), 'none');
+  assert.equal(gifCaptionState(wrongly(undefined)), 'none');
 });
 
 test('gifCaptionCounts: counts the library entries by their caption state', () => {
@@ -112,18 +126,18 @@ test('recacheQueue: an old-format watched entry (no reaction field) is queued wi
     'm4#e0': { text: 'watched lately', ts: 500, watched: true, gif: true },
   };
   assert.deepEqual(
-    recacheQueue(gifs, cache, 10).map((entry) => entry.id),
+    recacheQueue(gifs, cache, 10).map((entry: Record<string, Untyped>) => entry.id),
     ['g1', 'g3', 'g4'],
     'the three-field entry is done'
   );
   assert.deepEqual(
-    recacheQueue(gifs, cache, 2).map((entry) => entry.id),
+    recacheQueue(gifs, cache, 2).map((entry: Record<string, Untyped>) => entry.id),
     ['g1', 'g3'],
     'under the same per-run cap'
   );
   const failed = { ...cache, 'm1#e0': { ...cache['m1#e0'], watchFailed: 900 } };
   assert.deepEqual(
-    recacheQueue(gifs, failed, 10).map((entry) => entry.id),
+    recacheQueue(gifs, failed, 10).map((entry: Record<string, Untyped>) => entry.id),
     ['g3', 'g4', 'g1'],
     'a failed re-watch goes to the back'
   );
@@ -131,7 +145,7 @@ test('recacheQueue: an old-format watched entry (no reaction field) is queued wi
 
 // PR 7d: `gifs.recachePerRun` is the constant 50, so both old captions go in one run.
 test('gif recache: old-format watched captions migrate and the describer is asked for them', async () => {
-  await withStore(async (store) => {
+  await withStore(async (store: GifStore) => {
     seed(store, [linkEntry(1), linkEntry(2)], {
       'm1#e0': { text: 'watched before', ts: 200, watched: true, gif: true },
       'm2#e0': { text: 'watched before', ts: 100, watched: true, gif: true },
@@ -139,7 +153,7 @@ test('gif recache: old-format watched captions migrate and the describer is aske
     const describer = fakeDescriber(store);
     const log = silentLog();
     const recache = createGifRecache({
-      hot: fakeHot(),
+      hot: wrongly(fakeHot()),
       store,
       ...depsOf(fakeClient([rawGifMessage(1), rawGifMessage(2)])),
       describer,
@@ -170,15 +184,15 @@ test('recacheQueue: never-described first, then oldest-described; watched skippe
     'm4#e0': { text: 'a still', ts: 50, watchFailed: 400 },
   };
   assert.deepEqual(
-    recacheQueue(gifs, cache, 10).map((entry) => entry.id),
+    recacheQueue(gifs, cache, 10).map((entry: Record<string, Untyped>) => entry.id),
     ['g5', 'g3', 'g1', 'g4']
   );
   assert.deepEqual(
-    recacheQueue(gifs, cache, 2).map((entry) => entry.id),
+    recacheQueue(gifs, cache, 2).map((entry: Record<string, Untyped>) => entry.id),
     ['g5', 'g3']
   );
   assert.deepEqual(recacheQueue(gifs, cache, 0), []);
-  assert.equal(recacheQueue(gifs, cache, 1)[0].key, 'm5#e0');
+  assert.equal(wrongly<Untyped>(recacheQueue(gifs, cache, 1)[0]).key, 'm5#e0');
 });
 
 test('oneFrameGifKeys: one-frame GIF captions outside the library; never pictures, videos, watched or library ones', () => {
@@ -200,7 +214,7 @@ test('oneFrameGifKeys: one-frame GIF captions outside the library; never picture
 // --- the run -------------------------------------------------------------------
 
 /** A raw discord.js message carrying one tenor gifv embed `n`. */
-function rawGifMessage(n) {
+function rawGifMessage(n: number) {
   return {
     id: `m${n}`,
     channelId: 'c1',
@@ -223,7 +237,7 @@ function rawGifMessage(n) {
 }
 
 /** The fake interface whose conversation c1 holds `messages` (raw ones, read into events as the Discord package does); any other id is a message that is gone. */
-function fakeClient(messages) {
+function fakeClient(messages: Array<Record<string, Untyped>>) {
   const world = rig();
   const stub = { id: 'c1', name: 'c1', parent: null, guild: { id: 'g1' }, isThread: () => false };
   world.fake.seedConversation(channel('c1'));
@@ -233,7 +247,7 @@ function fakeClient(messages) {
       'self',
       normalizeOptions({ media: { embedTextChars: 200 } })
     );
-    delete event.raw;
+    removeField(event, 'raw');
     world.fake.seedEvent(event);
   }
   return world;
@@ -241,22 +255,34 @@ function fakeClient(messages) {
 
 /**
  * What the recache takes of the interface: its reads, its name and the emoji index (the address of an emoji's picture).
- * @param {ReturnType<typeof rig>} world
  */
-const depsOf = (world) => ({
+const depsOf = (world: Record<string, Untyped>) => ({
   reads: world.reads,
   iface: () => IFACE,
-  emoji: { refresh: async () => {}, urlOf: (id) => `https://cdn.example/emojis/${id}.webp` },
+  emoji: { refresh: async () => {}, urlOf: (id: string) => `https://cdn.example/emojis/${id}.webp` },
 });
 
 /** A describer whose watchGif follows `outcome(item)` (watched by default) and writes the watched caption. */
-function fakeDescriber(store, { outcome, blocker = null, gate } = {}) {
-  /** @type {Array<{ guildId: string, item: { itemId: string }, opts: unknown }>} */
-  const calls = [];
+/** The library item a describer is handed. */
+type Item = { itemId: string; [field: string]: Untyped };
+
+function fakeDescriber(
+  store: GifStore,
+  {
+    outcome,
+    blocker = null,
+    gate,
+  }: {
+    outcome?: (item: Item) => { state: string; text?: string };
+    blocker?: string | null;
+    gate?: () => Promise<unknown>;
+  } = {}
+) {
+  const calls: Array<{ guildId: string; item: Item; opts: Record<string, Untyped> }> = [];
   return {
     calls,
     gifWatchBlocker: () => blocker,
-    async watchGif(guildId, item, opts) {
+    async watchGif(guildId: string, item: Item, opts: Record<string, Untyped>) {
       calls.push({ guildId, item, opts });
       if (gate) await gate();
       const result = outcome ? outcome(item) : { state: 'watched', text: `watched ${item.itemId}` };
@@ -282,13 +308,12 @@ function fakeHot() {
 }
 
 function silentLog() {
-  /** @type {Array<{ level: string, message: string, fields: { done?: number, unlocated?: number, stopped?: unknown } }>} */
-  const entries = [];
-  const push = (level) => (message, fields) => entries.push({ level, message, fields });
+  const entries: Array<Untyped> = [];
+  const push = (level: string) => (message: string, fields: Untyped) => entries.push({ level, message, fields });
   return { entries, info: push('info'), warn: push('warn'), error: push('error') };
 }
 
-function seed(store, entries, cache = {}) {
+function seed(store: GifStore, entries: Array<Record<string, Untyped>>, cache = {}) {
   store.recordGifs('g1', []);
   const gifs = store.getGifs('g1');
   Object.assign(gifs, library(entries));
@@ -298,7 +323,7 @@ function seed(store, entries, cache = {}) {
 // PR 7d: `gifs.recachePerRun` is the constant 50, so the three entries are watched in one run (recacheQueue's cap is
 // tested on its own above).
 test('gif recache: drops one-frame captions at once, then watches the entries, oldest first, from a fresh read', async () => {
-  await withStore(async (store) => {
+  await withStore(async (store: GifStore) => {
     seed(store, [linkEntry(1), linkEntry(2), linkEntry(3)], {
       'm1#e0': { text: 'a still', ts: 300 },
       'm2#e0': { text: 'a still', ts: 100 },
@@ -307,7 +332,7 @@ test('gif recache: drops one-frame captions at once, then watches the entries, o
     });
     const describer = fakeDescriber(store);
     const recache = createGifRecache({
-      hot: fakeHot(),
+      hot: wrongly(fakeHot()),
       store,
       ...depsOf(fakeClient([rawGifMessage(1), rawGifMessage(2), rawGifMessage(3)])),
       describer,
@@ -340,12 +365,12 @@ test('gif recache: drops one-frame captions at once, then watches the entries, o
 
 // PR 7d: `gifs.recachePerRun` is the constant 50, so the library holds 51 entries for the second run to continue.
 test('gif recache: a second run skips what the first watched and continues with the rest', async () => {
-  await withStore(async (store) => {
+  await withStore(async (store: GifStore) => {
     const ids = Array.from({ length: 51 }, (_, n) => n + 1);
     seed(store, ids.map(linkEntry));
     const describer = fakeDescriber(store);
     const recache = createGifRecache({
-      hot: fakeHot(),
+      hot: wrongly(fakeHot()),
       store,
       ...depsOf(fakeClient(ids.map(rawGifMessage))),
       describer,
@@ -371,14 +396,15 @@ test('gif recache: a second run skips what the first watched and continues with 
 });
 
 test('gif recache: a GIF whose message is gone still goes to the describer, which fails it as source', async () => {
-  await withStore(async (store) => {
+  await withStore(async (store: GifStore) => {
     seed(store, [linkEntry(1)]);
     const describer = fakeDescriber(store, {
-      outcome: (item) => (item.animationUrl ? { state: 'watched', text: 'x' } : { state: 'failed', reason: 'source' }),
+      outcome: (item: Record<string, Untyped>) =>
+        item.animationUrl ? { state: 'watched', text: 'x' } : { state: 'failed', reason: 'source' },
     });
     const log = silentLog();
     const recache = createGifRecache({
-      hot: fakeHot(),
+      hot: wrongly(fakeHot()),
       store,
       ...depsOf(fakeClient([])),
       describer,
@@ -393,15 +419,15 @@ test('gif recache: a GIF whose message is gone still goes to the describer, whic
 });
 
 test('gif recache: one run at a time', async () => {
-  await withStore(async (store) => {
+  await withStore(async (store: GifStore) => {
     seed(store, [linkEntry(1)]);
-    let release;
+    let release: Untyped;
     const gate = () =>
       new Promise((resolve) => {
         release = resolve;
       });
     const recache = createGifRecache({
-      hot: fakeHot(),
+      hot: wrongly(fakeHot()),
       store,
       ...depsOf(fakeClient([rawGifMessage(1)])),
       describer: fakeDescriber(store, { gate }),
@@ -418,19 +444,22 @@ test('gif recache: one run at a time', async () => {
 });
 
 test('gif recache: refused while paused, without a describer or while GIFs are not watched -- nothing dropped', async () => {
-  await withStore(async (store) => {
+  await withStore(async (store: GifStore) => {
     seed(store, [linkEntry(1)], { 'x9#e0': { text: 'a stray still', ts: 1, gif: true } });
     const base = { hot: fakeHot(), store, ...depsOf(fakeClient([])), log: silentLog() };
 
-    assert.deepEqual(createGifRecache({ ...base }).start('g1'), { ok: false, reason: 'unavailable' });
+    assert.deepEqual(createGifRecache(wrongly({ ...base })).start('g1'), { ok: false, reason: 'unavailable' });
     for (const blocker of ['off', 'video-off', 'no-prompt']) {
-      assert.deepEqual(createGifRecache({ ...base, describer: fakeDescriber(store, { blocker }) }).start('g1'), {
-        ok: false,
-        reason: blocker,
-      });
+      assert.deepEqual(
+        createGifRecache(wrongly({ ...base, describer: fakeDescriber(store, { blocker }) })).start('g1'),
+        {
+          ok: false,
+          reason: blocker,
+        }
+      );
     }
     store.state.data.paused = true;
-    assert.deepEqual(createGifRecache({ ...base, describer: fakeDescriber(store) }).start('g1'), {
+    assert.deepEqual(createGifRecache(wrongly({ ...base, describer: fakeDescriber(store) })).start('g1'), {
       ok: false,
       reason: 'paused',
     });
@@ -440,10 +469,10 @@ test('gif recache: refused while paused, without a describer or while GIFs are n
 
 test('gif recache: a run stops before the next GIF once paused or a daily rail is spent', async () => {
   for (const stop of ['paused', 'daily']) {
-    await withStore(async (store) => {
+    await withStore(async (store: GifStore) => {
       seed(store, [linkEntry(1), linkEntry(2), linkEntry(3)]);
       const describer = fakeDescriber(store, {
-        outcome: (item) => {
+        outcome: (item: Record<string, Untyped>) => {
           if (stop === 'paused') store.state.data.paused = true;
           if (stop === 'daily') return { state: 'unavailable', reason: 'daily' };
           return { state: 'watched', text: `watched ${item.itemId}` };
@@ -451,7 +480,7 @@ test('gif recache: a run stops before the next GIF once paused or a daily rail i
       });
       const log = silentLog();
       const recache = createGifRecache({
-        hot: fakeHot(),
+        hot: wrongly(fakeHot()),
         store,
         ...depsOf(fakeClient([rawGifMessage(1), rawGifMessage(2), rawGifMessage(3)])),
         describer,
@@ -472,7 +501,7 @@ const DAY = 24 * 60 * 60 * 1000;
 const MODELS = { vision: 'x/new-vision', video: 'x/new-video' };
 
 /** A Discord snowflake id created at `ms` (sequence `seq`). */
-function snowflake(ms, seq = 0) {
+function snowflake(ms: number, seq = 0) {
   return String((BigInt(ms - 1_420_070_400_000) << 22n) + BigInt(seq));
 }
 
@@ -553,7 +582,7 @@ test('recordFinder: a gif embed by its message, an attachment by its upload time
   const upload = NOW - 3 * DAY;
   const attachment = snowflake(upload);
   const embedMessage = snowflake(NOW - 40 * DAY);
-  const line = (messageId, occurredAt, extra = {}) => ({
+  const line = (messageId: string, occurredAt: Untyped, extra = {}) => ({
     kind: 'seen',
     messageId,
     occurredAt: new Date(occurredAt).toISOString(),
@@ -586,7 +615,7 @@ test('recordFinder: a gif embed by its message, an attachment by its upload time
 });
 
 /** A raw discord.js message in channel c1 with one attached png `attachmentId`. */
-function rawPictureMessage(id, attachmentId) {
+function rawPictureMessage(id: string, attachmentId: Untyped) {
   return {
     id,
     channelId: 'c1',
@@ -614,9 +643,9 @@ function rawPictureMessage(id, attachmentId) {
 }
 
 /** A record whose iterate yields `lines` from `from` on, as src/memory/record.ts does. */
-function fakeRecord(lines) {
+function fakeRecord(lines: Array<Record<string, Untyped>>) {
   return {
-    async *iterate(guildId, { from = null } = {}) {
+    async *iterate(guildId: string, { from = null }: { from?: Untyped } = {}) {
       const fromMs = from ? Date.parse(from) : -Infinity;
       for (const line of lines) if (Date.parse(line.occurredAt) >= fromMs) yield line;
     },
@@ -624,12 +653,23 @@ function fakeRecord(lines) {
 }
 
 /** A media describer: redescribe takes `costMs` of the clock and follows `outcome(item)` (done by default). */
-function fakeMediaDescriber(clock, { outcome, costMs = 0, blocker = null } = {}) {
-  const calls = [];
+function fakeMediaDescriber(
+  clock: { at: number },
+  {
+    outcome,
+    costMs = 0,
+    blocker = null,
+  }: {
+    outcome?: (item: Item) => { state: string; reason?: string } | undefined;
+    costMs?: number;
+    blocker?: string | null;
+  } = {}
+) {
+  const calls: Array<{ guildId: string; item: Item; at: number }> = [];
   return {
     calls,
     pictureBlocker: () => blocker,
-    async redescribe(guildId, item) {
+    async redescribe(guildId: string, item: Item) {
       calls.push({ guildId, item, at: clock.at });
       clock.at += costMs;
       return outcome ? outcome(item) : { state: 'done' };
@@ -648,14 +688,12 @@ function mediaHot(media = {}) {
 
 /** A clock and a sleep that moves it, recording every wait. */
 function fakeTime(start = NOW) {
-  /** @type {number[]} */
-  const sleeps = [];
+  const sleeps: Array<Untyped> = [];
   const clock = {
     at: start,
     sleeps,
     now: () => clock.at,
-    /** @param {number} ms */
-    sleep: async (ms) => {
+    sleep: async (ms: number) => {
       sleeps.push(ms);
       clock.at += ms;
     },
@@ -664,7 +702,7 @@ function fakeTime(start = NOW) {
 }
 
 test('media recache: emoji from their id, a library GIF from its message, an attachment through the record; counts logged', async () => {
-  await withStore(async (store) => {
+  await withStore(async (store: GifStore) => {
     const upload = NOW - 2 * DAY;
     const attachmentId = snowflake(upload, 1);
     const messageId = snowflake(upload + 5_000, 2);
@@ -688,7 +726,7 @@ test('media recache: emoji from their id, a library GIF from its message, an att
       },
     ]);
     const recache = createGifRecache({
-      hot: mediaHot(),
+      hot: wrongly(mediaHot()),
       store,
       ...depsOf(fakeClient([rawGifMessage(1), rawPictureMessage(messageId, attachmentId)])),
       describer,
@@ -717,13 +755,13 @@ test('media recache: emoji from their id, a library GIF from its message, an att
 });
 
 test('media recache: an emoji the community no longer lists is left as it is and counted unlocated', async () => {
-  await withStore(async (store) => {
+  await withStore(async (store: GifStore) => {
     seed(store, [], { 'emoji:77': { text: 'a grin', ts: NOW - DAY }, 'emoji:78': { text: 'a nod', ts: NOW - DAY } });
     const clock = fakeTime();
     const describer = fakeMediaDescriber(clock);
     const log = silentLog();
     const recache = createGifRecache({
-      hot: mediaHot(),
+      hot: wrongly(mediaHot()),
       store,
       ...depsOf(fakeClient([])),
       // Only emoji 77 is listed by the community now.
@@ -745,7 +783,7 @@ test('media recache: an emoji the community no longer lists is left as it is and
 });
 
 test('media recache: descriptions are paced media.recacheIntervalMs apart on the injected clock', async () => {
-  await withStore(async (store) => {
+  await withStore(async (store: GifStore) => {
     seed(store, [], {
       'emoji:1': { text: 'a', ts: NOW - DAY },
       'emoji:2': { text: 'b', ts: NOW - DAY },
@@ -754,7 +792,7 @@ test('media recache: descriptions are paced media.recacheIntervalMs apart on the
     const clock = fakeTime();
     const describer = fakeMediaDescriber(clock, { costMs: 1000 });
     const recache = createGifRecache({
-      hot: mediaHot(),
+      hot: wrongly(mediaHot()),
       store,
       ...depsOf(fakeClient([])),
       describer,
@@ -773,7 +811,7 @@ test('media recache: descriptions are paced media.recacheIntervalMs apart on the
 });
 
 test('media recache: a spent daily request cap stops the run; a failure is counted and the run goes on', async () => {
-  await withStore(async (store) => {
+  await withStore(async (store: GifStore) => {
     seed(store, [], {
       'emoji:1': { text: 'a', ts: NOW - DAY },
       'emoji:2': { text: 'b', ts: NOW - 2 * DAY },
@@ -784,7 +822,7 @@ test('media recache: a spent daily request cap stops the run; a failure is count
     const describer = fakeMediaDescriber(clock, { outcome: () => outcomes.shift() });
     const log = silentLog();
     const recache = createGifRecache({
-      hot: mediaHot(),
+      hot: wrongly(mediaHot()),
       store,
       ...depsOf(fakeClient([])),
       describer,
@@ -806,7 +844,7 @@ test('media recache: a spent daily request cap stops the run; a failure is count
 });
 
 test('media recache: refused while running (either run), paused, without a describer or with pictures off', async () => {
-  await withStore(async (store) => {
+  await withStore(async (store: GifStore) => {
     seed(store, [linkEntry(1)], { 'emoji:1': { text: 'a', ts: NOW - DAY } });
     const clock = fakeTime();
     const base = {
@@ -817,34 +855,39 @@ test('media recache: refused while running (either run), paused, without a descr
       sleep: clock.sleep,
       log: silentLog(),
     };
-    let release;
+    let release: Untyped;
     const gate = () =>
       new Promise((resolve) => {
         release = resolve;
       });
     const both = { ...fakeDescriber(store, { gate }), ...fakeMediaDescriber(clock) };
-    const busy = createGifRecache({ ...base, describer: both });
+    const busy = createGifRecache(wrongly({ ...base, describer: both }));
     assert.equal(busy.start('g1').ok, true);
     assert.deepEqual(busy.startMedia('g1', {}), { ok: false, reason: 'running' });
     while (!release) await new Promise((resolve) => setImmediate(resolve));
     release();
     await busy.waitIdle();
 
-    assert.deepEqual(createGifRecache({ ...base }).startMedia('g1', {}), {
+    assert.deepEqual(createGifRecache(wrongly({ ...base })).startMedia('g1', {}), {
       ok: false,
       reason: 'unavailable',
     });
     assert.deepEqual(
-      createGifRecache({
-        ...base,
-        describer: fakeMediaDescriber(clock, { blocker: 'off' }),
-      }).startMedia('g1', {}),
+      createGifRecache(
+        wrongly({
+          ...base,
+          describer: fakeMediaDescriber(clock, { blocker: 'off' }),
+        })
+      ).startMedia('g1', {}),
       { ok: false, reason: 'off' }
     );
     store.state.data.paused = true;
-    assert.deepEqual(createGifRecache({ ...base, describer: fakeMediaDescriber(clock) }).startMedia('g1', {}), {
-      ok: false,
-      reason: 'paused',
-    });
+    assert.deepEqual(
+      createGifRecache(wrongly({ ...base, describer: fakeMediaDescriber(clock) })).startMedia('g1', {}),
+      {
+        ok: false,
+        reason: 'paused',
+      }
+    );
   });
 });

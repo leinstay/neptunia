@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import { createLookup, normalizeQuery, cleanQuery } from '../src/web/lookup.ts';
 import { DailyCapError, roleRequestOptions, TokenLimitError } from '../src/llm/openrouter.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import type { Untyped } from '../src/tools/types.ts';
+import { wrongly, present } from './fixtures/loose-types.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
 const HOUR = 60 * 60_000;
@@ -14,7 +16,7 @@ function fakeStore() {
   const caches = new Map();
   let dirty = 0;
   return {
-    getMediaCache(guildId) {
+    getMediaCache(guildId: string) {
       if (!caches.has(guildId)) caches.set(guildId, {});
       return caches.get(guildId);
     },
@@ -34,7 +36,11 @@ function fakeState() {
 // PR 7d: the switches are code, the daily web cap is gone and the page and search measures are constants of
 // src/web/lookup.ts (a page of 1 500 000 bytes and 6000 characters, a 700-character opening, 4000 read whole, five
 // results, a 900-character summary, the media hosts skipped), so only the settings stay.
-function fakeHot({ web = {}, config = {}, prompts = {} } = {}) {
+function fakeHot({
+  web = {},
+  config = {},
+  prompts = {},
+}: { web?: Record<string, Untyped>; config?: Record<string, Untyped>; prompts?: Record<string, Untyped> } = {}) {
   return {
     config: {
       llm: { timeoutMs: 300_000 },
@@ -56,7 +62,7 @@ function fakeHot({ web = {}, config = {}, prompts = {} } = {}) {
 }
 
 function fakePageFetcher(
-  result = {
+  result: Untyped = {
     ok: true,
     text: 'Una ricetta semplice con tre uova e farina.',
     title: 'Ricetta',
@@ -65,10 +71,10 @@ function fakePageFetcher(
     finalUrl: 'https://example.org/a',
   }
 ) {
-  const calls = [];
+  const calls: Array<{ url: string; options: Record<string, Untyped> }> = [];
   return {
     calls,
-    fetchText: async (url, options) => {
+    fetchText: async (url: string, options: Record<string, Untyped>) => {
       calls.push({ url, options });
       return typeof result === 'function' ? result(url, options) : result;
     },
@@ -76,7 +82,7 @@ function fakePageFetcher(
 }
 
 function fakeBrave(
-  result = {
+  result: Untyped = {
     ok: true,
     results: [
       { title: 'Résultat un', url: 'https://www.example.com/one', snippet: 'premier extrait', age: '2 days ago' },
@@ -84,10 +90,10 @@ function fakeBrave(
     ],
   }
 ) {
-  const calls = [];
+  const calls: Array<{ query: string; options: Record<string, Untyped> }> = [];
   return {
     calls,
-    search: async (query, options) => {
+    search: async (query: string, options: Record<string, Untyped>) => {
       calls.push({ query, options });
       return typeof result === 'function' ? result(query, options) : result;
     },
@@ -101,11 +107,12 @@ const EXA_RESULTS = {
   ],
 };
 
-function fakeLlm(text = 'An article about a simple recipe: three eggs, flour, ten minutes.') {
-  const calls = [];
+function fakeLlm(text: Untyped = 'An article about a simple recipe: three eggs, flour, ten minutes.') {
+  const calls: Array<{ messages: Array<Record<string, Untyped>>; options: Record<string, Untyped> }> = [];
   return {
     calls,
-    complete: async (messages, options) => {
+    capLeft: wrongly<(() => number) | undefined>(undefined),
+    complete: async (messages: Array<Record<string, Untyped>>, options: Record<string, Untyped>) => {
       calls.push({ messages, options });
       if (text instanceof Error) throw text;
       return { text: typeof text === 'function' ? text(messages) : text, usage: {}, estimated: 5 };
@@ -113,7 +120,7 @@ function fakeLlm(text = 'An article about a simple recipe: three eggs, flour, te
   };
 }
 
-function setup(overrides = {}) {
+function setup(overrides: Record<string, Untyped> = {}) {
   const deps = {
     hot: fakeHot(overrides.hotOptions),
     store: fakeStore(),
@@ -124,13 +131,22 @@ function setup(overrides = {}) {
     keys: { brave: 'braveApiKey' in overrides ? overrides.braveApiKey : 'test-key', exa: overrides.exaApiKey ?? null },
     now: overrides.now ?? (() => NOW),
   };
-  return { ...deps, braveSearch: deps.searches.brave, exaSearch: deps.searches.exa, lookup: createLookup(deps) };
+  return {
+    ...deps,
+    braveSearch: deps.searches.brave,
+    exaSearch: deps.searches.exa,
+    lookup: createLookup(wrongly(deps)),
+  };
 }
 
 const LINK = { id: 'm1#e0', url: 'https://example.org/a', site: 'example.org', title: 'Ricetta' };
 
 /** One link through readLinks: its excerpt, or null when it was not read. */
-async function readOne(lookup, link, guildId = 'g1') {
+async function readOne(
+  lookup: ReturnType<typeof createLookup>,
+  link: Parameters<ReturnType<typeof createLookup>['readLinks']>[1][number],
+  guildId = 'g1'
+) {
   const { reads } = await lookup.readLinks(guildId, [link]);
   return reads.get(link.id) ?? null;
 }
@@ -278,7 +294,7 @@ test('readLinks: logs the host/path and the reason code, never the page text or 
 
 test('readLinks: every attempt counts toward maxNew; cache hits are free; past maxNew only the cache is read', async () => {
   const { lookup, pageFetcher, store } = setup({
-    page: (url) =>
+    page: (url: string) =>
       url.endsWith('/a')
         ? { ok: false, reason: 'http', status: 500 }
         : { ok: true, text: 'Testo della pagina.', title: '' },
@@ -369,14 +385,14 @@ test('search: the cache is keyed by the normalised query and served while younge
   await lookup.search('g1', 'Qui a gagné la finale ?');
   now = NOW + 23 * HOUR;
   const hit = await lookup.search('g1', '  qui a GAGNÉ   la finale ? ');
-  assert.equal(hit.cached, true);
-  assert.equal(hit.sources.length, 2);
+  assert.equal(present(hit).cached, true);
+  assert.equal(present(hit).sources.length, 2);
   assert.equal(braveSearch.calls.length, 1);
   assert.equal(llm.calls.length, 1);
 
   now = NOW + 25 * HOUR;
   const fresh = await lookup.search('g1', 'qui a gagné la finale ?');
-  assert.equal(fresh.cached, undefined);
+  assert.equal(present(fresh).cached, undefined);
   assert.equal(braveSearch.calls.length, 2);
 });
 
@@ -400,7 +416,7 @@ test('cleanQuery: one line, no angle brackets, no control characters, at most 20
   assert.equal(cleanQuery('x'.repeat(250)).length, 200);
   const astral = cleanQuery('\u{1d400}'.repeat(150));
   assert.ok(astral.length <= 200 && !/[\ud800-\udbff]$/.test(astral), 'never a split surrogate pair');
-  assert.equal(cleanQuery(null), '');
+  assert.equal(cleanQuery(wrongly(null)), '');
   assert.equal(cleanQuery(' <> \n '), '');
 });
 
@@ -409,7 +425,7 @@ test('search: the query is cleaned before the prompt, the search and the result'
   const result = await lookup.search('g1', 'qui a gagné\n<b>la finale</b>');
   assert.equal(braveSearch.calls[0].query, 'qui a gagné bla finale/b');
   assert.equal(llm.calls[0].messages[0].content, 'The query: qui a gagné bla finale/b. Up to 900 characters.');
-  assert.equal(result.query, 'qui a gagné bla finale/b');
+  assert.equal(present(result).query, 'qui a gagné bla finale/b');
 
   const blank = setup();
   assert.equal(await blank.lookup.search('g1', '<>\u0000'), null);
@@ -440,8 +456,8 @@ test('search: an empty result is reported as nothing, fresh or from the cache', 
   const { logs } = await withCapturedLogs(async () => {
     await lookup.search('g1', 'ζζζζ');
     const hit = await lookup.search('g1', 'ζζζζ');
-    assert.equal(hit.cached, true);
-    assert.equal(hit.text, '');
+    assert.equal(present(hit).cached, true);
+    assert.equal(present(hit).text, '');
   });
   assert.equal(braveSearch.calls.length, 1);
   const lines = logs.filter((l) => l.msg === 'lookup: search');
@@ -463,8 +479,8 @@ test('search: a safety-rail refusal of the summary is logged with a kebab-case r
     const { lookup, store } = setup({ llmText: error });
     const { logs } = await withCapturedLogs(() => lookup.search('g1', 'x y'));
     const line = logs.find((l) => l.msg === 'lookup: search');
-    assert.equal(line.state, 'error');
-    assert.equal(line.reason, reason);
+    assert.equal(present(line).state, 'error');
+    assert.equal(present(line).reason, reason);
     assert.deepEqual(Object.keys(store.getMediaCache('g1')), []);
   }
 });
@@ -484,16 +500,18 @@ test('search: search.enabled off, no prompt or a blank query -> null, zero calls
   for (const hot of cases) {
     const braveSearch = fakeBrave();
     const llm = fakeLlm();
-    const lookup = createLookup({
-      hot,
-      store: fakeStore(),
-      llm,
-      state: fakeState(),
-      pageFetcher: fakePageFetcher(),
-      searches: { brave: braveSearch },
-      keys: { brave: 'k' },
-      now: () => NOW,
-    });
+    const lookup = createLookup(
+      wrongly({
+        hot,
+        store: fakeStore(),
+        llm,
+        state: fakeState(),
+        pageFetcher: fakePageFetcher(),
+        searches: { brave: braveSearch },
+        keys: { brave: 'k' },
+        now: () => NOW,
+      })
+    );
     assert.equal(await lookup.search('g1', 'x y'), null);
     assert.equal(braveSearch.calls.length, 0);
     assert.equal(llm.calls.length, 0);
@@ -520,7 +538,7 @@ test('search: logs counts and codes, never the query, the summary or the key', a
 // --- the engines and the fallback (web.search.engine, web.search.fallback) ---------
 
 /** setup() with web.search.engine / fallback set. */
-function engineSetup(search, overrides = {}) {
+function engineSetup(search: Untyped, overrides: Record<string, Untyped> = {}) {
   return setup({ ...overrides, hotOptions: { ...overrides.hotOptions, web: { search } } });
 }
 
@@ -532,7 +550,9 @@ test('search: engine exa -- the Exa client searches (its key, the count, the tim
   assert.equal(lookup.hasSearch(), true, 'exa needs no Brave key');
   assert.equal(lookup.searchEngine(), 'exa');
   const { result, logs } = await withCapturedLogs(() => lookup.search('g1', 'la finale'));
-  assert.deepEqual(result.sources, [{ title: 'Exa one', url: 'https://exa.example.net/one', site: 'exa.example.net' }]);
+  assert.deepEqual(present(result).sources, [
+    { title: 'Exa one', url: 'https://exa.example.net/one', site: 'exa.example.net' },
+  ]);
   assert.equal(braveSearch.calls.length, 0);
   assert.equal(exaSearch.calls.length, 1);
   assert.deepEqual(exaSearch.calls[0].options, { apiKey: 'exa-k', count: 5, timeoutMs: 10_000 });
@@ -541,7 +561,7 @@ test('search: engine exa -- the Exa client searches (its key, the count, the tim
     '1. Exa one\nhttps://exa.example.net/one\nexa extract\n2026-09-01T00:00:00.000Z'
   );
   const line = logs.find((l) => l.msg === 'lookup: search');
-  assert.deepEqual([line.state, line.engine, line.fallback], ['found', 'exa', false]);
+  assert.deepEqual([present(line).state, present(line).engine, present(line).fallback], ['found', 'exa', false]);
   const keyless = engineSetup({ engine: 'exa' });
   await keyless.lookup.search('g1', 'x y');
   assert.equal(keyless.exaSearch.calls[0].options.apiKey, null);
@@ -580,7 +600,7 @@ test('search: engine openrouter -- one analyzer request with the Exa web plugin;
   assert.ok(Object.keys(store.getMediaCache('g1')).some((k) => k.startsWith('search:')));
 
   const bare = engineSetup({ engine: 'openrouter' });
-  assert.deepEqual((await bare.lookup.search('g1', 'x y')).sources, [], 'no annotations -> no sources');
+  assert.deepEqual(present(await bare.lookup.search('g1', 'x y')).sources, [], 'no annotations -> no sources');
   assert.equal(bare.llm.calls[0].options.plugins[0].max_results, 5);
 });
 
@@ -609,7 +629,7 @@ test('search: the fallback order is tried on rate-limited, timeout, network and 
   ]) {
     const { lookup, braveSearch, exaSearch } = engineSetup({ engine: 'brave', fallback: ['exa'] }, { brave: failure });
     const { result, logs } = await withCapturedLogs(() => lookup.search('g1', 'x y'));
-    assert.equal(result.sources[0].url, 'https://exa.example.net/one', JSON.stringify(failure));
+    assert.equal(present(result).sources[0].url, 'https://exa.example.net/one', JSON.stringify(failure));
     assert.equal(braveSearch.calls.length, 1);
     assert.equal(exaSearch.calls.length, 1);
     const lines = logs.filter((l) => l.msg === 'lookup: search');
@@ -632,7 +652,7 @@ test('search: the fallback list runs in its order, each engine once, past a seco
   assert.equal(exaSearch.calls.length, 1);
   assert.equal(llm.calls.length, 1);
   assert.ok(llm.calls[0].options.plugins, 'the openrouter engine answered last');
-  assert.ok(result.text);
+  assert.ok(present(result).text);
   assert.deepEqual(
     logs.filter((l) => l.msg === 'lookup: search').map((l) => [l.engine, l.fallback]),
     [
@@ -701,7 +721,7 @@ test('search: the openrouter engine maps a 429 and a timeout to fallback reasons
     const { lookup, exaSearch } = engineSetup({ engine: 'openrouter', fallback: ['exa'] }, { llmText: error });
     const { logs } = await withCapturedLogs(() => lookup.search('g1', 'x y'));
     assert.equal(exaSearch.calls.length, 1);
-    assert.equal(logs.find((l) => l.msg === 'lookup: search').reason, reason);
+    assert.equal(present(logs.find((l) => l.msg === 'lookup: search')).reason, reason);
   }
   const refused = engineSetup({ engine: 'openrouter', fallback: ['exa'] }, { llmText: new DailyCapError('cap') });
   assert.equal(await refused.lookup.search('g1', 'x y'), null);
@@ -733,7 +753,7 @@ test('search: the openrouter engine maps a 429 and a timeout to fallback reasons
 // --- the daily request cap, the helper options, the read-only web cap ------------
 
 /** setup() with a read-only capLeft on the fake llm reporting `left`. */
-function cappedSetup(left, overrides = {}) {
+function cappedSetup(left: number, overrides = {}) {
   const run = setup(overrides);
   run.llm.capLeft = () => left;
   return run;
@@ -798,10 +818,10 @@ test('searchResults: Brave results come back raw -- title, url, site, snippet, d
   const keys = Object.keys(store.getMediaCache('g1'));
   assert.ok(keys.some((k) => k.startsWith('results:')) && !keys.some((k) => k.startsWith('search:')), keys.join(','));
   const line = logs.find((entry) => entry.msg === 'lookup: search');
-  assert.deepEqual([line.state, line.raw, line.results], ['found', true, 2]);
+  assert.deepEqual([present(line).state, present(line).raw, present(line).results], ['found', true, 2]);
   assert.ok(!JSON.stringify(logs).includes('finale'), 'never the query in the log');
 
-  const again = await lookup.searchResults('g1', 'qui a gagné la finale ?');
+  const again: Record<string, Untyped> = await lookup.searchResults('g1', 'qui a gagné la finale ?');
   assert.equal(again.cached, true, 'the normalised query hits the cache');
   assert.equal(braveSearch.calls.length, 1);
 });
@@ -861,7 +881,7 @@ test('searchResults: the fallback engines answer the same failures as the summar
     { engine: 'brave', fallback: ['exa'] },
     { brave: { ok: false, reason: 'rate-limited', status: 429 } }
   );
-  const found = await fell.lookup.searchResults('g1', 'x y');
+  const found: Record<string, Untyped> = await fell.lookup.searchResults('g1', 'x y');
   assert.equal(found.results[0].url, 'https://exa.example.net/one');
   const stopped = engineSetup(
     { engine: 'brave', fallback: ['exa'] },
@@ -925,14 +945,14 @@ test('readPage: the page text as extracted, cut at web.links.readChars, with its
     'never page text or a query string in the log'
   );
 
-  const again = await lookup.readPage('g1', 'https://example.org/a?x=1');
+  const again: Record<string, Untyped> = await lookup.readPage('g1', 'https://example.org/a?x=1');
   assert.equal(again.cached, true);
   assert.equal(pageFetcher.calls.length, 1);
 });
 
 test('readPage: a short page is not cut; failures say why and are not cached', async () => {
   const short = setup();
-  const page = await short.lookup.readPage('g1', 'https://example.org/a');
+  const page: Record<string, Untyped> = await short.lookup.readPage('g1', 'https://example.org/a');
   assert.deepEqual([page.ok, page.cut, page.text], [true, false, 'Una ricetta semplice con tre uova e farina.']);
 
   const blocked = setup({ page: { ok: false, reason: 'private' } });
@@ -958,7 +978,7 @@ test('readLinks: the preview is the opening of the page text, no helper request'
     hotOptions: { prompts: { 'read-link': '' } },
     page: { ok: true, text, title: 'Ricetta', finalUrl: 'https://example.org/a' },
   });
-  const preview = await readOne(run.lookup, LINK);
+  const preview = present(await readOne(run.lookup, LINK));
   assert.ok(preview.startsWith('Una ricetta semplice.') && preview.length <= 700, preview);
   assert.equal(run.llm.calls.length, 0, 'no condensing request (and no read-link prompt needed)');
   const cache = run.store.getMediaCache('g1');

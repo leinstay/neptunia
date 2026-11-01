@@ -31,15 +31,19 @@ import {
 import { dmContext, groupContext, groupScope, internalContext } from '../src/memory/db/scope.ts';
 import { main, tableHashes } from '../scripts/memory-db.ts';
 import { buildDataDir } from './fixtures/memory-db/datadir.ts';
+import type { Untyped } from '../src/tools/types.ts';
+import { present, sqlOf, wrongly } from './fixtures/loose-types.ts';
+import type { UntypedDb } from './fixtures/loose-types.ts';
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
-const at = (minutes) => new Date(Date.parse('2026-10-24T10:00:00.000Z') + minutes * 60_000).toISOString();
-const count = (db, sql, ...params) => db.prepare(sql).get(...params).n;
+const at = (minutes: number) => new Date(Date.parse('2026-10-24T10:00:00.000Z') + minutes * 60_000).toISOString();
+const count = (db: UntypedDb, sql: string, ...params: Array<unknown>) => db.prepare(sql).get(...params).n;
 const GRAPH = ['graph_nodes', 'graph_edges', 'node_access'];
-const hashesOf = (db, tables) => Object.fromEntries(tableHashes(db, tables).map((entry) => [entry.table, entry.hash]));
-const run = (...argv) => {
-  const lines = [];
+const hashesOf = (db: Record<string, Untyped>, tables: Array<string>) =>
+  Object.fromEntries(tableHashes(db, tables).map((entry) => [entry.table, entry.hash]));
+const run = (...argv: Array<Untyped>) => {
+  const lines: Array<Untyped> = [];
   const code = main(argv, { out: (line) => lines.push(line), err: (line) => lines.push(line) });
   return { code, text: lines.join('\n') };
 };
@@ -48,19 +52,20 @@ const run = (...argv) => {
 
 test('the manifest names only tables and columns the schema has, every projected table has a unit, and the spec list is whole', () => {
   const handle = openMemoryDb(':memory:');
-  const { db } = handle;
+  const db = sqlOf(handle);
   try {
-    const columns = (table) =>
+    const columns = (table: string) =>
       new Set(
         db
           .prepare(`PRAGMA table_info("${table}")`)
           .all()
           .map((column) => column.name)
       );
-    const has = (table, column) => assert.ok(columns(table).has(column), `${table}.${column}`);
+    const has = (table: string, column: Untyped) => assert.ok(columns(table).has(column), `${table}.${column}`);
+    const deferred: Record<string, unknown> = DEFERRED;
     for (const [kind, spec] of Object.entries(NODE_KINDS)) {
       if (spec.table === null) {
-        assert.ok(DEFERRED[kind], `${kind} is deferred with a reason`);
+        assert.ok(deferred[kind], `${kind} is deferred with a reason`);
         continue;
       }
       assert.ok(columns(spec.table).size > 0, `${kind}: table ${spec.table}`);
@@ -74,7 +79,8 @@ test('the manifest names only tables and columns the schema has, every projected
         continue;
       }
       for (const column of spec.columns) has(spec.table, column);
-      for (const [table, list] of Object.entries(spec.also ?? {})) for (const column of list) has(table, column);
+      for (const [table, list] of Object.entries(wrongly<{ also?: Record<string, Array<string>> }>(spec).also ?? {}))
+        for (const column of list) has(table, column);
       for (const kind of [...spec.from, ...spec.to]) assert.ok(NODE_KINDS[kind], `${name}: node kind ${kind}`);
     }
     for (const [table, unit] of Object.entries(UNIT_OF)) {
@@ -139,7 +145,7 @@ test('the manifest names only tables and columns the schema has, every projected
 
 const D = 'discord/global';
 const T = 'telegram/global';
-const discordLine = (key, minutes, over = {}) => ({
+const discordLine = (key: string, minutes: number, over = {}) => ({
   v: OBSERVATION_VERSION,
   iface: 'discord',
   authority: D,
@@ -153,7 +159,7 @@ const discordLine = (key, minutes, over = {}) => ({
   ...over,
 });
 const dmPlace = { authority: D, key: 'dm:bob', kind: 'dm', conversation: 'dm', partner: { key: 'bob' } };
-const replyTo = (key) => [{ predicate: 'replies_to', target: { kind: 'message', key } }];
+const replyTo = (key: string) => [{ predicate: 'replies_to', target: { kind: 'message', key } }];
 
 /**
  * Discord: a server, a channel in it, a thread in the channel (rows the files bring), lines observed there; a DM with
@@ -163,7 +169,7 @@ const replyTo = (key) => [{ predicate: 'replies_to', target: { kind: 'message', 
  */
 function traversalFixture() {
   const handle = openMemoryDb(':memory:');
-  const { db } = handle;
+  const db = sqlOf(handle);
   const opts = { now: () => NOW, log: quiet };
   insertRows(
     db,
@@ -201,11 +207,11 @@ function traversalFixture() {
     },
     { log: quiet, at: at(0) }
   );
-  const ids = {};
-  const put = (name, envelope) => {
+  const ids: Record<string, string> = {};
+  const put = (name: string, envelope: Record<string, Untyped>) => {
     const done = observe(handle, envelope, opts);
     assert.equal(done.ok, true, `${name}: ${JSON.stringify(done)}`);
-    ids[name] = done.sourceId;
+    ids[name] = present(done.sourceId);
     return done;
   };
   const early = put('early', discordLine('m0', 5, { text: 'before the link' }));
@@ -239,7 +245,7 @@ function traversalFixture() {
     place: { authority: T, key: 'chat:tg1', kind: 'room', conversation: 'group' },
     author: { kind: 'account', authority: T, key: 'alice-tg' },
   });
-  const accountOf = (done) =>
+  const accountOf = (done: Record<string, Untyped>) =>
     db.prepare('SELECT author_account FROM sources WHERE id = ?').get(done.sourceId).author_account;
   const accounts = { main: accountOf(early), alt: accountOf(alt), tg: accountOf(telegram) };
   insertRows(
@@ -297,13 +303,13 @@ function traversalFixture() {
   return { handle, db, ids, accounts, places, ctx };
 }
 
-const rowIds = (result) => result.rows.map((row) => row.rowId);
+const rowIds = (result: Record<string, Untyped>) => result.rows.map((row: Record<string, Untyped>) => row.rowId);
 
 test("everything a person said anywhere: accounts verified at the line's time; the private link and the other interface stay out of a group", () => {
   const env = traversalFixture();
   const { db, ids, ctx } = env;
   try {
-    const group = saidBy(db, ctx.group, 'person:alice');
+    const group = saidBy(wrongly(db), ctx.group, 'person:alice');
     assert.deepEqual(
       rowIds(group),
       [ids.main, ids.inThread, ids.reply],
@@ -317,34 +323,37 @@ test("everything a person said anywhere: accounts verified at the line's time; t
     );
     assert.ok(!rowIds(group).includes(ids.telegram), 'the Telegram account is another interface');
     // The private link's existence does not show either: not from the alt, not from the person.
-    const fromAlt = walk(db, ctx.group, { from: graphNodeId('account', env.accounts.alt), predicates: ['account_of'] });
+    const fromAlt = walk(wrongly(db), ctx.group, {
+      from: graphNodeId('account', env.accounts.alt),
+      predicates: ['account_of'],
+    });
     assert.deepEqual(
       fromAlt.rows.map((row) => row.node),
       [graphNodeId('account', env.accounts.alt)],
       'the alt is a public node, its link is not'
     );
-    const toPerson = walk(db, ctx.group, {
+    const toPerson = walk(wrongly(db), ctx.group, {
       from: graphNodeId('person', 'person:alice'),
       predicates: ['account_of'],
       direction: 'in',
     });
     assert.deepEqual(toPerson.rows.map((row) => row.rowId).sort(), ['person:alice', env.accounts.main].sort());
     assert.equal(
-      walk(db, ctx.group, { from: graphNodeId('place', env.places.dm) }).rows.length,
+      walk(wrongly(db), ctx.group, { from: graphNodeId('place', env.places.dm) }).rows.length,
       0,
       'the DM place is not even a start in a group'
     );
 
     // The DM sees the private link (and the group lines); Telegram sees only its own; internal sees all.
-    assert.deepEqual(rowIds(saidBy(db, ctx.dm, 'person:alice')), [
+    assert.deepEqual(rowIds(saidBy(wrongly(db), ctx.dm, 'person:alice')), [
       ids.main,
       ids.inThread,
       ids.alt,
       ids.reply,
       ids.replyToReply,
     ]);
-    assert.deepEqual(rowIds(saidBy(db, ctx.telegram, 'person:alice')), [ids.telegram]);
-    assert.deepEqual(rowIds(saidBy(db, ctx.internal, 'person:alice')), [
+    assert.deepEqual(rowIds(saidBy(wrongly(db), ctx.telegram, 'person:alice')), [ids.telegram]);
+    assert.deepEqual(rowIds(saidBy(wrongly(db), ctx.internal, 'person:alice')), [
       ids.main,
       ids.inThread,
       ids.alt,
@@ -353,7 +362,7 @@ test("everything a person said anywhere: accounts verified at the line's time; t
       ids.replyToReply,
     ]);
     // Her own lines are said by her person row directly.
-    assert.deepEqual(rowIds(saidBy(db, ctx.group, 'person:self')), [ids.her]);
+    assert.deepEqual(rowIds(saidBy(wrongly(db), ctx.group, 'person:self')), [ids.her]);
   } finally {
     env.handle.close();
   }
@@ -363,14 +372,18 @@ test("what happened in a place: the lines of the place and of every place inside
   const env = traversalFixture();
   const { db, ids, ctx, places } = env;
   try {
-    const server = inPlace(db, ctx.group, places.guild);
+    const server = inPlace(wrongly(db), ctx.group, places.guild);
     assert.deepEqual(
       rowIds(server).sort(),
       [ids.early, ids.main, ids.inThread, ids.alt, ids.her, ids.reply, ids.replyToReply, ids.cycleA, ids.cycleB].sort()
     );
-    assert.equal(inPlace(db, ctx.telegram, places.guild).rows.length, 0, 'a Discord server is not seen from Telegram');
-    assert.deepEqual(rowIds(inPlace(db, ctx.dm, places.dm)).sort(), [ids.evidence, ids.privateReply].sort());
-    assert.equal(inPlace(db, ctx.group, places.dm).rows.length, 0);
+    assert.equal(
+      inPlace(wrongly(db), ctx.telegram, places.guild).rows.length,
+      0,
+      'a Discord server is not seen from Telegram'
+    );
+    assert.deepEqual(rowIds(inPlace(wrongly(db), ctx.dm, places.dm)).sort(), [ids.evidence, ids.privateReply].sort());
+    assert.equal(inPlace(wrongly(db), ctx.group, places.dm).rows.length, 0);
   } finally {
     env.handle.close();
   }
@@ -380,15 +393,15 @@ test('who replied to her line: replies and replies to replies; a private reply o
   const env = traversalFixture();
   const { db, ids, ctx } = env;
   try {
-    assert.deepEqual(rowIds(repliesTo(db, ctx.group, ids.her)), [ids.reply, ids.replyToReply]);
+    assert.deepEqual(rowIds(repliesTo(wrongly(db), ctx.group, ids.her)), [ids.reply, ids.replyToReply]);
     assert.deepEqual(
-      rowIds(repliesTo(db, ctx.dm, ids.her)).sort(),
+      rowIds(repliesTo(wrongly(db), ctx.dm, ids.her)).sort(),
       [ids.reply, ids.privateReply, ids.replyToReply].sort()
     );
-    const cycle = repliesTo(db, ctx.group, ids.cycleA);
+    const cycle = repliesTo(wrongly(db), ctx.group, ids.cycleA);
     assert.deepEqual(rowIds(cycle), [ids.cycleB], 'the cycle comes back to its start and stops there');
     assert.equal(cycle.truncated, false);
-    const both = walk(db, ctx.group, {
+    const both = walk(wrongly(db), ctx.group, {
       from: graphNodeId('source', ids.cycleA),
       predicates: ['replies_to'],
       direction: 'both',
@@ -427,22 +440,25 @@ test('the DM that continued a group, and the group that grew out of the DM: only
     handleTx(env, () => {
       db.prepare('UPDATE places SET continues_place_id = ? WHERE id = ?').run(places.channel, places.dm);
       db.prepare('UPDATE places SET continues_place_id = ? WHERE id = ?').run(places.dm, 'discord:channel:c3');
-      projectRow(db, 'places', { id: places.dm });
-      projectRow(db, 'places', { id: 'discord:channel:c3' });
+      projectRow(wrongly(db), 'places', { id: places.dm });
+      projectRow(wrongly(db), 'places', { id: 'discord:channel:c3' });
     });
-    assert.deepEqual(rowIds(continuationsOf(db, ctx.dm, places.channel)), [places.dm, 'discord:channel:c3']);
+    assert.deepEqual(rowIds(continuationsOf(wrongly(db), ctx.dm, places.channel)), [places.dm, 'discord:channel:c3']);
     assert.deepEqual(
-      rowIds(continuationsOf(db, ctx.group, places.channel)),
+      rowIds(continuationsOf(wrongly(db), ctx.group, places.channel)),
       [],
       'a group never learns a DM went on from it, nor what grew out of that DM'
     );
-    assert.deepEqual(rowIds(continuationsOf(db, ctx.internal, places.channel)), [places.dm, 'discord:channel:c3']);
+    assert.deepEqual(rowIds(continuationsOf(wrongly(db), ctx.internal, places.channel)), [
+      places.dm,
+      'discord:channel:c3',
+    ]);
   } finally {
     env.handle.close();
   }
 });
 
-function handleTx(env, fn) {
+function handleTx(env: Record<string, Untyped>, fn: Untyped) {
   return env.handle.transaction(fn);
 }
 
@@ -450,25 +466,25 @@ test('truncation reports: the row cap pages with `next`, the depth cap says dept
   const env = traversalFixture();
   const { db, ctx, places } = env;
   try {
-    const all = inPlace(db, ctx.group, places.guild, { maxRows: 1000 });
-    const first = walk(db, ctx.group, {
+    const all = inPlace(wrongly(db), ctx.group, places.guild, { maxRows: 1000 });
+    const first = walk(wrongly(db), ctx.group, {
       from: graphNodeId('place', places.guild),
       predicates: ['contained_in', 'located_in'],
       direction: 'in',
       maxRows: 4,
     });
     assert.deepEqual([first.truncated, first.reason, first.next, first.rows.length], [true, 'rows', 4, 4]);
-    const second = walk(db, ctx.group, {
+    const second = walk(wrongly(db), ctx.group, {
       from: graphNodeId('place', places.guild),
       predicates: ['contained_in', 'located_in'],
       direction: 'in',
       maxRows: 4,
-      after: first.next,
+      after: wrongly(first.next),
     });
     assert.equal(second.rows.length, 4);
     assert.deepEqual(
       [...first.rows, ...second.rows].map((row) => row.node).slice(0, 8),
-      walk(db, ctx.group, {
+      walk(wrongly(db), ctx.group, {
         from: graphNodeId('place', places.guild),
         predicates: ['contained_in', 'located_in'],
         direction: 'in',
@@ -477,7 +493,7 @@ test('truncation reports: the row cap pages with `next`, the depth cap says dept
         .slice(0, 8),
       'pages follow the one fixed order'
     );
-    const shallow = inPlace(db, ctx.group, places.guild, { maxDepth: 1 });
+    const shallow = inPlace(wrongly(db), ctx.group, places.guild, { maxDepth: 1 });
     assert.deepEqual([shallow.truncated, shallow.reason], [true, 'depth'], 'the server holds a channel holding more');
     assert.equal(rowIds(shallow).length, 0, 'no line sits in the server itself');
     assert.deepEqual([all.truncated, all.reason], [false, null]);
@@ -490,7 +506,7 @@ test('re-projection after an edit, a link revocation and a retirement: stale edg
   const env = traversalFixture();
   const { db, ids, ctx, accounts } = env;
   try {
-    const live = (predicate, src) =>
+    const live = (predicate: string, src: Untyped) =>
       db
         .prepare('SELECT dst FROM graph_edges WHERE predicate = ? AND src = ? AND retired_at IS NULL ORDER BY dst')
         .all(predicate, src)
@@ -519,7 +535,7 @@ test('re-projection after an edit, a link revocation and a retirement: stale edg
       db.prepare("UPDATE account_person_links SET state = 'revoked', valid_to_at = ? WHERE id = 'link:main'").run(
         at(60)
       );
-      projectRow(db, 'account_person_links', { account_id: accounts.main }, { at: at(60) });
+      projectRow(wrongly(db), 'account_person_links', { account_id: accounts.main }, { at: at(60) });
     });
     assert.deepEqual(live('account_of', graphNodeId('account', accounts.main)), []);
     assert.equal(
@@ -529,13 +545,21 @@ test('re-projection after an edit, a link revocation and a retirement: stale edg
       at(60),
       'retired at the end of the link'
     );
-    assert.deepEqual(rowIds(saidBy(db, ctx.group, 'person:alice')), [], 'her main account was her only public one');
-    assert.deepEqual(rowIds(saidBy(db, ctx.dm, 'person:alice')), [ids.alt, ids.replyToReply], 'the alt is still hers');
+    assert.deepEqual(
+      rowIds(saidBy(wrongly(db), ctx.group, 'person:alice')),
+      [],
+      'her main account was her only public one'
+    );
+    assert.deepEqual(
+      rowIds(saidBy(wrongly(db), ctx.dm, 'person:alice')),
+      [ids.alt, ids.replyToReply],
+      'the alt is still hers'
+    );
 
     // A retirement: the reply leaves; its edges retire with it, its witness goes, the walks lose it.
     handleTx(env, () => {
       db.prepare('UPDATE sources SET retired_at = ? WHERE id = ?').run(at(70), ids.reply);
-      projectRow(db, 'sources', { id: ids.reply }, { at: at(70) });
+      projectRow(wrongly(db), 'sources', { id: ids.reply }, { at: at(70) });
     });
     assert.equal(
       count(
@@ -573,7 +597,11 @@ test('re-projection after an edit, a link revocation and a retirement: stale edg
       ['aud:group:discord'],
       'the line replying to it still names it, with its own audience'
     );
-    assert.deepEqual(rowIds(repliesTo(db, ctx.group, ids.her)), [], 'the reply to the reply hung off the retired line');
+    assert.deepEqual(
+      rowIds(repliesTo(wrongly(db), ctx.group, ids.her)),
+      [],
+      'the reply to the reply hung off the retired line'
+    );
     assert.deepEqual(keysOf(), []);
 
     // A whole re-projection changes nothing, and twice gives the same hashes.
@@ -598,7 +626,7 @@ test('re-projection after an edit, a link revocation and a retirement: stale edg
 
 test('claim edits: every new version keeps its sources; a stale base is refused and recorded; a current one or none goes through', () => {
   const handle = openMemoryDb(':memory:');
-  const { db } = handle;
+  const db = sqlOf(handle);
   try {
     insertRows(
       db,
@@ -632,27 +660,29 @@ test('claim edits: every new version keeps its sources; a stale base is refused 
       { log: quiet }
     );
     const scope = groupScope('discord');
-    const write = (runId, claims) =>
-      applyMemoryWrite(handle, {
-        kind: 'session',
-        mode: 'apply',
-        now: NOW,
-        run: {
-          id: runId,
-          scopeKey: 'group:discord',
-          scope,
-          batchKey: `apply|${runId}`,
-          startedAt: at(0),
-          finishedAt: at(1),
-          outcome: 'ok',
-          counts: {},
-          errors: [],
-        },
-        plan: { claims, episodes: [], affinity: [], descriptions: [], people: [] },
-      });
+    const write = (runId: string, claims: Array<Record<string, Untyped>>): Record<string, Untyped> =>
+      wrongly<Record<string, Untyped>>(
+        applyMemoryWrite(handle, {
+          kind: 'session',
+          mode: 'apply',
+          now: NOW,
+          run: {
+            id: runId,
+            scopeKey: 'group:discord',
+            scope,
+            batchKey: `apply|${runId}`,
+            startedAt: at(0),
+            finishedAt: at(1),
+            outcome: 'ok',
+            counts: {},
+            errors: [],
+          },
+          plan: { claims, episodes: [], affinity: [], descriptions: [], people: [] },
+        })
+      );
     const first = write('run:1', [{ op: 'confirm', id: 'clm:tea', sources: ['src:1'], base: 'cv:tea:1' }]);
     assert.equal(first.confirmed, 1);
-    const newest = newestClaimVersion(db, 'clm:tea');
+    const newest = newestClaimVersion(wrongly(db), 'clm:tea');
     assert.notEqual(newest, 'cv:tea:1');
     assert.deepEqual(
       db
@@ -680,7 +710,7 @@ test('claim edits: every new version keeps its sources; a stale base is refused 
       db.prepare("SELECT action FROM decisions WHERE id = 'dec:run:2:1'").get().action,
       'rejected:stale_base'
     );
-    assert.equal(newestClaimVersion(db, 'clm:tea'), newest, 'nothing written');
+    assert.equal(newestClaimVersion(wrongly(db), 'clm:tea'), newest, 'nothing written');
     // A base of null says the session read no version: stale too, once one exists.
     assert.equal(write('run:3', [{ op: 'confirm', id: 'clm:tea', sources: ['src:2'], base: null }]).rejected, 1);
 
@@ -692,7 +722,7 @@ test('claim edits: every new version keeps its sources; a stale base is refused 
     assert.deepEqual(
       db
         .prepare('SELECT source_id, role FROM claim_version_sources WHERE version_id = ?')
-        .all(newestClaimVersion(db, 'clm:tea'))
+        .all(newestClaimVersion(wrongly(db), 'clm:tea'))
         .map((row) => ({ ...row })),
       [{ source_id: 'src:3', role: 'conflicts' }]
     );
@@ -739,9 +769,9 @@ function importedAtV8() {
   buildDataDir(data);
   const file = path.join(root, 'memory.db');
   const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 8) });
-  assert.equal(seedUnits(old, data, { log: quiet }).errors, 0);
+  assert.equal(seedUnits(old, data, wrongly({ log: quiet })).errors, 0);
   assert.equal(schemaVersion(old.db), 8);
-  const db = old.db;
+  const db: Record<string, Untyped> = old.db;
   const source = db.prepare("SELECT id FROM sources WHERE kind = 'seen' ORDER BY rowid LIMIT 1").get().id;
   db.prepare(
     `INSERT INTO claims (id, subject_kind, subject_id, kind, text, scope_kind, scope_iface, scope_dm, audience_id, created_at)
@@ -766,7 +796,7 @@ test('v9 migration: durable ids, legacy evidence marked, the projection pending 
     const started = performance.now();
     const handle = openMemoryDb(env.file);
     const migrated = performance.now() - started;
-    const { db } = handle;
+    const db = sqlOf(handle);
     try {
       // The database goes to the newest schema; v9 is the ninth entry.
       assert.equal(schemaVersion(db), MIGRATIONS.length);
@@ -882,7 +912,7 @@ test('v9 contracts: a replay of the unit writes projects the same rows; reprojec
   try {
     const handle = openMemoryDb(env.file);
     assert.equal(
-      seedUnits(handle, env.data, { log: quiet }).errors,
+      seedUnits(handle, env.data, wrongly({ log: quiet })).errors,
       0,
       'a full pass also finishes the pending projection'
     );
@@ -892,7 +922,7 @@ test('v9 contracts: a replay of the unit writes projects the same rows; reprojec
     // Every unit written again: the projection the writers keep is the same rows as before.
     const writer = openMemoryDb(env.file);
     const before = hashesOf(writer.db, GRAPH);
-    const replay = seedUnits(writer, env.data, { log: quiet });
+    const replay = seedUnits(writer, env.data, wrongly({ log: quiet }));
     assert.equal(replay.errors, 0);
     assert.ok(replay.units > 10);
     assert.deepEqual(hashesOf(writer.db, GRAPH), before, 'a replay re-projects to the same rows');
@@ -909,12 +939,12 @@ test('v9 contracts: a replay of the unit writes projects the same rows; reprojec
     assert.match(rebuilt.text, /every derived table equal to before/, rebuilt.text);
     const reader = openMemoryDb(env.file, { readOnly: true });
     assert.deepEqual(hashesOf(reader.db, derived), beforeRebuild);
-    assert.deepEqual(reader.db.prepare('PRAGMA foreign_key_check').all(), []);
+    assert.deepEqual(sqlOf(reader).prepare('PRAGMA foreign_key_check').all(), []);
     reader.close();
 
     // The round trip: a VACUUM INTO copy hashes like its source, table by table.
     const copy = path.join(env.root, 'copy.db');
-    const source = openMemoryDb(env.file, { readOnly: true });
+    const source: Record<string, Untyped> = openMemoryDb(env.file, { readOnly: true });
     source.db.exec(`VACUUM INTO '${copy.replace(/'/g, "''")}'`);
     const original = tableHashes(source.db);
     source.close();

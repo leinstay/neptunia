@@ -765,11 +765,6 @@
       "attributes": {
         "complexity": 23
       }
-    },
-    "tests/fault-injection.test.js": {
-      "assertNoSilentFailure": {
-        "complexity": 23
-      }
     }
   },
   "structure": {

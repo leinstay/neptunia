@@ -20,12 +20,25 @@ import {
 import { audienceWhere, dmContext, groupContext, groupScope } from '../src/memory/db/scope.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { batchOf, buildSessionRequest, scopesOf, validateAnswer } from '../src/memory/db/session.ts';
+import type { Untyped } from '../src/tools/types.ts';
+import { wrongly, sqlOf } from './fixtures/loose-types.ts';
+import type { UntypedDb } from './fixtures/loose-types.ts';
+
+/** What `observe` answers for a stored message: the ids it assigned and the author's participant and account. */
+type Observed = {
+  ok: boolean;
+  sourceId: string;
+  placeId: string;
+  audienceId: string;
+  author: { participant: string; account: string };
+};
+const observed = (...args: Parameters<typeof observe>) => wrongly<Observed>(observe(...args));
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
-const at = (minutes) => new Date(Date.parse('2026-10-24T10:00:00.000Z') + minutes * 60_000).toISOString();
+const at = (minutes: number) => new Date(Date.parse('2026-10-24T10:00:00.000Z') + minutes * 60_000).toISOString();
 const opts = { now: () => NOW, log: quiet };
-const count = (db, sql, ...params) => db.prepare(sql).get(...params).n;
+const count = (db: UntypedDb, sql: string, ...params: Array<unknown>) => db.prepare(sql).get(...params).n;
 
 const TABLES = [
   'sources',
@@ -46,7 +59,7 @@ const TABLES = [
   'account_person_links',
   'decisions',
 ];
-const sizes = (db) =>
+const sizes = (db: UntypedDb) =>
   Object.fromEntries(TABLES.map((table) => [table, count(db, `SELECT COUNT(*) AS n FROM "${table}"`)]));
 
 function fresh() {
@@ -55,7 +68,7 @@ function fresh() {
 
 // ---------- Twitter ----------
 
-const tweet = (key, over = {}) => ({
+const tweet = (key: string, over = {}) => ({
   v: OBSERVATION_VERSION,
   iface: 'twitter',
   authority: 'twitter/global',
@@ -78,7 +91,7 @@ const tweet = (key, over = {}) => ({
 
 test('twitter: her post opens a bundle, replies join it, a mention of her opens its own; a stranger quote tweet is not stored unless passed', () => {
   const handle = fresh();
-  const { db } = handle;
+  const db = sqlOf(handle);
   try {
     const people = count(db, 'SELECT COUNT(*) AS n FROM people');
     const post = observe(
@@ -117,7 +130,7 @@ test('twitter: her post opens a bundle, replies join it, a mention of her opens 
     );
     assert.equal(db.prepare('SELECT kind FROM accounts WHERE id = ?').get(row.author_account).kind, 'self');
 
-    const reply = observe(
+    const reply = observed(
       handle,
       tweet('9002', {
         author: { kind: 'account', key: 'u-77', display: 'Zoé' },
@@ -216,7 +229,7 @@ test('twitter: her post opens a bundle, replies join it, a mention of her opens 
 // ---------- an imageboard ----------
 
 const SITE = 'imageboard/site:board.example';
-const post = (key, author, over = {}) => ({
+const post = (key: string, author: Record<string, Untyped>, over = {}) => ({
   v: OBSERVATION_VERSION,
   iface: 'imageboard',
   authority: SITE,
@@ -239,12 +252,12 @@ const threadB = { authority: SITE, key: 'thread:200', kind: 'thread', conversati
 
 test('imageboard: thread tokens stay in their thread, post numbers and display names are one participant per post, a site id is an account, a reset token is a new generation', () => {
   const handle = fresh();
-  const { db } = handle;
+  const db = sqlOf(handle);
   try {
     const token = { kind: 'participant', token_kind: 'thread_token', key: 'Ab12' };
-    const a1 = observe(handle, post('101', token), opts);
-    const a2 = observe(handle, post('102', token), opts);
-    const b1 = observe(handle, post('201', token, { place: threadB }), opts);
+    const a1 = observed(handle, post('101', token), opts);
+    const a2 = observed(handle, post('102', token), opts);
+    const b1 = observed(handle, post('201', token, { place: threadB }), opts);
     for (const result of [a1, a2, b1]) assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(a1.author.participant, a2.author.participant, 'one token, one thread: one participant');
     assert.notEqual(a1.author.participant, b1.author.participant, 'the same token in another thread is someone else');
@@ -267,7 +280,7 @@ test('imageboard: thread tokens stay in their thread, post numbers and display n
     );
 
     // A reset token: the same string, a new generation, a new participant.
-    const reset = observe(handle, post('103', { ...token, generation: 2 }), opts);
+    const reset = observed(handle, post('103', { ...token, generation: 2 }), opts);
     assert.notEqual(reset.author.participant, a1.author.participant);
     assert.equal(
       db.prepare('SELECT generation FROM participants WHERE id = ?').get(reset.author.participant).generation,
@@ -275,12 +288,12 @@ test('imageboard: thread tokens stay in their thread, post numbers and display n
     );
 
     // A board that shows only post numbers: every post its own participant, never linked.
-    const n1 = observe(
+    const n1 = observed(
       handle,
       post('301', { kind: 'participant', token_kind: 'post_number', key: '301' }, { place: threadB }),
       opts
     );
-    const n2 = observe(
+    const n2 = observed(
       handle,
       post('302', { kind: 'participant', token_kind: 'post_number', key: '302' }, { place: threadB }),
       opts
@@ -291,12 +304,12 @@ test('imageboard: thread tokens stay in their thread, post numbers and display n
       'unknown'
     );
     // Display names only: one participant per post, keyed by the post.
-    const d1 = observe(
+    const d1 = observed(
       handle,
       post('401', { kind: 'participant', token_kind: 'display_name', display: 'Anonymous' }),
       opts
     );
-    const d2 = observe(
+    const d2 = observed(
       handle,
       post('402', { kind: 'participant', token_kind: 'display_name', display: 'Anonymous' }),
       opts
@@ -319,7 +332,7 @@ test('imageboard: thread tokens stay in their thread, post numbers and display n
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM participant_links'), 0, 'nothing links participants');
 
     // A site-wide stable id is an account of the site, with no person.
-    const site = observe(handle, post('501', { kind: 'account', key: 'id:9f3c' }), opts);
+    const site = observed(handle, post('501', { kind: 'account', key: 'id:9f3c' }), opts);
     assert.deepEqual(
       {
         ...db.prepare('SELECT authority_id, native_key, person_id FROM accounts WHERE id = ?').get(site.author.account),
@@ -330,7 +343,7 @@ test('imageboard: thread tokens stay in their thread, post numbers and display n
       count(db, 'SELECT COUNT(*) AS n FROM account_person_links WHERE account_id = ?', site.author.account),
       0
     );
-    const again = observe(handle, post('502', { kind: 'account', key: 'id:9f3c' }, { place: threadB }), opts);
+    const again = observed(handle, post('502', { kind: 'account', key: 'id:9f3c' }, { place: threadB }), opts);
     assert.equal(again.author.account, site.author.account, 'a site id is one account across threads');
 
     // A reply to a post nobody fetched waits; it resolves when the post arrives, and its key stays.
@@ -382,7 +395,7 @@ test('imageboard: thread tokens stay in their thread, post numbers and display n
 
 // ---------- Telegram ----------
 
-const message = (key, place, author, over = {}) => ({
+const message = (key: string, place: Record<string, Untyped>, author: Record<string, Untyped>, over = {}) => ({
   v: OBSERVATION_VERSION,
   iface: 'telegram',
   authority: 'telegram/global',
@@ -397,7 +410,7 @@ const message = (key, place, author, over = {}) => ({
 
 test("telegram: a DM is its own audience, a group is the interface's, an unknown conversation is internal", () => {
   const handle = fresh();
-  const { db } = handle;
+  const db = sqlOf(handle);
   try {
     const dmPlace = {
       authority: 'telegram/global',
@@ -406,7 +419,7 @@ test("telegram: a DM is its own audience, a group is the interface's, an unknown
       conversation: 'dm',
       partner: { key: '555', display: 'Ilse' },
     };
-    const dm = observe(handle, message('555:1', dmPlace, { kind: 'account', key: '555', display: 'Ilse' }), opts);
+    const dm = observed(handle, message('555:1', dmPlace, { kind: 'account', key: '555', display: 'Ilse' }), opts);
     assert.equal(dm.ok, true, JSON.stringify(dm));
     assert.equal(dm.audienceId, `aud:dm:${dm.placeId}`);
     const place = db
@@ -439,7 +452,7 @@ test("telegram: a DM is its own audience, a group is the interface's, an unknown
     assert.equal(unknown.audienceId, 'aud:internal', 'an unknown conversation fails closed');
     assert.equal(db.prepare('SELECT conversation FROM places WHERE id = ?').get(unknown.placeId).conversation, null);
 
-    const visible = (ctx) => {
+    const visible = (ctx: Record<string, Untyped>) => {
       const where = audienceWhere(ctx, 's');
       return db
         .prepare(`SELECT s.id FROM sources s WHERE ${where.sql} ORDER BY s.id`)
@@ -466,7 +479,7 @@ test("telegram: a DM is its own audience, a group is the interface's, an unknown
 
 test('observe: a malformed envelope is refused with a code and writes nothing; a refusal found while writing rolls back', () => {
   const handle = fresh();
-  const { db } = handle;
+  const db = sqlOf(handle);
   try {
     const good = tweet('1');
     const cases = [
@@ -510,7 +523,7 @@ test('observe: a malformed envelope is refused with a code and writes nothing; a
 
 test('capture: a bundle grows by expansion past pageLines with truthful coverage; history is append-only; a source keeps two roles', () => {
   const handle = fresh();
-  const { db } = handle;
+  const db = sqlOf(handle);
   try {
     const anchor = observe(handle, tweet('1000'), opts);
     const lines = [];
@@ -523,7 +536,7 @@ test('capture: a bundle grows by expansion past pageLines with truthful coverage
         ).sourceId
       );
     // PR 7d: a page holds the constant 60 lines (`capture.pageLines`).
-    const opened = openBundle(handle, {
+    const opened: Record<string, Untyped> = openBundle(handle, {
       anchor: anchor.sourceId,
       reason: 'own_line',
       coverage: { state: 'pending_expansion', before: 0, after: 0 },
@@ -544,7 +557,7 @@ test('capture: a bundle grows by expansion past pageLines with truthful coverage
     assert.equal(first.added, 60);
     assert.equal(first.rest.length, 10);
     assert.equal(first.coverage.state, 'pending_expansion', 'a page boundary is never "complete"');
-    const second = expandBundle(handle, opened.bundleId, {
+    const second: Record<string, Untyped> = expandBundle(handle, opened.bundleId, {
       sources: first.rest,
       coverage: { state: 'complete', after: 70 },
       ...opts,
@@ -569,12 +582,13 @@ test('capture: a bundle grows by expansion past pageLines with truthful coverage
       ]
     );
     assert.equal(
-      JSON.parse(db.prepare('SELECT coverage FROM capture_bundles WHERE id = ?').get(opened.bundleId).coverage).state,
+      JSON.parse(String(db.prepare('SELECT coverage FROM capture_bundles WHERE id = ?').get(opened.bundleId).coverage))
+        .state,
       'complete'
     );
 
     // A line that is both a reply to her and a mention of her keeps both roles; adding a role twice adds nothing.
-    const both = expandBundle(handle, opened.bundleId, {
+    const both: Record<string, Untyped> = expandBundle(handle, opened.bundleId, {
       sources: [
         { id: lines[0], role: 'reply' },
         { id: lines[0], role: 'mention' },
@@ -606,12 +620,14 @@ test('capture: a bundle grows by expansion past pageLines with truthful coverage
     );
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM capture_events'), events);
     assert.equal(
-      expandBundle(handle, opened.bundleId, {
-        sources: [],
-        coverage: { state: 'provider_unavailable' },
-        kind: 'watch',
-        ...opts,
-      }).coverage.state,
+      wrongly<Untyped>(
+        expandBundle(handle, opened.bundleId, {
+          sources: [],
+          coverage: { state: 'provider_unavailable' },
+          kind: 'watch',
+          ...opts,
+        })
+      ).coverage.state,
       'provider_unavailable'
     );
     assert.throws(() => db.prepare('UPDATE capture_events SET added = 0').run(), /append-only/);
@@ -636,32 +652,36 @@ test('capture: watches at 15 min, 2 h and 24 h after the anchor; due ones are li
       tweet('2000', { capture: { role: 'anchor', reason: 'own_line', coverage: { state: 'complete' } } }),
       opts
     );
-    const scheduled = scheduleWatches(handle, anchor.bundleId, null, { log: quiet });
+    const scheduled: Record<string, Untyped> = scheduleWatches(handle, anchor.bundleId, null, { log: quiet });
     assert.deepEqual([scheduled.ok, scheduled.scheduled], [true, 3]);
-    assert.equal(scheduleWatches(handle, anchor.bundleId, null, { log: quiet }).scheduled, 0, 'scheduled once');
+    assert.equal(
+      wrongly<Untyped>(scheduleWatches(handle, anchor.bundleId, null, { log: quiet })).scheduled,
+      0,
+      'scheduled once'
+    );
     // PR 7d: `capture.watchSameAuthor` is the constant 20.
-    const due = (minutes) => dueWatches(handle, Date.parse(at(minutes)), {});
+    const due = (minutes: number) => dueWatches(handle, Date.parse(at(minutes)), {});
     assert.deepEqual(due(10), []);
     const firstDue = due(30);
     assert.deepEqual(
       firstDue.map((w) => [w.dueAt, w.anchor, w.sameAuthorMax]),
       [[at(15), anchor.sourceId, 20]]
     );
-    assert.deepEqual(finishWatch(handle, firstDue[0].id, 'unavailable', opts), { ok: true, written: 1 });
+    assert.deepEqual(finishWatch(handle, wrongly(firstDue[0].id), 'unavailable', opts), { ok: true, written: 1 });
     assert.deepEqual(
-      finishWatch(handle, firstDue[0].id, 'fetched', opts),
+      finishWatch(handle, wrongly(firstDue[0].id), 'fetched', opts),
       { ok: true, written: 0 },
       'a closed watch stays as it was'
     );
     assert.equal(
-      handle.db.prepare('SELECT outcome FROM capture_watches WHERE id = ?').get(firstDue[0].id).outcome,
+      sqlOf(handle).prepare('SELECT outcome FROM capture_watches WHERE id = ?').get(firstDue[0].id).outcome,
       'unavailable'
     );
     assert.deepEqual(due(30), []);
     assert.equal(due(180).length, 1);
     assert.equal(due(2000).length, 2);
-    assert.deepEqual(finishWatch(handle, firstDue[0].id, 'maybe', opts), { ok: false, code: 'BAD_OUTCOME' });
-    assert.deepEqual(scheduleWatches(handle, 'bundle:none', [15], { log: quiet }), {
+    assert.deepEqual(finishWatch(handle, wrongly(firstDue[0].id), 'maybe', opts), { ok: false, code: 'BAD_OUTCOME' });
+    assert.deepEqual(scheduleWatches(handle, 'bundle:none', wrongly([15]), { log: quiet }), {
       ok: false,
       code: 'UNKNOWN_BUNDLE',
     });
@@ -674,9 +694,9 @@ test('capture: watches at 15 min, 2 h and 24 h after the anchor; due ones are li
 
 test('people:add: the batch carries author handles; the validator keeps a well-formed op and drops the rest by reason', () => {
   const handle = fresh();
-  const { db } = handle;
+  const db = sqlOf(handle);
   try {
-    const p1 = observe(
+    const p1 = observed(
       handle,
       post(
         '101',
@@ -685,7 +705,7 @@ test('people:add: the batch carries author handles; the validator keeps a well-f
       ),
       opts
     );
-    const p2 = observe(
+    const p2 = observed(
       handle,
       post('501', { kind: 'account', key: 'id:9f3c', display: 'Ilse' }, { occurredAt: at(3), observedAt: at(4) }),
       opts
@@ -694,15 +714,17 @@ test('people:add: the batch carries author handles; the validator keeps a well-f
     assert.ok(scope, 'the imageboard group is a scope');
     const batch = batchOf(db, scope.scope, { cursor: 0, since: null, maxMessages: 50, settleBefore: NOW });
     assert.equal(batch.length, 2);
-    const built = buildSessionRequest({
-      db,
-      scope,
-      batch,
-      config: {},
-      prompts: { 'memory-session': 'x', labels: {} },
-      selfName: 'Nep',
-      now: NOW,
-    });
+    const built = buildSessionRequest(
+      wrongly({
+        db,
+        scope,
+        batch,
+        config: {},
+        prompts: { 'memory-session': 'x', labels: {} },
+        selfName: 'Nep',
+        now: NOW,
+      })
+    );
     assert.deepEqual(
       [...built.maps.authors.entries()],
       [
@@ -715,7 +737,7 @@ test('people:add: the batch carries author handles; the validator keeps a well-f
       'a participant line shows its handle before its display name'
     );
 
-    const maps = {
+    const maps: Untyped = {
       ...built.maps,
       authors: new Map([...built.maps.authors, ['a3', { kind: 'account', id: 'account:linked', hasPerson: true }]]),
     };
@@ -749,20 +771,26 @@ test('people:add: the batch carries author handles; the validator keeps a well-f
 
 test('people:add in shadow is a proposal only; in apply it mints a tentative person with a proposed link; a second add is refused', () => {
   const handle = fresh();
-  const { db } = handle;
+  const db = sqlOf(handle);
   try {
-    const p1 = observe(handle, post('101', { kind: 'participant', token_kind: 'thread_token', key: 'Ab12' }), opts);
-    const p2 = observe(handle, post('501', { kind: 'account', key: 'id:9f3c' }), opts);
+    const p1 = observed(handle, post('101', { kind: 'participant', token_kind: 'thread_token', key: 'Ab12' }), opts);
+    const p2 = observed(handle, post('501', { kind: 'account', key: 'id:9f3c' }), opts);
     const people = count(db, 'SELECT COUNT(*) AS n FROM people');
-    const plan = (ops) => ({ claims: [], episodes: [], affinity: [], descriptions: [], people: ops });
-    const add = (kind, id, source) => ({
+    const plan = (ops: Array<Record<string, Untyped>>) => ({
+      claims: [],
+      episodes: [],
+      affinity: [],
+      descriptions: [],
+      people: ops,
+    });
+    const add = (kind: string, id: string, source: string) => ({
       op: 'add',
       subjectKind: kind,
       subjectId: id,
       sources: [source],
       reason: 'seen twice',
     });
-    const runOf = (id) => ({
+    const runOf = (id: string) => ({
       id,
       scopeKey: 'group:imageboard',
       scope: groupScope('imageboard'),
@@ -774,7 +802,7 @@ test('people:add in shadow is a proposal only; in apply it mints a tentative per
       batchKey: id,
     });
 
-    const shadow = applyMemoryWrite(handle, {
+    const shadow: Untyped = applyMemoryWrite(handle, {
       kind: 'session',
       mode: 'shadow',
       run: runOf('run:s'),
@@ -790,7 +818,7 @@ test('people:add in shadow is a proposal only; in apply it mints a tentative per
 
     let n = 0;
     const uuid = () => `00000000-0000-4000-8000-00000000000${(n += 1)}`;
-    const applied = applyMemoryWrite(handle, {
+    const applied: Untyped = applyMemoryWrite(handle, {
       kind: 'session',
       mode: 'apply',
       run: runOf('run:a'),
@@ -845,7 +873,7 @@ test('people:add in shadow is a proposal only; in apply it mints a tentative per
       ]
     );
 
-    const again = applyMemoryWrite(handle, {
+    const again: Untyped = applyMemoryWrite(handle, {
       kind: 'session',
       mode: 'apply',
       run: runOf('run:b'),
