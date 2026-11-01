@@ -28,6 +28,9 @@ export type Schema = {
   minimum?: number;
   maximum?: number;
   enum?: ReadonlyArray<string>;
+  items?: Schema;
+  minItems?: number;
+  maxItems?: number;
 };
 
 /** Her arguments by name, as the model sent them. */
@@ -70,6 +73,12 @@ export const oneOf = (values: ReadonlyArray<string>): Schema => ({
   minLength: 1,
   maxLength: STRING_MAX,
   enum: [...values],
+});
+/** A list of free strings, each 1 to `itemMax` characters, at most `maxItems` of them. */
+export const strings = (itemMax: number, maxItems: number): Schema => ({
+  type: 'array',
+  items: str(itemMax),
+  maxItems,
 });
 /** An integer, with the bounds given. */
 export const int = (min?: number, max?: number): Schema => ({
@@ -230,6 +239,8 @@ export const API_NAMES: Readonly<Record<string, string>> = Object.freeze({
   'errand.resolve': 'errand_resolve',
   'board.propose': 'board_propose',
   'board.status': 'board_status',
+  'skill.read': 'skill_read',
+  'skill.disable': 'skill_disable',
   'intention.set': 'intention_set',
   'intention.update': 'intention_update',
   'intention.cancel': 'intention_cancel',
@@ -652,12 +663,46 @@ const ENTRIES: Array<Definition> = [
   }),
   def('errand.resolve', { params: obj({ id: str() }, ['id']), effects: 'write', toArgs: taskStatusArgs('resolve') }),
   def('board.propose', {
-    params: obj({ title: str(200), evidence: str(4000), acceptance: str(2000) }, ['title', 'evidence']),
+    params: obj(
+      {
+        title: str(200),
+        evidence: str(4000),
+        acceptance: str(2000),
+        kind: oneOf(['skill', 'fix']),
+        examples: strings(300, 8),
+        counterexamples: strings(300, 8),
+        benefit: str(600),
+        evaluation: str(600),
+      },
+      ['title', 'evidence']
+    ),
     body: 'evidence',
     effects: 'write',
-    toArgs: (a) => ({ title: val(a, 'title'), evidence: val(a, 'evidence'), acceptance: val(a, 'acceptance') }),
+    toArgs: (a) => ({
+      title: val(a, 'title'),
+      evidence: val(a, 'evidence'),
+      acceptance: val(a, 'acceptance'),
+      // The proposal's kind and the fields that go with it ride along only when she gave them.
+      ...Object.fromEntries(
+        ['kind', 'examples', 'counterexamples', 'benefit', 'evaluation']
+          .filter((name) => val(a, name) !== null)
+          .map((name) => [name, val(a, name)])
+      ),
+    }),
   }),
   def('board.status', { params: EMPTY(), effects: 'read', toArgs: none }),
+  def('skill.read', {
+    params: obj({ name: str(60) }, ['name']),
+    body: 'name',
+    effects: 'read',
+    toArgs: (a) => ({ name: val(a, 'name') }),
+  }),
+  def('skill.disable', {
+    params: obj({ name: str(60) }, ['name']),
+    body: 'name',
+    effects: 'write',
+    toArgs: (a) => ({ name: val(a, 'name') }),
+  }),
   def('intention.set', {
     params: INTENT_PARAMS.set,
     refs: { channel: 'channel', attend: 'channel' },

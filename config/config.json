@@ -72,7 +72,6 @@
   "memoryDb": {
     "file": "memory.db",
     "closeTimeoutMs": 10000,
-    "skillsRegistry": false,
     "observeTimeoutMs": 5000,
     "ingestKeepDays": 7,
     "backup": {
@@ -308,6 +307,9 @@
       "stepReserveTokens": 6000
     }
   },
+  "skills": {
+    "reviewDays": 30
+  },
   "diary": {
     "channelId": "",
     "world": false,
@@ -394,6 +396,12 @@
     },
     "caps": {
       "perChain": 3
+    },
+    "wakes": {
+      "selfimprovement": {
+        "everyDays": 7,
+        "failuresPerShape": 3
+      }
     },
     "loop": {
       "maxSteps": 4,

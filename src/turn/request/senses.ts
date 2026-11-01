@@ -284,7 +284,13 @@ export function skillsInventoryText(rows: Array<SkillRow | null> | null | undefi
 }
 
 /** The senses of a turn and the options they were rendered with, her tools in text and the skills catalogue. */
-export type SensesOf = { sensesOptions: SensesOptions; senses: Senses; toolsText: string; inventoryText: string };
+export type SensesOf = {
+  sensesOptions: SensesOptions;
+  senses: Senses;
+  toolsText: string;
+  inventoryText: string;
+  skillIndexText: string;
+};
 
 /**
  * The `<senses>` lines of a turn, fitted as if `<participation>` is shown, her tools in text (the text transport) and
@@ -319,7 +325,8 @@ export function sensesOf(given: RequestInput & Base & MemoryViews): SensesOf {
   const skillsShown = true;
   const toolsText = typeof given.toolsBlock === 'string' ? given.toolsBlock.trim() : '';
   const inventoryText = skillsShown ? skillsInventoryText(given.skillsInventory, labels) : '';
-  return { sensesOptions, senses, toolsText, inventoryText };
+  const skillIndexText = typeof given.skillIndex === 'string' ? given.skillIndex.trim() : '';
+  return { sensesOptions, senses, toolsText, inventoryText, skillIndexText };
 }
 
 /**

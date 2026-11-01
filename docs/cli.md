@@ -57,6 +57,7 @@ The core's console (`src/interface/commands/console.ts`) runs each command with 
 | `/rules`, `/rules add <text>`, `/rules remove <number>` | The owner's live rules in `prompts.local/rules.md` (`rule.*`). The tracked `prompts/rules.md` is never written. |
 | `/tools`, `/tools describe <tool>` | Every tool and whether she has it, or one tool or family in full (`tools.describe`). |
 | `/tools grant <tool> [target]`, `/tools revoke <tool> [target]` | Her grant of a tool when no target is given, else the grant of `everyone`, `role <id>` or `user <id>` (`access.grant`, `access.revoke`). Her grant names her user id, so it fails and writes nothing until an interface has said who she is. |
+| `/skills`, `/skills show <name>`, `review <name>`, `pending`, `activate <name>`, `rollback <name>`, `reject <name>`, `enable <name>`, `disable <name>` | Her skills with their state, one skill's active text, a skill's versions side by side, the versions waiting, and the owner's changes to them. See [Skills](skills.md). |
 | `/interface`, `/interface enable <name>`, `/interface disable <name>` | Every interface the core knows, enabled or disabled, connected or not, and the owner's switch of one. A disable gives the actions in flight `interfaces.drainMs` and ends the rest `unknown`. `/interface <name> <sub>` is the form of an interface's own subcommands, and no interface has any yet. |
 | `/help` | One line per command. |
 | `/clear` | Clears the screen. |

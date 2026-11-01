@@ -24,6 +24,7 @@ import { CODE } from '../tools/codes.ts';
 import { linksOfCalls, outcomeDetail } from '../tools/executors.ts';
 import type { CallView } from '../tools/executors.ts';
 import { coerceArgs, coversSpeech, toolResultText } from '../tools/tool-calls.ts';
+import type { TurnCall } from '../skills/uses.ts';
 import type { NormalCall } from '../tools/tool-calls.ts';
 import type { Obj, SkillMap } from '../tools/types.ts';
 import type { Act, ActArgs, ActOutcome, HeldSpeech, HoldArgs } from './act.ts';
@@ -154,6 +155,7 @@ export type ToolRoundDraft = CallsDraft & {
   unseenFailed?: Array<object>;
   innerLoop?: { steps: number; cut: string | null; droppedCalls: number };
   innerOpenFollowUp?: boolean;
+  skillCalls?: Array<TurnCall>;
   setShort?: number;
   reactorNames?: Map<string, { name: string; bot: boolean } | null>;
   lastThink?: string | null;
@@ -591,6 +593,16 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         );
         ranActions = draft.innerActions?.slice(actionsBefore) ?? [];
         made += results.length;
+        // The calls and how they ended, for the use of her skills (src/skills/uses.ts).
+        const skillCalls = (draft.skillCalls ??= []);
+        for (const [index, result] of results.entries()) {
+          const named = plans[index]?.record.args?.name;
+          skillCalls.push({
+            tool: result.skill,
+            ...(result.skill === 'skill.read' && typeof named === 'string' ? { name: named } : {}),
+            ok: result.status === 'ok',
+          });
+        }
       }
 
       // 2. Her speech: out after the calls when every one of them worked and needs no reading, else held.

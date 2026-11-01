@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 
-/** The commands of the 4.3 table in PR 7a: `/mirror`, `/skills` and `/plugins` come later. */
+/** The commands of the 4.3 table in PR 7a: `/mirror` and `/plugins` come later; `/skills` joined with PR 7e. */
 const TABLE = [
   'status',
   'doctor',
@@ -23,6 +23,7 @@ const TABLE = [
   'memory',
   'rules',
   'tools',
+  'skills',
   'interface',
   'help',
   'clear',
@@ -80,4 +81,26 @@ test('every listed part of /health and window of /usage parses', () => {
     '/usage 30d',
   ])
     assert.equal(parseCommandLine(line).ok, true, line);
+});
+
+test('/skills with nothing after it lists, and list and pending take no argument', () => {
+  const bare = parseCommandLine('/skills');
+  assert.ok(bare.ok);
+  assert.equal(bare.name, 'skills.list');
+  assert.equal(parseCommandLine('/skills pending').ok, true);
+  assert.equal(parseCommandLine('/skills list now').ok, false);
+});
+
+test('every /skills subcommand that works on one skill takes its name and is refused without it', () => {
+  for (const sub of ['show', 'enable', 'disable', 'review', 'activate', 'rollback', 'reject']) {
+    const parsed = parseCommandLine(`/skills ${sub} look-it-up`);
+    assert.ok(parsed.ok, sub);
+    assert.equal(parsed.name, `skills.${sub}`);
+    assert.ok(Object.values(parsed.args).includes('look-it-up'), sub);
+    assert.equal(parseCommandLine(`/skills ${sub}`).ok, false, `${sub} needs a name`);
+  }
+});
+
+test('/skills approve is no subcommand: an agent activates, nobody approves', () => {
+  assert.equal(parseCommandLine('/skills approve look-it-up').ok, false);
 });

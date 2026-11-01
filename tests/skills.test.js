@@ -454,6 +454,8 @@ test('skills gateway: her own expressive operations need only her grant, whoever
     'message.edit',
     'message.react.add',
     'message.react.remove',
+    'skill.disable',
+    'skill.read',
     'voice.say',
   ]);
   for (const name of SELF_OWNED_OPS) assert.ok(skillRegistry().has(name), name);

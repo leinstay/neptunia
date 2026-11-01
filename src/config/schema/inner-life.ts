@@ -116,6 +116,20 @@ export const INNER_LIFE: ReadonlyArray<SchemaEntry> = [
     'text': 'Days an untold fact stays',
   },
   {
+    'key': 'innerLife.wakes.selfimprovement.everyDays',
+    'types': ['number'],
+    'reader': 'src/behavior/inner/settings.ts',
+    'default': 7,
+    'text': 'Days between two selfimprovement wakes; the wake falls on the heartbeat moment once the days have passed',
+  },
+  {
+    'key': 'innerLife.wakes.selfimprovement.failuresPerShape',
+    'types': ['number'],
+    'reader': 'src/behavior/inner/settings.ts',
+    'default': 3,
+    'text': 'How many chains of one shape must fail in a UTC day to raise a selfimprovement wake with that cause',
+  },
+  {
     'key': 'innerLife.wakes.*.tools',
     'types': ['string', 'array'],
     'reader': 'src/tools/access.ts',

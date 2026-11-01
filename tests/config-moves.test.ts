@@ -49,6 +49,15 @@ test('moves the two feature switches, a false one included', () => {
   assert.deepEqual(config, { features: { tools: false, toolsDiscovery: false, diary: true } });
 });
 
+// PR 7e: `skills.reviewDays` is the setting of the SKILL.md skills, the one key of the `skills` section that is not an
+// old name of a tool setting, so the move leaves it where it is while the old keys beside it still move.
+test('leaves skills.reviewDays under skills and still moves the old keys beside it', () => {
+  const { config, moved } = moveConfigKeys({ skills: { reviewDays: 12, safeMode: true } });
+  assert.deepEqual(config, { skills: { reviewDays: 12 }, tools: { safeMode: true } });
+  assert.deepEqual(moved, [{ from: 'skills.safeMode', to: 'tools.safeMode' }]);
+  assert.deepEqual(moveConfigKeys({ skills: { reviewDays: 12 } }).config, { skills: { reviewDays: 12 } });
+});
+
 test('moves a false safe mode and keeps it false', () => {
   assert.deepEqual(moveConfigKeys({ skills: { safeMode: false } }).config, { tools: { safeMode: false } });
 });

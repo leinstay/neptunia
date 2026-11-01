@@ -25,6 +25,7 @@ import './memory.ts';
 import './message.ts';
 import './errand.ts';
 import './board.ts';
+import './skill.ts';
 import './intention.ts';
 import './places.ts';
 import './skills.ts';

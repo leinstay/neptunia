@@ -854,7 +854,7 @@ test('buildRequest: the skills protocol and an asked-for catalogue fill labels.t
   const request = buildRequest(await turnInput({ skillsInventory: rows }));
   const text = assertFilled(
     request.messages,
-    { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'skills'] },
+    { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'tool_catalogue'] },
     'reply (skills catalogue)'
   );
   // Only what she may use now: carried over and allowed; a closed skill is not listed.

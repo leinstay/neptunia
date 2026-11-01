@@ -20,6 +20,7 @@ import type { Untyped } from '../types.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { RoleHealth } from '../../llm/role-health.ts';
 import type { BoardCaller } from './board.ts';
+import type { SkillsAccess } from '../../skills/port.ts';
 
 /** What `createOpsEnv` is given: the persona's subsystems, the reads of the interface and the clock. */
 export type OpsDeps = {
@@ -43,6 +44,8 @@ export type OpsDeps = {
   roleHealth?: RoleHealth | null;
   /** The task board her board tools file on and read (src/board/writer.ts#createBoardPort); null when there is none. */
   board?: BoardCaller | null;
+  /** Her skills (src/skills/port.ts) that `skill.read` and `skill.disable` use; null when the core has none. */
+  skills?: SkillsAccess | null;
   [subsystem: string]: Untyped;
 };
 
@@ -92,6 +95,7 @@ function buildEnv({
   inner = null,
   mirrors = null,
   board = null,
+  skills = null,
   now = Date.now,
   // The data directory src/index.js resolved (src/paths.js); `<hot.rootDir>/data` when not given.
   dataDir = hot?.rootDir ? path.join(hot.rootDir as string, 'data') : null,
@@ -285,6 +289,8 @@ function buildEnv({
     mirrors: mirrors as unknown,
     // The task board (src/tools/impl/board.ts): `board.propose` and `board.status`, and the status card's agent costs.
     board,
+    // Her skills (src/tools/impl/skill.ts): `skill.read` and `skill.disable`.
+    skills,
     now,
     dataDir,
     connection,

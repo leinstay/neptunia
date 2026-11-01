@@ -10,6 +10,7 @@ import type { Adapter, ConversationInfo, ConversationRef } from '../../protocol/
 import type { SendHold } from '../../tools/send-hold.ts';
 import type { WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
 import type { HeartbeatFacts } from '../heartbeat-view.ts';
+import type { OutboxRow, ProposalEntry, SelfimprovementFacts, SkillUseRow } from '../selfimprovement-view.ts';
 import type { WakeBlockInput } from '../wake.ts';
 import type { WAKE_KINDS } from './settings.ts';
 import type { WakeBackend } from './wake-store.ts';
@@ -138,6 +139,8 @@ export type InnerState = {
   handled: Record<string, Handled>;
   review: Review | null;
   heartbeat: { nextAt: number | null; lastAt: number | null } | null;
+  // The selfimprovement wake's clock: when its last wake committed and when a failure cause last raised one.
+  selfimprovement: { lastAt: number | null; raisedAt: number | null } | null;
   turns: Array<TurnRecord>;
   spend: Array<{ at: number; usd: number }>;
   turnIds: Array<string>;
@@ -169,6 +172,7 @@ export type InnerSettings = {
     maxRecurring: number;
   };
   caps: { perChain: number };
+  wakes: { selfimprovement: { everyDays: number; failuresPerShape: number } };
   attention: {
     settleSeconds: number;
     perDayDefault: number;
@@ -273,6 +277,18 @@ export type HeartbeatSources = {
   focusPeople?(guildId: string): unknown;
 };
 
+/** The sources of the selfimprovement wake's facts (src/behavior/selfimprovement-view.ts) that are not the journal. */
+export type SelfimprovementSources = {
+  /** Her granted tool names now. */
+  granted?(): ReadonlyArray<string>;
+  /** Her skills with their use counts from a time on. */
+  skills?(since: number): ReadonlyArray<SkillUseRow>;
+  /** The tasks she filed with the board's answers, and her undelivered outbox rows. */
+  proposals?(): Promise<{ entries: Array<ProposalEntry>; outbox: Array<OutboxRow> }>;
+  /** Marks the outbox rows with these numbers delivered. */
+  ackOutbox?(seqs: ReadonlyArray<number>): Promise<void>;
+};
+
 /** The facts an inner turn's request carries in `<wake>` (the drain builds them, src/behavior/wake.ts words them). */
 export type WakeInfo = {
   kind: string;
@@ -288,6 +304,7 @@ export type WakeInfo = {
   budgets: { chain: ChainBudget };
   chainId: string;
   heartbeat?: HeartbeatFacts;
+  selfimprovement?: SelfimprovementFacts;
   here: { channel: string; why: string | null } | null;
 };
 
@@ -398,6 +415,7 @@ export type InnerContext = {
   uuid: () => string;
   costs: CostMeter;
   heartbeatSources: HeartbeatSources;
+  selfimprovementSources: SelfimprovementSources;
   memoryDb: InnerMemoryDb | null;
   /** The port a completed wake's deliveries go out through; without one a wake turn holds nothing. */
   port: InnerPort | null;

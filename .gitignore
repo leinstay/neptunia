@@ -32,6 +32,7 @@ node_modules/
 
 # Per-deployment personality overrides (the real character lives here)
 /prompts.local/
+/skills.local/
 
 # scratch files that may hold secrets
 temp.txt

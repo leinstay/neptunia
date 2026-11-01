@@ -58,6 +58,16 @@ With the switch `false`, the heartbeat can act freely; the origin and caps below
 
 **"Now".** A due time of `0m` makes the intention due at once: the scheduler's next tick lists it as an ordinary `intention_due` wake, after the heartbeat turn has ended.
 
+### The selfimprovement wake
+
+A wake for looking back at her own work. It falls due on the first heartbeat moment that comes at least `innerLife.wakes.selfimprovement.everyDays` (default 7) days after the last such wake, and early when one chain shape fails `innerLife.wakes.selfimprovement.failuresPerShape` (default 3) times in one UTC day, at most once a day. With the heartbeat off the weekly wake never falls due. The first tick of a state with no clock only starts the count.
+
+The state keeps `selfimprovement: { lastAt, raisedAt }`. `raisedAt` is when a failure cause last raised a wake. `lastAt` is the time of the last wake whose turn did not end in an error, set once that turn's completion committed (`src/behavior/inner/selfimprovement.ts`). The wake has no place, goes alone like the heartbeat (after a heartbeat that shares its moment) and runs in a channel she spoke in lately, or in the stand-in when there is none. `innerLife.mode` governs it like every other wake.
+
+Her `<wake>` carries the facts of `src/behavior/selfimprovement-view.ts`, read from the journal and the board with no model. A chain is the tool calls of one turn in order. The chains of the last 14 days are grouped by the ordered tool names with each call's argument names, and the five most frequent shapes come with their counts, failures, retries, costs, the turn of the newest chain and up to five turn ids. Beside them stand the tools she holds and called in none of those chains, her skills with their use counts, her proposals with their state, and what the board holds for her since the last such wake: the questions put to her, the reviews (a rejection included, a plan approval left out) and the outbox rows addressed to `persona:self`. The facts carry tool names, argument names, codes, counts, ids, costs and the board's own titles and notes, and no line of chat.
+
+Once the completion committed, the outbox rows the view showed are marked delivered, so each question and rejection reaches her once. A wake that never committed shows them again. Her answer is `board.propose` with a `kind` of `skill` or `fix` ([Skills](skills.md#how-a-skill-is-made)).
+
 ### Her attention
 
 She chooses where to listen. `intention.set attend=<place>` makes an open intention of kind `attend`: while it is open, the engine wakes her on new lines in that place.
@@ -104,7 +114,7 @@ If the process dies inside the turn, its wakes stay `running`. The next start ta
 
 **People first.** A wake waits while a turn holds the lease or a direct ping waits in the queue. Its due time stays the same.
 
-**Coalescing.** Wakes of the same conversation run as one inner turn. The day's review joins any server wake. Wakes elsewhere wait for their own turn. A heartbeat is never coalesced.
+**Coalescing.** Wakes of the same conversation run as one inner turn. The day's review joins any server wake. Wakes elsewhere wait for their own turn. A heartbeat and a selfimprovement wake are never coalesced.
 
 **Sleep.** A wake that fell due while the core was down or paused sleeps: it becomes `slept` and never runs (`src/behavior/inner/recovery.ts`). A downtime runs from the last renewal of the `core:alive` lease, which every tick renews, to the first tick of the next start. A pause runs from the `pausedAt` of `/pause` to the first tick after `/resume`. A wake listed only after that interval sleeps too. A one-off intention whose wake slept is cancelled with a `sleptAt` mark, and her `intention.update` and `intention.cancel` on it answer `slept`. A recurring intention loses only that occurrence: its history records `slept`, and the next occurrence comes due as usual. Nothing about a slept wake becomes a fact, a wake or a memory. The owner's status counts the wakes slept since the start.
 

@@ -30,13 +30,11 @@
 //     relationship counts of yesterday and today are recounted and the close and exploring sets recomputed, through the
 //     writer (the worker), with the live `focus` settings. `focusPeople()` reads the sets for the heartbeat's people
 //     view on the read connection (an internal reader), with `focus.exploringShare`; null while the database is closed.
-//   - schema v11 (wakes.js, skills.js, index-policy.js):
+//   - schema v11 (wakes.js, index-policy.js):
 //       the wake runs: `recordWake(update)` is the inner life's one way to write its wake runs (src/behavior/
 //       inner.ts), through the writer; at each open the runs a dead process left `running` longer than the inner
 //       turn's time budget (`innerLife.loop.timeBudgetMs`) become `interrupted`.
-//       `memoryDb.skillsRegistry` (off by default): at each open every skill of src/tools/definitions.ts is registered with its
-//       content hash (its definition and its operation's source file under src/tools/impl/), its manifest and the engine
-//       commit (`git rev-parse HEAD`, else `unknown`; `commit` injects it).
+//       the skills registry (skills.ts, schema v22): its writes are `{ kind: 'skills', op, ... }` through the writer.
 //       `recall.db.vectorEviction`: once per UTC day, at a tick, the index policy classifies every line and evicts
 //       the vectors outside the owner's classes, through the writer; the sources a turn's request carried
 //       (`recordTurnReads`) and a memory session's batch read (`memoryWrite`) are touched, so their vectors come back.
@@ -106,7 +104,6 @@ import { FOCUS_DEFAULTS, focusView, lastFocusDay, runFocusDay } from './focus.js
 import { utcDay } from '../../time.js';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { skillVersionsOf } from './skills.js';
 import { indexSettings, reembedTouched } from './index-policy.js';
 import { observe as observeEnvelope } from './observe.js';
 import { graphPending } from './graph.js';
@@ -127,21 +124,7 @@ const DEFAULT_TURN_BUDGET_MS = 180_000;
 const REEMBED_EVERY_MS = 60_000;
 /** The least time between a failed daily backup and the next try. */
 const BACKUP_RETRY_MS = 3_600_000;
-const OPS_DIR = new URL('../../tools/impl/', import.meta.url);
 const ENGINE_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
-
-/** The source text of each operation's module under src/tools/impl/ (op name -> the file's text). */
-export function opSources(dir = OPS_DIR) {
-  const out = new Map();
-  for (const name of fs
-    .readdirSync(dir)
-    .filter((file) => file.endsWith('.ts'))
-    .sort()) {
-    const text = fs.readFileSync(new URL(name, dir), 'utf8');
-    for (const match of text.matchAll(/defineOp\(\{\s*name:\s*'([^']+)'/g)) out.set(match[1], text);
-  }
-  return out;
-}
 
 /** The engine's commit (`git rev-parse HEAD` in the checkout), or 'unknown'. */
 export function engineCommit(cwd = ENGINE_ROOT) {
@@ -378,7 +361,7 @@ function openContextOf(config, dataDir) {
  *   (diary-media.js); without it the job does nothing.
  *   `defer` runs a function on the next turn of the event loop (setImmediate), injected by the tests.
  *   `embed` is the embedding client's `embed(texts, { config, purpose })` (the re-embed job; none: the job does
- *   nothing), `commit` the engine commit for the skills registry (default `git rev-parse HEAD`), `selfName()` her name
+ *   nothing), `commit` the engine commit for the backup manifest (default `git rev-parse HEAD`), `selfName()` her name
  *   in a rebuilt embedding input.
  */
 export function createMemoryDb({
@@ -656,9 +639,8 @@ export function createMemoryDb({
     return Promise.resolve().then(() => applyMemoryWrite(handle, update));
   }
 
-  /** What each open does once (schema v11): stale wake runs interrupted, the skills registered (behind its switch). */
+  /** What each open does once (schema v11): stale wake runs interrupted. */
   function startupJobs() {
-    const given = hot.config?.memoryDb ?? {};
     const budget = hot.config?.innerLife?.loop?.timeBudgetMs;
     write({
       kind: 'wake',
@@ -670,31 +652,6 @@ export function createMemoryDb({
         if (done?.interrupted > 0) log.debug?.('memory db: wake runs interrupted', { runs: done.interrupted });
       })
       .catch((error) => log.warn('memory db: wake interrupt failed', { code: codeOf(error) }));
-    if (given.skillsRegistry === true) {
-      Promise.resolve()
-        .then(async () => {
-          const [{ SKILL_DEFINITIONS }, { NESTED_CAPABILITIES }] = await Promise.all([
-            import('../../tools/definitions.ts'),
-            import('../../tools/access.ts'),
-          ]);
-          const sources = opSources();
-          const entries = skillVersionsOf({
-            definitions: SKILL_DEFINITIONS,
-            nested: NESTED_CAPABILITIES,
-            sourceOf: (op) => sources.get(op) ?? '',
-            commit: typeof commit === 'string' ? commit : engineCommit(),
-          });
-          return write({ kind: 'skills', entries, now: now() });
-        })
-        .then((done) =>
-          log.debug?.('memory db: skills registered', {
-            skills: done?.skills ?? 0,
-            versions: done?.versions ?? 0,
-            stale: done?.stale ?? 0,
-          })
-        )
-        .catch((error) => log.warn('memory db: skills registry failed', { code: codeOf(error) }));
-    }
   }
 
   /**

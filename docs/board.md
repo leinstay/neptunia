@@ -34,7 +34,9 @@ node tools/client-token.mjs add dispatcher --kind agent --roles worker
 
 A development agent runs `neptunia task <command>` with its token in `NEPTUNIA_TASK_TOKEN` (see [The neptunia command](cli.md#the-task-board)). The command connects to the core's socket, `<data>/run/core.sock`, and the board's own rights decide each call. A worker takes its next task with `neptunia task next --lane dev --role <role>`, which holds back a task that waits for its brief, and every holder call after it carries the generation `next` answered. A call with an older generation is refused `stale-lease` and writes nothing, so a worker whose lease the reaper took back cannot write over the next holder's work. The orchestrator follows the board with `neptunia task events --from <seq>`.
 
-Her tools `board.propose` and `board.status` call the board as `persona`. They are closed until the owner grants them to her by name with `/tools grant <tool>`, like every tool of hers.
+Her tools `board.propose` and `board.status` call the board as `persona`. They are closed until the owner grants them to her by name with `/tools grant <tool>`, like every tool of hers. `board.propose` takes an optional `kind`, `skill` or `fix`. With a kind it also takes `examples` (at least one), `counterexamples`, `benefit` and `evaluation`, and the task's `metadata` holds the five. A call with one of those fields and no kind, or with a kind but no examples, benefit or evaluation case, is `invalid`.
+
+`outbox.pull` takes an optional `to_whom`. With it, the rows it returns and the rows its `ack` marks delivered are only those addressed to that name. Her `selfimprovement` wake pulls and acknowledges `persona:self` this way, so the rows addressed to `persona` for her errands stay as they are.
 
 No dollar cap stops a task or an attempt. `budget_usd` is stored on a task and an attempt reports its cost with `task.attempt.end`, and nothing compares the two. The money bound of an agent is the OpenRouter limit of the key it spends.
 

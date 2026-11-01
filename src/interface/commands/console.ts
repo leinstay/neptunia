@@ -28,6 +28,8 @@ import { backupDatabase, backupName, backupSettings, backupsIn, partialOf } from
 import { grantedSkillNames } from '../../tools/discovery.ts';
 import { ownValueAt, splitPath } from '../../tools/impl/shared.ts';
 import { skillRegistry } from '../../tools/registry.ts';
+import type { SkillsAccess } from '../../skills/port.ts';
+import { skillsCommand } from './skills.ts';
 import { callMethod, listOf, objOf } from '../../tools/types.ts';
 import type { Counters, DaysSum, RoleRow } from '../../tools/impl/usage.ts';
 
@@ -61,7 +63,12 @@ export type ConsoleDeps = {
   /** A conversation's newest stored lines, oldest first. */
   conversationLines(conversationId: string, count: number): ReadonlyArray<{ author: string; text: string }>;
   now(): number;
+  /** Her skills (src/skills/port.ts); `/skills` fails while there is none. */
+  skills?: SkillsAccess | null;
 };
+
+/** The prefix of the `/skills` commands, which `skillsCommand` answers. */
+const SKILLS_PREFIX = 'skills.';
 
 /** How many stored lines `/memory conversation` prints. */
 const CONVERSATION_LINES = 30;
@@ -448,5 +455,9 @@ export function createConsole(deps: ConsoleDeps): {
     }
   }
 
-  return { run };
+  // `/skills` has a module of its own; every other command is answered above.
+  return {
+    run: (name, args, requester) =>
+      name.startsWith(SKILLS_PREFIX) ? skillsCommand(deps.skills, name, args) : run(name, args, requester),
+  };
 }

@@ -13,6 +13,7 @@ export const WAKE_KINDS = Object.freeze([
   'attend',
   'feedback',
   'heartbeat',
+  'selfimprovement',
 ] as const);
 
 /**
@@ -43,6 +44,9 @@ export const INNER_DEFAULTS = Object.freeze({
     dueJitterMinutes: 20,
   }),
   caps: Object.freeze({ perChain: 3 }),
+  // The selfimprovement wake (PR 7e): once a week on the heartbeat's clock, and when one chain shape fails this many
+  // times in a UTC day. Decision of 2026-10-24 (the archived design), kept by the owner on 2026-10-31.
+  wakes: Object.freeze({ selfimprovement: Object.freeze({ everyDays: 7, failuresPerShape: 3 }) }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
   loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
   retry: Object.freeze({ delaysMinutes: Object.freeze([1, 5, 15, 60]), maxHours: 6 }),
@@ -96,6 +100,7 @@ export function innerSettings(config: unknown): InnerSettings {
   const review = objOf(raw.review);
   const loop = objOf(raw.loop);
   const retry = objOf(raw.retry);
+  const improvement = objOf(objOf(raw.wakes).selfimprovement);
   const d = INNER_DEFAULTS;
   return {
     mode: raw.mode === 'live' ? 'live' : 'shadow',
@@ -124,6 +129,12 @@ export function innerSettings(config: unknown): InnerSettings {
     },
     caps: {
       perChain: Math.floor(count(caps.perChain, d.caps.perChain)),
+    },
+    wakes: {
+      selfimprovement: {
+        everyDays: whole(improvement.everyDays, d.wakes.selfimprovement.everyDays),
+        failuresPerShape: whole(improvement.failuresPerShape, d.wakes.selfimprovement.failuresPerShape),
+      },
     },
     attention: { ...d.attention },
     loop: {

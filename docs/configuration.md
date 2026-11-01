@@ -193,7 +193,6 @@ The memory database. One SQLite file, kept in sync with the stored memory. See [
 |---|---|---|---|---|
 | `memoryDb.file` | string | `"memory.db"` | The database file under `data/`. Tools open it read-only | `src/memory/db/service.js` |
 | `memoryDb.closeTimeoutMs` | number | `10000` | At shutdown, how long to wait for the pass under way before the worker is terminated | `src/memory/db/service.js` |
-| `memoryDb.skillsRegistry` | boolean | `false` | At each open of the database, register every skill with the hash of its definition and manifest | `src/memory/db/service.js` |
 | `memoryDb.observeTimeoutMs` | number | `5000` | How long the message handler waits for an observation's commit before going on | `src/behavior/pipeline.js` |
 | `memoryDb.ingestKeepDays` | number | `7` | How many days the `ingest` table keeps an event the core took, the window in which a redelivered event is still a duplicate after a restart | `src/memory/db/ingest.ts` |
 | `memoryDb.backup.enabled` | boolean | `false` | Daily backup of the memory database. See the settings below | `src/memory/db/backup.js` |
@@ -467,6 +466,14 @@ Settings for voice messages. The persona's `voice.say` skill sends text through 
 | `tools.loop.maxCallsPerStep` | number | `4` | Most calls of one answer that run | `src/turn/settings.ts` |
 | `tools.loop.stepReserveTokens` | number | `6000` | Tokens the first request leaves for the follow-up requests. `0` = no reserve | `src/turn/request/head.ts` |
 
+## `skills`
+
+Settings for her `SKILL.md` skills. See [Skills](skills.md).
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `skills.reviewDays` | number | `30` | Days an active skill may go unread before `/skills` marks it for review; nothing is deleted | `src/skills/settings.ts` |
+
 ## `diary`
 
 Settings for the diary. See [Diary](diary.md).
@@ -595,6 +602,8 @@ Settings for the persona's inner life. See [Inner life](inner-life.md).
 | `innerLife.retry.delaysMinutes` | array | `[1, 5, 15, 60]` | Retry delays after a provider failure (minutes) | `src/behavior/inner/settings.ts` |
 | `innerLife.retry.maxHours` | number | `6` | Hours before retries stop | `src/behavior/inner/settings.ts` |
 | `innerLife.factsKeepDays` | number | `7` | Days an untold fact stays | `src/behavior/inner/settings.ts` |
+| `innerLife.wakes.selfimprovement.everyDays` | number | `7` | Days between two selfimprovement wakes; the wake falls on the heartbeat moment once the days have passed | `src/behavior/inner/settings.ts` |
+| `innerLife.wakes.selfimprovement.failuresPerShape` | number | `3` | How many chains of one shape must fail in a UTC day to raise a selfimprovement wake with that cause | `src/behavior/inner/settings.ts` |
 | `innerLife.wakes.*.tools` | string, array | `"*"` | The tools a wake of the kind may call: `"*"` (when unset) for every granted tool or a list of tool names | `src/tools/access.ts` |
 | `innerLife.wakes.*.maxActs` | number, null | `null` | The most actions a wake of the kind may take; unset or null: no cap | `src/tools/access.ts` |
 | `innerLife.wakes.*.maxTasks` | number, null | `null` | The most errands a wake of the kind may start; unset or null: no cap | `src/tools/access.ts` |

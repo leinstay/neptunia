@@ -95,6 +95,7 @@ import { createCostMeter, drain, onTaskFinished } from './inner/drain.ts';
 import type { DrainAnswer } from './inner/drain.ts';
 import { markFactsTold, pendingFactsOf } from './inner/facts.ts';
 import { heartbeatDue } from './inner/heartbeat.ts';
+import { selfimprovementDue } from './inner/selfimprovement.ts';
 import { attendWakes, places, refreshPlaces } from './inner/places.ts';
 import { admitListed, beforeTick, releaseAlive } from './inner/recovery.ts';
 import type { PlacesQuery } from './inner/places.ts';
@@ -109,6 +110,7 @@ import type {
   FactsApi,
   HeartbeatSources,
   InnerContext,
+  SelfimprovementSources,
   InnerIntentions,
   InnerJournal,
   InnerMemoryDb,
@@ -176,6 +178,8 @@ export type InnerLifeOptions = {
   meter?: CostMeter | null;
   /** The sources of the heartbeat's facts that are not the stores above (src/behavior/heartbeat-view.ts). */
   heartbeat?: HeartbeatSources;
+  /** The sources of the selfimprovement wake's facts that are not the journal (src/behavior/selfimprovement-view.ts). */
+  selfimprovement?: SelfimprovementSources;
   /**
    * The memory database (src/memory/db/service.js): the wake queue is kept in it through its writer, and with
    * `memoryDb.wakeRuns` on each inner turn is recorded as a wake run with its actions. Without one the queue lives in
@@ -240,6 +244,7 @@ export function createInnerLife({
   uuid = randomUUID,
   meter = null,
   heartbeat: heartbeatSources = {},
+  selfimprovement: selfimprovementSources = {},
   memoryDb = null,
   port = null,
   rng = Math.random,
@@ -266,6 +271,7 @@ export function createInnerLife({
     uuid,
     costs: meter ?? createCostMeter(),
     heartbeatSources,
+    selfimprovementSources,
     memoryDb,
     port,
     rng,
@@ -324,6 +330,7 @@ export function createInnerLife({
       if (review) listed.push(review);
       const beat = heartbeatDue(life, guildId, settings, at);
       if (beat) listed.push(beat);
+      listed.push(...(await selfimprovementDue(life, guildId, settings, at)));
       if (intentions) {
         await refreshPlaces(life, guildId, at, settings);
         listed.push(...attendWakes(life, guildId, at));

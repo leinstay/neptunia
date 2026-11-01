@@ -1220,6 +1220,33 @@ DROP TABLE ledger_comments;
 DROP TABLE ledger_events;
 DROP TABLE ledger_outbox;`;
 
+// Version 22 (2026-11-01, stage 7e): the skills registry holds SKILL.md skills. The v11 tables keep their shape; a
+// version gains `source`, the text it was synced from, so a skill is read as activated after its file moved on. The
+// rows a v21 registry wrote described the engine's tools and go (the registry was never switched on in production),
+// `skill_evaluations` through its append-only triggers, which the step drops and puts back. `skill_uses` is the
+// append-only record of how a turn used a skill: discovered in her index, read, tried, succeeded, corrected or
+// declined.
+
+/** The kinds of a skill use. */
+export const SKILL_USE_KIND_NAMES = ['discovered', 'read', 'tried', 'succeeded', 'corrected', 'declined'];
+
+const V22 = [
+  'DROP TRIGGER skill_evaluations_no_update;',
+  'DROP TRIGGER skill_evaluations_no_delete;',
+  'DELETE FROM skill_evaluations;',
+  ...APPEND_ONLY('skill_evaluations', 'evaluations are append-only'),
+  'UPDATE skills SET active_version = NULL;',
+  'DELETE FROM skill_versions;',
+  'DELETE FROM skills;',
+  'ALTER TABLE skill_versions ADD COLUMN source TEXT;',
+  `CREATE TABLE skill_uses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, skill TEXT NOT NULL, version_id TEXT NOT NULL REFERENCES skill_versions(id),
+    turn_id TEXT NOT NULL, kind TEXT NOT NULL CHECK (kind IN (${IN(SKILL_USE_KIND_NAMES)})), at TEXT NOT NULL
+  );`,
+  'CREATE INDEX skill_uses_skill ON skill_uses(skill, at);',
+  ...APPEND_ONLY('skill_uses', 'skill uses are append-only'),
+].join('\n');
+
 /** Each entry moves the schema one version up: SQL text, or a function of the connection (and the opener's context)
  * for a step SQL cannot do. Never edit a shipped entry: append a new one. */
 export const MIGRATIONS = [
@@ -1244,6 +1271,7 @@ export const MIGRATIONS = [
   V19,
   V20,
   V21,
+  V22,
 ];
 
 /** Every table schema v8 adds. */

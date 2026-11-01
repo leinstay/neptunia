@@ -5956,7 +5956,7 @@ const SKILL_ROWS = [
   { name: 'memory.wipe', title: 'Σβήσε', whenToUse: 'ποτέ', allowed: false, reason: 'not-grantable' },
 ];
 
-test('buildRequest: skills -- the catalogue never touches the stable part, whatever the grants; her tools are no block of the native transport', () => {
+test('buildRequest: tool_catalogue -- the catalogue never touches the stable part, whatever the grants; her tools are no block of the native transport', () => {
   const plain = buildRequest(segmentScene()).messages[1].content;
   const shown = buildRequest(segmentScene({ skillsInventory: SKILL_ROWS })).messages[1].content;
   const regranted = buildRequest(
@@ -5969,7 +5969,7 @@ test('buildRequest: skills -- the catalogue never touches the stable part, whate
     !plain[0].text.includes('message.create') && !shown[0].text.includes('message.create'),
     'no skill row in the stable part'
   );
-  assert.equal(blockTags(contentText(plain)).includes('skills'), false, 'no catalogue without the question');
+  assert.equal(blockTags(contentText(plain)).includes('tool_catalogue'), false, 'no catalogue without the question');
   assert.equal(blockTags(plain[0].text).includes('tools'), false, 'no <tools> without the text transport');
 });
 
@@ -6009,8 +6009,8 @@ test('buildRequest: skills -- the catalogue renders in the tail before <chat>: o
   const tail = content.at(-1).text;
   const tags = blockTags(tail);
   // Right before <chat>, with only what is current about the people (<people_now>) between.
-  assert.deepEqual(tags.slice(tags.indexOf('skills') + 1, tags.indexOf('skills') + 3), ['people_now', 'chat']);
-  const body = blocksOf(tail).find((b) => b.tag === 'skills').body;
+  assert.deepEqual(tags.slice(tags.indexOf('tool_catalogue') + 1).slice(0, 2), ['people_now', 'chat']);
+  const body = blocksOf(tail).find((b) => b.tag === 'tool_catalogue').body;
   const line = (row, access) =>
     fill(labels.tools.line, { name: row.name, title: row.title, whenToUse: row.whenToUse, access });
   // the message family together, an empty line, then the lore family; the closed ones left out
@@ -6030,19 +6030,19 @@ test('buildRequest: skills -- the catalogue renders in the tail before <chat>: o
   assert.ok(contentText(other).includes(line(SKILL_ROWS[2], labels.tools.access.allowed)));
   // Nothing open: no block.
   const closed = buildRequest(segmentScene({ skillsInventory: SKILL_ROWS.slice(3) })).messages[1].content;
-  assert.equal(blockTags(contentText(closed)).includes('skills'), false);
+  assert.equal(blockTags(contentText(closed)).includes('tool_catalogue'), false);
 });
 
 test('buildRequest: skills -- no labels: no block', () => {
   const prompts = fakePrompts({ labels: { ...labels, tools: undefined } });
   const bare = contentText(buildRequest(segmentScene({ prompts, skillsInventory: SKILL_ROWS })).messages[1].content);
-  assert.ok(!blockTags(bare).includes('skills'));
+  assert.ok(!blockTags(bare).includes('tool_catalogue'));
 });
 
 test('buildRequest: skills -- the skills proposed for this turn show the allowed ones and one line naming the others', () => {
   const proposed = SKILL_ROWS.map((row) => ({ ...row, proposed: true }));
   const tail = buildRequest(segmentScene({ skillsInventory: proposed })).messages[1].content.at(-1).text;
-  const body = blocksOf(tail).find((b) => b.tag === 'skills').body;
+  const body = blocksOf(tail).find((b) => b.tag === 'tool_catalogue').body;
   const line = (row, access) =>
     fill(labels.tools.line, { name: row.name, title: row.title, whenToUse: row.whenToUse, access });
   assert.deepEqual(body.split('\n'), [
@@ -6058,7 +6058,7 @@ test('buildRequest: skills -- the skills proposed for this turn show the allowed
   });
   const closed = buildRequest(segmentScene({ prompts, skillsInventory: [{ ...SKILL_ROWS[3], proposed: true }] }))
     .messages[1].content;
-  assert.equal(blockTags(contentText(closed)).includes('skills'), false);
+  assert.equal(blockTags(contentText(closed)).includes('tool_catalogue'), false);
 });
 
 test('skillsInventoryText: a proposed skill the asker has no right to is named on its own line, never as switched off', () => {
@@ -6253,13 +6253,13 @@ const ALICE_STATE = {
 const tailPeople = (request) =>
   blocksOf(request.messages[1].content.at(-1).text).find((b) => b.tag === 'people')?.body ?? '';
 
-test('buildRequest: people_now -- in the tail right after <skills> and before <chat>, in no cached part; the interlocutor, the tail people, then the people in voice, one field per line', () => {
+test('buildRequest: people_now -- in the tail right after <tool_catalogue> and before <chat>, in no cached part; the interlocutor, the tail people, then the people in voice, one field per line', () => {
   const request = buildRequest(aroundScene({ skillsInventory: SKILL_ROWS }));
   const content = request.messages[1].content;
   const tail = content.at(-1);
   assert.equal(tail.cacheSegment, undefined, 'the tail carries no cache segment');
   const tags = blockTags(tail.text);
-  assert.equal(tags[tags.indexOf('people_now') - 1], 'skills');
+  assert.equal(tags[tags.indexOf('people_now') - 1], 'tool_catalogue');
   assert.equal(tags[tags.indexOf('people_now') + 1], 'chat');
   for (const part of content.slice(0, -1))
     assert.ok(!part.text.includes('<people_now>'), `a cached part (${part.cacheSegment}) holds <people_now>`);

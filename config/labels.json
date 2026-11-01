@@ -447,7 +447,8 @@
         "errand_deadline": "The wait for errand {errand} ran out (intention {id}: {purpose})",
         "attend": "#{place} has {lines} new lines since your last look there ({since}), by {people} (intention {id}: {purpose}). Joining is your choice.",
         "feedback": "Your previous turn: not everything went through.",
-        "heartbeat": "Your heartbeat: nothing outside called you."
+        "heartbeat": "Your heartbeat: nothing outside called you.",
+        "selfimprovement": "Your time to look back at your own work: nobody called you. What follows is how your work went. A change or a skill goes through board.propose; leaving it is fine too."
       },
       "delayed": "Due {minutes} min ago; the provider call failed ({code}).",
       "feedbackInTurn": "Since you were last told:",
@@ -540,6 +541,27 @@
         "filteredAddressLine": "{when} #{place}: {who} {handle} {text}{media}: a line judged not for you",
         "filteredMissedLine": "{when} #{place}: {who} {handle} {text}{media}: a line judged not owed an answer ({verdict})",
         "more": "... and {more} more"
+      },
+      "selfimprovement": {
+        "header": "How your work went in the last {days} days:",
+        "cause": "You were woken early because one chain of calls failed again and again today: {shape}.",
+        "noShapes": "You made no tool call in that time.",
+        "shape": "{count} times: {steps}. {failures} failed, {retries} retried, {cost} USD. The latest was {when}. Turns: {turns}.",
+        "stepsJoin": " then ",
+        "moreShapes": "{count} less frequent shapes are left out.",
+        "unused": "Tools you hold and did not call: {tools}.",
+        "skills": "Your skills and how they were used:",
+        "skill": "{name}{state}: shown {discovered} times, read {read}, tried {tried}, worked {succeeded}, corrected {corrected}, set aside {declined}.",
+        "skillOff": " (off)",
+        "proposals": "Your proposals:",
+        "proposal": "{id} · {kind} · {title} · {status}{reason}",
+        "proposalReason": " ({reason})",
+        "news": "Since your last time here:",
+        "question": "A question on {task}: {text}{answered}",
+        "questionAnswered": " (answered)",
+        "review": "A review of {task}: {decision} {scope}{note}",
+        "reviewNote": ": {note}",
+        "board": "The board's word on {task}: {kind} {status}{reason}"
       }
     },
     "journal": {
@@ -800,6 +822,10 @@
         "agentRequired": "{arg} was not given; name one of: {agents}",
         "unknownArg": "the skill has no {arg} argument, only: {args}"
       }
+    },
+    "skills": {
+      "index": "Procedures you can follow, each written down for your tools. Read one with skill.read before you use it.",
+      "line": "- {name}: {description}"
     },
     "peopleNow": {
       "lead": "Right now, per person (the handle is the same as in <people> and <directory>):",

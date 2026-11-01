@@ -193,6 +193,7 @@ const MAY_CHANGE: ReadonlyArray<string> = [
   'dbSettings.maxPerDay',
   'attentionSettings.perDayDefault',
   'innerSettings.attention.perDayDefault',
+  'innerSettings.wakes',
   'agentSettings scout.daily',
   'agentSettings server.daily',
 ];

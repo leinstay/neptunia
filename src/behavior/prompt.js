@@ -417,9 +417,12 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  * @param {{ name: string, title: string, whenToUse: string, allowed: boolean, reason: string }[]|null} [input.skillsInventory]
  *   The persona's skills catalogue for this requester and conversation
  *   (src/tools/gateway.ts#listSkills), given on a turn whose question was what she can do (the
- *   classifier's `skills: inventory`): `<skills>` in the tail right before `<chat>`, one
- *   `labels.tools.line` per row (skillsInventoryText), budget section `skills` (one piece,
- *   after `found`). Omitted or null -> no `<skills>`.
+ *   classifier's `skills: inventory`): `<tool_catalogue>` in the tail right before `<chat>`, one
+ *   `labels.tools.line` per row (skillsInventoryText), budget section `tool_catalogue` (one piece,
+ *   after `found`). Omitted or null -> no `<tool_catalogue>`.
+ * @param {string|null} [input.skillIndex]  The body of the `<skills>` block, the index of her active skills
+ *   (src/skills/index-block.ts#skillIndexBlock): it renders in the cached stable part after `<tools>` and before
+ *   `<self_facts>`, and counts in the fixed budget section. Empty, null or omitted -> no block, the request unchanged.
  * @param {string[]|null} [input.toolsGranted]  The names of the tools exposed to her this turn
  *   (src/tools/discovery.ts#exposedSkillNames): only the in-turn ones (`web.search`, `web.read`,
  *   `media.look`, `memory.search`) matter here, to `<senses>` (the search
@@ -432,7 +435,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  * @param {{ snapshot: object, channelNameOf?: (channelId: string) => string|null }|null} [input.around]
  *   The live glance at the server's sidebar (src/behavior/around-store.ts): `snapshot` is the
  *   store's snapshot, `channelNameOf` the name of a voice channel the audience may see (else
- *   null: left out). It is the live part of `<people_now>`, in the tail right after `<skills>`
+ *   null: left out). It is the live part of `<people_now>`, in the tail right after `<tool_catalogue>`
  *   and before `<chat>`, never in a cached part: one entry per person
  *   (src/behavior/around.js#personRow): a heading line with their mention handle and name, then
  *   one labelled field per line -- the interlocutor first (the heading tagged with
@@ -582,6 +585,7 @@ export function buildRequest(input) {
     diary: input.diary,
     offPeriods: input.offPeriods,
     skillsInventory: input.skillsInventory,
+    skillIndex: input.skillIndex,
     toolsGranted: input.toolsGranted,
     toolsBlock: input.toolsBlock,
     toolsTokens: input.toolsTokens,
@@ -670,6 +674,7 @@ export function buildRequest(input) {
     labels,
     senses: sensesShown,
     tools: senses.toolsText,
+    skillIndex: senses.skillIndexText,
     channelDirectory: base.channelDirectoryText,
     directory: base.directoryText,
     kept: fit.kept,

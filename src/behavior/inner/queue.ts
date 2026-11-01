@@ -72,6 +72,7 @@ export function emptyState(): InnerState {
     handled: {},
     review: null,
     heartbeat: null,
+    selfimprovement: null,
     turns: [],
     spend: [],
     turnIds: [],
@@ -107,6 +108,16 @@ function heartbeatOf(value: unknown): InnerState['heartbeat'] {
   };
 }
 
+/** The selfimprovement clock read from disk, or null when it holds neither moment. */
+function selfimprovementOf(value: unknown): InnerState['selfimprovement'] {
+  const raw = objOf(value);
+  if (!value || typeof value !== 'object' || !(isFiniteNumber(raw.lastAt) || isFiniteNumber(raw.raisedAt))) return null;
+  return {
+    lastAt: isFiniteNumber(raw.lastAt) ? raw.lastAt : null,
+    raisedAt: isFiniteNumber(raw.raisedAt) ? raw.raisedAt : null,
+  };
+}
+
 /** A state read from disk made whole (a missing part empty). */
 export function normalizeState(value: unknown): InnerState {
   const base = emptyState();
@@ -123,6 +134,7 @@ export function normalizeState(value: unknown): InnerState {
     handled: objOf(raw.handled) as Record<string, Handled>,
     review: raw.review && typeof review.day === 'string' ? (review as Review) : null,
     heartbeat: heartbeatOf(raw.heartbeat),
+    selfimprovement: selfimprovementOf(raw.selfimprovement),
     turns: listOf(raw.turns).filter((turn) => isFiniteNumber(objOf(turn).at)) as Array<TurnRecord>,
     spend: listOf(raw.spend)
       .map(objOf)
@@ -233,9 +245,9 @@ export function deadlineWakes(records: unknown): Array<Wake> {
     );
 }
 
-/** The wakes that belong to no place: the day's review and the heartbeat (their turn runs in a channel she was lately active in, posts name their channel). */
+/** The wakes that belong to no place: the day's review, the heartbeat and the selfimprovement wake (their turn runs in a channel she was lately active in, posts name their channel). */
 export const channelless = (wake: Wake | null | undefined): boolean =>
-  wake?.kind === 'review' || wake?.kind === 'heartbeat';
+  wake?.kind === 'review' || wake?.kind === 'heartbeat' || wake?.kind === 'selfimprovement';
 
 /**
  * The wakes of `queue` that run together, the earliest due first: the first wake that is not a
@@ -261,6 +273,9 @@ export function coalesceGroup(queue: ReadonlyArray<Wake>, isHeld: (wake: Wake) =
   // The heartbeat is never coalesced and never waits behind another wake (a running turn holds the whole drain, so it comes at the next tick): it goes alone, after the feedback wakes.
   const beat = sorted.find((wake) => wake.kind === 'heartbeat');
   if (beat) return [beat];
+  // The selfimprovement wake goes alone the same way, after the heartbeat that shares its moment.
+  const improvement = sorted.find((wake) => wake.kind === 'selfimprovement');
+  if (improvement) return [improvement];
   const anchor = sorted.find((wake) => wake.kind !== 'review') ?? null;
   // A retried wake runs only with the wakes of its own failed group (the same attempt and first failure); a fresh one never joins them.
   const key = retryKey(anchor ?? sorted[0]);

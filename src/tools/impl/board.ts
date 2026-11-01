@@ -53,6 +53,39 @@ const unavailable = () => ({
   data: null,
 });
 
+/** The fields a proposal of a kind carries, besides the title and the evidence. */
+const KIND_FIELDS: ReadonlyArray<string> = ['kind', 'examples', 'counterexamples', 'benefit', 'evaluation'];
+/** The kinds of a proposal that ask for a skill or for a change of her code. */
+const PROPOSAL_KINDS: ReadonlyArray<string> = ['skill', 'fix'];
+
+/** A list of non-empty strings, or null when `value` is not one. */
+function stringList(value: unknown): Array<string> | null {
+  if (!Array.isArray(value)) return null;
+  const items = value.map((item) => textOf(item).trim());
+  return items.every((item) => item !== '') ? items : null;
+}
+
+/**
+ * The task metadata of a proposal with a `kind`: the kind, at least one example, the counterexamples (none by
+ * default), the expected benefit and an evaluation case. Null when she gave none of the fields; a refusal when she
+ * gave some and the set is not whole or the kind is not one of the two.
+ */
+function proposalMetadata(args: Obj): Obj | null {
+  const given = KIND_FIELDS.filter((name) => args[name] !== undefined && args[name] !== null);
+  if (given.length === 0) return null;
+  const kind = textOf(args.kind).trim();
+  if (!PROPOSAL_KINDS.includes(kind)) throw invalid(`kind: ${PROPOSAL_KINDS.join(' or ')}`);
+  const examples = stringList(args.examples);
+  if (examples === null || examples.length === 0) throw invalid('examples: at least one turn or case');
+  const counterexamples = args.counterexamples === undefined ? [] : stringList(args.counterexamples);
+  if (counterexamples === null) throw invalid('counterexamples: a list of cases, or none');
+  const benefit = textOf(args.benefit).trim();
+  if (!benefit) throw invalid('benefit: what gets better');
+  const evaluation = textOf(args.evaluation).trim();
+  if (!evaluation) throw invalid('evaluation: how to tell the change works');
+  return { kind, examples, counterexamples, benefit, evaluation };
+}
+
 const handlers = perEnv((env) => {
   /** The board of the environment, null when the core has none. */
   const boardOf = (): BoardCaller | null => env.board;
@@ -68,13 +101,14 @@ const handlers = perEnv((env) => {
     }
   }
 
-  /** `board.propose { title, evidence, acceptance? }`: a proposed dev task filed for her. */
+  /** `board.propose { title, evidence, acceptance?, kind?, ... }`: a proposed dev task filed for her. */
   function cmdPropose(args: Obj, context: OpContext) {
     const title = textOf(args.title).trim();
     const evidence = textOf(args.evidence).trim();
     if (!title) throw invalid('a title is required');
     if (!evidence) throw invalid('the evidence is required');
     const acceptance = textOf(args.acceptance).trim();
+    const metadata = proposalMetadata(args);
     const key = typeof context?.idempotencyKey === 'string' ? context.idempotencyKey : null;
     return guarded(async (board) => {
       const task = await board.call(
@@ -85,6 +119,7 @@ const handlers = perEnv((env) => {
           title,
           description: evidence,
           ...(acceptance ? { acceptance } : {}),
+          ...(metadata === null ? {} : { metadata }),
           requester: SELF,
           subscriber: SELF,
         },

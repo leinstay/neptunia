@@ -1494,9 +1494,14 @@ function costsOf(board: Board, _principal: string, args: Args): Readonly<Record<
   return agentCosts(board.db, { nowMs, agents: recorders, by });
 }
 
-// The caller's undelivered outbox rows; `ack` marks the caller's rows up to that seq delivered first.
+// The caller's undelivered outbox rows; `ack` marks the caller's rows up to that seq delivered first. `to_whom` narrows
+// both to the rows addressed to that name, so a caller that speaks for several names (`persona` and `persona:self`)
+// marks only the rows it showed.
 function pullOutbox(board: Board, principal: string, args: Args): Array<Row> {
-  const mine = (row: Row): boolean => board.actsFor(principal, typeof row.to_whom === 'string' ? row.to_whom : null);
+  const only = str(args.to_whom, 'to_whom', { max: 200 });
+  const mine = (row: Row): boolean =>
+    board.actsFor(principal, typeof row.to_whom === 'string' ? row.to_whom : null) &&
+    (only === null || row.to_whom === only);
   if (args.ack !== undefined && args.ack !== null) {
     const ack = int(args.ack, 'ack', { min: 0 });
     const now = board.now();

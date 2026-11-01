@@ -7772,7 +7772,7 @@ test('skills discovery: every turn carries the skills granted to her as tools, w
     sent.options.tools.map((tool) => tool.function.name),
     ['lore_list', 'message_create', 'message_delete', 'message_edit', 'message_react_add']
   );
-  assert.ok(!run.text.includes('<skills>\n'), 'the detailed rows stay off without a question or a proposal');
+  assert.ok(!run.text.includes('<tool_catalogue>\n'), 'the detailed rows stay off without a question or a proposal'); // PR 7e: renamed
 });
 
 // ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ import type { Inputs } from './inputs.ts';
 import type { JournalNotes, NotesDraft } from './journal-notes.ts';
 import type { noteDiagnostics } from './journal.ts';
 import type { ToolRoundDraft } from './tool-round.ts';
+import type { IndexedSkill } from '../skills/uses.ts';
 
 /** What bit during the attempt (src/llm/limits.js#createLimits). */
 export type Limits = {
@@ -74,6 +75,8 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'diary'>
   deletedIds?: unknown;
   factsShown?: Array<string>;
   toolNames?: Array<string>;
+  // The skills her request indexed, and her tool calls of the attempt in order, for the use rows (src/skills/uses.ts).
+  skillsIndexed?: Array<IndexedSkill>;
   seen?: {
     messageIds: Array<string>;
     parents: Array<unknown>;

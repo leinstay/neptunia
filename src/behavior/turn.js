@@ -303,6 +303,8 @@ export function createTurnRunner({
   record = null,
   port,
   skills = /** @type {import('../tools/types.ts').SkillMap | null} */ (null),
+  skillIndex = null, // her skill index and the sink of its use rows (src/skills/); null: none
+  recordSkillUses = null,
   runOp = /** @type {import('../tools/executors.ts').RunOperation | null} */ (null),
   runOwnOp = /** @type {import('../tools/executors.ts').RunOperation | null} */ (null),
   runInitiativeOp = /** @type {import('../tools/executors.ts').RunOperation | null} */ (null),
@@ -352,16 +354,13 @@ export function createTurnRunner({
   // The channels known to be private chats (a deferred call names only its channel).
   const privateChannels = new Set();
   const lastPostAt = new Map(); // channelId -> ts of the persona's last message
-  // channelId -> ids of the messages in the history of the last turn that spoke there; for a
-  // channel the bot cannot write in, the lines its `<channel_view>` block showed in the last
-  // turn that spoke anywhere while showing it (noteSpokeSaw). The pending-ping drain
-  // (src/behavior/pipeline.js) skips a ping such a turn already had in view.
+  // channelId -> ids of the messages in the history of the last turn that spoke there; for a channel the bot cannot
+  // write in, the lines its `<channel_view>` showed in the last turn that spoke anywhere while showing it (noteSpokeSaw).
+  // The pending-ping drain (src/behavior/pipeline.js) skips a ping such a turn already had in view.
   const spokeSaw = new Map();
-  // Whether the last turn that wanted prompts['follow-up'] found it missing or blank: `turn:
-  // prompt missing` is warned once each time this turns true (the turn falls back to reply.md).
+  // Whether the last turn that wanted prompts['follow-up'] found it missing: warned once each time (falls back to reply.md).
   const promptState = { followUpMissing: false };
-  // The participation pick classifier (src/behavior/participation-pick.js): which stored
-  // exchanges of other channels a turn's `<participation>` block shows first.
+  // The participation pick classifier (src/behavior/participation-pick.js): which exchanges `<participation>` shows first.
   const pickParticipation = createParticipationPicker({ hot, store, llm, now: clock, schedule });
   // The last view of each pulled channel shown in each channel, in process only: a channel
   // shown again says what of it is new since (createPullViews; `seenBefore` on the entry).
@@ -603,6 +602,7 @@ export function createTurnRunner({
     iface,
     ifaceReads,
     skills,
+    ...{ skillIndex, recordSkillUses },
     memoryReads,
     busy,
     selfIdOf,

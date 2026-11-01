@@ -246,6 +246,23 @@ export const COMMANDS: ReadonlyArray<Command> = [
     ],
   },
   {
+    name: 'skills',
+    help: 'her skills: list, show <name>, review <name>, pending, activate <name>, rollback <name>, reject <name>, enable <name>, disable <name>',
+    args: [],
+    defaultSubcommand: 'list',
+    subcommands: [
+      sub('list', 'every skill with its state, who activated it and the version a rollback restores'),
+      sub('show', 'the active text and tools of one skill', [arg('name')]),
+      sub('review', 'the active version beside the pending ones, with their texts and use counts', [arg('name')]),
+      sub('pending', 'the versions waiting for an activation'),
+      sub('activate', 'make the newest pending version of a skill the active one', [arg('name')]),
+      sub('rollback', 'make the previous active version active again', [arg('name')]),
+      sub('reject', 'retire every pending version of a skill', [arg('name')]),
+      sub('enable', 'bring a skill she turned off back into her list', [arg('name')]),
+      sub('disable', 'take a skill out of her list', [arg('name')]),
+    ],
+  },
+  {
     name: 'interface',
     help: 'the interfaces: list, enable <name>, disable <name>, <name> <sub>',
     args: [],

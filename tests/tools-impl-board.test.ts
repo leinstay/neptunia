@@ -279,3 +279,64 @@ test('board.propose answers failed board-unavailable when the core has no board'
   assert.equal(answer.status, 'failed');
   assert.equal(answer.code, 'board-unavailable');
 });
+
+test('board.propose of kind skill keeps the examples, counterexamples, benefit and evaluation case in the task', async (t) => {
+  const { board, propose } = setUp(t);
+  const id = proposedId(
+    await propose({
+      title: 'A skill for the fact lookup',
+      evidence: 'Three turns called web.search, web.read and message.create in that order.',
+      kind: 'skill',
+      examples: ['turn t-101', 'turn t-102'],
+      counterexamples: ['turn t-090: a joke, no lookup'],
+      benefit: 'Fewer wasted searches.',
+      evaluation: 'A fact question gets one search and one read before the answer.',
+    })
+  );
+  const metadata = board.call('boss', 'task.show', { id }).task.metadata;
+  assert.deepEqual(metadata, {
+    kind: 'skill',
+    examples: ['turn t-101', 'turn t-102'],
+    counterexamples: ['turn t-090: a joke, no lookup'],
+    benefit: 'Fewer wasted searches.',
+    evaluation: 'A fact question gets one search and one read before the answer.',
+  });
+});
+
+test('board.propose of kind fix with no counterexamples stores an empty list', async (t) => {
+  const { board, propose } = setUp(t);
+  const id = proposedId(
+    await propose({
+      title: 'Fix the tag read',
+      evidence: 'web.read failed 4 times with the same code.',
+      kind: 'fix',
+      examples: ['turn t-7'],
+      benefit: 'The read stops failing.',
+      evaluation: 'The read of the tag page succeeds.',
+    })
+  );
+  assert.deepEqual(board.call('boss', 'task.show', { id }).task.metadata?.counterexamples, []);
+});
+
+test('board.propose with a kind but no examples, no benefit or no evaluation case is invalid and files nothing', async (t) => {
+  const { board, propose } = setUp(t);
+  const whole = { title: 'x', evidence: 'y', kind: 'skill', examples: ['t-1'], benefit: 'b', evaluation: 'e' };
+  for (const missing of ['examples', 'benefit', 'evaluation']) {
+    const args: Record<string, unknown> = { ...whole };
+    delete args[missing];
+    assert.equal((await propose(args)).status, 'invalid', missing);
+  }
+  assert.equal((await propose({ ...whole, examples: [] })).status, 'invalid');
+  assert.deepEqual(board.call('boss', 'task.list', {}), []);
+});
+
+test('board.propose with a kind outside skill and fix, or with the extra fields and no kind, is invalid', async (t) => {
+  const { propose } = setUp(t);
+  const base = { title: 'x', evidence: 'y' };
+  assert.equal(
+    (await propose({ ...base, kind: 'plugin', examples: ['t-1'], benefit: 'b', evaluation: 'e' })).status,
+    'invalid'
+  );
+  assert.equal((await propose({ ...base, examples: ['t-1'] })).status, 'invalid');
+  assert.equal((await propose({ ...base, benefit: 'b' })).status, 'invalid');
+});
