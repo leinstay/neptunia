@@ -2275,95 +2275,6 @@
       "count": 4
     }
   },
-  "tests/fixtures/recall-kit.ts": {
-    "@typescript-eslint/explicit-module-boundary-types": {
-      "count": 9
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 12
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
-    "@typescript-eslint/require-await": {
-      "count": 1
-    }
-  },
-  "tests/fixtures/recall-run-kit.ts": {
-    "@typescript-eslint/explicit-module-boundary-types": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 36
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 12
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 48
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 9
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
-    "@typescript-eslint/require-await": {
-      "count": 2
-    }
-  },
-  "tests/fixtures/sandbox-kit.ts": {
-    "@typescript-eslint/explicit-module-boundary-types": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 6
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
-    "@typescript-eslint/require-await": {
-      "count": 1
-    }
-  },
-  "tests/fixtures/store-kit.ts": {
-    "@typescript-eslint/explicit-module-boundary-types": {
-      "count": 18
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 6
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 10
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 9
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
-    "@typescript-eslint/require-await": {
-      "count": 2
-    }
-  },
   "tests/fixtures/turn-draws.ts": {
     "@typescript-eslint/require-await": {
       "count": 2
@@ -2375,26 +2286,6 @@
     },
     "@typescript-eslint/require-await": {
       "count": 1
-    }
-  },
-  "tests/fixtures/turn-kit.ts": {
-    "@typescript-eslint/explicit-module-boundary-types": {
-      "count": 13
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 8
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
-    },
-    "@typescript-eslint/require-await": {
-      "count": 5
     }
   },
   "tests/format.test.js": {
@@ -3575,25 +3466,25 @@
   },
   "tests/recall-run.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 8
+      "count": 16
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 24
+      "count": 53
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 40
+      "count": 35
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 136
+      "count": 153
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 29
+      "count": 33
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 3
     },
     "@typescript-eslint/require-await": {
-      "count": 6
+      "count": 8
     },
     "tests/no-presence-assertion": {
       "count": 1
@@ -3610,7 +3501,7 @@
       "count": 8
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 51
+      "count": 50
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 31
@@ -3718,7 +3609,7 @@
       "count": 208
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 24
+      "count": 23
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -3789,13 +3680,13 @@
       "count": 5
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 22
+      "count": 21
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 23
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 120
+      "count": 105
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 20
@@ -3869,16 +3760,16 @@
   },
   "tests/store.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 8
+      "count": 13
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 44
+      "count": 36
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 98
+      "count": 97
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 270
+      "count": 263
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 51
@@ -4258,7 +4149,7 @@
       "count": 48
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 17
+      "count": 16
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -4275,13 +4166,13 @@
       "count": 50
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 163
+      "count": 162
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 158
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 625
+      "count": 618
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 131

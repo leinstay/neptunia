@@ -4,7 +4,9 @@ import { createDiscordAdapter } from '../../interfaces/discord/index.ts';
 import { completionOf } from './tool-answers.ts';
 import { labels } from './labels.ts';
 import { world } from './turn-world.ts';
-import type { ChannelSpec } from './turn-world.ts';
+import type { Channel, ChannelSpec } from './turn-world.ts';
+import type { Completion } from './tool-answers.ts';
+import type { ReportedTurn } from '../../src/behavior/turn.ts';
 import { createTurnRunner } from './turn-runner.ts';
 import type { TriggerKind } from '../../src/turn/triggers.ts';
 import type { TurnParams } from '../../src/turn/outcome.ts';
@@ -35,7 +37,7 @@ export function rawMessage({
   content?: string;
   attachments?: Map<string, unknown>;
   stickers?: Map<string, unknown>;
-}) {
+}): { id: string; channelId: string; author: { id: string; bot: boolean; globalName: string; username: string; }; member: { displayName: string; }; cleanContent: string; createdTimestamp: number; reference: null; attachments: Map<string, unknown>; stickers: Map<string, unknown>; } {
   return {
     id,
     channelId: 'c1',
@@ -53,7 +55,7 @@ export function rawMessage({
 export type RawMessage = ReturnType<typeof rawMessage>;
 
 /** The normalized shape pipeline.js would hand to runTurn as `trigger`. */
-export function normalizedTrigger(raw: Omit<ReturnType<typeof rawMessage>, 'reference'>) {
+export function normalizedTrigger(raw: Omit<ReturnType<typeof rawMessage>, 'reference'>): { id: string; channelId: string; authorId: string; authorName: string; self: boolean; bot: boolean; content: string; ts: number; replyToId: null; attachments: Array<never>; stickers: Array<never>; } {
   return {
     id: raw.id,
     channelId: raw.channelId,
@@ -78,23 +80,28 @@ export function fakeTurnChannel({
   attachFiles = true,
   dm = false,
   ...more
-}: ChannelSpec & { attachFiles?: boolean } = {}) {
+}: ChannelSpec & { attachFiles?: boolean } = {}): Channel {
   return world().channel({ id, name, guildId, dm, historyMessages, permissions: { attach: attachFiles }, ...more });
 }
 
 /** A request's options without her tools (`tools`, `toolChoice`): what the rest of the request carries. */
-export const withoutTools = ({ tools, toolChoice, ...rest }: Record<string, unknown>) => rest;
+export const withoutTools = (options: Record<string, unknown>): Record<string, unknown> => {
+  const rest = { ...options };
+  delete rest.tools;
+  delete rest.toolChoice;
+  return rest;
+};
 
-export function fakeLlm(responseText: unknown) {
+export function fakeLlm(responseText: unknown): { calls: Array<Untyped>; optionCalls: Array<Untyped>; complete: (messages: Untyped, options: Untyped) => Promise<Completion>; } {
   const calls: Array<Untyped> = [];
   const optionCalls: Array<Untyped> = [];
   return {
     calls,
     optionCalls,
-    complete: async (messages: Untyped, options: Untyped) => {
+    complete: (messages: Untyped, options: Untyped) => {
       calls.push(messages);
       optionCalls.push(options);
-      return completionOf(responseText);
+      return Promise.resolve(completionOf(responseText));
     },
   };
 }
@@ -144,7 +151,7 @@ export function fakeStore({
   };
 }
 
-export function identityCalibrator() {
+export function identityCalibrator(): { ratio: number; apply: (n: number) => number; observe: () => void; } {
   return { ratio: 1, apply: (n: number) => n, observe: () => {} };
 }
 
@@ -191,7 +198,7 @@ export function fakeHot(
   };
 }
 
-export function fakeClient(overrides: Record<string, unknown> = {}) {
+export function fakeClient(overrides: Record<string, unknown> = {}): { user: { id: string; username: string; }; } {
   return { user: { id: 'self-id', username: 'Bot' }, ...overrides };
 }
 
@@ -199,21 +206,26 @@ export function fakeClient(overrides: Record<string, unknown> = {}) {
  * `null` (every download fails), a fixed success object, or `(url, options) => result|null`. */
 export function fakeImageFetcher(
   result: unknown = { dataUrl: 'data:image/webp;base64,ZmFrZQ==', bytes: 4, contentType: 'image/webp' }
-) {
-  const calls: Array<{ url: string; options: Untyped }> = [];
+): {
+  calls: Array<{ url: string; options: Record<string, Untyped> }>;
+  fetchAsDataUrl: (url: string, options: Record<string, Untyped>) => Promise<unknown>;
+} {
+  const calls: Array<{ url: string; options: Record<string, Untyped> }> = [];
   return {
     calls,
-    fetchAsDataUrl: async (url: string, options: Untyped) => {
+    fetchAsDataUrl: (url, options) => {
       calls.push({ url, options });
-      return typeof result === 'function'
-        ? (result as (url: string, options: Untyped) => unknown)(url, options)
-        : result;
+      return Promise.resolve(
+        typeof result === 'function'
+          ? (result as (url: string, options: Record<string, Untyped>) => unknown)(url, options)
+          : result
+      );
     },
   };
 }
 
 /** A raw message carrying link embeds. */
-export function linkRaw(id: string, ts: number, embeds: unknown, content = 'κοίτα αυτό') {
+export function linkRaw(id: string, ts: number, embeds: unknown, content = 'κοίτα αυτό'): { embeds: unknown; id: string; channelId: string; author: { id: string; bot: boolean; globalName: string; username: string; }; member: { displayName: string; }; cleanContent: string; createdTimestamp: number; reference: null; attachments: Map<string, unknown>; stickers: Map<string, unknown>; } {
   return { ...rawMessage({ id, ts, content }), embeds };
 }
 
@@ -234,21 +246,34 @@ export function fakeLookup({
     sources: [{ title: 'Un', url: 'https://www.example.com/1', site: 'example.com' }],
   },
   hasKey = true,
-}: { reads?: Record<string, string>; searchResult?: Record<string, unknown> | null; hasKey?: boolean } = {}) {
-  const readCalls: Array<{ guildId: string; links: Array<Untyped>; options: Untyped }> = [];
-  const searchCalls: Array<{ guildId: Untyped; query: Untyped }> = [];
+}: { reads?: Record<string, string>; searchResult?: Record<string, unknown> | null; hasKey?: boolean } = {}): {
+  readCalls: Array<{ guildId: string; links: Array<{ id: string; [key: string]: Untyped }>; options: Record<string, Untyped> }>;
+  searchCalls: Array<{ guildId: string; query: unknown }>;
+  readLinks: (
+    guildId: string,
+    links: Array<{ id: string; [key: string]: Untyped }>,
+    options: Record<string, Untyped>
+  ) => Promise<{ reads: Map<string, string>; newCount: number }>;
+  search: (guildId: string, query: unknown) => Promise<Record<string, unknown> | null>;
+  hasSearch: () => boolean;
+} {
+  const readCalls: Array<{ guildId: string; links: Array<{ id: string; [key: string]: Untyped }>; options: Record<string, Untyped> }> = [];
+  const searchCalls: Array<{ guildId: string; query: unknown }> = [];
   return {
     readCalls,
     searchCalls,
-    readLinks: async (guildId: string, links: Array<Untyped>, options: Untyped) => {
+    readLinks: (guildId, links, options) => {
       readCalls.push({ guildId, links, options });
-      const map = new Map();
-      for (const link of links) if (reads[link.id]) map.set(link.id, reads[link.id]);
-      return { reads: map, newCount: map.size };
+      const map = new Map<string, string>();
+      for (const link of links) {
+        const read = reads[link.id];
+        if (read) map.set(link.id, read);
+      }
+      return Promise.resolve({ reads: map, newCount: map.size });
     },
-    search: async (guildId: string, query: unknown) => {
+    search: (guildId, query) => {
       searchCalls.push({ guildId, query });
-      return searchResult ? { ...searchResult, query } : null;
+      return Promise.resolve(searchResult ? { ...searchResult, query } : null);
     },
     hasSearch: () => hasKey,
   };
@@ -256,20 +281,27 @@ export function fakeLookup({
 
 export const LOOKUP_SYSTEM = 'Decide whether {{name}} needs to look something up.';
 /** An llm fake routing the search classifier (system starts with "Decide whether") apart from the turn. */
-export function lookupLlm(classifierText: string | Error = 'none', turnText = '<msg>ok</msg>') {
-  const classifierCalls: Array<{ messages: Untyped; options: Untyped }> = [];
-  const turnCalls: Array<{ messages: Untyped; options: Untyped }> = [];
+export function lookupLlm(
+  classifierText: string | Error = 'none',
+  turnText = '<msg>ok</msg>'
+): {
+  classifierCalls: Array<{ messages: Array<{ content: string }>; options: Record<string, Untyped> }>;
+  turnCalls: Array<{ messages: Array<{ content: Untyped }>; options: Record<string, Untyped> }>;
+  complete: (messages: Array<{ content: string }>, options: Record<string, Untyped>) => Promise<Completion>;
+} {
+  const classifierCalls: Array<{ messages: Array<{ content: string }>; options: Record<string, Untyped> }> = [];
+  const turnCalls: Array<{ messages: Array<{ content: Untyped }>; options: Record<string, Untyped> }> = [];
   return {
     classifierCalls,
     turnCalls,
-    complete: async (messages: Untyped, options: unknown) => {
-      if (messages[0].content.startsWith('Decide whether')) {
+    complete: (messages, options) => {
+      if (messages[0]?.content.startsWith('Decide whether')) {
         classifierCalls.push({ messages, options });
-        if (classifierText instanceof Error) throw classifierText;
-        return { text: classifierText, usage: {}, estimated: 5 };
+        if (classifierText instanceof Error) return Promise.reject(classifierText);
+        return Promise.resolve({ text: classifierText, usage: {}, estimated: 5 });
       }
       turnCalls.push({ messages, options });
-      return completionOf(turnText);
+      return Promise.resolve(completionOf(turnText));
     },
   };
 }
@@ -278,7 +310,7 @@ export function lookupHot(
   features: Record<string, unknown> = {},
   web: { links?: object; search?: object } = {},
   config: Record<string, unknown> = {}
-) {
+): { config: Record<string, Untyped>; prompts: Record<string, Untyped>; } {
   const hot = fakeHot(
     { webLookup: true, ...features },
     {},
@@ -293,8 +325,9 @@ export function lookupHot(
       ...config,
     }
   );
-  hot.config.llm.timeoutMs = 300_000;
-  hot.config.llm.analyzerTimeoutMs = 25_000;
+  const llm = hot.config.llm as Record<string, unknown>;
+  llm.timeoutMs = 300_000;
+  llm.analyzerTimeoutMs = 25_000;
   hot.prompts.lookup = LOOKUP_SYSTEM;
   return hot;
 }
@@ -317,7 +350,7 @@ export async function runLookupTurn({
   now?: () => number;
   triggerKind?: TriggerKind;
   taskResult?: Record<string, unknown> | null;
-} = {}) {
+} = {}): Promise<{ result: ReportedTurn; llm: ReturnType<typeof lookupLlm>; lookup: ReturnType<typeof fakeLookup> }> {
   const messages = history ?? [
     linkRaw('m1', NOW - 5000, [
       PAGE_EMBED,

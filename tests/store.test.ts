@@ -828,7 +828,7 @@ test('touchChannel: a newcomer who keeps writing enters topWriters past five sto
 
 test('touchChannel: a writer silent for 90 days falls below a steady newcomer', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  const pair = (channelId: string, daysLater: number, opts?: unknown) => {
+  const pair = (channelId: string, daysLater: number, opts?: Parameters<typeof writeLines>[5]) => {
     writeLines(store, channelId, 'παλιός', 8, WRITERS_T0, opts);
     return writeLines(store, channelId, 'νέος', 3, WRITERS_T0 + daysLater * WRITERS_DAY_MS, opts).topWriters;
   };
@@ -858,7 +858,7 @@ test('touchChannel: a writer silent for 90 days falls below a steady newcomer', 
 
 test('touchChannel: channelWritersHalfLifeDays is read from the call; 0 ranks by count alone', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  const order = (channelId: string, opts: unknown) => {
+  const order = (channelId: string, opts: Parameters<typeof writeLines>[5]) => {
     writeLines(store, channelId, 'παλιός', 8, WRITERS_T0, opts);
     return writeLines(store, channelId, 'νέος', 3, WRITERS_T0 + 90 * WRITERS_DAY_MS, opts).topWriters.map(
       (writer: Untyped) => writer.id
@@ -873,6 +873,7 @@ test('touchChannel: channelWritersHalfLifeDays is read from the call; 0 ranks by
   );
   assert.deepEqual(order('c3', { channelWritersHalfLifeDays: 30 }), ['νέος', 'παλιός']);
   assert.deepEqual(
+    // @ts-expect-error: the test hands a text where a count belongs, as a hand-edited config may
     order('c4', { channelWritersHalfLifeDays: 'μήνας' }),
     ['νέος', 'παλιός'],
     'not a number: the 30 days of config.json'
@@ -881,7 +882,7 @@ test('touchChannel: channelWritersHalfLifeDays is read from the call; 0 ranks by
 
 test('touchChannel: the tally keeps channelWritersStored writers, 20 unless told, never fewer than the five shown', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  const stored = (channelId: string, opts?: unknown) => {
+  const stored = (channelId: string, opts?: Parameters<typeof writeLines>[5]) => {
     for (let n = 0; n < 25; n += 1)
       writeLines(store, channelId, `γράφων-${String(n).padStart(2, '0')}`, 1, WRITERS_T0 + n, opts);
     return Object.keys(asRecord(store.getChannel('g1', channelId)).writers).sort();
@@ -892,6 +893,7 @@ test('touchChannel: the tally keeps channelWritersStored writers, 20 unless told
   assert.deepEqual(stored('c1'), newest(20), 'the lowest-ranked leave: here the ones who wrote longest ago');
   assert.deepEqual(stored('c2', { channelWritersStored: 7 }), newest(7));
   assert.deepEqual(stored('c3', { channelWritersStored: 0 }), newest(5));
+  // @ts-expect-error: the test hands a text where a count belongs, as a hand-edited config may
   assert.deepEqual(stored('c4', { channelWritersStored: 'πολλοί' }), newest(20), 'not a number: the 20 of config.json');
   assert.equal(store.getChannel('g1', 'c2')?.topWriters.length, 5);
 });

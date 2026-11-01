@@ -1925,6 +1925,6 @@ test("answerReply: given tools, they are passed to the llm and the completion's 
     samples: 1,
     at: NOW,
   });
-  assert.ok(live.calls[0].options.tools.some((tool: Untyped) => tool.function.name === 'message_create'));
+  assert.ok(asRecord(live.calls[0].options.tools).some((tool: Untyped) => tool.function.name === 'message_create'));
   assert.equal(live.calls[0].options.toolChoice, 'auto');
 });

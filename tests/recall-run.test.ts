@@ -5,32 +5,235 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRecall } from '../src/behavior/recall-run.ts';
 import { createStore } from '../src/memory/store.ts';
 import { HIT_MARK } from '../src/behavior/recall.ts';
+import { snapshotOf } from '../src/behavior/snapshot.ts';
 import { toRecordLine } from '../src/memory/record.ts';
 import { DailyCapError } from '../src/llm/openrouter.ts';
 import { labels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
-import { line, rawHit, snowflakeAt } from './fixtures/recall-lines.ts';
+import { channel as channelInfo, privateChannel } from './fixtures/reads-rig.ts';
+import { eventOfLine, line, neutralMembers, neutralSearch, rawHit, snowflakeAt } from './fixtures/recall-lines.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { ConversationInfo } from '../src/protocol/adapter.ts';
 import { asRecord } from './fixtures/records.ts';
 import {
+  BUDGET,
   GARDEN_LINES,
   GUILD,
   HOUR,
   MINUTE,
   NOW,
   PRIVATE_LINES,
+  PROMPT,
   RABBIT,
   RABBIT_LINES,
   RABBIT_SERVER,
+  config,
+  deferred,
+  hangUntilAbort,
+  manualTimers,
   rabbitAnswers,
-  scene,
   searches,
 } from './fixtures/recall-run-kit.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
+
+/**
+ * A scene: a community with #general (c1, the turn's conversation), #garden (c2) and #private (c4, which the community's
+ * everyone cannot view, so the audience rail refuses it here); `lines` per conversation id; `answers(route, query)` gives
+ * the REST body the interface would read a search from (the neutral query is shown to it the way Discord's REST takes
+ * it: `content`, `author_id`, `min_id`, `max_id`, `offset`).
+ */
+function scene({
+  lines = {},
+  answers = () => ({ total_results: 0, messages: [] }),
+  answer = 'stretch: 1\nAna did it on October 1.',
+  features = {},
+  recall = {},
+  state = {},
+  capLeft = 100,
+  describer = null,
+  profiles = [],
+  memory = {},
+  timers,
+  now = () => NOW,
+  archive = null,
+  record = null,
+  vectors = null,
+  embed = null,
+}: Record<string, Untyped> = {}) {
+  const calls: Array<{ route: string; query: Record<string, Untyped>; signal: AbortSignal }> = [];
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const fetches: Array<{ channel: Untyped; around: Untyped; limit: Untyped }> = [];
+  const follows: Array<{ channel: Untyped; after: Untyped; limit: Untyped }> = [];
+  // The conversations of the community: the partner u5 views #general and #garden, not #private.
+  const infos: Record<string, ConversationInfo> = {
+    c1: channelInfo('c1', { name: 'general', viewers: { u5: true } }),
+    c2: channelInfo('c2', { name: 'garden', viewers: { u5: true } }),
+    c4: { ...privateChannel('c4', []), name: 'private', viewers: { u5: false } },
+  };
+  const snapshot = snapshotOf(GUILD, { conversations: Object.values(infos), groups: [] });
+  // The history reads of a conversation, which a test may break (`broken`).
+  const broken = new Set();
+  const reads = {
+    searchMessages: async (scope: Untyped, query: Untyped) => {
+      const rest = {
+        ...(query.text ? { content: query.text } : {}),
+        ...(query.authorId ? { author_id: query.authorId } : {}),
+        ...(Number.isFinite(query.after) ? { min_id: snowflakeAt(query.after) } : {}),
+        ...(Number.isFinite(query.before) ? { max_id: snowflakeAt(query.before) } : {}),
+        ...(query.offset ? { offset: String(query.offset) } : {}),
+      };
+      const route = `/guilds/${scope.communityId}/messages/search`;
+      // A read cannot be cancelled: the signal the answer may wait on never fires.
+      const signal = new AbortController().signal;
+      calls.push({ route, query: rest, signal });
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await Promise.resolve();
+      inFlight -= 1;
+      let body;
+      try {
+        body = await Promise.resolve(answers(route, rest, signal));
+      } catch {
+        return null;
+      }
+      return neutralSearch(body);
+    },
+    searchMembers: async (scope: Untyped, query: Untyped) => {
+      const route = `/guilds/${scope.communityId}/members/search`;
+      const rest = { query: query.prefix, limit: String(query.limit) };
+      const signal = new AbortController().signal;
+      calls.push({ route, query: rest, signal });
+      let body;
+      try {
+        body = await Promise.resolve(answers(route, rest, signal));
+      } catch {
+        return null;
+      }
+      return neutralMembers(body);
+    },
+    history: async (ref: Untyped, query: Untyped) => {
+      await Promise.resolve();
+      const stored = lines[ref.conversationId] ?? [];
+      const info = infos[ref.conversationId];
+      if (!info || broken.has(ref.conversationId)) return null;
+      const events = (rows: Untyped) => rows.map((l: Untyped) => eventOfLine(info, l));
+      if (query.after !== undefined) {
+        follows.push({ channel: ref.conversationId, after: query.after, limit: query.limit });
+        const from = stored.findIndex((l: Untyped) => l.id === query.after) + 1;
+        return { events: events(stored.slice(from, from + query.limit)), complete: true };
+      }
+      fetches.push({ channel: ref.conversationId, around: query.around, limit: query.limit });
+      const at = stored.findIndex((l: Untyped) => l.id === query.around);
+      const from = Math.max(0, at - Math.floor(query.limit / 2));
+      return { events: events(stored.slice(from, from + query.limit)), complete: true };
+    },
+  };
+  const guild = {
+    reads,
+    /** Makes every history read of conversation `id` fail. */
+    breakHistory: (id: string) => broken.add(id),
+    /** Replaces the history read of the conversation (`replace(query)`). */
+    history: (replace: Untyped) => {
+      const original = reads.history;
+      reads.history = async (ref, query) => replace(ref, query, () => original(ref, query));
+    },
+  };
+
+  const data = { ...state };
+  let dirty = 0;
+  const store = {
+    state: {
+      get data() {
+        return data;
+      },
+      markDirty() {
+        dirty += 1;
+      },
+    },
+    listUserProfiles: () => profiles,
+    // The other stored memory a test hands over: getLore, getGuild, getRecent, getPrivate.
+    ...memory,
+  };
+  const llmCalls: Array<{ messages: Array<{ role: string; content: string }>; options: Record<string, unknown> }> = [];
+  const llm = {
+    capLeft: () => capLeft,
+    complete: async (messages: Array<{ role: string; content: string }>, options: Record<string, unknown>) => {
+      llmCalls.push({ messages, options });
+      if (answer instanceof Error) throw answer;
+      if (typeof answer === 'function') return answer(messages, options);
+      return { text: answer };
+    },
+  };
+  const hot = {
+    config: config({ features, recall: { ...recall }, llm: { analyzerTimeoutMs: 30000 } }),
+    prompts: { 'recall-summary': PROMPT, labels },
+  };
+  const recaller = createRecall({
+    reads,
+    hot,
+    store,
+    llm,
+    describer,
+    now,
+    archive,
+    record,
+    vectors,
+    embed,
+    ...(timers ? { timers } : {}),
+  } as unknown as Parameters<typeof createRecall>[0]);
+  const history = [
+    {
+      id: 'h1',
+      channelId: 'c1',
+      ts: NOW - 30 * MINUTE,
+      self: false,
+      bot: false,
+      authorName: 'Nikos',
+      content: 'τι έγινε με το κουνέλι;',
+    },
+    {
+      id: 'h2',
+      channelId: 'c1',
+      ts: NOW - MINUTE,
+      self: false,
+      bot: false,
+      authorName: 'Nikos',
+      content: 'ποιος σκότωσε το κουνέλι;',
+    },
+  ];
+  // A private chat with the member u5, as the interface describes it (no community, no audience).
+  const dm = channelInfo('dm1', { kind: 'dm', communityId: null, chatType: 'dm', partnerId: 'u5', audience: null });
+  const args = {
+    guildId: GUILD,
+    channel: infos.c1,
+    snapshot,
+    partnerId: null,
+    selfId: 'self',
+    selfName: 'Zoë',
+    history,
+    candidate: history[1],
+  };
+  return {
+    recaller,
+    args,
+    dm,
+    guild,
+    calls,
+    fetches,
+    follows,
+    llmCalls,
+    data,
+    hot,
+    dirty: () => dirty,
+    maxInFlight: () => maxInFlight,
+  };
+}
 
 test('recall: forms are searched one after another in order; the summary reads the windows and names a stretch', async () => {
   const s = scene({
@@ -69,7 +272,7 @@ test('recall: a channel the audience rail refuses contributes nothing, other bot
   const own = line('r5', RABBIT + 5 * MINUTE, { name: 'Zoë', author: 'self', content: 'κουνέλι, αντίο' });
   const s = scene({
     lines: { c1: [...RABBIT_LINES, own], c2: GARDEN_LINES, c4: PRIVATE_LINES },
-    answers: (route: unknown, query: Untyped) =>
+    answers: (route: string, query: Untyped) =>
       query.content === 'κουνέλι'
         ? {
             total_results: 3,
@@ -100,7 +303,7 @@ test("recall: the turn's own lines are dropped from the hits and the windows", a
   const visible = line('h2', NOW - MINUTE, { name: 'Nikos', author: 'u5', content: 'ποιος σκότωσε το κουνέλι;' });
   const s = scene({
     lines: { c1: [...RABBIT_LINES.slice(0, 4), visible] },
-    answers: (route: unknown, query: Untyped) =>
+    answers: (route: string, query: Untyped) =>
       query.content === 'κουνέλι'
         ? { total_results: 2, messages: [[rawHit('c1', visible)], [rawHit('c1', RABBIT_LINES[3])]] }
         : { total_results: 0, messages: [] },
@@ -165,7 +368,7 @@ test('recall: a date range alone is sampled at evenly spaced offsets of its tota
   const s = scene({
     lines: { c1: [day] },
     recall: { dateSamples: 4 },
-    answers: (route: unknown, query: Untyped) => ({
+    answers: (route: string, query: Untyped) => ({
       total_results: 2115,
       messages: query.offset ? [] : [[rawHit('c1', day)]],
     }),
@@ -262,53 +465,13 @@ test('recall: a private chat with its partner searches the server, keeps only wh
   assert.equal(result.text, 'Ana did it on October 1.');
 });
 
-/** Timers fired by hand: `fire(ms)` runs the pending one that was set for `ms`. */
-function manualTimers() {
-  const all: Array<{ fn: Untyped; ms: Untyped; done: boolean }> = [];
-  return {
-    set: (fn: unknown, ms: number) => {
-      const timer = { fn, ms, done: false };
-      all.push(timer);
-      return timer;
-    },
-    clear: (timer: Untyped) => {
-      timer.done = true;
-    },
-    fire(ms: number) {
-      const timer = all.find((t) => t.ms === ms && !t.done);
-      assert.ok(timer, `a pending timer of ${ms} ms`);
-      timer.done = true;
-      timer.fn();
-    },
-    pending: () => all.filter((t) => !t.done).map((t) => t.ms),
-  };
-}
-
-/** A promise with its resolve at hand. */
-function deferred() {
-  let resolve: (value?: unknown) => void = () => {};
-  const promise = new Promise((r) => {
-    resolve = r;
-  });
-  return { promise, resolve };
-}
-
-/** A pending request that rejects with an AbortError once `signal` aborts. */
-function hangUntilAbort(signal: Untyped) {
-  return new Promise((resolve, reject) => {
-    signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
-  });
-}
-
-const BUDGET = { timeoutMs: 10000, minSummaryMs: 2500 };
-
 test('recall: a search still out at 60 % of the budget is cut; with nothing found there is no text and no summary', async () => {
   const timers = manualTimers();
   const sent = deferred();
   const s = scene({
     recall: BUDGET,
     timers,
-    answers: (route: unknown, query: unknown, signal: unknown) => {
+    answers: (route: string, query: Untyped, signal: AbortSignal) => {
       sent.resolve?.();
       return hangUntilAbort(signal);
     },
@@ -342,7 +505,7 @@ test('recall: a cut search keeps what the earlier ones found; the summary gets t
     recall: BUDGET,
     timers,
     now: () => t,
-    answers: (route: unknown, query: Untyped, signal: unknown) => {
+    answers: (route: string, query: Untyped, signal: AbortSignal) => {
       if (query.content === 'κουνέλι') {
         t = NOW + 3000;
         return rabbitAnswers(route, query);
@@ -382,7 +545,7 @@ test('recall: no search is sent once half of the budget is gone', async () => {
     lines: { c1: RABBIT_LINES },
     recall: BUDGET,
     now: () => t,
-    answers: (route: unknown, query: unknown) => {
+    answers: (route: string, query: Untyped) => {
       t = NOW + BUDGET.timeoutMs * 0.5;
       return rabbitAnswers(route, query);
     },
@@ -455,7 +618,7 @@ test('recall: with less than recall.minSummaryMs left the summary is skipped and
     lines: RANKED_LINES,
     recall: BUDGET,
     now: () => t,
-    answers: (route: unknown, query: unknown) => {
+    answers: (route: string, query: Untyped) => {
       t = NOW + BUDGET.timeoutMs - BUDGET.minSummaryMs + 1;
       return rankedAnswers(route, query);
     },
@@ -1297,7 +1460,7 @@ test("recall-run: a window that follows into the turn's chat is flagged and show
       line('h2', NOW - MINUTE, { name: 'Nikos', author: 'u9', content: 'ποιος σκότωσε το κουνέλι;' }),
     ],
   };
-  const answers = (route: unknown, query: Untyped) =>
+  const answers = (route: string, query: Untyped) =>
     query.content === 'κουνέλι'
       ? { total_results: 1, messages: [[rawHit('c1', lines.c1[0])]] }
       : { total_results: 0, messages: [] };

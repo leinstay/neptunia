@@ -1,10 +1,11 @@
 // The helpers of the recall tests: the pinned config and clock, hits and windows, stored members and the record stand-ins.
-import { matchRecord } from '../../src/behavior/recall.ts';
 import { toRecordLine } from '../../src/memory/record.ts';
+import type { RecordLine } from '../../src/memory/record.ts';
 import { readFileSync } from 'node:fs';
-import type { Untyped } from '../../src/tools/types.ts';
 
-export const SHIPPED_CONFIG = JSON.parse(readFileSync(new URL('../../config/config.json', import.meta.url), 'utf8'));
+export const SHIPPED_CONFIG = JSON.parse(
+  readFileSync(new URL('../../config/config.json', import.meta.url), 'utf8')
+) as Record<string, Record<string, unknown>>;
 
 export const MINUTE = 60_000;
 export const HOUR = 60 * MINUTE;
@@ -12,7 +13,7 @@ export const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 export const BERLIN = 'Europe/Berlin';
 
 /** Seven one-hit clusters, two hours apart, alternating two channels; ids `k0` (oldest) .. `k6` (newest). */
-export function sevenClusters() {
+export function sevenClusters(): Array<{ id: string; channelId: string; ts: number; }> {
   const t = Date.UTC(2026, 9, 1, 8);
   return Array.from({ length: 7 }, (_, i) => ({
     id: `k${i}`,
@@ -22,12 +23,12 @@ export function sevenClusters() {
 }
 
 /** A hit of channel `channelId` at `ts` found by the queries `keys`. */
-export function found(id: string, ts: number, keys: unknown, channelId = 'c1') {
+export function found(id: string, ts: number, keys: unknown, channelId = 'c1'): { id: string; channelId: string; ts: number; queries: unknown; } {
   return { id, channelId, ts, queries: keys };
 }
 
 /** A normalized message. */
-export function msg(id: string, ts: number, extra = {}) {
+export function msg(id: string, ts: number, extra = {}): { id: string; channelId: string; authorId: string; authorName: string; self: boolean; bot: boolean; content: string; ts: number; attachments: Array<never>; links: Array<never>; stickers: Array<never>; emojis: Array<never>; forwarded: Array<never>; reactions: Array<never>; replyToId: null; } {
   return {
     id,
     channelId: 'c1',
@@ -57,7 +58,7 @@ export function ep(
   date: string,
   what: string,
   { quote = '', feeling = '', weight = 3, addedAt = `${date}T20:00:00.000Z` } = {}
-) {
+): { date: string; what: string; quote: string; feeling: string; weight: number; addedAt: string; } {
   return { date, what, quote, feeling, weight, addedAt };
 }
 
@@ -72,8 +73,14 @@ export function archived(
     recordedAt = '2026-10-01T00:00:00.000Z',
     neutral = null,
     weight,
-  }: Record<string, Untyped> = {}
-) {
+  }: {
+    observedAt?: { date: string; precision: string };
+    scope?: { user?: string; channel?: string };
+    recordedAt?: string;
+    neutral?: unknown;
+    weight?: number;
+  } = {}
+): Record<string, unknown> {
   return {
     v: 1,
     id: `a-${itemId}-${recordedAt}`,
@@ -105,33 +112,45 @@ export function rec(
     replyTo = null,
     kind = 'seen',
     revision = 1,
-  }: Record<string, Untyped> = {}
-) {
+  }: {
+    channelId?: string;
+    by?: string;
+    text?: string;
+    replyTo?: string | null;
+    kind?: 'seen' | 'said' | 'deleted';
+    revision?: number;
+  } = {}
+): RecordLine {
   return toRecordLine(
     { id, channelId, authorId: by, content: text, ts, replyToId: replyTo },
     { kind, revision, now: () => NOW, uuid: () => `x-${id}-${revision}` }
-  );
+  ) as RecordLine;
 }
 
 /** A fake record over `lines`: iterate keeps the query's [from, to] on occurredAt and notes each query. */
-export function fakeRecord(lines: Untyped) {
-  const queries: Array<{ guildId: Untyped }> = [];
+export function fakeRecord(lines: Array<object>): {
+  queries: Array<{ guildId: string }>;
+  iterate(guildId: string, query?: { from?: string; to?: string }): AsyncGenerator<object, void, unknown>;
+} {
+  const queries: Array<{ guildId: string }> = [];
   return {
     queries,
-    async *iterate(guildId: string, query: Record<string, Untyped> = {}) {
+    iterate(guildId, query = {}) {
       queries.push({ guildId, ...query });
       const from = query.from ? Date.parse(query.from) : -Infinity;
       const to = query.to ? Date.parse(query.to) : Infinity;
-      for (const line of lines) {
-        const at = Date.parse(line.occurredAt);
-        if (at >= from && at <= to) yield line;
-      }
+      return (function* () {
+        for (const line of lines) {
+          const at = Date.parse((line as { occurredAt: string }).occurredAt);
+          if (at >= from && at <= to) yield line;
+        }
+      })() as unknown as AsyncGenerator<object, void, unknown>;
     },
   };
 }
 
 /** A vector row of the record as the run hands it to matchRecord. */
-export function meantRow(id: string, ts: number, { channelId = 'c2', sourceIds = [id] } = {}) {
+export function meantRow(id: string, ts: number, { channelId = 'c2', sourceIds = [id] } = {}): { id: string; channelId: string; occurredAt: string; sourceIds: Array<string>; } {
   return { id, channelId, occurredAt: new Date(ts).toISOString(), sourceIds };
 }
 
@@ -142,7 +161,7 @@ export const CUE_FORMS = ['censure', 'retirer', 'résisté'];
 export const LOCATE = { bonus: 2, decayDays: 7, broadShare: 0.5 };
 
 /** The 10-04 event (three lines, every form among them) and two weaker lines on the 10-07 the asker named. */
-export function cueRecord({ eventAt = Date.UTC(2026, 9, 4, 18, 0) } = {}) {
+export function cueRecord({ eventAt = Date.UTC(2026, 9, 4, 18, 0) } = {}): Array<RecordLine> {
   return [
     rec('o1', eventAt, { text: 'tu veux retirer la censure ?' }),
     rec('o2', eventAt + MINUTE, { kind: 'said', text: 'non, j’ai résisté, la censure reste' }),

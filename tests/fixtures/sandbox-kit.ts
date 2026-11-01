@@ -1,5 +1,4 @@
 // The scenes of the sandbox tests: a moment as normalized messages, and the fake config, hot, store and llm they run over.
-import * as sandbox from '../../src/behavior/sandbox.ts';
 import { labels } from './labels.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 
@@ -11,7 +10,7 @@ export const CHANNEL = { id: '500000000000000001', name: 'general', category: 'T
 
 /** A moment as normalized channel messages (interfaces/discord/collect.ts#normalizeMessage), oldest first:
  * one `[authorId, authorName, text, minutesBefore]` per line, the last one the trigger. */
-export function moment(lines: Array<[string, string, string, number]>) {
+export function moment(lines: Array<[string, string, string, number]>): { history: Array<{ id: string; authorId: string; authorName: string; content: string; ts: number; channelId: string; channelName: string; channelCategory: string; channelTopic: null; self: boolean; bot: boolean; mentionedUserIds: Array<never>; replyToId: null; forwardedFrom: null; attachments: Array<never>; links: Array<never>; forwarded: Array<never>; stickers: Array<never>; emojis: Array<never>; reactions: Array<never>; }>; } {
   const base = {
     channelId: CHANNEL.id,
     channelName: CHANNEL.name,
@@ -41,7 +40,7 @@ export function moment(lines: Array<[string, string, string, number]>) {
   };
 }
 
-export function twoLines() {
+export function twoLines(): { history: Array<{ id: string; authorId: string; authorName: string; content: string; ts: number; channelId: string; channelName: string; channelCategory: string; channelTopic: null; self: boolean; bot: boolean; mentionedUserIds: Array<never>; replyToId: null; forwardedFrom: null; attachments: Array<never>; links: Array<never>; forwarded: Array<never>; stickers: Array<never>; emojis: Array<never>; reactions: Array<never>; }>; } {
   return moment([
     [BRUNO, 'Bruno', 'καλημέρα', 5],
     [ALICE, 'Alice', 'what do you think about chess?', 1],
@@ -104,7 +103,18 @@ export function fakeStore({
   userProfiles?: Record<string, unknown>;
   channels?: Array<unknown>;
   loreEntries?: Array<unknown>;
-} = {}) {
+} = {}): {
+  writes: Array<string>;
+  getGuild: () => Record<string, unknown>;
+  getUser: (guildId: string, userId: string) => unknown;
+  getPrivate: () => never;
+  listChannels: () => Array<unknown>;
+  listUserProfiles: () => Array<unknown>;
+  getLore: () => Array<unknown>;
+  applyProfileOps: () => number;
+  updateGuild: () => number;
+  state: { data: Record<string, unknown>; markDirty: () => number };
+} {
   const writes: Array<string> = [];
   const writer = (name: string) => () => writes.push(name);
   return {
@@ -123,18 +133,30 @@ export function fakeStore({
   };
 }
 
+type LlmCall = { messages: Array<{ role: string; content: Untyped }>; options: Record<string, unknown> };
+
 export function fakeLlm(
   texts: unknown,
-  { usage = { total_tokens: 120 }, estimated = 100, onCall }: Record<string, Untyped> = {}
-) {
-  const calls: Array<{ messages: Untyped; options: Untyped }> = [];
+  {
+    usage = { total_tokens: 120 },
+    estimated = 100,
+    onCall,
+  }: { usage?: Record<string, number> | null; estimated?: number; onCall?: (count: number) => void } = {}
+): {
+  calls: Array<LlmCall>;
+  complete: (
+    messages: LlmCall['messages'],
+    options: LlmCall['options']
+  ) => Promise<{ text: unknown; usage: Record<string, number> | null; estimated: number }>;
+} {
+  const calls: Array<LlmCall> = [];
   return {
     calls,
-    complete: async (messages: Untyped, options: Untyped) => {
+    complete: (messages, options) => {
       calls.push({ messages, options });
       if (onCall) onCall(calls.length);
-      const text = Array.isArray(texts) ? texts[(calls.length - 1) % texts.length] : texts;
-      return { text, usage, estimated };
+      const text = Array.isArray(texts) ? (texts[(calls.length - 1) % texts.length] as unknown) : texts;
+      return Promise.resolve({ text, usage, estimated });
     },
   };
 }

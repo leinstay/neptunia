@@ -233,7 +233,7 @@ test('ordered reads and writes: read, write, read run in her order -- the two re
     await new Promise((resolve) => setImmediate(resolve));
     const result = await runOp(key, args, context);
     events.push(`end:${key}`);
-    return result;
+    return result as unknown;
   };
   await coreTurn({
     answers: [

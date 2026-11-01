@@ -1,20 +1,27 @@
 // The helpers of the store tests: a memory database over a temporary data directory, the unit files it holds, an archive stand-in and the writers' lines of a channel.
-import { after, test } from 'node:test';
+import { after } from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempDir } from './tmp.ts';
 import { createMemoryDb } from '../../src/memory/db/service.ts';
 import { unitValue } from '../../src/memory/db/readers/common.ts';
 import { asRecord } from './records.ts';
+import type { MemoryDbService } from '../../src/memory/db/service.ts';
+import type { createStore } from '../../src/memory/store.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 
-export function tmpDataDir() {
+export function tmpDataDir(): string {
   return tempDir('nep-store-');
 }
 
-export const SILENT = { info() {}, debug() {}, warn() {}, error() {} };
+export const SILENT: { info: () => void; debug: () => void; warn: () => void; error: () => void } = {
+  info() {},
+  debug() {},
+  warn() {},
+  error() {},
+};
 /** The memory databases opened here, by data directory; closed once the file is done. */
-export const MEMORY_OF = new Map();
+export const MEMORY_OF = new Map<string, MemoryDbService>();
 after(async () => {
   for (const memoryDb of MEMORY_OF.values()) await memoryDb.close();
 });
@@ -23,7 +30,7 @@ after(async () => {
  * A temporary data directory with its memory database open on the calling thread (the first tick opens it at once):
  * `{ dir, memoryDb }`, the `memoryDb` the store takes.
  */
-export function memDataDir() {
+export function memDataDir(): { dir: string; memoryDb: MemoryDbService; } {
   const dir = tmpDataDir();
   const memoryDb = createMemoryDb({
     hot: { config: { memoryDb: { session: { mode: 'off' } } } },
@@ -38,20 +45,26 @@ export function memDataDir() {
 }
 
 /** One turn of the event loop: the unit writes a flush handed to the database have run. */
-export const settle = () => new Promise((resolve) => setImmediate(resolve));
+export const settle = (): Promise<unknown> => new Promise((resolve) => setImmediate(resolve));
 
 /** The value the database holds for the memory unit `rel` (its path under data/), or undefined. */
-export function unitOf(memoryDb: Untyped, rel: string) {
-  return asRecord(unitValue(memoryDb.readHandle().db, rel))?.value;
+export function unitOf(memoryDb: MemoryDbService, rel: string): Untyped {
+  const handle = memoryDb.readHandle();
+  if (!handle) throw new Error('the test memory database is not open');
+  return asRecord(unitValue(handle.db, rel))?.value;
 }
 
 /** The value of the unit `rel` as JSON text (a byte check of "nothing was written"). */
-export function unitText(memoryDb: unknown, rel: string) {
+export function unitText(memoryDb: MemoryDbService, rel: string): string {
   return JSON.stringify(unitOf(memoryDb, rel));
 }
 
 /** Writes `value` as the memory unit `rel`, as a hand edit or an older engine left it. */
-export function putUnit(memoryDb: Untyped, rel: string, value: unknown) {
+export function putUnit(
+  memoryDb: MemoryDbService,
+  rel: string,
+  value: unknown
+): ReturnType<MemoryDbService['writeUnit']> {
   return memoryDb.writeUnit({ op: 'value', owner: rel, value });
 }
 
@@ -61,21 +74,25 @@ export const AGORA_FACTS = { name: 'αγορά', category: null, topic: null };
 
 /** `count` messages of one writer in a channel, a millisecond apart from `fromTs`; the channel after the last. */
 export function writeLines(
-  store: Untyped,
+  store: Pick<ReturnType<typeof createStore>, 'touchChannel'>,
   channelId: string,
   authorId: string,
   count: number,
   fromTs: number,
-  opts?: unknown
-) {
-  let channel;
+  opts?: Parameters<ReturnType<typeof createStore>['touchChannel']>[5]
+): Record<string, Untyped> {
+  let channel: object | undefined;
   for (let n = 0; n < count; n += 1)
     channel = store.touchChannel('g1', channelId, AGORA_FACTS, fromTs + n, authorId, opts);
-  return channel;
+  return channel as Record<string, Untyped>;
 }
 
 /** A channel file as the store wrote it before the tally existed. */
-export function writeOldChannelFile(dir: string, channelId: string, fields = {}) {
+export function writeOldChannelFile(
+  dir: string,
+  channelId: string,
+  fields: Record<string, unknown> = {}
+): { file: string; old: Record<string, unknown>; raw: string } {
   const file = path.join(dir, 'guilds', 'g1', 'channels', `${channelId}.json`);
   const old = {
     id: channelId,
@@ -104,7 +121,7 @@ export function writeOldChannelFile(dir: string, channelId: string, fields = {})
 }
 
 /** The data directory with a database that `file` lies in, as `[dir, memoryDb, rel]`, else null. */
-export function memoryFileOf(file: string) {
+export function memoryFileOf(file: string): [string, MemoryDbService, string] | null {
   for (const [dir, memoryDb] of MEMORY_OF) {
     if (file.startsWith(dir + path.sep)) {
       const rel = path.relative(dir, file).split(path.sep).join('/');
@@ -119,19 +136,19 @@ export function memoryFileOf(file: string) {
 }
 
 /** `file` as text: a memory unit as its value's JSON, any other file from the disk. */
-export function readRaw(file: string) {
+export function readRaw(file: string): string {
   const found = memoryFileOf(file);
   return found ? unitText(found[1], found[2]) : fs.readFileSync(file, 'utf8');
 }
 
 /** Whether `file` is there: a memory unit in the database, any other file on the disk. */
-export function existsRaw(file: string) {
+export function existsRaw(file: string): boolean {
   const found = memoryFileOf(file);
   return found ? unitOf(found[1], found[2]) !== undefined : fs.existsSync(file);
 }
 
 /** `value` as `file`: a memory unit of a data directory with a database goes into it, any other file to the disk. */
-export function writeRaw(file: string, value: unknown) {
+export function writeRaw(file: string, value: unknown): unknown {
   const found = memoryFileOf(file);
   if (found) return putUnit(found[1], found[2], value);
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -139,33 +156,46 @@ export function writeRaw(file: string, value: unknown) {
   return null;
 }
 
+type ArchiveCall = { guildId: string; entries: Array<unknown>; opts: Record<string, unknown> };
+type PendingEntry = { guildId: string; entry: unknown; opts: Record<string, unknown> };
+
 /** An archive stand-in: what was appended or queued; with `manual`, `append` resolves when released. */
-export function fakeArchive({ manual = false, fail = false } = {}) {
+export function fakeArchive({ manual = false, fail = false }: { manual?: boolean; fail?: boolean } = {}): {
+  appended: Array<ArchiveCall>;
+  pending: Array<PendingEntry>;
+  events: Array<string>;
+  fail: boolean;
+  releases: Array<() => void>;
+  append(guildId: string, entries: Array<unknown>, opts?: Record<string, unknown>): Promise<{ written: number; duplicates: number }>;
+  queuePending(guildId: string, entries: Array<unknown>, opts?: Record<string, unknown>): Promise<number>;
+  drainPending(): Promise<{ archived: number; left: number; confirmed: Array<unknown> }>;
+  stats(): { pending: number };
+} {
   const fake = {
-    appended: [] as Array<Untyped>,
-    pending: [] as Array<Untyped>,
+    appended: [] as Array<ArchiveCall>,
+    pending: [] as Array<PendingEntry>,
     events: [] as Array<string>,
     fail,
     releases: [] as Array<() => void>,
-    append(guildId: string, entries: Untyped, opts = {}) {
+    append(guildId: string, entries: Array<unknown>, opts: Record<string, unknown> = {}) {
       fake.appended.push({ guildId, entries, opts });
       if (fake.fail) return Promise.reject(Object.assign(new Error('disk refused'), { code: 'archive-unconfirmed' }));
       const result = { written: entries.length, duplicates: 0 };
       if (!manual) return Promise.resolve(result);
-      return new Promise((resolve) => {
+      return new Promise<{ written: number; duplicates: number }>((resolve) => {
         fake.releases.push(() => {
           fake.events.push('append-resolved');
           resolve(result);
         });
       });
     },
-    async queuePending(guildId: string, entries: Untyped, opts = {}) {
-      fake.pending.push(...entries.map((entry: Untyped) => ({ guildId, entry, opts })));
-      return entries.length;
+    queuePending(guildId: string, entries: Array<unknown>, opts: Record<string, unknown> = {}) {
+      fake.pending.push(...entries.map((entry) => ({ guildId, entry, opts })));
+      return Promise.resolve(entries.length);
     },
-    async drainPending() {
-      const confirmed = fake.pending.splice(0).map((item) => asRecord(item).entry);
-      return { archived: confirmed.length, left: 0, confirmed };
+    drainPending() {
+      const confirmed = fake.pending.splice(0).map((item) => item.entry);
+      return Promise.resolve({ archived: confirmed.length, left: 0, confirmed });
     },
     stats() {
       return { pending: fake.pending.length };
@@ -174,4 +204,4 @@ export function fakeArchive({ manual = false, fail = false } = {}) {
   return fake;
 }
 
-export const whats = (episodes: Untyped) => episodes.map((ep: Untyped) => ep.what);
+export const whats = (episodes: Array<{ what: string }>): Array<string> => episodes.map((ep) => ep.what);

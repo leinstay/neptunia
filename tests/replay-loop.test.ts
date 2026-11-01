@@ -1134,7 +1134,7 @@ async function preTurn({
     webCapLeft: () => 3,
     search: async (guildId: string, query: Untyped) => {
       ran.web.push(query);
-      return web;
+      return web as unknown;
     },
   };
   const recall = {
