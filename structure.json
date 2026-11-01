@@ -421,10 +421,10 @@
     },
     {
       "path": "src/plugins/settings.ts",
-      "purpose": "The readers of `plugins.<name>.enabled` and `plugins.callDeadlineMs`. Tested through the plugin core test.",
+      "purpose": "The readers of `plugins.<name>.enabled` and `plugins.callDeadlineMs`. Tested by tests/plugins-settings.test.ts.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
-      "test": "none"
+      "test": "required"
     },
     {
       "path": "src/board/",

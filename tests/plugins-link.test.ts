@@ -3,10 +3,11 @@
 // late answer dropped (spec test 4).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createLoopback } from '../src/protocol/index.js';
+import { createLoopback, envelope } from '../src/protocol/index.js';
 import type { RegisterOutcome } from '../src/protocol/plugin.ts';
-import { openPluginLink } from '../src/plugins/link.ts';
+import { openPluginLink, routeConnection } from '../src/plugins/link.ts';
 import type { PluginLink } from '../src/plugins/link.ts';
+import type { Envelope, Transport } from '../src/protocol/wire.ts';
 import type { Principal } from '../src/interface/principals.ts';
 import { lineEvent } from './fixtures/core-over-fake.ts';
 import { echoTool, pluginHello, quiet, rawClient, statusOf } from './fixtures/plugin-rig.ts';
@@ -197,4 +198,58 @@ test('tells its owner once that a plugin that said hello is gone, and nothing fo
   never.raw.transport.send(pluginHello('echo', 'nope'));
   await assert.rejects(never.link.hello);
   assert.deepEqual(never.closed, []);
+});
+
+// routeConnection: the first envelope picks the link, and that envelope still reaches it.
+function routed(first: Envelope): { picked: Array<string>; got: Array<Envelope>; later: Array<Envelope> } {
+  const { core, client } = createLoopback();
+  const picked: Array<string> = [];
+  const got: Array<Envelope> = [];
+  const later: Array<Envelope> = [];
+  const take = (name: string) => (view: Transport) => {
+    picked.push(name);
+    view.onEnvelope((value) => (got.length === 0 ? got : later).push(value));
+  };
+  routeConnection(core, { adapter: take('adapter'), plugin: take('plugin') });
+  client.send(first);
+  client.send(envelope('event', { kind: 'message.received' }, { id: 'second' }));
+  return { picked, got, later };
+}
+
+const settleLoopback = () => new Promise((resolve) => setImmediate(resolve));
+
+test('routes a hello under plugin to the plugin link and hands it that hello and what follows', async () => {
+  const first = pluginHello('echo', 'plugin-token');
+  const run = routed(first);
+  await settleLoopback();
+  assert.deepEqual(run.picked, ['plugin']);
+  assert.equal(run.got[0]?.id, first.id);
+  assert.equal(run.later.length, 1);
+});
+
+test('routes a hello under any other namespace to the adapter link', async () => {
+  const run = routed(
+    envelope('hello', { iface: 'fake', self: { id: 'x', name: 'x' }, community: null, token: 't' }, { id: 'h2' })
+  );
+  await settleLoopback();
+  assert.deepEqual(run.picked, ['adapter']);
+  assert.equal(run.got[0]?.id, 'h2');
+});
+
+test('routes a first envelope that is not a hello to the adapter link, so the adapter can refuse it', async () => {
+  const run = routed(envelope('event', { kind: 'message.received' }, { id: 'first' }));
+  await settleLoopback();
+  assert.deepEqual(run.picked, ['adapter']);
+});
+
+test('decides once: a plugin hello after an adapter hello does not open a second link', async () => {
+  const { core, client } = createLoopback();
+  const picked: Array<string> = [];
+  routeConnection(core, { adapter: () => picked.push('adapter'), plugin: () => picked.push('plugin') });
+  client.send(
+    envelope('hello', { iface: 'fake', self: { id: 'x', name: 'x' }, community: null, token: 't' }, { id: 'a' })
+  );
+  client.send(pluginHello('echo', 'plugin-token', 'b'));
+  await settleLoopback();
+  assert.deepEqual(picked, ['adapter']);
 });
