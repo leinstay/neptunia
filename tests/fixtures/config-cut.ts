@@ -554,7 +554,6 @@ export const KEPT: ReadonlyArray<string> = [
   'llm.hedge.longTimeoutMs',
   'memoryDb.file',
   'memoryDb.closeTimeoutMs',
-  'memoryDb.skillsRegistry',
   'memoryDb.observeTimeoutMs',
   'memoryDb.ingestKeepDays',
   'memoryDb.backup.enabled',

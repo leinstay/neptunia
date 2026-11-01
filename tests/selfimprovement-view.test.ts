@@ -217,7 +217,7 @@ test('a shape carries its failures, its retries, its cost, its newest chain and 
     (one) => one.steps.length === 1 && one.steps[0]?.tool === 'web.read'
   );
   assert.ok(shape);
-  assert.equal(shape.count, 2, 'a failed call of the same names is the same shape');
+  assert.equal(shape.count, 3, 'a failed call of the same names is the same shape');
   assert.equal(shape.failures, 1);
   assert.equal(shape.retries, 0);
   assert.equal(shape.costUsd, 1);

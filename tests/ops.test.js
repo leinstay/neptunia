@@ -24,6 +24,8 @@ const DISCORD = createDiscordInterface().capabilities;
 const AGREED = new Set([
   'board.propose',
   'board.status',
+  'skill.read',
+  'skill.disable',
   'status.show',
   'config.set',
   'config.unset',

@@ -22,7 +22,8 @@ const GOOD = file(
 /** The parsed skill, failing the test when the file did not parse. */
 function parsed(source: string): ParsedSkill {
   const result = parseSkillFile(source);
-  assert.equal(result.ok, true, result.ok ? '' : result.code);
+  const message = result.ok ? '' : result.code;
+  assert.equal(result.ok, true, message);
   if (!result.ok) throw new Error(result.code);
   return result.skill;
 }
