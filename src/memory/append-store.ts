@@ -21,30 +21,56 @@ import * as nodeFs from 'node:fs/promises';
 import { createReadStream as nodeCreateReadStream } from 'node:fs';
 import path from 'node:path';
 import { log as defaultLog } from '../log.js';
+import type { Log } from './types.ts';
+import { propOf } from './types.ts';
 
 const RETRY_MS = 1000;
 const TAIL_CHUNK = 64 * 1024;
 const REWRITE_CHUNK = 64 * 1024;
 const NEWLINE = 0x0a;
 
+/** The subset of `node:fs/promises` the store uses, plus the optional stream reader. */
+type FsApi = typeof nodeFs & { createReadStream: typeof nodeCreateReadStream };
+
+/** What the store keeps per file: its descriptor, the chain of writes, the lines waiting for a retry and the timers. */
+type FileState = {
+  fd: nodeFs.FileHandle | null;
+  queue: Promise<unknown>;
+  pendingLines: Array<string>;
+  dirty: boolean;
+  lastSync: number;
+  failing: boolean;
+  retryTimer: ReturnType<typeof setTimeout> | null;
+  syncTimer: ReturnType<typeof setTimeout> | null;
+};
+
+/** The store `createAppendStore` makes: one queue per file, so lines of a file land in the order they were given. */
+export type AppendStore = {
+  append(file: string, line: string, opts?: { sync?: boolean }): Promise<void>;
+  flush(file?: string): Promise<void>;
+  iterate(file: string, opts?: { from?: number }): AsyncIterable<{ offset: number; line: string }>;
+  rewrite(file: string, keep: (line: string) => boolean): Promise<{ kept: number; dropped: number }>;
+  recover(file: string): Promise<{ truncated: number; tornFile: string | null }>;
+  stats(): { pending: number; failed: number; stalled: boolean };
+  close(): Promise<void>;
+};
+
+type AppendStoreDeps = {
+  fsyncMs?: number;
+  retryMax?: number;
+  log?: Pick<Log, 'info' | 'warn'>;
+  now?: () => number;
+  fs?: Partial<FsApi> & Pick<FsApi, 'mkdir' | 'open' | 'stat' | 'writeFile' | 'truncate' | 'rm' | 'unlink' | 'rename'>;
+};
+
 /**
  * Create an append store.
  *
- * @param {object} [options]
- * @param {number} [options.fsyncMs=500] fsync a file when this long has passed since its last fsync
- * @param {number} [options.retryMax=1000] queued (unwritten) lines across all files before `append` rejects
- * @param {{ info: Function, warn: Function }} [options.log] logger (`src/log.js` shape)
- * @param {() => number} [options.now=Date.now] clock, used for fsync spacing and torn-file names
- * @param {object} [options.fs] a `node:fs/promises`-shaped API (optionally with `createReadStream`)
- * @returns {{
- *   append(file: string, line: string, opts?: { sync?: boolean }): Promise<void>,
- *   flush(file?: string): Promise<void>,
- *   iterate(file: string, opts?: { from?: number }): AsyncIterable<{ offset: number, line: string }>,
- *   rewrite(file: string, keep: (line: string) => boolean): Promise<{ kept: number, dropped: number }>,
- *   recover(file: string): Promise<{ truncated: number, tornFile: string|null }>,
- *   stats(): { pending: number, failed: number, stalled: boolean },
- *   close(): Promise<void>,
- * }}
+ * @param [options.fsyncMs=500] fsync a file when this long has passed since its last fsync
+ * @param [options.retryMax=1000] queued (unwritten) lines across all files before `append` rejects
+ * @param [options.log] logger (`src/log.js` shape)
+ * @param [options.now=Date.now] clock, used for fsync spacing and torn-file names
+ * @param [options.fs] a `node:fs/promises`-shaped API (optionally with `createReadStream`)
  *   `append` takes a line without its trailing newline; it resolves once written (and fsynced with
  *   `sync`), or once queued for retry when the write failed; it rejects with `code: 'append-stalled'`
  *   only when `retryMax` lines are already queued. `recover` reports `truncated` in bytes moved aside.
@@ -56,12 +82,12 @@ export function createAppendStore({
   log = defaultLog,
   now = Date.now,
   fs = nodeFs,
-} = {}) {
-  const files = new Map();
+}: AppendStoreDeps = {}): AppendStore {
+  const files = new Map<string, FileState>();
   let failedWrites = 0;
   const createReadStream = typeof fs.createReadStream === 'function' ? fs.createReadStream : nodeCreateReadStream;
 
-  function entry(file) {
+  function entry(file: string): FileState {
     let st = files.get(file);
     if (!st) {
       st = {
@@ -86,14 +112,14 @@ export function createAppendStore({
   }
 
   // Run `task` after everything already queued for this file; the chain never breaks on a rejection.
-  function enqueue(file, task) {
+  function enqueue<TResult>(file: string, task: (st: FileState) => TResult | Promise<TResult>): Promise<TResult> {
     const st = entry(file);
     const run = st.queue.then(() => task(st));
     st.queue = run.catch(() => {});
     return run;
   }
 
-  async function openFile(file, st) {
+  async function openFile(file: string, st: FileState) {
     if (st.fd) return st.fd;
     await fs.mkdir(path.dirname(file), { recursive: true });
     await recover(file);
@@ -102,7 +128,7 @@ export function createAppendStore({
     return st.fd;
   }
 
-  async function syncFile(file, st) {
+  async function syncFile(file: string, st: FileState) {
     if (st.syncTimer) {
       clearTimeout(st.syncTimer);
       st.syncTimer = null;
@@ -113,11 +139,11 @@ export function createAppendStore({
       st.dirty = false;
       st.lastSync = now();
     } catch (error) {
-      log.warn('store: fsync failed', { file: path.basename(file), code: error?.code });
+      log.warn('store: fsync failed', { file: path.basename(file), code: propOf(error, 'code') });
     }
   }
 
-  function scheduleSync(file, st) {
+  function scheduleSync(file: string, st: FileState) {
     if (st.syncTimer || !st.dirty) return;
     st.syncTimer = setTimeout(
       () => {
@@ -129,13 +155,13 @@ export function createAppendStore({
     st.syncTimer.unref?.();
   }
 
-  async function writeLine(file, st, line) {
+  async function writeLine(file: string, st: FileState, line: string) {
     const fd = await openFile(file, st);
     await fd.write(`${line}\n`);
     st.dirty = true;
   }
 
-  function scheduleRetry(file, st) {
+  function scheduleRetry(file: string, st: FileState) {
     if (st.retryTimer) return;
     st.retryTimer = setTimeout(() => {
       st.retryTimer = null;
@@ -144,7 +170,7 @@ export function createAppendStore({
     st.retryTimer.unref?.();
   }
 
-  function noteFailure(file, st) {
+  function noteFailure(file: string, st: FileState) {
     failedWrites += 1;
     // A failed open or write may leave the descriptor unusable; reopen (and re-check the tail) next time.
     if (st.fd) {
@@ -160,7 +186,7 @@ export function createAppendStore({
   }
 
   // Write the queued lines in order; stop at the first failure and keep the rest.
-  async function drain(file, st) {
+  async function drain(file: string, st: FileState) {
     if (!st.pendingLines.length) return;
     let drained = 0;
     while (st.pendingLines.length) {
@@ -186,12 +212,12 @@ export function createAppendStore({
    * Move a torn tail (bytes after the last newline) to `<file>.torn-<now>` and cut the file to its
    * last whole line. A missing or clean file is left alone.
    */
-  async function recover(file) {
+  async function recover(file: string) {
     let size;
     try {
       size = (await fs.stat(file)).size;
     } catch (error) {
-      if (error?.code === 'ENOENT') return { truncated: 0, tornFile: null };
+      if (propOf(error, 'code') === 'ENOENT') return { truncated: 0, tornFile: null };
       throw error;
     }
     if (!size) return { truncated: 0, tornFile: null };
@@ -234,12 +260,10 @@ export function createAppendStore({
   }
 
   /** Append one line (no trailing newline) to `file`, serialized with every other write to it. */
-  function append(file, line, { sync = false } = {}) {
+  function append(file: string, line: string, { sync = false }: { sync?: boolean } = {}) {
     return enqueue(file, async (st) => {
       if (totalPending() >= retryMax) {
-        const error = new Error('append store stalled: retry queue is full');
-        error.code = 'append-stalled';
-        throw error;
+        throw Object.assign(new Error('append store stalled: retry queue is full'), { code: 'append-stalled' });
       }
       if (st.pendingLines.length) {
         // Earlier lines still wait for the disk; keep the order.
@@ -259,7 +283,7 @@ export function createAppendStore({
   }
 
   /** Retry queued lines and fsync `file` (or every open file). */
-  async function flush(file) {
+  async function flush(file: string) {
     const targets = file === undefined ? [...files.keys()] : [file];
     await Promise.all(
       targets.map((f) =>
@@ -272,13 +296,13 @@ export function createAppendStore({
   }
 
   /** Stream whole lines of `file` from byte offset `from`; a tail without its newline is skipped. */
-  async function* iterate(file, { from = 0 } = {}) {
+  async function* iterate(file: string, { from = 0 } = {}) {
     let stream;
     try {
       await fs.stat(file);
       stream = createReadStream(file, { start: from });
     } catch (error) {
-      if (error?.code === 'ENOENT') return;
+      if (propOf(error, 'code') === 'ENOENT') return;
       throw error;
     }
     let offset = from;
@@ -296,7 +320,7 @@ export function createAppendStore({
         rest = buf;
       }
     } catch (error) {
-      if (error?.code === 'ENOENT') return;
+      if (propOf(error, 'code') === 'ENOENT') return;
       throw error;
     } finally {
       stream.destroy?.();
@@ -308,7 +332,7 @@ export function createAppendStore({
    * the file's queue. A throwing `keep` leaves the file untouched. Lines still queued for retry are
    * filtered too.
    */
-  function rewrite(file, keep) {
+  function rewrite(file: string, keep: (line: string) => boolean) {
     return enqueue(file, async (st) => {
       if (st.fd) {
         await syncFile(file, st);
@@ -323,7 +347,7 @@ export function createAppendStore({
       try {
         await fs.stat(file);
       } catch (error) {
-        if (error?.code !== 'ENOENT') throw error;
+        if (propOf(error, 'code') !== 'ENOENT') throw error;
         exists = false;
       }
       if (exists) {

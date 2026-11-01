@@ -38,12 +38,13 @@
 // both have to fall in the window
 // (see `momentAt`).
 
-import { isPlainObject } from '../config.js';
+import { isRecord, isFiniteNumber, isIntegerNumber } from './types.ts';
 import { DAY_MS, HOUR_MS } from '../time.js';
 import { clampText, oneLine, stripUrls } from './clamp.ts';
 import { topEpisodes } from './episodes.ts';
 import { isWordChar, occursAsWholeWord, tokenIds } from './mentions.ts';
 import { MEMORY_LIMITS } from './text-limits.ts';
+import type { Untyped } from './types.ts';
 
 /**
  * config.json's own values for the recent layer's settings, the code fallbacks
@@ -79,10 +80,15 @@ const MAX_ZONE_AHEAD_MS = 14 * HOUR_MS;
 /**
  * The recent layer's settings (MEMORY_LIMITS of src/memory/text-limits.ts), spread into the options of
  * `mergeRecent` and src/memory/store.ts#applyRecentOps. The live config holds none of them.
- * @type {(config?: unknown) => { hours: number, maxStored: number, maxNew: number, chars: number, shown: number,
- *   clampTolerance: number }}
  */
-export const recentSettings = () => ({
+export const recentSettings: (config?: unknown) => {
+  hours: number;
+  maxStored: number;
+  maxNew: number;
+  chars: number;
+  shown: number;
+  clampTolerance: number;
+} = () => ({
   hours: MEMORY_LIMITS.recentHours,
   maxStored: MEMORY_LIMITS.maxRecentStored,
   maxNew: MEMORY_LIMITS.maxNewRecent,
@@ -91,11 +97,22 @@ export const recentSettings = () => ({
   clampTolerance: MEMORY_LIMITS.clampTolerance,
 });
 
+/** One line of the recent store: a message-sized note of the last days, with the members its text names. */
+export type RecentLine = {
+  id: number;
+  at: number;
+  addedAt: string | null;
+  channelId: string;
+  text: string;
+  who: Array<string>;
+  weight: number;
+  itemId?: string;
+};
+
 /**
  * The store of a guild nothing was written to yet.
- * @returns {{ nextId: number, lines: object[] }}
  */
-export function emptyRecent() {
+export function emptyRecent(): { nextId: number; lines: Array<RecentLine> } {
   return { nextId: 1, lines: [] };
 }
 
@@ -103,10 +120,8 @@ export function emptyRecent() {
  * `text` folded for comparison: lower case, NFD, combining marks (`\p{M}`)
  * removed, every run of whitespace one space, trimmed. Never stored. A
  * null/undefined `text` folds to ''.
- * @param {unknown} text
- * @returns {string}
  */
-export function foldText(text) {
+export function foldText(text: unknown): string {
   return String(text ?? '')
     .toLowerCase()
     .normalize('NFD')
@@ -116,37 +131,37 @@ export function foldText(text) {
 }
 
 /** `raw` as a line's weight: an integer clamped to 1..3, anything else 2. */
-function weightOf(raw) {
-  if (!Number.isInteger(raw)) return DEFAULT_WEIGHT;
+function weightOf(raw: unknown): number {
+  if (!isIntegerNumber(raw)) return DEFAULT_WEIGHT;
   return Math.min(MAX_WEIGHT, Math.max(MIN_WEIGHT, raw));
 }
 
 /** `raw` as a channel id: a non-empty string, trimmed; anything else null. */
-function channelIdOf(raw) {
+function channelIdOf(raw: Untyped) {
   return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
 }
 
 /** A finite number of at least 0, floored, or `fallback`. */
-function countOr(raw, fallback) {
-  return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : fallback;
+function countOr<TFallback>(raw: unknown, fallback: TFallback): number | TFallback {
+  return typeof raw === 'number' && isFiniteNumber(raw) && raw >= 0 ? Math.floor(raw) : fallback;
 }
 
 /** The start of the window `hours` back from `now` (epoch ms): `hours` a finite number of at
  * least 0, else `RECENT_DEFAULTS.hours`; `now` a finite number, else the wall clock. */
-function windowStart(now, hours) {
-  const span = typeof hours === 'number' && Number.isFinite(hours) && hours >= 0 ? hours : RECENT_DEFAULTS.hours;
+function windowStart(now: number, hours: unknown) {
+  const span = typeof hours === 'number' && isFiniteNumber(hours) && hours >= 0 ? hours : RECENT_DEFAULTS.hours;
   return now - span * HOUR_MS;
 }
 
 /** `raw` as a clock reading: a finite number, else the wall clock. */
-function nowOf(raw) {
-  return Number.isFinite(raw) ? raw : Date.now();
+function nowOf(raw: unknown): number {
+  return isFiniteNumber(raw) ? raw : Date.now();
 }
 
 /** `raw` as a stored line id: a positive integer, or a string of digits naming one; else null. */
-function lineIdOf(raw) {
+function lineIdOf(raw: Untyped) {
   const n = typeof raw === 'string' && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : raw;
-  return Number.isInteger(n) && n >= 1 ? n : null;
+  return isIntegerNumber(n) && n >= 1 ? n : null;
 }
 
 /**
@@ -161,19 +176,17 @@ function lineIdOf(raw) {
  * an optional non-empty string `itemId` kept (never added).
  * `nextId` ends above every id. Pure: `value` is never mutated, and the result
  * normalises to itself.
- * @param {unknown} value
- * @returns {{ nextId: number, lines: object[] }}
  */
-export function normalizeRecent(value) {
-  const source = isPlainObject(value) ? value : {};
-  const valid = [];
+export function normalizeRecent(value: unknown): { nextId: number; lines: Array<RecentLine> } {
+  const source = isRecord(value) ? value : {};
+  const valid: Array<RecentLine> = [];
   for (const raw of Array.isArray(source.lines) ? source.lines : []) {
-    if (!isPlainObject(raw)) continue;
-    const id = Number.isInteger(raw.id) && raw.id >= 1 ? raw.id : null;
+    if (!isRecord(raw)) continue;
+    const id = isIntegerNumber(raw.id) && raw.id >= 1 ? raw.id : null;
     const text = typeof raw.text === 'string' ? oneLine(raw.text) : '';
     const channelId = channelIdOf(raw.channelId);
-    if (id === null || !Number.isFinite(raw.at) || !text || channelId === null) continue;
-    const line = {
+    if (id === null || !isFiniteNumber(raw.at) || !text || channelId === null) continue;
+    const line: RecentLine = {
       id,
       at: raw.at,
       addedAt: typeof raw.addedAt === 'string' ? raw.addedAt : null,
@@ -201,7 +214,7 @@ export function normalizeRecent(value) {
 }
 
 /** Ascending sort key for eviction: the lightest first, then the oldest moment, then the lowest id. */
-function evictionOrder(a, b) {
+function evictionOrder(a: { id: number; at: number; weight: number }, b: { id: number; at: number; weight: number }) {
   return a.weight - b.weight || a.at - b.at || a.id - b.id;
 }
 
@@ -233,20 +246,41 @@ function evictionOrder(a, b) {
  *      order (`added`). An id is never used up by an item that is not added.
  * Missing options fall back to `RECENT_DEFAULTS` (config.json's values); a
  * non-finite `now` reads the wall clock.
- * @param {unknown} stored     The store's value (normalised first, see `normalizeRecent`).
- * @param {unknown} incoming   New items; anything but an array adds nothing.
- * @param {{ now?: number, hours?: number, maxStored?: number, maxNew?: number, chars?: number,
- *   clampTolerance?: number, removeIds?: unknown[] }} [opts]
- * @returns {{ value: { nextId: number, lines: object[] }, added: number, removed: number,
- *   expired: number, evicted: number, dropped: number, invalid: number, noChannel: number,
- *   stale: number, duplicate: number, overCap: number, droppedLines: object[] }}  `added`, `removed`, `expired` and
+ * @param stored     The store's value (normalised first, see `normalizeRecent`).
+ * @param incoming   New items; anything but an array adds nothing.
+ * @returns `added`, `removed`, `expired` and
  *   `evicted` count stored lines (the store holds `before - expired - removed - evicted + added`);
  *   `dropped` counts the incoming items not added, the sum of `invalid`, `noChannel`, `stale`,
  *   `duplicate` and `overCap`. `droppedLines`: the stored lines that left, as normalised (their
  *   `itemId` included) -- the expired, then the removed, then the evicted, each in stored order.
  */
-export function mergeRecent(stored, incoming, opts = {}) {
-  const options = isPlainObject(opts) ? opts : {};
+export function mergeRecent(
+  stored: unknown,
+  incoming: unknown,
+  opts: {
+    now?: number;
+    hours?: number;
+    maxStored?: number;
+    maxNew?: number;
+    chars?: number;
+    clampTolerance?: number;
+    removeIds?: Array<unknown>;
+  } = {}
+): {
+  value: { nextId: number; lines: Array<RecentLine> };
+  added: number;
+  removed: number;
+  expired: number;
+  evicted: number;
+  dropped: number;
+  invalid: number;
+  noChannel: number;
+  stale: number;
+  duplicate: number;
+  overCap: number;
+  droppedLines: Array<RecentLine>;
+} {
+  const options = isRecord(opts) ? opts : {};
   const now = nowOf(options.now);
   const cutoff = windowStart(now, options.hours);
   const maxStored = countOr(options.maxStored, RECENT_DEFAULTS.maxStored);
@@ -267,15 +301,15 @@ export function mergeRecent(stored, incoming, opts = {}) {
 
   const items = Array.isArray(incoming) ? incoming : [];
   const held = new Set(kept.map((line) => foldText(line.text)));
-  const fresh = [];
+  const fresh: Array<{ at: number; channelId: string; text: string; weight: number }> = [];
   const why = { invalid: 0, noChannel: 0, stale: 0, duplicate: 0, overCap: 0 };
   for (const raw of items) {
     const text =
-      isPlainObject(raw) && typeof raw.text === 'string'
+      isRecord(raw) && typeof raw.text === 'string'
         ? clampText(oneLine(stripUrls(raw.text)), chars, { tolerance: options.clampTolerance })
         : '';
-    const channelId = isPlainObject(raw) ? channelIdOf(raw.channelId) : null;
-    const at = isPlainObject(raw) && Number.isFinite(raw.at) ? raw.at : now;
+    const channelId = isRecord(raw) ? channelIdOf(raw.channelId) : null;
+    const at = isRecord(raw) && isFiniteNumber(raw.at) ? raw.at : now;
     const key = foldText(text);
     const reason = !text
       ? 'invalid'
@@ -288,20 +322,30 @@ export function mergeRecent(stored, incoming, opts = {}) {
             : fresh.length >= maxNew
               ? 'overCap'
               : null;
+    // `reason` is "noChannel" for a missing channel, so `channelId` is a string when the line is kept.
     if (reason) {
       why[reason] += 1;
       continue;
     }
     held.add(key);
-    fresh.push({ at, channelId, text, weight: weightOf(raw.weight) });
+    fresh.push({ at, channelId: channelId as string, text, weight: weightOf(raw.weight) });
   }
 
   // The storage cap ranks a kept item by a provisional id from `base.nextId` on, above every stored
   // id (normalizeRecent); only the items it leaves get their real ids, so one it takes at once uses
   // none up.
-  let survivors = [...kept, ...fresh.map((item, i) => ({ ...item, id: base.nextId + i }))];
+  let survivors: Array<{
+    id: number;
+    at: number;
+    channelId: string;
+    text: string;
+    weight: number;
+    addedAt?: string | null;
+    who?: Array<string>;
+    itemId?: string;
+  }> = [...kept, ...fresh.map((item, i) => ({ ...item, id: base.nextId + i }))];
   let evicted = 0;
-  let evictedLines = [];
+  let evictedLines: Array<RecentLine> = [];
   if (fresh.length > 0 && survivors.length > maxStored) {
     const going = new Set(
       [...survivors]
@@ -319,7 +363,8 @@ export function mergeRecent(stored, incoming, opts = {}) {
   let added = 0;
   const addedAt = new Date(now).toISOString();
   const lines = survivors.map((line) => {
-    if (line.id < base.nextId) return line; // a stored line
+    // A line below `base.nextId` is a stored one, a whole `RecentLine`.
+    if (line.id < base.nextId) return line as RecentLine;
     const id = nextId;
     nextId += 1;
     added += 1;
@@ -344,14 +389,11 @@ export function mergeRecent(stored, incoming, opts = {}) {
  * stored order. Reading only -- nothing is removed (expiry is `mergeRecent`'s,
  * at a write). `hours` falls back to `RECENT_DEFAULTS.hours`; a non-finite `now`
  * reads the wall clock.
- * @param {unknown} lines
- * @param {{ now: number, hours?: number }} opts
- * @returns {object[]}
  */
-export function liveRecent(lines, { now, hours } = {}) {
+export function liveRecent(lines: unknown, { now, hours }: { now?: number; hours?: number } = {}): Array<RecentLine> {
   if (!Array.isArray(lines)) return [];
   const cutoff = windowStart(nowOf(now), hours);
-  return lines.filter((line) => isPlainObject(line) && Number.isFinite(line.at) && line.at >= cutoff);
+  return lines.filter((line) => isRecord(line) && isFiniteNumber(line.at) && line.at >= cutoff);
 }
 
 /**
@@ -363,12 +405,12 @@ export function liveRecent(lines, { now, hours } = {}) {
  * would match symbol runs in anyone's line) as a whole word
  * (src/memory/mentions.ts#occursAsWholeWord). Pure: `stored` is never mutated;
  * `nextId` is kept.
- * @param {unknown} stored
- * @param {string} userId
- * @param {unknown[]} [names]
- * @returns {{ value: { nextId: number, lines: object[] }, removed: number }}
  */
-export function purgeRecentFor(stored, userId, names = []) {
+export function purgeRecentFor(
+  stored: unknown,
+  userId: string,
+  names: Array<unknown> = []
+): { value: { nextId: number; lines: Array<RecentLine> }; removed: number } {
   const base = normalizeRecent(stored);
   const id = String(userId);
   const token = `<@${id}>`;
@@ -388,11 +430,8 @@ export function purgeRecentFor(stored, userId, names = []) {
  * fields src/memory/episodes.ts treats as its identity. A caller that already
  * shows some moments elsewhere in a request passes their keys to `recentView`
  * so it never repeats them.
- * @param {string|number|null} profileId
- * @param {{ date?: string, what?: string }} ep
- * @returns {string}
  */
-export function episodeKey(profileId, ep) {
+export function episodeKey(profileId: string | number | null, ep: { date?: string; what?: string }): string {
   return `${profileId}|${ep?.date}|${ep?.what}`;
 }
 
@@ -414,13 +453,13 @@ export function episodeKey(profileId, ep) {
  * A moment without a parsable `addedAt` (written before the field existed, or by
  * hand) is judged by its date alone.
  */
-function momentAt(ep, cutoff, clock) {
+function momentAt(ep: { date?: unknown; addedAt?: unknown }, cutoff: number, clock: number) {
   if (typeof ep.date !== 'string' || !EPISODE_DATE_RE.test(ep.date)) return null;
   const dayStart = Date.parse(`${ep.date}T00:00:00.000Z`);
-  if (!Number.isFinite(dayStart)) return null;
+  if (!isFiniteNumber(dayStart)) return null;
   if (dayStart + DAY_MS - 1 < cutoff || dayStart > clock + MAX_ZONE_AHEAD_MS) return null;
   const stored = typeof ep.addedAt === 'string' ? Date.parse(ep.addedAt) : NaN;
-  if (Number.isFinite(stored) && (stored < cutoff || stored > clock)) return null;
+  if (isFiniteNumber(stored) && (stored < cutoff || stored > clock)) return null;
   return dayStart + DAY_MS / 2;
 }
 
@@ -429,13 +468,23 @@ function momentAt(ep, cutoff, clock) {
  * finite number as its decimal form, a non-empty string as it is, anything
  * else null. The one copy for the recent view, the request builder
  * (src/behavior/prompt.js) and src/behavior/elsewhere.ts.
- * @param {unknown} raw
- * @returns {string|null}
  */
-export function memberIdOf(raw) {
-  if (typeof raw === 'number' && Number.isFinite(raw)) return String(raw);
+export function memberIdOf(raw: unknown): string | null {
+  if (typeof raw === 'number' && isFiniteNumber(raw)) return String(raw);
   return typeof raw === 'string' && raw !== '' ? raw : null;
 }
+
+/** A live line of the recent view, with whether it concerns a focus member. */
+type RecentLineItem = { kind: 'line'; at: number; focus: boolean; line: RecentLine };
+/** A member's moment (an episode) of the recent view. */
+type RecentMoment = {
+  kind: 'episode';
+  at: number;
+  focus: boolean;
+  profileId: string;
+  name: string | null;
+  episode: Untyped;
+};
 
 /**
  * The view of the last `hours` before `now` -- what a turn's `<recent>` block
@@ -458,25 +507,42 @@ export function memberIdOf(raw) {
  * else `RECENT_EPISODES_PER_MEMBER`. A profile, line or moment that is
  * malformed is passed over. Pure: nothing is mutated, and every item points at
  * the stored line or moment itself.
- * @param {{ lines?: unknown, profiles?: unknown, now?: number, hours?: number,
- *   focusIds?: Iterable<string>, excludeEpisodeKeys?: Set<string>,
- *   isShown?: (channelId: string|null) => boolean, perMember?: number }} [args]
- * @returns {{ items: Array<{ kind: 'line', at: number, focus: boolean, line: object }
- *   | { kind: 'episode', at: number, focus: boolean, profileId: string, name: string|null, episode: object }>,
- *   hidden: number, repeated: number }}  `at`: a line's moment, a moment's noon UTC of its date
+ * @returns `at`: a line's moment, a moment's noon UTC of its date
  *   (for ordering; a moment's shown date is its stored `date`); `name`: the profile's current
  *   stored name, null when it has none.
  */
-export function recentView({ lines, profiles, now, hours, focusIds, excludeEpisodeKeys, isShown, perMember } = {}) {
+export function recentView({
+  lines,
+  profiles,
+  now,
+  hours,
+  focusIds,
+  excludeEpisodeKeys,
+  isShown,
+  perMember,
+}: {
+  lines?: unknown;
+  profiles?: unknown;
+  now?: number;
+  hours?: number;
+  focusIds?: Iterable<string>;
+  excludeEpisodeKeys?: Set<string>;
+  isShown?: (channelId: string | null) => boolean;
+  perMember?: number;
+} = {}): {
+  items: Array<RecentLineItem | RecentMoment>;
+  hidden: number;
+  repeated: number;
+} {
   const clock = nowOf(now);
   const cutoff = windowStart(clock, hours);
   const focus = new Set([...(focusIds ?? [])].map(memberIdOf).filter(Boolean));
   const excluded = excludeEpisodeKeys instanceof Set ? excludeEpisodeKeys : new Set();
   const shows = typeof isShown === 'function' ? isShown : () => false;
-  const most = Number.isInteger(perMember) && perMember >= 0 ? perMember : RECENT_EPISODES_PER_MEMBER;
+  const most = isIntegerNumber(perMember) && perMember >= 0 ? perMember : RECENT_EPISODES_PER_MEMBER;
 
   let hidden = 0;
-  const shownLines = [];
+  const shownLines: Array<RecentLineItem> = [];
   for (const line of liveRecent(lines, { now: clock, hours })) {
     if (typeof line.text !== 'string' || !line.text) continue;
     if (!shows(line.channelId ?? null)) {
@@ -484,7 +550,7 @@ export function recentView({ lines, profiles, now, hours, focusIds, excludeEpiso
       continue;
     }
     const who = Array.isArray(line.who) ? line.who : tokenIds(line.text);
-    shownLines.push({ kind: 'line', at: line.at, focus: who.some((id) => focus.has(String(id))), line });
+    shownLines.push({ kind: 'line', at: line.at, focus: who.some((id: string) => focus.has(String(id))), line });
   }
   shownLines.sort(
     (a, b) =>
@@ -495,15 +561,15 @@ export function recentView({ lines, profiles, now, hours, focusIds, excludeEpiso
   );
 
   let repeated = 0;
-  const moments = [];
+  const moments: Array<RecentMoment> = [];
   for (const profile of Array.isArray(profiles) ? profiles : []) {
-    if (!isPlainObject(profile)) continue;
+    if (!isRecord(profile)) continue;
     const profileId = memberIdOf(profile.id);
     if (profileId === null) continue;
-    const inWindow = [];
-    const atOf = new Map();
+    const inWindow: Array<Untyped> = [];
+    const atOf = new Map<Untyped, number>();
     for (const ep of Array.isArray(profile.episodes) ? profile.episodes : []) {
-      if (!isPlainObject(ep) || typeof ep.what !== 'string' || !ep.what.trim()) continue;
+      if (!isRecord(ep) || typeof ep.what !== 'string' || !ep.what.trim()) continue;
       const at = momentAt(ep, cutoff, clock);
       if (at === null) continue;
       if (excluded.has(episodeKey(profileId, ep))) {
@@ -516,7 +582,7 @@ export function recentView({ lines, profiles, now, hours, focusIds, excludeEpiso
     const name = typeof profile.names?.[0] === 'string' && profile.names[0] ? profile.names[0] : null;
     const focused = focus.has(profileId);
     for (const episode of topEpisodes(inWindow, most)) {
-      moments.push({ kind: 'episode', at: atOf.get(episode), focus: focused, profileId, name, episode });
+      moments.push({ kind: 'episode', at: Number(atOf.get(episode)), focus: focused, profileId, name, episode });
     }
   }
   moments.sort(

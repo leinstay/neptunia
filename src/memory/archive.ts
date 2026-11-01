@@ -24,14 +24,16 @@
 import * as nodeFs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { isPlainObject } from '../config.js';
+import { isRecord, propOf, isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
 import { log as defaultLog } from '../log.js';
 import { stripUrls } from './clamp.ts';
 import { TEACHER_TOKEN_RE, tokenIds } from './mentions.ts';
 import { isoOf, revisionOf } from './record.ts';
 import { memoryRootOf } from './root.ts';
-import { createReadSeam } from './db/readers/common.ts';
+
 import { archiveLayers, archiveLines, archiveMonths } from './db/readers/archive.ts';
+import type { AppendStore } from './append-store.ts';
+import type { Log, MemoryDb, Untyped, StoredRecord } from './types.ts';
 
 /** The schema version every entry carries. */
 export const ARCHIVE_VERSION = 1;
@@ -44,7 +46,7 @@ export const ARCHIVE_VERSION = 1;
  * plain strings, so they carry no id while stored: the id is minted when one leaves the list.
  * The keys are the archive's item kinds.
  */
-export const ITEM_ID_PREFIX = Object.freeze({
+export const ITEM_ID_PREFIX: Readonly<Record<string, string>> = Object.freeze({
   episode: 'ep-',
   lesson: 'ln-',
   interest: 'in-',
@@ -72,7 +74,7 @@ export const ARCHIVE_EVENTS = Object.freeze([
 ]);
 
 /** The text fields of each kind: what `text` holds verbatim and the revision hashes. */
-const TEXT_FIELDS = Object.freeze({
+const TEXT_FIELDS: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
   episode: ['what', 'quote', 'feeling'],
   lesson: ['text'],
   interest: ['topic', 'note'],
@@ -99,8 +101,8 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH_RE = /^\d{4}-\d{2}$/;
 
 /** Distinct non-empty strings of `values` (arrays or single values), in order. */
-function idList(...values) {
-  const out = [];
+function idList(...values: Array<unknown>): Array<string> {
+  const out: Array<string> = [];
   for (const value of values) {
     for (const item of Array.isArray(value) ? value : [value]) {
       if (typeof item === 'string' && item && !out.includes(item)) out.push(item);
@@ -110,21 +112,19 @@ function idList(...values) {
 }
 
 /** A plain-string item (a self fact, an in-joke) as `{ text }`; an object as it is; else `{}`. */
-function itemValue(item) {
+function itemValue(item: Untyped) {
   if (typeof item === 'string') return { text: item };
-  return isPlainObject(item) ? item : {};
+  return isRecord(item) ? item : {};
 }
 
 /**
  * The text fields of `item` for `itemKind`, verbatim (strings, and a participation episode's
  * messages copied whole); a field the item does not hold is left out.
- * @param {string} itemKind  One of `ARCHIVE_KINDS`.
- * @param {unknown} item
- * @returns {object}
+ * @param itemKind  One of `ARCHIVE_KINDS`.
  */
-export function archiveText(itemKind, item) {
+export function archiveText(itemKind: string, item: unknown): object {
   const value = itemValue(item);
-  const text = {};
+  const text: Record<string, Untyped> = {};
   for (const field of TEXT_FIELDS[itemKind] ?? []) {
     if (typeof value[field] === 'string') text[field] = value[field];
     else if (Array.isArray(value[field])) text[field] = structuredClone(value[field]);
@@ -134,8 +134,8 @@ export function archiveText(itemKind, item) {
 
 /** `archiveText` as an entry stores it: every string field without its links
  * (src/memory/clamp.ts#stripUrls); a participation episode's messages stay whole. */
-function storedText(itemKind, item) {
-  const text = archiveText(itemKind, item);
+function storedText(itemKind: Untyped, item: Untyped) {
+  const text: StoredRecord = archiveText(itemKind, item);
   for (const [field, value] of Object.entries(text)) {
     if (typeof value === 'string') text[field] = stripUrls(value);
   }
@@ -146,16 +146,13 @@ function storedText(itemKind, item) {
  * The revision id of `item`'s content: `rv-` and 12 hex digits of the sha256 of its text fields
  * as an entry stores them (src/memory/record.ts#revisionOf over `archiveText`, links taken out).
  * Two items with the same text share it, whatever their weights or dates.
- * @param {string} itemKind
- * @param {unknown} item
- * @returns {string}
  */
-export function archiveRevision(itemKind, item) {
+export function archiveRevision(itemKind: string, item: unknown): string {
   return revisionOf(JSON.stringify(storedText(itemKind, item)));
 }
 
 /** The item's own time: a stored day (`day`), else the first time field it holds (`time`), else `approx` today. */
-function observedAtOf(value, recordedAt) {
+function observedAtOf(value: Untyped, recordedAt: Untyped) {
   if (typeof value.date === 'string' && DAY_RE.test(value.date)) return { date: value.date, precision: 'day' };
   for (const field of TIME_FIELDS) {
     const iso = isoOf(value[field]);
@@ -165,20 +162,20 @@ function observedAtOf(value, recordedAt) {
 }
 
 /** The messages an item names itself, as `{ channelId?, messageId, revision? }`; [] when none. */
-function sourceRefsOf(value, given) {
-  const clean = (ref) => {
-    if (!isPlainObject(ref) || typeof ref.messageId !== 'string' || !ref.messageId) return null;
+function sourceRefsOf(value: Untyped, given: Untyped) {
+  const clean = (ref: Untyped) => {
+    if (!isRecord(ref) || typeof ref.messageId !== 'string' || !ref.messageId) return null;
     return {
       ...(typeof ref.channelId === 'string' && ref.channelId ? { channelId: ref.channelId } : {}),
       messageId: ref.messageId,
-      ...(Number.isInteger(ref.revision) && ref.revision > 0 ? { revision: ref.revision } : {}),
+      ...(isIntegerNumber(ref.revision) && ref.revision > 0 ? { revision: ref.revision } : {}),
     };
   };
   const explicit = Array.isArray(given) ? given : Array.isArray(value.sourceRefs) ? value.sourceRefs : null;
   if (explicit) return explicit.map(clean).filter(Boolean);
   const channelId = typeof value.channelId === 'string' && value.channelId ? value.channelId : null;
   const ids = Array.isArray(value.messages)
-    ? value.messages.map((message) => (isPlainObject(message) ? message.id : null))
+    ? value.messages.map((message: Untyped) => (isRecord(message) ? message.id : null))
     : Array.isArray(value.sourceMessageIds)
       ? value.sourceMessageIds
       : [];
@@ -186,14 +183,14 @@ function sourceRefsOf(value, given) {
 }
 
 /** The members an item concerns: the scope's member, `given`, ids named in its text, its teacher, the authors of its messages. */
-function participantsOf(value, text, scope, given) {
-  const named = [];
+function participantsOf(value: Untyped, text: Untyped, scope: Untyped, given: Untyped) {
+  const named: Array<string> = [];
   for (const field of Object.values(text)) if (typeof field === 'string') named.push(...tokenIds(field));
   const teacher = typeof value.from === 'string' ? (value.from.match(TEACHER_TOKEN_RE)?.[1] ?? null) : null;
   const authors = Array.isArray(value.messages)
     ? value.messages
-        .filter((message) => isPlainObject(message) && message.self !== true)
-        .map((message) => message.authorId)
+        .filter((message: Untyped) => isRecord(message) && message.self !== true)
+        .map((message: Untyped) => message.authorId)
     : [];
   return idList(scope?.user, given, Array.isArray(value.who) ? value.who : [], named, teacher, authors, value.userId);
 }
@@ -210,15 +207,10 @@ function participantsOf(value, text, scope, given) {
  * member, `participants` given, the `<@id>` tokens of its text, its teacher and the other authors
  * of its messages. `guildId` is stamped on append.
  *
- * @param {unknown} item
- * @param {{ itemKind: string, event: string, scope?: object, origin?: 'live'|'backfill', by?: string,
- *   now?: () => number, sourceRefs?: object[], neutral?: string|null, uuid?: () => string,
- *   participants?: string[] }} options
- * @returns {object}
  * @throws {TypeError} An unknown `itemKind` or `event`.
  */
 export function archiveEntry(
-  item,
+  item: unknown,
   {
     itemKind,
     event,
@@ -230,21 +222,32 @@ export function archiveEntry(
     neutral = null,
     uuid = randomUUID,
     participants = [],
-  } = {}
-) {
+  }: {
+    itemKind: string;
+    event: string;
+    scope?: Untyped;
+    origin?: 'live' | 'backfill';
+    by?: string;
+    now?: () => number;
+    sourceRefs?: Array<Untyped>;
+    neutral?: string | null;
+    uuid?: () => string;
+    participants?: Array<string>;
+  }
+): object {
   if (!TEXT_FIELDS[itemKind]) throw new TypeError(`archiveEntry: unknown item kind ${itemKind}`);
   if (!ARCHIVE_EVENTS.includes(event)) throw new TypeError(`archiveEntry: unknown event ${event}`);
   const value = itemValue(item);
   const text = storedText(itemKind, value);
   const recordedAt = new Date(now()).toISOString();
   const textFields = new Set(TEXT_FIELDS[itemKind]);
-  const stored = {};
+  const stored: Record<string, Untyped> = {};
   for (const [key, field] of Object.entries(value)) {
     if (textFields.has(key) || key === 'itemId' || key === 'weight') continue;
     stored[key] = structuredClone(field);
   }
   const lastSeen = LAST_SEEN_FIELDS.map((field) => isoOf(value[field])).find(Boolean) ?? null;
-  const entryScope = isPlainObject(scope) ? { ...scope } : { guild: true };
+  const entryScope = isRecord(scope) ? { ...scope } : { guild: true };
   const id = uuid();
   return {
     v: ARCHIVE_VERSION,
@@ -261,7 +264,7 @@ export function archiveEntry(
     sourceRefs: sourceRefsOf(value, sourceRefs),
     neutral: typeof neutral === 'string' && neutral ? neutral : null,
     text,
-    ...(typeof value.weight === 'number' && Number.isFinite(value.weight) ? { weight: value.weight } : {}),
+    ...(typeof value.weight === 'number' && isFiniteNumber(value.weight) ? { weight: value.weight } : {}),
     stored,
     origin: origin === 'backfill' ? 'backfill' : 'live',
     by: typeof by === 'string' && by ? by : 'store',
@@ -272,48 +275,52 @@ export function archiveEntry(
 }
 
 /** The dedupe key of an entry: `itemId:revisionId`; a `restored` event (a lifecycle line) has none. */
-function keyOf(entry) {
-  if (!isPlainObject(entry) || entry.event === 'restored') return null;
+function keyOf(entry: Untyped) {
+  if (!isRecord(entry) || entry.event === 'restored') return null;
   if (typeof entry.itemId !== 'string' || !entry.itemId || typeof entry.revisionId !== 'string') return null;
   return `${entry.itemId}:${entry.revisionId}`;
 }
 
 /** The parsed line, or null. */
-function parse(line) {
+function parse(line: Untyped) {
   try {
     const value = JSON.parse(line);
-    return isPlainObject(value) ? value : null;
+    return isRecord(value) ? value : null;
   } catch {
     return null;
   }
 }
 
+export type Archive = {
+  append(
+    guildId: string,
+    entries: Array<object>,
+    opts?: { privateUserId?: string | null }
+  ): Promise<{ written: number; duplicates: number }>;
+  iterate(
+    guildId: string,
+    query?: { from?: string; to?: string; scope?: object; kinds?: Array<string>; privateUserId?: string | null }
+  ): AsyncIterable<object>;
+  find(guildId: string, itemId: string): Promise<Array<object>>;
+  queuePending(guildId: string, entries: Array<object>, opts?: { privateUserId?: string | null }): Promise<number>;
+  drainPending(guildId: string): Promise<{ archived: number; left: number; confirmed: Array<object> }>;
+  stats(guildId: string): { pending: number };
+};
+
 /**
  * Create the archive.
  *
- * @param {object} options
- * @param {{ append: Function, iterate: Function, rewrite: Function, stats?: Function }} options.appendStore
  *   src/memory/append-store.ts, for the pending queue's files; best its own, so its counts speak for the archive alone.
- * @param {string} options.dataDir  the `data/` directory
- * @param {{ info: Function, warn: Function }} [options.log]
- * @param {() => number} [options.now=Date.now]
- * @param {object} [options.fs]  a `node:fs/promises`-shaped API (the pending queue's directories)
- * @param {(() => Promise<void>)|null} [options.writerGate]  awaited before every append, queue and
+ * @param options.dataDir  the `data/` directory
+ * @param [options.fs]  a `node:fs/promises`-shaped API (the pending queue's directories)
+ * @param [options.writerGate]  awaited before every append, queue and
  *   drain: the journal's `waitUnlocked`, so its writer lock (src/memory/journal.ts#withWriterLock)
  *   holds the archive's writers too
- * @param {object|null} options.memoryDb  the memory database service (src/memory/db/service.ts): `iterate` and
+ * @param options.memoryDb  the memory database service (src/memory/db/service.ts): `iterate` and
  *   `find` are answered from it (src/memory/db/readers/archive.ts), a failed read rejects with a code; `append`
  *   writes the entries it does not refuse as lines of the month's unit (`memoryDb.writeUnit`, op `lines`), and a
  *   failed write rejects as a failed append does (the store then queues the entries in the pending file and the
  *   drain writes them through `append` again)
- * @returns {{
- *   append(guildId: string, entries: object[], opts?: { privateUserId?: string|null }): Promise<{ written: number, duplicates: number }>,
- *   iterate(guildId: string, query?: { from?: string, to?: string, scope?: object, kinds?: string[], privateUserId?: string|null }): AsyncIterable<object>,
- *   find(guildId: string, itemId: string): Promise<object[]>,
- *   queuePending(guildId: string, entries: object[], opts?: { privateUserId?: string|null }): Promise<number>,
- *   drainPending(guildId: string): Promise<{ archived: number, left: number, confirmed: object[] }>,
- *   stats(guildId: string): { pending: number },
- * }}
  *   `append` stamps `guildId` (and, with `privateUserId`, the private scope `{ user, private: true }`)
  *   on each entry and refuses an entry whose key the month already holds (`duplicates`). `iterate` streams
  *   the entries whose `recordedAt` lies in `[from, to]`, of `kinds` and matching every key of `scope` when
@@ -333,50 +340,58 @@ export function createArchive({
   fs = nodeFs,
   writerGate = null,
   memoryDb = null,
-}) {
+}: {
+  appendStore: Pick<AppendStore, 'append' | 'iterate' | 'rewrite'> & Partial<Pick<AppendStore, 'stats'>>;
+  dataDir: string;
+  log?: Pick<Log, 'info' | 'warn'>;
+  now?: () => number;
+  fs?: { readdir: typeof nodeFs.readdir };
+  writerGate?: (() => Promise<void>) | null;
+  memoryDb: MemoryDb | null;
+}): Archive {
   const root = memoryRootOf(dataDir);
-  const seam = createReadSeam({ memoryDb, log, reader: 'archive' });
+  const seam = readSeamOf(memoryDb, log, 'archive');
   const indexes = new Map(); // unit -> Set of keys
   const pendingCounts = new Map(); // guildId -> entries waiting in the pending files
-  let chain = Promise.resolve();
+  let chain: Promise<unknown> = Promise.resolve();
 
   /** Run `task` after every write already queued. */
-  function serial(task) {
+  function serial<TResult>(task: () => Promise<TResult>): Promise<TResult> {
     const run = chain.then(task);
     chain = run.catch(() => {});
     return run;
   }
 
-  function guildBase(guildId) {
+  function guildBase(guildId: string) {
     return root.guildDir(guildId);
   }
 
-  function baseDir(guildId, privateUserId = null) {
+  function baseDir(guildId: string, privateUserId: string | null = null) {
     return typeof privateUserId === 'string' && privateUserId
       ? path.join(guildBase(guildId), 'private', privateUserId, 'archive')
       : path.join(guildBase(guildId), 'archive');
   }
 
-  const segmentFile = (base, month) => path.join(base, `${month}.jsonl`);
-  const pendingFile = (base) => path.join(base, 'pending.jsonl');
-  const doneFile = (base) => path.join(base, 'pending-done.jsonl');
+  const segmentFile = (base: Untyped, month: string) => path.join(base, `${month}.jsonl`);
+  const pendingFile = (base: Untyped) => path.join(base, 'pending.jsonl');
+  const doneFile = (base: Untyped) => path.join(base, 'pending-done.jsonl');
 
-  async function listDir(dir, { dirsOnly = false } = {}) {
+  async function listDir(dir: string, { dirsOnly = false } = {}) {
     try {
       const entries = await fs.readdir(dir, { withFileTypes: true });
       return entries
-        .filter((entry) => !dirsOnly || entry.isDirectory())
-        .map((entry) => entry.name)
+        .filter((entry: Untyped) => !dirsOnly || entry.isDirectory())
+        .map((entry: Untyped) => entry.name)
         .sort();
     } catch (error) {
-      if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return [];
+      if (propOf(error, 'code') === 'ENOENT' || propOf(error, 'code') === 'ENOTDIR') return [];
       throw error;
     }
   }
 
   /** Every base of a guild that may hold a pending queue: its own archive, then each private layer's
    * directory that exists (only directories are layers). */
-  async function bases(guildId) {
+  async function bases(guildId: string) {
     const out = [{ base: baseDir(guildId), privateUserId: null }];
     for (const userId of await listDir(path.join(guildBase(guildId), 'private'), { dirsOnly: true })) {
       const base = baseDir(guildId, userId);
@@ -386,26 +401,24 @@ export function createArchive({
   }
 
   /** Append one line of a pending file durably: rejects when the append store failed it or holds it for a retry. */
-  async function appendLine(file, line) {
+  async function appendLine(file: string, line: Untyped) {
     const before = typeof appendStore.stats === 'function' ? appendStore.stats() : null;
     await appendStore.append(file, line, { sync: true });
     if (before) {
-      const after = appendStore.stats();
-      if (after.failed > before.failed || after.pending > 0) {
-        const error = new Error('archive: the write is not on disk yet');
-        error.code = 'archive-unconfirmed';
-        throw error;
+      const after = appendStore.stats?.();
+      if (after && (after.failed > before.failed || after.pending > 0)) {
+        throw Object.assign(new Error('archive: the write is not on disk yet'), { code: 'archive-unconfirmed' });
       }
     }
   }
 
-  function monthOf(entry) {
+  function monthOf(entry: Untyped) {
     const iso = isoOf(entry.recordedAt) ?? new Date(now()).toISOString();
     return iso.slice(0, 7);
   }
 
   /** A month's keys, from the database's lines of the month's unit, read once and then kept. */
-  function dbIndex(db, guildId, privateUserId, month, owner) {
+  function dbIndex(db: Untyped, guildId: string, privateUserId: string | null, month: string, owner: Untyped) {
     const cached = indexes.get(owner);
     if (cached) return cached;
     const keys = new Set();
@@ -418,7 +431,7 @@ export function createArchive({
   }
 
   /** The month units' lines written through the database's writer. */
-  async function appendNow(guildId, entries, privateUserId = null) {
+  async function appendNow(guildId: string, entries: Untyped, privateUserId: string | null = null) {
     const db = seam.db();
     if (typeof memoryDb?.writeUnit !== 'function')
       throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
@@ -427,8 +440,8 @@ export function createArchive({
     const months = new Map(); // owner -> { keys, lines, added }
     let duplicates = 0;
     for (const raw of Array.isArray(entries) ? entries : []) {
-      if (!isPlainObject(raw)) continue;
-      const entry = { ...raw, guildId: String(guildId) };
+      if (!isRecord(raw)) continue;
+      const entry: Record<string, Untyped> = { ...raw, guildId: String(guildId) };
       if (isPrivate) entry.scope = { user: privateUserId, private: true };
       const month = monthOf(entry);
       const owner = root.relative(segmentFile(base, month));
@@ -461,19 +474,38 @@ export function createArchive({
     if (typeof writerGate === 'function') await writerGate();
   }
 
-  async function append(guildId, entries, { privateUserId = null } = {}) {
+  async function append(
+    guildId: string,
+    entries: Untyped,
+    { privateUserId = null }: { privateUserId?: string | null } = {}
+  ) {
     await gate();
     return serial(() => appendNow(guildId, entries, privateUserId));
   }
 
-  async function* iterate(guildId, { from = null, to = null, scope = null, kinds = null, privateUserId = null } = {}) {
+  async function* iterate(
+    guildId: string,
+    {
+      from = null,
+      to = null,
+      scope = null,
+      kinds = null,
+      privateUserId = null,
+    }: {
+      from?: string | null;
+      to?: string | null;
+      scope?: Untyped;
+      kinds?: Array<string> | null;
+      privateUserId?: string | null;
+    } = {}
+  ) {
     const db = seam.db();
     const fromMs = from ? Date.parse(from) : -Infinity;
     const toMs = to ? Date.parse(to) : Infinity;
     const fromMonth = from ? String(isoOf(from) ?? '').slice(0, 7) : '0000-00';
     const toMonth = to ? String(isoOf(to) ?? '').slice(0, 7) : '9999-99';
     const wanted = Array.isArray(kinds) && kinds.length > 0 ? new Set(kinds) : null;
-    const scopeKeys = isPlainObject(scope) ? Object.entries(scope) : [];
+    const scopeKeys = isRecord(scope) ? Object.entries(scope) : [];
     for (const month of seam.run(() => archiveMonths(db, guildId, privateUserId))) {
       if (!MONTH_RE.test(month) || month < fromMonth || month > toMonth) continue;
       const seen = new Set();
@@ -482,7 +514,7 @@ export function createArchive({
         if (!entry || seen.has(entry.id)) continue;
         seen.add(entry.id);
         const at = Date.parse(entry.recordedAt);
-        if (Number.isFinite(at) && (at < fromMs || at > toMs)) continue;
+        if (isFiniteNumber(at) && (at < fromMs || at > toMs)) continue;
         if (wanted && !wanted.has(entry.itemKind)) continue;
         if (scopeKeys.some(([key, value]) => entry.scope?.[key] !== value)) continue;
         yield entry;
@@ -490,7 +522,7 @@ export function createArchive({
     }
   }
 
-  async function find(guildId, itemId) {
+  async function find(guildId: string, itemId: string) {
     const out = [];
     const db = seam.db();
     const layers = [null, ...seam.run(() => archiveLayers(db, guildId))];
@@ -501,38 +533,42 @@ export function createArchive({
   }
 
   /** The pending entries of one base not yet noted done, in order, and the done ids. */
-  async function readPending(base) {
+  async function readPending(base: Untyped) {
     const done = new Set();
     for await (const { line } of appendStore.iterate(doneFile(base))) {
       const value = parse(line);
       if (typeof value?.id === 'string') done.add(value.id);
     }
-    const waiting = [];
+    const waiting: Array<Untyped> = [];
     const ids = new Set();
     for await (const { line } of appendStore.iterate(pendingFile(base))) {
       const value = parse(line);
       const entry = value?.entry;
-      if (!isPlainObject(entry) || typeof entry.id !== 'string' || done.has(entry.id) || ids.has(entry.id)) continue;
+      if (!isRecord(entry) || typeof entry.id !== 'string' || done.has(entry.id) || ids.has(entry.id)) continue;
       ids.add(entry.id);
       waiting.push(entry);
     }
     return { waiting, done };
   }
 
-  async function countPending(guildId) {
+  async function countPending(guildId: string) {
     let pending = 0;
     for (const { base } of await bases(guildId)) pending += (await readPending(base)).waiting.length;
     pendingCounts.set(String(guildId), pending);
     return pending;
   }
 
-  async function queuePending(guildId, entries, { privateUserId = null } = {}) {
+  async function queuePending(
+    guildId: string,
+    entries: Untyped,
+    { privateUserId = null }: { privateUserId?: string | null } = {}
+  ) {
     await gate();
     return serial(async () => {
       const base = baseDir(guildId, privateUserId);
       let queued = 0;
       for (const entry of Array.isArray(entries) ? entries : []) {
-        if (!isPlainObject(entry) || typeof entry.id !== 'string') continue;
+        if (!isRecord(entry) || typeof entry.id !== 'string') continue;
         await appendLine(pendingFile(base), JSON.stringify({ id: entry.id, entry }));
         queued += 1;
         pendingCounts.set(String(guildId), (pendingCounts.get(String(guildId)) ?? 0) + 1);
@@ -541,11 +577,11 @@ export function createArchive({
     });
   }
 
-  async function drainPending(guildId) {
+  async function drainPending(guildId: string) {
     await gate();
     return serial(async () => {
       let archived = 0;
-      const confirmed = [];
+      const confirmed: Array<Untyped> = [];
       for (const { base, privateUserId } of await bases(guildId)) {
         const { waiting, done } = await readPending(base);
         if (waiting.length === 0) {
@@ -561,7 +597,7 @@ export function createArchive({
             log.warn('archive: drain stopped', {
               guildId: String(guildId),
               left: waiting.length - taken,
-              code: error?.code ?? null,
+              code: propOf(error, 'code') ?? null,
             });
             break;
           }
@@ -572,7 +608,7 @@ export function createArchive({
         archived += taken;
         if (taken > 0) {
           // The queue first, then the notes: a crash between leaves notes of entries no longer queued, which is harmless.
-          await appendStore.rewrite(pendingFile(base), (line) => !done.has(parse(line)?.entry?.id));
+          await appendStore.rewrite(pendingFile(base), (line: Untyped) => !done.has(parse(line)?.entry?.id));
           if (taken === waiting.length) await appendStore.rewrite(doneFile(base), () => false);
         }
       }
@@ -582,7 +618,7 @@ export function createArchive({
     });
   }
 
-  function stats(guildId) {
+  function stats(guildId: string) {
     return { pending: pendingCounts.get(String(guildId)) ?? 0 };
   }
 

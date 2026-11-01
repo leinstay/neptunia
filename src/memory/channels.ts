@@ -6,6 +6,8 @@
 
 import { fill, formatDuration } from '../format.js';
 import { DAY_MS, utcDay } from '../time.js';
+import { isFiniteNumber } from './types.ts';
+import type { StoredRecord } from './types.ts';
 
 // Production values, config cut of 2026-10-31.
 const LIVE_MESSAGES_PER_DAY = 20;
@@ -17,11 +19,11 @@ const DEAD_AFTER_DAYS = 7;
  * `dead`   — never seen a message, or the last one is older than `DEAD_AFTER_DAYS`.
  * `slow`   — anything in between.
  *
- * @param {{ days?: Record<string, number>, lastMessageAt?: number|null }} channel
- * @param {number} nowMs
- * @returns {'live'|'slow'|'dead'}
  */
-export function channelActivity(channel, nowMs) {
+export function channelActivity(
+  channel: { days?: Record<string, number>; lastMessageAt?: number | null },
+  nowMs: number
+): 'live' | 'slow' | 'dead' {
   const liveMessagesPerDay = LIVE_MESSAGES_PER_DAY;
   const deadAfterDays = DEAD_AFTER_DAYS;
   const days = channel?.days ?? {};
@@ -43,10 +45,11 @@ export function channelActivity(channel, nowMs) {
  * comma-separated -- an id `nameOf` cannot resolve (no profile, e.g. someone who left) is skipped
  * silently, never rendered as a bare id. `''` when there is nothing to show, or when `nameOf` is
  * missing.
- * @param {{id: string, count: number}[]} topWriters
- * @param {(id: string) => (string|null)} [nameOf]
  */
-function topWritersText(topWriters, nameOf) {
+function topWritersText(
+  topWriters: Array<{ id: string; count: number }> | undefined,
+  nameOf?: (id: string) => string | null
+) {
   if (!Array.isArray(topWriters) || topWriters.length === 0 || typeof nameOf !== 'function') return '';
   return topWriters
     .map((writer) => nameOf(writer?.id))
@@ -57,12 +60,8 @@ function topWritersText(topWriters, nameOf) {
 /**
  * Render one channel entry for the <server> prompt block.
  *
- * @param {{ name: string, category?: string|null, topic?: string|null, purpose?: string,
- *   topics?: string, tone?: string, lastMessageAt?: number|null,
- *   topWriters?: {id: string, count: number}[] }} channel
- * @param {object} labels  Live `prompts.labels`; uses `labels.server.*`/`labels.units`.
- * @param {{ current?: boolean, activity: 'live'|'slow'|'dead', now?: number,
- *   nameOf?: (id: string) => (string|null), readOnly?: boolean, diary?: boolean }} options  `now` and
+ * @param labels  Live `prompts.labels`; uses `labels.server.*`/`labels.units`.
+ * @param options  `now` and
  *   `labels.server.lastMessage` together render "how long ago the last message was"
  *   (`formatDuration`, the same humanised-age function the `<tempo>` block uses); `nameOf` and
  *   `labels.server.topWriters` together render who writes here most. Either fact is omitted --
@@ -75,13 +74,35 @@ function topWritersText(topWriters, nameOf) {
  *   `diary` (the caller says the channel is a place of her diary, its mirrors) adds the `labels.server.diary`
  *   line, with `{channel}` the channel's name, right before the read-only line, on any channel
  *   including the current one; nothing is added when that label is missing.
- * @returns {string}
  */
 export function renderChannel(
-  channel,
-  labels,
-  { current = false, activity, now: nowMs, nameOf, readOnly = false, diary = false } = {}
-) {
+  channel: {
+    name: string;
+    category?: string | null;
+    topic?: string | null;
+    purpose?: string;
+    topics?: string;
+    tone?: string;
+    lastMessageAt?: number | null;
+    topWriters?: Array<{ id: string; count: number }>;
+  },
+  labels: StoredRecord,
+  {
+    current = false,
+    activity,
+    now: nowMs,
+    nameOf,
+    readOnly = false,
+    diary = false,
+  }: {
+    current?: boolean;
+    activity?: 'live' | 'slow' | 'dead';
+    now?: number;
+    nameOf?: (id: string) => string | null;
+    readOnly?: boolean;
+    diary?: boolean;
+  } = {}
+): string {
   const s = labels.server;
   const mark = current ? s.currentMark : '';
   const lines = [`# ${channel.name}${mark}`];
@@ -95,7 +116,13 @@ export function renderChannel(
   if (diary === true && s.diary) lines.push(fill(s.diary, { channel: channel.name }));
   if (readOnly === true && !current && s.readOnly) lines.push(fill(s.readOnly));
 
-  if (s.lastMessage && Number.isFinite(channel.lastMessageAt) && Number.isFinite(nowMs)) {
+  if (
+    s.lastMessage &&
+    typeof channel.lastMessageAt === 'number' &&
+    isFiniteNumber(channel.lastMessageAt) &&
+    typeof nowMs === 'number' &&
+    isFiniteNumber(nowMs)
+  ) {
     const when = formatDuration(Math.max(0, nowMs - channel.lastMessageAt), labels.units);
     lines.push(fill(s.lastMessage, { when }));
   }
@@ -103,7 +130,8 @@ export function renderChannel(
   const topWritersLine = s.topWriters ? topWritersText(channel.topWriters, nameOf) : '';
   if (topWritersLine) lines.push(fill(s.topWriters, { names: topWritersLine }));
 
-  const activityLabel = { live: s.activityLive, slow: s.activitySlow, dead: s.activityDead }[activity];
+  const activityLabels: Record<string, unknown> = { live: s.activityLive, slow: s.activitySlow, dead: s.activityDead };
+  const activityLabel = activityLabels[String(activity)];
   lines.push(fill(s.activity, { activity: activityLabel }));
 
   return lines.join('\n');
@@ -113,21 +141,23 @@ export function renderChannel(
  * Messages a channel saw since `sinceMs` (UTC-day resolution, from the stored `days` tally).
  * `coveredFromMs` is the oldest day the tally holds, so a caller knows when the count cannot
  * reach back to `sinceMs`. Pure; a missing or malformed tally counts as empty.
- * @param {object} channel  A stored channel (`days: { 'YYYY-MM-DD': count }`).
- * @param {number|null} sinceMs  Count from this day on; null = every day.
- * @param {number} nowMs
- * @returns {{ count: number, coveredFromMs: number|null }}
+ * @param channel  A stored channel (`days: { 'YYYY-MM-DD': count }`).
+ * @param sinceMs  Count from this day on; null = every day.
  */
-export function messagesSince(channel, sinceMs, nowMs) {
+export function messagesSince(
+  channel: { days?: Record<string, number> } | null | undefined,
+  sinceMs: number | null,
+  nowMs: number
+): { count: number; coveredFromMs: number | null } {
   const days = channel && typeof channel.days === 'object' && channel.days !== null ? channel.days : {};
   const from = sinceMs === null || sinceMs === undefined ? null : utcDay(sinceMs);
   const to = utcDay(nowMs);
   let count = 0;
-  let oldest = null;
+  let oldest: number | null = null;
   for (const [day, n] of Object.entries(days)) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(n)) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !isFiniteNumber(n)) continue;
     const ms = Date.parse(day + 'T00:00:00Z');
-    if (!Number.isFinite(ms)) continue;
+    if (!isFiniteNumber(ms)) continue;
     if (oldest === null || ms < oldest) oldest = ms;
     if ((from === null || day >= from) && day <= to) count += n;
   }

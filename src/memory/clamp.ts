@@ -36,6 +36,7 @@
 // the record of what was said.
 
 import { URL_PATTERN } from './mentions.ts';
+import { isFiniteNumber } from './types.ts';
 
 const SENTENCE_ENDERS = new Set(['.', '!', '?', '…']);
 const SENTENCE_CLOSERS = new Set(['"', "'", '’', '”', ')', ']', '»']);
@@ -43,21 +44,21 @@ const STRIP_TRAILING = new Set([',', ';', ':', '-', '—', '(', '[', '«', '"'])
 const SENTENCE_BOUNDARY_MIN_RATIO = 0.6;
 const DEFAULT_TOLERANCE = 1.25;
 
-function isWhitespace(ch) {
+function isWhitespace(ch: string): boolean {
   return /\s/u.test(ch);
 }
 
 /** `tolerance` sanitized per the module contract: omitted -> the soft default
  * (1.25); given but not a finite number >= 1 -> 1 (a hard limit). */
-function sanitizeTolerance(tolerance) {
+function sanitizeTolerance(tolerance: unknown): number {
   if (tolerance === undefined) return DEFAULT_TOLERANCE;
   const n = Number(tolerance);
-  return Number.isFinite(n) && n >= 1 ? n : 1;
+  return isFiniteNumber(n) && n >= 1 ? n : 1;
 }
 
 /** Code-point spans `[start, end)` of every `<@digits>` token in `codePoints`. */
-function tokenSpans(codePoints) {
-  const spans = [];
+function tokenSpans(codePoints: Array<string>): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
   let i = 0;
   while (i < codePoints.length) {
     if (codePoints[i] === '<' && codePoints[i + 1] === '@') {
@@ -76,7 +77,7 @@ function tokenSpans(codePoints) {
 
 /** `index`, moved back to the start of any token span it falls strictly inside
  * (so the token is dropped whole rather than split). */
-function avoidTokenSplit(index, spans) {
+function avoidTokenSplit(index: number, spans: Array<[number, number]>): number {
   for (const [start, end] of spans) {
     if (index > start && index < end) return start;
   }
@@ -89,7 +90,7 @@ function avoidTokenSplit(index, spans) {
  * only when it is a dangling, unmatched opener (an odd number of `"` in the
  * text up to and including it); a `"` that legitimately closes a quote (an
  * even count) is kept. */
-function stripTrailing(codePoints) {
+function stripTrailing(codePoints: Array<string>): string {
   let end = codePoints.length;
   while (end > 0) {
     const ch = codePoints[end - 1];
@@ -98,7 +99,7 @@ function stripTrailing(codePoints) {
       continue;
     }
     if (ch === '"') {
-      const quoteCount = codePoints.slice(0, end).reduce((count, c) => count + (c === '"' ? 1 : 0), 0);
+      const quoteCount = codePoints.slice(0, end).reduce((count: number, c) => count + (c === '"' ? 1 : 0), 0);
       if (quoteCount % 2 === 1) {
         end -= 1;
         continue;
@@ -119,18 +120,14 @@ function stripTrailing(codePoints) {
  * a clean boundary rather than mid-word/mid-token. See the module header for
  * the full rule. Non-string `text` -> `''`. A non-finite/non-positive `limit`
  * means no limit at all (the trimmed text is returned unchanged).
- * @param {string} text
- * @param {number} limit
- * @param {{ tolerance?: number }} [opts]
- * @returns {string}
  */
-export function clampText(text, limit, { tolerance } = {}) {
+export function clampText(text: string, limit: number | undefined, { tolerance }: { tolerance?: number } = {}): string {
   if (typeof text !== 'string') return '';
   const trimmed = text.trim();
   if (!trimmed) return '';
 
   const numericLimit = Number(limit);
-  if (!Number.isFinite(numericLimit) || numericLimit <= 0) return trimmed;
+  if (!isFiniteNumber(numericLimit) || numericLimit <= 0) return trimmed;
 
   const tol = sanitizeTolerance(tolerance);
   const maxAllowed = Math.floor(numericLimit * tol);
@@ -184,15 +181,12 @@ export function clampText(text, limit, { tolerance } = {}) {
  * quoted line). A `limit` below 2 is a plain clampText cut (no room for the
  * mark); a non-finite/non-positive `limit` leaves the text whole, as
  * clampText does. Non-string `text` -> `''`.
- * @param {string} text
- * @param {number} limit
- * @returns {string}
  */
-export function clampWithEllipsis(text, limit) {
+export function clampWithEllipsis(text: string, limit: number): string {
   if (typeof text !== 'string') return '';
   const trimmed = text.trim();
   const numericLimit = Math.floor(Number(limit));
-  if (!Number.isFinite(numericLimit) || numericLimit <= 0) return trimmed;
+  if (!isFiniteNumber(numericLimit) || numericLimit <= 0) return trimmed;
   if (Array.from(trimmed).length <= numericLimit) return trimmed;
   if (numericLimit < 2) return clampText(trimmed, numericLimit, { tolerance: 1 });
   const cut = clampText(trimmed, numericLimit - 1, { tolerance: 1 });
@@ -217,10 +211,8 @@ const GUILLEMET = /[«»]/gu;
  * dashes alone becomes empty) and the whole text is trimmed. Hyphens and line
  * breaks are untouched. Non-string `text` -> `''`. For the persona's outgoing
  * message text (src/behavior/turn.js, `format.stripDashes`).
- * @param {unknown} text
- * @returns {string}
  */
-export function stripDashes(text) {
+export function stripDashes(text: unknown): string {
   if (typeof text !== 'string') return '';
   return text
     .replace(GUILLEMET, '"')
@@ -232,20 +224,16 @@ export function stripDashes(text) {
 
 /**
  * How many em/en dashes `text` holds (what stripDashes removes); 0 for a non-string.
- * @param {unknown} text
- * @returns {number}
  */
-export function countDashes(text) {
+export function countDashes(text: unknown): number {
   return typeof text === 'string' ? (text.match(DASH) ?? []).length : 0;
 }
 
 /**
  * `text` with every run of whitespace collapsed to one space and trimmed, so
  * it stays on one line. A null/undefined `text` reads as ''.
- * @param {unknown} text
- * @returns {string}
  */
-export function oneLine(text) {
+export function oneLine(text: unknown): string {
   return String(text ?? '')
     .replace(/\s+/gu, ' ')
     .trim();
@@ -258,13 +246,10 @@ export function oneLine(text) {
  * limit is returned unchanged (untrimmed). A `max` that is not a finite
  * non-negative number leaves it whole; `0` gives ''. Non-string reads as ''.
  * For free text sent on (a drawing request) where a mid-word end would be read.
- * @param {unknown} text
- * @param {number} max
- * @returns {string}
  */
-export function clampAtBoundary(text, max) {
+export function clampAtBoundary(text: unknown, max: number): string {
   const value = String(text ?? '');
-  if (!Number.isFinite(max) || max < 0) return value;
+  if (!isFiniteNumber(max) || max < 0) return value;
   const limit = Math.floor(max);
   if (limit === 0) return '';
   if (Array.from(value).length <= limit) return value;
@@ -275,13 +260,10 @@ export function clampAtBoundary(text, max) {
  * `text` cut to at most `max` code points (never inside a surrogate pair), with
  * no boundary search; a `max` that is not a finite non-negative number leaves
  * it whole. A null/undefined `text` reads as ''.
- * @param {unknown} text
- * @param {number} max
- * @returns {string}
  */
-export function clampChars(text, max) {
+export function clampChars(text: unknown, max: number): string {
   const value = String(text ?? '');
-  return Number.isFinite(max) && max >= 0 ? [...value].slice(0, Math.floor(max)).join('') : value;
+  return isFiniteNumber(max) && max >= 0 ? [...value].slice(0, Math.floor(max)).join('') : value;
 }
 
 // A Markdown link `[label](url)`: the label stays, the link goes.
@@ -290,17 +272,17 @@ const MARKDOWN_LINK_SUFFIX = '>?\\s*\\)';
 // Trailing characters of a matched URL that belong to the sentence, not the link.
 const URL_TAIL = new Set(['.', ',', ';', ':', '!', '?', '"', "'", '’', '”', '»']);
 // A closing bracket that ends a matched URL belongs to the sentence when the URL holds fewer openers.
-const URL_CLOSERS = { ')': '(', ']': '[', '}': '{' };
+const URL_CLOSERS: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
 // A bracket or quote pair a removed link left empty.
 const EMPTY_PAIR = /\(\s*\)|\[\s*\]|\{\s*\}|<\s*>|«\s*»|“\s*”|""/gu;
 
-/** A fresh URL regex, built at the moment of use: mentions.ts reaches this module back through recent.js. */
+/** A fresh URL regex, built at the moment of use: mentions.ts reaches this module back through recent.ts. */
 function urlRegex() {
   return new RegExp(URL_PATTERN, 'giu');
 }
 
 /** The characters at the end of a matched `url` that stay in the text (see URL_TAIL, URL_CLOSERS). */
-function urlTail(url) {
+function urlTail(url: string): string {
   let end = url.length;
   while (end > 0) {
     const ch = url[end - 1];
@@ -316,7 +298,7 @@ function urlTail(url) {
 }
 
 /** One line a link was taken out of, tidied: empty pairs, doubled spaces and separators, a dangling end. */
-function tidyLine(line) {
+function tidyLine(line: string): string {
   const tidy = line
     .replace(EMPTY_PAIR, '')
     .replace(EMPTY_PAIR, '')
@@ -339,10 +321,8 @@ function tidyLine(line) {
  * end), a line left empty goes, and the whole text is trimmed. Text with no
  * link comes back exactly as given; a text that was only links becomes ''.
  * Non-string reads as ''. For every text a memory store writes.
- * @param {unknown} text
- * @returns {string}
  */
-export function stripUrls(text) {
+export function stripUrls(text: unknown): string {
   const value = String(text ?? '');
   if (!urlRegex().test(value)) return value;
   const markdown = new RegExp(`${MARKDOWN_LINK_PREFIX}(?:${URL_PATTERN})${MARKDOWN_LINK_SUFFIX}`, 'giu');

@@ -6,8 +6,9 @@
 // the shared one of src/memory/ranking.ts: `count` is the weight, `last` (the
 // ts of the latest use) drives the decay.
 
-import { isPlainObject } from '../config.js';
-import { sortByRank } from './ranking.ts';
+import { isRecord, isFiniteNumber, isIntegerNumber } from './types.ts';
+import { sortRanked } from './ranking.ts';
+import type { StoredRecord } from './types.ts';
 
 // Production values, config cut of 2026-10-31.
 /** The custom emoji whose use the store counts. */
@@ -18,9 +19,8 @@ export const EMOJI_HALF_LIFE_DAYS = 30;
 /**
  * The `mergeEmojiUsage` options: `storeMax` and `halfLifeDays`. Shared by the live observer (src/memory/update.ts)
  * and the history backfill.
- * @returns {{ storeMax: number, halfLifeDays: number }}
  */
-export function emojiUsageOpts() {
+export function emojiUsageOpts(): { storeMax: number; halfLifeDays: number } {
   return { storeMax: EMOJI_STORE_MAX, halfLifeDays: EMOJI_HALF_LIFE_DAYS };
 }
 
@@ -28,20 +28,18 @@ export function emojiUsageOpts() {
  * A stored `emojiUsage` map made safe to read: anything but a plain object
  * becomes `{}`; an entry without a positive count is dropped, a missing name
  * becomes `''`, a missing `last` becomes 0. Never mutates `value`.
- * @param {unknown} value
- * @returns {Record<string, { name: string, count: number, last: number }>}
  */
-export function normalizeEmojiUsage(value) {
-  if (!isPlainObject(value)) return {};
-  const out = {};
+export function normalizeEmojiUsage(value: unknown): Record<string, { name: string; count: number; last: number }> {
+  if (!isRecord(value)) return {};
+  const out: Record<string, { name: string; count: number; last: number }> = {};
   for (const [id, entry] of Object.entries(value)) {
-    if (!id || !isPlainObject(entry)) continue;
-    const count = Number.isFinite(entry.count) ? Math.floor(entry.count) : 0;
+    if (!id || !isRecord(entry)) continue;
+    const count = isFiniteNumber(entry.count) ? Math.floor(entry.count) : 0;
     if (count < 1) continue;
     out[id] = {
       name: typeof entry.name === 'string' ? entry.name : '',
       count,
-      last: Number.isFinite(entry.last) ? entry.last : 0,
+      last: isFiniteNumber(entry.last) ? entry.last : 0,
     };
   }
   return out;
@@ -52,14 +50,15 @@ export function normalizeEmojiUsage(value) {
  * message's own `emojis`, not its forwarded snapshots -- a forward shares
  * someone else's words). The persona's own messages and other bots' are
  * skipped, like everywhere the analyzer counts members.
- * @param {object[]} messages  Slim buffered messages; `self`/`bot`/`ts`/`emojis` read.
- * @returns {Map<string, { name: string, count: number, last: number }>}
+ * @param messages  Slim buffered messages; `self`/`bot`/`ts`/`emojis` read.
  */
-export function countEmojiUses(messages) {
+export function countEmojiUses(
+  messages: Array<StoredRecord>
+): Map<string, { name: string; count: number; last: number }> {
   const uses = new Map();
   for (const message of Array.isArray(messages) ? messages : []) {
     if (!message || message.self || message.bot) continue;
-    const ts = Number.isFinite(message.ts) ? message.ts : 0;
+    const ts = isFiniteNumber(message.ts) ? message.ts : 0;
     const seen = new Set();
     for (const emoji of Array.isArray(message.emojis) ? message.emojis : []) {
       const id = emoji?.id == null ? '' : String(emoji.id);
@@ -82,18 +81,19 @@ export function countEmojiUses(messages) {
  * `rank = log2(count + 0.5) + last / (halfLifeDays * 86_400_000)` (see
  * src/memory/ranking.ts#rank; `halfLifeDays` not a positive number -> count
  * alone). Ties go to the more recent use.
- * @param {unknown} usage  A stored `emojiUsage` map (normalised here).
- * @param {number} [halfLifeDays]
- * @returns {{ id: string, name: string, count: number, last: number }[]}
+ * @param usage  A stored `emojiUsage` map (normalised here).
  */
-export function rankEmojiUsage(usage, halfLifeDays) {
+export function rankEmojiUsage(
+  usage: unknown,
+  halfLifeDays?: number
+): Array<{ id: string; name: string; count: number; last: number }> {
   const items = Object.entries(normalizeEmojiUsage(usage)).map(([id, entry]) => ({
     id,
     ...entry,
     weight: entry.count,
     lastSeen: entry.last > 0 ? new Date(entry.last).toISOString() : null,
   }));
-  return sortByRank(items, halfLifeDays).map(({ id, name, count, last }) => ({ id, name, count, last }));
+  return sortRanked(items, halfLifeDays).map(({ id, name, count, last }) => ({ id, name, count, last }));
 }
 
 /**
@@ -101,12 +101,12 @@ export function rankEmojiUsage(usage, halfLifeDays) {
  * accumulate, `last` and `name` follow the latest use. Past `storeMax`
  * entries the lowest-ranked are evicted (`storeMax` not a non-negative
  * integer -> no cap). Never mutates `usage`.
- * @param {unknown} usage
- * @param {object[]} messages
- * @param {{ storeMax?: number, halfLifeDays?: number }} [opts]
- * @returns {{ usage: Record<string, { name: string, count: number, last: number }>, counted: number }}
  */
-export function mergeEmojiUsage(usage, messages, { storeMax, halfLifeDays } = {}) {
+export function mergeEmojiUsage(
+  usage: unknown,
+  messages: Array<StoredRecord>,
+  { storeMax, halfLifeDays }: { storeMax?: number; halfLifeDays?: number } = {}
+): { usage: Record<string, { name: string; count: number; last: number }>; counted: number } {
   const next = normalizeEmojiUsage(usage);
   let counted = 0;
   for (const [id, use] of countEmojiUses(messages)) {
@@ -122,7 +122,7 @@ export function mergeEmojiUsage(usage, messages, { storeMax, halfLifeDays } = {}
     counted += use.count;
   }
   const ids = Object.keys(next);
-  if (Number.isInteger(storeMax) && storeMax >= 0 && ids.length > storeMax) {
+  if (isIntegerNumber(storeMax) && storeMax >= 0 && ids.length > storeMax) {
     const kept = new Set(
       rankEmojiUsage(next, halfLifeDays)
         .slice(0, storeMax)

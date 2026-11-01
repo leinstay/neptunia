@@ -5,20 +5,24 @@
 // can gather weight in the unseen tail instead of being evicted the moment it
 // arrives -- see docs/prompt-contract.md, "More is stored than shown,
 // and rank decays with age". Used by the storage-eviction code in
-// interests.js/details.js, the chat-facing renderer (src/behavior/prompt.js)
+// interests.ts/details.ts, the chat-facing renderer (src/behavior/prompt.js)
 // and `/nep memory show` (src/admin.js) -- every place that decides what is
 // shown or what survives an eviction goes through the SAME function, so a
 // history backfill and the live bot agree on what matters.
 
 import { DAY_MS } from '../time.js';
+import { isFiniteNumber, isIntegerNumber } from './types.ts';
 
 /** `lastSeen`, falling back to `firstSeen`, else the epoch (0) -- see
  * `rank` below. An unparsable date string is treated the same as a missing
  * one, never throws. */
-function resolvedDateMs(item) {
+// A GIF entry's `firstSeen` is an epoch number, read the same way as an ISO string (Date.parse of its text).
+type Ranked = { weight?: number; lastSeen?: string | null; firstSeen?: string | number | null };
+
+function resolvedDateMs(item: Ranked): number {
   const iso = item?.lastSeen ?? item?.firstSeen ?? null;
-  const ms = iso ? Date.parse(iso) : NaN;
-  return Number.isFinite(ms) ? ms : 0;
+  const ms = iso ? Date.parse(String(iso)) : NaN;
+  return isFiniteNumber(ms) ? ms : 0;
 }
 
 /**
@@ -31,14 +35,11 @@ function resolvedDateMs(item) {
  * half-life of silence costs exactly 1 off the rank -- the same as it takes
  * for `weight` to double (a unit in log2). `halfLifeDays` not a positive,
  * finite number disables decay entirely: rank is pure `log2(weight + 0.5)`.
- * @param {{ weight?: number, lastSeen?: string|null, firstSeen?: string|null }} item
- * @param {number} [halfLifeDays]
- * @returns {number}
  */
-export function rank(item, halfLifeDays) {
-  const weight = Number.isFinite(item?.weight) ? item.weight : 0;
+export function rank(item: Ranked, halfLifeDays?: number): number {
+  const weight = typeof item?.weight === 'number' && isFiniteNumber(item.weight) ? item.weight : 0;
   const base = Math.log2(weight + 0.5);
-  if (!Number.isFinite(halfLifeDays) || halfLifeDays <= 0) return base;
+  if (typeof halfLifeDays !== 'number' || !isFiniteNumber(halfLifeDays) || halfLifeDays <= 0) return base;
   return base + resolvedDateMs(item) / (halfLifeDays * DAY_MS);
 }
 
@@ -52,11 +53,8 @@ export function rank(item, halfLifeDays) {
  * least as fresh as one nothing happened to, so it is treated as the newer of
  * the two. See docs/prompt-contract.md, "More is stored than shown,
  * and rank decays with age".
- * @param {object[]} items
- * @param {number} [halfLifeDays]
- * @returns {object[]}
  */
-export function sortByRank(items, halfLifeDays) {
+export function sortRanked<TItem extends Ranked>(items: Array<TItem>, halfLifeDays?: number): Array<TItem> {
   return items
     .map((item, index) => ({ item, index }))
     .sort((a, b) => {
@@ -69,15 +67,21 @@ export function sortByRank(items, halfLifeDays) {
     .map(({ item }) => item);
 }
 
+/** `sortRanked` for a caller that does not read the items' fields back: the same order, as plain objects. */
+export function sortByRank(items: Array<object>, halfLifeDays?: number): Array<object> {
+  return sortRanked(items, halfLifeDays);
+}
+
 /**
  * The top `n` items by rank (see `sortByRank`), best first. `n` not a
  * non-negative integer -> every item (no cap).
- * @param {object[]} items
- * @param {number} [n]
- * @param {number} [halfLifeDays]
- * @returns {object[]}
  */
-export function topByRank(items, n, halfLifeDays) {
-  const cap = Number.isInteger(n) && n >= 0 ? n : items.length;
-  return sortByRank(items, halfLifeDays).slice(0, cap);
+export function topRanked<TItem extends Ranked>(items: Array<TItem>, n?: number, halfLifeDays?: number): Array<TItem> {
+  const cap = typeof n === 'number' && isIntegerNumber(n) && n >= 0 ? n : items.length;
+  return sortRanked(items, halfLifeDays).slice(0, cap);
+}
+
+/** `topRanked` as plain objects. */
+export function topByRank(items: Array<object>, n?: number, halfLifeDays?: number): Array<object> {
+  return topRanked(items, n, halfLifeDays);
 }

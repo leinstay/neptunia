@@ -16,6 +16,12 @@ import { archiveText } from './archive.ts';
 import { clampChars, oneLine } from './clamp.ts';
 import { fromTokens } from './mentions.ts';
 import { isoOf } from './record.ts';
+import { isFiniteNumber, isIntegerNumber } from './types.ts';
+import type { StoredRecord, Untyped } from './types.ts';
+import type { RecordLine } from './record.ts';
+
+/** Resolves a member id to the display name, or null when unknown. */
+type NameOf = (id: string) => string | null;
 
 /** The preceding lines of the same channel a record chunk carries. */
 export const CHUNK_CONTEXT_LINES = 2;
@@ -26,8 +32,8 @@ export const CHUNK_LINE_CHARS = 300;
 const ARCHIVE_MAIN_FIELDS = ['what', 'text', 'topic', 'name', 'gist', 'reason'];
 
 /** Distinct non-empty strings of `values` (arrays or single values), in order. */
-function idList(...values) {
-  const out = [];
+function idList(...values: Array<unknown>): Array<string> {
+  const out: Array<string> = [];
   for (const value of values) {
     for (const item of Array.isArray(value) ? value : [value]) {
       if (typeof item === 'string' && item && !out.includes(item)) out.push(item);
@@ -36,10 +42,11 @@ function idList(...values) {
   return out;
 }
 
-const revisionOf = (line) => (Number.isInteger(line?.revision) && line.revision > 0 ? line.revision : 1);
+const revisionOf = (line: Pick<RecordLine, 'revision'> | null | undefined): number =>
+  isIntegerNumber(line?.revision) && line.revision > 0 ? line.revision : 1;
 
 /** Compare two message ids: a shorter snowflake is older, then by characters. */
-function compareIds(a, b) {
+function compareIds(a: string | undefined, b: string | undefined): number {
   const x = String(a ?? '');
   const y = String(b ?? '');
   if (x.length !== y.length) return x.length - y.length;
@@ -48,25 +55,23 @@ function compareIds(a, b) {
 
 /**
  * Order of two record lines in a channel: time, then message id.
- * @param {object} a
- * @param {object} b
- * @returns {number}
  */
-export function compareLines(a, b) {
+export function compareLines(
+  a: Pick<RecordLine, 'occurredAt' | 'messageId'>,
+  b: Pick<RecordLine, 'occurredAt' | 'messageId'>
+): number {
   const x = Date.parse(a?.occurredAt);
   const y = Date.parse(b?.occurredAt);
-  const dx = Number.isFinite(x) ? x : 0;
-  const dy = Number.isFinite(y) ? y : 0;
+  const dx = isFiniteNumber(x) ? x : 0;
+  const dy = isFiniteNumber(y) ? y : 0;
   return dx !== dy ? dx - dy : compareIds(a?.messageId, b?.messageId);
 }
 
 /**
  * Whether a record line can be embedded or serve as context: a `seen` or `said` line with a
  * message id and some text.
- * @param {unknown} line
- * @returns {boolean}
  */
-export function embeddableLine(line) {
+export function embeddableLine(line: RecordLine | null | undefined): boolean {
   return (
     (line?.kind === 'seen' || line?.kind === 'said') &&
     typeof line.messageId === 'string' &&
@@ -79,28 +84,24 @@ export function embeddableLine(line) {
 /**
  * The key of a channel's lines in one layer: the guild record (`privateUserId` null or empty) or
  * a member's private record, then the channel.
- * @param {string|null} privateUserId
- * @param {string|null} channelId
- * @returns {string}
  */
-export function layerChannelKey(privateUserId, channelId) {
+export function layerChannelKey(privateUserId: string | null, channelId: string | null): string {
   return `${typeof privateUserId === 'string' ? privateUserId : ''}|${channelId ?? ''}`;
 }
 
 /** The channel of a record line, or null. */
-const channelOf = (line) =>
+const channelOf = (line: Pick<RecordLine, 'scope'>) =>
   typeof line?.scope?.channel === 'string' && line.scope.channel ? line.scope.channel : null;
 
 /** The layer of a record line: its private member, or '' for the guild. */
-const layerOf = (line) => (line?.scope?.private === true && typeof line.scope.user === 'string' ? line.scope.user : '');
+const layerOf = (line: Pick<RecordLine, 'scope'>) =>
+  line?.scope?.private === true && typeof line.scope.user === 'string' ? line.scope.user : '';
 
 /**
  * The embeddable lines of `lines`, one per message: its newest revision, in channel order.
- * @param {Iterable<object>} lines
- * @returns {object[]}
  */
-export function newestRevisions(lines) {
-  const newest = new Map();
+export function newestRevisions(lines: Iterable<RecordLine>): Array<RecordLine> {
+  const newest = new Map<string, RecordLine>();
   for (const line of lines ?? []) {
     if (!embeddableLine(line)) continue;
     const key = `${layerOf(line)}|${line.messageId}`;
@@ -113,12 +114,12 @@ export function newestRevisions(lines) {
 /**
  * The up to `count` lines of `channelLines` (one channel, one layer, any order) that come right
  * before `line`, oldest first; the line's own message is never among them.
- * @param {object} line
- * @param {object[]} channelLines
- * @param {number} [count]
- * @returns {object[]}
  */
-export function contextFor(line, channelLines, count = CHUNK_CONTEXT_LINES) {
+export function contextFor(
+  line: RecordLine,
+  channelLines: Array<RecordLine>,
+  count: number = CHUNK_CONTEXT_LINES
+): Array<RecordLine> {
   const before = (Array.isArray(channelLines) ? channelLines : [])
     .filter((other) => embeddableLine(other) && other.messageId !== line?.messageId && compareLines(other, line) < 0)
     .sort(compareLines);
@@ -126,27 +127,36 @@ export function contextFor(line, channelLines, count = CHUNK_CONTEXT_LINES) {
 }
 
 /** One chunk line: `author: text`, then the line's link titles and descriptions. */
-function chunkLine(line, { nameOf, selfName, lineChars }) {
-  const resolve = (id) => (typeof nameOf === 'function' ? nameOf(id) : null);
+function chunkLine(
+  line: RecordLine,
+  { nameOf, selfName, lineChars }: { nameOf: NameOf | null; selfName: string; lineChars: number }
+) {
+  const resolve = (id: string) => (typeof nameOf === 'function' ? nameOf(id) : null);
   const by = typeof line.by === 'string' && line.by ? line.by : null;
   const author = line.kind === 'said' ? selfName : (by && oneLine(resolve(by))) || by || '';
-  const text = clampChars(oneLine(fromTokens(line.text, resolve, 'chat')), lineChars);
+  const text = clampChars(oneLine(fromTokens(line.text ?? '', resolve, 'chat')), lineChars);
   const links = (Array.isArray(line.links) ? line.links : [])
-    .flatMap((link) => [link?.title, link?.description])
-    .filter((part) => typeof part === 'string' && part);
+    .flatMap((link: Untyped) => [link?.title, link?.description])
+    .filter((part: Untyped) => typeof part === 'string' && part);
   const shown = links.length > 0 ? clampChars(oneLine(links.join(' ')), lineChars) : '';
   return shown ? `${oneLine(author)}: ${text} ${shown}` : `${oneLine(author)}: ${text}`;
 }
 
 /**
  * The chunk of record `line` with `context` (its preceding lines, oldest first).
- * @param {object} line
- * @param {object[]} context
- * @param {{ nameOf?: (id: string) => string|null, selfName?: string, lineChars?: number }} [options]
- * @returns {{ text: string, meta: object }}
  */
-export function recordChunk(line, context = [], { nameOf = null, selfName = '', lineChars = CHUNK_LINE_CHARS } = {}) {
-  const lines = [...(Array.isArray(context) ? context : []), line];
+export function recordChunk(
+  record: object,
+  context: Array<object> = [],
+  {
+    nameOf = null,
+    selfName = '',
+    lineChars = CHUNK_LINE_CHARS,
+  }: { nameOf?: NameOf | null; selfName?: string; lineChars?: number } = {}
+): { text: string; meta: object } {
+  // A record chunk is made of record lines: the callers hold them as plain objects.
+  const line = record as RecordLine;
+  const lines = [...(Array.isArray(context) ? (context as Array<RecordLine>) : []), line];
   return {
     text: lines.map((item) => chunkLine(item, { nameOf, selfName, lineChars })).join('\n'),
     meta: {
@@ -167,19 +177,29 @@ export function recordChunk(line, context = [], { nameOf = null, selfName = '', 
  * The chunks of every message of `lines` (record lines of any channels and layers; each message
  * by its newest revision), or of those whose `messageId:revision` is in `targets`, each with its
  * preceding lines of the same channel and layer.
- * @param {Iterable<object>} lines
- * @param {{ nameOf?: Function, selfName?: string, lineChars?: number, contextLines?: number,
- *   targets?: Set<string>|null }} [options]
- * @returns {Array<{ text: string, meta: object }>}
  */
-export function recordChunks(lines, { targets = null, contextLines = CHUNK_CONTEXT_LINES, ...options } = {}) {
-  const channels = new Map();
+export function recordChunks(
+  lines: Iterable<RecordLine>,
+  {
+    targets = null,
+    contextLines = CHUNK_CONTEXT_LINES,
+    ...options
+  }: {
+    nameOf?: Untyped;
+    selfName?: string;
+    lineChars?: number;
+    contextLines?: number;
+    targets?: Set<string> | null;
+  } = {}
+): Array<{ text: string; meta: object }> {
+  const channels = new Map<string, Array<RecordLine>>();
   for (const line of newestRevisions(lines)) {
     const key = layerChannelKey(layerOf(line), channelOf(line));
-    if (!channels.has(key)) channels.set(key, []);
-    channels.get(key).push(line);
+    const list = channels.get(key) ?? [];
+    channels.set(key, list);
+    list.push(line);
   }
-  const out = [];
+  const out: Array<{ text: string; meta: Record<string, Untyped> }> = [];
   for (const channelLines of channels.values()) {
     channelLines.forEach((line, i) => {
       if (targets && !targets.has(`${line.messageId}:${revisionOf(line)}`)) return;
@@ -196,18 +216,16 @@ export function recordChunks(lines, { targets = null, contextLines = CHUNK_CONTE
   );
 }
 
-/** The text fields of an archive entry, as archive.js keeps them for its kind. */
-function entryFields(entry) {
+/** The text fields of an archive entry, as archive.ts keeps them for its kind. */
+function entryFields(entry: Untyped): StoredRecord {
   return archiveText(entry?.itemKind, entry?.text && typeof entry.text === 'object' ? entry.text : {});
 }
 
 /**
  * Whether an archive entry gets a vector: not a `restored` lifecycle line, with an item id and
  * some text.
- * @param {unknown} entry
- * @returns {boolean}
  */
-export function isEmbeddableArchive(entry) {
+export function isEmbeddableArchive(entry: Untyped): boolean {
   if (!entry || typeof entry !== 'object' || entry.event === 'restored') return false;
   if (typeof entry.itemId !== 'string' || !entry.itemId) return false;
   const fields = entryFields(entry);
@@ -219,14 +237,14 @@ export function isEmbeddableArchive(entry) {
 /**
  * The chunk of an archive entry: its leading text field (`what`, else `text`, ...), its note, and
  * its quote in quotation marks, on one line with `<@id>` tokens resolved.
- * @param {object} entry
- * @param {{ nameOf?: (id: string) => string|null }} [options]
- * @returns {{ text: string, meta: object }}
  */
-export function archiveChunk(entry, { nameOf = null } = {}) {
+export function archiveChunk(
+  entry: StoredRecord,
+  { nameOf = null }: { nameOf?: NameOf | null } = {}
+): { text: string; meta: object } {
   const fields = entryFields(entry);
-  const resolve = (id) => (typeof nameOf === 'function' ? nameOf(id) : null);
-  const clean = (value) => (typeof value === 'string' ? oneLine(fromTokens(value, resolve, 'chat')) : '');
+  const resolve = (id: string) => (typeof nameOf === 'function' ? nameOf(id) : null);
+  const clean = (value: Untyped) => (typeof value === 'string' ? oneLine(fromTokens(value, resolve, 'chat')) : '');
   const main = ARCHIVE_MAIN_FIELDS.map((field) => clean(fields[field])).find(Boolean) ?? '';
   const quote = clean(fields.quote);
   const text = [main, clean(fields.note), quote ? `"${quote}"` : ''].filter(Boolean).join(' ');
@@ -240,7 +258,9 @@ export function archiveChunk(entry, { nameOf = null } = {}) {
       channelId: null,
       by: null,
       participants: idList(entry.participants, entry.scope?.user),
-      sourceIds: idList((Array.isArray(entry.sourceRefs) ? entry.sourceRefs : []).map((ref) => ref?.messageId)),
+      sourceIds: idList(
+        (Array.isArray(entry.sourceRefs) ? entry.sourceRefs : []).map((ref: Untyped) => ref?.messageId)
+      ),
     },
   };
 }
@@ -248,9 +268,7 @@ export function archiveChunk(entry, { nameOf = null } = {}) {
 /**
  * The identity of a row's content: `<kind>:<id>:<revision>`; two rows with one key embed the
  * same text version.
- * @param {{ kind?: string, id?: string, revision?: unknown }} meta
- * @returns {string}
  */
-export function chunkKey(meta) {
+export function chunkKey(meta: { kind?: string; id?: string; revision?: unknown }): string {
   return `${meta?.kind === 'archive' ? 'archive' : 'record'}:${meta?.id ?? ''}:${meta?.revision ?? ''}`;
 }

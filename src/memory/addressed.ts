@@ -11,6 +11,9 @@ import { foldText } from './recent.ts';
 import { isOpen } from './interests.ts';
 import { isWordChar, occursAsWholeWord, occursAsWordStem } from './mentions.ts';
 import { DAY_MS } from '../time.js';
+import { isFiniteNumber, isIntegerNumber, isRecord } from './types.ts';
+import type { ValidityFields } from './interests.ts';
+import type { Untyped } from './types.ts';
 
 /** `memory.addressHalfLifeDays` when it is missing (config.json carries the same). */
 export const DEFAULT_ADDRESS_HALF_LIFE_DAYS = 30;
@@ -26,27 +29,24 @@ const INLINE_TOKEN_RE = /<[^<>\s]+>/g;
 const PING_RE = /@[\p{L}\p{N}_]+/gu;
 
 /** `halfLifeDays` when it is a positive number, else the default. */
-function halfLifeOf(halfLifeDays) {
-  return Number.isFinite(halfLifeDays) && halfLifeDays > 0 ? halfLifeDays : DEFAULT_ADDRESS_HALF_LIFE_DAYS;
+function halfLifeOf(halfLifeDays: Untyped) {
+  return isFiniteNumber(halfLifeDays) && halfLifeDays > 0 ? halfLifeDays : DEFAULT_ADDRESS_HALF_LIFE_DAYS;
 }
 
 /** A stored entry as `{ score, last }` with `last` in ms, or null when it is not one. */
-function readEntry(entry) {
-  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+function readEntry(entry: unknown) {
+  if (!isRecord(entry)) return null;
   const lastMs = typeof entry.last === 'string' ? Date.parse(entry.last) : NaN;
-  if (!Number.isFinite(entry.score) || entry.score < 0 || !Number.isFinite(lastMs)) return null;
+  if (!isFiniteNumber(entry.score) || entry.score < 0 || !isFiniteNumber(lastMs)) return null;
   return { score: entry.score, lastMs };
 }
 
 /**
  * A stored `addressedAs` entry's score decayed to `nowMs`: `score * 0.5^(days since last /
  * halfLifeDays)`; a `now` before `last` is no decay. 0 for an entry that is not one.
- * @param {{ score: number, last: string }} entry
- * @param {number} nowMs
- * @param {number} [halfLifeDays]  Missing or not positive -> 30.
- * @returns {number}
+ * @param [halfLifeDays]  Missing or not positive -> 30.
  */
-export function decayedScore(entry, nowMs, halfLifeDays) {
+export function decayedScore(entry: { score: number; last: string }, nowMs: number, halfLifeDays?: number): number {
   const read = readEntry(entry);
   if (!read) return 0;
   const days = Math.max(0, (nowMs - read.lastMs) / DAY_MS);
@@ -57,11 +57,9 @@ export function decayedScore(entry, nowMs, halfLifeDays) {
  * A profile's stored `addressedAs` (untrusted JSON, possibly hand-edited) as a clean map: only
  * entries with a non-empty name, a finite non-negative `score` and a `last` that reads as a time;
  * anything but an object is `{}`.
- * @param {unknown} value
- * @returns {Object<string, { score: number, last: string }>}
  */
-export function normalizeAddressedAs(value) {
-  const out = {};
+export function normalizeAddressedAs(value: unknown): Record<string, { score: number; last: string }> {
+  const out: Record<string, { score: number; last: string }> = {};
   if (!value || typeof value !== 'object' || Array.isArray(value)) return out;
   for (const [name, entry] of Object.entries(value)) {
     if (!name.trim() || !readEntry(entry)) continue;
@@ -73,12 +71,8 @@ export function normalizeAddressedAs(value) {
 /**
  * The names of `addressedAs`, the highest score decayed to `nowMs` first (equal scores: the
  * latest use first, then the stored order). `[]` for nothing stored.
- * @param {unknown} addressedAs
- * @param {number} nowMs
- * @param {number} [halfLifeDays]
- * @returns {string[]}
  */
-export function rankAddressed(addressedAs, nowMs, halfLifeDays) {
+export function rankAddressed(addressedAs: unknown, nowMs: number, halfLifeDays?: number): Array<string> {
   const map = normalizeAddressedAs(addressedAs);
   return Object.entries(map)
     .map(([name, entry], index) => ({
@@ -99,18 +93,19 @@ export function rankAddressed(addressedAs, nowMs, halfLifeDays) {
  * own decayed weight (`0.5^(days before last / halfLifeDays)`) and leaves `last` alone, so the
  * order of the uses does not matter. Then only the `max` best scores decayed to `now` (default:
  * the newest `last`) stay.
- * @param {unknown} existing  The stored map.
- * @param {Array<{ name: string, at: number }>} uses
- * @param {{ halfLifeDays?: number, max?: number, now?: number }} [opts]
+ * @param existing  The stored map.
  *   `halfLifeDays` missing or not positive -> 30; `max` missing -> 12.
- * @returns {Object<string, { score: number, last: string }>}
  */
-export function applyAddressUses(existing, uses, { halfLifeDays, max = MAX_ADDRESSED, now } = {}) {
+export function applyAddressUses(
+  existing: unknown,
+  uses: Array<{ name: string; at: number }>,
+  { halfLifeDays, max = MAX_ADDRESSED, now }: { halfLifeDays?: number; max?: number; now?: number } = {}
+): Record<string, { score: number; last: string }> {
   const halfLife = halfLifeOf(halfLifeDays);
   const map = normalizeAddressedAs(existing);
   const keyOf = new Map(Object.keys(map).map((name) => [foldText(name), name]));
   for (const use of Array.isArray(uses) ? uses : []) {
-    if (typeof use?.name !== 'string' || !use.name.trim() || !Number.isFinite(use.at)) continue;
+    if (typeof use?.name !== 'string' || !use.name.trim() || !isFiniteNumber(use.at)) continue;
     const folded = foldText(use.name);
     const key = keyOf.get(folded) ?? use.name.trim();
     keyOf.set(folded, key);
@@ -126,16 +121,16 @@ export function applyAddressUses(existing, uses, { halfLifeDays, max = MAX_ADDRE
         ? { score: stored.score * factor + 1, last: new Date(use.at).toISOString() }
         : { score: stored.score + factor, last: map[key].last };
   }
-  const cap = Number.isInteger(max) && max >= 0 ? max : MAX_ADDRESSED;
+  const cap = isIntegerNumber(max) && max >= 0 ? max : MAX_ADDRESSED;
   const names = Object.keys(map);
   if (names.length <= cap) return map;
-  const nowMs = Number.isFinite(now) ? now : Math.max(...names.map((name) => Date.parse(map[name].last)));
+  const nowMs = isFiniteNumber(now) ? now : Math.max(...names.map((name) => Date.parse(map[name].last)));
   const kept = new Set(rankAddressed(map, nowMs, halfLife).slice(0, cap));
   return Object.fromEntries(names.filter((name) => kept.has(name)).map((name) => [name, map[name]]));
 }
 
 /** How many word characters `name` holds. */
-function letterCount(name) {
+function letterCount(name: string) {
   return [...name].filter((ch) => isWordChar(ch)).length;
 }
 
@@ -143,36 +138,39 @@ function letterCount(name) {
  * The names a batch may count, per member: every stored display name (`names`) and open alias
  * (`aliases[].name`) of each profile, each once (folded), without a name of fewer than 3 letters
  * and without a name (folded) stored for more than one member.
- * @param {object[]} profiles  Stored profiles (`id`, `names`, `aliases` read).
- * @returns {Array<{ userId: string, names: string[] }>}  Members with at least one name left.
+ * @param profiles  Stored profiles (`id`, `names`, `aliases` read).
+ * @returns Members with at least one name left.
  */
-export function addressCandidates(profiles) {
-  const members = [];
-  const owners = new Map();
+export function addressCandidates(
+  profiles: Array<{ id?: string | number | null; names?: unknown; aliases?: unknown }>
+): Array<{ userId: string; names: Array<string> }> {
+  const members: Array<{ userId: string; names: Array<string> }> = [];
+  const owners = new Map<string, Set<string>>();
   for (const profile of Array.isArray(profiles) ? profiles : []) {
     if (profile?.id === undefined || profile?.id === null) continue;
     const userId = String(profile.id);
     const raw = [
       ...(Array.isArray(profile.names) ? profile.names : []),
       ...(Array.isArray(profile.aliases)
-        ? profile.aliases.filter((item) => isOpen(item)).map((item) => item?.name)
+        ? profile.aliases.filter((item: ValidityFields) => isOpen(item)).map((item: { name?: unknown }) => item?.name)
         : []),
     ];
-    const seen = new Set();
-    const names = [];
+    const seen = new Set<string>();
+    const names: Array<string> = [];
     for (const name of raw) {
       if (typeof name !== 'string' || letterCount(name) < MIN_NAME_LETTERS) continue;
       const folded = foldText(name);
       if (seen.has(folded)) continue;
       seen.add(folded);
       names.push(name.trim());
-      if (!owners.has(folded)) owners.set(folded, new Set());
-      owners.get(folded).add(userId);
+      const owned = owners.get(folded) ?? new Set<string>();
+      owners.set(folded, owned);
+      owned.add(userId);
     }
     members.push({ userId, names });
   }
   return members
-    .map(({ userId, names }) => ({ userId, names: names.filter((name) => owners.get(foldText(name)).size === 1) }))
+    .map(({ userId, names }) => ({ userId, names: names.filter((name) => owners.get(foldText(name))?.size === 1) }))
     .filter((member) => member.names.length > 0);
 }
 
@@ -181,7 +179,7 @@ export function addressCandidates(profiles) {
  * blocks, inline code, URLs, inline tokens (`<@id>`, `<:emoji:id>`, ...) and pings -- `@` and a
  * known name (the longest first), then `@` and any word.
  */
-function countableText(content, foldedNames) {
+function countableText(content: string, foldedNames: Array<string>) {
   let text = foldText(
     String(content ?? '')
       .replace(CODE_BLOCK_RE, ' ')
@@ -204,12 +202,15 @@ function countableText(content, foldedNames) {
  * message's `ts`. When several names of one member match and some of them occur as a whole word
  * (src/memory/mentions.ts#occursAsWholeWord), only those count: `Niko` written out is not also
  * a use of `Nikos` by its stem.
- * @param {object[]} messages  Slim buffered messages (`authorId`, `self`, `content`, `ts` read).
- * @param {Array<{ userId: string, names: string[] }>} candidates  From `addressCandidates`.
- * @returns {Map<string, Array<{ name: string, at: number }>>}  Member id -> uses, in message order.
+ * @param messages  Slim buffered messages (`authorId`, `self`, `content`, `ts` read).
+ * @param candidates  From `addressCandidates`.
+ * @returns Member id -> uses, in message order.
  */
-export function countAddressUses(messages, candidates) {
-  const uses = new Map();
+export function countAddressUses(
+  messages: Array<{ content?: unknown; ts?: unknown; self?: boolean; authorId?: string | number }>,
+  candidates: Array<{ userId: string; names: Array<string> }>
+): Map<string, Array<{ name: string; at: number }>> {
+  const uses = new Map<string, Array<{ name: string; at: number }>>();
   const members = (Array.isArray(candidates) ? candidates : []).map(({ userId, names }) => ({
     userId,
     names: names.map((name) => {
@@ -220,7 +221,7 @@ export function countAddressUses(messages, candidates) {
   }));
   const foldedNames = members.flatMap((member) => member.names.map((n) => n.form)).sort((a, b) => b.length - a.length);
   for (const message of Array.isArray(messages) ? messages : []) {
-    if (typeof message?.content !== 'string' || !message.content || !Number.isFinite(message.ts)) continue;
+    if (typeof message?.content !== 'string' || !message.content || !isFiniteNumber(message.ts)) continue;
     const text = countableText(message.content, foldedNames);
     if (!text) continue;
     const authorId = message.self ? null : String(message.authorId);
@@ -233,8 +234,9 @@ export function countAddressUses(messages, candidates) {
       if (matched.length === 0) continue;
       // `niko` is a whole word of its own and the stem of `nikos`: the exact name wins.
       const exact = matched.filter(({ form }) => occursAsWholeWord(text, form));
-      if (!uses.has(member.userId)) uses.set(member.userId, []);
-      for (const { name } of exact.length > 0 ? exact : matched) uses.get(member.userId).push({ name, at: message.ts });
+      const list = uses.get(member.userId) ?? [];
+      uses.set(member.userId, list);
+      for (const { name } of exact.length > 0 ? exact : matched) list.push({ name, at: message.ts });
     }
   }
   return uses;

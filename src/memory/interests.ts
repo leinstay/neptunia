@@ -21,9 +21,11 @@
 // person's message, not the wall clock the analyzer happened to run at), so
 // history fed out of order still ends up with correct dates.
 
-import { topByRank } from './ranking.ts';
+import { topRanked } from './ranking.ts';
 import { clampText, stripUrls } from './clamp.ts';
 import { HOUR_MS } from '../time.js';
+import { isFiniteNumber, isIntegerNumber } from './types.ts';
+import type { StoredRecord, Untyped } from './types.ts';
 
 /** `memory.confirmGapHours` when it is missing (config.json carries the same). */
 export const DEFAULT_CONFIRM_GAP_HOURS = 12;
@@ -34,9 +36,8 @@ export const DEFAULT_CONFIRM_GAP_HOURS = 12;
  * `toLowerCase`, the same approach src/memory/lore.ts#normalizeTitle uses for
  * lorebook titles). Never stored -- comparison only. Reused as-is by
  * src/memory/details.ts for a detail's text identity.
- * @param {string} topic
  */
-export function normalizeTopic(topic) {
+export function normalizeTopic(topic: Untyped): string {
   return String(topic ?? '')
     .trim()
     .replace(/\s+/g, ' ')
@@ -50,16 +51,14 @@ export function normalizeTopic(topic) {
  * store fewer than it shows, even when misconfigured. Neither value given ->
  * no cap (`Infinity`), same as before this feature existed. Shared by
  * interests, details (src/memory/details.ts) and aliases
- * (src/memory/aliases.ts) -- same trade-off, three item kinds; details.js
+ * (src/memory/aliases.ts) -- same trade-off, three item kinds; details.ts
  * also imports `evictToCapacity`, `minIso`, `maxIso` and `isFarEnough` below.
- * @param {number} [storedMax]
- * @param {number} [shownMax]
  */
-export function effectiveStorageCap(storedMax, shownMax) {
-  const stored = Number.isInteger(storedMax) ? storedMax : -Infinity;
-  const shown = Number.isInteger(shownMax) ? shownMax : -Infinity;
+export function effectiveStorageCap(storedMax?: number, shownMax?: number): number {
+  const stored = isIntegerNumber(storedMax) ? storedMax : -Infinity;
+  const shown = isIntegerNumber(shownMax) ? shownMax : -Infinity;
   const cap = Math.max(stored, shown);
-  return Number.isFinite(cap) ? cap : Infinity;
+  return isFiniteNumber(cap) ? cap : Infinity;
 }
 
 /**
@@ -68,14 +67,15 @@ export function effectiveStorageCap(storedMax, shownMax) {
  * order among the survivors -- eviction never reshuffles storage order, it
  * only decides who stays. What leaves is returned too, in storage order, so a
  * caller can keep it elsewhere before the list is written (the archive).
- * @param {object[]} items
- * @param {number} cap
- * @param {number} [halfLifeDays]
- * @returns {{ kept: object[], dropped: object[] }}  `kept` is `items` itself when nothing leaves.
+ * @returns `kept` is `items` itself when nothing leaves.
  */
-export function evictToCapacity(items, cap, halfLifeDays) {
-  if (!Number.isFinite(cap) || items.length <= cap) return { kept: items, dropped: [] };
-  const keep = new Set(topByRank(items, cap, halfLifeDays));
+export function evictToCapacity(
+  items: Array<RankedItem>,
+  cap: number,
+  halfLifeDays?: number
+): { kept: Array<RankedItem>; dropped: Array<RankedItem> } {
+  if (!isFiniteNumber(cap) || items.length <= cap) return { kept: items, dropped: [] };
+  const keep = new Set(topRanked(items, cap, halfLifeDays));
   return { kept: items.filter((item) => keep.has(item)), dropped: items.filter((item) => !keep.has(item)) };
 }
 
@@ -85,26 +85,46 @@ export function evictToCapacity(items, cap, halfLifeDays) {
  * changing what existing callers compare, spread or write to disk (JSON and object spread skip
  * it). The one copy, shared by the ranked items here, src/memory/affinity.ts#applyDelta and
  * src/memory/store.ts. Mutates and returns `value`.
- * @template T
- * @param {T} value
- * @param {string} key
- * @param {object[]} list
- * @returns {T}
  */
-export function attachDropped(value, key, list) {
+export function attachDropped<TValue extends object, TKey extends string>(
+  value: TValue,
+  key: TKey,
+  list: Array<Untyped>
+): TValue & Record<TKey, Array<Untyped>> {
   Object.defineProperty(value, key, { value: list, enumerable: false, configurable: true, writable: true });
-  return value;
+  return value as TValue & Record<TKey, Array<Untyped>>; // defineProperty just attached `key`
 }
 
+/** A merged list with what the merge dropped (`dropped`) and what it closed (`closed`) attached by `attachDropped`. */
+export type RankedList = Array<RankedItem> & { dropped: Array<RankedItem>; closed: Array<RankedItem> };
+
+/** The fields the validity rules read and write on a stored claim (an interest, a detail, an alias, a real name). */
+export type ValidityFields = {
+  [field: string]: Untyped;
+  itemId?: string;
+  recordedAt?: string;
+  validFrom?: string;
+  validTo?: string | null;
+  supersededBy?: string | null;
+  conflictSetId?: string | null;
+};
+
+/** A stored ranked item (an interest, a detail, an alias): its sightings and validity, and its own fields. */
+export type RankedItem = ValidityFields & {
+  weight: number;
+  firstSeen: string | null;
+  lastSeen: string | null;
+};
+
 /** Earlier of two ISO date strings; a missing one never wins. */
-export function minIso(a, b) {
+export function minIso(a: string | null | undefined, b: string | null | undefined): string | null {
   if (!a) return b ?? null;
   if (!b) return a;
   return a < b ? a : b;
 }
 
 /** Later of two ISO date strings; a missing one never wins. */
-export function maxIso(a, b) {
+export function maxIso(a: string | null | undefined, b: string | null | undefined): string | null {
   if (!a) return b ?? null;
   if (!b) return a;
   return a > b ? a : b;
@@ -115,23 +135,19 @@ export function maxIso(a, b) {
  * to count as a NEW occasion rather than the same conversation continuing: a
  * missing or unparsable stored date counts as far away (nothing to compare
  * against, so it can only heal an item stuck at its starting weight).
- * @param {number} seenAt
- * @param {string|null} priorLastSeenIso
- * @param {number} gapMs
- * @returns {boolean}
  */
-export function isFarEnough(seenAt, priorLastSeenIso, gapMs) {
+export function isFarEnough(seenAt: number, priorLastSeenIso: string | null, gapMs: number): boolean {
   if (!priorLastSeenIso) return true;
   const priorMs = Date.parse(priorLastSeenIso);
-  if (!Number.isFinite(priorMs)) return true;
+  if (!isFiniteNumber(priorMs)) return true;
   return Math.abs(seenAt - priorMs) >= gapMs;
 }
 
 /** A `YYYY-MM-DD` string that is a real calendar day, else null. */
-export function validDay(value) {
+export function validDay(value: unknown): string | null {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const ms = Date.parse(`${value}T00:00:00.000Z`);
-  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === value ? value : null;
+  return isFiniteNumber(ms) && new Date(ms).toISOString().slice(0, 10) === value ? value : null;
 }
 
 /** The validity fields a ranked item (interest, detail, alias) may carry. */
@@ -141,11 +157,10 @@ export const VALIDITY_FIELDS = Object.freeze(['recordedAt', 'validFrom', 'validT
  * Copy the validity fields `raw` holds onto `item` (a normalised stored item): each one kept
  * only when present as a non-empty string or null; anything else is left out. An item that
  * never had one gets none, so an old item loads unchanged.
- * @param {object} item  Mutated.
- * @param {object} raw
- * @returns {object} `item`
+ * @param item  Mutated.
+ * @returns `item`
  */
-export function copyValidity(item, raw) {
+export function copyValidity(item: RankedItem, raw: Untyped): RankedItem {
   for (const key of VALIDITY_FIELDS) {
     if (!Object.hasOwn(raw, key)) continue;
     const value = raw[key];
@@ -155,7 +170,7 @@ export function copyValidity(item, raw) {
 }
 
 /** Whether a stored item is open: its `validTo` is unset (null or absent). */
-export function isOpen(item) {
+export function isOpen(item: Untyped): boolean {
   return item?.validTo === undefined || item?.validTo === null;
 }
 
@@ -175,24 +190,35 @@ export function isOpen(item) {
  *
  * An item without an `itemId` gets one from `mintId` when it needs one and `mintId` is given.
  * A request naming the item itself, nothing, or a closed item changes nothing.
- * @param {object[]} items
- * @param {Array<{ item: object, supersedes?: unknown, validFrom?: unknown, conflict?: unknown }>} requests
- * @param {{ batchDay: string, recordedAt: string, mintId?: () => string,
- *   findOther: (ref: unknown) => (object|undefined) }} opts
- * @returns {object[]} The items closed, in the order closed.
+ * @returns The items closed, in the order closed.
  */
-export function applyValidity(items, requests, { batchDay, recordedAt, mintId, findOther }) {
-  const closed = [];
-  const find = (ref) => {
+export function applyValidity(
+  items: Array<ValidityFields>,
+  requests: Array<{ item: ValidityFields; supersedes?: unknown; validFrom?: unknown; conflict?: unknown }>,
+  {
+    batchDay,
+    recordedAt,
+    mintId,
+    findOther,
+  }: {
+    batchDay: string;
+    recordedAt: string;
+    mintId?: () => string;
+    findOther: (ref: unknown) => ValidityFields | undefined;
+  }
+): Array<ValidityFields> {
+  const closed: Array<ValidityFields> = [];
+  const find = (ref: unknown): ValidityFields | undefined => {
     if (ref === undefined || ref === null || ref === '') return undefined;
     const byId = typeof ref === 'string' ? items.find((item) => item.itemId === ref) : undefined;
     return byId ?? findOther(ref);
   };
-  const ensureId = (item) => {
+  const ensureId = (item: ValidityFields) => {
     if (!(typeof item.itemId === 'string' && item.itemId) && typeof mintId === 'function') item.itemId = mintId();
     return typeof item.itemId === 'string' && item.itemId ? item.itemId : null;
   };
-  const usable = (other, item) => other !== undefined && other !== item && isOpen(other) && items.includes(other);
+  const usable = (other: ValidityFields | undefined, item: ValidityFields): other is ValidityFields =>
+    other !== undefined && other !== item && isOpen(other) && items.includes(other);
   for (const { item, supersedes, validFrom, conflict } of requests) {
     if (!items.includes(item)) continue;
     const from = validDay(validFrom);
@@ -225,10 +251,8 @@ export function applyValidity(items, requests, { batchDay, recordedAt, mintId, f
  * Whether a stored item (interest or detail; anything with a `weight`) counts
  * as CONFIRMED for the chat model -- see docs/prompt-contract.md,
  * "Confirmation". Below this, the chat model sees it with `labels.profile.unsureMark`.
- * @param {{ weight?: number }} item
- * @param {number} [confirmAfter]
  */
-export function isConfirmed(item, confirmAfter = 2) {
+export function isConfirmed(item: { weight?: number }, confirmAfter: number = 2): boolean {
   return (item?.weight ?? 0) >= confirmAfter;
 }
 
@@ -237,16 +261,13 @@ export function isConfirmed(item, confirmAfter = 2) {
  * `labels.profile.staleMark` -- see docs/prompt-contract.md, "Dates
  * come from the messages". An unknown `lastSeen`, or a `staleDays` that is
  * not a positive number (feature off / not configured), is never stale.
- * @param {{ lastSeen?: string|null }} item
- * @param {number} nowMs
- * @param {number} [staleDays]
  */
-export function isStale(item, nowMs, staleDays) {
-  if (!Number.isFinite(staleDays) || staleDays <= 0) return false;
+export function isStale(item: { lastSeen?: string | null }, nowMs: number, staleDays?: number): boolean {
+  if (!isFiniteNumber(staleDays) || staleDays <= 0) return false;
   const lastSeen = item?.lastSeen;
   if (!lastSeen) return false;
   const lastSeenMs = Date.parse(lastSeen);
-  if (!Number.isFinite(lastSeenMs)) return false;
+  if (!isFiniteNumber(lastSeenMs)) return false;
   return (nowMs - lastSeenMs) / (24 * HOUR_MS) > staleDays;
 }
 
@@ -290,19 +311,14 @@ export function isStale(item, nowMs, staleDays) {
  *   gives a writing item its `itemId` when it needs one. A new item gets
  *   `recordedAt`, the ISO time of `now` (else `seenAt`).
  *
- * @param {object[]|undefined} existing
- * @param {{ add?: unknown, update?: unknown, seen?: unknown, remove?: unknown }} ops  Untrusted, model-extracted.
- * @param {{ identityField: string, noteField?: string, identityChars?: number, noteChars?: number,
- *   confirmGapHours?: number, seenAt?: number, halfLifeDays?: number, cap?: number, clampTolerance?: number,
- *   mintId?: () => string, now?: number }} opts
+ * @param ops  Untrusted, model-extracted.
  *   The identity (`topic`/`name`) is a HARD clamp (no tolerance, still boundary-safe -- see
  *   src/memory/clamp.ts); the note, when there is one, is clamped with `clampTolerance`
  *   (soft by default) since it is free text, not an identity.
- * @returns {object[]}
  */
 export function applyRankedOps(
-  existing,
-  ops,
+  existing: Array<RankedItem> | undefined,
+  ops: { add?: unknown; update?: unknown; seen?: unknown; remove?: unknown },
   {
     identityField,
     noteField,
@@ -315,25 +331,37 @@ export function applyRankedOps(
     clampTolerance,
     mintId,
     now,
-  } = {}
-) {
-  const items = Array.isArray(existing) ? existing.map((item) => ({ ...item })) : [];
-  const validity = [];
+  }: {
+    identityField: string;
+    noteField?: string;
+    identityChars?: number;
+    noteChars?: number;
+    confirmGapHours?: number;
+    seenAt?: number;
+    halfLifeDays?: number;
+    cap?: number;
+    clampTolerance?: number;
+    mintId?: () => string;
+    now?: number;
+  }
+): RankedList {
+  const items: Array<RankedItem> = Array.isArray(existing) ? existing.map((item) => ({ ...item })) : [];
+  const validity: Array<{ item: Untyped; supersedes?: unknown; validFrom?: unknown; conflict?: unknown }> = [];
   const priorLastSeen = items.map((item) => item.lastSeen ?? null);
   const seenAtIso = new Date(seenAt).toISOString();
-  const recordedAt = new Date(Number.isFinite(now) ? now : seenAt).toISOString();
-  const gapMs = (Number.isFinite(confirmGapHours) ? confirmGapHours : DEFAULT_CONFIRM_GAP_HOURS) * HOUR_MS;
+  const recordedAt = new Date(isFiniteNumber(now) ? now : seenAt).toISOString();
+  const gapMs = (isFiniteNumber(confirmGapHours) ? confirmGapHours : DEFAULT_CONFIRM_GAP_HOURS) * HOUR_MS;
   const bumped = new Set();
-  const removed = [];
+  const removed: Array<Untyped> = [];
 
-  function findIndex(identity) {
+  function findIndex(identity: Untyped) {
     const norm = normalizeTopic(identity);
     return items.findIndex((item) => normalizeTopic(item[identityField]) === norm);
   }
 
-  function sight(raw, { allowCreate }) {
-    let identity;
-    let note;
+  function sight(raw: Untyped, { allowCreate }: { allowCreate: boolean }) {
+    let identity: string;
+    let note = '';
     let sure = true;
     if (noteField) {
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
@@ -353,7 +381,7 @@ export function applyRankedOps(
     if (!identity) return;
     const index = findIndex(identity);
     // supersedes / validFrom / conflict ride on an object op; applied once every op is merged.
-    const wantValidity = (item) => {
+    const wantValidity = (item: Untyped) => {
       if (
         raw &&
         typeof raw === 'object' &&
@@ -366,7 +394,7 @@ export function applyRankedOps(
 
     if (index === -1) {
       if (!allowCreate) return;
-      const item = {
+      const item: RankedItem = {
         [identityField]: identity,
         weight: sure ? 1 : 0,
         firstSeen: seenAtIso,
@@ -412,7 +440,7 @@ export function applyRankedOps(
     findOther: (ref) => (typeof ref === 'string' && ref.trim() ? items[findIndex(ref)] : undefined),
   });
 
-  const { kept, dropped } = evictToCapacity(items, Number.isFinite(cap) ? cap : Infinity, halfLifeDays);
+  const { kept, dropped } = evictToCapacity(items, isFiniteNumber(cap) ? cap : Infinity, halfLifeDays);
 
   return attachDropped(attachDropped(kept, 'dropped', [...removed, ...dropped]), 'closed', closed);
 }
@@ -427,10 +455,8 @@ export function applyRankedOps(
  * would be empty once stripped (the text is ONLY a parenthetical); or the
  * parenthetical itself is empty. One level of nesting inside the qualifier is
  * handled (the OUTERMOST trailing group is the one stripped).
- * @param {string} raw
- * @returns {{ topic: string, qualifier: string }}
  */
-export function stripTrailingParenthetical(raw) {
+export function stripTrailingParenthetical(raw: string): { topic: string; qualifier: string } {
   const trimmed = String(raw ?? '').trim();
   if (!trimmed.endsWith(')')) return { topic: trimmed, qualifier: '' };
 
@@ -462,7 +488,7 @@ export function stripTrailingParenthetical(raw) {
  * TARGET item (found only once `existing` has been resolved/collapsed) would
  * otherwise have no note at all, so that decision is made later by
  * `fillQualifierNotes`. Non-objects/missing `topic` pass through untouched. */
-function stripParentheticalFromNotedItem(raw) {
+function stripParentheticalFromNotedItem(raw: Untyped) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw) || typeof raw.topic !== 'string') return raw;
   const { topic, qualifier } = stripTrailingParenthetical(raw.topic);
   if (!qualifier) return raw;
@@ -470,7 +496,7 @@ function stripParentheticalFromNotedItem(raw) {
 }
 
 /** A `seen`/`remove` plain-string topic, with a trailing parenthetical stripped off, if any. */
-function stripParentheticalFromPlainTopic(raw) {
+function stripParentheticalFromPlainTopic(raw: Untyped) {
   if (typeof raw !== 'string') return raw;
   const { topic, qualifier } = stripTrailingParenthetical(raw);
   return qualifier ? topic : raw;
@@ -480,7 +506,7 @@ function stripParentheticalFromPlainTopic(raw) {
  * trailing parenthetical (see `stripTrailingParenthetical`) -- so a sighting
  * of `anime (bleak/hopeless)` becomes a sighting of the plain, already-stored
  * `anime` instead of a near-duplicate. */
-function stripParentheticalTopics(ops) {
+function stripParentheticalTopics(ops: Untyped) {
   if (!ops || typeof ops !== 'object' || Array.isArray(ops)) return ops;
   return {
     ...ops,
@@ -493,9 +519,9 @@ function stripParentheticalTopics(ops) {
 
 /** Every plain-form topic (already parenthetical-stripped, `normalizeTopic`'d)
  * that `ops`' add/update/seen/remove target. */
-function targetTopics(ops) {
+function targetTopics(ops: Untyped) {
   const targets = new Set();
-  const collect = (list, field) => {
+  const collect = (list: unknown, field?: string) => {
     for (const raw of Array.isArray(list) ? list : []) {
       const topic = field ? raw?.[field] : raw;
       if (typeof topic === 'string' && topic.trim()) targets.add(normalizeTopic(topic));
@@ -511,7 +537,7 @@ function targetTopics(ops) {
 /** Which of two stored items' notes survives a collapse: the heavier item's;
  * a tie in weight goes to the one with the newer `lastSeen`; either way, an
  * empty winning note falls back to the other item's note. */
-function pickSurvivingNote(a, b) {
+function pickSurvivingNote(a: RankedItem, b: RankedItem) {
   const aWeight = a.weight ?? 0;
   const bWeight = b.weight ?? 0;
   let winner;
@@ -529,7 +555,7 @@ function pickSurvivingNote(a, b) {
  * the earliest firstSeen, the latest lastSeen, and the note of the heavier
  * item (ties: the newer lastSeen), falling back to the other's note if that
  * one is empty -- see `pickSurvivingNote`. */
-function mergeInterestItems(primary, other) {
+function mergeInterestItems(primary: RankedItem, other: RankedItem): RankedItem {
   return {
     ...primary,
     weight: Math.max(primary.weight, other.weight),
@@ -547,12 +573,14 @@ function mergeInterestItems(primary, other) {
  * items that now -- or already did -- share the same plain form
  * (case-insensitively) are merged into one via `mergeInterestItems`; each
  * stored item folded into an earlier one is pushed onto `merged`, as stored.
- * @param {object[]|undefined} existing
- * @param {object} strippedOps  Already run through `stripParentheticalTopics`.
- * @param {object[]} [merged]   Collects the items folded away (mutated).
- * @returns {object[]|undefined}
+ * @param strippedOps  Already run through `stripParentheticalTopics`.
+ * @param [merged]   Collects the items folded away (mutated).
  */
-function resolveParentheticalVariants(existing, strippedOps, merged = []) {
+function resolveParentheticalVariants(
+  existing: Array<RankedItem> | undefined,
+  strippedOps: StoredRecord,
+  merged: Array<RankedItem> = []
+): Array<Untyped> | undefined {
   if (!Array.isArray(existing) || existing.length === 0) return existing;
 
   const targets = targetTopics(strippedOps);
@@ -565,8 +593,8 @@ function resolveParentheticalVariants(existing, strippedOps, merged = []) {
     });
   }
 
-  const order = [];
-  const indexByKey = new Map();
+  const order: Array<Untyped> = [];
+  const indexByKey = new Map<string, number>();
   items.forEach((item, index) => {
     const key = normalizeTopic(item.topic);
     const existingIndex = indexByKey.get(key);
@@ -591,17 +619,14 @@ function resolveParentheticalVariants(existing, strippedOps, merged = []) {
  * it, same as any other note). `resolvedExisting` must already be the
  * collapsed/rewritten array from `resolveParentheticalVariants`, so the
  * lookup sees the one note that will actually be sighted.
- * @param {object} strippedOps
- * @param {object[]|undefined} resolvedExisting
- * @returns {object}
  */
-function fillQualifierNotes(strippedOps, resolvedExisting) {
+function fillQualifierNotes(strippedOps: StoredRecord, resolvedExisting: Array<RankedItem> | undefined): Untyped {
   if (!strippedOps || typeof strippedOps !== 'object' || Array.isArray(strippedOps)) return strippedOps;
   const byTopic = new Map(
     (Array.isArray(resolvedExisting) ? resolvedExisting : []).map((item) => [normalizeTopic(item.topic), item])
   );
 
-  const fillItem = (raw) => {
+  const fillItem = (raw: Untyped) => {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw) || !raw._qualifier) return raw;
     const { _qualifier: qualifier, ...rest } = raw;
     if (typeof rest.note === 'string' && rest.note.trim()) return rest; // a genuine incoming note always wins
@@ -631,16 +656,12 @@ function fillQualifierNotes(strippedOps, resolvedExisting) {
  * every stored item that left: folded into another by that resolution, then
  * what `applyRankedOps` reports; its non-enumerable `closed` the items a
  * `supersedes` closed (see `applyValidity`).
- * @param {object[]|undefined} existing  Stored interests.
- * @param {{ add?: unknown, update?: unknown, seen?: unknown, remove?: unknown }} ops  Untrusted, model-extracted.
- * @param {{ maxInterests?: number, maxInterestsStored?: number, topicChars?: number, noteChars?: number,
- *   confirmGapHours?: number, seenAt?: number, halfLifeDays?: number, clampTolerance?: number,
- *   mintId?: () => string, now?: number }} [opts]
- * @returns {object[]}
+ * @param existing  Stored interests.
+ * @param ops  Untrusted, model-extracted.
  */
 export function applyInterestOps(
-  existing,
-  ops,
+  existing: Array<RankedItem> | undefined,
+  ops: { add?: unknown; update?: unknown; seen?: unknown; remove?: unknown },
   {
     maxInterests,
     maxInterestsStored,
@@ -652,10 +673,21 @@ export function applyInterestOps(
     clampTolerance,
     mintId,
     now,
+  }: {
+    maxInterests?: number;
+    maxInterestsStored?: number;
+    topicChars?: number;
+    noteChars?: number;
+    confirmGapHours?: number;
+    seenAt?: number;
+    halfLifeDays?: number;
+    clampTolerance?: number;
+    mintId?: () => string;
+    now?: number;
   } = {}
-) {
+): RankedList {
   const strippedOps = stripParentheticalTopics(ops);
-  const merged = [];
+  const merged: Array<Untyped> = [];
   const resolvedExisting = resolveParentheticalVariants(existing, strippedOps, merged);
   const finalOps = fillQualifierNotes(strippedOps, resolvedExisting);
   const items = applyRankedOps(resolvedExisting, finalOps, {
@@ -681,21 +713,19 @@ export function applyInterestOps(
  * (`copyValidity`) kept, never added --
  * untrusted JSON, possibly hand-edited while paused);
  * anything that is not an array becomes `[]`.
- * @param {unknown} value
- * @returns {object[]}
  */
-export function normalizeInterests(value) {
+export function normalizeInterests(value: unknown): Array<object> {
   if (!Array.isArray(value)) return [];
-  const out = [];
+  const out: Array<Untyped> = [];
   for (const raw of value) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
     const topic = typeof raw.topic === 'string' ? raw.topic.trim() : '';
     if (!topic) continue;
     const note = typeof raw.note === 'string' ? raw.note.trim() : '';
-    const weight = Number.isInteger(raw.weight) ? raw.weight : 1;
+    const weight = isIntegerNumber(raw.weight) ? raw.weight : 1;
     const firstSeen = typeof raw.firstSeen === 'string' ? raw.firstSeen : null;
     const lastSeen = typeof raw.lastSeen === 'string' ? raw.lastSeen : null;
-    const item = { topic, note, weight, firstSeen, lastSeen };
+    const item: RankedItem = { topic, note, weight, firstSeen, lastSeen };
     if (typeof raw.itemId === 'string' && raw.itemId) item.itemId = raw.itemId;
     copyValidity(item, raw);
     out.push(item);

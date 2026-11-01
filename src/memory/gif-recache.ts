@@ -40,6 +40,12 @@ import { isStaleDescription, recacheCutoffMs } from './describe.ts';
 import { roleModel } from '../llm/roles.ts';
 import { DAY_MS, MINUTE_MS } from '../time.js';
 import { log as defaultLog } from '../log.js';
+import { isFiniteNumber, isIntegerNumber } from './types.ts';
+import type { Reads } from '../interface/reads.ts';
+import type { StoredRecord, Hot, Log, Untyped } from './types.ts';
+import type { StoreView } from './store.ts';
+import type { RecordStore } from './record.ts';
+import { asRecordLines } from './record.ts';
 
 /** The GIFs one recache run queues. Production value, config cut of 2026-10-31. */
 const DEFAULT_PER_RUN = 50;
@@ -60,10 +66,8 @@ const UPLOAD_LEAD_MS = 30 * MINUTE_MS;
 
 /**
  * The creation time (ms) of a snowflake id, or null for anything else. Pure.
- * @param {unknown} id
- * @returns {number|null}
  */
-export function snowflakeMs(id) {
+export function snowflakeMs(id: unknown): number | null {
   if (typeof id !== 'string' || !/^\d{15,20}$/.test(id)) return null;
   return Number(BigInt(id) >> 22n) + SNOWFLAKE_EPOCH_MS;
 }
@@ -73,10 +77,8 @@ export function snowflakeMs(id) {
  * snowflake, a gif embed's `<message>#e<n>`, `emoji:`, `sticker:`, `link:`
  * or a video-site link's thumbnail `video:url:`) -- never a video summary
  * (`video:<item id>`), a question's answer or a web lookup entry. Pure.
- * @param {string} key
- * @returns {boolean}
  */
-export function isPictureKey(key) {
+export function isPictureKey(key: string): boolean {
   if (typeof key !== 'string') return false;
   if (key.startsWith('video:')) return key.startsWith('video:url:') && !key.includes(':q:');
   if (key.includes(':q:')) return false;
@@ -86,8 +88,8 @@ export function isPictureKey(key) {
 }
 
 /** When a cached description was last used: its `usedAt` or its `ts`, whichever is later; -Infinity when neither. */
-function lastUseOf(entry) {
-  const times = [entry.usedAt, entry.ts].filter((value) => typeof value === 'number' && Number.isFinite(value));
+function lastUseOf(entry: Untyped) {
+  const times = [entry.usedAt, entry.ts].filter((value) => typeof value === 'number' && isFiniteNumber(value));
   return times.length > 0 ? Math.max(...times) : -Infinity;
 }
 
@@ -98,14 +100,25 @@ function lastUseOf(entry) {
  * described at or after `cutoffMs` (media.recacheBefore, when not null) and
  * the ones whose `model` is the current one for their kind (`models.video`
  * for a watched GIF, else `models.vision`). Pure.
- * @param {object} cache  The guild's media cache.
- * @param {{ nowMs: number, days: number, cutoffMs: number|null, models: { vision: string|null, video: string|null } }} options
- * @returns {string[]}
+ * @param cache  The guild's media cache.
  */
-export function pickStaleDescriptions(cache, { nowMs, days, cutoffMs, models }) {
+export function pickStaleDescriptions(
+  cache: StoredRecord,
+  {
+    nowMs,
+    days,
+    cutoffMs,
+    models,
+  }: {
+    nowMs: number;
+    days: number;
+    cutoffMs: number | null;
+    models: { vision: string | null | undefined; video: string | null | undefined };
+  }
+): Array<string> {
   const since = nowMs - days * DAY_MS;
-  const picked = [];
-  for (const [key, entry] of Object.entries(cache ?? {})) {
+  const picked: Array<{ key: string; usedAt: number }> = [];
+  for (const [key, entry] of Object.entries<Untyped>(cache ?? {})) {
     if (!isPictureKey(key) || !entry || entry.miss || typeof entry.text !== 'string' || entry.text.trim() === '')
       continue;
     const usedAt = lastUseOf(entry);
@@ -126,13 +139,14 @@ export function pickStaleDescriptions(cache, { nowMs, days, cutoffMs, models }) 
  * time (and not over a minute before it), or -- while a key carries no time
  * (a link thumbnail, a sticker) -- that falls at or after `sinceMs`.
  * `fromMs` is the earliest moment worth reading. Pure.
- * @param {Iterable<string>} keys
- * @param {number} sinceMs  The run's window start.
- * @returns {{ fromMs: number, matches: (line: object) => boolean }}
+ * @param sinceMs  The run's window start.
  */
-export function recordFinder(keys, sinceMs) {
-  const messageIds = new Set();
-  const uploads = [];
+export function recordFinder(
+  keys: Iterable<string>,
+  sinceMs: number
+): { fromMs: number; matches: (line: object) => boolean } {
+  const messageIds = new Set<string>();
+  const uploads: Array<Untyped> = [];
   let untimed = false;
   let fromMs = sinceMs;
   for (const key of keys) {
@@ -152,18 +166,18 @@ export function recordFinder(keys, sinceMs) {
     uploads.push(at);
     fromMs = Math.min(fromMs, at - MINUTE_MS);
   }
-  const matches = (line) => {
+  const matches = (line: Untyped) => {
     if (!line || (line.kind !== 'seen' && line.kind !== 'said')) return false;
     if (typeof line.messageId !== 'string' || !line.messageId || typeof line.scope?.channel !== 'string') return false;
     if (!Array.isArray(line.media) || line.media.length === 0) return false;
     if (messageIds.has(line.messageId)) return true;
     const occurredMs = Date.parse(line.occurredAt);
     if (
-      Number.isFinite(occurredMs) &&
+      isFiniteNumber(occurredMs) &&
       uploads.some((upload) => upload <= occurredMs + MINUTE_MS && upload >= occurredMs - UPLOAD_LEAD_MS)
     )
       return true;
-    return untimed && Number.isFinite(occurredMs) && occurredMs >= sinceMs;
+    return untimed && isFiniteNumber(occurredMs) && occurredMs >= sinceMs;
   };
   return { fromMs, matches };
 }
@@ -173,24 +187,24 @@ export function recordFinder(keys, sinceMs) {
  * `watched` (a watched caption), `failed` (a watch was tried and failed; any
  * one-frame caption is kept), `one-frame` (a caption from one still frame),
  * `none` (no caption: no entry or a miss).
- * @param {object|undefined} entry
- * @returns {'watched'|'failed'|'one-frame'|'none'}
  */
-export function gifCaptionState(entry) {
+export function gifCaptionState(entry: StoredRecord): 'watched' | 'failed' | 'one-frame' | 'none' {
   const hasText = Boolean(entry) && !entry.miss && typeof entry.text === 'string' && entry.text.trim() !== '';
   if (hasText && entry.watched) return 'watched';
-  if (entry && Number.isFinite(entry.watchFailed)) return 'failed';
+  if (entry && isFiniteNumber(entry.watchFailed)) return 'failed';
   return hasText ? 'one-frame' : 'none';
 }
 
 /**
  * How many library entries stand where (see gifCaptionState), by their
  * `itemId` in the media cache.
- * @param {unknown} gifs   A stored library (normalised here).
- * @param {object} cache   The guild's media cache.
- * @returns {{ watched: number, 'one-frame': number, failed: number, none: number }}
+ * @param gifs   A stored library (normalised here).
+ * @param cache   The guild's media cache.
  */
-export function gifCaptionCounts(gifs, cache) {
+export function gifCaptionCounts(
+  gifs: unknown,
+  cache: StoredRecord
+): { watched: number; 'one-frame': number; failed: number; none: number } {
   const counts = { watched: 0, 'one-frame': 0, failed: 0, none: 0 };
   for (const entry of Object.values(normalizeGifs(gifs).entries)) counts[gifCaptionState(cache?.[entry.itemId])] += 1;
   return counts;
@@ -200,10 +214,8 @@ export function gifCaptionCounts(gifs, cache) {
  * Whether a cached GIF caption is watched in the older one-line format: no
  * `reaction` field (src/memory/describe.ts#parseGifDescription writes it,
  * '' included, on every watch since GIFs are described in three fields).
- * @param {object|undefined} entry
- * @returns {boolean}
  */
-function watchedOldFormat(entry) {
+function watchedOldFormat(entry: StoredRecord): boolean {
   return gifCaptionState(entry) === 'watched' && typeof entry.reaction !== 'string';
 }
 
@@ -212,11 +224,13 @@ function watchedOldFormat(entry) {
  * entries' `itemId` in the media cache: `fields` watched with a `reaction`
  * field, `oldFormat` watched without one (the recache re-describes them),
  * `unwatched` everything else (one-frame, failed watch, no caption).
- * @param {unknown} gifs   A stored library (normalised here).
- * @param {object} cache   The guild's media cache.
- * @returns {{ fields: number, oldFormat: number, unwatched: number }}
+ * @param gifs   A stored library (normalised here).
+ * @param cache   The guild's media cache.
  */
-export function gifFormatCounts(gifs, cache) {
+export function gifFormatCounts(
+  gifs: unknown,
+  cache: StoredRecord
+): { fields: number; oldFormat: number; unwatched: number } {
   const counts = { fields: 0, oldFormat: 0, unwatched: 0 };
   for (const entry of Object.values(normalizeGifs(gifs).entries)) {
     const cached = cache?.[entry.itemId];
@@ -234,17 +248,15 @@ export function gifFormatCounts(gifs, cache) {
  * `watchFailed` (a failed watch counts as described then), else its `ts`;
  * an entry with no cache entry at all comes first -- ties in library order,
  * at most `limit` of them.
- * @param {unknown} gifs   A stored library (normalised here).
- * @param {object} cache   The guild's media cache.
- * @param {number} limit
- * @returns {object[]}
+ * @param gifs   A stored library (normalised here).
+ * @param cache   The guild's media cache.
  */
-export function recacheQueue(gifs, cache, limit) {
-  const describedAt = (entry) => {
+export function recacheQueue(gifs: unknown, cache: StoredRecord, limit: number): Array<object> {
+  const describedAt = (entry: Untyped) => {
     const cached = cache?.[entry.itemId];
     if (!cached) return 0;
-    if (Number.isFinite(cached.watchFailed)) return cached.watchFailed;
-    return Number.isFinite(cached.ts) ? cached.ts : 0;
+    if (isFiniteNumber(cached.watchFailed)) return cached.watchFailed;
+    return isFiniteNumber(cached.ts) ? cached.ts : 0;
   };
   return Object.entries(normalizeGifs(gifs).entries)
     .filter(
@@ -262,14 +274,13 @@ export function recacheQueue(gifs, cache, limit) {
  * (`<message>#e<n>`: only gif embeds are described under such an id). An
  * attached GIF captioned before the marker existed cannot be told from a
  * picture, so it is left alone. Video entries (`video:`) are never touched.
- * @param {object} cache   The guild's media cache.
- * @param {unknown} gifs   A stored library (normalised here).
- * @returns {string[]}
+ * @param cache   The guild's media cache.
+ * @param gifs   A stored library (normalised here).
  */
-export function oneFrameGifKeys(cache, gifs) {
+export function oneFrameGifKeys(cache: StoredRecord, gifs: unknown): Array<string> {
   const library = new Set(Object.values(normalizeGifs(gifs).entries).map((entry) => entry.itemId));
-  const keys = [];
-  for (const [key, entry] of Object.entries(cache ?? {})) {
+  const keys: Array<string> = [];
+  for (const [key, entry] of Object.entries<Untyped>(cache ?? {})) {
     if (key.startsWith('video:') || library.has(key)) continue;
     if (!entry || entry.miss || entry.watched || typeof entry.text !== 'string') continue;
     if (entry.gif === true || EMBED_ID_RE.test(key)) keys.push(key);
@@ -278,31 +289,13 @@ export function oneFrameGifKeys(cache, gifs) {
 }
 
 /** Wait `ms` on the real clock. */
-function realSleep(ms) {
+function realSleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
 }
 
-/**
- * The GIF recache for the served guild, and the media recache (startMedia).
- * @param {object} deps
- * @param {object} deps.hot        src/hot.js view; `config.gifs.recachePerRun`, `config.media.embedTextChars`,
- *   `config.media.recacheBefore`, `config.media.recacheIntervalMs` and the roles read at use.
- * @param {object} deps.store      src/memory/store.ts.
- * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface: a message read again.
- * @param {() => string} deps.iface  The interface's name, read at each run.
- * @param {{ refresh: () => Promise<void>, urlOf: (id: string) => (string|null) }} deps.emoji  The core's emoji index
- *   (src/behavior/emoji-index.ts): the address of a custom emoji's picture.
- * @param {object} [deps.describer]  From createDescriber(): `watchGif`, `gifWatchBlocker`, `redescribe`,
- *   `pictureBlocker`. Absent -> never runs.
- * @param {object|null} [deps.record]  src/memory/record.ts (`iterate`), where the media recache finds the
- *   messages of the pictures it re-describes. Absent -> only emoji and library GIFs are found.
- * @param {() => number} [deps.now]
- * @param {(ms: number) => Promise<void>} [deps.sleep]  The media recache's pause between two descriptions.
- * @param {object} [deps.log]      src/log.js-shaped logger.
- */
-export function createGifRecache({
+function buildGifRecache({
   hot,
   store,
   reads,
@@ -313,11 +306,22 @@ export function createGifRecache({
   now = Date.now,
   sleep = realSleep,
   log = defaultLog,
+}: {
+  hot: Hot;
+  store: StoreView;
+  reads: Reads;
+  iface: () => string;
+  emoji: { refresh: () => Promise<void>; urlOf: (id: string) => string | null };
+  describer?: Untyped;
+  record?: Pick<RecordStore, 'iterate'> | null;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  log?: Log;
 }) {
-  let running = null;
+  let running: Untyped = null;
 
   /** One message read again through the interface, as a line; null when it is gone or the read fails. */
-  async function readMessage(channelId, messageId) {
+  async function readMessage(channelId: string, messageId: string) {
     const found = await reads.fetchMessages({ iface: iface(), conversationId: String(channelId) }, [messageId]);
     const event = found?.messages[0]?.event;
     if (!event) {
@@ -334,7 +338,7 @@ export function createGifRecache({
    * by its URL (src/memory/gifs.ts#matchGifKey's rule). Null when the
    * message or the GIF in it is gone, or the read fails.
    */
-  async function pictureOf(entry) {
+  async function pictureOf(entry: Untyped) {
     if (!entry.messageId || !entry.channelId) return null;
     const normalized = await readMessage(entry.channelId, entry.messageId);
     if (!normalized) return null;
@@ -348,7 +352,7 @@ export function createGifRecache({
   }
 
   /** Watch every queued entry in turn; stops on pause or a spent rail. */
-  async function work(guildId, queue) {
+  async function work(guildId: string, queue: Untyped) {
     const counts = { watched: 0, failed: 0 };
     let stopped = null;
     for (const entry of queue) {
@@ -377,9 +381,8 @@ export function createGifRecache({
    * `running`, `paused`, `unavailable` (no describer), or why GIFs
    * are not watched (`off`, `no-prompt`) -- else `{ ok: true,
    * dropped, queued }`.
-   * @param {string} guildId
    */
-  function start(guildId) {
+  function start(guildId: string) {
     if (running) return { ok: false, reason: 'running' };
     if (store.state?.data?.paused) return { ok: false, reason: 'paused' };
     if (typeof describer?.watchGif !== 'function') return { ok: false, reason: 'unavailable' };
@@ -414,14 +417,14 @@ export function createGifRecache({
   }
 
   /** Re-describe the picked keys: emoji, then library GIFs, then the rest through the record; see startMedia. */
-  async function workMedia(guildId, keys, sinceMs) {
+  async function workMedia(guildId: string, keys: Untyped, sinceMs: Untyped) {
     const counts = { done: 0, failed: 0 };
-    const wanted = new Set(keys);
+    const wanted = new Set<string>(keys);
     let stopped = null;
-    let lastAt = null;
+    let lastAt: number | null = null;
 
     /** One description, at least intervalMs() after the previous one began; false = stop the run. */
-    const one = async (item) => {
+    const one = async (item: Untyped) => {
       stopped = stopReason();
       if (stopped) return false;
       if (lastAt !== null) {
@@ -463,13 +466,15 @@ export function createGifRecache({
       if (wanted.size === 0 || typeof record?.iterate !== 'function') return;
       const finder = recordFinder(wanted, sinceMs);
       const messages = new Map();
-      for await (const line of record.iterate(guildId, { from: new Date(finder.fromMs).toISOString() })) {
+      for await (const line of asRecordLines(
+        record.iterate(guildId, { from: new Date(finder.fromMs).toISOString() })
+      )) {
         if (!finder.matches(line)) continue;
         const at = Date.parse(line.occurredAt);
         messages.set(line.messageId, {
           messageId: line.messageId,
           channelId: line.scope.channel,
-          at: Number.isFinite(at) ? at : 0,
+          at: isFiniteNumber(at) ? at : 0,
         });
       }
       for (const ref of [...messages.values()].sort((a, b) => b.at - a.at)) {
@@ -499,17 +504,16 @@ export function createGifRecache({
    * reason }` -- `running` (this or a GIF run), `paused`,
    * `unavailable` (no describer), or why pictures are not described
    * (`no-prompt`) -- else `{ ok: true, picked, days }`.
-   * @param {string} guildId
-   * @param {{ days?: number }} [options]  Whole days back, RECACHE_DAYS (out of bounds -> clamped).
+   * @param [options]  Whole days back, RECACHE_DAYS (out of bounds -> clamped).
    */
-  function startMedia(guildId, { days = RECACHE_DAYS.default } = {}) {
+  function startMedia(guildId: string, { days = RECACHE_DAYS.default }: { days?: number } = {}) {
     if (running) return { ok: false, reason: 'running' };
     if (store.state?.data?.paused) return { ok: false, reason: 'paused' };
     if (typeof describer?.redescribe !== 'function') return { ok: false, reason: 'unavailable' };
     const blocker = typeof describer.pictureBlocker === 'function' ? describer.pictureBlocker() : null;
     if (blocker) return { ok: false, reason: blocker };
 
-    const span = Number.isInteger(days)
+    const span = isIntegerNumber(days)
       ? Math.min(RECACHE_DAYS.max, Math.max(RECACHE_DAYS.min, days))
       : RECACHE_DAYS.default;
     const nowMs = now();
@@ -540,4 +544,26 @@ export function createGifRecache({
   }
 
   return { start, startMedia, isRunning, waitIdle };
+}
+
+export type GifRecache = ReturnType<typeof buildGifRecache>;
+
+/**
+ * The GIF recache for the served guild, and the media recache (startMedia).
+ * @param deps.hot        src/hot.js view; `config.gifs.recachePerRun`, `config.media.embedTextChars`,
+ *   `config.media.recacheBefore`, `config.media.recacheIntervalMs` and the roles read at use.
+ * @param deps.store      src/memory/store.ts.
+ * @param deps.reads  The core's reads of the interface: a message read again.
+ * @param deps.iface  The interface's name, read at each run.
+ * @param deps.emoji  The core's emoji index
+ *   (src/behavior/emoji-index.ts): the address of a custom emoji's picture.
+ * @param [deps.describer]  From createDescriber(): `watchGif`, `gifWatchBlocker`, `redescribe`,
+ *   `pictureBlocker`. Absent -> never runs.
+ * @param [deps.record]  src/memory/record.ts (`iterate`), where the media recache finds the
+ *   messages of the pictures it re-describes. Absent -> only emoji and library GIFs are found.
+ * @param [deps.sleep]  The media recache's pause between two descriptions.
+ * @param [deps.log]      src/log.js-shaped logger.
+ */
+export function createGifRecache(deps: Parameters<typeof buildGifRecache>[0]): GifRecache {
+  return buildGifRecache(deps);
 }

@@ -20,9 +20,10 @@
 // the GIF, so the poster can re-fetch an attachment's fresh URL (an
 // attachment's address may expire).
 
-import { isPlainObject } from '../config.js';
+import { isRecord, isFiniteNumber, isIntegerNumber } from './types.ts';
 import { mediaParts } from '../media/classify.ts';
-import { sortByRank } from './ranking.ts';
+import { sortRanked } from './ranking.ts';
+import type { StoredRecord, Untyped } from './types.ts';
 
 // Production values, config cut of 2026-10-31.
 /** The GIFs the library keeps. */
@@ -33,16 +34,15 @@ export const GIF_HALF_LIFE_DAYS = 30;
 /**
  * The library options: `storeMax` and `halfLifeDays`. Shared by the live observer (src/memory/update.ts, recording
  * on arrival) and the history backfill.
- * @returns {{ storeMax: number, halfLifeDays: number }}
  */
-export function gifOpts() {
+export function gifOpts(): { storeMax: number; halfLifeDays: number } {
   return { storeMax: GIF_STORE_MAX, halfLifeDays: GIF_HALF_LIFE_DAYS };
 }
 
 const KINDS = new Set(['link', 'attachment']);
 const HANDLE_RE = /^g(\d+)$/;
 
-function str(value) {
+function str(value: Untyped) {
   return typeof value === 'string' ? value : value == null ? '' : String(value);
 }
 
@@ -51,19 +51,34 @@ function str(value) {
  * guild's `emojiBackfill` (src/memory/store.ts) alike: `{ at, channels, messages }` with `at` a
  * non-empty string and the counts non-negative integers (floored, a bad one becomes 0); anything
  * without a string `at` becomes null (never backfilled).
- * @param {unknown} value
- * @returns {{ at: string, channels: number, messages: number }|null}
  */
-export function normalizeBackfillStamp(value) {
-  if (!isPlainObject(value) || typeof value.at !== 'string' || !value.at) return null;
-  const count = (n) => (Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
+export function normalizeBackfillStamp(value: unknown): { at: string; channels: number; messages: number } | null {
+  if (!isRecord(value) || typeof value.at !== 'string' || !value.at) return null;
+  const count = (n: number) => (isFiniteNumber(n) && n > 0 ? Math.floor(n) : 0);
   return { at: value.at, channels: count(value.channels), messages: count(value.messages) };
 }
 
 /** An empty library. */
-export function emptyGifs() {
+export function emptyGifs(): { nextId: number; entries: Record<string, GifEntry>; backfill: object | null } {
   return { nextId: 1, entries: {}, backfill: null };
 }
+
+/** One GIF of the library, as `gifs.json` keeps it. */
+export type GifEntry = {
+  id: string;
+  kind: 'link' | 'attachment';
+  url: string;
+  site?: string;
+  name?: string;
+  itemId: string;
+  messageId: string;
+  channelId: string;
+  count: number;
+  last: number;
+  firstSeen: number;
+  ownLast?: number;
+  ownUses?: number;
+};
 
 /**
  * A stored gifs.json value made safe to read. Anything but a plain object
@@ -74,22 +89,24 @@ export function emptyGifs() {
  * as strings, optional `ownLast` only as a positive finite number and `ownUses`
  * only as a count of at least 1 (floored). A missing, malformed or duplicate handle gets a fresh one;
  * `nextId` always ends above every handle in use. Never mutates `value`.
- * @param {unknown} value
- * @returns {{ nextId: number, entries: Record<string, object>, backfill: object|null }}
  */
-export function normalizeGifs(value) {
-  const src = isPlainObject(value) ? value : {};
-  const raw = isPlainObject(src.entries) ? src.entries : {};
-  const kept = [];
+export function normalizeGifs(value: unknown): {
+  nextId: number;
+  entries: Record<string, GifEntry>;
+  backfill: object | null;
+} {
+  const src = isRecord(value) ? value : {};
+  const raw = isRecord(src.entries) ? src.entries : {};
+  const kept: Array<[string, GifEntry]> = [];
   let maxHandle = 0;
   for (const [key, entry] of Object.entries(raw)) {
-    if (!key || !isPlainObject(entry) || !KINDS.has(entry.kind)) continue;
+    if (!key || !isRecord(entry) || !KINDS.has(entry.kind)) continue;
     if (typeof entry.url !== 'string' || !entry.url) continue;
-    if (!Number.isFinite(entry.count)) continue;
+    if (!isFiniteNumber(entry.count)) continue;
     const count = Math.floor(entry.count);
     if (count < 0) continue;
-    const last = Number.isFinite(entry.last) ? entry.last : 0;
-    const out = {
+    const last = isFiniteNumber(entry.last) ? entry.last : 0;
+    const out: GifEntry = {
       id: typeof entry.id === 'string' ? entry.id : '',
       kind: entry.kind,
       url: entry.url,
@@ -100,17 +117,17 @@ export function normalizeGifs(value) {
       channelId: str(entry.channelId),
       count,
       last,
-      firstSeen: Number.isFinite(entry.firstSeen) ? entry.firstSeen : last,
-      ...(Number.isFinite(entry.ownLast) && entry.ownLast > 0 ? { ownLast: entry.ownLast } : {}),
-      ...(Number.isFinite(entry.ownUses) && entry.ownUses >= 1 ? { ownUses: Math.floor(entry.ownUses) } : {}),
+      firstSeen: isFiniteNumber(entry.firstSeen) ? entry.firstSeen : last,
+      ...(isFiniteNumber(entry.ownLast) && entry.ownLast > 0 ? { ownLast: entry.ownLast } : {}),
+      ...(isFiniteNumber(entry.ownUses) && entry.ownUses >= 1 ? { ownUses: Math.floor(entry.ownUses) } : {}),
     };
     const match = HANDLE_RE.exec(out.id);
     if (match) maxHandle = Math.max(maxHandle, Number(match[1]));
     kept.push([key, out]);
   }
-  let nextId = Number.isInteger(src.nextId) && src.nextId > maxHandle ? src.nextId : maxHandle + 1;
-  const used = new Set();
-  const entries = {};
+  let nextId = isIntegerNumber(src.nextId) && src.nextId > maxHandle ? src.nextId : maxHandle + 1;
+  const used = new Set<string>();
+  const entries: Record<string, GifEntry> = {};
   for (const [key, entry] of kept) {
     if (!HANDLE_RE.test(entry.id) || used.has(entry.id)) {
       entry.id = `g${nextId}`;
@@ -131,16 +148,23 @@ export function normalizeGifs(value) {
  * id or a URL are skipped, and so is a gif embed of an expiring link (its
  * signed URL lapses, so it could not be posted back). Every item carries the OUTER message's id and
  * channel, like src/media/classify.ts#collectPictures.
- * @param {object} message
- * @returns {{ key: string, kind: 'link'|'attachment', url: string, site?: string, name?: string,
- *   itemId: string, messageId: string, channelId: string }[]}
  */
-export function collectGifItems(message) {
+export function collectGifItems(message: StoredRecord): Array<{
+  key: string;
+  kind: 'link' | 'attachment';
+  url: string;
+  site?: string;
+  name?: string;
+  itemId: string;
+  messageId: string;
+  channelId: string;
+}> {
   if (!message) return [];
   const messageId = str(message.id);
   const channelId = str(message.channelId);
-  const items = [];
-  for (const part of mediaParts(message)) {
+  const items: ReturnType<typeof collectGifItems> = [];
+  const parts: Array<Untyped> = mediaParts(message);
+  for (const part of parts) {
     if (!part) continue;
     for (const attachment of Array.isArray(part.attachments) ? part.attachments : []) {
       if (attachment?.kind !== 'gif' || attachment.id == null || typeof attachment.url !== 'string' || !attachment.url)
@@ -182,10 +206,13 @@ export function collectGifItems(message) {
  * The GIF history backfill recounts from here, so a GIF seen again keeps its
  * handle (see mergeGifs) and one no longer in the history stays, ranked
  * lowest, until storeMax evicts it. Never mutates `gifs`.
- * @param {unknown} gifs  A stored library (normalised here).
- * @returns {{ nextId: number, entries: Record<string, object>, backfill: object|null }}
+ * @param gifs  A stored library (normalised here).
  */
-export function resetGifCounts(gifs) {
+export function resetGifCounts(gifs: unknown): {
+  nextId: number;
+  entries: Record<string, GifEntry>;
+  backfill: object | null;
+} {
   const next = normalizeGifs(gifs);
   for (const entry of Object.values(next.entries)) entry.count = 0;
   return next;
@@ -196,15 +223,18 @@ export function resetGifCounts(gifs) {
  * `ownLast` set to `ts`, `ownUses` one higher. The members' `count`/`last`
  * are not touched. `marked` is false (and the library unchanged) when `key`
  * is not in it. Never mutates `gifs`.
- * @param {unknown} gifs  A stored library (normalised here).
- * @param {string} key    The entry's library key (findGif's `key`).
- * @param {number} ts     When the persona posted it (epoch ms).
- * @returns {{ gifs: { nextId: number, entries: Record<string, object>, backfill: object|null }, marked: boolean }}
+ * @param gifs  A stored library (normalised here).
+ * @param key    The entry's library key (findGif's `key`).
+ * @param ts     When the persona posted it (epoch ms).
  */
-export function markOwnGif(gifs, key, ts) {
+export function markOwnGif(
+  gifs: unknown,
+  key: string,
+  ts: number
+): { gifs: { nextId: number; entries: Record<string, GifEntry>; backfill: object | null }; marked: boolean } {
   const next = normalizeGifs(gifs);
   const entry = typeof key === 'string' ? next.entries[key] : undefined;
-  if (!entry || !Number.isFinite(ts)) return { gifs: next, marked: false };
+  if (!entry || !isFiniteNumber(ts)) return { gifs: next, marked: false };
   next.entries[key] = { ...entry, ownLast: ts, ownUses: (entry.ownUses ?? 0) + 1 };
   return { gifs: next, marked: true };
 }
@@ -215,22 +245,20 @@ export function markOwnGif(gifs, key, ts) {
  * `halfLifeDays` not a positive number -> count alone). Every entry with a
  * positive count comes before every entry at count 0 (a reset one not seen
  * again), whatever their dates; each group is ordered by sortByRank.
- * @param {unknown} gifs  A stored library (normalised here).
- * @param {number} [halfLifeDays]
- * @returns {object[]}
+ * @param gifs  A stored library (normalised here).
  */
-export function rankGifs(gifs, halfLifeDays) {
+export function rankGifs(gifs: unknown, halfLifeDays?: number): Array<GifEntry & { key: string }> {
   const items = Object.entries(normalizeGifs(gifs).entries).map(([key, entry]) => ({
     key,
     ...entry,
     weight: entry.count,
     lastSeen: entry.last > 0 ? new Date(entry.last).toISOString() : null,
   }));
-  const used = sortByRank(
+  const used = sortRanked(
     items.filter((item) => item.count > 0),
     halfLifeDays
   );
-  const unused = sortByRank(
+  const unused = sortRanked(
     items.filter((item) => item.count <= 0),
     halfLifeDays
   );
@@ -239,11 +267,9 @@ export function rankGifs(gifs, halfLifeDays) {
 
 /**
  * The entry whose handle is `handle` (`g12`), as `{ key, ...entry }`, or null.
- * @param {unknown} gifs  A stored library (normalised here).
- * @param {string} handle
- * @returns {object|null}
+ * @param gifs  A stored library (normalised here).
  */
-export function findGif(gifs, handle) {
+export function findGif(gifs: unknown, handle: string): object | null {
   const wanted = str(handle).trim().toLowerCase();
   if (!HANDLE_RE.test(wanted)) return null;
   for (const [key, entry] of Object.entries(normalizeGifs(gifs).entries)) {
@@ -259,12 +285,12 @@ export function findGif(gifs, handle) {
  * per-message embed id, but the first entry keeps counting). The one
  * matching rule of the library, shared by mergeGifs and the transcript's
  * handles (see gifHandleMap).
- * @param {{ key: string, kind: 'link'|'attachment', url?: string }} item
- * @param {(key: string) => boolean} hasKey
- * @param {(url: string) => (string|null|undefined)} keyByUrl
- * @returns {string|null}
  */
-export function matchGifKey(item, hasKey, keyByUrl) {
+export function matchGifKey(
+  item: { key: string; kind: 'link' | 'attachment'; url?: string },
+  hasKey: (key: string) => boolean,
+  keyByUrl: (url: string) => string | null | undefined
+): string | null {
   if (!item) return null;
   if (hasKey(item.key)) return item.key;
   if (item.kind === 'link' && item.url) {
@@ -279,10 +305,9 @@ export function matchGifKey(item, hasKey, keyByUrl) {
  * (`g12`), and a link entry's URL -> the same handle, so gifHandleOf can
  * apply matchGifKey's rule to a GIF seen in a message. Keys and URLs never
  * collide (a URL carries `://`).
- * @param {unknown} gifs  A stored library (normalised here).
- * @returns {Map<string, string>}
+ * @param gifs  A stored library (normalised here).
  */
-export function gifHandleMap(gifs) {
+export function gifHandleMap(gifs: unknown): Map<string, string> {
   const { entries } = normalizeGifs(gifs);
   const handles = new Map();
   for (const [key, entry] of Object.entries(entries)) handles.set(key, entry.id);
@@ -296,19 +321,19 @@ export function gifHandleMap(gifs) {
  * The handle of a GIF seen in a message (a normalized attachment or embed
  * link of kind `gif`), by matchGifKey's rule over `handles` (gifHandleMap),
  * or null.
- * @param {Map<string, string>|null|undefined} handles
- * @param {{ id?: string, url?: string|null }} item
- * @param {'link'|'attachment'} kind
- * @returns {string|null}
  */
-export function gifHandleOf(handles, item, kind) {
+export function gifHandleOf(
+  handles: Map<string, string> | null | undefined,
+  item: { id?: string; url?: string | null },
+  kind: 'link' | 'attachment'
+): string | null {
   if (!(handles instanceof Map) || handles.size === 0 || !item || item.id == null) return null;
   const key = matchGifKey(
     { key: String(item.id), kind, url: typeof item.url === 'string' ? item.url : '' },
     (k) => handles.has(k) && !k.includes('://'),
     (url) => (handles.has(url) ? url : null)
   );
-  return key == null ? null : handles.get(key);
+  return key == null ? null : (handles.get(key) ?? null);
 }
 
 /**
@@ -323,12 +348,13 @@ export function gifHandleOf(handles, item, kind) {
  * the lowest-ranked (rankGifs: count-0 entries first) are evicted (`storeMax`
  * not a non-negative integer -> no cap); an evicted handle is never reused.
  * Never mutates `gifs`.
- * @param {unknown} gifs
- * @param {object[]} messages  Normalized messages (URLs present); `self`/`bot`/`ts` read.
- * @param {{ storeMax?: number, halfLifeDays?: number }} [opts]
- * @returns {{ gifs: object, counted: number }}
+ * @param messages  Normalized messages (URLs present); `self`/`bot`/`ts` read.
  */
-export function mergeGifs(gifs, messages, { storeMax, halfLifeDays } = {}) {
+export function mergeGifs(
+  gifs: unknown,
+  messages: Array<StoredRecord>,
+  { storeMax, halfLifeDays }: { storeMax?: number; halfLifeDays?: number } = {}
+): { gifs: object; counted: number } {
   const next = normalizeGifs(gifs);
   const byUrl = new Map();
   for (const [key, entry] of Object.entries(next.entries)) {
@@ -337,7 +363,7 @@ export function mergeGifs(gifs, messages, { storeMax, halfLifeDays } = {}) {
   let counted = 0;
   for (const message of Array.isArray(messages) ? messages : []) {
     if (!message || message.self || message.bot) continue;
-    const ts = Number.isFinite(message.ts) ? message.ts : 0;
+    const ts = isFiniteNumber(message.ts) ? message.ts : 0;
     const seen = new Set();
     for (const item of collectGifItems(message)) {
       const key =
@@ -369,7 +395,7 @@ export function mergeGifs(gifs, messages, { storeMax, halfLifeDays } = {}) {
     }
   }
   const keys = Object.keys(next.entries);
-  if (Number.isInteger(storeMax) && storeMax >= 0 && keys.length > storeMax) {
+  if (isIntegerNumber(storeMax) && storeMax >= 0 && keys.length > storeMax) {
     const kept = new Set(
       rankGifs(next, halfLifeDays)
         .slice(0, storeMax)

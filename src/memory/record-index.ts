@@ -33,6 +33,10 @@
 
 import { foldText } from './recent.ts';
 import { URL_PATTERN, isWordChar } from './mentions.ts';
+import { isFiniteNumber, isIntegerNumber } from './types.ts';
+import type { StoredRecord, Untyped } from './types.ts';
+import type { RecordStore } from './record.ts';
+import { asRecordLines } from './record.ts';
 
 /** A URL in a text: its words (scheme, host, path, ids) are no words of the chat. */
 const URL_RE = new RegExp(URL_PATTERN, 'g');
@@ -67,18 +71,16 @@ export const INDEX_QUERY_DEFAULTS = Object.freeze({
 });
 
 /** Whether `word` holds a digit. */
-function hasDigit(word) {
+function hasDigit(word: string): boolean {
   return /\p{N}/u.test(word);
 }
 
 /**
  * The words of `text` as the index sees them: URLs left out, folded (foldText), runs of word
  * characters (isWordChar), at most 40 code points each, a run of 15+ digits left out. Pure.
- * @param {unknown} text
- * @returns {string[]}
  */
-export function indexWords(text) {
-  const out = [];
+export function indexWords(text: unknown): Array<string> {
+  const out: Array<Untyped> = [];
   let current = '';
   const push = () => {
     if (!current) return;
@@ -95,8 +97,8 @@ export function indexWords(text) {
 }
 
 /** The splits of `word` (code points) into a stem of MIN_STEM_CHARS+ and an ending of one to MAX_ENDING_CHARS letters. */
-function splits(chars) {
-  const out = [];
+function splits(chars: Array<string>): Array<{ stem: string; ending: string }> {
+  const out: Array<{ stem: string; ending: string }> = [];
   for (let k = 1; k <= MAX_ENDING_CHARS && chars.length - k >= MIN_STEM_CHARS; k += 1) {
     const ending = chars.slice(chars.length - k).join('');
     if (!/^\p{L}+$/u.test(ending)) break;
@@ -113,11 +115,9 @@ function splits(chars) {
  * in votes (never under MIN_ENDING_VOTES) is learned; at most MAX_ENDINGS, the most voted first.
  * Returns the endings and the productivity of each stem (how many learned endings it is seen with,
  * the bare stem counting) for stemmerOf. Pure.
- * @param {Iterable<string>} words
- * @returns {{ endings: string[], productivity: Map<string, number> }}
  */
-export function learnEndings(words) {
-  const vocabulary = new Set();
+export function learnEndings(words: Iterable<string>): { endings: Array<string>; productivity: Map<string, number> } {
+  const vocabulary = new Set<string>();
   for (const word of words) if (typeof word === 'string' && word && !hasDigit(word)) vocabulary.add(word);
   const formsOf = new Map();
   for (const word of vocabulary) {
@@ -153,10 +153,14 @@ export function learnEndings(words) {
  * learned endings (ties: the longer stem) when that is two or more and more than the word itself is
  * seen with; else the word. So the inflected forms of a word the record holds share one key.
  * Memoized. Pure.
- * @param {{ endings: string[], productivity: Map<string, number> }} learned
- * @returns {(word: string) => string}
  */
-export function stemmerOf({ endings, productivity }) {
+export function stemmerOf({
+  endings,
+  productivity,
+}: {
+  endings: Array<string>;
+  productivity: Map<string, number>;
+}): (word: string) => string {
   const known = new Set(endings);
   const memo = new Map();
   return (word) => {
@@ -178,17 +182,17 @@ export function stemmerOf({ endings, productivity }) {
 }
 
 /** Whether `line` is a chat line of the record (a `seen` or `said` message with an id, a channel or private scope and a time). */
-function chatLine(line) {
+function chatLine(line: IndexLine): boolean {
   return (
     (line?.kind === 'seen' || line?.kind === 'said') &&
     typeof line.messageId === 'string' &&
-    line.messageId &&
-    Number.isFinite(Date.parse(line.occurredAt))
+    line.messageId !== '' &&
+    isFiniteNumber(Date.parse(line.occurredAt))
   );
 }
 
 /** The searchable text of a record line: its text and its links' titles and descriptions. */
-function lineText(line) {
+function lineText(line: IndexLine): string {
   const parts = [typeof line.text === 'string' ? line.text : ''];
   for (const link of Array.isArray(line.links) ? line.links : []) {
     if (typeof link?.title === 'string') parts.push(link.title);
@@ -197,8 +201,64 @@ function lineText(line) {
   return parts.join('\n');
 }
 
+/** Whether every key of a word list was found in the index. */
+function allDefined(ids: Array<number | undefined>): ids is Array<number> {
+  return ids.every((id) => id !== undefined);
+}
+
+/** A word of a query: the key ids it stands for, how many documents hold it and its weight. */
+export type QueryTerm = { word: string; ids: Array<number>; df: number; weight: number };
+/** A phrase of a query: its consecutive key ids, the documents holding it and its weight. */
+export type QueryPhrase = { text: string; ids: Array<number>; df: number; weight: number; quoted?: boolean };
+
+/** A message the index offers for a query, with how many terms and phrases of the query it holds. */
+export type IndexHit = {
+  messageId: string;
+  channelId: string | null;
+  occurredAt: string;
+  ts: number;
+  score: number;
+  terms: number;
+  phrases: number;
+};
+
+/** A record line as the index reads it: a chat line of the record (`seen` or `said`) with its text and link cards. */
+export type IndexLine = {
+  kind?: string;
+  messageId: string;
+  occurredAt: string;
+  revision?: number;
+  scope?: Untyped;
+  text?: string;
+  links?: Array<Untyped>;
+};
+
+/** One indexed message: its key sequence and the fields a query filters on. */
+type IndexDoc = {
+  messageId: string;
+  channelId: string | null;
+  scope: Untyped;
+  occurredAt: string;
+  ts: number;
+  revision: number;
+  seq: Int32Array;
+  dead: boolean;
+};
+
+/** The in-memory index of a record: key ids per term, a posting list per key and a document per message revision. */
+export type RecordIndex = {
+  terms: Map<string, number>;
+  postings: Array<Array<number>>;
+  docs: Array<IndexDoc>;
+  byMessage: Map<string, number>;
+  deleted: Set<string>;
+  alive: number;
+  endings: Array<string>;
+  stem: (word: string) => string;
+};
+
 /** The id of `key` in `index`, added when missing. */
-function termId(index, key) {
+function termId(index: RecordIndex, key: string) {
   let id = index.terms.get(key);
   if (id === undefined) {
     id = index.postings.length;
@@ -209,7 +269,7 @@ function termId(index, key) {
 }
 
 /** Adds one chat line as a document (its keys, its posting entries), the message's older document marked dead. */
-function addDocument(index, line, revision) {
+function addDocument(index: RecordIndex, line: IndexLine, revision: number) {
   const old = index.byMessage.get(line.messageId);
   if (old !== undefined) {
     const doc = index.docs[old];
@@ -246,7 +306,7 @@ function addDocument(index, line, revision) {
 }
 
 /** A deleted message's document marked dead. */
-function dropDocument(index, messageId) {
+function dropDocument(index: RecordIndex, messageId: string) {
   const at = index.byMessage.get(messageId);
   if (at === undefined) return;
   const doc = index.docs[at];
@@ -257,8 +317,8 @@ function dropDocument(index, messageId) {
 }
 
 /** The revision of a record line (1 when missing). */
-function revisionOf(line) {
-  return Number.isInteger(line?.revision) && line.revision > 0 ? line.revision : 1;
+function revisionOf(line: IndexLine): number {
+  return isIntegerNumber(line?.revision) && line.revision > 0 ? line.revision : 1;
 }
 
 /**
@@ -266,10 +326,9 @@ function revisionOf(line) {
  * (the older one marked dead), a `deleted` line marks it dead, an older or equal revision is
  * ignored; words are keyed by the index's learned stemmer (no relearning). Returns the index. Pure
  * apart from the index.
- * @param {object} index  buildRecordIndex's
- * @param {Iterable<object>} lines
+ * @param index  buildRecordIndex's
  */
-export function addRecordLines(index, lines) {
+export function addRecordLines(index: RecordIndex, lines: Iterable<IndexLine>): RecordIndex {
   for (const line of lines) {
     if (line?.kind === 'deleted' && typeof line.messageId === 'string') {
       dropDocument(index, line.messageId);
@@ -287,12 +346,10 @@ export function addRecordLines(index, lines) {
  * deleted message left out), the endings learned from their words (learnEndings), each message a
  * document `{ messageId, channelId, scope, occurredAt, ts, revision, seq, dead }` (`seq` its words'
  * key ids in order), a posting list (document positions) per key. Pure.
- * @param {Iterable<object>} lines
- * @returns {object}
  */
-export function buildRecordIndex(lines) {
-  const latest = new Map();
-  const deleted = new Set();
+export function buildRecordIndex(lines: Iterable<IndexLine>): RecordIndex {
+  const latest = new Map<string, IndexLine>();
+  const deleted = new Set<string>();
   for (const line of lines) {
     if (line?.kind === 'deleted' && typeof line.messageId === 'string') {
       deleted.add(line.messageId);
@@ -304,10 +361,10 @@ export function buildRecordIndex(lines) {
   }
   for (const id of deleted) latest.delete(id);
   const ordered = [...latest.values()].sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
-  const vocabulary = new Set();
+  const vocabulary = new Set<string>();
   for (const line of ordered) for (const word of indexWords(lineText(line))) vocabulary.add(word);
   const learned = learnEndings(vocabulary);
-  const index = {
+  const index: RecordIndex = {
     terms: new Map(),
     postings: [],
     docs: [],
@@ -322,19 +379,19 @@ export function buildRecordIndex(lines) {
 }
 
 /** Whether document `doc` counts for a query: alive, not after `until`, not excluded. */
-function counts(doc, until, exclude) {
+function counts(doc: IndexDoc, until: number, exclude: Set<string>): boolean {
   return !doc.dead && !(doc.ts > until) && !exclude.has(doc.messageId);
 }
 
 /** The documents (positions) holding any of `ids`, counted ones only, ascending. */
-function docsOf(index, ids, ok) {
-  const out = new Set();
+function docsOf(index: RecordIndex, ids: Array<number>, ok: (at: number) => boolean) {
+  const out = new Set<number>();
   for (const id of ids) for (const at of index.postings[id] ?? []) if (ok(at)) out.add(at);
   return out;
 }
 
 /** Whether the key sequence `seq` holds `phrase` (key ids) as consecutive keys. */
-function holdsPhrase(seq, phrase) {
+function holdsPhrase(seq: ArrayLike<number>, phrase: Array<number>): boolean {
   for (let i = 0; i + phrase.length <= seq.length; i += 1) {
     let all = true;
     for (let j = 0; j < phrase.length; j += 1) {
@@ -349,9 +406,9 @@ function holdsPhrase(seq, phrase) {
 }
 
 /** The documents (positions) holding `phrase` (key ids) as consecutive keys, counted ones only. */
-function phraseDocs(index, phrase, ok) {
+function phraseDocs(index: RecordIndex, phrase: Array<number>, ok: (at: number) => boolean) {
   const lists = phrase.map((id) => index.postings[id] ?? []).sort((a, b) => a.length - b.length);
-  const out = new Set();
+  const out = new Set<number>();
   const others = lists.slice(1).map((list) => new Set(list));
   for (const at of lists[0]) {
     if (!ok(at) || !others.every((set) => set.has(at))) continue;
@@ -363,17 +420,17 @@ function phraseDocs(index, phrase, ok) {
 /**
  * A member's names as alternates: for every word of a stored member's name or alias (folded,
  * `selfId`'s profile left out), the one-word names and aliases of that member. Pure.
- * @param {object[]} profiles
- * @param {string|null} selfId
- * @returns {Map<string, string[]>}
  */
-export function nameAlternates(profiles, selfId = null) {
+export function nameAlternates(
+  profiles: Array<StoredRecord>,
+  selfId: string | null = null
+): Map<string, Array<string>> {
   const out = new Map();
   for (const profile of Array.isArray(profiles) ? profiles : []) {
     if (!profile || typeof profile !== 'object' || (selfId !== null && String(profile.id) === String(selfId))) continue;
     const names = [
       ...(Array.isArray(profile.names) ? profile.names : []),
-      ...(Array.isArray(profile.aliases) ? profile.aliases : []).map((alias) => alias?.name),
+      ...(Array.isArray(profile.aliases) ? profile.aliases : []).map((alias: Untyped) => alias?.name),
     ].filter((name) => typeof name === 'string');
     const single = [
       ...new Set(
@@ -410,31 +467,49 @@ export function nameAlternates(profiles, selfId = null) {
  * (a phrase inside a kept longer one dropped); `quoted` phrases (the caller's quoted text) first
  * when they occur at all. Returned `{ docs, terms: [{ word, ids, df, weight }], phrases: [{ text,
  * ids, df, weight }] }`. Pure.
- * @param {object} index
- * @param {string} text
- * @param {{ until?: number, exclude?: Set<string>, skipWords?: string[], alternates?: Map<string, string[]>, quoted?: string[],
- *   maxTerms?: number, maxTermShare?: number, rareTermDf?: number, maxPhrases?: number, maxPhraseDf?: number, minPhraseShare?: number }} [options]
  */
 export function indexQuery(
-  index,
-  text,
-  { until = Infinity, exclude = new Set(), skipWords = [], alternates = new Map(), quoted = [], ...rest } = {}
-) {
+  index: RecordIndex,
+  text: string,
+  {
+    until = Infinity,
+    exclude = new Set(),
+    skipWords = [],
+    alternates = new Map(),
+    quoted = [],
+    ...rest
+  }: {
+    until?: number;
+    exclude?: Set<string>;
+    skipWords?: Array<string>;
+    alternates?: Map<string, Array<string>>;
+    quoted?: Array<string>;
+    maxTerms?: number;
+    maxTermShare?: number;
+    rareTermDf?: number;
+    maxPhrases?: number;
+    maxPhraseDf?: number;
+    minPhraseShare?: number;
+  } = {}
+): { docs: number; terms: Array<QueryTerm>; phrases: Array<QueryPhrase> } {
   const o = { ...INDEX_QUERY_DEFAULTS, ...rest };
-  const ok = (at) => counts(index.docs[at], until, exclude);
+  const ok = (at: number) => counts(index.docs[at], until, exclude);
   const total = Math.max(1, index.alive);
-  const weightOf = (df) => Math.log(1 + total / df);
+  const weightOf = (df: number) => Math.log(1 + total / df);
   const skip = new Set(skipWords.flatMap((word) => indexWords(word)));
   const words = indexWords(text);
-  const keyOf = (word) => index.terms.get(index.stem(word));
-  const terms = [];
-  const seenKeys = new Set();
+  const keyOf = (word: string) => index.terms.get(index.stem(word));
+  const terms: Array<QueryTerm> = [];
+  const seenKeys = new Set<number>();
   for (const word of words) {
     if ([...word].length < 2 || skip.has(word)) continue;
     const own = keyOf(word);
     if (own === undefined || seenKeys.has(own)) continue;
     seenKeys.add(own);
-    const ids = [own, ...(alternates.get(word) ?? []).map(keyOf).filter((id) => id !== undefined && id !== own)];
+    const ids = [
+      own,
+      ...(alternates.get(word) ?? []).map(keyOf).filter((id): id is number => id !== undefined && id !== own),
+    ];
     const df = docsOf(index, ids, ok).size;
     if (df < 1 || df > Math.max(1, o.rareTermDf, o.maxTermShare * total)) continue;
     terms.push({ word, ids: [...new Set(ids)], df, weight: weightOf(df) });
@@ -444,25 +519,28 @@ export function indexQuery(
   const taken = new Set();
   for (const raw of quoted) {
     const ids = indexWords(raw).map(keyOf);
-    if (ids.length < 1 || ids.some((id) => id === undefined)) continue;
+    if (ids.length < 1 || !allDefined(ids)) continue;
     const df = phraseDocs(index, ids, ok).size;
     const key = ids.join(' ');
     if (df < 1 || taken.has(key)) continue;
     taken.add(key);
     phrases.push({ text: indexWords(raw).join(' '), ids, df, weight: weightOf(df) * ids.length, quoted: true });
   }
-  const dfOf = new Map();
-  const termDf = (id) => {
-    if (!dfOf.has(id)) dfOf.set(id, docsOf(index, [id], ok).size);
-    return dfOf.get(id);
+  const dfOf = new Map<number, number>();
+  const termDf = (id: number): number => {
+    const known = dfOf.get(id);
+    if (known !== undefined) return known;
+    const df = docsOf(index, [id], ok).size;
+    dfOf.set(id, df);
+    return df;
   };
-  const grams = [];
+  const grams: Array<QueryPhrase> = [];
   for (const n of [3, 2]) {
     for (let i = 0; i + n <= words.length; i += 1) {
       const part = words.slice(i, i + n);
       if (part.some((word) => skip.has(word) || [...word].length < MIN_PHRASE_WORD_CHARS)) continue;
       const ids = part.map(keyOf);
-      if (ids.some((id) => id === undefined)) continue;
+      if (!allDefined(ids)) continue;
       const key = ids.join(' ');
       if (taken.has(key)) continue;
       taken.add(key);
@@ -474,7 +552,7 @@ export function indexQuery(
     }
   }
   grams.sort((a, b) => b.weight - a.weight);
-  const inside = (small, big) =>
+  const inside = (small: QueryPhrase, big: QueryPhrase) =>
     big.ids.length > small.ids.length && ` ${big.ids.join(' ')} `.includes(` ${small.ids.join(' ')} `);
   for (const gram of grams) {
     if (phrases.length >= o.maxPhrases) break;
@@ -491,24 +569,33 @@ export function indexQuery(
  * documents). `score`: the weights of its terms and phrases summed. Best first,
  * then the newer; at most `limit`. Each `{ messageId, channelId, occurredAt, ts, score, terms,
  * phrases }` (`terms` and `phrases` the counts matched). Pure.
- * @param {object} index
- * @param {{ terms: object[], phrases: object[] }} query
- * @param {{ until?: number, exclude?: Set<string>, allow?: ((doc: object) => boolean)|null, limit?: number, rareTermDf?: number }} [options]
  */
 export function searchRecordIndex(
-  index,
-  query,
-  { until = Infinity, exclude = new Set(), allow = null, limit = 20, rareTermDf = INDEX_QUERY_DEFAULTS.rareTermDf } = {}
-) {
+  index: RecordIndex,
+  query: { terms: Array<QueryTerm>; phrases: Array<QueryPhrase> },
+  {
+    until = Infinity,
+    exclude = new Set(),
+    allow = null,
+    limit = 20,
+    rareTermDf = INDEX_QUERY_DEFAULTS.rareTermDf,
+  }: {
+    until?: number;
+    exclude?: Set<string>;
+    allow?: ((doc: Untyped) => boolean) | null;
+    limit?: number;
+    rareTermDf?: number;
+  } = {}
+): Array<IndexHit> {
   const terms = Array.isArray(query?.terms) ? query.terms : [];
   const phrases = Array.isArray(query?.phrases) ? query.phrases : [];
   if (terms.length === 0 && phrases.length === 0) return [];
-  const ok = (at) => counts(index.docs[at], until, exclude);
-  const candidates = new Set();
+  const ok = (at: number) => counts(index.docs[at], until, exclude);
+  const candidates = new Set<number>();
   for (const term of terms) for (const at of docsOf(index, term.ids, ok)) candidates.add(at);
   for (const phrase of phrases) for (const at of phraseDocs(index, phrase.ids, ok)) candidates.add(at);
 
-  const hits = [];
+  const hits: Array<IndexHit> = [];
   for (const at of candidates) {
     const doc = index.docs[at];
     if (typeof allow === 'function' && !allow(doc)) continue;
@@ -550,12 +637,12 @@ export function searchRecordIndex(
  * phrases (consecutive keys) found in any of them, words keyed by the index's stemmer. What a
  * meaning hit needs besides its cosine: a word of the question (src/behavior/recall-run.js
  * `prefetch`). Pure.
- * @param {object} index
- * @param {unknown[]} texts
- * @param {{ terms?: object[], phrases?: object[] }|null} query
- * @returns {{ terms: number, phrases: number }}
  */
-export function querySupport(index, texts, query) {
+export function querySupport(
+  index: RecordIndex,
+  texts: Array<unknown>,
+  query: { terms?: Array<QueryTerm>; phrases?: Array<QueryPhrase> } | null
+): { terms: number; phrases: number } {
   const seqs = (Array.isArray(texts) ? texts : []).map((text) =>
     indexWords(text).map((word) => index.terms.get(index.stem(word)) ?? -1)
   );
@@ -566,12 +653,19 @@ export function querySupport(index, texts, query) {
 }
 
 /** The cached indexes, per record object: `${guildId}:${privateUserId ?? ''}` -> entry. */
-const CACHE = new WeakMap();
+type CacheEntry = {
+  index: RecordIndex | null;
+  ready?: Promise<RecordIndex>;
+  checkedAt: number;
+  builtAt: number;
+  busy: boolean;
+};
+const CACHE = new WeakMap<object, Map<string, CacheEntry>>();
 
 /** All lines of `iterate(guildId, query)`, collected. */
-async function collect(record, guildId, query) {
-  const lines = [];
-  for await (const line of record.iterate(guildId, query)) lines.push(line);
+async function collect(record: Pick<RecordStore, 'iterate'>, guildId: string, query: Untyped) {
+  const lines: Array<IndexLine> = [];
+  for await (const line of asRecordLines(record.iterate(guildId, query))) lines.push(line);
   return lines;
 }
 
@@ -583,38 +677,42 @@ async function collect(record, guildId, query) {
  * check is `refreshMs` old, read the lines from REFRESH_OVERLAP_MS before it on and fold them in
  * (addRecordLines); when the build is `rebuildMs` old, build it whole again and swap it in. Never
  * rejects but for the first build.
- * @param {{ iterate: Function }} record
- * @param {string} guildId
- * @param {{ privateUserId?: string|null, now?: () => number, refreshMs?: number, rebuildMs?: number }} [options]
- * @returns {Promise<object>}
  */
 export function recordIndexOf(
-  record,
-  guildId,
-  { privateUserId = null, now = Date.now, refreshMs = 30000, rebuildMs = 60 * 60 * 1000 } = {}
-) {
-  if (!CACHE.has(record)) CACHE.set(record, new Map());
-  const entries = CACHE.get(record);
+  record: Pick<RecordStore, 'iterate'>,
+  guildId: string,
+  {
+    privateUserId = null,
+    now = Date.now,
+    refreshMs = 30000,
+    rebuildMs = 60 * 60 * 1000,
+  }: { privateUserId?: string | null; now?: () => number; refreshMs?: number; rebuildMs?: number } = {}
+): Promise<RecordIndex> {
+  const entries = CACHE.get(record) ?? new Map<string, CacheEntry>();
+  CACHE.set(record, entries);
   const key = `${guildId}:${privateUserId ?? ''}`;
   const query = privateUserId ? { privateUserId } : {};
   const entry = entries.get(key);
   if (!entry) {
     const started = now();
-    const fresh = { index: null, checkedAt: started, builtAt: started, busy: false };
-    fresh.ready = collect(record, guildId, query).then(
+    const fresh: CacheEntry = { index: null, checkedAt: started, builtAt: started, busy: false };
+    const ready = collect(record, guildId, query).then(
       (lines) => {
-        fresh.index = buildRecordIndex(lines);
-        return fresh.index;
+        const built = buildRecordIndex(lines);
+        fresh.index = built;
+        return built;
       },
       (err) => {
         entries.delete(key);
         throw err;
       }
     );
+    fresh.ready = ready;
     entries.set(key, fresh);
-    return fresh.ready;
+    return ready;
   }
-  if (!entry.index) return entry.ready;
+  // `ready` is set together with the entry, so an entry without an index is a first build still running.
+  if (!entry.index) return entry.ready as Promise<RecordIndex>;
   const at = now();
   if (!entry.busy && at - entry.builtAt >= rebuildMs) {
     entry.busy = true;
@@ -633,7 +731,7 @@ export function recordIndexOf(
     const from = new Date(entry.checkedAt - REFRESH_OVERLAP_MS).toISOString();
     collect(record, guildId, { ...query, from })
       .then((lines) => {
-        addRecordLines(entry.index, lines);
+        if (entry.index) addRecordLines(entry.index, lines);
         entry.checkedAt = at;
       })
       .catch(() => {})

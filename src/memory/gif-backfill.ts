@@ -16,6 +16,10 @@ import { collectPictures } from '../media/classify.ts';
 import { readMemberHistory } from './emoji-backfill.ts';
 import { GIF_HALF_LIFE_DAYS, gifOpts, rankGifs } from './gifs.ts';
 import { log as defaultLog } from '../log.js';
+import type { Reads } from '../interface/reads.ts';
+import type { StoreView } from './store.ts';
+import type { Log, StoredRecord } from './types.ts';
+import type { Describer, MediaItem } from './describe.ts';
 
 /** How many messages one `store.recordGifs` call takes. */
 const CHUNK = 500;
@@ -26,21 +30,22 @@ const BACKFILL_MESSAGES = 500;
 /** The GIFs without a caption sent to the describer after a count. */
 const BACKFILL_DESCRIBE = 20;
 
-/**
- * The GIF history backfill for the served guild.
- * @param {object} deps
- * @param {object} deps.hot        src/hot.js view; `config` read at use.
- * @param {object} deps.store      src/memory/store.ts.
- * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface (src/memory/emoji-backfill.ts#readMemberHistory's).
- * @param {() => string} deps.iface  The interface's name, read when a run starts.
- * @param {object} [deps.describer]  From createDescriber() (src/memory/describe.ts): `describeMany`.
- *   Absent -> nothing is described.
- * @param {object} [deps.log]      src/log.js-shaped logger.
- */
-export function createGifBackfill({ hot, store, reads, iface, describer = null, log = defaultLog }) {
+function buildGifBackfill({
+  store,
+  reads,
+  iface,
+  describer = null,
+  log = defaultLog,
+}: {
+  store: StoreView;
+  reads: Reads;
+  iface: () => string;
+  describer?: Pick<Describer, 'describeMany'> | null;
+  log?: Log;
+}) {
   let running = false;
 
-  function skipped(reason) {
+  function skipped(reason: string): { ok: false; reason: string } {
     log.info('gif-backfill: skipped', { reason });
     return { ok: false, reason };
   }
@@ -53,10 +58,10 @@ export function createGifBackfill({ hot, store, reads, iface, describer = null, 
    * it), under the entry's `itemId`; an entry without one is skipped.
    * Returns how many got a caption.
    */
-  async function describeTop(guildId, pictures, limit) {
+  async function describeTop(guildId: string, pictures: Map<string, MediaItem>, limit: number) {
     if (!describer || typeof describer.describeMany !== 'function' || limit <= 0) return 0;
     const cache = store.getMediaCache(guildId);
-    const items = [];
+    const items: Array<MediaItem> = [];
     for (const entry of rankGifs(store.getGifs(guildId), GIF_HALF_LIFE_DAYS)) {
       if (items.length >= limit) break;
       const cached = cache?.[entry.itemId];
@@ -87,20 +92,21 @@ export function createGifBackfill({ hot, store, reads, iface, describer = null, 
    * after every channel is read; the describing comes after, and only while
    * not paused. Skips (never throws) when paused, when already stamped (no `force`), while another run is in flight, or
    * when the interface lists no readable conversation of the community; an unexpected error is thrown.
-   * @param {string} guildId
-   * @param {{ force?: boolean }} [opts]
-   * @returns {Promise<{ ok: true, channels: number, messages: number, gifs: number, described: number }
-   *   | { ok: false, reason: string }>}
    */
-  async function run(guildId, { force = false } = {}) {
+  async function run(
+    guildId: string,
+    { force = false }: { force?: boolean } = {}
+  ): Promise<
+    { ok: true; channels: number; messages: number; gifs: number; described: number } | { ok: false; reason: string }
+  > {
     if (running) return skipped('running');
     if (store.state?.data?.paused) return skipped('paused');
-    if (!force && store.getGifs(guildId).backfill?.at) return skipped('done');
+    const stamp: StoredRecord | null = store.getGifs(guildId).backfill;
+    if (!force && stamp?.at) return skipped('done');
 
     running = true;
     try {
       const history = await readMemberHistory(reads, guildId, BACKFILL_MESSAGES, {
-        config: hot.config,
         iface: iface(),
         log,
         prefix: 'gif-backfill',
@@ -123,9 +129,10 @@ export function createGifBackfill({ hot, store, reads, iface, describer = null, 
       store.flush();
 
       // The picture item to describe per GIF: an attachment's file, an embed's thumbnail and animation.
-      const pictures = new Map();
+      const pictures = new Map<string, MediaItem>();
       for (const message of members) {
-        for (const picture of collectPictures(message)) {
+        const found: Array<MediaItem> = collectPictures(message);
+        for (const picture of found) {
           if (picture.kind === 'gif' && picture.url && !pictures.has(picture.itemId))
             pictures.set(picture.itemId, picture);
         }
@@ -145,10 +152,8 @@ export function createGifBackfill({ hot, store, reads, iface, describer = null, 
    * The startup run: once, when `features.gifs` is on (a missing key counts
    * as on) and the library has no `backfill` stamp yet. Meant to be called
    * without awaiting; resolves either way, errors are logged, never thrown.
-   * @param {string} guildId
-   * @returns {Promise<void>}
    */
-  async function startIfNeeded(guildId) {
+  async function startIfNeeded(guildId: string): Promise<void> {
     try {
       await run(guildId);
     } catch (err) {
@@ -162,4 +167,19 @@ export function createGifBackfill({ hot, store, reads, iface, describer = null, 
   }
 
   return { run, startIfNeeded, isRunning };
+}
+
+export type GifBackfill = ReturnType<typeof buildGifBackfill>;
+
+/**
+ * The GIF history backfill for the served guild.
+ * @param deps.store      src/memory/store.ts.
+ * @param deps.reads  The core's reads of the interface (src/memory/emoji-backfill.ts#readMemberHistory's).
+ * @param deps.iface  The interface's name, read when a run starts.
+ * @param [deps.describer]  From createDescriber() (src/memory/describe.ts): `describeMany`.
+ *   Absent -> nothing is described.
+ * @param [deps.log]      src/log.js-shaped logger.
+ */
+export function createGifBackfill(deps: Parameters<typeof buildGifBackfill>[0]): GifBackfill {
+  return buildGifBackfill(deps);
 }

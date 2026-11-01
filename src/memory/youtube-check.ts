@@ -10,29 +10,42 @@
 
 import { log as defaultLog } from '../log.js';
 import { proxyFor } from '../media/video-sites.ts';
+import type { Hot, Log, Obj } from './types.ts';
+import { isFiniteNumber } from './types.ts';
 
 /** The canary video probed. Production value, config cut of 2026-10-31. */
 const CANARY_URL = 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
 
 /** A probe failure's reason for the detail string; never an error message. */
-function reasonOf(result) {
+type Probe = { ok?: boolean; reason?: string; durationSec?: number } | null | undefined;
+
+function reasonOf(result: Probe): string {
   return typeof result?.reason === 'string' ? result.reason : 'download';
 }
 
 /** Whether a probe result carries a usable (positive, finite) duration. */
-function hasDuration(result) {
-  return Boolean(result?.ok) && Number.isFinite(result.durationSec) && result.durationSec > 0;
+function hasDuration(result: Probe): result is { ok: true; durationSec: number } {
+  return Boolean(result?.ok) && isFiniteNumber(result?.durationSec) && Number(result?.durationSec) > 0;
 }
 
 /**
- * @param {object} deps
- * @param {object} deps.hot  Live config; read at the moment of use.
- * @param {object} deps.videoFetcher  From createVideoFetcher(): `probeSite`, `probeYoutube`.
- * @param {string|null} [deps.youtubeApiKey]  Optional YOUTUBE_API_KEY; never logged or returned.
- * @returns {() => Promise<{ status: 'ytdlp'|'api'|'page'|'blocked', detail: string, keySet: boolean }>}
+ * @param deps.hot  Live config; read at the moment of use.
+ * @param deps.videoFetcher  From createVideoFetcher(): `probeSite`, `probeYoutube`.
+ * @param [deps.youtubeApiKey]  Optional YOUTUBE_API_KEY; never logged or returned.
  *   Never rejects. `detail` is a short operator-facing note (a duration or the probes' reasons).
  */
-export function createYoutubeCheck({ hot, videoFetcher, youtubeApiKey = null }) {
+export function createYoutubeCheck({
+  hot,
+  videoFetcher,
+  youtubeApiKey = null,
+}: {
+  hot: Hot;
+  videoFetcher: {
+    probeSite: (url: string, options: Obj) => Promise<Probe>;
+    probeYoutube: (url: string, options: Obj) => Promise<Probe>;
+  };
+  youtubeApiKey?: string | null;
+}): () => Promise<{ status: 'ytdlp' | 'api' | 'page' | 'blocked'; detail: string; keySet: boolean }> {
   return async function checkYoutube() {
     const keySet = typeof youtubeApiKey === 'string' && youtubeApiKey !== '';
     const videoCfg = hot.config.media?.video ?? {};
@@ -74,10 +87,14 @@ export function createYoutubeCheck({ hot, videoFetcher, youtubeApiKey = null }) 
 /**
  * The startup check, fire-and-forget. Logs the status (info), or a warning with a hint when YouTube links will
  * mostly fail.
- * @param {{ checkYoutube: () => Promise<{ status: string }>, log?: object }} deps
- * @returns {Promise<void>}
  */
-export function startYoutubeCheck({ checkYoutube, log = defaultLog }) {
+export function startYoutubeCheck({
+  checkYoutube,
+  log = defaultLog,
+}: {
+  checkYoutube: () => Promise<{ status: string }>;
+  log?: Log;
+}): Promise<void> {
   return Promise.resolve()
     .then(() => checkYoutube())
     .then(({ status }) => {

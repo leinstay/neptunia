@@ -7,19 +7,20 @@
 // Pure: no I/O, no clock.
 
 import { clampText } from './clamp.ts';
+import { isFiniteNumber } from './types.ts';
 
 const SENTENCE_SPLIT = /(?<=[.!?…])\s+/u;
 
-function length(text) {
+function length(text: string): number {
   return [...text].length;
 }
 
-function isBlank(value) {
+function isBlank(value: unknown): boolean {
   return typeof value !== 'string' || value.trim() === '';
 }
 
-function sentencesOf(text) {
-  const set = new Set();
+function sentencesOf(text: unknown): Set<string> {
+  const set = new Set<string>();
   if (typeof text !== 'string') return set;
   for (const part of text.split(SENTENCE_SPLIT)) {
     const sentence = part.trim().replace(/\s+/gu, ' ');
@@ -34,35 +35,36 @@ function sentencesOf(text) {
  * over it the previous text stays. Only a first write is clamped.
  * Outcomes: `empty` (nothing said), `same`, `first`, `replaced`, `over`.
  * A `limit` that is not a finite number > 0 means no limit.
- * @param {string|undefined} previous
- * @param {unknown} next
- * @param {number} limit
- * @param {{ tolerance?: number }} [opts] widens only a first write
- * @returns {{ text: string, outcome: 'same'|'first'|'replaced'|'over'|'empty' }}
+ * @param [opts] widens only a first write
  */
-export function acceptProse(previous, next, limit, { tolerance } = {}) {
+export function acceptProse(
+  previous: string | undefined,
+  next: unknown,
+  limit: number,
+  { tolerance }: { tolerance?: number } = {}
+): { text: string; outcome: 'same' | 'first' | 'replaced' | 'over' | 'empty' } {
   const prev = typeof previous === 'string' ? previous : '';
-  if (isBlank(next)) return { text: prev, outcome: 'empty' };
+  if (typeof next !== 'string' || isBlank(next)) return { text: prev, outcome: 'empty' };
   const trimmed = next.trim();
   if (trimmed === prev.trim()) return { text: prev, outcome: 'same' };
   if (isBlank(prev)) return { text: clampText(next, limit, { tolerance }), outcome: 'first' };
   const max = Number(limit);
-  if (Number.isFinite(max) && max > 0 && length(trimmed) > max) return { text: prev, outcome: 'over' };
+  if (isFiniteNumber(max) && max > 0 && length(trimmed) > max) return { text: prev, outcome: 'over' };
   return { text: trimmed, outcome: 'replaced' };
 }
 
 /**
  * The string fields longer than their limit, in code points, for the
  * `<over_limit>` block. Fields without a finite limit are skipped.
- * @param {Record<string, unknown>} fields
- * @param {Record<string, number>} limits
- * @returns {Record<string, { chars: number, limit: number }>}
  */
-export function overLimitOf(fields, limits) {
-  const out = {};
+export function overLimitOf(
+  fields: Record<string, unknown>,
+  limits: Record<string, number>
+): Record<string, { chars: number; limit: number }> {
+  const out: Record<string, { chars: number; limit: number }> = {};
   for (const [field, value] of Object.entries(fields ?? {})) {
     const limit = limits?.[field];
-    if (typeof value !== 'string' || !Number.isFinite(limit)) continue;
+    if (typeof value !== 'string' || typeof limit !== 'number' || !isFiniteNumber(limit)) continue;
     const chars = length(value);
     if (chars > limit) out[field] = { chars, limit };
   }
@@ -73,11 +75,11 @@ export function overLimitOf(fields, limits) {
  * Sentence-level comparison of two texts (sets after whitespace
  * normalisation): how many sentences each has and how many were kept,
  * removed and added.
- * @param {string} before
- * @param {string} after
- * @returns {{ before: number, after: number, kept: number, removed: number, added: number }}
  */
-export function sentenceDiff(before, after) {
+export function sentenceDiff(
+  before: string,
+  after: string
+): { before: number; after: number; kept: number; removed: number; added: number } {
   const a = sentencesOf(before);
   const b = sentencesOf(after);
   let kept = 0;

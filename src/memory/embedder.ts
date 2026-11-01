@@ -40,9 +40,13 @@ import {
   newestRevisions,
   recordChunk,
 } from './chunks.ts';
-import { isoOf } from './record.ts';
-import { createReadSeam } from './db/readers/common.ts';
+import { isoOf, asRecordLines } from './record.ts';
+import type { createRecord, RecordLine } from './record.ts';
+import type { createVectors } from './vectors.ts';
+
 import { recordLayers } from './db/readers/record.ts';
+import { propOf, isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
+import type { Hot, MemoryDb, Untyped } from './types.ts';
 
 // The embedding queue's measures. Production values, config cut of 2026-10-31.
 /** The lines one embedding request carries. */
@@ -66,37 +70,89 @@ const LATEST_MAX = 20000;
 /** How long `close` waits for its one flush on shutdown before it gives up. */
 const CLOSE_TIMEOUT_MS = 5000;
 
-const positiveNumber = (value, fallback) =>
-  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
-const revisionOf = (line) => (Number.isInteger(line?.revision) && line.revision > 0 ? line.revision : 1);
-const layerOf = (privateUserId) => (typeof privateUserId === 'string' && privateUserId ? privateUserId : null);
+const positiveNumber = (value: Untyped, fallback: Untyped) =>
+  typeof value === 'number' && isFiniteNumber(value) && value > 0 ? value : fallback;
+const revisionOf = (line: Pick<RecordLine, 'revision'> | null | undefined): number =>
+  isIntegerNumber(line?.revision) && line.revision > 0 ? line.revision : 1;
+const layerOf = (privateUserId: string | null) =>
+  typeof privateUserId === 'string' && privateUserId ? privateUserId : null;
+
+/** What a survey of the record finds: the messages read, the ones indexed and the ones still missing. */
+type Survey = {
+  messages: number;
+  indexed: number;
+  missing: Array<{ layer: string | null; line: Untyped; context: Array<Untyped> | null }>;
+};
+
+/** One line waiting to be embedded, with the ring it joins and the lines before it (a catch-up job carries its own). */
+type Job = {
+  guildId: string;
+  privateUserId: string | null;
+  line: RecordLine;
+  revision: number;
+  idKey: string;
+  ringKey: string;
+  context?: Array<RecordLine> | null;
+};
+
+/** The latest lines of one channel and layer, kept as the context of the next line there. */
+type Ring = { lines: Array<RecordLine>; warmed: boolean };
+
+/** The span of record to read for the jobs of one guild and layer whose rings are not filled yet. */
+type WarmGroup = {
+  guildId: string;
+  privateUserId: string | null;
+  channels: Set<string | null>;
+  from: number;
+  to: number;
+};
+
+type EmbedderDeps = {
+  hot: Pick<Hot, 'config'>;
+  vectors: ReturnType<typeof createVectors>;
+  embed: (texts: Array<string>, opts: Untyped) => Promise<Array<Float32Array>>;
+  record: ReturnType<typeof createRecord>;
+  log?: { info: Untyped; warn: Untyped };
+  now?: () => number;
+  nameOf?: ((guildId: string, userId: string) => string | null) | null;
+  selfName?: ((guildId: string) => string) | null;
+  paused?: () => boolean;
+  memoryDb: MemoryDb | null;
+};
+
+/** Put `line` in its ring (a newer revision replaces an older one), the ring kept to its size. */
+function ringAdd(ring: Ring, line: RecordLine) {
+  const at = ring.lines.findIndex((other) => other.messageId === line.messageId);
+  if (at >= 0) {
+    if (revisionOf(ring.lines[at]) > revisionOf(line)) return;
+    ring.lines.splice(at, 1);
+  }
+  ring.lines.push(line);
+  ring.lines.sort(compareLines);
+  if (ring.lines.length > RING_SIZE) ring.lines.splice(0, ring.lines.length - RING_SIZE);
+}
+
+/** The earliest `occurredAt` among missing messages, or null. */
+function oldestOf(missing: Untyped) {
+  let oldest = null;
+  for (const { line } of missing)
+    if (oldest === null || Date.parse(line.occurredAt) < Date.parse(oldest)) oldest = isoOf(line.occurredAt);
+  return oldest;
+}
 
 /**
  * Create the live embedding queue.
  *
- * @param {object} deps
- * @param {{ config: object }} deps.hot  The live config, read at the moment of use.
- * @param {{ append: Function }} deps.vectors  src/memory/vectors.ts#createVectors
- * @param {(texts: string[], opts: object) => Promise<Float32Array[]>} deps.embed  src/llm/embed.ts's `embed`
- * @param {{ iterate: Function }} deps.record  The record (unwrapped): rings are filled from it.
- * @param {{ info: Function, warn: Function }} [deps.log]
- * @param {() => number} [deps.now]
- * @param {(guildId: string, userId: string) => string|null} [deps.nameOf]  A member's display name now.
- * @param {(guildId: string) => string} [deps.selfName]  The persona's display name.
- * @param {() => boolean} [deps.paused]  Whether the bot is paused (`/nep pause`): no catch-up then.
- * @param {object|null} deps.memoryDb  The memory database service: the private layers come from it
+ * @param deps.hot  The live config, read at the moment of use.
+ * @param deps.vectors  src/memory/vectors.ts#createVectors
+ * @param deps.embed  src/llm/embed.ts's `embed`
+ * @param deps.record  The record (unwrapped): rings are filled from it.
+ * @param [deps.nameOf]  A member's display name now.
+ * @param [deps.selfName]  The persona's display name.
+ * @param [deps.paused]  Whether the bot is paused (`/nep pause`): no catch-up then.
+ * @param deps.memoryDb  The memory database service: the private layers come from it
  *   (src/memory/db/readers/record.ts; a failed read is an error of the pass); the lines come through
  *   `record.iterate`.
- * @returns {{
- *   enqueue(guildId: string, lines: object[], opts?: { privateUserId?: string|null }): number,
- *   flush(): Promise<{ embedded: number, dropped: number, left: number }>,
- *   tick(guildId?: string|null): Promise<object>|null,
- *   catchUp(guildId: string): Promise<object|null>,
- *   coverage(guildId: string, opts?: { hours?: number }): Promise<{ messages: number, indexed: number, missing: number, oldestMissing: string|null }>,
- *   indexSummary(guildId: string): Promise<{ rows: number, missing: number|null }>,
- *   close(opts?: { timeoutMs?: number }): Promise<{ embedded: number, dropped: number, left: number }|null>,
- *   stats(): { queued: number, rings: number },
- * }}
  *   `enqueue` (synchronous) queues each embeddable line not queued before at its revision (an
  *   older revision still waiting is replaced) and returns how many it queued; a full batch starts a
  *   flush in the background. `flush` sends at most one request (the oldest jobs, up to
@@ -126,28 +182,40 @@ export function createEmbedder({
   selfName = null,
   paused = () => false,
   memoryDb = null,
-}) {
-  const seam = createReadSeam({ memoryDb, log, reader: 'embedder' });
-  let queue = [];
-  const rings = new Map(); // `${guildId}|${layerChannelKey}` -> { lines, warmed }
-  const latest = new Map(); // `${guildId}|${layer}|${messageId}` -> newest revision queued
+}: EmbedderDeps): {
+  enqueue(guildId: string, lines: Array<RecordLine>, opts?: { privateUserId?: string | null }): number;
+  flush(): Promise<{ embedded: number; dropped: number; left: number }>;
+  tick(guildId?: string | null): Promise<Untyped> | null;
+  catchUp(guildId: string): Promise<object | null>;
+  coverage(
+    guildId: string,
+    opts?: { hours?: number }
+  ): Promise<{ messages: number; indexed: number; missing: number; oldestMissing: string | null }>;
+  indexSummary(guildId: string): Promise<{ rows: number; missing: number | null }>;
+  close(opts?: { timeoutMs?: number }): Promise<{ embedded: number; dropped: number; left: number } | null>;
+  stats(): { queued: number; rings: number };
+} {
+  const seam = readSeamOf(memoryDb, log, 'embedder');
+  let queue: Array<Job> = [];
+  const rings = new Map<string, Ring>(); // `${guildId}|${layerChannelKey}` -> { lines, warmed }
+  const latest = new Map<string, number>(); // `${guildId}|${layer}|${messageId}` -> newest revision queued
   let lastFlushAt = now();
-  let flushing = null;
+  let flushing: Untyped = null;
   let closed = false;
   // The catch-up: the pass running, when the last one ran, whether it left messages behind, the
   // switches as the last tick saw them, the jobs of the flush in flight, the jobs appended while
   // a pass ran, and each guild's last pass.
-  let catching = null;
-  let lastCatchUpAt = null;
+  let catching: Untyped = null;
+  let lastCatchUpAt: number | null = null;
   let behind = false;
   let wasOn = false;
   let inFlight = new Set();
-  let appendedDuringPass = null;
+  let appendedDuringPass: Untyped = null;
   const lastPass = new Map();
 
   const on = () => true;
   const isPaused = () => typeof paused === 'function' && paused() === true;
-  const jobKey = (idKey, revision) => `${idKey}#${revision}`;
+  const jobKey = (idKey: string, revision: number) => `${idKey}#${revision}`;
 
   function settings() {
     return {
@@ -160,12 +228,12 @@ export function createEmbedder({
     };
   }
 
-  const ringKey = (guildId, privateUserId, channelId) =>
+  const ringKey = (guildId: string, privateUserId: string | null, channelId: string | null) =>
     `${guildId}|${layerChannelKey(privateUserId ?? '', channelId)}`;
-  const channelOf = (line) =>
+  const channelOf = (line: RecordLine) =>
     typeof line?.scope?.channel === 'string' && line.scope.channel ? line.scope.channel : null;
 
-  function ringOf(key) {
+  function ringOf(key: string): Ring {
     let ring = rings.get(key);
     if (!ring) {
       ring = { lines: [], warmed: false };
@@ -174,25 +242,20 @@ export function createEmbedder({
     return ring;
   }
 
-  /** Put `line` in its ring (a newer revision replaces an older one), the ring kept to its size. */
-  function ringAdd(ring, line) {
-    const at = ring.lines.findIndex((other) => other.messageId === line.messageId);
-    if (at >= 0) {
-      if (revisionOf(ring.lines[at]) > revisionOf(line)) return;
-      ring.lines.splice(at, 1);
-    }
-    ring.lines.push(line);
-    ring.lines.sort(compareLines);
-    if (ring.lines.length > RING_SIZE) ring.lines.splice(0, ring.lines.length - RING_SIZE);
-  }
-
-  function remember(idKey, revision) {
+  function remember(idKey: string, revision: number) {
     latest.delete(idKey);
     latest.set(idKey, revision);
-    if (latest.size > LATEST_MAX) latest.delete(latest.keys().next().value);
+    if (latest.size > LATEST_MAX) {
+      const oldest = latest.keys().next().value;
+      if (oldest !== undefined) latest.delete(oldest);
+    }
   }
 
-  function enqueue(guildId, lines, { privateUserId = null } = {}) {
+  function enqueue(
+    guildId: string,
+    lines: Array<RecordLine>,
+    { privateUserId = null }: { privateUserId?: string | null } = {}
+  ) {
     if (closed || !on()) return 0;
     const { batch, queueMax } = settings();
     const layer = layerOf(privateUserId);
@@ -202,7 +265,7 @@ export function createEmbedder({
       const line = { ...raw, occurredAt: isoOf(raw.occurredAt) ?? new Date(now()).toISOString() };
       const revision = revisionOf(line);
       const idKey = `${guildId}|${layer ?? ''}|${line.messageId}`;
-      if (latest.get(idKey) >= revision) continue;
+      if ((latest.get(idKey) ?? 0) >= revision) continue;
       remember(idKey, revision);
       queue = queue.filter((job) => job.idKey !== idKey);
       const key = ringKey(String(guildId), layer, channelOf(line));
@@ -220,17 +283,17 @@ export function createEmbedder({
   }
 
   /** A full batch starts a flush in the background. */
-  function kick(batch) {
+  function kick(batch: Untyped) {
     if (queue.length >= batch && !flushing) {
-      flush().catch((error) =>
+      flush().catch((error: Untyped) =>
         log.warn('embedder: flush failed', { code: error?.code ?? null, name: error?.name ?? null })
       );
     }
   }
 
   /** Fill the rings of `jobs` not yet filled, from the record, one pass per guild and layer. */
-  async function warm(jobs) {
-    const groups = new Map();
+  async function warm(jobs: Array<Job>) {
+    const groups = new Map<string, WarmGroup>();
     for (const job of jobs) {
       // A catch-up job carries its context from the pass's own read.
       if (job.context) continue;
@@ -254,22 +317,22 @@ export function createEmbedder({
       group.to = Math.max(group.to, at);
     }
     for (const group of groups.values()) {
-      const channelIds = [...group.channels].filter(Boolean);
+      const channelIds = [...group.channels].filter((id): id is string => Boolean(id));
       try {
-        if (channelIds.length > 0 && Number.isFinite(group.from)) {
+        if (channelIds.length > 0 && isFiniteNumber(group.from)) {
           const query = {
             from: new Date(group.from - WARM_MS).toISOString(),
             to: new Date(group.to).toISOString(),
             channelIds,
             privateUserId: group.privateUserId,
           };
-          for await (const line of record.iterate(group.guildId, query)) {
+          for await (const line of asRecordLines(record.iterate(group.guildId, query))) {
             if (!embeddableLine(line)) continue;
             ringAdd(ringOf(ringKey(group.guildId, group.privateUserId, channelOf(line))), line);
           }
         }
       } catch (error) {
-        log.warn('embedder: warm failed', { guildId: group.guildId, code: error?.code ?? null });
+        log.warn('embedder: warm failed', { guildId: group.guildId, code: propOf(error, 'code') ?? null });
       }
       for (const channelId of group.channels)
         ringOf(ringKey(group.guildId, group.privateUserId, channelId)).warmed = true;
@@ -277,12 +340,12 @@ export function createEmbedder({
   }
 
   /** Whether a job is still to be appended: no newer revision of its message was queued. */
-  function stillWanted(job) {
+  function stillWanted(job: Job) {
     return latest.get(job.idKey) === job.revision;
   }
 
   /** The chunk of a job: its line with its context lines. */
-  function chunkOf(job) {
+  function chunkOf(job: Job) {
     const context = contextFor(job.line, job.context ?? ringOf(job.ringKey).lines, RING_SIZE).slice(
       -CHUNK_CONTEXT_LINES
     );
@@ -335,7 +398,7 @@ export function createEmbedder({
       log.warn('embedder: embed failed', {
         lines: jobs.length,
         reason: railReason(error, 'embed-error'),
-        status: error?.statusCode ?? null,
+        status: propOf(error, 'statusCode') ?? null,
         left: queue.length,
       });
       return { embedded: 0, dropped: gone.size, left: queue.length };
@@ -371,7 +434,7 @@ export function createEmbedder({
         log.warn('embedder: append failed', {
           guildId: group.guildId,
           rows: group.rows.length,
-          code: error?.code ?? null,
+          code: propOf(error, 'code') ?? null,
         });
       }
     }
@@ -392,7 +455,7 @@ export function createEmbedder({
   // ---- the catch-up ---------------------------------------------------------------------------
 
   /** The members with a private record in the guild. */
-  function privateLayers(guildId) {
+  function privateLayers(guildId: string) {
     const db = seam.db();
     return seam.run(() => recordLayers(db, guildId));
   }
@@ -402,10 +465,10 @@ export function createEmbedder({
    * counted, and the missing ones, oldest first per layer, with their
    * channel's earlier lines when `withContext` (read a day further back for that).
    */
-  async function survey(guildId, hours, { withContext = false } = {}) {
+  async function survey(guildId: string, hours: Untyped, { withContext = false } = {}) {
     const to = now();
     const from = to - hours * HOUR_MS;
-    const out = { messages: 0, indexed: 0, missing: [] };
+    const out: Survey = { messages: 0, indexed: 0, missing: [] };
     for (const layer of [null, ...privateLayers(guildId)]) {
       const raw = [];
       const query = {
@@ -413,10 +476,10 @@ export function createEmbedder({
         to: new Date(to).toISOString(),
         privateUserId: layer,
       };
-      for await (const line of record.iterate(guildId, query)) raw.push(line);
+      for await (const line of asRecordLines(record.iterate(guildId, query))) raw.push(line);
       const lines = newestRevisions(raw);
       const channels = new Map();
-      const months = new Map();
+      const months = new Map<string, Set<string>>();
       for (const line of lines) {
         const key = channelOf(line) ?? '';
         if (!channels.has(key)) channels.set(key, []);
@@ -424,9 +487,10 @@ export function createEmbedder({
         channelLines.push(line);
         if (!(Date.parse(line.occurredAt) >= from)) continue;
         out.messages += 1;
-        const month = isoOf(line.occurredAt).slice(0, 7);
-        if (!months.has(month)) months.set(month, await vectors.has(guildId, month, { privateUserId: layer }));
-        if (months.get(month).has(chunkKey({ kind: 'record', id: line.messageId, revision: revisionOf(line) }))) {
+        const month = (isoOf(line.occurredAt) ?? '').slice(0, 7);
+        const indexedKeys = months.get(month) ?? (await vectors.has(guildId, month, { privateUserId: layer }));
+        months.set(month, indexedKeys);
+        if (indexedKeys.has(chunkKey({ kind: 'record', id: line.messageId, revision: revisionOf(line) }))) {
           out.indexed += 1;
           continue;
         }
@@ -440,7 +504,7 @@ export function createEmbedder({
     return out;
   }
 
-  async function coverage(guildId, { hours = null } = {}) {
+  async function coverage(guildId: string, { hours = null }: { hours?: number | null } = {}) {
     const window = positiveNumber(hours, settings().catchUpHours);
     const found = await survey(String(guildId), window);
     return {
@@ -451,15 +515,7 @@ export function createEmbedder({
     };
   }
 
-  /** The earliest `occurredAt` among missing messages, or null. */
-  function oldestOf(missing) {
-    let oldest = null;
-    for (const { line } of missing)
-      if (oldest === null || Date.parse(line.occurredAt) < Date.parse(oldest)) oldest = isoOf(line.occurredAt);
-    return oldest;
-  }
-
-  async function runCatchUp(guildId) {
+  async function runCatchUp(guildId: string) {
     if (closed || !on() || isPaused() || typeof vectors?.has !== 'function') return null;
     lastCatchUpAt = now();
     wasOn = true;
@@ -471,7 +527,7 @@ export function createEmbedder({
       found = await survey(guildId, catchUpHours, { withContext: true });
     } catch (error) {
       appendedDuringPass = null;
-      log.warn('embedder: catch-up failed', { guildId, code: error?.code ?? null });
+      log.warn('embedder: catch-up failed', { guildId, code: propOf(error, 'code') ?? null });
       return null;
     }
     const appendedMeanwhile = appendedDuringPass;
@@ -482,7 +538,7 @@ export function createEmbedder({
     let room = Math.max(0, queueMax - queue.length);
     const counts = { queued: 0, waiting: 0, left: 0, lost: 0 };
     let indexed = found.indexed;
-    const missing = [];
+    const missing: Array<Untyped> = [];
     for (const item of found.missing) {
       const revision = revisionOf(item.line);
       const idKey = `${guildId}|${item.layer ?? ''}|${item.line.messageId}`;
@@ -493,7 +549,7 @@ export function createEmbedder({
       }
       missing.push(item);
       const known = latest.get(idKey);
-      if (queuedNow.has(key) || inFlight.has(key) || known > revision) {
+      if (queuedNow.has(key) || inFlight.has(key) || (known ?? 0) > revision) {
         // Already on its way (or a newer revision is).
         counts.waiting += 1;
         continue;
@@ -534,7 +590,7 @@ export function createEmbedder({
     return pass;
   }
 
-  function catchUp(guildId) {
+  function catchUp(guildId: string) {
     if (!catching) {
       catching = runCatchUp(String(guildId)).finally(() => {
         catching = null;
@@ -544,14 +600,14 @@ export function createEmbedder({
   }
 
   /** Whether the tick should run a catch-up pass now (the switches read by the caller). */
-  function catchUpDue(isOn) {
+  function catchUpDue(isOn: Untyped) {
     if (!isOn || closed || catching || isPaused()) return false;
     if (!wasOn || lastCatchUpAt === null) return true;
     if (now() - lastCatchUpAt >= settings().catchUpEveryMinutes * MINUTE_MS) return true;
     return behind && queue.length === 0 && !flushing;
   }
 
-  async function indexSummary(guildId) {
+  async function indexSummary(guildId: string) {
     const id = String(guildId);
     let rows = 0;
     if (typeof vectors?.stats === 'function') {
@@ -567,7 +623,7 @@ export function createEmbedder({
     wasOn = isOn;
     const flushDue = () => now() - lastFlushAt >= settings().flushSeconds * 1000;
     if (pass) {
-      const logged = pass.catch((error) =>
+      const logged = pass.catch((error: Untyped) =>
         log.warn('embedder: catch-up failed', { guildId: String(guildId), code: error?.code ?? null })
       );
       return logged.then(() => (flushDue() ? flush() : null));
@@ -579,12 +635,12 @@ export function createEmbedder({
   async function close({ timeoutMs = CLOSE_TIMEOUT_MS } = {}) {
     if (closed) return null;
     closed = true;
-    let timer = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     // Not unref'd: the wait itself holds the process until the flush or the timeout (cleared below).
     const timeout = new Promise((resolve) => {
       timer = setTimeout(() => resolve(null), timeoutMs);
     });
-    const flushed = flush().catch((error) => {
+    const flushed = flush().catch((error: Untyped) => {
       log.warn('embedder: flush failed', { code: error?.code ?? null, name: error?.name ?? null });
       return null;
     });

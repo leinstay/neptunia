@@ -25,15 +25,18 @@ import {
 } from './interests.ts';
 import { clampText, stripUrls } from './clamp.ts';
 import { HOUR_MS } from '../time.js';
+import { isFiniteNumber, isIntegerNumber } from './types.ts';
+import type { RankedItem } from './interests.ts';
+import type { Untyped } from './types.ts';
 
-function normalizedNextId(startId) {
-  return Number.isInteger(startId) && startId >= 1 ? startId : 1;
+function normalizedNextId(startId: Untyped) {
+  return isIntegerNumber(startId) && startId >= 1 ? startId : 1;
 }
 
 /** An item's optional `from` (who taught it -- guild `learned` items, see
  * src/memory/store.ts#applyLearnedOps): kept only as a non-empty string,
  * trimmed; anything else -> `undefined`, so the key is never stored. */
-function teacherOf(from) {
+function teacherOf(from: Untyped) {
   if (typeof from !== 'string') return undefined;
   const trimmed = from.trim();
   return trimmed || undefined;
@@ -71,19 +74,15 @@ function teacherOf(from) {
  *   item its `itemId` when it needs one. A new item gets `recordedAt`, the ISO
  *   time of `now` (else `seenAt`).
  *
- * @param {object[]|undefined} existing  Stored details.
- * @param {{ add?: unknown, seen?: unknown, remove?: unknown }} ops  Untrusted, model-extracted.
- * @param {{ maxDetails?: number, maxDetailsStored?: number, fieldChars?: number, confirmGapHours?: number,
- *   seenAt?: number, nextId?: number, halfLifeDays?: number, clampTolerance?: number,
- *   mintId?: () => string, now?: number, validity?: boolean }} [opts]
+ * @param existing  Stored details.
+ * @param ops  Untrusted, model-extracted.
  *   `validity: false` (the guild's lessons) stamps no `recordedAt` and ignores the validity fields.
  *   `text` is free prose: its links go (src/memory/clamp.ts#stripUrls), then it is clamped
  *   tolerantly (see src/memory/clamp.ts) with `clampTolerance`; a text left empty adds nothing.
- * @returns {{ items: object[], nextId: number, dropped: object[], closed: object[] }}
  */
 export function applyDetailOps(
-  existing,
-  ops,
+  existing: Array<RankedItem> | undefined,
+  ops: { add?: unknown; seen?: unknown; remove?: unknown },
   {
     maxDetails,
     maxDetailsStored,
@@ -96,19 +95,31 @@ export function applyDetailOps(
     mintId,
     now,
     validity: withValidity = true,
+  }: {
+    maxDetails?: number;
+    maxDetailsStored?: number;
+    fieldChars?: number;
+    confirmGapHours?: number;
+    seenAt?: number;
+    nextId?: number;
+    halfLifeDays?: number;
+    clampTolerance?: number;
+    mintId?: () => string;
+    now?: number;
+    validity?: boolean;
   } = {}
-) {
+): { items: Array<object>; nextId: number; dropped: Array<object>; closed: Array<object> } {
   const items = Array.isArray(existing) ? existing.map((item) => ({ ...item })) : [];
-  const removed = [];
-  const validity = [];
+  const removed: Array<Untyped> = [];
+  const validity: Array<{ item: Untyped; supersedes?: unknown; validFrom?: unknown; conflict?: unknown }> = [];
   const priorLastSeen = items.map((item) => item.lastSeen ?? null);
   const seenAtIso = new Date(seenAt).toISOString();
-  const recordedAt = new Date(Number.isFinite(now) ? now : seenAt).toISOString();
-  const gapMs = (Number.isFinite(confirmGapHours) ? confirmGapHours : DEFAULT_CONFIRM_GAP_HOURS) * HOUR_MS;
+  const recordedAt = new Date(isFiniteNumber(now) ? now : seenAt).toISOString();
+  const gapMs = (isFiniteNumber(confirmGapHours) ? confirmGapHours : DEFAULT_CONFIRM_GAP_HOURS) * HOUR_MS;
   const bumped = new Set();
   let id = normalizedNextId(nextId);
 
-  function findIndex(identifier) {
+  function findIndex(identifier: Untyped) {
     if (typeof identifier === 'number') return items.findIndex((item) => item.id === identifier);
     if (typeof identifier === 'string') {
       const norm = normalizeTopic(identifier);
@@ -117,7 +128,7 @@ export function applyDetailOps(
     return -1;
   }
 
-  function sightExisting(index) {
+  function sightExisting(index: number) {
     const item = items[index];
     item.firstSeen = minIso(item.firstSeen, seenAtIso);
     item.lastSeen = maxIso(item.lastSeen, seenAtIso);
@@ -127,7 +138,7 @@ export function applyDetailOps(
     }
   }
 
-  function add(raw) {
+  function add(raw: Untyped) {
     const isObj = raw && typeof raw === 'object' && !Array.isArray(raw);
     if (!isObj && typeof raw !== 'string') return;
     const value = isObj ? raw.text : raw;
@@ -139,7 +150,7 @@ export function applyDetailOps(
     const from = isObj ? teacherOf(raw.from) : undefined;
     const index = findIndex(text);
     // supersedes / validFrom / conflict ride on an object op; applied once every op is merged.
-    const wantValidity = (item) => {
+    const wantValidity = (item: Untyped) => {
       if (
         withValidity &&
         isObj &&
@@ -149,7 +160,13 @@ export function applyDetailOps(
       }
     };
     if (index === -1) {
-      const item = { id, text, weight: sure ? 1 : 0, firstSeen: seenAtIso, lastSeen: seenAtIso };
+      const item: RankedItem = {
+        id,
+        text,
+        weight: sure ? 1 : 0,
+        firstSeen: seenAtIso,
+        lastSeen: seenAtIso,
+      };
       if (withValidity) item.recordedAt = recordedAt;
       if (from) item.from = from;
       items.push(item);
@@ -162,14 +179,14 @@ export function applyDetailOps(
     wantValidity(items[index]);
   }
 
-  function seen(raw) {
+  function seen(raw: Untyped) {
     if (typeof raw !== 'number' && typeof raw !== 'string') return;
     const index = findIndex(raw);
     if (index === -1) return;
     sightExisting(index);
   }
 
-  function remove(raw) {
+  function remove(raw: Untyped) {
     if (typeof raw !== 'number' && typeof raw !== 'string') return;
     const index = findIndex(raw);
     if (index !== -1) removed.push(...items.splice(index, 1));
@@ -204,11 +221,8 @@ export function applyDetailOps(
  * likewise (kept, never added), and the validity fields
  * (src/memory/interests.ts#copyValidity); anything else ->
  * `{ items: [], nextId: startId }`. Never throws on garbage.
- * @param {unknown} value
- * @param {number} [startId]
- * @returns {{ items: object[], nextId: number }}
  */
-export function normalizeDetails(value, startId = 1) {
+export function normalizeDetails(value: unknown, startId: number = 1): { items: Array<object>; nextId: number } {
   let id = normalizedNextId(startId);
   const items = [];
   if (Array.isArray(value)) {
@@ -216,12 +230,12 @@ export function normalizeDetails(value, startId = 1) {
       if (raw && typeof raw === 'object' && !Array.isArray(raw) && typeof raw.text === 'string') {
         const text = raw.text.trim();
         if (!text) continue;
-        const weight = Number.isInteger(raw.weight) ? raw.weight : 1;
+        const weight = isIntegerNumber(raw.weight) ? raw.weight : 1;
         const firstSeen = typeof raw.firstSeen === 'string' ? raw.firstSeen : null;
         const lastSeen = typeof raw.lastSeen === 'string' ? raw.lastSeen : null;
-        const itemId = Number.isInteger(raw.id) && raw.id >= 1 ? raw.id : id;
+        const itemId = isIntegerNumber(raw.id) && raw.id >= 1 ? raw.id : id;
         if (itemId >= id) id = itemId + 1;
-        const item = { id: itemId, text, weight, firstSeen, lastSeen };
+        const item: RankedItem = { id: itemId, text, weight, firstSeen, lastSeen };
         const from = teacherOf(raw.from);
         if (from) item.from = from;
         if (typeof raw.itemId === 'string' && raw.itemId) item.itemId = raw.itemId;

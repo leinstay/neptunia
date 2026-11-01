@@ -8,6 +8,7 @@
 // storage cap. See docs/prompt-contract.md, "Aliases".
 
 import { applyRankedOps, effectiveStorageCap, normalizeTopic } from './interests.ts';
+import type { RankedList, RankedItem } from './interests.ts';
 
 const MAX_ALIAS_CHARS = 40;
 
@@ -24,21 +25,35 @@ const MAX_ALIAS_CHARS = 40;
  * Every alias is clamped to 40 characters. Eviction keeps the top-ranked
  * items over `max(maxAliasesStored, maxAliases)`.
  *
- * @param {object[]|undefined} existing     Stored aliases.
- * @param {{ add?: unknown, remove?: unknown }} ops  Untrusted, model-extracted.
- * @param {string[]} displayNames           The member's own stored display names.
- * @param {{ maxAliases?: number, maxAliasesStored?: number, confirmGapHours?: number,
- *   seenAt?: number, halfLifeDays?: number, mintId?: () => string, now?: number }} [opts]
- * @returns {object[]}  With the non-enumerable `dropped` of src/memory/interests.ts#applyRankedOps:
+ * @param existing     Stored aliases.
+ * @param ops  Untrusted, model-extracted.
+ * @param displayNames           The member's own stored display names.
+ * @returns With the non-enumerable `dropped` of src/memory/interests.ts#applyRankedOps:
  *   the stored aliases that left (removed or evicted), as stored; and `closed`: the aliases a
  *   `supersedes` closed.
  */
 export function applyAliasOps(
-  existing,
-  ops,
-  displayNames,
-  { maxAliases, maxAliasesStored, confirmGapHours, seenAt = Date.now(), halfLifeDays, mintId, now } = {}
-) {
+  existing: Array<RankedItem> | undefined,
+  ops: { add?: unknown; remove?: unknown },
+  displayNames: Array<string>,
+  {
+    maxAliases,
+    maxAliasesStored,
+    confirmGapHours,
+    seenAt = Date.now(),
+    halfLifeDays,
+    mintId,
+    now,
+  }: {
+    maxAliases?: number;
+    maxAliasesStored?: number;
+    confirmGapHours?: number;
+    seenAt?: number;
+    halfLifeDays?: number;
+    mintId?: () => string;
+    now?: number;
+  } = {}
+): RankedList {
   const ownNames = new Set((Array.isArray(displayNames) ? displayNames : []).map((name) => normalizeTopic(name)));
   const filtered = ops && typeof ops === 'object' && !Array.isArray(ops) ? { ...ops } : {};
   if (Array.isArray(filtered.add)) {

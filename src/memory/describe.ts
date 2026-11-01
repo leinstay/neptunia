@@ -114,7 +114,7 @@
 // a video); a refusal by the daily cap only serves the
 // old text. A stale watched GIF is never replaced by a one-frame caption.
 
-import { isPlainObject } from '../config.js';
+import { isRecord, propOf, isFiniteNumber } from './types.ts';
 import { watchedLengths } from '../media/classify.ts';
 import { createImageFetcher, VISION_MAX_BYTES } from '../media/fetch-image.ts';
 import { createVideoFetcher } from '../media/fetch-video.ts';
@@ -134,6 +134,8 @@ import { log } from '../log.js';
 import { MINUTE_MS, utcDay } from '../time.js';
 import { MEDIA_CACHE_ENTRIES, hashedKey, touchKey, trimCache } from '../web/cache.ts';
 import { normalizeQuery } from '../web/lookup.ts';
+import type { StoredRecord, Untyped } from './types.ts';
+import type { StoreView } from './store.ts';
 
 const MISS_TTL_MS = 60 * MINUTE_MS;
 // Only when media.video.errorRetryMinutes is missing or invalid (config.json always has it).
@@ -163,7 +165,7 @@ const VIDEO_FIXED = Object.freeze({
 });
 
 /** The live `media.video` section with the fixed fields (VIDEO_FIXED) over it. */
-function videoSettingsOf(config) {
+function videoSettingsOf(config: Untyped) {
   return { ...(config?.media?.video ?? {}), ...VIDEO_FIXED };
 }
 const REWATCH_TTL_MS = 60 * MINUTE_MS;
@@ -171,13 +173,29 @@ const PERMANENT_VIDEO_MISSES = new Set(['length', 'size']);
 /** What cachedPicture returns for a picture whose recent failure is still remembered. */
 const FRESH_MISS = Symbol('fresh-miss');
 
+/** The model a second look is asked of, when it is not the role's own. */
+type Ask = { model?: string | null };
+
+/** What a second look answers: the question as asked and the text, or null when there is nothing to look at. */
+type Looked = Promise<{ question: string; text: string } | null>;
+
+/** A picture, GIF or video the describer is asked about: its item id, its kind and where it is fetched from. */
+export type MediaItem = {
+  [field: string]: Untyped;
+  itemId: string;
+  kind: string;
+  url: string;
+  previewUrl?: string | null;
+  source?: string | null;
+};
+
 /**
  * The file a GIF watch downloads: a gif embed's `animationUrl` (the mp4 of
  * a tenor/giphy embed, or a `.gif` link, see src/media/classify.ts#classifyEmbed),
  * else an attached gif's own file. Null for anything else -- a gif embed
  * with neither keeps the one-frame description.
  */
-function gifAnimationSource(item) {
+function gifAnimationSource(item: MediaItem) {
   if (item?.kind !== 'gif') return null;
   if (typeof item.animationUrl === 'string' && item.animationUrl) return item.animationUrl;
   if (item.source === 'attachment' && typeof item.url === 'string' && item.url) return item.url;
@@ -185,7 +203,7 @@ function gifAnimationSource(item) {
 }
 
 /** Whether `item` is one collectVideos candidate (an attached video or a video-site link). */
-function isVideoCandidate(item) {
+function isVideoCandidate(item: MediaItem) {
   return (
     Boolean(item) &&
     (item.source === 'attachment' || item.source === 'link') &&
@@ -195,7 +213,7 @@ function isVideoCandidate(item) {
 }
 
 /** Collapse every run of whitespace to one space, then cap at `maxChars` on a word boundary. */
-function cleanVideoText(raw, maxChars) {
+function cleanVideoText(raw: Untyped, maxChars: Untyped) {
   return clampText(oneLine(raw), maxChars, { tolerance: 1 });
 }
 
@@ -215,7 +233,7 @@ const QUOTE_PAIRS = [
 ];
 
 /** A field's value on one line, without one pair of surrounding quotes; '' for "none". */
-function gifFieldValue(raw) {
+function gifFieldValue(raw: Untyped) {
   let value = oneLine(raw);
   for (const [open, close] of QUOTE_PAIRS) {
     if (value.length >= 2 && value.startsWith(open) && value.endsWith(close)) {
@@ -241,14 +259,15 @@ function gifFieldValue(raw) {
  * on-screen text, when the answer gives no action -- on one line under
  * `descriptionChars` (clampText, a hard limit). Null when every field is
  * empty. Pure.
- * @param {unknown} raw  The model's answer.
- * @param {{ descriptionChars: number }} caps
- * @returns {{ text: string, reaction: string, action: string, screen: string }|null}
+ * @param raw  The model's answer.
  */
-export function parseGifDescription(raw, { descriptionChars }) {
+export function parseGifDescription(
+  raw: unknown,
+  { descriptionChars }: { descriptionChars: number }
+): { text: string; reaction: string; action: string; screen: string } | null {
   const source = String(raw ?? '');
-  const fields = { reaction: [], action: [], text: [] };
-  let current = null;
+  const fields: Record<string, Array<string>> = { reaction: [], action: [], text: [] };
+  let current: string | null = null;
   let labelled = false;
   for (const line of source.split(/\r?\n/)) {
     const match = GIF_FIELD_LINE.exec(line);
@@ -263,7 +282,7 @@ export function parseGifDescription(raw, { descriptionChars }) {
   const reactionWhole = labelled ? gifFieldValue(fields.reaction.join(' ')) : '';
   const actionWhole = labelled ? gifFieldValue(fields.action.join(' ')) : oneLine(source);
   const screenWhole = labelled ? gifFieldValue(fields.text.join(' ')) : '';
-  const bound = (value) => clampText(value, descriptionChars, { tolerance: 1 });
+  const bound = (value: Untyped) => clampText(value, descriptionChars, { tolerance: 1 });
   const text = bound(actionWhole || reactionWhole || screenWhole);
   if (!text) return null;
   return { text, reaction: bound(reactionWhole), action: bound(actionWhole), screen: bound(screenWhole) };
@@ -275,7 +294,7 @@ export function parseGifDescription(raw, { descriptionChars }) {
  * of the question lower-cased and whitespace-collapsed (the search cache's
  * normalisation).
  */
-function questionKey(itemId, question, prefix = 'video') {
+function questionKey(itemId: string, question: Untyped, prefix = 'video') {
   return hashedKey(`${prefix}:${itemId}:q`, normalizeQuery(question));
 }
 
@@ -284,19 +303,19 @@ function questionKey(itemId, question, prefix = 'video') {
  * for its platform (a picture at most `media.imageSize` long, a GIF as one still frame, a video as a poster frame),
  * else the item's own `url` exactly as it came (a sticker or emoji address is already sized by its own builder).
  */
-function pictureImageUrl(item) {
+function pictureImageUrl(item: MediaItem) {
   return item.previewUrl ?? item.url;
 }
 
 /** ≤200 chars, with any query string stripped -- an error message must never leak a signed URL. */
-function safeDetail(message) {
+function safeDetail(message: Untyped) {
   return String(message ?? '')
     .replace(/\?[^\s'")]*/g, '')
     .slice(0, 200);
 }
 
 /** The log/outcome code of a failed request: a rail (`token-limit`, `daily-cap`) or `llm-error`. */
-function requestFailureReason(err) {
+function requestFailureReason(err: Untyped) {
   return railReason(err, 'llm-error');
 }
 
@@ -304,11 +323,12 @@ function requestFailureReason(err) {
  * Whether `item` is a link that may go out by its public URL: a pinned
  * provider object and a `directUrlSites` site.
  */
-function isPinnableLink(item, videoCfg) {
+function isPinnableLink(item: Partial<MediaItem>, videoCfg: Untyped) {
+  // An item whose source is a link always carries its url.
   return (
     item?.source === 'link' &&
-    isPlainObject(videoCfg.provider) &&
-    isDirectUrlSite(item.url, videoCfg.directUrlSites ?? [])
+    isRecord(videoCfg.provider) &&
+    isDirectUrlSite(item.url as string, videoCfg.directUrlSites ?? [])
   );
 }
 
@@ -324,7 +344,7 @@ function isPinnableLink(item, videoCfg) {
  * allows (60 000 / 120 = 500 s by default): a longer video takes the clip
  * route instead of being refused by the rail on every retry.
  */
-function lengthCap(item, videoCfg, llmCfg) {
+function lengthCap(item: Partial<MediaItem>, videoCfg: Untyped, llmCfg: Untyped) {
   if (!isPinnableLink(item, videoCfg)) return videoCfg.maxSeconds;
   const cap = videoCfg.directUrlMaxSeconds ?? videoCfg.maxSeconds;
   if (urlProcessingMode(videoCfg) === 'agentic') return cap;
@@ -339,8 +359,8 @@ function lengthCap(item, videoCfg, llmCfg) {
  * `llm.maxRequestTokens`; `tokensPerSecond`, else 300). Null when no cap is
  * known.
  */
-function staticRequestSeconds(videoCfg, llmCfg) {
-  const isPositive = (value) => typeof value === 'number' && Number.isFinite(value) && value > 0;
+function staticRequestSeconds(videoCfg: Untyped, llmCfg: Untyped) {
+  const isPositive = (value: Untyped) => typeof value === 'number' && isFiniteNumber(value) && value > 0;
   const maxRequestTokens = isPositive(videoCfg.maxRequestTokens) ? videoCfg.maxRequestTokens : llmCfg?.maxRequestTokens;
   if (!isPositive(maxRequestTokens)) return null;
   const tokensPerSecond = isPositive(videoCfg.tokensPerSecond)
@@ -350,7 +370,7 @@ function staticRequestSeconds(videoCfg, llmCfg) {
 }
 
 /** The processing mode a public URL goes out with (see videoPart), or null when the field is omitted. */
-function urlProcessingMode(videoCfg) {
+function urlProcessingMode(videoCfg: Untyped) {
   const mode = videoCfg.urlProcessing;
   return typeof mode === 'string' && mode ? mode : null;
 }
@@ -366,13 +386,16 @@ function urlProcessingMode(videoCfg) {
  * (a collectVideos candidate) only decides the cap: a pinnable direct-URL link has its own; without
  * one (a buffered message keeps no URL) the cap is VIDEO_FIXED's `maxSeconds`. Pure. Used by the
  * describer's cache lookup.
- * @param {object|undefined} entry
- * @param {object} config  Live config (`media.video`, `llm`).
- * @param {object} [item]
- * @returns {{ state: 'watched', text: string, watchedSeconds?: number, totalSeconds?: number }
- *   | { state: 'limit', reason: string } | null}
+ * @param config  Live config (`media.video`, `llm`).
  */
-export function videoStateFromCache(entry, config, item = {}) {
+export function videoStateFromCache(
+  entry: StoredRecord,
+  config: StoredRecord,
+  item: Partial<MediaItem> = {}
+):
+  | { state: 'watched'; text: string; watchedSeconds?: number; totalSeconds?: number }
+  | { state: 'limit'; reason: string }
+  | null {
   if (!entry) return null;
   // An entry from before watchedSeconds / totalSeconds were stored renders as watched whole.
   if (entry.watched) return { state: 'watched', text: entry.text, ...watchedLengths(entry) };
@@ -388,43 +411,71 @@ export function videoStateFromCache(entry, config, item = {}) {
 /**
  * `media.recacheBefore` as epoch ms: an ISO date-time string, else null (off) -- null, a
  * missing key, a non-string or an unparsable value alike. Pure.
- * @param {object} config  The live config.
- * @returns {number|null}
+ * @param config  The live config.
  */
-export function recacheCutoffMs(config) {
+export function recacheCutoffMs(config: StoredRecord): number | null {
   const value = config?.media?.recacheBefore;
   if (typeof value !== 'string' || value === '') return null;
   const ms = Date.parse(value);
-  return Number.isFinite(ms) ? ms : null;
+  return isFiniteNumber(ms) ? ms : null;
 }
 
 /**
  * Whether a cached description is stale under the cutoff `cutoffMs` (recacheCutoffMs): its
  * `describedAt` is missing or earlier. With no cutoff nothing is. Pure.
- * @param {object|undefined} entry  A media cache entry.
- * @param {number|null} cutoffMs
- * @returns {boolean}
+ * @param entry  A media cache entry.
  */
-export function isStaleDescription(entry, cutoffMs) {
-  if (typeof cutoffMs !== 'number' || !Number.isFinite(cutoffMs)) return false;
+export function isStaleDescription(entry: StoredRecord, cutoffMs: number | null): boolean {
+  if (typeof cutoffMs !== 'number' || !isFiniteNumber(cutoffMs)) return false;
   const at = entry?.describedAt;
-  return !(typeof at === 'number' && Number.isFinite(at) && at >= cutoffMs);
+  return !(typeof at === 'number' && isFiniteNumber(at) && at >= cutoffMs);
+}
+
+type DescribeManyOptions = { maxNew?: number; concurrency?: number; onCharge?: (r: Untyped) => void };
+
+type DescriberDeps = {
+  hot: { readonly config: Untyped; readonly prompts: Untyped };
+  store: Pick<StoreView, 'getMediaCache' | 'markMediaCacheDirty' | 'state'>;
+  llm: Untyped;
+  now?: () => number;
+  imageFetcher?: Untyped;
+  videoFetcher?: Untyped;
+  state?: { data: Untyped; markDirty: () => void };
+  youtubeApiKey?: string | null;
+};
+
+/**
+ * The `video_url` part of a video request. A public URL (a pinned
+ * direct-URL request) carries OpenRouter's processing mode
+ * (`media.video.urlProcessing`, a missing key = 'agentic', a non-string or
+ * empty value omits it) -- without it the provider samples a single frame;
+ * a data: URL part never does.
+ */
+function videoPart(videoCfg: Untyped, media: Untyped) {
+  const videoUrl: Record<string, Untyped> = { url: media.url };
+  if (media.pinned) {
+    const mode = urlProcessingMode(videoCfg);
+    if (mode) videoUrl.processing = mode;
+  }
+  return { type: 'video_url', video_url: videoUrl };
 }
 
 /**
- * @param {object} deps
- * @param {object} deps.hot     Live config + prompts; read at the moment of use.
- * @param {object} deps.store
- * @param {object} deps.llm     From createLlm().
- * @param {() => number} [deps.now]
- * @param {object} [deps.imageFetcher]  From createImageFetcher() (src/media/fetch-image.ts).
- * @param {object} [deps.videoFetcher]  From createVideoFetcher() (src/media/fetch-video.ts).
- * @param {{ data: object, markDirty: () => void }} [deps.state]  The persistent state (store.state) holding the
- *   daily video and re-watch counters; without it the counters live in memory only.
- * @param {string|null} [deps.youtubeApiKey]  Optional YouTube Data API key (YOUTUBE_API_KEY), handed to
- *   probeYoutube only; never logged.
+ * The per-second token estimate of a public URL in agentic processing
+ * (`media.video.directUrlTokensPerSecond`), or undefined for every other
+ * request -- a data: URL clip, a public URL in another or no processing
+ * mode, a missing or invalid setting -- which then keeps the client's
+ * `media.video.tokensPerSecond`. Agentic processing does not bill the video
+ * as prompt tokens; its exploration shows up as a few completion tokens per
+ * second of video.
  */
-export function createDescriber({
+function videoTokensPerSecond(videoCfg: Untyped, media: Untyped) {
+  if (!media.pinned || urlProcessingMode(videoCfg) !== 'agentic') return undefined;
+  const value = videoCfg.directUrlTokensPerSecond;
+  return typeof value === 'number' && isFiniteNumber(value) && value > 0 ? value : undefined;
+}
+
+function buildDescriber({
   hot,
   store,
   llm,
@@ -432,7 +483,7 @@ export function createDescriber({
   imageFetcher = createImageFetcher(),
   videoFetcher = createVideoFetcher(),
   youtubeApiKey = null,
-}) {
+}: DescriberDeps) {
   /** Today's UTC date as `YYYY-MM-DD` from the injected clock: the daily counters and the prompts' `{{today}}`. */
   function todayDate() {
     return utcDay(now());
@@ -455,9 +506,8 @@ export function createDescriber({
   /**
    * Why pictures are not described under the live prompts, or null when
    * they are: `no-prompt` (no describe prompt).
-   * @returns {'no-prompt'|null}
    */
-  function pictureBlocker() {
+  function pictureBlocker(): 'no-prompt' | null {
     if (!hot.prompts?.describe) return 'no-prompt';
     return null;
   }
@@ -467,14 +517,14 @@ export function createDescriber({
    * the live `media.recacheBefore` (isStaleDescription) and no failed attempt
    * (`refreshFailedAt`) younger than `ttlMs`.
    */
-  function dueForRecache(entry, ttlMs) {
+  function dueForRecache(entry: Untyped, ttlMs: Untyped) {
     if (!isStaleDescription(entry, recacheCutoffMs(hot.config))) return false;
     const failedAt = entry.refreshFailedAt;
-    return !(typeof failedAt === 'number' && Number.isFinite(failedAt) && now() - failedAt < ttlMs);
+    return !(typeof failedAt === 'number' && isFiniteNumber(failedAt) && now() - failedAt < ttlMs);
   }
 
   /** A cache hit: LRU-touched and stamped `usedAt`, the guild's cache marked dirty. */
-  function touchHit(guildId, cache, key, entry) {
+  function touchHit(guildId: string, cache: Untyped, key: string, entry: Untyped) {
     entry.usedAt = now();
     touchKey(cache, key, entry);
     store.markMediaCacheDirty(guildId);
@@ -487,7 +537,7 @@ export function createDescriber({
    * see dueForRecache), FRESH_MISS while a failure younger than an hour is
    * remembered, or null when it must be described.
    */
-  function cachedPicture(guildId, itemId) {
+  function cachedPicture(guildId: string, itemId: string) {
     const cache = store.getMediaCache(guildId);
     const cached = cache[itemId];
     if (!cached) return null;
@@ -506,7 +556,7 @@ export function createDescriber({
    * call waited on another caller's description of the same picture (its
    * request was not this call's).
    */
-  async function describeShared(guildId, item) {
+  async function describeShared(guildId: string, item: MediaItem) {
     if (!picturesOn()) return { result: null, joined: false };
     const hit = cachedPicture(guildId, item.itemId);
     if (hit === FRESH_MISS) return { result: null, joined: false };
@@ -529,12 +579,13 @@ export function createDescriber({
    * cached caption is the fallback: a failure keeps it (stamped
    * `refreshFailedAt`). Joins a description of the same picture already in
    * flight.
-   * @param {string} guildId
-   * @param {object} item  One collectPictures / collectEmojiItems item.
-   * @returns {Promise<{ state: 'done' } | { state: 'failed' } | { state: 'unavailable', reason: string }>}
+   * @param item  One collectPictures / collectEmojiItems item.
    *   `unavailable`: pictures are not described now (pictureBlocker) or `llm.maxRequestsPerDay` is spent.
    */
-  async function redescribe(guildId, item) {
+  async function redescribe(
+    guildId: string,
+    item: MediaItem
+  ): Promise<{ state: 'done' } | { state: 'failed' } | { state: 'unavailable'; reason: string }> {
     const blocker = pictureBlocker();
     if (blocker !== null) return { state: 'unavailable', reason: blocker };
     if (capSpent()) return { state: 'unavailable', reason: 'daily-cap' };
@@ -558,12 +609,13 @@ export function createDescriber({
    * even when several callers reach it at once (they share the result); with
    * `llm.maxRequestsPerDay` spent it is not downloaded and nothing is cached.
    * Every request counts against that cap.
-   * @param {string} guildId
-   * @param {{ itemId: string, kind: string, url: string }} item  See
+   * @param item  See
    *   src/media/classify.ts#collectPictures.
-   * @returns {Promise<{ text: string, usage: object|null, estimated: number, cached?: boolean }|null>}
    */
-  async function describe(guildId, item) {
+  async function describe(
+    guildId: string,
+    item: { itemId: string; kind: string; url: string }
+  ): Promise<{ text: string; usage: Untyped; estimated: number; cached?: boolean } | null> {
     return (await describeShared(guildId, item)).result;
   }
 
@@ -575,7 +627,7 @@ export function createDescriber({
    * the entry stamped `refreshFailedAt` unless the daily cap refused the
    * request) instead of a miss being cached.
    */
-  async function describeNow(guildId, item, previous = null) {
+  async function describeNow(guildId: string, item: MediaItem, previous: Untyped = null) {
     const promptText = hot.prompts?.describe;
     if (!promptText) return null;
     const mediaCfg = hot.config.media ?? {};
@@ -583,7 +635,7 @@ export function createDescriber({
     const cache = store.getMediaCache(guildId);
 
     // The old caption kept on a failure, its entry stamped when `mark` is set.
-    const keepPrevious = (mark) => {
+    const keepPrevious = (mark: Untyped) => {
       if (mark) {
         touchKey(cache, item.itemId, { ...previous, refreshFailedAt: now() });
         store.markMediaCacheDirty(guildId);
@@ -657,8 +709,8 @@ export function createDescriber({
       log.warn('describe: failed', {
         kind: item.kind,
         reason,
-        status: err.statusCode,
-        detail: safeDetail(err.message),
+        status: propOf(err, 'statusCode'),
+        detail: safeDetail(propOf(err, 'message')),
       });
       // A refusal by the daily cap says nothing about the picture: described after the reset.
       return fail(reason !== 'daily-cap');
@@ -678,7 +730,7 @@ export function createDescriber({
     // A GIF's one-frame caption is marked (`gif`) so the recache can find it
     // (src/memory/gif-recache.ts), and `watchFailed` when a watch was tried.
     const ts = now();
-    const entry = { text, ts, describedAt: ts, model };
+    const entry: Record<string, Untyped> = { text, ts, describedAt: ts, model };
     if (item.kind === 'gif') entry.gif = true;
     if (watchFailed) entry.watchFailed = entry.ts;
     touchKey(cache, item.itemId, entry);
@@ -690,9 +742,8 @@ export function createDescriber({
   /**
    * Why GIFs are not watched under the live config and prompts, or null when
    * they are: `off`, `video-off` or `no-prompt` (src/memory/gif-watch.ts#gifWatchBlocker).
-   * @returns {'off'|'video-off'|'no-prompt'|null}
    */
-  function gifWatchBlocker() {
+  function gifWatchBlocker(): 'off' | 'video-off' | 'no-prompt' | null {
     return gifWatchBlockerOf(hot.prompts);
   }
 
@@ -715,17 +766,20 @@ export function createDescriber({
    * spent before the watch, nothing is fetched). One
    * `describe: gif` log line, codes only.
    */
-  async function watchGifNow(guildId, item, source) {
+  async function watchGifNow(guildId: string, item: MediaItem, source: Untyped) {
     const videoCfg = videoSettingsOf(hot.config);
     const maxSeconds = GIF_MAX_SECONDS;
     const descriptionChars = DESCRIPTION_CHARS;
-    const report = (outcome, extra = {}) => {
+    const report = <const TOutcome extends { state: string; reason?: string }>(
+      outcome: TOutcome,
+      extra: Record<string, Untyped> = {}
+    ): TOutcome => {
       log.info('describe: gif', {
         state: outcome.state,
         reason: outcome.reason ?? null,
         seconds: extra.seconds ?? null,
         bytes: extra.bytes ?? null,
-        status: extra.status,
+        status: propOf(extra, 'status'),
         location: safeLocation(source),
       });
       return outcome;
@@ -752,7 +806,7 @@ export function createDescriber({
     } catch (err) {
       const reason = requestFailureReason(err);
       if (reason === 'daily-cap') return report({ state: 'unavailable', reason }, sizes);
-      return report({ state: 'failed', reason }, { ...sizes, status: err.statusCode });
+      return report({ state: 'failed', reason }, { ...sizes, status: propOf(err, 'statusCode') });
     }
 
     const fields = parseGifDescription(completion.text, { descriptionChars });
@@ -781,7 +835,13 @@ export function createDescriber({
    * its second look. `{ ok: true, clip: { url, seconds, pinned: false },
    * bytes }` (`seconds` never above `maxSeconds`) or `{ ok: false, reason }`.
    */
-  async function fetchGifClip(source, maxSeconds) {
+  async function fetchGifClip(
+    source: Untyped,
+    maxSeconds: number
+  ): Promise<
+    | { ok: false; reason: string }
+    | { ok: true; clip: { url: string; seconds: number; pinned: boolean }; bytes: number | null }
+  > {
     const videoCfg = videoSettingsOf(hot.config);
     const media = await videoFetcher.fetchGif(source, {
       maxSeconds,
@@ -800,9 +860,9 @@ export function createDescriber({
    * `{{seconds}}` and `{{today}}`, else `describe-video` exactly as a GIF got
    * it before (`{{maxChars}}`, `{{today}}`). Read at the moment of use.
    */
-  function gifSystemPrompt(maxChars, seconds) {
+  function gifSystemPrompt(maxChars: Untyped, seconds: Untyped) {
     const prompt = gifWatchPrompt(hot.prompts);
-    const values = { maxChars, today: todayDate() };
+    const values: Record<string, Untyped> = { maxChars, today: todayDate() };
     if (prompt?.name === 'describe-gif') values.seconds = seconds;
     return fillPromptTemplate(prompt?.text, values);
   }
@@ -813,7 +873,7 @@ export function createDescriber({
    * download (gifAnimationSource); otherwise the outcome, shared with any
    * caller already watching the same GIF of the same guild.
    */
-  function watchGifShared(guildId, item) {
+  function watchGifShared(guildId: string, item: MediaItem) {
     if (gifWatchBlocker() !== null) return null;
     const source = gifAnimationSource(item);
     if (!source) return null;
@@ -826,7 +886,7 @@ export function createDescriber({
   }
 
   /** Mark a GIF's cache entry as a failed watch (`watchFailed`): its caption, if any, is kept. */
-  function markGifWatchFailed(guildId, itemId) {
+  function markGifWatchFailed(guildId: string, itemId: string) {
     const cache = store.getMediaCache(guildId);
     const entry = cache[itemId];
     const ts = now();
@@ -847,13 +907,17 @@ export function createDescriber({
    * has to change. A failed watch never falls back to one frame here: the
    * old caption stays and the entry is marked `watchFailed` (a GIF with no
    * caption gets a miss so marked). Every rail of watchGifNow applies.
-   * @param {string} guildId
-   * @param {object} item  A gif picture item (src/media/classify.ts#collectPictures).
-   * @returns {Promise<{ state: 'watched', text: string, cached?: true }
-   *   | { state: 'failed', reason: string } | { state: 'unavailable', reason: string }>}
+   * @param item  A gif picture item (src/media/classify.ts#collectPictures).
    *   `unavailable`: GIFs are not watched now (see gifWatchBlocker) or a daily rail is spent.
    */
-  async function watchGif(guildId, item) {
+  async function watchGif(
+    guildId: string,
+    item: MediaItem
+  ): Promise<
+    | { state: 'watched'; text: string; cached?: true }
+    | { state: 'failed'; reason: string }
+    | { state: 'unavailable'; reason: string }
+  > {
     const blocker = gifWatchBlocker();
     if (blocker !== null) return { state: 'unavailable', reason: blocker };
     const cached = store.getMediaCache(guildId)[item.itemId];
@@ -888,14 +952,14 @@ export function createDescriber({
    * `onCharge(result)` is called once per successful NEW request of this call
    * (never for a cache hit or a description shared with another caller) so a
    * caller with its own separate token budget can account for it.
-   * @param {string} guildId
-   * @param {object[]} items
-   * @param {{ maxNew?: number, concurrency?: number, onCharge?: (r: object) => void }} [options]
-   * @returns {Promise<{ descriptions: Map<string, string>, newCount: number }>}
    */
-  async function describeMany(guildId, items, { maxNew = Infinity, concurrency = Infinity, onCharge } = {}) {
+  async function describeMany(
+    guildId: string,
+    items: Array<MediaItem>,
+    { maxNew = Infinity, concurrency = Infinity, onCharge }: DescribeManyOptions = {}
+  ): Promise<{ descriptions: Map<string, string>; newCount: number }> {
     const found = new Map();
-    const picked = [];
+    const picked: Array<Untyped> = [];
     const seen = new Set();
     const on = picturesOn();
     const spent = on && capSpent();
@@ -922,7 +986,7 @@ export function createDescriber({
         found.set(item.itemId, result.text);
       }
     };
-    const limit = Number.isFinite(concurrency) && concurrency >= 1 ? Math.floor(concurrency) : picked.length;
+    const limit = isFiniteNumber(concurrency) && concurrency >= 1 ? Math.floor(concurrency) : picked.length;
     await Promise.all(Array.from({ length: Math.min(limit, picked.length) }, worker));
 
     // In the order of `items`, whatever order the requests came back in.
@@ -939,11 +1003,8 @@ export function createDescriber({
    * when describe() would not run (features.mediaDescriptions off, no
    * describe prompt). Used where a caption helps but may not cost a request
    * (the address classifier, src/behavior/pipeline.js).
-   * @param {string} guildId
-   * @param {object[]} items
-   * @returns {Map<string, string>}
    */
-  function cachedDescriptions(guildId, items) {
+  function cachedDescriptions(guildId: string, items: Array<MediaItem>): Map<string, string> {
     const descriptions = new Map();
     if (!hot.prompts?.describe) return descriptions;
     const cache = store.getMediaCache(guildId);
@@ -961,7 +1022,7 @@ export function createDescriber({
   const inFlight = new Map();
 
   /** Store a video cache entry, LRU-touched and trimmed like the picture entries. */
-  function putVideoEntry(guildId, key, value) {
+  function putVideoEntry(guildId: string, key: string, value: Untyped) {
     const cache = store.getMediaCache(guildId);
     touchKey(cache, key, value);
     trimCache(cache, MEDIA_CACHE_ENTRIES);
@@ -978,7 +1039,7 @@ export function createDescriber({
    * (dueForRecache, the error retry time as its TTL) comes with `stale`: its
    * cache entry.
    */
-  function cachedVideo(guildId, key, item, force = false) {
+  function cachedVideo(guildId: string, key: string, item: MediaItem, force = false) {
     const cache = store.getMediaCache(guildId);
     const entry = cache[key];
     if (!entry) return null;
@@ -997,49 +1058,18 @@ export function createDescriber({
   /** How long a video error miss is served from the cache: `media.video.errorRetryMinutes`, read at the moment of use. */
   function videoErrorTtlMs() {
     const minutes = hot.config.media?.video?.errorRetryMinutes;
-    const valid = typeof minutes === 'number' && Number.isFinite(minutes) && minutes >= 0;
+    const valid = typeof minutes === 'number' && isFiniteNumber(minutes) && minutes >= 0;
     return (valid ? minutes : VIDEO_ERROR_RETRY_MINUTES_FALLBACK) * MINUTE_MS;
-  }
-
-  /**
-   * The `video_url` part of a video request. A public URL (a pinned
-   * direct-URL request) carries OpenRouter's processing mode
-   * (`media.video.urlProcessing`, a missing key = 'agentic', a non-string or
-   * empty value omits it) -- without it the provider samples a single frame;
-   * a data: URL part never does.
-   */
-  function videoPart(videoCfg, media) {
-    const videoUrl = { url: media.url };
-    if (media.pinned) {
-      const mode = urlProcessingMode(videoCfg);
-      if (mode) videoUrl.processing = mode;
-    }
-    return { type: 'video_url', video_url: videoUrl };
   }
 
   /**
    * The system prompt of a video request on `media` (a watch or a re-watch):
    * `filled` plus the measured-sound note of a downloaded clip
-   * (audio-map.ts#videoAudioNote on the live `labels.videoAudio`), after a
+   * (audio-map.js#videoAudioNote on the live `labels.videoAudio`), after a
    * blank line; `filled` alone without one.
    */
-  function videoSystemPrompt(filled, media) {
+  function videoSystemPrompt(filled: Untyped, media: Untyped) {
     return withAudioNote(filled, videoAudioNote(media.audio, hot.prompts?.labels));
-  }
-
-  /**
-   * The per-second token estimate of a public URL in agentic processing
-   * (`media.video.directUrlTokensPerSecond`), or undefined for every other
-   * request -- a data: URL clip, a public URL in another or no processing
-   * mode, a missing or invalid setting -- which then keeps the client's
-   * `media.video.tokensPerSecond`. Agentic processing does not bill the video
-   * as prompt tokens; its exploration shows up as a few completion tokens per
-   * second of video.
-   */
-  function videoTokensPerSecond(videoCfg, media) {
-    if (!media.pinned || urlProcessingMode(videoCfg) !== 'agentic') return undefined;
-    const value = videoCfg.directUrlTokensPerSecond;
-    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
   }
 
   /**
@@ -1049,7 +1079,11 @@ export function createDescriber({
    * URL, the reasoning settings (`media.video.reasoning`, a plain object or
    * nothing), never the text calibration.
    */
-  function videoRequestOptions(videoCfg, media, { maxOutputTokens, model = null }) {
+  function videoRequestOptions(
+    videoCfg: Untyped,
+    media: Untyped,
+    { maxOutputTokens, model = null }: { maxOutputTokens: number; model?: string | null }
+  ) {
     return {
       model: model ?? roleModel(hot.config, 'video'),
       role: 'video',
@@ -1062,7 +1096,7 @@ export function createDescriber({
       maxRequestTokens: videoCfg.maxRequestTokens,
       provider: media.pinned ? videoCfg.provider : undefined,
       // Without it the video model's reasoning can eat the whole output budget.
-      reasoning: isPlainObject(videoCfg.reasoning) ? videoCfg.reasoning : undefined,
+      reasoning: isRecord(videoCfg.reasoning) ? videoCfg.reasoning : undefined,
       countAgainstDailyCap: true,
       // A video's provider-counted prompt tokens say nothing about the
       // text ratio every chat request is checked against.
@@ -1078,7 +1112,7 @@ export function createDescriber({
    * (`media.video.audioMap`, read now), null for a public URL, with measuring
    * off or after a failed measurement.
    */
-  async function fetchVideoMedia(item, videoCfg) {
+  async function fetchVideoMedia(item: MediaItem, videoCfg: Untyped) {
     const { maxSeconds, maxBytes, toolTimeoutMs, ffmpegPath, ytdlpPath } = videoCfg;
     const audioMap = audioMapSettings();
     if (item.source === 'attachment') {
@@ -1103,7 +1137,7 @@ export function createDescriber({
         };
       }
       if (got.reason === 'length') {
-        return { ok: false, reason: 'length', durationSec: Number.isFinite(got.durationSec) ? got.durationSec : null };
+        return { ok: false, reason: 'length', durationSec: isFiniteNumber(got.durationSec) ? got.durationSec : null };
       }
       return got;
     }
@@ -1153,7 +1187,7 @@ export function createDescriber({
         pinned: false,
         audio: clip.audio ?? null,
         // The probed total: a link item seldom carries its own length.
-        totalSeconds: typeof durationSec === 'number' && Number.isFinite(durationSec) ? durationSec : null,
+        totalSeconds: typeof durationSec === 'number' && isFiniteNumber(durationSec) ? durationSec : null,
       };
     }
     // Too long and not clippable: the video will not get shorter, so this is final.
@@ -1174,17 +1208,24 @@ export function createDescriber({
    * returns its result instead, a spent rail as it is, any other failure
    * with its entry stamped `refreshFailedAt` -- never a miss over it.
    */
-  async function watchVideo(guildId, item, key, promptText, forced = false, previous = null) {
+  async function watchVideo(
+    guildId: string,
+    item: MediaItem,
+    key: string,
+    promptText: Untyped,
+    forced = false,
+    previous: Untyped = null
+  ) {
     const videoCfg = videoSettingsOf(hot.config);
     const summaryChars = videoCfg.summaryChars;
-    const report = (result, extra = {}) => {
+    const report = (result: Untyped, extra: Record<string, Untyped> = {}) => {
       log.info('describe: video', {
         source: item.source,
         state: result.state,
         reason: result.reason ?? extra.reason ?? null,
         seconds: extra.seconds ?? null,
         bytes: extra.bytes ?? null,
-        status: extra.status,
+        status: propOf(extra, 'status'),
         // The measured sound of a downloaded clip (none / map / full), when measured.
         ...(extra.audio ? { audio: extra.audio } : {}),
         cached: false,
@@ -1198,7 +1239,7 @@ export function createDescriber({
       putVideoEntry(guildId, key, { ...previous.entry, refreshFailedAt: now() });
       return previous.result;
     };
-    const errorMiss = (reason, extra = {}) => {
+    const errorMiss = (reason: string, extra: Record<string, Untyped> = {}) => {
       if (previous) {
         report({ state: 'error' }, { ...extra, reason });
         return keepPrevious();
@@ -1223,7 +1264,7 @@ export function createDescriber({
         return { result: keepPrevious(), sent: false, attempted: true };
       }
       if (PERMANENT_VIDEO_MISSES.has(media.reason)) {
-        const entry = { miss: true, ts: now(), reason: media.reason };
+        const entry: Record<string, Untyped> = { miss: true, ts: now(), reason: media.reason };
         if (media.reason === 'length') entry.durationSec = media.durationSec ?? null;
         putVideoEntry(guildId, key, entry);
         return { result: report({ state: 'limit', reason: media.reason }), sent: false, attempted: true };
@@ -1255,7 +1296,7 @@ export function createDescriber({
         return { result: previous?.result ?? null, sent: false, attempted: true };
       }
       return {
-        result: errorMiss(reason, { ...sizes, status: err.statusCode }),
+        result: errorMiss(reason, { ...sizes, status: propOf(err, 'statusCode') }),
         sent: reason !== 'token-limit',
         attempted: true,
       };
@@ -1265,10 +1306,10 @@ export function createDescriber({
     if (!text) return { result: errorMiss('empty', sizes), sent: true, attempted: true };
 
     const ts = now();
-    const entry = { text, ts, watched: true, describedAt: ts, model: options.model };
+    const entry: Record<string, Untyped> = { text, ts, watched: true, describedAt: ts, model: options.model };
     // How much of the video the summary saw: a downloaded clip is cut to
     // maxSeconds; a public URL is opened whole by the provider.
-    if (!media.pinned && typeof media.seconds === 'number' && Number.isFinite(media.seconds)) {
+    if (!media.pinned && typeof media.seconds === 'number' && isFiniteNumber(media.seconds)) {
       entry.watchedSeconds = media.seconds;
       if (typeof media.totalSeconds === 'number') entry.totalSeconds = media.totalSeconds;
     }
@@ -1286,14 +1327,14 @@ export function createDescriber({
    * `error` miss (a limit miss and a watched entry still count; every rail
    * still applies).
    */
-  async function describeVideoCharged(guildId, item, { cacheOnly = false, force = false } = {}) {
+  async function describeVideoCharged(guildId: string, item: MediaItem, { cacheOnly = false, force = false } = {}) {
     const promptText = hot.prompts?.['describe-video'];
     if (!promptText || !isVideoCandidate(item)) return { result: null, sent: false, attempted: false };
 
     const key = `video:${item.itemId}`;
-    const cached = cachedVideo(guildId, key, item, force);
+    const cached: Untyped = cachedVideo(guildId, key, item, force);
     // A stale summary (media.recacheBefore) is watched again; its old result is the fallback.
-    let previous = null;
+    let previous: Untyped = null;
     if (cached?.stale) {
       const { stale, ...result } = cached;
       previous = { entry: stale, result };
@@ -1324,16 +1365,23 @@ export function createDescriber({
   /**
    * Watch one video candidate (src/media/classify.ts#collectVideos) and
    * summarise it in one line, through the shared media cache.
-   * @param {string} guildId
-   * @param {object} item  One collectVideos candidate.
-   * @param {{ force?: boolean }} [options]  `force`: try again
+   * @param item  One collectVideos candidate.
+   * @param [options]  `force`: try again
    *   despite a cached `error` miss (a limit and a watched entry are still served from the cache).
-   * @returns {Promise<{ state: 'watched', text: string, usage: object|null, estimated: number, cached?: true }
-   *   | { state: 'limit', reason: 'length'|'size'|'daily' } | { state: 'error' } | null>}  null when the
+   * @returns null when the
    *   feature is off, the prompt is missing, `item` is not a video candidate, or `llm.maxRequestsPerDay`
    *   is spent (nothing fetched or cached).
    */
-  async function describeVideo(guildId, item, { force = false } = {}) {
+  async function describeVideo(
+    guildId: string,
+    item: MediaItem,
+    { force = false }: { force?: boolean } = {}
+  ): Promise<
+    | { state: 'watched'; text: string; usage: Untyped; estimated: number; cached?: true }
+    | { state: 'limit'; reason: 'length' | 'size' | 'daily' }
+    | { state: 'error' }
+    | null
+  > {
     const { result } = await describeVideoCharged(guildId, item, { force });
     return result;
   }
@@ -1347,11 +1395,12 @@ export function createDescriber({
    * the remaining items are still looked up in the cache, never fetched.
    * Returns `{ videos, newCount }` (`newCount` = attempts) -- `videos` maps
    * `itemId` to a video state, ready for formatTranscript's `videos` option.
-   * @param {string} guildId
-   * @param {object[]} items
-   * @param {{ maxNew?: number, onCharge?: (r: object) => void }} [options]
    */
-  async function describeVideos(guildId, items, { maxNew = Infinity, onCharge } = {}) {
+  async function describeVideos(
+    guildId: string,
+    items: Array<MediaItem>,
+    { maxNew = Infinity, onCharge }: { maxNew?: number; onCharge?: (r: Untyped) => void } = {}
+  ) {
     const videos = new Map();
     let newCount = 0;
     for (const item of items) {
@@ -1369,11 +1418,9 @@ export function createDescriber({
    * lookup as describeVideos past its `maxNew`): never a fetch, a request or
    * a daily video slot, and an in-flight watch is not waited for. `itemId`
    * -> video state, ready for formatTranscript's `videos` option.
-   * @param {string} guildId
-   * @param {object[]} items  collectVideos candidates.
-   * @returns {Promise<Map<string, object>>}
+   * @param items  collectVideos candidates.
    */
-  async function cachedVideos(guildId, items) {
+  async function cachedVideos(guildId: string, items: Array<MediaItem>): Promise<Map<string, Untyped>> {
     const videos = new Map();
     for (const item of items ?? []) {
       const { result } = await describeVideoCharged(guildId, item, { cacheOnly: true });
@@ -1394,12 +1441,9 @@ export function createDescriber({
    * non-empty question. An answer is
    * cached for an hour under `video:<itemId>:q:<hash>`; a failure is never
    * cached. With `llm.maxRequestsPerDay` spent nothing is fetched. The question and the answer are data: never logged.
-   * @param {string} guildId
-   * @param {object} item  One collectVideos candidate.
-   * @param {string} question
-   * @returns {Promise<{ question: string, text: string }|null>}
+   * @param item  One collectVideos candidate.
    */
-  async function rewatchVideo(guildId, item, question, { model = null } = {}) {
+  async function rewatchVideo(guildId: string, item: MediaItem, question: string, { model = null }: Ask = {}): Looked {
     const promptText = hot.prompts?.['rewatch-answer'];
     const asked = String(question ?? '').trim();
     if (!promptText || !isVideoCandidate(item) || !asked) return null;
@@ -1407,7 +1451,7 @@ export function createDescriber({
     const videoCfg = videoSettingsOf(hot.config);
     const rewatchCfg = videoCfg.rewatch ?? {};
     const answerChars = REWATCH_ANSWER_CHARS;
-    const report = (outcome, extra = {}) => {
+    const report = (outcome: string, extra: Record<string, Untyped> = {}) => {
       log.info('describe: rewatch', {
         source: item.source,
         state: outcome,
@@ -1488,12 +1532,9 @@ export function createDescriber({
    * cached for an hour under `image:<itemId>:q:<hash>`, failures never. With
    * `llm.maxRequestsPerDay` spent nothing is downloaded.
    * The question and the answer are data: never logged.
-   * @param {string} guildId
-   * @param {object} item  One collectPictures item of kind `image`.
-   * @param {string} question
-   * @returns {Promise<{ question: string, text: string }|null>}
+   * @param item  One collectPictures item of kind `image`.
    */
-  async function relookImage(guildId, item, question, { model = null } = {}) {
+  async function relookImage(guildId: string, item: MediaItem, question: string, { model = null }: Ask = {}): Looked {
     const promptText = hot.prompts?.['rewatch-answer'];
     const asked = String(question ?? '').trim();
     if (!promptText || item?.kind !== 'image' || !item.itemId || !item.url || !asked) return null;
@@ -1501,7 +1542,7 @@ export function createDescriber({
     const mediaCfg = hot.config.media ?? {};
     const rewatchCfg = mediaCfg.video?.rewatch ?? {};
     const answerChars = REWATCH_ANSWER_CHARS;
-    const report = (outcome, extra = {}) => {
+    const report = (outcome: string, extra: Record<string, Untyped> = {}) => {
       log.info('describe: relook', {
         source: item.source ?? null,
         state: outcome,
@@ -1531,7 +1572,7 @@ export function createDescriber({
     }
 
     const visionCfg = hot.config.context?.vision ?? {};
-    const downloaded = await imageFetcher.fetchAsDataUrl(pictureImageUrl(item, mediaCfg), {
+    const downloaded = await imageFetcher.fetchAsDataUrl(pictureImageUrl(item), {
       maxBytes: VISION_MAX_BYTES,
       timeoutMs: visionCfg.fetchTimeoutMs,
     });
@@ -1588,11 +1629,9 @@ export function createDescriber({
    * count. Empty while GIFs are not watched (gifWatchBlocker: the switches,
    * `media.gif.watch`, video vision, the prompt) -- there is nothing to
    * re-watch then. The re-watch classifier's GIF candidates.
-   * @param {string} guildId
-   * @param {object[]} items  collectPictures items; only `gif` ones count.
-   * @returns {Map<string, string>}
+   * @param items  collectPictures items; only `gif` ones count.
    */
-  function watchedGifs(guildId, items) {
+  function watchedGifs(guildId: string, items: Array<MediaItem>): Map<string, string> {
     const watched = new Map();
     if (gifWatchBlocker() !== null) return watched;
     const cache = store.getMediaCache(guildId);
@@ -1619,12 +1658,9 @@ export function createDescriber({
    * embed); a failure never. With `llm.maxRequestsPerDay` spent nothing is
    * fetched. One `describe: rewatch` line with
    * `kind: 'gif'`; the question and the answer are data: never logged.
-   * @param {string} guildId
-   * @param {object} item  One collectPictures item of kind `gif`.
-   * @param {string} question
-   * @returns {Promise<{ question: string, text: string }|null>}
+   * @param item  One collectPictures item of kind `gif`.
    */
-  async function rewatchGif(guildId, item, question, { model = null } = {}) {
+  async function rewatchGif(guildId: string, item: MediaItem, question: string, { model = null }: Ask = {}): Looked {
     if (gifWatchBlocker() !== null) return null;
     const promptText = hot.prompts?.['rewatch-answer'];
     const asked = String(question ?? '').trim();
@@ -1635,7 +1671,7 @@ export function createDescriber({
     const rewatchCfg = videoCfg.rewatch ?? {};
     const answerChars = REWATCH_ANSWER_CHARS;
     const maxSeconds = GIF_MAX_SECONDS;
-    const report = (outcome, extra = {}) => {
+    const report = (outcome: string, extra: Record<string, Untyped> = {}) => {
       log.info('describe: rewatch', {
         kind: 'gif',
         source: item.source ?? null,
@@ -1722,4 +1758,20 @@ export function createDescriber({
     gifWatchBlocker,
     checkYoutube,
   };
+}
+
+export type Describer = ReturnType<typeof buildDescriber>;
+
+/**
+ * @param deps.hot     Live config + prompts; read at the moment of use.
+ * @param deps.llm     From createLlm().
+ * @param [deps.imageFetcher]  From createImageFetcher() (src/media/fetch-image.ts).
+ * @param [deps.videoFetcher]  From createVideoFetcher() (src/media/fetch-video.ts).
+ * @param [deps.state]  The persistent state (store.state) holding the
+ *   daily video and re-watch counters; without it the counters live in memory only.
+ * @param [deps.youtubeApiKey]  Optional YouTube Data API key (YOUTUBE_API_KEY), handed to
+ *   probeYoutube only; never logged.
+ */
+export function createDescriber(deps: Parameters<typeof buildDescriber>[0]): Describer {
+  return buildDescriber(deps);
 }

@@ -9,10 +9,9 @@ const GIF_PROMPTS = ['describe-gif', 'describe-video'];
 /**
  * The prompt a GIF watch uses under the live prompts: `describe-gif` when it
  * is there, else `describe-video`; null when neither is.
- * @param {object} [prompts]  hot.prompts.
- * @returns {{ name: string, text: string }|null}
+ * @param [prompts]  hot.prompts.
  */
-export function gifWatchPrompt(prompts) {
+export function gifWatchPrompt(prompts?: Record<string, unknown>): { name: string; text: string } | null {
   for (const name of GIF_PROMPTS) {
     const text = prompts?.[name];
     if (typeof text === 'string' && text) return { name, text };
@@ -23,10 +22,9 @@ export function gifWatchPrompt(prompts) {
 /**
  * Why GIFs are not watched under the live prompts, or null when they are: `no-prompt` (neither describe-gif nor
  * describe-video).
- * @param {object} [prompts]  hot.prompts.
- * @returns {'no-prompt'|null}
+ * @param [prompts]  hot.prompts.
  */
-export function gifWatchBlocker(prompts) {
+export function gifWatchBlocker(prompts?: Record<string, unknown>): 'no-prompt' | null {
   if (!gifWatchPrompt(prompts)) return 'no-prompt';
   return null;
 }

@@ -18,6 +18,8 @@
 import { clampText, stripUrls } from './clamp.ts';
 import { normalizeTopic } from './interests.ts';
 import { utcDay } from '../time.js';
+import { isIntegerNumber } from './types.ts';
+import type { StoredRecord, Untyped } from './types.ts';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -41,11 +43,9 @@ export const EPISODE_CHARS = Object.freeze({ what: 200, quote: 120, feeling: 120
  *   pass its clock, since a forgotten one is read as this form and yields `''`.
  *
  * A usable date never reads the clock, in either form.
- * @param {unknown} raw
- * @param {number} [nowMs]  Epoch ms; omit to test `raw` alone.
- * @returns {string}
+ * @param [nowMs]  Epoch ms; omit to test `raw` alone.
  */
-export function episodeDate(raw, nowMs) {
+export function episodeDate(raw: unknown, nowMs?: number): string {
   if (typeof raw === 'string' && DATE_RE.test(raw)) return raw;
   return nowMs === undefined ? '' : utcDay(nowMs);
 }
@@ -55,18 +55,15 @@ export function episodeDate(raw, nowMs) {
  * `what` by src/memory/interests.ts#normalizeTopic (trimmed, whitespace
  * collapsed, lower-cased), or the same non-empty `quote`, compared verbatim.
  * Symmetric. Anything that is not an object is no episode and matches nothing.
- * @param {object} a
- * @param {object} b
- * @returns {boolean}
  */
-export function isSameEpisode(a, b) {
+export function isSameEpisode(a: StoredRecord, b: StoredRecord): boolean {
   if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
   if (a.date === b.date && normalizeTopic(a.what) === normalizeTopic(b.what)) return true;
   return Boolean(a.quote && b.quote && a.quote === b.quote);
 }
 
-function clampWeight(raw) {
-  const n = Number.isInteger(raw) ? raw : 3;
+function clampWeight(raw: Untyped) {
+  const n = isIntegerNumber(raw) ? raw : 3;
   return Math.min(5, Math.max(1, n));
 }
 
@@ -79,7 +76,7 @@ function clampWeight(raw) {
  * model, clean in code". Limits: `EPISODE_CHARS`; date: `episodeDate`. All
  * three lose their links first (src/memory/clamp.ts#stripUrls).
  */
-function sanitizeEpisode(raw, nowMs, clampTolerance) {
+function sanitizeEpisode(raw: Untyped, nowMs: number, clampTolerance: Untyped) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const what =
     typeof raw.what === 'string'
@@ -98,12 +95,12 @@ function sanitizeEpisode(raw, nowMs, clampTolerance) {
 }
 
 /** Whether `candidate` is the same moment (`isSameEpisode`) as one of `stored`. */
-function isDuplicate(candidate, stored) {
-  return stored.some((s) => isSameEpisode(s, candidate));
+function isDuplicate(candidate: Untyped, stored: Untyped) {
+  return stored.some((s: Untyped) => isSameEpisode(s, candidate));
 }
 
 /** Ascending sort key for eviction: lowest weight first, then oldest first among equals. */
-function evictionOrder(a, b) {
+function evictionOrder(a: Untyped, b: Untyped) {
   return (
     a.ep.weight - b.ep.weight ||
     (a.ep.date < b.ep.date ? -1 : a.ep.date > b.ep.date ? 1 : 0) ||
@@ -116,7 +113,7 @@ function evictionOrder(a, b) {
  * How many of the newest entries eviction spares: `keepNewest` rounded down and clamped to
  * `[0, cap - 1]`, so one entry is always left to evict. Anything that is not a number counts as 0.
  */
-function keptNewestCount(keepNewest, cap) {
+function keptNewestCount(keepNewest: Untyped, cap: Untyped) {
   const count = typeof keepNewest === 'number' && !Number.isNaN(keepNewest) ? Math.floor(keepNewest) : 0;
   return Math.max(0, Math.min(count, cap - 1));
 }
@@ -128,12 +125,16 @@ function keptNewestCount(keepNewest, cap) {
  * a later position first among equals (one merge stamps all its entries alike, in the model's
  * order).
  */
-function newestIndices(list, count, storedLength) {
+function newestIndices(list: Untyped, count: number, storedLength: Untyped) {
   if (count <= 0) return new Set();
   const byRecency = list
-    .map((ep, index) => ({ addedAt: String(ep?.addedAt ?? ''), index, arrived: Number(index >= storedLength) }))
-    .sort((a, b) => b.arrived - a.arrived || b.addedAt.localeCompare(a.addedAt) || b.index - a.index);
-  return new Set(byRecency.slice(0, count).map((o) => o.index));
+    .map((ep: Untyped, index: number) => ({
+      addedAt: String(ep?.addedAt ?? ''),
+      index,
+      arrived: Number(index >= storedLength),
+    }))
+    .sort((a: Untyped, b: Untyped) => b.arrived - a.arrived || b.addedAt.localeCompare(a.addedAt) || b.index - a.index);
+  return new Set(byRecency.slice(0, count).map((o: Untyped) => o.index));
 }
 
 /**
@@ -162,21 +163,26 @@ function newestIndices(list, count, storedLength) {
  * turns over at the same rate as before; what changes is that every moment is
  * stored and can be seen before it goes.
  *
- * @param {object[]|undefined} existing  Stored episodes, oldest-appended order.
- * @param {unknown} incoming             Untrusted, model-extracted episodes.
- * @param {{ maxEpisodes: number, maxNew: number, now?: number, clampTolerance?: number, keepNewest?: number }} opts
+ * @param existing  Stored episodes, oldest-appended order.
+ * @param incoming             Untrusted, model-extracted episodes.
  *   `keepNewest`: `memory.keepNewestEpisodes` (see episodeOptions);
  *   omitted, negative or not a number = 0.
- * @returns {{ episodes: object[], added: number, dropped: object[] }}  `added` counts every
+ * @returns `added` counts every
  *   accepted entry, one evicted again by the same merge included. `dropped`: every entry the
  *   eviction removed, in list order -- a stored one as stored (its `itemId` included), an
  *   accepted one as it was about to be stored; `[]` when none went.
  */
 export function mergeEpisodes(
-  existing,
-  incoming,
-  { maxEpisodes, maxNew = Infinity, now: nowMs = Date.now(), clampTolerance, keepNewest = 0 } = {}
-) {
+  existing: Array<StoredRecord> | undefined,
+  incoming: unknown,
+  {
+    maxEpisodes,
+    maxNew = Infinity,
+    now: nowMs = Date.now(),
+    clampTolerance,
+    keepNewest = 0,
+  }: { maxEpisodes: number; maxNew: number; now?: number; clampTolerance?: number; keepNewest?: number }
+): { episodes: Array<object>; added: number; dropped: Array<object> } {
   const stored = Array.isArray(existing) ? existing : [];
   if (!Array.isArray(incoming) || incoming.length === 0) return { episodes: stored, added: 0, dropped: [] };
 
@@ -193,8 +199,8 @@ export function mergeEpisodes(
   if (accepted.length === 0) return { episodes: stored, added: 0, dropped: [] };
 
   let merged = [...stored, ...accepted];
-  let dropped = [];
-  const cap = Number.isInteger(maxEpisodes) ? maxEpisodes : Infinity;
+  let dropped: Array<Untyped> = [];
+  const cap = isIntegerNumber(maxEpisodes) ? maxEpisodes : Infinity;
   if (merged.length > cap) {
     const dropCount = merged.length - cap;
     const exempt = newestIndices(merged, keptNewestCount(keepNewest, cap), stored.length);
@@ -214,9 +220,8 @@ export function mergeEpisodes(
  * Order episodes for rendering: heaviest weight first, then newest (by
  * `date`, `addedAt` as a tiebreaker) -- see docs/prompt-contract.md,
  * `<people>` and `profile.episode(s)`. Pure, does not mutate `episodes`.
- * @param {object[]} episodes
  */
-export function sortEpisodesForDisplay(episodes) {
+export function sortEpisodesForDisplay(episodes: Array<StoredRecord>): Array<object> {
   return [...(episodes ?? [])].sort(
     (a, b) =>
       b.weight - a.weight ||
@@ -233,11 +238,9 @@ export function sortEpisodesForDisplay(episodes) {
  * only a prefix of this list (the lightest dropped first), possibly none, so
  * a block that must not repeat the shown ones has to take them from what was
  * rendered, not from this list. Pure, does not mutate `episodes`.
- * @param {object[]|undefined} episodes
- * @param {number} max  Not a positive integer (0 = off) -> none.
- * @returns {object[]}
+ * @param max  Not a positive integer (0 = off) -> none.
  */
-export function topEpisodes(episodes, max) {
-  if (!Array.isArray(episodes) || !Number.isInteger(max) || max < 1) return [];
+export function topEpisodes(episodes: Array<StoredRecord> | undefined, max: number): Array<object> {
+  if (!Array.isArray(episodes) || !isIntegerNumber(max) || max < 1) return [];
   return sortEpisodesForDisplay(episodes).slice(0, max);
 }

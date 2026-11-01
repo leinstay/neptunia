@@ -24,9 +24,59 @@
 // character budget). Rendering and wording belong to the request builder. The clock is
 // always passed in (`now`).
 
-import { isPlainObject } from '../config.js';
+import { isRecord, isFiniteNumber, isIntegerNumber } from './types.ts';
 import { HOUR_MS, MINUTE_MS } from '../time.js';
 import { clampText, oneLine } from './clamp.ts';
+import type { StoredRecord, Untyped } from './types.ts';
+
+/** The participation settings: how many hours and lines a stored episode spans, and how many are shown. */
+export type ParticipationSettings = {
+  hours: number;
+  linesBefore: number;
+  linesAfter: number;
+  followMinutes: number;
+  mergeGapMinutes: number;
+  contextMinutes: number;
+  maxMessages: number;
+  maxStored: number;
+  maxTextChars: number;
+  shown: number;
+  perChannel: number;
+  episodeChars: number;
+  contextMessages: number;
+  maxOutputTokens: number;
+  pickTimeoutMs: number;
+  earlierHours: number;
+  earlierShown: number;
+};
+
+/** The stored participation: the episodes and the next episode number. */
+/** One message of an episode, in the stored shape. */
+export type ParticipationMessage = {
+  id: string;
+  ts: number;
+  authorId: string;
+  name: string;
+  self: boolean;
+  text: string;
+  replyTo: string | null;
+  caption: string | null;
+};
+
+/** A stretch of a channel around the persona's own lines: its messages, its times and the episode it continues. */
+export type Episode = {
+  id: string;
+  channelId: string;
+  startAt: number;
+  lastAt: number;
+  lastOwnAt: number | null;
+  messages: Array<ParticipationMessage>;
+  continues: string | null;
+  itemId?: string;
+};
+
+/** The stored participation: the episodes and the next episode number. */
+export type ParticipationState = { episodes: Array<Episode>; nextId: number };
 
 /**
  * The participation measures: production values of the config cut of 2026-10-31, and the fallbacks of the two
@@ -35,7 +85,7 @@ import { clampText, oneLine } from './clamp.ts';
  * applies the time limit), `earlierHours` and `earlierShown` to the current channel's
  * `<earlier>` block (`earlierEpisodes`).
  */
-export const PARTICIPATION_DEFAULTS = Object.freeze({
+export const PARTICIPATION_DEFAULTS: Readonly<ParticipationSettings> = Object.freeze({
   hours: 72,
   linesBefore: 3,
   linesAfter: 1,
@@ -69,55 +119,50 @@ const CUT_EDGE = 2;
 /**
  * The participation settings: `PARTICIPATION_DEFAULTS` (production values, config cut of 2026-10-31), with the
  * pick classifier's `maxOutputTokens` and `pickTimeoutMs` read from `config.participation` at the moment of use.
- * @param {object} config
- * @returns {{ hours: number, linesBefore: number, linesAfter: number, followMinutes: number,
- *   mergeGapMinutes: number, contextMinutes: number, maxMessages: number, maxStored: number, maxTextChars: number,
- *   shown: number, perChannel: number, episodeChars: number, contextMessages: number, maxOutputTokens: number,
- *   pickTimeoutMs: number, earlierHours: number, earlierShown: number }}
  */
-export function participationSettings(config) {
-  const section = isPlainObject(config?.participation) ? config.participation : {};
+export function participationSettings(config: StoredRecord): ParticipationSettings {
+  const section = isRecord(config?.participation) ? config.participation : {};
   const out = { ...PARTICIPATION_DEFAULTS };
-  for (const key of ['maxOutputTokens', 'pickTimeoutMs']) out[key] = section[key] ?? PARTICIPATION_DEFAULTS[key];
+  for (const key of ['maxOutputTokens', 'pickTimeoutMs'] as const)
+    out[key] = section[key] ?? PARTICIPATION_DEFAULTS[key];
   return out;
 }
 
 /**
  * The store of a guild nothing was recorded for yet.
- * @returns {{ episodes: object[], nextId: number }}
  */
-export function emptyParticipation() {
+export function emptyParticipation(): ParticipationState {
   return { episodes: [], nextId: 1 };
 }
 
 /** `settings` completed with the defaults (a missing or non-object value reads as the defaults). */
-function settingsOf(settings) {
-  const given = isPlainObject(settings) ? settings : {};
-  const out = {};
+function settingsOf(settings: unknown): ParticipationSettings {
+  const given = isRecord(settings) ? settings : {};
+  const out: Record<string, number> = {};
   for (const [key, fallback] of Object.entries(PARTICIPATION_DEFAULTS)) {
-    out[key] = typeof given[key] === 'number' && Number.isFinite(given[key]) && given[key] >= 0 ? given[key] : fallback;
+    out[key] = typeof given[key] === 'number' && isFiniteNumber(given[key]) && given[key] >= 0 ? given[key] : fallback;
   }
-  return out;
+  return { ...PARTICIPATION_DEFAULTS, ...out };
 }
 
 /** `raw` as an id: a non-empty string trimmed, a finite number as its decimal form, else null. */
-function idOf(raw) {
-  if (typeof raw === 'number' && Number.isFinite(raw)) return String(raw);
+function idOf(raw: unknown): string | null {
+  if (typeof raw === 'number' && isFiniteNumber(raw)) return String(raw);
   return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
 }
 
 /** `raw` as a clock reading: a finite number, else the wall clock. */
-function nowOf(raw) {
-  return Number.isFinite(raw) ? raw : Date.now();
+function nowOf(raw: unknown): number {
+  return isFiniteNumber(raw) ? raw : Date.now();
 }
 
 /** The length of `text` in code points (0 for anything but a string). */
-function lengthOf(text) {
+function lengthOf(text: unknown): number {
   return typeof text === 'string' ? [...text].length : 0;
 }
 
 /** An episode id `p<n>` as its number, else null. */
-function episodeNumber(id) {
+function episodeNumber(id: string) {
   const match = typeof id === 'string' ? /^p(\d+)$/.exec(id) : null;
   return match ? Number(match[1]) : null;
 }
@@ -128,10 +173,13 @@ function episodeNumber(id) {
  * it at a word boundary; `caption` one line or null; `self` true only when it is
  * exactly true (or forced by `self`).
  */
-function messageOf(raw, { maxTextChars, self } = {}) {
-  if (!isPlainObject(raw)) return null;
+function messageOf(
+  raw: unknown,
+  { maxTextChars, self }: { maxTextChars?: number; self?: boolean } = {}
+): ParticipationMessage | null {
+  if (!isRecord(raw)) return null;
   const id = idOf(raw.id);
-  if (id === null || !Number.isFinite(raw.ts)) return null;
+  if (id === null || !isFiniteNumber(raw.ts)) return null;
   const flat = typeof raw.text === 'string' ? oneLine(raw.text) : '';
   const text = maxTextChars === undefined ? flat : clampText(flat, maxTextChars, { tolerance: 1 });
   const caption = typeof raw.caption === 'string' && oneLine(raw.caption) ? oneLine(raw.caption) : null;
@@ -149,10 +197,13 @@ function messageOf(raw, { maxTextChars, self } = {}) {
 
 /** An episode with `messages` (sorted by `ts`), its times recomputed from them; its optional
  * `itemId` (a non-empty string) rides along, none is added. */
-function withMessages(episode, messages) {
+function withMessages(
+  episode: { id: string; channelId: string; continues?: string | null; itemId?: unknown },
+  messages: Array<ParticipationMessage>
+): Episode {
   const sorted = [...messages].sort((a, b) => a.ts - b.ts);
   const own = sorted.filter((m) => m.self);
-  const out = {
+  const out: Episode = {
     id: episode.id,
     channelId: episode.channelId,
     startAt: sorted[0].ts,
@@ -173,21 +224,19 @@ function withMessages(episode, messages) {
  * dropped, a repeated message id keeps its first copy; messages are sorted by
  * `ts` and the episode's times recomputed from them. `nextId` ends above every
  * episode number. Pure: `value` is never mutated; the result normalises to itself.
- * @param {unknown} value
- * @returns {{ episodes: object[], nextId: number }}
  */
-export function normalizeParticipation(value) {
-  const source = isPlainObject(value) ? value : {};
-  const episodes = [];
-  const seenIds = new Set();
+export function normalizeParticipation(value: unknown): ParticipationState {
+  const source = isRecord(value) ? value : {};
+  const episodes: Array<Episode> = [];
+  const seenIds = new Set<string>();
   let highest = 0;
   for (const raw of Array.isArray(source.episodes) ? source.episodes : []) {
-    if (!isPlainObject(raw)) continue;
+    if (!isRecord(raw)) continue;
     const number = episodeNumber(raw.id);
     const channelId = idOf(raw.channelId);
     if (number === null || channelId === null || seenIds.has(raw.id)) continue;
-    const messages = [];
-    const seenMessages = new Set();
+    const messages: Array<ParticipationMessage> = [];
+    const seenMessages = new Set<string>();
     for (const rawMessage of Array.isArray(raw.messages) ? raw.messages : []) {
       const message = messageOf(rawMessage);
       if (!message || seenMessages.has(message.id)) continue;
@@ -200,12 +249,12 @@ export function normalizeParticipation(value) {
     const continues = episodeNumber(raw.continues) === null ? null : raw.continues;
     episodes.push(withMessages({ id: raw.id, channelId, continues, itemId: raw.itemId }, messages));
   }
-  const storedNext = Number.isInteger(source.nextId) && source.nextId >= 1 ? source.nextId : 1;
+  const storedNext = isIntegerNumber(source.nextId) && source.nextId >= 1 ? source.nextId : 1;
   return { episodes, nextId: Math.max(storedNext, highest + 1) };
 }
 
 /** The index of the newest episode of `channelId` in `episodes` (by `lastAt`, then position), or -1. */
-function newestOfChannel(episodes, channelId, key = 'lastAt') {
+function newestOfChannel(episodes: Array<Episode>, channelId: string, key: 'lastAt' | 'lastOwnAt' = 'lastAt') {
   let best = -1;
   for (let i = 0; i < episodes.length; i += 1) {
     const ep = episodes[i];
@@ -216,14 +265,15 @@ function newestOfChannel(episodes, channelId, key = 'lastAt') {
 }
 
 /** The message ids held by `episode` and the episodes it continues, walking `continues` back. */
-function chainIds(episodes, episode) {
-  const ids = new Set();
-  const visited = new Set();
-  let current = episode;
+function chainIds(episodes: Array<Episode>, episode: Episode) {
+  const ids = new Set<string>();
+  const visited = new Set<string>();
+  let current: Episode | null | undefined = episode;
   while (current && !visited.has(current.id)) {
     visited.add(current.id);
     for (const m of current.messages) ids.add(m.id);
-    current = current.continues ? episodes.find((ep) => ep.id === current.continues) : null;
+    const next: string | null = current.continues;
+    current = next ? episodes.find((ep) => ep.id === next) : null;
   }
   return ids;
 }
@@ -244,25 +294,33 @@ function chainIds(episodes, episode) {
  * reference) when the line has no `channelId`, `own` is not a message (an id and
  * a finite `ts`), her line is already past `hours` before `now`, or nothing new
  * would be added. Pure: no input is mutated.
- * @param {unknown} state
- * @param {{ channelId: string, own: object, before?: object[], parent?: object|null }} line
- * @param {object} [settings]  `participationSettings`'s shape; missing keys read as the defaults.
- * @param {number} now
- * @returns {{ episodes: object[], nextId: number }}
+ * @param [settings]  `participationSettings`'s shape; missing keys read as the defaults.
  */
-export function recordOwnLine(state, { channelId, own, before = [], parent = null } = {}, settings, now) {
+export function recordOwnLine(
+  state: unknown,
+  {
+    channelId,
+    own,
+    before = [],
+    parent = null,
+  }: { channelId: string; own: Untyped; before?: Array<Untyped>; parent?: Untyped },
+  settings: Partial<ParticipationSettings> | undefined,
+  now: number
+): ParticipationState {
   const s = settingsOf(settings);
+  // The caller's own stored state, handed back as it came when nothing changes.
+  const unchanged = state as ParticipationState;
   const channel = idOf(channelId);
   const ownLine = messageOf(own, { maxTextChars: s.maxTextChars, self: true });
-  if (channel === null || !ownLine) return state;
-  if (ownLine.ts < nowOf(now) - s.hours * HOUR_MS) return state;
+  if (channel === null || !ownLine) return unchanged;
+  if (ownLine.ts < nowOf(now) - s.hours * HOUR_MS) return unchanged;
 
   const base = normalizeParticipation(state);
   const take = Math.floor(s.linesBefore);
   const contextFrom = ownLine.ts - s.contextMinutes * MINUTE_MS;
   const context =
     take > 0 && Array.isArray(before)
-      ? before.slice(-take).filter((m) => isPlainObject(m) && Number.isFinite(m.ts) && m.ts >= contextFrom)
+      ? before.slice(-take).filter((m) => isRecord(m) && isFiniteNumber(m.ts) && m.ts >= contextFrom)
       : [];
   const incoming = [];
   const incomingIds = new Set();
@@ -280,7 +338,7 @@ export function recordOwnLine(state, { channelId, own, before = [], parent = nul
   const target = targetIndex === -1 ? null : base.episodes[targetIndex];
   const held = target ? chainIds(base.episodes, target) : new Set();
   let fresh = incoming.filter((m) => !held.has(m.id));
-  if (fresh.length === 0) return state;
+  if (fresh.length === 0) return unchanged;
 
   const episodes = [...base.episodes];
   let nextId = base.nextId;
@@ -314,27 +372,29 @@ export function recordOwnLine(state, { channelId, own, before = [], parent = nul
  * and the message is not already in it. Otherwise -- her own line included, which
  * goes through `recordOwnLine` -- the state comes back unchanged (the same
  * reference). Pure: no input is mutated.
- * @param {unknown} state
- * @param {{ channelId: string, message: object }} line
- * @param {object} [settings]
- * @param {number} now
- * @returns {{ episodes: object[], nextId: number }}
  */
-export function recordFollowing(state, { channelId, message } = {}, settings, now) {
+export function recordFollowing(
+  state: unknown,
+  { channelId, message }: { channelId: string; message: Untyped },
+  settings: Partial<ParticipationSettings> | undefined,
+  now: number
+): ParticipationState {
   const s = settingsOf(settings);
+  // The caller's own stored state, handed back as it came when nothing changes.
+  const unchanged = state as ParticipationState;
   const channel = idOf(channelId);
   const line = messageOf(message, { maxTextChars: s.maxTextChars });
-  if (channel === null || !line || line.self) return state;
-  if (line.ts < nowOf(now) - s.hours * HOUR_MS) return state;
+  if (channel === null || !line || line.self) return unchanged;
+  if (line.ts < nowOf(now) - s.hours * HOUR_MS) return unchanged;
   const base = normalizeParticipation(state);
   const index = newestOfChannel(base.episodes, channel, 'lastOwnAt');
-  if (index === -1) return state;
+  if (index === -1) return unchanged;
   const episode = base.episodes[index];
-  const after = line.ts - episode.lastOwnAt;
-  if (after <= 0 || after > s.followMinutes * MINUTE_MS) return state;
-  if (episode.messages.some((m) => m.id === line.id)) return state;
-  if (episode.messages.filter((m) => m.ts > episode.lastOwnAt).length >= s.linesAfter) return state;
-  if (episode.messages.length >= Math.max(1, Math.floor(s.maxMessages))) return state;
+  const after = line.ts - Number(episode.lastOwnAt);
+  if (after <= 0 || after > s.followMinutes * MINUTE_MS) return unchanged;
+  if (episode.messages.some((m) => m.id === line.id)) return unchanged;
+  if (episode.messages.filter((m) => m.ts > Number(episode.lastOwnAt)).length >= s.linesAfter) return unchanged;
+  if (episode.messages.length >= Math.max(1, Math.floor(s.maxMessages))) return unchanged;
   const episodes = [...base.episodes];
   episodes[index] = withMessages(episode, [...episode.messages, line]);
   return { episodes, nextId: base.nextId };
@@ -345,22 +405,23 @@ export function recordFollowing(state, { channelId, message } = {}, settings, no
  * than `hours` before `now` go; then, when more than `maxStored` remain, the
  * oldest by `lastOwnAt` go. The rest keep their order. A `continues` naming a
  * gone episode is kept as it is. Pure: `state` is never mutated.
- * @param {unknown} state
- * @param {object} [settings]
- * @param {number} now
- * @returns {{ state: { episodes: object[], nextId: number }, dropped: object[] }}  `dropped`: the
+ * @returns `dropped`: the
  *   episodes that went, as normalised (their `itemId` included) -- the expired, then the ones over
  *   the cap, each in stored order.
  */
-export function expireEpisodes(state, settings, now) {
+export function expireEpisodes(
+  state: unknown,
+  settings: Partial<ParticipationSettings> | undefined,
+  now: number
+): { state: ParticipationState; dropped: Array<Episode> } {
   const s = settingsOf(settings);
   const base = normalizeParticipation(state);
   const cutoff = nowOf(now) - s.hours * HOUR_MS;
-  let episodes = base.episodes.filter((ep) => ep.lastOwnAt >= cutoff);
-  const dropped = base.episodes.filter((ep) => ep.lastOwnAt < cutoff);
+  let episodes = base.episodes.filter((ep) => Number(ep.lastOwnAt) >= cutoff);
+  const dropped = base.episodes.filter((ep) => Number(ep.lastOwnAt) < cutoff);
   const cap = Math.floor(s.maxStored);
   if (episodes.length > cap) {
-    const keep = new Set([...episodes].sort((a, b) => b.lastOwnAt - a.lastOwnAt).slice(0, cap));
+    const keep = new Set([...episodes].sort((a, b) => Number(b.lastOwnAt) - Number(a.lastOwnAt)).slice(0, cap));
     dropped.push(...episodes.filter((ep) => !keep.has(ep)));
     episodes = episodes.filter((ep) => keep.has(ep));
   }
@@ -371,12 +432,10 @@ export function expireEpisodes(state, settings, now) {
  * The store without one member's messages, for a forget: every message whose
  * `authorId` is `userId` leaves every episode, and an episode left with no line
  * of the persona is dropped. Pure: `state` is never mutated; `nextId` is kept.
- * @param {unknown} state
- * @param {string} userId
- * @returns {{ value: { episodes: object[], nextId: number }, removed: number }}  `removed`: the
+ * @returns `removed`: the
  *   messages taken out.
  */
-export function purgeParticipationFor(state, userId) {
+export function purgeParticipationFor(state: unknown, userId: string): { value: ParticipationState; removed: number } {
   const base = normalizeParticipation(state);
   const id = idOf(userId);
   let removed = 0;
@@ -392,21 +451,31 @@ export function purgeParticipationFor(state, userId) {
 
 /** The live episodes a view may offer: inside `hours` before `now`, not in `excludeChannelId`, and
  * accepted by `audience` (no predicate accepts nothing: the audience is the caller's to give). */
-function visibleEpisodes(state, { excludeChannelId, audience, now }, s) {
+function visibleEpisodes(
+  state: unknown,
+  {
+    excludeChannelId,
+    audience,
+    now,
+  }: { excludeChannelId?: string | null; audience?: (channelId: string) => boolean; now: number },
+  s: ParticipationSettings
+) {
   const base = normalizeParticipation(state);
   const cutoff = nowOf(now) - s.hours * HOUR_MS;
   const exclude = idOf(excludeChannelId);
   const shows = typeof audience === 'function' ? audience : () => false;
-  return base.episodes.filter((ep) => ep.lastOwnAt >= cutoff && ep.channelId !== exclude && shows(ep.channelId));
+  return base.episodes.filter(
+    (ep) => Number(ep.lastOwnAt) >= cutoff && ep.channelId !== exclude && shows(ep.channelId)
+  );
 }
 
 /** A message's readable text for a headline: its text, else its caption, cut at a word boundary. */
-function headlineText(message) {
+function headlineText(message: ParticipationMessage): string {
   return clampText(message.text || message.caption || '', HEADLINE_CHARS, { tolerance: 1 });
 }
 
 /** All of an episode's lines of one side, in order, each cut per line and the whole cut to `cap`. '' when none. */
-function headlineColumn(messages, cap) {
+function headlineColumn(messages: Array<ParticipationMessage>, cap: number): string {
   const parts = messages
     .map((m) => clampText(m.text || m.caption || '', HEADLINE_LINE_CHARS, { tolerance: 1 }))
     .filter(Boolean);
@@ -424,25 +493,38 @@ function headlineColumn(messages, cap) {
  * episode in order, each cut to 90 characters, joined with ' / ' and the whole
  * cut to 320 / 200 characters (all at word boundaries); '' when there are none.
  * No labels, no rendering. Pure.
- * @param {unknown} state
- * @param {{ excludeChannelId?: string|null, audience?: (channelId: string) => boolean, now: number }} view
- * @param {object} [settings]
- * @returns {Array<{ id: string, channelId: string, lastOwnAt: number, ageMs: number,
- *   memberLine: string|null, selfLine: string, memberLines: string, selfLines: string }>}
  */
-export function episodeHeadlines(state, { excludeChannelId, audience, now } = {}, settings) {
+export function episodeHeadlines(
+  state: unknown,
+  {
+    excludeChannelId,
+    audience,
+    now,
+  }: { excludeChannelId?: string | null; audience?: (channelId: string) => boolean; now: number },
+  settings?: StoredRecord
+): Array<{
+  id: string;
+  channelId: string;
+  lastOwnAt: number | null;
+  ageMs: number;
+  memberLine: string | null;
+  selfLine: string;
+  memberLines: string;
+  selfLines: string;
+}> {
   const s = settingsOf(settings);
   const clock = nowOf(now);
   return visibleEpisodes(state, { excludeChannelId, audience, now: clock }, s)
-    .sort((a, b) => b.lastOwnAt - a.lastOwnAt)
+    .sort((a, b) => Number(b.lastOwnAt) - Number(a.lastOwnAt))
     .map((ep) => {
       const member = ep.messages.find((m) => !m.self);
-      const self = ep.messages.find((m) => m.self);
+      // Every stored episode holds a line of the persona (`normalizeParticipation` drops one without).
+      const self = ep.messages.find((m) => m.self) as ParticipationMessage;
       return {
         id: ep.id,
         channelId: ep.channelId,
         lastOwnAt: ep.lastOwnAt,
-        ageMs: clock - ep.lastOwnAt,
+        ageMs: clock - Number(ep.lastOwnAt),
         memberLine: member ? headlineText(member) : null,
         selfLine: headlineText(self),
         memberLines: headlineColumn(
@@ -466,21 +548,32 @@ export function episodeHeadlines(state, { excludeChannelId, audience, now } = {}
  * result is grouped by channel, the channel with the newest `lastOwnAt` first,
  * its episodes oldest first. The episodes are normalised copies (see
  * `normalizeParticipation`). Pure.
- * @param {unknown} state
- * @param {{ pickedIds?: string[], excludeChannelId?: string|null,
- *   audience?: (channelId: string) => boolean, now: number }} view
- * @param {object} [settings]
- * @returns {Array<{ channelId: string, episodes: object[] }>}
  */
-export function selectEpisodes(state, { pickedIds = [], excludeChannelId, audience, now } = {}, settings) {
+export function selectEpisodes(
+  state: unknown,
+  {
+    pickedIds = [],
+    excludeChannelId,
+    audience,
+    now,
+  }: {
+    pickedIds?: Array<string>;
+    excludeChannelId?: string | null;
+    audience?: (channelId: string) => boolean;
+    now: number;
+  },
+  settings?: StoredRecord
+): Array<{ channelId: string; episodes: Array<Episode> }> {
   const s = settingsOf(settings);
   const visible = visibleEpisodes(state, { excludeChannelId, audience, now }, s);
   const byId = new Map(visible.map((ep) => [ep.id, ep]));
-  const newestFirst = [...visible].sort((a, b) => b.lastOwnAt - a.lastOwnAt);
-  const picked = (Array.isArray(pickedIds) ? pickedIds : []).map((id) => byId.get(id)).filter(Boolean);
+  const newestFirst = [...visible].sort((a, b) => Number(b.lastOwnAt) - Number(a.lastOwnAt));
+  const picked = (Array.isArray(pickedIds) ? pickedIds : [])
+    .map((id) => byId.get(id))
+    .filter((ep): ep is Episode => ep !== undefined);
 
-  const chosen = [];
-  const perChannel = new Map();
+  const chosen: Array<Episode> = [];
+  const perChannel = new Map<string, number>();
   for (const ep of [...picked, ...newestFirst]) {
     if (chosen.length >= s.shown) break;
     if (chosen.includes(ep)) continue;
@@ -509,18 +602,18 @@ export function selectEpisodes(state, { pickedIds = [], excludeChannelId, audien
  * null when none of hers is left). The result moves only when a stored line
  * crosses `before` or the age bound, never with the clock alone. `[]` with
  * `earlierHours` or `earlierShown` 0, no channel or no finite `before`. Pure.
- * @param {unknown} state
- * @param {{ channelId: string, before: number, now: number }} view
- * @param {object} [settings]
- * @returns {object[]}
  */
-export function earlierEpisodes(state, { channelId, before, now } = {}, settings) {
+export function earlierEpisodes(
+  state: unknown,
+  { channelId, before, now }: { channelId: string; before: number; now: number },
+  settings?: StoredRecord
+): Array<Episode> {
   const s = settingsOf(settings);
   const channel = idOf(channelId);
   const shown = Math.floor(s.earlierShown);
-  if (channel === null || !Number.isFinite(before) || s.earlierHours <= 0 || shown <= 0) return [];
+  if (channel === null || !isFiniteNumber(before) || s.earlierHours <= 0 || shown <= 0) return [];
   const from = nowOf(now) - s.earlierHours * HOUR_MS;
-  const out = [];
+  const out: Array<Episode> = [];
   for (const ep of normalizeParticipation(state).episodes) {
     if (ep.channelId !== channel) continue;
     const messages = ep.messages.filter((m) => m.ts < before && m.ts >= from);
@@ -532,8 +625,18 @@ export function earlierEpisodes(state, { channelId, before, now } = {}, settings
     .sort((a, b) => a.startAt - b.startAt);
 }
 
+/** What a cut reads of a message: its size, who wrote it and which message it answers. */
+export type SizedMessage = {
+  id: string;
+  ts: number;
+  text?: string | null;
+  caption?: string | null;
+  self?: boolean;
+  replyTo?: string | null;
+};
+
 /** A message's weight against a cut's budget: its text plus its caption, in code points. */
-function sizeOf(message) {
+function sizeOf(message: SizedMessage): number {
   return lengthOf(message.text) + lengthOf(message.caption);
 }
 
@@ -548,21 +651,25 @@ function sizeOf(message) {
  * Within a tier the order is chronological. A run of dropped messages becomes
  * one `{ skipped: n }` between kept ones. Pure: the items point at the
  * episode's own messages.
- * @param {{ messages: object[] }} episode
- * @param {{ maxChars: number, keepIds?: string[] }} opts
- * @returns {Array<{ message: object } | { skipped: number }>}
  */
-export function cutEpisode(episode, { maxChars, keepIds = [] } = {}) {
+export function cutEpisode(
+  episode: { messages: Array<object> },
+  options: { maxChars: number; keepIds?: Array<string> }
+): Array<{ message: object } | { skipped: number }>;
+export function cutEpisode<TMessage extends SizedMessage>(
+  episode: { messages: Array<TMessage> },
+  { maxChars, keepIds = [] }: { maxChars: number; keepIds?: Array<string> }
+): Array<{ message: TMessage } | { skipped: number }> {
   const messages = Array.isArray(episode?.messages) ? [...episode.messages].sort((a, b) => a.ts - b.ts) : [];
-  const budget = Number.isFinite(maxChars) && maxChars >= 0 ? maxChars : PARTICIPATION_DEFAULTS.episodeChars;
+  const budget = isFiniteNumber(maxChars) && maxChars >= 0 ? maxChars : PARTICIPATION_DEFAULTS.episodeChars;
   const total = messages.reduce((sum, m) => sum + sizeOf(m), 0);
   if (total <= budget) return messages.map((message) => ({ message }));
 
   const indexOf = new Map(messages.map((m, i) => [m.id, i]));
-  const tiers = [[], [], [], []];
+  const tiers: Array<Array<number>> = [[], [], [], []];
   messages.forEach((m, i) => {
     if (!m.self) return;
-    if (m.replyTo !== null && indexOf.has(m.replyTo)) tiers[0].push(indexOf.get(m.replyTo));
+    if (m.replyTo != null && indexOf.has(m.replyTo)) tiers[0].push(Number(indexOf.get(m.replyTo)));
     tiers[0].push(i);
   });
   const keeping = new Set((Array.isArray(keepIds) ? keepIds : []).map(idOf));

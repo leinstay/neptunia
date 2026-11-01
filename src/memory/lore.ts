@@ -9,6 +9,8 @@
 import { createHash } from 'node:crypto';
 import { clampText, stripUrls } from './clamp.ts';
 import { occursAsWholeWord } from './mentions.ts';
+import { isFiniteNumber } from './types.ts';
+import type { StoredRecord, Untyped } from './types.ts';
 
 const MAX_TITLE = 80;
 const DEFAULT_MAX_TEXT = 600; // config.json's lore.textChars, used only when a caller passes none
@@ -17,7 +19,7 @@ const MAX_KEY = 40;
 const MAX_KEYS = 8;
 const DEFAULT_WEIGHT = 3;
 
-function normalizeTitle(title) {
+function normalizeTitle(title: string | number | null | undefined) {
   return String(title ?? '')
     .trim()
     .toLowerCase();
@@ -32,10 +34,8 @@ function normalizeTitle(title) {
  * then `-` and the first 12 hex digits of the SHA-1 of the whole identity (what
  * makes it unique; a title with no ASCII letter or digit is the hash alone).
  * Always a safe file name on every platform.
- * @param {unknown} title
- * @returns {string}
  */
-export function loreVersionKey(title) {
+export function loreVersionKey(title: string | number | null | undefined): string {
   const identity = normalizeTitle(title);
   const hash = createHash('sha1').update(identity).digest('hex').slice(0, 12);
   const slug = identity
@@ -49,7 +49,7 @@ export function loreVersionKey(title) {
 /** Lowercase, trim, drop too-short/duplicate keys, clamp an over-long one to
  * MAX_KEY at a word boundary (never dropped for being too long), keep at
  * most MAX_KEYS. */
-function normalizeKeys(rawKeys) {
+function normalizeKeys(rawKeys: Untyped) {
   if (!Array.isArray(rawKeys)) return [];
   const seen = new Set();
   const out = [];
@@ -65,20 +65,35 @@ function normalizeKeys(rawKeys) {
   return out;
 }
 
+/** A stored lorebook entry: a title, the keywords that bring it up and the text that goes to the model. */
+export type LoreEntry = {
+  title: string;
+  keys: Array<string>;
+  text: string;
+  source: 'analyzer' | 'owner';
+  always?: boolean;
+  weight?: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 /** Whether a stored entry already holds exactly these (normalised, clamped) values. */
-function isSameEntry(existing, { title, keys, text, source }) {
+function isSameEntry(
+  existing: LoreEntry,
+  { title, keys, text, source }: { title: string; keys: Array<string>; text: string; source: string }
+) {
   return (
     existing.title === title &&
     existing.text === text &&
     existing.source === source &&
     Array.isArray(existing.keys) &&
     existing.keys.length === keys.length &&
-    existing.keys.every((key, index) => key === keys[index])
+    existing.keys.every((key: string, index: number) => key === keys[index])
   );
 }
 
 /** A short, stable, deterministic id from the title, creation time and an in-call salt. */
-function makeId(title, nowMs, salt) {
+function makeId(title: string, nowMs: number, salt: Untyped) {
   const base = `${title}|${nowMs}|${salt}`;
   let hash = 0;
   for (let i = 0; i < base.length; i += 1) {
@@ -88,7 +103,7 @@ function makeId(title, nowMs, salt) {
 }
 
 /** When an entry was last written: its `updatedAt`, or its `createdAt` when it has none. */
-function lastWrittenAt(entry) {
+function lastWrittenAt(entry: LoreEntry): string {
   return String(entry.updatedAt || entry.createdAt || '');
 }
 
@@ -101,8 +116,8 @@ function lastWrittenAt(entry) {
  * entries written at the same moment leave in the order they were created,
  * then in stored order.
  */
-function evictOverflow(entries, maxEntries) {
-  if (!Number.isFinite(maxEntries) || entries.length <= maxEntries) return entries;
+function evictOverflow(entries: Array<LoreEntry>, maxEntries: number): Array<LoreEntry> {
+  if (!isFiniteNumber(maxEntries) || entries.length <= maxEntries) return entries;
   const overflow = entries.length - maxEntries;
   const candidates = entries
     .map((entry, index) => ({ entry, index }))
@@ -130,32 +145,45 @@ function evictOverflow(entries, maxEntries) {
  * `maxEntries` the stalest analyzer entries leave (see `evictOverflow`): the
  * ones written longest ago, not the ones created first.
  *
- * @param {object[]|undefined} entries  Stored entries.
- * @param {unknown} incoming            Untrusted `{ title, keys, text, always? }[]`.
- * @param {{ source: 'analyzer'|'owner', now?: number, maxEntries?: number, textChars?: number,
- *   clampTolerance?: number }} opts
+ * @param entries  Stored entries.
+ * @param incoming            Untrusted `{ title, keys, text, always? }[]`.
  *   The title, every key and the text lose their links first (src/memory/clamp.ts#stripUrls): an
  *   entry left with no title, no key or no text is skipped like one sent without them.
  *   `title` is a hard identity clamp at MAX_TITLE; `text` is free prose: a first write (a new
  *   entry, or one with no text) is clamped tolerantly (see src/memory/clamp.ts) to `textChars`
  *   (DEFAULT_MAX_TEXT when the caller passes none); a rewrite is stored as given, never
  *   cut (the caller refuses one over the limit, src/memory/prose.ts#acceptProse).
- * @returns {{ entries: object[], upserted: number, changes: { title: string, previousText: string, nextText: string }[] }}
  *   `upserted`: entries inserted or actually changed. `changes`: one pair per existing entry whose
  *   text this call replaced with a different one (the stored text before, the text after), for the
  *   store's version history; an inserted entry or a change of keys alone adds none.
  */
 export function upsertLore(
-  entries,
-  incoming,
-  { source, now: nowMs = Date.now(), maxEntries = Infinity, textChars, clampTolerance } = {}
-) {
+  entries: Array<LoreEntry> | undefined,
+  incoming: unknown,
+  {
+    source,
+    now: nowMs = Date.now(),
+    maxEntries = Infinity,
+    textChars,
+    clampTolerance,
+  }: {
+    source: 'analyzer' | 'owner';
+    now?: number;
+    maxEntries?: number;
+    textChars?: number;
+    clampTolerance?: number;
+  }
+): {
+  entries: Array<LoreEntry>;
+  upserted: number;
+  changes: Array<{ title: string; previousText: string; nextText: string }>;
+} {
   const stored = Array.isArray(entries) ? [...entries] : [];
   if (!Array.isArray(incoming) || incoming.length === 0) return { entries: stored, upserted: 0, changes: [] };
 
   const byTitle = new Map(stored.map((entry, index) => [normalizeTitle(entry.title), index]));
   const nowIso = new Date(nowMs).toISOString();
-  const effectiveTextChars = Number.isFinite(textChars) && textChars > 0 ? textChars : DEFAULT_MAX_TEXT;
+  const effectiveTextChars = isFiniteNumber(textChars) && textChars > 0 ? textChars : DEFAULT_MAX_TEXT;
   let upserted = 0;
   let salt = 0;
   const changes = [];
@@ -202,7 +230,7 @@ export function upsertLore(
     // explicit save and always counts (src/admin.js reads 0 as an invalid entry).
     if (source !== 'owner' && isSameEntry(existing, { title, keys, text, source })) continue;
 
-    const updated = { ...existing, title, keys, text, source, updatedAt: nowIso };
+    const updated: LoreEntry = { ...existing, title, keys, text, source, updatedAt: nowIso };
     if (source === 'owner') updated.always = Boolean(raw.always);
     stored[existingIndex] = updated;
     upserted += 1;
@@ -219,10 +247,11 @@ export function upsertLore(
  * `<existing_lore>` input, which cares about textual mentions, not about
  * `always`. Sorted most-matched first (distinct keys matched, then most
  * recent match position, then weight), for determinism only.
- * @param {object[]} entries
- * @param {string[]} recentTexts
  */
-export function keywordMatches(entries, recentTexts) {
+export function keywordMatches<TEntry extends StoredRecord>(
+  entries: Array<TEntry>,
+  recentTexts: Array<string>
+): Array<TEntry> {
   const list = Array.isArray(entries) ? entries : [];
   const texts = (Array.isArray(recentTexts) ? recentTexts : []).map((t) => String(t ?? '').toLowerCase());
 
@@ -254,11 +283,18 @@ export function keywordMatches(entries, recentTexts) {
  * (first, never counted against `maxMatches`), plus up to `maxMatches` of the
  * remaining entries whose keys occur in `recentTexts`, most relevant first.
  * See docs/prompt-contract.md, "<lore>".
- * @param {object[]} entries
- * @param {string[]} recentTexts  Recent plain message texts, oldest first.
- * @param {{ maxMatches?: number }} [opts]
+ * @param recentTexts  Recent plain message texts, oldest first.
  */
-export function matchLore(entries, recentTexts, { maxMatches = Infinity } = {}) {
+export function matchLore(
+  entries: Array<object>,
+  recentTexts: Array<string>,
+  options?: { maxMatches?: number }
+): Array<object>;
+export function matchLore<TEntry extends StoredRecord>(
+  entries: Array<TEntry>,
+  recentTexts: Array<string>,
+  { maxMatches = Infinity }: { maxMatches?: number } = {}
+): Array<TEntry> {
   const list = Array.isArray(entries) ? entries : [];
   const always = list.filter((entry) => entry.always);
   const rest = list.filter((entry) => !entry.always);

@@ -28,8 +28,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { clampChars, clampWithEllipsis, oneLine } from './clamp.ts';
 import { memoryRootOf } from './root.ts';
-import { createReadSeam } from './db/readers/common.ts';
+
 import { recordDays, recordLines, recordMonths, recordNewestRevision, recordStats } from './db/readers/record.ts';
+import { isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
+import type { StoredRecord, MemoryDb, Untyped } from './types.ts';
 
 /** The schema version every line carries. */
 export const RECORD_VERSION = 1;
@@ -48,8 +50,8 @@ const LINK_URL_CHARS = 500;
 const LINK_SITE_CHARS = 100;
 
 /** Distinct non-empty strings of `values` (arrays), in order. */
-function idList(...values) {
-  const out = [];
+function idList(...values: Array<unknown>): Array<string> {
+  const out: Array<string> = [];
   for (const value of values) {
     for (const item of Array.isArray(value) ? value : [value]) {
       if (typeof item === 'string' && item && !out.includes(item)) out.push(item);
@@ -61,21 +63,19 @@ function idList(...values) {
 /**
  * An epoch-ms or ISO time (a bare `YYYY-MM-DD` is that day's midnight UTC) as an ISO string, else
  * null. Shared with src/memory/archive.ts.
- * @param {unknown} value
- * @returns {string|null}
  */
-export function isoOf(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) return new Date(value).toISOString();
+export function isoOf(value: unknown): string | null {
+  if (typeof value === 'number' && isFiniteNumber(value)) return new Date(value).toISOString();
   if (typeof value === 'string' && value) {
     if (DATE_ONLY_RE.test(value)) return `${value}T00:00:00.000Z`;
     const ms = Date.parse(value);
-    return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+    return isFiniteNumber(ms) ? new Date(ms).toISOString() : null;
   }
   return null;
 }
 
 /** The media kinds of a slim message: attachments, links, then one `sticker` per sticker. */
-function mediaKinds(slim) {
+function mediaKinds(slim: Untyped) {
   const kinds = [];
   for (const item of [
     ...(Array.isArray(slim.attachments) ? slim.attachments : []),
@@ -95,12 +95,12 @@ function mediaKinds(slim) {
  * `link`, or no kind: never a GIF, whose URL leaves the text) with a title or a description is
  * kept, at most RECORD_LINKS_MAX, in order. `id` is the link's media-cache key, when it has one.
  * Pure.
- * @param {unknown} items
- * @returns {{ id?: string, url: string, title: string, description: string, site: string }[]}
  */
-export function recordLinks(items) {
+export function recordLinks(
+  items: unknown
+): Array<{ id?: string; url: string; title: string; description: string; site: string }> {
   const out = [];
-  const str = (value) => (typeof value === 'string' ? oneLine(value) : '');
+  const str = (value: Untyped) => (typeof value === 'string' ? oneLine(value) : '');
   for (const item of Array.isArray(items) ? items : []) {
     if (out.length >= RECORD_LINKS_MAX) break;
     if (!item || typeof item !== 'object' || (item.kind !== undefined && item.kind !== 'link')) continue;
@@ -129,15 +129,27 @@ export function recordLinks(items) {
  * no author (it is the persona's) and carries `turnId` / `opId`; a `deleted` line keeps only
  * the message id and its author as a participant. `guildId` is stamped on append.
  *
- * @param {object} slim
- * @param {{ kind?: 'seen'|'said'|'deleted', revision?: number, origin?: 'live'|'backfill',
- *   now?: () => number, uuid?: () => string, turnId?: string|null, opId?: string|null }} [options]
- * @returns {object}
  */
 export function toRecordLine(
-  slim,
-  { kind = 'seen', revision = 1, origin = 'live', now = Date.now, uuid = randomUUID, turnId = null, opId = null } = {}
-) {
+  slim: StoredRecord,
+  {
+    kind = 'seen',
+    revision = 1,
+    origin = 'live',
+    now = Date.now,
+    uuid = randomUUID,
+    turnId = null,
+    opId = null,
+  }: {
+    kind?: 'seen' | 'said' | 'deleted';
+    revision?: number;
+    origin?: 'live' | 'backfill';
+    now?: () => number;
+    uuid?: () => string;
+    turnId?: string | null;
+    opId?: string | null;
+  } = {}
+): object {
   const source = slim && typeof slim === 'object' ? slim : {};
   const messageId = typeof source.id === 'string' && source.id ? source.id : null;
   const channelId = typeof source.channelId === 'string' && source.channelId ? source.channelId : null;
@@ -161,7 +173,7 @@ export function toRecordLine(
   };
   const tail = { sourceMessageIds: idList(messageId), origin: origin === 'backfill' ? 'backfill' : 'live' };
   if (kind === 'deleted') return { ...head, ...envelope, participants: idList(by), ...tail };
-  const rev = Number.isInteger(revision) && revision > 0 ? revision : 1;
+  const rev = isIntegerNumber(revision) && revision > 0 ? revision : 1;
   const links = recordLinks(source.linkCards);
   const body = {
     ...head,
@@ -188,10 +200,8 @@ export function toRecordLine(
 
 /**
  * The revision id of a feeling's text: `rv-` and the first 12 hex digits of its sha256.
- * @param {string} text
- * @returns {string}
  */
-export function revisionOf(text) {
+export function revisionOf(text: string): string {
   return `rv-${createHash('sha256')
     .update(String(text ?? ''), 'utf8')
     .digest('hex')
@@ -200,15 +210,22 @@ export function revisionOf(text) {
 
 /**
  * A `felt` line: the feeling the persona attached to a stored moment of `userId`.
- * @param {{ userId: string, itemId?: string|null, text: string, date?: string|null,
- *   sourceMessageIds?: string[] }} feeling  `date`: the episode's date (a day or an ISO time).
- * @param {{ now?: () => number, uuid?: () => string, origin?: 'live'|'backfill' }} [options]
- * @returns {object}
+ * @param feeling  `date`: the episode's date (a day or an ISO time).
  */
 export function feltLine(
-  { userId, itemId = null, text, date = null, sourceMessageIds = [] },
-  { now = Date.now, uuid = randomUUID, origin = 'live' } = {}
-) {
+  {
+    userId,
+    itemId = null,
+    text,
+    date = null,
+    sourceMessageIds = [],
+  }: { userId: string; itemId?: string | null; text: string; date?: string | null; sourceMessageIds?: Array<string> },
+  {
+    now = Date.now,
+    uuid = randomUUID,
+    origin = 'live',
+  }: { now?: () => number; uuid?: () => string; origin?: 'live' | 'backfill' } = {}
+): object {
   const recordedAt = new Date(now()).toISOString();
   return {
     v: RECORD_VERSION,
@@ -237,20 +254,17 @@ export const EDIT_REVISION_RETRIES = 5;
  * the message + 1 (`record.newestRevision`, else the refused revision + 1) and appended again, at
  * most EDIT_REVISION_RETRIES times. A bump is logged as `record: edit revision bumped` (counts
  * only). The caller continues its own count from the returned `revision`.
- * @param {{ append: Function, newestRevision?: Function }} record  From createRecord.
- * @param {string} guildId
- * @param {(revision: number) => object} lineAt  The line at a revision (toRecordLine).
- * @param {number} revision  The revision to try first.
- * @param {{ log?: { info: Function }, privateUserId?: string|null }} [options]
- * @returns {Promise<{ revision: number, written: number, duplicates: number, bumps: number }>}
+ * @param record  From createRecord.
+ * @param lineAt  The line at a revision (toRecordLine).
+ * @param revision  The revision to try first.
  */
 export async function appendRevision(
-  record,
-  guildId,
-  lineAt,
-  revision,
-  { log = defaultLog, privateUserId = null } = {}
-) {
+  record: { append: Untyped; newestRevision?: Untyped },
+  guildId: string,
+  lineAt: (revision: number) => Untyped,
+  revision: number,
+  { log = defaultLog, privateUserId = null }: { log?: { info: Untyped }; privateUserId?: string | null } = {}
+): Promise<{ revision: number; written: number; duplicates: number; bumps: number }> {
   const opts = privateUserId ? { privateUserId } : undefined;
   let current = revision;
   let line = lineAt(current);
@@ -262,7 +276,7 @@ export async function appendRevision(
       typeof record.newestRevision === 'function'
         ? await record.newestRevision(guildId, line.messageId, line.occurredAt, { privateUserId })
         : null;
-    current = Math.max(current, Number.isInteger(known) ? known : current) + 1;
+    current = Math.max(current, isIntegerNumber(known) ? known : current) + 1;
     line = lineAt(current);
     result = await record.append(guildId, [line], opts);
   }
@@ -271,8 +285,21 @@ export async function appendRevision(
   return { revision: current, written, duplicates: result?.duplicates ?? 0, bumps };
 }
 
+/** A line of the record as it is stored: a message the persona saw or said, or the deletion of one. */
+export type RecordLine = {
+  [field: string]: Untyped;
+  kind?: string;
+  messageId: string;
+  occurredAt: string;
+  revision?: number;
+  scope: { channel?: string; private?: boolean; user?: string };
+  text?: string;
+  by?: string;
+  links?: Array<Untyped>;
+};
+
 /** The parsed line, or null. */
-function parse(line) {
+function parse(line: Untyped) {
   try {
     const value = JSON.parse(line);
     return value && typeof value === 'object' ? value : null;
@@ -281,26 +308,42 @@ function parse(line) {
   }
 }
 
+/** What `RecordStore.iterate` yields, as the record lines they are (the store's public type keeps them plain objects). */
+export function asRecordLines(lines: AsyncIterable<object>): AsyncIterable<RecordLine> {
+  // The record writes nothing but record lines.
+  return lines as AsyncIterable<RecordLine>;
+}
+
+export type RecordStore = {
+  append(
+    guildId: string,
+    lines: Array<object>,
+    opts?: { privateUserId?: string | null }
+  ): Promise<{ written: number; duplicates: number }>;
+  dayFile(guildId: string, occurredAtIso: string, privateUserId?: string | null): string;
+  iterate(
+    guildId: string,
+    query?: { from?: string; to?: string; channelIds?: Array<string>; privateUserId?: string | null }
+  ): AsyncIterable<object>;
+  newestRevision(
+    guildId: string,
+    messageId: string,
+    occurredAtIso: string,
+    opts?: { privateUserId?: string | null }
+  ): Promise<number | null>;
+  stats(guildId: string): Promise<{ messages: number; days: number; first: string | null }>;
+};
+
 /**
  * Create the record.
  *
- * @param {object} options
- * @param {string} options.dataDir  the `data/` directory (the units' names are relative to it)
- * @param {{ info: Function, warn: Function }} [options.log]
- * @param {() => number} [options.now=Date.now]
- * @param {(() => Promise<void>)|null} [options.writerGate]  awaited before every append: the
+ * @param options.dataDir  the `data/` directory (the units' names are relative to it)
+ * @param [options.writerGate]  awaited before every append: the
  *   journal's `waitUnlocked`, so its writer lock (src/memory/journal.ts#withWriterLock) holds the
  *   record's appends too
- * @param {object|null} options.memoryDb  the memory database service (src/memory/db/service.ts): every
+ * @param options.memoryDb  the memory database service (src/memory/db/service.ts): every
  *   read is answered from it (src/memory/db/readers/record.ts) and `append` writes it (`writeUnit`); a
  *   failed read or write rejects with a code
- * @returns {{
- *   append(guildId: string, lines: object[], opts?: { privateUserId?: string|null }): Promise<{ written: number, duplicates: number }>,
- *   dayFile(guildId: string, occurredAtIso: string, privateUserId?: string|null): string,
- *   iterate(guildId: string, query?: { from?: string, to?: string, channelIds?: string[], privateUserId?: string|null }): AsyncIterable<object>,
- *   newestRevision(guildId: string, messageId: string, occurredAtIso: string, opts?: { privateUserId?: string|null }): Promise<number|null>,
- *   stats(guildId: string): Promise<{ messages: number, days: number, first: string|null }>,
- * }}
  *   `stats` counts the guild record (the distinct message ids of its lines). `append` stamps
  *   `guildId` (and, with `privateUserId`, the private scope) on each line, one write per run of
  *   lines of one day; a line the month already holds is a duplicate (`duplicates`). `iterate` streams
@@ -309,33 +352,45 @@ function parse(line) {
  *   holds for the message (null when none; a `deleted` line does not count). Appends run one at a time.
  *   `dayFile` is the absolute path a day's unit is named after (no file is written there).
  */
-export function createRecord({ dataDir, log = defaultLog, now = Date.now, writerGate = null, memoryDb = null }) {
+export function createRecord({
+  dataDir,
+  log = defaultLog,
+  now = Date.now,
+  writerGate = null,
+  memoryDb = null,
+}: {
+  dataDir: string;
+  log?: { info: Untyped; warn: Untyped };
+  now?: () => number;
+  writerGate?: (() => Promise<void>) | null;
+  memoryDb: MemoryDb | null;
+}): RecordStore {
   const root = memoryRootOf(dataDir);
-  const seam = createReadSeam({ memoryDb, log, reader: 'record' });
-  let chain = Promise.resolve();
+  const seam = readSeamOf(memoryDb, log, 'record');
+  let chain: Promise<unknown> = Promise.resolve();
 
   /** Run `task` after every append already queued. */
-  function serial(task) {
+  function serial<TResult>(task: () => Promise<TResult>): Promise<TResult> {
     const run = chain.then(task);
     chain = run.catch(() => {});
     return run;
   }
 
-  function baseDir(guildId, privateUserId = null) {
+  function baseDir(guildId: string, privateUserId: string | null = null) {
     return root.recordDir(guildId, privateUserId);
   }
 
-  function dayOf(iso) {
+  function dayOf(iso: string) {
     return String(iso ?? '').match(DAY_RE)?.[0] ?? new Date(now()).toISOString().slice(0, 10);
   }
 
-  function dayFile(guildId, occurredAtIso, privateUserId = null) {
+  function dayFile(guildId: string, occurredAtIso: Untyped, privateUserId: string | null = null) {
     const day = dayOf(occurredAtIso);
     return path.join(baseDir(guildId, privateUserId), day.slice(0, 7), `${day}.jsonl`);
   }
 
   /** A line as `append` stores it: `guildId` stamped, `occurredAt` as ISO, a private line's scope. */
-  function stamped(guildId, raw, privateUserId) {
+  function stamped(guildId: string, raw: Untyped, privateUserId: string | null) {
     const line = { ...raw, guildId: String(guildId) };
     line.occurredAt = isoOf(line.occurredAt) ?? new Date(now()).toISOString();
     if (typeof privateUserId === 'string' && privateUserId) {
@@ -353,13 +408,14 @@ export function createRecord({ dataDir, log = defaultLog, now = Date.now, writer
   }
 
   /** The lines go to the database, each run of lines of one day as one write. */
-  async function appendToDb(guildId, lines, privateUserId) {
+  async function appendToDb(guildId: string, lines: Untyped, privateUserId: string | null) {
     const write = seam.run(() => unitWriter());
     let written = 0;
     let duplicates = 0;
-    const flush = async (owner, run) => {
+    const flush = async (owner: Untyped, run: Untyped) => {
       if (run.length === 0) return;
-      const done = await seam.run(() => write({ op: 'lines', owner, lines: run }));
+      // The writer answers a lines unit with how many lines it wrote and how many it already held.
+      const done = (await seam.run(() => write({ op: 'lines', owner, lines: run }))) as StoredRecord | undefined;
       written += done?.written ?? 0;
       duplicates += done?.duplicates ?? 0;
     };
@@ -380,12 +436,29 @@ export function createRecord({ dataDir, log = defaultLog, now = Date.now, writer
     return { written, duplicates };
   }
 
-  async function append(guildId, lines, { privateUserId = null } = {}) {
+  async function append(
+    guildId: string,
+    lines: Array<Untyped>,
+    { privateUserId = null }: { privateUserId?: string | null } = {}
+  ) {
     if (typeof writerGate === 'function') await writerGate();
     return serial(() => appendToDb(guildId, lines, privateUserId));
   }
 
-  async function* iterate(guildId, { from = null, to = null, channelIds = null, privateUserId = null } = {}) {
+  async function* iterate(
+    guildId: string,
+    {
+      from = null,
+      to = null,
+      channelIds = null,
+      privateUserId = null,
+    }: {
+      from?: string | null;
+      to?: string | null;
+      channelIds?: Array<string> | null;
+      privateUserId?: string | null;
+    } = {}
+  ) {
     const db = seam.db();
     const fromMs = from ? Date.parse(from) : -Infinity;
     const toMs = to ? Date.parse(to) : Infinity;
@@ -401,7 +474,7 @@ export function createRecord({ dataDir, log = defaultLog, now = Date.now, writer
           const value = parse(line);
           if (!value) continue;
           const at = Date.parse(value.occurredAt);
-          if (Number.isFinite(at) && (at < fromMs || at > toMs)) continue;
+          if (isFiniteNumber(at) && (at < fromMs || at > toMs)) continue;
           if (channels && !channels.has(value.scope?.channel)) continue;
           yield value;
         }
@@ -409,7 +482,12 @@ export function createRecord({ dataDir, log = defaultLog, now = Date.now, writer
     }
   }
 
-  function newestRevision(guildId, messageId, occurredAtIso, { privateUserId = null } = {}) {
+  function newestRevision(
+    guildId: string,
+    messageId: string,
+    occurredAtIso: Untyped,
+    { privateUserId = null }: { privateUserId?: string | null } = {}
+  ) {
     return serial(async () => {
       const db = seam.db();
       return seam.run(() =>
@@ -418,7 +496,7 @@ export function createRecord({ dataDir, log = defaultLog, now = Date.now, writer
     });
   }
 
-  async function stats(guildId) {
+  async function stats(guildId: string) {
     const db = seam.db();
     return seam.run(() => recordStats(db, guildId));
   }

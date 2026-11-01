@@ -12,23 +12,23 @@ import { gifOpts } from './gifs.ts';
 import { recordLinks } from './record.ts';
 import { diaryConversationIds } from './db/mirrors.ts';
 import { MEMORY_LIMITS } from './text-limits.ts';
+import type { StoreView } from './store.ts';
+import { propOf } from './types.ts';
+import type { StoredRecord, Hot, Untyped } from './types.ts';
 
 /**
  * The log `error` field of a failure: the error's name only (`SyntaxError`, `TypeError`, `Error`), never its message.
- * @param {unknown} err
- * @returns {string}
  */
-export function errorNameOf(err) {
-  return typeof err?.name === 'string' && err.name ? err.name : 'Error';
+export function errorNameOf(err: unknown): string {
+  const name = propOf(err, 'name');
+  return typeof name === 'string' && name ? name : 'Error';
 }
 
 /**
  * Normalized set of `config.memory.mainChannelIds`, compared as strings. Garbage config (not an array, non-string
  * entries) never throws: a non-array collapses to an empty set, every entry is coerced with String().
- * @param {unknown} mainChannelIds
- * @returns {Set<string>}
  */
-export function mainChannelSet(mainChannelIds) {
+export function mainChannelSet(mainChannelIds: unknown): Set<string> {
   return new Set((Array.isArray(mainChannelIds) ? mainChannelIds : []).map((id) => String(id)));
 }
 
@@ -38,13 +38,16 @@ export function mainChannelSet(mainChannelIds) {
  * 30 when missing). The candidates are every stored profile of the guild; other bots' lines are
  * skipped, the persona's own count. A store without `listUserProfiles` / `recordAddressUses` (a
  * test fake) counts nothing.
- * @param {object} store
- * @param {string} guildId
- * @param {object[]} messages  The observed slim messages.
- * @param {object} [cfg]  `config.memory`, read at the moment of use.
- * @returns {number}  The uses recorded.
+ * @param messages  The observed slim messages.
+ * @param [cfg]  `config.memory`, read at the moment of use.
+ * @returns The uses recorded.
  */
-export function recordAddressing(store, guildId, messages, cfg = {}) {
+export function recordAddressing(
+  store: StoreView,
+  guildId: string,
+  messages: Array<StoredRecord>,
+  cfg: StoredRecord = {}
+): number {
   if (typeof store?.listUserProfiles !== 'function' || typeof store?.recordAddressUses !== 'function') return 0;
   const lines = (Array.isArray(messages) ? messages : []).filter((m) => m && !m.bot);
   if (lines.length === 0) return 0;
@@ -67,16 +70,19 @@ export function recordAddressing(store, guildId, messages, cfg = {}) {
  * persona's own messages) and `touchChannel`, whose `topWriters` tally also
  * skips the persona's own messages and other bots. Used by `observe()`, the
  * live pipeline.
- * @param {object} store
- * @param {string} guildId
- * @param {object} normalized  A normalized message (src/protocol/events.ts#Message);
+ * @param normalized  A normalized message (src/protocol/events.ts#Message);
  *   callers are expected to have already dropped other bots' messages.
- * @param {object} [memoryCfg]  The live `config.memory`, for the tally's settings
+ * @param [memoryCfg]  The live `config.memory`, for the tally's settings
  *   (`channelWritersStored`, `channelWritersHalfLifeDays`); omitted -> the store's fallbacks.
  *   `diaryChannelIds` (the caller adds the places of her diary, src/memory/db/mirrors.ts#diaryConversationIds) names
  *   the channels where the persona's own messages count as a writer.
  */
-export function touchMemory(store, guildId, normalized, memoryCfg) {
+export function touchMemory(
+  store: StoreView,
+  guildId: string,
+  normalized: NormalizedMessage,
+  memoryCfg?: StoredRecord
+): void {
   if (!normalized.self) {
     store.touchUser(guildId, normalized.authorId, normalized.authorName, normalized.ts);
   }
@@ -84,7 +90,7 @@ export function touchMemory(store, guildId, normalized, memoryCfg) {
   // top writers -- see src/memory/store.ts#touchChannel.
   // The one exception is a place of her diary (`memoryCfg.diaryChannelIds`): the persona is its writer, so the map
   // does not show it as dead.
-  const diaryIds = /** @type {Set<string> | undefined} */ memoryCfg?.diaryChannelIds;
+  const diaryIds: Set<string> | undefined = memoryCfg?.diaryChannelIds;
   const inDiary = diaryIds?.has(String(normalized.channelId)) === true;
   const writerId = !normalized.bot && (!normalized.self || inDiary) ? normalized.authorId : null;
   store.touchChannel(
@@ -103,30 +109,56 @@ export function touchMemory(store, guildId, normalized, memoryCfg) {
  * into it -- but the item `id` does. A sticker keeps `id`/`name`/`format` and its `url` (a fixed picture address,
  * null for a sticker with no picture); a custom emoji keeps only `id`/`name` (its URL is rebuilt via emojiUrl).
  */
+/** The media of a normalized message, or of one of its forwarded snapshots, as the interface describes them. */
+type MediaPart = {
+  attachments?: Array<Untyped>;
+  links?: Array<Untyped>;
+  stickers?: Array<Untyped>;
+  emojis?: Array<Untyped>;
+};
+
+/** A normalized message (src/protocol/events.ts#Message) as the observer reads it. */
+export type NormalizedMessage = MediaPart & {
+  id: string;
+  channelId: string;
+  channelName?: string;
+  channelCategory?: string | null;
+  channelTopic?: string | null;
+  authorId: string;
+  authorName: string;
+  self?: boolean;
+  bot?: boolean;
+  content?: string;
+  ts: number;
+  replyToId?: string | null;
+  mentionedUserIds?: Array<string>;
+  forwarded?: Array<MediaPart & { content?: string }>;
+  forwardedFrom?: Untyped;
+};
+
 /**
  * A sticker as a slim message keeps it: `id`, `name`, `format` and the `url` of its picture (null for a sticker with none).
- * @param {{ id?: unknown, name?: unknown, format?: unknown, url?: unknown }} sticker
  */
-function slimSticker(sticker) {
+function slimSticker(sticker: { id?: unknown; name?: unknown; format?: unknown; url?: unknown }) {
   return { id: sticker.id, name: sticker.name, format: sticker.format, url: sticker.url ?? null };
 }
 
-function slimMedia(part) {
+function slimMedia(part: MediaPart) {
   return {
-    attachments: (part.attachments ?? []).map((a) => ({
+    attachments: (part.attachments ?? []).map((a: Untyped) => ({
       kind: a.kind,
       name: a.name,
       id: a.id,
       durationSec: a.durationSec ?? null,
     })),
-    links: (part.links ?? []).map((l) => ({
+    links: (part.links ?? []).map((l: Untyped) => ({
       kind: l.kind,
       name: l.title || l.site || '',
       id: l.id,
       durationSec: null,
     })),
     stickers: (part.stickers ?? []).map(slimSticker),
-    emojis: (part.emojis ?? []).map((e) => ({ id: e.id, name: e.name })),
+    emojis: (part.emojis ?? []).map((e: Untyped) => ({ id: e.id, name: e.name })),
   };
 }
 
@@ -136,13 +168,12 @@ function slimMedia(part) {
  * the same way, and `direct`; a message whose links carry a preview title or description also
  * keeps them as `linkCards` (src/memory/record.ts#recordLinks: URL, title, description, site),
  * which only the record reads.
- * @param {object} normalized  A normalized message (src/protocol/events.ts#Message).
- * @param {boolean} [direct]   Whether the message was addressed to the persona.
- * @returns {object}
+ * @param normalized  A normalized message (src/protocol/events.ts#Message).
+ * @param [direct]   Whether the message was addressed to the persona.
  */
-export function slimMessage(normalized, direct = false) {
+export function slimMessage(normalized: Partial<NormalizedMessage>, direct: boolean = false): object {
   const linkCards = recordLinks(normalized.links);
-  const forwarded = (normalized.forwarded ?? []).map((snapshot) => ({
+  const forwarded = (normalized.forwarded ?? []).map((snapshot: Untyped) => ({
     content: snapshot.content ?? '',
     ...slimMedia(snapshot),
   }));
@@ -172,19 +203,17 @@ export function slimMessage(normalized, direct = false) {
   };
 }
 
-/**
- * The live observer (src/behavior/pipeline.js calls `observe` for every guild message the persona sees, her own
- * included). A private chat's line (`private`: the partner's id) moves no public counter, feeds no GIF library and
- * counts no names. Nothing while `/nep pause` holds.
- * @param {{ hot: { config: object }, store: object }} deps
- */
-export function createMemoryUpdater({ hot, store }) {
+function buildMemoryUpdater({ hot, store }: { hot: Pick<Hot, 'config'>; store: StoreView }) {
   /**
    * One observed message: the counters (`touchMemory`), the GIF library, the emoji usage and the address counts.
    * `direct` marks a message addressed to the persona. Never throws on a store that cannot be read: the count is
    * left out with a warning.
    */
-  function observe(guildId, normalized, { direct = false, private: privateUserId = null } = {}) {
+  function observe(
+    guildId: string,
+    normalized: NormalizedMessage,
+    { direct = false, private: privateUserId = null } = {}
+  ) {
     // /nep pause: nothing may make the store dirty while paused.
     if (store.state.data.paused) return;
     if (normalized.bot) return;
@@ -211,4 +240,15 @@ export function createMemoryUpdater({ hot, store }) {
   }
 
   return { observe };
+}
+
+export type MemoryUpdater = ReturnType<typeof buildMemoryUpdater>;
+
+/**
+ * The live observer (src/behavior/pipeline.js calls `observe` for every guild message the persona sees, her own
+ * included). A private chat's line (`private`: the partner's id) moves no public counter, feeds no GIF library and
+ * counts no names. Nothing while `/nep pause` holds.
+ */
+export function createMemoryUpdater(deps: Parameters<typeof buildMemoryUpdater>[0]): MemoryUpdater {
+  return buildMemoryUpdater(deps);
 }

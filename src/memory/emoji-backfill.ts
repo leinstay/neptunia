@@ -14,6 +14,9 @@ import { emojiUsageOpts } from './emoji-usage.ts';
 import { lineOf } from '../behavior/line-of.js';
 import { isReadable } from '../behavior/snapshot.ts';
 import { log as defaultLog } from '../log.js';
+import type { Reads } from '../interface/reads.ts';
+import type { StoreView } from './store.ts';
+import type { Log, StoredRecord } from './types.ts';
 
 /** How many messages one `store.recordEmojiUsage` call takes. */
 const CHUNK = 500;
@@ -27,18 +30,19 @@ const BACKFILL_MESSAGES = 500;
  * messages. A conversation whose read fails is logged (`<prefix>: channel read failed`) and skipped. The history read
  * of both backfills (this one and src/memory/gif-backfill.ts). Null when the interface lists no conversation of the community
  * the persona may read: a backfill clears and recounts, so it never runs over nothing.
- * @param {import('../interface/reads.ts').Reads} reads
- * @param {string} communityId
- * @param {number} limit
- * @param {{ iface: string, log?: object, prefix: string }} deps
- * @returns {Promise<{ channels: number, messages: object[] }|null>}  `messages` as lines, in read order.
+ * @returns `messages` as lines, in read order.
  */
-export async function readMemberHistory(reads, communityId, limit, { iface, log = defaultLog, prefix }) {
+export async function readMemberHistory(
+  reads: Reads,
+  communityId: string,
+  limit: number,
+  { iface, log = defaultLog, prefix }: { iface: string; log?: Log; prefix: string }
+): Promise<{ channels: number; messages: Array<StoredRecord> } | null> {
   const listing = await reads.conversations({ communityId });
   if (listing === null) return null;
   const channels = listing.conversations.filter((entry) => isReadable(entry));
   if (channels.length === 0) return null;
-  const messages = [];
+  const messages: Array<StoredRecord> = [];
   for (const channel of channels) {
     const found = await reads.history({ iface, conversationId: channel.id }, { limit });
     if (found === null) {
@@ -53,19 +57,20 @@ export async function readMemberHistory(reads, communityId, limit, { iface, log 
   return { channels: channels.length, messages };
 }
 
-/**
- * The emoji history backfill for the served guild.
- * @param {object} deps
- * @param {object} deps.hot     src/hot.js view; `config` read at use.
- * @param {object} deps.store   src/memory/store.ts.
- * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface (readMemberHistory's).
- * @param {() => string} deps.iface  The interface's name, read when a run starts.
- * @param {object} [deps.log]   src/log.js-shaped logger.
- */
-export function createEmojiBackfill({ hot, store, reads, iface, log = defaultLog }) {
+function buildEmojiBackfill({
+  store,
+  reads,
+  iface,
+  log = defaultLog,
+}: {
+  store: StoreView;
+  reads: Reads;
+  iface: () => string;
+  log?: Log;
+}) {
   let running = false;
 
-  function skipped(reason) {
+  function skipped(reason: string): { ok: false; reason: string } {
     log.info('emoji-backfill: skipped', { reason });
     return { ok: false, reason };
   }
@@ -85,11 +90,11 @@ export function createEmojiBackfill({ hot, store, reads, iface, log = defaultLog
    * channel is read. Skips (never throws) when paused, when already stamped (no `force`), while another
    * run is in flight, or when the interface lists no readable conversation of the community; an
    * unexpected error is thrown.
-   * @param {string} guildId
-   * @param {{ force?: boolean }} [opts]
-   * @returns {Promise<{ ok: true, channels: number, messages: number, emoji: number } | { ok: false, reason: string }>}
    */
-  async function run(guildId, { force = false } = {}) {
+  async function run(
+    guildId: string,
+    { force = false }: { force?: boolean } = {}
+  ): Promise<{ ok: true; channels: number; messages: number; emoji: number } | { ok: false; reason: string }> {
     if (running) return skipped('running');
     if (store.state?.data?.paused) return skipped('paused');
     if (!force && store.getGuild(guildId).emojiBackfill?.at) return skipped('done');
@@ -97,7 +102,6 @@ export function createEmojiBackfill({ hot, store, reads, iface, log = defaultLog
     running = true;
     try {
       const history = await readMemberHistory(reads, guildId, BACKFILL_MESSAGES, {
-        config: hot.config,
         iface: iface(),
         log,
         prefix: 'emoji-backfill',
@@ -135,10 +139,8 @@ export function createEmojiBackfill({ hot, store, reads, iface, log = defaultLog
    * The startup run: once, when `features.customEmoji` is on (a missing key
    * counts as on) and the guild has no `emojiBackfill` stamp yet. Meant to be
    * called without awaiting; resolves either way, errors are logged, never thrown.
-   * @param {string} guildId
-   * @returns {Promise<void>}
    */
-  async function startIfNeeded(guildId) {
+  async function startIfNeeded(guildId: string): Promise<void> {
     try {
       await run(guildId);
     } catch (err) {
@@ -152,4 +154,17 @@ export function createEmojiBackfill({ hot, store, reads, iface, log = defaultLog
   }
 
   return { run, startIfNeeded, isRunning };
+}
+
+export type EmojiBackfill = ReturnType<typeof buildEmojiBackfill>;
+
+/**
+ * The emoji history backfill for the served guild.
+ * @param deps.store   src/memory/store.ts.
+ * @param deps.reads  The core's reads of the interface (readMemberHistory's).
+ * @param deps.iface  The interface's name, read when a run starts.
+ * @param [deps.log]   src/log.js-shaped logger.
+ */
+export function createEmojiBackfill(deps: Parameters<typeof buildEmojiBackfill>[0]): EmojiBackfill {
+  return buildEmojiBackfill(deps);
 }
