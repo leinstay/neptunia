@@ -45,18 +45,18 @@ function jsonResponse(status: number, json: Untyped) {
   return { ok: status >= 200 && status < 300, status, json: async () => json, text: async () => JSON.stringify(json) };
 }
 
-function embeddingsOf(vectors: Untyped, extra = {}) {
+function embeddingsOf(vectors: Array<Array<number>>, extra = {}) {
   return jsonResponse(200, {
     id: 'gen-1',
     model: 'openai/text-embedding-3-large',
     provider: 'OpenAI',
-    data: vectors.map((embedding: Untyped, index: number) => ({ object: 'embedding', index, embedding })),
+    data: vectors.map((embedding, index) => ({ object: 'embedding', index, embedding })),
     usage: { prompt_tokens: 7, total_tokens: 7, cost: 0.0001 },
     ...extra,
   });
 }
 
-function makeEmbedder(answers: Untyped, { state = fakeState() } = {}) {
+function makeEmbedder(answers: Array<unknown>, { state = fakeState() } = {}) {
   const sent: Array<Untyped> = [];
   const sleeps: Array<Untyped> = [];
   const queue = [...answers];
@@ -67,10 +67,11 @@ function makeEmbedder(answers: Untyped, { state = fakeState() } = {}) {
     // @ts-expect-error: the sleep stand-in returns the pushed length; the real one resolves to nothing
     sleepImpl: async (ms) => sleeps.push(ms),
     fetchImpl: async (url, init) => {
-      sent.push({ url, init, body: JSON.parse(loose(init).body) });
+      sent.push({ url, init, body: JSON.parse(init?.body as string) });
       const next = queue.shift();
       if (next instanceof Error) throw next;
-      return next;
+      // The stand-in answers hold the part of a Response that the client reads.
+      return next as Response;
     },
   });
   return { embedder, sent, sleeps, state };

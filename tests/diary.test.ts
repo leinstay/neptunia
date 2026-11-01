@@ -737,6 +737,10 @@ test('store: a malformed diary value reads as the empty default', async () => {
 // ---------------------------------------------------------------------------
 // createDiary: the scheduler's edge, with a fake store, client and turn runner.
 
+type Rec = Record<string, Untyped>;
+// The plan the scheduler stored for guild g1 in the harness's state.
+const planOf = (h: { store: { state: { data: unknown } } }): Rec => (loose(h.store.state.data).diary as Rec).g1 as Rec;
+
 const D_NOW = Date.UTC(2026, 9, 6, 19, 0, 0); // 19:00 UTC, before the evening slot
 const SLOT = Date.UTC(2026, 9, 6, 21, 30, 0); // 18 + 0.5 * 7 h with rng 0.5
 
@@ -771,15 +775,15 @@ function diaryHarness({
   turnsExtra = {},
   delay,
 }: {
-  mirror?: Untyped;
-  diary?: Untyped;
-  data?: Untyped;
-  posts?: Untyped;
-  channel?: Untyped;
-  outcomes?: Untyped;
-  backfill?: Untyped;
-  turnsExtra?: Untyped;
-  delay?: Untyped;
+  mirror?: boolean;
+  diary?: Rec;
+  data?: Rec;
+  posts?: Array<Rec>;
+  channel?: ReturnType<typeof diaryChannelFake> | null;
+  outcomes?: Array<Rec>;
+  backfill?: ((args: Rec) => Promise<number>) | null;
+  turnsExtra?: Rec;
+  delay?: (ms: number) => Promise<void>;
 } = {}) {
   let clock = D_NOW;
   /** The turns the scheduler asked for: the arguments, and the plan's done slots when it asked. */
@@ -840,7 +844,7 @@ function diaryHarness({
 // Stage 3 design, section 3 item 1: `diary.channelId` no longer gates the tick, so the case without it is gone; the
 // tick with no channel and no mirror is "posts with zero mirrors" below.
 test('tick: no-op when paused', async () => {
-  const cases: Array<[string, Untyped]> = [['paused', { data: { paused: true } }]];
+  const cases: Array<[string, Parameters<typeof diaryHarness>[0]]> = [['paused', { data: { paused: true } }]];
   for (const [reason, setup] of cases) {
     const h = diaryHarness(setup);
     h.setNow(SLOT + MINUTE_MS);
@@ -861,7 +865,7 @@ test('tick: no-op when paused', async () => {
 test('tick: plans the day once and stores it in state.data.diary[guildId]', async () => {
   const h = diaryHarness();
   await h.diary.tick();
-  const plan = loose(h.store.state.data).diary.g1;
+  const plan = planOf(h);
   assert.deepEqual(plan, {
     day: '2026-10-06',
     slots: [SLOT],
@@ -872,10 +876,10 @@ test('tick: plans the day once and stores it in state.data.diary[guildId]', asyn
     quietStreak: 0,
   });
   await h.diary.tick();
-  assert.equal(loose(h.store.state.data).diary.g1, plan, 'the same plan, not planned again');
+  assert.equal(planOf(h), plan, 'the same plan, not planned again');
   h.setNow(D_NOW + 24 * HOUR_MS);
   await h.diary.tick();
-  assert.equal(loose(h.store.state.data).diary.g1.day, '2026-10-07', 'a new local day replans');
+  assert.equal(planOf(h).day, '2026-10-07', 'a new local day replans');
 });
 
 test('tick: the day key is the local date in bot.timezone', async () => {
@@ -883,7 +887,7 @@ test('tick: the day key is the local date in bot.timezone', async () => {
   h.hot.config.bot.timezone = 'Europe/Athens';
   h.setNow(Date.UTC(2026, 9, 6, 22, 30, 0)); // 01:30 on the 7th in Athens
   await h.diary.tick();
-  assert.equal(loose(h.store.state.data).diary.g1.day, '2026-10-07');
+  assert.equal(planOf(h).day, '2026-10-07');
 });
 
 test('tick: a new local day carries over the open slots of the last plan that spill past midnight', async () => {
@@ -896,12 +900,8 @@ test('tick: a new local day carries over the open slots of the last plan that sp
   });
   h.setNow(Date.UTC(2026, 9, 7, 0, 5, 0));
   await h.diary.tick();
-  assert.deepEqual(
-    loose(h.store.state.data).diary.g1.slots,
-    [late],
-    'the open slot ahead is kept; done and long-missed ones are not'
-  );
-  assert.equal(loose(h.store.state.data).diary.g1.day, '2026-10-07');
+  assert.deepEqual(planOf(h).slots, [late], 'the open slot ahead is kept; done and long-missed ones are not');
+  assert.equal(planOf(h).day, '2026-10-07');
   h.setNow(late + MINUTE_MS);
   await h.diary.tick();
   assert.equal(h.turnCalls.length, 1, 'the carried slot fires');
@@ -946,27 +946,27 @@ test('tick: a set posted logs its picture count; a short set logs its refusal an
   assert.equal(loose(refused).outcome, 'refused');
   assert.equal(loose(refused).reason, 'set-short');
   assert.equal(loose(refused).pictures, 0);
-  assert.deepEqual(loose(short.store.state.data).diary.g1.posted, [], 'a short set feeds no window');
-  assert.deepEqual(loose(short.store.state.data).diary.g1.done, [SLOT], 'its slot is spent');
+  assert.deepEqual(planOf(short).posted, [], 'a short set feeds no window');
+  assert.deepEqual(planOf(short).done, [SLOT], 'its slot is spent');
 });
 
 test('tick: a busy outcome un-marks the slot so the next tick retries it within the grace', async () => {
   const h = diaryHarness({ outcomes: [{ outcome: 'busy' }] });
   h.setNow(SLOT + MINUTE_MS);
   await h.diary.tick();
-  assert.deepEqual(loose(h.store.state.data).diary.g1.done, []);
+  assert.deepEqual(planOf(h).done, []);
   await h.diary.tick();
   assert.equal(h.turnCalls.length, 2);
-  assert.deepEqual(loose(h.store.state.data).diary.g1.done, [SLOT]);
+  assert.deepEqual(planOf(h).done, [SLOT]);
 });
 
 test('tick: a scheduled post that spoke is recorded as posted, a busy one is not', async () => {
   const h = diaryHarness({ outcomes: [{ outcome: 'busy' }] });
   h.setNow(SLOT + MINUTE_MS);
   await h.diary.tick();
-  assert.deepEqual(loose(h.store.state.data).diary.g1.posted, []);
+  assert.deepEqual(planOf(h).posted, []);
   await h.diary.tick();
-  assert.deepEqual(loose(h.store.state.data).diary.g1.posted, [SLOT]);
+  assert.deepEqual(planOf(h).posted, [SLOT]);
 });
 
 test('force: a manual post never feeds the hunger', async () => {
@@ -974,7 +974,7 @@ test('force: a manual post never feeds the hunger', async () => {
   await h.diary.tick();
   const result = await h.diary.force({ kind: 'meme' });
   assert.equal(loose(result).outcome, 'spoke');
-  assert.deepEqual(loose(h.store.state.data).diary.g1.posted, []);
+  assert.deepEqual(planOf(h).posted, []);
 });
 
 test('tick: a new day takes its hunger from the last plan and logs it', async () => {
@@ -987,7 +987,7 @@ test('tick: a new day takes its hunger from the last plan and logs it', async ()
     },
   });
   const { logs } = await withCapturedLogs(() => h.diary.tick());
-  const plan = loose(h.store.state.data).diary.g1;
+  const plan = planOf(h);
   assert.deepEqual(plan.hunger, [2], 'the evening window went unfed');
   assert.equal(plan.quietStreak, 0);
   const line = logs.find((l) => l.msg === 'diary: plan');
@@ -1000,8 +1000,8 @@ test('tick: a new day takes its hunger from the last plan and logs it', async ()
     },
   });
   await quiet.diary.tick();
-  assert.deepEqual(loose(quiet.store.state.data).diary.g1.hunger, [2]);
-  assert.equal(loose(quiet.store.state.data).diary.g1.quietStreak, 2);
+  assert.deepEqual(planOf(quiet).hunger, [2]);
+  assert.equal(planOf(quiet).quietStreak, 2);
 });
 
 test('tick: dropped slots are marked done without firing', async () => {
@@ -1010,7 +1010,7 @@ test('tick: dropped slots are marked done without firing', async () => {
   h.setNow(SLOT + 45 * MINUTE_MS);
   const { logs } = await withCapturedLogs(() => h.diary.tick());
   assert.equal(h.turnCalls.length, 0);
-  assert.deepEqual(loose(h.store.state.data).diary.g1.done, [SLOT]);
+  assert.deepEqual(planOf(h).done, [SLOT]);
   assert.ok(logs.some((l) => l.msg === 'diary: skip' && l.reason === 'grace' && l.count === 1));
 });
 
@@ -1146,12 +1146,12 @@ function busyTurns() {
 
 /** A controllable delay: each call records its ms and resolves on `fire()`. */
 function manualDelay() {
-  const calls: Array<Untyped> = [];
-  const fires: Array<Untyped> = [];
+  const calls: Array<number> = [];
+  const fires: Array<() => void> = [];
   return {
     calls,
     delay: (ms: number) =>
-      new Promise((resolve) => {
+      new Promise<void>((resolve) => {
         calls.push(ms);
         fires.push(resolve);
       }),

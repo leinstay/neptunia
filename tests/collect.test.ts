@@ -1120,13 +1120,13 @@ function audienceChannel({
   const everyone = { id: GUILD_ID, permissions: new PermissionsBitField(VIEW) };
   const all = [everyone, ...roles.map((id: string) => ({ id, permissions: new PermissionsBitField(0n) }))];
   const cache = new Map(
-    overwrites.map((o: Untyped) => [
-      loose(o).id,
+    overwrites.map((o) => [
+      o.id,
       {
-        id: loose(o).id,
-        type: loose(o).type,
-        allow: new PermissionsBitField(loose(o).allow ?? 0n),
-        deny: new PermissionsBitField(loose(o).deny ?? 0n),
+        id: o.id,
+        type: o.type,
+        allow: new PermissionsBitField(o.allow ?? 0n),
+        deny: new PermissionsBitField(o.deny ?? 0n),
       },
     ])
   );
@@ -1148,12 +1148,12 @@ function audienceChannel({
         ...(members
           ? {
               cache: new Map(
-                loose(members).map(({ id, bot, roleIds }: { id: Untyped; bot: Untyped; roleIds: Untyped }) => [
+                members.map(({ id, bot, roleIds }) => [
                   id,
                   {
                     id,
                     user: { id, bot },
-                    ...(roleIds ? { roles: { cache: new Map(roleIds.map((r: Untyped) => [r, { id: r }])) } } : {}),
+                    ...(roleIds ? { roles: { cache: new Map(roleIds.map((r) => [r, { id: r }])) } } : {}),
                   },
                 ])
               ),

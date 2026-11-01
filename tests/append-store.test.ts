@@ -19,24 +19,25 @@ function tmpDir() {
 const fakeOf = <T>(value: object): T => value as T;
 
 function quietLog() {
-  const calls: Array<Untyped> = [];
+  const calls: Array<{ level: string; msg: string; meta: unknown }> = [];
   return {
     calls,
-    info: (msg: Untyped, meta: Untyped) => calls.push({ level: 'info', msg, meta }),
-    warn: (msg: Untyped, meta: Untyped) => calls.push({ level: 'warn', msg, meta }),
-    error: (msg: Untyped, meta: Untyped) => calls.push({ level: 'error', msg, meta }),
+    info: (msg: string, meta: unknown) => calls.push({ level: 'info', msg, meta }),
+    warn: (msg: string, meta: unknown) => calls.push({ level: 'warn', msg, meta }),
+    error: (msg: string, meta: unknown) => calls.push({ level: 'error', msg, meta }),
   };
 }
 
 // An in-memory stand-in for node:fs/promises with switchable write failures
 // and a count of fsync calls.
 function memoryFs() {
-  const files = new Map();
+  const files = new Map<string, Buffer>();
   const ctl = { failWrites: false, syncs: 0 };
   const enoent = (p: string) => Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
-  const get = (p: string) => {
-    if (!files.has(p)) throw enoent(p);
-    return files.get(p);
+  const get = (p: string): Buffer => {
+    const file = files.get(p);
+    if (file === undefined) throw enoent(p);
+    return file;
   };
   const handle = (p: string) => ({
     async write(data: Untyped) {
@@ -45,7 +46,7 @@ function memoryFs() {
       files.set(p, Buffer.concat([files.get(p) ?? Buffer.alloc(0), buf]));
       return { bytesWritten: buf.length };
     },
-    async read(buffer: Untyped, offset: Untyped, length: Untyped, position: Untyped) {
+    async read(buffer: Buffer, offset: number, length: number, position: number) {
       const src = get(p);
       const n = src.copy(buffer, offset, position, Math.min(src.length, position + length));
       return { bytesRead: n, buffer };
@@ -69,14 +70,14 @@ function memoryFs() {
     async writeFile(p: string, data: Untyped) {
       files.set(p, Buffer.from(data));
     },
-    async rename(a: Untyped, b: Untyped) {
+    async rename(a: string, b: string) {
       files.set(b, get(a));
       files.delete(a);
     },
     async stat(p: string) {
       return { size: get(p).length };
     },
-    async truncate(p: string, len: Untyped) {
+    async truncate(p: string, len: number) {
       files.set(p, get(p).subarray(0, len));
     },
     async mkdir() {},
@@ -97,7 +98,7 @@ test('append-store: appends whole lines in order under concurrent calls', async 
   assert.equal(lines.pop(), '');
   assert.equal(lines.length, 100);
   assert.deepEqual(
-    lines.map((l) => JSON.parse(l).i),
+    lines.map((l) => (JSON.parse(l) as { i: number }).i),
     Array.from({ length: 100 }, (_, i) => i)
   );
 });
@@ -168,7 +169,7 @@ test('append-store: a failing fs queues up to retryMax then rejects', async () =
   await store.flush(file);
   assert.equal(store.stats().pending, 0);
   assert.equal(store.stats().stalled, false);
-  const lines = mem.files.get(file).toString('utf8').split('\n');
+  const lines = String(mem.files.get(file)).split('\n');
   lines.pop();
   assert.deepEqual(lines, ['first', ...Array.from({ length: 1000 }, (_, i) => `line-${i}`)]);
   const recovered = log.calls.filter((c) => c.msg === 'store: append recovered');
@@ -178,7 +179,7 @@ test('append-store: a failing fs queues up to retryMax then rejects', async () =
   );
   await store.append(file, 'after');
   await store.close();
-  assert.ok(mem.files.get(file).toString('utf8').endsWith('line-999\nafter\n'));
+  assert.ok(String(mem.files.get(file)).endsWith('line-999\nafter\n'));
 });
 
 test('append-store: rewrite keeps only matching lines and is atomic', async () => {
@@ -228,5 +229,5 @@ test('append-store: sync append calls fsync', async () => {
   await store.flush('day.jsonl');
   assert.equal(mem.ctl.syncs, 3);
   await store.close();
-  assert.equal(mem.files.get('day.jsonl').toString('utf8'), 'a\nb\nc\nd\ne\n');
+  assert.equal(String(mem.files.get('day.jsonl')), 'a\nb\nc\nd\ne\n');
 });

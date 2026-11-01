@@ -52,11 +52,14 @@ function fakeHot({ prompts = {} } = {}) {
 }
 
 /** An in-memory store with the profile accessors the queue uses. */
+type Rec = Record<string, Untyped>;
+type Member = { id: string; bot: boolean; hash: string | null; url: string | null };
+
 function fakeStore(profiles: Record<string, Untyped> = {}) {
-  const users = new Map<string, Untyped>(
+  const users = new Map<string, Rec>(
     Object.entries(profiles).map(([id, profile]) => [id, { id, names: [id], ...profile }])
   );
-  const writes: Array<Untyped> = [];
+  const writes: Array<Rec> = [];
   return {
     users,
     writes,
@@ -72,26 +75,29 @@ function fakeStore(profiles: Record<string, Untyped> = {}) {
   };
 }
 
+// A profile of the fake store; a missing one reads as an empty record, so the assertion on its avatar fails.
+const profileOf = (store: ReturnType<typeof fakeStore>, id: string): Rec => store.users.get(id) ?? {};
+
 function fakeLlm(answer: string | Error | (() => string) = 'an illustrated fox with a scarf') {
-  const calls: Array<Untyped> = [];
+  const calls: Array<{ messages: Array<Rec>; options: Rec }> = [];
   return {
     calls,
     capLeft: () => 100,
-    complete: async (messages: Untyped, options: Untyped) => {
+    complete: (messages: Array<Rec>, options: Rec) => {
       calls.push({ messages, options });
-      if (answer instanceof Error) throw answer;
-      return { text: typeof answer === 'function' ? answer() : answer, usage: null, estimated: 0 };
+      if (answer instanceof Error) return Promise.reject(answer);
+      return Promise.resolve({ text: typeof answer === 'function' ? answer() : answer, usage: null, estimated: 0 });
     },
   };
 }
 
 function fakeFetcher(result: typeof DOWNLOAD | null = DOWNLOAD) {
-  const calls: Array<Untyped> = [];
+  const calls: Array<{ url: string; options: Rec }> = [];
   return {
     calls,
-    fetchAsDataUrl: async (url: string, options: Untyped) => {
+    fetchAsDataUrl: (url: string, options: Rec) => {
       calls.push({ url, options });
-      return result;
+      return Promise.resolve(result);
     },
   };
 }
@@ -107,8 +113,8 @@ function fakeState(data = {}) {
 }
 
 function fakeLog() {
-  const entries: Array<Untyped> = [];
-  const push = (level: Untyped) => (msg: Untyped, meta: Untyped) => entries.push({ level, msg, ...meta });
+  const entries: Array<Rec> = [];
+  const push = (level: string) => (msg: string, meta?: object) => entries.push({ level, msg, ...meta });
   return { entries, info: push('info'), warn: push('warn'), error: push('error') };
 }
 
@@ -125,7 +131,7 @@ function view(id: string, hash: Untyped, extra = {}) {
 /**
  * The core's reads over `members` (id -> view): `memberInfo` answers the member and their avatar, or a member who is not one.
  */
-function readsOf(members: Untyped, asked: Array<string> = []) {
+function readsOf(members: Record<string, Member | 'failed'>, asked: Array<string> = []) {
   return fakeOf<Reads>({
     memberInfo: ({ memberId }: { memberId: string }) => {
       asked.push(memberId);
@@ -258,7 +264,7 @@ test('tick: a default avatar is stored without any request or download', async (
   const { queue, store, llm, imageFetcher, log } = setup();
   queue.offer(GUILD, view('u1', null));
   assert.equal(await queue.tick(), 'idle');
-  assert.deepEqual(store.users.get('u1').avatar, { hash: null, default: true });
+  assert.deepEqual(profileOf(store, 'u1').avatar, { hash: null, default: true });
   assert.equal(llm.calls.length, 0);
   assert.equal(imageFetcher.calls.length, 0);
   assert.ok(log.entries.some((entry) => entry.msg === 'avatars: described' && entry.default === true));
@@ -279,7 +285,7 @@ test('tick: one vision request on purpose avatar, the prompt filled, one clamped
   assert.equal(options.role, 'vision');
   assert.equal(options.purpose, 'avatar');
   assert.equal(options.countAgainstDailyCap, true);
-  const stored = store.users.get('u1').avatar;
+  const stored = profileOf(store, 'u1').avatar as { hash: string; text: string; describedAt: string };
   assert.equal(stored.hash, 'h1');
   assert.ok(stored.text.startsWith('a fox in a red scarf'));
   assert.ok(Array.from(stored.text).length <= 200, stored.text);
@@ -348,7 +354,7 @@ test('tick: a failed one is dropped and offered again only after the next scan, 
   queue.offer(GUILD, view('u1', 'h1'));
   assert.equal(await queue.tick(), 'failed');
   assert.ok(log.entries.some((entry) => entry.msg === 'avatars: skipped' && entry.reason === 'llm-error'));
-  assert.equal(store.users.get('u1').avatar, undefined);
+  assert.equal(profileOf(store, 'u1').avatar, undefined);
   assert.equal(queue.offer(GUILD, view('u1', 'h1')), 'failed', 'a message from the member does not retry it');
   assert.equal(await queue.tick(), 'idle');
   assert.equal(llm.calls.length, 1);
@@ -375,7 +381,7 @@ test('tick: an item whose profile went or whose avatar is current by now is drop
   queue.offer(GUILD, view('u1', 'h1'));
   queue.offer(GUILD, view('u2', 'h2'));
   store.users.delete('u1');
-  store.users.get('u2').avatar = { hash: 'h2', text: 'cat', describedAt: null };
+  profileOf(store, 'u2').avatar = { hash: 'h2', text: 'cat', describedAt: null };
   assert.equal(await queue.tick(), 'idle');
   assert.equal(llm.calls.length, 0);
   assert.deepEqual(queue.pending(), []);
@@ -421,7 +427,7 @@ test('tick: scans on its first run and again a day later, never in between', asy
   const { queue, store } = setup({ members, now });
   await queue.tick();
   assert.equal(queue.scansStarted(), 1);
-  assert.deepEqual(store.users.get('u1').avatar, { hash: null, default: true });
+  assert.deepEqual(profileOf(store, 'u1').avatar, { hash: null, default: true });
   now.advance(3_600_000);
   await queue.tick();
   assert.equal(queue.scansStarted(), 1);

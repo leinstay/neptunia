@@ -87,7 +87,7 @@ test('validateRequest: a run carries its secrets, each a non-empty string; only 
   const keyOnly = validateRequest({ op: 'run', id: 'a', goal: 'x', secrets: { openrouterKey: 'sk-or-1' } });
   assert.deepEqual(loose(keyOnly).message.secrets, { openrouterKey: 'sk-or-1' });
   assert.equal(
-    Object.hasOwn(loose(validateRequest({ op: 'run', id: 'a', goal: 'x' })).message, 'secrets'),
+    Object.hasOwn(loose(validateRequest({ op: 'run', id: 'a', goal: 'x' })).message as object, 'secrets'),
     false,
     'none given: none passed on'
   );
@@ -223,7 +223,7 @@ test('normalizeResult: the withheld paths pass, each once and cut, at most 50; n
     withheld: Array.from({ length: 80 }, (_, i) => `/var/www/${i}/${'x'.repeat(300)}`),
   }).withheld;
   assert.equal(loose(many).length, 50);
-  assert.ok(loose(many).every((p: string) => p.length === 200));
+  assert.ok((many as Array<string>).every((p) => p.length === 200));
   assert.deepEqual(
     endEvent({ id: 'a', status: 'done', result: { text: 'ok', withheld: ['/etc/shadow'] } }).result.withheld,
     ['/etc/shadow'],
@@ -293,10 +293,16 @@ test('validateRequest: a run carries the shared preamble trimmed; a blank one is
     'at the cap: kept'
   );
   assert.equal(
-    Object.hasOwn(loose(validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: '   ' })).message, 'preamble'),
+    Object.hasOwn(
+      loose(validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: '   ' })).message as object,
+      'preamble'
+    ),
     false
   );
-  assert.equal(Object.hasOwn(loose(validateRequest({ op: 'run', id: 'a', goal: 'x' })).message, 'preamble'), false);
+  assert.equal(
+    Object.hasOwn(loose(validateRequest({ op: 'run', id: 'a', goal: 'x' })).message as object, 'preamble'),
+    false
+  );
 });
 
 test('validateRequest / parseRequestLine: a non-string or over-long preamble is refused with its code, never its text', () => {

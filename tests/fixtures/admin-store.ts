@@ -2,19 +2,21 @@
 // kept in maps, with counters for the calls a test checks.
 import { emptyAffinity, applyDelta } from '../../src/memory/affinity.ts';
 import { upsertLore } from '../../src/memory/lore.ts';
+import type { LoreEntry } from '../../src/memory/lore.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 
+type Rec = Record<string, Untyped>;
 type AffinityOpts = Parameters<typeof applyDelta>[3];
 
 // The store's records are still JavaScript in the tests, so each one is Untyped.
 function buildStore() {
-  const profiles = new Map<string, Untyped>();
+  const profiles = new Map<string, Rec>();
   const forgotten: Array<Untyped> = [];
-  const privates = new Map<string, Untyped>(); // `${guildId}:${userId}` -> private layer
+  const privates = new Map<string, Rec>(); // `${guildId}:${userId}` -> private layer
   const forgottenPrivate: Array<Untyped> = [];
-  const lore = new Map<string, Array<Untyped>>(); // guildId -> entries[]
-  const channels = new Map<string, Untyped>(); // `${guildId}:${channelId}` -> channel entry
-  const guilds = new Map<string, Untyped>(); // guildId -> guild notes
+  const lore = new Map<string, Array<Rec>>(); // guildId -> entries[]
+  const channels = new Map<string, Rec>(); // `${guildId}:${channelId}` -> channel entry
+  const guilds = new Map<string, Rec>(); // guildId -> guild notes
   const store = {
     profiles,
     forgotten,
@@ -31,8 +33,8 @@ function buildStore() {
     getGuild(guildId: string) {
       return guilds.get(guildId) ?? { patterns: '', starters: '', injokes: [], self: [], updatedAt: null };
     },
-    recent: new Map<string, Untyped>(), // guildId -> { nextId, lines }
-    getRecent(this: { recent: Map<string, Untyped> }, guildId: string) {
+    recent: new Map<string, Rec>(), // guildId -> { nextId, lines }
+    getRecent(this: { recent: Map<string, Rec> }, guildId: string) {
       return structuredClone(this.recent.get(guildId) ?? { nextId: 1, lines: [] });
     },
     state: { data: { llmCount: 5, llmDay: '2026-09-20' } as Record<string, Untyped>, markDirty() {} },
@@ -60,13 +62,13 @@ function buildStore() {
       return lore.get(guildId) ?? [];
     },
     setLore(guildId: string, incoming: unknown, opts: Parameters<typeof upsertLore>[2]) {
-      const { entries, upserted } = upsertLore(lore.get(guildId) ?? [], incoming, opts);
+      const { entries, upserted } = upsertLore((lore.get(guildId) ?? []) as Array<LoreEntry>, incoming, opts);
       lore.set(guildId, entries);
       return upserted;
     },
     removeLore(guildId: string, id: string) {
       const current = lore.get(guildId) ?? [];
-      const next = current.filter((e: Untyped) => e.id !== id);
+      const next = current.filter((entry) => entry.id !== id);
       lore.set(guildId, next);
       return next.length !== current.length;
     },
@@ -75,7 +77,7 @@ function buildStore() {
       const profile = profiles.get(key) ?? { id: String(userId), affinity: emptyAffinity() };
       profile.affinity = applyDelta(profile.affinity ?? emptyAffinity(), delta, reason, opts);
       profiles.set(key, profile);
-      return profile.affinity;
+      return profile.affinity as Rec;
     },
     privates,
     forgottenPrivate,
@@ -93,8 +95,8 @@ function buildStore() {
       const prefix = `${guildId}:`;
       return [...profiles.entries()].filter(([key]) => key.startsWith(prefix)).map(([, value]) => value);
     },
-    participation: new Map<string, Untyped>(), // guildId -> { episodes, nextId }
-    getParticipation(this: { participation: Map<string, Untyped> }, guildId: string) {
+    participation: new Map<string, Rec>(), // guildId -> { episodes, nextId }
+    getParticipation(this: { participation: Map<string, Rec> }, guildId: string) {
       return structuredClone(this.participation.get(guildId) ?? { episodes: [], nextId: 1 });
     },
     getBuffer() {

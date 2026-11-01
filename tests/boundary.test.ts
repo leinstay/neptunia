@@ -43,7 +43,7 @@ function runnerOver({
 }: {
   port: ReturnType<typeof createFakeAdapter>;
   hot: ReturnType<typeof hotWith>;
-  llm: { complete: Function };
+  llm: { complete: (messages: never, options: never) => Promise<unknown> };
   store?: ReturnType<typeof fakeStore> | ReturnType<typeof createStore>;
 }) {
   const calibrator = { ratio: 1, apply: (value: number) => value, observe: () => {} };
@@ -352,7 +352,7 @@ describe('an adapter that claims the owner', () => {
     });
     const acks: Array<{ replyTo: string | null; body: { status?: string } }> = [];
     ends.client.onEnvelope((value) => {
-      if (value.type === 'ack') acks.push(value as { replyTo: string | null; body: { status?: string } });
+      if (value.type === 'ack') acks.push(value);
     });
     const connect = (iface: string, token: string) =>
       ends.client.send(

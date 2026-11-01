@@ -69,6 +69,7 @@ function fakeHot(overrides = {}) {
 
 // What the describer helpers hand back: the fakes they default to, which a test that passes another one never reads.
 type Opts = Record<string, Untyped>;
+type ShippedConfig = { media: { video: { errorRetryMinutes: number; maxRequestTokens: number } } };
 type Rig = {
   describer: ReturnType<typeof createDescriber>;
   store: ReturnType<typeof createStore>;
@@ -144,7 +145,7 @@ test('describe: an over-long line is cut at or under the description length on a
   const line = proseLine(100);
   const { result } = await describeWith(line);
   assert.ok(loose(result).text.length <= 500, `length ${loose(result).text.length}`);
-  assert.ok(line.startsWith(loose(result).text));
+  assert.ok(line.startsWith(String(loose(result).text)));
   assert.equal(line[loose(result).text.length], ' ');
 });
 
@@ -964,7 +965,9 @@ test('describeVideo: media.video.errorRetryMinutes sets the error-miss TTL, read
 });
 
 test('describeVideo: without errorRetryMinutes an error miss waits exactly what config.json ships (code fallback = shipped value)', async () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
+  const shipped = JSON.parse(
+    fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8')
+  ) as ShippedConfig;
   const minutes = shipped.media.video.errorRetryMinutes;
   assert.ok(typeof minutes === 'number' && minutes > 0, 'config.json ships a usable retry delay');
   let t = 1_000_000;
@@ -1064,7 +1067,7 @@ test('describeVideo: the request body carries the video reasoning through the re
       calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
       state: { data: {}, markDirty() {} },
       fetchImpl: async (url: string, init: Untyped) => {
-        bodies.push(JSON.parse(loose(init).body));
+        bodies.push(JSON.parse(loose(init).body as string));
         return {
           ok: true,
           status: 200,
@@ -1215,7 +1218,7 @@ test('describeVideo: a missing prompt or a non-video item -> null without any re
 test('describeVideo: the text is collapsed to one line and capped at 1500 chars on a word boundary', async () => {
   const long = `  Première   scène\n\nκάποιος χορεύει\t${'mot '.repeat(600)}`;
   const { describer } = videoDescriber({ llm: fakeLlm({ text: long }) });
-  const { text } = loose(await describer.describeVideo('g1', videoAttachment()));
+  const text = String(loose(await describer.describeVideo('g1', videoAttachment())).text);
 
   assert.ok(text.startsWith('Première scène κάποιος χορεύει mot'));
   assert.ok(!/\s{2,}|[\n\t]/.test(text));
@@ -1603,7 +1606,7 @@ function realVideoLlm(hot: Untyped) {
     calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
     state: { data: {}, markDirty() {} },
     fetchImpl: async (url: string, init: Untyped) => {
-      bodies.push(JSON.parse(loose(init).body));
+      bodies.push(JSON.parse(loose(init).body as string));
       return {
         ok: true,
         status: 200,
@@ -1692,7 +1695,9 @@ test('describeVideo: cached length misses of 2719 s and 570 s pinned links are r
 // PR 7d: the direct-URL cap (3600 s) and its rate (10 tokens a second) are the describer's constants; the request cap
 // is still config.json's.
 test('describeVideo: the direct-URL cap at the agentic rate stays within the maxRequestTokens config.json ships', async () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
+  const shipped = JSON.parse(
+    fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8')
+  ) as ShippedConfig;
   const prompt = fs.readFileSync(new URL('../prompts/describe-video.md', import.meta.url), 'utf8');
   const { maxRequestTokens } = shipped.media.video;
   const hot = videoHot({ video: { maxRequestTokens }, prompts: { 'describe-video': prompt } });
@@ -1725,7 +1730,9 @@ test('describeVideo: the direct-URL cap at the agentic rate stays within the max
 });
 // PR 7d: the clip length (300 s) and its rate (120 tokens a second) are the describer's constants.
 test('describeVideo: a clip of the longest length at its rate plus the shipped prompt stays under media.video.maxRequestTokens', async () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
+  const shipped = JSON.parse(
+    fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8')
+  ) as ShippedConfig;
   const prompt = fs.readFileSync(new URL('../prompts/describe-video.md', import.meta.url), 'utf8');
   const { maxRequestTokens } = shipped.media.video;
   const hot = videoHot({ video: { maxRequestTokens }, prompts: { 'describe-video': prompt } });
@@ -1773,7 +1780,7 @@ test('rewatchVideo: a pinned agentic link passes directUrlTokensPerSecond like a
 test('describeVideo: the account is capped at media.video.summaryChars and {{maxChars}} is filled with it', async () => {
   const hot = videoHot({ prompts: { 'describe-video': 'Summarise in at most {{maxChars}} characters.' } });
   const { describer, llm } = videoDescriber({ hot, llm: fakeLlm({ text: `Première scène ${'mot '.repeat(500)}` }) });
-  const { text } = loose(await describer.describeVideo('g1', videoAttachment()));
+  const text = String(loose(await describer.describeVideo('g1', videoAttachment())).text);
 
   assert.ok([...text].length <= 1500, text);
   assert.ok(text.startsWith('Première scène mot'));
@@ -2330,8 +2337,18 @@ test('describe: pictures and videos are untouched by the GIF watch', async () =>
   );
   assert.equal(run.videoFetcher.calls.length, 0);
   assert.equal(run.imageFetcher.calls.length, 2);
-  assert.deepEqual(Object.keys(loose(run.store.getMediaCache('g1')).p1).sort(), ['describedAt', 'model', 'text', 'ts']);
-  assert.deepEqual(Object.keys(loose(run.store.getMediaCache('g1')).v1).sort(), ['describedAt', 'model', 'text', 'ts']);
+  assert.deepEqual(Object.keys(loose(run.store.getMediaCache('g1')).p1 as object).sort(), [
+    'describedAt',
+    'model',
+    'text',
+    'ts',
+  ]);
+  assert.deepEqual(Object.keys(loose(run.store.getMediaCache('g1')).v1 as object).sort(), [
+    'describedAt',
+    'model',
+    'text',
+    'ts',
+  ]);
   assert.ok(run.llm.calls.every((c: Untyped) => c.options.role === 'vision'));
 
   const video = await run.describer.describeVideo('g1', videoAttachment());
@@ -2510,7 +2527,7 @@ test('parseGifDescription: every field is bounded only by descriptionChars, like
   const bounded = parseGifDescription(answer, { descriptionChars: 50 });
   for (const field of ['text', 'reaction', 'action', 'screen']) {
     assert.ok([...loose(bounded)[field]].length <= 50, `${field}: ${loose(bounded)[field].length}`);
-    assert.ok(long.startsWith(loose(bounded)[field]), `${field} is a prefix of the answer`);
+    assert.ok(long.startsWith(String(loose(bounded)[field])), `${field} is a prefix of the answer`);
   }
 });
 

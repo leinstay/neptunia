@@ -180,7 +180,7 @@ test('formatTranscript: a mentioned channel carries its handle, as `#name` or a 
 
 function input(overrides: Record<string, unknown> = {}): BuildInput {
   const author = { id: '650000000000000123', names: ['Zoë'] };
-  const history = loose(overrides).history ?? [
+  const history = (loose(overrides).history as Array<Record<string, unknown>> | undefined) ?? [
     {
       id: '1',
       ts: NOW - 2 * MIN,
@@ -216,7 +216,7 @@ function input(overrides: Record<string, unknown> = {}): BuildInput {
       reply: 'REPLY to {{author}}',
       labels,
     },
-    calibrator: { ratio: 1, apply: (n: Untyped) => n },
+    calibrator: { ratio: 1, apply: (n: number) => n },
     mode: 'reply',
     now: NOW,
     selfName: 'Nept',
@@ -234,8 +234,12 @@ function input(overrides: Record<string, unknown> = {}): BuildInput {
   });
 }
 
-const stableOf = (request: Untyped) =>
-  request.messages[1].content.find((part: Untyped) => part.cacheSegment === 'stable')?.text ?? '';
+type Part = { type?: string; text?: string; cacheSegment?: string; cache_control?: unknown };
+type Request = ReturnType<typeof buildRequest>;
+// The user message of a request is a list of parts; its type also allows a plain string.
+const partsOf = (content: unknown) => content as Array<Part>;
+const stableOf = (request: Request) =>
+  partsOf(request.messages[1].content).find((part) => part.cacheSegment === 'stable')?.text ?? '';
 const channelDirectoryOf = (text: string) =>
   /<channel_directory>\n([\s\S]*?)\n<\/channel_directory>/.exec(text)?.[1] ?? null;
 
@@ -250,17 +254,13 @@ test('buildRequest: <channel_directory> sits in the cached stable part, before <
   assert.ok(body.includes(`#${handles.get(KITCHEN)} "κουζίνα" in "Κοινότητα"`), body);
   // The stable part is the one that carries the provider's cache marker.
   const sent = withCacheMarker(request.messages, '1h');
-  const part = loose(sent[1].content).find(
-    (p: Untyped) => loose(p).type === 'text' && loose(p).text.includes('<channel_directory>')
-  );
+  const part = partsOf(sent[1].content).find((p) => p.type === 'text' && p.text?.includes('<channel_directory>'));
   assert.ok(part?.cache_control, 'the part holding the channel directory is marked');
-  assert.equal(part.text, stable);
-  const tail = loose(request.messages[1].content).find(
-    (p: Untyped) => loose(p).type === 'text' && !loose(p).cacheSegment
-  );
-  assert.ok(!tail.text.includes('<channel_directory>'), 'never in the tail');
+  assert.equal(part?.text, stable);
+  const tail = partsOf(request.messages[1].content).find((p) => p.type === 'text' && !p.cacheSegment);
+  assert.ok(!tail?.text?.includes('<channel_directory>'), 'never in the tail');
   // Her handle maps back to the channel.
-  assert.equal(loose(request.channelHandles).get(handles.get(KITCHEN)), KITCHEN);
+  assert.equal(request.channelHandles?.get(handles.get(KITCHEN) ?? ''), KITCHEN);
 });
 
 test('buildRequest: the channel directory is byte-identical across turns with another clock, chat and channel order', () => {

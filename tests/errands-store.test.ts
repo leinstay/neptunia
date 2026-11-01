@@ -52,8 +52,11 @@ async function boardTask(store: ReturnType<typeof createErrandStore>, dataDir: s
 /**
  * The statuses a board task passed through, in order.
  */
-const statusesOf = (view: Untyped) =>
-  view.events.filter((event: Untyped) => event.type === 'status').map((event: Untyped) => event.new);
+// The id of an errand a test just queued; the type of the queued record leaves it optional.
+const idOf = (errand: unknown): string => String(loose(errand).id);
+
+const statusesOf = (view: { events: Array<{ type: string; new?: unknown }> }) =>
+  view.events.filter((event) => event.type === 'status').map((event) => event.new);
 
 function makeStore({
   dataDir = tempDataDir(),
@@ -132,14 +135,14 @@ test('task store: queued -> running -> done; the end is written once, a late one
     const { store, dataDir, clock } = makeStore();
     const { errand: task } = store.add(asked);
     clock.t += 1000;
-    assert.equal(loose(store.start(loose(task).id)).state, 'running');
-    assert.equal(store.start(loose(task).id), null, 'only a queued task starts');
+    assert.equal(loose(store.start(idOf(task))).state, 'running');
+    assert.equal(store.start(idOf(task)), null, 'only a queued task starts');
     assert.deepEqual(
       store.open().map((t) => t.id),
-      [loose(task).id]
+      [idOf(task)]
     );
     clock.t += 5000;
-    const done = store.finish(loose(task).id, {
+    const done = store.finish(idOf(task), {
       status: 'done',
       result: { text: 'here', sources: ['https://example.org'], files: [] },
       usage: { usd: 0.25, steps: 3 },
@@ -149,17 +152,17 @@ test('task store: queued -> running -> done; the end is written once, a late one
     assert.equal(loose(done).result.text, 'here');
     assert.equal(loose(done).usage.usd, 0.25);
     assert.equal(loose(done).error, null);
-    assert.equal(Object.hasOwn(loose(done).result, 'filesDropped'), false, 'none held back, no key');
-    assert.equal(store.finish(loose(task).id, { status: 'failed' }), null);
+    assert.equal(Object.hasOwn(loose(done).result as object, 'filesDropped'), false, 'none held back, no key');
+    assert.equal(store.finish(idOf(task), { status: 'failed' }), null);
     assert.deepEqual(store.open(), []);
     assert.deepEqual(
       store.unseen().map((t) => t.id),
-      [loose(task).id]
+      [idOf(task)]
     );
-    assert.equal(loose(store.markSeen(loose(task).id)).seen, true);
+    assert.equal(loose(store.markSeen(idOf(task))).seen, true);
     assert.deepEqual(store.unseen(), []);
     assert.equal(store.today('scout').usd, 0.25);
-    assert.deepEqual(statusesOf(await boardTask(store, dataDir, loose(task).id)), ['approved', 'in_progress', 'done']);
+    assert.deepEqual(statusesOf(await boardTask(store, dataDir, idOf(task))), ['approved', 'in_progress', 'done']);
   });
 });
 
@@ -167,8 +170,8 @@ test('task store: the files the runner held back are kept as names only', async 
   await withCapturedLogs(() => {
     const { store } = makeStore();
     const { errand: task } = store.add(asked);
-    store.start(loose(task).id);
-    const done = store.finish(loose(task).id, {
+    store.start(idOf(task));
+    const done = store.finish(idOf(task), {
       status: 'done',
       result: {
         text: 'here',
@@ -187,13 +190,13 @@ test("task store: a cancel closes an open task; the runner's later end changes n
   await withCapturedLogs(() => {
     const { store } = makeStore();
     const { errand: task } = store.add(asked);
-    store.start(loose(task).id);
-    const cancelled = store.cancel(loose(task).id);
+    store.start(idOf(task));
+    const cancelled = store.cancel(idOf(task));
     assert.equal(loose(cancelled).state, 'cancelled');
     assert.equal(loose(cancelled).error, 'cancelled');
-    assert.equal(store.finish(loose(task).id, { status: 'done', result: { text: 'late' } }), null);
-    assert.equal(loose(store.get(loose(task).id)).state, 'cancelled');
-    assert.equal(store.cancel(loose(task).id), null);
+    assert.equal(store.finish(idOf(task), { status: 'done', result: { text: 'late' } }), null);
+    assert.equal(loose(store.get(idOf(task))).state, 'cancelled');
+    assert.equal(store.cancel(idOf(task)), null);
     assert.equal(store.cancel('nope'), null);
   });
 });
@@ -237,8 +240,8 @@ test('task store: every transition is one journal operation, counts only', async
   await withCapturedLogs(async () => {
     const { store } = makeStore({ journal });
     const { errand: task } = store.add(asked);
-    store.start(loose(task).id);
-    store.finish(loose(task).id, {
+    store.start(idOf(task));
+    store.finish(idOf(task), {
       status: 'done',
       result: {
         text: 'secret answer text',
@@ -260,7 +263,7 @@ test('task store: every transition is one journal operation, counts only', async
       assert.deepEqual(line.sourceMessageIds, ['m1']);
     }
     assert.deepEqual(lines[2].result, {
-      errandId: loose(task).id,
+      errandId: idOf(task),
       state: 'done',
       chars: 18,
       sources: 2,
@@ -295,28 +298,28 @@ test('task store: a file handle resolves only to a file the task lists, inside i
   await withCapturedLogs(() => {
     const { store } = makeStore();
     const { errand: task } = store.add(asked);
-    store.finish(loose(task).id, {
+    store.finish(idOf(task), {
       status: 'done',
       result: {
         text: 'ok',
         files: [{ path: '/elsewhere/meme.png', name: 'meme.png', contentType: 'image/png', bytes: 1234 }],
       },
     });
-    const handle = fileHandle(loose(task).id, 'meme.png');
-    assert.equal(handle, `file:${loose(task).id}/meme.png`);
-    assert.deepEqual(parseFileHandle(handle), { id: loose(task).id, name: 'meme.png' });
+    const handle = fileHandle(idOf(task), 'meme.png');
+    assert.equal(handle, `file:${idOf(task)}/meme.png`);
+    assert.deepEqual(parseFileHandle(handle), { id: idOf(task), name: 'meme.png' });
     const file = store.fileOf(handle);
     assert.equal(
       loose(file).path,
-      path.resolve('/var/lib/agent-scout/out', loose(task).id, 'meme.png'),
+      path.resolve('/var/lib/agent-scout/out', idOf(task), 'meme.png'),
       'the out directory, never the path the runner wrote'
     );
     assert.equal(loose(file).contentType, 'image/png');
     assert.equal(loose(file).bytes, 1234);
-    assert.equal(store.fileOf(`file:${loose(task).id}/other.png`), null);
+    assert.equal(store.fileOf(`file:${idOf(task)}/other.png`), null);
     assert.equal(store.fileOf('file:tnope/meme.png'), null);
-    assert.equal(store.fileOf(`file:${loose(task).id}/../meme.png`), null);
-    assert.equal(parseFileHandle(`file:${loose(task).id}/..`), null);
+    assert.equal(store.fileOf(`file:${idOf(task)}/../meme.png`), null);
+    assert.equal(parseFileHandle(`file:${idOf(task)}/..`), null);
     assert.equal(store.fileOf('meme.png'), null);
   });
 });
@@ -353,27 +356,26 @@ test("task store: a finished task's files expire once the runner removed its dir
     const gone = store.add(asked).errand;
     const bare = store.add(asked).errand;
     const open = store.add(asked).errand;
-    for (const id of [loose(kept).id, loose(gone).id])
-      store.finish(id, { status: 'done', result: { text: 'ok', files } });
+    for (const id of [idOf(kept), idOf(gone)]) store.finish(id, { status: 'done', result: { text: 'ok', files } });
     store.finish(loose(bare).id, { status: 'done', result: { text: 'no files' } });
-    fs.mkdirSync(path.join(out, loose(kept).id));
+    fs.mkdirSync(path.join(out, idOf(kept)));
     // The directory of `gone` was never there (as after the runner's sweep), nor that of `bare` or `open`.
-    assert.equal(loose(store.get(loose(gone).id)).filesExpired, true);
-    assert.equal(loose(store.get(loose(kept).id)).filesExpired, undefined);
+    assert.equal(loose(store.get(idOf(gone))).filesExpired, true);
+    assert.equal(loose(store.get(idOf(kept))).filesExpired, undefined);
     assert.equal(
       loose(store.get(loose(bare).id)).filesExpired,
       undefined,
       'a task without files has nothing to expire'
     );
     assert.equal(loose(store.get(loose(open).id)).filesExpired, undefined, 'an open task is never marked');
-    assert.equal(store.fileOf(fileHandle(loose(gone).id, 'meme.png')), null);
-    assert.ok(store.fileOf(fileHandle(loose(kept).id, 'meme.png')));
-    assert.ok(loose(store.unseen().find((t) => t.id === loose(gone).id)).filesExpired);
-    const saved = loose((await boardTask(store, dataDir, loose(gone).id)).task.metadata).errand;
+    assert.equal(store.fileOf(fileHandle(idOf(gone), 'meme.png')), null);
+    assert.ok(store.fileOf(fileHandle(idOf(kept), 'meme.png')));
+    assert.ok(loose(store.unseen().find((t) => t.id === idOf(gone))).filesExpired);
+    const saved = loose((await boardTask(store, dataDir, idOf(gone))).task.metadata).errand;
     assert.equal(loose(saved).filesExpired, true, 'written to the board');
     assert.equal(store.expireFiles(), 0, 'marked once');
-    fs.rmSync(path.join(out, loose(kept).id), { recursive: true });
-    assert.equal(loose(store.recent(10).find((t) => t.id === loose(kept).id)).filesExpired, true);
+    fs.rmSync(path.join(out, idOf(kept)), { recursive: true });
+    assert.equal(loose(store.recent(10).find((t) => t.id === idOf(kept))).filesExpired, true);
   });
 });
 
@@ -383,12 +385,12 @@ test('task store: no out dir at all (no runner on this host) expires nothing', a
       agents: { scout: { daily: { tasks: 5 }, out: path.join(os.tmpdir(), 'errands-no-such-out-dir') } },
     });
     const { errand: task } = store.add(asked);
-    store.finish(loose(task).id, {
+    store.finish(idOf(task), {
       status: 'done',
       result: { text: 'ok', files: [{ path: '/x/a.png', name: 'a.png' }] },
     });
     assert.equal(store.expireFiles(), 0);
-    assert.equal(loose(store.get(loose(task).id)).filesExpired, undefined);
+    assert.equal(loose(store.get(idOf(task))).filesExpired, undefined);
   });
 });
 

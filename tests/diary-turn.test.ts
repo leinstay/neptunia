@@ -14,6 +14,7 @@ import { fill, formatNow } from '../src/format.ts';
 import { userText } from '../src/behavior/prompt.ts';
 import { labels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import type { LogEntry } from './fixtures/capture-logs.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import { contentText } from './fixtures/turn-harness.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
@@ -59,7 +60,7 @@ const TZ = 'Europe/Athens';
 function diaryChannel({
   attachFiles = true,
   historyMessages = [],
-}: { attachFiles?: Untyped; historyMessages?: Untyped } = {}) {
+}: { attachFiles?: boolean; historyMessages?: Array<Rec> } = {}) {
   let handle: Channel | null = null;
   return {
     id: 'd1',
@@ -145,12 +146,14 @@ const drawAnswer = (text: string, n = 1, self = false) =>
     )
   );
 /** The `skills: called` lines of a run, as `skill:status/code`. */
-const calledOf = (logs: Untyped) =>
+const calledOf = (logs: Array<LogEntry>) =>
   logs
-    .filter((entry: Untyped) => entry.msg === 'skills: called')
-    .map((entry: Untyped) => `${entry.skill}:${entry.status}${entry.code ? `/${entry.code}` : ''}`);
+    .filter((entry) => entry.msg === 'skills: called')
+    .map((entry) => `${entry.skill}:${entry.status}${entry.code ? `/${entry.code}` : ''}`);
 
-function fakeStore({ posts = [], data = {} }: { posts?: Untyped; data?: Untyped } = {}) {
+type Rec = Record<string, Untyped>;
+
+function fakeStore({ posts = [], data = {} }: { posts?: Array<Rec>; data?: Rec } = {}) {
   const appended: Array<Untyped> = [];
   return {
     appended,
@@ -167,7 +170,7 @@ function fakeStore({ posts = [], data = {} }: { posts?: Untyped; data?: Untyped 
   };
 }
 
-function fakeImages({ used = 0, cap = 10, fail = null }: { used?: Untyped; cap?: Untyped; fail?: Untyped } = {}) {
+function fakeImages({ used = 0, cap = 10, fail = null }: { used?: number; cap?: number; fail?: Error | null } = {}) {
   const prompts: Array<Untyped> = [];
   return {
     prompts,

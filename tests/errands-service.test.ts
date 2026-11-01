@@ -49,7 +49,7 @@ const SECRETS = ['sk-agent-SECRET', 'sk-persona-SECRET', 'pw-SECRET', 'search-SE
 
 /** A fake errand client: records each run and ends it at once. */
 function fakeClient() {
-  const runs: Array<Untyped> = [];
+  const runs: Array<Record<string, Untyped>> = [];
   return {
     runs,
     configured: () => true,
@@ -63,8 +63,11 @@ function fakeClient() {
 
 /** A fake log that records every call. */
 function fakeLog() {
-  const calls: Array<Untyped> = [];
-  const record = (level: Untyped) => (msg: Untyped, fields: Untyped) => calls.push({ level, msg, fields });
+  const calls: Array<{ level: string; msg: string; fields: Record<string, Untyped> }> = [];
+  const record =
+    (level: string) =>
+    (msg: string, fields: Record<string, Untyped> = {}) =>
+      calls.push({ level, msg, fields });
   return { calls, info: record('info'), warn: record('warn'), error: record('error') };
 }
 
@@ -86,13 +89,14 @@ function makeService(env: Untyped, { keyByRole }: { keyByRole?: Untyped } = {}) 
   const journalLines: Array<Untyped> = [];
   const journal = { action: async (guildId: string, line: string) => journalLines.push(line) };
   const log = fakeLog();
-  const client: Untyped = fakeClient();
+  const client = fakeClient();
   const stores = createErrandStores({
     memoryDb: memoryOf(path.join(rootDir, 'data')),
     config: () => hot.config,
     journal,
     log,
   });
+  // @ts-expect-error: the stand-in's result carries only the text; the real client adds sources and files
   const errands = createErrandService({ client, stores, hot, env, getGuildId: () => 'g1', log, defer: (fn) => fn() });
   const cleanup = () => fs.rmSync(rootDir, { recursive: true, force: true });
   return { errands, client, log, journalLines, rootDir, cleanup };
@@ -226,14 +230,15 @@ test("errands service: a task carries context.recent, the origin channel's last 
         .map((line) => ({ author: line.authorName, text: line.content }))
         .slice(-count),
   };
-  const client: Untyped = fakeClient();
-  const deferred: Array<Untyped> = [];
+  const client = fakeClient();
+  const deferred: Array<() => void> = [];
   const stores = createErrandStores({
     memoryDb: memoryOf(path.join(rootDir, 'data')),
     config: () => hot.config,
     log: fakeLog(),
   });
   const errands = createErrandService({
+    // @ts-expect-error: the stand-in's result carries only the text; the real client adds sources and files
     client,
     stores,
     hot,
@@ -265,7 +270,7 @@ test("errands service: a task carries context.recent, the origin channel's last 
 
 /** A fake runner on a Unix socket at `sock` that answers every ping with a pong. */
 async function pongRunner(sock: Untyped) {
-  const connections: Array<Untyped> = [];
+  const connections: Array<net.Socket> = [];
   const server = net.createServer((conn) => {
     connections.push(conn);
     conn.setEncoding('utf8');
@@ -372,7 +377,7 @@ test("errands service: the connect loop's outcomes set the flag; start pings the
     linkListener?.({ agent: 'scout', up: false, code: 'ENOENT' });
     assert.equal(errands.submit(ask('scout')).code, 'runner-down');
     assert.equal(
-      log.calls.find((c) => c.msg === 'errands: runner down').fields.code,
+      log.calls.find((c) => c.msg === 'errands: runner down')?.fields.code,
       'disconnected',
       'the first down came from the ping'
     );
@@ -392,16 +397,17 @@ test("errands service: the connect loop's outcomes set the flag; start pings the
 
 /** A store with one finished task of `agent` (done), asked in `scope`. */
 function finishedTask(
-  store: Untyped,
+  store: ReturnType<ReturnType<typeof createErrandStores>['get']>,
   {
     scope = 'group',
     channelId = 'c1',
     result = { text: 'found it' },
   }: { scope?: 'dm' | 'group'; channelId?: string; result?: Untyped } = {}
 ) {
-  const id = store.add({ ...ask('scout'), scope, origin: { channelId, messageId: 'm1' } }).errand.id;
-  store.start(id);
-  store.finish(id, { status: 'done', result, usage: { usd: 0.01 } });
+  const held = present(store);
+  const id = String(loose(held.add({ ...ask('scout'), scope, origin: { channelId, messageId: 'm1' } }).errand).id);
+  held.start(id);
+  held.finish(id, { status: 'done', result, usage: { usd: 0.01 } });
   return id;
 }
 

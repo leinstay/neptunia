@@ -7,13 +7,10 @@ import { OverwriteType } from 'discord.js';
 import { overwriteMemberIds, fetchMembers, createAudienceWarmer } from '../interfaces/discord/index.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
-// The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
-const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
-
 /** A channel with permission overwrites `{ id, type }`; `null` for a channel without them (a thread). */
-function channel(overwrites: Untyped): Untyped {
+function channel(overwrites: Array<{ id: string; type: number }> | null) {
   if (overwrites === null) return { id: 'thread' };
-  return { permissionOverwrites: { cache: new Map(overwrites.map((o: Untyped) => [o.id, o])) } };
+  return { permissionOverwrites: { cache: new Map(overwrites.map((o) => [o.id, o])) } };
 }
 
 const member = (id: string) => ({ id, type: OverwriteType.Member });
@@ -50,7 +47,7 @@ test('overwriteMemberIds: member overwrite ids across channels, once each, roles
 test('fetchMembers: fetches one by one and counts fetched, missing and failed without throwing', async () => {
   const order: Array<Untyped> = [];
   let inFlight = 0;
-  const outcomes = {
+  const outcomes: Record<string, () => object | null | Promise<object | null>> = {
     a: () => ({ id: 'a' }),
     gone: () => {
       throw apiError(404, 10007);
@@ -69,7 +66,7 @@ test('fetchMembers: fetches one by one and counts fetched, missing and failed wi
     assert.equal(inFlight, 1, 'sequential');
     try {
       await new Promise((resolve) => setImmediate(resolve));
-      return await loose(outcomes)[id]();
+      return await outcomes[id]();
     } finally {
       inFlight -= 1;
     }
@@ -86,17 +83,17 @@ function fakeGuild({
   known = [],
   cached = [],
 }: {
-  channels: Array<Untyped>;
+  channels: Array<object>;
   known?: Array<string>;
   cached?: Array<string>;
-}): { calls: Array<Untyped>; guild: Untyped } {
+}) {
   const cache = new Map(cached.map((id) => [id, { id }]));
-  const calls: Array<Untyped> = [];
+  const calls: Array<string> = [];
   return {
     calls,
     guild: {
       id: 'g1',
-      channels: { cache: new Map(channels.map((c: Untyped, i: Untyped) => [`c${i}`, c])) },
+      channels: { cache: new Map(channels.map((c, i) => [`c${i}`, c])) },
       members: {
         cache,
         fetch: async (id: string) => {
@@ -113,8 +110,8 @@ function fakeGuild({
 }
 
 function fakeLogger() {
-  const lines: Array<Untyped> = [];
-  const add = (level: Untyped) => (msg: Untyped, meta: Untyped) => lines.push({ level, msg, meta });
+  const lines: Array<{ level: string; msg: string; meta: unknown }> = [];
+  const add = (level: string) => (msg: string, meta: unknown) => lines.push({ level, msg, meta });
   return { lines, info: add('info'), warn: add('warn'), error: add('error') };
 }
 
