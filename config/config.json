@@ -307,6 +307,9 @@
       "stepReserveTokens": 6000
     }
   },
+  "skills": {
+    "reviewDays": 30
+  },
   "diary": {
     "channelId": "",
     "world": false,
@@ -393,6 +396,12 @@
     },
     "caps": {
       "perChain": 3
+    },
+    "wakes": {
+      "selfimprovement": {
+        "everyDays": 7,
+        "failuresPerShape": 3
+      }
     },
     "loop": {
       "maxSteps": 4,
