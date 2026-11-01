@@ -7,6 +7,7 @@ The systemd units of the engine and the script that installs them. `deploy/insta
 | `neptunia-bot.service` | The core with the Discord interface in its process (`interfaces.mode: inprocess`). |
 | `neptunia-core.service` | The core with no interface of its own (`interfaces.mode: units`). It conflicts with `neptunia-bot.service`. |
 | `neptunia-interface@.service` | One interface, `neptunia interface run %i`, as the user `neptunia-%i-interface`. |
+| `neptunia-plugin@.service` | One plugin, `neptunia plugin run %i`, as the user `neptunia-plugin-%i`. See [Running a plugin as a unit](#running-a-plugin-as-a-unit). |
 | `neptunia-agent-scout.service`, `neptunia-agent-server.service` | The errand agents, `neptunia errand-runner --profile <name>`. Their headers say how to install them. |
 
 ## Running the interfaces as units
@@ -64,3 +65,16 @@ One core runs at a time. `neptunia-core.service` conflicts with `neptunia-bot.se
 3. Start the in-process core: `systemctl enable --now neptunia-bot`.
 
 The errand units run `neptunia errand-runner` in both modes.
+
+## Running a plugin as a unit
+
+A plugin is a process of its own under its own user, beside a core that runs its interfaces as units. Enabling a plugin writes `clients.json`, and while that file exists the boot token of an in-process interface counts for nothing, so plugins need `interfaces.mode: units`. [docs/plugins.md](../docs/plugins.md) describes what the core does when a plugin connects, and [plugins/README.md](../plugins/README.md) how to write one.
+
+For each plugin `<name>`, once:
+
+1. Create its user in the group of the socket: `useradd --system --no-create-home --shell /usr/sbin/nologin --gid neptunia neptunia-plugin-<name>`.
+2. Give it its folder: `install -d -o neptunia-plugin-<name> -g neptunia -m 0700 /opt/neptunia/data/plugins/<name>`, after `install -d -o neptunia-bot -g neptunia -m 0710 /opt/neptunia/data/plugins` for the parent.
+3. Put the environment keys of its `plugin.json` into `/opt/neptunia/etc/clients/<name>.env` as `KEY=value` lines, owned by root at mode `0600`. `/plugins setup <name>` says which keys are still missing.
+4. Let the user read the plugin's code and the settings: the folder `plugins.local/<name>` of the private layer, or `plugins/<name>` of the checkout, and `config.local/config.json` the way step 7 of the interface setup does.
+
+Then `/plugins enable <name>` in the owner's chat writes the client and its token, switches the plugin on and starts `neptunia-plugin@<name>`. The unit reads the token through `LoadCredential=`, so the token file stays readable by the core's user alone. `/plugins disable <name>` stops the unit and removes the client.

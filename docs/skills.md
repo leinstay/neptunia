@@ -6,7 +6,7 @@ A skill is a written procedure over her tools. It adds no ability: an activated 
 
 ## Where skills live
 
-The tracked skills are `skills/<name>/SKILL.md` in the checkout. A deployment's own are `skills.local/<name>/SKILL.md` in its private layer, which git ignores. A local skill replaces the tracked skill of the same name whole. `src/skills/load.ts` reads both folders at each call, never from a cache, so a file written a moment ago is seen at the next read. A file that does not parse, or whose `name` differs from its folder, is no skill and never stops the others. `/skills list` names its folder and the reason.
+The tracked skills are `skills/<name>/SKILL.md` in the checkout. A deployment's own are `skills.local/<name>/SKILL.md` in its private layer, which git ignores. A plugin ships skills in the `skills/` folder of its own package ([Plugins](plugins.md#skills-a-plugin-ships)), read while the plugin is enabled. A plugin's skill replaces a tracked skill of the same name, and a local skill replaces both. `src/skills/load.ts` reads the folders at each call, never from a cache, so a file written a moment ago is seen at the next read. A file that does not parse, or whose `name` differs from its folder, is no skill and never stops the others. `/skills list` names its folder and the reason.
 
 ## Versions and activation
 

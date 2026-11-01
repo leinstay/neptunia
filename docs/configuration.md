@@ -97,6 +97,15 @@ The settings hold the keys someone would change, the timeouts, budgets, retentio
 
 With `mode: units` the core serves `bot.guildId`, which must be set. See [Interfaces](interfaces.md#interfaces-as-units).
 
+## `plugins`
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `plugins.callDeadlineMs` | number | `30000` | How long a call to a plugin's tool may take (milliseconds). Past it the core gives her the result `plugin-no-answer`, and an answer that arrives later is dropped. Read at each call | `src/plugins/settings.ts` |
+| `plugins.*.enabled` | boolean | `false` | Whether the plugin named in place of `*` is on. The tracked settings name no plugin, so each one is off until this key says `true`. A `hello` of a plugin that is off is refused with `plugin-disabled`, read at each `hello`. `/plugins enable` writes `true` here in the private settings file and `/plugins disable` writes `false` | `src/plugins/settings.ts` |
+
+The owner switches a plugin with `/plugins enable <name>` and `/plugins disable <name>`, which write `plugins.<name>.enabled` into `config.local/config.json`. See [Plugins](plugins.md).
+
 ## `bot`
 
 | Key | Type | Default | What it does | Read by |

@@ -64,6 +64,20 @@
       "test": "none"
     },
     {
+      "path": "plugins/",
+      "purpose": "The tracked plugins: one folder per plugin with a package.json, a plugin.json, an index.ts, the skills it ships and a README, and the README that says how to write and connect one. A plugin imports only the protocol.",
+      "layer": "public",
+      "imports": ["node:*", "src/protocol/**"],
+      "test": "required"
+    },
+    {
+      "path": "plugins.local/",
+      "purpose": "A deployment's own plugins, one folder per plugin with its plugin.json and index.ts; a plugin here replaces the tracked plugin of the same name.",
+      "layer": "local",
+      "imports": [],
+      "test": "none"
+    },
+    {
       "path": "config.local.json",
       "purpose": "The old place of a deployment's settings, read until `tools/config-files-move.mjs` moves it into `config.local/`.",
       "layer": "local",
@@ -365,6 +379,7 @@
         "src/llm/**",
         "src/media/**",
         "src/memory/**",
+        "src/plugins/**",
         "src/protocol/**",
         "src/skills/**",
         "src/speech/**",
@@ -393,6 +408,20 @@
     {
       "path": "src/skills/",
       "purpose": "Her skills: the SKILL.md format and loader, the index of the active ones, the use rows of a turn, the port over the registry in the memory database, its client over the memory writer and the agents' commands.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/plugins/",
+      "purpose": "The plugin mechanism on the core's side: the manifest and the folders it is read from, the registry of the tools a plugin registers, the link of one plugin's connection, the wake that tells her of a new tool, and the owner's switch.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/plugins/settings.ts",
+      "purpose": "The readers of `plugins.<name>.enabled` and `plugins.callDeadlineMs`.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"

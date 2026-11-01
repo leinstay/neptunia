@@ -9,6 +9,7 @@
 | `neptunia doctor [--live] [--json]` | Checks the installation, with the core up or down. |
 | `neptunia errand-runner --profile <name>` | Runs the errand runner of one agent, as `deploy/neptunia-agent-<name>.service` does. |
 | `neptunia interface run <name> [--interfaces-dir <dir>]` | Runs one interface, as `deploy/neptunia-interface@.service` does (see [Interfaces](interfaces.md#interfaces-as-units)). |
+| `neptunia plugin run <name>` | Runs one plugin, as `deploy/neptunia-plugin@.service` does (see [Plugins](plugins.md)). It loads `plugins.local/<name>/index.ts` of the private layer before `plugins/<name>/index.ts`, reads the token from the unit's credential or `clients/<name>.token`, keeps the plugin's state in `<data>/plugins/<name>` and opens the link again with backoff when it drops. |
 | `neptunia service install\|start\|stop\|restart\|status [<unit> ...]` | Installs the units with `deploy/install.sh`, or runs `systemctl` on the named units, by default `neptunia-core.service` and the two errand units. |
 | `neptunia task <command> [options]` | The task board's command line, a client of the core (see [The task board](#the-task-board)). |
 
@@ -58,6 +59,7 @@ The core's console (`src/interface/commands/console.ts`) runs each command with 
 | `/tools`, `/tools describe <tool>` | Every tool and whether she has it, or one tool or family in full (`tools.describe`). |
 | `/tools grant <tool> [target]`, `/tools revoke <tool> [target]` | Her grant of a tool when no target is given, else the grant of `everyone`, `role <id>` or `user <id>` (`access.grant`, `access.revoke`). Her grant names her user id, so it fails and writes nothing until an interface has said who she is. |
 | `/skills`, `/skills show <name>`, `review <name>`, `pending`, `activate <name>`, `rollback <name>`, `reject <name>`, `enable <name>`, `disable <name>` | Her skills with their state, one skill's active text, a skill's versions side by side, the versions waiting, and the owner's changes to them. See [Skills](skills.md). |
+| `/plugins`, `/plugins enable <name>`, `/plugins disable <name>`, `/plugins setup <name>` | Every plugin with its switch, its link and its registered tools, the owner's switch of one, and which environment keys of a plugin are set. An enable writes the plugin's token and starts its unit. See [Plugins](plugins.md). |
 | `/interface`, `/interface enable <name>`, `/interface disable <name>` | Every interface the core knows, enabled or disabled, connected or not, and the owner's switch of one. A disable gives the actions in flight `interfaces.drainMs` and ends the rest `unknown`. `/interface <name> <sub>` is the form of an interface's own subcommands, and no interface has any yet. |
 | `/help` | One line per command. |
 | `/clear` | Clears the screen. |

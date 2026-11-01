@@ -22,9 +22,10 @@
 #   - installs deploy/neptunia-bot.service into /etc/systemd/system/ with User=, Group=,
 #     WorkingDirectory=, the two directory variables, EnvironmentFile= and ReadWritePaths= set
 #     for the given user, checkout and root;
-#   - installs deploy/neptunia-core.service (User= the given user) and the template
-#     deploy/neptunia-interface@.service the same way, for running the interfaces as units
-#     (deploy/README.md), then runs systemctl daemon-reload.
+#   - installs deploy/neptunia-core.service (User= the given user) and the templates
+#     deploy/neptunia-interface@.service and deploy/neptunia-plugin@.service the same way, for
+#     running the interfaces and the plugins as units (deploy/README.md), then runs
+#     systemctl daemon-reload.
 # It starts and enables none of them: fill in the private files first (it prints which).
 
 set -euo pipefail
@@ -32,6 +33,7 @@ set -euo pipefail
 UNIT_NAME=neptunia-bot.service
 CORE_UNIT=neptunia-core.service
 INTERFACE_UNIT=neptunia-interface@.service
+PLUGIN_UNIT=neptunia-plugin@.service
 UNIT_DIR=/etc/systemd/system
 
 ROOT=/opt/neptunia
@@ -170,8 +172,8 @@ if [ "$DRY_RUN" -eq 0 ]; then
   render_unit > "$unit_tmp"
   install -o root -g root -m 0644 "$unit_tmp" "$UNIT_DIR/$UNIT_NAME"
 fi
-# The units for running the interfaces as units (replaced on every run, never enabled here).
-for unit in "$CORE_UNIT" "$INTERFACE_UNIT"; do
+# The units for running the interfaces and the plugins as units (replaced on every run, never enabled here).
+for unit in "$CORE_UNIT" "$INTERFACE_UNIT" "$PLUGIN_UNIT"; do
   echo "+ render $PREFIX/deploy/$unit (WorkingDirectory=$PREFIX, NEPTUNIA_PRIVATE_DIR=$PRIVATE_DIR, NEPTUNIA_DATA_DIR=$DATA_DIR) > $UNIT_DIR/$unit"
   if [ "$DRY_RUN" -eq 0 ]; then
     split_tmp=$(mktemp)

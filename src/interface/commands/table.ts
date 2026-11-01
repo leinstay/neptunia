@@ -263,6 +263,18 @@ export const COMMANDS: ReadonlyArray<Command> = [
     ],
   },
   {
+    name: 'plugins',
+    help: 'the plugins: list, enable <name>, disable <name>, setup <name>',
+    args: [],
+    defaultSubcommand: 'list',
+    subcommands: [
+      sub('list', 'every plugin, whether it is on, whether it is connected and the tools it registered'),
+      sub('enable', 'turn a plugin on: its client token is written and its unit started', [arg('name')]),
+      sub('disable', 'turn a plugin off: its unit stopped, its token revoked and its tools dropped', [arg('name')]),
+      sub('setup', 'which environment keys the plugin reads are set in its unit file', [arg('name')]),
+    ],
+  },
+  {
     name: 'interface',
     help: 'the interfaces: list, enable <name>, disable <name>, <name> <sub>',
     args: [],

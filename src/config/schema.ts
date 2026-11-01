@@ -6,6 +6,7 @@
 // local layer and the readers against the schema, and tools/config-doc.mjs writes docs/configuration.md from it.
 
 import { INTERFACES } from './schema/interfaces.ts';
+import { PLUGINS } from './schema/plugins.ts';
 import { BOT } from './schema/bot.ts';
 import { MODELS } from './schema/models.ts';
 import { LLM } from './schema/llm.ts';
@@ -58,6 +59,7 @@ export type SchemaEntry = {
 /** Every key of the settings, in the order of config/config.json. */
 export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...INTERFACES,
+  ...PLUGINS,
   ...BOT,
   ...MODELS,
   ...LLM,

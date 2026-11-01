@@ -73,7 +73,7 @@ export function normalizeCalls({
     for (let n = 2; used.has(id); n += 1) id = `${base}~${n}`;
     used.add(id);
     const written = textOf(call.name);
-    const dotted = transport === 'text' ? written : skillNameOfToolCall(written);
+    const dotted = transport === 'text' ? written : skillNameOfToolCall(written, registry);
     const known = dotted !== null && dotted !== '' && registry.has(dotted);
     const name = known ? dotted : written;
     let problem: NormalCall['problem'] = null;

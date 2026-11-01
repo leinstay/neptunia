@@ -161,6 +161,10 @@ export const CATALOGUE = Object.freeze({
   'diary-mirror': skill('failed'),
   'link-closed': skill('unknown'),
   'link-busy': skill('failed'),
+  // A plugin's tool (src/plugins/link.ts, src/plugins/registry.ts): no answer in time, no link, an answer of no known shape.
+  'plugin-no-answer': skill('unknown'),
+  'plugin-not-connected': skill('unknown'),
+  'invalid-answer': skill('failed'),
   'adapter-threw': skill('unknown'),
   refused: skill('failed'),
   'image-cap': skill('failed'),

@@ -99,9 +99,15 @@ import { createReactorStore, applyReactionChanged } from './behavior/reactor-sto
 import { createReads } from './interface/reads.ts';
 import { createIntentionStores } from './intentions/store.ts';
 import { createIntentionService } from './intentions/service.ts';
-import { skillRegistry, missingDefinitions } from './tools/registry.ts';
+import { skillRegistry, missingDefinitions, setExtraSkills } from './tools/registry.ts';
 import { grantedSkillNames } from './tools/discovery.ts';
 import { wireSkills } from './skills/wiring.ts';
+import { ABILITY_ADDED, abilityWake, fileAnnounceStore, forgetAbilities, newAbilities } from './plugins/announce.ts';
+import { createPluginControl, systemdUnits } from './plugins/control.ts';
+import { loadPlugins } from './plugins/folders.ts';
+import { openPluginLink, routeConnection } from './plugins/link.ts';
+import { createPluginRegistry } from './plugins/registry.ts';
+import { pluginCallDeadlineMs, pluginEnabled } from './plugins/settings.ts';
 import { PROFILES as AGENT_PROFILES } from './agent-runner/profiles.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './behavior/pipeline.js';
@@ -140,6 +146,7 @@ function needOrFail(env, key) {
  * this process: one (`interfaces.mode: inprocess`), or none, when the interfaces run as units and connect to the
  * socket themselves; the core then serves `bot.guildId`. `llm`, `embedder` and `now` replace the provider client,
  * the embedding client and the clock (the scheduler, the inner life and the one-core check): only a test passes them.
+ * `units` starts and stops the unit of a plugin (`/plugins enable`): `systemctl` unless a test passes a stand-in.
  * One core runs over a data directory: a live holder of the database lock refuses the start (`locked`), and so does
  * another holder's `core:alive` lease within its ttl (`core-running`), unless the lock it left names a process that is
  * gone. Resolves once the startup steps ran; rejects with a one-line error when a startup check fails. `stop()` ends
@@ -153,6 +160,7 @@ function needOrFail(env, key) {
  *   llm?: Pick<ReturnType<typeof createLlm>, 'complete'> & Partial<ReturnType<typeof createLlm>>,
  *   embedder?: Pick<ReturnType<typeof createEmbedder>, 'embed'> & Partial<ReturnType<typeof createEmbedder>>,
  *   now?: () => number,
+ *   units?: import('./plugins/control.ts').PluginUnits,
  * }} options
  * @returns {Promise<{
  *   door: ReturnType<typeof createEventDoor>,
@@ -313,6 +321,24 @@ async function buildCore(options, cleanups) {
     context: () => ({ at: clock(), settings: boardSettings(settings.config), privateDir: paths.privateDir }),
     briefWaitMs: () => boardTimings(settings.config).briefWaitMs,
   });
+  // The plugins (src/plugins/, docs/plugins.md): the `plugins/` folder of the checkout and `plugins.local/` of the private
+  // layer, read at each call. The registry holds the tools the enabled plugins registered, beside the core's own in the
+  // gateway's registry; the manifests it checks against are those of the enabled plugins.
+  const pluginFolders = () => ({
+    trackedDir: path.join(paths.rootDir, 'plugins'),
+    localDir: path.join(paths.privateDir, 'plugins.local'),
+  });
+  const enabledPlugins = () =>
+    loadPlugins(pluginFolders()).plugins.filter((plugin) => pluginEnabled(settings.config, plugin.manifest.name));
+  const pluginRegistry = createPluginRegistry({
+    manifests: () => enabledPlugins().map((plugin) => plugin.manifest),
+    log,
+  });
+  setExtraSkills(
+    () => pluginRegistry.skills(),
+    () => loadPlugins(pluginFolders()).plugins.flatMap((plugin) => plugin.manifest.tools.map((tool) => tool.name))
+  );
+  cleanups.push(() => setExtraSkills(null));
   // Her skills (src/skills/wiring.ts): the SKILL.md files of `skills/` and `skills.local/` read at each call, their
   // registry in the memory database written through the memory writer, the index of the active ones for a request and
   // the skill facts of the selfimprovement wake. An activation grants no tool.
@@ -326,6 +352,8 @@ async function buildCore(options, cleanups) {
     selfId: () => identity.selfId,
     rootDir: paths.rootDir,
     privateDir: paths.privateDir,
+    // The skills the enabled plugins ship (`skills/` of each), read with the tracked and the local ones.
+    pluginDirs: () => enabledPlugins().map((plugin) => plugin.skillsDir),
     now: clock,
     log,
   });
@@ -563,42 +591,117 @@ async function buildCore(options, cleanups) {
     path: LINK_SOCKET,
     maxFrameBytes: MAX_FRAME_BYTES,
     log,
-    onConnection: (transport) => {
-      const link = openAdapterLink({
-        transport,
-        door: intake.doorOf(() => link),
-        principalOf,
-        ingest: ingestRecord,
-        log,
-        admit,
-      });
-      interfaceLinks.add(link);
-      if (linkSwitch === null) {
-        linkOpened.resolve(link);
-        return;
-      }
-      // A reconnect of the interface takes over the core's adapter; another client's link only sends events.
-      const switched = linkSwitch;
-      link.hello.then(
-        (greeting) => {
-          const principal = link.principal();
-          if (asUnits && servedName === null && principal?.kind === 'interface') {
-            servedName = principal.name;
-            if (greeting.community !== null && greeting.community.id !== instance.guildId)
-              log.warn('index: the interface serves another community than bot.guildId', {
-                principal: principal.name,
-              });
-          }
-          if (principal === null || principal.name !== (asUnits ? servedName : switched.current().principal()?.name))
-            return;
-          switched.attach(link);
-          if (asUnits) greet(greeting);
-        },
-        () => {}
-      );
-    },
+    // A connection is a plugin's when its first envelope is a `hello` under the namespace `plugin`.
+    onConnection: (transport) =>
+      routeConnection(transport, { adapter: openInterfaceLink, plugin: openPluginConnection }),
   });
   cleanups.push(() => linkServer.close());
+  /** @param {import('./protocol/wire.ts').Transport} transport */
+  function openInterfaceLink(transport) {
+    const link = openAdapterLink({
+      transport,
+      door: intake.doorOf(() => link),
+      principalOf,
+      ingest: ingestRecord,
+      log,
+      admit,
+    });
+    interfaceLinks.add(link);
+    if (linkSwitch === null) {
+      linkOpened.resolve(link);
+      return;
+    }
+    // A reconnect of the interface takes over the core's adapter; another client's link only sends events.
+    const switched = linkSwitch;
+    link.hello.then(
+      (greeting) => {
+        const principal = link.principal();
+        if (asUnits && servedName === null && principal?.kind === 'interface') {
+          servedName = principal.name;
+          if (greeting.community !== null && greeting.community.id !== instance.guildId)
+            log.warn('index: the interface serves another community than bot.guildId', {
+              principal: principal.name,
+            });
+        }
+        if (principal === null || principal.name !== (asUnits ? servedName : switched.current().principal()?.name))
+          return;
+        switched.attach(link);
+        if (asUnits) greet(greeting);
+      },
+      () => {}
+    );
+  }
+  /**
+   * A plugin's link (src/plugins/link.ts): its hello is let in only while the owner has it on, its tools go to the
+   * registry, and the first time a plugin registers a tool it was not announced for, a heartbeat wake with the cause
+   * `ability.added` tells her.
+   * @param {import('./protocol/wire.ts').Transport} transport
+   */
+  function openPluginConnection(transport) {
+    const link = openPluginLink({
+      transport,
+      principalOf,
+      admit: (principal) => (pluginEnabled(settings.config, principal.name) ? null : 'plugin-disabled'),
+      register: (plugin, tools) => {
+        const outcome = pluginRegistry.register(plugin, tools);
+        announceAbilities(plugin, outcome.accepted);
+        return outcome;
+      },
+      deadlineMs: () => pluginCallDeadlineMs(settings.config),
+      now: clock,
+      log,
+    });
+    link.hello.then(
+      ({ plugin }) => {
+        pluginLinks.get(plugin)?.close();
+        pluginLinks.set(plugin, link);
+        pluginRegistry.attach(plugin, link);
+      },
+      () => {}
+    );
+  }
+  /** The live plugin link of each plugin by name, so a disable can close it. @type {Map<string, import('./plugins/link.ts').PluginLink>} */
+  const pluginLinks = new Map();
+  const announced = fileAnnounceStore(dataDir);
+  /** Where the ability wake goes once the inner life exists below. @type {((wake: import('./behavior/inner/types.ts').Wake) => unknown) | null} */
+  let raiseWake = null;
+  /**
+   * @param {string} plugin
+   * @param {ReadonlyArray<string>} accepted
+   */
+  function announceAbilities(plugin, accepted) {
+    if (raiseWake === null || getGuildId() === null) return;
+    const tools = newAbilities({ plugin, accepted, store: announced });
+    if (tools === null) return;
+    log.info('plugins: ability announced', { plugin, reason: ABILITY_ADDED, tools: tools.length });
+    void Promise.resolve(raiseWake(abilityWake({ at: clock(), plugin, tools }))).catch((/** @type {unknown} */ err) =>
+      log.warn('plugins: ability wake not queued', { plugin, error: err })
+    );
+  }
+  // The owner's switch of a plugin (plugins.<name>.enabled), written to the private settings file and reloaded, as the
+  // interfaces' switch is.
+  function setPluginEnabled(/** @type {string} */ name, /** @type {boolean} */ enabled) {
+    const file = localConfigPath(paths.privateDir);
+    writeLocalConfig(file, setPath(readLocalConfig(file), ['plugins', name, 'enabled'], enabled));
+    settings.reloadConfig();
+  }
+  const pluginControl = createPluginControl({
+    folders: pluginFolders,
+    privateDir: paths.privateDir,
+    isEnabled: (name) => pluginEnabled(settings.config, name),
+    setEnabled: setPluginEnabled,
+    connected: (name) => pluginRegistry.connected(name),
+    toolsOf: (name) => pluginRegistry.tools(name),
+    units: options.units ?? systemdUnits(),
+    unitsMode: () => asUnits,
+    // A disabled plugin has no tool, no announcement and no link left.
+    onDisabled: (name) => {
+      pluginRegistry.forget(name);
+      forgetAbilities({ plugin: name, store: announced });
+      pluginLinks.get(name)?.close();
+      pluginLinks.delete(name);
+    },
+  });
   // An interface run in this process is started by the caller (src/index.js loads the interface package by name at run
   // time, a test passes the fake one) with the core's end of the link, its settings and its logger. It builds its
   // client, logs in, waits for the guild, says hello and serves its adapter; the events it sees wait until
@@ -812,7 +915,15 @@ async function buildCore(options, cleanups) {
     journal,
     record,
     port: iface,
-    skills: skillRegistry(),
+    // The registered tools of the plugins and the call to one: her in-turn tools beside the core's own.
+    plugins: {
+      tools: () => pluginRegistry.tools(),
+      call: (
+        /** @type {string} */ tool,
+        /** @type {Record<string, unknown>} */ args,
+        /** @type {import('./plugins/registry.ts').PluginCallContext} */ context
+      ) => pluginRegistry.call(tool, args, context),
+    },
     // The index of her active skills (`<skills>`) and the sink of the use rows (src/skills/uses.ts).
     skillIndex: skillsWiring.index,
     recordSkillUses: skillsWiring.record,
@@ -917,6 +1028,8 @@ async function buildCore(options, cleanups) {
   });
   // The drops, holds and failures kept for her next request in a conversation live in the inner life's state.
   turns.setFactsSource(inner.facts);
+  // The wake that tells her a plugin added a tool goes into the inner life's queue (src/plugins/announce.ts).
+  raiseWake = (wake) => inner.enqueue(getGuildId() ?? '', wake);
   /**
    * A memory session run that failed (src/memory/db/service.js, once per failing scope),
    * told the same way: a `memoryFailed` fact with the code and the lines waiting; a private conversation's only in that
@@ -1115,6 +1228,8 @@ async function buildCore(options, cleanups) {
       now: Date.now,
       // `/skills` (src/interface/commands/skills.ts).
       skills: skillsWiring.access,
+      // `/plugins` (src/interface/commands/plugins.ts).
+      plugins: pluginControl,
     }),
     interfaces: interfaceLinks,
     guildId: getGuildId,

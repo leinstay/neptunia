@@ -103,8 +103,13 @@ export function buildTools(
 }
 
 /** The dotted skill name of a tool call's API name, or null when no skill has it. */
-export function skillNameOfToolCall(apiName: unknown): string | null {
-  return typeof apiName === 'string' ? skillNameOfApi(apiName) : null;
+export function skillNameOfToolCall(apiName: unknown, registry: SkillMap = skillRegistry()): string | null {
+  if (typeof apiName !== 'string') return null;
+  const own = skillNameOfApi(apiName);
+  if (own !== null) return own;
+  // A plugin's tool carries its API name on the skill (src/plugins/registry.ts).
+  for (const skill of registry.values()) if (skill.api === apiName) return skill.name;
+  return null;
 }
 
 /** One native tool definition as the request carries it. */

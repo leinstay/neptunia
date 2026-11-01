@@ -92,6 +92,12 @@ The settings hold the keys someone would change, the timeouts, budgets, retentio
 
 With `mode: units` the core serves `bot.guildId`, which must be set. See [Interfaces](interfaces.md#interfaces-as-units).
 
+## `plugins`
+
+<!-- settings: plugins -->
+
+The owner switches a plugin with `/plugins enable <name>` and `/plugins disable <name>`, which write `plugins.<name>.enabled` into `config.local/config.json`. See [Plugins](plugins.md).
+
 ## `bot`
 
 <!-- settings: bot -->

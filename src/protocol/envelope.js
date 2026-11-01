@@ -13,14 +13,27 @@
 //   action_result  a port result (actions.js#PortResult)                  interface -> core
 //   ping           { at? }                                                liveness, answered by an ack
 //   cancel         {}, `replyTo` the action's id                          core -> interface
+//   tool.register  { tools: [{ name, ... }] }, answered by an ack that names what was taken   plugin -> core (src/protocol/plugin.ts)
+//   tool.call      { tool, args, requester, conversationId, deadlineAt, idempotencyKey }, answered by an action_result   core -> plugin
 // Shapes only, like validate.js: the answer is `{ ok: true }` or `{ ok: false, reason }`; never throws.
 // `validateFrame` checks everything but the body, which is what a transport checks before it hands an
 // envelope on: the receiver checks the body with `validateEnvelope` and answers a bad one.
 
+import { validateToolCall, validateToolRegister } from './plugin.ts';
 import { validateAction, validateEvent } from './validate.js';
 
 export const ENVELOPE_VERSION = 1;
-export const ENVELOPE_TYPES = Object.freeze(['hello', 'event', 'ack', 'action', 'action_result', 'ping', 'cancel']);
+export const ENVELOPE_TYPES = Object.freeze([
+  'hello',
+  'event',
+  'ack',
+  'action',
+  'action_result',
+  'ping',
+  'cancel',
+  'tool.register',
+  'tool.call',
+]);
 /** The statuses of an `ack`: `ok` taken, `duplicate` taken before, `invalid` malformed, `unhandled` no one handles the kind, `failed` the handler failed (send it again). */
 export const ACK_STATUSES = Object.freeze(['ok', 'duplicate', 'invalid', 'unhandled', 'failed']);
 
@@ -126,6 +139,10 @@ export function validateEnvelope(value) {
       const verdict = validateAction(body);
       return verdict.ok ? { ok: true } : { ok: false, reason: `body.${verdict.reason}` };
     }
+    case 'tool.register':
+      return validateToolRegister(body);
+    case 'tool.call':
+      return validateToolCall(body);
     case 'action_result':
       if (typeof body.status !== 'string' || body.status === '') return { ok: false, reason: 'body.status:type' };
       return { ok: true };

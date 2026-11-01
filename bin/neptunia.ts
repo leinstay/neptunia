@@ -8,6 +8,7 @@
 //   neptunia doctor [--live] [--json]            the checks of the installation, with the core up or down
 //   neptunia errand-runner --profile <name>      the errand runner of one agent (deploy/neptunia-agent-<name>.service)
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
+//   neptunia plugin run <name>                   one plugin (deploy/neptunia-plugin@.service)
 //   neptunia service install|start|stop|restart|status [<unit> ...]   the units, through systemctl
 //   neptunia task <command> [options]            the task board's command line (bin/neptunia-task.ts)
 //
@@ -50,6 +51,15 @@
 // doubling to 30 seconds, and the backoff starts over once a link stayed up for 30 seconds. An interface that cannot
 // reconnect (no `reconnect()`) ends the process with exit code 1, and its unit restarts it. SIGTERM and SIGINT stop
 // the interface and exit 0.
+//
+// `plugin run` loads `<private>/plugins.local/<name>/index.ts` (or `index.js`) before `<root>/plugins/<name>/index.ts`,
+// the folder's `plugin.json` as the manifest, reads the token from `$CREDENTIALS_DIRECTORY/token` (the unit's
+// `LoadCredential=`) or else `<private>/clients/<name>.token`, and calls the package's `start(host)` with `host.dataDir`
+// set to `<data>/plugins/<name>`. `host.env` holds the keys `plugin.json` lists from the process environment. The
+// settings are the core's (config/config.json, then the private settings file when this user can read it), read
+// again whenever one changes. `host.serve(handle)` connects to the core's socket, says hello under `plugin`, registers
+// the manifest's tools and answers each call through `handle`; a link that drops is opened again with the interface
+// runner's backoff and the tools register again. SIGTERM and SIGINT stop the plugin and exit 0 (src/protocol/plugin.ts).
 
 import { randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
@@ -93,7 +103,16 @@ import type {
   MessageEvent,
 } from '../src/protocol/adapter.ts';
 import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
+import { servePlugin } from '../src/protocol/plugin.ts';
+import type {
+  PluginHost,
+  PluginManifest,
+  RegisterOutcome,
+  RunningPlugin,
+  ServedPlugin,
+} from '../src/protocol/plugin.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
+import { parseManifest } from '../src/plugins/manifest.ts';
 import { runTask } from './neptunia-task.ts';
 import type { CommandResult, Logger } from '../src/protocol/serve.ts';
 import { MAX_FRAME_BYTES, connectSocket } from '../src/protocol/wire.ts';
@@ -105,6 +124,7 @@ const USAGE = [
   '       neptunia doctor [--live] [--json]',
   '       neptunia errand-runner --profile <name>',
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
+  '       neptunia plugin run <name>',
   '       neptunia service install|start|stop|restart|status [<unit> ...]',
   '       neptunia task <command> [options]   (neptunia task help)',
 ].join('\n');
@@ -1162,6 +1182,148 @@ async function runInterface(argv: ReadonlyArray<string>): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// plugin run
+// ---------------------------------------------------------------------------------------------------------------
+
+type PluginPackage = { start(host: PluginHost): Promise<RunningPlugin> };
+
+/** The plugin's folder: the private layer's `plugins.local/<name>` before the checkout's `plugins/<name>`. */
+function pluginDir(where: { rootDir: string; privateDir: string }, name: string): string {
+  const found = [path.join(where.privateDir, 'plugins.local', name), path.join(where.rootDir, 'plugins', name)].find(
+    (dir) => fs.existsSync(path.join(dir, 'plugin.json'))
+  );
+  return found ?? die(`no plugin ${name}: neither plugins.local/${name} nor plugins/${name} has a plugin.json`);
+}
+
+/** The token of plugin `name`: the unit's credential when systemd gave one, else the client's token file. */
+function pluginToken(privateDir: string, name: string): string {
+  const credentials = process.env.CREDENTIALS_DIRECTORY;
+  if (credentials !== undefined && credentials !== '') {
+    try {
+      const token = fs.readFileSync(path.join(credentials, 'token'), 'utf8').replace(/\r?\n$/, '');
+      if (token !== '') return token;
+    } catch {
+      // No credential of that name: the token file is read below.
+    }
+  }
+  return readToken(privateDir, name);
+}
+
+async function loadPlugin(dir: string): Promise<PluginPackage> {
+  const entry = ['index.ts', 'index.js'].map((file) => path.join(dir, file)).find((file) => fs.existsSync(file));
+  if (entry === undefined) die(`no index.ts or index.js in ${dir}`);
+  const loaded: unknown = await import(pathToFileURL(entry).href);
+  const start: unknown = loaded !== null && typeof loaded === 'object' ? Reflect.get(loaded, 'start') : undefined;
+  if (typeof start !== 'function') die(`${entry} exports no start(host)`);
+  // The package's start is the function the plugin contract names (src/protocol/plugin.ts).
+  return { start: start as PluginPackage['start'] };
+}
+
+async function runPlugin(argv: ReadonlyArray<string>): Promise<void> {
+  const [command, name, ...extra] = argv;
+  if (command !== 'run' || name === undefined || extra.length > 0) usage();
+  if (!NAME.test(name)) die(`invalid plugin name "${name}"; use lowercase letters, digits, - and _`);
+  const where = paths();
+  const dir = pluginDir(where, name);
+  const parsed = parseManifest(fs.readFileSync(path.join(dir, 'plugin.json'), 'utf8'), name);
+  if (!parsed.ok) die(`${path.join(dir, 'plugin.json')} is refused: ${parsed.code}`);
+  const manifest: PluginManifest = parsed.manifest;
+  const pkg = await loadPlugin(dir);
+  const token = pluginToken(where.privateDir, name);
+  const socketPath = coreSocketPath(where.dataDir);
+  const localFile = localConfigPath(where.privateDir);
+  const settings = createSettings([trackedConfigPath(where.rootDir), localFile], localFile);
+  settings.read();
+  const dataDir = path.join(where.dataDir, 'plugins', name);
+  fs.mkdirSync(dataDir, { recursive: true });
+
+  let delays = 0;
+  let stopping = false;
+  const nextDelay = (): number => {
+    const ms = Math.min(BACKOFF_MAX_MS, BACKOFF_FIRST_MS * 2 ** delays);
+    delays = Math.min(delays + 1, 16);
+    return ms;
+  };
+
+  async function connect(): Promise<Transport> {
+    for (;;) {
+      if (stopping) throw new Error('the plugin is stopping');
+      try {
+        return await connectSocket({ path: socketPath, maxFrameBytes: MAX_FRAME_BYTES });
+      } catch (err) {
+        const ms = nextDelay();
+        log.info('plugin: core not reachable, trying again', {
+          name,
+          code: (err as NodeJS.ErrnoException).code ?? null,
+          inMs: ms,
+        });
+        await sleep(ms);
+      }
+    }
+  }
+
+  let current: { close(): void } | null = null;
+
+  /** One connection: hello, the registration, and a new connection after it drops. Resolves once connected, with the registration still to come. */
+  async function open(handle: Parameters<PluginHost['serve']>[0]): Promise<{ registered: Promise<RegisterOutcome> }> {
+    const transport = await connect();
+    const openedAt = Date.now();
+    const served = servePlugin({ transport, name, token, tools: manifest.tools, handle, log });
+    current = served;
+    served.registered.then(
+      (outcome) =>
+        log.info('plugin: registered', { name, accepted: outcome.accepted.length, refused: outcome.refused.length }),
+      (err: unknown) => log.warn('plugin: registration failed', { name, error: err })
+    );
+    transport.onClose((reason) => {
+      if (reason === 'closed' || stopping) return;
+      if (Date.now() - openedAt >= STABLE_MS) delays = 0;
+      const ms = nextDelay();
+      log.info('plugin: link lost, connecting again', { name, inMs: ms });
+      setTimeout(() => {
+        open(handle).catch((err: unknown) => log.warn('plugin: reconnect failed', { name, error: err }));
+      }, ms);
+    });
+    return { registered: served.registered };
+  }
+
+  const host: PluginHost = {
+    name,
+    manifest,
+    dataDir,
+    env: Object.fromEntries(manifest.env.map((key) => [key, process.env[key]])),
+    config: () => settings.read(),
+    log,
+    async serve(handle): Promise<ServedPlugin> {
+      const { registered } = await open(handle);
+      return {
+        registered,
+        stop(): Promise<void> {
+          stopping = true;
+          current?.close();
+          return Promise.resolve();
+        },
+      };
+    },
+  };
+
+  let running: RunningPlugin | null = null;
+  async function stop(signal: string): Promise<void> {
+    if (stopping && running === null) return;
+    stopping = true;
+    log.info('plugin: stopping', { name, signal });
+    await running?.stop().catch((err: unknown) => log.warn('plugin: stop failed', { name, error: err }));
+    current?.close();
+    process.exit(0);
+  }
+  process.on('SIGTERM', () => void stop('SIGTERM'));
+  process.on('SIGINT', () => void stop('SIGINT'));
+
+  running = await pkg.start(host);
+  log.info('plugin: running', { name, tools: manifest.tools.length });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 
 const [group, ...rest] = process.argv.slice(2);
 const fault = (err: unknown): never => die(err instanceof Error ? err.message : String(err));
@@ -1186,6 +1348,9 @@ switch (group) {
     break;
   case 'interface':
     await runInterface(rest).catch(fault);
+    break;
+  case 'plugin':
+    await runPlugin(rest).catch(fault);
     break;
   case 'task':
     process.exit(await runTask(rest).catch(fault));

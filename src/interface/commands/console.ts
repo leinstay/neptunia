@@ -28,7 +28,9 @@ import { backupDatabase, backupName, backupSettings, backupsIn, partialOf } from
 import { grantedSkillNames } from '../../tools/discovery.ts';
 import { ownValueAt, splitPath } from '../../tools/impl/shared.ts';
 import { skillRegistry } from '../../tools/registry.ts';
+import type { PluginControl } from '../../plugins/control.ts';
 import type { SkillsAccess } from '../../skills/port.ts';
+import { pluginsCommand } from './plugins.ts';
 import { skillsCommand } from './skills.ts';
 import { callMethod, listOf, objOf } from '../../tools/types.ts';
 import type { Counters, DaysSum, RoleRow } from '../../tools/impl/usage.ts';
@@ -65,10 +67,15 @@ export type ConsoleDeps = {
   now(): number;
   /** Her skills (src/skills/port.ts); `/skills` fails while there is none. */
   skills?: SkillsAccess | null;
+  /** The plugins' switch (src/plugins/control.ts); `/plugins` fails while there is none. */
+  plugins?: PluginControl | null;
 };
 
 /** The prefix of the `/skills` commands, which `skillsCommand` answers. */
 const SKILLS_PREFIX = 'skills.';
+
+/** The prefix of the `/plugins` commands, which `pluginsCommand` answers. */
+const PLUGINS_PREFIX = 'plugins.';
 
 /** How many stored lines `/memory conversation` prints. */
 const CONVERSATION_LINES = 30;
@@ -455,9 +462,12 @@ export function createConsole(deps: ConsoleDeps): {
     }
   }
 
-  // `/skills` has a module of its own; every other command is answered above.
+  // `/skills` and `/plugins` have a module of their own; every other command is answered above.
   return {
-    run: (name, args, requester) =>
-      name.startsWith(SKILLS_PREFIX) ? skillsCommand(deps.skills, name, args) : run(name, args, requester),
+    run: (name, args, requester) => {
+      if (name.startsWith(SKILLS_PREFIX)) return skillsCommand(deps.skills, name, args);
+      if (name.startsWith(PLUGINS_PREFIX)) return pluginsCommand(deps.plugins, name, args);
+      return run(name, args, requester);
+    },
   };
 }

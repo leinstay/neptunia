@@ -131,6 +131,8 @@ export type Skill = Readonly<{
   op: string | null;
   kind: 'read' | 'write';
   ownerOnly: boolean;
+  /** Open to every member (a plugin tool's `rights.member`); an operation's own is on the operation. */
+  member?: boolean;
   argsSchema: Schema;
   effects: EffectClass;
   sharedState: boolean;
@@ -142,6 +144,8 @@ export type Skill = Readonly<{
   result?: 'effect' | 'job' | 'data';
   opBacked?: true;
   dispatch?: Dispatch;
+  /** The words of a tool a plugin declares (src/plugins/registry.ts); the owner's tool texts win over them. */
+  wording?: Readonly<{ title: string; whenToUse: string; whenNotToUse: string }>;
 }>;
 
 /** The skills by name. */

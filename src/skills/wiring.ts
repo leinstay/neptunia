@@ -1,7 +1,7 @@
 // The core's skills, wired once (src/core.js calls it): the access over the memory writer (client.ts), the index of her
 // active skills for a request with the list of what it showed, and the sources of the selfimprovement wake's facts that
-// concern skills and the board. The skill folders are `skills/` in the checkout (tracked) and `skills.local/` in the
-// private layer; both are read at each call, and the grants, the labels and `skills.reviewDays` are read from `hot` at
+// concern skills and the board. The skill folders are `skills/` in the checkout (tracked), the `skills/` of each enabled
+// plugin and `skills.local/` in the private layer; all are read at each call, and the grants, the labels and `skills.reviewDays` are read from `hot` at
 // the moment of use, never kept.
 
 import path from 'node:path';
@@ -39,6 +39,8 @@ export type SkillsWiringDeps = {
   selfId: () => string | null;
   rootDir: string;
   privateDir: string;
+  /** The `skills/` folders of the enabled plugins (src/plugins/folders.ts), read at each call. */
+  pluginDirs?: () => ReadonlyArray<string>;
   now: () => number;
   log: { warn(message: string, fields: Record<string, unknown>): void };
 };
@@ -58,6 +60,7 @@ export function wireSkills(deps: SkillsWiringDeps): SkillsWiring {
       loadSkills({
         trackedDir: path.join(deps.rootDir, 'skills'),
         localDir: path.join(deps.privateDir, 'skills.local'),
+        pluginDirs: deps.pluginDirs?.() ?? [],
       }),
     granted: () => new Set(granted()),
     registered: () => new Set(skillRegistry().keys()),
