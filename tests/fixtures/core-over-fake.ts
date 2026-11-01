@@ -47,7 +47,8 @@ function merged(base: Settings, extra: Settings): Settings {
   return out;
 }
 
-export async function until(check: () => boolean, ms = 4000): Promise<void> {
+// The deadline holds a turn under the load of the whole suite: one alone takes about 0.5 s, the suite stretched two past 4 s.
+export async function until(check: () => boolean, ms = 15_000): Promise<void> {
   const deadline = Date.now() + ms;
   while (!check()) {
     if (Date.now() > deadline) throw new Error('timed out waiting');
