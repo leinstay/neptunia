@@ -20,6 +20,8 @@ import type { HeartbeatFacts } from '../heartbeat-view.ts';
 import { deliveriesOf, holdFor, sendDeliveries } from './deliveries.ts';
 import { asText, factPayload, feedbackFacts, idOrNull, markFactsTold, pendingFactsOf } from './facts.ts';
 import { heartbeatFacts, logHeartbeatOutcome } from './heartbeat.ts';
+import { committedSelfimprovement, selfimprovementFacts } from './selfimprovement.ts';
+import type { SelfimprovementFacts } from '../selfimprovement-view.ts';
 import { attendFactsOf, placeNameOf, placesInWakeOf } from './places.ts';
 import {
   addFact,
@@ -259,7 +261,8 @@ function heartbeatStandIn(iface: string, guildId: string): ConversationInfo {
 /**
  * The conversation an inner turn of `group` runs in, or null. An attend wake's place may be one
  * she can only read: she listens there and posts, if at all, through a call elsewhere. The heartbeat with no
- * interface connected runs in its stand-in (heartbeatStandIn) with no history.
+ * interface connected runs in its stand-in (heartbeatStandIn) with no history, and so does a selfimprovement wake with
+ * no channel she was lately active in.
  */
 export async function conversationFor(
   life: InnerContext,
@@ -273,6 +276,12 @@ export async function conversationFor(
     return { channel: standIn, why: null, turn: { standIn, reuseHistory: [] } };
   }
   const candidates: ReadonlyArray<string | null> = anchor ? [anchor.channelId] : await recentChannels(life, guildId);
+  // The selfimprovement wake works on the board and speaks to nobody: with no channel she was lately active in, it runs
+  // in the stand-in too.
+  if (!anchor && candidates.length === 0 && group.some((wake) => wake.kind === 'selfimprovement')) {
+    const standIn = heartbeatStandIn(iface(), guildId);
+    return { channel: standIn, why: null, turn: { standIn, reuseHistory: [] } };
+  }
   const readOnlyOk = anchor?.kind === 'attend';
   // Why the first candidate failed (`dm-off`, `not-writable`, `unavailable`); a review with no channel at all: `no-review-channel`.
   let why: string = anchor ? 'unavailable' : 'no-review-channel';
@@ -376,13 +385,27 @@ type WakeView = {
   chain: ChainBudget;
   shownFacts: Array<Fact>;
   heartbeat: HeartbeatFacts | null;
+  selfimprovement: SelfimprovementFacts | null;
   here: CurrentChannel;
 };
 
 /** The `<wake>` facts of an inner turn for `group` (src/behavior/wake.ts words them). */
 function wakeInfoOf(life: InnerContext, guildId: string, group: ReadonlyArray<Wake>, view: WakeView): WakeInfo {
-  const { anchor, at, timezone, settings, records, notes, expired, isReview, chain, shownFacts, heartbeat, here } =
-    view;
+  const {
+    anchor,
+    at,
+    timezone,
+    settings,
+    records,
+    notes,
+    expired,
+    isReview,
+    chain,
+    shownFacts,
+    heartbeat,
+    selfimprovement,
+    here,
+  } = view;
   const state = stateOf(life, guildId);
   // The facts a feedback wake carries that are still untold.
   const factsOfWake = (wake: Wake): Array<FactPayload> =>
@@ -422,6 +445,7 @@ function wakeInfoOf(life: InnerContext, guildId: string, group: ReadonlyArray<Wa
     budgets: { chain },
     chainId: anchor.chainId,
     ...(heartbeat ? { heartbeat } : {}),
+    ...(selfimprovement ? { selfimprovement } : {}),
     // The current channel: where her output tags act, and why it is that one (`<wake>`).
     here: here.channelId ? { channel: placeNameOf(life, guildId, here.channelId), why: here.why } : null,
   };
@@ -694,6 +718,8 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   const heartbeat = group.some((wake) => wake.kind === 'heartbeat')
     ? await heartbeatFacts(life, guildId, settings, at)
     : null;
+  const improvementWake = group.find((wake) => wake.kind === 'selfimprovement') ?? null;
+  const selfimprovement = improvementWake ? await selfimprovementFacts(life, guildId, at) : null;
   const info = wakeInfoOf(life, guildId, group, {
     anchor,
     at,
@@ -706,6 +732,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
     chain,
     shownFacts,
     heartbeat,
+    selfimprovement,
     here: current,
   });
   // The turn's wakes are claimed before it runs: a process that dies in it leaves them running (recovery.ts).
@@ -881,6 +908,9 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   save(life, guildId);
   const recorded = await finishTurn(life, guildId, group, after, deliveriesOf(hold, { turnId: turnKey, chainId }));
   await sendDeliveries(life, guildId, recorded);
+  // The completion of a selfimprovement wake committed: its time is the last one and what its view showed is delivered.
+  if (improvementWake && outcome !== 'error')
+    await committedSelfimprovement(life, guildId, improvementWake, selfimprovement);
   let feedbackWakeId: string | null = null;
   if (feedback.length > 0 && !isFeedback && !comesBack) {
     feedbackWakeId = `inner.wake:feedback:${asText(turnId ?? ended)}`;

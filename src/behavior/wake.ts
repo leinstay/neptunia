@@ -22,6 +22,8 @@ import { estimateTokens } from '../llm/tokens.js';
 import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
 import type { HeartbeatFacts } from './heartbeat-view.ts';
+import { selfimprovementLines, selfimprovementReason } from './selfimprovement-text.ts';
+import type { SelfimprovementFacts } from './selfimprovement-view.ts';
 import type { ChainBudget, PlacesPage } from './inner/types.ts';
 
 /** `value` as text (String over a value of any type). */
@@ -633,6 +635,7 @@ export type WakeBlockInput = {
   places?: PlacesPage | null;
   budgets?: { chain?: ChainBudget & { resetAt?: number } };
   heartbeat?: HeartbeatFacts | null;
+  selfimprovement?: SelfimprovementFacts | null;
   facts?: ReadonlyArray<unknown>;
   here?: { channel: string; why: string | null } | null;
 };
@@ -761,6 +764,7 @@ export function wakeBlockText(
   if (wake.heartbeat)
     lines.push(...heartbeatLines(wake.heartbeat, l.heartbeat, when, placesBlock, { handleBase, onRefs }));
   else lines.push(...placesBlock);
+  lines.push(...selfimprovementLines(wake.selfimprovement, l.selfimprovement, when, selfimprovementReason(wake.items)));
   const budgets = wake.budgets ?? {};
   const budget = objOf(l.budget);
   const budgetLines = WAKE_BUDGETS.map((key) => {
