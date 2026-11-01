@@ -23,7 +23,11 @@ function seed(fake: Fake): void {
   }
 }
 
-const listings = (calls: ReadonlyArray<{ op: string }>): number => calls.filter((c) => c.op === 'conversations').length;
+// PR 7d: the offline catch-up and the emoji backfill are code, so the core lists the conversations itself at its start;
+// the listing of a turn attempt is the one that asks for the audiences.
+const listings = (calls: ReadonlyArray<{ op: string; args: ReadonlyArray<unknown> }>): number =>
+  calls.filter((c) => c.op === 'conversations' && (c.args[0] as { audience?: boolean } | undefined)?.audience === true)
+    .length;
 
 test('takes one conversations listing for one attempt however many rails read it', async () => {
   await withFakeCore({ config: CONFIG, seed }, async (rig) => {
