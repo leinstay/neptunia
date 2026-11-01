@@ -43,10 +43,6 @@ const SOURCE_CHARS = 200;
 const codeOf = (error) => error?.code ?? error?.name ?? 'ERROR';
 const present = (value) => typeof value === 'string' && value.trim() !== '';
 
-/** A finite number above 0, else `fallback`. */
-const positive = (value, fallback) =>
-  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
-
 /**
  * The display cap of a field, in characters: the limits the store applies to the same kind of text
  * (`relationships.textChars` for a relationship, twice `memory.fieldChars` for the server notes, `memory.fieldChars`

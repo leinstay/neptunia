@@ -513,7 +513,7 @@ test('replay: recordingLlm keeps the native tool calls and the finish reason of 
 test('refuseDiscordWrites: a GET passes to the REST queue and every write is refused, so a diary replay posts nothing', async () => {
   // PR 7d: the dry-run switch is gone from the engine, so this refusal is what keeps a diary replay from posting.
   const queued = [];
-  const client = { rest: { queueRequest: async (request) => queued.push(request.method ?? 'GET') } };
+  const client = { rest: { queueRequest: (request) => Promise.resolve(queued.push(request.method ?? 'GET')) } };
   refuseDiscordWrites(client);
   await client.rest.queueRequest({ method: 'GET' });
   await client.rest.queueRequest({});
