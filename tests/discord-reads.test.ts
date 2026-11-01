@@ -1,6 +1,6 @@
 // The conversation reads of the Discord adapter (`createDiscordAdapter({ client, config })`) over a stub discord.js
 // client: each read answers what the old function of interfaces/discord did with the same stub. The history read gives
-// events whose `lineOf` (src/behavior/line-of.js) equals the lines `fetchHistory` and its siblings return. Discord
+// events whose `lineOf` (src/behavior/line-of.ts) equals the lines `fetchHistory` and its siblings return. Discord
 // objects are plain stubs shaped just enough for the code to read.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,7 +15,7 @@ import {
   lastActivity,
   normalizeOptions,
 } from '../interfaces/discord/index.ts';
-import { lineOf } from '../src/behavior/line-of.js';
+import { lineOf } from '../src/behavior/line-of.ts';
 import type { MessageEvent } from '../src/protocol/adapter.ts';
 
 type Raw = Record<string, unknown>;

@@ -21,7 +21,7 @@
 // envelope goes through `submit` with the principal and `seq` of `from` and is answered by an `ack`,
 // every other type is `invalid`.
 
-import { log as defaultLog } from '../log.js';
+import { log as defaultLog } from '../log.ts';
 import { ackOf, validateEnvelope, validateEvent } from '../protocol/index.ts';
 import { objOf } from '../tools/types.ts';
 

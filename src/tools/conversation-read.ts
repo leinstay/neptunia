@@ -10,12 +10,12 @@
 // persona reads comes from `labels.tools.tools.conversation.*`; nothing here is wording. A
 // channel the audience rule or her rights hide is refused `channel-not-visible`.
 
-import { fill, formatTranscript } from '../format.js';
+import { fill, formatTranscript } from '../format.ts';
 import { parseWhen } from '../intentions/model.ts';
-import { DAY_MS } from '../time.js';
+import { DAY_MS } from '../time.ts';
 import { oneLine } from '../memory/clamp.ts';
 import { CODE } from './codes.ts';
-import { lineOf } from '../behavior/line-of.js';
+import { lineOf } from '../behavior/line-of.ts';
 import { idText, isObj, listOf, objOf } from './types.ts';
 import type { Obj } from './types.ts';
 import type { Reads } from '../interface/reads.ts';

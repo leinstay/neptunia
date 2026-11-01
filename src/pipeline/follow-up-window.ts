@@ -7,11 +7,11 @@
 //
 // The Map is mirrored into `store.state.data.followUpWindows` (timestamps and a counter only, never message text) so a
 // restart does not close every open window; createFollowUpWindows loads the saved entries back when it is built.
-// createMessageHandler (src/behavior/pipeline.js) builds it once.
+// createMessageHandler (src/behavior/pipeline.ts) builds it once.
 
-import { FOLLOW_UP_MINUTES, FOLLOW_UP_NO_STREAK, followUpPreFilter, isFollowUpOpen } from '../behavior/mention.js';
-import { log } from '../log.js';
-import { MINUTE_MS } from '../time.js';
+import { FOLLOW_UP_MINUTES, FOLLOW_UP_NO_STREAK, followUpPreFilter, isFollowUpOpen } from '../behavior/mention.ts';
+import { log } from '../log.ts';
+import { MINUTE_MS } from '../time.ts';
 import type { Conv, Line, Ping, PipelineConfig, PipelineHot, PipelineState, PipelineTurns } from './types.ts';
 
 /** One channel's window: when the persona opened it, her last answer there and the "no" verdicts since. */

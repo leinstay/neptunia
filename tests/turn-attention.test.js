@@ -1,4 +1,4 @@
-// Tests for the "one attention" rail in src/behavior/turn.js:
+// Tests for the "one attention" rail in src/behavior/turn.ts:
 // isAnyBusy(), the busy-elsewhere refusal (one turn at a time), and
 // setOnIdle(). Kept in its own file (rather than tests/turn.test.js)
 // deliberately: its fixtures are otherwise identical to turn.test.js's, but
@@ -9,7 +9,7 @@
 // smaller file, every test here runs reliably.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { onWorld, world } from './fixtures/turn-world.ts';

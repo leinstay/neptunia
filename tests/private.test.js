@@ -1,8 +1,8 @@
-// Tests for src/behavior/private.js: the private-chat gate, the effective
+// Tests for src/behavior/private.ts: the private-chat gate, the effective
 // affinity view and the public + private profile merge.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { privateGate, effectiveAffinity, mergeProfiles } from '../src/behavior/private.js';
+import { privateGate, effectiveAffinity, mergeProfiles } from '../src/behavior/private.ts';
 
 const TODAY = '2026-09-29';
 

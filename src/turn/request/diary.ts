@@ -1,6 +1,6 @@
 // A diary post's own blocks: the persona's world (`<world>`), its past posts (`<diary>`), the post's `<plan>`, a set
 // post's `<seeds>` and what its search found (`<found>`). buildRequest and buildDiaryPlanRequest
-// (src/behavior/prompt.js) call them. None of it reaches a request of another mode.
+// (src/behavior/prompt.ts) call them. None of it reaches a request of another mode.
 
 import { DEFAULT_HISTORY_POSTS, renderDiaryBlock } from '../../behavior/diary.ts';
 import { fillPromptTemplate } from './text.ts';
@@ -83,7 +83,7 @@ export type DiaryParts = {
  * A diary post (mode `diary`): the persona's world (under `diary.world`), its past posts, the post's plan and what
  * its search found. None of it in any other mode.
  */
-// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
+// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
 export function diaryOf(given: RequestInput & { labels: Labels }): DiaryParts {
   const { config, prompts, mode, selfName, labels } = given;
   // A diary post (mode `diary`): the persona's world (under `diary.world`), its past posts, the

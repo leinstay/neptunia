@@ -13,7 +13,7 @@
 //   neptunia task <command> [options]            the task board's command line (bin/neptunia-task.ts)
 //
 // Every command reads `NEPTUNIA_PRIVATE_DIR` (the local layer) and `NEPTUNIA_DATA_DIR` (the data folder), as the core
-// does (src/paths.js). A usage error exits 2.
+// does (src/paths.ts). A usage error exits 2.
 //
 // The chat is the `cli` interface. It connects to the core's socket `<data>/run/core.sock` with the token of the
 // client `cli` (`<private>/clients/cli.token`, tools/client-token.mjs writes it) and says hello as `iface: 'cli'`. Each
@@ -74,7 +74,7 @@ import { DEFAULT_OPENCODE_PATH, createOpencodeRunner } from '../src/agent-runner
 import { agentSettings, profileOf } from '../src/agent-runner/profiles.ts';
 import type { RunnerTask } from '../src/agent-runner/protocol.ts';
 import { startSweeper } from '../src/agent-runner/sweep.ts';
-import { ROOT_DIR, deepMerge, parseEnv, readConfig, resolveEnvRefs } from '../src/config.js';
+import { ROOT_DIR, deepMerge, parseEnv, readConfig, resolveEnvRefs } from '../src/config.ts';
 import { moveConfigKeys } from '../src/config-moves.ts';
 import { checkConfig as checkSettings } from '../src/config/check.ts';
 import {
@@ -93,8 +93,8 @@ import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
 import { BASE_ROLES, MEMORY_ROLE } from '../src/llm/roles.ts';
 import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../src/llm/openrouter.ts';
-import { log, logToStderr } from '../src/log.js';
-import { resolvePaths } from '../src/paths.js';
+import { log, logToStderr } from '../src/log.ts';
+import { resolvePaths } from '../src/paths.ts';
 import type {
   Adapter,
   Capabilities,
@@ -738,7 +738,7 @@ function checkRoles(where: { rootDir: string; privateDir: string }): Check {
   let config: Settings;
   let names: Set<string>;
   try {
-    config = readConfig(where.rootDir, { privateDir: where.privateDir }) as Settings;
+    config = readConfig(where.rootDir, { privateDir: where.privateDir });
     names = new Set(Object.keys(parseEnv(fs.readFileSync(path.join(where.privateDir, '.env'), 'utf8'))));
   } catch {
     return { name: 'roles', status: 'warn', detail: 'not checked: the config or .env does not read' };

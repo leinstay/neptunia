@@ -1,4 +1,4 @@
-// The token limit buildRequest (src/behavior/prompt.js) fits a request under: 0.9 of the request cap
+// The token limit buildRequest (src/behavior/prompt.ts) fits a request under: 0.9 of the request cap
 // (src/llm/budget.ts#requestTokenLimit, SAFETY_MARGIN); a picture in the chat
 // reserves nothing (none is attached, the persona reads its caption). Then where
 // a pulled channel (`<channel_view>`) sits in that budget: capped by `context.caps.pulled`, after
@@ -6,9 +6,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRequest, userText as contentText } from '../src/behavior/prompt.js';
+import { buildRequest, userText as contentText } from '../src/behavior/prompt.ts';
 import { estimateTokens } from '../src/llm/tokens.ts';
-import { fill, formatClock, formatDate, formatDuration } from '../src/format.js';
+import { fill, formatClock, formatDate, formatDuration } from '../src/format.ts';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);

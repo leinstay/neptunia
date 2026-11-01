@@ -1,13 +1,13 @@
 // How a call that cannot be answered now is held: queued, or folded by the merge classifier (prompts/merge.md) into an
 // item its author already waits for in that channel, the parts of their message a chain has not reached yet
-// (turns.waitingParts) and their queued calls. createMessageHandler (src/behavior/pipeline.js) builds it once with
+// (turns.waitingParts) and their queued calls. createMessageHandler (src/behavior/pipeline.ts) builds it once with
 // createMerge; the live path, a private message and a routed call hold through holdCall.
 
-import { SPAM_WINDOW_MS } from '../behavior/mention.js';
-import { authorCalls, foldInto, parseMergeAnswer } from '../behavior/pending.js';
+import { SPAM_WINDOW_MS } from '../behavior/mention.ts';
+import { authorCalls, foldInto, parseMergeAnswer } from '../behavior/pending.ts';
 import { railReason, roleRequestOptions } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { block, fillPromptTemplate } from '../turn/request/text.ts';
 import type { PendingQueueOps, PingKind } from './pending-queue.ts';
 import { isDeferredFollowUp } from './pending-queue.ts';
@@ -109,7 +109,7 @@ export function createMerge({
     let parts: Array<{ index: number; text: string }> = [];
     try {
       const found = turns.waitingParts?.(channelId, authorId);
-      // A chain's waiting parts carry their index and text (src/behavior/turn.js#waitingParts).
+      // A chain's waiting parts carry their index and text (src/behavior/turn.ts#waitingParts).
       parts = Array.isArray(found) ? (found as Array<{ index: number; text: string }>) : [];
     } catch {
       parts = [];

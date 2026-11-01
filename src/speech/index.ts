@@ -5,7 +5,7 @@
 //
 // Settings and prompts are read at the moment of use. Logs carry codes and counts, never the text.
 
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { objOf } from '../tools/types.ts';
 import { roleModel } from '../llm/roles.ts';
 import { CODE } from '../tools/codes.ts';

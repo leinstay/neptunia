@@ -1,13 +1,13 @@
 // Her in-turn tools for one turn: `web.search`, `web.read`, `media.look`, `media.find`, `memory.search`,
 // `conversation.read`, `draw.create` and a diary post's `voice.say`, each run over the turn's own context in place of
-// the operation's command (src/tools/executors.ts#executeCall). createTurnRunner (src/behavior/turn.js) builds it once
+// the operation's command (src/tools/executors.ts#executeCall). createTurnRunner (src/behavior/turn.ts) builds it once
 // per runner with createInTurnTools; the attempt hands the tools to its calls.
 
 import { randomUUID } from 'node:crypto';
 import { diaryVoiceTool } from '../behavior/diary-turn.ts';
-import { pullPictures } from '../behavior/pull.js';
+import { pullPictures } from '../behavior/pull.ts';
 import { checkPull } from '../behavior/pull-fetch.ts';
-import { RECALL_DEFAULTS, recallSettings } from '../behavior/recall.js';
+import { RECALL_DEFAULTS, recallSettings } from '../behavior/recall.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { TurnRoutes } from '../behavior/turn-ability-route.ts';
 import type { Reads } from '../interface/reads.ts';
@@ -107,7 +107,7 @@ export type InTurnTools = {
   inTurnTools: (args: InTurnArgs) => Record<string, (args: Obj, call?: InTurnCall) => unknown>;
 };
 
-// health: allow function-length until 2027-04-01 -- the tools share the runner state of src/behavior/turn.js, moved whole in stage 5b
+// health: allow function-length until 2027-04-01 -- the tools share the runner state of src/behavior/turn.ts, moved whole in stage 5b
 export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
   const {
     hot,

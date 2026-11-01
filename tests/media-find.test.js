@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { findGif, normalizeGifs } from '../src/memory/gifs.ts';
-import { renderGifLibrary } from '../src/behavior/gif-pick.js';
+import { renderGifLibrary } from '../src/behavior/gif-pick.ts';
 import { findGifs, mediaFindText, runMediaFind } from '../src/tools/tools.ts';
 
 const labels = {

@@ -8,7 +8,7 @@
 // Logs carry the reason a pass was dropped, never the text.
 
 import { errorFields } from '../error-fields.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 
 /** The role the pass goes out on and the purpose its usage line carries. */
 export const PREPARE_ROLE = 'analyzer';

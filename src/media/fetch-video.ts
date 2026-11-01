@@ -55,8 +55,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import { errorFields } from '../error-fields.ts';
-import { log } from '../log.js';
-import { MINUTE_MS } from '../time.js';
+import { log } from '../log.ts';
+import { MINUTE_MS } from '../time.ts';
 import type { audioMapSettings } from './audio-map.ts';
 import { classifyAudio, parseSilenceDetect, silenceDetectArgs } from './audio-map.ts';
 import {

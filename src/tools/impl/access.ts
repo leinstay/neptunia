@@ -20,7 +20,7 @@ import {
   revoke as accessRevoke,
   hasGrant,
 } from './grants.ts';
-import { log } from '../../log.js';
+import { log } from '../../log.ts';
 import { NONE, reloadNote } from './shared.ts';
 import { pluginToolNames, skillNames, skillRegistry } from '../registry.ts';
 import { NOT_GRANTABLE_TO_PERSONA } from '../access.ts';

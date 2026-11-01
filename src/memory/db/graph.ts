@@ -37,7 +37,7 @@
 // Logs: none; a caller logs codes.
 
 import { createHash } from 'node:crypto';
-import { log as engineLog } from '../../log.js';
+import { log as engineLog } from '../../log.ts';
 import { canonicalKey } from './ids.ts';
 import { AUD_INTERNAL, audienceParts, audiencesOf, dmAudienceId, groupAudienceId } from './scope.ts';
 import { NODE_KINDS, RELATION_EDGES, UNIT_OF, UNIT_ORDER } from './graph-manifest.ts';

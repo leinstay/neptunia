@@ -21,7 +21,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readPromptFile } from '../src/agent-runner/opencode.ts';
-import { onLog } from '../src/log.js';
+import { onLog } from '../src/log.ts';
 import {
   SCOUT,
   SERVER,
@@ -54,7 +54,7 @@ import {
   withheldRootsOf,
 } from '../src/agent-runner/policy.ts';
 import { DEVELOPMENT_ROLES, OPENCODE_ROLES, ROLE_DEFAULTS } from '../src/llm/roles.ts';
-import { resolvePaths } from '../src/paths.js';
+import { resolvePaths } from '../src/paths.ts';
 import { tempDir } from './fixtures/tmp.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

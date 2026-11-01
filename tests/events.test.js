@@ -1,24 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createMessageHandler } from '../src/behavior/pipeline.js';
-import { createTurnRunner } from '../src/behavior/turn.js';
-import { userText } from '../src/behavior/prompt.js';
-import { fill } from '../src/format.js';
-import { FOLLOW_UP_MINUTES, FOLLOW_UP_NO_STREAK, createTagHistory } from '../src/behavior/mention.js';
+import { createMessageHandler } from '../src/behavior/pipeline.ts';
+import { createTurnRunner } from '../src/behavior/turn.ts';
+import { userText } from '../src/behavior/prompt.ts';
+import { fill } from '../src/format.ts';
+import { FOLLOW_UP_MINUTES, FOLLOW_UP_NO_STREAK, createTagHistory } from '../src/behavior/mention.ts';
 import { pingStatus } from '../src/behavior/elsewhere.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MessageReferenceType, PermissionFlagsBits } from 'discord.js';
-import { deepMerge } from '../src/config.js';
+import { deepMerge } from '../src/config.ts';
 import { DailyCapError } from '../src/llm/openrouter.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createStore } from '../src/memory/store.ts';
 import { normalizeMessage, normalizeOptions, toEvent } from '../interfaces/discord/index.ts';
-import { createActivity } from '../src/behavior/activity.js';
+import { createActivity } from '../src/behavior/activity.ts';
 import { tempDir } from './fixtures/tmp.js';
 import {
   freshWorld,
@@ -276,7 +276,7 @@ function makeHandler({
 }
 
 /**
- * The handler driven as src/index.js drives it: each fake discord.js message (or update, or
+ * The handler driven as src/index.ts drives it: each fake discord.js message (or update, or
  * deletion) becomes its protocol event (interfaces/discord/collect.ts#toEvent) at the moment of the
  * call, with the options read from the live config then.
  */
@@ -824,7 +824,7 @@ test("events: the persona's own message never triggers a describer call", async 
 // One attention (mention.oneAtATime) -- a direct ping (mention/reply)
 // that arrives while a turn is running elsewhere is remembered as pending
 // instead of dropped; drainPending() (called in production once a turn
-// frees its channel, see src/behavior/turn.js's setOnIdle) answers the
+// frees its channel, see src/behavior/turn.ts's setOnIdle) answers the
 // oldest one through the normal reply path after a human switch pause.
 
 function directPingMessage(overrides = {}) {
@@ -2520,7 +2520,7 @@ test('events: a message with no readable link never calls readLinks; a lookup fa
 
 // ---------------------------------------------------------------------------
 // Private chat (features.privateMessages): a DM from a member of the served
-// guild runs through privateGate (src/behavior/private.js) and, when it
+// guild runs through privateGate (src/behavior/private.ts) and, when it
 // passes, a reply turn with the pinned guildId. Limit notices: a triggered
 // turn refused by a rail gets one plain line naming the limit.
 
@@ -4138,7 +4138,7 @@ test('follow-up: a failed classifier is a "no" when the exchange is not an activ
   }
 });
 
-/** A src/behavior/missed.js stand-in recording the facts and the activity it is told of. */
+/** A src/behavior/missed.ts stand-in recording the facts and the activity it is told of. */
 function recordingMissed() {
   const facts = [];
   const activity = [];
@@ -4658,7 +4658,7 @@ test('events: a call another turn already showed and answered is not answered ag
 
 test('events: a settled call the ring holds as answered starts no turn, though no turn remembers showing it', async () => {
   // During the wait a turn in the main channel pulled s1 and answered the call (the turn stamps
-  // the ring: src/behavior/turn.js#stampShownCalls); a later turn's view of s1 no longer holds it.
+  // the ring: src/behavior/turn.ts#stampShownCalls); a later turn's view of s1 no longer holds it.
   const turns = recordingTurns();
   turns.spokeAfterSeeing = () => false;
   const scene = routeScene({ turns });
@@ -5420,7 +5420,7 @@ function ringStates(scene) {
 
 test("events: a routed turn's outcome stamps its own call only; the other calls it showed are the turn's to stamp", async () => {
   // m1 and m2 in one settle: the newer m2 takes the wait. A real turn that showed m1 stamps it
-  // itself -- answered when its output answered m1, skipped otherwise (src/behavior/turn.js,
+  // itself -- answered when its output answered m1, skipped otherwise (src/behavior/turn.ts,
   // tests/turn.test.js); the fake turn here stamps nothing, so m1 shows what the caller does.
   for (const [label, result, states, marked] of [
     [
@@ -6058,7 +6058,7 @@ test('pause notice: a private message the gate refuses gets nothing', async () =
 });
 
 // ---------------------------------------------------------------------------
-// Several calls, one attention: the real turn runner (src/behavior/turn.js) behind the handler.
+// Several calls, one attention: the real turn runner (src/behavior/turn.ts) behind the handler.
 // A message that holds several requests is answered part by part; every waiting call gets its
 // own turn, in arrival order; a call about something still waiting is folded into it.
 
@@ -6106,7 +6106,7 @@ async function tickUntil(check, rounds = 3000) {
 
 /**
  * A server channel (or, `dm`, a private chat with u1) whose history is every message sent so far,
- * a real turn runner, and the handler, wired as src/index.js wires them. `talk(index)` answers the
+ * a real turn runner, and the handler, wired as src/index.ts wires them. `talk(index)` answers the
  * talk requests (it may return a promise: a gate holding the turn); `split` and `merge` the
  * splitter and the merge classifier (a string, an Error, or a function of the call's index).
  * `prompts.split` / `prompts.merge` exist only when their answer is given.

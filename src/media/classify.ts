@@ -1,5 +1,5 @@
 // Pure media semantics shared by the interface packages (normalization),
-// src/format.js (transcript rendering) and src/behavior/prompt.js
+// src/format.ts (transcript rendering) and src/behavior/prompt.ts
 // (vision selection): classifying an attachment/embed into a kind, choosing
 // which label form a media item takes in a transcript line, picking which
 // pictures of a channel a live turn may see, and listing the video
@@ -266,7 +266,7 @@ function durationOrUnknown(durationSec: number | null | undefined, unknownDurati
  * The reason CODE of a not-watched video state: `'length' | 'size' | 'daily'`
  * for a `limit` state, `'error'` for an `error` state, `'pending'` for a
  * `pending` one (its watch had not finished when the request was built).
- * Label-free on purpose: src/format.js swaps it for
+ * Label-free on purpose: src/format.ts swaps it for
  * `labels.transcript.videoReason[code]`.
  */
 function videoReasonCode(video: VideoState): string {
@@ -392,10 +392,10 @@ function extraOf(...extras: Array<LabelTag | Array<LabelTag> | null>): LabelTag 
  * `videoWatched`, or `videoWatchedPart` when the state's `watchedSeconds` (the
  * downloaded clip's length) is shorter than the item's known `durationSec`
  * (`values.watched` its m:ss, `values.reason` the code `'clip'`, swapped by
- * src/format.js for `transcript.videoPartReason.clip`); one not watched renders `videoNotWatchedFrame` (a still
+ * src/format.ts for `transcript.videoPartReason.clip`); one not watched renders `videoNotWatchedFrame` (a still
  * frame caption exists) or `videoNotWatched`, `values.reason` carrying the
  * reason CODE (`'length'|'size'|'daily'|'error'|'pending'`, never a label -- see
- * src/format.js). A `link` with a video state swaps its one extra for
+ * src/format.ts). A `link` with a video state swaps its one extra for
  * `linkWatched` / `linkNotWatchedFrame` / `linkNotWatched`. A watched video (attachment or link) whose state
  * carries `answer: { question, text }` (a second look on a question, see
  * src/memory/describe.ts#rewatchVideo) appends `videoAnswered` after every
@@ -410,16 +410,16 @@ function extraOf(...extras: Array<LabelTag | Array<LabelTag> | null>): LabelTag 
  * src/memory/gifs.ts#gifHandleOf) of a `gif` item the persona can post
  * back: it renders `gifKnown` (`{ id, text }`) when a caption exists, else
  * `gifKnownNoText` (`{ id, name }`), in place of `gifDescribed`/`gif` (with
- * those keys blanked in prompts.local/labels.json, src/format.js
+ * those keys blanked in prompts.local/labels.json, src/format.ts
  * falls back to them). Every other kind ignores it.
  *
  * `context.gifFields` is that GIF's three caption fields (`{ reaction,
  * action, screen }`, already cut for display, see
- * src/behavior/prompt.js#gifFieldsMap): a `gif` item with a handle and a
+ * src/behavior/prompt.ts#gifFieldsMap): a `gif` item with a handle and a
  * caption whose `reaction` or `screen` is non-empty renders `gifKnownFields`
  * (`{ id, text, reaction, action, screen }`, `text` being the caption
  * gifKnown would show) in place of `gifKnown`; with that key blanked
- * src/format.js falls back to `gifKnown`. A GIF without a handle
+ * src/format.ts falls back to `gifKnown`. A GIF without a handle
  * ignores it (`gifDescribed` keeps the caption alone).
  *
  * `context.answer` is a picture's second look on a question (`{ question,

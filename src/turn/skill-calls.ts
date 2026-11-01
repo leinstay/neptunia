@@ -1,15 +1,15 @@
 // Her skill calls in a turn: what a call is resolved against, the gateway's check, the plan of one call before its
 // step does anything, an inner turn's gate, and the call made with its journal lines, marks and notes; a step's
-// planned calls made in segments. createTurnRunner (src/behavior/turn.js) builds it once per runner with
+// planned calls made in segments. createTurnRunner (src/behavior/turn.ts) builds it once per runner with
 // createSkillCalls; the tool round and the attempt call its functions.
 
-import { DESTINATION_REQUIRED } from '../behavior/inner-output.js';
+import { DESTINATION_REQUIRED } from '../behavior/inner-output.ts';
 import { POSTING_SKILLS } from '../behavior/inner.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { TurnRoutes } from '../behavior/turn-ability-route.ts';
-import { segments } from '../behavior/tool-step.js';
+import { segments } from '../behavior/tool-step.ts';
 import { isIntentionId } from '../intentions/model.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { callArgsText } from '../tools/call-args.ts';
 import { CODE } from '../tools/codes.ts';
 import { executeCall, outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
@@ -224,7 +224,7 @@ export type SkillCalls = {
   intentionNamed: (skill: string, args: Obj | null | undefined) => string | null;
 };
 
-// health: allow function-length until 2027-04-01 -- the calls share the runner state of src/behavior/turn.js, moved whole in stage 5b
+// health: allow function-length until 2027-04-01 -- the calls share the runner state of src/behavior/turn.ts, moved whole in stage 5b
 export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
   const {
     hot,
@@ -355,7 +355,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
    * `{ call, op, envelope, resolved, refusal }`: `resolved` null and `refusal` (`{ code, reason }`) when anything said
    * no -- logged `skill: refused`. Nothing runs here.
    */
-  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5b, a pure move
+  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
   async function planToolCall({
     call: given,
     channel,
@@ -407,7 +407,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       log.info('heartbeat: call refused', { skill: call.skill, code: CODE.HEARTBEAT_ONLY });
       return { call, op, envelope, resolved: null, refusal: { code: CODE.HEARTBEAT_ONLY, reason: 'heartbeat:only' } };
     }
-    // An inner turn's tag that cannot act (src/behavior/inner-output.js): refused before anything is resolved or done.
+    // An inner turn's tag that cannot act (src/behavior/inner-output.ts): refused before anything is resolved or done.
     if (call.refuse) {
       log.info('skill: refused', {
         skill: call.skill,
@@ -571,7 +571,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
    * stamps its lastPostAt, links its trigger, and a message is a `said` line of the record.
    * Logged `skills: called` (`skill`, `status`, `code`). Resolves the result with `skill`. Never throws.
    */
-  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5b, a pure move
+  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
   async function runCall(
     plan: CallPlan,
     {
@@ -809,7 +809,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
   }
 
   /**
-   * The planned calls of one step made (runCall over `context`), in segments (src/behavior/tool-step.js#segments): a
+   * The planned calls of one step made (runCall over `context`), in segments (src/behavior/tool-step.ts#segments): a
    * run of consecutive reads together, every other call, a refusal included, alone, in her written order. Resolves the
    * results in the order of `plans`, one for each. The first result of the turn that a model role's route moved carries
    * the route line (turnRoutes).
@@ -819,7 +819,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     const reads = (plan: CallPlan): boolean =>
       Boolean(plan.resolved) && (skills ?? defaultSkills()).get(plan.call.skill)?.kind === 'read';
     let at = 0;
-    // segments (src/behavior/tool-step.js) hands back the plans it was given, in segments.
+    // segments (src/behavior/tool-step.ts) hands back the plans it was given, in segments.
     for (const segment of segments(plans as Array<object>, reads as (call: object) => boolean)) {
       const made = await Promise.all((segment.calls as Array<CallPlan>).map((plan) => runCall(plan, context)));
       made.forEach((result, i) => {

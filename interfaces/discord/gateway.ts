@@ -1,5 +1,5 @@
 // The gateway connection of the Discord interface: the discord.js client the composition root
-// (src/index.js) logs in, built here so nothing of the core imports discord.js, and `Events`, the
+// (src/index.ts) logs in, built here so nothing of the core imports discord.js, and `Events`, the
 // names of the gateway events the root listens to. Settings are the caller's: which privileged
 // intents the instance asked for (`discord.intents`).
 

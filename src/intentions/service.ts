@@ -22,8 +22,8 @@
 // `features.intentions`); logs carry ids and codes, never text.
 
 import { randomUUID } from 'node:crypto';
-import { log as defaultLog } from '../log.js';
-import { DAY_MS, HOUR_MS, zonedDay } from '../time.js';
+import { log as defaultLog } from '../log.ts';
+import { DAY_MS, HOUR_MS, zonedDay } from '../time.ts';
 import { isOpenState } from '../errands/store.ts';
 import { createLineSources } from './sources.ts';
 import {

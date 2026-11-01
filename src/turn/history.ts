@@ -1,5 +1,5 @@
 // The channel history a turn reads and continues: the empty `<recent>` input, the history with the parents its replies
-// answer from outside it, and the history a turn continues with after her skill call. src/behavior/turn.js calls them
+// answer from outside it, and the history a turn continues with after her skill call. src/behavior/turn.ts calls them
 // while it reads a channel; the tests and the replay's skill scenarios call continuationHistory through its re-export.
 
 import { fetchReplyParents } from '../behavior/reply-parents.ts';

@@ -1,4 +1,4 @@
-// Tests for the diary turn of src/behavior/turn.js (mode `diary`): the plan
+// Tests for the diary turn of src/behavior/turn.ts (mode `diary`): the plan
 // request on the classifier model, the search it asks for, the compose request
 // with the character card, the output rules of a diary post (no reactions, no
 // GIF, no reply, no links, a message cap), the picture sets and the record in
@@ -6,12 +6,12 @@
 // fake store, fake image client and lookup; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chunkPictures, createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
+import { chunkPictures, createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
 import { ImageGenError } from '../src/llm/images.ts';
 import { DIARY_KINDS } from '../src/behavior/diary.ts';
 import { DailyCapError } from '../src/llm/openrouter.ts';
-import { fill, formatNow } from '../src/format.js';
-import { userText } from '../src/behavior/prompt.js';
+import { fill, formatNow } from '../src/format.ts';
+import { userText } from '../src/behavior/prompt.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';

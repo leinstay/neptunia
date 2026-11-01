@@ -25,7 +25,7 @@
 // always passed in (`now`).
 
 import { isRecord, isFiniteNumber, isIntegerNumber } from './types.ts';
-import { HOUR_MS, MINUTE_MS } from '../time.js';
+import { HOUR_MS, MINUTE_MS } from '../time.ts';
 import { clampText, oneLine } from './clamp.ts';
 import type { StoredRecord, Untyped } from './types.ts';
 

@@ -4,11 +4,11 @@
 // the tool round reads its first answer and its reader of every later one.
 
 import { DIARY_MAX_MESSAGES, stripUrls } from '../../behavior/diary.ts';
-import { resolveReactionEmoji } from '../../behavior/emoji.js';
-import { innerOutputCalls } from '../../behavior/inner-output.js';
-import { thinkMissing } from '../../behavior/tool-step.js';
+import { resolveReactionEmoji } from '../../behavior/emoji.ts';
+import { innerOutputCalls } from '../../behavior/inner-output.ts';
+import { thinkMissing } from '../../behavior/tool-step.ts';
 import { parseOutput } from '../../llm/parse.ts';
-import { log } from '../../log.js';
+import { log } from '../../log.ts';
 import { countDashes, stripDashes } from '../../memory/clamp.ts';
 import { answerOf, defaultSkills } from '../calls.ts';
 import type { Draft } from '../draft.ts';

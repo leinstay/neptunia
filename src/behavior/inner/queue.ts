@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { writeJsonAtomic } from '../../memory/index.ts';
-import { DAY_MS } from '../../time.js';
+import { DAY_MS } from '../../time.ts';
 import { errorCode, isFiniteNumber, isObj, listOf, objOf } from '../../tools/types.ts';
 import type { Obj } from '../../tools/types.ts';
 import { storedWakes } from '../wake.ts';

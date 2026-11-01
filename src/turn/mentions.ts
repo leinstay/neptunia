@@ -1,10 +1,10 @@
 // The names a turn turns into mentions and the profiles it shows: `@name` written by the model resolved against the
 // people the request showed and the community's directory, the stored names that count, the profiles of the people
-// most recently active, and the note on tags that went nowhere. src/behavior/turn.js calls them while it renders a
-// post and builds a request; the replay sandbox (src/behavior/sandbox.js) reads pickOtherProfiles through its re-export.
+// most recently active, and the note on tags that went nowhere. src/behavior/turn.ts calls them while it renders a
+// post and builds a request; the replay sandbox (src/behavior/sandbox.ts) reads pickOtherProfiles through its re-export.
 
-import { untaggedNames } from '../behavior/handles.js';
-import { fill } from '../format.js';
+import { untaggedNames } from '../behavior/handles.ts';
+import { fill } from '../format.ts';
 import { outsideUrls } from '../memory/mentions.ts';
 import { listOf, objOf } from '../tools/types.ts';
 
@@ -19,7 +19,7 @@ type MentionLine = { self?: boolean; bot?: boolean; authorName?: string | null; 
 
 /**
  * The name matching of features.mentionHandles off (kept for rollback; with it on, renderPost
- * resolves only `@handle`, src/behavior/handles.js#resolveHandles).
+ * resolves only `@handle`, src/behavior/handles.ts#resolveHandles).
  * Turn `@nick` written by the model into real mentions for people the request showed: the
  * authors of `history` (the lines shown), then the stored names in `knownNames` (the members
  * whose profile the request showed, the authors of the pulled lines shown). A transcript
@@ -225,7 +225,7 @@ const OTHER_PROFILES = 6;
 
 /**
  * Profiles of the people most recently active in the transcript (at most `count`), excluding `exceptId`.
- * Also used by the replay sandbox (src/behavior/sandbox.js) with a store-shaped reader.
+ * Also used by the replay sandbox (src/behavior/sandbox.ts) with a store-shaped reader.
  */
 export function pickOtherProfiles<TProfile>(
   store: { getUser: (guildId: string, userId: string | undefined) => TProfile | null | undefined },
@@ -249,7 +249,7 @@ export function pickOtherProfiles<TProfile>(
 /**
  * What a post of hers tells her about the tags that went nowhere: one `labels.tools.result.untaggedNote`
  * (`{name}`, `{handle}`) per member whose name she wrote after `@` instead of their handle
- * (src/behavior/handles.js#untaggedNames over the request's handles and names), joined by a space.
+ * (src/behavior/handles.ts#untaggedNames over the request's handles and names), joined by a space.
  * '' without handles (`handles`: handle -> member id), without the label or when nothing went nowhere. Pure.
  * `text` is the text as she wrote it.
  */

@@ -3,7 +3,7 @@
 // or `refused` (`failedTurn`: `{ messageId, authorId, code }`, kept `FAILED_TURN_KEEP_MS` and at most
 // `FAILED_TURNS_KEPT` of src/turn/journal-notes.ts, told by `labels.task.failedEarlier`) and what a turn lost
 // (`sendFailed`, `loopCut`, `callFailed`, `wakeDropped`, ...: `labels.wake.feedbackInTurn`). A fact is told once a completed answer carried it.
-// createTurnRunner (src/behavior/turn.js) builds it once per runner with createFacts; the journal notes, the attempt
+// createTurnRunner (src/behavior/turn.ts) builds it once per runner with createFacts; the journal notes, the attempt
 // and the outcome read the store of the moment through `facts`.
 
 import { createLocalFacts } from '../behavior/inner.ts';

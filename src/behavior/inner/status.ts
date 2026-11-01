@@ -13,7 +13,7 @@ import { sleptCount } from './recovery.ts';
 import { innerSettings } from './settings.ts';
 import type { InnerContext, InnerSettings, InnerState, TurnRecord } from './types.ts';
 
-/** The outcomes of runTurn that mean a turn ran for the wake (src/behavior/turn.js#TurnOutcome less the held ones). */
+/** The outcomes of runTurn that mean a turn ran for the wake (src/behavior/turn.ts#TurnOutcome less the held ones). */
 const TURN_OUTCOMES: ReadonlySet<unknown> = new Set(['spoke', 'skip', 'refused', 'not-now', 'error']);
 
 /** The statuses an open intention may have, for the status card. */

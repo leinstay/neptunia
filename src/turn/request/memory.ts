@@ -2,7 +2,7 @@
 // own exchanges on other channels in `<participation>`, and the anchored window `<earlier>` (this channel's lines
 // older than the chat that matter). buildRequest and buildDiaryPlanRequest (src/behavior/prompt.js) call them.
 
-import { AGE_AFTER_MINUTES, fill, formatClock, formatDate, formatDuration, formatTranscript } from '../../format.js';
+import { AGE_AFTER_MINUTES, fill, formatClock, formatDate, formatDuration, formatTranscript } from '../../format.ts';
 import { fitSections } from '../../llm/budget.ts';
 import { cutEpisode, earlierEpisodes, participationSettings, selectEpisodes, topEpisodes } from '../../memory/index.ts';
 import { oneLine } from '../../memory/clamp.ts';
@@ -14,7 +14,7 @@ import {
   recentSettings,
   recentView,
 } from '../../memory/recent.ts';
-import { MINUTE_MS } from '../../time.js';
+import { MINUTE_MS } from '../../time.ts';
 import { calendarDate, resolveChatText } from './text.ts';
 import type { Base, Room } from './head.ts';
 import type { AskedAbout, InterlocutorBlocks } from './people.ts';

@@ -190,7 +190,7 @@ export const CATALOGUE = Object.freeze({
   unavailable: wake(),
   'no-review-channel': wake(),
 
-  // Why a call left the pending queue unanswered (the reasons of a missed fact, src/behavior/missed.js).
+  // Why a call left the pending queue unanswered (the reasons of a missed fact, src/behavior/missed.ts).
   'pending-full': internal(),
   'pending-expired': internal(),
   'pending-outranked': internal(),
@@ -282,7 +282,7 @@ export type NormalCode = { code: string; values: Record<string, unknown> };
 /**
  * The words of a code: `labels.tools.result.reasons[<code>]` with the code's values filled
  * (`{status}` as it is, `{what}` and `{feature}` through `labels.tools.result.params.<param>.<value>`
- * when that exists). The one lookup the call mark (src/format.js#callReason) and the `<result>`
+ * when that exists). The one lookup the call mark (src/format.ts#callReason) and the `<result>`
  * block (src/tools/tool-calls.ts#toolResultText) share, so a restart that reseeds the mark from
  * the journal tells the same text. `null` when the code has no wording or a value its label names
  * is missing.

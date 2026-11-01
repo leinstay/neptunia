@@ -1,9 +1,9 @@
 // The input of a classifier request over the chat before a trigger: the `<transcript>` block and the trigger's text.
 // The splitter builds its request with it, and tools/search-policy-eval.mjs measures the search classifier's input
-// through the re-export in src/behavior/turn.js.
+// through the re-export in src/behavior/turn.ts.
 
-import { classifierTranscript } from '../behavior/prompt.js';
-import { MAX_MESSAGE_CHARS } from '../format.js';
+import { classifierTranscript } from '../behavior/prompt.ts';
+import { MAX_MESSAGE_CHARS } from '../format.ts';
 
 /** The live config, handed on to the transcript. */
 type LookupConfig = Record<string, unknown>;
@@ -31,7 +31,7 @@ export type ClassifierContextInput = {
 /**
  * The `<transcript>` block of a classifier request (re-watch, search): the
  * last `contextMessages` messages of `history` before the trigger, rendered
- * by src/behavior/prompt.js#classifierTranscript (as the route classifier's)
+ * by src/behavior/prompt.ts#classifierTranscript (as the route classifier's)
  * with the media states the caller already has, plus the trigger's text cut to
  * `MAX_MESSAGE_CHARS`. `transcriptBlock` is '' (no block) for a
  * window of 0 or no earlier message. Pure.

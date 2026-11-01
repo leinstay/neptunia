@@ -377,7 +377,7 @@ test('findImports: an empty source has no imports', () => {
 const file = (source = '') => ({ source });
 
 test('checkStructure: reports a tracked file that matches no entry and a tracked file in the local layer', () => {
-  const files = { 'stray/x.js': file(), 'data/memory.db': file(), 'src/config.js': file() };
+  const files = { 'stray/x.js': file(), 'data/memory.db': file(), 'src/config.ts': file() };
   const result = checkStructure(entries, files);
   assert.deepEqual(result.unmatched, ['stray/x.js']);
   assert.deepEqual(result.local, ['data/memory.db']);
@@ -427,7 +427,7 @@ test('checkStructure: a test named with a tail of the folder path counts', () =>
 });
 
 test('checkStructure: a clean tree reports nothing', () => {
-  const result = checkStructure(entries, { 'src/config.js': file("import fs from 'node:fs';") });
+  const result = checkStructure(entries, { 'src/config.ts': file("import fs from 'node:fs';") });
   assert.deepEqual(result, { unmatched: [], local: [], imports: {}, missingTests: [] });
 });
 
@@ -445,19 +445,19 @@ const DISCORD_IMPORTS = [
   "import { createInteractionHandler } from './interface/discord.js';",
 ].join('\n');
 
-for (const name of ['src/index.js', 'src/core.js']) {
+for (const name of ['src/index.ts', 'src/core.ts']) {
   test(`structure.json: ${name} importing discord.js, interfaces/ or src/interface/discord.js is a breach of each`, () => {
     const result = checkStructure(tracked, { [name]: file(DISCORD_IMPORTS) });
     assert.deepEqual(result.imports[name], ['discord.js', 'interfaces/discord/index.js', 'src/interface/discord.js']);
   });
 }
 
-test('structure.json: src/core.js may import the door, the link and the protocol', () => {
+test('structure.json: src/core.ts may import the door, the link and the protocol', () => {
   const source = [
     "import { createEventDoor } from './interface/door.ts';",
     "import { openAdapterLink } from './interface/link.ts';",
     "import { connectSocket } from './protocol/wire.ts';",
-    "import { createHot } from './hot.js';",
+    "import { createHot } from './hot.ts';",
   ].join('\n');
-  assert.deepEqual(checkStructure(tracked, { 'src/core.js': file(source) }).imports, {});
+  assert.deepEqual(checkStructure(tracked, { 'src/core.ts': file(source) }).imports, {});
 });

@@ -12,8 +12,8 @@
 import type { Dirent } from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { log as defaultLog } from '../log.js';
-import { HOUR_MS } from '../time.js';
+import { log as defaultLog } from '../log.ts';
+import { HOUR_MS } from '../time.ts';
 import { TASK_ID } from './protocol.ts';
 
 /** `errands.keepFilesHours` when it is missing or not a positive number (config.json carries the same). */

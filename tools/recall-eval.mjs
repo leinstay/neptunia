@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Operations tool: measure recall against questions whose answers are known. Exists so a change
-// to the server search (src/behavior/recall-run.js) can be judged by numbers -- hit@1, hit@5,
+// to the server search (src/behavior/recall-run.ts) can be judged by numbers -- hit@1, hit@5,
 // confident answers to questions memory cannot answer, latency, cost -- instead of by a few
 // live turns.
 //
@@ -19,12 +19,12 @@
 // question, expected: [messageId...], kind: 'exact'|'fuzzy'|'none', note? }]`, checked by
 // tools/lib/recall-eval.mjs#parseQuestions; `none` means the answer is not in memory.
 //
-// Each question is asked as a live turn asks it (src/behavior/turn.js#maybeLookup): the search
+// Each question is asked as a live turn asks it (src/behavior/turn.ts#maybeLookup): the search
 // classifier (prompts.lookup, purpose `lookup`) reads the channel's last lines and the question
 // as a new message of `askerId` in `channelId`, now; its server part goes to the real recall
-// runner (src/behavior/recall-run.js#createRecall `run`) as the persona's own memory.search does
+// runner (src/behavior/recall-run.ts#createRecall `run`) as the persona's own memory.search does
 // (`quotes`: the stretches of src/memory/db/recall.ts, no summary request, so no `confident`
-// answer), wired as src/index.js wires it: the memory database read only, the stored memory, the
+// answer), wired as src/index.ts wires it: the memory database read only, the stored memory, the
 // archive and the embedding client. A failed or empty classifier answer takes the live fallback
 // (recall.fallbackOnClassifierFailure: the question's own words, fallbackLookupPlan), as for a
 // direct call. The channel's lines are the record's last `context.channelMessages` lines of it
@@ -71,7 +71,7 @@
 // Logs carry ids and counts only.
 //
 // `--prefetch`: every question is also asked the way a turn of her tool loop asks it
-// (features.coreTools): the automatic memory prefetch (src/behavior/prefetch.js#prefetchLanes over
+// (features.coreTools): the automatic memory prefetch (src/behavior/prefetch.ts#prefetchLanes over
 // the question as the trigger and the channel's lines, then the recall runner's `prefetch`: the
 // database by words and meaning -- one embedding per question unless `--dry` -- and the stored
 // memory and the archive, no classifier, no summary, no Discord request), whatever
@@ -124,7 +124,7 @@ import {
   topExcerptLine,
   traceAgreement,
 } from './lib/recall-eval.mjs';
-import { MAX_MESSAGE_CHARS } from '../src/format.js';
+import { MAX_MESSAGE_CHARS } from '../src/format.ts';
 
 const USAGE =
   'usage: node tools/recall-eval.mjs [<questions.json>] [--limit N] [--max-usd 3] [--dry] [--discord] [--web] [--prefetch] [--no-deadline] [--db <memory.db>] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]\n' +
@@ -141,7 +141,7 @@ const DAY_MS = 86_400_000;
 /** The requests one question may send: the classifier and the summary. */
 const REQUESTS_PER_QUESTION = 2;
 
-/** The web lookup's keys from `env`, as src/index.js passes them: Brave's and Exa's, trimmed, null when blank. */
+/** The web lookup's keys from `env`, as src/index.ts passes them: Brave's and Exa's, trimmed, null when blank. */
 export function webSearchKeys(env = process.env) {
   return { brave: (env.BRAVE_SEARCH_API_KEY || '').trim() || null, exa: (env.EXA_API_KEY || '').trim() || null };
 }
@@ -392,11 +392,11 @@ async function traces(flags, { dataDir, guildId, now, cwd }) {
   );
   const limit = numberFlag(flags['--limit'], all.length, { min: 1, integer: true });
   const runs = all.slice(-limit);
-  const { createHot } = await import('../src/hot.js');
-  const { loadDotEnv } = await import('../src/config.js');
-  const { createRecall } = await import('../src/behavior/recall-run.js');
-  const { recallSettings } = await import('../src/behavior/recall.js');
-  const { prefetchLanes } = await import('../src/behavior/prefetch.js');
+  const { createHot } = await import('../src/hot.ts');
+  const { loadDotEnv } = await import('../src/config.ts');
+  const { createRecall } = await import('../src/behavior/recall-run.ts');
+  const { recallSettings } = await import('../src/behavior/recall.ts');
+  const { prefetchLanes } = await import('../src/behavior/prefetch.ts');
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
   let sources = null;
   try {
@@ -601,18 +601,18 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const dbFile = dbFileOf(flags, { cwd, dataDir });
   if (!fs.existsSync(dbFile)) throw new CliError(`recall-eval: no database at ${dbFile}`);
 
-  const { createHot } = await import('../src/hot.js');
-  const { loadDotEnv } = await import('../src/config.js');
-  const { createRecall } = await import('../src/behavior/recall-run.js');
-  const { recallSettings, parseLookupAnswer } = await import('../src/behavior/recall.js');
-  const { fallbackLookupPlan } = await import('../src/behavior/turn.js');
-  const { prefetchLanes } = await import('../src/behavior/prefetch.js');
-  const { classifierTranscript, fillPromptTemplate } = await import('../src/behavior/prompt.js');
+  const { createHot } = await import('../src/hot.ts');
+  const { loadDotEnv } = await import('../src/config.ts');
+  const { createRecall } = await import('../src/behavior/recall-run.ts');
+  const { recallSettings, parseLookupAnswer } = await import('../src/behavior/recall.ts');
+  const { fallbackLookupPlan } = await import('../src/behavior/turn.ts');
+  const { prefetchLanes } = await import('../src/behavior/prefetch.ts');
+  const { classifierTranscript, fillPromptTemplate } = await import('../src/behavior/prompt.ts');
   const { createLlm, roleRequestOptions, railReason } = await import('../src/llm/openrouter.ts');
   const { createEmbedder } = await import('../src/llm/embed.ts');
   const { createCalibrator } = await import('../src/llm/tokens.ts');
   const { roleModel } = await import('../src/llm/roles.ts');
-  const { zonedDay } = await import('../src/time.js');
+  const { zonedDay } = await import('../src/time.ts');
 
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
   // The recall's own trace switched on for this process only: its lines are caught in memory below.

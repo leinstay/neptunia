@@ -151,10 +151,10 @@ function fakeRecall() {
  * client for a `draw.create` call. Returns the requests sent and the turn's result.
  */
 export async function singleScene(load, { content = 'γεια', classifier = 'none', answers, access = {}, images = null } = {}) {
-  const { createTurnRunner } = await load('src/behavior/turn.js');
+  const { createTurnRunner } = await load('src/behavior/turn.ts');
   await load('src/tools/impl/index.ts');
   const { skillRegistry } = await load('src/tools/registry.ts');
-  const { createAdmin } = await load('src/admin.js');
+  const { createAdmin } = await load('src/admin.ts');
   const { createDiscordInterface } = await load('interfaces/discord/index.ts');
   const discord = createDiscordInterface().capabilities;
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };

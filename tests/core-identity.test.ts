@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startCore } from '../src/core.js';
+import { startCore } from '../src/core.ts';
 import { start } from '../src/interface/fake-interface.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { channelInfo, deliver } from './fixtures/core-over-fake.ts';

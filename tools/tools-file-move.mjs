@@ -6,7 +6,7 @@
 //   node tools/tools-file-move.mjs --dry-run [--dir <private dir>]
 //   node tools/tools-file-move.mjs --apply [--dir <private dir>]
 //
-// The private directory is `--dir`, else `NEPTUNIA_PRIVATE_DIR`, else the checkout (src/paths.js). Three things move:
+// The private directory is `--dir`, else `NEPTUNIA_PRIVATE_DIR`, else the checkout (src/paths.ts). Three things move:
 //
 //   1. prompts.local/skills.json (the owner's tool texts) to config.local/tools.json, the entry `skills.describe`
 //      renamed `tools.describe` on the way.

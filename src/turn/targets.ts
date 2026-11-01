@@ -1,9 +1,9 @@
 // Where a post or a reaction of a turn lands and what it carries: the line a model's `reply="#n"` points at, the
 // channel a reaction goes to, the line a post about another channel links to, the text with its link, a post's
-// arguments for its check. src/behavior/turn.js asks these while it acts.
+// arguments for its check. src/behavior/turn.ts asks these while it acts.
 
 import type { Reads } from '../interface/reads.ts';
-import { fill } from '../format.js';
+import { fill } from '../format.ts';
 import type { ConversationInfo } from '../protocol/adapter.ts';
 
 /** Display name of the author of `messageId` in `history`, or null when the message is not there. */

@@ -13,7 +13,7 @@ import { MODEL_ROLES } from './catalog.ts';
 import { roleModel } from '../../llm/roles.ts';
 import { IMAGE_ROLE } from '../../llm/images.ts';
 import { oneLine } from '../../memory/clamp.ts';
-import { utcDay } from '../../time.js';
+import { utcDay } from '../../time.ts';
 import { denied, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { nestedRefusal } from '../access.ts';

@@ -1,8 +1,8 @@
 // Operations: `/nep pause|resume`: the maintenance mode in which data/ may be edited by hand.
-// The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
+// The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { log } from '../../log.js';
+import { log } from '../../log.ts';
 import { defineOp, perEnv } from './registry.ts';
 import { objOf } from '../types.ts';
 import type { OpContext } from '../types.ts';
@@ -106,7 +106,7 @@ const handlers = perEnv((env) => {
     const guildId = resolvedGuildId(context);
     await journalSystem(guildId, { event: 'resume', by: 'owner' });
 
-    // What the pause kept: the messages held for the resume, then the queued direct pings (src/core.js). Never awaited.
+    // What the pause kept: the messages held for the resume, then the queued direct pings (src/core.ts). Never awaited.
     const drain = objOf(objOf(env).pending).drain;
     if (typeof drain === 'function') {
       Promise.resolve()

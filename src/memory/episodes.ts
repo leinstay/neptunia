@@ -17,7 +17,7 @@
 
 import { clampText, stripUrls } from './clamp.ts';
 import { normalizeTopic } from './interests.ts';
-import { utcDay } from '../time.js';
+import { utcDay } from '../time.ts';
 import { isIntegerNumber } from './types.ts';
 import type { StoredRecord, Untyped } from './types.ts';
 

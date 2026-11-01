@@ -14,10 +14,10 @@
 // word comes from `labels.intentions` (prompts/labels.json); without its header or line label
 // the block is left out (''). Ids, codes and times are data, not wording.
 
-import { fill, formatClock, formatDate } from '../format.js';
+import { fill, formatClock, formatDate } from '../format.ts';
 import { estimateTokens } from '../llm/tokens.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
-import { DAY_MS } from '../time.js';
+import { DAY_MS } from '../time.ts';
 import { DEFAULTS } from './model.ts';
 import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';

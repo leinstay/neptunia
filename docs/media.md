@@ -78,7 +78,7 @@ A `<gifs>` block in the prompt lists the most-used GIFs ranked by recency-weight
 
 A GIF is watched as a short silent clip: the animation is converted to an mp4 of at most 15 seconds (`GIF_MAX_SECONDS` in `src/memory/describe.ts`) and sent to the `video` role through `prompts/describe-gif.md`. The watched caption replaces the old single-frame description. GIFs that cannot be watched keep the one-frame description.
 
-A classifier on the `analyzer` role picks a GIF from the library to replace a short first message. The picker runs when the persona's first outgoing message is at most 160 characters (`GIF_PICK_DEFAULTS.maxChars` in `src/behavior/gif-pick.js`) and she chose no GIF herself.
+A classifier on the `analyzer` role picks a GIF from the library to replace a short first message. The picker runs when the persona's first outgoing message is at most 160 characters (`GIF_PICK_DEFAULTS.maxChars` in `src/behavior/gif-pick.ts`) and she chose no GIF herself.
 
 At first startup the engine reads the last 500 messages of every readable channel to seed the library, and the top 20 get captions right away (`BACKFILL_MESSAGES` and `BACKFILL_DESCRIBE` in `src/memory/gif-backfill.ts`).
 

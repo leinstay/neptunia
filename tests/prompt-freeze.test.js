@@ -1,10 +1,10 @@
 // What memory changes inside the reply's cached stable part is held per cache
-// TTL bucket (src/behavior/prompt.js#freezePerBucket): `<self_facts>` and
+// TTL bucket (src/behavior/prompt.ts#freezePerBucket): `<self_facts>` and
 // `<gifs>` stay byte-identical within one bucket and move at the next edge.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRequest, freezePerBucket } from '../src/behavior/prompt.js';
+import { buildRequest, freezePerBucket } from '../src/behavior/prompt.ts';
 import { cacheTtlMs } from '../src/llm/openrouter.ts';
 import { labels } from './fixtures/labels.js';
 

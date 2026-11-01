@@ -337,7 +337,7 @@
       "test": "none"
     },
     {
-      "path": "src/*.js",
+      "path": "src/*.ts",
       "purpose": "The small modules every part uses: settings, hot reload, logging, paths, time and text formatting.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
@@ -393,19 +393,19 @@
       "test": "required"
     },
     {
-      "path": "src/index.js",
+      "path": "src/index.ts",
       "purpose": "The entry point: reads the paths and the environment, reads where the interfaces run, loads the Discord package by path when it runs in this process, starts the core and owns the process signals and exit. It imports no Discord.",
       "layer": "public",
-      "imports": ["node:*", "src/*.js", "src/interface/mode.ts"],
+      "imports": ["node:*", "src/*.ts", "src/interface/mode.ts"],
       "test": "none"
     },
     {
-      "path": "src/core.js",
+      "path": "src/core.ts",
       "purpose": "The composition root: `startCore` builds the core over the paths, the environment and the interfaces it is given. Proved by the slice test. It imports no Discord.",
       "layer": "public",
       "imports": [
         "node:*",
-        "src/*.js",
+        "src/*.ts",
         "src/agent-runner/**",
         "src/config/files.ts",
         "src/behavior/**",
@@ -526,6 +526,48 @@
       "test": "required"
     },
     {
+      "path": "src/behavior/missed-types.ts",
+      "purpose": "The long input and result types of the signatures of the missed-answer registry. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/prompt-types.ts",
+      "purpose": "The long input and result types of the signatures of the persona's request builders. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/recall-run-types.ts",
+      "purpose": "The long input and result types of the signatures of the recall runner. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/recall-types.ts",
+      "purpose": "The long input and result types of the signatures of the recall search. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/sandbox-types.ts",
+      "purpose": "The long input and result types of the signatures of the sandbox replay. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/turn-types.ts",
+      "purpose": "The long input and result types of the signatures of the turn runner. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/behavior/inner/types.ts",
       "purpose": "The shapes the inner life modules share. Types only: nothing runs, so nothing is tested.",
       "layer": "public",
@@ -611,7 +653,7 @@
     },
     {
       "path": "src/turn/",
-      "purpose": "A turn, one topic per module. The functions that stand on their own are its settings, timers, triggers, inputs, mentions, targets, media, history, routing, journal records and skill calls. The modules that `createTurnRunner` in `src/behavior/turn.js` builds once over a typed context are the facts, the inputs, participation, the journal notes, the diary's first step, the pictures and GIFs, the sends, the typing indicator, the dry act, the act, the pulls, the skill calls, the tool round, the in-turn tools, the second look, the lookup and the outcome. `src/behavior/turn.js` keeps their wiring, runs each attempt through the phases of `src/turn/phases/`, and re-exports what its importers read. The block builders of a turn's request, which `buildRequest` in `src/behavior/prompt.js` assembles, are in `src/turn/request/`.",
+      "purpose": "A turn, one topic per module. The functions that stand on their own are its settings, timers, triggers, inputs, mentions, targets, media, history, routing, journal records and skill calls. The modules that `createTurnRunner` in `src/behavior/turn.ts` builds once over a typed context are the facts, the inputs, participation, the journal notes, the diary's first step, the pictures and GIFs, the sends, the typing indicator, the dry act, the act, the pulls, the skill calls, the tool round, the in-turn tools, the second look, the lookup and the outcome. `src/behavior/turn.ts` keeps their wiring, runs each attempt through the phases of `src/turn/phases/`, and re-exports what its importers read. The block builders of a turn's request, which `buildRequest` in `src/behavior/prompt.ts` assembles, are in `src/turn/request/`.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
@@ -1059,7 +1101,7 @@
     },
     {
       "path": "src/pipeline/",
-      "purpose": "The message pipeline's topic modules, each built once by `createMessageHandler` in `src/behavior/pipeline.js` over a typed context: a new message's path, the classifiers, the pending queue and its drain, the settle waits, the private chat's gate, and an edit and a deletion of a message.",
+      "purpose": "The message pipeline's topic modules, each built once by `createMessageHandler` in `src/behavior/pipeline.ts` over a typed context: a new message's path, the classifiers, the pending queue and its drain, the settle waits, the private chat's gate, and an edit and a deletion of a message.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
@@ -1171,7 +1213,7 @@
     },
     {
       "path": "src/pipeline/pause-notice.ts",
-      "purpose": "The pause notice: a direct call that arrives while the persona is paused gets one plain line, at most once per channel per `PAUSE_NOTICE_MINUTES` (10) of `src/behavior/limits.js`. Tested through the events tests.",
+      "purpose": "The pause notice: a direct call that arrives while the persona is paused gets one plain line, at most once per channel per `PAUSE_NOTICE_MINUTES` (10) of `src/behavior/limits.ts`. Tested through the events tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

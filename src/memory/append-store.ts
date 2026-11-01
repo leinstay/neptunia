@@ -20,7 +20,7 @@
 import * as nodeFs from 'node:fs/promises';
 import { createReadStream as nodeCreateReadStream } from 'node:fs';
 import path from 'node:path';
-import { log as defaultLog } from '../log.js';
+import { log as defaultLog } from '../log.ts';
 import type { Log } from './types.ts';
 import { propOf } from './types.ts';
 

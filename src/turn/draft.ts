@@ -1,6 +1,6 @@
 // The draft of one attempt of a turn: what its phases note while they run, for the journal's turn record
 // (journalTurnRecord), the end of the turn (src/turn/outcome.ts) and the steps of her tool loop. runTurnOnce
-// (src/behavior/turn.js) creates it with the attempt's limits and hands the same object to every phase in
+// (src/behavior/turn.ts) creates it with the attempt's limits and hands the same object to every phase in
 // src/turn/phases/; the topic modules each read and write the part of it their own draft type names.
 
 import type { Snapshot } from '../behavior/snapshot.ts';

@@ -5,10 +5,10 @@
 
 import { createDeadline } from '../../../behavior/turn-parts.ts';
 import type { Deadline } from '../../../behavior/turn-parts.ts';
-import { splitCandidate } from '../../../behavior/split.js';
+import { splitCandidate } from '../../../behavior/split.ts';
 import { withTextPreviews } from '../../../media/text-preview.ts';
 import { collectVideos } from '../../../media/classify.ts';
-import { log } from '../../../log.js';
+import { log } from '../../../log.ts';
 import { journalled } from '../../journal.ts';
 import type { Lookup } from '../../lookup.ts';
 import type { VideoState } from '../../rewatch.ts';

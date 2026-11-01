@@ -18,11 +18,11 @@ import {
   SNAPSHOTS_DIR,
 } from '../../memory/index.ts';
 import { JOURNAL_KINDS, MEMORY_SHOW_SECTIONS } from './catalog.ts';
-import { effectiveAffinity } from '../../behavior/private.js';
-import { log } from '../../log.js';
+import { effectiveAffinity } from '../../behavior/private.ts';
+import { log } from '../../log.ts';
 import { clampAtBoundary } from '../../memory/clamp.ts';
-import { DAY_MS, utcDay, zonedDay } from '../../time.js';
-import { formatClock } from '../../format.js';
+import { DAY_MS, utcDay, zonedDay } from '../../time.ts';
+import { formatClock } from '../../format.ts';
 import { liveRecent, recentSettings } from '../../memory/recent.ts';
 import {
   JOURNAL_N_DEFAULT,

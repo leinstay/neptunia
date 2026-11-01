@@ -1,4 +1,4 @@
-// Tests for src/behavior/gif-pick.js: the GIF picker's pure side -- its settings,
+// Tests for src/behavior/gif-pick.ts: the GIF picker's pure side -- its settings,
 // when it runs, the whole captioned library it lists and how its answer is read.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +10,7 @@ import {
   pickCandidates,
   pickContext,
   renderGifLibrary,
-} from '../src/behavior/gif-pick.js';
+} from '../src/behavior/gif-pick.ts';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 9, 6, 12, 0, 0);

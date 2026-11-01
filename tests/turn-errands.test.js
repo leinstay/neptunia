@@ -1,4 +1,4 @@
-// Tests for the persona's view of her errands in a turn (src/errands/blocks.ts, src/behavior/turn.js)
+// Tests for the persona's view of her errands in a turn (src/errands/blocks.ts, src/behavior/turn.ts)
 // and the turn an errand's end opens (src/errands/turns.ts): the `<errands>` block is in the
 // request's tail while she has an open or newly finished errand and gone when she has none; a
 // finished errand opens her own turn in the conversation it was asked in, with `<errand_result>`
@@ -6,8 +6,8 @@
 // (src/interface/fake.ts); a turn held back by the attention is tried again later.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
-import { userText } from '../src/behavior/prompt.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
+import { userText } from '../src/behavior/prompt.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { errandsBlockText, errandResultText } from '../src/errands/blocks.ts';
 import { createErrandTurns, errandDoneEvent } from '../src/errands/turns.ts';

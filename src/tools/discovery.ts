@@ -2,12 +2,12 @@
 // do without the whole catalogue sitting in every request. The search classifier
 // (prompts/lookup.md) may answer one more line,
 // `skills: inventory` (the message asks what she can do: the turn then shows her the catalogue
-// with her access, src/behavior/prompt.js) or `skills: <name>, <name>` (up to four registry
+// with her access, src/behavior/prompt.ts) or `skills: <name>, <name>` (up to four registry
 // skills relevant to the message: shadow only, logged and journaled, never rendered yet). The
 // classifiers read the registry's names through `{{skills}}` (skillsIndex: static texts only, no
 // grants).
 // Besides that, every turn shows her the names of the skills granted to her (grantedSkillNames,
-// rendered in the request's cached stable part, src/behavior/prompt.js), so she knows what she
+// rendered in the request's cached stable part, src/behavior/prompt.ts), so she knows what she
 // can do without a classifier naming it.
 // Pure; the texts are `hot.prompts.tools`, read by the caller at the moment of use.
 
@@ -189,7 +189,7 @@ export function skillsIndex(registry: ReadonlyMap<string, Skill> | null | undefi
 export const MAX_ARG_VALUES = 12;
 
 /**
- * The arguments of `skill` as `<skills>` lists them (src/behavior/prompt.js#skillsInventoryText),
+ * The arguments of `skill` as `<skills>` lists them (src/behavior/prompt.ts#skillsInventoryText),
  * read off its argument schema (the skills table's `params`, src/tools/definitions.ts)
  * in the schema's order, so the list is the same on every call: `{ name, required }` each, plus
  * `values` (strings) for
@@ -251,7 +251,7 @@ export function proposalVerdicts(names: ReadonlyArray<string>, rows: ReadonlyArr
 /**
  * The catalogue rows a request's `<skills>` shows for the skills a classifier named
  * (`proposals`: proposalVerdicts' answer, in the classifier's order): the row of each name the
- * catalogue (`rows`, listSkills') has, marked `proposed` -- src/behavior/prompt.js#skillsInventoryText
+ * catalogue (`rows`, listSkills') has, marked `proposed` -- src/behavior/prompt.ts#skillsInventoryText
  * then shows the allowed ones and names the others as not switched on. Null when none is in it.
  */
 export function proposedRows<TRow extends SkillRow>(

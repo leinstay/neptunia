@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ChannelType } from 'discord.js';
 import { toEvent } from '../interfaces/discord/collect.ts';
-import { lineOf as normalizedOf } from '../src/behavior/line-of.js';
+import { lineOf as normalizedOf } from '../src/behavior/line-of.ts';
 import { validateEvent } from '../src/protocol/index.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
 import { checkEnvelope, observe } from '../src/memory/db/observe.ts';

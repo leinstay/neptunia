@@ -172,8 +172,8 @@ export async function main(
 
   const { createLookup, SEARCH_ENGINES } = await import('../src/web/lookup.ts');
   const { NotByokError } = await import('../src/llm/openrouter.ts');
-  const { onLog } = await import('../src/log.js');
-  const { utcDay } = await import('../src/time.js');
+  const { onLog } = await import('../src/log.ts');
+  const { utcDay } = await import('../src/time.ts');
 
   const engines = enginesOf(flags['--engines'], SEARCH_ENGINES);
   const repeat = numberFlag(flags['--repeat'], 1, { min: 1, max: MAX_REPEAT, integer: true });
@@ -190,14 +190,14 @@ export async function main(
 
   let hot = givenHot;
   if (!hot) {
-    const { createHot } = await import('../src/hot.js');
+    const { createHot } = await import('../src/hot.ts');
     hot = createHot({ rootDir, privateDir: privateDirOf(rootDir, env) });
   }
 
   try {
     if (!hot.prompts?.['search-summary']) throw new CliError('search-compare: prompts.search-summary is missing');
     if (!llmClient) {
-      const { loadDotEnv } = await import('../src/config.js');
+      const { loadDotEnv } = await import('../src/config.ts');
       loadDotEnv(privateDirOf(rootDir, env));
     }
     const keys = { brave: envValue(env, 'BRAVE_SEARCH_API_KEY'), exa: envValue(env, 'EXA_API_KEY') };

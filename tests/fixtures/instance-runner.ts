@@ -1,5 +1,5 @@
 // One instance of the engine as a child process for tests/second-instance.test.ts. It starts the core of the engine
-// copy named by its first argument (`startCore` of that copy's `src/core.js`) over the folders `NEPTUNIA_PRIVATE_DIR`
+// copy named by its first argument (`startCore` of that copy's `src/core.ts`) over the folders `NEPTUNIA_PRIVATE_DIR`
 // and `NEPTUNIA_DATA_DIR` name, with a scripted model that answers `INSTANCE_ANSWER` and the fake interface of the
 // same copy. It imports nothing of the checkout it sits in: the engine is the copy, so what the instance touches is
 // what a clone of the public repository would touch. The parent drives it over IPC (instance-protocol.ts).
@@ -7,9 +7,9 @@ import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import type { InstanceReply, InstanceRequest } from './instance-protocol.ts';
 
-import type * as CoreModule from '../../src/core.js';
+import type * as CoreModule from '../../src/core.ts';
 import type * as FakeModule from '../../src/interface/fake-interface.ts';
-import type * as PathsModule from '../../src/paths.js';
+import type * as PathsModule from '../../src/paths.ts';
 
 type Core = typeof CoreModule;
 type Fake = typeof FakeModule;
@@ -24,9 +24,9 @@ if (engine === undefined || answer === undefined || process.send === undefined) 
 const send = process.send.bind(process);
 const load = async <T>(file: string): Promise<T> => (await import(pathToFileURL(join(engine, file)).href)) as T;
 
-const { startCore } = await load<Core>('src/core.js');
+const { startCore } = await load<Core>('src/core.ts');
 const fake = await load<Fake>('src/interface/fake-interface.ts');
-const { resolvePaths } = await load<Paths>('src/paths.js');
+const { resolvePaths } = await load<Paths>('src/paths.ts');
 
 const requests: Array<string> = [];
 let running: Running | null = null;

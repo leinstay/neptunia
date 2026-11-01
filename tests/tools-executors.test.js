@@ -1,7 +1,7 @@
 // Tests for src/tools/executors.ts and the operations her calls run: one `<call>` of the
 // persona's output resolved on the server's side (channels, members, roles, transcript numbers)
 // into the arguments of the /nep command behind the skill, then run through that command's own
-// path (src/admin.js#runSkillOp: the requester's rights checked again), the persona as the actor.
+// path (src/admin.ts#runSkillOp: the requester's rights checked again), the persona as the actor.
 // Whatever the operation answers -- an error or a refusal included -- is her result, with a
 // structured status; the `/nep message` operations go through a fake interface adapter.
 import { test } from 'node:test';
@@ -11,7 +11,7 @@ import path from 'node:path';
 import { PermissionFlagsBits } from 'discord.js';
 
 import '../src/tools/impl/index.ts';
-import { createAdmin } from '../src/admin.js';
+import { createAdmin } from '../src/admin.ts';
 import { toolResultText } from '../src/tools/tool-calls.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { RESULT_STATUSES, executeCall, outcomeDetail, refusalStatus, resolveCall } from '../src/tools/executors.ts';
@@ -26,7 +26,7 @@ import { freshWorld, seedExisting, syncStub, useIface, useSelf, world } from './
 useIface('fake');
 useSelf('self-1');
 
-// The Discord interface's capabilities object, as src/index.js injects it.
+// The Discord interface's capabilities object, as src/index.ts injects it.
 const DISCORD = createDiscordInterface().capabilities;
 
 const OWNER = '42';

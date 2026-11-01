@@ -6,7 +6,7 @@ export const APPEND_STORE: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'appendStore.retryMax',
     'types': ['number'],
-    'reader': 'src/core.js',
+    'reader': 'src/core.ts',
     'default': 1000,
     'text': 'Lines kept in memory while the disk refuses writes',
   },

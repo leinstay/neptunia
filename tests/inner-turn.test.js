@@ -1,4 +1,4 @@
-// Tests for the inner turn (src/behavior/turn.js, mode `inner`; docs/inner-life.md): no message
+// Tests for the inner turn (src/behavior/turn.ts, mode `inner`; docs/inner-life.md): no message
 // is fabricated, the request carries `<wake>` and the inner task, her reads run; in shadow mode
 // nothing else does (proposed, journalled as shadow, no call mark), live her calls run through
 // the gateway on her own grants, the kill switch is asked right before an action, the public post
@@ -12,15 +12,15 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { createTurnRunner as createRealTurnRunner, loopSettings } from '../src/behavior/turn.js';
-import { userText } from '../src/behavior/prompt.js';
+import { createTurnRunner as createRealTurnRunner, loopSettings } from '../src/behavior/turn.ts';
+import { userText } from '../src/behavior/prompt.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { createJournal, callMarksOf } from '../src/memory/journal.ts';
 import '../src/tools/impl/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { checkSkill } from '../src/tools/gateway.ts';
-import { createAdmin } from '../src/admin.js';
+import { createAdmin } from '../src/admin.ts';
 import {
   diagnosticLines,
   diagnosticText,
@@ -31,10 +31,10 @@ import {
 } from '../src/behavior/wake.ts';
 import { feedbackFacts } from '../src/behavior/inner.ts';
 import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.ts';
-import { wakeLanes } from '../src/behavior/prefetch.js';
+import { wakeLanes } from '../src/behavior/prefetch.ts';
 import { labels } from './fixtures/labels.js';
-import { fill, formatClock, formatDate } from '../src/format.js';
-import { CHANNEL_HANDLE_PREFIX, HANDLE_DIGITS, handleOf } from '../src/behavior/handles.js';
+import { fill, formatClock, formatDate } from '../src/format.ts';
+import { CHANNEL_HANDLE_PREFIX, HANDLE_DIGITS, handleOf } from '../src/behavior/handles.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { createErrandStores } from '../src/errands/store.ts';

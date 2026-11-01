@@ -1,4 +1,4 @@
-// Tests for src/behavior/tool-step.js: the pure parts of a step of a turn that calls tools.
+// Tests for src/behavior/tool-step.ts: the pure parts of a step of a turn that calls tools.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import '../src/tools/impl/index.ts';
@@ -13,7 +13,7 @@ import {
   stepNote,
   stepVerdict,
   thinkMissing,
-} from '../src/behavior/tool-step.js';
+} from '../src/behavior/tool-step.ts';
 import { labels } from './fixtures/labels.js';
 
 const registry = buildSkills({ table: SKILL_DEFINITIONS });

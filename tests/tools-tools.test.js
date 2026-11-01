@@ -15,7 +15,7 @@ import {
   webReadText,
   webSearchText,
 } from '../src/tools/tools.ts';
-import { fill } from '../src/format.js';
+import { fill } from '../src/format.ts';
 import { videoSiteFor, videoUrlCacheKey } from '../src/media/video-sites.ts';
 import { labels } from './fixtures/labels.js';
 

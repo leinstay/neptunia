@@ -1,9 +1,9 @@
-// Tests for src/behavior/inner-output.js: the output tags of an inner turn lowered into the
+// Tests for src/behavior/inner-output.ts: the output tags of an inner turn lowered into the
 // calls a message.create / message.react.add of hers would be, in the order an addressed turn acts
 // in, and the ones that must be refused carry their code. A picture is a tool call, never lowered.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { innerOutputCalls } from '../src/behavior/inner-output.js';
+import { innerOutputCalls } from '../src/behavior/inner-output.ts';
 
 const parsed = {
   reactions: [{ to: 2, emoji: '👍' }],

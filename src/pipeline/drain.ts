@@ -1,10 +1,10 @@
 // The drain of the pending queue: once a turn finishes anywhere, the oldest waiting call is answered, one at a time,
-// after a human switch pause, each checked again first. createMessageHandler (src/behavior/pipeline.js) builds it
-// once with createDrain and hands drainPending to the turn runner's `setOnIdle` (src/index.js).
+// after a human switch pause, each checked again first. createMessageHandler (src/behavior/pipeline.ts) builds it
+// once with createDrain and hands drainPending to the turn runner's `setOnIdle` (src/index.ts).
 
-import { isExpired, popOldest } from '../behavior/pending.js';
-import { between } from '../behavior/random.js';
-import { log } from '../log.js';
+import { isExpired, popOldest } from '../behavior/pending.ts';
+import { between } from '../behavior/random.ts';
+import { log } from '../log.ts';
 import { CODE } from '../tools/codes.ts';
 import type { Answer } from './answer.ts';
 import type { CallOutcome } from './call-outcome.ts';
@@ -81,7 +81,7 @@ export function createDrain({
   /**
    * Answers pending direct pings, oldest first, one at a time, each after a
    * human "switch" pause (mention.switchDelayMs) -- called once a turn
-   * finishes anywhere (src/index.js wires this to src/behavior/turn.js's
+   * finishes anywhere (src/index.ts wires this to src/behavior/turn.ts's
    * `setOnIdle`, in the same `finally` that frees the channel). The ignore
    * decision (decideMention) is rolled HERE, not when the ping arrived. A
    * ping whose message was deleted meanwhile (`gone`) or cannot be fetched
@@ -130,7 +130,7 @@ export function createDrain({
    * already cleared, or the blocking turn had already ended when requeueBusy
    * looked and the pass goes on instead of stopping.
    */
-  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/pipeline.js in stage 5d, a pure move
+  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/pipeline.ts in stage 5d, a pure move
   async function drainPending(): Promise<void> {
     if (draining || store?.state?.data?.paused) return;
     draining = true;

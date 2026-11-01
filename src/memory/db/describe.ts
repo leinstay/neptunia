@@ -31,7 +31,7 @@ import { shortHash } from './ids.ts';
 import { ifaceOrLegacy } from './legacy-namespace.ts';
 import { audienceOf, dmScope, groupContext, groupScope, scopeWhere } from './scope.ts';
 import { CODES, DESCRIPTION_FIELDS, memoryKeyState, sessionSettings, stamp, systemTextOf } from './session.ts';
-import { block } from '../../behavior/prompt.js';
+import { block } from '../../behavior/prompt.ts';
 import { asText } from './types.ts';
 import type { Config, Db, Row } from './types.ts';
 import type { Context, Scope } from './scope.ts';

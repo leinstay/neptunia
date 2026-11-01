@@ -20,7 +20,7 @@ import https from 'node:https';
 import net from 'node:net';
 import { pipeline } from 'node:stream';
 import zlib from 'node:zlib';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { bareContentType, safeLocation } from '../media/video-sites.ts';
 import { objOf } from '../tools/types.ts';
 import { htmlToText, pageTitle, truncateText } from './readable.ts';

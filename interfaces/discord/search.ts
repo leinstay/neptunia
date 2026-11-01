@@ -1,4 +1,4 @@
-// Discord's own search, for recall (src/behavior/recall-run.js): the guild's
+// Discord's own search, for recall (src/behavior/recall-run.ts): the guild's
 // message search, the guild's member search, the messages around one
 // message of a channel and the ones right after it. Thin I/O over discord.js: the message and member
 // searches go through `guild.client.rest.get` (discord.js has no manager for
@@ -14,7 +14,7 @@
 // and never throws; a failure is logged with its status and error name,
 // never a query or a message text.
 
-import { log } from '../../src/log.js';
+import { log } from '../../src/log.ts';
 import { errorFields, objOf } from './values.ts';
 import { normalizeMessage } from './collect.ts';
 

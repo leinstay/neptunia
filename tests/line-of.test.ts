@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { MessageEvent } from '../src/protocol/adapter.ts';
-import { lineOf } from '../src/behavior/line-of.js';
+import { lineOf } from '../src/behavior/line-of.ts';
 
 function eventWith(
   message: Partial<MessageEvent['message']> = {},

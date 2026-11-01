@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { channelActivity, messagesSince, renderChannel } from '../src/memory/channels.ts';
-import { DAY_MS } from '../src/time.js';
+import { DAY_MS } from '../src/time.ts';
 import { labels } from './fixtures/labels.js';
 
 const DAY = 24 * 60 * 60 * 1000;

@@ -3,10 +3,10 @@
 // and the caption fields a GIF of the library carries in the transcript. buildRequest (src/behavior/prompt.js), the
 // GIF picker (src/turn/draw-gif.ts) and her GIF tools (src/tools/tools.ts) read them.
 
-import { fill, fillGifFields, formatDuration } from '../../format.js';
+import { fill, fillGifFields, formatDuration } from '../../format.ts';
 import { normalizeGifs, rankEmojiUsage, rankGifs } from '../../memory/index.ts';
 import { clampWithEllipsis } from '../../memory/clamp.ts';
-import { HOUR_MS } from '../../time.js';
+import { HOUR_MS } from '../../time.ts';
 import type { Cost, EmojiRef, Fit, Labels, Message, RequestConfig } from './types.ts';
 import { GIF_HALF_LIFE_DAYS } from '../../memory/gifs.ts';
 import { EMOJI_HALF_LIFE_DAYS } from '../../memory/emoji-usage.ts';

@@ -32,7 +32,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/neptunia/app
-ExecStart=/usr/bin/node src/index.js
+ExecStart=/usr/bin/node src/index.ts
 User=neptunia-bot
 Restart=on-failure
 RestartSec=5

@@ -20,7 +20,7 @@ import {
   runWebSearch,
 } from '../src/tools/tools.ts';
 import { runConversationRead, fetchSpan, recordMessages } from '../src/tools/conversation-read.ts';
-import { pullPictures } from '../src/behavior/pull.js';
+import { pullPictures } from '../src/behavior/pull.ts';
 import {
   callViewOf,
   searchHandles,
@@ -28,18 +28,18 @@ import {
   loopSettings,
   lookupClassifierInput,
   requesterOf,
-} from '../src/behavior/turn.js';
+} from '../src/behavior/turn.ts';
 import { transportOf } from '../src/tools/tool-calls.ts';
 import { createErrandStore } from '../src/errands/store.ts';
 import { createImageGen } from '../src/llm/images.ts';
 import { tempDir } from './fixtures/tmp.js';
-import { fill } from '../src/format.js';
-import { fillPromptTemplate } from '../src/behavior/prompt.js';
-import { parseLookupAnswer, recallSettings } from '../src/behavior/recall.js';
-import { zonedDay } from '../src/time.js';
+import { fill } from '../src/format.ts';
+import { fillPromptTemplate } from '../src/behavior/prompt.ts';
+import { parseLookupAnswer, recallSettings } from '../src/behavior/recall.ts';
+import { zonedDay } from '../src/time.ts';
 import { roleModel } from '../src/llm/roles.ts';
 import { cacheTtlFor, roleRequestOptions, withCacheMarker } from '../src/llm/openrouter.ts';
-import * as sandbox from '../src/behavior/sandbox.js';
+import * as sandbox from '../src/behavior/sandbox.ts';
 import {
   afterScenarioTurn,
   answerSkillScenario,
@@ -49,7 +49,7 @@ import {
   momentView,
   personaGrantsConfig,
   simulateCall,
-} from '../src/behavior/sandbox.js';
+} from '../src/behavior/sandbox.ts';
 import {
   createReplayTools,
   loopCall,
@@ -1175,7 +1175,7 @@ test('her request holds the tool lines and no <lookup>; requestBlocks names what
 // trigger, computed as of the moment and standing in every request of the loop.
 
 test('createReplayTools.prefetch: the live lanes of the trigger, run as of the moment; none for a trivial trigger', async () => {
-  const { prefetchLanes, prefetchOn } = await import('../src/behavior/prefetch.js');
+  const { prefetchLanes, prefetchOn } = await import('../src/behavior/prefetch.ts');
   const runs = [];
   const createRecall = () => ({
     available: () => true,

@@ -38,7 +38,7 @@ import { schemaError } from '../src/tools/schema.ts';
 import { checkReplyEffect, checkSkill, listSkills } from '../src/tools/gateway.ts';
 import { tempDir } from './fixtures/tmp.js';
 
-// The Discord interface's capabilities object, as src/index.js injects it.
+// The Discord interface's capabilities object, as src/index.ts injects it.
 const DISCORD = createDiscordInterface().capabilities;
 
 const OWNER = '42';

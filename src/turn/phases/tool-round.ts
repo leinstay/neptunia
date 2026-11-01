@@ -1,6 +1,6 @@
 // The fifth phase of a turn attempt: her calls, then her speech, then one more request while something is left to read
 // (runSteps), each call under the effect key of the turn, and the cut-off and the short diary set that end the turn
-// here. runTurnOnce (src/behavior/turn.js) calls it after the act phase; the outcome phase reads what it posted.
+// here. runTurnOnce (src/behavior/turn.ts) calls it after the act phase; the outcome phase reads what it posted.
 
 import { randomUUID } from 'node:crypto';
 import { lateMediaTeller } from '../../behavior/turn-parts.ts';

@@ -1,12 +1,12 @@
-// Tests for src/config.js: the .env parser, config reader and deepMerge helper.
+// Tests for src/config.ts: the .env parser, config reader and deepMerge helper.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseEnv, applyEnv, deepMerge, readConfig, need, isPlainObject, resolveEnvRefs } from '../src/config.js';
+import { parseEnv, applyEnv, deepMerge, readConfig, need, isPlainObject, resolveEnvRefs } from '../src/config.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { paceSettings } from '../src/behavior/turn.js';
+import { paceSettings } from '../src/behavior/turn.ts';
 import { tempDir } from './fixtures/tmp.js';
 
 function tmpDir() {

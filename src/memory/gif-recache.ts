@@ -34,12 +34,12 @@
 // `media.recacheBefore` set it is still described again when it comes up.
 
 import { collectPictures } from '../media/classify.ts';
-import { lineOf } from '../behavior/line-of.js';
+import { lineOf } from '../behavior/line-of.ts';
 import { collectGifItems, normalizeGifs } from './gifs.ts';
 import { isStaleDescription, recacheCutoffMs } from './describe.ts';
 import { roleModel } from '../llm/roles.ts';
-import { DAY_MS, MINUTE_MS } from '../time.js';
-import { log as defaultLog } from '../log.js';
+import { DAY_MS, MINUTE_MS } from '../time.ts';
+import { log as defaultLog } from '../log.ts';
 import { isFiniteNumber, isIntegerNumber } from './types.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { StoredRecord, Hot, Log, Untyped } from './types.ts';

@@ -38,7 +38,7 @@
 // `focus_members` holds the sets only; `focus_events` (append-only) holds every change of bucket with its reason and the
 // challenges. Both are internal-only (docs/memory.md): no outward reader selects from them.
 
-import { DAY_MS, HOUR_MS, utcDay } from '../../time.js';
+import { DAY_MS, HOUR_MS, utcDay } from '../../time.ts';
 import { nativeAuthorityOf, survivorOf } from './ids.ts';
 import { dbOf, transactionOf, asText, isFiniteNumber } from './types.ts';
 import type { Connection, Db, Row } from './types.ts';

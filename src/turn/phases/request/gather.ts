@@ -3,12 +3,12 @@
 // pulled channels, a diary post's plan, the drawing quota and the `<recent>` lines. The request phase
 // (src/turn/phases/request.ts) runs it after the wait.
 
-import { DELETED_LINES_MAX, deletedLinesOf, withDeletedLines } from '../../../behavior/deleted-lines.js';
+import { DELETED_LINES_MAX, deletedLinesOf, withDeletedLines } from '../../../behavior/deleted-lines.ts';
 import { DEFAULT_SET_KINDS, isSetKind } from '../../../behavior/diary.ts';
 import type { Neighbor } from '../../../behavior/neighbors.ts';
 import type { PulledChannel } from '../../../behavior/pull-fetch.ts';
 import { lateVideoStates } from '../../../media/classify.ts';
-import { log } from '../../../log.js';
+import { log } from '../../../log.ts';
 import type { Diary } from '../../diary.ts';
 import type { Draft } from '../../draft.ts';
 import { describableCandidates } from '../../media.ts';
@@ -52,7 +52,7 @@ export type Gathered = {
   prompts: PhasePrompts;
 };
 
-// health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.js in stage 5c, a pure split
+// health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.ts in stage 5c, a pure split
 export async function gatherRequest(
   ctx: PhaseContext,
   params: PhaseParams,
@@ -84,7 +84,7 @@ export async function gatherRequest(
   timings.record = null;
   if (!isPrivate && record && typeof record.iterate === 'function') {
     const found = await deletedLinesOf({
-      record: record as { iterate: (...args: Array<unknown>) => unknown },
+      record: record as Parameters<typeof deletedLinesOf>[0]['record'],
       guildId,
       channelId: channel.id,
       history,
@@ -98,7 +98,7 @@ export async function gatherRequest(
     if ('failed' in found && found.failed) log.warn('turn: deleted lines failed', { channel: channel.id });
     draft.deletedIds = found.deletedIds;
     // withDeletedLines keeps the lines it is given and puts the placeholders, shaped like lines, among them.
-    history = withDeletedLines(history, found.placeholders) as Array<HistoryLine>;
+    history = withDeletedLines<HistoryLine>(history, found.placeholders);
   }
   // A text attachment cut at FILE_PREVIEW_CHARS (src/turn/phases/request/stages.ts, src/media/text-preview.ts#withTextPreviews).
   for (const message of history) {

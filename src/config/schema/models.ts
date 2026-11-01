@@ -21,7 +21,7 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'models.base.analyzer',
     'types': ['string', 'boolean', 'null'],
-    'reader': 'src/behavior/mention.js',
+    'reader': 'src/behavior/mention.ts',
     'default': 'openai/gpt-6.1-sol',
     'text':
       'Picks options (address, room, route, split, gif-pick, missed, etc.), plans searches and turns sources into notes. Pin one purpose to another model with `byPurpose`',
@@ -29,14 +29,14 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'models.base.vision',
     'types': ['string', 'boolean', 'null'],
-    'reader': 'src/behavior/mention.js',
+    'reader': 'src/behavior/mention.ts',
     'default': 'google/gemini-3.8-flash',
     'text': 'Describes pictures (describe, relook, avatar)',
   },
   {
     'key': 'models.base.video',
     'types': ['string', 'boolean', 'null'],
-    'reader': 'src/behavior/mention.js',
+    'reader': 'src/behavior/mention.ts',
     'default': 'google/gemini-3.8-flash',
     'text': 'Watches video, looks again on questions',
   },

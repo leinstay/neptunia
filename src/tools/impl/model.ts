@@ -1,5 +1,5 @@
 // Operations: `/nep model show|set`: which model serves each role.
-// The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
+// The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
 import { MODEL_SET_PATHS, MODEL_SET_ROLES } from './catalog.ts';

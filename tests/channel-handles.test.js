@@ -1,7 +1,7 @@
-// Tests for the channel handles: the handle of a channel (src/behavior/handles.js, `#` + `c` +
+// Tests for the channel handles: the handle of a channel (src/behavior/handles.ts, `#` + `c` +
 // base-36 digits of the id's hash, distinct from a member's), the channel directory's entries and
 // text, `<channel_directory>` in the cached stable part of the persona's request (byte-identical
-// between turns), a channel a line mentions carrying its handle (src/format.js), her
+// between turns), a channel a line mentions carrying its handle (src/format.ts), her
 // `#handle` becoming `<#id>` (src/memory/mentions.ts#linkChannels) and resolving exactly in a
 // skill call (src/tools/executors.ts#resolveCall), the name matching kept behind it, and the
 // sandbox carrying a linked channel on her line. Pure; fake prompts and config.
@@ -16,11 +16,11 @@ import {
   channelDirectoryEntries,
   handleOf,
   renderChannelDirectory,
-} from '../src/behavior/handles.js';
-import { buildRequest, userText } from '../src/behavior/prompt.js';
-import { afterScenarioTurn } from '../src/behavior/sandbox.js';
+} from '../src/behavior/handles.ts';
+import { buildRequest, userText } from '../src/behavior/prompt.ts';
+import { afterScenarioTurn } from '../src/behavior/sandbox.ts';
 import { channelDirectoryOf as guildChannelDirectory } from '../interfaces/discord/index.ts';
-import { formatTranscript } from '../src/format.js';
+import { formatTranscript } from '../src/format.ts';
 import { withCacheMarker } from '../src/llm/openrouter.ts';
 import { linkChannels } from '../src/memory/mentions.ts';
 import { resolveCall } from '../src/tools/executors.ts';

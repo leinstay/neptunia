@@ -7,7 +7,7 @@
 // time while people's turns hold the lease; compatible wakes (the same conversation, and
 // the day's review with any server one) coalesce into one inner turn; a queue past
 // `innerLife.queueMax` records the overflow. The inner turn itself is the turn runner's
-// (src/behavior/turn.js, mode `inner`): no human message, a `<wake>` block, her tools.
+// (src/behavior/turn.ts, mode `inner`): no human message, a `<wake>` block, her tools.
 //
 // The heartbeat (docs/inner-life.md "The heartbeat"): a wake kind of its own on its own timer,
 // `innerLife.heartbeat.everyMinutes` moved by a jitter either way, kept in the state
@@ -23,7 +23,7 @@
 // Every drop and every hold of a wake is a fact at the moment it happens, and so is every call
 // outcome that did not go well: facts are kept in the state (`state.facts`) until a model answer
 // that carried them completed (`told`), and are shown by the first turn that can carry them -- an
-// inner turn's `<wake>`, or an addressed turn (src/behavior/turn.js). A fact of a private chat is
+// inner turn's `<wake>`, or an addressed turn (src/behavior/turn.ts). A fact of a private chat is
 // shown only in that chat; a fact of the server never in a private chat.
 // A review's `<wake>` also tells her once which intentions of hers expired untouched since she was
 // last told (`innerLife.review.expiredMax` newest, the rest counted; a candidate never): each is marked
@@ -89,7 +89,7 @@
 // Each of them works over the `life` context createInnerLife builds; this module keeps the tick and the exports.
 
 import { randomUUID } from 'node:crypto';
-import { log as defaultLog } from '../log.js';
+import { log as defaultLog } from '../log.ts';
 import { errorCode } from '../tools/types.ts';
 import { createCostMeter, drain, onTaskFinished } from './inner/drain.ts';
 import type { DrainAnswer } from './inner/drain.ts';
@@ -171,7 +171,7 @@ export type InnerLifeOptions = {
    * the id is shown.
    */
   conversationName?: (conversationId: string) => string | null;
-  /** The event door's submit (src/index.js). */
+  /** The event door's submit (src/index.ts). */
   submit?: ((event: InnerWakeEvent) => Promise<unknown>) | null;
   /** The memory store (its pause). */
   store?: InnerStore | null;
@@ -179,7 +179,7 @@ export type InnerLifeOptions = {
   /** Calls queued for the attention (people first). */
   peopleWaiting?: () => boolean;
   /**
-   * Resolves once the journal's start-up reconciliation is done (src/index.js); a turn that a restart cut off is
+   * Resolves once the journal's start-up reconciliation is done (src/index.ts); a turn that a restart cut off is
    * resolved from the journal only after it.
    */
   ready?: () => Promise<unknown>;
@@ -199,7 +199,7 @@ export type InnerLifeOptions = {
   memoryDb?: InnerMemoryDb | null;
   /**
    * The port a live wake turn's held posts go out through once the wake completed (src/behavior/inner/deliveries.ts);
-   * src/core.js passes the guarded port. Without one a wake turn's posts go out during the turn.
+   * src/core.ts passes the guarded port. Without one a wake turn's posts go out during the turn.
    */
   port?: InnerPort | null;
   rng?: () => number;
@@ -382,7 +382,7 @@ export function createInnerLife({
   }
 
   /**
-   * The facts for the turns that are not inner turns (src/behavior/turn.js's addressed turns): `add` a
+   * The facts for the turns that are not inner turns (src/behavior/turn.ts's addressed turns): `add` a
    * fact (`kind`, `channelId`, `privateChat`, its payload), `pending` ones a conversation may be shown
    * (`scope`: `{ channelId, privateChat }`; a private chat's only in it), `markTold` the ones a completed
    * answer carried. `enabled` follows the switch; without it the turn runner keeps its own in process.

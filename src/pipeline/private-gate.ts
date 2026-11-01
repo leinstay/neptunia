@@ -1,19 +1,20 @@
 // The private chat: a direct message checked locally with zero tokens (the switch, other bots, the served guild,
 // membership, a stored profile and the public attitude), dropped silently when refused, observed like a direct call
-// and answered in its own turn; the same gate for a queued direct message and for a recovery turn in a DM. createMessageHandler (src/behavior/pipeline.js) builds it once with
+// and answered in its own turn; the same gate for a queued direct message and for a recovery turn in a DM. createMessageHandler (src/behavior/pipeline.ts) builds it once with
 // createPrivateGate; the live path, the drain of the pending queue and the replay of a held chat call it.
 
-import { lineOf } from '../behavior/line-of.js';
-import { isLimitNotice } from '../behavior/limits.js';
+import { lineOf } from '../behavior/line-of.ts';
+import { isLimitNotice } from '../behavior/limits.ts';
 import { CLI_GATE, CLI_IFACE, privateChatsOff } from '../behavior/core-pause.ts';
-import { privateGate } from '../behavior/private.js';
+import { privateGate } from '../behavior/private.ts';
 import type { Reads } from '../interface/reads.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import type { ConversationInfo, ConversationRef } from '../protocol/adapter.ts';
 import { isOwnerId } from '../tools/impl/grants.ts';
+import type { TurnParams } from '../turn/outcome.ts';
 import type { MessageEvent, Observed } from './edits.ts';
 
-/** A normalized line (src/behavior/line-of.js#lineOf), as the private chat reads it. */
+/** A normalized line (src/behavior/line-of.ts#lineOf), as the private chat reads it. */
 export type PrivateLine = {
   readonly id: string;
   readonly channelId: string;
@@ -43,7 +44,7 @@ export type PrivateContext = {
   activity: { note: (channelId: string, authorId: string, at: number) => void } | null;
   turns: {
     notePost: (channelId: string, ts: number) => void;
-    runTurn: (params: object) => Promise<TurnResultOf>;
+    runTurn: (params: TurnParams) => Promise<TurnResultOf>;
   };
   memory: { observe: (guildId: string, line: object, options: object) => void };
   missed: { setPrivateRecovery?: (recovery: object) => void } | null;
@@ -106,7 +107,7 @@ export function createPrivateGate({
   }
 
   /**
-   * The private-chat gate for one DM author (src/behavior/private.js#privateGate),
+   * The private-chat gate for one DM author (src/behavior/private.ts#privateGate),
    * shared by a live DM and a queued one at drain time. The free checks (a
    * stored profile, the owner flag, the attitude threshold) run before any
    * read: `memberInfo` is only asked when those checks would let the author through. The owner's command line passes.

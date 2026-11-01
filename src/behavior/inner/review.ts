@@ -2,8 +2,8 @@
 // (her own `said` lines in the record), and the channels she spoke in lately, where a review or a heartbeat turn runs.
 // The tick (src/behavior/inner.ts) draws it; the drain (src/behavior/inner/drain.ts) reads the channels.
 
-import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../time.js';
-import { localHour } from '../../format.js';
+import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../time.ts';
+import { localHour } from '../../format.ts';
 import { errorCode, isFiniteNumber, objOf } from '../../tools/types.ts';
 import type { Obj } from '../../tools/types.ts';
 import { markHandled, note, save, stateOf, timezoneOf } from './queue.ts';

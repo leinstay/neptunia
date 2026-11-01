@@ -50,7 +50,7 @@ export function keptIdsOf(
  * The rest of the collector, once the budget is spent: the profiles shown, the server channels, guild notes and lore
  * kept, and what the prefetch offered while `<retrieved>` was kept.
  */
-// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
+// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
 export function collectReads(
   memoryReads: Array<MemoryRead>,
   kept: Fit['kept'],

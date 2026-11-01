@@ -132,26 +132,26 @@ const reader = (files) => (/** @type {string} */ p) => files[p];
 test('reachedModules: collects the src and interfaces modules a test imports directly', () => {
   const read = reader({
     'tests/a.test.js': [
-      "import { x } from '../src/time.js';",
+      "import { x } from '../src/time.ts';",
       "import { y } from '../interfaces/discord/send.js';",
       "export { z } from '../src/memory/clamp.ts';",
-      "const m = await import('../src/log.js');",
+      "const m = await import('../src/log.ts');",
     ].join('\n'),
   });
   assert.deepEqual(reachedModules('tests/a.test.js', read), [
     'interfaces/discord/send.js',
-    'src/log.js',
+    'src/log.ts',
     'src/memory/clamp.ts',
-    'src/time.js',
+    'src/time.ts',
   ]);
 });
 
 test('reachedModules: ignores node built-ins and bare package imports', () => {
   const read = reader({
     'tests/a.test.js':
-      "import fs from 'node:fs';\nimport assert from 'node:assert/strict';\nimport ts from 'typescript';\nimport { x } from '../src/time.js';",
+      "import fs from 'node:fs';\nimport assert from 'node:assert/strict';\nimport ts from 'typescript';\nimport { x } from '../src/time.ts';",
   });
-  assert.deepEqual(reachedModules('tests/a.test.js', read), ['src/time.js']);
+  assert.deepEqual(reachedModules('tests/a.test.js', read), ['src/time.ts']);
 });
 
 test('reachedModules: does not follow a dynamic import built from a template string', () => {
@@ -161,11 +161,11 @@ test('reachedModules: does not follow a dynamic import built from a template str
 
 test('reachedModules: follows a fixture one level and counts its src imports for the test file', () => {
   const read = reader({
-    'tests/a.test.js': "import { fake } from './fixtures/harness.js';\nimport { x } from '../src/time.js';",
-    'tests/fixtures/harness.js': "import { y } from '../../src/log.js';\nimport { z } from './deeper.js';",
-    'tests/fixtures/deeper.js': "import { w } from '../../src/config.js';",
+    'tests/a.test.js': "import { fake } from './fixtures/harness.js';\nimport { x } from '../src/time.ts';",
+    'tests/fixtures/harness.js': "import { y } from '../../src/log.ts';\nimport { z } from './deeper.js';",
+    'tests/fixtures/deeper.js': "import { w } from '../../src/config.ts';",
   });
-  assert.deepEqual(reachedModules('tests/a.test.js', read), ['src/log.js', 'src/time.js']);
+  assert.deepEqual(reachedModules('tests/a.test.js', read), ['src/log.ts', 'src/time.ts']);
 });
 
 test('reachedModules: a missing file or an empty test reaches nothing', () => {

@@ -11,9 +11,9 @@
 // with `force`).
 
 import { emojiUsageOpts } from './emoji-usage.ts';
-import { lineOf } from '../behavior/line-of.js';
+import { lineOf } from '../behavior/line-of.ts';
 import { isReadable } from '../behavior/snapshot.ts';
-import { log as defaultLog } from '../log.js';
+import { log as defaultLog } from '../log.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { StoreView } from './store.ts';
 import type { Log, StoredRecord } from './types.ts';

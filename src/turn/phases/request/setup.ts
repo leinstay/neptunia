@@ -66,7 +66,7 @@ export type Setup = {
   diaryPending: Promise<{ value: Awaited<ReturnType<Diary['prepareDiary']>> } | { error: unknown }> | null;
 };
 
-// health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.js in stage 5c, a pure split
+// health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.ts in stage 5c, a pure split
 export async function setupRequest(
   ctx: PhaseContext,
   params: PhaseParams,

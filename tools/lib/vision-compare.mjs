@@ -14,9 +14,9 @@ import { classifyAttachment } from '../../src/media/classify.ts';
 import { videoSiteFor } from '../../src/media/video-sites.ts';
 import { PURPOSE_ROLES } from '../../src/llm/roles.ts';
 import { railReason } from '../../src/llm/openrouter.ts';
-import { onLog } from '../../src/log.js';
-import { isPlainObject } from '../../src/config.js';
-import { DAY_MS } from '../../src/time.js';
+import { onLog } from '../../src/log.ts';
+import { isPlainObject } from '../../src/config.ts';
+import { DAY_MS } from '../../src/time.ts';
 
 /** The media kinds, in the order the sheet groups them. */
 export const KINDS = Object.freeze(['picture', 'gif', 'video', 'emoji', 'sticker']);

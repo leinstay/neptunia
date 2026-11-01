@@ -76,7 +76,7 @@ export function parseSheet(text) {
   return { rows, errors };
 }
 
-/** A chat message in the shape the transcript renders (src/format.js), as tools/recall-eval.mjs builds its trigger. */
+/** A chat message in the shape the transcript renders (src/format.ts), as tools/recall-eval.mjs builds its trigger. */
 function chatMessage({ id, authorName, content, ts, self }) {
   return {
     id,
@@ -130,7 +130,7 @@ export function rowChat(row, { now, selfName }) {
 }
 
 /**
- * The classifier's decision from its parsed answer (src/behavior/recall.js#parseLookupAnswer):
+ * The classifier's decision from its parsed answer (src/behavior/recall.ts#parseLookupAnswer):
  * a `web:` query -> `fast`; a server part (`server:`, `who:` or a range) without `web:` ->
  * `memory`; nothing -> `none`. The classifier never decides `agent` (it asks for no errand):
  * a row labelled `agent` counts as a miss.

@@ -9,7 +9,7 @@
 // failure, carrying the reason and an HTTP status only -- never the query
 // (it is chat content), never the API key, never the request URL.
 
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { objOf } from '../tools/types.ts';
 import { htmlToText } from './readable.ts';
 import type { SearchClient, SearchFailure, SearchOptions, SearchOutcome, SearchResult } from './search-types.ts';

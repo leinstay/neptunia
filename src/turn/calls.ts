@@ -1,7 +1,7 @@
 // The persona's skill calls as a turn makes them: who asks for a call, what a call is resolved against, the handles of
 // the lines a memory.search quoted, the envelope of a call, the split of an answer into speech and calls, the words of
 // a call that failed, the options of the reply request and the in-process caps of the call marks and trigger links.
-// src/behavior/turn.js calls them for every answer; the replay's skill scenarios (tools/replay.mjs) and the tests read
+// src/behavior/turn.ts calls them for every answer; the replay's skill scenarios (tools/replay.mjs) and the tests read
 // the exported ones through its re-exports.
 
 import { randomUUID } from 'node:crypto';
@@ -103,7 +103,7 @@ type ViewStore = {
  * trigger message's text: a channel it names may take an errand's file). Reads `store` only. Exported
  * for the replay's skill scenarios, which resolve a call exactly as a live turn does.
  */
-// health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5a, a pure move
+// health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5a, a pure move
 export function callViewOf({
   channel,
   snapshot = null,

@@ -1,10 +1,10 @@
 // The follow-up path of an untagged line in an open window: at most one address classifier call in flight per channel,
 // the lines that arrive meanwhile held and worked off one at a time, and the follow-up or overheard turn a verdict asks
-// for, started now or deferred to the pending queue. createMessageHandler (src/behavior/pipeline.js) builds it once
+// for, started now or deferred to the pending queue. createMessageHandler (src/behavior/pipeline.ts) builds it once
 // with createFollowUp; handleMessage asks maybeFollowUp first for a line that called nobody.
 
-import { followUpTriggerKind } from '../behavior/mention.js';
-import { log } from '../log.js';
+import { followUpTriggerKind } from '../behavior/mention.ts';
+import { log } from '../log.ts';
 import type { AddressAnswer, ClassifyFollowUp } from './address-classifier.ts';
 import type { Answer } from './answer.ts';
 import type { CallOutcome } from './call-outcome.ts';

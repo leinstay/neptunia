@@ -1,7 +1,7 @@
 // What a turn reads around its request: the port references of a conversation and a message, the gateway's check of
 // one effect of her reply, the memory context of an attempt's reads, the stable
 // freezes per guild, and the request's `errands`, `<intentions>` and `<places>` inputs. createTurnRunner
-// (src/behavior/turn.js) builds it once per runner with createInputs; the attempt and the other topic modules call its
+// (src/behavior/turn.ts) builds it once per runner with createInputs; the attempt and the other topic modules call its
 // functions.
 
 import type { Snapshot } from '../behavior/snapshot.ts';
@@ -12,7 +12,7 @@ import type { ErrandRecord } from '../errands/types.ts';
 import { portIface } from '../interface/capabilities.ts';
 import { DEFAULT_INTENTIONS_CAP, intentionsBlockText } from '../intentions/blocks.ts';
 import { intentionSettings } from '../intentions/model.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { channelPlaceId, personId } from '../memory/db/ids.ts';
 import type { ConversationRef, MessageRef } from '../protocol/adapter.ts';
 import { checkReplyEffect } from '../tools/gateway.ts';
@@ -136,7 +136,7 @@ export function createInputs(ctx: InputsContext): Inputs {
     return ctx;
   }
   // Per guild: what the stable part of the reply showed from memory in the current cache bucket
-  // (src/behavior/prompt.js#freezePerBucket), in process only; a restart starts afresh.
+  // (src/behavior/prompt.ts#freezePerBucket), in process only; a restart starts afresh.
   const stableFreezes = new Map<string, Map<string, unknown>>();
   const stableFreezeOf = (guildId: string | null | undefined): Map<string, unknown> => {
     const key = String(guildId ?? '');

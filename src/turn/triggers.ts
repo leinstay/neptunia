@@ -1,5 +1,5 @@
 // What a turn's trigger says about how it runs: the trigger kinds, whether a turn posts plain, whether somebody waits
-// for it or asked for it, and whether it may take the attention. src/behavior/turn.js asks these per attempt; a limit
+// for it or asked for it, and whether it may take the attention. src/behavior/turn.ts asks these per attempt; a limit
 // notice quotes by postsPlain too.
 
 /**
@@ -7,7 +7,7 @@
  * name trigger, a follow-up the address classifier said "yes" to, a line the
  * address classifier found to be about the persona but said to someone else
  * or to the room (`overheard`), a private chat message, or a message to the persona left unanswered
- * earlier (`missed`, src/behavior/missed.js). Each has a `labels.triggers` entry.
+ * earlier (`missed`, src/behavior/missed.ts). Each has a `labels.triggers` entry.
  */
 export type TriggerKind =
   'mention' | 'reply' | 'name' | 'followUp' | 'overheard' | 'private' | 'missed' | 'errand' | 'inner';
@@ -55,7 +55,7 @@ export function askedFor(trigger: unknown, triggerKind: TriggerKind | null | und
 
 /**
  * Takes the attention for `id` when the turn may start: one turn at a time, so not while one runs anywhere
- * (src/behavior/pipeline.js is the only caller that turns
+ * (src/behavior/pipeline.ts is the only caller that turns
  * a direct ping caught by this into a pending one). True when taken.
  */
 export function takeAttention(busy: Set<string>, id: string): boolean {

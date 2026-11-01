@@ -1,11 +1,11 @@
-// Where her skill index stands in a request (src/behavior/prompt.js#buildRequest, the `skillIndex` input) and what
+// Where her skill index stands in a request (src/behavior/prompt.ts#buildRequest, the `skillIndex` input) and what
 // the old catalogue is called now that `<skills>` is the index: a request with no skill indexed is byte-identical to
 // one built without the input, a request with one carries `<skills>` in the cached stable part between `<tools>`
 // and `<self_facts>`, and the catalogue of the tools she may call is `<tool_catalogue>` in the tail. Fake input,
 // no model, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRequest } from '../src/behavior/prompt.js';
+import { buildRequest } from '../src/behavior/prompt.ts';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 10, 1, 10, 0, 0);

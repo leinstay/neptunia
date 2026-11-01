@@ -1,13 +1,13 @@
-// Tests for her own tools in a turn (src/tools/tools.ts over src/behavior/turn.js): web.search, web.read,
+// Tests for her own tools in a turn (src/tools/tools.ts over src/behavior/turn.ts): web.search, web.read,
 // memory.search, media.look and draw.create run inside the turn and come back in it as the tool message of
 // her call; the step engine itself is tests/turn-tool-steps.test.js. Over a real admin and the fake interface
 // adapter (src/interface/fake.ts); no network, no data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { loopSettings } from '../src/behavior/turn.js';
-import { userText } from '../src/behavior/prompt.js';
-import { fill } from '../src/format.js';
+import { loopSettings } from '../src/behavior/turn.ts';
+import { userText } from '../src/behavior/prompt.ts';
+import { fill } from '../src/format.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, toolAnswer } from './fixtures/tool-answers.js';
@@ -673,7 +673,7 @@ test('media.look caps: at most two second looks in one turn, across the steps', 
   assert.ok(toolContent(run.llm, 2, 2).includes(labels.tools.result.reasons['turn-cap']), 'she hears why');
 });
 
-// --- her one previous think (src/behavior/previous-think.js) -----------------
+// --- her one previous think (src/behavior/previous-think.ts) -----------------
 
 const thinkBlock = (text) => /<previous_think>\n([\s\S]*?)\n<\/previous_think>/.exec(text)?.[1] ?? null;
 

@@ -311,7 +311,7 @@ export type WakeInfo = {
 };
 
 /**
- * The wake as the turn runner reads it (src/behavior/turn.js, `params.inner.wake`): every field it reads has a fallback,
+ * The wake as the turn runner reads it (src/behavior/turn.ts, `params.inner.wake`): every field it reads has a fallback,
  * so every field is optional; the drain's WakeInfo is one of these.
  */
 export type TurnWake = WakeBlockInput & { kind?: string; chainId?: string };
@@ -361,7 +361,7 @@ export type InnerTurns = {
   isBusy?(conversationId: string): boolean;
 };
 
-/** One call of an inner turn as its result lists it (src/behavior/turn.js#runTurn's `inner.actions`). */
+/** One call of an inner turn as its result lists it (src/behavior/turn.ts#runTurn's `inner.actions`). */
 export type TurnAction = Obj & {
   skill?: unknown;
   status?: unknown;

@@ -1,9 +1,9 @@
-// Tests for src/paths.js: the three directories of a deployment, from the two optional
+// Tests for src/paths.ts: the three directories of a deployment, from the two optional
 // variables. Pure: every case passes its own env object, never the process environment.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { resolvePaths, PRIVATE_DIR_VAR, DATA_DIR_VAR } from '../src/paths.js';
+import { resolvePaths, PRIVATE_DIR_VAR, DATA_DIR_VAR } from '../src/paths.ts';
 
 const ROOT = path.resolve('/opt/engine');
 

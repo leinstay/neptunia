@@ -7,7 +7,7 @@
 // skips the daily-request counter and is never refused by it. Its callers
 // have a budget or a trigger of their own, so none of them can burn
 // through the day's request cap of the chat: the operations tools
-// (tools/replay.mjs through src/behavior/sandbox.js), run by hand behind
+// (tools/replay.mjs through src/behavior/sandbox.ts), run by hand behind
 // their own spend gate, never by the bot.
 // Every other request counts: the reply and every request on a model role other than `core` before it, the
 // analyzer, her memory session. The per-request token cap
@@ -25,11 +25,11 @@
 import { createHash } from 'node:crypto';
 import { estimateMessages, estimateTools } from './tokens.ts';
 import { SAFETY_MARGIN } from './budget.ts';
-import { isPlainObject } from '../config.js';
+import { isPlainObject } from '../config.ts';
 import { errorFields } from '../error-fields.ts';
 import { objOf, scalarText } from '../tools/types.ts';
-import { HOUR_MS, MINUTE_MS, bumpDaily, countToday, dailyCounter } from '../time.js';
-import { log } from '../log.js';
+import { HOUR_MS, MINUTE_MS, bumpDaily, countToday, dailyCounter } from '../time.ts';
+import { log } from '../log.ts';
 import type { LimitsSink } from './limits.ts';
 import { roleModel } from './roles.ts';
 
@@ -441,8 +441,8 @@ export function dailyCapOf(value: unknown, key: string): number {
 }
 
 /**
- * The `llm.complete` options that name the persona's reply (src/behavior/turn.js, and its replay
- * in src/behavior/sandbox.js): role `core`, the one model role on `models.base.core`, purpose `reply`. Spread
+ * The `llm.complete` options that name the persona's reply (src/behavior/turn.ts, and its replay
+ * in src/behavior/sandbox.ts): role `core`, the one model role on `models.base.core`, purpose `reply`. Spread
  * into a request's own options, never mutated.
  */
 export const REPLY_REQUEST = Object.freeze({ role: 'core', purpose: 'reply' });
@@ -554,7 +554,7 @@ const countOrZero = (value: unknown): number =>
 
 /** The part field OpenRouter reads a cache breakpoint from. */
 const CACHE_CONTROL = 'cache_control';
-/** The neutral part field a request builder tags a cacheable text part with (src/behavior/prompt.js); never sent. */
+/** The neutral part field a request builder tags a cacheable text part with (src/behavior/prompt.ts); never sent. */
 const CACHE_SEGMENT = 'cacheSegment';
 /** Breakpoints a provider accepts per request; markers past the first four are dropped. */
 const MAX_CACHE_MARKERS = 4;
@@ -594,7 +594,7 @@ export function cacheTtlFor(config: unknown, role: unknown, model: unknown, forc
 /**
  * The configured cache TTL (`config.llm.cache.ttl`, the rule of `cacheTtlFor`) in milliseconds:
  * five minutes for `'5m'`, else one hour. The length of the time bucket over which the reply's
- * stable part holds what memory changes (src/behavior/prompt.js#freezePerBucket), so a memory
+ * stable part holds what memory changes (src/behavior/prompt.ts#freezePerBucket), so a memory
  * batch rewrites the cached prefix at most once per TTL. Pure; the caller passes the live config.
  * @param config The whole live config.
  */
@@ -672,7 +672,7 @@ export function toolCallsOf(calls: unknown): Array<ParsedToolCall> {
  * array content gets it on its last non-empty text part -- and every `cache_control` a builder
  * already placed on any part takes the same marker; only the first four markers in message order
  * survive, the rest are removed. A part a builder tagged with `cacheSegment` (the reply's user
- * message, src/behavior/prompt.js#buildRequest) gets a marker too: `'stable'` the request's
+ * message, src/behavior/prompt.ts#buildRequest) gets a marker too: `'stable'` the request's
  * `ttl`, `'profiles'` `profilesTtl` (from `profilesTtlFor`; null -> none), never longer than a
  * `'5m'` `ttl` (a longer TTL must not follow a shorter one); any other value none. The
  * `cacheSegment` field itself is removed from every part in every case, so it never reaches the
@@ -727,7 +727,7 @@ export function withCacheMarker<M extends ChatMessage>(
     const parts = content.map((part: unknown, at: number) => (isRec(part) ? settle(part, at === breakpoint) : part));
     return parts.some((part, at) => part !== content[at]) ? { ...message, content: parts } : message;
   });
-  // A turn that appended steps to its first two messages (src/behavior/tool-step.js#appendStep): the
+  // A turn that appended steps to its first two messages (src/behavior/tool-step.ts#appendStep): the
   // last part of the appended prefix -- the latest tool message, or the note's text part -- carries a
   // fourth marker, so the next step reads everything before it from the cache. Always the short TTL
   // (a longer one must not follow a shorter one, and a turn's steps follow each other within minutes).

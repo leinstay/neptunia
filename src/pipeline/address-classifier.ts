@@ -1,13 +1,13 @@
 // The address classifier's call about one untagged line in an open follow-up window (prompts/address.md): its verdict
 // `yes`, `overheard` or `no`, the window's no-streak bumped on a "no", and a failed call let through while the line
-// keeps an active one-to-one exchange. createMessageHandler (src/behavior/pipeline.js) builds it once with
+// keeps an active one-to-one exchange. createMessageHandler (src/behavior/pipeline.ts) builds it once with
 // createAddressClassifier; the follow-up path (src/pipeline/follow-up.ts) calls it once the gate passed.
 
-import { parseAddressAnswer } from '../behavior/mention.js';
+import { parseAddressAnswer } from '../behavior/mention.ts';
 import { roleRequestOptions } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
-import { log } from '../log.js';
-import { MINUTE_MS } from '../time.js';
+import { log } from '../log.ts';
+import { MINUTE_MS } from '../time.ts';
 import type { ClassifierParams, ClassifierRequest } from './classifier-request.ts';
 import type { FollowUpWindow, FollowUpWindows } from './follow-up-window.ts';
 import type { Conv, Line, PipelineConfig, PipelineHot, PipelineLlm, PipelineMissed } from './types.ts';
@@ -97,7 +97,7 @@ export function createAddressClassifier({
    * exchange (activeExchangeWith, within FAIL_OPEN_MINUTES;
    * 0 = off), a "no" otherwise -- `follow-up: fail-open` says which.
    */
-  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/pipeline.js in stage 5d, a pure move
+  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/pipeline.ts in stage 5d, a pure move
   async function classifyFollowUp(
     channel: Conv,
     normalized: Line,
@@ -134,7 +134,7 @@ export function createAddressClassifier({
         missingAddressPromptLogged = true;
         log.warn('follow-up: prompts.address is missing, every follow-up is treated as "no"', {});
       }
-      // A failed build is a failed gate (src/behavior/missed.js); a missing prompt is the deployment's.
+      // A failed build is a failed gate (src/behavior/missed.ts); a missing prompt is the deployment's.
       if (buildFailed) missed?.noteFact({ reason: 'gate-failed', message: normalized, failure: 'build-failed' });
       log.info('follow-up: verdict', {
         channel: channelId,
@@ -203,7 +203,7 @@ export function createAddressClassifier({
       log.info('follow-up: fail-open', { channel: channelId, author: normalized.authorId, reason: failure, open });
       if (open) answer = 'yes';
     }
-    // A failed gate is a fact for the missed-answer registry (src/behavior/missed.js), let through or not.
+    // A failed gate is a fact for the missed-answer registry (src/behavior/missed.ts), let through or not.
     if (failure) missed?.noteFact({ reason: open ? 'gate-failopen' : 'gate-failed', message: normalized, failure });
 
     // `verdict` is the two-way projection (overheard counts as yes), `answer` the word itself.

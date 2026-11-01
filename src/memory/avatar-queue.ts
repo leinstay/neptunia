@@ -14,10 +14,10 @@
 
 import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
-import { fillPromptTemplate } from '../behavior/prompt.js';
+import { fillPromptTemplate } from '../behavior/prompt.ts';
 import { clampText, oneLine } from './clamp.ts';
-import { DAY_MS } from '../time.js';
-import { log as defaultLog } from '../log.js';
+import { DAY_MS } from '../time.ts';
+import { log as defaultLog } from '../log.ts';
 import { hashOrNull, isAvatarDue } from './avatars.ts';
 import { VISION_MAX_BYTES } from '../media/fetch-image.ts';
 import { propOf } from './types.ts';

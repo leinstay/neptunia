@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { createMetrics, metricsTap, SPEED_METRICS } from '../src/tools/impl/metrics.ts';
-import { log, onLog } from '../src/log.js';
+import { log, onLog } from '../src/log.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
 
@@ -121,7 +121,7 @@ test('log: a listener gets each entry after it is written; a throwing listener i
   assert.equal(seen.length, 1, 'an unsubscribed listener hears nothing');
 });
 
-/** Log entries as src/log.js builds them, at `atMs`. */
+/** Log entries as src/log.ts builds them, at `atMs`. */
 function entry(msg, fields, atMs) {
   return { level: 'info', time: new Date(atMs).toISOString(), msg, ...fields };
 }

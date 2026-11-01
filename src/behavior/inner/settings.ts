@@ -1,6 +1,6 @@
 // The settings of the persona's inner life: the wake kinds, the defaults of the `innerLife` section and
 // `innerSettings`, which checks every number of that section against them. The scheduler's modules
-// (src/behavior/inner/) and the turn runner (src/behavior/turn.js) read them. Nothing here keeps state.
+// (src/behavior/inner/) and the turn runner (src/behavior/turn.ts) read them. Nothing here keeps state.
 
 import { isPositive, objOf } from '../../tools/types.ts';
 import type { InnerSettings } from './types.ts';
@@ -89,7 +89,7 @@ const isDelayList = (value: unknown): value is Array<number> =>
 /**
  * The inner life's settings: INNER_DEFAULTS, with the keys the live config holds each checked against its default
  * (a missing or bad value takes the default). `mode` is `live` only when it says so exactly. `loop`: the tool loop's
- * bounds of an inner turn (src/behavior/turn.js#loopSettings with `inner`; nobody waits for
+ * bounds of an inner turn (src/behavior/turn.ts#loopSettings with `inner`; nobody waits for
  * one, so its budget is generous): `maxSteps`, `timeBudgetMs`, `maxCallsPerStep` as
  * `tools.loop`'s, `callTimeoutMs` the most one call of hers may run.
  */

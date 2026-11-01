@@ -1,17 +1,17 @@
-// conversation.read in a turn (features.coreTools, src/behavior/turn.js): her call reads a channel
+// conversation.read in a turn (features.coreTools, src/behavior/turn.ts): her call reads a channel
 // from the record first and the interface's history when the record lacks the span, the lines
 // carry handles that resolve in the next steps (message calls, before=/around= paging), a channel
 // the pull rail hides is refused. Over a real admin and the fake interface adapter; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
-import { userText } from '../src/behavior/prompt.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
+import { userText } from '../src/behavior/prompt.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { onWorld, useIface, world } from './fixtures/turn-world.ts';
 import '../src/tools/impl/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
-import { createAdmin } from '../src/admin.js';
-import { fill } from '../src/format.js';
+import { createAdmin } from '../src/admin.ts';
+import { fill } from '../src/format.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';

@@ -22,7 +22,7 @@ The engine reads two layers of configuration, both hot-reloaded (edits take effe
 
 **Prompt files.** `prompts/` holds the tracked engine defaults, including a working example character. `prompts.local/` (gitignored) holds your deployment's overrides. A file in `prompts.local/` replaces the same-named file in `prompts/` entirely.
 
-The merge logic lives in `src/hot.js`. When a file in either layer fails to parse (a half-written JSON save, for instance), the previous good value stays live and the error is logged. On the first startup, a broken file still causes a hard failure.
+The merge logic lives in `src/hot.ts`. When a file in either layer fails to parse (a half-written JSON save, for instance), the previous good value stays live and the error is logged. On the first startup, a broken file still causes a hard failure.
 
 The one file you must write is `prompts.local/character-card.md`: who the persona is and how it talks. Copy the example from `prompts/character-card.md` and rewrite it. Everything else works with the defaults.
 

@@ -1,6 +1,6 @@
 // The parts of a turn that stand on their own: the deadline of its preparation, the journal's ledger of its preparation
 // steps and the note that tells what was not ready when a request went out. Each takes what it needs and keeps its own
-// state, so src/behavior/turn.js builds them per attempt.
+// state, so src/behavior/turn.ts builds them per attempt.
 
 export type Deadline = {
   reached: Promise<void>;

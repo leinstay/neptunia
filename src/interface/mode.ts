@@ -1,8 +1,8 @@
 // How the interfaces run beside the core, read from the `interfaces` settings. `interfaceMode` decides whether the
-// entry (src/index.js) starts the interfaces in the core's process (`inprocess`) or leaves them to their systemd units
+// entry (src/index.ts) starts the interfaces in the core's process (`inprocess`) or leaves them to their systemd units
 // (`units`), and refuses any other value, because a guess would start the persona with no interface or with a second
 // platform client beside a running unit. `interfaceEnabled` is the owner's switch of one interface
-// (`interfaces.<name>.enabled`), which the link reads at every `hello` (src/core.js), and `drainMs` is how long a
+// (`interfaces.<name>.enabled`), which the link reads at every `hello` (src/core.ts), and `drainMs` is how long a
 // disable lets the actions in flight finish (src/interface/link.ts#createInterfaceLinks).
 
 /** The ways the interfaces run. */

@@ -6,7 +6,7 @@ export const PRIVATE: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'private.enabled',
     'types': ['boolean'],
-    'reader': 'src/behavior/private.js',
+    'reader': 'src/behavior/private.ts',
     'default': false,
     'text':
       'Answer direct messages from guild members. Needs a stored public profile and `affinity.score >= private.minAffinity`',
@@ -22,7 +22,7 @@ export const PRIVATE: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'private.minAffinity',
     'types': ['number'],
-    'reader': 'src/behavior/private.js',
+    'reader': 'src/behavior/private.ts',
     'default': 5,
     'text': 'Minimum public attitude score to answer a DM; owners bypass this',
   },

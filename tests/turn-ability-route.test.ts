@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { createRoleHealth } from '../src/llm/role-health.ts';
 import { ImageGenError } from '../src/llm/images.ts';
 import { createDescriber } from '../src/memory/describe.ts';
-import { fill } from '../src/format.js';
+import { fill } from '../src/format.ts';
 import { labels } from './fixtures/labels.js';
 import { call, toolAnswer } from './fixtures/tool-answers.js';
 import { NOW, coreTurn, fakeStore } from './fixtures/turn-harness.js';

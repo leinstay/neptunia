@@ -12,7 +12,7 @@
 // a recurring one past the occurrence that slept. Nothing about it becomes a fact or a wake; the status counts the
 // wakes slept since the start. Called through src/behavior/inner.ts and src/behavior/inner/drain.ts.
 
-import { DAY_MS, utcDay } from '../../time.js';
+import { DAY_MS, utcDay } from '../../time.ts';
 import { ALIVE_LEASE, leaseOf, listWakes } from '../../memory/db/wake-queue.ts';
 import type { StoredWake } from '../../memory/db/wake-queue.ts';
 import { errorCode as codeOf, listOf, objOf } from '../../tools/types.ts';

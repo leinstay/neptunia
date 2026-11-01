@@ -4,8 +4,8 @@
 // Logs carry the model, counts, cost and failure reasons -- never the prompt
 // (it may quote members).
 
-import { log } from '../log.js';
-import { isPlainObject } from '../config.js';
+import { log } from '../log.ts';
+import { isPlainObject } from '../config.ts';
 import { errorFields } from '../error-fields.ts';
 import { objOf } from '../tools/types.ts';
 import {

@@ -1,14 +1,14 @@
 // Tests for the tag that names a member without the handle: the helper that finds it
-// (src/behavior/handles.js#untaggedNames), a mention in a line's text reading as the member's
+// (src/behavior/handles.ts#untaggedNames), a mention in a line's text reading as the member's
 // handle (withUserHandles, formatTranscript), the mark on her own line (transcript.untagged) and the
 // note in the result of her message.create / message.edit (tools.result.untaggedNote). Pure,
 // except the one turn over the fake adapter.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { memberNameMap, untaggedNames, withUserHandles } from '../src/behavior/handles.js';
-import { formatTranscript } from '../src/format.js';
+import { memberNameMap, untaggedNames, withUserHandles } from '../src/behavior/handles.ts';
+import { formatTranscript } from '../src/format.ts';
 import { toolResultText } from '../src/tools/tool-calls.ts';
-import { untaggedNote } from '../src/behavior/turn.js';
+import { untaggedNote } from '../src/behavior/turn.ts';
 import { labels as fixtureLabels } from './fixtures/labels.js';
 import { call, toolAnswer } from './fixtures/tool-answers.js';
 import { appended, contentText, coreTurn } from './fixtures/turn-harness.js';

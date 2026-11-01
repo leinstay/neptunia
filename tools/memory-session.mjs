@@ -420,8 +420,8 @@ async function compareMain(argv) {
   const keyEnv = flags['--key-env'] ?? 'OPENROUTER_MEMORY_KEY';
   if (!/^[A-Z][A-Z0-9_]*$/.test(keyEnv)) throw new CliError('memory-session: --key-env names an environment variable');
 
-  const { createHot } = await import('../src/hot.js');
-  const { loadDotEnv } = await import('../src/config.js');
+  const { createHot } = await import('../src/hot.ts');
+  const { loadDotEnv } = await import('../src/config.ts');
   const { openMemoryDb } = await import('../src/memory/db/open.ts');
   let apiKey = null;
   if (!shadowOnly) {
@@ -524,8 +524,8 @@ export async function main(argv) {
   const review = flags['--review'] ? parseSubject(flags['--review']) : null;
   const show = flags['--show'] === true;
 
-  const { createHot } = await import('../src/hot.js');
-  const { loadDotEnv } = await import('../src/config.js');
+  const { createHot } = await import('../src/hot.ts');
+  const { loadDotEnv } = await import('../src/config.ts');
   const { createLlm } = await import('../src/llm/openrouter.ts');
   const { createCalibrator } = await import('../src/llm/tokens.ts');
   const { openMemoryDb } = await import('../src/memory/db/open.ts');

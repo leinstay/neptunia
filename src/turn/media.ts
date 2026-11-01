@@ -1,6 +1,6 @@
 // The media of a turn's history that its preparation works on: the protocol tokens of the re-watch classifier, the
 // links the web lookup may read, the pictures and GIFs a second look may be offered for, the describable pictures
-// newest first, and whether a direct call brought something to look at. src/behavior/turn.js calls them while it
+// newest first, and whether a direct call brought something to look at. src/behavior/turn.ts calls them while it
 // prepares a turn.
 
 import { collectEmojiItems, collectPictures, collectReadableLinks, isDescribable } from '../media/classify.ts';
@@ -8,7 +8,7 @@ import { collectEmojiItems, collectPictures, collectReadableLinks, isDescribable
 export const REWATCH_SUMMARY_CHARS = 200;
 // Protocol tokens of the re-watch classifier (docs/prompt-contract.md), not wording:
 // the kind and status columns of a `<media>` line. The answer's parser
-// (parseRewatchPickDetailed) lives in src/turn/rewatch.ts; it is re-exported from src/behavior/turn.js.
+// (parseRewatchPickDetailed) lives in src/turn/rewatch.ts; it is re-exported from src/behavior/turn.ts.
 export const REWATCH_KIND_VIDEO = 'video';
 export const REWATCH_KIND_PICTURE = 'picture';
 // A watched GIF: listed to the classifier as a video (REWATCH_KIND_VIDEO); `gif` is the internal

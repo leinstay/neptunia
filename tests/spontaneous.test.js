@@ -1,9 +1,9 @@
-// Tests for src/behavior/spontaneous.js: the turn someone asks her for in a channel. `force` runs it in the mode given,
+// Tests for src/behavior/spontaneous.ts: the turn someone asks her for in a channel. `force` runs it in the mode given,
 // or lets the turn pick the mode from the channel (forcedMode: a topic of her own in an empty or quiet channel, else
 // joining in). PR 7d: the spontaneous scheduler and the eavesdropping went with their switches; what stays is this.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { forcedMode, createSpontaneous } from '../src/behavior/spontaneous.js';
+import { forcedMode, createSpontaneous } from '../src/behavior/spontaneous.ts';
 import { refTo, useIface } from './fixtures/turn-world.ts';
 
 // The conversations are held by a fake interface named `fake`.

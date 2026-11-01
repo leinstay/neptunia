@@ -1,4 +1,4 @@
-// The pieces of a `<people_now>` entry (src/behavior/around.js): the live fields, the block's notices, the
+// The pieces of a `<people_now>` entry (src/behavior/around.ts): the live fields, the block's notices, the
 // people in voice, the entry itself. The store behind them is fed through tests/fixtures/around-feed.ts with
 // plain objects in the shape of discord.js' VoiceState and Presence; the store itself is tested in
 // tests/behavior-around-store.test.ts. Pure: no client, no network.
@@ -14,8 +14,8 @@ import {
   liveNotices,
   personRow,
   voiceOccupants,
-} from '../src/behavior/around.js';
-import { fill } from '../src/format.js';
+} from '../src/behavior/around.ts';
+import { fill } from '../src/format.ts';
 import { labels } from './fixtures/labels.js';
 
 const CHANNELS = { v1: 'Σαλόνι', v2: 'Café', v3: 'Zéro' };

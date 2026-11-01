@@ -1,11 +1,11 @@
 // The first phase of a turn attempt: the pause and the attention taken, the conversation as the interface describes
 // it now, the journal's start and the wait for the trigger's author to finish writing. runTurnOnce
-// (src/behavior/turn.js) calls it before every other phase; what it opens, the later phases use and the attempt's
+// (src/behavior/turn.ts) calls it before every other phase; what it opens, the later phases use and the attempt's
 // end closes.
 
 import { createPrepLedger } from '../../behavior/turn-parts.ts';
 import type { Ledger } from '../../behavior/turn-parts.ts';
-import { log } from '../../log.js';
+import { log } from '../../log.ts';
 import type { ConversationInfo } from '../../protocol/adapter.ts';
 import type { Draft } from '../draft.ts';
 import { journalStartOf } from '../journal.ts';

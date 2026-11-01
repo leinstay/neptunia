@@ -18,7 +18,7 @@ import { skillRegistry, describeSkill } from './registry.ts';
 import { CARRIED_OVER, skillAccess } from './access.ts';
 import { schemaError } from './schema.ts';
 import { skillArgs } from './discovery.ts';
-import { MINUTE_MS } from '../time.js';
+import { MINUTE_MS } from '../time.ts';
 import { SELF_OWNED_OPS } from './impl/effects.ts';
 import { CODE } from './codes.ts';
 import { CORE_ROLE, ROLE_ABILITY, modelAbilities, roleModel } from '../llm/roles.ts';

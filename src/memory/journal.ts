@@ -56,12 +56,12 @@
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
-import { log as defaultLog } from '../log.js';
+import { log as defaultLog } from '../log.ts';
 import { clampText, oneLine } from './clamp.ts';
 import { memoryRootOf } from './root.ts';
 
 import { journalLastWrite, journalLines } from './db/readers/journal.ts';
-import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../time.js';
+import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../time.ts';
 import { currentToolName } from '../tools/definitions.ts';
 import { propOf, isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
 import type { Log, StoredRecord, MemoryDb, Untyped } from './types.ts';

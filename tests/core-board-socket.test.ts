@@ -1,4 +1,4 @@
-// The task board on the core's socket (src/core.js, src/board/commands.ts): an agent client connects with its token,
+// The task board on the core's socket (src/core.ts, src/board/commands.ts): an agent client connects with its token,
 // says hello under `agent` and sends `task.*` commands, which the core answers from the board under the agent's
 // name with the board's own rights. The reaper runs on the core's scheduler beat (`board.reapSeconds`) over the
 // core's clock, which the test moves by hand. The core runs in the test process as the units run it

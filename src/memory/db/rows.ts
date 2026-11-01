@@ -28,7 +28,7 @@
 // Every function checks the schema it runs on: on a database before v7 it derives nothing, before v8 no relation, before
 // v9 no projection, before v10 no publication.
 
-import { log as engineLog } from '../../log.js';
+import { log as engineLog } from '../../log.ts';
 import {
   CORE_AUTHORITY,
   LEGACY_AUTHORITY,

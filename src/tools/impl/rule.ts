@@ -1,5 +1,5 @@
 // Operations: `/nep rule`: the live rules in prompts.local/rules.md (the tracked prompts/ layer is never written).
-// The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
+// The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
 import fs from 'node:fs';

@@ -1,10 +1,10 @@
-// Tests for the `<participation>` block of src/behavior/prompt.js#buildRequest:
+// Tests for the `<participation>` block of src/behavior/prompt.ts#buildRequest:
 // the persona's own exchanges on other channels, selected, deduplicated against
 // the rest of the request, cut, budgeted and rendered after `<recent>`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRequest, userText as contentText } from '../src/behavior/prompt.js';
-import { fill, formatClock } from '../src/format.js';
+import { buildRequest, userText as contentText } from '../src/behavior/prompt.ts';
+import { fill, formatClock } from '../src/format.ts';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 9, 10, 12, 0, 0);

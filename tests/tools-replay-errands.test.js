@@ -10,7 +10,7 @@ import path from 'node:path';
 
 import '../src/tools/impl/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
-import { callViewOf, requesterOf } from '../src/behavior/turn.js';
+import { callViewOf, requesterOf } from '../src/behavior/turn.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.js';
 import {
   answerSkillScenario,
@@ -18,7 +18,7 @@ import {
   personaGrantsConfig,
   simulateCall,
   skillScenarioRequest,
-} from '../src/behavior/sandbox.js';
+} from '../src/behavior/sandbox.ts';
 import { createErrandStore, parseFileHandle } from '../src/errands/store.ts';
 import {
   parseScenarios,

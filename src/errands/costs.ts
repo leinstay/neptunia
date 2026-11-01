@@ -7,7 +7,7 @@
 // and `.usd`, the `today` window) and the owner card's `costs.errands` field. Pure; the clock is
 // passed in.
 
-import { DAY_MS, utcDay } from '../time.js';
+import { DAY_MS, utcDay } from '../time.ts';
 import { objOf } from '../tools/types.ts';
 import type { AgentCosts, CostRecord, CostRow, CostWindows } from './types.ts';
 

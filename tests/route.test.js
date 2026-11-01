@@ -12,9 +12,9 @@ import {
   routeContext,
   routeEntries,
   routeWriter,
-} from '../src/behavior/route.js';
-import { userText } from '../src/behavior/prompt.js';
-import { createChannelRouter } from '../src/behavior/route-channel.js';
+} from '../src/behavior/route.ts';
+import { userText } from '../src/behavior/prompt.ts';
+import { createChannelRouter } from '../src/behavior/route-channel.ts';
 import { DailyCapError } from '../src/llm/openrouter.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';

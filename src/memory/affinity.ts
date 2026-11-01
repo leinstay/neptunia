@@ -10,7 +10,7 @@
 // (`REASON_CHARS`) and the reading of the delta cap (`deltaCapOf`).
 
 import { clampText, stripUrls } from './clamp.ts';
-import { DAY_MS } from '../time.js';
+import { DAY_MS } from '../time.ts';
 import { sortRanked } from './ranking.ts';
 import { attachDropped } from './interests.ts';
 import { isFiniteNumber, isIntegerNumber } from './types.ts';

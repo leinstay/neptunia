@@ -1,10 +1,10 @@
 // The `<gifs>` block, the `senses.gifs` line and the transcript's GIF handles
-// of buildRequest (src/behavior/prompt.js).
+// of buildRequest (src/behavior/prompt.ts).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRequest, userText as contentText } from '../src/behavior/prompt.js';
-import { formatDuration } from '../src/format.js';
+import { buildRequest, userText as contentText } from '../src/behavior/prompt.ts';
+import { formatDuration } from '../src/format.ts';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);

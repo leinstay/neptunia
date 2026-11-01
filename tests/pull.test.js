@@ -1,10 +1,10 @@
-// Tests for src/behavior/pull.js: the pure core of the pulled channel block
+// Tests for src/behavior/pull.ts: the pure core of the pulled channel block
 // (which channels a turn pulls, the window that ends at a channel's newest
 // message, the pictures that may get a caption, the context.pull settings and
 // the features.channelPull switch). No I/O: the clock is passed in.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { explicitChannelIds, isTooOld, pullPictures, pullTargets, pullWindow } from '../src/behavior/pull.js';
+import { explicitChannelIds, isTooOld, pullPictures, pullTargets, pullWindow } from '../src/behavior/pull.ts';
 
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 const MIN = 60_000;

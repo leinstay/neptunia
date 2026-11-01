@@ -13,7 +13,7 @@ The package `@neptunia/interface-discord` connects the persona's core to one Dis
 
 ## Running it
 
-With `interfaces.mode: inprocess`, `src/index.js` loads `index.ts` and the core starts the interface in its own process with `DISCORD_TOKEN` from the private directory's `.env`.
+With `interfaces.mode: inprocess`, `src/index.ts` loads `index.ts` and the core starts the interface in its own process with `DISCORD_TOKEN` from the private directory's `.env`.
 
 With `interfaces.mode: units`, the unit `neptunia-interface@discord` runs `neptunia interface run discord` as the user `neptunia-discord-interface`. The interface reads `DISCORD_TOKEN` from the unit's environment file and its client token from `clients/discord.token` in the private directory. [`deploy/README.md`](../../deploy/README.md) gives the steps.
 

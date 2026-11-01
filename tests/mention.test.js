@@ -1,4 +1,4 @@
-// Tests for src/behavior/mention.js: whether/how the persona was called, and
+// Tests for src/behavior/mention.ts: whether/how the persona was called, and
 // whether it reacts to it at all.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,7 +14,7 @@ import {
   parseAddressAnswer,
   followUpTriggerKind,
   isTaggedCall,
-} from '../src/behavior/mention.js';
+} from '../src/behavior/mention.ts';
 import { ROLE_DEFAULTS, roleModel } from '../src/llm/roles.ts';
 
 const NAME_TRIGGERS = ['νεπτούνια'];
@@ -152,7 +152,7 @@ test('isTaggedCall: a typed tag counts, the reply ping alone does not', () => {
 
 // --- The address classifier: isFollowUpOpen / followUpPreFilter / parseFollowUpVerdict --
 
-// PR 7d: the window (15 minutes) and the streak that closes it (5) are constants of src/behavior/mention.js.
+// PR 7d: the window (15 minutes) and the streak that closes it (5) are constants of src/behavior/mention.ts.
 
 test('isFollowUpOpen: false when there is no window at all', () => {
   assert.equal(isFollowUpOpen(null, 1000), false);

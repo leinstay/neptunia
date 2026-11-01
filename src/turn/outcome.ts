@@ -1,6 +1,6 @@
 // How a turn ends: runTurn around its attempts, the chain of parts of a message that holds several requests, the facts
 // an addressed turn keeps for her next request, the end hook and the idle notifications, and the `selfreflection` wake's
-// inputs. createTurnRunner (src/behavior/turn.js) builds it once per runner with createOutcome over its attempt
+// inputs. createTurnRunner (src/behavior/turn.ts) builds it once per runner with createOutcome over its attempt
 // (runTurnOnce); the runner's facade hands out runTurn and the chain and idle functions.
 
 import type { FactInput } from '../behavior/inner.ts';
@@ -8,7 +8,7 @@ import { wakeInputs } from '../behavior/diary-turn.ts';
 import { portIface } from '../interface/capabilities.ts';
 import type { Reads } from '../interface/reads.ts';
 import { errorCodeOf } from '../llm/openrouter.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import type { ConversationRef } from '../protocol/adapter.ts';
 import type { Facts } from './facts.ts';
 import { untoldDiagnostics } from './journal.ts';
@@ -45,7 +45,7 @@ export type TurnParams = {
   [key: string]: unknown;
 };
 
-/** How an attempt or a turn ended (TurnOutcome in src/behavior/turn.js), and the parts of a message that split. */
+/** How an attempt or a turn ended (TurnOutcome in src/behavior/turn.ts), and the parts of a message that split. */
 export type TurnResult = {
   outcome: string;
   reason?: unknown;
@@ -65,7 +65,7 @@ type Ends = {
   info: EndChannel | null;
 };
 
-/** How a turn ended, as the end hook hears it (src/behavior/missed.js). */
+/** How a turn ended, as the end hook hears it (src/behavior/missed.ts). */
 export type TurnEnd = {
   guildId: string | null;
   channelId: string | null;
@@ -144,12 +144,12 @@ export type Outcome = {
   setOnIdle: (fn: (() => unknown) | null) => void;
   /**
    * Called (never awaited, never thrown into the turn) once every runTurn has ended, with how
-   * it ended (noteTurnEnd): src/behavior/missed.js resolves and records from it.
+   * it ended (noteTurnEnd): src/behavior/missed.ts resolves and records from it.
    */
   setOnTurnEnd: (fn: ((end: TurnEnd) => unknown) | null) => void;
 };
 
-// health: allow function-length until 2027-04-01 -- the outcome shares the runner state of src/behavior/turn.js, moved whole in stage 5b
+// health: allow function-length until 2027-04-01 -- the outcome shares the runner state of src/behavior/turn.ts, moved whole in stage 5b
 export function createOutcome(ctx: OutcomeContext): Outcome {
   const {
     hot,
@@ -189,7 +189,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   purposes of the intentions it woke for, no planner runs. What she writes in tags (a `<msg>`,
    *   a `<gif>`, a `<react to>`) is lowered into the calls they stand for, in the current channel
    *   (`currentChannel`: an id, or null for none, then a post is refused `destination-required`;
-   *   absent: the turn's own channel; src/behavior/inner-output.js) and made with her own, after them; her calls pass
+   *   absent: the turn's own channel; src/behavior/inner-output.ts) and made with her own, after them; her calls pass
    *   the gateway as her own initiative (her grants alone) and then innerVerdict: a read runs; with
    *   `shadow` anything else is only proposed (journalled with `shadow: true`, never run, no call
    *   mark, nothing marked seen); live, `mayAct()` is asked right before each one (the kill switch)
@@ -219,16 +219,16 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   initiate`) -- passed straight through to buildRequest, which appends prompts.forced (when
    *   present) to the task text so the model knows `<skip/>` is not the expected outcome this time.
    * @param {(() => { id: string, text: string, author?: string }[])|null} [params.queued]  The calls
-   *   still waiting in the queue in this channel (src/behavior/pipeline.js), read when the request is
+   *   still waiting in the queue in this channel (src/behavior/pipeline.ts), read when the request is
    *   built: the trigger author's own (no `author`) named under `labels.task.queued` (on a part, in
    *   `labels.task.part`'s `{others}`), another member's (`author`: their display name) under
    *   `labels.task.queuedOthers`, so the persona leaves them to their own turns; a call so named is
    *   not counted as answered by this turn (spokeAfterSeeing). Without its label a call is not
    *   named and the old rule holds for it.
    * @param {{ id: string, text: string, ts: number }[]|null} [params.added]  Later messages of the
-   *   author folded into this call (src/behavior/pipeline.js): `labels.task.added` names them.
+   *   author folded into this call (src/behavior/pipeline.ts): `labels.task.added` names them.
    * @param {{ author: string, text: string }[]|null} [params.missed]  A recovery turn's messages
-   *   (trigger kind `missed`, src/behavior/missed.js), the trigger first: `labels.task.missed`
+   *   (trigger kind `missed`, src/behavior/missed.ts), the trigger first: `labels.task.missed`
    *   names them.
    * @param {{ id: string, roleIds?: string[] }|null} [params.requester]  The person who asked for
    *   this turn when it is not the trigger's author (`/nep message create`, src/tools/impl/message.ts):
@@ -331,7 +331,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * `paused`); one that ended `error` or `refused` is kept for her next request in the channel
    * (`failedTurn`). Never throws.
    */
-  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5b, a pure move
+  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
   function noteFailedTurn(params: TurnParams, result: TurnResult | undefined, ends: Ends, thrown: unknown): void {
     try {
       const { trigger = null, triggerKind = null, mode = null } = params ?? {};
@@ -402,7 +402,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
   }
 
   /**
-   * Tell the end hook (setOnTurnEnd; src/behavior/missed.js) how a turn ended, never awaited
+   * Tell the end hook (setOnTurnEnd; src/behavior/missed.ts) how a turn ended, never awaited
    * and never thrown into the turn: its channel and guild, whether it was a private chat or
    * about another channel (`routed`), its trigger (`{ id, authorId, channelId, ts, content }`,
    * in process only) and kind, its outcome (`error` when it threw), its reason (the result's,
@@ -544,7 +544,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
   /**
    * Tell whoever waits that a turn has finished: onIdle (fire-and-forget, same
    * as the caller of runTurn itself: whatever wants to run next --
-   * src/behavior/pipeline.js's pending-ping drain, wired in src/index.js -- must
+   * src/behavior/pipeline.ts's pending-ping drain, wired in src/index.ts -- must
    * never hold up, or throw into, the turn that just freed the channel), and
    * the waitIdle() waiters once no turn is in flight anywhere.
    */

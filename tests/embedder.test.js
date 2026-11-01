@@ -115,7 +115,7 @@ function scene({ embedImpl = null, paused = null } = {}) {
     selfName: () => 'Persona',
     ...(paused ? { paused } : {}),
   });
-  /** Record the lines, then queue them, as src/index.js's wrapper does. */
+  /** Record the lines, then queue them, as src/index.ts's wrapper does. */
   async function write(lines, opts = {}) {
     await record.append(GUILD, lines, opts);
     return embedder.enqueue(GUILD, lines, opts);

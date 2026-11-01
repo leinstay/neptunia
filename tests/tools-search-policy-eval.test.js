@@ -8,7 +8,7 @@ import path from 'node:path';
 import { main } from '../tools/search-policy-eval.mjs';
 import { CliError } from '../tools/lib/cli.mjs';
 import { decisionOf, parseSheet, rowChat, summarize } from '../tools/lib/search-policy-eval.mjs';
-import { lookupClassifierInput } from '../src/behavior/turn.js';
+import { lookupClassifierInput } from '../src/behavior/turn.ts';
 import { labels } from './fixtures/labels.js';
 import { tempDir } from './fixtures/tmp.js';
 
@@ -228,7 +228,7 @@ test('search-policy-eval: a failed call is decided failed; the cost stop leaves 
   const llm = fakeLlm({ fail: new Set(['good night all']) });
   const out = await run([sheet, '--out', 'run3', '--concurrency', '1'], { dir, llmClient: llm });
   assert.match(out, /failed calls: 1/);
-  assert.match(out, /\| r2 \| none \| failed \|  \|/);
+  assert.match(out, /\| r2 \| none \| failed \| {2}\|/);
   const stopped = await run([sheet, '--out', 'run4', '--concurrency', '1', '--max-usd', '0'], {
     dir,
     llmClient: fakeLlm(),

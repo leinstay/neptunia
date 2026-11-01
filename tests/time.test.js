@@ -1,9 +1,9 @@
-// Tests for src/time.js: the UTC day key and the per-day counter shared by
+// Tests for src/time.ts: the UTC day key and the per-day counter shared by
 // the state.json rails. Pure, no I/O, no real clock. The time units are
 // exercised by every module that computes with them.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { utcDay, dailyCounter, bumpDaily, countToday, zonedEpoch, zonedDay } from '../src/time.js';
+import { utcDay, dailyCounter, bumpDaily, countToday, zonedEpoch, zonedDay } from '../src/time.ts';
 
 const KEYS = { dayKey: 'fooDay', countKey: 'fooCount' };
 const NOON = Date.UTC(2026, 8, 21, 12, 0, 0); // 2026-09-21T12:00:00Z

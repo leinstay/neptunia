@@ -13,7 +13,7 @@
 // Synthetic Greek text only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createAdmin } from '../src/admin.js';
+import { createAdmin } from '../src/admin.ts';
 import { createInnerLife } from '../src/behavior/inner.ts';
 import type { InnerTurnParams } from '../src/behavior/inner/types.ts';
 import { createEventDoor } from '../src/interface/door.ts';

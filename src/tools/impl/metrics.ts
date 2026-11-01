@@ -1,5 +1,5 @@
 // The speed figures of the owner's `/nep status` card: how long a reply, a recall step, an analyzer batch or an embedding flush took over the last day. The durations come
-// from the log lines that already carry them (src/log.js#onLog, subscribed in src/index.js via
+// from the log lines that already carry them (src/log.ts#onLog, subscribed in src/index.ts via
 // `metricsTap`); each metric keeps its samples of the last 24 h, at most MAX_SAMPLES (the oldest
 // go first), in memory, and `data/metrics.json` keeps them across a restart (written at most once
 // a minute, and once more on shutdown; write-temp + rename). Only numbers are kept: a name, a time
@@ -7,8 +7,8 @@
 
 import * as nodeFs from 'node:fs';
 import path from 'node:path';
-import { DAY_MS, HOUR_MS, MINUTE_MS } from '../../time.js';
-import { log as defaultLog } from '../../log.js';
+import { DAY_MS, HOUR_MS, MINUTE_MS } from '../../time.ts';
+import { log as defaultLog } from '../../log.ts';
 import { isObj, objOf } from '../types.ts';
 import type { Obj } from '../types.ts';
 
@@ -214,7 +214,7 @@ const recalledSince = (recalledAt: number | undefined, startedAt: number): boole
   recalledAt !== undefined && Number.isFinite(recalledAt) && recalledAt >= startedAt;
 
 /**
- * A log listener (src/log.js#onLog) feeding `metrics` from the lines that carry a duration:
+ * A log listener (src/log.ts#onLog) feeding `metrics` from the lines that carry a duration:
  *
  *   - `recall: searched`: `searchMs` (`discordMs` in the lines older logs hold), `recordMs`, `memoryMs`,
  *     `meaningMs` (a step that took no time did not run: no sample); it also marks its channel as recalled at the line's time;

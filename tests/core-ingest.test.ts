@@ -1,4 +1,4 @@
-// Durable ingestion end to end: `startCore` (src/core.js) over temporary data and private folders, a scripted model
+// Durable ingestion end to end: `startCore` (src/core.ts) over temporary data and private folders, a scripted model
 // and the fake interface (src/interface/fake-interface.ts) on the real socket, with no clients.json, so the core's
 // boot principal speaks for the fake. The core commits each event's `ingest` row together with the observation it
 // makes, before the ack goes back, so a restart still knows every event it took. The fake numbers its events in an
@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startCore } from '../src/core.js';
+import { startCore } from '../src/core.ts';
 import { start } from '../src/interface/fake-interface.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { ANSWER, SELF, channelInfo, deliver, settle, until } from './fixtures/core-over-fake.ts';

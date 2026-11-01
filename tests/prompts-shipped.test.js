@@ -1,5 +1,5 @@
 // Every shipped prompt is filled by its builder. Each request the bot can send is built here
-// from the TRACKED layer -- prompts/*.md and prompts/labels.json read the way src/hot.js reads
+// from the TRACKED layer -- prompts/*.md and prompts/labels.json read the way src/hot.ts reads
 // them for a deployment without prompts.local/, and config.json without config.local.json --
 // through the builder or the factory that sends it, with fakes only at the edges (no network,
 // no data/, no real Discord, no model). Every request must leave no `{{placeholder}}` and no
@@ -16,24 +16,24 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SnowflakeUtil } from 'discord.js';
 import { joinLabels } from '../src/config/labels.ts';
-import { deepMerge, isPlainObject } from '../src/config.js';
-import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../src/time.js';
+import { deepMerge, isPlainObject } from '../src/config.ts';
+import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../src/time.ts';
 import {
   buildDiaryPlanRequest,
   buildDrawPrompt,
   buildRequest,
   hasRequiredLabels,
   userText,
-} from '../src/behavior/prompt.js';
+} from '../src/behavior/prompt.ts';
 import { DIARY_KINDS, SEED_SETS, parseSeedFamilies, pickSeeds, renderSeedsBlock } from '../src/behavior/diary.ts';
-import { fill, formatDate } from '../src/format.js';
-import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
-import { createRecall } from '../src/behavior/recall-run.js';
-import { createChannelRouter } from '../src/behavior/route-channel.js';
-import { createParticipationPicker } from '../src/behavior/participation-pick.js';
-import { createTagHistory } from '../src/behavior/mention.js';
-import { createMissed } from '../src/behavior/missed.js';
-import { createMessageHandler } from '../src/behavior/pipeline.js';
+import { fill, formatDate } from '../src/format.ts';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
+import { createRecall } from '../src/behavior/recall-run.ts';
+import { createChannelRouter } from '../src/behavior/route-channel.ts';
+import { createParticipationPicker } from '../src/behavior/participation-pick.ts';
+import { createTagHistory } from '../src/behavior/mention.ts';
+import { createMissed } from '../src/behavior/missed.ts';
+import { createMessageHandler } from '../src/behavior/pipeline.ts';
 import { normalizeMessage, normalizeOptions, toEvent } from '../interfaces/discord/index.ts';
 import { takeSnapshot } from '../src/behavior/snapshot.ts';
 import { onWorld, onWorldIface, useIface, useSelf, world, worldChannels } from './fixtures/turn-world.ts';
@@ -74,7 +74,7 @@ const PROMPT_FILES = fs
 
 const BOM = String.fromCharCode(0xfeff);
 
-/** `prompts/<name>.md` as src/hot.js reads it: the BOM and carriage returns dropped, trimmed. */
+/** `prompts/<name>.md` as src/hot.ts reads it: the BOM and carriage returns dropped, trimmed. */
 function readPrompt(name) {
   const text = fs.readFileSync(path.join(PROMPTS_DIR, `${name}.md`), 'utf8');
   return (text.startsWith(BOM) ? text.slice(1) : text).replace(/\r\n/g, '\n').trim();
@@ -93,9 +93,9 @@ const LABELS = SHIPPED.prompts.labels;
 const NOT_BUILT = {
   // The voice-message preparation pass (src/speech/prepare.ts) runs inside the speech pipeline, whose request tests/speech-prepare.test.js checks.
   'speech-prepare': 'built by the speech pipeline (src/speech/prepare.ts), checked in tests/speech-prepare.test.js',
-  // Built inside the createMessageHandler closure of src/behavior/pipeline.js (buildFollowUpRequest),
+  // Built inside the createMessageHandler closure of src/behavior/pipeline.ts (buildFollowUpRequest),
   // which fetches its own history: no seam reaches it (owner decision O-9).
-  address: 'built inside the src/behavior/pipeline.js closure (O-9)',
+  address: 'built inside the src/behavior/pipeline.ts closure (O-9)',
   // Split into families and drawn from line by line (src/behavior/diary.ts#pickSeeds): the plan
   // request carries a few random lines in <seeds>, never the file whole.
   'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.ts#pickSeeds), never sent whole',
@@ -109,7 +109,7 @@ const NOT_BUILT = {
   'rewatch-answer': 'loaded behind her media.look call (src/memory/describe.ts), which no turn here makes',
   lookup: 'loaded behind her search calls (src/turn/phases/request), which no turn here makes',
   'search-summary': 'loaded behind her web.search call (src/web/lookup.ts), which no turn here makes',
-  'recall-summary': 'loaded behind her memory.search call (src/behavior/recall-run.js), which no turn here makes',
+  'recall-summary': 'loaded behind her memory.search call (src/behavior/recall-run.ts), which no turn here makes',
   // The errand agents' prompts are not here: they live in agents/<id>/prompt.md, read by the
   // agent runner process (src/agent-runner/profiles.ts), never by a bot request.
 };

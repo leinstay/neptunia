@@ -48,9 +48,9 @@ import '../src/tools/impl/index.ts';
 import { call as toolCall } from './fixtures/tool-answers.js';
 import { callBlock as toolCallBlock } from './fixtures/tool-answers.js';
 import { createStore } from '../src/memory/store.ts';
-import { directoryEntries } from '../src/behavior/handles.js';
+import { directoryEntries } from '../src/behavior/handles.ts';
 import { CliError, REFUSED_EXIT } from '../tools/lib/cli.mjs';
-import { DAY_MS, HOUR_MS, MINUTE_MS } from '../src/time.js';
+import { DAY_MS, HOUR_MS, MINUTE_MS } from '../src/time.ts';
 import { tempDir } from './fixtures/tmp.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

@@ -1,13 +1,13 @@
 // Tests for the pulled channel's "seen before" line: a `<channel_view>` says, as a fact,
 // how its messages relate to the last view of the same source channel shown in the same
-// destination channel (src/behavior/prompt.js renders it from the entry's `seenBefore`;
+// destination channel (src/behavior/prompt.ts renders it from the entry's `seenBefore`;
 // interfaces/discord/pull-fetch.ts#createPullViews keeps the last views in process). Fake
 // config, prompts and labels only; no network, no data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRequest, userText as contentText } from '../src/behavior/prompt.js';
+import { buildRequest, userText as contentText } from '../src/behavior/prompt.ts';
 import { createPullViews } from '../src/behavior/pull-fetch.ts';
-import { fill, formatDuration } from '../src/format.js';
+import { fill, formatDuration } from '../src/format.ts';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);

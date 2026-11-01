@@ -7,7 +7,7 @@
 // names, codes, counts, ids, costs and the board's own titles and notes. `src/behavior/inner/selfimprovement.ts` asks
 // for the facts when the wake runs, and marks the outbox rows it showed delivered once the wake committed.
 
-import { DAY_MS, utcDay } from '../time.js';
+import { DAY_MS, utcDay } from '../time.ts';
 import type { BoardCaller } from '../tools/impl/board.ts';
 import { isFiniteNumber, isObj, listOf, objOf } from '../tools/types.ts';
 import type { UseCounts } from '../memory/db/skills.ts';

@@ -1,13 +1,13 @@
 // The pause notice. While paused (`/nep pause`) a direct call gets one plain line saying so (labels.limits.paused,
 // features.pauseNotice), like a limit notice. Read only: no model request, no observe, no queue, no window, no ring
-// stamp, nothing marked dirty. The interval lives in memory alone. createMessageHandler (src/behavior/pipeline.js)
+// stamp, nothing marked dirty. The interval lives in memory alone. createMessageHandler (src/behavior/pipeline.ts)
 // builds it once with createPauseNotice; handleMessage calls maybePauseNotice for a live line while paused.
 
 import { privateChatsOff } from '../behavior/core-pause.ts';
-import { lineOf } from '../behavior/line-of.js';
-import { pauseNotice, PAUSE_NOTICE_MINUTES, postPauseNotice } from '../behavior/limits.js';
-import { detectTrigger } from '../behavior/mention.js';
-import { MINUTE_MS } from '../time.js';
+import { lineOf } from '../behavior/line-of.ts';
+import { pauseNotice, PAUSE_NOTICE_MINUTES, postPauseNotice } from '../behavior/limits.ts';
+import { detectTrigger } from '../behavior/mention.ts';
+import { MINUTE_MS } from '../time.ts';
 import type { Conversations } from './conversations.ts';
 import type { MessageEvent } from './edits.ts';
 import type { PrivateGate } from './private-gate.ts';
@@ -79,7 +79,7 @@ export function createPauseNotice({
       content: normalized.content,
       nameTriggers: config.bot.nameTriggers,
     });
-    // detectTrigger answers a trigger kind or null (src/behavior/mention.js).
+    // detectTrigger answers a trigger kind or null (src/behavior/mention.ts).
     return kind ? { channel, trigger: normalized, kind: kind as string } : null;
   }
 

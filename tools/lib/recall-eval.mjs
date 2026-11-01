@@ -5,7 +5,7 @@
 // hand, and the offline guild the local stages run against. Nothing here reads a file, the
 // network or the clock.
 
-import { recordMessage } from '../../src/behavior/recall.js';
+import { recordMessage } from '../../src/behavior/recall.ts';
 
 /** The kinds of a question: the answer is one exact message, a looser stretch, or not in memory at all. */
 export const QUESTION_KINDS = Object.freeze(['exact', 'fuzzy', 'none']);
@@ -104,7 +104,7 @@ export function latestLines(lines) {
 
 /**
  * A record line as a normalized chat message, its link previews included: the live recall's own
- * function (src/behavior/recall.js#recordMessage), so the chat the tool shows the classifier reads
+ * function (src/behavior/recall.ts#recordMessage), so the chat the tool shows the classifier reads
  * as the record windows do. The line needs a channel (latestLines keeps only such lines).
  */
 export { recordMessage };
@@ -566,7 +566,7 @@ export function renderSummary(summary, { reportPath, stages, stopped = null, ski
 }
 
 /**
- * A prefetch result (src/behavior/recall-run.js `prefetch`) as recall-eval scores it: its history
+ * A prefetch result (src/behavior/recall-run.ts `prefetch`) as recall-eval scores it: its history
  * excerpts' message ids as the windows, their relevant hits first in excerpt order as the matched
  * ids (scoreQuestion's inputs). A missing result gives none.
  * @param {{ excerpts?: object[] }|null} found

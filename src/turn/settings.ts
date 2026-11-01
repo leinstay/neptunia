@@ -1,11 +1,11 @@
 // The settings a turn reads from the live config at the moment of use: the pace of its preparation (`pace`), the
 // bounds of its tool loop (`tools.loop`, `innerLife.loop`, `diary.loop`), whether her own tools replace the
-// classifiers, and how much of a skill result a follow-up request carries. src/behavior/turn.js reads them per turn;
+// classifiers, and how much of a skill result a follow-up request carries. src/behavior/turn.ts reads them per turn;
 // the tests and tools/replay.mjs read them through its re-exports.
 
 import { setSettings } from '../behavior/diary.ts';
 import { innerSettings } from '../behavior/inner/settings.ts';
-import { RECALL_DEFAULTS, recallSettings } from '../behavior/recall.js';
+import { RECALL_DEFAULTS, recallSettings } from '../behavior/recall.ts';
 import { isPositive, objOf } from '../tools/types.ts';
 
 /** `pace` when a key is missing: config.json's values. */

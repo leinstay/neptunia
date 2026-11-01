@@ -1,7 +1,7 @@
 // The fifth step of a turn's request: the deadline's extension for a direct call that brought media, and the video
 // states a turn's transcript shows. The request phase (src/turn/phases/request.ts) runs it after the stages step.
 
-import { log } from '../../../log.js';
+import { log } from '../../../log.ts';
 import type { VideoState } from '../../rewatch.ts';
 import { triggerBringsMedia } from '../../media.ts';
 import { DIRECT_CALLS } from '../../triggers.ts';

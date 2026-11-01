@@ -11,9 +11,9 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createTurnRunner } from '../src/behavior/turn.js';
+import { createTurnRunner } from '../src/behavior/turn.ts';
 import { createReads } from '../src/interface/reads.ts';
-import { userText } from '../src/behavior/prompt.js';
+import { userText } from '../src/behavior/prompt.ts';
 import { createInnerLife, wakeOfDue, reviewWake } from '../src/behavior/inner.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
@@ -26,8 +26,8 @@ import { RESULT_ATTEMPTS, createErrandTurns } from '../src/errands/turns.ts';
 import { runOp } from '../src/tools/impl/index.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
-import { createAdmin } from '../src/admin.js';
-import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, zonedEpoch } from '../src/time.js';
+import { createAdmin } from '../src/admin.ts';
+import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, zonedEpoch } from '../src/time.ts';
 import { labels } from './fixtures/labels.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
@@ -373,7 +373,7 @@ function fakeStore(gifs = null) {
 
 /**
  * One boot: a turn runner, an inner life, an errand service with its result turns, all over the
- * chat and `dataDir` -- what src/index.js builds at start, less Discord. A second boot over the same
+ * chat and `dataDir` -- what src/index.ts builds at start, less Discord. A second boot over the same
  * `dataDir` is a restart. `records` are the intentions (they outlive a boot, like their file would).
  * `die`: the errand service's end hook does nothing (the process died before the result turn).
  */
@@ -702,7 +702,7 @@ test('row 2: the process dies right after a message was sent -- the journal clos
   assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα'], 'the reconciliation sends nothing');
 });
 
-/** A journal over the scenario's data directory, and the start-up reconciliation of its open operations from the chat (src/index.js). */
+/** A journal over the scenario's data directory, and the start-up reconciliation of its open operations from the chat (src/index.ts). */
 function journalFor(chat, dataDir) {
   const journal = createJournal({
     memoryDb: memoryOf(dataDir),

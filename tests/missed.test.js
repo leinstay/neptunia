@@ -1,4 +1,4 @@
-// Missed answers (src/behavior/missed.js): the candidate registry fed from facts, its
+// Missed answers (src/behavior/missed.ts): the candidate registry fed from facts, its
 // resolution by later turns, the delayed sweep with its code filter and helper, the recovery
 // turn, the restart reconciliation and the day's figures.
 import { test } from 'node:test';
@@ -23,7 +23,7 @@ import {
   stateForVerdict,
   sweepDueAt,
   sweepPlan,
-} from '../src/behavior/missed.js';
+} from '../src/behavior/missed.ts';
 import { labels } from './fixtures/labels.js';
 import { tempDir } from './fixtures/tmp.js';
 import { useIface, world } from './fixtures/turn-world.ts';

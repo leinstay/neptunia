@@ -57,7 +57,7 @@
 // counted here).
 // Logs carry codes only (`log.debug?.()`).
 
-import { log as engineLog } from '../../log.js';
+import { log as engineLog } from '../../log.ts';
 import {
   LEGACY_AUTHORITY,
   canonicalKey,

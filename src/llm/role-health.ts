@@ -3,7 +3,7 @@
 // resolution of `llm.keyByRole`), after a 401, a 402 or a 404, after a 429 whose answer says the daily limit is spent
 // (src/llm/openrouter.ts#providerLimitOf), or after three malformed answers in a row. One failed request of any other
 // kind leaves the role up. A failing role is tried again on a backoff of 1, 5, 15 and then every 60 minutes, and it
-// clears on its first success. src/core.js builds one tracker and hands it to the turn runner, the admin and the
+// clears on its first success. src/core.ts builds one tracker and hands it to the turn runner, the admin and the
 // describer's model client; the tool gateway (src/tools/gateway.ts#abilityRoute) reads it to route a tool role's call,
 // and `/status` lists `failing`. Pure apart from the injected clock.
 

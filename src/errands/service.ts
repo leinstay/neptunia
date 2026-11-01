@@ -29,7 +29,7 @@
 // RUNNER_RECHECK_MS, so the flag flips back even when the client's reconnect loop has stopped.
 // The flag is logged once per change (`errands: runner up` / `errands: runner down`).
 
-import { log as defaultLog } from '../log.js';
+import { log as defaultLog } from '../log.ts';
 import { PROFILES, agentSettings, profileOf } from '../agent-runner/profiles.ts';
 import { roleApiKey } from '../llm/openrouter.ts';
 import { MAX_RECENT_ENTRIES, RECENT_CHARS, httpProxyForm } from '../agent-runner/protocol.ts';
@@ -129,8 +129,8 @@ function recentLinesOf(
 }
 
 /**
- * `hot` holds the live config. `env` is the parsed environment (src/config.js#env): the keys and the proxy a run
- * carries. `memory` gives the channel's newest lines, oldest first (src/index.js reads them from the memory
+ * `hot` holds the live config. `env` is the parsed environment (src/config.ts#env): the keys and the proxy a run
+ * carries. `memory` gives the channel's newest lines, oldest first (src/index.ts reads them from the memory
  * database): an errand's `context.recent`. `getGuildId` names the served guild when a caller gives none. `defer` is how
  * the background run starts (setImmediate by default). `now` is the clock of the runner rechecks.
  */

@@ -7,7 +7,7 @@ import type { Neighbor } from '../../../behavior/neighbors.ts';
 import { fetchNeighbors } from '../../../behavior/neighbors.ts';
 import type { PulledChannel } from '../../../behavior/pull-fetch.ts';
 import { audienceAllows } from '../../../behavior/snapshot.ts';
-import { log } from '../../../log.js';
+import { log } from '../../../log.ts';
 import type { ConversationInfo } from '../../../protocol/adapter.ts';
 import type { Draft } from '../../draft.ts';
 import { PREPARE_STAGES } from '../../timers.ts';
@@ -71,7 +71,7 @@ export async function waitForPreparation(
   // The pulled channels started earlier: timed from their own start.
   const pulledStage = isPrivate && !likeServer ? null : track('pulled', () => pulledPending, pullStartedAt);
   // `<participation>`: the persona's own exchanges on other channels this turn may show, and
-  // the pick classifier's choice among them (src/behavior/participation-pick.js; it asks
+  // the pick classifier's choice among them (src/behavior/participation-pick.ts; it asks
   // nothing when there is no episode to offer). Late or failed, the newest are shown.
   const participationShown = participationOn(channel) && finalMode !== 'diary';
   const participationAudienceOf = participationShown ? participationAudience(channel, config, snapshot) : null;

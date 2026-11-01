@@ -3,7 +3,7 @@
 // `createMemoryDb({ hot, dataDir, log, now })` opens `data/<memoryDb.file>` with the writer lock and keeps it open while
 // the bot runs; every memory module reads it and writes it through this service:
 //   - `tick()` opens the database when it is not open yet. A refused open (a live holder of the lock, a broken file) is
-//     logged once per code and tried again at the next tick; the bot never waits for it but at its start (src/index.js
+//     logged once per code and tried again at the next tick; the bot never waits for it but at its start (src/index.ts
 //     awaits the first tick before anything reads the memory).
 //   - `readHandle()` is the read-only connection while the database is open (null otherwise): what the memory modules'
 //     readers read through (src/memory/db/readers/), and `database()` its raw connection for recall
@@ -67,7 +67,7 @@
 //     every write through the writer. A run that fails (`llm_error`, `bad_answer`, `build_error`, `write_failed`,
 //     `not_configured`, `skipped`) is a warning (`memory session: run failed`, the code and the scope kind), the
 //     status's `session.lastFailure`, and one `onSessionFailure({ scopeKey, scopeKind, partner, code, lines, at })` per
-//     failing scope until that scope runs fine again (src/index.js tells her: a `memoryFailed` fact); a failed review
+//     failing scope until that scope runs fine again (src/index.ts tells her: a `memoryFailed` fact); a failed review
 //     is a warning and the status's `session.lastFailure`, and its flag waits for the next day.
 //   - the daily backup (backup.ts), while `memoryDb.backup.enabled` is exactly true (read at each tick). At a tick at
 //     or after `memoryDb.backup.hour` (UTC) on a UTC day with no finished backup in `memoryDb.backup.dir` (resolved
@@ -101,7 +101,7 @@ import { contextRow, issueContext as issuePureContext } from './scope.ts';
 import { applyDiaryUpdate, createDiaryMedia } from './diary-media.ts';
 import { NEWEST_CLAIM_VERSION_SQL, applyMemoryWrite, writeTurnReadRows } from './session-write.ts';
 import { FOCUS_DEFAULTS, focusView, lastFocusDay, runFocusDay } from './focus.ts';
-import { utcDay } from '../../time.js';
+import { utcDay } from '../../time.ts';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { indexSettings, reembedTouched } from './index-policy.ts';

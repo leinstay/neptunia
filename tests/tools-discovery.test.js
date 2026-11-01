@@ -21,7 +21,7 @@ import {
 import '../src/tools/impl/index.ts';
 import { loadSkills, skillNames, skillRegistry } from '../src/tools/registry.ts';
 import { listSkills } from '../src/tools/gateway.ts';
-import { parseLookupAnswer } from '../src/behavior/recall.js';
+import { parseLookupAnswer } from '../src/behavior/recall.ts';
 
 const NAMES = ['message.create', 'message.edit', 'draw.create', 'memory.profile.read', 'status.show'];
 const NOW = Date.UTC(2026, 9, 14, 12, 0, 0);

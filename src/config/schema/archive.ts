@@ -6,14 +6,14 @@ export const ARCHIVE: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'archive.drainMs',
     'types': ['number'],
-    'reader': 'src/core.js',
+    'reader': 'src/core.ts',
     'default': 30000,
     'text': 'How often pending copies are retried (ms)',
   },
   {
     'key': 'archive.holdMaxMs',
     'types': ['number'],
-    'reader': 'src/core.js',
+    'reader': 'src/core.ts',
     'default': 5000,
     'text': 'How long the bot waits on shutdown for an archive write (ms)',
   },

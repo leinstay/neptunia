@@ -12,8 +12,8 @@
 //
 // Settings and prompts are read at the moment of use. Logs carry codes and counts, never a scene.
 
-import { buildDrawPrompt } from '../behavior/prompt.js';
-import { formatNow } from '../format.js';
+import { buildDrawPrompt } from '../behavior/prompt.ts';
+import { formatNow } from '../format.ts';
 import { avatarReference } from './fetch-image.ts';
 import { clampAtBoundary } from '../memory/clamp.ts';
 import { objOf } from '../tools/types.ts';

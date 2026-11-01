@@ -2,7 +2,7 @@
 // bot account, one personality. This module resolves which single guild that
 // is from `config.bot.guildId` and the list of guilds the client is actually
 // in, without touching discord.js itself, so it is unit-tested directly with
-// plain `{ id, name }` objects. The caller (src/index.js) turns an error into
+// plain `{ id, name }` objects. The caller (src/index.ts) turns an error into
 // a startup failure and logs the "pin it in config.local/config.json" hint for the
 // single-guild-with-no-config case.
 

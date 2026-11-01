@@ -37,7 +37,7 @@ export function roleIdsOf(channel: unknown, authorId: unknown): Array<string> {
 type Requester = { id: string; roleIds: Array<string> } | null;
 
 /**
- * src/behavior/turn.js#requesterOf over a discord.js channel: the roles of the requester are read off its guild.
+ * src/behavior/turn.ts#requesterOf over a discord.js channel: the roles of the requester are read off its guild.
  * `requesterOf` is the engine's function, taken as given.
  */
 export function requesterOfChannel(requesterOf: unknown): (trigger: unknown, channel: unknown) => Requester {
@@ -237,7 +237,7 @@ function ownHistoryOf<T extends Reads>(
 }
 
 /**
- * The `message.received` event of a scripted line (the shape of src/behavior/line-of.js's output), as the interface's
+ * The `message.received` event of a scripted line (the shape of src/behavior/line-of.ts's output), as the interface's
  * history read gives it: the line a turn makes of the event is the line.
  */
 export function eventOfLine(line: unknown, iface: string): MessageEvent {
@@ -280,7 +280,7 @@ export function eventOfLine(line: unknown, iface: string): MessageEvent {
 
 /**
  * The reads with the history of a conversation replaced by a script: `lines(ref, limit)` gives the lines (the shape of
- * src/behavior/line-of.js's output) the newest `limit` of the conversation holds, and the history read answers them as
+ * src/behavior/line-of.ts's output) the newest `limit` of the conversation holds, and the history read answers them as
  * events.
  */
 export function scriptedReads<T extends Reads>(

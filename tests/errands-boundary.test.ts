@@ -575,7 +575,7 @@ test('a journal that wrote the old names is read under the new ones, and any oth
 });
 
 test('a local config that grants task.run to her still grants her errand.run after the load', async () => {
-  const { readConfig } = await import('../src/config.js');
+  const { readConfig } = await import('../src/config.ts');
   const { grantedSkillNames } = await import('../src/tools/discovery.ts');
   const { skillRegistry } = await import('../src/tools/registry.ts');
   const privateDir = tempDir('nep-boundary-private-');

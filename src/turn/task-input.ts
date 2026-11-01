@@ -1,8 +1,8 @@
 // The `tasks` input of a turn's request: the part of a split message it answers, the calls still waiting in its
 // channel, the messages folded into it, a recovery turn's missed messages and the addressed turns that failed earlier.
-// src/behavior/turn.js builds it before every reply request.
+// src/behavior/turn.ts builds it before every reply request.
 
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { isObj } from '../tools/types.ts';
 
 /** A call still waiting in the channel: the trigger author's own, or another member's with their name. */
@@ -26,7 +26,7 @@ function isList<TItem>(value: ReadonlyArray<TItem> | null | undefined): value is
 }
 
 /**
- * The `tasks` input of a turn's request (src/behavior/prompt.js#buildRequest)
+ * The `tasks` input of a turn's request (src/behavior/prompt.ts#buildRequest)
  * and the calls it names as left to their own turns. `part`: the part of a
  * split message this turn answers; `queued()`: the calls still waiting in
  * this channel (read now; a throw counts as none, logged `turn: queued
@@ -37,7 +37,7 @@ function isList<TItem>(value: ReadonlyArray<TItem> | null | undefined): value is
  * else under `labels.task.queued`; another member's under
  * `labels.task.queuedOthers`. A call the labels cannot name is not deferred:
  * the seen-in-history rule holds for it, as before. `missed`: a recovery
- * turn's earlier messages left unanswered (src/behavior/missed.js), `{ author,
+ * turn's earlier messages left unanswered (src/behavior/missed.ts), `{ author,
  * text }` each, named under `labels.task.missed`. `failedEarlier`: the
  * addressed turns of this channel that failed with nothing posted
  * (`{ author, messageId, link, at, code }`), one `labels.task.failedEarlier`

@@ -7,7 +7,7 @@
 // reactionEvent), until the Discord adapter becomes its own package.
 
 import { ChannelType, PermissionFlagsBits, SnowflakeUtil, MessageReferenceType, OverwriteType } from 'discord.js';
-import { log } from '../../src/log.js';
+import { log } from '../../src/log.ts';
 import { ID_DIGITS, URL_PATTERN } from '../../src/memory/mentions.ts';
 import {
   classifyAttachment,
@@ -19,7 +19,7 @@ import {
 import { classifyEmbed } from './embed.ts';
 import { DISCORD_CDN_SITES, discordCdnVideo, previewAttachments, previewLinks, stickerUrl } from './media.ts';
 import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from '../../src/media/video-sites.ts';
-import { CUSTOM_EMOJI_MARKUP } from '../../src/behavior/emoji.js';
+import { CUSTOM_EMOJI_MARKUP } from '../../src/behavior/emoji.ts';
 import { reactionKey } from '../../src/protocol/reaction-key.ts';
 import { MESSAGE_RECEIVED, REACTION_CHANGED } from '../../src/protocol/index.ts';
 import { memberView } from './members.ts';
@@ -571,23 +571,23 @@ export function normalizeMessage(
     // transcript marks such a line (labels.transcript.edited).
     editedAt: editedAtOf(message),
     // Real mentions -- the strongest signal for who this message names, see
-    // src/behavior/prompt.js's <people> "asked about" window. `content`
+    // src/behavior/prompt.ts's <people> "asked about" window. `content`
     // above is `cleanContent`-derived and already reads "@DisplayName", so
     // this is the only place a stable member id survives normalization.
     mentionedUserIds,
     mentionedUsers,
     // Channels written as `<#id>` -- the only place their ids survive, since
     // `content` reads `#name`; an explicit mention pulls that channel into a
-    // turn (src/behavior/pull.js).
+    // turn (src/behavior/pull.ts).
     mentionedChannelIds: extractChannelIds(message.content),
     replyToId: isForward ? null : (message.reference?.messageId ?? null),
     // The replied-to author when Discord's reply ping alone put them into
     // `mentionedUserIds` (no `<@id>` typed in the text), else null -- so the
-    // address classifier's pre-filter (src/behavior/mention.js) can tell a
+    // address classifier's pre-filter (src/behavior/mention.ts) can tell a
     // reply ping from a real mention of another member.
     replyPingUserId: isForward ? null : replyPingUserId(message, mentionedUserIds),
     // The forwarded snapshot's source channel name, when it resolves in the
-    // same guild -- see src/format.js's `forwardedFrom` rendering.
+    // same guild -- see src/format.ts's `forwardedFrom` rendering.
     forwardedFrom: sourceChannel?.name ?? null,
     attachments,
     links,
@@ -606,7 +606,7 @@ export function normalizeMessage(
 // Inbound protocol events (src/protocol/events.ts). Building them is the Discord adapter's
 // job; it lives here, beside the normaliser it reads. Every event carries `raw`: the discord.js
 // object(s) it came from, private to the Discord side -- the message pipeline
-// (src/behavior/pipeline.js) still needs them for history fetches and sends, no other behavior
+// (src/behavior/pipeline.ts) still needs them for history fetches and sends, no other behavior
 // reads them, and they go in stage 4.
 
 /** An id as the protocol carries it: a string, or null when there is none. */
@@ -1122,7 +1122,7 @@ export function isReadableChannel(given: object): boolean {
  * (isReadableChannel: a text channel, not a thread, its history readable) where the bot can send
  * (canSend). The one rule for a channel words go to unasked or on someone's
  * behalf: a routed call's or a noticed comment's destination
- * (src/behavior/turn.js#usableDestination), a spontaneous turn's channel.
+ * (src/behavior/turn.ts#usableDestination), a spontaneous turn's channel.
  * @param channel A discord.js guild channel.
  */
 export function isWritableChannel(channel: object): boolean {
@@ -1141,7 +1141,7 @@ export function readableChannels(
 }
 
 /**
- * The channel directory's input (src/behavior/prompt.js#buildRequest `channelDirectory`): every
+ * The channel directory's input (src/behavior/prompt.ts#buildRequest `channelDirectory`): every
  * channel of `guild` the persona may read (isReadableChannel), never a thread, as `{ id, name, category }`, the
  * category its parent's name or null. [] without a guild (a private chat).
  * @param guild A discord.js Guild.

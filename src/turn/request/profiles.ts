@@ -3,7 +3,7 @@
 // `<attitudes>` list, and what is current about a member for their `<people_now>` entry. The people blocks
 // (src/turn/request/people.ts) and the memory session (src/memory/db/session.ts, through renderProfile) call them.
 
-import { fill } from '../../format.js';
+import { fill } from '../../format.ts';
 import {
   affinityBand,
   isConfirmed,
@@ -18,8 +18,8 @@ import {
 } from '../../memory/index.ts';
 import { topByRank } from '../../memory/ranking.ts';
 import { foldText, memberIdOf } from '../../memory/recent.ts';
-import { DAY_MS, zonedDay } from '../../time.js';
-import { fieldLine } from '../../behavior/around.js';
+import { DAY_MS, zonedDay } from '../../time.ts';
+import { fieldLine } from '../../behavior/around.ts';
 import { noteItems } from './reads.ts';
 import { resolveChatText } from './text.ts';
 import type {

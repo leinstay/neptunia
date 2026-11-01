@@ -1,11 +1,11 @@
-// Tests for the channel links on the way out (src/behavior/turn.js with
+// Tests for the channel links on the way out (src/behavior/turn.ts with
 // src/memory/mentions.ts#linkChannels): a `#name` of one of the guild's text
 // channels in a `<msg>` is sent as the `<#id>` link.
 // Fake discord.js-shaped objects, a fake LLM and store.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
-import { handleOf } from '../src/behavior/handles.js';
+import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
+import { handleOf } from '../src/behavior/handles.ts';
 import { labels } from './fixtures/labels.js';
 import { onWorld, world } from './fixtures/turn-world.ts';
 

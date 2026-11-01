@@ -3,12 +3,12 @@
 // a `deleted` line of the record. createMessageHandler (src/behavior/pipeline.js) builds it once with createEdits and
 // hands the two handlers to the interface's edit and deletion events.
 
-import { lineOf } from '../behavior/line-of.js';
+import { lineOf } from '../behavior/line-of.ts';
 import type { Reads } from '../interface/reads.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { appendRevision, gifOpts, slimMessage, toRecordLine } from '../memory/index.ts';
 import type { Message, MessageReceived } from '../protocol/events.ts';
-import { utcDay } from '../time.js';
+import { utcDay } from '../time.ts';
 
 /** A `message.received` event of a whole message, with the message as it was before an edit. */
 export type MessageEvent = Omit<MessageReceived, 'message' | 'previous'> & {

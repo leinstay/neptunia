@@ -165,7 +165,7 @@ export function limitsTable(records) {
 
 /**
  * The operational log folded into the shape of `tally`, one tally per UTC day of the line's
- * `time`: each `turn: model answered` line (src/log.js JSON; anything before the first `{` of a
+ * `time`: each `turn: model answered` line (src/log.ts JSON; anything before the first `{` of a
  * line is ignored, so prefixed journalctl lines work too) counts under outcome LOG_OUTCOME by its
  * `trigger`; its `usage.prompt_tokens` (and `usage.prompt_tokens_details.cached_tokens` and
  * `.cache_write_tokens` when present) and the `dropped` of each section of `budget` are added. What the log does not carry

@@ -34,7 +34,7 @@ const MARKED = { interfaces: { zeta71: { enabled: true } } };
 
 const count = (text: string, part: string): number => text.split(part).length - 1;
 
-/** The stdout lines that are log entries of src/log.js, which a script reading the answer must never get. */
+/** The stdout lines that are log entries of src/log.ts, which a script reading the answer must never get. */
 const logLines = (stdout: string): Array<string> => stdout.split('\n').filter((line) => line.startsWith('{"level"'));
 
 // Case 1 of PR D. A DM place has no native id (src/memory/db/ids.ts): its id is `<iface>:dm:<partner>`, and the

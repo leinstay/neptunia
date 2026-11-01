@@ -1,11 +1,11 @@
 // What the message pipeline asks the interface about a conversation: its reference, how the interface describes it
 // now, whether a turn may open there, where a call written in it is answered, and whether a line replies to the
-// persona. createMessageHandler (src/behavior/pipeline.js) builds it once with createConversations and hands its
+// persona. createMessageHandler (src/behavior/pipeline.ts) builds it once with createConversations and hands its
 // functions to the other topic modules.
 
 import { isMirrorPlace } from '../behavior/mirror.ts';
 import { takeSnapshot } from '../behavior/snapshot.ts';
-import { routeFor } from '../behavior/turn.js';
+import { routeFor } from '../behavior/turn.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { Conv, PipelineConfig } from './types.ts';
 
@@ -51,7 +51,7 @@ export function createConversations({ reads, memoryDb, getGuildId }: Conversatio
     return found?.conversation ?? null;
   }
 
-  /** Where a call written in `source` (one she cannot write in) is answered (src/behavior/turn.js#routeFor). */
+  /** Where a call written in `source` (one she cannot write in) is answered (src/behavior/turn.ts#routeFor). */
   async function routeOf(source: Conv, config: PipelineConfig): Promise<Route> {
     // A routed call is written in a channel of the served guild, so the guild has resolved by then.
     const snapshot = await takeSnapshot(reads, (source.communityId ?? getGuildId()) as string);

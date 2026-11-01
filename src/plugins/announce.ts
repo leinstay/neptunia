@@ -1,7 +1,7 @@
 // What the core tells her when a plugin's tools register: the tools not announced before for that plugin, the wake that
 // carries them (a `heartbeat` wake with the reason `ability.added`, no place and no intention), and the file that
 // remembers what was announced so a reconnect, which registers the same tools again, raises no second wake. A disable
-// forgets the plugin, so the next enable announces its tools again. The core (src/core.js) calls these when
+// forgets the plugin, so the next enable announces its tools again. The core (src/core.ts) calls these when
 // `tool.register` is taken (src/plugins/link.ts).
 
 import fs from 'node:fs';

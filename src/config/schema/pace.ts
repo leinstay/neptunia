@@ -43,7 +43,7 @@ export const PACE: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'pace.settleMs',
     'types': ['number'],
-    'reader': 'src/behavior/pipeline.js',
+    'reader': 'src/behavior/pipeline.ts',
     'default': 3000,
     'text': 'Wait for the person to stop writing before reading the chat, so quick messages are answered whole',
   },

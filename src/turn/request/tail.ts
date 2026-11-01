@@ -1,9 +1,9 @@
 // The end of a turn's request: `<now>` with the persona's recent time away, the user message's text parts in their
 // three cache segments (the stable part, the profiles, the tail with the chat, the clock, the per-turn senses, the
 // tempo and the task last), and what of the chat window went in for the journal. buildRequest
-// (src/behavior/prompt.js) calls them last.
+// (src/behavior/prompt.ts) calls them last.
 
-import { fill, formatDuration, formatNow, renderTranscript } from '../../format.js';
+import { fill, formatDuration, formatNow, renderTranscript } from '../../format.ts';
 import { mediaParts } from '../../media/classify.ts';
 import { block, pulledMoment } from './text.ts';
 import type { Senses } from './senses.ts';
@@ -14,8 +14,7 @@ export type UserPart = { type: 'text'; text: string; cacheSegment?: 'stable' | '
 
 /** The `<chat>` body: renderTranscript over the kept lines, which joins their texts under a date header. */
 const chatText = (items: Array<TranscriptItem>, timezone: string, labels: Labels): string =>
-  // renderTranscript has no declared types; it returns the joined text.
-  renderTranscript(items, timezone, labels) as string;
+  renderTranscript(items, timezone, labels);
 
 /** One part of a message's media (src/media/classify.ts#mediaParts). */
 type MediaPart = { readonly attachments?: Array<{ readonly kind?: string; readonly previewText?: unknown } | null> };
@@ -85,7 +84,7 @@ export function nowBlock(now: number, timezone: string, labels: Labels, periods:
  * `<diary>` block's intro, shown above its kept lines, the `<plan>` body and
  * the `<seeds>` body (a set post's seed combinations, right after the plan).
  */
-// health: allow complexity until 2027-04-01 -- moved whole from src/behavior/prompt.js in stage 5d, a pure move
+// health: allow complexity until 2027-04-01 -- moved whole from src/behavior/prompt.ts in stage 5d, a pure move
 export function assembleUser({
   nowText,
   timezone,
@@ -183,7 +182,7 @@ export function assembleUser({
     block('wake', wake),
     // The places page of an addressed turn (`context.places`; src/behavior/wake.ts#placesBlockText): per turn.
     block('places', places),
-    // Her one previous think (src/behavior/previous-think.js): per turn, right before the people it concerns.
+    // Her one previous think (src/behavior/previous-think.ts): per turn, right before the people it concerns.
     block('previous_think', previousThink),
     // What is current about each person: the live snapshot and what changes from turn to turn
     // in memory. Tail only, right before the chat.

@@ -1,18 +1,18 @@
-// Tests for src/hot.js: the live config/prompts view. Never depends on
+// Tests for src/hot.ts: the live config/prompts view. Never depends on
 // fs.watch timing -- reload methods are called directly.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { createHot } from '../src/hot.js';
+import { createHot } from '../src/hot.ts';
 import { composePreamble } from '../src/errands/preambles.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.js';
 
-// The Discord interface's capabilities object, as src/index.js injects it.
+// The Discord interface's capabilities object, as src/index.ts injects it.
 const DISCORD = createDiscordInterface().capabilities;
 
 function makeRoot({ config = { bot: { timezone: 'UTC' } }, prompts = {} } = {}) {
@@ -707,7 +707,7 @@ test('hot: onReload fires with the layer name', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// The private layer apart from the checkout (src/paths.js: NEPTUNIA_PRIVATE_DIR)
+// The private layer apart from the checkout (src/paths.ts: NEPTUNIA_PRIVATE_DIR)
 // ---------------------------------------------------------------------------
 
 test('createHot: a privateDir apart from rootDir supplies config.local.json and prompts.local/, a writeLocalPath lands there, and its watcher reloads', async () => {

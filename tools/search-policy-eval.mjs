@@ -11,18 +11,18 @@
 // The sheet (tools/lib/search-policy-eval.mjs#parseSheet): one JSON row per line, `{ id, source,
 // question, context: [{ author, text }], tier: none|fast|memory|agent, note, author? }`.
 //
-// Each row is asked as a live turn asks it (src/behavior/turn.js#maybeLookup): the user message
-// is src/behavior/turn.js#lookupClassifierInput over the row's `context` lines (one minute apart
+// Each row is asked as a live turn asks it (src/behavior/turn.ts#maybeLookup): the user message
+// is src/behavior/turn.ts#lookupClassifierInput over the row's `context` lines (one minute apart
 // before now; a line by the persona's name is hers) and the question as the trigger (by the row's
 // `author`, else `-`), under the live config and labels; the system prompt is prompts.lookup
-// (tracked, or the deployment's prompts.local/lookup.md through the usual loader, src/hot.js)
+// (tracked, or the deployment's prompts.local/lookup.md through the usual loader, src/hot.ts)
 // with `{{today}}` = today in `bot.timezone`, `{{name}}` = the persona's name (`--self-name`,
 // else the config's first `bot.nameTriggers`) and `{{skills}}` = the skills index when discovery
 // is on (src/tools/discovery.ts), as the turn fills them. One completion on the `analyzer` role
 // (roleModel for purpose `lookup`; `--model` pins another for this run only), with the turn's
 // helper options (roleRequestOptions: its temperature, timeout and hedge), the answer capped at
 // `web.search.classifierMaxOutputTokens`. The answer is read by
-// src/behavior/recall.js#parseLookupAnswer and mapped to a decision
+// src/behavior/recall.ts#parseLookupAnswer and mapped to a decision
 // (tools/lib/search-policy-eval.mjs#decisionOf): `web:` -> fast, a server part without `web:` ->
 // memory, nothing -> none (never agent: the classifier asks for no errand); a call that threw or
 // answered nothing -> failed.
@@ -135,18 +135,18 @@ export async function main(
     }
   }
 
-  const { lookupClassifierInput } = await import('../src/behavior/turn.js');
-  const { fillPromptTemplate } = await import('../src/behavior/prompt.js');
-  const { parseLookupAnswer, recallSettings } = await import('../src/behavior/recall.js');
+  const { lookupClassifierInput } = await import('../src/behavior/turn.ts');
+  const { fillPromptTemplate } = await import('../src/behavior/prompt.ts');
+  const { parseLookupAnswer, recallSettings } = await import('../src/behavior/recall.ts');
   const { roleRequestOptions } = await import('../src/llm/openrouter.ts');
   const { roleModel } = await import('../src/llm/roles.ts');
   const { skillsIndex } = await import('../src/tools/discovery.ts');
   const { skillRegistry } = await import('../src/tools/registry.ts');
-  const { zonedDay } = await import('../src/time.js');
+  const { zonedDay } = await import('../src/time.ts');
 
   let hot = givenHot;
   if (!hot) {
-    const { createHot } = await import('../src/hot.js');
+    const { createHot } = await import('../src/hot.ts');
     hot = createHot({ rootDir, privateDir: privateDirOf(rootDir, env) });
   }
   const model = flags['--model'] ?? null;
@@ -188,7 +188,7 @@ export async function main(
     );
     let llm = llmClient;
     if (!llm) {
-      const { loadDotEnv } = await import('../src/config.js');
+      const { loadDotEnv } = await import('../src/config.ts');
       const { createLlm } = await import('../src/llm/openrouter.ts');
       const { createCalibrator } = await import('../src/llm/tokens.ts');
       loadDotEnv(privateDirOf(rootDir, env));

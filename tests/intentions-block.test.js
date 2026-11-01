@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { intentionsBlockText } from '../src/intentions/blocks.ts';
 import { createIntention, transition, waitOn } from '../src/intentions/model.ts';
-import { formatClock, formatDate } from '../src/format.js';
+import { formatClock, formatDate } from '../src/format.ts';
 import '../src/tools/impl/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { checkSkill, listSkills } from '../src/tools/gateway.ts';
@@ -243,6 +243,6 @@ test('skills: the intent skills are hers once granted', () => {
     }).code,
     'no-requester'
   );
-  // The index a classifier reads has every registered skill; the turn filters it by the switch (src/behavior/turn.js).
+  // The index a classifier reads has every registered skill; the turn filters it by the switch (src/behavior/turn.ts).
   assert.ok(skillsIndex(registry, {}).includes('intention.set'));
 });

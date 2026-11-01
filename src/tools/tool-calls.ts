@@ -7,7 +7,7 @@
 // `coversSpeech` says whether a finished call lets the speech of its step go out. No I/O, no clock,
 // no state. Every word comes from the labels; ids, names and statuses are protocol tokens.
 
-import { fill } from '../format.js';
+import { fill } from '../format.ts';
 import { clampWithEllipsis } from '../memory/clamp.ts';
 import { CODE, reasonText } from './codes.ts';
 import { apiNameOf } from './definitions.ts';

@@ -19,7 +19,7 @@
 import { isOwnerCaller } from './grants.ts';
 import { TASK_AGENTS } from './catalog.ts';
 import { clampWithEllipsis, oneLine } from '../../memory/clamp.ts';
-import { MINUTE_MS } from '../../time.js';
+import { MINUTE_MS } from '../../time.ts';
 import { fileHandle, isOpenState } from '../../errands/store.ts';
 import { DEFAULT_RESULT_MAX_CHARS } from '../../errands/blocks.ts';
 import { defineOp, perEnv, invalid, denied } from './registry.ts';

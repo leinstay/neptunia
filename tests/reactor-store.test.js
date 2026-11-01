@@ -1,5 +1,5 @@
 // Tests for the reactor store of the core (src/behavior/reactor-store.ts: who reacted to the persona's own messages,
-// fed by `reaction.changed` events), the backfill and the rendering of the names in src/format.js#formatTranscript.
+// fed by `reaction.changed` events), the backfill and the rendering of the names in src/format.ts#formatTranscript.
 // Fakes only: no Discord, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,8 +10,8 @@ import {
   runBackfill,
   withReactors,
 } from '../src/behavior/reactor-store.ts';
-import { formatTranscript, reactorIdsOf } from '../src/format.js';
-import { buildRequest } from '../src/behavior/prompt.js';
+import { formatTranscript, reactorIdsOf } from '../src/format.ts';
+import { buildRequest } from '../src/behavior/prompt.ts';
 import { labels as fixtureLabels } from './fixtures/labels.js';
 
 const SELF = '100';

@@ -1,4 +1,4 @@
-// The slice end to end: `startCore` (src/core.js) over temporary data and private directories, the tracked prompts, a
+// The slice end to end: `startCore` (src/core.ts) over temporary data and private directories, the tracked prompts, a
 // scripted model and the fake interface (src/interface/fake-interface.ts), which holds the conversation and answers the
 // core's reads. One member message that names the persona goes through the link, the event door, the
 // pipeline, a turn and the memory database, and her `<msg>` text comes back over the link to the fake adapter. The model
@@ -11,7 +11,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startCore } from '../src/core.js';
+import { startCore } from '../src/core.ts';
 import { start } from '../src/interface/fake-interface.ts';
 import { lockPathOf, openMemoryDb } from '../src/memory/db/open.ts';
 import { channelInfo, deliver } from './fixtures/core-over-fake.ts';

@@ -6,7 +6,7 @@
 // id, a transcript number `#N` or a message link (a `message` or `reply` option) into that
 // message's id and channel, a whole number or `true` / `false` read strictly -- so nothing the model writes is
 // taken as an id unchecked. `executeCall` then runs the operation by its name
-// (src/admin.js#runSkillOp: the requester's rights checked again, as for their own command),
+// (src/admin.ts#runSkillOp: the requester's rights checked again, as for their own command),
 // the persona as the actor; its answer -- an error or a refusal included -- is the text the owner
 // would see. Every result is `{ status, code?, data? }`, structured and honest (RESULT_STATUSES):
 // `ok` only when the operation answered ok; `denied` (a rule said no), `invalid` (the call was
@@ -575,12 +575,12 @@ function inTurnCallOf(deps: ExecuteDeps): InTurnCall {
  * own option mapper (`dispatch.toOp`), must reach this very operation (else `invalid`); her own
  * writing (`message.create`, `message.edit`) is first rendered as a `<msg>` of hers is posted
  * (`deps.renderText`: the text, or `{ text, userIds }` -- mentions, custom emoji, message and
- * channel links; src/behavior/turn.js#renderPost), the members it mentions handed to the
+ * channel links; src/behavior/turn.ts#renderPost), the members it mentions handed to the
  * operation as `mentionUserIds`, the only ones it may notify. Then `deps.runOp(op, args, context)`
- * (src/admin.js#runSkillOp) -- for her own expressive operations (src/tools/impl/effects.ts#SELF_OWNED_OPS)
- * `deps.runOwnOp` (src/admin.js#runOwnSkillOp: her grant alone, no requester's right), and on
+ * (src/admin.ts#runSkillOp) -- for her own expressive operations (src/tools/impl/effects.ts#SELF_OWNED_OPS)
+ * `deps.runOwnOp` (src/admin.ts#runOwnSkillOp: her grant alone, no requester's right), and on
  * her own initiative (`envelope.ownInitiative` with no requester: an inner turn)
- * `deps.runInitiativeOp` (src/admin.js#runInitiativeSkillOp, the same for any operation) -- on
+ * `deps.runInitiativeOp` (src/admin.ts#runInitiativeSkillOp, the same for any operation) -- on
  * the call's envelope (`deps.envelope`, built by the turn, never by
  * the model: the requester's `userId` and `roleIds`, null with nobody; the invocation id) in the
  * turn's context (`deps.opContext`: `guildId`, `channelId`), the persona as the actor, the replied
@@ -735,7 +735,7 @@ const ARG_RULE_KINDS: Readonly<Record<string, string>> = Object.freeze({
 /**
  * The concrete detail of a call's outcome that is not `ok`, from its code and the machine reason
  * the resolution or the gateway gave (never wording; the transcript words it through
- * `labels.transcript.callReasons`, src/format.js): `{ kind, code, arg }`. An
+ * `labels.transcript.callReasons`, src/format.ts): `{ kind, code, arg }`. An
  * `invalid-args` refusal with a schema path (`args.<arg>[.<more>]:<rule>`) names the argument and
  * what was wrong with it (`missing-arg`, `unknown-arg`, `arg-twice`, `too-long`, `too-short`,
  * `unknown-channel`, `unknown-role`, else `wrong-arg`); `unknown-message` names the option (`message`, `reply`) whose message was not in view,

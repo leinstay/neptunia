@@ -18,7 +18,7 @@ import {
 } from '../src/memory/recent.ts';
 import { tokenIds } from '../src/memory/mentions.ts';
 import { createStore } from '../src/memory/store.ts';
-import { HOUR_MS } from '../src/time.js';
+import { HOUR_MS } from '../src/time.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';

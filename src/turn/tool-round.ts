@@ -6,18 +6,19 @@
 import { setSettings } from '../behavior/diary.ts';
 import { historyLines } from '../behavior/lines.ts';
 import type { Line, ReactorNames } from '../behavior/lines.ts';
-import { skillsInventoryText } from '../behavior/prompt.js';
+import { skillsInventoryText } from '../behavior/prompt.ts';
 import type { ReactorStore } from '../behavior/reactor-store.ts';
-import { appendStep, cutToFit, deltaLines, roomLeft, stepNote, stepVerdict } from '../behavior/tool-step.js';
+import type { StepLabels } from '../behavior/tool-step.ts';
+import { appendStep, cutToFit, deltaLines, roomLeft, stepNote, stepVerdict } from '../behavior/tool-step.ts';
 import { innerSettings } from '../behavior/inner.ts';
 import { diagnosticText } from '../behavior/wake.ts';
 import { WAKE_PURPOSE_CHARS } from '../behavior/wake.ts';
-import { callReason, fill, formatTranscript } from '../format.js';
+import { callReason, fill, formatTranscript } from '../format.ts';
 import type { Reads } from '../interface/reads.ts';
 import { requestTokenLimit } from '../llm/budget.ts';
 import { REPLY_REQUEST } from '../llm/openrouter.ts';
 import { estimateMessages, estimateTools } from '../llm/tokens.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import type { ConversationRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
@@ -68,7 +69,7 @@ export type ToolRoundConfig = Parameters<typeof resultCharsFor>[1] & {
 };
 
 /** The labels, as the tool round hands them on; the text functions read their own sections. */
-type RoundLabels = { task?: { continueInnerOpen?: unknown } | null; [key: string]: unknown };
+type RoundLabels = NonNullable<StepLabels> & { task?: { continueInnerOpen?: unknown }; [key: string]: unknown };
 
 /** A completion of the language model client (src/llm/openrouter.ts#createLlm), as a step reads it. */
 export type StepCompletion = NonNullable<Parameters<typeof cutOffOf>[0]> & {

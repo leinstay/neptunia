@@ -84,8 +84,8 @@ PREFIX=$(cd -- "$PREFIX" && pwd -P)
 case "$PREFIX" in
   *'|'*|*'&'*|*'\'*|*[[:space:]]*) echo "install: --prefix must not contain |, &, \\ or spaces: $PREFIX" >&2; exit 2 ;;
 esac
-if [ ! -f "$PREFIX/src/index.js" ] || [ ! -f "$PREFIX/deploy/$UNIT_NAME" ]; then
-  echo "install: $PREFIX does not look like a neptunia-bot checkout (missing src/index.js or deploy/$UNIT_NAME)" >&2
+if [ ! -f "$PREFIX/src/index.ts" ] || [ ! -f "$PREFIX/deploy/$UNIT_NAME" ]; then
+  echo "install: $PREFIX does not look like a neptunia-bot checkout (missing src/index.ts or deploy/$UNIT_NAME)" >&2
   exit 2
 fi
 if [ "$DRY_RUN" -eq 0 ] && [ "$(id -u)" -ne 0 ]; then

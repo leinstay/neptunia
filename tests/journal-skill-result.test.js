@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { journalResultOf } from '../src/behavior/turn.js';
+import { journalResultOf } from '../src/behavior/turn.ts';
 
 test('journalResultOf: a read skill records the size of its text, not the text', () => {
   const summary = journalResultOf({ skill: 'memory.journal.read', status: 'ok', data: { text: 'λόγος '.repeat(10) } });

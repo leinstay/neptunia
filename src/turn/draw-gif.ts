@@ -1,6 +1,6 @@
 // The pictures and GIFs of a turn: one picture and her `draw.create` tool, the day's
 // GIF count, a `<gif>` resolved against the library, the GIF's post, and the GIF picker that may answer her first
-// message with a GIF. createTurnRunner (src/behavior/turn.js) builds it once per runner with createDrawGif; the act,
+// message with a GIF. createTurnRunner (src/behavior/turn.ts) builds it once per runner with createDrawGif; the act,
 // her calls and the attempt call its functions.
 
 import { imageFileName } from '../behavior/mirror.ts';
@@ -13,7 +13,7 @@ import {
   gifFieldChars,
   ownGifLines,
   stableThenTail,
-} from '../behavior/prompt.js';
+} from '../behavior/prompt.ts';
 import {
   captionedEntries,
   gifPickSettings,
@@ -21,14 +21,14 @@ import {
   pickCandidates,
   pickContext,
   renderGifLibrary,
-} from '../behavior/gif-pick.js';
+} from '../behavior/gif-pick.ts';
 import type { PictureGate } from '../behavior/diary-turn.ts';
-import { replyMarker } from '../format.js';
+import { replyMarker } from '../format.ts';
 import type { Reads } from '../interface/reads.ts';
 import { ImageGenError, UnsupportedImageModelError } from '../llm/images.ts';
 import { cacheTtlMs, railReason, roleRequestOptions } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { drawPicture } from '../media/draw.ts';
 import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl } from '../media/gif-post.ts';
 import { rankGifs } from '../memory/index.ts';
@@ -140,7 +140,7 @@ export type DrawGifContext = {
   selfIdOf: () => string;
   clock: () => number;
   schedule: (run: () => void, ms: number) => () => void;
-  /** The guild's stable freeze (src/behavior/prompt.js#freezePerBucket); each key holds one kind of value. */
+  /** The guild's stable freeze (src/behavior/prompt.ts#freezePerBucket); each key holds one kind of value. */
   stableFreezeOf: <TValue>(guildId: string) => Map<string, { bucket: number; signature: string; value: TValue }>;
   conversationOf: (channel: PostChannel) => ConversationRef;
   messageOf: (channel: PostChannel, messageId: string) => MessageRef;
@@ -200,7 +200,7 @@ function textOf(completion: unknown): unknown {
   return (completion as { text?: unknown } | null | undefined)?.text;
 }
 
-// health: allow function-length until 2027-04-01 -- the pictures and GIFs share the runner state of src/behavior/turn.js, moved whole in stage 5b
+// health: allow function-length until 2027-04-01 -- the pictures and GIFs share the runner state of src/behavior/turn.ts, moved whole in stage 5b
 export function createDrawGif(ctx: DrawGifContext): DrawGif {
   const {
     hot,
@@ -277,7 +277,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    * `daily-cap` (reason `pictures`, diaryPictureGate: no image client or no Attach Files) while the post may carry none, `loop-cap` past what the post's kind takes (one picture, or `diary.set.pictures[1]`
    * for a set kind: `draft.diary.set`). Never throws.
    */
-  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5b, a pure move
+  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
   async function drawTool(
     args: Parameters<DrawGif['drawTool']>[0],
     {
@@ -507,7 +507,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
   }
 
   /**
-   * The GIF picker (src/behavior/gif-pick.js), on the turn's FIRST message as
+   * The GIF picker (src/behavior/gif-pick.ts), on the turn's FIRST message as
    * the model wrote it (a picked GIF takes its place; the rest are posted as
    * written): with prompts['gif-pick'] present, the guild's library readable
    * and pickCandidates saying yes (a first
@@ -520,7 +520,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    * mark, `gifs.reactionChars` and `gifs.actionChars` read now: the stable bulk first, the part
    * tagged for the provider's prompt cache; with `features.promptCache` exactly true it is held
    * per cache bucket in the guild's stable freeze, like the reply's `<gifs>`, see
-   * src/behavior/prompt.js#freezePerBucket, so a GIF post or a use that reranks the library
+   * src/behavior/prompt.ts#freezePerBucket, so a GIF post or a use that reranks the library
    * rewrites the cached prefix at most once per `llm.cache.ttl`), then the per-call tail:
    * `<gifs_recent>` (ownGifLines: the listed GIFs the persona posted within `gifs.ownMarkHours`,
    * with how long ago, from the live library), `<context>` (pickContext: the last `gifs.pick.contextMessages` lines of
@@ -536,7 +536,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    * `trigger`: the message the turn answers, if any. Answers the GIF to post in place of the first message
    * (resolveGif's shape), or null.
    */
-  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5b, a pure move
+  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
   async function pickGif({
     channelId,
     guildId,

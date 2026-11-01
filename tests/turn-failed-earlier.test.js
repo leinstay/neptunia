@@ -1,15 +1,15 @@
 // Tests for the failed addressed turns told at her next request in the channel
-// (src/behavior/turn.js, src/behavior/prompt.js#renderTasks): an addressed reply turn that ended
+// (src/behavior/turn.ts, src/behavior/prompt.ts#renderTasks): an addressed reply turn that ended
 // `error` with nothing posted is kept per channel (at most context.failedTurnsKept, 24 hours); the
 // next request there ends its task with one labels.task.failedEarlier line per entry, then the
 // entries are gone. The core's turn over the fake interface, fake llm, injected clock; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnRunner as createRealTurnRunner, sendHash, settleUnknownSends } from '../src/behavior/turn.js';
+import { createTurnRunner as createRealTurnRunner, sendHash, settleUnknownSends } from '../src/behavior/turn.ts';
 import { createLocalFacts } from '../src/behavior/inner.ts';
 import { DailyCapError } from '../src/llm/openrouter.ts';
-import { fill, formatClock, formatDate } from '../src/format.js';
-import { userText } from '../src/behavior/prompt.js';
+import { fill, formatClock, formatDate } from '../src/format.ts';
+import { userText } from '../src/behavior/prompt.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { freshWorld, onWorld, world } from './fixtures/turn-world.ts';

@@ -20,7 +20,7 @@ import {
   shapesOf,
 } from '../src/behavior/selfimprovement-view.ts';
 import type { Chain, SkillUseRow } from '../src/behavior/selfimprovement-view.ts';
-import { utcDay } from '../src/time.js';
+import { utcDay } from '../src/time.ts';
 import { tempDir } from './fixtures/tmp.js';
 
 const DAY = 86_400_000;

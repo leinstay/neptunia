@@ -22,7 +22,7 @@
 // never a text or the cost.
 
 import net from 'node:net';
-import { log as defaultLog } from '../log.js';
+import { log as defaultLog } from '../log.ts';
 import { encodeLine, normalizeResult, normalizeUsage, MAX_PREAMBLE_CHARS } from '../agent-runner/protocol.ts';
 import { agentSettings, profileOf } from '../agent-runner/profiles.ts';
 import { roleModel } from '../llm/roles.ts';

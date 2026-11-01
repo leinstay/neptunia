@@ -4,7 +4,7 @@
 // `diaryChannelId: 'd1'` and no mirror, on the code before `diary.channelId` became a seed. Synthetic text only.
 import { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { userText } from '../../src/behavior/prompt.js';
+import { userText } from '../../src/behavior/prompt.ts';
 import { createStore } from '../../src/memory/store.ts';
 import { dbOf, seedMirror } from './diary-mirror.ts';
 import type { MemoryService } from './diary-mirror.ts';

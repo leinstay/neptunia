@@ -2,10 +2,10 @@
 // (tools/replay.mjs --pair, --diary and --skills): a scratch root holding a copy of the bot's
 // config files (config/ from the checkout, config.local/ and the private settings file from the private directory:
 // NEPTUNIA_PRIVATE_DIR, else the checkout; tools/lib/cli.mjs#privateDirOf) and its tracked prompts/, with the given
-// directories copied into prompts.local/ in order, read by src/hot.js exactly as the bot reads its own layers. A
+// directories copied into prompts.local/ in order, read by src/hot.ts exactly as the bot reads its own layers. A
 // layer's labels.json is flat, as an old prompts.local/labels.json is: once the layers are laid, the flat labels are
 // split by the tracked config/labels.json into config.local/labels.json (src/config/labels.ts), so the scratch root
-// has the layout src/hot.js reads without a warning and the labels it joins are the ones the flat file holds.
+// has the layout src/hot.ts reads without a warning and the labels it joins are the ones the flat file holds.
 // Nothing in the checkout changes; the caller closes the hot view and removes the scratch root. A
 // layer that is a link (a separate checkout whose prompts.local/ links to the live one) is read
 // through it and copied as files: nothing in the scratch root links back, so nothing written there
@@ -18,7 +18,7 @@ import { CliError, privateDirOf } from './cli.mjs';
 import { CONFIG_DIR, CONFIG_FILE, LABELS_FILE, LOCAL_CONFIG_DIR, localFiles } from '../../src/config/files.ts';
 import { joinLabels, labelsFileOf, splitLabels } from '../../src/config/labels.ts';
 
-/** The JSON files of a prompt layer src/hot.js deep-merges instead of replacing (its JSON_LAYERS). */
+/** The JSON files of a prompt layer src/hot.ts deep-merges instead of replacing (its JSON_LAYERS). */
 const JSON_LAYER_FILES = Object.freeze(['labels.json', 'tools.json']);
 
 /** The folder of the scratch root a layer's JSON file ends in: the tool texts go to `config.local/`, the labels to `prompts.local/`. */
@@ -59,12 +59,12 @@ function settleLabels(dir, mergeJson) {
 }
 
 /**
- * A hot view (src/hot.js#createHot) over a scratch root: `root`'s config/, the config.local/ and the private settings
+ * A hot view (src/hot.ts#createHot) over a scratch root: `root`'s config/, the config.local/ and the private settings
  * file of its private directory (privateDirOf(root, env)), its prompts/, and every
  * directory of `layers` (resolved against `root`) copied into prompts.local/ one after another, so
  * a later layer's file replaces an earlier one of the same name whole -- labels.json and
- * tools.json (laid into config.local/) included, unless `mergeJson` is given (src/config.js#deepMerge): then a later layer's
- * JSON layer file is deep-merged over the one already there, as src/hot.js merges prompts.local/
+ * tools.json (laid into config.local/) included, unless `mergeJson` is given (src/config.ts#deepMerge): then a later layer's
+ * JSON layer file is deep-merged over the one already there, as src/hot.ts merges prompts.local/
  * over prompts/. A layer that is not a directory, or a JSON layer file that does not parse when it
  * is merged, is a CliError. A layer given as a link is resolved (realpath) and every link inside it
  * followed: the copy holds files only, so the merge's writes and the hot view never reach the
@@ -124,7 +124,7 @@ export function promptLayersHot(
             ).map((name) => [name, readJson(placed(name))])
           : [];
       fs.cpSync(source, local, { recursive: true, force: true, dereference: true });
-      // The tool texts of a layer rest where src/hot.js reads them, not among the prompt files.
+      // The tool texts of a layer rest where src/hot.ts reads them, not among the prompt files.
       if (fs.existsSync(path.join(local, 'tools.json'))) {
         fs.renameSync(path.join(local, 'tools.json'), placed('tools.json'));
       }

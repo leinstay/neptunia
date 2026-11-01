@@ -1,13 +1,13 @@
 // The last phase of a turn attempt: what its steps posted, noted for the journal, the end hook and the pending pings,
 // a diary post's entry recorded before any publication, and the result the attempt returns. Beside it, how an attempt
 // that threw ends (outcomeOfError) and what every attempt past its preflight closes whatever it returned
-// (closeAttempt), and what runTurn hears of the attempt (attemptReport). runTurnOnce (src/behavior/turn.js) calls
+// (closeAttempt), and what runTurn hears of the attempt (attemptReport). runTurnOnce (src/behavior/turn.ts) calls
 // them all.
 
 import { recordEntry } from '../../behavior/diary-turn.ts';
-import { limitOf } from '../../behavior/limits.js';
+import { limitOf } from '../../behavior/limits.ts';
 import { DailyCapError, TokenLimitError, errorCodeOf, railReason } from '../../llm/openrouter.ts';
-import { log } from '../../log.js';
+import { log } from '../../log.ts';
 import { skillUsesOfTurn } from '../../skills/uses.ts';
 import type { HeldSpeech } from '../act.ts';
 import type { Draft } from '../draft.ts';

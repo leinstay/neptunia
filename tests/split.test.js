@@ -1,8 +1,8 @@
-// Tests for src/behavior/split.js: the cheap pre-filter in front of the splitter, its settings and
+// Tests for src/behavior/split.ts: the cheap pre-filter in front of the splitter, its settings and
 // the strict parse of its answer. Every behaviour test sets its own settings.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { foldShortParts, mayHaveParts, parseSplitAnswer, splitCandidate } from '../src/behavior/split.js';
+import { foldShortParts, mayHaveParts, parseSplitAnswer, splitCandidate } from '../src/behavior/split.ts';
 
 const SETTINGS = { minChars: 40, maxTasks: 3, contextMessages: 2, maxOutputTokens: 100 };
 // PR 7d: the split switch is code.

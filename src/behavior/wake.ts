@@ -16,7 +16,7 @@
 // (prompts/labels.json); without its header the block is left out (''). Ids, counts and times are
 // data, not wording.
 
-import { fill, formatClock, formatDate, formatNow } from '../format.js';
+import { fill, formatClock, formatDate, formatNow } from '../format.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { estimateTokens } from '../llm/tokens.ts';
 import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';

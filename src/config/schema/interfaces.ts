@@ -6,15 +6,15 @@ export const INTERFACES: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'interfaces.mode',
     'types': ['string'],
-    'reader': 'src/core.js',
+    'reader': 'src/core.ts',
     'default': 'inprocess',
     'text':
-      "Where the interfaces run. `inprocess` starts the Discord interface inside the core's process. `units` starts the core with no interface, and each interface runs in its own unit (`neptunia interface run <name>`). Read once at the start of `src/index.js`, and any other value stops the start",
+      "Where the interfaces run. `inprocess` starts the Discord interface inside the core's process. `units` starts the core with no interface, and each interface runs in its own unit (`neptunia interface run <name>`). Read once at the start of `src/index.ts`, and any other value stops the start",
   },
   {
     'key': 'interfaces.drainMs',
     'types': ['number'],
-    'reader': 'src/core.js',
+    'reader': 'src/core.ts',
     'default': 10000,
     'text':
       'How long a disable (`/interface disable`) gives the actions in flight to an interface (milliseconds) before the core ends them `unknown`',
@@ -22,7 +22,7 @@ export const INTERFACES: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'interfaces.*.enabled',
     'types': ['boolean'],
-    'reader': 'src/core.js',
+    'reader': 'src/core.ts',
     'default': true,
     'text':
       'Whether the interface named in place of `*` may connect. The tracked settings name no interface, so each one is enabled until this key says `false`. A `hello` of a disabled interface is refused with `interface-disabled`, read at each `hello`. `/interface disable` writes `false` here in the private settings file',

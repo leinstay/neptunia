@@ -1,5 +1,5 @@
-// Tests for src/behavior/pending.js: the pure queue of pending calls
-// (see mention.oneAtATime in src/behavior/pipeline.js).
+// Tests for src/behavior/pending.ts: the pure queue of pending calls
+// (see mention.oneAtATime in src/behavior/pipeline.ts).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -11,7 +11,7 @@ import {
   parseMergeAnswer,
   popOldest,
   requeuePending,
-} from '../src/behavior/pending.js';
+} from '../src/behavior/pending.ts';
 
 function ping(channelId, arrivedAt, overrides = {}) {
   return {

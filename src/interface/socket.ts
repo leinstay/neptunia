@@ -8,7 +8,7 @@
 import { chmodSync, chownSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import net from 'node:net';
 import { dirname, join } from 'node:path';
-import type { log } from '../log.js';
+import type { log } from '../log.ts';
 import { wrapSocket } from '../protocol/wire.ts';
 import type { Transport } from '../protocol/wire.ts';
 

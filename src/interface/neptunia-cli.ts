@@ -1,4 +1,4 @@
-// The core's side of the commands over the link: what answers a `command.requested` event. src/core.js hands each one
+// The core's side of the commands over the link: what answers a `command.requested` event. src/core.ts hands each one
 // here before the event door sees it, so a command never reaches her memory, her turns or her requests. The link
 // (link.ts) lets a command through only from the `cli` principal (the `neptunia` chat and `neptunia -p`, the owner) or
 // from an `agent` principal (a development agent of the task board, `neptunia task`).
@@ -22,7 +22,7 @@
 
 import fs from 'node:fs';
 import { roleModel } from '../llm/roles.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { COMMANDS } from './commands/table.ts';
 import { ackOf, validateEvent } from '../protocol/index.ts';
 import type { Adapter } from '../protocol/adapter.ts';
@@ -285,7 +285,7 @@ const callOf = (owner: unknown, name: string): ((...args: Array<unknown>) => unk
 };
 
 /**
- * The summary's facts from the core's own objects (src/core.js): the hot config, the store's state, today's usage
+ * The summary's facts from the core's own objects (src/core.ts): the hot config, the store's state, today's usage
  * (src/tools/impl/usage.ts), the interface links, the inner life's status and the errand stores. Each is read at the
  * call; one that lacks a method reads as empty.
  */

@@ -6,7 +6,7 @@
 // event builders (around.ts), the served guild (guild.ts), member
 // cache warming (audience-warm.ts), plus the factory the
 // composition root builds the interface with (createDiscordInterface). The core reaches it
-// by path (src/index.js); what it still imports from the core is by relative path
+// by path (src/index.ts); what it still imports from the core is by relative path
 // (`../../src/...`) until the workspaces are declared and later stages cut those imports.
 
 export * from './port.ts';
@@ -49,7 +49,7 @@ import type { InterfaceHost, RunningInterface } from '../../src/protocol/host.ts
  * The Discord interface over one discord.js client: the outbound adapter of the interface port
  * and the capabilities the core asks the adapter for, by name. The functions are this package's
  * own, unchanged (they still take discord.js objects); the core's behaviors, memory jobs and
- * operations receive them through this object, which the composition root (src/index.js) builds
+ * operations receive them through this object, which the composition root (src/index.ts) builds
  * once and injects, instead of importing them (stage 4b-2).
  * @param options `client` the logged-in discord.js client; the other options go to createDiscordAdapter as
  *   they are (port.ts).

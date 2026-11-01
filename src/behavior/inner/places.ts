@@ -3,7 +3,7 @@
 // settled, and the page of places that her `places.list` tool and the `<wake>` block show. The tick
 // (src/behavior/inner.ts) refreshes the index; the heartbeat and the drain read it.
 
-import { HOUR_MS, MINUTE_MS } from '../../time.js';
+import { HOUR_MS, MINUTE_MS } from '../../time.ts';
 import { isAttend } from '../../intentions/model.ts';
 import { foldText } from '../../memory/recent.ts';
 import { errorCode, idText, isFiniteNumber, isPositive, listOf, objOf } from '../../tools/types.ts';

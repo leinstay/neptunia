@@ -1,6 +1,6 @@
 // The persona's participation in a server turn: whether the turn has her participation store, which channels its
 // episodes may come from, the live `<people_now>` input, a channel's live name for an episode, the record of each line
-// she sends, and the input of the `<recent>` block. createTurnRunner (src/behavior/turn.js) builds it once per runner
+// she sends, and the input of the `<recent>` block. createTurnRunner (src/behavior/turn.ts) builds it once per runner
 // with createParticipation; the attempt, the act and the journal notes call its functions.
 
 import type { AroundSnapshot } from '../behavior/around-store.ts';
@@ -8,7 +8,7 @@ import { audienceCovers } from '../behavior/elsewhere.ts';
 import { diaryConversationIds } from '../behavior/mirror.ts';
 import { audienceAllows, everyMemberAudience, railAudience } from '../behavior/snapshot.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
-import { log } from '../log.js';
+import { log } from '../log.ts';
 import { collectPictures } from '../media/classify.ts';
 import { participationSettings, recordOwnLine } from '../memory/index.ts';
 import { liveRecent, recentSettings } from '../memory/recent.ts';
@@ -273,7 +273,7 @@ export function createParticipation({ hot, store, around, clock }: Participation
   }
 
   /**
-   * The input of a turn's `<recent>` block (src/behavior/prompt.js#buildRequest
+   * The input of a turn's `<recent>` block (src/behavior/prompt.ts#buildRequest
    * `recentLines` / `recentAudience`): the guild's recent lines inside the last
    * `memory.recentHours` (src/memory/store.ts#getRecent, read now) and which
    * source channels this turn may show them from. On a server turn: the

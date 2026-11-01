@@ -39,7 +39,7 @@
 // text of a person is rendered whole by the turn renderer and its items are not listed one by one.
 // A chat line's revisions are matched by the line's native tuple (authority, native kind, generation, native id).
 
-import { block, fillPromptTemplate, renderProfile } from '../../behavior/prompt.js';
+import { block, fillPromptTemplate, renderProfile } from '../../behavior/prompt.ts';
 import { concernsMember, isOpen } from '../../intentions/model.ts';
 import { ROLE_KEY_NAME } from '../../llm/openrouter.ts';
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.ts';

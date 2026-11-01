@@ -10,7 +10,7 @@
 // shown or what survives an eviction goes through the SAME function, so a
 // history backfill and the live bot agree on what matters.
 
-import { DAY_MS } from '../time.js';
+import { DAY_MS } from '../time.ts';
 import { isFiniteNumber, isIntegerNumber } from './types.ts';
 
 /** `lastSeen`, falling back to `firstSeen`, else the epoch (0) -- see
