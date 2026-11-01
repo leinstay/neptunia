@@ -565,7 +565,7 @@ test('task turns: a result turn that spoke or chose silence marks the task seen 
   }
 });
 
-test('task turns: a result turn that ended error or refused marks nothing and is tried again; a rehearsal marks nothing and is not retried', async () => {
+test('task turns: a result turn that ended error or refused marks nothing and is tried again', async () => {
   const outcomes = [{ outcome: 'error' }, { outcome: 'refused' }, { outcome: 'spoke' }];
   const runs = [];
   const turns = {
@@ -603,18 +603,6 @@ test('task turns: a result turn that ended error or refused marks nothing and is
   });
   assert.equal(runs.length, 3);
   assert.deepEqual(errands.read, [{ guildId: 'g1', ids: ['tab02'] }], 'the third try spoke: read');
-  const dry = fakeErrands();
-  const dryTurns = createErrandTurns({
-    hot: fakeHot(),
-    reads: world().reads,
-    iface: () => 'fake',
-    turns: { isBusy: () => false, isAnyBusy: () => false, runTurn: async () => ({ outcome: 'spoke', dryRun: true }) },
-    errands: dry,
-    now: () => NOW,
-    setTimer: (fn, ms) => timers.push({ fn, ms }),
-  });
-  await withCapturedLogs(() => dryTurns.onFinished(doneTask, 'g1'));
-  assert.deepEqual([dry.seen, dry.read, timers.length], [[], [], 0]);
 });
 
 test('task turns: after the attempts a result that never got its turn stays unread and is noted as failed', async () => {

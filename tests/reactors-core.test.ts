@@ -162,7 +162,8 @@ test('reads the reactors of her reaction through the adapter at most fetchUsers 
     const asked = rig.fake.calls.filter((call) => call.op === 'reactors');
     assert.deepEqual(
       asked.map((call) => call.args),
-      [[{ iface: 'fake', conversationId: 'c1', messageId: 'her1' }, '🔥', 3]]
+      // PR 7d: context.reactions.fetchUsers is the constant 10.
+      [[{ iface: 'fake', conversationId: 'c1', messageId: 'her1' }, '🔥', 10]]
     );
     assert.equal(rig.requestText(0).includes('Dora'), true);
   });
