@@ -28,7 +28,7 @@
 //   { kind: 'context', context }
 //       One `execution_contexts` row (scope.ts#contextRow of a context the core issued); a context already recorded is
 //       left as it is. Not a memory write: no mode.
-//   { kind: 'wake', op, ... } | { kind: 'skills', entries, now } | { kind: 'index-policy' | 'touch' | 'reembed', ... }
+//   { kind: 'wake', op, ... } | { kind: 'skills', op, ... } | { kind: 'index-policy' | 'touch' | 'reembed', ... }
 //       Schema v11: handed to wakes.js#applyWakeWrite, skills.js#applySkillsWrite and index-policy.js#applyIndexWrite.
 //       Bookkeeping of the database itself, not her memory: no mode.
 //   { kind: 'publication', op: 'prepare' | 'sent' | 'failed' | 'unknown', ... }
@@ -83,7 +83,7 @@ import { audienceOf, canRead, dmContext, groupContext, internalContext, narrowes
 import { ensureAudience, ensureInterface } from './rows.js';
 import { projectRow } from './graph.js';
 import { applyWakeWrite } from './wakes.js';
-import { applySkillsWrite } from './skills.js';
+import { applySkillsWrite } from './skills.ts';
 import { applyIndexWrite } from './index-policy.js';
 import { applyUnitWrite } from './unit-write.js';
 import { applyPublicationWrite } from './publish.js';

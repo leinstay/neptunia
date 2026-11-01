@@ -385,7 +385,6 @@ Two switches gate memory behaviour:
 
 | Feature | Switch | State |
 |---|---|---|
-| Skills registry | `memoryDb.skillsRegistry` | Built, off |
 | Vector eviction (drop bytes of old, uncited vectors) | `recall.db.vectorEviction` | Built, off |
 | Re-embedding on touch | `recall.db.reembed` | Built, off |
 | Foreign capture (threads, boards) | Live in schema; no adapter emits capture events yet | Built, no adapter |

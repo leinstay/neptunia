@@ -71,13 +71,18 @@ function sectionOf(config: Config, name: string, make: boolean): Config | null {
   return made;
 }
 
-/** The keys of the `skills` section move to `tools`, one by one; the emptied section is dropped. */
+/** The keys the `skills` section holds for the SKILL.md skills; they stay where they are. */
+const SKILL_FILE_KEYS: ReadonlyArray<string> = ['reviewDays'];
+
+/** The keys of the `skills` section move to `tools`, one by one, except the SKILL.md settings; the emptied section is dropped. */
 function moveSection(config: Config, report: MovedConfig): void {
   const old = sectionOf(config, 'skills', false);
   if (old === null || Object.keys(old).length === 0) return;
+  const moving = Object.keys(old).filter((key) => !SKILL_FILE_KEYS.includes(key));
+  if (moving.length === 0) return;
   const target = sectionOf(config, 'tools', true);
   if (target === null) return;
-  for (const key of Object.keys(old))
+  for (const key of moving)
     place(old, target, { from: key, to: key }, { from: `skills.${key}`, to: `tools.${key}` }, report);
   if (Object.keys(old).length === 0) delete config.skills;
 }

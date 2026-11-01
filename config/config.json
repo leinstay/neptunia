@@ -72,7 +72,6 @@
   "memoryDb": {
     "file": "memory.db",
     "closeTimeoutMs": 10000,
-    "skillsRegistry": false,
     "observeTimeoutMs": 5000,
     "ingestKeepDays": 7,
     "backup": {

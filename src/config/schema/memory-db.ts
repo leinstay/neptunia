@@ -18,13 +18,6 @@ export const MEMORY_DB: ReadonlyArray<SchemaEntry> = [
     'text': 'At shutdown, how long to wait for the pass under way before the worker is terminated',
   },
   {
-    'key': 'memoryDb.skillsRegistry',
-    'types': ['boolean'],
-    'reader': 'src/memory/db/service.js',
-    'default': false,
-    'text': 'At each open of the database, register every skill with the hash of its definition and manifest',
-  },
-  {
     'key': 'memoryDb.observeTimeoutMs',
     'types': ['number'],
     'reader': 'src/behavior/pipeline.js',

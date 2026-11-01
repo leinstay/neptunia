@@ -244,14 +244,6 @@ function computePreambles(dir) {
 }
 
 /**
- * @param {unknown} value
- * @returns {object}
- */
-function objectOf(value) {
-  return typeof value === 'object' && value !== null ? value : {};
-}
-
-/**
  * @param {string} rootDir
  * @param {string} privateDir
  * @param {Record<string, unknown>} prevPrompts
@@ -389,10 +381,6 @@ export function createHot({ rootDir, privateDir = rootDir, watchImpl = fs.watch 
   reportRetiredKeys();
   // Initial load: an invalid JSON layer (labels, tools) throws so a broken deployment fails at startup.
   const initial = loadPromptLayers(rootDir, privateDir, {}, {});
-  if (Object.hasOwn(objectOf(initial.prompts.labels), 'skills'))
-    log.warn('hot: labels.json carries a `skills` section, which no code reads', {
-      move: 'tools/tools-file-move.mjs',
-    });
   hot.prompts = initial.prompts;
   hot.promptSources = initial.sources;
   hot.promptsDir = promptsDir;
