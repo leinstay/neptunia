@@ -2,7 +2,7 @@
 // range and channel, and fails with a code when the database cannot answer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRecord } from '../src/memory/record.js';
+import { createRecord } from '../src/memory/record.ts';
 import { GUILD, GUILD_2, MEMBER, CHANNEL_B, all, readerEnv } from './fixtures/memory-db/readers.js';
 
 const line = (entry) => `${entry.kind}:${entry.messageId}:${entry.revision ?? '-'}`;

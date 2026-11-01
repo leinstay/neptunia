@@ -3,7 +3,7 @@
 // database cannot answer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createJournal } from '../src/memory/journal.js';
+import { createJournal } from '../src/memory/journal.ts';
 import { GUILD, GUILD_2, MEMBER, readerEnv } from './fixtures/memory-db/readers.js';
 
 const NOW = Date.parse('2026-10-21T23:00:00.000Z');

@@ -31,7 +31,7 @@ import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.js';
 import { drawPicture } from '../media/draw.ts';
 import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl } from '../media/gif-post.ts';
-import { rankGifs } from '../memory/index.js';
+import { rankGifs } from '../memory/index.ts';
 import type { ConversationInfo, ConversationRef, MessageRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import { refusalStatus } from '../tools/executors.ts';
@@ -41,7 +41,7 @@ import type { JournalOp, PortResult } from './journal.ts';
 import { sendArgs, withLink } from './targets.ts';
 import { askedFor } from './triggers.ts';
 import type { TriggerKind } from './triggers.ts';
-import { GIF_HALF_LIFE_DAYS } from '../memory/gifs.js';
+import { GIF_HALF_LIFE_DAYS } from '../memory/gifs.ts';
 import { OWN_MARK_HOURS } from './request/emoji-gifs.ts';
 
 /** The live config, as far as the pictures and GIFs read it; the settings functions read their own sections. */
@@ -59,7 +59,7 @@ type GifLabels = {
 /** The prompt files the pictures and GIFs read (hot.prompts). */
 type DrawGifPrompts = { labels?: GifLabels; 'gif-pick'?: unknown } & object;
 
-/** The library entry of a GIF (src/memory/gifs.js), as its post reads it. */
+/** The library entry of a GIF (src/memory/gifs.ts), as its post reads it. */
 type GifEntry = {
   id: string;
   url: string;
@@ -575,7 +575,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
         return {
           // Passed as it is: without labels the picker fails, and pickGifSafely logs it.
           library: renderGifLibrary(listed, mediaCache, labels!, { now: 0, ownMarkHours: 0, ...chars }),
-          // The library's entries (src/memory/gifs.js) each carry their handle.
+          // The library's entries (src/memory/gifs.ts) each carry their handle.
           handles: listed.map((entry) => (entry as { id: string }).id),
         };
       }

@@ -33,7 +33,7 @@ import { log as defaultLog } from '../log.js';
 import { PROFILES, agentSettings, profileOf } from '../agent-runner/profiles.ts';
 import { roleApiKey } from '../llm/openrouter.ts';
 import { MAX_RECENT_ENTRIES, RECENT_CHARS, httpProxyForm } from '../agent-runner/protocol.ts';
-import { clampChars, oneLine } from '../memory/clamp.js';
+import { clampChars, oneLine } from '../memory/clamp.ts';
 import { isOpenState } from './store.ts';
 import { CODE } from '../tools/codes.ts';
 import { errorCode, idText, isPositive, objOf } from '../tools/types.ts';

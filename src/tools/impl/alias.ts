@@ -3,13 +3,13 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { normalizeTopic, applyAliasOps } from '../../memory/index.js';
+import { normalizeTopic, applyAliasOps } from '../../memory/index.ts';
 import { confirmTarget, formatAliasList } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { callMethod, idText, objOf, textOf } from '../types.ts';
 import type { Env } from './env.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
-import { MEMORY_LIMITS } from '../../memory/text-limits.js';
+import { MEMORY_LIMITS } from '../../memory/text-limits.ts';
 
 const handlers = perEnv((env) => {
   const { hot, store, assertNotPaused, requireGuildId, requireProfile } = env;
@@ -17,15 +17,15 @@ const handlers = perEnv((env) => {
   /**
    * `/nep alias add`: confirms the alias at once instead of
    * waiting for it to be sighted `memory.confirmAfter` times naturally —
-   * store.applyProfileOps/src/memory/aliases.js has no option to set a
+   * store.applyProfileOps/src/memory/aliases.ts has no option to set a
    * weight directly, so this calls it repeatedly with `confirmGapHours: 0`
    * (every call then counts as a fresh sighting regardless of the gap, see
-   * src/memory/interests.js#applyRankedOps's `isFarEnough`) and the SAME
+   * src/memory/interests.ts#applyRankedOps's `isFarEnough`) and the SAME
    * `seenAt`/`now` for every call, so the resulting item's `firstSeen` and
    * `lastSeen` both land on that one instant. Idempotent: already at or past
    * the target weight -> no call at all, nothing changes. Clamping to 40
    * chars and dropping a name equal to one of the member's display names are
-   * both src/memory/aliases.js#applyAliasOps's own behaviour; the stored form
+   * both src/memory/aliases.ts#applyAliasOps's own behaviour; the stored form
    * is worked out through that same function. A member with no profile is an error.
    */
   function cmdAliasAdd(args: Obj, context: OpContext) {
@@ -70,7 +70,7 @@ const handlers = perEnv((env) => {
   }
 
   /** `/nep alias remove`: removes by name, case-insensitively (store.applyProfileOps
-   * matches an alias's identity the same way, see src/memory/interests.js#normalizeTopic).
+   * matches an alias's identity the same way, see src/memory/interests.ts#normalizeTopic).
    * A member with no profile is an error. */
   function cmdAliasRemove(args: Obj, context: OpContext) {
     assertNotPaused();

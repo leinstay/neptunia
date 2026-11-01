@@ -46,8 +46,8 @@ import { isPlainObject } from '../config.js';
 import { estimateTokens } from '../llm/tokens.ts';
 import { block, fillPromptTemplate } from './prompt.js';
 import { fill, formatTranscript, GAP_MARKER_MINUTES, MAX_MESSAGE_CHARS, renderTranscript } from '../format.js';
-import { clampText, oneLine } from '../memory/clamp.js';
-import { episodeDate } from '../memory/index.js';
+import { clampText, oneLine } from '../memory/clamp.ts';
+import { episodeDate } from '../memory/index.ts';
 import {
   TEACHER_TOKEN_RE,
   fromTokens,
@@ -56,7 +56,7 @@ import {
   occursAsWordStem,
   tokenIds,
 } from '../memory/mentions.ts';
-import { foldText, memberIdOf } from '../memory/recent.js';
+import { foldText, memberIdOf } from '../memory/recent.ts';
 import { DAY_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../time.js';
 import { parseSkillsLines, takeSkillsLines } from '../tools/discovery.ts';
 
@@ -420,7 +420,7 @@ export function fuseRanks(lists, { k = RRF_K, weights = null } = {}) {
 /**
  * The text a recall run embeds for its meaning search: the asker's message
  * (`candidate.content`) on one line with its `<@id>` tokens resolved through
- * `nameOf` (as the index's chunks are, src/memory/chunks.js), `form`
+ * `nameOf` (as the index's chunks are, src/memory/chunks.ts), `form`
  * `question`; with `withReply`, the line it replies to (`candidate.replyToId`
  * among `lines`), the same way, on the line before it, `form`
  * `question+reply` (`question` when that line is not at hand). Null when the
@@ -1167,7 +1167,7 @@ const NEUTRAL_WEIGHT = 3;
 /** The mark of an absent field in a `<memory>` line. */
 const NO_FIELD = '-';
 
-/** The folded, non-empty, distinct forms of `list` (src/memory/recent.js#foldText). */
+/** The folded, non-empty, distinct forms of `list` (src/memory/recent.ts#foldText). */
 function foldedForms(list) {
   return [
     ...new Set(
@@ -1275,7 +1275,7 @@ function observedDay(observedAt, timezone) {
 }
 
 /**
- * One archive entry (src/memory/archive.js#archiveEntry) as a matched item,
+ * One archive entry (src/memory/archive.ts#archiveEntry) as a matched item,
  * or null when it matches nothing (or lies outside the range). Searched: the
  * entry's `neutral` and its `text.*` fields -- an episode's `what` and
  * `quote`, never its `feeling`; a participation episode's message texts.
@@ -1341,7 +1341,7 @@ function archivedItem(entry, ctx, { matched = true } = {}) {
  * caller passes it, already gated (the caller never passes a private layer
  * the turn may not read).
  * - A form of `forms` or `who` matches a text when it occurs in it as a word
- *   or phrase, word endings allowed, both folded (src/memory/recent.js#foldText:
+ *   or phrase, word endings allowed, both folded (src/memory/recent.ts#foldText:
  *   case, accents; src/memory/mentions.ts#occursAsWordStem: a form word of 5+
  *   letters matches by its stem, a shorter one or one with digits only whole).
  * - A `who` form equal (folded) to one of a profile's `names` or alias names
@@ -1565,7 +1565,7 @@ export function matchMemory({
 
 /**
  * The archive entries a recall question may use, read from `entries` (an
- * async or sync iterable, as src/memory/archive.js#iterate streams a
+ * async or sync iterable, as src/memory/archive.ts#iterate streams a
  * segment's lines one by one) without holding the archive in memory: each
  * entry `allow` refuses is skipped before it is matched (the caller's
  * audience and private-owner rule); each one archivedItem matches is a
@@ -1924,7 +1924,7 @@ function meaningRows(meaning) {
 }
 
 /**
- * The links of a record line (src/memory/record.js#recordLinks) as normalized chat links: a
+ * The links of a record line (src/memory/record.ts#recordLinks) as normalized chat links: a
  * `link` with its site, title and description (`text`), rendered like a live link preview; a line
  * without `links` has none.
  */
@@ -1949,7 +1949,7 @@ function recordTexts(message) {
 }
 
 /**
- * A record line (src/memory/record.js) as a normalized chat message (the shape renderRecallWindows
+ * A record line (src/memory/record.ts) as a normalized chat message (the shape renderRecallWindows
  * reads): the persona's own `said` line marked `self` under `selfName`, any other author under
  * `nameOf(by)`, else `-`; its `links` as link previews. The one copy: tools/recall-eval.mjs reads
  * the record's chat through it too. `line.scope.channel` must be set.
@@ -1983,7 +1983,7 @@ export function recordMessage(line, { nameOf, selfName }) {
 
 /**
  * The bounded record reader: the lines of the persona's record
- * (src/memory/record.js, `record.iterate`) that answer a recall question,
+ * (src/memory/record.ts, `record.iterate`) that answer a recall question,
  * as windows for the summary beside the search's (buildRecallRequest marks them
  * `source: record`). Read: the record days of `range` -- from the end of the
  * range (`now` when open or later) back at most `recordDays` days, never
@@ -2360,7 +2360,7 @@ function wordsIn(text) {
  * memory.search names (memorySearchPlan): built from the question's own words.
  * `who`: for each stored member (`profiles`, the persona's own `selfId` left
  * out) the first of their names or alias names that occurs in `text` as a
- * whole word (both folded, src/memory/recent.js#foldText), lowercased, each
+ * whole word (both folded, src/memory/recent.ts#foldText), lowercased, each
  * once. `forms`: the words of `text` (runs of isWordChar) of 5 to 40
  * characters with at least one letter, lowercased, deduplicated (folded),
  * without the words of a name found or of the persona's `selfName`, longest

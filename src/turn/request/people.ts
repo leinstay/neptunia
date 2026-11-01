@@ -5,10 +5,10 @@
 
 import { liveFields, liveNotices, personRow, voiceOccupants } from '../../behavior/around.js';
 import { fitSections } from '../../llm/budget.ts';
-import { topEpisodes } from '../../memory/index.js';
+import { topEpisodes } from '../../memory/index.ts';
 import { isWordChar, occursAsWholeWord } from '../../memory/mentions.ts';
-import { topByRank } from '../../memory/ranking.js';
-import { episodeKey, memberIdOf } from '../../memory/recent.js';
+import { topByRank } from '../../memory/ranking.ts';
+import { episodeKey, memberIdOf } from '../../memory/recent.ts';
 import { profileStateFields, renderAttitudes, renderProfileShown } from './profiles.ts';
 import type { EpisodeOptions, Shown } from './profiles.ts';
 import type { Base, Room } from './head.ts';
@@ -18,7 +18,7 @@ import type { PulledFits } from './pulled.ts';
 import type { Ahead } from './sections.ts';
 import type { Task } from './task.ts';
 import type { Alias, Fit, MemoryRead, Message, Profile, RequestInput, Section } from './types.ts';
-import { MEMORY_LIMITS } from '../../memory/text-limits.js';
+import { MEMORY_LIMITS } from '../../memory/text-limits.ts';
 
 /** A profile list as given (store.listUserProfiles, the turn's other profiles): an array, anything else none. */
 const profileList = (profiles: unknown): Array<Profile | null | undefined> =>

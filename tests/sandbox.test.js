@@ -882,7 +882,7 @@ test("answerReply: every sample is sent as the replay's", async () => {
 
 const HOUR = 3_600_000;
 
-/** A recent line the way the store hands it over (src/memory/store.js#getRecent). */
+/** A recent line the way the store hands it over (src/memory/store.ts#getRecent). */
 function recentLine(id, text, { at = NOW - HOUR, channelId = CHANNEL.id } = {}) {
   return { id, at, addedAt: new Date(at + 60_000).toISOString(), channelId, text, who: [], weight: 2 };
 }

@@ -1,4 +1,4 @@
-// The custom emoji history backfill (src/memory/emoji-backfill.js): a history read
+// The custom emoji history backfill (src/memory/emoji-backfill.ts): a history read
 // through the interface, no LLM, that fills guild.json's `emojiUsage` at once and
 // stamps `emojiBackfill`. A real store on a temp dir, the fake interface's reads.
 
@@ -6,8 +6,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-import { createEmojiBackfill } from '../src/memory/emoji-backfill.js';
-import { createStore } from '../src/memory/store.js';
+import { createEmojiBackfill } from '../src/memory/emoji-backfill.ts';
+import { createStore } from '../src/memory/store.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory } from './fixtures/memory-db/service.js';
 import { IFACE, SELF_ID, channel, message, rig } from './fixtures/reads-rig.ts';

@@ -1,4 +1,4 @@
-// Tests for src/memory/episodes.js: mergeEpisodes (validation, deduplication,
+// Tests for src/memory/episodes.ts: mergeEpisodes (validation, deduplication,
 // eviction), sortEpisodesForDisplay (rendering order), topEpisodes (the top N
 // shown for a member asked about) and the episode rules other modules share
 // (EPISODE_CHARS, episodeDate in both forms, isSameEpisode). Pure; the
@@ -15,7 +15,7 @@ import {
   EPISODE_CHARS,
   episodeDate,
   isSameEpisode,
-} from '../src/memory/episodes.js';
+} from '../src/memory/episodes.ts';
 
 const NOW = Date.UTC(2026, 8, 21, 12, 0, 0); // 2026-09-21
 
@@ -547,10 +547,10 @@ function reachableFrom(file, seen = new Set()) {
 }
 
 test('episodes: does not import prompt.js, directly or through another module', () => {
-  const reached = [...reachableFrom(path.join(ROOT, 'src', 'memory', 'episodes.js'))].map((file) =>
+  const reached = [...reachableFrom(path.join(ROOT, 'src', 'memory', 'episodes.ts'))].map((file) =>
     path.relative(ROOT, file).split(path.sep).join('/')
   );
-  assert.ok(reached.includes('src/memory/interests.js'), 'the walk follows imports');
+  assert.ok(reached.includes('src/memory/interests.ts'), 'the walk follows imports');
   assert.equal(reached.includes('src/behavior/prompt.js'), false);
 });
 

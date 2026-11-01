@@ -5,7 +5,7 @@
 //
 // Once at start, after the interface is connected and the store is loaded: for every channel the
 // store knows (`store.listChannels`, the channels the persona reads) with a last observed message
-// (`lastMessageAt`, written live by src/memory/update.js#touchMemory), when the interface says the
+// (`lastMessageAt`, written live by src/memory/update.ts#touchMemory), when the interface says the
 // conversation has a newer message (`conversationInfo`'s `lastMessageAt`; unknown -> looked at anyway), the newest
 // `offlineCatchUp.maxMessages` messages are read through `history` (whole `message.received` events) and those
 // posted after the last one the bot saw are kept. All of them, across channels, oldest first and one at a time, go through

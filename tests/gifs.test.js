@@ -1,6 +1,6 @@
-// The GIF library: pure collection/ranking (src/memory/gifs.js), its storage
-// in gifs.json (src/memory/store.js), the live pipeline that feeds it
-// (src/memory/update.js#observe), the <gif> tag (src/llm/parse.ts) and the
+// The GIF library: pure collection/ranking (src/memory/gifs.ts), its storage
+// in gifs.json (src/memory/store.ts), the live pipeline that feeds it
+// (src/memory/update.ts#observe), the <gif> tag (src/llm/parse.ts) and the
 // poster (src/behavior/turn.js).
 
 import { test } from 'node:test';
@@ -17,9 +17,9 @@ import {
   normalizeGifs,
   rankGifs,
   resetGifCounts,
-} from '../src/memory/gifs.js';
-import { createStore } from '../src/memory/store.js';
-import { createMemoryUpdater } from '../src/memory/update.js';
+} from '../src/memory/gifs.ts';
+import { createStore } from '../src/memory/store.ts';
+import { createMemoryUpdater } from '../src/memory/update.ts';
 import { parseOutput } from '../src/llm/parse.ts';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
@@ -474,7 +474,7 @@ test('store.recordOwnGif: persists the stamp; an unknown key writes nothing', ()
 
 // --- the live pipeline -------------------------------------------------------
 
-// PR 7d: the GIF switch is code and the library's measures are constants of src/memory/gifs.js.
+// PR 7d: the GIF switch is code and the library's measures are constants of src/memory/gifs.ts.
 function hotFor() {
   return { config: { bot: { timezone: 'UTC' } }, prompts: { labels } };
 }

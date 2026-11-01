@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRoleHealth } from '../src/llm/role-health.ts';
 import { ImageGenError } from '../src/llm/images.ts';
-import { createDescriber } from '../src/memory/describe.js';
+import { createDescriber } from '../src/memory/describe.ts';
 import { fill } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 import { call, toolAnswer } from './fixtures/tool-answers.js';

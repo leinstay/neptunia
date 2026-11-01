@@ -6,10 +6,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.ts';
-import { createStore, operationalJsonPath } from '../src/memory/store.js';
-import { createRecord } from '../src/memory/record.js';
-import { createVectors } from '../src/memory/vectors.js';
-import { createEmbedder } from '../src/memory/embedder.js';
+import { createStore, operationalJsonPath } from '../src/memory/store.ts';
+import { createRecord } from '../src/memory/record.ts';
+import { createVectors } from '../src/memory/vectors.ts';
+import { createEmbedder } from '../src/memory/embedder.ts';
 import { GUILD, GUILD_2, MEMBER, readerEnv } from './fixtures/memory-db/readers.js';
 import { buildDataDir } from './fixtures/memory-db/datadir.js';
 

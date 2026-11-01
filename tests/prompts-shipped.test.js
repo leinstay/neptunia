@@ -42,8 +42,8 @@ import { onWorld, onWorldIface, useIface, useSelf, world, worldChannels } from '
 const worldChannelsOf = (channels) => worldChannels(GUILD, channels);
 import { withTextPreviews } from '../src/media/text-preview.ts';
 import { createCalibrator } from '../src/llm/tokens.ts';
-import { createDescriber } from '../src/memory/describe.js';
-import { createAvatarQueue } from '../src/memory/avatar-queue.js';
+import { createDescriber } from '../src/memory/describe.ts';
+import { createAvatarQueue } from '../src/memory/avatar-queue.ts';
 import { createLookup } from '../src/web/lookup.ts';
 import { loadSkills } from '../src/tools/registry.ts';
 import { listSkills } from '../src/tools/gateway.ts';
@@ -106,7 +106,7 @@ const NOT_BUILT = {
   'description-check': 'built over the memory database (src/memory/db/describe.ts)',
   // PR 7d: her own tools are code, so these load only behind a call of hers (web.search, web.read, memory.search,
   // media.look), which no request built here makes; the tests of those tools check what they send.
-  'rewatch-answer': 'loaded behind her media.look call (src/memory/describe.js), which no turn here makes',
+  'rewatch-answer': 'loaded behind her media.look call (src/memory/describe.ts), which no turn here makes',
   lookup: 'loaded behind her search calls (src/turn/phases/request), which no turn here makes',
   'search-summary': 'loaded behind her web.search call (src/web/lookup.ts), which no turn here makes',
   'recall-summary': 'loaded behind her memory.search call (src/behavior/recall-run.js), which no turn here makes',

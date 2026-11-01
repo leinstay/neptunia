@@ -29,7 +29,7 @@ import {
   traceAgreement,
 } from '../tools/lib/recall-eval.mjs';
 import { createRecall } from '../src/behavior/recall-run.js';
-import { toRecordLine } from '../src/memory/record.js';
+import { toRecordLine } from '../src/memory/record.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createLookup } from '../src/web/lookup.ts';
@@ -63,7 +63,7 @@ function question(fields = {}) {
   };
 }
 
-/** A record line of `channelId` at `ts` (src/memory/record.js#toRecordLine). */
+/** A record line of `channelId` at `ts` (src/memory/record.ts#toRecordLine). */
 function recLine(n, ts, text, { channelId = C1, by = ANA, kind = 'seen', revision = 1 } = {}) {
   return toRecordLine(
     { id: id(n), channelId, authorId: by, content: text, ts },

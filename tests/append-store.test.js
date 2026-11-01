@@ -1,10 +1,10 @@
-// Tests for src/memory/append-store.js: serialized JSONL appends, tail recovery,
+// Tests for src/memory/append-store.ts: serialized JSONL appends, tail recovery,
 // streaming reads, the retry queue and locked rewrites.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createAppendStore } from '../src/memory/append-store.js';
+import { createAppendStore } from '../src/memory/append-store.ts';
 import { tempDir } from './fixtures/tmp.js';
 
 function tmpDir() {

@@ -10,7 +10,7 @@ import { placeKey } from '../behavior/previous-think.js';
 import { withCalls, withTriggers } from '../format.js';
 import { SOURCE_CHARS_MAX, lineSourcesOf, textsOf } from '../intentions/sources.ts';
 import { log } from '../log.js';
-import { toRecordLine } from '../memory/record.js';
+import { toRecordLine } from '../memory/record.ts';
 import { outcomeDetail } from '../tools/executors.ts';
 import { CALL_MARKS_MAX, POSTED_FROM_MAX, TRIGGER_LINKS_MAX } from './calls.ts';
 import { FAILED_TURN_KEEP_MS, NO_OP, journalTurnRecord, journalUsage } from './journal.ts';
@@ -27,14 +27,14 @@ const FAILED_TURNS_KEPT = 3;
 /** How old her previous think may be, in minutes, to be carried into a new turn. */
 const PREVIOUS_THINK_MINUTES = 30;
 
-/** The journal (src/memory/journal.js#createJournal) as far as the notes use it. */
+/** The journal (src/memory/journal.ts#createJournal) as far as the notes use it. */
 export type NotesJournal = {
   dumpRequest?: (guildId: string, dump: Record<string, unknown>) => unknown;
   turn: (guildId: string, record: Record<string, unknown>) => unknown;
   op?: (guildId: string | undefined, fields: Record<string, unknown>) => JournalOp;
 };
 
-/** The persona's record (src/memory/record.js#createRecord) as far as `said` lines use it. */
+/** The persona's record (src/memory/record.ts#createRecord) as far as `said` lines use it. */
 export type NotesRecord = {
   append: (guildId: string, lines: Array<object>, options: { privateUserId?: string }) => unknown;
 };
@@ -489,9 +489,9 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   }
 
   /**
-   * The off periods `<now>` shows (src/memory/journal.js#offPeriods): read only with the journal
+   * The off periods `<now>` shows (src/memory/journal.ts#offPeriods): read only with the journal
    * on and features.offPeriods on (a missing key counts as on), over the last
-   * `DEFAULT_OFF_WINDOW_HOURS` hours of src/memory/journal.js, all read now; null otherwise. Never throws.
+   * `DEFAULT_OFF_WINDOW_HOURS` hours of src/memory/journal.ts, all read now; null otherwise. Never throws.
    */
   async function offPeriodsFor(guildId: string): Promise<unknown> {
     if (!journalOn()) return null;
@@ -555,7 +555,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   }
 
   /**
-   * One side effect of the attempt `draft` as a journal operation (src/memory/journal.js#op):
+   * One side effect of the attempt `draft` as a journal operation (src/memory/journal.ts#op):
    * `name`, `by` (`persona`: her output asked for it; `engine`: preparation the engine runs on
    * its own) and `fields` (`input`, `intent`, `participants`, `sourceMessageIds`, `dryRun`).
    * NO_OP when the attempt is not journalled. Its opId joins the turn record's `actions` once
@@ -595,7 +595,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
 
   /**
    * Remember which message started the turn that posted each message of `pairs`
-   * (`[postedId, triggerId]`, oldest first: src/memory/journal.js#triggerLinks at start), so
+   * (`[postedId, triggerId]`, oldest first: src/memory/journal.ts#triggerLinks at start), so
    * her lines posted before a restart name their trigger too. A malformed pair is skipped; a
    * link noted since is kept over a seeded one.
    */
@@ -608,7 +608,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   }
 
   /**
-   * Remember the persona's skill calls from before a restart (src/memory/journal.js#callMarks at
+   * Remember the persona's skill calls from before a restart (src/memory/journal.ts#callMarks at
    * start: `calls` oldest first, `postedFrom` pairs), so her lines keep showing them -- a call
    * that did not work with why (its `code` and `reason` through outcomeDetail). They go
    * before the calls noted since; a post noted since keeps its channel.

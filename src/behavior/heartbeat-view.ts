@@ -34,8 +34,8 @@
 // (never the whole view); the log carries codes, never text. Pure apart from the reads it is given.
 
 import { DAY_MS, HOUR_MS, utcDay } from '../time.js';
-import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
-import { isOpen } from '../memory/interests.js';
+import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
+import { isOpen } from '../memory/interests.ts';
 import { currentToolName } from '../tools/definitions.ts';
 import { isFiniteNumber, isObj, listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';

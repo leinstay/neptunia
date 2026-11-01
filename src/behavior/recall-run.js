@@ -27,9 +27,9 @@
 // request), under the gates the reply prompt applies to each store, and the
 // items go to the summary as `<memory>`: they alone are enough to ask it,
 // but they are notes, not chat, so they are never returned verbatim. The
-// archive (src/memory/archive.js) is a fifth source of those items, streamed
+// archive (src/memory/archive.ts) is a fifth source of those items, streamed
 // over the months asked (recall.js scanArchive); the record
-// (src/memory/record.js) of the last days is read for a dated or "recently"
+// (src/memory/record.ts) of the last days is read for a dated or "recently"
 // question (recall.js matchRecord) and its windows join the search's. Before any
 // archive entry or record line is matched, the audience rule of the turn's
 // channel refuses what the pull rail would (by the entry's `scope.channel`,
@@ -38,7 +38,7 @@
 // With `features.meaningSearch` exactly true (and `deps.vectors` / `deps.embed`
 // given) a run also searches by meaning: one embedding request of the asker's
 // message (recall.js meaningQuery; purpose `recall-query`), then the vector
-// index (src/memory/vectors.js search: the guild's, on a private turn the
+// index (src/memory/vectors.ts search: the guild's, on a private turn the
 // partner's private layer and the guild's) within the asked range, else every
 // month, `recall.meaningCandidates` rows, the same audience rule applied to
 // each row and the visible chat's ids left out. Record rows join the record
@@ -67,8 +67,8 @@
 
 import { log } from '../log.js';
 import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
-import { clampChars, oneLine } from '../memory/clamp.js';
-import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
+import { clampChars, oneLine } from '../memory/clamp.ts';
+import { foldText, liveRecent, recentSettings } from '../memory/recent.ts';
 import { DAY_MS } from '../time.js';
 import { audienceCovers } from './elsewhere.ts';
 import { audienceAllows, railAudience } from './snapshot.ts';
@@ -101,7 +101,7 @@ import {
   searchPlan,
 } from './recall.js';
 import { fitExcerpts, focusHits, lanePlan, lexicalKeep, rankPrefetch } from './prefetch.js';
-import { indexWords } from '../memory/record-index.js';
+import { indexWords } from '../memory/record-index.ts';
 import { CODE } from '../tools/codes.ts';
 import { dbSettings, quotesOf, search as dbSearch, window as dbWindow } from '../memory/db/recall.ts';
 import { channelPlaceId, nativeAuthorityOf, personId } from '../memory/db/ids.ts';
@@ -366,18 +366,18 @@ function summaryFailure(err) {
  * The recall runner for the turn (task R2 wires it beside the web search).
  * @param {object} deps
  * @param {{ config: object, prompts: object }} deps.hot  Live config + prompts; read at the moment of use.
- * @param {object} deps.store      `state` (`data`, `markDirty`) and `listUserProfiles` (src/memory/store.js);
+ * @param {object} deps.store      `state` (`data`, `markDirty`) and `listUserProfiles` (src/memory/store.ts);
  *   read only, when present: `getLore`, `getGuild` (its `learned`), `getRecent`. Never `getPrivate`.
  * @param {object} deps.llm        From createLlm(): `complete`, `capLeft`.
  * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface: the message and member
  *   searches and the history windows around a hit.
  * @param {(communityId: unknown, memberId: unknown) => (string|null)} [deps.memberName]  The name the member directory
  *   holds for a member, the last resort for a person no stored profile names.
- * @param {object|null} [deps.describer]  From createDescriber (src/memory/describe.js): only its
+ * @param {object|null} [deps.describer]  From createDescriber (src/memory/describe.ts): only its
  *   `cachedDescriptions` is used, never a fresh caption.
- * @param {{ iterate: Function }|null} [deps.archive]  From createArchive (src/memory/archive.js): only `iterate` is used (read only); without it the archive is not searched.
- * @param {{ iterate: Function }|null} [deps.record]  From createRecord (src/memory/record.js): only `iterate` is used (read only); without it the record is not read.
- * @param {{ search: Function }|null} [deps.vectors]  From createVectors (src/memory/vectors.js): only
+ * @param {{ iterate: Function }|null} [deps.archive]  From createArchive (src/memory/archive.ts): only `iterate` is used (read only); without it the archive is not searched.
+ * @param {{ iterate: Function }|null} [deps.record]  From createRecord (src/memory/record.ts): only `iterate` is used (read only); without it the record is not read.
+ * @param {{ search: Function }|null} [deps.vectors]  From createVectors (src/memory/vectors.ts): only
  *   `search` is used. Without it (or `deps.embed`) no run searches by meaning.
  * @param {((texts: string[], opts: object) => Promise<Float32Array[]>)|null} [deps.embed]  src/llm/embed.ts's `embed`: one call per run that searches by meaning.
  * @param {{ database: () => (object|null) }|null} [deps.memoryDb]  src/memory/db/service.ts: the open memory database
@@ -436,7 +436,7 @@ export function createRecall({
   /**
    * The people the `who` forms point at, at most `maxPeople`: per form, the
    * stored profiles one of whose names or alias names equals the whole form
-   * (both folded, src/memory/recent.js#foldText), the persona's own profile
+   * (both folded, src/memory/recent.ts#foldText), the persona's own profile
    * never; then -- for a Latin form no profile matched -- the interface's member
    * search (prefix match), other bots left out. A member search is not sent
    * once `searchUntil` is past.
@@ -1754,7 +1754,7 @@ export function createRecall({
    * as their captions. With `features.recallTrace` true every run with
    * `features.recall` on appends its trace record (store.appendRecallTrace;
    * see traceLine), one skipped by a gate above included, with the reason in
-   * `skipped`; a private chat without a guild has nowhere to write it. `op` (optional, a journal operation: src/memory/journal.js#op,
+   * `skipped`; a private chat without a guild has nowhere to write it. `op` (optional, a journal operation: src/memory/journal.ts#op,
    * as the turn hands it) is started once the gates above passed, before the
    * first request, and closed with the run: `succeeded` with `status` (`ok`,
    * or `timeout` when the run ran out yet left its fallback stretch), `hits`

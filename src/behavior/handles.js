@@ -15,8 +15,8 @@
 
 import { createHash } from 'node:crypto';
 import { fill } from '../format.js';
-import { oneLine } from '../memory/clamp.js';
-import { isOpen } from '../memory/index.js';
+import { oneLine } from '../memory/clamp.ts';
+import { isOpen } from '../memory/index.ts';
 import { outsideUrls } from '../memory/mentions.ts';
 
 /** The first character of every handle: tells a handle from a name after `@`. */
@@ -115,7 +115,7 @@ function sortedNames(values) {
  * The people directory's members from the stored profiles of the served guild: one entry per
  * member, never the persona herself (`selfId`; bots get no profile: the live pipeline skips
  * their lines). `names`: the stored
- * names the platform gave them; `aliases`: their open stored aliases (src/memory/interests.js#isOpen),
+ * names the platform gave them; `aliases`: their open stored aliases (src/memory/interests.ts#isOpen),
  * as stored, without one equal to a name. Both one-line, each once, in code point order, so
  * the stored order (the newest name first) never moves the text. A member with neither is
  * left out. Sorted by their first name (else first alias), then id. No notes, games or weights.

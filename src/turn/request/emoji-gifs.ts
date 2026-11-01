@@ -4,12 +4,12 @@
 // GIF picker (src/turn/draw-gif.ts) and her GIF tools (src/tools/tools.ts) read them.
 
 import { fill, fillGifFields, formatDuration } from '../../format.js';
-import { normalizeGifs, rankEmojiUsage, rankGifs } from '../../memory/index.js';
-import { clampWithEllipsis } from '../../memory/clamp.js';
+import { normalizeGifs, rankEmojiUsage, rankGifs } from '../../memory/index.ts';
+import { clampWithEllipsis } from '../../memory/clamp.ts';
 import { HOUR_MS } from '../../time.js';
 import type { Cost, EmojiRef, Fit, Labels, Message, RequestConfig } from './types.ts';
-import { GIF_HALF_LIFE_DAYS } from '../../memory/gifs.js';
-import { EMOJI_HALF_LIFE_DAYS } from '../../memory/emoji-usage.js';
+import { GIF_HALF_LIFE_DAYS } from '../../memory/gifs.ts';
+import { EMOJI_HALF_LIFE_DAYS } from '../../memory/emoji-usage.ts';
 
 /** The describer cache (store.getMediaCache), read only: a caption, or a three-field GIF description, per item id. */
 export type MediaCache = {
@@ -24,7 +24,7 @@ export type MediaCache = {
     | undefined;
 };
 
-/** One GIF of the library (src/memory/gifs.js): its handle, its media item and when the persona last posted it. */
+/** One GIF of the library (src/memory/gifs.ts): its handle, its media item and when the persona last posted it. */
 export type GifEntry = { readonly id: string; readonly itemId: string; readonly ownLast?: number };
 
 /** The describer cache as its callers hand it (store.getMediaCache), read through MediaCache's shape. */
@@ -37,7 +37,7 @@ export type Held<T> = { bucket: number; signature: string; value: T };
 /**
  * The `<emoji>` section's items: `labels.emoji.header` first, then one line
  * per custom emoji -- the top-ranked ids of `guild.emojiUsage` (see
- * src/memory/emoji-usage.js#rankEmojiUsage) that the index still has, topped
+ * src/memory/emoji-usage.ts#rankEmojiUsage) that the index still has, topped
  * up with the rest of the index in its own order (a fresh install with no
  * ranking yet shows the first `max` of the index), at most `max` lines. The
  * name is the index's current one. A `vision` caption cached under
@@ -169,7 +169,7 @@ export function freezePerBucket<T>(
 /**
  * The `<gifs>` section's items: `labels.gifs.header` first, then one line
  * per GIF of the library -- the top `GIFS_MAX` by rank
- * (src/memory/gifs.js#rankGifs, `GIF_HALF_LIFE_DAYS`), each
+ * (src/memory/gifs.ts#rankGifs, `GIF_HALF_LIFE_DAYS`), each
  * rendered by gifLine (the three caption fields through
  * `labels.gifs.entryFields`, an older one-line caption through
  * `labels.gifs.entry`, cut per field by gifFieldChars -- only here: the cached caption stays as stored --,
@@ -241,7 +241,7 @@ export function gifFieldChars(): { reactionChars: number; actionChars: number } 
  * The one-line caption of a GIF library entry: the `vision` caption cached
  * under its `itemId` (the describer's cache; a `miss` entry has none), cut to
  * `actionChars` (0 = whole) at a word boundary, a cut marked with an ellipsis
- * (src/memory/clamp.js#clampWithEllipsis, a hard limit); '' when there is
+ * (src/memory/clamp.ts#clampWithEllipsis, a hard limit); '' when there is
  * none. Render time only, so a caption stored whole or stored cut renders the
  * same way. Whether an entry is captioned at all (the GIF picker lists only
  * those). Pure.
@@ -258,7 +258,7 @@ export function gifCaption(
 
 /**
  * The three caption fields of a GIF library entry described in that format
- * (src/memory/describe.js#parseGifDescription: the cache entry holds a
+ * (src/memory/describe.ts#parseGifDescription: the cache entry holds a
  * `reaction` or a `screen` string), each cut at render time like gifCaption
  * -- `reaction` and `screen` to `reactionChars`, `action` to `actionChars`
  * (0 = whole) --, `text` being the on-screen text; null for an entry in the

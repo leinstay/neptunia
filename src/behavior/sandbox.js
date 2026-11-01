@@ -66,10 +66,10 @@ import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
 import { parseOutput } from '../llm/parse.ts';
 import { log } from '../log.js';
-import { clampChars, oneLine } from '../memory/clamp.js';
-import { findGif } from '../memory/index.js';
+import { clampChars, oneLine } from '../memory/clamp.ts';
+import { findGif } from '../memory/index.ts';
 import { tokenIds } from '../memory/mentions.ts';
-import { liveRecent, recentSettings } from '../memory/recent.js';
+import { liveRecent, recentSettings } from '../memory/recent.ts';
 import { checkSkill, listSkills } from '../tools/gateway.ts';
 import { exposedSkillNames, proposalVerdicts, proposedRows } from '../tools/discovery.ts';
 import { outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
@@ -345,7 +345,7 @@ function keepBefore(list, later) {
  * newest stored entry is one of them, the current `reason` came from it (or
  * from a later one): it falls back to the reason of the newest entry kept that
  * has one -- an entry may carry an empty reason (a two-stage move not worded
- * yet, see src/memory/affinity.js#applyDelta), and the stored reason then
+ * yet, see src/memory/affinity.ts#applyDelta), and the stored reason then
  * stayed the earlier one -- or to none. The score is left as stored.
  */
 function affinityBefore(affinity, cutoff) {
@@ -404,7 +404,7 @@ function loreBefore(entries, cutoff) {
 }
 
 /**
- * The recent store (src/memory/store.js#getRecent) before `cutoff`: the lines
+ * The recent store (src/memory/store.ts#getRecent) before `cutoff`: the lines
  * the analyzer added at or after it left out (by `addedAt`; a line without
  * one, by the time of the moment it is about, `at`). A new object when a line
  * was hidden, the given one otherwise; a value without `lines` (a view
@@ -522,7 +522,7 @@ function readOnlyCalibrator(live) {
  * Nothing is copied. `calibrator` measures tokens the way a real turn does
  * (the live ratio, read at call time) and never feeds the live calibrator;
  * without a live `calibrator` it is the identity one (ratio 1).
- * `memory.getRecent` is the guild's recent store (src/memory/store.js#getRecent),
+ * `memory.getRecent` is the guild's recent store (src/memory/store.ts#getRecent),
  * null for a store that keeps none. A view passed instead must offer the same
  * shape (a missing `calibrator` counts as the identity one, a missing
  * `memory.getRecent` as no recent store).

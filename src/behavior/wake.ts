@@ -17,7 +17,7 @@
 // data, not wording.
 
 import { fill, formatClock, formatDate, formatNow } from '../format.js';
-import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
+import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { estimateTokens } from '../llm/tokens.ts';
 import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';

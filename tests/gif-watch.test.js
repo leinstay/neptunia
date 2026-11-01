@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { gifWatchBlocker, gifWatchPrompt } from '../src/memory/gif-watch.js';
+import { gifWatchBlocker, gifWatchPrompt } from '../src/memory/gif-watch.ts';
 
 const VIDEO = { 'describe-video': 'video {{maxChars}}' };
 const GIF = { 'describe-gif': 'gif {{maxChars}} {{seconds}}' };

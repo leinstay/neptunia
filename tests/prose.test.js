@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptProse, overLimitOf, sentenceDiff } from '../src/memory/prose.js';
+import { acceptProse, overLimitOf, sentenceDiff } from '../src/memory/prose.ts';
 
 test('acceptProse: a rewrite at the limit is replaced, one over is refused and keeps the previous text', () => {
   const prev = 'Παλιό κείμενο.';

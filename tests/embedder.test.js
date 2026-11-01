@@ -1,10 +1,10 @@
-// Tests for src/memory/embedder.js: the live embedding queue over a real record in the memory
+// Tests for src/memory/embedder.ts: the live embedding queue over a real record in the memory
 // database of a temporary data/ directory, with a fake embedding call and a fake vector index (no
 // network, no real data).
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRecord } from '../src/memory/record.js';
-import { createEmbedder } from '../src/memory/embedder.js';
+import { createRecord } from '../src/memory/record.ts';
+import { createEmbedder } from '../src/memory/embedder.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.js';
 
 const GUILD = '600000000000000001';
@@ -54,7 +54,7 @@ after(async () => {
 });
 
 /** A temp data/ with its database, the real record, a fake index and embed call, and the queue over them. */
-// PR 7d: the index switches are code and the queue's measures constants of src/memory/embedder.js (a batch of 64, a
+// PR 7d: the index switches are code and the queue's measures constants of src/memory/embedder.ts (a batch of 64, a
 // flush after 180 s, a queue of 2000, a catch-up every 60 minutes), so the config holds only the dimensions.
 function scene({ embedImpl = null, paused = null } = {}) {
   const mem = openTestMemorySync();

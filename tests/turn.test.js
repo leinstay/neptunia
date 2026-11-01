@@ -22,8 +22,8 @@ import { handleOf } from '../src/behavior/handles.js';
 import { ImageGenError } from '../src/llm/images.ts';
 import { DailyCapError, TokenLimitError } from '../src/llm/openrouter.ts';
 import { pingStatus } from '../src/behavior/elsewhere.ts';
-import { findGif } from '../src/memory/gifs.js';
-import { callMarksOf, createJournal } from '../src/memory/journal.js';
+import { findGif } from '../src/memory/gifs.ts';
+import { callMarksOf, createJournal } from '../src/memory/journal.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import '../src/tools/impl/index.ts';
 import { loadSkills, skillRegistry } from '../src/tools/registry.ts';
@@ -7506,7 +7506,7 @@ test('turn: pulled lines appear in seen.pulled', async () => {
   assert.ok(turn.participants.includes('u3'), 'the pulled lines name their authors');
 });
 
-// ---- the record (src/memory/record.js): the persona's posted lines ----
+// ---- the record (src/memory/record.ts): the persona's posted lines ----
 
 test('turn: a successful post writes a said line', async () => {
   const earlier = rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Zoé', ts: NOW - 5000, content: 'καλημέρα' });

@@ -3,14 +3,14 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { normalizeTopic } from '../../memory/index.js';
+import { normalizeTopic } from '../../memory/index.ts';
 import { NONE, confirmTarget, learnedLine } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { callMethod, listOf, objOf, textOf } from '../types.ts';
 import type { Env } from './env.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
-import { MEMORY_LIMITS } from '../../memory/text-limits.js';
+import { MEMORY_LIMITS } from '../../memory/text-limits.ts';
 
 const handlers = perEnv((env) => {
   const { hot, store, assertNotPaused, requireGuildId, tokenResolver } = env;

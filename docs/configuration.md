@@ -347,7 +347,7 @@ Settings for the channel route classifier.
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `memory.vaultDir` | string | `"vault"` | Directory under `data/` that an older install may have used for copies of deleted memory. Nothing in the engine writes here now; the setting tells `memory.snapshot` where to find it so the vault is skipped when copying | `src/memory/root.js` |
+| `memory.vaultDir` | string | `"vault"` | Directory under `data/` that an older install may have used for copies of deleted memory. Nothing in the engine writes here now; the setting tells `memory.snapshot` where to find it so the vault is skipped when copying | `src/memory/root.ts` |
 | `memory.mainChannelIds` | array | `[]` | Channels where people talk to each other; used for character/style portraits and as the destination for calls from read-only channels. Empty means every channel counts | `src/behavior/elsewhere.ts` |
 
 ## `media`
@@ -356,21 +356,21 @@ Settings for the media describer. The describer model is `models.base.vision`. S
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `media.maxOutputTokens` | number | `2000` | Max output tokens per description | `src/memory/avatar-queue.js` |
-| `media.recacheBefore` | string, null | `null` | ISO date-time, or `null` (off). Descriptions written before it are described again when they come up | `src/memory/describe.js` |
-| `media.video.provider` | map, null | `{ "order": ["google-ai-studio"], "allow_fallbacks": false }` | Provider routing for the direct-URL path. `null` uses the normal resolution | `src/memory/describe.js` |
+| `media.maxOutputTokens` | number | `2000` | Max output tokens per description | `src/memory/avatar-queue.ts` |
+| `media.recacheBefore` | string, null | `null` | ISO date-time, or `null` (off). Descriptions written before it are described again when they come up | `src/memory/describe.ts` |
+| `media.video.provider` | map, null | `{ "order": ["google-ai-studio"], "allow_fallbacks": false }` | Provider routing for the direct-URL path. `null` uses the normal resolution | `src/memory/describe.ts` |
 | `media.video.maxOutputTokens` | number | `800` | Max output tokens per video summary | `src/llm/openrouter.ts` |
-| `media.video.maxRequestTokens` | number | `60000` | Token cap per video request | `src/memory/describe.js` |
+| `media.video.maxRequestTokens` | number | `60000` | Token cap per video request | `src/memory/describe.ts` |
 | `media.video.timeoutMs` | number | `90000` | LLM request timeout for video (ms) | `src/media/fetch-image.ts` |
 | `media.video.toolTimeoutMs` | number | `120000` | Timeout for `yt-dlp` and `ffmpeg` subprocesses (ms) | `src/media/fetch-video.ts` |
 | `media.video.sites` | array | `["youtube.com", "youtu.be", "tiktok.com", "vk.com", "vkvideo.ru", "x.com", "twitter.com", "reddit.com", "twitch.tv"]` | Hostnames treated as video | `src/tools/tools.ts` |
 | `media.video.ytdlpPath` | string | `"yt-dlp"` | Path to `yt-dlp` | `src/media/fetch-video.ts` |
 | `media.video.ffmpegPath` | string | `"ffmpeg"` | Path to `ffmpeg` | `src/media/fetch-video.ts` |
 | `media.video.proxy` | string | `""` | A proxy URL for `yt-dlp`. `""` = no proxy | `src/media/video-sites.ts` |
-| `media.video.proxySites` | array | `["youtube.com", "youtu.be"]` | Sites that use the proxy | `src/memory/describe.js` |
+| `media.video.proxySites` | array | `["youtube.com", "youtu.be"]` | Sites that use the proxy | `src/memory/describe.ts` |
 | `media.video.proxyRetryMinutes` | number | `10` | Minutes links skip the proxy after a failure | `src/media/fetch-video.ts` |
-| `media.video.errorRetryMinutes` | number | `60` | Minutes before an error-cached video is retried | `src/memory/describe.js` |
-| `media.video.rewatch.maxOutputTokens` | number | `600` | Max output tokens for the re-watch answer | `src/memory/describe.js` |
+| `media.video.errorRetryMinutes` | number | `60` | Minutes before an error-cached video is retried | `src/memory/describe.ts` |
+| `media.video.rewatch.maxOutputTokens` | number | `600` | Max output tokens for the re-watch answer | `src/memory/describe.ts` |
 
 ## `web`
 

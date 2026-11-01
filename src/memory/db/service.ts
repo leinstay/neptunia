@@ -1022,8 +1022,8 @@ export function createMemoryDb({
     const db = dbOf(handle);
     reembedRun = (async () => {
       const [{ quantize }, { recordChunk }, { roleModel }] = await Promise.all([
-        import('../vectors.js'),
-        import('../chunks.js'),
+        import('../vectors.ts'),
+        import('../chunks.ts'),
         import('../../llm/roles.ts'),
       ]);
       const config = hot.config;

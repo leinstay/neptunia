@@ -4,12 +4,12 @@
 // them.
 
 import { fill } from '../../format.js';
-import { channelActivity, isConfirmed, matchLore, renderChannel } from '../../memory/index.js';
+import { channelActivity, isConfirmed, matchLore, renderChannel } from '../../memory/index.ts';
 import { ID_DIGITS } from '../../memory/mentions.ts';
-import { topByRank } from '../../memory/ranking.js';
+import { topByRank } from '../../memory/ranking.ts';
 import { resolveChatText } from './text.ts';
 import type { Claim, LabelGroup, Labels, Message, NameOf, RequestConfig } from './types.ts';
-import { MEMORY_LIMITS } from '../../memory/text-limits.js';
+import { MEMORY_LIMITS } from '../../memory/text-limits.ts';
 
 /** A channel's stored note (store.listChannels), or the current channel's stand-in. */
 export type StoredChannel = {
@@ -93,7 +93,7 @@ export function currentChannelFallback(
  * where-am-I fallback. A pulled channel (`<channel_view>`) joins the list
  * the same way: the caller puts its id ahead of the neighbours'. An entry
  * whose id is in `readOnlyIds` (a channel the bot can read but not write in)
- * carries `labels.server.readOnly` (src/memory/channels.js#renderChannel,
+ * carries `labels.server.readOnly` (src/memory/channels.ts#renderChannel,
  * never on the current channel).
  */
 export function serverItems(
@@ -228,7 +228,7 @@ export function aboutChatItems(
 }
 
 /**
- * Render the `<lore>` block's entries: whatever `matchLore` (src/memory/lore.js)
+ * Render the `<lore>` block's entries: whatever `matchLore` (src/memory/lore.ts)
  * surfaces from the last `lore.scanMessages` transcript messages plus the
  * trigger, via `labels.lore.entry`. `[]` when there is no stored lore, no
  * match, or `labels.lore.entry` is missing (an older labels.json never

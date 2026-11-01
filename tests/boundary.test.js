@@ -19,7 +19,7 @@ import { skillRegistry } from '../src/tools/registry.ts';
 import { createTurnRunner, fakeStore, hotWith, sequenceLlm } from './fixtures/turn-harness.js';
 import { GUILD, MINUTE, START, innerRig, newHistory, replyTo, rowsOf } from './fixtures/boundary.js';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.js';
-import { createStore } from '../src/memory/store.js';
+import { createStore } from '../src/memory/store.ts';
 
 const SILENT = { info() {}, warn() {}, error() {}, debug() {} };
 

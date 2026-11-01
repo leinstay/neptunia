@@ -47,7 +47,7 @@ import {
 import '../src/tools/impl/index.ts';
 import { call as toolCall } from './fixtures/tool-answers.js';
 import { callBlock as toolCallBlock } from './fixtures/tool-answers.js';
-import { createStore } from '../src/memory/store.js';
+import { createStore } from '../src/memory/store.ts';
 import { directoryEntries } from '../src/behavior/handles.js';
 import { CliError, REFUSED_EXIT } from '../tools/lib/cli.mjs';
 import { DAY_MS, HOUR_MS, MINUTE_MS } from '../src/time.js';

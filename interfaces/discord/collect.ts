@@ -235,7 +235,7 @@ function normalizeAttachments(attachments: Collection<AttachmentLike> | undefine
  * (`linkThumbnailCacheKey`, derived from the thumbnail URL, not the message)
  * instead of the usual per-message-index one, so a repost of the same video
  * shares one description-cache entry and the slim memory buffer never has to
- * store the URL to look it up again later (see src/memory/update.js
+ * store the URL to look it up again later (see src/memory/update.ts
  * `observe()`/`analyze()`). A `kind: 'gif'` embed (a `gifv` embed or a GIF
  * site, see classifyEmbed; `videoSites` keeps a video site's `gifv` a link)
  * keeps the existing per-message-index id, unchanged. A `kind: 'link'` embed whose URL

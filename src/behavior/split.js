@@ -6,7 +6,7 @@
 // and the chain of turns live in src/behavior/turn.js.
 
 import { isPlainObject } from '../config.js';
-import { oneLine } from '../memory/clamp.js';
+import { oneLine } from '../memory/clamp.ts';
 
 /** The `split` group when a key is missing or unusable: config.json's values. */
 export const SPLIT_DEFAULTS = Object.freeze({

@@ -8,7 +8,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMirrors } from '../src/behavior/mirror.ts';
 import { createDiary } from '../src/behavior/diary.ts';
-import { createStore } from '../src/memory/store.js';
+import { createStore } from '../src/memory/store.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { contentHash, preparePublication } from '../src/memory/db/publish.ts';

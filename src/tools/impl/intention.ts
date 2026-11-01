@@ -28,7 +28,7 @@
 // Answers are operator lines (ids, states, times, the recurrence, the place), the purpose cut to one short line.
 
 import { formatClock, formatDate } from '../../format.js';
-import { clampWithEllipsis, oneLine } from '../../memory/clamp.js';
+import { clampWithEllipsis, oneLine } from '../../memory/clamp.ts';
 import { HEARTBEAT_ORIGIN, isIntentionId, parseEvery, parseWhen } from '../../intentions/model.ts';
 import { isOwnerCaller } from './grants.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';

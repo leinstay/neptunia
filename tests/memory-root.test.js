@@ -1,10 +1,10 @@
-// Tests for src/memory/root.js: memoryRootOf maps a `data/` directory to the memory's paths,
+// Tests for src/memory/root.ts: memoryRootOf maps a `data/` directory to the memory's paths,
 // byte-identical to the joins the stores made by hand before it existed. Pure, no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR, memoryRootOf } from '../src/memory/root.js';
-import * as store from '../src/memory/store.js';
+import { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR, memoryRootOf } from '../src/memory/root.ts';
+import * as store from '../src/memory/store.ts';
 
 const dataDir = path.join(path.sep, 'srv', 'bot', 'data');
 const root = memoryRootOf(dataDir);

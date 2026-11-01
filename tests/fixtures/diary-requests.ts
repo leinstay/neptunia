@@ -7,7 +7,7 @@
 // selfreflection wake (recorded with `{ mirror: false }`). With `mirror: true` memory also holds `d1` as a place of the
 // fake interface named `journal` and the diary's one enabled mirror on it, which is what the wake rebuilds the channel's
 // inputs from. Synthetic text only.
-import { createStore } from '../../src/memory/store.js';
+import { createStore } from '../../src/memory/store.ts';
 import { dbOf, seedMirror, seedPlace } from './diary-mirror.ts';
 import { labels } from './labels.js';
 import { openTestMemory } from './memory-db/service.js';

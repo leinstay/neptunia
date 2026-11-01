@@ -1,4 +1,4 @@
-// Tests for src/memory/chunks.js: the text and provenance of one vector of the meaning index, from
+// Tests for src/memory/chunks.ts: the text and provenance of one vector of the meaning index, from
 // a record line with its preceding lines of the same channel, or from an archive entry.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,7 +12,7 @@ import {
   newestRevisions,
   recordChunk,
   recordChunks,
-} from '../src/memory/chunks.js';
+} from '../src/memory/chunks.ts';
 
 const ELENI = '411111111111111111';
 const NIKOS = '422222222222222222';

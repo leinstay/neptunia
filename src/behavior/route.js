@@ -13,8 +13,8 @@
 // structural fields only.
 
 import { block, classifierTranscript, fillPromptTemplate, stableThenTail } from './prompt.js';
-import { clampText, oneLine } from '../memory/clamp.js';
-import { topByRank } from '../memory/ranking.js';
+import { clampText, oneLine } from '../memory/clamp.ts';
+import { topByRank } from '../memory/ranking.ts';
 import { MAX_MESSAGE_CHARS } from '../format.js';
 
 /**
@@ -85,7 +85,7 @@ function lastAt(channel) {
  * The channel's main writer: its first `topWriters` entry when that writer
  * wrote at least half of `messageCount`, named by their stored profile
  * (`names[0]`) with their top WRITER_ALIASES aliases by rank
- * (src/memory/ranking.js#topByRank, decayed with `aliasHalfLifeDays`). Null
+ * (src/memory/ranking.ts#topByRank, decayed with `aliasHalfLifeDays`). Null
  * when there is none, or no stored name to show.
  * @param {object} channel  A stored channel entry.
  * @param {(userId: string) => object|null} profileOf
@@ -154,7 +154,7 @@ export function routeEntries({ channels, exclude = [], check, profileOf, max, al
  * most `max`, numbered from 1 -- `n | #name | writer (alias, alias) | purpose`.
  * The writer part is empty when there is none (and the name alone when it has
  * no alias); the purpose is put on one line and cut at a clean boundary to
- * `purposeChars` (src/memory/clamp.js#clampText, tolerance 1), 0 leaving it
+ * `purposeChars` (src/memory/clamp.ts#clampText, tolerance 1), 0 leaving it
  * out. Structural fields only: no words of ours. `ids[n - 1]` is the channel
  * of line `n`.
  * @param {{ id: string, name: string, writer?: { name: string, aliases?: string[] }|null, purpose?: string }[]} entries

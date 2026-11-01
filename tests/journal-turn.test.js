@@ -10,7 +10,7 @@ import path from 'node:path';
 
 import '../src/tools/impl/index.ts';
 import { createAdmin } from '../src/admin.js';
-import { createJournal, turnOfMessage, turnView } from '../src/memory/journal.js';
+import { createJournal, turnOfMessage, turnView } from '../src/memory/journal.ts';
 import { executeCall, resolveCall } from '../src/tools/executors.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { journalTurnRecord } from '../src/behavior/turn.js';

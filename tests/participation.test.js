@@ -1,4 +1,4 @@
-// Tests for the participation store (src/memory/participation.js): recording the
+// Tests for the participation store (src/memory/participation.ts): recording the
 // persona's lines with their surroundings, expiry, a forget, and the read side
 // (headlines, selection, the character cut).
 
@@ -17,7 +17,7 @@ import {
   recordFollowing,
   recordOwnLine,
   selectEpisodes,
-} from '../src/memory/participation.js';
+} from '../src/memory/participation.ts';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;

@@ -247,7 +247,7 @@ test('ffmpegGifArgs: a GIF becomes a short, even-sided, never upscaled yuv420p H
 });
 
 test('fitBitrate + ffmpegFitArgs: a longest-clip fit re-encode stays within the clip size, and that under the 20 MB body limit once base64', () => {
-  // PR 7d: the clip's length (300 s) and size (14 500 000 bytes) are constants of src/memory/describe.js.
+  // PR 7d: the clip's length (300 s) and size (14 500 000 bytes) are constants of src/memory/describe.ts.
   const [maxSeconds, maxBytes] = [300, 14_500_000];
   const { videoKbps, audioKbps } = fitBitrate({ maxBytes, seconds: maxSeconds });
   const { args } = ffmpegFitArgs('/tmp/in.webm', '/tmp/out.mp4', {

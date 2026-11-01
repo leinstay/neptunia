@@ -8,7 +8,7 @@
 // arguments, `denied` for `forbidden` and `failed` otherwise. Answers are operator lines (ids, states, titles).
 
 import { defineOp, perEnv, invalid } from './registry.ts';
-import { clampWithEllipsis, oneLine } from '../../memory/clamp.js';
+import { clampWithEllipsis, oneLine } from '../../memory/clamp.ts';
 import { CODE } from '../codes.ts';
 import { textOf } from '../types.ts';
 import type { Obj, OpContext } from '../types.ts';

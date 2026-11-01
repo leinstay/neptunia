@@ -45,7 +45,7 @@ type EventConversation = {
   parentId?: unknown;
 };
 
-/** The media kinds of a message: attachments, links, then one `sticker` per sticker (src/memory/record.js's order). */
+/** The media kinds of a message: attachments, links, then one `sticker` per sticker (src/memory/record.ts's order). */
 function mediaKindsOf(message: EventMessage): Array<string> {
   const kinds: Array<string> = [];
   for (const item of [

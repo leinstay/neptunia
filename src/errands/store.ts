@@ -18,7 +18,7 @@
 // `persona`, and the closing journal action line; a failure of any of them writes none. `pendingEnds` lists the ends
 // the board committed whose `errand.done` the core has not marked delivered (`markDelivered`), so a core started after
 // a crash finds an end it never delivered.
-// Every transition is also an `action` line of the journal (src/memory/journal.js), shaped like a skill call's
+// Every transition is also an `action` line of the journal (src/memory/journal.ts), shaped like a skill call's
 // operation: one `opId` per errand, `proposed` when queued, `started` when running, then one closing `succeeded` or
 // `failed` (with the code), counts only -- never the goal or the result; the line's `errandId` references the board
 // task (`day.work_id`). An errand's files are named to the persona by a handle `file:<errand id>/<name>` (fileOf
@@ -129,7 +129,7 @@ type StoreOptions = {
   now?: () => number;
   /** The live config (`errands.*`, `agents.<profile>` overrides, `features.journal`). */
   config?: () => Untyped;
-  /** src/memory/journal.js#createJournal's. */
+  /** src/memory/journal.ts#createJournal's. */
   journal?: Untyped;
   uuid?: () => string;
   log?: Logger;
@@ -141,7 +141,7 @@ type MemoryWrites = {
   writeUnit: (update: Record<string, unknown>) => Promise<unknown>;
   keepPending: ((update: Record<string, unknown>) => unknown) | null;
 };
-/** The journal's two writers of an `action` line the store uses (src/memory/journal.js). */
+/** The journal's two writers of an `action` line the store uses (src/memory/journal.ts). */
 type JournalWrites = {
   action: ((guildId: string, record: Record<string, unknown>) => unknown) | null;
   actionLine: ((guildId: string, record: Record<string, unknown>) => unknown) | null;

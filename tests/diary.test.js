@@ -31,7 +31,7 @@ import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { fill, localHour } from '../src/format.js';
 import { MINUTE_MS, HOUR_MS } from '../src/time.js';
 import { labels } from './fixtures/labels.js';
-import { createStore } from '../src/memory/store.js';
+import { createStore } from '../src/memory/store.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory, openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
@@ -781,7 +781,7 @@ function diaryHarness({
   const store = {
     state: { data: { ...data }, markDirty() {} },
     getDiary: () => ({ posts, updatedAt: 0 }),
-    // The store's read of the memory database (src/memory/store.js#readMemory), where the mirrors are.
+    // The store's read of the memory database (src/memory/store.ts#readMemory), where the mirrors are.
     // The service's handle is untyped JS; its `db` is the node:sqlite connection the read takes.
     readMemory: (/** @type {(db: unknown) => unknown} */ read) =>
       read(/** @type {{ db?: unknown } | null} */ (memory.memoryDb.readHandle())?.db),

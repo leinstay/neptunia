@@ -53,7 +53,7 @@ function isGifFileUrl(url: string): boolean {
 }
 
 /**
- * The animation of a gif embed, for the GIF watch (src/memory/describe.js):
+ * The animation of a gif embed, for the GIF watch (src/memory/describe.ts):
  * the mp4/webm Discord plays for a `gifv` embed
  * (`video.proxyURL` preferred, like the thumbnail, else `video.url`), else
  * the embed's own URL when it is a `.gif` file, else null.

@@ -104,7 +104,7 @@ export function createDeadline({
   };
 }
 
-/** One preparation step of the journal: its operation (src/memory/journal.js) and what became of its result. */
+/** One preparation step of the journal: its operation (src/memory/journal.ts) and what became of its result. */
 type Op = {
   opId?: string | null;
   started(extra?: Record<string, unknown>): unknown;

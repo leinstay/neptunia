@@ -1,7 +1,7 @@
 // `conversation.read`: the persona's in-turn tool for reading a channel she may read, in order
 // (docs/inner-life.md). Her arguments pick a span of one channel -- the
 // newest `last` messages, the ones `around` a message, `before` or `after` a message, or every
-// one `since` a moment --, the span is read from the record first (src/memory/record.js, the
+// one `since` a moment --, the span is read from the record first (src/memory/record.ts, the
 // newest revision of each message, a deleted one as a placeholder) and from the interface's
 // history when the record lacks it, and comes back as the chat transcript renders it
 // (src/format.js#formatTranscript: author, time, text, media, edits, deletions), each line with
@@ -13,7 +13,7 @@
 import { fill, formatTranscript } from '../format.js';
 import { parseWhen } from '../intentions/model.ts';
 import { DAY_MS } from '../time.js';
-import { oneLine } from '../memory/clamp.js';
+import { oneLine } from '../memory/clamp.ts';
 import { CODE } from './codes.ts';
 import { lineOf } from '../behavior/line-of.js';
 import { idText, isObj, listOf, objOf } from './types.ts';

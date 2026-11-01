@@ -6,7 +6,7 @@
 import { lineOf } from '../behavior/line-of.js';
 import type { Reads } from '../interface/reads.ts';
 import { log } from '../log.js';
-import { appendRevision, gifOpts, slimMessage, toRecordLine } from '../memory/index.js';
+import { appendRevision, gifOpts, slimMessage, toRecordLine } from '../memory/index.ts';
 import type { Message, MessageReceived } from '../protocol/events.ts';
 import { utcDay } from '../time.js';
 
@@ -31,7 +31,7 @@ export type Observed = { ok?: boolean; code?: unknown; revision?: unknown } | nu
 /** The live config, as far as the edit handlers read it. */
 type EditsConfig = Record<string, unknown>;
 
-/** The record (src/memory/record.js#createRecord): its append and its newest revision. */
+/** The record (src/memory/record.ts#createRecord): its append and its newest revision. */
 type EditsRecord = {
   append: (guildId: string, lines: Array<object>, options?: object) => Promise<unknown>;
   newestRevision?: (...args: Array<never>) => unknown;
@@ -109,7 +109,7 @@ export function createEdits({
   // The record's edits (recordEdit): messageId -> the last revision written, for the UTC day
   // `revisionsDay`; cleared when the day turns, so it stays small. An edit of a message not in
   // it is revision 2 (the message itself was revision 1); one the record already holds moves
-  // past the record's newest (src/memory/record.js#appendRevision) and the count continues there.
+  // past the record's newest (src/memory/record.ts#appendRevision) and the count continues there.
   const revisions = new Map<string, number>();
   let revisionsDay: string | null = null;
 

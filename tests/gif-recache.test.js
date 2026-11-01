@@ -1,4 +1,4 @@
-// The owner's GIF recache (src/memory/gif-recache.js): which library
+// The owner's GIF recache (src/memory/gif-recache.ts): which library
 // entries a run re-describes and in what order, which one-frame captions of
 // the media cache it drops, the caption counts of `/nep gifs status`, and the
 // run itself on a real store, a fake describer and the fake interface's reads:
@@ -20,8 +20,8 @@ import {
   recacheQueue,
   recordFinder,
   snowflakeMs,
-} from '../src/memory/gif-recache.js';
-import { createStore } from '../src/memory/store.js';
+} from '../src/memory/gif-recache.ts';
+import { createStore } from '../src/memory/store.ts';
 import { normalizeOptions, toEvent } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { IFACE, channel, rig } from './fixtures/reads-rig.ts';
@@ -613,7 +613,7 @@ function rawPictureMessage(id, attachmentId) {
   };
 }
 
-/** A record whose iterate yields `lines` from `from` on, as src/memory/record.js does. */
+/** A record whose iterate yields `lines` from `from` on, as src/memory/record.ts does. */
 function fakeRecord(lines) {
   return {
     async *iterate(guildId, { from = null } = {}) {

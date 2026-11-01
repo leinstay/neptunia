@@ -5,7 +5,7 @@
 // agent names, states' codes, URLs, file handles, content types and sizes are data, not wording.
 
 import { fill } from '../format.js';
-import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
+import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { MINUTE_MS } from '../time.js';
 import { fileHandle, isOpenState } from './store.ts';
 import { listOf, objOf } from '../tools/types.ts';

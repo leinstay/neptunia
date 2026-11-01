@@ -35,7 +35,7 @@ export type InnerTurn = {
   [key: string]: unknown;
 };
 
-/** The ids the journal gave the attempt when it started (src/memory/journal.js#start). */
+/** The ids the journal gave the attempt when it started (src/memory/journal.ts#start). */
 type Started = { turnId: string; attemptId: string; startedAt: number };
 
 /** The drafts of the topic modules, all of which this one object is. */

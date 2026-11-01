@@ -358,7 +358,7 @@ function hedgeOf(config: unknown, options: CompleteOptions): { afterMs: number; 
 
 // Production values, config cut of 2026-10-31.
 /**
- * Video tokens per second of a statically sampled clip. The media describer (src/memory/describe.js) sizes its clips
+ * Video tokens per second of a statically sampled clip. The media describer (src/memory/describe.ts) sizes its clips
  * with the same one.
  */
 export const VIDEO_TOKENS_PER_SECOND = 120;
@@ -1445,7 +1445,7 @@ export function createLlm({
    * positive number, else `VIDEO_TOKENS_PER_SECOND`. The override exists for
    * the video describer's public-URL requests in agentic processing, where the
    * provider does not count the video as prompt tokens and the per-second cost
-   * is far lower (src/memory/describe.js#DIRECT_URL_TOKENS_PER_SECOND).
+   * is far lower (src/memory/describe.ts#DIRECT_URL_TOKENS_PER_SECOND).
    * `options.limits` — a collector (src/llm/limits.ts#createLimits; never sent) told the limits
    * this answered request hit: `estimate-off` (`where`: the purpose, else the model role, else
    * `request`; `lost`: the tokens over the estimate; `detail`: `estimate->actual`) when the

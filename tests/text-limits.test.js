@@ -1,4 +1,4 @@
-// Tests for src/memory/text-limits.js: the memory limits' one home stays a leaf of the import graph.
+// Tests for src/memory/text-limits.ts: the memory limits' one home stays a leaf of the import graph.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -14,6 +14,6 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LOADS_A_MODULE = [/^\s*import\b/m, /\bimport\s*\(/, /^\s*export\b[^'";]*?\bfrom\s*['"]/m];
 
 test('text-limits: a leaf module, it imports nothing and re-exports nothing', () => {
-  const source = fs.readFileSync(path.join(ROOT, 'src', 'memory', 'text-limits.js'), 'utf8');
+  const source = fs.readFileSync(path.join(ROOT, 'src', 'memory', 'text-limits.ts'), 'utf8');
   for (const pattern of LOADS_A_MODULE) assert.equal(pattern.test(source), false, String(pattern));
 });

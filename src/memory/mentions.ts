@@ -26,7 +26,7 @@
 // triggers, lore keys and the `<people>` name scan, with its ending-tolerant
 // variant (`occursAsWordStem`) used by recall's forms. And the lesson teacher
 // rule (`teacherToken`, `TEACHER_TOKEN_RE`): which member taught the persona a
-// thing (src/memory/archive.js and src/behavior/recall.js read it).
+// thing (src/memory/archive.ts and src/behavior/recall.js read it).
 //
 // Channels go the same way back out: `linkChannels` turns the `#handle` (exactly, from the
 // request's channel directory) or else the `#name` the
@@ -37,7 +37,7 @@
 // A URL the persona writes is never rewritten on the way out (`URL_PATTERN`, `outsideUrls`):
 // a `#name` or `@name` inside it is part of the address.
 
-import { foldText } from './recent.js';
+import { foldText } from './recent.ts';
 
 /**
  * The digits of a member id, as a regex source: the one id range every
@@ -51,7 +51,7 @@ export const ID_DIGITS = '\\d{17,20}';
  * the next whitespace or angle bracket (a `<url>` keeps its brackets outside).
  * The one pattern for the URLs the persona reads (the interface package caps
  * their length), the ones she writes (left alone on the way out), and the ones
- * src/memory/clamp.js#stripUrls takes out of every text her memory stores.
+ * src/memory/clamp.ts#stripUrls takes out of every text her memory stores.
  */
 export const URL_PATTERN = 'https?:\\/\\/[^\\s<>]+';
 
@@ -218,7 +218,7 @@ export function fromTokens(
 /**
  * The member ids `text` names through `<@id>` tokens, each once, in the order
  * they first appear -- how a stored text's member list is computed by code
- * rather than taken from the model (src/memory/recent.js). An `(id:...)`
+ * rather than taken from the model (src/memory/recent.ts). An `(id:...)`
  * marker is not a token; a non-string `text` names nobody.
  */
 export function tokenIds(text: unknown): Array<string> {
@@ -289,7 +289,7 @@ function wordMatches(word: ReadonlyArray<string>, formWord: ReadonlyArray<string
 
 /**
  * Whether `form` occurs in `text` allowing word endings, both already folded
- * (src/memory/recent.js#foldText) -- recall's matching of a form against stored
+ * (src/memory/recent.ts#foldText) -- recall's matching of a form against stored
  * text, tolerant of inflection. Words are runs of `isWordChar`. A form word of
  * 5+ letters without digits matches a text word that starts with its stem (the
  * word minus its last 2 letters, never under 4 letters) and is at most 3
@@ -325,7 +325,7 @@ const CORE_EDGES_RE = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
 const NAME_DECOR_RE = /[\p{So}\p{Sk}\p{Cf}\p{M}\p{Emoji_Presentation}]/u;
 
 /**
- * The core of a channel name: folded (src/memory/recent.js#foldText: case and accents) with every
+ * The core of a channel name: folded (src/memory/recent.ts#foldText: case and accents) with every
  * leading and trailing character that is no letter and no digit cut off -- emoji, symbols,
  * punctuation, variation selectors, joiners. '' when nothing is left. Models copy a leading emoji
  * of a channel name unreliably; the core is what they keep.

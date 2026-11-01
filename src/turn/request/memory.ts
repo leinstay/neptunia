@@ -4,8 +4,8 @@
 
 import { AGE_AFTER_MINUTES, fill, formatClock, formatDate, formatDuration, formatTranscript } from '../../format.js';
 import { fitSections } from '../../llm/budget.ts';
-import { cutEpisode, earlierEpisodes, participationSettings, selectEpisodes, topEpisodes } from '../../memory/index.js';
-import { oneLine } from '../../memory/clamp.js';
+import { cutEpisode, earlierEpisodes, participationSettings, selectEpisodes, topEpisodes } from '../../memory/index.ts';
+import { oneLine } from '../../memory/clamp.ts';
 import {
   RECENT_EPISODES_PER_MEMBER,
   episodeKey,
@@ -13,7 +13,7 @@ import {
   memberIdOf,
   recentSettings,
   recentView,
-} from '../../memory/recent.js';
+} from '../../memory/recent.ts';
 import { MINUTE_MS } from '../../time.js';
 import { calendarDate, resolveChatText } from './text.ts';
 import type { Base, Room } from './head.ts';
@@ -43,7 +43,7 @@ export type RecentCounts = {
   unnamed: number;
 };
 
-/** One stored line of the participation store (src/memory/participation.js). */
+/** One stored line of the participation store (src/memory/participation.ts). */
 type StoredMessage = {
   readonly id: string;
   readonly ts: number;
@@ -73,7 +73,7 @@ export type ParticipationInput = {
   readonly channelName?: (channelId: string) => string | null;
 };
 
-/** One item of src/memory/recent.js#recentView. */
+/** One item of src/memory/recent.ts#recentView. */
 export type RecentItem =
   | {
       kind: 'line';
@@ -129,7 +129,7 @@ const cutOf = (
   cutEpisode(episode, { maxChars, keepIds }) as Array<{ message: StoredMessage } | { skipped: number }>;
 
 /**
- * The `<recent>` items of a view (src/memory/recent.js#recentView), in its
+ * The `<recent>` items of a view (src/memory/recent.ts#recentView), in its
  * order, each with its text and its time (`at`). A line renders through
  * `labels.recent.lineIn` (`{date}` `{time}` `{channel}` `{text}`) when it comes
  * from another channel whose name the channel map (`channels`) holds and the
@@ -258,11 +258,11 @@ function storedLineRenderer({
 
 /**
  * The `<participation>` block's pieces before the budget: the slices of other
- * channels around the persona's own lines (src/memory/participation.js), or
+ * channels around the persona's own lines (src/memory/participation.ts), or
  * null when there is no block to build -- a private chat, `features.participation`
  * off (a missing key counts as on), no `labels.participation.header` or
  * `labels.participation.episode`, or no `participation.state`. The episodes are
- * src/memory/participation.js#selectEpisodes's (`pickedIds` first, then the
+ * src/memory/participation.ts#selectEpisodes's (`pickedIds` first, then the
  * newest; `participation.shown`, `participation.perChannel`, never the current
  * channel, only channels `audience` accepts). A line whose message id is in
  * `shownIds` (already in `<chat>`, `<other_channels>` or `<channel_view>`) is
@@ -426,7 +426,7 @@ export function anchoredOn(config: RequestConfig, labels: Labels, privateChat: b
  *   its `<chat>` number (formatTranscript over the whole `history`, every other line skipped), so a
  *   window line's reply marker and a message link still name it; the bare clock, never
  *   `transcript.timeAged`.
- * - `episode`: the persona's own saved stretch of this channel (src/memory/participation.js#
+ * - `episode`: the persona's own saved stretch of this channel (src/memory/participation.ts#
  *   earlierEpisodes: her episodes cut to their lines older than the window's first line and
  *   younger than `participation.earlierHours`, the newest `participation.earlierShown`), only with
  *   `features.participation` on. Cut to `participation.episodeChars` (cutEpisode, a run of cut

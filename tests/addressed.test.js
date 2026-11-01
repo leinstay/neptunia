@@ -1,4 +1,4 @@
-// Tests for src/memory/addressed.js: which names people actually use for a member -- the
+// Tests for src/memory/addressed.ts: which names people actually use for a member -- the
 // candidates (names shared by two members or under 3 letters left out), the per-message count
 // (never the author's own line, never inside a URL or code), the decayed score and its cap.
 // Pure, no I/O.
@@ -11,7 +11,7 @@ import {
   decayedScore,
   normalizeAddressedAs,
   rankAddressed,
-} from '../src/memory/addressed.js';
+} from '../src/memory/addressed.ts';
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 8, 1, 12, 0, 0);

@@ -9,7 +9,7 @@ import { innerOutputCalls } from '../../behavior/inner-output.js';
 import { thinkMissing } from '../../behavior/tool-step.js';
 import { parseOutput } from '../../llm/parse.ts';
 import { log } from '../../log.js';
-import { countDashes, stripDashes } from '../../memory/clamp.js';
+import { countDashes, stripDashes } from '../../memory/clamp.ts';
 import { answerOf, defaultSkills } from '../calls.ts';
 import type { Draft } from '../draft.ts';
 import { SKIP_NOTHING_TO_DO, SKIP_SILENCE, cutOffOf, journalUsage, noteDiagnostics } from '../journal.ts';

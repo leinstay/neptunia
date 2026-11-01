@@ -21,7 +21,7 @@ import { errorFields } from '../error-fields.ts';
 import { objOf } from '../tools/types.ts';
 import { roleModel } from '../llm/roles.ts';
 import { apiUrl, openRouterHeaders } from '../llm/openrouter.ts';
-import { clampText } from '../memory/clamp.js';
+import { clampText } from '../memory/clamp.ts';
 import { cleanQuery, renderResults, urlCitations, webSearchPlugins } from './lookup.ts';
 
 /** The environment variable the runner passes the search model in (src/agent-runner/opencode.ts). */

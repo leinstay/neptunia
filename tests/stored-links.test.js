@@ -1,14 +1,14 @@
 // Tests for the owner's rule that links never reach the persona's stored memory:
-// src/memory/clamp.js#stripUrls, and every write point of every memory store that
+// src/memory/clamp.ts#stripUrls, and every write point of every memory store that
 // runs it (profiles, the private layer, guild notes, lessons and self facts,
 // channel notes, the lorebook, recent notes, the archive, and the owner's ops).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { stripUrls } from '../src/memory/clamp.js';
-import { createStore } from '../src/memory/store.js';
-import { archiveEntry, archiveRevision } from '../src/memory/archive.js';
+import { stripUrls } from '../src/memory/clamp.ts';
+import { createStore } from '../src/memory/store.ts';
+import { archiveEntry, archiveRevision } from '../src/memory/archive.ts';
 import { runOp } from '../src/tools/impl/index.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';

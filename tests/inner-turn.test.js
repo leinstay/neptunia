@@ -16,7 +16,7 @@ import { createTurnRunner as createRealTurnRunner, loopSettings } from '../src/b
 import { userText } from '../src/behavior/prompt.js';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
-import { createJournal, callMarksOf } from '../src/memory/journal.js';
+import { createJournal, callMarksOf } from '../src/memory/journal.ts';
 import '../src/tools/impl/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { checkSkill } from '../src/tools/gateway.ts';

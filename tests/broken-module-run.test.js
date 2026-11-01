@@ -134,14 +134,14 @@ test('reachedModules: collects the src and interfaces modules a test imports dir
     'tests/a.test.js': [
       "import { x } from '../src/time.js';",
       "import { y } from '../interfaces/discord/send.js';",
-      "export { z } from '../src/memory/clamp.js';",
+      "export { z } from '../src/memory/clamp.ts';",
       "const m = await import('../src/log.js');",
     ].join('\n'),
   });
   assert.deepEqual(reachedModules('tests/a.test.js', read), [
     'interfaces/discord/send.js',
     'src/log.js',
-    'src/memory/clamp.js',
+    'src/memory/clamp.ts',
     'src/time.js',
   ]);
 });

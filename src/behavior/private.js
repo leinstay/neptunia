@@ -7,7 +7,7 @@
 // object for rendering only, and the public affinity score alone decides the
 // gate -- see docs/prompt-contract.md.
 
-import { normalizeTopic, clampScore } from '../memory/index.js';
+import { normalizeTopic, clampScore } from '../memory/index.ts';
 
 function finiteOr(value, fallback) {
   return Number.isFinite(value) ? value : fallback;

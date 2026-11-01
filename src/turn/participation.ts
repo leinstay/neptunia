@@ -10,8 +10,8 @@ import { audienceAllows, everyMemberAudience, railAudience } from '../behavior/s
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { log } from '../log.js';
 import { collectPictures } from '../media/classify.ts';
-import { participationSettings, recordOwnLine } from '../memory/index.js';
-import { liveRecent, recentSettings } from '../memory/recent.js';
+import { participationSettings, recordOwnLine } from '../memory/index.ts';
+import { liveRecent, recentSettings } from '../memory/recent.ts';
 import type { ConversationInfo } from '../protocol/adapter.ts';
 import { NO_RECENT } from './history.ts';
 import { inCommunity } from './routing.ts';
@@ -19,7 +19,7 @@ import { inCommunity } from './routing.ts';
 /** The config keys participation reads itself; the settings functions read their own sections. */
 export type ParticipationConfig = Record<string, unknown>;
 
-/** A participation store's state as src/memory/participation.js keeps it. */
+/** A participation store's state as src/memory/participation.ts keeps it. */
 type ParticipationState = ReturnType<typeof recordOwnLine>;
 
 /** The parts of the memory store participation reads and writes; a test's fake may lack the optional ones. */
@@ -183,7 +183,7 @@ export function createParticipation({ hot, store, around, clock }: Participation
 
   /**
    * One message of a turn's history in the participation store's shape
-   * (src/memory/participation.js): the persona's own lines named `selfName`, a picture's
+   * (src/memory/participation.ts): the persona's own lines named `selfName`, a picture's
    * caption the turn already had (`descriptions`, the first captioned picture of the line).
    */
   function participationMessage(
@@ -214,7 +214,7 @@ export function createParticipation({ hot, store, around, clock }: Participation
 
   /**
    * Record one message the persona just sent in `channel` in the guild's participation store
-   * (src/memory/participation.js#recordOwnLine, settings read now): `own` her message, `before`
+   * (src/memory/participation.ts#recordOwnLine, settings read now): `own` her message, `before`
    * the last `participation.linesBefore` lines of the turn's `history` followed by what she
    * already sent this turn (`earlier`), `parent` the line it replies to when the history holds
    * it (the reply parents the turn fetched included; nothing is fetched here). Written only when
@@ -275,7 +275,7 @@ export function createParticipation({ hot, store, around, clock }: Participation
   /**
    * The input of a turn's `<recent>` block (src/behavior/prompt.js#buildRequest
    * `recentLines` / `recentAudience`): the guild's recent lines inside the last
-   * `memory.recentHours` (src/memory/store.js#getRecent, read now) and which
+   * `memory.recentHours` (src/memory/store.ts#getRecent, read now) and which
    * source channels this turn may show them from. On a server turn: the
    * channel the turn posts in, and every channel whose audience covers it
    * (the snapshot's audiences, src/behavior/elsewhere.ts#audienceCovers:

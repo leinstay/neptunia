@@ -1,4 +1,4 @@
-// Tests for src/memory/record-index.js: the in-memory word index of the record the automatic memory
+// Tests for src/memory/record-index.ts: the in-memory word index of the record the automatic memory
 // prefetch searches -- its words, the word endings it learns from the record, the documents it
 // keeps, the distinctive terms and phrases of a query, the search, the support of a meaning hit and
 // the cache with its background refresh. No I/O: the record is a fake.
@@ -16,7 +16,7 @@ import {
   recordIndexOf,
   searchRecordIndex,
   stemmerOf,
-} from '../src/memory/record-index.js';
+} from '../src/memory/record-index.ts';
 
 const T0 = Date.UTC(2026, 9, 1, 12, 0, 0);
 const MIN = 60 * 1000;

@@ -5,12 +5,12 @@
 import { historyLines } from '../behavior/lines.ts';
 import { fill, formatTranscript, renderTranscript } from '../format.js';
 import type { Reads } from '../interface/reads.ts';
-import { topByRank } from '../memory/ranking.js';
+import { topByRank } from '../memory/ranking.ts';
 import { fillPromptTemplate } from '../turn/request/text.ts';
 import type { ConversationRef } from './conversations.ts';
 import type { MediaPrefill } from './media-prefill.ts';
 import type { Conv, Line, PipelineConfig, PipelineHot, PipelineLabels } from './types.ts';
-import { MEMORY_LIMITS } from '../memory/text-limits.js';
+import { MEMORY_LIMITS } from '../memory/text-limits.ts';
 
 // The address classifier's request. Production values, config cut of 2026-10-31.
 /** The channel lines before the candidate. */
@@ -115,7 +115,7 @@ export function createClassifierRequest({ reads, store, refOf, cachedFollowUpMed
     const cap = FOLLOW_UP_ALIASES;
     const profile = store?.getUser?.(guildId, normalized.authorId);
     const aliases: Array<object> = Array.isArray(profile?.aliases) ? (profile.aliases as Array<object>) : [];
-    // A stored alias has its name (src/memory/aliases.js).
+    // A stored alias has its name (src/memory/aliases.ts).
     const ranked = topByRank(aliases, cap, MEMORY_LIMITS.aliasHalfLifeDays) as Array<{ name: string }>;
     const names = ranked.map((item) => item.name);
     if (names.length === 0) return '';

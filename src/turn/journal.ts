@@ -1,4 +1,4 @@
-// What a turn writes to the journal (src/memory/journal.js) and how it reads its own sends back: the skip codes, the
+// What a turn writes to the journal (src/memory/journal.ts) and how it reads its own sends back: the skip codes, the
 // operation that writes nothing, how a port result closes an operation, the parser's diagnostics, the send hash and
 // the settling of unknown sends, the start and the closing record of a turn, and the usage and format counts of an
 // answer. src/behavior/turn.js calls them around every effect; the tests read the exported ones through its re-exports.
@@ -24,7 +24,7 @@ function journalMode(mode: string | null | undefined, triggerKind: TriggerKind |
   return triggerKind === 'followUp' || triggerKind === 'overheard' ? triggerKind : (mode ?? null);
 }
 
-/** One journal operation of an attempt (src/memory/journal.js#createJournal's `op`). */
+/** One journal operation of an attempt (src/memory/journal.ts#createJournal's `op`). */
 export type JournalOp = {
   opId: string | null;
   proposed: (...args: Array<unknown>) => Promise<void> | void;
@@ -187,7 +187,7 @@ export function journalResultOf(
   return out;
 }
 
-/** The fields the journal's turn record starts with (src/memory/journal.js#start): who and what the turn is for. */
+/** The fields the journal's turn record starts with (src/memory/journal.ts#start): who and what the turn is for. */
 export function journalStartOf({
   draft,
   channel,
@@ -374,7 +374,7 @@ export type JournalDraft = {
 };
 
 /**
- * One attempt's `turn` record (src/memory/journal.js) from what the attempt noted in its
+ * One attempt's `turn` record (src/memory/journal.ts) from what the attempt noted in its
  * draft and the result it returned: `reason` is the attempt's skip code (`silence`, `nothing-to-do`:
  * SKIP_SILENCE, SKIP_NOTHING_TO_DO) or refusal code, else null (old skip records carry null too).
  */

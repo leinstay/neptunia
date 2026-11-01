@@ -269,7 +269,7 @@ function buildEnv({
     lookup,
     // The server search of the recall runner (src/behavior/recall-run.js): `/nep memory search`.
     recall,
-    // The media describer (src/memory/describe.js): `/nep task look`, its second look.
+    // The media describer (src/memory/describe.ts): `/nep task look`, its second look.
     describer,
     usage,
     // The simulator key, read only by the status card's one GET of its limit; never logged.

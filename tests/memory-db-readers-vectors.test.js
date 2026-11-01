@@ -2,7 +2,7 @@
 // layer, month, range and filter, leave an evicted vector out, and fail with a code when the database cannot answer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createVectors } from '../src/memory/vectors.js';
+import { createVectors } from '../src/memory/vectors.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { GUILD, GUILD_2, MEMBER, readerEnv } from './fixtures/memory-db/readers.js';
 

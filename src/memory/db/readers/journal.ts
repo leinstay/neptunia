@@ -1,4 +1,4 @@
-// The journal's reads from the database (src/memory/journal.js reads through them).
+// The journal's reads from the database (src/memory/journal.ts reads through them).
 // A journal day is the unit `<layer>/journal/<YYYY-MM-DD>.jsonl` of `day`, `decisions`, `sources` (her answers) and
 // `affinity_events` rows (map/journal.ts); the lines come back rebuilt by the export, in file order, so a turn line
 // is joined with its answer and a memory line with its attitude rows exactly as the file holds them. Pure functions

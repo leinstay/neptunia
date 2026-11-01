@@ -13,7 +13,7 @@
 // drain (drain.ts) and the start's recovery (recovery.ts) call it; logs carry counts and codes, never text.
 
 import { reconcileUnknown } from '../../interface/reconcile.ts';
-import { toRecordLine } from '../../memory/record.js';
+import { toRecordLine } from '../../memory/record.ts';
 import { deliveriesIn, deliveryFiles, deliveryOf } from '../../memory/db/wake-queue.ts';
 import type { Delivery, DeliveryInput, DeliveryState } from '../../memory/db/wake-queue.ts';
 import type { Delivery as Sent, ConversationRef } from '../../protocol/adapter.ts';

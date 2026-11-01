@@ -1,6 +1,6 @@
-// Custom emoji usage ranking (src/memory/emoji-usage.js), its storage in
-// guild.json (src/memory/store.js, a memory unit in the database) and the live
-// observer that feeds it (src/memory/update.js).
+// Custom emoji usage ranking (src/memory/emoji-usage.ts), its storage in
+// guild.json (src/memory/store.ts, a memory unit in the database) and the live
+// observer that feeds it (src/memory/update.ts).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,9 +12,9 @@ import {
   mergeEmojiUsage,
   normalizeEmojiUsage,
   rankEmojiUsage,
-} from '../src/memory/emoji-usage.js';
-import { createStore } from '../src/memory/store.js';
-import { createMemoryUpdater } from '../src/memory/update.js';
+} from '../src/memory/emoji-usage.ts';
+import { createStore } from '../src/memory/store.ts';
+import { createMemoryUpdater } from '../src/memory/update.ts';
 import { openTestMemory } from './fixtures/memory-db/service.js';
 
 const DAY = 86_400_000;

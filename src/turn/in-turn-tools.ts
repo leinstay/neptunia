@@ -44,7 +44,7 @@ export type InTurnConfig = CheckPullArgs['config'] & {
   bot?: { timezone?: string };
 };
 
-/** The describer (src/memory/describe.js#createDescriber), as the in-turn tools use it. */
+/** The describer (src/memory/describe.ts#createDescriber), as the in-turn tools use it. */
 export type InTurnDescriber = LookDescriber & {
   cachedDescriptions?: (guildId: string, items: Array<object>) => unknown;
 };

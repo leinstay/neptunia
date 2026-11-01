@@ -1566,7 +1566,7 @@ test('renderProfile: a profile whose only content is an attitude is still render
 
 test('profileStateFields: a damped (fractional) score is rounded to an integer, the band still uses the precise value', () => {
   // 24.6 rounds to 25 for display, while the band itself is computed on the precise 24.6, which
-  // is still "warm" (the "fond" threshold is 25 and up) -- see src/memory/affinity.js#affinityBand.
+  // is still "warm" (the "fond" threshold is 25 and up) -- see src/memory/affinity.ts#affinityBand.
   const profile = { id: 'p1', names: ['Carl'], affinity: { score: 24.6, reason: 'saved my day', history: [] } };
   assert.equal(
     fieldsOf(profileStateFields(profile, labels, { relationships: true }))[F.attitude],

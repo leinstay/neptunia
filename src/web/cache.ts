@@ -1,7 +1,7 @@
 // Functions over the shared media cache (data/guilds/<id>/media.json, a plain
 // object whose key order is its recency): the web lookup's link reads and
 // searches live in it next to the media describer's entries, and the
-// describer (src/memory/describe.js) keeps its entries and question keys
+// describer (src/memory/describe.ts) keeps its entries and question keys
 // with the same functions. Pure: they only touch the object handed in.
 
 import { createHash } from 'node:crypto';

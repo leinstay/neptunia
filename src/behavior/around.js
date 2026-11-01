@@ -12,7 +12,7 @@
 // comes from `labels.peopleNow`.
 
 import { fill, formatDuration } from '../format.js';
-import { clampChars, oneLine } from '../memory/clamp.js';
+import { clampChars, oneLine } from '../memory/clamp.ts';
 
 /** Longest member-supplied text kept, in code points. */
 export const AROUND_TEXT_CHARS = 80;

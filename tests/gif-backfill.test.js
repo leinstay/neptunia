@@ -1,4 +1,4 @@
-// The GIF library history backfill (src/memory/gif-backfill.js): a history read
+// The GIF library history backfill (src/memory/gif-backfill.ts): a history read
 // through the interface that rebuilds gifs.json at once, stamps its `backfill`, then
 // has the describer caption the top entries still without a caption. A real
 // store on a temp dir, the fake interface's reads, a fake describer. The messages
@@ -9,9 +9,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { createGifBackfill } from '../src/memory/gif-backfill.js';
-import { gifOpts } from '../src/memory/gifs.js';
-import { createStore } from '../src/memory/store.js';
+import { createGifBackfill } from '../src/memory/gif-backfill.ts';
+import { gifOpts } from '../src/memory/gifs.ts';
+import { createStore } from '../src/memory/store.ts';
 import { normalizeOptions, toEvent } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { IFACE, channel, rig } from './fixtures/reads-rig.ts';

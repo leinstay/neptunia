@@ -59,7 +59,7 @@ type Start = {
   atCommit?: (life: ReturnType<typeof createInnerLife>) => void;
 };
 
-/** The record of her lines (src/memory/record.js), as the turn runner and the inner life append to it. */
+/** The record of her lines (src/memory/record.ts), as the turn runner and the inner life append to it. */
 type Record_ = {
   lines: Array<unknown>;
   append(guildId: string, lines: ReadonlyArray<unknown>, options?: unknown): Promise<void>;

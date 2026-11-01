@@ -5,7 +5,7 @@
 
 import { HOUR_MS, MINUTE_MS } from '../../time.js';
 import { isAttend } from '../../intentions/model.ts';
-import { foldText } from '../../memory/recent.js';
+import { foldText } from '../../memory/recent.ts';
 import { errorCode, idText, isFiniteNumber, isPositive, listOf, objOf } from '../../tools/types.ts';
 import { asText } from './facts.ts';
 import { stateOf } from './queue.ts';

@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 
 import { parseToolCallBlocks } from '../llm/tool-text.ts';
 import { REPLY_REQUEST } from '../llm/openrouter.ts';
-import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
+import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { CallView } from '../tools/executors.ts';
 import { skillRegistry } from '../tools/registry.ts';

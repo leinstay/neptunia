@@ -208,11 +208,11 @@ function evalPath(dataDir, ...parts) {
  */
 async function openSources(dataDir, dbFile) {
   const { readOnlyMemory } = await import('./lib/memory-read.mjs');
-  const { createAppendStore } = await import('../src/memory/append-store.js');
-  const { createRecord } = await import('../src/memory/record.js');
-  const { createArchive } = await import('../src/memory/archive.js');
-  const { createVectors } = await import('../src/memory/vectors.js');
-  const { createStore } = await import('../src/memory/store.js');
+  const { createAppendStore } = await import('../src/memory/append-store.ts');
+  const { createRecord } = await import('../src/memory/record.ts');
+  const { createArchive } = await import('../src/memory/archive.ts');
+  const { createVectors } = await import('../src/memory/vectors.ts');
+  const { createStore } = await import('../src/memory/store.ts');
   if (!fs.existsSync(dbFile)) throw new CliError(`recall-eval: no database at ${dbFile}`);
   // Reads only: no writer, so nothing built here can write the database.
   const { memoryDb, close } = readOnlyMemory(dataDir, { file: dbFile });

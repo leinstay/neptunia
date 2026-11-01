@@ -46,8 +46,8 @@ import {
   renderRecallWindows,
 } from '../../behavior/recall.js';
 import { log } from '../../log.js';
-import { foldText } from '../recent.js';
-import { indexWords } from '../record-index.js';
+import { foldText } from '../recent.ts';
+import { indexWords } from '../record-index.ts';
 import { channelPlaceId, nativeOf } from './ids.ts';
 import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
 import { audienceOf, canRead, dmScope, scopeWhere, whereFor } from './scope.ts';

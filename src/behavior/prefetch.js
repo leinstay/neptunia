@@ -5,7 +5,7 @@
 // none reads the results before she does: the lanes are built from the messages as they were
 // written (the trigger verbatim; with the line it replies to, speaker by speaker; for a short or
 // deictic trigger also the few lines just before it), each lane goes through the record index (its
-// rarest words and phrases, src/memory/record-index.js), the stored memory and the meaning search
+// rarest words and phrases, src/memory/record-index.ts), the stored memory and the meaning search
 // (src/behavior/recall-run.js `prefetch`), and this module decides which hits are relevant enough
 // (lexicalKeep: a rare phrase, two distinctive terms, or one confirmed by its cosine), fuses the
 // lanes by reciprocal rank (stored memory at half weight) and keeps a few deduplicated excerpts
@@ -16,9 +16,9 @@
 // Pure: no I/O, no clock.
 
 import { estimateTokens } from '../llm/tokens.ts';
-import { oneLine } from '../memory/clamp.js';
+import { oneLine } from '../memory/clamp.ts';
 import { fromTokens, isWordChar } from '../memory/mentions.ts';
-import { foldText } from '../memory/recent.js';
+import { foldText } from '../memory/recent.ts';
 import { fallbackLookupPlan, fuseRanks, mergeWindows, recallSettings } from './recall.js';
 
 /** The trigger kinds a prefetch never runs for: an errand's result. */
@@ -279,7 +279,7 @@ export function lanePlan(
 
 /**
  * The plan a lane's stored-memory search uses once the record index chose its terms (`queries`:
- * src/memory/record-index.js#indexQuery's, one per index searched): the distinctive terms' words as
+ * src/memory/record-index.ts#indexQuery's, one per index searched): the distinctive terms' words as
  * forms (the rarest first, each once, at most `maxForms`), the lane plan's own phrases (quoted) and
  * the index's phrases, the lane plan's names (`who`); `need` as lanePlan's (`minFormsMatched`, at
  * most the forms' number). The lane plan unchanged when the index gave no term and no phrase; null
@@ -309,7 +309,7 @@ export function indexedPlan(plan, queries, { maxForms = 8, minFormsMatched = 2 }
 
 /**
  * The relevant record hits of one lane from every index searched (`lists`, each
- * src/memory/record-index.js#searchRecordIndex's, best first): merged by score (then the newer),
+ * src/memory/record-index.ts#searchRecordIndex's, best first): merged by score (then the newer),
  * each message once, at most `limit`, as the rows matchRecord reads around (`{ id, channelId,
  * occurredAt, sourceIds }`). Pure.
  * @param {{ messageId: string, channelId: string|null, occurredAt: string, ts: number, score: number }[][]} lists
@@ -329,7 +329,7 @@ export function indexRows(lists, limit) {
 }
 
 /**
- * Whether a word hit of the record index (src/memory/record-index.js#searchRecordIndex's: `terms`
+ * Whether a word hit of the record index (src/memory/record-index.ts#searchRecordIndex's: `terms`
  * and `phrases` matched) is relevant. Without the meaning search (`cosines` null): a phrase or at
  * least two terms. With it (`cosines`: the hits' cosines to the lane's text, a message without a
  * row in the vector index absent): a phrase always; two terms or more when the cosine is at least

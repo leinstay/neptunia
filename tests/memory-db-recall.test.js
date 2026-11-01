@@ -19,7 +19,7 @@ import { insertRows } from '../src/memory/db/rows.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.js';
 import { channelPlaceId, dmPlaceId, messageSourceId, personId } from '../src/memory/db/ids.ts';
 import { dmContext, dmScope, groupContext, groupScope, internalContext } from '../src/memory/db/scope.ts';
-import { quantize } from '../src/memory/vectors.js';
+import { quantize } from '../src/memory/vectors.ts';
 import { labels } from './fixtures/labels.js';
 import { buildDataDir, guildDir, MEMBER, CHANNEL } from './fixtures/memory-db/datadir.js';
 

@@ -18,8 +18,8 @@ import { createInnerLife, wakeOfDue, reviewWake } from '../src/behavior/inner.ts
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { createEventDoor } from '../src/interface/door.ts';
-import { createJournal } from '../src/memory/journal.js';
-import { createStore } from '../src/memory/store.js';
+import { createJournal } from '../src/memory/journal.ts';
+import { createStore } from '../src/memory/store.ts';
 import { createErrandStores } from '../src/errands/store.ts';
 import { createErrandService } from '../src/errands/service.ts';
 import { RESULT_ATTEMPTS, createErrandTurns } from '../src/errands/turns.ts';

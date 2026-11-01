@@ -17,7 +17,7 @@ import type { SensesOf } from './senses.ts';
 import type { Task } from './task.ts';
 import type { Fit, RequestInput, Section } from './types.ts';
 import type { WakeTexts } from './wake.ts';
-import { LORE_LIMITS } from '../../memory/text-limits.js';
+import { LORE_LIMITS } from '../../memory/text-limits.ts';
 
 /** The sections fitted ahead of the chat, the chat's, and what memory each memory section offered with its ids. */
 export type HeadSections = {

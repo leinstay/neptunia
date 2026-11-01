@@ -1,8 +1,8 @@
-// Tests for src/memory/vectors.js: the int8 vector index for meaning search, in the memory database of a
+// Tests for src/memory/vectors.ts: the int8 vector index for meaning search, in the memory database of a
 // temporary directory (never the deployment's data/), with a fixed clock and seeded vectors.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createVectors, dequantize, quantize } from '../src/memory/vectors.js';
+import { createVectors, dequantize, quantize } from '../src/memory/vectors.ts';
 import { classify } from '../src/memory/db/map/index.ts';
 import { filesOfUnit } from '../src/memory/db/export.ts';
 import { openTestMemory } from './fixtures/memory-db/service.js';

@@ -15,9 +15,9 @@ import {
   sortEpisodesForDisplay,
   strongestMoves,
   topEpisodes,
-} from '../../memory/index.js';
-import { topByRank } from '../../memory/ranking.js';
-import { foldText, memberIdOf } from '../../memory/recent.js';
+} from '../../memory/index.ts';
+import { topByRank } from '../../memory/ranking.ts';
+import { foldText, memberIdOf } from '../../memory/recent.ts';
 import { DAY_MS, zonedDay } from '../../time.js';
 import { fieldLine } from '../../behavior/around.js';
 import { noteItems } from './reads.ts';
@@ -263,8 +263,8 @@ function renderInterestItem(item: Interest, p: LabelGroup, marks: Marks | undefi
 
 /**
  * The `labels.profile.interests` line's `{text}`: the top `maxInterests`
- * stored interests (topic/note atomic items, see src/memory/interests.js) by
- * RANK (src/memory/ranking.js#topByRank, decayed with `marks.interestHalfLifeDays`),
+ * stored interests (topic/note atomic items, see src/memory/interests.ts) by
+ * RANK (src/memory/ranking.ts#topByRank, decayed with `marks.interestHalfLifeDays`),
  * in rank order -- see docs/prompt-contract.md, "More is stored than
  * shown, and rank decays with age". `''` when there is nothing to show.
  * `maxInterests` not an integer -> every stored interest renders (a stored
@@ -294,7 +294,7 @@ function interestsText(
 /**
  * The `labels.profile.details` line's `{text}`: the top `maxDetails` stored
  * detail items (`{ id, text, weight, firstSeen, lastSeen }`, see
- * src/memory/details.js) by RANK (decayed with `marks.detailHalfLifeDays`),
+ * src/memory/details.ts) by RANK (decayed with `marks.detailHalfLifeDays`),
  * in rank order, each with the unsure mark appended when unconfirmed -- never
  * the stale mark, details do not go stale (see
  * docs/prompt-contract.md, "Dates come from the messages"). `''` when
@@ -348,14 +348,14 @@ function compactInterestsText(
 
 /**
  * The `labels.profile.aliases` line's `{text}`: the top `maxAliases` stored
- * alias names (see src/memory/aliases.js) by RANK (decayed with
+ * alias names (see src/memory/aliases.ts) by RANK (decayed with
  * `aliasHalfLifeDays`), comma-separated -- see docs/prompt-contract.md,
  * "Aliases". `''` when there is nothing to show, or when
  * `labels.profile.aliases` is missing (an older labels.json never renders
  * this line). Alias names are never token-resolved -- they are literal
  * nicknames, not a reference to someone else. Open items only, with the closed
  * claims and conflict sets of `validity` (see `validityTexts`). `listed` (folded names,
- * src/memory/recent.js#foldText) leaves out the aliases another line already shows.
+ * src/memory/recent.ts#foldText) leaves out the aliases another line already shows.
  */
 function aliasesText(
   aliases: Array<Alias> | undefined,
@@ -384,7 +384,7 @@ const ADDRESSED_SHOWN = 5;
 
 /**
  * A profile's name lines: with `addressedAs` entries and `labels.profile.addressed`, that line
- * first -- the top 5 names by the score decayed to `now` (src/memory/addressed.js#rankAddressed,
+ * first -- the top 5 names by the score decayed to `now` (src/memory/addressed.ts#rankAddressed,
  * `addressHalfLifeDays`), names only -- then `labels.profile.aliases` with the stored aliases it
  * does not already list, if any; else the aliases line as before (`aliasesText`). Then, with a
  * stored `realName` and `labels.profile.realName`, that line, its replaced name riding on it
@@ -435,7 +435,7 @@ function nameLines(
 }
 
 /**
- * A profile's avatar line (`features.avatars`, src/memory/avatars.js): `labels.profile.avatar`
+ * A profile's avatar line (`features.avatars`, src/memory/avatars.ts): `labels.profile.avatar`
  * (`{text}`) for a described avatar, `labels.profile.avatarDefault` for the platform's default one.
  * '' when nothing valid is stored or the label is missing. Changes only when the avatar does.
  */
@@ -451,7 +451,7 @@ function avatarLine(stored: unknown, p: LabelGroup): string {
  * The moves behind an attitude, one `labels.peopleNow.move` phrase each
  * (`{delta}` the move's `delta` as a signed integer, `{date}` its `YYYY-MM-DD`
  * in `timezone`, `{reason}` with `<@id>` tokens resolved): up to `max` of
- * `affinity.history`, chosen by src/memory/affinity.js#strongestMoves (the
+ * `affinity.history`, chosen by src/memory/affinity.ts#strongestMoves (the
  * strongest, both signs when there are both, never the reason the attitude
  * part already shows), oldest first. `[]` when the label is missing.
  */
@@ -482,7 +482,7 @@ function moveParts(
  * (`profileStateFields`). So the text depends on stored values only, and
  * on the clock only by the day: the stale and replaced-claim marks and the order of the names
  * people use read `opts.now` cut to the start of its UTC day (`profileDay`), the ranks of
- * interests, details and aliases use absolute dates (src/memory/ranking.js#rank), and no age is
+ * interests, details and aliases use absolute dates (src/memory/ranking.ts#rank), and no age is
  * relative. The interlocutor's copy sits in a cached part of the request and must stay
  * byte-identical while the same member talks to the persona.
  *
@@ -498,7 +498,7 @@ function moveParts(
  * `opts.episodes.enabled` additionally renders the caller's remembered episodes -- see
  * docs/prompt-contract.md, "<people>". Anyone else (a member the persona is
  * asked about) gets them in the same place only with `opts.episodes.max` a
- * positive integer, and then only the top `max` (src/memory/episodes.js#topEpisodes,
+ * positive integer, and then only the top `max` (src/memory/episodes.ts#topEpisodes,
  * heaviest then newest); `max` never caps the interlocutor. Such a profile
  * with nothing else learned is shown by its episodes alone (no
  * `labels.profile.unknown` line). The interlocutor with no durable content gets
@@ -594,7 +594,7 @@ function roundedMessageCount(count: unknown): number {
 /**
  * `renderProfile`'s text (`text`) and how many of the member's episodes it
  * shows (`episodes`): always the first that many in display order
- * (src/memory/episodes.js#topEpisodes), since a cap only ever drops the
+ * (src/memory/episodes.ts#topEpisodes), since a cap only ever drops the
  * lightest. 0 when none renders -- none stored, none fits, or an older labels
  * file without the episode labels -- so a block that must not repeat them
  * knows exactly which ones the request shows.
