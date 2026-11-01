@@ -105,16 +105,43 @@ export function oldCallsOf(text: string): Array<{ name: string; args: Untyped }>
   return out.sort((a, b) => a.at - b.at).map(({ name, args }) => ({ name, args }));
 }
 
+/** What `replay.out` of an old run holds that the comparison reads. */
+type OldReplay = {
+  trigger?: { id?: string | number };
+  answers?: Array<{
+    think?: string;
+    messages?: Array<Rec>;
+    reactions?: Array<{ emoji?: string }>;
+    gif?: { id?: string } | string | null;
+    skip?: boolean;
+  }>;
+  usage?: { promptTokens?: number; completionTokens?: number };
+};
+
+/** What `ans-001.meta.json` holds that the comparison reads. */
+type OldMeta = {
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
+  total_cost_usd?: number;
+  duration_ms?: number;
+};
+
 /** The lines of a request's `<chat>` block as sheet context, `Author: text`; [] without a request. */
 function chatOf(requestFile: Untyped) {
   try {
-    const json = JSON.parse(fs.readFileSync(requestFile, 'utf8'));
-    const user = (json.messages ?? []).find((message: Untyped) => message.role === 'user');
+    const json = JSON.parse(fs.readFileSync(requestFile, 'utf8')) as {
+      messages?: Array<{ role?: string; content?: unknown }>;
+    };
+    const user = (json.messages ?? []).find((message) => message.role === 'user');
     const text =
       typeof user?.content === 'string'
         ? user.content
         : Array.isArray(user?.content)
-          ? user.content.map((part: Rec) => part.text ?? '').join('')
+          ? user.content.map((part: { text?: string }) => part.text ?? '').join('')
           : '';
     const block = /<chat>\n([\s\S]*?)\n<\/chat>/.exec(text)?.[1] ?? '';
     return block
@@ -131,12 +158,53 @@ function chatOf(requestFile: Untyped) {
   }
 }
 
+/** One scenario of an old run (the single-turn mode), in the shape the metrics read. */
+export type OldTurn = {
+  label: string;
+  triggerId: string;
+  answer: Rec;
+  calls: Array<{ name: string; args: Rec }>;
+  requests: number;
+  tokens: { prompt: number; completion: number; cacheRead: number; cacheWrite: number };
+  cost: number | null;
+  ms: number | null;
+  thinkMissing: boolean;
+  context: Array<{ author: string; text: string }>;
+};
+
+/** An old and a new turn of the same scenario. */
+export type Pair = { label: string; old: OldTurn; new: NewTurn };
+
+type OldShown = NonNullable<OldReplay['answers']>[number];
+
+/** The reactions the single mode recorded, or the `<react>` tags in her text when it recorded none. */
+function reactionsOf(shown: OldShown, text: string): Array<{ emoji: string }> {
+  const given = shown.reactions ?? [];
+  const found =
+    given.length > 0
+      ? given
+      : Array.from(text.matchAll(/<react\b[^>]*>([^<]+)<\/react>/g), (m) => ({ emoji: m[1].trim() }));
+  return found.map((reaction: Untyped) => ({ emoji: reaction.emoji ?? reaction }));
+}
+
+/** The GIF the single mode recorded, or the one `<gif>` tag in her text, or null. */
+function gifOf(shown: OldShown, text: string): { id: unknown } | null {
+  if (shown.gif) return { id: typeof shown.gif === 'string' ? shown.gif : (shown.gif.id ?? shown.gif) };
+  const tag = /<gif\b[^>]*>([^<]+)<\/gif>/.exec(text);
+  return tag ? { id: tag[1].trim() } : null;
+}
+
+/** The number when it is finite, else null. */
+function finiteOrNull(value: number | undefined): number | null {
+  return value !== undefined && Number.isFinite(value) ? value : null;
+}
+
 /**
  * The old side: every subfolder of `dir` that holds `ans-001.txt` and `replay.out`, as
  * `{ label, triggerId, answer, calls, requests, tokens, cost, ms, thinkMissing, context }` in folder order.
  */
-export function readOldSide(dir: string): Untyped {
-  const out = [];
+export function readOldSide(dir: string): Array<OldTurn> {
+  const out: Array<OldTurn> = [];
   for (const name of fs.readdirSync(dir).sort()) {
     const folder = path.join(dir, name);
     if (
@@ -146,15 +214,15 @@ export function readOldSide(dir: string): Untyped {
     )
       continue;
     const text = fs.readFileSync(path.join(folder, 'ans-001.txt'), 'utf8');
-    const replay = JSON.parse(fs.readFileSync(path.join(folder, 'replay.out'), 'utf8'));
-    let meta = null;
+    const replay = JSON.parse(fs.readFileSync(path.join(folder, 'replay.out'), 'utf8')) as OldReplay;
+    let meta: OldMeta | null = null;
     try {
-      meta = JSON.parse(fs.readFileSync(path.join(folder, 'ans-001.meta.json'), 'utf8'));
+      meta = JSON.parse(fs.readFileSync(path.join(folder, 'ans-001.meta.json'), 'utf8')) as OldMeta;
     } catch {
       meta = null;
     }
     const calls = oldCallsOf(text);
-    const shown = replay.answers?.[0] ?? {};
+    const shown: NonNullable<OldReplay['answers']>[number] = replay.answers?.[0] ?? {};
     const usage = meta?.usage ?? null;
     const cacheRead = Number(usage?.cache_read_input_tokens) || 0;
     const cacheWrite = Number(usage?.cache_creation_input_tokens) || 0;
@@ -165,15 +233,8 @@ export function readOldSide(dir: string): Untyped {
         think: shown.think ?? '',
         messages: shown.messages ?? [],
         // The single mode drops a reaction or a GIF it cannot place (no library, no target): the tags in her text are read too.
-        reactions: (shown.reactions?.length > 0
-          ? shown.reactions
-          : Array.from(text.matchAll(/<react\b[^>]*>([^<]+)<\/react>/g), (m) => ({ emoji: m[1].trim() }))
-        ).map((reaction: Untyped) => ({ emoji: reaction.emoji ?? reaction })),
-        gif: shown.gif
-          ? { id: shown.gif.id ?? shown.gif }
-          : /<gif\b[^>]*>([^<]+)<\/gif>/.exec(text)
-            ? { id: /<gif\b[^>]*>([^<]+)<\/gif>/.exec(text)?.[1].trim() }
-            : null,
+        reactions: reactionsOf(shown, text),
+        gif: gifOf(shown, text),
         drawings: calls.filter((call) => call.name === 'draw.create').map((call) => ({ text: call.args.text ?? '' })),
         posts: calls
           .filter((call) => call.name === 'message.create' && call.args.text)
@@ -195,8 +256,8 @@ export function readOldSide(dir: string): Untyped {
             cacheRead: 0,
             cacheWrite: 0,
           },
-      cost: Number.isFinite(meta?.total_cost_usd) ? meta.total_cost_usd : null,
-      ms: Number.isFinite(meta?.duration_ms) ? meta.duration_ms : null,
+      cost: finiteOrNull(meta?.total_cost_usd),
+      ms: finiteOrNull(meta?.duration_ms),
       thinkMissing: !text.trim().startsWith('<think>'),
       context: chatOf(path.join(folder, 'req-001.json')),
     });
@@ -238,28 +299,34 @@ function duplicateEffects(calls: Untyped) {
   return duplicates;
 }
 
-/** What one new line is, in the shape the metrics read: its calls with statuses, leaks, duplicates, counts, numbers. */
-export function newTurnOf(line: Untyped): {
-  label: Untyped;
+/** One call of a new turn, with its status. */
+type NewCall = { name: string; args: Rec; status: string | null; code: string | null; step: number };
+
+/** One new turn in the shape the metrics read. */
+export type NewTurn = {
+  label: string;
   triggerId: string;
   answer: Rec | null;
-  calls: Untyped;
-  leaks: Untyped;
+  calls: Array<NewCall>;
+  leaks: number;
   duplicates: number;
-  requests: Untyped;
-  steps: Untyped;
-  tokens: { prompt: Untyped; completion: Untyped; cacheRead: Untyped; cacheWrite: Untyped };
-  cost: Untyped;
-  ms: Untyped;
-  thinkMissing: Untyped;
-  coerced: Untyped;
-  malformed: Untyped;
-  capped: Untyped;
-  held: Untyped;
-  context: Untyped;
-} {
+  requests: number;
+  steps: number;
+  tokens: { prompt: number; completion: number; cacheRead: number; cacheWrite: number };
+  cost: number;
+  ms: number;
+  thinkMissing: number;
+  coerced: number;
+  malformed: number;
+  capped: number;
+  held: number;
+  context: Array<Rec>;
+};
+
+/** What one new line is, in the shape the metrics read: its calls with statuses, leaks, duplicates, counts, numbers. */
+export function newTurnOf(line: Untyped): NewTurn {
   const loop = line.loop;
-  const calls = loop.steps.flatMap((step: Rec) =>
+  const calls: Array<NewCall> = loop.steps.flatMap((step: Rec) =>
     step.calls.map((c: Rec) => ({
       name: c.skill,
       args: c.args ?? {},
@@ -274,7 +341,7 @@ export function newTurnOf(line: Untyped): {
     const spoke = step.answer.messages.length > 0 || step.answer.reactions.length > 0 || Boolean(step.answer.gif);
     return spoke && step.calls.some((c: Rec) => c.result?.status !== 'ok' || resultKind(c.skill) === 'data');
   }).length;
-  const ok = calls.filter((call: Rec) => call.status === 'ok');
+  const ok = calls.filter((call) => call.status === 'ok');
   return {
     label: line.scenario ?? line.id,
     triggerId: String(line.triggerId ?? ''),
@@ -307,7 +374,7 @@ const mean = (values: Untyped) => {
 };
 const fmt = (value: Untyped, digits = 2) =>
   value === null || value === undefined || !Number.isFinite(value) ? '-' : value.toFixed(digits);
-const callText = (calls: Rec, withStatus: Untyped) =>
+const callText = (calls: Untyped, withStatus: Untyped) =>
   calls.length === 0
     ? '-'
     : calls
@@ -321,11 +388,14 @@ const callText = (calls: Rec, withStatus: Untyped) =>
  * scenario that has a new line (the first one when several), the old ones without a new line (`missing`) and the
  * new lines without an old scenario (`extra`). Pure.
  */
-export function pairSides(oldSide: Untyped, newSide: Untyped): Untyped {
-  const byTrigger = new Map();
+export function pairSides(
+  oldSide: Array<OldTurn>,
+  newSide: Array<Rec>
+): { pairs: Array<Pair>; missing: Array<string>; extra: Array<string> } {
+  const byTrigger = new Map<string, Rec>();
   for (const line of newSide) if (!byTrigger.has(String(line.triggerId))) byTrigger.set(String(line.triggerId), line);
-  const pairs = [];
-  const missing = [];
+  const pairs: Array<Pair> = [];
+  const missing: Array<string> = [];
   for (const item of oldSide) {
     const line = byTrigger.get(item.triggerId);
     if (line) {
@@ -340,14 +410,14 @@ export function pairSides(oldSide: Untyped, newSide: Untyped): Untyped {
  * The pass bar of the stage 4 plan over the paired scenarios: `[{ name, pass, detail }]`, `pass` null for what only a
  * reader can judge. A scenario the pairs do not hold is skipped by its check (noted in the detail). Pure.
  */
-export function passBar(pairs: Rec): Array<{ name: string; pass: boolean | null; detail: string }> {
-  const byLabel = new Map(pairs.map((pair: Rec) => [pair.label, pair.new]));
+export function passBar(pairs: Array<Pair>): Array<{ name: string; pass: boolean | null; detail: string }> {
+  const byLabel = new Map(pairs.map((pair) => [pair.label, pair.new]));
   const checks = [];
   const each = (labels: Untyped, test: Untyped) =>
     labels.filter((label: string) => byLabel.has(label)).map((label: string) => [label, test(byLabel.get(label))]);
   const range = (from: Untyped, to: Untyped) =>
     Array.from({ length: to - from + 1 }, (_, i) => `S${String(from + i).padStart(2, '0')}`);
-  const verdict = (name: Untyped, results: Untyped, detail?: Untyped) =>
+  const verdict = (name: string, results: Untyped, detail?: Untyped) =>
     checks.push({
       name,
       pass: results.length === 0 ? null : results.every(([, ok]: Untyped) => ok),
@@ -360,9 +430,10 @@ export function passBar(pairs: Rec): Array<{ name: string; pass: boolean | null;
               .map(([label]: Untyped) => label)
               .join(', ')),
     });
-  const leaks = pairs.reduce((total: Rec, pair: Rec) => total + pair.new.leaks, 0);
+  const leaks = pairs.reduce((total: number, pair: Rec) => total + pair.new.leaks, 0);
   checks.push({ name: 'zero held-text leaks', pass: leaks === 0, detail: `${leaks} leak(s)` });
-  const draws = (turn: Rec) => turn.calls.filter((call: Rec) => call.name === 'draw.create' && call.status === 'ok');
+  const draws = (turn: Untyped) =>
+    turn.calls.filter((call: Rec) => call.name === 'draw.create' && call.status === 'ok');
   verdict(
     'S08, S09 draw.create with a channel and a boolean self',
     each(['S08', 'S09'], (turn: Untyped) =>
@@ -405,8 +476,8 @@ export function passBar(pairs: Rec): Array<{ name: string; pass: boolean | null;
     pass: oldCost === null || newCost === null ? null : newCost <= oldCost * MAX_COST_FACTOR,
     detail: `old ${fmt(oldCost, 4)}, new ${fmt(newCost, 4)} USD`,
   });
-  const steps = pairs.reduce((total: Rec, pair: Rec) => total + pair.new.steps, 0);
-  const missing = pairs.reduce((total: Rec, pair: Rec) => total + pair.new.thinkMissing, 0);
+  const steps = pairs.reduce((total: number, pair: Rec) => total + pair.new.steps, 0);
+  const missing = pairs.reduce((total: number, pair: Rec) => total + pair.new.thinkMissing, 0);
   checks.push({
     name: `thinkMissing under ${MAX_THINK_MISSING * 100}% of the steps`,
     pass: steps === 0 ? null : missing / steps < MAX_THINK_MISSING,
@@ -418,10 +489,10 @@ export function passBar(pairs: Rec): Array<{ name: string; pass: boolean | null;
 }
 
 /** metrics.md: the totals, the pass bar, the per-scenario table, then what was not paired. Pure. */
-export function renderMetrics({ pairs, missing, extra }: Rec): string {
+export function renderMetrics({ pairs, missing, extra }: Untyped): string {
   const sum = (list: Untyped, pick: Untyped) =>
-    list.reduce((total: Untyped, item: Untyped) => total + (Number(pick(item)) || 0), 0);
-  const side = (name: Untyped, turns: Untyped) => {
+    list.reduce((total: number, item: Untyped) => total + (Number(pick(item)) || 0), 0);
+  const side = (name: string, turns: Untyped) => {
     const costs = turns.map((turn: Rec) => turn.cost).filter(Number.isFinite);
     return `| ${name} | ${turns.length} | ${fmt(mean(turns.map((turn: Untyped) => turn.requests)))} | ${sum(turns, (t: Untyped) => t.tokens.prompt)} | ${sum(turns, (t: Untyped) => t.tokens.completion)} | ${sum(turns, (t: Untyped) => t.tokens.cacheRead)} | ${sum(turns, (t: Untyped) => t.tokens.cacheWrite)} | ${
       costs.length > 0
@@ -512,7 +583,7 @@ export function main(
   const paired = pairSides(oldSide, newSide);
   const order = pairOrder(paired.pairs.length, rng);
   const key: Untyped = { a: 'old (text tags)', b: 'new (tool calls)', pairs: {} };
-  const sheet = paired.pairs.map((pair: Untyped, index: Untyped) => {
+  const sheet = paired.pairs.map((pair: Untyped, index: number) => {
     const first = order[index];
     key.pairs[pair.label] = { first, triggerId: pair.old.triggerId };
     const context = pair.new.context.length > 0 ? pair.new.context : pair.old.context;

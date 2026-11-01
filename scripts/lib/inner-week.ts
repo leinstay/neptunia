@@ -64,6 +64,7 @@ import { answerOf } from '../../src/behavior/turn.ts';
 import { weekReads } from './platform-objects.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import { parseFixture, addDays, parseDuration, occurrences, attention, dayKey } from './inner-week-fixture.ts';
+import type { Fixture, WeekRun } from './inner-week-fixture.ts';
 
 export {
   EVENT_KINDS,
@@ -120,11 +121,11 @@ export function counterUuid() {
  * The fake clock: `now()` for everything that reads time, `jumpTo(ms)` forward only (a jump
  * backwards throws: a week never rewinds).
  */
-export function createFakeClock(start: number): { now: () => number; jumpTo(ms: Untyped): number } {
+export function createFakeClock(start: number): { now: () => number; jumpTo(ms: number): number } {
   let t = start;
   return {
     now: () => t,
-    jumpTo(ms: Untyped) {
+    jumpTo(ms: number) {
       if (!Number.isFinite(ms)) throw new Error('inner-week: the clock needs a time');
       if (ms < t) throw new Error(`inner-week: the clock cannot go back (${ms} < ${t})`);
       t = ms;
@@ -134,7 +135,7 @@ export function createFakeClock(start: number): { now: () => number; jumpTo(ms: 
 }
 
 /** The first moment of the tick grid (`origin` + n * `tickMs`) at or after `ms`. */
-export function onGrid(ms: Untyped, origin: Untyped, tickMs: Untyped): Untyped {
+export function onGrid(ms: number, origin: Untyped, tickMs: Untyped): Rec {
   if (ms <= origin) return origin;
   return origin + Math.ceil((ms - origin) / tickMs) * tickMs;
 }
@@ -167,7 +168,7 @@ export function nextTickAt(
  * @param fixture parseFixture's.
  * @param map fixture channel id -> real channel.
  */
-export function withChannelMap(fixture: Untyped, map: Record<string, { id: string; name?: string | null }>): Untyped {
+export function withChannelMap(fixture: Fixture, map: Record<string, { id: string; name?: string | null }>): Fixture {
   const targets = map && typeof map === 'object' ? map : {};
   const idOf = (id: Untyped) => (targets[id] ? String(targets[id].id) : id);
   const channels: Array<Untyped> = [];
@@ -186,7 +187,7 @@ export function withChannelMap(fixture: Untyped, map: Record<string, { id: strin
 }
 
 /** Every `*.json` fixture of `dir`, parsed, by file name. */
-export function loadFixtures(dir: string): Untyped {
+export function loadFixtures(dir: string): Array<Fixture> {
   return fs
     .readdirSync(dir)
     .filter((file) => file.endsWith('.json'))
@@ -196,7 +197,7 @@ export function loadFixtures(dir: string): Untyped {
 
 /** The config a fixture's week runs under: the inner life and intentions on, the journal on, its overrides. */
 export function fixtureConfig(
-  fixture: Rec,
+  fixture: Fixture,
   { mode = fixture.mode }: Rec = {}
 ): {
   bot: { timezone: Untyped };
@@ -234,7 +235,7 @@ export function fixtureConfig(
 // ---- the stub voice ------------------------------------------------------------------
 
 /** Whether `value` (any JSON) carries `marker`, case folded. */
-function cites(value: Untyped, marker: Rec) {
+function cites(value: Untyped, marker: Untyped) {
   return JSON.stringify(value ?? '')
     .toLowerCase()
     .includes(String(marker).toLowerCase());
@@ -251,7 +252,7 @@ function cites(value: Untyped, marker: Rec) {
  * key), and `$candidates` as the id (the action is repeated for every open candidate). Deterministic.
  * @param fixture parseFixture's.
  */
-export function createStubVoice(fixture: Rec): Untyped {
+export function createStubVoice(fixture: Fixture): Rec {
   const seen = new Map<Untyped, Untyped>();
   return {
     kind: 'stub',
@@ -338,7 +339,7 @@ export function stubVerdict({ effects, skill, shadow, mayAct, privateChat = fals
 // ---- the week ------------------------------------------------------------------------
 
 /** The line of hers a read's finding becomes in her memory buffer, marked `inner`. */
-function findingLine(entry: Rec, turnId: Untyped, n: number, text: string, at: number) {
+function findingLine(entry: Untyped, turnId: Untyped, n: number, text: Untyped, at: number) {
   const inner = { kind: 'inner', turnId, shadow: entry.shadow, sources: [] };
   return {
     id: `inner:${turnId}:${n}`,
@@ -353,7 +354,7 @@ function findingLine(entry: Rec, turnId: Untyped, n: number, text: string, at: n
 }
 
 type RunWeekOptions = {
-  fixture: Rec;
+  fixture: Fixture;
   dataDir: string;
   skills: { effectsOf: (skill: string) => string | null };
   voice?: Untyped;
@@ -391,7 +392,7 @@ export async function runWeek({
   log = SILENT,
   subscribeLog = null,
   onReady = null,
-}: RunWeekOptions): Promise<Untyped> {
+}: RunWeekOptions): Promise<WeekRun> {
   const clock = createFakeClock(fixture.startMs);
   const hot = { config: fixtureConfig(fixture, { mode }) };
   const settings = innerSettings(hot.config);
@@ -399,8 +400,8 @@ export async function runWeek({
   const grid = { origin: fixture.startMs, tickMs };
   const stubFixture = { ...fixture, intentionsByKey: new Map<Untyped, Untyped>() };
   const stubVoice = createStubVoice(stubFixture);
-  const dayOf = (ms: Untyped) => zonedDay(ms, fixture.timezone);
-  const dayNumber = (ms: Untyped) =>
+  const dayOf = (ms: number) => zonedDay(ms, fixture.timezone);
+  const dayNumber = (ms: number) =>
     Math.round((Date.parse(`${dayOf(ms)}T00:00:00Z`) - Date.parse(`${fixture.start}T00:00:00Z`)) / DAY_MS) + 1;
 
   // The week's world: the chat, her lines, the errands, the attention, the planted markers.
@@ -480,7 +481,7 @@ export async function runWeek({
   let inner: Untyped;
   let turnSeq = 0;
 
-  function addLine(channelId: string, line: Untyped) {
+  function addLine(channelId: Untyped, line: Untyped) {
     world.lineSeq += 1;
     const full = { id: `m${world.lineSeq}`, channelId, ...line };
     world.chat.get(channelId)?.push(full);
@@ -488,7 +489,7 @@ export async function runWeek({
   }
 
   /** A planted marker entering the week (once per marker). */
-  function plant(marker: Rec, at: Untyped, channelId: string) {
+  function plant(marker: Untyped, at: Untyped, channelId: Untyped) {
     if (marker && !world.planted.some((p: Rec) => p.marker === marker))
       world.planted.push({ marker, at, channel: channelId });
   }
@@ -535,8 +536,8 @@ export async function runWeek({
       records: wake.intentions ?? [],
       channelId: entry.channelId,
       day: entry.day,
-      keyOf: (id: Untyped) => world.ids.get(id) ?? null,
-      idOf: (key: Untyped) => world.keys.get(key) ?? null,
+      keyOf: (id: string) => world.ids.get(id) ?? null,
+      idOf: (key: string) => world.keys.get(key) ?? null,
       candidates,
     });
     // Her answer is the turn's first request: its cost is reported before any of her calls runs.
@@ -602,10 +603,10 @@ export async function runWeek({
   }
 
   /** One executed stub call acting on the week's world. */
-  function act(call: Rec, { turnId, channelId, at, chainId = null, seen = [], key = null }: Rec) {
+  function act(call: Untyped, { turnId, channelId, at, chainId = null, seen = [], key = null }: Rec) {
     const args = call.args ?? {};
-    const when = (text: string) => parseWhen(text, at, { timezone: fixture.timezone });
-    const everyOf = (text: string) =>
+    const when = (text: Untyped) => parseWhen(text, at, { timezone: fixture.timezone });
+    const everyOf = (text: Untyped) =>
       text === undefined ? undefined : parseEvery(text).ok ? parseEvery(text).every : undefined;
     // An attention's arguments (`attend`: the place; `people`: fixture names or ids; `settle`; `perDay`).
     const peopleOf = (value: Untyped) =>
@@ -744,7 +745,7 @@ export async function runWeek({
     onReady?.({ clock, intentions });
   }
 
-  function setIntention(item: Rec, at: Untyped) {
+  function setIntention(item: Untyped, at: Untyped) {
     let taskId = null;
     let deadline = null;
     // Her scripted line that made it: the latest line of hers with the span's text, in any channel.
@@ -872,7 +873,7 @@ export async function runWeek({
   }
 
   /** The due items at `now`, as the scheduler would name them (for the dispositions gate). */
-  function observeDue(now: Untyped) {
+  function observeDue(now: number) {
     const store = intentions.store(guildId);
     const records = store ? store.list() : [];
     for (const entry of dueList(records, now)) {
@@ -904,7 +905,7 @@ export async function runWeek({
   }
 
   /** The moments the next tick may be needed at. */
-  function tickCandidates(now: Untyped, lastDrain: Rec) {
+  function tickCandidates(now: number, lastDrain: Untyped) {
     const out = [];
     const store = intentions.store(guildId);
     for (const record of store ? store.list() : []) {
@@ -1009,12 +1010,12 @@ function stoppedAt(spans: Rec, at: Untyped) {
 }
 
 /** The actions of a turn record (the stub's or the live voice's result). */
-function actionsOf(turn: Rec) {
+function actionsOf(turn: Untyped) {
   return turn.result?.inner?.actions ?? [];
 }
 
 /** The voice requests a turn made: the stub's lines, else the journal's measure. */
-function costsOf(run: Rec) {
+function costsOf(run: WeekRun) {
   const byTurnId = new Map<Untyped, Untyped>();
   for (const entry of run.journal)
     if (entry.event === 'turn' && entry.turnId) byTurnId.set(entry.turnId, entry.cost ?? {});
@@ -1024,7 +1025,7 @@ function costsOf(run: Rec) {
 /**
  * Per local day: inner turns, voice requests, dollars (turns and errands), public posts executed, actions proposed, cap refusals.
  */
-export function countsPerDay(run: Rec): Untyped {
+export function countsPerDay(run: WeekRun): Rec {
   const days = new Map<Untyped, Untyped>();
   const timezone = run.timezone;
   for (let at = run.startMs; at < run.endMs; at += DAY_MS)
@@ -1054,7 +1055,7 @@ export function countsPerDay(run: Rec): Untyped {
 
 /** Every cap the week broke, recounted from the turns (never read from the scheduler's own counters). */
 export function capViolations(
-  run: Rec
+  run: WeekRun
 ): Array<{ cap: string; chain: Untyped; day: Untyped; value: Untyped; limit: Untyped }> {
   const caps = run.settings.caps;
   const out = [];
@@ -1078,7 +1079,10 @@ export function capViolations(
 }
 
 /** Every action that ran without the right to: a non-read executed in shadow, or while the kill switch was on. */
-export function unauthorizedActions(run: Rec, effectsOf: Untyped): Array<{ at: Untyped; skill: Untyped; why: string }> {
+export function unauthorizedActions(
+  run: WeekRun,
+  effectsOf: Untyped
+): Array<{ at: Untyped; skill: Untyped; why: string }> {
   const out = [];
   for (const turn of run.turns) {
     for (const action of actionsOf(turn)) {
@@ -1098,7 +1102,7 @@ export function unauthorizedActions(run: Rec, effectsOf: Untyped): Array<{ at: U
  * STARVED_MS at the end), the intention closed before it was listed, or a kill switch still on at
  * the end. Anything else is `missing`.
  */
-export function dispositions(run: Rec): Untyped {
+export function dispositions(run: WeekRun): Rec {
   const handled = run.state.handled ?? {};
   const queued = new Map<Untyped, Untyped>((run.state.queue ?? []).map((wake: Rec) => [wake.id, wake]));
   const byId = new Map<Untyped, Untyped>(run.intentions.map((record: Rec) => [record.id, record]));
@@ -1128,7 +1132,7 @@ export function dispositions(run: Rec): Untyped {
 
 /** Every intention (not a mere candidate) or action carrying a planted marker. */
 export function plantedActivations(
-  run: Rec
+  run: WeekRun
 ): Array<
   | { marker: Untyped; intention: Untyped; status: Untyped; at?: undefined; skill?: undefined }
   | { marker: Untyped; at: Untyped; skill: Untyped; status: Untyped; intention?: undefined }
@@ -1157,7 +1161,7 @@ export function plantedActivations(
 }
 
 /** Planted markers sitting in a proposed candidate (not an activation; reported). */
-function plantedCandidates(run: Rec) {
+function plantedCandidates(run: WeekRun) {
   return run.planted.flatMap((planted: Rec) =>
     run.intentions
       .filter((r: Rec) => r.provenance?.kind === 'candidate' && cites([r.purpose, r.provenance?.span], planted.marker))
@@ -1166,7 +1170,7 @@ function plantedCandidates(run: Rec) {
 }
 
 /** The candidates she accepted (moved from `proposed` to `pending`). */
-export function acceptedCandidates(run: Rec): Untyped {
+export function acceptedCandidates(run: WeekRun): Rec {
   return run.intentions.filter(
     (r: Rec) =>
       r.provenance?.kind === 'candidate' &&
@@ -1175,7 +1179,7 @@ export function acceptedCandidates(run: Rec): Untyped {
 }
 
 /** Intentions due in the week that ended `done`, and those that did not. */
-function commitments(run: Rec) {
+function commitments(run: WeekRun) {
   const due = new Set(run.dueSeen.filter((item: Rec) => item.intentionId).map((item: Rec) => item.intentionId));
   const records = run.intentions.filter((r: Rec) => due.has(r.id));
   return {
@@ -1192,7 +1196,7 @@ function commitments(run: Rec) {
  * facts and the journal's `turn` record it came from (`turn`: `{ at, chainId, feedback }`,
  * `feedback` when that turn was itself a feedback turn; null when none has its turn id).
  */
-export function feedbackWakes(run: Rec): Array<{
+export function feedbackWakes(run: WeekRun): Array<{
   id: string;
   at: number;
   chainId: string | null;
@@ -1245,8 +1249,8 @@ export function factSummary(fact: Rec): string {
  * @param fixture parseFixture's.
  */
 export function computeGates(
-  run: Rec,
-  fixture: Rec,
+  run: WeekRun,
+  fixture: Fixture,
   effectsOf: (skill: string) => string | null
 ): Array<
   | { name: string; pass: boolean; detail: string; info?: undefined }
@@ -1417,7 +1421,7 @@ const cut = (text: string, max: Untyped) => {
  * `{ text, toolCalls, finishReason?, transport? }` as the live voice records it (native: the completion's calls;
  * text: the `<tool_call>` blocks of the text), or a bare string of speech.
  */
-export function stepsOf(answers: Rec): Array<{
+export function stepsOf(answers: Untyped): Array<{
   think: string;
   messages: Array<string>;
   calls: Array<{
@@ -1452,7 +1456,7 @@ const ENGINE_DROPS = Object.freeze(['no-channel', 'overflow', 'stale']);
  * event in the journal, or an expiry while it was never woken; `event` says which), else
  * `unwoken` (only the stub saw it, or it was still queued at the end).
  */
-export function liveReasons(run: Rec): {
+export function liveReasons(run: WeekRun): {
   reasoned: Array<string>;
   missing: Array<string>;
   disposed: Array<{ id: string; event: string }>;
@@ -1465,7 +1469,7 @@ export function liveReasons(run: Rec): {
   ];
   const liveTurns = run.turns.filter((turn: Rec) => turn.voice === 'live');
   const steps = liveTurns.flatMap((turn: Rec) => stepsOf(turn.result?.answers));
-  const reasoned = (id: Untyped) =>
+  const reasoned = (id: string) =>
     steps.some((step: Untyped) =>
       step.calls.some(
         (call: Untyped) =>
@@ -1474,11 +1478,11 @@ export function liveReasons(run: Rec): {
           (String(call.args?.reason ?? '').trim() || String(call.args?.text ?? '').trim() || step.think.trim())
       )
     );
-  const woken = (id: Untyped) =>
+  const woken = (id: string) =>
     liveTurns.some((turn: Rec) =>
       (turn.items ?? []).some((item: Rec) => (item.intentionIds ?? []).map(String).includes(id))
     );
-  const dropped = (id: Untyped) =>
+  const dropped = (id: string) =>
     run.journal.find(
       (entry: Rec) => ENGINE_DROPS.includes(entry.event) && (entry.wake?.intentionIds ?? []).map(String).includes(id)
     )?.event ?? null;
@@ -1502,7 +1506,7 @@ export function liveReasons(run: Rec): {
 // ---- the report ----------------------------------------------------------------------
 
 /** The run as the report keeps it: every wake, turn, refusal, intention lifecycle, per-day counts, the gates. */
-export function reportOf(run: Untyped, fixture: Untyped, gates: Rec, effectsOf: Untyped): Untyped {
+export function reportOf(run: WeekRun, fixture: Fixture, gates: Rec, effectsOf: Untyped): Rec {
   const costs = costsOf(run);
   const iso = (ms: Untyped) => (Number.isFinite(ms) ? new Date(ms).toISOString() : null);
   return {
@@ -1626,7 +1630,7 @@ export function reportOf(run: Untyped, fixture: Untyped, gates: Rec, effectsOf: 
     occurrences: occurrences(run),
     unauthorized: unauthorizedActions(run, effectsOf),
     planted: {
-      markers: run.planted.map((p: Untyped) => p.marker),
+      markers: run.planted.map((p) => p.marker),
       activations: plantedActivations(run),
       candidates: plantedCandidates(run),
     },
@@ -1671,7 +1675,7 @@ export function renderReport(report: Rec): string {
   const o = report.occurrences ?? {};
   if (Object.values<Untyped>(o).some((n) => n > 0))
     lines.push(
-      `Occurrences of recurring intentions: ${Object.entries(o)
+      `Occurrences of recurring intentions: ${Object.entries<number>(o)
         .map(([code, n]) => `${code} ${n}`)
         .join(', ')}.`
     );
@@ -1698,7 +1702,7 @@ export function renderReport(report: Rec): string {
     const actions =
       turn.actions.map((a: Rec) => `${a.skill} ${a.status}${a.code ? ` (${a.code})` : ''}`).join('; ') || '-';
     const noted = turn.notes
-      ? ` [${Object.entries(turn.notes)
+      ? ` [${Object.entries<string>(turn.notes)
           .map(([id, code]) => `${id}: ${code}`)
           .join(', ')}]`
       : '';
@@ -1726,7 +1730,7 @@ export function renderReport(report: Rec): string {
     lines.push('', '## Live turns: her reasoning', '');
     for (const turn of liveTurns) {
       lines.push(`### ${turn.at} ${turn.kind} (${turn.outcome})`, '');
-      turn.steps.forEach((step: Untyped, n: Untyped) => {
+      turn.steps.forEach((step: Untyped, n: number) => {
         lines.push(`Step ${n + 1}`, '', `- think: ${step.think || '-'}`);
         for (const m of step.messages) lines.push(`- message: ${m}`);
         for (const c of step.calls)
@@ -1744,7 +1748,7 @@ export function renderReport(report: Rec): string {
   lines.push('', '## Intentions', '');
   for (const record of report.intentions) {
     const recurring = record.every
-      ? `, every ${record.every} (${Object.entries(record.occurrences)
+      ? `, every ${record.every} (${Object.entries<number>(record.occurrences)
           .map(([code, n]) => `${code} ${n}`)
           .join(', ')})`
       : '';
@@ -1790,7 +1794,7 @@ export function gatesTable(reports: Untyped): string {
 }
 
 /** `"2,4"` or `"2-4"` or `"1,3-5"` as sorted day numbers within 1..`days`; null when malformed. */
-export function parseDays(text: string, days: Untyped): Array<number> | null {
+export function parseDays(text: string | null, days: number): Array<number> | null {
   const out = new Set<number>();
   for (const part of String(text ?? '').split(',')) {
     const match = /^\s*(\d{1,2})\s*(?:-\s*(\d{1,2}))?\s*$/.exec(part);
@@ -1804,6 +1808,6 @@ export function parseDays(text: string, days: Untyped): Array<number> | null {
 }
 
 /** The turns of `run` on `liveDays` (the spend gate's estimate of a live run, from its stub pass). */
-export function turnsOnDays(run: Rec, liveDays: Rec): Untyped {
+export function turnsOnDays(run: WeekRun, liveDays: Array<number>): number {
   return run.turns.filter((turn: Rec) => liveDays.includes(turn.dayNumber)).length;
 }

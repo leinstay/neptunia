@@ -50,6 +50,8 @@ import { fileURLToPath } from 'node:url';
 import { CliError, parseFlags, privateDirOf, runCli } from './lib/cli.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { sqlOf } from './lib/sql.ts';
+import type { SqlDb } from './lib/sql.ts';
+import type { MemoryHandle } from '../src/memory/db/types.ts';
 
 /** An object read by key whose values are not typed yet. */
 type Rec = Record<string, Untyped>;
@@ -65,7 +67,7 @@ const FALLBACK_WAIT_MS = 15_000;
 const MAX_WAIT_MS = 120_000;
 
 /** How long to wait before the next try after a 429: the error's `Retry-After` (seconds or a date) or `retryAfterMs`, else a growing fallback. */
-export function backoffMs(error: Rec, attempt: Untyped, now = Date.now()): number {
+export function backoffMs(error: Untyped, attempt: number, now = Date.now()): number {
   const given = Number(error?.retryAfterMs);
   if (Number.isFinite(given) && given > 0) return Math.min(given, MAX_WAIT_MS);
   const header = error?.headers?.get?.('retry-after') ?? error?.headers?.['retry-after'];
@@ -78,15 +80,40 @@ export function backoffMs(error: Rec, attempt: Untyped, now = Date.now()): numbe
   return Math.min(FALLBACK_WAIT_MS * attempt, MAX_WAIT_MS);
 }
 
+type BackoffOptions = {
+  tries?: number;
+  sleep?: (ms: number) => Promise<unknown>;
+  now?: () => number;
+  onWait?: (wait: number, attempt: number) => void;
+};
+
+/** The requests, tokens and cost a run collects. */
+type Usage = { requests: number; prompt: number; completion: number; cost: number | null };
+
+/** What `runCompare` takes. `llm` is `{ complete }` (a fake in the tests). */
+type CompareOptions = {
+  handle: MemoryHandle;
+  llm: Untyped;
+  hot: Untyped;
+  env: Record<string, string | undefined>;
+  day: string;
+  shadowOnly?: boolean;
+  scope?: string | null;
+  show?: boolean;
+  selfName?: string;
+  usage?: Usage;
+  log?: Rec;
+};
+
 /** `complete` with a backoff on 429: at most `tries` calls, serial; any other error is thrown at once. */
 export function withBackoff(
   complete: (messages: Array<Untyped>, options?: Untyped) => Promise<Untyped>,
   {
     tries = TRIES,
-    sleep = (ms: Untyped) => new Promise((resolve) => setTimeout(resolve, ms)),
+    sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
     now = Date.now,
     onWait = () => {},
-  }: Rec = {}
+  }: BackoffOptions = {}
 ) {
   return async (messages: Untyped, options: Untyped): Promise<Untyped> => {
     for (let attempt = 1; ; attempt += 1) {
@@ -103,16 +130,16 @@ export function withBackoff(
 }
 
 /** `person:<id>:<field>` and the like. */
-export function parseSubject(text: string): { subject: { kind: string; id: string }; field: string } {
+export function parseSubject(text: Untyped): { subject: { kind: string; id: string }; field: string } {
   const match = /^(person|place|self):(.+):([a-z_]+)$/.exec(String(text ?? ''));
   if (!match) throw new CliError(`memory-session: --review wants <person|place|self>:<id>:<field>\n${USAGE}`);
   return { subject: { kind: match[1], id: match[2] }, field: match[3] };
 }
 
 /** The ops of a plan as `claims:add 2, claims:confirm 1, episodes 1` (kinds only, never a value). */
-export function opKinds(plan: Rec): string {
+export function opKinds(plan: Untyped): string {
   const counts = new Map();
-  const bump = (key: Untyped) => counts.set(key, (counts.get(key) ?? 0) + 1);
+  const bump = (key: string) => counts.set(key, (counts.get(key) ?? 0) + 1);
   for (const claim of plan?.claims ?? [])
     bump(`claims:${claim.op}${claim.op === 'add' ? `(${claim.subjectKind})` : ''}`);
   for (const group of ['episodes', 'affinity', 'descriptions'])
@@ -133,14 +160,61 @@ async function copyDatabase(source: Untyped, target: Untyped) {
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const parseJson = (text: string) => {
+/** The three columns that name a row's scope. */
+type ScopeColumns = { scope_kind?: string | null; scope_iface?: string | null; scope_dm?: string | null };
+
+/** One operation of her plan (the fields a comparison reads; an operation carries the ones its group needs). */
+type Op = {
+  op?: string;
+  id?: string;
+  sources?: Array<string>;
+  subjectId?: string;
+  kind?: string;
+  text?: string;
+  what?: string;
+  personId?: string;
+  delta?: number;
+  reason?: string;
+};
+
+/** An operation of her plan with the scope it was proposed in and its group (`claims`, `episodes`, `affinity`...). */
+type Proposal = { scope: string | null; group: string; op: Op };
+
+type ClaimWrite = {
+  claimId: string;
+  event: string;
+  text: string;
+  subjectKind: string;
+  subjectId: string;
+  kind: string;
+};
+type EpisodeWrite = { id: string; subjectId: string; what: string };
+type AffinityWrite = { id: string; personId: string; delta: number };
+
+/** What the analyzer wrote on one day in one scope. */
+type DayWrites = { claims: Array<ClaimWrite>; episodes: Array<EpisodeWrite>; affinity: Array<AffinityWrite> };
+
+/** The comparison of her proposals with the analyzer's writes in one scope. */
+type Comparison = {
+  scope: string;
+  hers: number;
+  analyzer: number;
+  both: number;
+  onlyHers: Array<{ group: string; op: Op }>;
+  onlyAnalyzer: Array<{ group: string; row: { text?: string; what?: string; delta?: number } }>;
+  violations: number;
+  unsupported: number;
+  flags: number;
+};
+
+const parseJson = (text: string): Rec | null => {
   try {
     return JSON.parse(text);
   } catch {
     return null;
   }
 };
-const scopeKeyOf = (row: Untyped) =>
+const scopeKeyOf = (row: ScopeColumns | null | undefined): string | null =>
   row?.scope_kind === 'dm'
     ? `dm:${row.scope_iface}:${row.scope_dm}`
     : row?.scope_kind === 'group'
@@ -151,31 +225,40 @@ const scopeKeyOf = (row: Untyped) =>
  * Her proposals for the lines of `day` that a copy already holds (shadow `decisions` rows `proposed:<op>`): one entry
  * `{ scope, group, op }` per op with a source of that day; a description flag counts when its run read a line of the day.
  */
-export function storedProposals(db: Rec, day: string): Array<{ scope: string | null; group: Untyped; op: Untyped }> {
+export function storedProposals(db: SqlDb, day: string): Array<Proposal> {
   const sourceDay = db.prepare('SELECT occurred_at FROM sources WHERE id = ?');
   const runDay = db.prepare('SELECT cursor_from, cursor_to, scope_key FROM session_runs WHERE id = ?');
   const lineOfDay = db.prepare(
     'SELECT 1 AS ok FROM sources WHERE rowid > ? AND rowid <= ? AND substr(occurred_at, 1, 10) = ? LIMIT 1'
   );
-  const groupOf: Rec = { claims: 'claims', episode: 'episodes', affinity: 'affinity', description: 'descriptions' };
-  const out = [];
+  const groupOf: Record<string, string> = {
+    claims: 'claims',
+    episode: 'episodes',
+    affinity: 'affinity',
+    description: 'descriptions',
+  };
+  const out: Array<Proposal> = [];
   for (const row of db
     .prepare(
       "SELECT action, extra FROM decisions WHERE action LIKE 'proposed:%' AND retired_at IS NULL ORDER BY at, id"
     )
-    .all()) {
+    .all<{ action: string; extra: string }>()) {
     const extra = parseJson(row.extra);
-    const op = extra?.op;
-    if (!op) continue;
+    const op: Op | undefined = extra?.op;
+    if (!op || !extra) continue;
     const name = row.action.slice('proposed:'.length);
     const group = name.startsWith('people_') ? 'people' : (groupOf[name] ?? 'claims');
     const scope = scopeKeyOf(extra.scope);
     if (group === 'descriptions') {
-      const run = runDay.get(extra.run);
+      const run = runDay.get<{ cursor_from: number | null; cursor_to: number | null }>(extra.run);
       if (run && lineOfDay.get(run.cursor_from ?? 0, run.cursor_to ?? 0, day)) out.push({ scope, group, op });
       continue;
     }
-    if ((op.sources ?? []).some((id: Untyped) => String(sourceDay.get(id)?.occurred_at ?? '').slice(0, 10) === day))
+    if (
+      (op.sources ?? []).some(
+        (id: string) => String(sourceDay.get<{ occurred_at: string }>(id)?.occurred_at ?? '').slice(0, 10) === day
+      )
+    )
       out.push({ scope, group, op });
   }
   return out;
@@ -188,12 +271,13 @@ export function storedProposals(db: Rec, day: string): Array<{ scope: string | n
 const ARCHIVE_CHURN = ['evicted', 'expired', 'set-aside', 'restored', 'backfill'];
 const CODE_KINDS = ['participation', 'recent', 'recent_line'];
 
-export function analyzerWrites(db: Rec, day: string): Map<Untyped, Untyped> {
-  const by = new Map();
-  const of = (row: Untyped) => {
+export function analyzerWrites(db: SqlDb, day: string): Map<string, DayWrites> {
+  const by = new Map<string, DayWrites>();
+  const of = (row: ScopeColumns): DayWrites => {
     const key = scopeKeyOf(row) ?? 'other';
-    if (!by.has(key)) by.set(key, { claims: [], episodes: [], affinity: [] });
-    return by.get(key);
+    let writes = by.get(key);
+    if (!writes) by.set(key, (writes = { claims: [], episodes: [], affinity: [] }));
+    return writes;
   };
   for (const row of db
     .prepare(
@@ -232,39 +316,37 @@ export function analyzerWrites(db: Rec, day: string): Map<Untyped, Untyped> {
  * unsupported, flags }]`; `onlyHers` / `onlyAnalyzer` are the items themselves (for `--show`).
  */
 export function compareDay(
-  db: Rec,
-  { day, proposals, showsClaim }: Rec
-): Array<{
-  scope: Untyped;
-  hers: number;
-  analyzer: Untyped;
-  both: number;
-  onlyHers: Array<Untyped>;
-  onlyAnalyzer: Array<Untyped>;
-  violations: number;
-  unsupported: number;
-  flags: number;
-}> {
+  db: SqlDb,
+  {
+    day,
+    proposals,
+    showsClaim,
+  }: { day: string; proposals: Array<Proposal>; showsClaim: (a: string, b: { text: string }) => boolean }
+): Array<Comparison> {
   const writes = analyzerWrites(db, day);
   const scopeOfSource = db.prepare('SELECT scope_kind, scope_iface, scope_dm FROM sources WHERE id = ?');
-  const keys = [...new Set([...proposals.map((entry: Rec) => entry.scope ?? 'other'), ...writes.keys()])].sort();
-  const words = (a: Rec, b: Rec) => showsClaim(a, { text: b }) || showsClaim(b, { text: a });
-  const out = [];
+  const keys = [...new Set([...proposals.map((entry) => entry.scope ?? 'other'), ...writes.keys()])].sort();
+  const words = (a: string, b: string) => showsClaim(a, { text: b }) || showsClaim(b, { text: a });
+  const out: Array<Comparison> = [];
   for (const key of keys) {
-    const mine = proposals.filter((entry: Rec) => (entry.scope ?? 'other') === key);
+    const mine = proposals.filter((entry) => (entry.scope ?? 'other') === key);
     const theirs = writes.get(key) ?? { claims: [], episodes: [], affinity: [] };
-    const left: Rec = { claims: [...theirs.claims], episodes: [...theirs.episodes], affinity: [...theirs.affinity] };
-    const take = (list: Untyped, match: Rec) => {
+    const left: DayWrites = {
+      claims: [...theirs.claims],
+      episodes: [...theirs.episodes],
+      affinity: [...theirs.affinity],
+    };
+    const take = <T>(list: Array<T>, match: (row: T) => boolean): T | null => {
       const at = list.findIndex(match);
       return at === -1 ? null : list.splice(at, 1)[0];
     };
-    const result = {
+    const result: Comparison = {
       scope: key,
       hers: 0,
       analyzer: theirs.claims.length + theirs.episodes.length + theirs.affinity.length,
       both: 0,
-      onlyHers: [] as Array<Untyped>,
-      onlyAnalyzer: [] as Array<Untyped>,
+      onlyHers: [],
+      onlyAnalyzer: [],
       violations: 0,
       unsupported: 0,
       flags: 0,
@@ -277,28 +359,28 @@ export function compareDay(
       result.hers += 1;
       const sources = Array.isArray(op.sources) ? op.sources : [];
       if (sources.length === 0) result.unsupported += 1;
-      if (sources.some((id: Untyped) => scopeKeyOf(scopeOfSource.get(id)) !== key)) result.violations += 1;
+      if (sources.some((id) => scopeKeyOf(scopeOfSource.get<ScopeColumns>(id)) !== key)) result.violations += 1;
       let matched = null;
       if (group === 'claims') {
         matched =
           op.op === 'add'
             ? take(
                 left.claims,
-                (row: Untyped) => row.subjectId === op.subjectId && row.kind === op.kind && words(row.text, op.text)
+                (row) => row.subjectId === op.subjectId && row.kind === op.kind && words(row.text, op.text ?? '')
               )
-            : take(left.claims, (row: Untyped) => row.claimId === op.id);
+            : take(left.claims, (row) => row.claimId === op.id);
       } else if (group === 'episodes') {
-        matched = take(left.episodes, (row: Untyped) => row.subjectId === op.subjectId && words(row.what, op.what));
+        matched = take(left.episodes, (row) => row.subjectId === op.subjectId && words(row.what, op.what ?? ''));
       } else if (group === 'affinity') {
         matched = take(
           left.affinity,
-          (row: Untyped) => row.personId === op.personId && Math.sign(row.delta) === Math.sign(op.delta)
+          (row) => row.personId === op.personId && Math.sign(row.delta) === Math.sign(op.delta ?? 0)
         );
       }
       if (matched) result.both += 1;
       else result.onlyHers.push({ group, op });
     }
-    for (const group of ['claims', 'episodes', 'affinity'])
+    for (const group of ['claims', 'episodes', 'affinity'] as const)
       for (const row of left[group]) result.onlyAnalyzer.push({ group, row });
     out.push(result);
   }
@@ -306,7 +388,7 @@ export function compareDay(
 }
 
 /** The lines of a comparison (counts; with `show` the texts of what only one side has). */
-export function compareLines(results: Untyped, { show = false }: Rec = {}): Array<string> {
+export function compareLines(results: Array<Comparison>, { show = false }: { show?: boolean } = {}): Array<string> {
   const lines = [];
   for (const result of results) {
     lines.push(
@@ -338,16 +420,16 @@ export async function runCompare({
   selfName = '',
   usage = { requests: 0, prompt: 0, completion: 0, cost: null },
   log = {},
-}: Rec): Promise<Array<string>> {
+}: CompareOptions): Promise<Array<string>> {
   const { sweep } = await import('../src/memory/db/session.ts');
   const { showsClaim } = await import('../src/memory/db/describe.ts');
   const { applyMemoryWrite } = await import('../src/memory/db/session-write.ts');
   const start = Date.parse(`${day}T00:00:00.000Z`);
   const end = start + DAY_MS;
   const lines = [];
-  let proposals = [];
+  let proposals: Array<Proposal> = [];
   if (!shadowOnly) {
-    const { db } = handle;
+    const db = sqlOf(handle);
     // The copy's own shadow state goes: every scope starts at its first line of the day.
     db.prepare(
       "DELETE FROM meta WHERE key LIKE 'memory_session.cursor.shadow.%' OR key LIKE 'memory_session.pending.shadow.%'"
@@ -380,7 +462,7 @@ export async function runCompare({
       selfName,
     };
     for (let round = 0; round < 200; round += 1) {
-      const result: Untyped = await sweep(ctx, { scope: scope ?? undefined, ignoreSweepCap: true });
+      const result = await sweep(ctx, { scope: scope ?? undefined, ignoreSweepCap: true });
       if (result.status !== 'ok') {
         lines.push(`sweep: ${result.status} (${result.code})`);
         break;
@@ -399,9 +481,7 @@ export async function runCompare({
       // A batch that failed outright leaves its lines where they were: the next sweep would ask again, so stop.
       if (
         !worked ||
-        result.runs.some(
-          (run: Rec) => !['quiet', 'ok', 'all_dropped', 'skipped', 'applied_before'].includes(run.outcome)
-        )
+        result.runs.some((run) => !['quiet', 'ok', 'all_dropped', 'skipped', 'applied_before'].includes(run.outcome))
       )
         break;
     }
@@ -423,7 +503,7 @@ export async function runCompare({
 }
 
 /** The compare subcommand (see the head of this file). */
-async function compareMain(argv: Untyped) {
+async function compareMain(argv: Array<string>) {
   const flags = parseFlags(argv, {
     values: ['--db', '--data', '--day', '--key-env', '--scope', '--self-name', '--keep'],
     switches: ['--shadow', '--show'],
@@ -460,7 +540,7 @@ async function compareMain(argv: Untyped) {
       ...live,
       llm: { ...(live.llm ?? {}), keyByRole: { ...(live.llm?.keyByRole ?? {}), memory: keyEnv } },
     };
-    const usage: { requests: number; prompt: number; completion: number; cost: number | null } = {
+    const usage: Usage = {
       requests: 0,
       prompt: 0,
       completion: 0,
@@ -494,7 +574,7 @@ async function compareMain(argv: Untyped) {
             return completion;
           },
           {
-            onWait: (ms: Untyped, attempt: Untyped) =>
+            onWait: (ms: number, attempt: Untyped) =>
               process.stderr.write(
                 `memory-session: 429, waiting ${Math.round(ms / 1000)} s (try ${attempt} of ${TRIES})\n`
               ),
@@ -529,7 +609,7 @@ async function compareMain(argv: Untyped) {
 }
 
 /** Runs the tool; returns the text to print. */
-export async function main(argv: Untyped): Promise<string> {
+export async function main(argv: Array<string>): Promise<string> {
   if (argv[0] === 'compare') return compareMain(argv.slice(1));
   const flags = parseFlags(argv, {
     values: ['--db', '--data', '--scope', '--limit', '--key-env', '--review', '--self-name', '--keep'],
@@ -612,7 +692,7 @@ export async function main(argv: Untyped): Promise<string> {
         return completion;
       },
       {
-        onWait: (ms: Untyped, attempt: Untyped) =>
+        onWait: (ms: number, attempt: Untyped) =>
           process.stderr.write(
             `memory-session: 429, waiting ${Math.round(ms / 1000)} s (try ${attempt} of ${TRIES})\n`
           ),
@@ -642,7 +722,7 @@ export async function main(argv: Untyped): Promise<string> {
       lines.push(`scope ${run.scope}: ${run.outcome}, ${run.lines} lines`);
       if (run.counts && run.plan) {
         const dropped =
-          Object.entries(run.counts.dropped ?? {})
+          Object.entries<number>(run.counts.dropped ?? {})
             .map(([reason, n]) => `${reason} ${n}`)
             .join(', ') || 'none';
         lines.push(`  kept ${run.counts.kept}: ${opKinds(run.plan)}; dropped: ${dropped}`);

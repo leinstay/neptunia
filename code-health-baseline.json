@@ -1,25 +1,181 @@
 {
   "files": {
+    "scripts/replay.ts": 7367,
     "src/behavior/recall-run.ts": 2143,
     "src/behavior/recall.ts": 2375,
     "src/behavior/sandbox.ts": 2063,
-    "tests/admin.test.ts": 3698,
-    "tests/describe.test.ts": 3098,
+    "tests/admin.test.js": 3769,
+    "tests/describe.test.js": 3115,
     "tests/events.test.js": 7253,
     "tests/format.test.js": 2020,
     "tests/inner.test.js": 2437,
-    "tests/openrouter.test.ts": 3557,
-    "tests/prompt.test.ts": 6595,
-    "tests/recall.test.ts": 2419,
-    "tests/store.test.ts": 3169,
-    "tests/turn.test.ts": 9082,
-    "tools/lib/inner-week.mjs": 2196,
-    "tools/replay.mjs": 7553
+    "tests/memory-db-session.test.js": 2109,
+    "tests/openrouter.test.js": 3557,
+    "tests/prompt.test.js": 6640,
+    "tests/recall.test.js": 2442,
+    "tests/store.test.js": 3230,
+    "tests/turn.test.js": 9136
   },
   "functions": {
     "interfaces/discord/collect.ts": {
       "audienceOf": {
         "complexity": 22
+      }
+    },
+    "scripts/lib/inner-week-fixture.ts": {
+      "parseFixture": {
+        "complexity": 57,
+        "function-length": 316
+      },
+      "parseFixture><anonymous>#5": {
+        "complexity": 37
+      },
+      "parseFixture>intentionOf": {
+        "complexity": 32
+      }
+    },
+    "scripts/lib/inner-week.ts": {
+      "computeGates": {
+        "complexity": 61
+      },
+      "createStubVoice>plan": {
+        "complexity": 25
+      },
+      "renderReport": {
+        "complexity": 49
+      },
+      "runWeek": {
+        "complexity": 23,
+        "function-length": 622
+      },
+      "runWeek>act": {
+        "complexity": 39
+      },
+      "runWeek>runTurn": {
+        "complexity": 31
+      },
+      "runWeek>tickCandidates": {
+        "complexity": 22
+      }
+    },
+    "scripts/lib/labels-catalogue.ts": {
+      "catalogueProblems": {
+        "complexity": 26
+      }
+    },
+    "scripts/lib/recall-eval.ts": {
+      "parseQuestions><anonymous>": {
+        "complexity": 26
+      }
+    },
+    "scripts/lib/replay-args.ts": {
+      "parseArgs": {
+        "complexity": 254,
+        "function-length": 339
+      }
+    },
+    "scripts/lib/report.ts": {
+      "tally": {
+        "complexity": 34
+      }
+    },
+    "scripts/lib/vision-compare.ts": {
+      "describeOne": {
+        "complexity": 29
+      },
+      "parseArgs": {
+        "complexity": 22
+      }
+    },
+    "scripts/memory-session.ts": {
+      "compareMain": {
+        "complexity": 23
+      },
+      "main": {
+        "complexity": 39
+      },
+      "runCompare": {
+        "complexity": 21
+      }
+    },
+    "scripts/recall-eval.ts": {
+      "main": {
+        "complexity": 44,
+        "function-length": 517
+      },
+      "main>askClassifier": {
+        "complexity": 24
+      },
+      "traces": {
+        "complexity": 31
+      }
+    },
+    "scripts/replay.ts": {
+      "loopCall><anonymous>": {
+        "complexity": 22
+      },
+      "loopLines": {
+        "complexity": 36
+      },
+      "parseScenarios><anonymous>": {
+        "complexity": 50
+      },
+      "parseSteps><anonymous>": {
+        "complexity": 27
+      },
+      "preTurnLookup": {
+        "complexity": 42
+      },
+      "runDiary": {
+        "complexity": 52
+      },
+      "runDiaryDay": {
+        "complexity": 32
+      },
+      "runInner": {
+        "complexity": 63,
+        "function-length": 392
+      },
+      "runMain": {
+        "complexity": 155,
+        "function-length": 758
+      },
+      "runRecall": {
+        "complexity": 64,
+        "function-length": 390
+      },
+      "runRecall><anonymous>#2": {
+        "complexity": 21
+      },
+      "runRecord": {
+        "complexity": 21
+      },
+      "runSkills": {
+        "complexity": 61,
+        "function-length": 547
+      },
+      "runSplit": {
+        "complexity": 26
+      },
+      "runTriggerLoops": {
+        "complexity": 48,
+        "function-length": 323
+      }
+    },
+    "scripts/search-compare.ts": {
+      "main": {
+        "complexity": 32,
+        "function-length": 307
+      }
+    },
+    "scripts/search-policy-eval.ts": {
+      "main": {
+        "complexity": 23
+      }
+    },
+    "scripts/vision-compare.ts": {
+      "resolveFromCache": {
+        "complexity": 25
       }
     },
     "src/agent-runner/opencode.ts": {
@@ -614,163 +770,6 @@
     "tests/fault-injection.test.js": {
       "assertNoSilentFailure": {
         "complexity": 23
-      }
-    },
-    "tools/lib/inner-week.mjs": {
-      "computeGates": {
-        "complexity": 61
-      },
-      "createStubVoice>plan": {
-        "complexity": 25
-      },
-      "parseFixture": {
-        "complexity": 57,
-        "function-length": 318
-      },
-      "parseFixture><anonymous>#5": {
-        "complexity": 37
-      },
-      "parseFixture>intentionOf": {
-        "complexity": 32
-      },
-      "renderReport": {
-        "complexity": 49
-      },
-      "runWeek": {
-        "complexity": 23,
-        "function-length": 631
-      },
-      "runWeek>act": {
-        "complexity": 39
-      },
-      "runWeek>runTurn": {
-        "complexity": 31
-      },
-      "runWeek>tickCandidates": {
-        "complexity": 22
-      }
-    },
-    "tools/lib/labels-catalogue.mjs": {
-      "catalogueProblems": {
-        "complexity": 26
-      }
-    },
-    "tools/lib/recall-eval.mjs": {
-      "parseQuestions><anonymous>": {
-        "complexity": 26
-      }
-    },
-    "tools/lib/report.mjs": {
-      "tally": {
-        "complexity": 34
-      }
-    },
-    "tools/lib/vision-compare.mjs": {
-      "describeOne": {
-        "complexity": 29
-      },
-      "parseArgs": {
-        "complexity": 22
-      }
-    },
-    "tools/memory-session.mjs": {
-      "compareMain": {
-        "complexity": 23
-      },
-      "main": {
-        "complexity": 39
-      },
-      "runCompare": {
-        "complexity": 21
-      }
-    },
-    "tools/recall-eval.mjs": {
-      "main": {
-        "complexity": 45,
-        "function-length": 528
-      },
-      "main>askClassifier": {
-        "complexity": 24
-      },
-      "traces": {
-        "complexity": 32
-      }
-    },
-    "tools/replay-compare.mjs": {
-      "readOldSide": {
-        "complexity": 24
-      }
-    },
-    "tools/replay.mjs": {
-      "loopCall><anonymous>": {
-        "complexity": 22
-      },
-      "loopLines": {
-        "complexity": 36
-      },
-      "parseArgs": {
-        "complexity": 254,
-        "function-length": 339
-      },
-      "parseScenarios><anonymous>": {
-        "complexity": 50
-      },
-      "parseSteps><anonymous>": {
-        "complexity": 27
-      },
-      "preTurnLookup": {
-        "complexity": 42
-      },
-      "runDiary": {
-        "complexity": 52
-      },
-      "runDiaryDay": {
-        "complexity": 32
-      },
-      "runInner": {
-        "complexity": 63,
-        "function-length": 393
-      },
-      "runMain": {
-        "complexity": 155,
-        "function-length": 758
-      },
-      "runRecall": {
-        "complexity": 64,
-        "function-length": 390
-      },
-      "runRecall><anonymous>#2": {
-        "complexity": 21
-      },
-      "runRecord": {
-        "complexity": 21
-      },
-      "runSkills": {
-        "complexity": 61,
-        "function-length": 548
-      },
-      "runSplit": {
-        "complexity": 26
-      },
-      "runTriggerLoops": {
-        "complexity": 48,
-        "function-length": 325
-      }
-    },
-    "tools/search-compare.mjs": {
-      "main": {
-        "complexity": 32,
-        "function-length": 310
-      }
-    },
-    "tools/search-policy-eval.mjs": {
-      "main": {
-        "complexity": 23
-      }
-    },
-    "tools/vision-compare.mjs": {
-      "resolveFromCache": {
-        "complexity": 25
       }
     }
   },

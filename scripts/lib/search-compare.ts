@@ -11,6 +11,23 @@ import type { Untyped } from '../../src/tools/types.ts';
 /** An object read by key whose values are not typed yet. */
 type Rec = Record<string, Untyped>;
 
+/** One run of one query on one engine, as scripts/search-compare.ts records it (and writes to `results.jsonl`). */
+export type SearchRun = {
+  id: string;
+  engine: string;
+  ok: boolean;
+  reason: string | null;
+  ms_search?: number | null;
+  ms_summary?: number | null;
+  ms_total?: number | null;
+  results?: number;
+  cost?: number;
+  text?: string | null;
+  sources?: Array<{ site?: string; url?: string }>;
+  run?: number;
+  [field: string]: Untyped;
+};
+
 /** The engine every other one is scored against on the blind sheet. */
 export const BASELINE_ENGINE = 'brave';
 /** The grades a letter may get on the blind sheet's score line, as numbers (a number is read as is). */
@@ -28,7 +45,7 @@ function flat(value: Untyped) {
 }
 
 /** What is wrong with one parsed queries row (`seen`: the ids before it), or null. */
-function rowProblem(row: Untyped, seen: Rec) {
+function rowProblem(row: { id?: unknown; query?: unknown; asked?: unknown; note?: unknown } | null, seen: Set<string>) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) return 'not an object';
   const id = typeof row.id === 'number' || (typeof row.id === 'string' && row.id.trim()) ? flat(row.id) : null;
   if (!id) return 'no id';
@@ -50,7 +67,7 @@ export function parseQueries(text: string): {
 } {
   const rows = [];
   const errors = [];
-  const seen = new Set();
+  const seen = new Set<string>();
   const lines = String(text ?? '').split(/\r?\n/);
   for (let i = 0; i < lines.length; i += 1) {
     if (!lines[i].trim()) continue;
@@ -86,7 +103,7 @@ export function parseQueries(text: string): {
 export function outcomeOf(result: {
   ok: boolean;
   reason: string | null;
-  text?: string;
+  text?: string | null;
 }): 'skipped' | 'answered' | 'empty' | 'failed' {
   if (result.reason === 'skipped') return 'skipped';
   if (!result.ok) return 'failed';
@@ -121,6 +138,24 @@ export function seededShuffle<T>(items: Array<T>, seed: string, id: string): Arr
   return out;
 }
 
+type Percentiles = { p50: number | null; p95: number | null };
+
+/** One engine's runs summed up: outcomes, failure reasons, the percentiles of each step and the cost. */
+export type EngineSummary = {
+  engine: string;
+  runs: number;
+  answered: number;
+  empty: number;
+  failed: number;
+  skipped: number;
+  reasons: Array<{ reason: string; count: number }>;
+  search: Percentiles;
+  summary: Percentiles;
+  total: Percentiles;
+  costUsd: number;
+  costPerRun: number | null;
+};
+
 /**
  * The run summed up per engine from its results (`{ id, engine, ok, reason, ms_search,
  * ms_summary, ms_total, results, cost, text, sources, run? }`): counts per outcome, the failure
@@ -130,21 +165,25 @@ export function seededShuffle<T>(items: Array<T>, seed: string, id: string): Arr
  * @param engines In report order.
  */
 export function summarize(
-  results: Array<Untyped>,
+  results: Array<SearchRun>,
   engines: Array<string>
-): { engines: Array<Untyped>; gaps: Array<{ answered: string; missed: string; ids: Array<string> }>; costUsd: number } {
-  const per = engines.map((engine) => {
+): {
+  engines: Array<EngineSummary>;
+  gaps: Array<{ answered: string; missed: string; ids: Array<string> }>;
+  costUsd: number;
+} {
+  const per = engines.map((engine): EngineSummary => {
     const runs = results.filter((r) => r.engine === engine);
     const counts = { answered: 0, empty: 0, failed: 0, skipped: 0 };
-    const reasons = new Map();
+    const reasons = new Map<string, number>();
     for (const r of runs) {
       const outcome = outcomeOf(r);
       counts[outcome] += 1;
       if (outcome === 'failed') reasons.set(r.reason ?? 'unknown', (reasons.get(r.reason ?? 'unknown') ?? 0) + 1);
     }
     const timed = runs.filter((r) => outcomeOf(r) !== 'skipped');
-    const ms = (field: Untyped) => timed.map((r) => r[field]).filter(Number.isFinite);
-    const p = (field: Untyped) => ({ p50: percentile(ms(field), 50), p95: percentile(ms(field), 95) });
+    const ms = (field: string) => timed.map((r) => r[field]).filter(Number.isFinite);
+    const p = (field: string) => ({ p50: percentile(ms(field), 50), p95: percentile(ms(field), 95) });
     const costUsd = timed.reduce((sum, r) => sum + (Number(r.cost) || 0), 0);
     return {
       engine,
@@ -188,8 +227,8 @@ function cell(value: Untyped) {
 }
 
 /** A duration in ms, or `-`. */
-function msOf(value: Untyped) {
-  return Number.isFinite(value) ? String(Math.round(value)) : '-';
+function msOf(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? String(Math.round(value)) : '-';
 }
 
 /**
@@ -240,7 +279,7 @@ export function renderSummary(
     "Times in ms. search: the engine's own request (for `openrouter`, the one request that searches and summarizes); summary: the summary request; total: the whole search step."
   );
   out.push('', '## Failures', '');
-  const failures = summary.engines.flatMap((e) => e.reasons.map((r: Rec) => ({ engine: e.engine, ...r })));
+  const failures = summary.engines.flatMap((e) => e.reasons.map((r) => ({ engine: e.engine, ...r })));
   if (failures.length === 0) out.push('None.');
   else {
     out.push('| engine | reason | runs |', '|---|---|---:|');
@@ -265,7 +304,7 @@ export function renderSummary(
  */
 export function renderBlind(
   rows: Array<{ id: string; query: string; asked: string }>,
-  results: Array<Untyped>,
+  results: Array<SearchRun>,
   engines: Array<string>,
   seed: string
 ): { markdown: string; key: Record<string, Record<string, string>> } {
@@ -290,7 +329,11 @@ export function renderBlind(
     key[row.id] = Object.fromEntries(shuffled.map((r, i) => [letters[i], r.engine]));
     out.push('', `## query ${flat(row.id)}`, '', `Question: ${flat(row.asked || row.query)}`);
     shuffled.forEach((r, i) => {
-      const sites = [...new Set((r.sources ?? []).map((s: Rec) => flat(s.site || s.url)).filter(Boolean))];
+      const sites = [
+        ...new Set(
+          (r.sources ?? []).map((s: { site?: string; url?: string }) => flat(s.site || s.url)).filter(Boolean)
+        ),
+      ];
       out.push('', `### ${letters[i]}`, '', `> ${flat(r.text)}`);
       if (sites.length > 0) out.push('', `Sources: ${sites.join(', ')}`);
     });
@@ -414,7 +457,7 @@ export function tallySearchScores({
 }
 
 /** `n` of `of` as `p%`, `-` when `of` is 0. */
-function pct(n: Untyped, of: Untyped) {
+function pct(n: number, of: Untyped) {
   return of > 0 ? `${Math.round((n / of) * 100)}%` : '-';
 }
 

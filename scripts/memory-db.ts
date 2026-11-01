@@ -79,6 +79,7 @@ import type { BoardDb as BoardDbShape } from '../src/board/schema.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { sqlOf } from './lib/sql.ts';
+import type { SqlDb } from './lib/sql.ts';
 import type { TaskView } from '../src/board/board.ts';
 
 /** An object read by key whose values are not typed yet. */
@@ -128,7 +129,7 @@ function runStats(io: Rec, options: Untyped) {
         db
           .prepare(`PRAGMA table_info("${table}")`)
           .all()
-          .map((column: Rec) => column.name)
+          .map((column: Rec) => String(column.name))
       );
       const total = db.prepare(`SELECT COUNT(*) AS n FROM "${table}"`).get().n;
       let line = `${table.padEnd(22)} ${String(total).padStart(8)}`;
@@ -172,9 +173,11 @@ const valueOf = (value: Untyped) => {
  * @param db node:sqlite's DatabaseSync, which open.js types as `object`
  */
 export function tableHashes(
-  db: any,
-  only: ReadonlyArray<string> | null = null
+  handleDb: unknown,
+  tables: unknown = null
 ): Array<{ table: string; rows: number; hash: string }> {
+  const db = handleDb as SqlDb; // the connection under a memory handle, which types it as `object`
+  const only = tables as ReadonlyArray<string> | null; // the names to hash, or null for every table
   const out = [];
   for (const { name, virtual } of tablesOf(db)) {
     if (only && !only.includes(name)) continue;
@@ -191,8 +194,8 @@ export function tableHashes(
         .filter((column: Rec) => column.pk > 0)
         .sort((a: Rec, b: Rec) => a.pk - b.pk)
         .map((column: Rec) => column.name);
-      const order = (keys.length ? keys : columns.map((column: Rec) => column.name))
-        .map((column: Rec) => `"${column}"`)
+      const order = (keys.length ? keys : columns.map((column: Rec) => String(column.name)))
+        .map((column: string) => `"${column}"`)
         .join(', ');
       statement = db.prepare(
         `SELECT ${columns.map((column: Rec) => `"${column.name}"`).join(', ')} FROM "${name}" ORDER BY ${order}`

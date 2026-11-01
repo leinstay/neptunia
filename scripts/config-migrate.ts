@@ -232,7 +232,7 @@ function migrate(argv: Array<string>): string {
   if (text === '') return `${file} is empty: nothing to move\n`;
   let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(text) as Record<string, unknown>;
   } catch (err) {
     throw new CliError(
       `${file} is not valid JSON (${err instanceof Error ? err.message : String(err)}); nothing was changed`

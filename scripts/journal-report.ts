@@ -13,7 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { renderDay, tally } from './lib/report.ts';
-import { parseFlags, daysBetween, defaultDataDir, resolveGuildId, CliError, runCli } from './lib/cli.ts';
+import { flagText, parseFlags, daysBetween, defaultDataDir, resolveGuildId, CliError, runCli } from './lib/cli.ts';
 
 const USAGE =
   'usage: node scripts/journal-report.ts --since <YYYY-MM-DD> [--until <YYYY-MM-DD>] [--guild <id>] [--data <dir>]';
@@ -25,9 +25,11 @@ export async function main(
 ): Promise<string> {
   const flags = parseFlags(argv, { values: ['--since', '--until', '--guild', '--data'], usage: USAGE });
   if (!flags['--since']) throw new CliError(USAGE);
-  const dataDir = flags['--data'] !== undefined ? path.resolve(cwd, flags['--data']) : defaultDataDir(cwd);
-  const guildId = resolveGuildId(dataDir, flags['--guild']);
-  const days = daysBetween(flags['--since'], flags['--until'] ?? new Date(now()).toISOString().slice(0, 10), USAGE);
+  const data = flagText(flags, '--data');
+  const dataDir = data !== undefined ? path.resolve(cwd, data) : defaultDataDir(cwd);
+  const guildId = resolveGuildId(dataDir, flagText(flags, '--guild'));
+  const until = flagText(flags, '--until') ?? new Date(now()).toISOString().slice(0, 10);
+  const days = daysBetween(String(flags['--since']), until, USAGE);
   const dir = path.join(dataDir, 'guilds', guildId, 'journal');
   const out = [`# Journal report, guild ${guildId}, ${days[0]} to ${days.at(-1)}`, ''];
   for (const day of days) {
@@ -37,7 +39,7 @@ export async function main(
       continue;
     }
     const text = fs.readFileSync(file, 'utf8');
-    const records = [];
+    const records: Array<Record<string, unknown>> = [];
     let unreadable = 0;
     const lines = text.split('\n');
     // The last piece after the final newline is empty, or a torn tail the bot moves aside on its next open.

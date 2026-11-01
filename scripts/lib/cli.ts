@@ -10,13 +10,12 @@ import { resolvePaths } from '../../src/paths.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 
 /** An object read by key whose values are not typed yet. */
-type Rec = Record<string, Untyped>;
 
 /** An operator-facing failure: printed as is, exit code `exitCode` (1 by default). */
 export class CliError extends Error {
   exitCode: number;
 
-  constructor(message: Untyped, { exitCode = 1 }: Rec = {}) {
+  constructor(message: string, { exitCode = 1 }: { exitCode?: number } = {}) {
     super(message);
     this.exitCode = exitCode;
   }
@@ -26,6 +25,12 @@ export class CliError extends Error {
  * The OpenRouter key a tool spends: `OPENROUTER_SIM_KEY`, else a CliError. A tool never spends
  * the bot's own key. The value is never printed.
  */
+/** The text of a value flag, or undefined when it was not given (a value flag is never `true`). */
+export function flagText(flags: Flags, name: string): string | undefined {
+  const value: unknown = flags[name];
+  return typeof value === 'string' ? value : undefined;
+}
+
 export function simKey(tool: Untyped, env = process.env): string {
   const value = env.OPENROUTER_SIM_KEY;
   if (typeof value === 'string' && value.trim() !== '') return value;
@@ -38,6 +43,9 @@ export const REFUSED_EXIT = 2;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86_400_000;
 const MAX_DAYS = 366;
+
+/** The flags `parseFlags` read: each by its `--name` (a string, `true`, or a list), the positional arguments under `_`. */
+export type Flags = { _: Array<string>; [flag: string]: Untyped };
 
 /**
  * `argv` as `{ [flag]: value | true | string[], _: positional[] }`. `values` take one value each
@@ -54,21 +62,21 @@ export function parseFlags(
     switches = [],
     usage,
   }: { values?: Array<string>; lists?: Array<string>; multi?: Array<string>; switches?: Array<string>; usage: string }
-): Rec {
-  const out: Rec = { _: [] };
+): Flags {
+  const out: Flags = { _: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (switches.includes(arg)) out[arg] = true;
     else if (values.includes(arg) || lists.includes(arg)) {
       const value = argv[(i += 1)];
       if (typeof value !== 'string' || value.startsWith('--')) throw new CliError(usage);
-      if (lists.includes(arg)) (out[arg] ??= []).push(value);
+      if (lists.includes(arg)) ((out[arg] as Array<string> | undefined) ?? (out[arg] = [])).push(value);
       else out[arg] = value;
     } else if (multi.includes(arg)) {
       const taken = [];
       while (i + 1 < argv.length && !argv[i + 1].startsWith('--')) taken.push(argv[(i += 1)]);
       if (taken.length === 0) throw new CliError(usage);
-      out[arg] = [...(out[arg] ?? []), ...taken];
+      out[arg] = [...((out[arg] as Array<string> | undefined) ?? []), ...taken];
     } else if (typeof arg === 'string' && arg.startsWith('--')) throw new CliError(usage);
     else out._.push(arg);
   }
@@ -109,12 +117,12 @@ export function privateDirOf(root: string, env: Record<string, string | undefine
 }
 
 /** The guild of `dataDir`: `given`, else the only directory under `guilds/`; else a CliError. */
-export function resolveGuildId(dataDir: string, given: Rec): Untyped {
+export function resolveGuildId(dataDir: string, given: unknown): string {
   if (typeof given === 'string' && given) {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(given)) throw new CliError('the guild id is not valid');
     return given;
   }
-  let names: Array<Untyped> = [];
+  let names: Array<string> = [];
   try {
     names = fs
       .readdirSync(path.join(dataDir, 'guilds'), { withFileTypes: true })
@@ -166,7 +174,7 @@ export function spendGate({
 function isEntryPoint(url: string) {
   if (!process.argv[1]) return false;
   try {
-    const norm = (p: Untyped) => (process.platform === 'win32' ? p.toLowerCase() : p);
+    const norm = (p: string) => (process.platform === 'win32' ? p.toLowerCase() : p);
     return norm(fs.realpathSync(process.argv[1])) === norm(fs.realpathSync(fileURLToPath(url)));
   } catch {
     return false;
@@ -191,8 +199,9 @@ export function runCli(url: string, main: (argv: Array<string>) => Promise<strin
   ) => process.stderr.write(chunk, encoding, callback)) as typeof process.stdout.write;
   main(process.argv.slice(2)).then(
     (text) => stdoutWrite(String(text ?? ''), () => process.exit(0)),
-    (err) => {
-      const message = err instanceof CliError ? err.message : `${err?.name ?? 'Error'}: ${err?.message ?? err}`;
+    (err: unknown) => {
+      const e = err as { name?: string; message?: string } | undefined; // anything a run rejected with
+      const message = err instanceof CliError ? err.message : `${e?.name ?? 'Error'}: ${e?.message ?? String(err)}`;
       process.stderr.write(`${message}\n`, () => process.exit(err instanceof CliError ? err.exitCode : 1));
     }
   );

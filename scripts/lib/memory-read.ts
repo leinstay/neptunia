@@ -24,7 +24,7 @@ export function readOnlyMemory(
   dataDir: string,
   { file = null }: { file?: string | null } = {}
 ): {
-  memoryDb: { readHandle: () => Untyped | null; database: () => Untyped | null } | null;
+  memoryDb: { readHandle: () => Untyped; database: () => Untyped } | null;
   close: () => void;
   found: boolean;
 } {

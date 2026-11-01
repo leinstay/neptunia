@@ -37,16 +37,42 @@ function rowProblem(row: Untyped, seen: Rec) {
   return null;
 }
 
+/** One row of the sheet: a question with its chat context and the tier the owner expects. */
+export type SheetRow = {
+  id: string;
+  source: string;
+  question: string;
+  context: Array<{ author: string; text: string }>;
+  tier: string;
+  note: string;
+  author?: string;
+};
+
+/** One row asked and decided. */
+export type PolicyResult = {
+  id: string;
+  source: string;
+  tier: string;
+  decision: string;
+  query: string | null;
+  forms: Array<string>;
+  who: Array<string>;
+  ms: number;
+  ok: boolean;
+  error?: string;
+  costUsd: number;
+};
+
 /**
  * The sheet's JSONL text as rows `{ id, source, question, context: [{ author, text }], tier,
  * note, author? }`, checked: an id (string or number, unique), a non-empty question, a tier of
  * TIERS, a source string, `context` an array of `{ author, text }` strings (absent: []). Blank
  * lines are skipped. `errors` names each bad line by its number.
  */
-export function parseSheet(text: string): { rows: Array<Rec>; errors: Array<string> } {
-  const rows = [];
-  const errors = [];
-  const seen = new Set();
+export function parseSheet(text: string): { rows: Array<SheetRow>; errors: Array<string> } {
+  const rows: Array<SheetRow> = [];
+  const errors: Array<string> = [];
+  const seen = new Set<string>();
   const lines = String(text ?? '').split(/\r?\n/);
   for (let i = 0; i < lines.length; i += 1) {
     if (!lines[i].trim()) continue;
@@ -100,6 +126,9 @@ function chatMessage({ id, authorName, content, ts, self }: Rec) {
   };
 }
 
+/** A chat message as `chatMessage` builds it. */
+type ChatMessage = ReturnType<typeof chatMessage>;
+
 /**
  * One row as the chat a live turn would show the search classifier: its `context` lines one
  * minute apart before `now` (a line whose author is `selfName`, any case, is the persona's own),
@@ -108,7 +137,7 @@ function chatMessage({ id, authorName, content, ts, self }: Rec) {
 export function rowChat(
   row: { id: string; question: string; context: Array<{ author: string; text: string }>; author?: string },
   { now, selfName }: { now: number; selfName: string }
-): { history: Array<Untyped>; trigger: Untyped } {
+): { history: Array<ChatMessage>; trigger: ChatMessage } {
   const own = String(selfName ?? '').toLowerCase();
   const context = row.context ?? [];
   const history = context.map((line, i) => {
@@ -156,7 +185,7 @@ function queryText(result: Rec) {
  * source, the disagreements in run order, the latency p50/p95, the summed cost, the failed
  * calls, and whether any row was decided `agent`.
  */
-export function summarize(results: Array<Rec>): Rec {
+export function summarize(results: Array<PolicyResult>): Rec {
   const matrix = Object.fromEntries(TIERS.map((tier) => [tier, Object.fromEntries(DECISIONS.map((d) => [d, 0]))]));
   const bySource = new Map();
   let agreed = 0;

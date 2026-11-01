@@ -30,14 +30,42 @@ export function percentile(values: Array<unknown>, p: number): number | null {
   return sorted[low] + (sorted[high] - sorted[low]) * (pos - low);
 }
 
+type Nested = Record<string, Record<string, number>>;
+
+/** A day's numbers with every part present. */
+export type FullTally = {
+  records: number;
+  turns: Nested;
+  reasons: Nested;
+  actions: Nested;
+  prompt: Array<number>;
+  cached: { cached: number; prompt: number; counted: number; cacheWrite: number; writeCounted: number };
+  dropped: Record<string, number>;
+  limits: Array<{ kind: string; lost: number | null }>;
+  ownMessages: number;
+  memoryBatches: number;
+  system: Record<string, number>;
+  fileBytes: number | null;
+};
+
+/** A day's numbers as the report prints them: the log carries no reasons, actions, limits, messages, batches or system events. */
+export type Tally = Omit<FullTally, 'reasons' | 'actions' | 'limits' | 'ownMessages' | 'memoryBatches' | 'system'> & {
+  reasons: Nested | null;
+  actions: Nested | null;
+  limits: FullTally['limits'] | null;
+  ownMessages: number | null;
+  memoryBatches: number | null;
+  system: Record<string, number> | null;
+};
+
 /** Add `n` to `map[a][b]`, creating the inner map. */
-function bump2(map: Untyped, a: Untyped, b: Untyped, n = 1) {
+function bump2(map: Nested, a: string, b: string, n = 1) {
   map[a] ??= {};
   map[a][b] = (map[a][b] ?? 0) + n;
 }
 
 /** A fresh, empty tally: every part present and zero; the log reader sets its missing parts to null. */
-function emptyTally(): Rec {
+function emptyTally(): FullTally {
   return {
     records: 0,
     turns: {},
@@ -74,7 +102,7 @@ function limitEntry(entry: Rec) {
  * - `ownMessages`: the persona's posts (`posted` entries); `memoryBatches`; `system[event]`.
  * Anything that is not an object is skipped. `fileBytes` stays null (the reader sets it).
  */
-export function tally(records: Array<Rec>): Rec {
+export function tally(records: Array<Rec>): FullTally {
   const out = emptyTally();
   const list = (Array.isArray(records) ? records : []).filter((r) => r && typeof r === 'object');
   const triggers = new Map();
@@ -105,7 +133,7 @@ export function tally(records: Array<Rec>): Rec {
           out.cached.writeCounted += 1;
         }
       }
-      for (const [section, n] of Object.entries(record.budget?.dropped ?? {})) {
+      for (const [section, n] of Object.entries<number>(record.budget?.dropped ?? {})) {
         if (Number.isFinite(n)) out.dropped[section] = (out.dropped[section] ?? 0) + n;
       }
       if (Array.isArray(record.posted)) out.ownMessages += record.posted.length;
@@ -171,8 +199,8 @@ export function limitsTable(records: Array<Rec>): Array<{ kind: string; count: n
  * is null and prints N/A: reasons, actions, limits, own messages, memory batches, system events,
  * file bytes.
  */
-export function tallyLog(lines: Array<string>): Map<string, Untyped> {
-  const days = new Map();
+export function tallyLog(lines: Array<string>): Map<string, Tally> {
+  const days = new Map<string, Tally>();
   for (const raw of Array.isArray(lines) ? lines : []) {
     const text = String(raw ?? '');
     const at = text.indexOf('{');
@@ -196,7 +224,7 @@ export function tallyLog(lines: Array<string>): Map<string, Untyped> {
         system: null,
       });
     }
-    const out = days.get(day);
+    const out = days.get(day) as Tally; // set just above
     out.records += 1;
     bump2(out.turns, LOG_OUTCOME, typeof entry.trigger === 'string' && entry.trigger ? entry.trigger : '-');
     const prompt = entry.usage?.prompt_tokens;
@@ -224,20 +252,21 @@ export function tallyLog(lines: Array<string>): Map<string, Untyped> {
 }
 
 /** A markdown table; `rows` are arrays of cells. */
-function table(head: Untyped, rows: Untyped) {
-  const line = (cells: Untyped) => `| ${cells.map((c: Rec) => String(c).replace(/\|/g, '\\|')).join(' | ')} |`;
+function table(head: Array<string>, rows: Array<Array<unknown>>) {
+  const line = (cells: Array<unknown>) =>
+    `| ${cells.map((c: unknown) => String(c).replace(/\|/g, '\\|')).join(' | ')} |`;
   return [line(head), line(head.map(() => '---')), ...rows.map(line)].join('\n');
 }
 
 /** A number as printed: whole numbers as they are, others with one decimal; null -> N/A. */
-function num(value: Untyped) {
+function num(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value)) return NA;
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 /** Two-level counts as a table: a row per outer key, a column per inner key, then the row total. */
-function crossTable(label: string, map: Rec) {
-  const inner = [...new Set(Object.values<Untyped>(map).flatMap((row) => Object.keys(row)))].sort();
+function crossTable(label: string, map: Nested) {
+  const inner = [...new Set(Object.values(map).flatMap((row) => Object.keys(row)))].sort();
   const rows = Object.keys(map)
     .sort()
     .map((key) => {
@@ -256,13 +285,13 @@ function crossTable(label: string, map: Rec) {
  * one prints `none`.
  * @param t From `tally` or `tallyLog` (`fileBytes` set by the caller when known).
  */
-export function renderDay(day: string, t: Untyped): string {
+export function renderDay(day: string, t: Tally): string {
   const out = [`## ${day}`, ''];
   const isEmpty = (value: Untyped) =>
     Array.isArray(value)
       ? value.length === 0
       : Boolean(value) && typeof value === 'object' && Object.keys(value).length === 0;
-  const section = (title: Untyped, value: Untyped, render: Untyped) => {
+  const section = <T>(title: string, value: T | null | undefined, render: (v: T) => string) => {
     out.push(`### ${title}`, '');
     if (value === null || value === undefined) out.push(NA);
     else if (isEmpty(value)) out.push('none');
@@ -270,8 +299,8 @@ export function renderDay(day: string, t: Untyped): string {
     out.push('');
   };
   out.push(`File bytes: ${num(t.fileBytes)}`, `Records: ${num(t.records)}`, '');
-  section('Turns by outcome and trigger', t.turns, (v: Untyped) => crossTable('outcome', v));
-  section('Skip and refusal reasons', t.reasons, (v: Untyped) =>
+  section('Turns by outcome and trigger', t.turns, (v) => crossTable('outcome', v));
+  section('Skip and refusal reasons', t.reasons, (v) =>
     table(
       ['outcome', 'reason', 'count'],
       Object.keys(v)
@@ -283,7 +312,7 @@ export function renderDay(day: string, t: Untyped): string {
         )
     )
   );
-  section('Actions by name and phase', t.actions, (v: Untyped) => crossTable('action', v));
+  section('Actions by name and phase', t.actions, (v) => crossTable('action', v));
   const share = t.cached && t.cached.prompt > 0 ? `${((100 * t.cached.cached) / t.cached.prompt).toFixed(1)}%` : NA;
   out.push('### Usage', '');
   out.push(
@@ -300,20 +329,20 @@ export function renderDay(day: string, t: Untyped): string {
     ),
     ''
   );
-  section('Budget dropped (items per section)', t.dropped, (v: Untyped) =>
+  section('Budget dropped (items per section)', t.dropped, (v) =>
     table(
       ['section', 'dropped'],
       Object.entries(v).sort(([a], [b]) => a.localeCompare(b))
     )
   );
-  section('Limits', t.limits === null || t.limits === undefined ? null : limitsTable(t.limits), (rows: Untyped) =>
+  section('Limits', t.limits === null || t.limits === undefined ? null : limitsTable(t.limits), (rows) =>
     table(
       ['limit', 'count', 'lost'],
-      rows.map((r: Untyped) => [r.kind, r.count, num(r.lost)])
+      rows.map((r) => [r.kind, r.count, num(r.lost)])
     )
   );
   out.push(`Own messages: ${num(t.ownMessages)}`, `Memory batches: ${num(t.memoryBatches)}`, '');
-  section('System events', t.system, (v: Untyped) =>
+  section('System events', t.system, (v) =>
     table(
       ['event', 'count'],
       Object.entries(v).sort(([a], [b]) => a.localeCompare(b))

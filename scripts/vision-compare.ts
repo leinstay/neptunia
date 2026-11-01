@@ -48,6 +48,8 @@ import {
   runComparison,
   summarizeModels,
 } from './lib/vision-compare.ts';
+import type { Picked } from './lib/vision-compare.ts';
+import type { Hot } from '../src/hot.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
 /** An object read by key whose values are not typed yet. */
@@ -58,12 +60,12 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_MESSAGE_READS = 200;
 
 /** The file time of a sheet: an ISO time with `:` and `.` replaced. */
-function fileTime(ms: Untyped) {
+function fileTime(ms: number) {
   return new Date(ms).toISOString().replace(/[:.]/g, '-');
 }
 
 /** `file` resolved, refused when it is not under `dataDir/vision-compare`. */
-function outPath(dataDir: string, cwd: Untyped, given: Untyped, nowMs: Untyped) {
+function outPath(dataDir: string, cwd: Untyped, given: Untyped, nowMs: number) {
   const base = path.join(dataDir, 'vision-compare');
   const file = given ? path.resolve(cwd, given) : path.join(base, `${fileTime(nowMs)}.html`);
   if (!file.startsWith(`${base}${path.sep}`))
@@ -104,7 +106,21 @@ async function connectDiscord(token: Untyped) {
  * The picked cache entries as describer items (see the header): `{ items, unlocated }`.
  * Read only: the GIF library and the record are read, never written; Discord over GET.
  */
-async function resolveFromCache({ picked, dataDir, guildId, hot, nowMs, token }: Rec) {
+async function resolveFromCache({
+  picked,
+  dataDir,
+  guildId,
+  hot,
+  nowMs,
+  token,
+}: {
+  picked: Array<Picked>;
+  dataDir: string;
+  guildId: string;
+  hot: Hot;
+  nowMs: number;
+  token: string | null | undefined;
+}) {
   const { collectPictures, collectVideos } = await import('../src/media/classify.ts');
   const { emojiUrl } = await import('../interfaces/discord/collect.ts');
   const { normalizeMessage } = await import('../interfaces/discord/index.ts');
@@ -122,7 +138,7 @@ async function resolveFromCache({ picked, dataDir, guildId, hot, nowMs, token }:
       });
   }
   // By cache key: a video's summary and its poster share one item id.
-  const wanted = new Map<string, Untyped>(picked.filter((p: Rec) => !found.has(p.key)).map((p: Rec) => [p.key, p]));
+  const wanted = new Map<string, Picked>(picked.filter((p) => !found.has(p.key)).map((p) => [p.key, p]));
   const wantsItem = (itemId: Untyped) => [...wanted.values()].some((p) => p.itemId === itemId);
   if (wanted.size > 0 && !token) {
     process.stderr.write(
@@ -243,7 +259,7 @@ export async function main(
         `vision-compare: ${picked.length} cache entr(ies) picked, ${items.length} found again, ${resolved.unlocated} not\n`
       );
     } else {
-      const raw = readJson(path.resolve(cwd, args.media), undefined);
+      const raw = readJson(path.resolve(cwd, args.media!), undefined);
       if (raw === undefined) throw new CliError(`vision-compare: cannot read the media file ${args.media}`);
       const parsed = parseMediaList(raw, { videoSites: hot.config.media?.video?.sites ?? [], kinds: args.kinds });
       if (parsed.errors.length > 0)

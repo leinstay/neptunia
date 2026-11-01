@@ -519,15 +519,11 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 // CliError: an operator-facing failure, printed as is, exit code `exitCode` (1 unless the spend gate refused: 2).
-import { createAnswersDir, withAnswersDir, ANSWERS_TIMEOUT_MIN } from './lib/answers-dir.ts';
+import { createAnswersDir, withAnswersDir } from './lib/answers-dir.ts';
 import { simKey, CliError, REFUSED_EXIT, defaultDataDir, privateDirOf, resolveGuildId, spendGate } from './lib/cli.ts';
 import {
-  DRAW_MODES,
-  DEFAULT_LIVE_PICTURES,
-  MAX_PICTURES,
   diaryDayEstimate,
   fixtureImagesFetch,
-  isDateKey,
   planDiaryDay,
   recordingImages,
   renderDiaryDayReport,
@@ -550,12 +546,31 @@ import {
 } from './lib/platform-objects.ts';
 import { MAX_MESSAGE_CHARS } from '../src/format.ts';
 import type { Untyped } from '../src/tools/types.ts';
-import { parseArgs, DIARY_KINDS, MAX_BEFORE, SNOWFLAKE } from './lib/replay-args.ts';
+import type { ReplayArgs } from './lib/replay-args.ts';
+import type { Hot } from '../src/hot.ts';
+import { parseArgs, MAX_BEFORE, SNOWFLAKE } from './lib/replay-args.ts';
 
 /** An object read by key whose values are not typed yet. */
-type Rec = Record<string, Untyped>;
+
+/** What one mode of the script is handed: the parsed options and the objects `runMain` builds, read by name. */
+/** The part of the live view the script reads: the settings and the prompt files. */
+type HotView = Pick<Hot, 'config' | 'prompts'>;
+
+type ModeCtx = { args: ReplayArgs; root: string; hot: HotView; signal?: AbortSignal; [key: string]: Untyped };
 
 export { INNER_KINDS, parseArgs } from './lib/replay-args.ts';
+import type {
+  Rec,
+  RunEnv,
+  WakeInfo,
+  Scenario,
+  TriggerLine,
+  ToolRun,
+  ReplayTools,
+  RunRecord,
+  LoopStep,
+  LoopRecord,
+} from './lib/replay-types.ts';
 
 export { conversationRef, guildListing, hiddenReads, requesterOfChannel, roleIdsOf } from './lib/platform-objects.ts';
 
@@ -578,7 +593,7 @@ const DEFAULT_BEFORE = 40;
 /** A deep-frozen copy of a JSON value. */
 function frozenCopy(value: Untyped) {
   const copy = value === undefined ? {} : structuredClone(value);
-  const freeze = (v: Rec) => {
+  const freeze = (v: Untyped) => {
     if (v && typeof v === 'object' && !Object.isFrozen(v)) {
       Object.freeze(v);
       for (const item of Object.values(v)) freeze(item);
@@ -595,7 +610,7 @@ function frozenCopy(value: Untyped) {
  * @param store From src/memory/store.ts#createStore.
  */
 function readOnlyStore(store: Untyped, reads: ReadonlyArray<string>) {
-  const refused = (name: Untyped) => () => {
+  const refused = (name: string) => () => {
     throw new Error(`replay-cli: the memory store is read-only here (${name} refused)`);
   };
   const out: Untyped = {};
@@ -622,14 +637,14 @@ function readOnlyStore(store: Untyped, reads: ReadonlyArray<string>) {
  * never mutated. Returns `{ view, hidden }` with the number of facts left out
  * (counted on the guild memory as it stands now).
  */
-function withoutSelfFacts(view: Rec, { all, needles }: Rec) {
+function withoutSelfFacts(view: Untyped, { all, needles }: Rec) {
   const keeps = (fact: Untyped) => {
     if (all) return false;
     if (typeof fact !== 'string') return true;
     const text = fact.toLowerCase();
     return !needles.some((needle: Untyped) => text.includes(needle));
   };
-  const filtered = (guild: Rec) => {
+  const filtered = (guild: Untyped) => {
     const self = Array.isArray(guild?.self) ? guild.self : null;
     return self ? { ...guild, self: self.filter(keeps) } : guild;
   };
@@ -743,7 +758,7 @@ export async function connectDiscord({
  * gateway), so normalizeMessage reads their display names. A member who left
  * stays unresolved (the user's own name is used). Returns the counts.
  */
-async function cacheMembers(guild: Rec, ids: Untyped) {
+async function cacheMembers(guild: Untyped, ids: Untyped) {
   let fetched = 0;
   let missing = 0;
   for (const id of ids) {
@@ -910,17 +925,17 @@ const FOUND_LINE_RE = /^(>> )?#\d+ \[/;
  * modules may export the same name). A missing one is a CliError.
  */
 async function loadRecallMods(load: Untyped) {
-  const recall = await load('behavior/recall.ts');
-  const runner = await load('behavior/recall-run.ts');
-  const prompt = await load('behavior/prompt.ts');
-  const roles = await load('llm/roles.ts');
-  const openrouter = await load('llm/openrouter.ts');
-  const time = await load('time.ts');
-  const turn = await load('behavior/turn.ts');
-  const describe = await load('memory/describe.ts');
-  const lookup = await load('web/lookup.ts');
-  const media = await load('media/classify.ts');
-  const pull = await load('../interfaces/discord/index.ts');
+  const recall = (await load('behavior/recall.ts')) as Rec;
+  const runner = (await load('behavior/recall-run.ts')) as Rec;
+  const prompt = (await load('behavior/prompt.ts')) as Rec;
+  const roles = (await load('llm/roles.ts')) as Rec;
+  const openrouter = (await load('llm/openrouter.ts')) as Rec;
+  const time = (await load('time.ts')) as Rec;
+  const turn = (await load('behavior/turn.ts')) as Rec;
+  const describe = (await load('memory/describe.ts')) as Rec;
+  const lookup = (await load('web/lookup.ts')) as Rec;
+  const media = (await load('media/classify.ts')) as Rec;
+  const pull = (await load('../interfaces/discord/index.ts')) as Rec;
   const mods = {
     parseLookupAnswer: recall.parseLookupAnswer,
     recallSettings: recall.recallSettings,
@@ -999,7 +1014,7 @@ function foundSections(user: Untyped) {
 }
 
 /** An ISO time from epoch ms, or null. */
-function isoOf(ms: Untyped) {
+function isoOf(ms: number) {
   return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 
@@ -1184,16 +1199,16 @@ async function runRecall({
     const data = { recallDay: store.state.data.recallDay, recallCount: store.state.data.recallCount };
     const recallStore = {
       state: { data, markDirty() {} },
-      listUserProfiles: (id: Untyped) => store.listUserProfiles(id),
-      getLore: (id: Untyped) => store.getLore(id),
-      getGuild: (id: Untyped) => store.getGuild(id),
+      listUserProfiles: (id: string) => store.listUserProfiles(id),
+      getLore: (id: string) => store.getLore(id),
+      getGuild: (id: string) => store.getGuild(id),
       getRecent: () => recentAsOf(),
     };
     const describer = createDescriber({ hot, store: cacheStore, llm: refusing });
     // The run's first timer is its deadline (recall.timeoutMs); the second only cuts a search still out.
     let timersSet = 0;
     const timers = {
-      set: (fn: Untyped, ms: Untyped) => {
+      set: (fn: Untyped, ms: number) => {
         const deadline = timersSet === 0;
         timersSet += 1;
         return setTimeout(() => {
@@ -1207,7 +1222,7 @@ async function runRecall({
     const rest = guild.client.rest;
     const ownGet = Object.hasOwn(rest, 'get') ? rest.get : null;
     const restGet = rest.get.bind(rest);
-    rest.get = async (route: Rec, options: Untyped) => {
+    rest.get = async (route: string, options: Untyped) => {
       const kind = /\/messages\/search$/.test(String(route))
         ? 'messages'
         : /\/members\/search$/.test(String(route))
@@ -1490,7 +1505,7 @@ async function fetchWindow({
   };
   // Pass 1 learns who wrote and who is mentioned; their members are cached; pass 2 normalizes with their display names.
   const first = limit > 0 ? await fetchHistoryWindow(channel, windowOptions) : [];
-  const ids = new Set(memberIds.filter((id: Untyped) => id !== self.id));
+  const ids = new Set(memberIds.filter((id: string) => id !== self.id));
   for (const message of first) {
     if (message.authorId !== self.id) ids.add(message.authorId);
     for (const id of message.mentionedUserIds ?? []) if (id !== self.id) ids.add(id);
@@ -1502,10 +1517,10 @@ async function fetchWindow({
     const warm = await import(
       pathToFileURL(path.join(process.cwd(), 'interfaces', 'discord', 'audience-warm.ts')).href
     );
-    const overwriteIds = warm.overwriteMemberIds(guild.channels.cache.values(), (id: Untyped) =>
+    const overwriteIds = warm.overwriteMemberIds(guild.channels.cache.values(), (id: string) =>
       guild.members.cache.has(id)
     );
-    const warmed = await warm.fetchMembers(overwriteIds, (id: Untyped) => guild.members.fetch(id));
+    const warmed = await warm.fetchMembers(overwriteIds, (id: string) => guild.members.fetch(id));
     log.info('replay-cli: audience members warmed', warmed);
   } catch (err: Untyped) {
     log.warn('replay-cli: audience warm skipped', { error: String(err?.message ?? err).slice(0, 120) });
@@ -1554,7 +1569,7 @@ function memoryViewFor({ hotLike, store, guildId, calibrator, situation, at, arg
 }
 
 /** The text of a message's content: a string, or its text parts joined. */
-function textOfContent(content: Rec) {
+function textOfContent(content: Untyped) {
   if (typeof content === 'string') return content;
   return Array.isArray(content)
     ? content.map((part) => (typeof part?.text === 'string' ? part.text : '')).join('')
@@ -1691,11 +1706,11 @@ export function diaryPromptLayers(
  * the view and removes `dir`.
  */
 export function overlayPromptsHot(
-  createHot: (options: { rootDir: string }) => Rec,
+  createHot: (options: { rootDir: string }) => Hot,
   root: string,
   promptsDir: string,
   { mergeJson = null, tmpDir }: { mergeJson?: ((...args: Array<Untyped>) => Untyped) | null; tmpDir?: string } = {}
-): { hot: Rec; dir: string } {
+): { hot: Hot; dir: string } {
   return promptLayersHot(createHot, root, diaryPromptLayers(root, promptsDir), {
     mergeJson,
     ...(tmpDir ? { tmpDir } : {}),
@@ -1741,7 +1756,7 @@ export function searchAvailableOf({
  * only this process's cache, which is never flushed.
  * @param store From src/memory/store.ts#createStore.
  */
-export function unflushedStore(store: Rec): { store: Rec; state: { data: Untyped; markDirty(): void } } {
+export function unflushedStore(store: Untyped): { store: Rec; state: { data: Untyped; markDirty(): void } } {
   const state = { data: structuredClone(store.state?.data ?? {}), markDirty() {} };
   const refused = new Set([
     'flush',
@@ -1775,7 +1790,7 @@ export function unflushedStore(store: Rec): { store: Rec; state: { data: Untyped
  * `{ code, result }`.
  */
 /** The engine modules a diary run (`--diary`, `--diary-day`) wires, from the checkout at `load`. */
-export async function loadDiaryMods(load: Untyped): Promise<Untyped> {
+export async function loadDiaryMods(load: Untyped): Promise<Rec> {
   return {
     ...(await load('behavior/diary.ts')),
     ...(await load('memory/store.ts')),
@@ -1809,7 +1824,7 @@ export async function loadDiaryMods(load: Untyped): Promise<Untyped> {
  * recorded in `calls` as `{ purpose, text, toolCalls, finishReason, usage, error, code }` (`toolCalls`: the native
  * transport's calls of the answer; `code`: the short failure code of `errorCodeOf`, when given, else `error`).
  */
-export function recordingLlm(realLlm: Rec, calls: Rec, { noCache = false, errorCodeOf = null }: Rec = {}): Rec {
+export function recordingLlm(realLlm: Untyped, calls: Rec, { noCache = false, errorCodeOf = null }: Rec = {}): Rec {
   return new Proxy(realLlm, {
     get(target, prop) {
       if (prop === 'complete') {
@@ -1851,7 +1866,7 @@ export function recordingLlm(realLlm: Rec, calls: Rec, { noCache = false, errorC
 }
 
 /** What one recorded request cost, as the provider reported it (else 0). */
-function callCost(call: Rec) {
+function callCost(call: Untyped) {
   const cost = Number(call.usage?.cost_details?.upstream_inference_cost ?? call.usage?.cost ?? 0);
   return Number.isFinite(cost) ? cost : 0;
 }
@@ -1888,7 +1903,8 @@ export function refuseDiscordWrites(given: unknown): void {
 }
 
 /** `--diary-own-history`: reads keeping only her diary's messages in the history of its channel (ownHistoryReads). */
-const ownReadsOf = (args: Rec, dataDir: string) => (args.diaryOwnHistory ? ownHistoryReads(memoryFor(dataDir)) : null);
+const ownReadsOf = (args: ReplayArgs, dataDir: string) =>
+  args.diaryOwnHistory ? ownHistoryReads(memoryFor(dataDir)) : null;
 
 /**
  * What a diary turn's entry would send (the turn itself sends nothing; its publication does): her messages, and how many
@@ -1910,7 +1926,7 @@ function entrySends(result: unknown): { messages: Array<string>; attachments: nu
  * has refused); `rng` / `now`: the runner's random stream and clock (else its defaults).
  */
 export function diaryTurnRunner(
-  mods: Rec,
+  mods: Untyped,
   {
     hot,
     store,
@@ -1975,13 +1991,13 @@ export function diaryTurnRunner(
   });
 }
 
-async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv, log, signal, rng }: Rec) {
+async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv, log, signal, rng }: ModeCtx) {
   const mods = await loadDiaryMods(load);
   const { DIARY_KINDS, diaryTopic, isPictureKind, isSetKind, stripUrls, validatePlan } = mods;
   const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild } = mods;
   const { parseJsonObject, parseOutput, stripDashes, countToday } = mods;
 
-  const params = diaryTurnParams(args, { diaryTopic });
+  const params = diaryTurnParams({ diary: args.diary!, topic: args.topic }, { diaryTopic }); // `--diary` set this mode;
   const { kind } = params.diary;
   const topic = params.diary.topic ?? null;
   const liveData = defaultDataDir(root);
@@ -2054,7 +2070,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
 
     const briefs = [];
     let usage = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0 };
-    for (let n = 1; n <= args.count; n += 1) {
+    for (let n = 1; n <= args.count!; n += 1) {
       if (signal?.aborted) break;
       const from = calls.length;
       let result;
@@ -2164,7 +2180,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
  * does). Every other value as the config read has it; the live config untouched. The journal stays
  * off because the runner is given none (`journal: null`).
  */
-export function innerReplayHot(hot: Rec): Rec {
+export function innerReplayHot(hot: Untyped): Rec {
   return new Proxy(hot, {
     get(target, prop) {
       if (prop === 'config') {
@@ -2194,7 +2210,7 @@ export function innerReplayWake({
   timezone,
   day,
   channelNames = [],
-}: Rec): { wake: Untyped; info: Untyped } {
+}: Rec): { wake: Untyped; info: WakeInfo } {
   const wake =
     kind === 'review'
       ? inner.reviewWake(day, now)
@@ -2222,7 +2238,7 @@ export function innerReplayWake({
 }
 
 /** The guild's intention stores with every write refused (`read-only`): an expiry sweep writes nothing. */
-function readOnlyIntentionStores(stores: Rec) {
+function readOnlyIntentionStores(stores: Untyped) {
   return {
     get(guildId: string) {
       const store = stores.get(guildId);
@@ -2253,7 +2269,7 @@ function blockNames(text: string) {
  * nothing can be written (no `system`, no `start`).
  * @param journal From src/memory/journal.ts#createJournal.
  */
-export function readOnlyJournal(journal: Rec): { read: Untyped; findTurn: Untyped; timeline: Untyped } {
+export function readOnlyJournal(journal: Untyped): { read: Untyped; findTurn: Untyped; timeline: Untyped } {
   return { read: journal.read, findTurn: journal.findTurn, timeline: journal.timeline };
 }
 
@@ -2277,7 +2293,7 @@ function recordLineHidden(line: Untyped, hide: Rec) {
   if (typeof channel === 'string' && hide.channels.has(channel)) return true;
   if (typeof line?.messageId === 'string' && hide.messages.has(line.messageId)) return true;
   return (
-    Array.isArray(line?.sourceMessageIds) && line.sourceMessageIds.some((id: Untyped) => hide.messages.has(String(id)))
+    Array.isArray(line?.sourceMessageIds) && line.sourceMessageIds.some((id: string) => hide.messages.has(String(id)))
   );
 }
 
@@ -2285,7 +2301,7 @@ function recordLineHidden(line: Untyped, hide: Rec) {
  * The record with the hidden channels' and messages' lines left out of what it iterates (every other method
  * passes through). Nothing is written; the real record is only read.
  */
-export function hiddenRecord(record: Rec, hide: Rec): Rec {
+export function hiddenRecord(record: Untyped, hide: Rec): Rec {
   if (!hide?.any || !record) return record;
   return new Proxy(record, {
     get(target, prop) {
@@ -2337,7 +2353,11 @@ export async function heartbeatReplayWake({
   deps?: Rec;
   tmpRoot?: string;
   log?: Rec;
-}): Promise<{ info: Untyped; conversation: { iface: string; conversationId: string }; currentChannel: string | null }> {
+}): Promise<{
+  info: WakeInfo;
+  conversation: { iface: string; conversationId: string };
+  currentChannel: string | null;
+}> {
   const scratch = fs.mkdtempSync(path.join(tmpRoot, 'replay-heartbeat-'));
   try {
     const stateFile = path.join(dataDir, 'guilds', String(guildId), 'inner.json');
@@ -2491,7 +2511,7 @@ export function innerReportMarkdown(result: Untyped): string {
   if (result.wake) lines.push('## wake', '', fence(result.wake), '');
   if (result.request?.messages)
     lines.push('## request', '', fence(JSON.stringify(result.request.messages, null, 2)), '');
-  (result.samples ?? []).forEach((sample: Untyped, index: Untyped) => {
+  (result.samples ?? []).forEach((sample: Untyped, index: number) => {
     const failedSteps = sample.answers.filter((answer: Rec) => answer.failed).length;
     const lastFailed = sample.answers.at(-1)?.failed ?? null;
     lines.push(
@@ -2545,7 +2565,7 @@ export function innerReportMarkdown(result: Untyped): string {
  * The `--inner` mode (see the header): one inner turn for one wake (`--samples` times), in shadow, against the
  * live data (or `--snapshot`) read only. Returns `{ code, result }`.
  */
-async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv, log, budget = null }: Rec) {
+async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv, log, budget = null }: ModeCtx) {
   const mods = {
     ...(await loadDiaryMods(load)),
     ...(await load('behavior/inner.ts')),
@@ -2573,7 +2593,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     createIntentionStores,
     createIntentionService,
     createErrandStore,
-    createAppendStore,
     createRecord,
     createAdmin,
     skillRegistry,
@@ -2707,7 +2726,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
           intentions,
           record,
           journal: { read: (...a: Array<Untyped>) => journalRead.read(...a) },
-          places: hiddenPlaces((id: Untyped) => {
+          places: hiddenPlaces((id: string) => {
             const guild = client.guilds.cache.get(String(id));
             if (!guild) return [];
             return capabilities.channelDirectoryOf(guild).map((entry: Rec) => {
@@ -2721,7 +2740,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
               return { id: entry.id, name: entry.name, writable };
             });
           }, hide),
-          nameOf: (id: Untyped, memberId: Untyped) => store.getUser(id, memberId)?.names?.[0] ?? null,
+          nameOf: (id: string, memberId: Untyped) => store.getUser(id, memberId)?.names?.[0] ?? null,
           reads,
           iface: () => discordPort.iface,
           store: schedulerStore,
@@ -2771,7 +2790,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
         throw new CliError(
           'replay-cli: no conversation for this wake (its channel is gone, or she has no recent line)'
         );
-      const channelNames = channelIds.map((id: Untyped) => client.channels.cache.get(id)?.name ?? null).filter(Boolean);
+      const channelNames = channelIds.map((id: string) => client.channels.cache.get(id)?.name ?? null).filter(Boolean);
       info = innerReplayWake({
         inner: mods,
         kind: args.inner,
@@ -2840,7 +2859,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     let lastCost = 0;
     let code = 0;
     let posted = 0;
-    for (let n = 0; n < args.samples; n += 1) {
+    for (let n = 0; n < args.samples!; n += 1) {
       // The same request again, independent runs; none starts when its expected cost would pass --spend.
       if (n > 0 && budget !== null && total.cost + lastCost > budget) {
         stopped = 'spend';
@@ -2955,7 +2974,7 @@ export function diaryDayKey(draw: string, env: Record<string, string | undefined
 }
 
 /** The file extension of a picture's media type. */
-function pictureExtension(mediaType: Rec) {
+function pictureExtension(mediaType: string | null | undefined) {
   const sub = String(mediaType ?? '').split('/')[1] ?? '';
   if (sub === 'jpeg') return 'jpg';
   return /^[a-z0-9]{1,8}$/.test(sub) ? sub : 'png';
@@ -2974,7 +2993,7 @@ function pictureExtension(mediaType: Rec) {
  */
 export function diaryDayGate(
   args: Rec,
-  config: Rec,
+  config: Untyped,
   {
     planDay,
     zonedEpoch,
@@ -3019,7 +3038,7 @@ export function diaryDayGate(
  * diary turn run to the end into an in-memory port, every drawing call recorded. Returns
  * `{ code, result }`.
  */
-async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, signal }: Rec) {
+async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, signal }: ModeCtx) {
   const mods = await loadDiaryMods(load);
   const { localDayKey, planDay } = mods;
   const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild, createFakeAdapter } = mods;
@@ -3087,7 +3106,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
   loadDotEnv(privateDirOf(root));
   const discordToken = process.env.DISCORD_TOKEN;
   if (!discordToken) throw new CliError('replay-cli: DISCORD_TOKEN is not set (.env)');
-  const openrouterKey = diaryDayKey(args.draw);
+  const openrouterKey = diaryDayKey(args.draw!);
 
   let client = null;
   try {
@@ -3325,31 +3344,7 @@ const SKILL_REQUESTS_PER_RUN = 2;
  * type or value is a CliError naming the scenario (and the step). Names are checked against the
  * registry later (scenarioGrants, scenarioDiscovery).
  */
-export function parseScenarios(text: string): Array<{
-  id: string;
-  channelId: string;
-  before: string | null;
-  author?: string;
-  text?: string;
-  steps?: Array<{
-    messages: Array<{ author: string; text: string } | { self: true; text: string }>;
-    own: boolean;
-    gapMinutes: number;
-    result: string | null;
-  }> | null;
-  taskResult?: {
-    agent: string;
-    goal: string;
-    state: 'done' | 'failed';
-    text: string;
-    files: Array<{ name: string; contentType: string; bytes: number }>;
-    asker: string;
-  } | null;
-  grants: Array<string>;
-  runs: number;
-  result: string;
-  discovery: 'inventory' | 'none' | Array<string>;
-}> {
+export function parseScenarios(text: string): Array<Scenario> {
   let data;
   try {
     data = JSON.parse(text);
@@ -3360,7 +3355,7 @@ export function parseScenarios(text: string): Array<{
     throw new CliError('replay-cli: the scenario file must be a non-empty JSON array');
   const ids = new Set<Untyped>();
   return data.map((raw, index) => {
-    const bad = (what: Untyped) =>
+    const bad = (what: string) =>
       new CliError(`replay-cli: scenario ${index + 1}${typeof raw?.id === 'string' ? ` (${raw.id})` : ''}: ${what}`);
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw bad('not an object');
     for (const key of Object.keys(raw)) if (!SCENARIO_KEYS.includes(key)) throw bad(`unknown field ${key}`);
@@ -3417,8 +3412,8 @@ export function parseScenarios(text: string): Array<{
 }
 
 /** The `taskResult` of a task-result scenario (see parseScenarios), a CliError made by `bad` when wrong. */
-function parseTaskResult(raw: Rec, bad: Untyped) {
-  const wrong = (what: Untyped) => bad(`taskResult: ${what}`);
+function parseTaskResult(raw: Untyped, bad: Untyped) {
+  const wrong = (what: string) => bad(`taskResult: ${what}`);
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw wrong('not an object');
   for (const key of Object.keys(raw)) if (!TASK_RESULT_KEYS.includes(key)) throw wrong(`unknown field ${key}`);
   if (typeof raw.agent !== 'string' || !AGENT_NAME.test(raw.agent)) throw wrong("agent must be an agent's name");
@@ -3464,14 +3459,14 @@ function isScenarioText(value: Untyped) {
 }
 
 /** The `steps` of a multi-step scenario (see parseScenarios), each a CliError made by `bad` when wrong. */
-function parseSteps(steps: Rec, bad: Untyped) {
+function parseSteps(steps: Untyped, bad: Untyped) {
   if (!Array.isArray(steps) || steps.length === 0 || steps.length > MAX_STEPS)
     throw bad(`steps must be a list of 1..${MAX_STEPS} steps`);
   const parsed = steps.map((step, index) => {
-    const wrong = (what: Untyped) => bad(`step ${index + 1}: ${what}`);
+    const wrong = (what: string) => bad(`step ${index + 1}: ${what}`);
     if (!step || typeof step !== 'object' || Array.isArray(step)) throw wrong('not an object');
     for (const key of Object.keys(step)) if (!STEP_KEYS.includes(key)) throw wrong(`unknown field ${key}`);
-    const message = (item: Rec, where: Untyped) => {
+    const message = (item: Untyped, where: string) => {
       if (!item || typeof item !== 'object' || Array.isArray(item)) throw wrong(`${where} is not an object`);
       for (const key of Object.keys(item)) if (!BURST_KEYS.includes(key)) throw wrong(`${where}: unknown field ${key}`);
       if (item.self !== undefined) {
@@ -3499,7 +3494,7 @@ function parseSteps(steps: Rec, bad: Untyped) {
     if (step.burst !== undefined) {
       if (!Array.isArray(step.burst) || step.burst.length === 0 || step.burst.length > MAX_BURST)
         throw wrong(`burst must be a list of 1..${MAX_BURST} messages`);
-      step.burst.forEach((item: Untyped, i: Untyped) => messages.push(message(item, `burst ${i + 1}`)));
+      step.burst.forEach((item: Untyped, i: number) => messages.push(message(item, `burst ${i + 1}`)));
     }
     if (messages.length === 0) throw wrong('needs author and text, or a burst');
     const gapMinutes = step.gapMinutes ?? DEFAULT_GAP_MINUTES;
@@ -3536,10 +3531,10 @@ export function skillRequestEstimate(
   scenarios: Array<{ runs: number; steps?: Array<{ messages: Array<Rec> }> | null }>,
   { perDecision = SKILL_REQUESTS_PER_RUN }: Rec = {}
 ): number {
-  const turns = (step: Rec) =>
+  const turns = (step: Untyped) =>
     Array.isArray(step.messages) ? step.messages.filter((message: Untyped) => message?.self !== true).length : 1;
-  const decisions = (scenario: Untyped) =>
-    Array.isArray(scenario.steps) ? scenario.steps.reduce((sum: Untyped, step: Untyped) => sum + turns(step), 0) : 1;
+  const decisions = (scenario: { steps?: Array<{ messages: Array<Rec> }> | null }) =>
+    Array.isArray(scenario.steps) ? scenario.steps.reduce((sum: number, step: Untyped) => sum + turns(step), 0) : 1;
   return scenarios.reduce((total, scenario) => total + perDecision * scenario.runs * decisions(scenario), 0);
 }
 
@@ -3582,9 +3577,9 @@ export function scenarioGrants(
 }
 
 /** A scenario's `discovery` against the registry's skill `names`: a CliError for a name it does not have. */
-export function scenarioDiscovery(scenario: Untyped, names: Untyped): Untyped {
+export function scenarioDiscovery(scenario: Scenario, names: Untyped): Untyped {
   if (!Array.isArray(scenario.discovery)) return scenario.discovery;
-  const unknown = scenario.discovery.filter((name: Untyped) => !names.includes(name));
+  const unknown = scenario.discovery.filter((name: string) => !names.includes(name));
   if (unknown.length > 0)
     throw new CliError(`replay-cli: scenario ${scenario.id}: discovery names no skill: ${unknown.join(', ')}`);
   return scenario.discovery;
@@ -3613,7 +3608,7 @@ export function scenarioTrigger({
   selfId: string;
   at: number;
   tagged?: boolean;
-}): Untyped {
+}): TriggerLine {
   const tags = tagged || text.includes(`<@${selfId}>`) || text.includes(`<@!${selfId}>`);
   return {
     id: String((BigInt(Math.floor(at)) - DISCORD_EPOCH) << 22n),
@@ -3758,7 +3753,7 @@ export function sandboxErrandBudget({
 }
 
 /** `config` with features.coreTools on (`--core-tools`): a shallow copy, the live config untouched. Pure. */
-export function withCoreTools(config: Rec): { features: Untyped } {
+export function withCoreTools(config: Untyped): { features: Untyped } {
   return { ...config, features: { ...(config?.features ?? {}), coreTools: true } };
 }
 
@@ -3888,7 +3883,7 @@ export function createReplayTools({
   record = null,
   mediaTools = null,
   log = null,
-}: Rec): Untyped {
+}: Rec): ReplayTools {
   const data = store.state?.data ?? {};
   const media = structuredClone(mediaCache ?? {});
   // The conversation and the community's listing a recall run is handed, asked of the interface at the first call.
@@ -3899,13 +3894,13 @@ export function createReplayTools({
   const webState = { data: { webDay: data.webDay, webCount: data.webCount }, markDirty() {} };
   const recallStore = {
     state: { data: { recallDay: data.recallDay, recallCount: data.recallCount }, markDirty() {} },
-    listUserProfiles: (id: Untyped) => store.listUserProfiles(id),
-    getLore: (id: Untyped) => store.getLore(id),
-    getGuild: (id: Untyped) => store.getGuild(id),
-    ...(typeof store.getRecent === 'function' ? { getRecent: (id: Untyped) => store.getRecent(id) } : {}),
+    listUserProfiles: (id: string) => store.listUserProfiles(id),
+    getLore: (id: string) => store.getLore(id),
+    getGuild: (id: string) => store.getGuild(id),
+    ...(typeof store.getRecent === 'function' ? { getRecent: (id: string) => store.getRecent(id) } : {}),
     appendRecallTrace() {},
   };
-  const recallOf = (client: Rec) =>
+  const recallOf = (client: Untyped) =>
     createRecall({
       hot,
       store: recallStore,
@@ -3943,11 +3938,11 @@ export function createReplayTools({
     const labels = hot.prompts?.labels ?? {};
     const floor = idByIndex instanceof Map ? Math.max(0, ...[...idByIndex.keys()].filter(Number.isFinite)) : 0;
     draft.handleFloor = Math.max(draft.handleFloor ?? 0, floor);
-    const channelOf = (id: Untyped) =>
+    const channelOf = (id: string) =>
       String(id) === String(channel.id) ? channel : (guild.channels?.cache?.get?.(String(id)) ?? null);
     const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
     const stored = new Map<Untyped, Untyped>(profiles.filter((p: Rec) => p?.id).map((p: Rec) => [String(p.id), p]));
-    const nameOf = (id: Untyped) =>
+    const nameOf = (id: string) =>
       (typeof stored.get(String(id))?.names?.[0] === 'string' ? stored.get(String(id)).names[0] : null) ??
       guild.members?.cache?.get?.(id)?.displayName ??
       null;
@@ -3958,8 +3953,8 @@ export function createReplayTools({
       labels,
       config,
       channelId: String(channel.id),
-      channelNameOf: (id: Untyped) => channelOf(id)?.name ?? null,
-      allowed: (id: Untyped) => {
+      channelNameOf: (id: string) => channelOf(id)?.name ?? null,
+      allowed: (id: string) => {
         if (String(id) === String(channel.id) && channel.guild) return true;
         try {
           return (
@@ -4024,7 +4019,7 @@ export function createReplayTools({
           .filter((p: Rec) => p?.id)
           .map((p: Rec) => [String(p.id), typeof p.names?.[0] === 'string' ? p.names[0] : null])
       );
-      const nameOf = (id: Untyped) => names.get(String(id)) ?? null;
+      const nameOf = (id: string) => names.get(String(id)) ?? null;
       const { lanes, skip } = prefetchLanes({
         trigger,
         triggerKind,
@@ -4041,7 +4036,11 @@ export function createReplayTools({
       if (typeof recall.prefetch !== 'function') return null;
       return recall.prefetch({ guildId, ...(await scopeOf()), partnerId: null, selfId, selfName, history, lanes, at });
     },
-    async run(skill: Untyped, args: Rec, { history = [], at = Date.now(), idByIndex = null }: Rec = {}) {
+    async run(
+      skill: string,
+      args: Rec,
+      { history = [], at = Date.now(), idByIndex = null }: Rec = {}
+    ): Promise<ToolRun> {
       const { usage, client } = metered();
       const labels = hot.prompts?.labels ?? {};
       if (skill === 'web.search') {
@@ -4059,7 +4058,7 @@ export function createReplayTools({
           searches,
           keys,
         });
-        const linkOf = (id: Untyped) => {
+        const linkOf = (id: string) => {
           const message = history.find((item: Rec) => String(item?.id) === String(id));
           return message && typeof linkOfMessage === 'function' ? linkOfMessage(message) : null;
         };
@@ -4098,7 +4097,7 @@ export function createReplayTools({
           labels,
           guildId,
           args,
-          mediaOf: (id: Untyped) => history.find((item: Rec) => String(item?.id) === String(id)) ?? null,
+          mediaOf: (id: string) => history.find((item: Rec) => String(item?.id) === String(id)) ?? null,
           takeTurnSlot: () => {
             if (looks >= cap) return false;
             looks += 1;
@@ -4109,7 +4108,7 @@ export function createReplayTools({
       }
       // media.find: the GIF library read from the store, the descriptions from the private cache copy; nothing written.
       if (skill === 'media.find' && mediaTools?.runMediaFind) {
-        const findStore = { getGifs: (id: Untyped) => store.getGifs?.(id) ?? [], getMediaCache: () => media };
+        const findStore = { getGifs: (id: string) => store.getGifs?.(id) ?? [], getMediaCache: () => media };
         return {
           result: mediaTools.runMediaFind({
             store: typeof store.getGifs === 'function' ? findStore : null,
@@ -4133,15 +4132,15 @@ export function createReplayTools({
  * in order) and the handle-shaped tokens nobody holds, as `{ mentions, unknownHandles }`; {}
  * when no message holds a handle, so an answer without one keeps its shape.
  */
-function mentionsOf(answer: Rec) {
+function mentionsOf(answer: Untyped) {
   const messages = Array.isArray(answer?.messages) ? answer.messages : [];
   if (!messages.some((m: Rec) => Array.isArray(m.mentions))) return {};
   const mentions = [...new Set(messages.flatMap((m: Rec) => m.mentions ?? []))];
-  return { mentions, unknownHandles: messages.reduce((sum: Rec, m: Rec) => sum + (m.unknownHandles ?? 0), 0) };
+  return { mentions, unknownHandles: messages.reduce((sum: number, m: Rec) => sum + (m.unknownHandles ?? 0), 0) };
 }
 
 /** What she showed in one pass (a shaped answer): her messages, reactions, GIF, drawing, skip, and her think. */
-function visibleOf(answer: Rec) {
+function visibleOf(answer: Untyped) {
   if (!answer) return null;
   return {
     messages: answer.messages.map((m: Rec) => m.text),
@@ -4162,10 +4161,10 @@ function visibleOf(answer: Rec) {
  * provider reported it; null when it reported none). Pure.
  * @param index 0-based.
  */
-export function runRecord(scenarioId: string, index: number, run: Rec): Untyped {
+export function runRecord(scenarioId: string, index: number, run: Untyped): RunRecord {
   const loop = run.loop ? loopRecord(run.loop) : null;
   const usages = loop ? [] : [run.usage, run.followUp?.usage].filter(Boolean);
-  const sum = (key: Untyped) => usages.reduce((total, u) => total + (Number(u?.[key]) || 0), 0);
+  const sum = (key: string) => usages.reduce((total, u) => total + (Number(u?.[key]) || 0), 0);
   const costs = usages.map((u) => Number(u?.cost)).filter(Number.isFinite);
   const outcome = run.outcome ?? null;
   const follow = run.followUp;
@@ -4203,8 +4202,8 @@ export function runRecord(scenarioId: string, index: number, run: Rec): Untyped 
 function usageTotals(usages: Rec) {
   const list = usages.filter(Boolean);
   const costs = list.map((u: Rec) => Number(u?.cost)).filter(Number.isFinite);
-  const cached = (u: Rec) => Number(u?.prompt_tokens_details?.cached_tokens ?? u?.cache_read_input_tokens) || 0;
-  const written = (u: Rec) =>
+  const cached = (u: Untyped) => Number(u?.prompt_tokens_details?.cached_tokens ?? u?.cache_read_input_tokens) || 0;
+  const written = (u: Untyped) =>
     Number(u?.prompt_tokens_details?.cache_write_tokens ?? u?.cache_creation_input_tokens) || 0;
   return {
     prompt: list.reduce((t: Untyped, u: Untyped) => t + (Number(u?.prompt_tokens) || 0), 0),
@@ -4236,8 +4235,8 @@ function addCost(a: Untyped, b: Untyped) {
  * `coerced`, `capped`, `malformed`) and latency (`ms`), and its tokens and cost (her requests and the
  * tools' together). Pure.
  */
-export function loopRecord(loop: { steps: Array<Rec>; ms: number }): Rec {
-  const steps: Array<Untyped> = (loop.steps ?? []).map((step) => {
+export function loopRecord(loop: { steps: Array<Rec>; ms: number }): LoopRecord {
+  const steps: Array<LoopStep> = (loop.steps ?? []).map((step): LoopStep => {
     const own = usageTotals([step.usage]);
     const calls = (step.calls ?? []).map(({ call, outcome, ms }: Rec) => {
       const result = outcome?.result ?? null;
@@ -4270,10 +4269,10 @@ export function loopRecord(loop: { steps: Array<Rec>; ms: number }): Rec {
       ms: Number.isFinite(step.ms) ? step.ms : null,
       tokens: { prompt: own.prompt, completion: own.completion, cacheRead: own.cacheRead, cacheWrite: own.cacheWrite },
       cost: own.cost,
-      resultChars: calls.reduce((total: Rec, c: Rec) => total + (c.result?.chars ?? 0), 0),
+      resultChars: calls.reduce((total: number, c: Rec) => total + (c.result?.chars ?? 0), 0),
     };
   });
-  const tools = steps.flatMap((step) => step.calls.map((c: Rec) => c.tool).filter(Boolean));
+  const tools = steps.flatMap((step) => step.calls.flatMap((c) => (c.tool ? [c.tool] : [])));
   const toolTokens = tools.reduce(
     (t, x) => ({
       prompt: t.prompt + (Number(x.tokens?.prompt) || 0),
@@ -4286,22 +4285,20 @@ export function loopRecord(loop: { steps: Array<Rec>; ms: number }): Rec {
   const posted = steps.filter((step) => step.answer && !step.held);
   const okCalls = steps.flatMap((step) =>
     step.calls
-      .filter((c: Rec) => c.result?.status === 'ok' && c.verdict?.ok !== false)
-      .map((c: Rec) => ({ step: step.step, ...c }))
+      .filter((c) => c.result?.status === 'ok' && c.verdict?.ok !== false)
+      .map((c) => ({ step: step.step, ...c }))
   );
   return {
     steps,
     calls: steps.flatMap((step) =>
-      step.calls.map((c: Rec) => ({
+      step.calls.map((c) => ({
         step: step.step,
         skill: c.skill,
         status: c.result?.status ?? null,
         code: c.result?.code ?? (c.verdict && !c.verdict.ok ? c.verdict.code : null),
       }))
     ),
-    errands: steps.flatMap((step) =>
-      step.calls.filter((c: Rec) => c.errand).map((c: Rec) => ({ step: step.step, ...c.errand }))
-    ),
+    errands: steps.flatMap((step) => step.calls.filter((c) => c.errand).map((c) => ({ step: step.step, ...c.errand }))),
     drawings: okCalls
       .filter((c) => c.skill === 'draw.create')
       .map((c) => ({
@@ -4312,9 +4309,10 @@ export function loopRecord(loop: { steps: Array<Rec>; ms: number }): Rec {
       })),
     posts: okCalls
       .filter((c) => c.skill === 'message.create' && typeof c.args?.text === 'string' && c.args.text)
-      .map((c) => ({ step: c.step, text: c.args.text, channel: c.args.channel ?? null })),
-    messages: posted.flatMap((step) => step.answer.messages),
-    final: posted.length > 0 ? posted[posted.length - 1].answer.messages : [],
+      .map((c) => ({ step: c.step, text: c.args!.text, channel: c.args!.channel ?? null })),
+    // `posted` holds the steps that have an answer.
+    messages: posted.flatMap((step) => step.answer!.messages),
+    final: posted.length > 0 ? posted[posted.length - 1].answer!.messages : [],
     requests:
       steps.filter((step) => !step.error).length + tools.reduce((total, x) => total + (Number(x.requests) || 0), 0),
     turnRequests: steps.filter((step) => !step.error).length,
@@ -4325,7 +4323,7 @@ export function loopRecord(loop: { steps: Array<Rec>; ms: number }): Rec {
     capped: steps.reduce((total, step) => total + step.dropped + (step.dropped === 0 && step.capped ? 1 : 0), 0),
     malformed: steps.reduce(
       (total, step) =>
-        total + step.calls.filter((c: Rec) => ['malformed-call', 'truncated-call'].includes(c.verdict?.code)).length,
+        total + step.calls.filter((c) => ['malformed-call', 'truncated-call'].includes(c.verdict?.code)).length,
       0
     ),
     ms: Number.isFinite(loop.ms) ? loop.ms : null,
@@ -4491,13 +4489,13 @@ function newestTs(lines: Untyped, fallback: Untyped) {
  */
 function stepLines({ step, index, transcript, firstAt, lineOf, seedLine }: Rec) {
   const start = index === 0 ? firstAt : newestTs(transcript, firstAt) + step.gapMinutes * 60_000;
-  const incoming = step.messages.map((message: Untyped, i: Untyped) => {
+  const incoming = step.messages.map((message: Untyped, i: number) => {
     const at = start + i * BURST_SPACING_MS;
     if (message.self !== true) return lineOf(message, at, { tagged: step.own !== false && i === 0 });
     if (typeof seedLine !== 'function') throw new CliError('replay-cli: a seeded line of hers needs seedLine');
     return seedLine(message, at);
   });
-  const seeded = incoming.filter((_: Untyped, i: Untyped) => step.messages[i].self === true);
+  const seeded = incoming.filter((_: Untyped, i: number) => step.messages[i].self === true);
   return { incoming, callers: incoming.filter((line: Untyped) => !seeded.includes(line)), seeded };
 }
 
@@ -4521,7 +4519,7 @@ export function firstDecision({
   lineOf: (...args: Array<Untyped>) => Untyped;
   seedLine?: (...args: Array<Untyped>) => Untyped;
   planBurst: (...args: Array<Untyped>) => Untyped;
-}): { lines: Array<Untyped>; turn: { line: Untyped; kind: string; queued: Array<Untyped> } } {
+}): { lines: Array<Rec>; turn: { line: Rec; kind: string; queued: Array<Rec> } } {
   let transcript = [...history];
   for (const [index, step] of scenario.steps.entries()) {
     const { incoming, callers, seeded } = stepLines({ step, index, transcript, firstAt, lineOf, seedLine });
@@ -4584,8 +4582,8 @@ export async function playSteps({
 }): Promise<{
   records: Array<Rec>;
   stopped: boolean;
-  transcript: Array<Untyped>;
-  bursts: Array<{ step: number; turns: Array<string>; replaced: Array<Untyped>; dropped: Array<Untyped> }>;
+  transcript: Array<Rec>;
+  bursts: Array<{ step: number; turns: Array<string>; replaced: Array<Rec>; dropped: Array<Rec> }>;
 }> {
   let transcript = [...history];
   let callMarks = [];
@@ -4598,7 +4596,7 @@ export async function playSteps({
         ? planBurst(callers, { history: [...transcript, ...seeded] })
         : { turns: [], replaced: [], dropped: [] };
     const byId = new Map<Untyped, Untyped>(callers.map((line: Untyped) => [line.id, line]));
-    const about = (id: Untyped) => ({ id, author: byId.get(id)?.authorId ?? null, text: byId.get(id)?.content ?? '' });
+    const about = (id: string) => ({ id, author: byId.get(id)?.authorId ?? null, text: byId.get(id)?.content ?? '' });
     const burst =
       callers.length > 1
         ? {
@@ -4676,7 +4674,7 @@ function quoted(text: string) {
  * One pass of a run (visibleOf's) as markdown lines; with `detail` (a step of a multi-step
  * scenario) the members her messages would mention and the start of her `<think>` too.
  */
-function passLines(pass: Rec, { detail = false }: Rec = {}) {
+function passLines(pass: Untyped, { detail = false }: Rec = {}) {
   if (!pass) return [];
   const out = [];
   for (const message of pass.messages) out.push(quoted(message), '');
@@ -4730,7 +4728,7 @@ function recordLines(record: Untyped, heading: Untyped, { detail = false }: Rec 
 }
 
 /** A cost for the report: 4 decimals, '-' for none. */
-function costText(cost: Rec) {
+function costText(cost: Untyped) {
   return cost === null || cost === undefined ? '-' : cost.toFixed(4);
 }
 
@@ -4796,9 +4794,9 @@ function loopLines(record: Rec, heading: Untyped) {
  * (`errand <id> (<agent>, <state>) asked by <asker>`, the goal, the result's text, each file's
  * handle), or its message.
  */
-function stimulusLines(scenario: Rec) {
+function stimulusLines(scenario: Pick<Scenario, 'text' | 'taskResult' | 'steps'> & Rec) {
   if (scenario.steps) return stepsLines(scenario.steps);
-  if (!scenario.taskResult) return [quoted(scenario.text), ''];
+  if (!scenario.taskResult) return [quoted(scenario.text ?? ''), ''];
   const errand = scenario.taskResult;
   const id = scenarioTaskId(scenario.id);
   const lines = [
@@ -4819,7 +4817,7 @@ function stimulusLines(scenario: Rec) {
  */
 function stepsLines(steps: Rec) {
   const lines: Array<Untyped> = [];
-  steps.forEach((step: Rec, index: Untyped) => {
+  steps.forEach((step: Rec, index: number) => {
     const notes = [`+${step.gapMinutes} min`];
     if (step.messages.length > 1) notes.push(`a burst of ${step.messages.length}`);
     if (step.messages.length > 0 && step.messages.every((message: Untyped) => message.self === true))
@@ -4841,7 +4839,7 @@ function stepsLines(steps: Rec) {
  * and the start of her `<think>`. Tool output for the owner, not model-facing. Pure.
  */
 export function renderSkillsReport(
-  entries: Array<{ scenario: Rec; grantNames: Array<string>; summary: Rec; records: Array<Rec>; error?: string }>
+  entries: Array<{ scenario: Scenario; grantNames: Array<string>; summary: Rec; records: Array<Rec>; error?: string }>
 ): string {
   const lines = [
     '# Skill scenarios',
@@ -4913,7 +4911,7 @@ export function renderSkillsReport(
 }
 
 /** A step record's place: `step 2`, or for a burst's turn `step 2, turn 1 of 3 (name, <author>: <text>)`. */
-function decisionTitle(record: Rec) {
+function decisionTitle(record: Untyped) {
   if (!record.queue) return `step ${record.step}`;
   const trigger = record.queue.trigger ?? {};
   return `step ${record.step}, turn ${record.turn} of ${record.queue.turns} (${record.queue.kind}, ${cell(trigger.author)}: ${cell(trigger.text)})`;
@@ -4956,7 +4954,7 @@ function decisionCell(record: Untyped) {
 }
 
 /** One pass's messages as a pair-report cell: joined by ` / `, `(skip)` / `(nothing)` without one, its error; '-' for no pass. */
-function messagesCell(pass: Rec) {
+function messagesCell(pass: Untyped) {
   if (!pass) return '-';
   if (pass.error) return `failed: ${cell(pass.error)}`;
   if (Array.isArray(pass.messages) && pass.messages.length > 0) return pass.messages.map(cell).join(' / ');
@@ -4964,7 +4962,7 @@ function messagesCell(pass: Rec) {
 }
 
 /** The key of one decision of a run: its run, step and turn (1 for a single-turn scenario's). */
-function decisionKey(record: Rec) {
+function decisionKey(record: Untyped) {
   return `${record.run}|${record.step ?? 1}|${record.turn ?? 1}`;
 }
 
@@ -4980,10 +4978,10 @@ function decisionKey(record: Rec) {
  */
 export function renderPairReport(
   entries: Array<{
-    scenario: Rec;
+    scenario: Scenario;
     grantNames?: Array<string>;
     error?: string;
-    sides?: Record<'A' | 'B', { records: Array<Untyped>; summary: Untyped | null; error?: string }>;
+    sides?: Record<'A' | 'B', { records: Array<Untyped>; summary: Untyped; error?: string }>;
   }>,
   { a, b }: { a: string; b: string }
 ): string {
@@ -5054,7 +5052,7 @@ export function renderPairReport(
       const key = decisionKey(record);
       const [left, right] = bySide.map((map) => map.get(key) ?? null);
       if (scenario.steps) lines.push(`#### ${decisionTitle(record)}`, '');
-      const think = (side: Rec) => (side?.first?.think ? thinkExcerpt(side.first.think) : '-');
+      const think = (side: Untyped) => (side?.first?.think ? thinkExcerpt(side.first.think) : '-');
       lines.push(
         '| | A | B |',
         '|---|---|---|',
@@ -5105,7 +5103,7 @@ async function runSkills({
   channelOf,
   channelDirectory = null,
   loopDeps = null,
-}: Rec) {
+}: ModeCtx) {
   const {
     answerSkillScenario,
     skillScenarioRequest,
@@ -5119,7 +5117,6 @@ async function runSkills({
     skillRegistry,
     expandPersonaGrant,
     createImageGen,
-    grantedSkillNames,
     createErrandStore,
     parseFileHandle,
   } = mods;
@@ -5130,7 +5127,7 @@ async function runSkills({
   const names = [...registry.keys()];
   const pairing = sides.length > 1;
   // Every name is checked before anything is fetched or sent.
-  const plans = scenarios.map((scenario: Untyped) => ({
+  const plans = scenarios.map((scenario: Scenario) => ({
     scenario,
     grantNames: scenarioGrants(scenario, expandPersonaGrant),
     discovery: scenarioDiscovery(scenario, names),
@@ -5147,7 +5144,7 @@ async function runSkills({
   }
   const jsonl = outDir ? path.join(outDir, 'runs.jsonl') : null;
   // A record as runs.jsonl holds it: under --pair-prompts with its side after the scenario.
-  const writeRecords = (records: Rec, label: string) => {
+  const writeRecords = (records: Untyped, label: string) => {
     if (!jsonl || records.length === 0) return;
     const lines = records.map((record: Rec) =>
       JSON.stringify(label ? { scenario: record.scenario, side: label, ...record } : record)
@@ -5186,7 +5183,7 @@ async function runSkills({
       throw new Error('replay-cli: the state is read-only here');
     },
   };
-  const errorOf = (err: Rec) => (err instanceof CliError ? err.message : `${err?.name ?? 'Error'}`);
+  const errorOf = (err: Untyped) => (err instanceof CliError ? err.message : `${err?.name ?? 'Error'}`);
 
   const entries: Array<Untyped> = [];
   const dry: Array<Untyped> = [];
@@ -5240,7 +5237,7 @@ async function runSkills({
     const { channel, history, at } = moment;
     const nameOf = (i: string) => guild.members.cache.get(i)?.displayName ?? store.getUser(guildId, i)?.names?.[0] ?? i;
     // A scenario's message: the single one and a step's own tag her; a burst's message calls her by its text alone.
-    const lineOf = (message: Untyped, ts: Untyped, { tagged = true }: Rec = {}) =>
+    const lineOf = (message: Untyped, ts: number, { tagged = true }: Rec = {}) =>
       scenarioTrigger({
         text: message.text,
         authorId: message.author,
@@ -5260,7 +5257,7 @@ async function runSkills({
     const planBurst = (incoming: Rec, { history: before }: Rec) =>
       mods.burstTurns(incoming, { selfId: self.id, config: scenarioConfig, history: before });
     // A line of hers the scenario seeds: shaped as her live lines, no turn run for it.
-    const seedLine = (message: Untyped, ts: Untyped) =>
+    const seedLine = (message: Untyped, ts: number) =>
       mods.seededSelfLine({
         text: message.text,
         at: ts,
@@ -5302,7 +5299,7 @@ async function runSkills({
     const memoryOn = true;
     // Her call taken through the real resolution and gateway at `now`, never run: answered with `resultText`.
     // Her in-turn tools run for real (`tools`, loopCall); every other call, a write or a paid effect, is answered canned; an errand.run is only recorded.
-    const onCallOf = (callRequester: Rec, now: Untyped, resultText: Rec, tools: Rec) => {
+    const onCallOf = (callRequester: Untyped, now: number, resultText: Untyped, tools: Untyped) => {
       const simulate = simulatedCallOf(callRequester, now, resultText);
       return loopCall({
         simulate,
@@ -5313,7 +5310,7 @@ async function runSkills({
       });
     };
     const simulatedCallOf =
-      (callRequester: Rec, now: Untyped, resultText: Rec) =>
+      (callRequester: Rec, now: number, resultText: Rec) =>
       (call: Rec, { idByIndex, history: lines, channelHandles = null }: Rec) =>
         simulateCall({
           call,
@@ -5343,7 +5340,7 @@ async function runSkills({
 
     // One prompt layer's runs of the scenario (`label` its side under --pair-prompts): its records,
     // written to runs.jsonl as they come, and its summary (or its `--dry` sizes).
-    const playSide = async (sideHot: Rec, label: string) => {
+    const playSide = async (sideHot: Untyped, label: string) => {
       const hotLike = {
         get prompts() {
           return sideHot.prompts;
@@ -5384,7 +5381,7 @@ async function runSkills({
         mods: viewMods,
       });
       // One decision's request inputs: the requester's catalogue (the trigger's author), the media of the channel so far.
-      const turnInput = (turnMoment: Rec, turnAt: Rec, turnTrigger: Rec) => {
+      const turnInput = (turnMoment: Untyped, turnAt: Untyped, turnTrigger: Untyped) => {
         // An errand's end: who asked for it, as src/errands/turns.ts hands them in (no roles: src/behavior/turn.js#callEnvelope).
         const requester = task ? { id: task.requester.userId, roleIds: [] } : requesterOf(turnTrigger, channel);
         // With features.coreTools on no search classifier runs before her reply, so none names her skills: no <skills> (as live).
@@ -5539,7 +5536,7 @@ async function runSkills({
         signal: runSignal,
         onCall: onCallOf(requester, task ? at : trigger.ts, scenario.result, tools),
       });
-      const records = answered.runs.map((run: Untyped, index: Untyped) => runRecord(scenario.id, index, run));
+      const records = answered.runs.map((run: Untyped, index: number) => runRecord(scenario.id, index, run));
       writeRecords(records, label);
       return {
         records,
@@ -5592,7 +5589,7 @@ async function runSkills({
   if (args.dry) return { code: dry.some((d) => d.error) ? 1 : 0, result: { dry: true, scenarios: dry } };
   const report = path.join(outDir, 'report.md');
   const dirs = pairing
-    ? { a: path.resolve(root, args.pairPrompts[0]), b: path.resolve(root, args.pairPrompts[1]) }
+    ? { a: path.resolve(root, args.pairPrompts![0]), b: path.resolve(root, args.pairPrompts![1]) }
     : null;
   fs.writeFileSync(report, pairing ? renderPairReport(entries, dirs!) : renderSkillsReport(entries)); // dirs is set when pairing
   const failed = pairing
@@ -5869,7 +5866,7 @@ export function requestBlocks(
 const TRANSPORT_SIDES = Object.freeze({ A: 'native', B: 'text' });
 
 /** `config` with her tools' transport set (`tools.transport`): a shallow copy, the live config untouched; `transport` null leaves it. Pure. */
-export function withTransport(config: Rec, transport: Untyped): Rec {
+export function withTransport(config: Untyped, transport: Untyped): Rec {
   if (transport !== 'native' && transport !== 'text') return config;
   return { ...config, tools: { ...(config?.tools ?? {}), transport } };
 }
@@ -5883,7 +5880,7 @@ export function withTransport(config: Rec, transport: Untyped): Rec {
  * (`calls`, for the key: the sheet does not show them). A record without a loop (an old run: a reply and
  * one follow-up) is read as it was. Pure.
  */
-export function pairAnswerOf(record: Rec | null): Rec | null {
+export function pairAnswerOf(record: Untyped): Rec | null {
   if (!record) return null;
   const first = record.first ?? { messages: [], reactions: [], gif: null, skip: true, think: '' };
   const loop = record.loop ?? null;
@@ -5914,7 +5911,7 @@ export function pairAnswerOf(record: Rec | null): Rec | null {
 }
 
 /** A turn's flat counts for a report line or the compare tool: calls, requests, held steps and the like (runRecord's `loop`). */
-function turnCounts(record: Rec) {
+function turnCounts(record: Untyped) {
   const loop = record.loop;
   return {
     calls: loop.calls.length,
@@ -6171,7 +6168,7 @@ export async function runTriggerLoops({
           toolsTokens: answered.request.toolsTokens,
           tokens: record.tokens,
           cost: record.cost,
-          ms: record.loop.ms,
+          ms: record.loop!.ms,
           calls: answers[side.key].calls,
           counts: turnCounts(record),
           blocks: requestBlocks(answered.request.user, hot.prompts?.labels),
@@ -6307,7 +6304,7 @@ export function renderLoopTriggersReport(
 }
 
 /** The prefetch of a side as its key records it: the status, the lanes, the excerpts' sources and ids, the time. */
-function prefetchSummary(found: Rec) {
+function prefetchSummary(found: Untyped) {
   return {
     status: found.status,
     basis: found.basis ?? [],
@@ -6322,7 +6319,7 @@ function prefetchSummary(found: Rec) {
 }
 
 /** One answer as the output and the sheet show it. */
-function answerOut(answer: Rec) {
+function answerOut(answer: Untyped) {
   return answer
     ? {
         think: answer.think,
@@ -6536,7 +6533,7 @@ export async function main(
   const all = argv.includes('--answers-all');
   const own = argv.includes('--diary-own-history');
   const flags = argv.filter((arg) => arg !== '--answers-all' && arg !== '--diary-own-history');
-  const args: Rec = { ...parseArgs(flags), answersAll: all, diaryOwnHistory: own };
+  const args: ReplayArgs = { ...parseArgs(flags), answersAll: all, diaryOwnHistory: own };
   if (args.answersDir === null) return runMain(args, { root, signal, rng, answers: null });
   // `--answers-dir`: Anthropic models are answered through files (scripts/lib/answers-dir.ts); `done` ends the run.
   const { estimateMessages } = await import(pathToFileURL(path.join(root, 'src', 'llm', 'tokens.ts')).href);
@@ -6560,7 +6557,7 @@ export async function main(
   }
 }
 
-async function runMain(args: Untyped, { root, signal, rng, answers }: Rec) {
+async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv) {
   const src = path.join(root, 'src');
   if (!fs.existsSync(path.join(src, 'behavior', 'sandbox.ts')))
     throw new CliError(`replay-cli: no engine under ${src}; run it from the bot's directory`);
@@ -6630,9 +6627,9 @@ async function runMain(args: Untyped, { root, signal, rng, answers }: Rec) {
     const requests = args.dry
       ? 0
       : args.inner
-        ? INNER_REQUESTS * args.samples
+        ? INNER_REQUESTS * args.samples!
         : args.diary
-          ? DIARY_REQUESTS_PER_BRIEF * args.count
+          ? DIARY_REQUESTS_PER_BRIEF * args.count!
           : args.pairTransport
             ? ((coreOn ? 0 : PRE_TURN_REQUESTS) + 2 * perDecision) * pairTriggers.length
             : args.loopTriggers
@@ -6643,7 +6640,7 @@ async function runMain(args: Untyped, { root, signal, rng, answers }: Rec) {
                   ? RECALL_REQUESTS
                   : scenarios
                     ? skillRequestEstimate(scenarios, { perDecision }) * (args.pairPrompts ? PAIR_SIDES.length : 1)
-                    : args.samples;
+                    : args.samples!;
     const loopDetail = loopBounds
       ? `~${perDecision} expected per turn (her reply, a follow-up step, a web search's summary; the run stops at --spend on reported cost)`
       : `up to ${SKILL_REQUESTS_PER_RUN}`;
@@ -6916,7 +6913,7 @@ async function runMain(args: Untyped, { root, signal, rng, answers }: Rec) {
         fetchMessage,
         log,
       });
-    const channelOf = (channel: Rec) => ({
+    const channelOf = (channel: Untyped) => ({
       id: channel.id,
       name: channel.name ?? null,
       category: channel.parent?.name ?? null,
@@ -7136,11 +7133,11 @@ async function runMain(args: Untyped, { root, signal, rng, answers }: Rec) {
       });
     }
 
-    const { channel, history, triggerLine, at } = await momentOf(args.channelId, args.triggerId);
+    const { channel, history, triggerLine, at } = await momentOf(args.channelId!, args.triggerId!);
 
     // The turn this trigger started: the journal's turn.start record (the one --show-request
     // names, else the newest whose trigger is this message), else the sandbox's guess.
-    const recorded = turnStart ?? turnStartForTrigger(journalOf(), args.triggerId);
+    const recorded = turnStart ?? turnStartForTrigger(journalOf(), args.triggerId!);
     const recordedMode = recorded ? momentMode(recorded.mode) : null;
     const mode = recordedMode && !isSpontaneous(recordedMode) ? recordedMode : 'reply';
     const kind = recorded ? momentKind(recorded.trigger?.kind) : null;

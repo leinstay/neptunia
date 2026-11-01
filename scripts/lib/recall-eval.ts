@@ -7,9 +7,32 @@
 
 import { recordMessage } from '../../src/behavior/recall.ts';
 import type { Untyped } from '../../src/tools/types.ts';
+import type { Reads } from '../../src/interface/reads.ts';
 
 /** An object read by key whose values are not typed yet. */
 type Rec = Record<string, Untyped>;
+
+/** How one question scored: whether the expected line was in the first window, in the first five, anywhere, or in chat. */
+export type Score = {
+  hit1?: boolean;
+  hit5?: boolean;
+  seen?: boolean;
+  inChat?: boolean;
+  outcome?: string;
+  falseConfident?: boolean;
+  surfaced?: Array<string>;
+};
+
+/** One question's result as `ask` returns it; the fields past these depend on the mode that asked. */
+export type QuestionResult = {
+  kind?: string;
+  score?: Score | null;
+  web?: { found?: boolean } | null;
+  error?: unknown;
+  latencyMs?: Untyped;
+  costUsd?: Untyped;
+  [field: string]: Untyped;
+};
 
 /** The kinds of a question: the answer is one exact message, a looser stretch, or not in memory at all. */
 export const QUESTION_KINDS = Object.freeze(['exact', 'fuzzy', 'none']);
@@ -23,6 +46,17 @@ export function isSnowflake(value: Untyped): boolean {
   return typeof value === 'string' && SNOWFLAKE.test(value);
 }
 
+/** One question of the file: whom it was asked of, where, and the messages that answer it. */
+export type Question = {
+  id: string;
+  channelId: string;
+  askerId: string;
+  question: string;
+  expected: Array<string>;
+  kind: string;
+  note?: string;
+};
+
 /**
  * The questions of a parsed questions file: `[{ id, channelId, askerId, question, expected:
  * [messageId...], kind: 'exact'|'fuzzy'|'none', note? }]`. `errors` names every problem by the
@@ -30,10 +64,10 @@ export function isSnowflake(value: Untyped): boolean {
  * `none` question expects no message (the answer is not in memory); the others expect at
  * least one. Ids are unique.
  */
-export function parseQuestions(value: unknown): { questions: Array<Rec>; errors: Array<string> } {
+export function parseQuestions(value: unknown): { questions: Array<Question>; errors: Array<string> } {
   if (!Array.isArray(value)) return { questions: [], errors: ['the file is not a JSON array'] };
-  const questions: Array<Untyped> = [];
-  const errors: Array<Untyped> = [];
+  const questions: Array<Question> = [];
+  const errors: Array<string> = [];
   const ids = new Set();
   value.forEach((raw, i) => {
     const at = `question ${i + 1}`;
@@ -67,7 +101,7 @@ export function parseQuestions(value: unknown): { questions: Array<Rec>; errors:
       channelId: raw.channelId,
       askerId: raw.askerId,
       question: raw.question,
-      expected: [...new Set(expected)],
+      expected: [...new Set<string>(expected)],
       kind: raw.kind,
       ...(raw.note !== undefined ? { note: raw.note } : {}),
     });
@@ -208,8 +242,8 @@ export function scoreQuestion(
 }
 
 /** The nearest-rank `p`-th percentile (0..100) of `values`, or null for none. */
-export function percentile(values: Untyped, p: Untyped): Untyped {
-  const sorted = (values ?? []).filter(Number.isFinite).sort((a: Untyped, b: Untyped) => a - b);
+export function percentile(values: Array<number> | null | undefined, p: number): number | null {
+  const sorted = (values ?? []).filter(Number.isFinite).sort((a, b) => a - b);
   if (sorted.length === 0) return null;
   const rank = Math.max(1, Math.ceil((p / 100) * sorted.length));
   return sorted[Math.min(sorted.length, rank) - 1];
@@ -220,6 +254,33 @@ export function costOf(usage: Rec): number {
   const value = Number(usage?.cost_details?.upstream_inference_cost ?? usage?.cost ?? 0);
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
+
+/** What `summarize` counts over a run's results. */
+export type Summary = {
+  questions: number;
+  answerable: number;
+  hit1: number;
+  hit5: number;
+  seen: number;
+  answeredByChat: number;
+  hit1OrChat: number;
+  hit5OrChat: number;
+  seenOrChat: number;
+  webAnswered: number;
+  noneQuestions: number;
+  falseConfident: number;
+  failed: number;
+  latencyMs: { median: number | null; p90: number | null };
+  costUsd: number;
+  misses: Array<{
+    id: Untyped;
+    question: Untyped;
+    surfaced: Array<string>;
+    seen: boolean;
+    answer: Untyped;
+    error: Untyped;
+  }>;
+};
 
 /**
  * The run summed up from its per-question results (`{ id, question, kind, score, confident,
@@ -232,25 +293,25 @@ export function costOf(usage: Rec): number {
  * the latency median and p90, the total cost, and the misses (no hit in the first five, not
  * answered by the chat).
  */
-export function summarize(results: Array<Rec>): Untyped {
+export function summarize(results: Array<QuestionResult>): Summary {
   const answerable = results.filter((r) => r.kind !== 'none');
   const none = results.filter((r) => r.kind === 'none');
-  const count = (list: Untyped, pick: Rec) => list.filter(pick).length;
-  const inChat = (r: Rec) => r.score?.inChat === true;
+  const count = (list: Array<QuestionResult>, pick: (r: QuestionResult) => boolean) => list.filter(pick).length;
+  const inChat = (r: QuestionResult) => r.score?.inChat === true;
   return {
     questions: results.length,
     answerable: answerable.length,
-    hit1: count(answerable, (r: Untyped) => r.score?.hit1 === true),
-    hit5: count(answerable, (r: Untyped) => r.score?.hit5 === true),
-    seen: count(answerable, (r: Untyped) => r.score?.seen === true),
-    answeredByChat: count(answerable, (r: Untyped) => r.score?.outcome === 'in-chat'),
-    hit1OrChat: count(answerable, (r: Untyped) => r.score?.hit1 === true || inChat(r)),
-    hit5OrChat: count(answerable, (r: Untyped) => r.score?.hit5 === true || inChat(r)),
-    seenOrChat: count(answerable, (r: Untyped) => r.score?.seen === true || inChat(r)),
-    webAnswered: count(results, (r: Untyped) => r.web?.found === true),
+    hit1: count(answerable, (r) => r.score?.hit1 === true),
+    hit5: count(answerable, (r) => r.score?.hit5 === true),
+    seen: count(answerable, (r) => r.score?.seen === true),
+    answeredByChat: count(answerable, (r) => r.score?.outcome === 'in-chat'),
+    hit1OrChat: count(answerable, (r) => r.score?.hit1 === true || inChat(r)),
+    hit5OrChat: count(answerable, (r) => r.score?.hit5 === true || inChat(r)),
+    seenOrChat: count(answerable, (r) => r.score?.seen === true || inChat(r)),
+    webAnswered: count(results, (r) => r.web?.found === true),
     noneQuestions: none.length,
-    falseConfident: count(none, (r: Untyped) => r.score?.falseConfident === true),
-    failed: count(results, (r: Untyped) => Boolean(r.error)),
+    falseConfident: count(none, (r) => r.score?.falseConfident === true),
+    failed: count(results, (r) => Boolean(r.error)),
     latencyMs: {
       median: percentile(
         results.map((r) => r.latencyMs),
@@ -281,14 +342,19 @@ export function summarize(results: Array<Rec>): Untyped {
  * passed `maxUsd` (`stopped: 'max-usd'`, the rest `skipped`). `onResult` sees each result.
  */
 export async function runQuestions(
-  questions: Array<Rec>,
+  questions: Array<Question>,
   {
     ask,
     maxUsd,
     limit = Infinity,
     onResult = null,
-  }: { ask: (q: Rec) => Promise<Untyped>; maxUsd: number; limit?: number; onResult?: ((r: Rec) => void) | null }
-): Promise<{ results: Array<Untyped>; spentUsd: number; stopped: 'max-usd' | null; skipped: number }> {
+  }: {
+    ask: (q: Question) => Promise<QuestionResult>;
+    maxUsd: number;
+    limit?: number;
+    onResult?: ((r: Rec) => void) | null;
+  }
+): Promise<{ results: Array<QuestionResult>; spentUsd: number; stopped: 'max-usd' | null; skipped: number }> {
   const asked = questions.slice(0, Number.isFinite(limit) ? Math.max(0, limit) : questions.length);
   const results = [];
   let spentUsd = 0;
@@ -314,7 +380,25 @@ function shuffle(list: Untyped, rng: Untyped) {
 }
 
 /** A record line as a neighbour or a candidate shows it. */
-function sampleLine(line: Untyped, nameOf: Untyped) {
+export type SampleLine = {
+  id: Untyped;
+  authorId: string | null;
+  authorName: string | null;
+  self: boolean;
+  occurredAt: Untyped;
+  text: string;
+  media: Array<Untyped>;
+};
+
+/** A message sampled for question writing, with the lines around it. */
+export type Candidate = SampleLine & {
+  channelId: Untyped;
+  replyTo: Untyped;
+  before: Array<SampleLine>;
+  after: Array<SampleLine>;
+};
+
+function sampleLine(line: Untyped, nameOf: Untyped): SampleLine {
   const by = typeof line.by === 'string' && line.by ? line.by : null;
   return {
     id: line.messageId,
@@ -359,19 +443,7 @@ export function sampleCandidates(
     neighbours?: number;
     nameOf?: ((id: string) => string | null) | null;
   }
-): Array<{
-  channelId: Untyped;
-  replyTo: Untyped;
-  before: Untyped;
-  after: Untyped;
-  id: Untyped;
-  authorId: Untyped;
-  authorName: Untyped;
-  self: boolean;
-  occurredAt: Untyped;
-  text: Untyped;
-  media: Untyped;
-}> {
+): Array<Candidate> {
   const from = now - days * DAY_MS;
   const until = now - recentDays * DAY_MS;
   const byChannel = new Map();
@@ -386,7 +458,7 @@ export function sampleCandidates(
   // Channel -> its day buckets of eligible messages.
   const buckets = new Map();
   for (const [channelId, list] of byChannel) {
-    list.forEach((line: Untyped, index: Untyped) => {
+    list.forEach((line: Untyped, index: number) => {
       const at = Date.parse(line.occurredAt);
       if (!(at >= from && at < until)) return;
       if (line.kind !== 'seen' || (selfId && line.by === selfId)) return;
@@ -457,7 +529,7 @@ export function localGuild({
     roles: { everyone: { id: guildId }, cache: new Map() },
     client: {
       rest: {
-        async get(route: Rec) {
+        async get(route: string) {
           if (/\/messages\/search$/.test(String(route))) return { total_results: 0, messages: [] };
           if (/\/members\/search$/.test(String(route))) return [];
           throw new Error('local guild: no Discord route');
@@ -465,7 +537,7 @@ export function localGuild({
       },
     },
   };
-  const channelOf = (id: Untyped) => ({
+  const channelOf = (id: string) => ({
     id,
     name: channelNameOf(id) ?? id,
     guild,
@@ -483,12 +555,12 @@ export function localGuild({
   });
   guild.channels = {
     cache: {
-      get(id: Untyped) {
+      get(id: string) {
         if (typeof id !== 'string' || !id) return undefined;
         if (!channels.has(id)) channels.set(id, channelOf(id));
         return channels.get(id);
       },
-      has: (id: Untyped) => typeof id === 'string' && id !== '',
+      has: (id: string) => typeof id === 'string' && id !== '',
       values: () => channels.values(),
       get size() {
         return channels.size;
@@ -537,7 +609,7 @@ export function localReads({
 }: {
   guildId: string;
   channelNameOf?: (id: string) => string | null;
-}): Untyped {
+}): Reads {
   const info = (id: string) => localInfo(guildId, id, channelNameOf(id) ?? id);
   return {
     offers: () => true,
@@ -566,7 +638,7 @@ export function localScope({
   guildId: string;
   channelId: string;
   channelNameOf?: (id: string) => string | null;
-}): Untyped {
+}): { channel: Untyped; snapshot: Untyped } {
   const info = (id: string) => localInfo(guildId, id, channelNameOf(id) ?? id);
   return {
     channel: info(channelId),
@@ -574,7 +646,7 @@ export function localScope({
       communityId: guildId,
       conversations: [],
       groups: [],
-      get: (id: Untyped) => (typeof id === 'string' && id !== '' ? info(id) : null),
+      get: (id: string) => (typeof id === 'string' && id !== '' ? info(id) : null),
     },
   };
 }
@@ -594,7 +666,7 @@ function share(k: Untyped, n: Untyped) {
 
 /** The markdown summary of a run for stdout. */
 export function renderSummary(
-  summary: ReturnType<typeof summarize>,
+  summary: Summary,
   {
     reportPath,
     stages,
@@ -653,10 +725,20 @@ export function prefetchWindows(found: { excerpts?: Array<Rec> } | null): {
 } {
   const history = (found?.excerpts ?? []).filter((e) => e?.source === 'history' && Array.isArray(e.ids));
   return {
-    windows: history.map((e) => e.ids.map((id: Untyped) => ({ id }))),
+    windows: history.map((e) => e.ids.map((id: string) => ({ id }))),
     matched: history.flatMap((e) => (Array.isArray(e.hitIds) ? e.hitIds : [])),
   };
 }
+
+/** The classifier path and the prefetch side by side: both summed up, and the questions only one of them hit. */
+export type PrefetchComparison = {
+  classifier: Summary;
+  prefetch: Summary;
+  onlyClassifier: Array<string>;
+  onlyPrefetch: Array<string>;
+  noneShown: Array<string>;
+  statuses: Record<string, number>;
+};
 
 /**
  * The comparison of the classifier path (`score`) and the prefetch (`prefetch.score`) per question
@@ -664,7 +746,7 @@ export function prefetchWindows(found: { excerpts?: Array<Rec> } | null): {
  * HIT_AT, and the `none` questions the prefetch still showed an excerpt for (`noneShown`).
  * @param results recall-eval's per-question results, each with `prefetch: { status, excerpts, score }`.
  */
-export function comparePrefetch(results: Array<Rec>): Untyped {
+export function comparePrefetch(results: Array<QuestionResult>): PrefetchComparison {
   const classifier = summarize(results);
   const prefetch = summarize(
     results.map((r) => ({
@@ -676,7 +758,7 @@ export function comparePrefetch(results: Array<Rec>): Untyped {
       answer: null,
     }))
   );
-  const hit = (score: Rec) => score?.hit5 === true || score?.inChat === true;
+  const hit = (score: Untyped) => score?.hit5 === true || score?.inChat === true;
   const answerable = results.filter((r) => r.kind !== 'none');
   return {
     classifier,
@@ -684,7 +766,7 @@ export function comparePrefetch(results: Array<Rec>): Untyped {
     onlyClassifier: answerable.filter((r) => hit(r.score) && !hit(r.prefetch?.score)).map((r) => r.id),
     onlyPrefetch: answerable.filter((r) => !hit(r.score) && hit(r.prefetch?.score)).map((r) => r.id),
     noneShown: results.filter((r) => r.kind === 'none' && (r.prefetch?.excerpts ?? 0) > 0).map((r) => r.id),
-    statuses: results.reduce((acc, r) => {
+    statuses: results.reduce<Record<string, number>>((acc, r) => {
       const status = r.prefetch?.status ?? 'none-ran';
       acc[status] = (acc[status] ?? 0) + 1;
       return acc;
@@ -693,7 +775,7 @@ export function comparePrefetch(results: Array<Rec>): Untyped {
 }
 
 /** The markdown table of comparePrefetch for stdout: totals, then one row per question. */
-export function renderPrefetchCompare(compare: Untyped, results: Untyped, { reportPath }: Untyped): string {
+export function renderPrefetchCompare(compare: PrefetchComparison, results: Untyped, { reportPath }: Untyped): string {
   const a = compare.classifier;
   const b = compare.prefetch;
   const out = [
@@ -714,7 +796,7 @@ export function renderPrefetchCompare(compare: Untyped, results: Untyped, { repo
     `Only A hit: ${compare.onlyClassifier.join(' ') || '-'}`,
     `Only B hit: ${compare.onlyPrefetch.join(' ') || '-'}`,
     `B statuses: ${
-      Object.entries(compare.statuses)
+      Object.entries<number>(compare.statuses)
         .map(([k, v]) => `${k} ${v}`)
         .join(', ') || '-'
     }`,

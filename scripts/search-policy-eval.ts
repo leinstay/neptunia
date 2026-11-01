@@ -50,7 +50,9 @@ import { fileURLToPath } from 'node:url';
 import { CliError, defaultDataDir, parseFlags, privateDirOf, runCli, simKey } from './lib/cli.ts';
 import { costOf } from './lib/recall-eval.ts';
 import { decisionOf, parseSheet, renderSummary, rowChat, summarize } from './lib/search-policy-eval.ts';
+import type { PolicyResult, SheetRow } from './lib/search-policy-eval.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { Hot } from '../src/hot.ts';
 
 const USAGE =
   'usage: node scripts/search-policy-eval.ts <sheet.jsonl> --out <dir> [--key <ENV_NAME>] [--model <id>] [--limit N] [--max-usd 1] [--concurrency 4] [--self-name <name>] [--dry-run]';
@@ -79,7 +81,7 @@ function inside(file: string, dir: string) {
 }
 
 /** The key the run spends: the variable `name` names, else the simulator key (simKey). Never printed. */
-function keyOf(name: Untyped, env: Untyped) {
+function keyOf(name: string | undefined, env: Record<string, string | undefined>) {
   if (name === undefined) return simKey(ORIGIN, env);
   if (!ENV_NAME_RE.test(name))
     throw new CliError(`search-policy-eval: --key takes the name of a variable, not a key\n${USAGE}`);
@@ -105,7 +107,7 @@ export async function main(
   }: {
     cwd?: string;
     now?: () => number;
-    hot?: Untyped;
+    hot?: Hot | null;
     llmClient?: Untyped;
     env?: Record<string, string | undefined>;
     rootDir?: string;
@@ -153,11 +155,8 @@ export async function main(
   const { skillRegistry } = await import('../src/tools/registry.ts');
   const { zonedDay } = await import('../src/time.ts');
 
-  let hot = givenHot;
-  if (!hot) {
-    const { createHot } = await import('../src/hot.ts');
-    hot = createHot({ rootDir, privateDir: privateDirOf(rootDir, env) });
-  }
+  const hot: Hot =
+    givenHot ?? (await import('../src/hot.ts')).createHot({ rootDir, privateDir: privateDirOf(rootDir, env) });
   const model = flags['--model'] ?? null;
   /** The live config, with `--model` pinned for purpose `lookup` in this process only. */
   const configNow = () => {
@@ -173,7 +172,7 @@ export async function main(
     const selfName = flags['--self-name'] ?? hot.config?.bot?.nameTriggers?.[0] ?? 'bot';
 
     /** One row's request, as maybeLookup builds it, read now. */
-    const requestOf = (row: Untyped) => {
+    const requestOf = (row: SheetRow) => {
       const config = configNow();
       const { history, trigger } = rowChat(row, { now: now(), selfName });
       const { user } = lookupClassifierInput({ config, labels: hot.prompts.labels, selfName, history, trigger });
@@ -214,10 +213,10 @@ export async function main(
 
     let spent = 0;
     let stopped: Untyped = null;
-    const results = new Array(asked.length).fill(null);
+    const results: Array<PolicyResult | null> = new Array(asked.length).fill(null);
 
     /** One row asked and decided. */
-    async function ask(row: Untyped) {
+    async function ask(row: SheetRow): Promise<PolicyResult> {
       const { config, system, user, skillNames } = requestOf(row);
       const started = now();
       const base = { id: row.id, source: row.source, tier: row.tier };
@@ -285,7 +284,7 @@ export async function main(
           break;
         }
         const index = next++;
-        const r: Untyped = await ask(asked[index]);
+        const r = await ask(asked[index]);
         results[index] = r;
         process.stderr.write(
           `search-policy-eval: ${r.id} tier ${r.tier} decision ${r.decision}${r.error ? ` (${r.error})` : ''} ${r.ms} ms\n`
@@ -294,7 +293,7 @@ export async function main(
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, asked.length) }, worker));
 
-    const done = results.filter(Boolean);
+    const done = results.filter((r): r is PolicyResult => r !== null);
     const summary = summarize(done);
     const markdown = renderSummary(summary, {
       at: new Date(now()).toISOString(),

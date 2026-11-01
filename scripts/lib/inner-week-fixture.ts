@@ -26,7 +26,7 @@ export const EVENT_KINDS = Object.freeze([
 ]);
 
 /** `"30s"`, `"10m"`, `"2h"`, `"1d"` as milliseconds; null for anything else. */
-export function parseDuration(text: string): number | null {
+export function parseDuration(text: Untyped): number | null {
   const match = /^(\d{1,6})\s*(s|m|h|d)$/i.exec(String(text ?? '').trim());
   if (!match) return null;
   const n = Number(match[1]);
@@ -35,7 +35,7 @@ export function parseDuration(text: string): number | null {
 }
 
 /** The calendar date `days` after `date` (`YYYY-MM-DD`). */
-export function addDays(date: Untyped, days: Untyped) {
+export function addDays(date: Untyped, days: Untyped): string {
   return new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
 }
 
@@ -43,7 +43,7 @@ export function addDays(date: Untyped, days: Untyped) {
  * A fixture time as epoch ms: `"<day> HH:MM"` (day 1 is the fixture's `start`, in its timezone;
  * day 0 and negative days lie before the week) or an ISO date-time. Null for anything else.
  */
-export function fixtureTime(text: string, { start, timezone }: Rec): number | null {
+export function fixtureTime(text: Untyped, { start, timezone }: Rec): number | null {
   const value = String(text ?? '').trim();
   const match = /^(-?\d{1,3})\s+(\d{1,2}):(\d{2})$/.exec(value);
   if (match) {
@@ -69,13 +69,13 @@ export function need(condition: unknown, name: string, message: string): asserts
   if (!condition) throw new FixtureError(`inner-week: fixture ${name}: ${message}`);
 }
 
-export const isObject = (value: Untyped) => value && typeof value === 'object' && !Array.isArray(value);
+export const isObject = (value: Untyped): boolean => value && typeof value === 'object' && !Array.isArray(value);
 
 /** The wake kinds a stub plan may answer. */
 export const STUB_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'review', 'attend', 'feedback']);
 
 /** A stub plan (`[[action, ...], ...]`): every action `{ skill, args?, refuse? }` (`refuse`: the code the runner refuses it with). */
-export function checkPlan(plan: Untyped, name: Untyped, where: Untyped) {
+export function checkPlan(plan: Untyped, name: string, where: string): Array<Untyped> {
   need(
     Array.isArray(plan) && plan.every((answer) => Array.isArray(answer)),
     name,
@@ -109,7 +109,7 @@ export function checkPlan(plan: Untyped, name: Untyped, where: Untyped) {
   return plan;
 }
 
-export function checkStub(stub: Untyped, name: Untyped, where: Untyped) {
+export function checkStub(stub: Untyped, name: string, where: string): Rec {
   const out: Untyped = {};
   if (stub === undefined) return out;
   need(isObject(stub), name, `${where} must be an object`);
@@ -117,6 +117,82 @@ export function checkStub(stub: Untyped, name: Untyped, where: Untyped) {
     if (stub[kind] !== undefined) out[kind] = checkPlan(stub[kind], name, `${where}.${kind}`);
   return out;
 }
+
+export type FixtureChannel = { id: string; name: string; writable: boolean };
+export type FixtureTask = { id: string; agent: string; state: 'queued' | 'running' };
+
+/** One scripted event of the week; the fields past the three every event has depend on its `kind`. */
+export type FixtureEvent = { kind: string; at: number; order: number; [field: string]: Untyped };
+
+/** What a fixture promises the week will show (the gates of scripts/inner-week.ts check each). */
+export type FixtureExpect = {
+  silent: boolean;
+  maxPosts: number;
+  turns: Rec | null;
+  capped: Array<string>;
+  journal: Rec;
+  kept: number | null;
+  planted: number | null;
+  accepted: number | null;
+  occurrences: Rec | null;
+  feedback: { wakes: number | null; facts: Array<string>; code: string | null; intention: string | null } | null;
+  attention: {
+    turns: Array<{ day: number; lines: number }> | null;
+    capped: number | null;
+    listenOnly: string | null;
+  } | null;
+};
+
+/** A fixture made whole: what `parseFixture` returns and the week runs over. */
+export type Fixture = {
+  name: string;
+  description: string;
+  seed: number;
+  start: string;
+  days: number;
+  timezone: string;
+  startMs: number;
+  endMs: number;
+  guildId: string;
+  mode: 'shadow' | 'live';
+  turnSeconds: number;
+  innerLife: Rec;
+  agents: Rec;
+  intentionsConfig: Rec;
+  channels: Array<FixtureChannel>;
+  people: Rec;
+  tasks: Array<FixtureTask>;
+  history: { selfHours: Array<number>; channel: string; days: number };
+  stub: { usdPerRequest: number; [kind: string]: Untyped };
+  events: Array<FixtureEvent>;
+  expect: FixtureExpect;
+  /** The intentions by key, set once the week runs. */
+  intentionsByKey?: Map<Untyped, Untyped>;
+};
+
+/** What `runWeek` returns: the record of one virtual week, which the gates and the report read. */
+export type WeekRun = {
+  fixture: string;
+  mode: string;
+  guildId: string;
+  startMs: number;
+  endMs: number;
+  settings: Rec;
+  turns: Array<Rec>;
+  journal: Array<Rec>;
+  errandCosts: Array<Rec>;
+  ticks: { count: number; listed: number; submitted: number };
+  steps: number;
+  dueSeen: Array<Rec>;
+  state: Rec;
+  intentions: Array<Rec>;
+  keys: Rec;
+  chat: Record<string, Array<Rec>>;
+  planted: Array<{ marker: string; [field: string]: Untyped }>;
+  stopSpans: Array<{ from: number; to: number | null }>;
+  stoppedAtEnd: boolean;
+  timezone: string;
+};
 
 const candidateOf = (c: Rec) => ({ span: String(c?.span ?? ''), purpose: String(c?.purpose ?? '') });
 const attentionTurnOf = (t: Rec) => ({ day: Number(t?.day), lines: Number(t?.lines) });
@@ -127,7 +203,7 @@ const attentionTurnOf = (t: Rec) => ({ day: Number(t?.day), lines: Number(t?.lin
  * FixtureError naming what is wrong.
  * @param raw The parsed JSON, or its text.
  */
-export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: string } = {}): Untyped {
+export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: string } = {}): Fixture {
   let data: Untyped = raw;
   if (typeof raw === 'string') {
     try {
@@ -137,7 +213,7 @@ export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: s
     }
   }
   need(isObject(data), name, 'must be an object');
-  const id = typeof data.name === 'string' && data.name ? data.name : name;
+  const id: string = typeof data.name === 'string' && data.name ? data.name : name;
   need(
     typeof data.start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(data.start),
     id,
@@ -150,14 +226,14 @@ export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: s
   const ctx = { start: data.start, timezone };
   const startMs = zonedEpoch(data.start, 0, 0, timezone);
   const endMs = zonedEpoch(addDays(data.start, days), 0, 0, timezone);
-  const time = (value: Untyped, where: Untyped) => {
+  const time = (value: Untyped, where: string) => {
     const at = fixtureTime(value, ctx);
     need(at !== null, id, `${where}: bad time ${JSON.stringify(value)} (use "<day> HH:MM")`);
     return at;
   };
 
   need(Array.isArray(data.channels) && data.channels.length > 0, id, '`channels` must list at least one channel');
-  const channels = data.channels.map((channel: Rec, i: Untyped) => {
+  const channels = data.channels.map((channel: Rec, i: number) => {
     need(isObject(channel) && typeof channel.id === 'string' && channel.id, id, `channels[${i}] needs an id`);
     return {
       id: channel.id,
@@ -166,13 +242,13 @@ export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: s
     };
   });
   const channelIds = new Set(channels.map((channel: Rec) => channel.id));
-  const channel = (value: Untyped, where: Untyped) => {
+  const channel = (value: Untyped, where: string) => {
     need(channelIds.has(value), id, `${where}: unknown channel ${JSON.stringify(value)}`);
     return value;
   };
 
   const people = isObject(data.people) ? data.people : {};
-  const intentionOf = (item: Untyped, where: Untyped) => {
+  const intentionOf = (item: Untyped, where: string) => {
     need(isObject(item) && typeof item.purpose === 'string' && item.purpose.trim(), id, `${where} needs a purpose`);
     need(typeof item.key === 'string' && item.key, id, `${where} needs a key`);
     const out: Untyped = {
@@ -219,7 +295,7 @@ export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: s
       );
       out.attend = {
         place: out.channel,
-        people: names.map((n: Untyped) => people[n]),
+        people: names.map((n: number) => people[n]),
         ...(item.settle !== undefined ? { settle: item.settle } : {}),
         ...(item.perDay !== undefined ? { perDay: item.perDay } : {}),
       };
@@ -233,11 +309,11 @@ export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: s
   };
 
   const events: Array<Untyped> = [];
-  const intentions = (Array.isArray(data.intentions) ? data.intentions : []).map((item: Untyped, i: Untyped) =>
+  const intentions = (Array.isArray(data.intentions) ? data.intentions : []).map((item: Untyped, i: number) =>
     intentionOf(item, `intentions[${i}]`)
   );
   for (const item of intentions) events.push({ kind: 'intend', at: item.at ?? startMs, intention: item, order: -1 });
-  const tasks = (Array.isArray(data.tasks) ? data.tasks : []).map((task: Rec, i: Untyped) => {
+  const tasks = (Array.isArray(data.tasks) ? data.tasks : []).map((task: Rec, i: number) => {
     need(isObject(task) && typeof task.id === 'string' && task.id, id, `tasks[${i}] needs an id`);
     return {
       id: task.id,
@@ -246,7 +322,7 @@ export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: s
     };
   });
 
-  (Array.isArray(data.events) ? data.events : []).forEach((event: Untyped, i: Untyped) => {
+  (Array.isArray(data.events) ? data.events : []).forEach((event: Untyped, i: number) => {
     const where = `events[${i}]`;
     need(
       isObject(event) && EVENT_KINDS.includes(event.kind),
@@ -301,8 +377,8 @@ export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: s
       need(typeof event.text === 'string' && event.text, id, `${where} needs a text`);
       // What her ordinary turn read (`read`: a skill's result, a page) or saw from outside (`seen`:
       // someone's message she answered, retrieved memory) before the line went out.
-      const outside = (list: Untyped, key: Untyped) =>
-        (list === undefined ? [] : list).map((item: Rec, n: Untyped) => {
+      const outside = (list: Untyped, key: string) =>
+        (list === undefined ? [] : list).map((item: Rec, n: number) => {
           need(isObject(item) && typeof item.text === 'string' && item.text, id, `${where}.${key}[${n}] needs a text`);
           need(
             item.marker === undefined || (typeof item.marker === 'string' && item.marker.length >= 4),
@@ -447,10 +523,10 @@ export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: s
 // ---- the gates ------------------------------------------------------------------------
 
 /** The day of `ms` in `timezone`. */
-export const dayKey = (ms: Untyped, timezone: Untyped) => zonedDay(ms, timezone);
+export const dayKey = (ms: number, timezone: string): string => zonedDay(ms, timezone);
 
 /** The occurrence codes of the week's recurring intentions, counted over their histories (OCCURRENCE_CODES). */
-export function occurrences(run: Rec): { [k: string]: number } {
+export function occurrences(run: Pick<WeekRun, 'intentions'>): { [k: string]: number } {
   const counts = Object.fromEntries(OCCURRENCE_CODES.map((code) => [code, 0]));
   for (const record of run.intentions)
     for (const entry of record.history ?? []) if (OCCURRENCE_CODES.includes(entry.code)) counts[entry.code] += 1;
@@ -466,7 +542,7 @@ export const RAN = new Set(['spoke', 'skip', 'refused', 'not-now', 'error']);
  * that moment (`unattended`), the wakes that waited on her per-day bound (`capped`) and how many
  * of them ran later (`cappedRan`), and the attend wakes after an attention was dropped (`afterDrop`).
  */
-export function attention(run: Rec): {
+export function attention(run: WeekRun): {
   turns: Untyped;
   unattended: Untyped;
   afterDrop: Untyped;
@@ -487,7 +563,7 @@ export function attention(run: Rec): {
       channel: turn.channelId,
       lines: (turn.items ?? [])
         .filter((item: Rec) => item.kind === 'attend')
-        .reduce((sum: Rec, item: Rec) => sum + (item.attend?.lines ?? 0), 0),
+        .reduce((sum: number, item: Rec) => sum + (item.attend?.lines ?? 0), 0),
     }));
   const attentions = run.intentions.filter((record: Rec) => isAttend(record));
   const spans = attentions.map((record: Rec) => {
@@ -507,6 +583,6 @@ export function attention(run: Rec): {
     .filter((e: Rec) => e.event === 'capped' && e.cap === 'attend-per-day')
     .map((e: Rec) => e.wake.id);
   const handled = run.state.handled ?? {};
-  const cappedRan = capped.filter((id: Untyped) => RAN.has(handled[id]?.outcome)).length;
+  const cappedRan = capped.filter((id: string) => RAN.has(handled[id]?.outcome)).length;
   return { turns, unattended, afterDrop, capped, cappedRan };
 }

@@ -18,6 +18,7 @@ import { CliError, privateDirOf } from './cli.ts';
 import { CONFIG_DIR, CONFIG_FILE, LABELS_FILE, LOCAL_CONFIG_DIR, localFiles } from '../../src/config/files.ts';
 import { joinLabels, labelsFileOf, splitLabels } from '../../src/config/labels.ts';
 import type { Untyped } from '../../src/tools/types.ts';
+import type { Hot } from '../../src/hot.ts';
 
 /** An object read by key whose values are not typed yet. */
 type Rec = Record<string, Untyped>;
@@ -33,8 +34,8 @@ const LOCAL_DIR_OF = Object.freeze({ 'labels.json': 'prompts.local', 'tools.json
 function readJson(file: string) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (err: Untyped) {
-    throw new CliError(`replay-cli: ${file}: ${err?.message ?? 'not JSON'}`);
+  } catch (err) {
+    throw new CliError(`replay-cli: ${file}: ${(err as Error | undefined)?.message ?? 'not JSON'}`);
   }
 }
 
@@ -42,7 +43,7 @@ function readJson(file: string) {
  * The flat labels the layers left in `<dir>/prompts.local/labels.json`, split into `<dir>/config.local/labels.json`: laid
  * over the private split labels already there when `mergeJson` is given, in their place otherwise.
  */
-function settleLabels(dir: string, mergeJson: ((base: Rec, override: Rec) => Untyped) | null) {
+function settleLabels(dir: string, mergeJson: ((base: Rec, override: Rec) => Rec) | null) {
   const flatFile = path.join(dir, 'prompts.local', LABELS_FILE);
   if (!fs.existsSync(flatFile)) return;
   const splitFile = path.join(dir, LOCAL_CONFIG_DIR, LABELS_FILE);
@@ -72,7 +73,7 @@ function settleLabels(dir: string, mergeJson: ((base: Rec, override: Rec) => Unt
  * @param root The bot's checkout.
  */
 export function promptLayersHot(
-  createHot: (options: { rootDir: string }) => Rec,
+  createHot: (options: { rootDir: string }) => Hot,
   root: string,
   layers: Array<string>,
   {
@@ -81,10 +82,10 @@ export function promptLayersHot(
     env = process.env,
   }: {
     tmpDir?: string;
-    mergeJson?: ((base: Rec, override: Rec) => Untyped) | null;
+    mergeJson?: ((base: Rec, override: Rec) => Rec) | null;
     env?: Record<string, string | undefined>;
   } = {}
-): { hot: Rec; dir: string } {
+): { hot: Hot; dir: string } {
   const sources = layers.map((layer) => {
     const source = path.resolve(root, layer);
     if (!fs.existsSync(source) || !fs.statSync(source).isDirectory())

@@ -11,6 +11,7 @@
 import { createHash } from 'node:crypto';
 import { mulberry32 } from './search-compare.ts';
 import type { Untyped } from '../../src/tools/types.ts';
+import type { DayPlan } from '../../src/behavior/diary.ts';
 
 /** An object read by key whose values are not typed yet. */
 type Rec = Record<string, Untyped>;
@@ -68,8 +69,8 @@ export function planDiaryDay({
   timezone: string | undefined;
   date: string;
   seed: string;
-  planDay: (...args: Array<Untyped>) => Untyped;
-  zonedEpoch: (...args: Array<Untyped>) => Untyped;
+  planDay: (cfg: unknown, nowMs: number, timezone: string | undefined, rng: () => number, carry?: object) => DayPlan;
+  zonedEpoch: (date: string, hour: number, minute: number, zone: string) => number;
 }): { day: string; start: number; slots: Array<number>; quiet: boolean; hunger: Array<number>; quietStreak: number } {
   const zone = timezone || 'UTC';
   const start = zonedEpoch(date, 0, 0, zone);
@@ -158,6 +159,26 @@ export class PictureCapError extends Error {
   }
 }
 
+/** A picture the image client returned: what the report counts of it. */
+export type Picture = { buffer: Buffer; mediaType?: string; cost?: number; seconds?: number };
+
+/** One drawing call of a slot, as `recordingImages` recorded it. */
+type DrawCall = { reference?: unknown; userId?: string | null; result?: unknown; file?: string; prompt?: string };
+
+/** One slot of a diary day's report. */
+export type DiarySlot = {
+  n: number;
+  at: number | string;
+  local?: string;
+  outcome?: string;
+  reason?: string;
+  plan?: unknown;
+  messages?: Array<string>;
+  attachments?: number;
+  draws?: Array<DrawCall>;
+  [field: string]: Untyped;
+};
+
 /**
  * An image client over `images` (createImageGen's shape) whose `generate()` records every call
  * first -- `{ prompt, reference: referenceOf(reference), userId }` -- in `calls`, then, past
@@ -174,7 +195,7 @@ export function recordingImages({
 }: {
   images: Rec;
   maxPictures?: number | null;
-  onPicture?: ((picture: Rec, index: number) => string | null | void) | null;
+  onPicture?: ((picture: Picture, index: number) => string | null | void) | null;
 }): {
   calls: Array<Rec>;
   quota: (...args: Array<Untyped>) => Untyped;
@@ -205,7 +226,7 @@ export function recordingImages({
         throw err;
       }
       try {
-        const picture = await images.generate(args);
+        const picture: Picture = await images.generate(args);
         made += 1;
         call.result = {
           bytes: picture.buffer?.length ?? 0,
@@ -242,7 +263,7 @@ export function renderDiaryDayReport(report: {
   seed: string;
   draw: string;
   quiet: boolean;
-  slots: Array<Rec>;
+  slots: Array<DiarySlot>;
   usage?: Rec;
   stopped?: string | null;
 }): string {

@@ -66,6 +66,7 @@ import { onLog } from '../src/log.ts';
 import '../src/tools/impl/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { Fixture } from './lib/inner-week-fixture.ts';
 
 /** An object read by key whose values are not typed yet. */
 type Rec = Record<string, Untyped>;
@@ -82,18 +83,21 @@ const USAGE =
   '       node scripts/inner-week.ts --fixture <name|file> [--fixture ...] [--out <dir>] [--keep]\n' +
   '       node scripts/inner-week.ts --fixture <name|file> --live --days <2,4-5> --channel <channelId> [--data <dir>] [--spend <usd>] [--out <dir>]';
 
-/** The argv of the tool, checked. */
-export function parseArgs(argv: Untyped): {
+/** The options of one run of the tool. */
+type InnerWeekArgs = {
   all: boolean;
-  fixtures: Untyped;
-  out: Untyped;
+  fixtures: Array<string>;
+  out: string | null;
   keep: boolean;
   live: boolean;
-  days: Untyped;
-  channel: Untyped;
-  data: Untyped;
-  spend: Untyped;
-} {
+  days: string | null;
+  channel: string | null;
+  data: string | null;
+  spend: string | undefined;
+};
+
+/** The argv of the tool, checked. */
+export function parseArgs(argv: Array<string>): InnerWeekArgs {
   const flags = parseFlags(argv, {
     values: ['--out', '--days', '--channel', '--data', '--spend'],
     lists: ['--fixture'],
@@ -101,7 +105,7 @@ export function parseArgs(argv: Untyped): {
     usage: USAGE,
   });
   if (flags._.length > 0) throw new CliError(USAGE);
-  const out = {
+  const out: InnerWeekArgs = {
     all: flags['--all'] === true,
     fixtures: flags['--fixture'] ?? [],
     out: flags['--out'] ?? null,
@@ -124,7 +128,10 @@ export function parseArgs(argv: Untyped): {
 }
 
 /** A fixture by file path or by name under scripts/fixtures/inner-week/. */
-export function readFixture(value: Untyped, { cwd = process.cwd(), dir = FIXTURES }: Rec = {}): Untyped {
+export function readFixture(
+  value: Untyped,
+  { cwd = process.cwd(), dir = FIXTURES }: { cwd?: string; dir?: string } = {}
+): Fixture {
   const candidates = [path.resolve(cwd, value), path.join(dir, value), path.join(dir, `${value}.json`)];
   const file = candidates.find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
   if (!file) throw new CliError(`inner-week: no fixture ${value}`);
@@ -138,17 +145,17 @@ export function readFixture(value: Untyped, { cwd = process.cwd(), dir = FIXTURE
 /** The registry's effect class of each skill (`read`, `write`, ...), null for an unknown one. */
 export function effectsLookup() {
   const registry = skillRegistry();
-  return (skill: Untyped): 'read' | 'write' | 'destructive' | 'administrative' | 'paid' | null =>
+  return (skill: string): 'read' | 'write' | 'destructive' | 'administrative' | 'paid' | null =>
     registry.get(skill)?.effects ?? null;
 }
 
 /** A fresh temporary data directory under TMPDIR. */
-function tempData(name: Untyped) {
+function tempData(name: string) {
   return fs.mkdtempSync(path.join(os.tmpdir(), `nep-inner-week-${name}-`));
 }
 
 /** One week of `fixture` in a temporary data directory (removed after unless `keep`), with its report. */
-export async function weekOf(fixture: Rec, { effectsOf, keep = false, ...options }: Rec = {}): Promise<Untyped> {
+export async function weekOf(fixture: Fixture, { effectsOf, keep = false, ...options }: Rec = {}): Promise<Rec> {
   const dataDir = tempData(fixture.name);
   try {
     const run = await runWeek({ fixture, dataDir, skills: { effectsOf }, ...options });
@@ -174,7 +181,7 @@ function writeReport(outDir: Untyped, report: Untyped) {
  * real `channel` (`{ id, name }`; a null name keeps the fixture's). The unwritable ones are left
  * out, so they stay channels she cannot write in.
  */
-export function liveChannelMap(fixture: Rec, channel: Rec): { [k: string]: Untyped } {
+export function liveChannelMap(fixture: Fixture, channel: Rec): { [k: string]: Untyped } {
   const target = {
     id: String(channel.id),
     name: typeof channel.name === 'string' && channel.name ? channel.name : null,
@@ -188,7 +195,7 @@ export function liveChannelMap(fixture: Rec, channel: Rec): { [k: string]: Untyp
  * left alone. Called on the unflushed copy of the live store: nothing reaches the disk. Returns
  * the ids added.
  */
-export function addFixturePeople(store: Rec, guildId: string, people: Rec, at: Untyped): Array<string> {
+export function addFixturePeople(store: Rec, guildId: Untyped, people: Untyped, at: Untyped): Array<string> {
   const added = [];
   for (const [name, id] of Object.entries(people ?? {})) {
     if (typeof id !== 'string' || !id || store.getUser(guildId, id)) continue;
@@ -207,11 +214,11 @@ function snowflakeOf(ts: Untyped, seq: Untyped) {
  * The fixture's scripted chat of one conversation as fetchHistory's lines (interfaces/discord/collect.ts
  * normalizeMessage's shape), in the real channel `channel`, up to `now`, the last `limit`.
  */
-export function scriptedHistory(lines: Untyped, { channel, selfId, selfName, now, limit }: Rec): Untyped {
+export function scriptedHistory(lines: Untyped, { channel, selfId, selfName, now, limit }: Rec): Array<Rec> {
   return lines
     .filter((line: Untyped) => line.ts <= now)
     .slice(-limit)
-    .map((line: Untyped, i: Untyped) => ({
+    .map((line: Untyped, i: number) => ({
       id: snowflakeOf(line.ts, i + 1),
       channelId: String(channel.id),
       channelName: channel.name ?? null,
@@ -295,7 +302,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
     const channel = await client.channels.fetch(args.channel).catch(() => null);
     if (!channel || String(channel.guildId ?? channel.guild?.id ?? '') !== String(guildId))
       throw new CliError('inner-week: --channel is not a channel of the served guild');
-    const refuse = (name: Untyped) => async () => {
+    const refuse = (name: string) => async () => {
       throw new Error(`inner-week: channel.${name} refused (read-only tool)`);
     };
     channel.send = refuse('send');
@@ -426,7 +433,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
 
 // ---- main ------------------------------------------------------------------------------
 
-export async function main(argv: Rec, { cwd = process.cwd() }: Rec = {}): Promise<string> {
+export async function main(argv: Array<string>, { cwd = process.cwd() }: { cwd?: string } = {}): Promise<string> {
   const args = parseArgs(argv);
   const effectsOf = effectsLookup();
   const fixtures = args.all

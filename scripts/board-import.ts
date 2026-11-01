@@ -241,7 +241,7 @@ export function importLedger({
       return planned;
     };
     // open.js types `transaction` as returning any; it returns what `run` returns.
-    const planned = dryRun ? run() : (handle.transaction(run) as ReturnType<typeof plan>);
+    const planned = dryRun ? run() : handle.transaction(run);
     return {
       ok: true,
       dryRun,

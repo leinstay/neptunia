@@ -51,11 +51,61 @@ export const MAX_SAMPLES = 10;
 export const MAX_BUDGET_MS = 600000;
 
 /** A whole number in [min, max] from a flag's value, or a CliError with the usage. */
-export function intFlag(value: Untyped, min: Untyped, max: Untyped) {
+export function intFlag(value: Untyped, min: number, max: number): number {
   const n = Number(value);
   if (!Number.isInteger(n) || n < min || n > max) throw new CliError(USAGE);
   return n;
 }
+
+/** The options of one run of scripts/replay.ts, as `parseArgs` reads them off the command line. */
+export type ReplayArgs = {
+  before: number | null;
+  samples: number | null;
+  showRequest: boolean;
+  asOfMoment: boolean;
+  hideSelf: Array<string>;
+  hideSelfAll: boolean;
+  split: boolean;
+  recall: boolean;
+  budget: number | null;
+  text: string | null;
+  pair: [string, string] | null;
+  triggers: string | null;
+  snapshot: string | null;
+  outDir: string | null;
+  spend: string | undefined;
+  showRequestTurn: string | null;
+  diary: string | null;
+  count: number | null;
+  topic: string | null;
+  prompts: string | null;
+  skills: string | null;
+  dry: boolean;
+  pairPrompts: [string, string] | null;
+  diaryDay: boolean;
+  seed: string | null;
+  date: string | null;
+  draw: string | null;
+  maxPictures: number | null;
+  coreTools: boolean;
+  pairTransport: boolean;
+  loopTriggers: boolean;
+  transport: 'native' | 'text' | null;
+  steps: boolean;
+  noCache: boolean;
+  inner: string | null;
+  intention: string | null;
+  review: boolean;
+  hideChannels: Array<string>;
+  hideMessages: Array<string>;
+  answersDir: string | null;
+  answersFirstOnly: boolean;
+  answersTimeoutMin: number;
+  channelId?: string | null;
+  triggerId?: string | null;
+  answersAll?: boolean;
+  diaryOwnHistory?: boolean;
+};
 
 /**
  * `argv` (after the script) as `{ channelId, triggerId, before, samples,
@@ -82,8 +132,8 @@ export function intFlag(value: Untyped, min: Untyped, max: Untyped) {
  * `fake` by default), `--max-pictures` (`maxPictures`, only with `--draw live`, DEFAULT_LIVE_PICTURES
  * by default there, null with `fake`), `--out` and `--spend`; those four take nothing else.
  */
-export function parseArgs(argv: Array<string>): Record<string, Untyped> {
-  const out: Untyped = {
+export function parseArgs(argv: Array<string>): ReplayArgs {
+  const out: ReplayArgs = {
     before: null,
     samples: null,
     showRequest: false,

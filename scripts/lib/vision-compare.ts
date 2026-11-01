@@ -48,22 +48,22 @@ export const USAGE =
  * a bad number or effort.
  */
 export function parseArgs(argv: Array<string>): {
-  models: Untyped;
-  media: Untyped;
+  models: Array<string>;
+  media: string | null;
   fromCache: number | null;
   kinds: Array<string>;
-  out: Untyped;
+  out: string | null;
   maxUsd: number;
-  reasoning: Untyped;
-  guild: Untyped;
-  data: Untyped;
+  reasoning: string | null;
+  guild: string | null;
+  data: string | null;
 } {
   const flags = parseFlags(argv, {
     values: ['--media', '--from-cache', '--kinds', '--out', '--max-usd', '--reasoning', '--guild', '--data'],
     usage: USAGE,
   });
   const models = flags._;
-  if (models.length < 2 || new Set(models).size !== models.length || !models.every((m: Untyped) => MODEL_RE.test(m)))
+  if (models.length < 2 || new Set(models).size !== models.length || !models.every((m: string) => MODEL_RE.test(m)))
     throw new CliError(USAGE);
   const hasMedia = flags['--media'] !== undefined;
   const hasCache = flags['--from-cache'] !== undefined;
@@ -136,7 +136,7 @@ function fileNameOf(url: string) {
  * file name (a CDN upload included), else as a link of one of `videoSites`.
  * Null for a video URL that is neither.
  */
-function describerItem(kind: Untyped, url: string, itemId: Untyped, videoSites: Untyped) {
+function describerItem(kind: string, url: string, itemId: string, videoSites: ReadonlyArray<string>) {
   if (kind === 'picture') return { source: 'attachment', itemId, kind: 'image', url, width: null, height: null };
   if (kind === 'gif') return { source: 'attachment', itemId, kind: 'gif', url, width: null, height: null };
   if (kind === 'emoji') return { source: 'emoji', itemId, kind: 'emoji', url, name: null };
@@ -167,25 +167,27 @@ export function parseMediaList(
   raw.forEach((entry, index) => {
     const at = `entry ${index}`;
     if (!isPlainObject(entry)) return errors.push(`${at}: not an object`);
-    if (!KINDS.includes(entry.kind)) return errors.push(`${at}: kind must be one of ${KINDS.join(', ')}`);
-    if (typeof entry.url !== 'string' || entry.url.length > MAX_URL_CHARS || !isHttpUrl(entry.url))
+    const kind = entry.kind as string; // checked on the next line
+    if (!KINDS.includes(kind)) return errors.push(`${at}: kind must be one of ${KINDS.join(', ')}`);
+    const url: unknown = entry.url;
+    if (typeof url !== 'string' || url.length > MAX_URL_CHARS || !isHttpUrl(url))
       return errors.push(`${at}: url must be an http(s) URL`);
     if (entry.label !== undefined && (typeof entry.label !== 'string' || entry.label.length > MAX_LABEL_CHARS)) {
       return errors.push(`${at}: label must be a string of at most ${MAX_LABEL_CHARS} characters`);
     }
     const id = `item-${index + 1}`;
-    const item = describerItem(entry.kind, entry.url, `${ORIGIN}:${id}`, videoSites);
+    const item = describerItem(kind, url, `${ORIGIN}:${id}`, videoSites);
     if (!item) return errors.push(`${at}: a video url must be a video file or a link of media.video.sites`);
-    if (!kinds.includes(entry.kind)) return undefined;
-    items.push({ id, kind: entry.kind, url: entry.url, label: entry.label ?? null, item });
+    if (!kinds.includes(kind)) return undefined;
+    items.push({ id, kind, url, label: entry.label ?? null, item });
     return undefined;
   });
   return { items, errors };
 }
 
 /** A media cache entry's last use: `usedAt` or `ts`, whichever is later; -Infinity when neither. */
-function lastUseOf(entry: Rec) {
-  const times = [entry?.usedAt, entry?.ts].filter((v) => typeof v === 'number' && Number.isFinite(v));
+function lastUseOf(entry: Untyped) {
+  const times = [entry?.usedAt, entry?.ts].filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
   return times.length > 0 ? Math.max(...times) : -Infinity;
 }
 
@@ -200,7 +202,7 @@ const ATTACHMENT_ID_RE = /^\d+$/;
  * marked `gif` a GIF; `emoji:` and `sticker:` their kinds; an attachment, a gif embed, a
  * `link:` or `video:url:` thumbnail a picture.
  */
-export function cacheKind(key: string, entry: Rec): string | null {
+export function cacheKind(key: string, entry: Untyped): string | null {
   if (
     typeof key !== 'string' ||
     !isPlainObject(entry) ||
@@ -219,6 +221,9 @@ export function cacheKind(key: string, entry: Rec): string | null {
   return null;
 }
 
+/** One media-cache entry picked for the comparison: its key, its kind, the describer's item id and when it was used. */
+export type Picked = { key: string; kind: string; itemId: string; ts: number | null; usedAt: number };
+
 /**
  * `n` recent media cache entries spread across `kinds`: each kind's entries newest first (by
  * their last use), taken one per kind in turn (in the order of KINDS) until `n` are picked or
@@ -229,7 +234,7 @@ export function cacheKind(key: string, entry: Rec): string | null {
 export function pickFromCache(
   cache: Rec,
   { n, kinds = KINDS }: { n: number; kinds?: ReadonlyArray<string> }
-): Array<{ key: string; kind: string; itemId: string; ts: number | null; usedAt: number }> {
+): Array<Picked> {
   const byKind = new Map<string, Array<Untyped>>(kinds.map((kind) => [kind, []]));
   for (const [key, entry] of Object.entries<Untyped>(cache ?? {})) {
     const kind = cacheKind(key, entry);
@@ -315,6 +320,22 @@ function failureCode(entry: Rec) {
   return null;
 }
 
+/** One model's answer for one item: the description or the error, how the item was described, and what it cost. */
+export type Cell = {
+  model: string;
+  ok: boolean;
+  text: string | null;
+  error: string | null;
+  mode: string | null;
+  latencyMs: number;
+  requests: number;
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number;
+  sentModels: Array<string | null>;
+  preview: { dataUrl: string; contentType: string } | null;
+};
+
 /**
  * One item described with one model, through the live describer exactly as the bot reaches it
  * for that kind: `describe()` for a picture, an emoji, a sticker and a GIF (which watches the GIF
@@ -351,20 +372,7 @@ export async function describeOne({
   videoFetcher?: Rec;
   youtubeApiKey?: string | null;
   now?: () => number;
-}): Promise<{
-  model: string;
-  ok: boolean;
-  text: string | null;
-  error: string | null;
-  mode: string | null;
-  latencyMs: number;
-  requests: number;
-  promptTokens: number;
-  completionTokens: number;
-  costUsd: number;
-  sentModels: Array<string | null>;
-  preview: { dataUrl: string; contentType: string } | null;
-}> {
+}): Promise<Cell> {
   const hot = toolHot(base, { model });
   const cache: Rec = {};
   const store = { getMediaCache: () => cache, markMediaCacheDirty() {} };
@@ -373,7 +381,7 @@ export async function describeOne({
   const sentModels = new Set<string | null>();
   let requestFailure = null;
   let preview: Untyped = null;
-  const keepPreview = (got: Rec, fallbackType: Untyped) => {
+  const keepPreview = (got: Untyped, fallbackType: Untyped) => {
     if (preview || !got?.dataUrl || !(Number(got.bytes) > 0) || got.bytes > PREVIEW_MAX_BYTES) return;
     preview = { dataUrl: got.dataUrl, contentType: got.contentType ?? fallbackType };
   };
@@ -485,7 +493,7 @@ export async function runComparison({
   runOne: (...args: Array<Untyped>) => Untyped;
   onCell?: (...args: Array<Untyped>) => Untyped;
 }): Promise<{
-  rows: Array<{ item: Untyped; cells: Array<Untyped>; preview: Untyped | null }>;
+  rows: Array<{ item: Rec; cells: Array<Cell>; preview: Cell['preview'] }>;
   spentUsd: number;
   stopped: string | null;
   skipped: number;
@@ -527,7 +535,7 @@ export async function runComparison({
 
 /** Per model: items, failures, total cost, median latency, prompt and completion tokens. */
 export function summarizeModels(
-  rows: Array<{ cells: Array<Untyped> }>,
+  rows: Array<{ cells: Array<Cell> }>,
   models: Array<string>
 ): Array<{
   model: string;
@@ -539,8 +547,8 @@ export function summarizeModels(
   completionTokens: Untyped;
 }> {
   return models.map((model) => {
-    const cells = rows.map((row) => row.cells.find((cell) => cell.model === model)).filter(Boolean);
-    const sum = (key: Untyped) =>
+    const cells = rows.flatMap((row) => row.cells.filter((cell) => cell.model === model).slice(0, 1));
+    const sum = (key: 'costUsd' | 'promptTokens' | 'completionTokens') =>
       cells.reduce((total, cell) => total + (Number.isFinite(cell[key]) ? cell[key] : 0), 0);
     return {
       model,
@@ -570,14 +578,14 @@ const CSS =
   'th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;white-space:nowrap}';
 
 /** A data: URL is inlined only when it is a picture or a video one; anything else is not trusted as a source. */
-function safeDataUrl(preview: Rec) {
+function safeDataUrl(preview: Untyped) {
   const url = String(preview?.dataUrl ?? '');
   const match = /^data:(image\/(?:png|jpeg|gif|webp|avif)|video\/(?:mp4|webm));base64,[A-Za-z0-9+/=]+$/.exec(url);
   return match ? { url, type: match[1] } : null;
 }
 
 /** A link to `url` when it is http(s), else nothing. */
-function linkHtml(url: string, text: string) {
+function linkHtml(url: Untyped, text: string) {
   return isHttpUrl(url)
     ? `<a href="${escapeHtml(url)}" rel="noreferrer noopener" target="_blank">${escapeHtml(text)}</a>`
     : '';
@@ -594,12 +602,12 @@ function mediaHtml(row: Untyped) {
 }
 
 /** A number for the sheet, `-` when unknown. */
-function fmt(value: Untyped, digits = 0) {
-  return Number.isFinite(value) ? value.toFixed(digits) : '-';
+function fmt(value: number | null | undefined, digits = 0) {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '-';
 }
 
 /** One model's cell: the description (or the error code), the GIF mode, latency, tokens and cost. */
-function cellHtml(cell: Untyped) {
+function cellHtml(cell: Cell) {
   const body = cell.ok
     ? `<p>${escapeHtml(cell.text)}</p>`
     : `<p class="err">error: ${escapeHtml(cell.error ?? 'unknown')}</p>`;
@@ -628,7 +636,7 @@ export function renderHtml({
   at: string;
   models: Array<string>;
   rows: Array<Rec>;
-  summary: Array<Rec>;
+  summary: ReturnType<typeof summarizeModels>;
   stopped?: string | null;
   skipped?: number;
   source: string;

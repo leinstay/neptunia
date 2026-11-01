@@ -101,6 +101,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Flags } from './lib/cli.ts';
 import { CliError, defaultDataDir, parseFlags, privateDirOf, resolveGuildId, runCli, simKey } from './lib/cli.ts';
 import { discordReads, recallScope } from './lib/platform-objects.ts';
 import {
@@ -124,6 +125,7 @@ import {
   topExcerptLine,
   traceAgreement,
 } from './lib/recall-eval.ts';
+import type { Question } from './lib/recall-eval.ts';
 import { MAX_MESSAGE_CHARS } from '../src/format.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { Reads } from '../src/interface/reads.ts';
@@ -207,7 +209,7 @@ function fileTime(ms: Untyped) {
 }
 
 /** `dir` resolved, refused when it is not under `dataDir/recall-eval`. */
-function evalPath(dataDir: string, ...parts: Array<Untyped>) {
+function evalPath(dataDir: Untyped, ...parts: Array<Untyped>) {
   const base = path.join(dataDir, 'recall-eval');
   const file = path.join(base, ...parts);
   if (!file.startsWith(`${base}${path.sep}`))
@@ -219,7 +221,7 @@ function evalPath(dataDir: string, ...parts: Array<Untyped>) {
  * The read-only sources: the memory database `dbFile` opened read only (no lock), and over it the record, the
  * archive, the vector index and the store's read methods; `memoryDb` is the recall runner's. `close()` closes it.
  */
-async function openSources(dataDir: string, dbFile: Untyped) {
+async function openSources(dataDir: Untyped, dbFile: Untyped) {
   const { readOnlyMemory } = await import('./lib/memory-read.ts');
   const { createAppendStore } = await import('../src/memory/append-store.ts');
   const { createRecord } = await import('../src/memory/record.ts');
@@ -245,11 +247,11 @@ async function openSources(dataDir: string, dbFile: Untyped) {
 }
 
 /** The memory database a run reads: `--db`, else `<data>/memory.db`. */
-const dbFileOf = (flags: Rec, { cwd, dataDir }: Rec) =>
+const dbFileOf = (flags: Untyped, { cwd, dataDir }: Rec) =>
   flags['--db'] ? path.resolve(cwd, flags['--db']) : path.join(dataDir, 'memory.db');
 
 /** The stored members' first names by id. */
-function namesOf(store: Rec, guildId: string) {
+function namesOf(store: Rec, guildId: Untyped) {
   const names = new Map();
   for (const profile of store.listUserProfiles(guildId) ?? []) {
     if (profile?.id && typeof profile.names?.[0] === 'string' && profile.names[0])
@@ -259,7 +261,7 @@ function namesOf(store: Rec, guildId: string) {
 }
 
 /** The record's messages from `from` on (latestLines), optionally of the given channels. */
-async function readRecord(record: Rec, guildId: string, { from, channelIds = null }: Untyped) {
+async function readRecord(record: Rec, guildId: Untyped, { from, channelIds = null }: Untyped) {
   const lines = [];
   for await (const line of record.iterate(guildId, {
     from: new Date(from).toISOString(),
@@ -307,8 +309,11 @@ async function connectDiscord({ token, guildId }: Rec) {
   }
 }
 
+/** Where a subcommand runs: the data folder, the guild, the clock and the folder the flags' paths are read from. */
+type RunContext = { dataDir: string; guildId: string; now: () => number; cwd: string };
+
 /** The `sample` subcommand. */
-async function sample(flags: Untyped, { dataDir, guildId, now, cwd }: Rec) {
+async function sample(flags: Flags, { dataDir, guildId, now, cwd }: RunContext) {
   const n = numberFlag(flags['--n'], DEFAULT_SAMPLE, { min: 1, max: 1000, integer: true });
   const days = numberFlag(flags['--days'], DEFAULT_SAMPLE_DAYS, { min: 3, max: 366, integer: true });
   const seed = numberFlag(flags['--seed'], now() % 2147483647, { min: 0, integer: true });
@@ -347,8 +352,8 @@ async function sample(flags: Untyped, { dataDir, guildId, now, cwd }: Rec) {
  */
 async function recallParts(
   guild: Untyped,
-  channel: Rec,
-  guildId: string,
+  channel: Untyped,
+  guildId: Untyped,
   config: () => unknown
 ): Promise<{ reads: Reads; scope: { channel: Untyped; snapshot: Untyped } }> {
   const found: {
@@ -369,7 +374,7 @@ async function recallParts(
 }
 
 /** `config` with the prefetch's deadline lifted (`--no-deadline`): a copy, the live config untouched. */
-function withoutDeadline(config: Rec, lifted: Untyped) {
+function withoutDeadline(config: Untyped, lifted: Untyped) {
   if (!lifted) return config;
   return {
     ...config,
@@ -377,15 +382,27 @@ function withoutDeadline(config: Rec, lifted: Untyped) {
   };
 }
 
+/** One line of a recall-trace.jsonl file, as the engine wrote it (the fields past these are read by name). */
+type TraceLine = {
+  at: string;
+  triggerId: string;
+  channelId: string;
+  forms?: Array<string>;
+  who?: Array<string>;
+  summary?: { answer?: string } | null;
+  skipped?: string | null;
+  [field: string]: Untyped;
+};
+
 /** The lines of a recall-trace.jsonl file that parse as objects, in order. */
-function traceLines(file: string) {
+function traceLines(file: string): Array<TraceLine> {
   let text;
   try {
     text = fs.readFileSync(file, 'utf8');
   } catch (err: Untyped) {
     throw new CliError(`recall-eval: cannot read the trace file ${file} (${err?.code ?? err?.name ?? 'Error'})`);
   }
-  const out = [];
+  const out: Array<TraceLine> = [];
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     try {
@@ -399,7 +416,7 @@ function traceLines(file: string) {
 }
 
 /** The `traces` subcommand (see the header). */
-async function traces(flags: Untyped, { dataDir, guildId, now, cwd }: Rec) {
+async function traces(flags: Flags, { dataDir, guildId, now, cwd }: RunContext) {
   const dry = flags['--dry'] === true;
   const noDeadline = flags['--no-deadline'] === true;
   const file = flags._[1] ? path.resolve(cwd, flags._[1]) : path.join(dataDir, 'guilds', guildId, 'recall-trace.jsonl');
@@ -505,10 +522,10 @@ async function traces(flags: Untyped, { dataDir, guildId, now, cwd }: Rec) {
           hot: evalHot,
           store: {
             state: { data: {}, markDirty() {} },
-            listUserProfiles: (id: Untyped) => store.listUserProfiles(id),
-            getLore: (id: Untyped) => store.getLore(id),
-            getGuild: (id: Untyped) => store.getGuild(id),
-            getRecent: (id: Untyped) => store.getRecent(id),
+            listUserProfiles: (id: string) => store.listUserProfiles(id),
+            getLore: (id: string) => store.getLore(id),
+            getGuild: (id: string) => store.getGuild(id),
+            getRecent: (id: string) => store.getRecent(id),
           },
           llm,
           reads: parts.reads,
@@ -673,7 +690,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   const sources = await openSources(dataDir, dbFile);
   const { record, archive, vectors, store, memoryDb } = sources;
   const names = namesOf(store, guildId);
-  const nameOf = (id: string) => names.get(String(id)) ?? null;
+  const nameOf = (id: Untyped) => names.get(String(id)) ?? null;
 
   // The model clients on throwaway counters; per-role keys are not looked up (env {}): the simulator key pays.
   const counters = { data: {}, markDirty() {} };
@@ -763,7 +780,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   const historyOf = new Map();
 
   /** The channel's last lines from the record, as the turn's chat. */
-  async function channelHistory(channelId: string) {
+  async function channelHistory(channelId: Untyped) {
     if (!historyOf.has(channelId)) {
       const lines = await readRecord(record, guildId, { from: now() - HISTORY_DAYS * DAY_MS, channelIds: [channelId] });
       historyOf.set(
@@ -839,7 +856,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   }
 
   /** The trigger a question is asked as: a new message of `askerId` in its channel, now. */
-  const triggerOf = (q: Untyped, index: Untyped) => ({
+  const triggerOf = (q: Question, index: number) => ({
     id: `recall-eval-${index + 1}`,
     channelId: q.channelId,
     authorId: q.askerId,
@@ -859,7 +876,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   });
 
   /** The question asked the way a turn of her tool loop asks it: the automatic memory prefetch, scored. */
-  async function askPrefetch(q: Untyped, index: Untyped) {
+  async function askPrefetch(q: Question, index: number) {
     const started = now();
     try {
       const channel = guild.channels.cache.get(q.channelId);
@@ -914,7 +931,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   }
 
   /** One question asked and scored; with `--prefetch` also through the automatic prefetch. */
-  async function ask(q: Rec, index: Untyped) {
+  async function ask(q: Question, index: number) {
     const result = await askClassifier(q, index);
     if (!usePrefetch) return result;
     return { ...result, prefetch: await askPrefetch(q, index) };
@@ -924,16 +941,16 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   function readStore(onTrace: Untyped = null) {
     return {
       state: { data: {}, markDirty() {} },
-      listUserProfiles: (id: Untyped) => store.listUserProfiles(id),
-      getLore: (id: Untyped) => store.getLore(id),
-      getGuild: (id: Untyped) => store.getGuild(id),
-      getRecent: (id: Untyped) => store.getRecent(id),
-      appendRecallTrace: (id: Untyped, line: Untyped) => onTrace?.(line),
+      listUserProfiles: (id: string) => store.listUserProfiles(id),
+      getLore: (id: string) => store.getLore(id),
+      getGuild: (id: string) => store.getGuild(id),
+      getRecent: (id: string) => store.getRecent(id),
+      appendRecallTrace: (id: string, line: Untyped) => onTrace?.(line),
     };
   }
 
   /** One question asked through the classifier path and scored. */
-  async function askClassifier(q: Untyped, index: Untyped) {
+  async function askClassifier(q: Question, index: number) {
     const started = now();
     usage = { requests: 0, promptTokens: 0, completionTokens: 0, costUsd: 0, embeddings: 0 };
     const base = {
@@ -1089,7 +1106,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   };
   fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
   const text = renderSummary(summary, { reportPath, stages, stopped: outcome.stopped, skipped: outcome.skipped });
-  return usePrefetch ? `${text}\n${renderPrefetchCompare(report.prefetch, outcome.results, { reportPath })}` : text;
+  return usePrefetch ? `${text}\n${renderPrefetchCompare(report.prefetch!, outcome.results, { reportPath })}` : text;
 }
 
 runCli(import.meta.url, main);

@@ -15,6 +15,7 @@
 import fs from 'node:fs';
 import readline from 'node:readline';
 import { renderDay, tallyLog } from './lib/report.ts';
+import type { Tally } from './lib/report.ts';
 import { parseFlags, CliError, runCli } from './lib/cli.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
@@ -46,7 +47,8 @@ export async function main(
     .filter((day) => (!flags['--since'] || day >= flags['--since']) && (!flags['--until'] || day <= flags['--until']));
   if (kept.length === 0) return 'no `turn: model answered` lines in the given range\n';
   const out = [`# Request report from the log, ${kept[0]} to ${kept.at(-1)}`, ''];
-  for (const day of kept) out.push(renderDay(day, days.get(day) ?? {}).trimEnd(), '');
+  // `kept` holds keys of `days`, so every day has a tally.
+  for (const day of kept) out.push(renderDay(day, days.get(day) as Tally).trimEnd(), '');
   return `${out.join('\n').trimEnd()}\n`;
 }
 

@@ -30,12 +30,12 @@ export const ANSWERS_TIMEOUT_MIN = 20;
 export const ANSWERS_SOURCE = 'answers-dir';
 
 /** Whether `model` is served by the answerer (`anthropic/claude-*`). */
-export function isAnthropicModel(model: string): boolean {
+export function isAnthropicModel(model: Untyped): boolean {
   return typeof model === 'string' && model.startsWith('anthropic/claude-');
 }
 
 /** The text of one message content: a string, or content parts joined with a newline. */
-export function contentText(content: Rec): string {
+export function contentText(content: Untyped): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
   return content
@@ -101,7 +101,7 @@ function writeAtomic(file: string, text: string) {
   fs.renameSync(tmp, file);
 }
 
-const pad = (n: Untyped) => String(n).padStart(3, '0');
+const pad = (n: number) => String(n).padStart(3, '0');
 
 /** @param options `firstOnly` and `all`: what withAnswersDir routes (see there). */
 export function createAnswersDir({
@@ -235,6 +235,12 @@ function routingOf(answers: unknown): { firstOnly: boolean; all: boolean } {
  *   tool-loop step continuing it (its task text says so, labels task.continue*) goes to the real model. all: every
  *   model's requests go to the files, not only Anthropic's.
  */
+/** The language model client the engine builds: its `complete` and whatever else the real one has. */
+export type LlmClient = {
+  complete(messages: Array<Rec>, options?: Rec): Promise<{ text: string; [field: string]: Untyped }>;
+  [member: string]: Untyped;
+};
+
 /** A tool-loop step's task text (labels task.continue*): the engine re-renders the turn as one user message. */
 const CONTINUED_RE = /This is the same (inner )?turn, continued after/;
 
@@ -244,7 +250,7 @@ export function withAnswersDir(
   modelOf: Untyped,
   { firstOnly = routingOf(answers).firstOnly, all = routingOf(answers).all }: Rec = {}
 ) {
-  return (deps: Untyped): Untyped => {
+  return (deps: Untyped): LlmClient => {
     const real = createLlm(deps);
     return new Proxy(real, {
       get(target, prop) {
@@ -261,7 +267,7 @@ export function withAnswersDir(
           };
         }
         const value = Reflect.get(target, prop, target);
-        return typeof value === 'function' ? value.bind(target) : value;
+        return (typeof value === 'function' ? value.bind(target) : value) as unknown;
       },
     });
   };

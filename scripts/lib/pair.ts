@@ -46,7 +46,7 @@ export function pairOrder(n: number, rng: () => number): Array<'A' | 'B'> {
 const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
 /** `text` safe inside HTML text and attribute values. */
-export function escapeHtml(text: string): string {
+export function escapeHtml(text: Untyped): string {
   return String(text ?? '').replace(/[&<>"']/g, (c) => HTML_ESCAPES[c] ?? c);
 }
 

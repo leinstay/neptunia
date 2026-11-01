@@ -51,6 +51,7 @@ import { CliError, defaultDataDir, parseFlags, privateDirOf, runCli, simKey } fr
 import { costOf } from './lib/recall-eval.ts';
 import { outcomeOf, parseQueries, renderBlind, renderSummary, summarize } from './lib/search-compare.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { Hot } from '../src/hot.ts';
 
 /** An object read by key whose values are not typed yet. */
 type Rec = Record<string, Untyped>;
@@ -83,7 +84,7 @@ function inside(file: string, dir: string) {
 }
 
 /** The key the run spends: the variable `name` names, else the simulator key (simKey). Never printed. */
-function keyOf(name: Untyped, env: Untyped) {
+function keyOf(name: string | undefined, env: Record<string, string | undefined>) {
   if (name === undefined) return simKey(ORIGIN, env);
   if (!ENV_NAME_RE.test(name))
     throw new CliError(`search-compare: --key takes the name of a variable, not a key\n${USAGE}`);
@@ -93,7 +94,7 @@ function keyOf(name: Untyped, env: Untyped) {
 }
 
 /** An env value trimmed, or null when unset or blank. */
-function envValue(env: Untyped, name: Untyped) {
+function envValue(env: Record<string, string | undefined>, name: string) {
   const value = env[name];
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
@@ -112,12 +113,10 @@ function enginesOf(value: Untyped, known: Untyped) {
 }
 
 /** The live config with the engine forced and nothing else that could stop one search: a view, never written back. */
-function forcedConfig(live: Rec, engine: Rec) {
-  const web = live?.web ?? {};
-  return {
-    ...live,
-    web: { ...web, maxPerDay: 1, search: { ...(web.search ?? {}), enabled: true, engine, fallback: [] } },
-  };
+function forcedConfig(live: Rec, engine: string) {
+  const web = (live?.web ?? {}) as Rec;
+  const search = (web.search ?? {}) as Rec;
+  return { ...live, web: { ...web, maxPerDay: 1, search: { ...search, enabled: true, engine, fallback: [] } } };
 }
 
 /** The shape of one model request: model, options (plugins included) and the messages' roles and sizes. */
@@ -135,7 +134,7 @@ function requestShape(messages: Untyped, options: Untyped) {
 type Opts = {
   cwd?: string;
   now?: () => number;
-  hot?: Untyped;
+  hot?: Hot | null;
   llmClient?: Untyped;
   searches?: { brave?: Rec; exa?: Rec } | null;
   env?: Record<string, string | undefined>;
@@ -198,11 +197,8 @@ export async function main(
     }
   }
 
-  let hot = givenHot;
-  if (!hot) {
-    const { createHot } = await import('../src/hot.ts');
-    hot = createHot({ rootDir, privateDir: privateDirOf(rootDir, env) });
-  }
+  const hot: Hot =
+    givenHot ?? (await import('../src/hot.ts')).createHot({ rootDir, privateDir: privateDirOf(rootDir, env) });
 
   try {
     if (!hot.prompts?.['search-summary']) throw new CliError('search-compare: prompts.search-summary is missing');

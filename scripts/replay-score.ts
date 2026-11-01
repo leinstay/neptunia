@@ -25,8 +25,8 @@ const USAGE =
 function readJson(file: string) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (err: Untyped) {
-    throw new CliError(`${file}: ${err?.code === 'ENOENT' ? 'not found' : 'not valid JSON'}`);
+  } catch (err) {
+    throw new CliError(`${file}: ${(err as NodeJS.ErrnoException).code === 'ENOENT' ? 'not found' : 'not valid JSON'}`);
   }
 }
 
@@ -47,8 +47,8 @@ export async function main(argv: Array<string>): Promise<string> {
   let result;
   try {
     result = tallyScores({ ids, key, scores: readJson(scoresFile) });
-  } catch (err: Untyped) {
-    throw new CliError(`${err.message}: the sheet and the key are not of the same run`);
+  } catch (err) {
+    throw new CliError(`${(err as Error).message}: the sheet and the key are not of the same run`);
   }
   const { A, B, even, unscored } = result.totals;
   const out = [
@@ -68,7 +68,7 @@ export async function main(argv: Array<string>): Promise<string> {
 
 /** `--search`: the blind sheet of scripts/search-compare.ts tallied against its key, as markdown. */
 function searchMain(argv: Untyped) {
-  if (argv.length !== 2 || argv.some((arg: Record<string, Untyped>) => arg.startsWith('--'))) throw new CliError(USAGE);
+  if (argv.length !== 2 || argv.some((arg: string) => arg.startsWith('--'))) throw new CliError(USAGE);
   const [sheetFile, keyFile] = argv;
   let markdown;
   try {
@@ -80,8 +80,8 @@ function searchMain(argv: Untyped) {
   if (!key || typeof key !== 'object' || Array.isArray(key)) throw new CliError(`${keyFile}: not a blind key`);
   try {
     return renderSearchTally(tallySearchScores({ key, scores: parseBlindScores(markdown) }));
-  } catch (err: Untyped) {
-    throw new CliError(`${err.message}: the sheet and the key are not of the same run`);
+  } catch (err) {
+    throw new CliError(`${(err as Error).message}: the sheet and the key are not of the same run`);
   }
 }
 

@@ -6,8 +6,8 @@ import type { Untyped } from '../../src/tools/types.ts';
 
 /** A prepared statement: its row values stay untyped, as the SQL text decides them. */
 export type SqlStatement = {
-  get(...params: Array<Untyped>): Untyped;
-  all(...params: Array<Untyped>): Array<Untyped>;
+  get<Row = Untyped>(...params: Array<Untyped>): Row | undefined;
+  all<Row = Untyped>(...params: Array<Untyped>): Array<Row>;
   run(...params: Array<Untyped>): Untyped;
   iterate(...params: Array<Untyped>): IterableIterator<Untyped>;
 };
