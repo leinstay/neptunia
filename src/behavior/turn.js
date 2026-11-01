@@ -315,15 +315,12 @@ export function createTurnRunner({
   intentions = null,
   // The places view of the inner life (src/behavior/inner.ts#places): `<places>` on an addressed turn with `context.places` on.
   places = null,
-  // The per-turn record of the memory rows a request carried (src/memory/db/service.js#recordTurnReads); null: none.
+  // The memory rows a request carried (src/memory/db/service.js#recordTurnReads) and a turn's execution context (#issueContext, `(spec) => ctx`); null: none.
   memoryReads = null,
-  // The execution context of a turn (src/memory/db/service.js#issueContext, `(spec) => ctx`); null: none.
   memoryContext = null,
-  // Her attention, one turn at a time: src/behavior/attention.ts mirrors it as leases; a plain set without them.
+  // Her attention, one turn at a time (src/behavior/attention.ts mirrors it as leases; a plain set without them), the model roles that are down (src/llm/role-health.ts, her tool roles route on it) and the plugins' registered tools (src/plugins/registry.ts); null: none.
   attention = new Set(),
-  // Which model roles are down (src/llm/role-health.ts), shared with the admin: her tool roles route on it.
   roleHealth = null,
-  // The registered tools of the plugins and the call to one (src/plugins/registry.ts); null: none.
   plugins = null,
 }) {
   /** @type {import('../interface/reads.ts').Reads} */

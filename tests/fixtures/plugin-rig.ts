@@ -111,7 +111,7 @@ export const statusOf = (value: Envelope): string => String((value.body as Recor
 export function echoHandler(calls: Array<ToolCallBody> = [], prefix = 'echo: ') {
   return (call: ToolCallBody): ToolAnswer => {
     calls.push(call);
-    return { status: 'ok', data: { text: `${prefix}${String(call.args.text ?? '')}` } };
+    return { status: 'ok', data: { text: `${prefix}${typeof call.args.text === 'string' ? call.args.text : ''}` } };
   };
 }
 
