@@ -84,9 +84,6 @@ The world block appears only in the diary's plan and compose requests. Turn it o
 
 The world file never appears in an ordinary chat turn.
 
-## Forced posts
-
-
 ## How an entry is written and posted
 
 A due slot runs the diary turn as the `selfreflection` wake (`src/behavior/diary.ts`, then `src/behavior/turn.js` in mode `diary`). The wake has no conversation. It writes from the place the diary is posted to: the first enabled mirror, or, with none, the place the last entry was published to. The turn takes that place as its conversation, and its history is her diary as memory holds it (`src/behavior/diary-turn.ts`): the newest `context.channelMessages` messages her entries posted, each built by the same line builder as a live message. A message's text, time and reply come from her line in the record, the newest revision, marked edited from the second revision on. Its pictures and voice come from the entry's `media` rows, with the description the media cache holds for the attachment. Nobody else's line is in it, and a message she deleted is left out. An entry with no line in the record is its text as one message.
