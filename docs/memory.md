@@ -44,7 +44,7 @@ The module seams stay as they were before the database: `record`, `journal`, `ar
 
 ## Data model
 
-Schema version 21 (`src/memory/db/schema.js`; migrations appended, never edited). The task board keeps its own tables in the same file with a version of its own (see [The task board's tables](#the-task-boards-tables)). Version 14 renames the errand units (`guilds/<g>/tasks.json` and `tasks.jsonl` become `errands.json` and `errands.jsonl`) in every table that stores a unit path, and renames the errand fields of the open intention records. `currentUnitPath` in `src/memory/db/paths.js` maps the old unit names on the way in, so a write that waited in `memory-pending/` across the upgrade lands in the current unit.
+Schema version 22 (`src/memory/db/schema.js`; migrations appended, never edited). The task board keeps its own tables in the same file with a version of its own (see [The task board's tables](#the-task-boards-tables)). Version 14 renames the errand units (`guilds/<g>/tasks.json` and `tasks.jsonl` become `errands.json` and `errands.jsonl`) in every table that stores a unit path, and renames the errand fields of the open intention records. `currentUnitPath` in `src/memory/db/paths.js` maps the old unit names on the way in, so a write that waited in `memory-pending/` across the upgrade lands in the current unit. Version 22 adds `skill_uses` and the `source` column of `skill_versions`, and deletes every row of `skill_evaluations`, `skill_versions` and `skills`, which only the engine's old tool registry had written.
 
 Version 17 is a data step: it sets back what the unit sync wrote over her memory session's changes (`src/memory/db/session-repair.ts`). A claim takes the text and the last-seen time of her newest version, and the truth of a retire, and becomes hers. Her newest review becomes the current version of its description again, and a person she moved takes the reason of her newest move. Each repair applies only when her version is newer than the file's last change of the row: the claim's first or last seen time, the newest legacy description version, or the file's newest attitude move. The step asks no model and sends nothing, and one `decisions` row (`migration:v17:session_rows_repaired`) counts what it set back.
 
@@ -119,9 +119,10 @@ Version 20 rebuilds `deliveries` with three more states and a `receipt` column (
 | `focus_overrides` | The owner's pins and exclusions |
 | `wake_runs` | One row per inner wake run |
 | `wake_actions` | Each action of a wake run (append-only) |
-| `skills` | Registered skills by name, with lifecycle and active version (built, off by default) |
-| `skill_versions` | Each version of a skill, with content hash, manifest hash and engine commit |
-| `skill_evaluations` | Tests, trials and outcome checks of skill versions (append-only) |
+| `skills` | Her skills by name, with lifecycle, active version, who activated it and her or the owner's switch ([Skills](skills.md)) |
+| `skill_versions` | Each version of a skill: the content hash of its `SKILL.md`, the manifest of its tools, the text it was read from (`source`, schema v22) and its status (`candidate`, `active` or `retired`) |
+| `skill_evaluations` | Evaluations of skill versions (append-only; no code writes it) |
+| `skill_uses` | How her turns used a skill: one row per skill, version, turn and kind (`discovered`, `read`, `tried`, `succeeded`, `corrected`, `declined`), append-only (schema v22) |
 | `index_policy` | The tier of each source line (`a`, `b`, `c`) and the touches that keep a vector alive (built, off by default) |
 | `operational` | State files kept verbatim (request dumps, buffers, queues) |
 | `ingest` | One row per event the core took from a client: the principal, its `seq`, the event id, kind and conversation, and when it was committed (schema v16). An event id and a `seq` are each unique within a principal. `held` keeps the event of a message the pause holds (schema v19) |
@@ -367,7 +368,7 @@ The memory system reads these config groups from `config/config.json` (and `conf
 
 | Group | What it controls |
 |---|---|
-| `memoryDb` | The database file, session schedule, backups, skills registry, observation timeout |
+| `memoryDb` | The database file, session schedule, backups, observation timeout |
 | `recall` | The search's timeout, output and memory tokens, record days, the `db` subgroup (vector days, touch days, eviction, re-embedding), the `prefetch` subgroup (deadline, tokens, word lists) |
 | `embed` | Embedding dimensions |
 | `memory` | The vault directory and the main channels |
@@ -450,6 +451,7 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `wake_actions` | inherits from wake_runs | each action of a run once, keyed by the run and its number |
 | `index_policy` | internal-only | the tier of each stored line (by its graph node), why, a pin, and how long a touch lasts; derived from the typed tables |
 | `skill_evaluations` | internal-only | the tests, trials, outcome reviews and audience checks of each skill version, with the hashes they evaluated (append-only); the evidence they name keeps its own audience |
+| `skill_uses` | internal-only | which skill of her index a turn showed, read, tried, finished or set aside, by turn id (append-only) |
 | `capture_watches` | internal-only | when a bundle is looked at again, and how that went |
 | `operational` | internal-only | state files kept verbatim (request dumps, buffers, queues) |
 | `board_schema_version` | internal-only | the version of the task board's tables |
@@ -481,8 +483,8 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `files` | structural | the signature of every memory file the sync read |
 | `co_owners` | structural | rows two servers' files both map |
 | `schema_version` | structural | the migrations applied |
-| `skills` | structural | the engine's skills by name, the active version, the lifecycle and a pin; code in the repository, no remembered content |
-| `skill_versions` | structural | each version of a skill: its content hash, manifest hash, engine commit, status and manifest |
+| `skills` | structural | her skills by name, the active version, the lifecycle, the switch and who activated the version; the skill files stay in the repository and the private layer |
+| `skill_versions` | structural | each version of a skill: its content hash, manifest hash, the commit `skill-file`, status, manifest and the text it was read from |
 | `graph_nodes` | structural | one node per typed row of a node kind (derived, rebuildable); whether a context may see a node is `node_access`'s answer |
 | `graph_edges` | audience-scoped | the edges between nodes, each with the audience of the typed row it came from (derived, rebuildable); a walk follows only edges the context may read |
 | `node_access` | internal-only | which audiences may see each node, one witness row per node, audience and evidence (derived, rebuildable); the walks read it, nothing shows it |

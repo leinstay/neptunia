@@ -57,6 +57,13 @@
       "test": "none"
     },
     {
+      "path": "skills.local/",
+      "purpose": "A deployment's own skills, one folder with a SKILL.md each; a skill here replaces the tracked skill of the same name.",
+      "layer": "local",
+      "imports": [],
+      "test": "none"
+    },
+    {
       "path": "config.local.json",
       "purpose": "The old place of a deployment's settings, read until `tools/config-files-move.mjs` moves it into `config.local/`.",
       "layer": "local",
@@ -198,6 +205,13 @@
     {
       "path": "prompts/",
       "purpose": "The tracked prompt files the model reads.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
+      "path": "skills/",
+      "purpose": "The tracked skills: one folder per skill with a SKILL.md, and the README that says how to write one.",
       "layer": "public",
       "imports": [],
       "test": "none"
@@ -352,6 +366,7 @@
         "src/media/**",
         "src/memory/**",
         "src/protocol/**",
+        "src/skills/**",
         "src/speech/**",
         "src/tools/**",
         "src/web/**",
@@ -371,6 +386,13 @@
     {
       "path": "src/agent-runner/",
       "purpose": "The process that works errands: the socket server, the profiles, the OpenCode driver and the sweep.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/skills/",
+      "purpose": "Her skills: the SKILL.md format and loader, the index of the active ones, the use rows of a turn, the port over the registry in the memory database, its client over the memory writer and the agents' commands.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
@@ -930,7 +952,7 @@
     },
     {
       "path": "src/turn/request/senses.ts",
-      "purpose": "What the persona can sense and do in a turn: the `<senses>` lines in their stable and per-turn halves, and the `<skills>` catalogue. Tested through the prompt, prompts shipped and skills tests.",
+      "purpose": "What the persona can sense and do in a turn: the `<senses>` lines in their stable and per-turn halves, and the `<tool_catalogue>` block. Tested through the prompt, prompts shipped and skills tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

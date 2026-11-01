@@ -39,6 +39,8 @@ Both agents follow the [style guide](../STYLEGUIDE.md) when they write code.
 | `thinker` | `high` | 400 | 60 | `bash`, `read`, `grep`, `glob`, `list`, `edit`, `write`, `patch`, `webfetch`, `todowrite`, `skill`, `external_directory` |
 | `dev` | `medium` | 300 | 60 | `bash`, `read`, `grep`, `glob`, `list`, `edit`, `write`, `patch`, `webfetch`, `todowrite`, `skill` |
 
+A `skill` task, filed by her `board.propose` with `kind` `skill`, asks `dev` for a `SKILL.md`. The prompt of `dev` names the format and points at [`skills/README.md`](../skills/README.md). The agent adds `skills/<name>/SKILL.md` in a pull request, or `skills.local/<name>/SKILL.md` in the private git for a skill that is private. The file waits as a pending version until the agent activates it with `neptunia task skill-activate <name>` or the owner with `/skills activate <name>` ([Skills](skills.md)).
+
 ## Models
 
 Each agent's model sits under `models.development.<name>` in config:

@@ -260,6 +260,12 @@ Settings for voice messages. The persona's `voice.say` skill sends text through 
 
 <!-- settings: tools -->
 
+## `skills`
+
+Settings for her `SKILL.md` skills. See [Skills](skills.md).
+
+<!-- settings: skills -->
+
 ## `diary`
 
 Settings for the diary. See [Diary](diary.md).
