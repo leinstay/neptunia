@@ -37,7 +37,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:status.show",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:status.show"
    },
    "rights": {
     "owner": "ok",
@@ -69,8 +69,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -92,7 +92,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:config.set",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:config.set"
    },
    "rights": {
     "owner": "ok",
@@ -124,8 +124,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "not-grantable:config.set",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "not-grantable:config.set",
     "features-off": "not-grantable:config.set",
     "mixed-requesters": "not-grantable:config.set",
     "cooldown": "not-grantable:config.set",
@@ -147,7 +147,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:config.unset",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:config.unset"
    },
    "rights": {
     "owner": "ok",
@@ -179,8 +179,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "not-grantable:config.unset",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "not-grantable:config.unset",
     "features-off": "not-grantable:config.unset",
     "mixed-requesters": "not-grantable:config.unset",
     "cooldown": "not-grantable:config.unset",
@@ -202,7 +202,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:bot.pause",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:bot.pause"
    },
    "rights": {
     "owner": "ok",
@@ -234,8 +234,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "not-grantable:bot.pause",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "not-grantable:bot.pause",
     "features-off": "not-grantable:bot.pause",
     "mixed-requesters": "not-grantable:bot.pause",
     "cooldown": "not-grantable:bot.pause",
@@ -257,7 +257,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:bot.resume",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:bot.resume"
    },
    "rights": {
     "owner": "ok",
@@ -289,8 +289,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "not-grantable:bot.resume",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "not-grantable:bot.resume",
     "features-off": "not-grantable:bot.resume",
     "mixed-requesters": "not-grantable:bot.resume",
     "cooldown": "not-grantable:bot.resume",
@@ -314,7 +314,7 @@
    ],
    "reply": {
     "on": "ok",
-    "off": "skills-off:features.skills"
+    "off": "ok"
    },
    "rights": {
     "owner": "ok",
@@ -347,12 +347,12 @@
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
     "safe-mode": "ok",
-    "tools-off": "skills-off:features.skills",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
-    "budget-spent": "daily-cap:image.maxPerDay",
-    "budget-unknown": "no-budget:unavailable",
+    "budget-spent": "ok",
+    "budget-unknown": "ok",
     "unknown-principal": "unknown-principal:member"
    }
   },
@@ -360,7 +360,7 @@
    "tool": "voice.say",
    "effect": "paid",
    "costClass": "paid",
-   "feature": "speech",
+   "feature": null,
    "result": "effect",
    "ownerOnly": false,
    "grantedByDefault": false,
@@ -371,7 +371,7 @@
    ],
    "reply": {
     "on": "ok",
-    "off": "skills-off:features.skills"
+    "off": "ok"
    },
    "rights": {
     "owner": "ok",
@@ -404,12 +404,12 @@
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
     "safe-mode": "ok",
-    "tools-off": "skills-off:features.skills",
-    "features-off": "feature-off:voice.say",
+    "tools-off": "ok",
+    "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
-    "budget-spent": "daily-cap:speech.maxPerDay",
-    "budget-unknown": "no-budget:unavailable",
+    "budget-spent": "ok",
+    "budget-unknown": "ok",
     "unknown-principal": "unknown-principal:member"
    }
   },
@@ -426,13 +426,13 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:pings.get",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:pings.get"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -458,8 +458,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -481,13 +481,13 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:pings.set",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:pings.set"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -513,8 +513,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
@@ -536,7 +536,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:media.status",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:media.status"
    },
    "rights": {
     "owner": "ok",
@@ -568,8 +568,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -591,7 +591,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:media.rescan",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:media.rescan"
    },
    "rights": {
     "owner": "ok",
@@ -623,8 +623,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
@@ -646,7 +646,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:media.recache",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:media.recache"
    },
    "rights": {
     "owner": "ok",
@@ -678,8 +678,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
@@ -701,7 +701,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:model.show",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:model.show"
    },
    "rights": {
     "owner": "ok",
@@ -733,8 +733,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -756,7 +756,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:model.set",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:model.set"
    },
    "rights": {
     "owner": "ok",
@@ -788,8 +788,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "not-grantable:model.set",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "not-grantable:model.set",
     "features-off": "not-grantable:model.set",
     "mixed-requesters": "not-grantable:model.set",
     "cooldown": "not-grantable:model.set",
@@ -811,7 +811,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:route.list",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:route.list"
    },
    "rights": {
     "owner": "ok",
@@ -843,8 +843,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -866,7 +866,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:route.set",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:route.set"
    },
    "rights": {
     "owner": "ok",
@@ -898,8 +898,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "not-grantable:route.set",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "not-grantable:route.set",
     "features-off": "not-grantable:route.set",
     "mixed-requesters": "not-grantable:route.set",
     "cooldown": "not-grantable:route.set",
@@ -921,7 +921,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:route.remove",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:route.remove"
    },
    "rights": {
     "owner": "ok",
@@ -953,8 +953,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "not-grantable:route.remove",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "not-grantable:route.remove",
     "features-off": "not-grantable:route.remove",
     "mixed-requesters": "not-grantable:route.remove",
     "cooldown": "not-grantable:route.remove",
@@ -976,7 +976,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:rule.add",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:rule.add"
    },
    "rights": {
     "owner": "ok",
@@ -1008,8 +1008,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
@@ -1031,7 +1031,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:rule.list",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:rule.list"
    },
    "rights": {
     "owner": "ok",
@@ -1063,8 +1063,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -1086,7 +1086,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:rule.remove",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:rule.remove"
    },
    "rights": {
     "owner": "ok",
@@ -1118,8 +1118,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "not-grantable:rule.remove",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "not-grantable:rule.remove",
     "features-off": "not-grantable:rule.remove",
     "mixed-requesters": "not-grantable:rule.remove",
     "cooldown": "not-grantable:rule.remove",
@@ -1141,7 +1141,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:access.grant",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:access.grant"
    },
    "rights": {
     "owner": "ok",
@@ -1173,8 +1173,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "not-grantable:access.grant",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "not-grantable:access.grant",
     "features-off": "not-grantable:access.grant",
     "mixed-requesters": "not-grantable:access.grant",
     "cooldown": "not-grantable:access.grant",
@@ -1196,7 +1196,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:access.revoke",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:access.revoke"
    },
    "rights": {
     "owner": "ok",
@@ -1228,8 +1228,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "not-grantable:access.revoke",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "not-grantable:access.revoke",
     "features-off": "not-grantable:access.revoke",
     "mixed-requesters": "not-grantable:access.revoke",
     "cooldown": "not-grantable:access.revoke",
@@ -1251,7 +1251,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:access.list",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:access.list"
    },
    "rights": {
     "owner": "ok",
@@ -1283,8 +1283,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -1306,7 +1306,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:alias.add",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:alias.add"
    },
    "rights": {
     "owner": "ok",
@@ -1338,8 +1338,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
@@ -1361,7 +1361,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:alias.remove",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:alias.remove"
    },
    "rights": {
     "owner": "ok",
@@ -1393,11 +1393,11 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
-    "cooldown": "cooldown:skills.destructiveCooldownMinutes",
+    "cooldown": "cooldown:tools.destructiveCooldownMinutes",
     "budget-spent": "ok",
     "budget-unknown": "ok",
     "unknown-principal": "unknown-principal:member"
@@ -1416,7 +1416,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:learning.add",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:learning.add"
    },
    "rights": {
     "owner": "ok",
@@ -1448,8 +1448,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
@@ -1471,7 +1471,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:learning.remove",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:learning.remove"
    },
    "rights": {
     "owner": "ok",
@@ -1503,11 +1503,11 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
-    "cooldown": "cooldown:skills.destructiveCooldownMinutes",
+    "cooldown": "cooldown:tools.destructiveCooldownMinutes",
     "budget-spent": "ok",
     "budget-unknown": "ok",
     "unknown-principal": "unknown-principal:member"
@@ -1526,7 +1526,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:lore.add",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:lore.add"
    },
    "rights": {
     "owner": "ok",
@@ -1558,8 +1558,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
@@ -1581,7 +1581,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:lore.list",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:lore.list"
    },
    "rights": {
     "owner": "ok",
@@ -1613,8 +1613,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -1636,7 +1636,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:lore.show",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:lore.show"
    },
    "rights": {
     "owner": "ok",
@@ -1668,8 +1668,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -1691,7 +1691,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:lore.remove",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:lore.remove"
    },
    "rights": {
     "owner": "ok",
@@ -1723,11 +1723,11 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
-    "cooldown": "cooldown:skills.destructiveCooldownMinutes",
+    "cooldown": "cooldown:tools.destructiveCooldownMinutes",
     "budget-spent": "ok",
     "budget-unknown": "ok",
     "unknown-principal": "unknown-principal:member"
@@ -1746,7 +1746,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:memory.profile.read",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:memory.profile.read"
    },
    "rights": {
     "owner": "ok",
@@ -1778,8 +1778,8 @@
     "wake-attend": "ok",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -1801,7 +1801,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:memory.channel.read",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:memory.channel.read"
    },
    "rights": {
     "owner": "ok",
@@ -1833,8 +1833,8 @@
     "wake-attend": "ok",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -1856,7 +1856,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:memory.server.read",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:memory.server.read"
    },
    "rights": {
     "owner": "ok",
@@ -1888,8 +1888,8 @@
     "wake-attend": "ok",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -1911,7 +1911,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:memory.recent.read",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:memory.recent.read"
    },
    "rights": {
     "owner": "ok",
@@ -1943,8 +1943,8 @@
     "wake-attend": "ok",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -1966,7 +1966,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:memory.affinity.read",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:memory.affinity.read"
    },
    "rights": {
     "owner": "ok",
@@ -1998,8 +1998,8 @@
     "wake-attend": "ok",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -2021,7 +2021,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:memory.journal.read",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:memory.journal.read"
    },
    "rights": {
     "owner": "ok",
@@ -2053,8 +2053,8 @@
     "wake-attend": "ok",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -2076,7 +2076,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:memory.archive.read",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:memory.archive.read"
    },
    "rights": {
     "owner": "ok",
@@ -2108,8 +2108,8 @@
     "wake-attend": "ok",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -2131,7 +2131,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:memory.restore",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:memory.restore"
    },
    "rights": {
     "owner": "ok",
@@ -2163,8 +2163,8 @@
     "wake-attend": "not-grantable:memory.restore",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "not-grantable:memory.restore",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "not-grantable:memory.restore",
     "features-off": "not-grantable:memory.restore",
     "mixed-requesters": "not-grantable:memory.restore",
     "cooldown": "not-grantable:memory.restore",
@@ -2186,7 +2186,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:memory.snapshot",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:memory.snapshot"
    },
    "rights": {
     "owner": "ok",
@@ -2218,8 +2218,8 @@
     "wake-attend": "ok",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
@@ -2241,7 +2241,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:memory.private.read",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:memory.private.read"
    },
    "rights": {
     "owner": "ok",
@@ -2273,8 +2273,8 @@
     "wake-attend": "ok",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -2296,7 +2296,7 @@
    "nested": [],
    "reply": {
     "on": "ok",
-    "off": "skills-off:features.skills"
+    "off": "ok"
    },
    "rights": {
     "owner": "ok",
@@ -2329,7 +2329,7 @@
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
     "safe-mode": "ok",
-    "tools-off": "skills-off:features.skills",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
@@ -2351,7 +2351,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:message.edit",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:message.edit"
    },
    "rights": {
     "owner": "ok",
@@ -2383,8 +2383,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
@@ -2406,7 +2406,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:message.delete",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:message.delete"
    },
    "rights": {
     "owner": "ok",
@@ -2438,11 +2438,11 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
-    "cooldown": "cooldown:skills.destructiveCooldownMinutes",
+    "cooldown": "cooldown:tools.destructiveCooldownMinutes",
     "budget-spent": "ok",
     "budget-unknown": "ok",
     "unknown-principal": "unknown-principal:member"
@@ -2461,7 +2461,7 @@
    "nested": [],
    "reply": {
     "on": "ok",
-    "off": "skills-off:features.skills"
+    "off": "ok"
    },
    "rights": {
     "owner": "ok",
@@ -2494,7 +2494,7 @@
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
     "safe-mode": "ok",
-    "tools-off": "skills-off:features.skills",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
@@ -2516,7 +2516,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:message.react.remove",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:message.react.remove"
    },
    "rights": {
     "owner": "ok",
@@ -2548,8 +2548,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
@@ -2559,7 +2559,7 @@
    }
   },
   {
-   "tool": "task.run",
+   "tool": "errand.run",
    "effect": "paid",
    "costClass": "paid",
    "feature": null,
@@ -2570,14 +2570,14 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:task.run",
-    "off": "skills-off:features.skills"
+    "on": "unknown-skill:errand.run",
+    "off": "unknown-skill:errand.run"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -2593,8 +2593,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "ok",
-    "ungranted-owner-here": "not-allowed:task.run",
-    "shipped-owner-here": "not-allowed:task.run",
+    "ungranted-owner-here": "not-allowed:errand.run",
+    "shipped-owner-here": "not-allowed:errand.run",
     "no-requester": "no-requester:no-requester",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -2603,8 +2603,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "not-allowed:innerLife.wakes.heartbeat.maxTasks",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
@@ -2614,7 +2614,7 @@
    }
   },
   {
-   "tool": "task.status",
+   "tool": "errand.status",
    "effect": "read",
    "costClass": "free",
    "feature": null,
@@ -2625,14 +2625,14 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:task.status",
-    "off": "skills-off:features.skills"
+    "on": "unknown-skill:errand.status",
+    "off": "unknown-skill:errand.status"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -2648,8 +2648,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "ok",
-    "ungranted-owner-here": "not-allowed:task.status",
-    "shipped-owner-here": "not-allowed:task.status",
+    "ungranted-owner-here": "not-allowed:errand.status",
+    "shipped-owner-here": "not-allowed:errand.status",
     "no-requester": "ok",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -2658,8 +2658,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -2669,7 +2669,7 @@
    }
   },
   {
-   "tool": "task.cancel",
+   "tool": "errand.cancel",
    "effect": "write",
    "costClass": "free",
    "feature": null,
@@ -2680,14 +2680,14 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:task.cancel",
-    "off": "skills-off:features.skills"
+    "on": "unknown-skill:errand.cancel",
+    "off": "unknown-skill:errand.cancel"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -2703,8 +2703,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "ok",
-    "ungranted-owner-here": "not-allowed:task.cancel",
-    "shipped-owner-here": "not-allowed:task.cancel",
+    "ungranted-owner-here": "not-allowed:errand.cancel",
+    "shipped-owner-here": "not-allowed:errand.cancel",
     "no-requester": "no-requester:no-requester",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -2713,8 +2713,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
@@ -2724,7 +2724,7 @@
    }
   },
   {
-   "tool": "task.list",
+   "tool": "errand.list",
    "effect": "read",
    "costClass": "free",
    "feature": null,
@@ -2735,14 +2735,14 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:task.list",
-    "off": "skills-off:features.skills"
+    "on": "unknown-skill:errand.list",
+    "off": "unknown-skill:errand.list"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -2758,8 +2758,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "ok",
-    "ungranted-owner-here": "not-allowed:task.list",
-    "shipped-owner-here": "not-allowed:task.list",
+    "ungranted-owner-here": "not-allowed:errand.list",
+    "shipped-owner-here": "not-allowed:errand.list",
     "no-requester": "ok",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -2768,8 +2768,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -2779,7 +2779,7 @@
    }
   },
   {
-   "tool": "task.read",
+   "tool": "errand.read",
    "effect": "read",
    "costClass": "free",
    "feature": null,
@@ -2790,14 +2790,14 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:task.read",
-    "off": "skills-off:features.skills"
+    "on": "unknown-skill:errand.read",
+    "off": "unknown-skill:errand.read"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -2813,8 +2813,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "ok",
-    "ungranted-owner-here": "not-allowed:task.read",
-    "shipped-owner-here": "not-allowed:task.read",
+    "ungranted-owner-here": "not-allowed:errand.read",
+    "shipped-owner-here": "not-allowed:errand.read",
     "no-requester": "ok",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -2823,8 +2823,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -2834,7 +2834,7 @@
    }
   },
   {
-   "tool": "task.resolve",
+   "tool": "errand.resolve",
    "effect": "write",
    "costClass": "free",
    "feature": null,
@@ -2845,14 +2845,14 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:task.resolve",
-    "off": "skills-off:features.skills"
+    "on": "unknown-skill:errand.resolve",
+    "off": "unknown-skill:errand.resolve"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -2868,8 +2868,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "ok",
-    "ungranted-owner-here": "not-allowed:task.resolve",
-    "shipped-owner-here": "not-allowed:task.resolve",
+    "ungranted-owner-here": "not-allowed:errand.resolve",
+    "shipped-owner-here": "not-allowed:errand.resolve",
     "no-requester": "no-requester:no-requester",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -2878,8 +2878,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
@@ -2901,13 +2901,13 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:board.propose",
-    "off": "skills-off:features.tools"
+    "off": "unknown-skill:board.propose"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -2934,7 +2934,7 @@
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
     "safe-mode": "safe-mode:tools.safeMode",
-    "tools-off": "skills-off:features.tools",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
@@ -2956,13 +2956,13 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:board.status",
-    "off": "skills-off:features.tools"
+    "off": "unknown-skill:board.status"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -2989,7 +2989,7 @@
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
     "safe-mode": "safe-mode:tools.safeMode",
-    "tools-off": "skills-off:features.tools",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -2999,10 +2999,10 @@
    }
   },
   {
-   "tool": "intent.set",
+   "tool": "intention.set",
    "effect": "write",
    "costClass": "free",
-   "feature": "intentions",
+   "feature": null,
    "result": "effect",
    "ownerOnly": false,
    "grantedByDefault": false,
@@ -3010,8 +3010,8 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:intent.set",
-    "off": "skills-off:features.skills"
+    "on": "unknown-skill:intention.set",
+    "off": "unknown-skill:intention.set"
    },
    "rights": {
     "owner": "ok",
@@ -3033,8 +3033,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "ok",
-    "ungranted-owner-here": "not-allowed:intent.set",
-    "shipped-owner-here": "feature-off:intent.set",
+    "ungranted-owner-here": "not-allowed:intention.set",
+    "shipped-owner-here": "not-allowed:intention.set",
     "no-requester": "no-requester:no-requester",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -3043,9 +3043,9 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
-    "features-off": "feature-off:intent.set",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
+    "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
     "budget-spent": "ok",
@@ -3054,10 +3054,10 @@
    }
   },
   {
-   "tool": "intent.update",
+   "tool": "intention.update",
    "effect": "write",
    "costClass": "free",
-   "feature": "intentions",
+   "feature": null,
    "result": "effect",
    "ownerOnly": false,
    "grantedByDefault": false,
@@ -3065,8 +3065,8 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:intent.update",
-    "off": "skills-off:features.skills"
+    "on": "unknown-skill:intention.update",
+    "off": "unknown-skill:intention.update"
    },
    "rights": {
     "owner": "ok",
@@ -3088,8 +3088,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "ok",
-    "ungranted-owner-here": "not-allowed:intent.update",
-    "shipped-owner-here": "feature-off:intent.update",
+    "ungranted-owner-here": "not-allowed:intention.update",
+    "shipped-owner-here": "not-allowed:intention.update",
     "no-requester": "no-requester:no-requester",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -3098,9 +3098,9 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
-    "features-off": "feature-off:intent.update",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
+    "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
     "budget-spent": "ok",
@@ -3109,10 +3109,10 @@
    }
   },
   {
-   "tool": "intent.cancel",
+   "tool": "intention.cancel",
    "effect": "write",
    "costClass": "free",
-   "feature": "intentions",
+   "feature": null,
    "result": "effect",
    "ownerOnly": false,
    "grantedByDefault": false,
@@ -3120,8 +3120,8 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:intent.cancel",
-    "off": "skills-off:features.skills"
+    "on": "unknown-skill:intention.cancel",
+    "off": "unknown-skill:intention.cancel"
    },
    "rights": {
     "owner": "ok",
@@ -3143,8 +3143,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "ok",
-    "ungranted-owner-here": "not-allowed:intent.cancel",
-    "shipped-owner-here": "feature-off:intent.cancel",
+    "ungranted-owner-here": "not-allowed:intention.cancel",
+    "shipped-owner-here": "not-allowed:intention.cancel",
     "no-requester": "no-requester:no-requester",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -3153,9 +3153,9 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
-    "features-off": "feature-off:intent.cancel",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
+    "features-off": "ok",
     "mixed-requesters": "mixed-requesters:mixed-requesters",
     "cooldown": "ok",
     "budget-spent": "ok",
@@ -3164,10 +3164,10 @@
    }
   },
   {
-   "tool": "intent.list",
+   "tool": "intention.list",
    "effect": "read",
    "costClass": "free",
-   "feature": "intentions",
+   "feature": null,
    "result": "data",
    "ownerOnly": false,
    "grantedByDefault": false,
@@ -3175,8 +3175,8 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:intent.list",
-    "off": "skills-off:features.skills"
+    "on": "unknown-skill:intention.list",
+    "off": "unknown-skill:intention.list"
    },
    "rights": {
     "owner": "ok",
@@ -3198,8 +3198,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "ok",
-    "ungranted-owner-here": "not-allowed:intent.list",
-    "shipped-owner-here": "feature-off:intent.list",
+    "ungranted-owner-here": "not-allowed:intention.list",
+    "shipped-owner-here": "not-allowed:intention.list",
     "no-requester": "ok",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -3208,9 +3208,9 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
-    "features-off": "feature-off:intent.list",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
+    "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
     "budget-spent": "ok",
@@ -3231,7 +3231,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:places.list",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:places.list"
    },
    "rights": {
     "owner": "ok",
@@ -3263,8 +3263,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -3274,7 +3274,7 @@
    }
   },
   {
-   "tool": "skills.describe",
+   "tool": "tools.describe",
    "effect": "read",
    "costClass": "free",
    "feature": null,
@@ -3285,14 +3285,14 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:skills.describe",
-    "off": "skills-off:features.skills"
+    "on": "unknown-skill:tools.describe",
+    "off": "unknown-skill:tools.describe"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -3308,8 +3308,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "ok",
-    "ungranted-owner-here": "not-allowed:skills.describe",
-    "shipped-owner-here": "not-allowed:skills.describe",
+    "ungranted-owner-here": "not-allowed:tools.describe",
+    "shipped-owner-here": "not-allowed:tools.describe",
     "no-requester": "ok",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -3318,8 +3318,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -3332,7 +3332,7 @@
    "tool": "inner.stop",
    "effect": "administrative",
    "costClass": "free",
-   "feature": "innerLife",
+   "feature": null,
    "result": "effect",
    "ownerOnly": true,
    "grantedByDefault": false,
@@ -3341,7 +3341,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:inner.stop",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:inner.stop"
    },
    "rights": {
     "owner": "ok",
@@ -3364,7 +3364,7 @@
     "owner-there": "not-grantable:inner.stop",
     "member-there": "not-grantable:inner.stop",
     "ungranted-owner-here": "not-grantable:inner.stop",
-    "shipped-owner-here": "feature-off:inner.stop",
+    "shipped-owner-here": "not-grantable:inner.stop",
     "no-requester": "not-grantable:inner.stop",
     "own-initiative": "not-grantable:inner.stop",
     "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -3373,9 +3373,9 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "not-grantable:inner.stop",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
-    "features-off": "feature-off:inner.stop",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "not-grantable:inner.stop",
+    "features-off": "not-grantable:inner.stop",
     "mixed-requesters": "not-grantable:inner.stop",
     "cooldown": "not-grantable:inner.stop",
     "budget-spent": "not-grantable:inner.stop",
@@ -3387,7 +3387,7 @@
    "tool": "inner.start",
    "effect": "administrative",
    "costClass": "free",
-   "feature": "innerLife",
+   "feature": null,
    "result": "effect",
    "ownerOnly": true,
    "grantedByDefault": false,
@@ -3396,7 +3396,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:inner.start",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:inner.start"
    },
    "rights": {
     "owner": "ok",
@@ -3419,7 +3419,7 @@
     "owner-there": "not-grantable:inner.start",
     "member-there": "not-grantable:inner.start",
     "ungranted-owner-here": "not-grantable:inner.start",
-    "shipped-owner-here": "feature-off:inner.start",
+    "shipped-owner-here": "not-grantable:inner.start",
     "no-requester": "not-grantable:inner.start",
     "own-initiative": "not-grantable:inner.start",
     "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -3428,9 +3428,9 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "not-allowed:innerLife.wakes.feedback.maxActs",
     "wake-heartbeat": "not-grantable:inner.start",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
-    "features-off": "feature-off:inner.start",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "not-grantable:inner.start",
+    "features-off": "not-grantable:inner.start",
     "mixed-requesters": "not-grantable:inner.start",
     "cooldown": "not-grantable:inner.start",
     "budget-spent": "not-grantable:inner.start",
@@ -3442,7 +3442,7 @@
    "tool": "inner.status",
    "effect": "read",
    "costClass": "free",
-   "feature": "innerLife",
+   "feature": null,
    "result": "data",
    "ownerOnly": true,
    "grantedByDefault": false,
@@ -3451,7 +3451,7 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:inner.status",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:inner.status"
    },
    "rights": {
     "owner": "ok",
@@ -3474,7 +3474,7 @@
     "owner-there": "ok",
     "member-there": "requester-denied:owner-only",
     "ungranted-owner-here": "not-allowed:inner.status",
-    "shipped-owner-here": "feature-off:inner.status",
+    "shipped-owner-here": "not-allowed:inner.status",
     "no-requester": "requester-denied:owner-only",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -3483,9 +3483,9 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
-    "features-off": "feature-off:inner.status",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
+    "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
     "budget-spent": "ok",
@@ -3506,13 +3506,13 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:web.search",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:web.search"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -3538,8 +3538,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -3561,13 +3561,13 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:web.read",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:web.read"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -3593,8 +3593,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -3607,7 +3607,7 @@
    "tool": "media.look",
    "effect": "read",
    "costClass": "free",
-   "feature": "coreTools",
+   "feature": null,
    "result": "data",
    "ownerOnly": false,
    "grantedByDefault": false,
@@ -3616,13 +3616,13 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:media.look",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:media.look"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -3639,7 +3639,7 @@
     "owner-there": "ok",
     "member-there": "ok",
     "ungranted-owner-here": "not-allowed:media.look",
-    "shipped-owner-here": "feature-off:media.look",
+    "shipped-owner-here": "not-allowed:media.look",
     "no-requester": "ok",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -3648,9 +3648,9 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
-    "features-off": "feature-off:media.look",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
+    "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
     "budget-spent": "ok",
@@ -3662,7 +3662,7 @@
    "tool": "media.find",
    "effect": "read",
    "costClass": "free",
-   "feature": "coreTools",
+   "feature": null,
    "result": "data",
    "ownerOnly": false,
    "grantedByDefault": false,
@@ -3671,13 +3671,13 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:media.find",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:media.find"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -3694,7 +3694,7 @@
     "owner-there": "ok",
     "member-there": "ok",
     "ungranted-owner-here": "not-allowed:media.find",
-    "shipped-owner-here": "feature-off:media.find",
+    "shipped-owner-here": "not-allowed:media.find",
     "no-requester": "ok",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -3703,9 +3703,9 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
-    "features-off": "feature-off:media.find",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
+    "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
     "budget-spent": "ok",
@@ -3726,13 +3726,13 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:memory.search",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:memory.search"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "ok",
@@ -3758,8 +3758,8 @@
     "wake-attend": "ok",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
@@ -3781,13 +3781,13 @@
    "nested": [],
    "reply": {
     "on": "unknown-skill:conversation.read",
-    "off": "skills-off:features.skills"
+    "off": "unknown-skill:conversation.read"
    },
    "rights": {
     "owner": "ok",
     "member": "ok",
     "member-granted": "ok",
-    "member-commands-off": "not-grantable"
+    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
@@ -3813,8 +3813,8 @@
     "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
     "wake-feedback": "ok",
     "wake-heartbeat": "ok",
-    "safe-mode": "safe-mode:skills.safeMode",
-    "tools-off": "skills-off:features.skills",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
     "features-off": "ok",
     "mixed-requesters": "ok",
     "cooldown": "ok",
