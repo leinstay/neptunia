@@ -162,7 +162,7 @@ test('applyDetailOps: an empty/whitespace-only text is rejected', () => {
   assert.deepEqual(items, []);
 });
 
-// ---- eviction: lowest weight first (the age tie-break is tested in interests.test.js) ----
+// ---- eviction: lowest weight first (the age tie-break is tested in interests.test.ts) ----
 
 test('applyDetailOps: evicts the lowest weight first once over maxDetails', () => {
   const existing = [

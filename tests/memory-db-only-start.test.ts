@@ -24,17 +24,19 @@ import { createErrandStores } from '../src/errands/store.ts';
 import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { BOARD_MIGRATIONS } from '../src/board/schema.ts';
+import type { Untyped } from '../src/tools/types.ts';
+import { wrongly, present } from './fixtures/loose-types.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
 const DB_FILES = new Set(['memory.db', 'memory.db-wal', 'memory.db-shm', 'memory.db.lock']);
 
 /** Every file under `dir`, relative with forward slashes. */
-function filesOf(dir, rel = '', out = []) {
+function filesOf(dir: string, rel = '', out = []) {
   for (const entry of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
     const child = rel ? `${rel}/${entry.name}` : entry.name;
     if (entry.isDirectory()) filesOf(dir, child, out);
-    else out.push(child);
+    else out.push(wrongly(child));
   }
   return out;
 }
@@ -60,7 +62,7 @@ function databaseOnly() {
 }
 
 /** The memory modules over `data`, as src/index.ts builds them (the clock fixed, no network, no model). */
-function engine(data, log = quiet) {
+function engine(data: string, log = quiet) {
   const config = {
     features: { record: true, journal: true, archive: true, intentions: true },
     memoryDb: { session: { mode: 'off' } },
@@ -99,8 +101,8 @@ function engine(data, log = quiet) {
     async close() {
       store.flush();
       await store.flushSettled({ final: true });
-      await taskStores.get(GUILD).flush({ final: true });
-      await intentionStores.get(GUILD).flush({ final: true });
+      await present(taskStores.get(GUILD)).flush({ final: true });
+      await present(intentionStores.get(GUILD)).flush({ final: true });
       await embedQueue.close?.({ timeoutMs: 100 });
       await archiveAppendStore.close();
       await memoryDb.close();
@@ -116,20 +118,20 @@ test('the memory starts from memory.db and the operational files alone, writes o
       before.every((rel) => DB_FILES.has(rel) || isOperational(rel)),
       `only the database and operational files: ${before}`
     );
-    assert.ok(before.includes('memory.db'));
+    assert.ok(before.includes(wrongly('memory.db')));
 
-    const warnings = [];
-    const log = {
+    const warnings: Array<Untyped> = [];
+    const log: Untyped = {
       ...quiet,
-      warn: (message, fields) => warnings.push({ message, ...fields }),
-      error: (message, fields) => warnings.push({ message, ...fields }),
+      warn: (message: string, fields: Record<string, Untyped>) => warnings.push({ message, ...fields }),
+      error: (message: string, fields: Record<string, Untyped>) => warnings.push({ message, ...fields }),
     };
     const first = engine(data, log);
     await first.memoryDb.tick();
     assert.equal(first.memoryDb.status().open, true);
 
     // What the fixture held comes back from the database.
-    assert.equal(first.store.getUser(GUILD, MEMBER)?.id, MEMBER);
+    assert.equal(wrongly<{ id: string } | null>(first.store.getUser(GUILD, MEMBER))?.id, MEMBER);
     assert.ok(first.store.getGuild(GUILD), 'the guild memory');
     assert.equal(first.store.getChannel(GUILD, CHANNEL)?.id, CHANNEL);
     assert.deepEqual(first.store.listPrivate(GUILD), [MEMBER]);
@@ -144,13 +146,12 @@ test('the memory starts from memory.db and the operational files alone, writes o
     // PR 6d, errands on the board: the fixture's errand is read from the board task board v3 made of it (it was read
     // from the errands unit before).
     assert.deepEqual(
-      first.taskStores
-        .get(GUILD)
+      present(first.taskStores.get(GUILD))
         .recent(10)
         .map((task) => task.id),
       ['t1']
     );
-    assert.ok(Array.isArray(first.intentionStores.get(GUILD).list()));
+    assert.ok(Array.isArray(present(first.intentionStores.get(GUILD)).list()));
     assert.ok((await first.vectors.stats(GUILD)).rows >= 0);
 
     // A day of writes.
@@ -173,7 +174,7 @@ test('the memory starts from memory.db and the operational files alone, writes o
     });
     assert.deepEqual(await first.record.append(GUILD, [said]), { written: 1, duplicates: 0 });
     await first.journal.system(GUILD, { event: 'pause', by: 'owner' });
-    const task = first.taskStores.get(GUILD).add({
+    const task = present(first.taskStores.get(GUILD)).add({
       agent: 'scout',
       goal: 'find the café hours',
       requester: { userId: MEMBER, kind: 'member' },
@@ -191,11 +192,11 @@ test('the memory starts from memory.db and the operational files alone, writes o
       'no memory file'
     );
     assert.ok(
-      after.every((rel) => DB_FILES.has(rel) || isOperational(rel) || rel.startsWith('memory-pending/')),
+      after.every((rel: string) => DB_FILES.has(rel) || isOperational(rel) || rel.startsWith('memory-pending/')),
       `${after}`
     );
     assert.deepEqual(
-      after.filter((rel) => rel.startsWith('memory-pending/')),
+      after.filter((rel: string) => rel.startsWith('memory-pending/')),
       [],
       'nothing waits for a next start'
     );
@@ -208,15 +209,18 @@ test('the memory starts from memory.db and the operational files alone, writes o
     const second = engine(data);
     await second.memoryDb.tick();
     try {
-      assert.equal(second.store.getUser(GUILD, '100000000000000077')?.names?.[0], 'Zoé');
-      assert.ok(second.store.getLore(GUILD).some((entry) => entry.title === 'Η πλατεία'));
+      assert.equal(
+        wrongly<{ names?: Array<string> } | null>(second.store.getUser(GUILD, '100000000000000077'))?.names?.[0],
+        'Zoé'
+      );
+      assert.ok(second.store.getLore(GUILD).some((entry: Record<string, Untyped>) => entry.title === 'Η πλατεία'));
       assert.equal(await second.record.newestRevision(GUILD, '700000000000000001', new Date(NOW).toISOString()), 1);
       assert.ok(
         (await second.journal.read(GUILD, { day: '2026-10-24', n: 100 })).some(
-          (entry) => entry.kind === 'system' && entry.event === 'pause'
+          (entry: Record<string, Untyped>) => entry.kind === 'system' && entry.event === 'pause'
         )
       );
-      assert.ok(second.taskStores.get(GUILD).get(task.errand.id), 'the task');
+      assert.ok(present(second.taskStores.get(GUILD)).get(task.errand.id), 'the task');
     } finally {
       await second.close();
     }

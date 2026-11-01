@@ -25,19 +25,22 @@ import {
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { tableHashes } from '../scripts/memory-db.ts';
 import { buildDataDir } from './fixtures/memory-db/datadir.ts';
+import type { Untyped } from '../src/tools/types.ts';
+import { sqlOf, wrongly, present } from './fixtures/loose-types.ts';
+import type { UntypedDb } from './fixtures/loose-types.ts';
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
 const START = Date.parse('2026-08-01T00:00:00.000Z');
-const iso = (ms) => new Date(ms).toISOString();
-const native = (n) => `90000000000000${String(n).padStart(4, '0')}`;
-const person = (n) => `person:discord:${native(n)}`;
-const account = (n) => `discord:${native(n)}`;
+const iso = (ms: number) => new Date(ms).toISOString();
+const native = (n: number) => `90000000000000${String(n).padStart(4, '0')}`;
+const person = (n: number) => `person:discord:${native(n)}`;
+const account = (n: number) => `discord:${native(n)}`;
 const C1 = 'discord:channel:c1';
 
 /** A database with `n` people, each with one verified Discord account, and one group channel. */
-function peopleDb(n) {
+function peopleDb(n: number) {
   const handle = openMemoryDb(':memory:');
   insertRows(
     handle.db,
@@ -70,7 +73,7 @@ function peopleDb(n) {
 
 let seq = 0;
 /** A stored line: `seen` by an account, or `said` (hers). */
-function line(kind, at, extra = {}) {
+function line(kind: string, at: number, extra = {}) {
   seq += 1;
   return {
     id: `src:discord:${seq}:1:${kind}`,
@@ -122,7 +125,7 @@ test('focus: the score of policy 1', () => {
 
 test('recountDaily: addressed both ways from the stored lines, meaningful when both, per audience; idempotent; revisions and merges count once', () => {
   const handle = peopleDb(3);
-  const { db } = handle;
+  const db = sqlOf(handle);
   try {
     const day = START + 10 * DAY;
     const dm = { scope_kind: 'dm', scope_iface: 'discord', scope_dm: person(1), place_id: null };
@@ -203,7 +206,8 @@ test('recountDaily: addressed both ways from the stored lines, meaningful when b
   }
 });
 
-const affinity = (db, n, value) => db.prepare('UPDATE people SET affinity = ? WHERE id = ?').run(value, person(n));
+const affinity = (db: UntypedDb, n: number, value: Untyped) =>
+  db.prepare('UPDATE people SET affinity = ? WHERE id = ?').run(value, person(n));
 
 // ---------- the 40 people over 60 days ----------
 
@@ -211,7 +215,7 @@ const BOTS = [38, 39];
 const NEGATIVE = 37;
 const LATE = [30, 31, 32, 33, 34, 35, 36];
 /** The scripted attitude of person `n` on day `d`. */
-function scriptedAffinity(n, d) {
+function scriptedAffinity(n: number, d: Untyped) {
   if (n === 19) return d >= 45 ? -10 : 60;
   if (n < 20) return 60;
   if (n < 30) return 10;
@@ -219,7 +223,23 @@ function scriptedAffinity(n, d) {
   if (n === NEGATIVE) return -50;
   return 95;
 }
-let big = null;
+/** One member of a day's focus set, and one recorded move between the sets. */
+type Member = { person_id: string; bucket: string; since: string };
+type FocusEventRow = {
+  person_id: string;
+  at: string;
+  old_bucket: string;
+  new_bucket: string;
+  reason: string;
+  extra: { since: string } | null;
+};
+type Big = {
+  handle: ReturnType<typeof peopleDb>;
+  db: UntypedDb;
+  days: Array<{ close: Array<Member>; exploring: Array<Member> }>;
+  events: Array<FocusEventRow>;
+};
+let big: Big | null = null;
 
 /**
  * 40 people over 60 days, one recomputation a day at noon. People 0-19 talk with her every day (attitude 60; person 19
@@ -227,14 +247,14 @@ let big = null;
  * (-50), 38-39 are bots (95). Day 40: person 5 excluded, person 25 pinned (below the bar), bot 38 pinned. Day 50: people
  * 0-29 but 5 and 19 pinned (28 pins for 24 slots).
  */
-function bigFixture() {
+function bigFixture(): Big {
   if (big) return big;
   const handle = peopleDb(40);
-  const { db } = handle;
+  const db = sqlOf(handle);
   db.prepare(`UPDATE accounts SET kind = 'bot' WHERE id IN (${BOTS.map(() => '?').join(', ')})`).run(
     ...BOTS.map(account)
   );
-  const days = [];
+  const days: Big['days'] = [];
   for (let d = 0; d < 60; d += 1) {
     for (let n = 0; n < 40; n += 1) affinity(db, n, scriptedAffinity(n, d));
     const sources = [];
@@ -258,7 +278,11 @@ function bigFixture() {
     const members = db
       .prepare('SELECT person_id, bucket, since FROM focus_members')
       .all()
-      .map((row) => ({ ...row }));
+      .map((row): Member => ({
+        person_id: String(row.person_id),
+        bucket: String(row.bucket),
+        since: String(row.since),
+      }));
     days.push({
       close: members.filter((m) => m.bucket === 'close'),
       exploring: members.filter((m) => m.bucket === 'exploring'),
@@ -267,13 +291,21 @@ function bigFixture() {
   const events = db
     .prepare('SELECT person_id, at, old_bucket, new_bucket, reason, extra FROM focus_events ORDER BY at, rowid')
     .all()
-    .map((row) => ({ ...row, extra: row.extra ? JSON.parse(row.extra) : null }));
+    .map((row): FocusEventRow => ({
+      person_id: String(row.person_id),
+      at: String(row.at),
+      old_bucket: String(row.old_bucket),
+      new_bucket: String(row.new_bucket),
+      reason: String(row.reason),
+      extra: row.extra ? wrongly<{ since: string }>(JSON.parse(String(row.extra))) : null,
+    }));
   big = { handle, db, days, events };
   return big;
 }
-const ids = (members) => members.map((m) => m.person_id).sort();
-const closeOn = (d, n) => bigFixture().days[d].close.some((m) => m.person_id === person(n));
-const inAnyBucket = (d, n) => closeOn(d, n) || bigFixture().days[d].exploring.some((m) => m.person_id === person(n));
+const ids = (members: Array<Member>) => members.map((m) => m.person_id).sort();
+const closeOn = (d: number, n: number) => bigFixture().days[d].close.some((m) => m.person_id === person(n));
+const inAnyBucket = (d: number, n: number) =>
+  closeOn(d, n) || bigFixture().days[d].exploring.some((m) => m.person_id === person(n));
 
 test('focus fixture: the seed takes only those over the entry bar (fewer than the size), never above the size, bots and a negative attitude never close', () => {
   const { days } = bigFixture();
@@ -303,9 +335,9 @@ test('focus fixture: every entry was confirmed a day apart, at most two moves in
   assert.ok(moves.length >= 4, `the late arrivals entered (${moves.length} moves)`);
   for (const e of moves) {
     const at = Date.parse(e.at);
-    assert.ok(at - Date.parse(e.extra.since) >= 24 * HOUR, `${e.person_id} confirmed a day apart`);
+    assert.ok(at - Date.parse(present(e.extra).since) >= 24 * HOUR, `${e.person_id} confirmed a day apart`);
     assert.ok(
-      events.some((c) => c.person_id === e.person_id && c.reason === 'challenge' && c.at === e.extra.since),
+      events.some((c) => c.person_id === e.person_id && c.reason === 'challenge' && c.at === present(e.extra).since),
       'the run started with a challenge row'
     );
     const window = moves.filter((m) => Date.parse(m.at) > at - 7 * DAY && Date.parse(m.at) <= at);
@@ -314,7 +346,7 @@ test('focus fixture: every entry was confirmed a day apart, at most two moves in
   for (const n of LATE) assert.equal(closeOn(30, n), false, `${n}: no entry on the day it arrived`);
   for (const e of events.filter((x) => x.reason === 'replaced')) {
     const entered = events.filter((x) => x.person_id === e.person_id && x.new_bucket === 'close' && x.at < e.at).at(-1);
-    assert.ok(Date.parse(e.at) - Date.parse(entered.at) >= 21 * DAY, `${e.person_id} had settled`);
+    assert.ok(Date.parse(e.at) - Date.parse(present(entered).at) >= 21 * DAY, `${e.person_id} had settled`);
   }
   assert.ok(
     events.some((e) => e.reason === 'replaced'),
@@ -350,7 +382,7 @@ test('focus fixture: precedence exclude > bot > pin > settling, pins over capaci
       const entered = events
         .filter((x) => x.person_id === e.person_id && x.new_bucket === 'close' && x.at < e.at)
         .at(-1);
-      return Date.parse(e.at) - Date.parse(entered.at) < 21 * DAY;
+      return Date.parse(e.at) - Date.parse(present(entered).at) < 21 * DAY;
     }),
     'a settling member made room for a pin'
   );
@@ -372,8 +404,8 @@ test('focus fixture: the reader gives member ids of the interface, close then ex
   );
   assert.deepEqual(focusView(db, { iface: 'telegram' }), { close: [], exploring: [] });
   // Internal-only: no module of the engine but the focus code (and the schema) names the sets' tables.
-  const readers = [];
-  const walkDir = (dir) => {
+  const readers: Array<Untyped> = [];
+  const walkDir = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const abs = path.join(dir, entry.name);
       if (entry.isDirectory()) walkDir(abs);
@@ -390,7 +422,7 @@ test('focus fixture: the reader gives member ids of the interface, close then ex
 
 // ---------- the daily job ----------
 
-function serviceEnv({ worker = false } = {}) {
+function serviceEnv({ worker = false }: { worker?: boolean } = {}) {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-focus-'));
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
@@ -409,7 +441,7 @@ function serviceEnv({ worker = false } = {}) {
     hot,
     service,
     file: path.join(data, 'memory.db'),
-    advance: (ms) => {
+    advance: (ms: number) => {
       time += ms;
     },
     done: async () => {
@@ -418,12 +450,12 @@ function serviceEnv({ worker = false } = {}) {
     },
   };
 }
-const focusDayOf = (file) => {
+const focusDayOf = (file: string) => {
   const reader = openMemoryDb(file, { readOnly: true });
   try {
     return {
-      day: lastFocusDay(reader.db),
-      events: reader.db.prepare('SELECT COUNT(*) AS n FROM focus_events').get().n,
+      day: lastFocusDay(wrongly(sqlOf(reader))),
+      events: sqlOf(reader).prepare('SELECT COUNT(*) AS n FROM focus_events').get().n,
     };
   } finally {
     reader.close();
@@ -459,9 +491,9 @@ test('service: the focus job runs once a UTC day; the reader carries the share; 
     await env.service.tick();
     await settle();
     assert.equal(focusDayOf(env.file).day, '2026-10-25');
-    const view = env.service.focusPeople();
+    const view: Untyped = env.service.focusPeople();
     assert.deepEqual(Object.keys(view).sort(), ['close', 'exploring', 'exploringShare']);
-    assert.equal(view.exploringShare, 0.15);
+    assert.equal(present(view).exploringShare, 0.15);
   } finally {
     await env.done();
   }

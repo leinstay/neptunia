@@ -44,11 +44,29 @@ import { onWorld, useIface, world } from './fixtures/turn-world.ts';
 
 // The conversation is held by a fake interface named `fake`.
 useIface('fake');
-const createTurnRunner = onWorld(createRealTurnRunner);
+const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
+import type { Untyped } from '../src/tools/types.ts';
+import { wrongly, present } from './fixtures/loose-types.ts';
+
+/** What an inner turn reports, the fields these tests read. */
+type InnerResult = {
+  outcome: string;
+  reason?: string;
+  delivered?: boolean;
+  shadow?: boolean;
+  refused?: string;
+  reasons?: Array<string>;
+  inner: {
+    actions: Array<{ skill: string; status: string; code?: string; [field: string]: Untyped }>;
+    openFollowUp: Record<string, Untyped>;
+    loop: Record<string, Untyped>;
+    intentIds: Array<string>;
+  };
+};
 
 /** The test memory databases opened here; closed when the file is done. */
-const OPENED_MEMORY = [];
+const OPENED_MEMORY: Array<Untyped> = [];
 after(async () => {
   for (const mem of OPENED_MEMORY) await mem.close();
 });
@@ -57,7 +75,19 @@ const DISCORD = createDiscordInterface().capabilities;
 const NOW = Date.parse('2026-10-19T12:00:00Z');
 const INNER_TASK = 'Nobody wrote to you; read the wake block.';
 
-function rawMessage({ id, authorId = 'u1', authorName = 'Alice', ts = NOW - 60_000, content = 'καλημέρα' }) {
+function rawMessage({
+  id,
+  authorId = 'u1',
+  authorName = 'Alice',
+  ts = NOW - 60_000,
+  content = 'καλημέρα',
+}: {
+  id: string;
+  authorId?: string;
+  authorName?: string;
+  ts?: number;
+  content?: string;
+}) {
   return {
     id,
     channelId: 'c1',
@@ -72,7 +102,7 @@ function rawMessage({ id, authorId = 'u1', authorName = 'Alice', ts = NOW - 60_0
 }
 
 /** The channel c1 of the community over `historyMessages`, in the test's world. */
-function fakeChannel(historyMessages) {
+function fakeChannel(historyMessages: Array<Record<string, Untyped>>) {
   return world().channel({ id: 'c1', name: 'general', guildId: 'g1', historyMessages });
 }
 
@@ -92,7 +122,10 @@ function fakeStore() {
 
 // PR 7d: the switches are code, a heartbeat holds to intention changes and the inner turn's slice of the channel is
 // the constant 30 lines, so the config holds only the keys that are still settings.
-function hotWith({ access = {}, innerLife = {} } = {}) {
+function hotWith({
+  access = {},
+  innerLife = {},
+}: { access?: Record<string, Untyped>; innerLife?: Record<string, Untyped> } = {}) {
   return {
     config: {
       bot: { timezone: 'UTC', owners: ['u1'], access },
@@ -126,20 +159,20 @@ function hotWith({ access = {}, innerLife = {} } = {}) {
   };
 }
 
-function personaGrants(names) {
+function personaGrants(names: Array<string>) {
   return Object.fromEntries(names.map((name) => [name, { everyone: false, roles: [], users: ['self-id'] }]));
 }
 
-function sequenceLlm(answers, { onCall = null } = {}) {
-  const calls = [];
-  const options = [];
+function sequenceLlm(answers: Array<unknown>, { onCall = null }: { onCall?: ((calls: number) => void) | null } = {}) {
+  const calls: Array<Untyped> = [];
+  const options: Array<Untyped> = [];
   return {
     calls,
     options,
-    complete: async (messages, requestOptions) => {
+    complete: async (messages: Array<Record<string, Untyped>>, requestOptions: Record<string, Untyped>) => {
       calls.push(messages);
       options.push(requestOptions ?? {});
-      const answer = answers[Math.min(calls.length - 1, answers.length - 1)];
+      const answer: unknown = answers[Math.min(calls.length - 1, answers.length - 1)];
       if (onCall) onCall(calls.length);
       return completionOf(answer);
     },
@@ -148,12 +181,12 @@ function sequenceLlm(answers, { onCall = null } = {}) {
 
 /** A real journal over a test memory database whose writes also keep every line in memory. */
 function journalOverMemory() {
-  const lines = [];
+  const lines: Array<Untyped> = [];
   const mem = openTestMemorySync();
   OPENED_MEMORY.push(mem);
   const memoryDb = {
     ...mem.memoryDb,
-    writeUnit: (update) => {
+    writeUnit: (update: Untyped) => {
       for (const line of update.lines ?? []) lines.push(line);
       return mem.memoryDb.writeUnit(update);
     },
@@ -204,6 +237,23 @@ async function innerTurn({
   gifs = null,
   innerLife = {},
   filler = 0,
+}: {
+  answers: Array<unknown>;
+  shadow?: boolean;
+  gate?: Record<string, Untyped>;
+  journal?: Untyped;
+  allowed?: Array<string>;
+  onCall?: ((calls: number) => void) | null;
+  intentions?: Untyped;
+  withErrands?: boolean;
+  errandConfigured?: boolean;
+  loop?: Record<string, Untyped> | null;
+  skillsLoop?: Record<string, Untyped> | null;
+  clock?: () => number;
+  slowMs?: number;
+  gifs?: Record<string, Untyped> | null;
+  innerLife?: Record<string, Untyped>;
+  filler?: number;
 }) {
   const history = [
     rawMessage({ id: 'm0', ts: NOW - 120_000, content: 'πρώτο' }),
@@ -211,18 +261,22 @@ async function innerTurn({
     rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Zoë', content: 'δεύτερο' }),
     rawMessage({ id: 'm2', ts: NOW - 30_000, content: 'τρίτο' }),
   ];
-  const hot = hotWith({ access: personaGrants(allowed), innerLife });
+  const hot: Record<string, Untyped> = hotWith({ access: personaGrants(allowed), innerLife });
   if (loop) hot.config.innerLife.loop = { ...loop };
   if (skillsLoop) hot.config.tools.loop = { ...hot.config.tools.loop, ...skillsLoop };
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
   const store = fakeStore();
-  if (gifs) Object.assign(store, { findGif: (guildId, handle) => gifs[handle] ?? null, recordOwnGif: () => {} });
+  if (gifs)
+    Object.assign(store, {
+      findGif: (guildId: string, handle: string) => gifs[handle] ?? null,
+      recordOwnGif: () => {},
+    });
   // A real errand service over a temp task store, its runner a fake whose runs never end.
   let errands = null;
   if (withErrands) {
     hot.config.agents = { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } } };
-    const stores = createErrandStores({ dataDir: tempDir('nep-inner-errand-'), config: () => hot.config });
+    const stores = createErrandStores(wrongly({ dataDir: tempDir('nep-inner-errand-'), config: () => hot.config }));
     errands = createErrandService({
       client: { configured: () => errandConfigured, run: () => new Promise(() => {}), cancel: () => true },
       stores,
@@ -241,10 +295,10 @@ async function innerTurn({
     ...(errands ? { errands } : {}),
   });
   const llm = sequenceLlm(answers, { onCall });
-  const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
-  const slow = (fn) =>
+  const calibrator = { ratio: 1, apply: (value: string) => value, observe: () => {} };
+  const slow = (fn: Untyped) =>
     slowMs > 0
-      ? async (...a) => {
+      ? async (...a: Array<Untyped>) => {
           await new Promise((resolve) => setTimeout(resolve, slowMs));
           return fn(...a);
         }
@@ -278,8 +332,15 @@ async function innerTurn({
   );
   const sends = port.calls
     .filter((call) => call.op === 'send')
-    .map((call) => ({ to: call.args[0].conversationId, ...call.args[1] }));
-  return { result, logs, llm, sends, store, tasks: errands ? errands.store('g1').recent(10) : [] };
+    .map((call: Record<string, Untyped>) => ({ to: call.args[0].conversationId, ...call.args[1] }));
+  return {
+    result: wrongly<InnerResult>(result),
+    logs,
+    llm,
+    sends,
+    store,
+    tasks: errands ? present(errands.store('g1')).recent(10) : [],
+  };
 }
 
 test('inner turn: no message is fabricated; the request carries <wake>, the inner task and the bounded slice of the channel', async () => {
@@ -297,7 +358,11 @@ test('inner turn: no message is fabricated; the request carries <wake>, the inne
 
 test('inner turn, live: her <msg> and <gif> are public actions in the current channel, run through the gate like message.create calls', async () => {
   const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
-  const run = await innerTurn({ answers: ['<msg>γεια σας</msg><gif>g1</gif>', '<skip/>'], shadow: false, gifs });
+  const run = await innerTurn({
+    answers: ['<msg>γεια σας</msg><gif>g1</gif>', '<skip/>'],
+    shadow: false,
+    gifs,
+  });
   assert.deepEqual(
     run.sends.map((send) => send.text),
     ['γεια σας', 'https://tenor.example/cat']
@@ -318,19 +383,21 @@ test('inner turn, live: her <msg> and <gif> are public actions in the current ch
 test("inner turn: her tools are the same list as an addressed turn's -- the granted ones and the carried-over posting skills", async () => {
   const allowed = ['lore.list', 'web.read', 'message.create', 'message.react.add', 'draw.create'];
   const run = await innerTurn({ answers: ['<skip/>'], allowed });
-  const names = run.llm.options[0].tools.map((tool) => tool.function.name);
+  const names = run.llm.options[0].tools.map((tool: Record<string, Untyped>) => tool.function.name);
   // PR 7d: voice messages are code, so voice.say is among the posting skills carried over.
   assert.deepEqual(names, ['draw_create', 'lore_list', 'message_create', 'message_react_add', 'voice_say', 'web_read']);
   const bare = await innerTurn({ answers: ['<skip/>'], allowed: ['lore.list', 'web.read'] });
   assert.deepEqual(
-    bare.llm.options[0].tools.map((tool) => tool.function.name),
+    bare.llm.options[0].tools.map((tool: Record<string, Untyped>) => tool.function.name),
     ['draw_create', 'lore_list', 'message_create', 'message_react_add', 'voice_say', 'web_read'],
     'the posting skills are carried over, granted or not'
   );
 });
 
 test('inner turn, shadow: the tags are only proposed, as a message.create call is', async () => {
-  const run = await innerTurn({ answers: ['<msg>γεια σας</msg><react to="#2">👍</react>', '<skip/>'] });
+  const run = await innerTurn({
+    answers: ['<msg>γεια σας</msg><react to="#2">👍</react>', '<skip/>'],
+  });
   assert.deepEqual(run.sends, []);
   assert.deepEqual(
     run.result.inner.actions.map((a) => `${a.skill}:${a.status}`),
@@ -360,8 +427,8 @@ test('inner turn: with no current channel a <msg>, <gif> or a draw.create withou
   );
   assert.ok(
     run.llm.calls[1]
-      .filter((message) => message.role === 'tool')
-      .map((message) => message.content)
+      .filter((message: Record<string, Untyped>) => message.role === 'tool')
+      .map((message: Record<string, Untyped>) => message.content)
       .join('\n')
       .includes(labels.tools.result.reasons['destination-required']),
     'she reads the refusal'
@@ -396,7 +463,10 @@ test('inner turn, live: a <react> needs a target; without one it is refused targ
     [{ kind: 'callFailed', skill: 'message.react.add', status: 'refused', code: 'target-required' }],
     'she hears of it as a fact at her next turn'
   );
-  const targeted = await innerTurn({ answers: ['<react to="#2">👍</react>', '<skip/>'], shadow: false });
+  const targeted = await innerTurn({
+    answers: ['<react to="#2">👍</react>', '<skip/>'],
+    shadow: false,
+  });
   assert.deepEqual(
     targeted.result.inner.actions.map((a) => `${a.skill}:${a.status}`),
     ['message.react.add:executed']
@@ -452,7 +522,7 @@ test("inner turn, live: the heartbeat shows a line under a #N handle numbered pa
     heartbeat: facts,
   };
   const looked = await innerTurn({ answers: ['<skip/>'], shadow: false, gate: { wake } });
-  const request = looked.llm.calls[0].map((message) => userText(message.content)).join('\n');
+  const request = looked.llm.calls[0].map((message: Record<string, Untyped>) => userText(message.content)).join('\n');
   const handle = /(#\d+) Zoë, [^\n]*they still make clips/.exec(request)?.[1];
   assert.ok(handle, 'the request quotes the line under a handle');
   assert.ok(Number(handle.slice(1)) > 3, "numbered past the turn's own lines");
@@ -541,7 +611,7 @@ test("inner turn: an ordinary reply's request carries no <wake>", async () => {
     const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
     const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
     const llm = sequenceLlm(['<skip/>']);
-    const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
+    const calibrator = { ratio: 1, apply: (value: string) => value, observe: () => {} };
     const turns = createTurnRunner({
       discord: DISCORD,
       hot,
@@ -590,7 +660,7 @@ test('gateway: with nobody asking only a read runs, unless the turn is her own i
   const unasked = checkSkill({ ...call, context: { config, selfId: 'self-id', registry: skillRegistry() } });
   assert.equal(unasked.ok, false);
   assert.equal(unasked.reason, 'no-requester');
-  const own = checkSkill({
+  const own: Record<string, Untyped> = checkSkill({
     ...call,
     context: { config, selfId: 'self-id', registry: skillRegistry(), ownInitiative: true },
   });
@@ -665,7 +735,7 @@ test('wakeBlockText: an attend wake names the place, the lines and the people; t
       { id: 'c1', name: 'general', lines: 0, people: 0, writable: true, attended: false },
     ],
   };
-  const lines = wakeBlockText({ ...WAKE, kind: 'attend', items: [attend], places }, labels).split('\n');
+  const lines = wakeBlockText(wrongly({ ...WAKE, kind: 'attend', items: [attend], places }), labels).split('\n');
   assert.ok(
     lines.includes('talk in #κήπος (i1 πες καλημέρα στο κανάλι): 3 lines since 10/19/2026 11:00 AM by Ana, u2') ||
       lines.some(
@@ -680,7 +750,7 @@ test('wakeBlockText: an attend wake names the place, the lines and the people; t
   assert.ok(lines.indexOf('budgets:') > at, 'the budgets close the block');
   assert.equal(
     wakeBlockText(
-      { ...WAKE, places: { total: 1, more: 0, items: [{ id: 'c1', name: 'general', lines: 0, people: 0 }] } },
+      wrongly({ ...WAKE, places: { total: 1, more: 0, items: [{ id: 'c1', name: 'general', lines: 0, people: 0 }] } }),
       labels
     )
       .split('\n')
@@ -689,7 +759,9 @@ test('wakeBlockText: an attend wake names the place, the lines and the people; t
     'no "more" line when nothing follows'
   );
   assert.equal(
-    wakeBlockText({ ...WAKE, places }, { ...labels, wake: { ...labels.wake, places: undefined } }).includes('#κήπος'),
+    wakeBlockText(wrongly({ ...WAKE, places }), { ...labels, wake: { ...labels.wake, places: undefined } }).includes(
+      '#κήπος'
+    ),
     false,
     'no page without its lead label'
   );
@@ -796,8 +868,10 @@ test('inner turn, live: errands she hands off are queued like any call, with no 
 });
 
 test('inner turn, live: the line she posts is noted with its turn and chain, and as read when a read of the turn returned something first', async () => {
-  const notes = [];
-  const intentions = { noteLine: (id, sources) => notes.push({ id, ...sources }) };
+  const notes: Array<Untyped> = [];
+  const intentions = {
+    noteLine: (id: string, sources: Array<Record<string, Untyped>>) => notes.push({ id, ...sources }),
+  };
   const wake = { ...WAKE, chainId: 'chain:greet' };
   await innerTurn({
     answers: [toolAnswer('', [call('message.create', { text: 'καλημέρα σε όλους' })]), '<skip/>'],
@@ -825,17 +899,21 @@ test('inner turn, live: the line she posts is noted with its turn and chain, and
 });
 
 /** The note that ends request `n` (0-based) of `run`: the trailing user message after her answer and its tool messages ('' when there is none). */
-function noteOf(run, n) {
+function noteOf(run: { llm: { calls: Array<Untyped> } }, n: number): string {
   const last = run.llm.calls[n].at(-1);
-  return last.role === 'user' && run.llm.calls[n].length > 2 ? last.content.map((part) => part.text).join('') : '';
+  return last.role === 'user' && run.llm.calls[n].length > 2
+    ? last.content.map((part: Record<string, Untyped>) => part.text).join('')
+    : '';
 }
 
 /** What she read of her calls in request `n`: the tool messages' contents, in order. */
-function readsOf(run, n) {
+function readsOf(run: { llm: { calls: Array<Untyped> } }, n: number): Array<string> {
   return run.llm.calls[n]
-    .filter((message) => message.role === 'tool')
-    .map((message) =>
-      typeof message.content === 'string' ? message.content : message.content.map((part) => part.text).join('')
+    .filter((message: Record<string, Untyped>) => message.role === 'tool')
+    .map((message: Record<string, Untyped>) =>
+      typeof message.content === 'string'
+        ? message.content
+        : message.content.map((part: Record<string, Untyped>) => part.text).join('')
     );
 }
 
@@ -915,7 +993,7 @@ test("inner turn, budget: a slow call past tools.loop's 20 s completes inside in
     let at = NOW;
     return {
       clock: () => at,
-      onCall: (n) => {
+      onCall: (n: number) => {
         if (n === 2) at += 25_000;
       },
     };
@@ -953,7 +1031,7 @@ test("inner turn, budget: a slow call past tools.loop's 20 s completes inside in
   const spent = await innerTurn({
     answers: [toolAnswer('', [call('lore.list')]), toolAnswer('', [call('lore.list')]), '<skip/>'],
     clock: () => at,
-    onCall: (n) => {
+    onCall: (n: number) => {
       if (n === 2) at += 181_000;
     },
   });
@@ -1205,7 +1283,7 @@ test("inner turn: the result carries the loop's end state, a refused post as a f
     gate: { currentChannel: null },
   });
   assert.equal(last.llm.calls.length, 2, 'nothing follows the last request');
-  assert.equal(last.result.inner.actions.at(-1).presented, undefined);
+  assert.equal(present(last.result.inner.actions.at(-1)).presented, undefined);
   assert.deepEqual(
     feedbackFacts(last.result).filter((fact) => fact.kind === 'callFailed'),
     [{ kind: 'callFailed', skill: 'message.create', status: 'refused', code: 'destination-required' }]
@@ -1355,7 +1433,7 @@ test('wakeBlockText: held, failed-turn and send-failed facts, the sub-code behin
   const lines = wakeBlockText({ ...WAKE, facts }, labels).split('\n');
   const at = lines.indexOf(labels.wake.feedbackInTurn);
   assert.ok(at > 0, lines.join('\n'));
-  const item = (fact) => fill(labels.wake.feedbackItem, { fact });
+  const item = (fact: string) => fill(labels.wake.feedbackItem, { fact });
   assert.deepEqual(lines.slice(at + 1, at + 7), [
     item(`held intention_due i2 say hi per-chain until ${when}`),
     item('wake intention_due i3 old one stale is done'),
@@ -1391,9 +1469,9 @@ test("feedbackFacts: every status that is not ok is a callFailed with its code a
     code: `c-${result}`,
     text: `said ${result}`,
   }));
-  actions.push({ skill: 'web.search', status: 'executed', result: 'unknown', code: 'timeout' });
-  actions.push({ skill: 'message.create', status: 'proposed', result: 'ok' });
-  actions.push({ skill: 'message.create', status: 'refused', result: 'denied', code: 'inner-stopped' });
+  actions.push(wrongly({ skill: 'web.search', status: 'executed', result: 'unknown', code: 'timeout' }));
+  actions.push(wrongly({ skill: 'message.create', status: 'proposed', result: 'ok' }));
+  actions.push(wrongly({ skill: 'message.create', status: 'refused', result: 'denied', code: 'inner-stopped' }));
   const facts = feedbackFacts({ inner: { actions, intentIds: [] } });
   assert.deepEqual(
     facts.map((fact) => `${fact.status}:${fact.code}:${fact.text ?? ''}`),
@@ -1555,18 +1633,18 @@ test("inner turn: a heartbeat turn and an addressed reply in the same channel sh
     'intention.cancel',
     'places.list',
   ];
-  const requestOf = async (kind, withProfile) => {
+  const requestOf = async (kind: string, withProfile: Untyped) => {
     const hot = hotWith({ access: personaGrants(allowed) });
     const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
     const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
     const llm = sequenceLlm(['<skip/>']);
-    const calibrator = { ratio: 1, apply: (value) => value, observe: () => {} };
+    const calibrator = { ratio: 1, apply: (value: string) => value, observe: () => {} };
     const alice = { id: 'u1', names: ['Alice'], character: 'talkative', interests: [], facts: [] };
     const store = {
       ...fakeStore(),
       ...(withProfile
         ? {
-            getUser: (guildId, id) => (id === 'u1' ? alice : null),
+            getUser: (guildId: string, id: string) => (id === 'u1' ? alice : null),
             listUserProfiles: () => [alice],
             countUsers: () => 1,
           }
@@ -1619,8 +1697,10 @@ test("inner turn: a heartbeat turn and an addressed reply in the same channel sh
     }
     return llm.calls[0];
   };
-  const segmentsOf = (messages) =>
-    Object.fromEntries(messages[1].content.map((part) => [part.cacheSegment ?? 'tail', part.text]));
+  const segmentsOf = (messages: Array<Record<string, Untyped>>) =>
+    Object.fromEntries(
+      messages[1].content.map((part: Record<string, Untyped>) => [part.cacheSegment ?? 'tail', part.text])
+    );
   for (const withProfile of [false, true]) {
     const beat = await requestOf('heartbeat', withProfile);
     const reply = await requestOf('reply', withProfile);

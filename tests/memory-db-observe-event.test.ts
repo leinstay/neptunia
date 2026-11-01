@@ -19,6 +19,9 @@ import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { slimMessage, toRecordLine } from '../src/memory/index.ts';
 import { CHANNEL, GUILD, MEMBER, buildDataDir, guildDir, writeJson, writeLines } from './fixtures/memory-db/datadir.ts';
+import type { Untyped } from '../src/tools/types.ts';
+import { wrongly, present, sqlOf } from './fixtures/loose-types.ts';
+import type { UntypedDb } from './fixtures/loose-types.ts';
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
@@ -28,11 +31,18 @@ const MEMBER2 = '100000000000000002';
 const BOT = '100000000000000008';
 const DM_CHANNEL = '200000000000000099';
 const opts = { now: () => NOW, log: quiet };
-const count = (db, sql, ...params) => db.prepare(sql).get(...params).n;
+const count = (db: UntypedDb, sql: string, ...params: Array<unknown>) => db.prepare(sql).get(...params).n;
 
-const NAMES = { [MEMBER]: 'Ada', [MEMBER2]: 'Zoé', [SELF]: 'Her', [BOT]: 'Robot' };
+const NAMES: Record<string, string> = { [MEMBER]: 'Ada', [MEMBER2]: 'Zoé', [SELF]: 'Her', [BOT]: 'Robot' };
 
-function channelOf({ id = CHANNEL, name = 'γενικά', thread = false, type, recipientId, parentId } = {}) {
+function channelOf({
+  id = CHANNEL,
+  name = 'γενικά',
+  thread = false,
+  type,
+  recipientId,
+  parentId,
+}: { id?: string; name?: string; thread?: boolean; type?: number; recipientId?: string; parentId?: string } = {}) {
   return {
     id,
     name,
@@ -55,6 +65,16 @@ function message({
   mentions = [],
   guild = true,
   editedAt = null,
+}: {
+  id: string;
+  channel?: ReturnType<typeof channelOf>;
+  author?: string;
+  content: string;
+  at: number;
+  replyTo?: string | null;
+  mentions?: Array<string>;
+  guild?: boolean;
+  editedAt?: number | null;
 }) {
   return {
     id,
@@ -78,13 +98,13 @@ function message({
   };
 }
 
-const eventOf = (raw, options = {}) => {
+const eventOf = (raw: Record<string, Untyped>, options = {}) => {
   const event = toEvent(raw, SELF, options);
   assert.deepEqual(validateEvent(event), { ok: true });
   return event;
 };
 
-const dmChannel = () => channelOf({ id: DM_CHANNEL, name: null, type: ChannelType.DM, recipientId: MEMBER });
+const dmChannel = () => channelOf({ id: DM_CHANNEL, name: wrongly(null), type: ChannelType.DM, recipientId: MEMBER });
 
 /** The lines of the fixture day, as the gateway delivers them, with what the record writes for each. */
 function day() {
@@ -122,15 +142,22 @@ function day() {
     { event: eventOf(dmLine), direct: true },
     { event: eventOf(dmHers), direct: false },
   ];
-  const stamp = (line) => ({ ...line, guildId: GUILD });
-  const seen = (event, { direct = false, revision = 1, replyToAuthorId = null } = {}) =>
+  const stamp = (line: Record<string, Untyped>) => ({ ...line, guildId: GUILD });
+  const seen = (
+    event: Untyped,
+    {
+      direct = false,
+      revision = 1,
+      replyToAuthorId = null,
+    }: { direct?: boolean; revision?: number; replyToAuthorId?: Untyped } = {}
+  ) =>
     stamp(
       toRecordLine(
         { ...slimMessage(normalizedOf(event), direct), ...(replyToAuthorId ? { replyToAuthorId } : {}) },
         { revision, now: () => event.at + 1000 }
       )
     );
-  const said = (event) =>
+  const said = (event: Record<string, Untyped>) =>
     stamp(
       toRecordLine(
         {
@@ -155,7 +182,7 @@ function day() {
 }
 
 /** A data directory (the shared fixture, a second member) and its database with its units written. */
-function imported({ withRecord }) {
+function imported({ withRecord }: Record<string, Untyped>) {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-8a-'));
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
@@ -172,7 +199,7 @@ function imported({ withRecord }) {
   if (withRecord) writeRecord();
   const file = path.join(root, 'memory.db');
   const handle = openMemoryDb(file);
-  assert.equal(seedUnits(handle, data, { log: quiet, now: () => NOW }).errors, 0);
+  assert.equal(seedUnits(handle, data, wrongly({ log: quiet, now: () => NOW })).errors, 0);
   return {
     root,
     data,
@@ -191,12 +218,12 @@ function imported({ withRecord }) {
   };
 }
 
-const ids = (db, table) =>
+const ids = (db: UntypedDb, table: string) =>
   db
     .prepare(`SELECT id FROM "${table}" ORDER BY id`)
     .all()
     .map((row) => row.id);
-const observeAll = (handle, events) =>
+const observeAll = (handle: ReturnType<typeof openMemoryDb>, events: Array<Record<string, Untyped>>) =>
   events.map(({ event, direct }) => {
     const envelope = observationOf(event, { selfId: SELF, direct });
     assert.equal(checkEnvelope(envelope), null);
@@ -209,21 +236,23 @@ const observeAll = (handle, events) =>
 
 test('observationOf: every kind of line goes from toEvent through the envelope check into the database', () => {
   const handle = openMemoryDb(':memory:');
-  const { db } = handle;
+  const db = sqlOf(handle);
   try {
-    const write = (raw, options = {}, direct = false) => {
+    const write = (raw: Record<string, Untyped>, options = {}, direct = false) => {
       const envelope = observationOf(eventOf(raw, options), { selfId: SELF, direct });
       assert.equal(checkEnvelope(envelope), null, JSON.stringify(envelope));
       const done = observe(handle, envelope, opts);
       assert.equal(done.ok, true, JSON.stringify(done));
       return { envelope, done, row: db.prepare('SELECT * FROM sources WHERE id = ?').get(done.sourceId) };
     };
-    const placeOf = (done) => db.prepare('SELECT * FROM places WHERE id = ?').get(done.placeId);
-    const accountOf = (row) => db.prepare('SELECT * FROM accounts WHERE id = ?').get(row.author_account);
+    const placeOf = (done: Record<string, Untyped>) =>
+      db.prepare('SELECT * FROM places WHERE id = ?').get(done.placeId);
+    const accountOf = (row: Record<string, Untyped>) =>
+      db.prepare('SELECT * FROM accounts WHERE id = ?').get(row.author_account);
 
     // A channel line: the channel's place, a group line, an account of kind user, the importer's ids.
     const line = write(message({ id: 'm-1', content: 'μια γραμμή', at: T0 }));
-    assert.deepEqual(line.envelope.native, { kind: 'message', key: 'm-1', subtype: 'seen', revision: 1 });
+    assert.deepEqual(present(line.envelope).native, { kind: 'message', key: 'm-1', subtype: 'seen', revision: 1 });
     assert.equal(line.done.sourceId, 'src:discord:m-1:1:seen');
     assert.deepEqual({ ...placeOf(line.done) }.native_key, `channel:${CHANNEL}`);
     assert.equal(line.done.placeId, `discord:channel:${CHANNEL}`);
@@ -253,8 +282,8 @@ test('observationOf: every kind of line goes from toEvent through the envelope c
     // An edit: no revision in the envelope; the database gives it the next one, and the same text again is that one.
     const edited = message({ id: 'm-1', content: 'μια γραμμή, διορθωμένη', at: T0, editedAt: T0 + 5000 });
     const edit = write(edited, { edit: true, now: () => T0 + 6000 });
-    assert.equal(edit.envelope.edited, true);
-    assert.equal(edit.envelope.native.revision, undefined);
+    assert.equal(present(edit.envelope).edited, true);
+    assert.equal(present(edit.envelope).native.revision, undefined);
     assert.equal(edit.done.sourceId, 'src:discord:m-1:2:seen');
     assert.equal(edit.row.revision, 2);
     const again = observe(
@@ -280,7 +309,7 @@ test('observationOf: every kind of line goes from toEvent through the envelope c
 
     // A one-to-one DM: the partner's place (`dm:<partner>`), its own audience; the partner is an account nobody linked.
     const dm = write(message({ id: 'm-5', channel: dmChannel(), guild: false, content: 'ιδιωτικά', at: T0 + 5000 }));
-    assert.deepEqual(dm.envelope.place, {
+    assert.deepEqual(present(dm.envelope).place, {
       authority: 'discord/global',
       key: `dm:${MEMBER}`,
       kind: 'dm',
@@ -309,7 +338,11 @@ test('observationOf: every kind of line goes from toEvent through the envelope c
       })
     );
     assert.deepEqual(
-      [group.envelope.place.key, group.envelope.place.kind, group.envelope.place.conversation],
+      [
+        present(group.envelope).place.key,
+        present(group.envelope).place.kind,
+        present(group.envelope).place.conversation,
+      ],
       ['group_dm:gdm-1', 'group_dm', 'group']
     );
     assert.equal(group.row.audience_id, 'aud:group:discord');
@@ -323,7 +356,10 @@ test('observationOf: every kind of line goes from toEvent through the envelope c
         at: T0 + 7000,
       })
     );
-    assert.deepEqual([thread.envelope.place.key, thread.envelope.place.parent], ['thread:th-1', `channel:${CHANNEL}`]);
+    assert.deepEqual(
+      [present(thread.envelope).place.key, present(thread.envelope).place.parent],
+      ['thread:th-1', `channel:${CHANNEL}`]
+    );
     assert.equal(placeOf(thread.done).parent_id, `discord:channel:${CHANNEL}`);
     assert.notEqual(thread.done.placeId, `discord:thread:th-1`, 'a thread is no importer spelling');
 
@@ -344,7 +380,13 @@ test('observationOf: every kind of line goes from toEvent through the envelope c
     assert.equal(
       observationOf(
         eventOf(
-          message({ id: 'm-10', channel: channelOf({ id: 'd-x', name: null }), guild: false, content: 'x', at: T0 })
+          message({
+            id: 'm-10',
+            channel: channelOf({ id: 'd-x', name: wrongly(null) }),
+            guild: false,
+            content: 'x',
+            at: T0,
+          })
         )
       ),
       null
@@ -358,12 +400,15 @@ test('observationOf: every kind of line goes from toEvent through the envelope c
 test('checkEnvelope: a revision may be left out only by an edit; mentions, direct and the account kind are checked', () => {
   const base = observationOf(eventOf(message({ id: 'm-1', content: 'x', at: T0 })), { selfId: SELF });
   assert.equal(checkEnvelope(base), null);
-  assert.equal(checkEnvelope({ ...base, native: { ...base.native, revision: undefined } }), 'BAD_NATIVE');
-  assert.equal(checkEnvelope({ ...base, edited: true, native: { ...base.native, revision: undefined } }), null);
+  assert.equal(checkEnvelope({ ...base, native: { ...present(base).native, revision: undefined } }), 'BAD_NATIVE');
+  assert.equal(
+    checkEnvelope({ ...base, edited: true, native: { ...present(base).native, revision: undefined } }),
+    null
+  );
   assert.equal(checkEnvelope({ ...base, edited: 'yes' }), 'BAD_NATIVE');
   assert.equal(checkEnvelope({ ...base, mentions: [''] }), 'BAD_RELATION');
   assert.equal(checkEnvelope({ ...base, direct: 1 }), 'BAD_ENVELOPE');
-  assert.equal(checkEnvelope({ ...base, author: { ...base.author, account_kind: 'robot' } }), 'BAD_AUTHOR');
+  assert.equal(checkEnvelope({ ...base, author: { ...present(base).author, account_kind: 'robot' } }), 'BAD_AUTHOR');
 });
 
 // ---------- the same rows as the record's ----------
@@ -371,7 +416,7 @@ test('checkEnvelope: a revision may be left out only by an edit; mentions, direc
 test('observe on a database the record wrote from the same lines writes no new place or source', () => {
   const env = imported({ withRecord: true });
   try {
-    const { db } = env.handle;
+    const db = sqlOf(env.handle);
     const before = { places: ids(db, 'places'), accounts: ids(db, 'accounts'), sources: ids(db, 'sources') };
     const done = observeAll(env.handle, env.fixture.events);
     assert.ok(
@@ -425,13 +470,13 @@ test('observe on a database the record wrote from the same lines writes no new p
 test("the live order: observe first, the record later; the record's writes take the observed rows over and nothing is doubled", () => {
   const env = imported({ withRecord: false });
   try {
-    const { db } = env.handle;
+    const db = sqlOf(env.handle);
     const done = observeAll(env.handle, env.fixture.events);
     assert.ok(done.every((one) => one.replayed === false));
     // The edit was counted by the database: the message's second revision, as the record will write it.
     assert.equal(done[2].sourceId, 'src:discord:400000000000000101:2:seen');
     env.writeRecord();
-    assert.equal(seedUnits(env.handle, env.data, { log: quiet, now: () => NOW + 60_000 }).errors, 0);
+    assert.equal(seedUnits(env.handle, env.data, wrongly({ log: quiet, now: () => NOW + 60_000 })).errors, 0);
     const natives = env.fixture.events.map(({ event }) => event.message.id);
     const mine = db
       .prepare(
@@ -467,31 +512,32 @@ test("service: observe goes through the writer; an edit's revision survives a ne
   buildDataDir(data);
   const hot = { config: {} };
   const start = () => createMemoryDb({ hot, dataDir: data, log: quiet, worker: false, now: () => NOW });
-  const envelopeOf = (raw, options) => observationOf(eventOf(raw, options), { selfId: SELF });
+  const envelopeOf = (raw: Record<string, Untyped>, options?: Record<string, Untyped>) =>
+    observationOf(eventOf(raw, options), { selfId: SELF });
   const first = message({ id: 'm-svc', content: 'πρώτη', at: T0 });
   try {
     const one = start();
     await one.tick();
-    assert.equal((await one.observe(envelopeOf(first))).sourceId, 'src:discord:m-svc:1:seen');
-    const edit = await one.observe(
+    assert.equal(wrongly<Untyped>(present(await one.observe(envelopeOf(first)))).sourceId, 'src:discord:m-svc:1:seen');
+    const edit: Untyped = await one.observe(
       envelopeOf(message({ id: 'm-svc', content: 'δεύτερη', at: T0, editedAt: T0 + 1000 }), {
         edit: true,
         now: () => T0 + 1000,
       })
     );
-    assert.equal(edit.sourceId, 'src:discord:m-svc:2:seen');
+    assert.equal(present(edit).sourceId, 'src:discord:m-svc:2:seen');
     await one.close();
 
     const two = start();
     await two.tick();
-    const later = await two.observe(
+    const later: Untyped = await two.observe(
       envelopeOf(message({ id: 'm-svc', content: 'τρίτη', at: T0, editedAt: T0 + 2000 }), {
         edit: true,
         now: () => T0 + 2000,
       })
     );
-    assert.equal(later.sourceId, 'src:discord:m-svc:3:seen', 'the count lives in the database');
-    assert.equal(await two.observe({ v: 1 }).then((done) => done.code), 'BAD_IFACE');
+    assert.equal(present(later).sourceId, 'src:discord:m-svc:3:seen', 'the count lives in the database');
+    assert.equal(await present(two.observe({ v: 1 })).then((done: Record<string, Untyped>) => done.code), 'BAD_IFACE');
     await two.close();
     assert.equal(two.observe(envelopeOf(first)), null, 'closed: nothing is written');
   } finally {
@@ -506,7 +552,7 @@ test('service: an observation that comes before the database opens is written on
   buildDataDir(data);
   const hot = { config: {} };
   const service = createMemoryDb({ hot, dataDir: data, log: quiet, worker: false, now: () => NOW });
-  const envelopeOf = (raw) => observationOf(eventOf(raw), { selfId: SELF });
+  const envelopeOf = (raw: Record<string, Untyped>) => observationOf(eventOf(raw), { selfId: SELF });
   try {
     // the start's catch-up runs before the database opens
     assert.equal(
@@ -521,7 +567,7 @@ test('service: an observation that comes before the database opens is written on
     const reader = openMemoryDb(path.join(data, 'memory.db'), { readOnly: true });
     try {
       assert.deepEqual(
-        reader.db
+        sqlOf(reader)
           .prepare("SELECT native_id FROM sources WHERE native_id IN ('m-early', 'm-late') ORDER BY native_id")
           .all()
           .map((row) => row.native_id),

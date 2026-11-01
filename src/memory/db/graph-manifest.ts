@@ -1,7 +1,7 @@
 // The projection manifest of the memory graph (spec 2026-10-24-memory-schema-v7, section 3; section 11 item 5
 // overrides it): the graph is wholly derived, the typed tables are the only authority, and this file says, as code,
 // which typed table and which columns every node kind and every predicate comes from and by which rule. graph.ts
-// projects by these entries; tests/memory-db-graph.test.js enumerates them against the schema (every table and column
+// projects by these entries; tests/memory-db-graph.test.ts enumerates them against the schema (every table and column
 // named here exists). Pure data, no I/O.
 //
 // Node ids are `<kind>:<row id>` (graph.ts#graphNodeId), so two tables that happen to share a row id never share a

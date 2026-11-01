@@ -14,19 +14,23 @@ import {
 } from '../src/memory/journal.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { openTestMemory, openTestMemorySync } from './fixtures/memory-db/service.ts';
+import type { Untyped } from '../src/tools/types.ts';
+import { wrongly, present } from './fixtures/loose-types.ts';
 
 const DATA = path.join('fake-root', 'data');
 const DAY_D = Date.UTC(2026, 9, 13, 23, 59, 50);
 const DAY_D1 = Date.UTC(2026, 9, 14, 0, 0, 5);
 
+type Line = { file: string; line: string };
+
 function fakeAppendStore() {
-  const lines = [];
+  const lines: Array<Line> = [];
   return {
     lines,
-    append: async (file, line) => {
+    append: async (file: string, line: string) => {
       lines.push({ file, line });
     },
-    async *iterate(file) {
+    async *iterate(file: string) {
       let offset = 0;
       for (const entry of lines) {
         if (entry.file !== file) continue;
@@ -37,32 +41,33 @@ function fakeAppendStore() {
   };
 }
 
-function counter(prefix) {
+function counter(prefix: string) {
   let n = 0;
   return () => `${prefix}${(n += 1)}`;
 }
 
 /** The test databases opened here; closed when the file is done. */
-const OPENED = [];
+const OPENED: Array<ReturnType<typeof openTestMemorySync>> = [];
 after(async () => {
   for (const mem of OPENED) await mem.close();
 });
 
 /** A test memory database whose unit writes also record each line in `lines` as `{ file, line }`. */
-function recordingMemory(lines) {
+function recordingMemory(lines: Array<Line>) {
   const mem = openTestMemorySync();
   OPENED.push(mem);
   return {
     ...mem.memoryDb,
-    writeUnit: (update) => {
-      for (const line of update.lines ?? [])
-        lines.push({ file: path.join(DATA, update.owner), line: JSON.stringify(line) });
+    writeUnit: (update: unknown) => {
+      const unit = wrongly<{ owner: string; lines?: Array<unknown> }>(update);
+      for (const line of unit.lines ?? [])
+        lines.push({ file: path.join(DATA, unit.owner), line: JSON.stringify(line) });
       return mem.memoryDb.writeUnit(update);
     },
   };
 }
 
-function journalAt(clock) {
+function journalAt(clock: { ms: number }) {
   const appendStore = fakeAppendStore();
   const journal = createJournal({
     appendStore,
@@ -75,7 +80,8 @@ function journalAt(clock) {
   return { journal, appendStore };
 }
 
-const records = (appendStore) => appendStore.lines.map(({ file, line }) => ({ file, record: JSON.parse(line) }));
+const records = (appendStore: { lines: Array<Line> }) =>
+  appendStore.lines.map(({ file, line }) => ({ file, record: wrongly<Record<string, Untyped>>(JSON.parse(line)) }));
 
 test('journal: start allots a turnId and writes turn.start to the day of occurredAt', async () => {
   const clock = { ms: DAY_D };
@@ -191,17 +197,17 @@ test('journal: read returns the last n records of a kind, newest last', async ()
 
   const dayD = await journal.read('g1', { day: '2026-10-13' });
   assert.deepEqual(
-    dayD.map((r) => r.kind),
+    dayD.map((r: Record<string, Untyped>) => r.kind),
     ['turn.start', 'system']
   );
-  const startD = (await journal.read('g1', { day: '2026-10-13', kind: 'turn.start' }))[0];
+  const startD: Record<string, Untyped> = (await journal.read('g1', { day: '2026-10-13', kind: 'turn.start' }))[0];
 
   const turnsD1 = await journal.read('g1', { day: '2026-10-14', kind: 'turn', n: 2 });
   assert.deepEqual(
-    turnsD1.map((r) => r.outcome),
+    turnsD1.map((r: Record<string, Untyped>) => r.outcome),
     ['o1', 'o2']
   );
-  const all = await journal.read('g1', { day: '2026-10-14', kind: 'turn' });
+  const all: Record<string, Untyped> = await journal.read('g1', { day: '2026-10-14', kind: 'turn' });
   assert.equal(all.length, 4);
   // The turn that started on day D closed on day D+1, linked by its turnId.
   assert.equal(all[0].turnId, startD.turnId);
@@ -210,15 +216,15 @@ test('journal: read returns the last n records of a kind, newest last', async ()
 });
 
 test('triggerLinksOf: each posted message of a turn maps to the message that started it; a turn without one maps nothing', () => {
-  const start = (turnId, messageId) => ({
+  const start = (turnId: string, messageId: Untyped) => ({
     kind: 'turn.start',
     turnId,
     trigger: messageId === null ? null : { kind: 'mention', messageId, authorId: 'u1' },
   });
-  const turn = (turnId, ids) => ({
+  const turn = (turnId: string, ids: Record<string, Untyped>) => ({
     kind: 'turn',
     turnId,
-    posted: ids.map((messageId) => ({ opId: `op-${messageId}`, messageId, replyTo: null })),
+    posted: ids.map((messageId: string) => ({ opId: `op-${messageId}`, messageId, replyTo: null })),
   });
   const links = triggerLinksOf([
     start('t1', 'm98'),
@@ -238,7 +244,7 @@ test('triggerLinksOf: each posted message of a turn maps to the message that sta
     ['p101', 'm98'],
     ['p103', 'm98'],
   ]);
-  assert.deepEqual(triggerLinksOf(null), []);
+  assert.deepEqual(triggerLinksOf(wrongly(null)), []);
 });
 
 test('journal: triggerLinks rebuilds the links of the days read, a turn closed the next day included', async () => {
@@ -249,7 +255,7 @@ test('journal: triggerLinks rebuilds the links of the days read, a turn closed t
     mode: 'reply',
     trigger: { kind: 'mention', messageId: 'm1', authorId: 'u1' },
   });
-  const spontaneous = journal.start('g1', { channelId: 'c1', mode: 'interject', trigger: null });
+  const spontaneous = journal.start('g1', { channelId: 'c1', mode: 'interject', trigger: wrongly(null) });
   await journal.turn('g1', {
     ...spontaneous,
     channelId: 'c1',
@@ -290,8 +296,8 @@ test('journal: triggerLinks rebuilds the links of the days read, a turn closed t
 });
 
 test('callMarksOf: each skill call of the records with its channel, time, status (and why it did not work), target and the posts of its turn', () => {
-  const at = (s) => `2026-10-14T10:00:${String(s).padStart(2, '0')}.000Z`;
-  const skill = (opId, phase, extra = {}) => ({
+  const at = (s: number) => `2026-10-14T10:00:${String(s).padStart(2, '0')}.000Z`;
+  const skill = (opId: string, phase: Untyped, extra: Record<string, Untyped> = {}) => ({
     kind: 'action',
     name: 'skill',
     opId,
@@ -407,7 +413,7 @@ test('callMarksOf: each skill call of the records with its channel, time, status
     [['x1', 'c1']],
     'a post the call made in another channel names the channel of its turn'
   );
-  assert.deepEqual(callMarksOf(null), { calls: [], postedFrom: [] });
+  assert.deepEqual(callMarksOf(wrongly(null)), { calls: [], postedFrom: [] });
 });
 
 test('journal: callMarks rebuilds the skill calls of the days read from the operations a turn wrote', async () => {
@@ -447,7 +453,7 @@ test('journal: callMarks rebuilds the skill calls of the days read from the oper
 
   const marks = await journal.callMarks('g1', { days: ['2026-10-13', '2026-10-14'] });
   assert.deepEqual(
-    marks.calls.map((call) => [
+    marks.calls.map((call: Record<string, Untyped>) => [
       call.channelId,
       call.skill,
       call.status,
@@ -637,8 +643,8 @@ test('journal: reconcile matches a post by replyTo and the first 80 chars of int
   const recalled = journal.op('g1', { turnId: 't-1', name: 'recall', by: 'engine', channelId: 'c1' });
   await recalled.started();
 
-  const sends = [];
-  const own = (id, content, replyToId) => ({
+  const sends: Array<Untyped> = [];
+  const own = (id: string, content: Untyped, replyToId: Untyped) => ({
     id,
     content,
     replyToId,
@@ -646,8 +652,8 @@ test('journal: reconcile matches a post by replyTo and the first 80 chars of int
     reply: () => sends.push(id),
     channel: { send: () => sends.push(id) },
   });
-  const fetched = [];
-  const fetchOwnMessages = async (channelId, n) => {
+  const fetched: Array<Untyped> = [];
+  const fetchOwnMessages = async (channelId: string, n: Untyped) => {
     fetched.push({ channelId, n });
     if (channelId === 'c1')
       return [own('s0', 'ναι', 'm9'), own('s1', `${long} και κάτι ακόμα`, 'm1'), own('s2', 'ναι', null)];
@@ -670,7 +676,7 @@ test('journal: reconcile matches a post by replyTo and the first 80 chars of int
   const closing = records(appendStore)
     .map(({ record }) => record)
     .filter((r) => r.phase !== 'started');
-  const byOp = new Map(closing.map((r) => [r.opId, r]));
+  const byOp: Record<string, Untyped> = new Map(closing.map((r) => [r.opId, r]));
   assert.equal(closing.length, 5);
   assert.equal(byOp.get(found.opId).phase, 'succeeded');
   assert.deepEqual(byOp.get(found.opId).result, { messageId: 's1' });
@@ -707,7 +713,7 @@ test('journal: reconcile marks a post unknown when the fetch fails', async () =>
     },
   });
   assert.deepEqual(counts, { succeeded: 0, unknown: 1 });
-  assert.equal(records(appendStore).at(-1).record.phase, 'unknown');
+  assert.equal(present(records(appendStore).at(-1)).record.phase, 'unknown');
 });
 
 test('journal: reconcile leaves alone an operation started after its cutoff', async () => {
@@ -725,11 +731,11 @@ test('journal: reconcile leaves alone an operation started after its cutoff', as
     intent: { replyTo: null, text: 'Ζωή' },
   });
   await live.started();
-  const fetched = [];
+  const fetched: Array<Untyped> = [];
   const counts = await journal.reconcile('g1', {
     days: ['2026-10-13'],
     before: DAY_D - 1000,
-    fetchOwnMessages: async (channelId) => fetched.push(channelId) && [],
+    fetchOwnMessages: wrongly(async (channelId: string) => fetched.push(channelId) && []),
   });
   assert.deepEqual(counts, { succeeded: 0, unknown: 1 });
   assert.deepEqual(fetched, []);
@@ -741,7 +747,7 @@ test('journal: reconcile leaves alone an operation started after its cutoff', as
 
 test('journal: stalled follows the append store and a private memory record goes to the private day file', async () => {
   const clock = { ms: DAY_D };
-  const { journal, appendStore } = journalAt(clock);
+  const { journal, appendStore }: Record<string, Untyped> = journalAt(clock);
   assert.equal(journal.stalled(), false, 'a store without stats never stalls');
   let stalled = false;
   appendStore.stats = () => ({ pending: stalled ? 1000 : 0, failed: 0, stalled });
@@ -778,7 +784,7 @@ test('journal: an answer record is scoped to its channel, named by its participa
   assert.deepEqual(record.sourceMessageIds, ['m1', 'm2']);
   assert.equal(record.channelId, undefined, 'the channel is the scope, not stored twice');
   assert.deepEqual(
-    (await journal.read('g1', { day: '2026-10-13', kind: 'answer' })).map((r) => r.messageId),
+    (await journal.read('g1', { day: '2026-10-13', kind: 'answer' })).map((r: Record<string, Untyped>) => r.messageId),
     ['m1']
   );
   const { journalLine } = await import('../src/memory/journal.ts');
@@ -804,7 +810,7 @@ test('journal: an answer record is scoped to its channel, named by its participa
 
 // ---- the run marker: a real directory and database --------------------------------------------
 
-async function realJournal(clock) {
+async function realJournal(clock: Record<string, Untyped>) {
   const fsp = await import('node:fs/promises');
   const { createAppendStore } = await import('../src/memory/append-store.ts');
   const dataDir = tempDir('nep-journal-');
@@ -844,7 +850,7 @@ test('journal: a .running marker left over at start writes an unclean-stop recor
     await appendStore.flush();
     const written = await journal.read('g1', { day: '2026-10-13' });
     assert.deepEqual(
-      written.map((r) => [r.kind, r.event]),
+      written.map((r: Record<string, Untyped>) => [r.kind, r.event]),
       [['system', 'unclean-stop']]
     );
     await fsp.stat(running);
@@ -900,7 +906,7 @@ test('journalLine: one short line per kind', async () => {
 /** An in-memory `fs/promises` stand-in: files by path, directories derived from them. */
 function memoryFs() {
   const files = new Map();
-  const dirNames = (dir) => {
+  const dirNames = (dir: string) => {
     const prefix = dir.endsWith(path.sep) ? dir : dir + path.sep;
     const names = new Set();
     for (const file of files.keys())
@@ -910,35 +916,37 @@ function memoryFs() {
   return {
     files,
     mkdir: async () => {},
-    writeFile: async (file, text) => {
+    writeFile: async (file: string, text: string) => {
       files.set(file, String(text));
     },
-    rename: async (from, to) => {
+    rename: async (from: string, to: Array<Record<string, Untyped>>) => {
       files.set(to, files.get(from));
       files.delete(from);
     },
-    readdir: async (dir) => {
+    readdir: async (dir: string) => {
       const names = dirNames(dir);
       if (names.length === 0) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
       return names;
     },
-    rm: async (target) => {
+    rm: async (target: string) => {
       for (const file of [...files.keys()])
         if (file === target || file.startsWith(target + path.sep)) files.delete(file);
     },
   };
 }
 
-function dumpJournal({ keepRequests = 3 } = {}, ms = DAY_D) {
+function dumpJournal({ keepRequests = 3 }: { keepRequests?: number } = {}, ms = DAY_D) {
   const fs = memoryFs();
-  const journal = createJournal({
-    appendStore: fakeAppendStore(),
-    dataDir: DATA,
-    config: () => ({ thinkChars: 4000, keepRequests }),
-    now: () => ms,
-    uuid: counter('u-'),
-    fs,
-  });
+  const journal = createJournal(
+    wrongly({
+      appendStore: fakeAppendStore(),
+      dataDir: DATA,
+      config: () => ({ thinkChars: 4000, keepRequests }),
+      now: () => ms,
+      uuid: counter('u-'),
+      fs,
+    })
+  );
   return { journal, fs };
 }
 
@@ -1107,12 +1115,12 @@ test('journal: keepRequests 0 writes nothing', async () => {
 
 test('journal: withWriterLock flushes the store first and holds appends until fn resolves', async () => {
   const clock = { ms: DAY_D };
-  const { journal, appendStore } = journalAt(clock);
-  const order = [];
+  const { journal, appendStore }: Record<string, Untyped> = journalAt(clock);
+  const order: Array<Untyped> = [];
   appendStore.flush = async () => {
     order.push('flush');
   };
-  let finish;
+  let finish: ((value?: unknown) => void) | undefined;
   const held = new Promise((resolve) => {
     finish = resolve;
   });
@@ -1126,7 +1134,7 @@ test('journal: withWriterLock flushes the store first and holds appends until fn
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(order, ['flush', 'fn']);
   assert.equal(appendStore.lines.length, 0);
-  finish();
+  present(finish)();
   assert.equal(await locked, 'copied');
   await writing;
   assert.equal(appendStore.lines.length, 1);
@@ -1152,8 +1160,8 @@ const T0 = Date.UTC(2026, 9, 14, 10, 0, 0);
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY_WINDOW = 24 * HOUR;
-const sys = (at, event) => ({ at, kind: 'system', event });
-const turnAt = (at) => ({ at, kind: 'turn', event: null });
+const sys = (at: number, event: Untyped) => ({ at, kind: 'system', event });
+const turnAt = (at: number) => ({ at, kind: 'turn', event: null });
 
 test('offPeriods: an owner pause at 10:00 and its resume at 10:20 are one paused period', () => {
   const timeline = [sys(T0, 'pause'), sys(T0 + 20 * MINUTE, 'resume')];
@@ -1239,17 +1247,17 @@ test('journal: timeline reads the guild day files the window spans, oldest first
 
 test('createOffPeriodsReader: reads the window once a minute and gives [] with a warn on a failure', async () => {
   const clock = { ms: T0 + HOUR };
-  const reads = [];
-  const warns = [];
+  const reads: Array<Untyped> = [];
+  const warns: Array<Untyped> = [];
   let fail = false;
   const journal = {
-    timeline: async (guildId, query) => {
+    timeline: async (guildId: string, query: string) => {
       reads.push([guildId, query]);
       if (fail) throw Object.assign(new Error('boom'), { code: 'EIO' });
       return [sys(T0, 'pause'), sys(T0 + 20 * MINUTE, 'resume')];
     },
   };
-  const log = { warn: (event, fields) => warns.push([event, fields]) };
+  const log = { warn: (event: string, fields: Untyped) => warns.push([event, fields]) };
   const read = createOffPeriodsReader({ journal, now: () => clock.ms, log });
 
   const first = await read('g1', { windowHours: 24 });
@@ -1311,7 +1319,7 @@ test('journal: turnOperations gives the operations of one turn with how each end
     ]
   );
   assert.deepEqual(await journal.turnOperations('g1', { turnId: 't-9', days: ['2026-10-13'] }), []);
-  assert.deepEqual(await journal.turnOperations('g1', { turnId: null, days: ['2026-10-13'] }), []);
+  assert.deepEqual(await journal.turnOperations('g1', { turnId: wrongly(null), days: ['2026-10-13'] }), []);
 });
 
 test("journal: dumpRequest of a request with tools stores the array once by hash, the choice and the answer's tool calls", async () => {

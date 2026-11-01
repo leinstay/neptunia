@@ -1,7 +1,7 @@
 // Tests for src/memory/aliases.ts: applyAliasOps -- add/sighting/remove,
 // ignoring an alias equal to a display name, clamping, rank-based eviction.
 // Pure, no I/O. Shares its confirmation/gap/rank mechanics with
-// src/memory/interests.ts#applyRankedOps -- see tests/interests.test.js for
+// src/memory/interests.ts#applyRankedOps -- see tests/interests.test.ts for
 // the exhaustive coverage of that shared core.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

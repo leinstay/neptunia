@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import { createImageGen, familyOf, ImageGenError, UnsupportedImageModelError } from '../src/llm/images.ts';
 import { NotByokError } from '../src/llm/openrouter.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import type { Untyped } from '../src/tools/types.ts';
+import { wrongly } from './fixtures/loose-types.ts';
 
 const NOW = Date.parse('2026-09-28T12:00:00Z');
 
@@ -25,7 +27,7 @@ function baseConfig({ model = 'openai/test-image', ...overrides } = {}) {
   };
 }
 
-function fakeState(data = {}) {
+function fakeState(data: Record<string, Untyped> = {}) {
   return {
     data,
     dirty: 0,
@@ -46,21 +48,26 @@ function okResponse(
   return { ok: true, status: 200, json: async () => json, text: async () => JSON.stringify(json) };
 }
 
-function errorResponse(status, text = '{"error":{"message":"upstream failed"}}') {
+function errorResponse(status: number, text = '{"error":{"message":"upstream failed"}}') {
   return { ok: false, status, text: async () => text, json: async () => JSON.parse(text) };
 }
 
+type FetchCall = {
+  url: string;
+  init: { method: string; headers: Record<string, string>; signal?: unknown; body: string };
+  body: Record<string, Untyped>;
+};
+
 /** A fetch fake that records every call and plays `responses` in order (the last one repeats). */
-function fakeFetch(...responses) {
-  const calls = [];
-  async function impl(url, init) {
-    calls.push({ url, init, body: JSON.parse(init.body) });
+function fakeFetch(...responses: Array<unknown>) {
+  const calls: Array<FetchCall> = [];
+  async function impl(url: string, init: FetchCall['init']): Promise<unknown> {
+    calls.push({ url, init, body: wrongly<Record<string, Untyped>>(JSON.parse(init.body)) });
     const next = responses[Math.min(calls.length - 1, responses.length - 1)];
     if (next instanceof Error) throw next;
     return next;
   }
-  impl.calls = calls;
-  return impl;
+  return Object.assign(impl, { calls });
 }
 
 function makeGen({
@@ -68,8 +75,13 @@ function makeGen({
   state = fakeState(),
   fetchImpl = fakeFetch(okResponse()),
   now = () => NOW,
+}: {
+  config?: Untyped;
+  state?: ReturnType<typeof fakeState>;
+  fetchImpl?: ReturnType<typeof fakeFetch>;
+  now?: () => number;
 } = {}) {
-  const gen = createImageGen({ apiKey: 'test-key', getConfig: () => config, state, fetchImpl, now });
+  const gen = createImageGen(wrongly({ apiKey: 'test-key', getConfig: () => config, state, fetchImpl, now }));
   return { gen, state, fetchImpl };
 }
 
@@ -107,7 +119,7 @@ test('images: Google body carries resolution and omits aspect_ratio on auto', as
 });
 
 test('images: null values omit their fields', async () => {
-  const config = baseConfig({ openai: { quality: null, moderation: null } });
+  const config = baseConfig(wrongly({ openai: { quality: null, moderation: null } }));
   const { gen, fetchImpl } = makeGen({ config });
   await gen.generate({ prompt: 'a small boat' });
   // PR 7d: the format, ratio and background are constants, so only the settings set to null are omitted.
@@ -122,7 +134,7 @@ test('images: null values omit their fields', async () => {
 
 test('images: image.provider is merged and OpenAI moderation is nested into it', async () => {
   const provider = { order: ['openai'], options: { openai: { moderation: 'auto', user: 'x' } } };
-  const config = baseConfig({ provider });
+  const config = baseConfig(wrongly({ provider }));
   const { gen, fetchImpl } = makeGen({ config });
   await gen.generate({ prompt: 'a small boat' });
   assert.deepEqual(fetchImpl.calls[0].body.provider, {
@@ -142,7 +154,7 @@ test('images: reference becomes input_references', async () => {
 test('images: unsupported model prefix is refused without a request', async () => {
   const state = fakeState();
   const { gen, fetchImpl } = makeGen({ config: baseConfig({ model: 'acme/painter' }), state });
-  await assert.rejects(gen.generate({ prompt: 'a small boat', userId: 'u1' }), UnsupportedImageModelError);
+  await assert.rejects(gen.generate(wrongly({ prompt: 'a small boat', userId: 'u1' })), UnsupportedImageModelError);
   assert.equal(fetchImpl.calls.length, 0);
   assert.equal(state.data.imageCount ?? 0, 0);
   assert.equal(state.data.imageUsers?.counts?.u1 ?? 0, 0);
@@ -166,7 +178,7 @@ test('images: response b64_json becomes a Buffer with media_type and cost', asyn
 });
 
 test('images: media type falls back to the output format and cost to null', async () => {
-  const json = { data: [{ b64_json: PIXELS.toString('base64') }] };
+  const json: Untyped = { data: [{ b64_json: PIXELS.toString('base64') }] };
   const { gen } = makeGen({ fetchImpl: fakeFetch(okResponse(json)) });
   const result = await gen.generate({ prompt: 'a small boat' });
   // PR 7d: the output format is the constant png.
@@ -176,7 +188,7 @@ test('images: media type falls back to the output format and cost to null', asyn
 });
 
 test('images: missing image data is an ImageGenError with reason empty', async () => {
-  const { gen } = makeGen({ fetchImpl: fakeFetch(okResponse({ data: [] })) });
+  const { gen } = makeGen({ fetchImpl: fakeFetch(okResponse(wrongly({ data: [] }))) });
   await assert.rejects(gen.generate({ prompt: 'a small boat' }), (err) => {
     assert.ok(err instanceof ImageGenError);
     assert.equal(err.reason, 'empty');
@@ -187,7 +199,7 @@ test('images: missing image data is an ImageGenError with reason empty', async (
 test('images: 502 is retried up to image.retries then fails with reason error', async () => {
   const state = fakeState();
   const { gen, fetchImpl } = makeGen({
-    config: baseConfig({ retries: 1 }),
+    config: baseConfig(wrongly({ retries: 1 })),
     state,
     fetchImpl: fakeFetch(errorResponse(502)),
   });
@@ -203,7 +215,10 @@ test('images: 502 is retried up to image.retries then fails with reason error', 
 
 test('images: a negative or non-numeric image.retries still sends exactly one request and fails with reason error', async () => {
   for (const retries of [-1, 'x']) {
-    const { gen, fetchImpl } = makeGen({ config: baseConfig({ retries }), fetchImpl: fakeFetch(errorResponse(502)) });
+    const { gen, fetchImpl } = makeGen({
+      config: baseConfig(wrongly({ retries })),
+      fetchImpl: fakeFetch(errorResponse(502)),
+    });
     await assert.rejects(gen.generate({ prompt: 'a small boat' }), (err) => {
       assert.ok(err instanceof ImageGenError, `retries ${retries}: an ImageGenError, not a TypeError`);
       assert.equal(err.reason, 'error');
@@ -217,7 +232,7 @@ test('images: a negative or non-numeric image.retries still sends exactly one re
 test('images: moderation-looking 400 is not retried and has reason moderation', async () => {
   const body = '{"error":{"code":"moderation_blocked","message":"Your request was rejected by the safety system."}}';
   const { gen, fetchImpl } = makeGen({
-    config: baseConfig({ retries: 3 }),
+    config: baseConfig(wrongly({ retries: 3 })),
     fetchImpl: fakeFetch(errorResponse(400, body)),
   });
   await assert.rejects(gen.generate({ prompt: 'a small boat' }), (err) => {
@@ -231,10 +246,10 @@ test('images: moderation-looking 400 is not retried and has reason moderation', 
 
 test('images: a plain 400 is not retried and has reason error', async () => {
   const { gen, fetchImpl } = makeGen({
-    config: baseConfig({ retries: 3 }),
+    config: baseConfig(wrongly({ retries: 3 })),
     fetchImpl: fakeFetch(errorResponse(400, '{"error":{"message":"bad size"}}')),
   });
-  await assert.rejects(gen.generate({ prompt: 'a small boat' }), (err) => {
+  await assert.rejects(gen.generate({ prompt: 'a small boat' }), (err: Record<string, Untyped>) => {
     assert.equal(err.reason, 'error');
     assert.equal(err.statusCode, 400);
     return true;
@@ -245,7 +260,7 @@ test('images: a plain 400 is not retried and has reason error', async () => {
 test('images: abort is reported as timeout', async () => {
   const abort = new Error('This operation was aborted');
   abort.name = 'AbortError';
-  const { gen, fetchImpl } = makeGen({ config: baseConfig({ retries: 1 }), fetchImpl: fakeFetch(abort) });
+  const { gen, fetchImpl } = makeGen({ config: baseConfig(wrongly({ retries: 1 })), fetchImpl: fakeFetch(abort) });
   await assert.rejects(gen.generate({ prompt: 'a small boat' }), (err) => {
     assert.ok(err instanceof ImageGenError);
     assert.equal(err.reason, 'timeout');
@@ -269,7 +284,7 @@ test('images: familyOf maps prefixes', () => {
 // --- provider routing per model family (llm.providerByModel) ---
 
 test('images: llm.providerByModel (longest prefix) wins over image.provider, with moderation merged over it', async () => {
-  const config = baseConfig({ provider: { ignore: ['some-provider'] } });
+  const config: Record<string, Untyped> = baseConfig(wrongly({ provider: { ignore: ['some-provider'] } }));
   config.llm.providerByModel = {
     'openai/': { only: ['azure'] },
     'openai/test-image': { only: ['openai'], allow_fallbacks: false },
@@ -289,7 +304,9 @@ test('images: llm.providerByModel (longest prefix) wins over image.provider, wit
 });
 
 test('images: a model with no valid by-model entry falls back to image.provider, then to nothing', async () => {
-  const config = baseConfig({ model: 'google/test-image', provider: { order: ['google-vertex'] } });
+  const config: Record<string, Untyped> = baseConfig(
+    wrongly({ model: 'google/test-image', provider: { order: ['google-vertex'] } })
+  );
   config.llm.providerByModel = { 'openai/': { only: ['openai'] }, 'google/test-image': 'google-vertex' };
   const { gen, fetchImpl } = makeGen({ config });
   await gen.generate({ prompt: 'a small boat' });
@@ -300,7 +317,7 @@ test('images: a model with no valid by-model entry falls back to image.provider,
 });
 
 test('images: llm.providerByModel is read fresh on every generation', async () => {
-  const config = baseConfig({ model: 'google/test-image' });
+  const config: Record<string, Untyped> = baseConfig({ model: 'google/test-image' });
   const { gen, fetchImpl } = makeGen({ config });
   await gen.generate({ prompt: 'a small boat' });
   config.llm.providerByModel = { 'google/': { only: ['google-vertex'] } };
@@ -310,7 +327,9 @@ test('images: llm.providerByModel is read fresh on every generation', async () =
 });
 
 test('images: a generation routes as the drawing role; an @drawing key beats a longer role-less one, other roles never apply', async () => {
-  const config = baseConfig({ model: 'google/test-image', provider: { ignore: ['some-provider'] } });
+  const config: Record<string, Untyped> = baseConfig(
+    wrongly({ model: 'google/test-image', provider: { ignore: ['some-provider'] } })
+  );
   config.llm.providerByModel = {
     'google/test-image': { only: ['google-vertex'] },
     'google/@drawing': { only: ['google-ai-studio'], allow_fallbacks: false },
@@ -330,16 +349,18 @@ test('images: a generation routes as the drawing role; an @drawing key beats a l
 // --- byok routes: a picture OpenRouter served from its own capacity on a `byok: true` route ---
 
 /** An OK answer whose usage says `is_byok` (undefined: no such field), served by `OpenAI`. */
-function byokResponse(isByok) {
-  return okResponse({
-    provider: 'OpenAI',
-    data: [{ b64_json: PIXELS.toString('base64'), media_type: 'image/png' }],
-    usage: { total_tokens: 10, cost: 0.04, ...(isByok === undefined ? {} : { is_byok: isByok }) },
-  });
+function byokResponse(isByok: Untyped) {
+  return okResponse(
+    wrongly({
+      provider: 'OpenAI',
+      data: [{ b64_json: PIXELS.toString('base64'), media_type: 'image/png' }],
+      usage: { total_tokens: 10, cost: 0.04, ...(isByok === undefined ? {} : { is_byok: isByok }) },
+    })
+  );
 }
 
 test("images: the body's provider never carries byok; the config route keeps it", async () => {
-  const config = baseConfig();
+  const config: Record<string, Untyped> = baseConfig();
   config.llm.providerByModel = { 'openai/@drawing': { only: ['openai'], allow_fallbacks: false, byok: true } };
   const { gen, fetchImpl } = makeGen({ config, fetchImpl: fakeFetch(byokResponse(true)) });
   await withCapturedLogs(() => gen.generate({ prompt: 'a small boat' }));
@@ -352,7 +373,7 @@ test("images: the body's provider never carries byok; the config route keeps it"
 });
 
 test('images: a byok route with is_byok false fails with reason error after a not-byok warning, never retried', async () => {
-  const config = baseConfig();
+  const config: Record<string, Untyped> = baseConfig();
   config.llm.providerByModel = { 'openai/': { only: ['openai'], byok: true } };
   const { gen, fetchImpl } = makeGen({ config, fetchImpl: fakeFetch(byokResponse(false), okResponse()) });
   const { logs } = await withCapturedLogs(() =>
@@ -383,7 +404,7 @@ test('images: without a route marked byok exactly true, or without is_byok false
     [{ only: ['openai'], byok: true }, true],
   ];
   for (const [route, isByok] of cases) {
-    const config = baseConfig();
+    const config: Record<string, Untyped> = baseConfig();
     if (route) config.llm.providerByModel = { 'openai/': route };
     const { gen } = makeGen({ config, fetchImpl: fakeFetch(byokResponse(isByok)) });
     const { result, logs } = await withCapturedLogs(() => gen.generate({ prompt: 'a small boat' }));
@@ -394,7 +415,7 @@ test('images: without a route marked byok exactly true, or without is_byok false
 
 // PR 7d: the daily caps of plan section 4.5 are gone. A local layer not yet cut may still set them; nothing reads them.
 test('images: a hundred drawings in one day, by one member, are all made, a stale daily cap in the config included', async () => {
-  const { gen, fetchImpl } = makeGen({ config: baseConfig({ maxPerDay: 2, maxPerUserPerDay: 1 }) });
-  for (let n = 0; n < 100; n += 1) await gen.generate({ prompt: `picture ${n}`, userId: 'u1' });
+  const { gen, fetchImpl } = makeGen({ config: baseConfig(wrongly({ maxPerDay: 2, maxPerUserPerDay: 1 })) });
+  for (let n = 0; n < 100; n += 1) await gen.generate(wrongly({ prompt: `picture ${n}`, userId: 'u1' }));
   assert.equal(fetchImpl.calls.length, 100);
 });
