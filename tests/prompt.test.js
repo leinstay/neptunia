@@ -4,7 +4,6 @@
 // the prompt contract.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import {
   block,
   buildDrawPrompt,
@@ -938,7 +937,7 @@ const EMOJI_INDEX = [
  * A turn with every senses line it can have on a server and a full `<emoji>` block: the
  * ranked list and an emoji of the chat that is not on it.
  */
-function cacheScene({ triggerFields, config: configOverrides = {}, ...overrides } = {}) {
+function cacheScene({ triggerFields, ...overrides } = {}) {
   return segmentScene({
     config: fakeConfig({ private: { enabled: true } }),
     triggerFields: { content: 'ωραίο :pog:', emojis: [{ id: '9', name: 'pog' }], ...triggerFields },
@@ -3226,7 +3225,7 @@ test('people: an author of a pulled line asked about through the pulled block sh
 
 // --- the web lookup: <lookup>, read links, senses -----------------------------------
 
-function webConfig(features = {}, web = {}) {
+function webConfig(web = {}) {
   const config = fakeConfig();
   config.web = { links: { enabled: true, ...web.links }, search: { enabled: true, ...web.search } };
   return config;
@@ -3439,7 +3438,7 @@ test('buildRequest: search disabled -> no search line even with a key and the gr
   const noSearch = sensesOf(
     buildRequest(
       baseInput({
-        config: webConfig({}, { search: { enabled: false } }),
+        config: webConfig({ search: { enabled: false } }),
         searchAvailable: true,
         toolsGranted: ['web.search'],
       })
@@ -4554,7 +4553,7 @@ test('buildRequest: earlier calls render under labels.pull.earlierPings ahead of
   ]);
 });
 
-test('buildRequest: authors of pulled lines join <people> as asked-about profiles under context.askedAboutProfiles', () => {
+test('buildRequest: authors of pulled lines join <people> as asked-about profiles, at most three', () => {
   const messages = [
     pulledMessage('p1', NOW - 40 * MIN, { authorId: 'w1', authorName: 'Zoé' }),
     pulledMessage('p2', NOW - 35 * MIN, { authorId: 'bot1', authorName: 'Robot', bot: true }),
@@ -4583,9 +4582,20 @@ test('buildRequest: authors of pulled lines join <people> as asked-about profile
   assert.ok(shown.indexOf('## Björn') < shown.indexOf('## Zoé'), "the newest line's author first");
   assert.ok(!shown.includes('ROBOT') && !shown.includes('SELF'));
 
-  const capped = people({ config: fakeConfig({ context: { askedAboutProfiles: 1 } }) });
-  assert.ok(capped.includes('## Björn') && !capped.includes('## Zoé'));
-  assert.equal(people({ config: fakeConfig({ context: { askedAboutProfiles: 0 } }) }), '');
+  // PR 7d: context.askedAboutProfiles is the constant 3, so the oldest of four authors drops out.
+  const chloe = { id: 'w3', names: ['Chloé'], character: 'vive' };
+  const dana = { id: 'w4', names: ['Dana'], character: 'sage' };
+  const more = [
+    ...messages,
+    pulledMessage('p5', NOW - 15 * MIN, { authorId: 'w3', authorName: 'Chloé' }),
+    pulledMessage('p6', NOW - 10 * MIN, { authorId: 'w4', authorName: 'Dana' }),
+  ];
+  const capped = people({
+    pulled: [pulledChannel({ messages: more })],
+    candidateProfiles: [zoe, bjorn, chloe, dana, robot, self],
+  });
+  assert.ok(capped.includes('## Dana') && capped.includes('## Chloé') && capped.includes('## Björn'));
+  assert.ok(!capped.includes('## Zoé'));
 
   // A participant of the chat who also wrote there is promoted to a full profile; the interlocutor is never repeated.
   const trigger = destMessage(1, NOW - MIN, { authorId: 'w1', authorName: 'Zoé' });
@@ -4911,9 +4921,6 @@ test("recent view: an asked-about member's shown episodes are left out, the rest
   assert.deepEqual(people, [3, 4, 5], 'askedAboutEpisodes 3: her three heaviest in <people>');
   assert.deepEqual(recent, [1, 2], 'the next two in <recent>, at most two per member');
   assert.equal(request.recent.repeated, 3);
-
-  const none = askedZoeScene({ context: { askedAboutEpisodes: 0 } });
-  assert.deepEqual([none.people, none.recent], [[], [4, 5]], 'none shown with her: her two heaviest in <recent>');
 });
 
 test("recent view: an asked-about member's episode cut from <people> is shown in <recent> instead", () => {
@@ -5067,7 +5074,7 @@ test('recent view: the room <recent> frees never costs a member asked about thei
   assert.ok(request.stats.used <= request.stats.limit);
 });
 
-test('recent view: the lines and moments about a member asked about come first under a tight cap', () => {
+test('recent view: the lines about a member asked about come first under a tight cap', () => {
   const cost = (text) => estimateTokens(text) + 2;
   const trigger = makeMessage(1, NOW - MIN, {
     authorId: ANA_ID,
@@ -5101,23 +5108,6 @@ test('recent view: the lines and moments about a member asked about come first u
   assert.equal(
     recentOf(notAbout({ lines, candidateProfiles: [zoe], context: { caps: lineCaps } })),
     [RECENT_HEADER, lineTexts[1]].join('\n')
-  );
-
-  // Her light moment against a heavier one of a member nobody asks about (none of hers in <people>).
-  const zoeMoment = { ...zoe, episodes: [recentMoment('η στιγμή της Zoé', { weight: 1 })] };
-  const nikos = { id: NIKOS_ID, names: ['Nikos'], episodes: [recentMoment('η στιγμή του Nikos', { weight: 5 })] };
-  const momentTexts = [
-    fill(labels.recent.episode, { date: momentDate('2026-09-19'), name: 'Zoé', what: 'η στιγμή της Zoé' }),
-    fill(labels.recent.episode, { date: momentDate('2026-09-19'), name: 'Nikos', what: 'η στιγμή του Nikos' }),
-  ];
-  const context = { caps: capFor(...momentTexts), askedAboutEpisodes: 0 };
-  assert.equal(
-    recentOf(about({ lines: [], candidateProfiles: [nikos, zoeMoment], context })),
-    [RECENT_HEADER, momentTexts[0]].join('\n')
-  );
-  assert.equal(
-    recentOf(notAbout({ lines: [], candidateProfiles: [nikos, zoeMoment], context })),
-    [RECENT_HEADER, momentTexts[1]].join('\n')
   );
 });
 
@@ -5287,16 +5277,13 @@ test("prompt: a private chat shows only the lines the audience allows and no oth
   assert.equal(recentOf(dm({})), null, 'no audience given: a private chat shows no line');
 });
 
-test('prompt: features.recent false, no recentLines or nothing inside the window leaves the request as it was', () => {
+test('prompt: no recentLines or nothing inside the window leaves the request as it was', () => {
   const nikos = { id: NIKOS_ID, names: ['Nikos'], episodes: [recentMoment('η στιγμή του Nikos')] };
   const before = buildRequest(recentScene({ recentLines: undefined, candidateProfiles: [nikos] }));
   assert.ok(!userText(before).includes('<recent>'));
   assert.equal(before.recent, null);
-  // No store's lines handed over (the replay sandbox) or the switch off: no block, a moment in the window or not.
-  for (const overrides of [
-    { recentLines: 'όχι λίστα' },
-    { recentLines: [recentLine(1)], features: { recent: false } },
-  ]) {
+  // No store's lines handed over (the replay sandbox): no block, a moment in the window or not.
+  for (const overrides of [{ recentLines: 'όχι λίστα' }]) {
     const request = buildRequest(recentScene({ candidateProfiles: [nikos], ...overrides }));
     assert.deepEqual(request.messages, before.messages, JSON.stringify(overrides));
     assert.deepEqual(request.stats, before.stats, JSON.stringify(overrides));
@@ -5305,22 +5292,13 @@ test('prompt: features.recent false, no recentLines or nothing inside the window
   // A store's lines handed over, but no line and no moment inside the window.
   const old = { id: NIKOS_ID, names: ['Nikos'], episodes: [recentMoment('παλιά στιγμή', { date: '2026-09-10' })] };
   const plain = buildRequest(recentScene({ recentLines: undefined, candidateProfiles: [old] }));
-  const cases = [
-    { recentLines: [] },
-    { recentLines: [recentLine(1, { at: NOW - 73 * HOUR })] },
-    { recentLines: [recentLine(1, { at: NOW - 30 * HOUR })], memory: { recentHours: 24 } },
-  ];
+  const cases = [{ recentLines: [] }, { recentLines: [recentLine(1, { at: NOW - 73 * HOUR })] }];
   for (const overrides of cases) {
     const request = buildRequest(recentScene({ candidateProfiles: [old], ...overrides }));
     assert.deepEqual(request.messages, plain.messages, JSON.stringify(overrides));
     assert.deepEqual(request.stats, plain.stats, JSON.stringify(overrides));
     assert.equal(request.recent, null, 'nothing offered, hidden or repeated: nothing to count');
   }
-  // A longer window shows the older line at once, and the header says how long it is.
-  const longer = recentOf(
-    buildRequest(recentScene({ recentLines: [recentLine(1, { at: NOW - 73 * HOUR })], memory: { recentHours: 96 } }))
-  );
-  assert.ok(longer.startsWith(fill(labels.recent.header, { hours: 96 })));
 });
 
 test('prompt: the moments of the window show without any line, and a line this turn may not show changes nothing', () => {
@@ -5397,14 +5375,13 @@ function attitudeCandidates() {
   ];
 }
 
-/** A server turn: Ana asks about Zoé; `attitudes` is context.attitudes (undefined = unset). */
-function attitudesScene({ attitudes, caps, features, llm, prompts, ...overrides } = {}) {
+/** A server turn: Ana asks about Zoé. */
+function attitudesScene({ caps, llm, prompts, ...overrides } = {}) {
   const trigger = makeMessage(1, NOW - MIN, { authorId: 'u0', authorName: 'Ana', content: 'what about Zoé' });
   const candidates = attitudeCandidates();
   return baseInput({
     config: fakeConfig({
       context: {
-        ...(attitudes === undefined ? {} : { attitudes }),
         caps: {
           interlocutor: 2500,
           aboutChat: 2500,
@@ -5416,7 +5393,6 @@ function attitudesScene({ attitudes, caps, features, llm, prompts, ...overrides 
           ...caps,
         },
       },
-      features,
       llm,
     }),
     prompts: prompts ?? fakePrompts(),
@@ -5437,14 +5413,17 @@ function attitudesOf(request) {
 
 const attitudeLine = (name, band) => fill(labels.attitudes.line, { name, band: labels.affinity.bands[band] });
 
-test('attitudes: the top context.attitudes members by |score|, warm and cool mixed, warmest first', () => {
-  const request = buildRequest(attitudesScene({ attitudes: 4 }));
+test('attitudes: the top six members by |score|, warm and cool mixed, warmest first', () => {
+  // PR 7d: context.attitudes is the constant 6, so Γιώργος with the weakest score of seven falls out.
+  const request = buildRequest(attitudesScene());
   assert.equal(
     attitudesOf(request),
     [
       labels.attitudes.header,
       attitudeLine('Ágata', 'devoted'),
       attitudeLine('Chloé', 'fond'),
+      attitudeLine('Èlia', 'warm'),
+      attitudeLine('Fañch', 'cool'),
       attitudeLine('Δήμος', 'dislike'),
       attitudeLine('Björn', 'hostile'),
     ].join('\n')
@@ -5453,7 +5432,7 @@ test('attitudes: the top context.attitudes members by |score|, warm and cool mix
 });
 
 test('attitudes: no score, a zero score, the interlocutor and the members shown in <people> are left out', () => {
-  const body = attitudesOf(buildRequest(attitudesScene({ attitudes: 20 })));
+  const body = attitudesOf(buildRequest(attitudesScene()));
   assert.equal(
     body,
     [
@@ -5461,7 +5440,6 @@ test('attitudes: no score, a zero score, the interlocutor and the members shown 
       attitudeLine('Ágata', 'devoted'),
       attitudeLine('Chloé', 'fond'),
       attitudeLine('Èlia', 'warm'),
-      attitudeLine('Γιώργος', 'neutral'),
       attitudeLine('Fañch', 'cool'),
       attitudeLine('Δήμος', 'dislike'),
       attitudeLine('Björn', 'hostile'),
@@ -5476,49 +5454,36 @@ test('attitudes: a member <people> was offered but the budget cut is listed', ()
   const trigger = makeMessage(2, NOW - MIN, { authorId: 'u0', authorName: 'Ana', content: 'what about Zoé' });
   const history = [makeMessage(1, NOW - 2 * MIN, { authorId: 'm2', authorName: 'Björn' }), trigger];
   const bjorn = { ...scored('m2', 'Björn', -80), character: 'ß'.repeat(4000) };
-  const shown = buildRequest(attitudesScene({ attitudes: 2, history, trigger, otherProfiles: [bjorn] }));
+  const shown = buildRequest(attitudesScene({ history, trigger, otherProfiles: [bjorn] }));
   assert.ok(contentText(shown.messages[1].content).includes('## Björn'));
-  assert.equal(
-    attitudesOf(shown),
-    [labels.attitudes.header, attitudeLine('Ágata', 'devoted'), attitudeLine('Δήμος', 'dislike')].join('\n')
-  );
+  assert.ok(!attitudesOf(shown).includes('Björn'), 'shown in <people>, so not listed here');
 
-  const zoeOnly = buildRequest(attitudesScene({ attitudes: 2, history, trigger })).stats.people.used;
+  const zoeOnly = buildRequest(attitudesScene({ history, trigger })).stats.people.used;
   const cut = buildRequest(
-    attitudesScene({ attitudes: 2, history, trigger, otherProfiles: [bjorn], caps: { people: zoeOnly + 50 } })
+    attitudesScene({ history, trigger, otherProfiles: [bjorn], caps: { people: zoeOnly + 50 } })
   );
   assert.deepEqual([cut.stats.people.kept, cut.stats.people.dropped], [1, 1]);
   assert.ok(!contentText(cut.messages[1].content).includes('## Björn'));
-  assert.equal(
-    attitudesOf(cut),
-    [labels.attitudes.header, attitudeLine('Ágata', 'devoted'), attitudeLine('Björn', 'hostile')].join('\n')
-  );
+  assert.ok(attitudesOf(cut).includes(attitudeLine('Björn', 'hostile')), 'offered and cut: listed here');
 });
 
-test('attitudes: context.attitudes 0, features.relationships off or a missing label make no block', () => {
-  assert.equal(attitudesOf(buildRequest(attitudesScene({ attitudes: 0 }))), null);
-  assert.equal(attitudesOf(buildRequest(attitudesScene({ attitudes: 4, features: { relationships: false } }))), null);
+test('attitudes: a missing label makes no block', () => {
   for (const key of ['header', 'line']) {
     const { [key]: _gone, ...rest } = labels.attitudes;
-    const request = buildRequest(
-      attitudesScene({ attitudes: 4, prompts: fakePrompts({ labels: { ...labels, attitudes: rest } }) })
-    );
+    const request = buildRequest(attitudesScene({ prompts: fakePrompts({ labels: { ...labels, attitudes: rest } }) }));
     assert.equal(attitudesOf(request), null, key);
   }
   const { attitudes: _none, ...older } = labels;
-  assert.equal(
-    attitudesOf(buildRequest(attitudesScene({ attitudes: 4, prompts: fakePrompts({ labels: older }) }))),
-    null
-  );
+  assert.equal(attitudesOf(buildRequest(attitudesScene({ prompts: fakePrompts({ labels: older }) }))), null);
 });
 
-test('attitudes: an unset context.attitudes lists six members', () => {
+test('attitudes: the block lists six members', () => {
   const body = attitudesOf(buildRequest(attitudesScene()));
   assert.equal(body.split('\n').length, 1 + 6);
 });
 
 test('attitudes: the block renders right after <people>, ahead of the chat', () => {
-  const user = contentText(buildRequest(attitudesScene({ attitudes: 4 })).messages[1].content);
+  const user = contentText(buildRequest(attitudesScene()).messages[1].content);
   assert.ok(user.indexOf('</people>') < user.indexOf('<attitudes>'));
   assert.ok(user.indexOf('</attitudes>') < user.indexOf('<chat>'));
 });
@@ -5533,12 +5498,10 @@ test('attitudes: a private chat gets the block from the public profiles, its par
 });
 
 test('attitudes: a tight budget drops the block whole, after the chat and the people', () => {
-  const roomy = buildRequest(attitudesScene({ attitudes: 6 }));
+  const roomy = buildRequest(attitudesScene());
   assert.ok(roomy.stats.attitudes.used > 0);
   // Room for everything but the block's last token (the tags take 60): the block goes, nothing ahead of it is cut.
-  const tight = buildRequest(
-    attitudesScene({ attitudes: 6, llm: { maxRequestTokens: exactly(roomy.stats.used - 1 + 60) } })
-  );
+  const tight = buildRequest(attitudesScene({ llm: { maxRequestTokens: exactly(roomy.stats.used - 1 + 60) } }));
   assert.equal(attitudesOf(tight), null);
   assert.deepEqual([tight.stats.attitudes.kept, tight.stats.attitudes.dropped], [0, 1]);
   assert.equal(tight.stats.chat.dropped, 0);
@@ -5547,8 +5510,8 @@ test('attitudes: a tight budget drops the block whole, after the chat and the pe
 });
 
 test('attitudes: a block over context.caps.attitudes is dropped whole', () => {
-  const roomy = buildRequest(attitudesScene({ attitudes: 6 }));
-  const capped = buildRequest(attitudesScene({ attitudes: 6, caps: { attitudes: roomy.stats.attitudes.used - 1 } }));
+  const roomy = buildRequest(attitudesScene());
+  const capped = buildRequest(attitudesScene({ caps: { attitudes: roomy.stats.attitudes.used - 1 } }));
   assert.equal(attitudesOf(capped), null);
   assert.deepEqual([capped.stats.attitudes.kept, capped.stats.attitudes.dropped], [0, 1]);
 });
@@ -5726,7 +5689,7 @@ test('buildRequest: an owner pause 10:00-10:20 is one line under the lead inside
   assert.equal(holder.cacheSegment, undefined);
 });
 
-test('buildRequest: a stopped period reads offStopped; none, or the switch off, leaves <now> bare', () => {
+test('buildRequest: a stopped period reads offStopped; none leaves <now> bare', () => {
   const from = NOW - 3 * 60 * MIN;
   const to = from + 5 * MIN;
   const stopped = nowBlockOf(buildRequest(baseInput({ offPeriods: [{ kind: 'stopped', from, to }] })));
@@ -5742,10 +5705,6 @@ test('buildRequest: a stopped period reads offStopped; none, or the switch off, 
   const bare = nowBlockOf(buildRequest(baseInput()));
   assert.equal(bare.split('\n').length, 1);
   assert.equal(nowBlockOf(buildRequest(baseInput({ offPeriods: [] }))), bare);
-  const off = buildRequest(
-    baseInput({ config: fakeConfig({ features: { offPeriods: false } }), offPeriods: [{ kind: 'stopped', from, to }] })
-  );
-  assert.equal(nowBlockOf(off), bare);
 });
 
 // --- renderProfile: the names people use and the real name -------------------------
@@ -6074,13 +6033,7 @@ test('buildRequest: skills -- the catalogue renders in the tail before <chat>: o
   assert.equal(blockTags(contentText(closed)).includes('skills'), false);
 });
 
-test('buildRequest: skills -- features.tools or features.toolsDiscovery false: no catalogue; no labels: no block', () => {
-  for (const features of [{ tools: false }, { toolsDiscovery: false }]) {
-    const text = contentText(
-      buildRequest(segmentScene({ config: fakeConfig({ features }), skillsInventory: SKILL_ROWS })).messages[1].content
-    );
-    assert.ok(!blockTags(text).includes('skills'), JSON.stringify(features));
-  }
+test('buildRequest: skills -- no labels: no block', () => {
   const prompts = fakePrompts({ labels: { ...labels, tools: undefined } });
   const bare = contentText(buildRequest(segmentScene({ prompts, skillsInventory: SKILL_ROWS })).messages[1].content);
   assert.ok(!blockTags(bare).includes('skills'));
@@ -6528,17 +6481,12 @@ test('buildRequest: people_now -- member text in an entry is one line per field,
   );
 });
 
-test('buildRequest: people_now -- no live fields with the switch off, no input, in a private chat or a diary post; the fields of memory stay', () => {
+test('buildRequest: people_now -- no live fields with no input, in a private chat or a diary post; the fields of memory stay', () => {
   const live = (request) => (peopleNowOf(request) ?? '').includes(`- ${F.voice}:`);
   assert.ok(live(buildRequest(aroundScene())), 'the control shows it');
   for (const [name, request] of Object.entries({
     'no input': buildRequest(aroundScene({ around: undefined })),
     'null input': buildRequest(aroundScene({ around: null })),
-    'features.around off': buildRequest(
-      aroundScene({
-        config: fakeConfig({ memory: { interestStaleDays: 30, confirmAfter: 2 }, features: { around: false } }),
-      })
-    ),
     'a private chat': buildRequest(aroundScene({ privateChat: { userId: 'author-1' } })),
   })) {
     assert.ok(!live(request), name);
@@ -6629,14 +6577,13 @@ test('buildRequest: people_now -- with no interlocutor and no live part, a parti
     ].join('\n\n')
   );
   assert.ok(request.stats.used <= request.stats.limit);
-  // Nothing current to say (relationships off, no live part): no entry, no block. Otherwise the
+  // Nobody to describe (no profile of the participant): no entry, no block. Otherwise the
   // lead is counted with <people> once an entry is shown; nothing reserved in the fixed part.
   const plain = buildRequest(
     baseInput({
-      config: fakeConfig({ features: { relationships: false } }),
       mode: 'interject',
       history: [makeMessage(2, NOW - MIN, { authorId: 'p2', authorName: 'Carl' })],
-      otherProfiles: [carl],
+      otherProfiles: [],
     })
   );
   assert.equal(peopleNowOf(plain), null);
