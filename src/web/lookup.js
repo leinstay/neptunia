@@ -10,12 +10,9 @@
 //   never a `SKIP_SITES` host, never a URL whose path ends
 //   with a picture/video/audio/archive/pdf extension) is fetched through the
 //   SSRF-guarded page fetcher (src/web/fetch-page.js; `web.acceptLanguage`
-//   sent as its Accept-Language) and condensed by the `analyzer` model role (purpose
-//   `read-link`) through prompts/read-link.md into one excerpt of at most
-//   `LINK_SUMMARY_CHARS`. With features.coreTools (read now) no model role condenses it:
-//   the excerpt is the opening of the page's own extracted text, cut at
-//   `LINK_PREVIEW_CHARS` -- what a link preview shows -- cached apart
-//   (`preview:<link id>`), no model request.
+//   sent as its Accept-Language). The excerpt is the opening of the page's own extracted
+//   text, cut at `LINK_PREVIEW_CHARS` -- what a link preview shows -- cached as
+//   `preview:<link id>`, no model request.
 // - search: one web search whose numbered results are condensed through
 //   prompts/search-summary.md, sources kept. `web.search.engine` picks the
 //   engine: `brave` (src/web/brave.js, needs BRAVE_SEARCH_API_KEY; the
@@ -41,14 +38,14 @@
 //   `web.links.readCacheHours`; a failure is not cached.
 //
 // Both share the media cache (data/guilds/<id>/media.json, LRU-trimmed to
-// `MEDIA_CACHE_ENTRIES` of src/web/cache.js): `read:<link id>` holds an excerpt `{ text, ts }` or a
+// `MEDIA_CACHE_ENTRIES` of src/web/cache.js): `preview:<link id>` holds an excerpt `{ text, ts }` or a
 // miss `{ miss, ts, reason }` skipped for 6 hours (never for a refusal by
 // `llm.maxRequestsPerDay`); `search:<sha1 prefix of the
 // normalized query>` holds `{ query, text, sources, ts }`, served while younger
 // than `web.search.cacheHours`. Every model call
 // goes through llm.complete (its token cap and daily request cap apply); once
-// that daily request cap is spent (llm.capLeft) no page is fetched for a
-// condensed read, no search that needs a request is sent and no web slot is taken.
+// that daily request cap is spent (llm.capLeft) no search that needs a request is
+// sent and no web slot is taken.
 // Logs carry reason codes, counts and `host/path` -- never page text, an
 // excerpt, a query or the key.
 
@@ -65,19 +62,15 @@ import { truncateText } from './readable.js';
 import { CODE } from '../tools/codes.ts';
 
 const READ_MISS_TTL_MS = 6 * 60 * MINUTE_MS;
-// An answer this short is the read-link prompt's "no real content" signal.
-const UNREADABLE_MAX_WORDS = 4;
 // Only when a web.* number is missing (config.json always has them).
 const SEARCH_CACHE_HOURS_FALLBACK = 24;
 const PAGE_CACHE_HOURS_FALLBACK = 6;
 // The reader's and the search's measures. Production values, config cut of 2026-10-31.
 /** The largest page fetched, in bytes. */
 const LINK_MAX_BYTES = 1500000;
-/** The characters of a page's text the condensing request reads. */
+/** The characters of a page's text kept from the fetch. */
 const LINK_TEXT_CHARS = 6000;
-/** The length of a link's condensed excerpt. */
-const LINK_SUMMARY_CHARS = 700;
-/** The length of a page's opening kept beside the excerpt. */
+/** The length of a link's excerpt, the opening of the page's text. */
 const LINK_PREVIEW_CHARS = 700;
 /** The length of a page read whole (`web.read`). */
 const PAGE_READ_CHARS = 4000;
@@ -161,7 +154,7 @@ function citationsOf(annotations) {
   return urlCitations(annotations).map(({ title, url }) => ({ title, url }));
 }
 
-/** The media cache key of a link's read: `preview:<id>` under previewOn, else `read:<id>`. */
+/** The media cache key of a link's read: `preview:<id>`. */
 function linkKey(config, link) {
   return `preview:${link.id}`;
 }
@@ -331,7 +324,6 @@ export function createLookup({ hot, store, llm, pageFetcher, searches = {}, keys
   async function fetchAndRead(guildId, link, key) {
     const config = hot.config;
     const linksCfg = config.web?.links ?? {};
-    const summaryChars = LINK_SUMMARY_CHARS;
     const location = safeLocation(link.url);
     const report = (outcome, reason = null, extra = {}) =>
       log.info('lookup: link', { state: outcome, reason, cached: false, location, ...extra });
@@ -341,13 +333,6 @@ export function createLookup({ hot, store, llm, pageFetcher, searches = {}, keys
       return { result: null, attempted: true };
     };
 
-    const preview = true;
-    // The condensing request would be refused: no fetch, no slot, no miss (a preview sends none).
-    if (!preview && capSpent()) {
-      report('limit', 'daily-cap');
-      return { result: null, attempted: false };
-    }
-
     const page = await pageFetcher.fetchText(link.url, {
       maxBytes: LINK_MAX_BYTES,
       timeoutMs: linksCfg.fetchTimeoutMs,
@@ -356,62 +341,15 @@ export function createLookup({ hot, store, llm, pageFetcher, searches = {}, keys
     });
     if (!page?.ok) return miss(page?.reason ?? 'network', page?.status !== undefined ? { status: page.status } : {});
 
-    const title = String(page.title || link.title || '').trim();
     const body = String(page.text ?? '').trim();
     if (!body) return miss('empty');
 
-    // A preview: the opening of the page's own text, no model request.
-    if (preview) {
-      const opening = cleanText(body, LINK_PREVIEW_CHARS);
-      if (!opening) return miss('empty');
-      putEntry(guildId, key, { text: opening, ts: now() });
-      report('read', null, { chars: opening.length, preview: true });
-      return { result: { text: opening }, attempted: true };
-    }
-
-    let completion;
-    try {
-      completion = await llm.complete(
-        [
-          {
-            role: 'system',
-            content: fillPromptTemplate(hot.prompts['read-link'], { maxChars: summaryChars, today: todayDate() }),
-          },
-          { role: 'user', content: title ? `${title}\n\n${body}` : body },
-        ],
-        {
-          model: roleModel(config, 'analyzer', 'read-link'),
-          ...roleRequestOptions(config, {
-            role: 'analyzer',
-            maxOutputTokens: linksCfg.maxOutputTokens,
-            purpose: 'read-link',
-            long: true,
-          }),
-        }
-      );
-    } catch (err) {
-      const reason = llmFailure(err);
-      const status = err?.statusCode !== undefined ? { status: err.statusCode } : {};
-      // A refusal by the daily request cap is not the page's fault: nothing is
-      // cached, so the link is read after the reset (the cap check above keeps
-      // it from being fetched again meanwhile).
-      if (reason === 'daily-cap') {
-        report('limit', reason, status);
-        return { result: null, attempted: true };
-      }
-      // Any other failure, the token-cap refusal included, is cached as a miss
-      // (skipped for 6 hours), so the page is not re-fetched and re-charged on
-      // every turn that sees the link.
-      return miss(reason, status);
-    }
-
-    const text = cleanText(completion.text, summaryChars);
-    if (!text) return miss('empty');
-    if (text.split(' ').length <= UNREADABLE_MAX_WORDS) return miss('unreadable');
-
-    putEntry(guildId, key, { text, ts: now() });
-    report('read', null, { chars: text.length });
-    return { result: { text }, attempted: true };
+    // The opening of the page's own text, no model request.
+    const opening = cleanText(body, LINK_PREVIEW_CHARS);
+    if (!opening) return miss('empty');
+    putEntry(guildId, key, { text: opening, ts: now() });
+    report('read', null, { chars: opening.length, preview: true });
+    return { result: { text: opening }, attempted: true };
   }
 
   /** One link read through the cache, with readLinks' accounting: `attempted` = a fetch was tried (or awaited in flight). */
@@ -436,11 +374,10 @@ export function createLookup({ hot, store, llm, pageFetcher, searches = {}, keys
 
   /**
    * Read up to `maxNew` NEW links of `links`, in the order given, each
-   * condensed into an excerpt (a preview under features.coreTools: previewOn) through the shared cache. Every fetch ATTEMPT
-   * counts toward `maxNew` (a failure included); cache hits and the daily cap
-   * are free; past `maxNew` the rest are only looked up in the cache. A link
+   * turned into an excerpt (the opening of the page's text) through the shared cache. Every fetch ATTEMPT
+   * counts toward `maxNew` (a failure included); cache hits are free; past `maxNew` the rest are only looked up in the cache. A link
    * listed twice is read once. A link is left out of `reads` when the feature
-   * is off, it is not readable, a fresh miss is cached, the daily cap is spent
+   * is off, it is not readable, a fresh miss is cached
    * or the read failed.
    * @param {string} guildId
    * @param {{ id: string, url: string, site?: string, title?: string, kind?: string }[]} links

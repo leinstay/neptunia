@@ -39,7 +39,6 @@ All instructions are English in both layers; a character's speech samples may be
 | `route-channel.md` | no | Classifier: does answering this message need the persona to see another channel. Receives a short transcript, a `<channels>` list and a `<candidate>` block. Output is ONE line: a number from the list, `<n> earlier` (the page before the last view of that channel) or `none`. With no previous view within 120 minutes (`PULL_DEFAULTS.seenTtlMinutes` in `src/behavior/pull.js`) the earlier form shows the newest page | `{{name}}` |
 | `participation-pick.md` | no | Classifier: which of the persona's stored exchanges on other channels the new message refers to. Receives a numbered `<episodes>` list first (the cache-stable part: oldest first, no ages, so a new episode appends a line), then `<episode_ages>` (`n | duration`, per call), a short `<transcript>` (own lines marked with `labels.self`) and a `<candidate>` block. Output is ONE line: up to 4 numbers from the list, comma-separated, most relevant first, or `none`. No character card. Without this file the newest episodes are shown | `{{name}}` |
 | `elsewhere.md` | no | Task: the persona read a channel where they cannot write and may comment on it in the main channel. Used as the task text for a noticed turn. `<skip/>` is the normal outcome | `{{name}}` `{{channel}}` `{{destination}}` |
-| `read-link.md` | no | Out-of-character prompt for the link reader: condense a fetched page into one paragraph. Receives the page title and body. The link reader of `src/web/lookup.js` never sends it: a posted link shows the opening of the page's text instead. No character card | `{{today}}` `{{maxChars}}` |
 | `search-summary.md` | no | Out-of-character prompt for the search condenser (`web.search.enabled`): condense numbered search results into one note with inline sources. Only for the diary's search; never for her own `web.search`, which returns the results raw. No character card | `{{today}}` `{{query}}` `{{maxChars}}` |
 | `private.md` | no | Appended after the mode prompt (`reply.md`), before `forced.md`, only in a DM (`private.enabled`). This is a private conversation: what is said here stays here; the persona keeps their public knowledge. A missing file adds nothing | `{{name}}` `{{author}}` |
 | `inner.md` | no | Task of an inner turn (mode `inner`; [Inner life](inner-life.md)): nobody wrote to the persona, she is awake for the reason in `<wake>`, the current channel comes from the cause of the wake (none on a review, a heartbeat or a wake with no place); her `<msg>`, `<gif>` and `<react>` and a `draw.create` call act in the current channel through the same gate as any turn, `<react>` needs its target, `message.create` is the way to post elsewhere or when there is none; the posting tools are among her tools; silence (`<skip/>`) is a valid answer. Missing or blank: the inner turn has no task text |
@@ -66,7 +65,7 @@ On a forced turn (a person's `message.create`), `forced.md` is appended after th
 On an `overheard` turn, `overheard.md` REPLACES the mode prompt (it is the task text, not an append). When `overheard.md` is missing or blank, the mode prompt is used instead (degraded: the mode prompt frames the line as said to the persona, which is not what happened).
 On the turn a finished errand opens without an origin message (trigger kind `errand`, no trigger), `errand-result.md` REPLACES the mode prompt (`interject.md`). When `errand-result.md` is missing or blank, `interject.md` is used (degraded: it tells the persona that skipping is the normal outcome). With an origin message the reply task text is used as before.
 In a private chat, `private.md` is appended after the mode prompt (before `forced.md`) with the same `{{name}}` and `{{author}}` placeholders.
-`describe.md`, `describe-video.md`, `describe-gif.md`, `avatar.md`, `draw.md`, `rewatch.md`, `rewatch-answer.md`, `address.md`, `lookup.md`, `read-link.md`, `search-summary.md`, `recall-summary.md`, `room.md`, `route-channel.md`, `participation-pick.md`, `planner.md` and `elsewhere.md` do not receive the card.
+`describe.md`, `describe-video.md`, `describe-gif.md`, `avatar.md`, `draw.md`, `rewatch.md`, `rewatch-answer.md`, `address.md`, `lookup.md`, `search-summary.md`, `recall-summary.md`, `room.md`, `route-channel.md`, `participation-pick.md`, `planner.md` and `elsewhere.md` do not receive the card.
 
 ## Blocks
 
@@ -184,9 +183,8 @@ A watched GIF is cached under the GIF's own `<itemId>` key (not `video:` prefixe
 
 Web lookup results are cached in the same `data/guilds/<id>/media.json` alongside video and picture entries:
 
-- Read link: `read:<link.id>` holds `{ text, ts }` (the condensed excerpt, permanent) or `{ miss, ts, reason }` (a miss skipped for 6 hours; reasons: `scheme`, `private`, `redirects`, `type`, `size`, `timeout`, `http`, `network`, `empty`, `unreadable`, `llm`). A `TokenLimitError` or `DailyCapError` is never cached.
 - Search: `search:<sha1 prefix of the normalised query, 16 hex>` holds `{ query, text, sources, ts }`, served while younger than `web.search.cacheHours` (default 24). An empty `text` means no results (renders `labels.lookup.none`). Failures are never cached.
-- A link preview, `preview:<link.id>`, holds `{ text, ts }`, the opening of the page's own extracted text cut at 700 characters (`src/web/lookup.js#LINK_PREVIEW_CHARS`), no model request; misses as for `read:`. It renders through `transcript.linkRead` like a condensed excerpt.
+- Read link: `preview:<link.id>` holds `{ text, ts }`, the opening of the page's own extracted text cut at 700 characters (`src/web/lookup.js#LINK_PREVIEW_CHARS`), no model request, or `{ miss, ts, reason }` (a miss skipped for 6 hours; reasons: `scheme`, `private`, `redirects`, `type`, `size`, `timeout`, `http`, `network`, `empty`). It renders through `transcript.linkRead`.
 - Her raw search (`web.search`): `results:<sha1 prefix of the normalised query, 16 hex>` holds `{ query, results: [{ title, url, site, snippet, age? }], ts }`, served while younger than `web.search.cacheHours`. Failures are never cached.
 - Her page read (`web.read`): `page:<sha1 prefix of the url as given, 16 hex>` holds `{ url, title, text, cut, ts }` (the url after redirects, the text cut at 4,000 characters, `src/tools/tools.ts#READ_CHARS`), served while younger than `web.links.readCacheHours` (default 6). Failures are never cached.
 
@@ -1416,7 +1414,7 @@ Each request purpose maps to a role (`src/llm/roles.js#PURPOSE_ROLES`). The memo
 
 | Purpose | Role |
 |---|---|
-| `address`, `room`, `merge`, `route-channel`, `participation-pick`, `rewatch`, `split`, `gif-pick`, `missed`, `lookup`, `planner`, `recall-summary`, `search-summary`, `read-link`, `diary-plan`, `speech`, `web-search` | `analyzer` |
+| `address`, `room`, `merge`, `route-channel`, `participation-pick`, `rewatch`, `split`, `gif-pick`, `missed`, `lookup`, `planner`, `recall-summary`, `search-summary`, `diary-plan`, `speech`, `web-search` | `analyzer` |
 | `reply` | `core` |
 | `describe`, `relook`, `avatar` | `vision` |
 | `recall-query`, `probe` | `embedding` |

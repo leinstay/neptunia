@@ -218,7 +218,7 @@ const ANALYZER_TIMEOUT_MS_FALLBACK = 30000;
  * @param {string} [request.role]             The model role, `analyzer` say (see `complete`).
  * @param {number} [request.maxOutputTokens]  Undefined leaves `llm.maxOutputTokens` in charge.
  * @param {string} [request.purpose]          What the request is for, a kebab-case code for the
- *   `llm: usage` line (`address`, `rewatch`, `lookup`, `read-link`, `search-summary`, `route-channel`,
+ *   `llm: usage` line (`address`, `rewatch`, `lookup`, `search-summary`, `route-channel`,
  *   `describe`); never sent.
  * @param {AbortSignal} [request.signal]      The caller's own abort signal, if it has one.
  * @param {number} [request.timeoutMs]        A request with a clock of its own; else
@@ -1167,7 +1167,7 @@ export function createLlm({
    * in charge. Exists for the reply of a turn with a bar (`pace.replyHedgeMs`): a provider stall
    * must not let a direct call pass its bar unanswered.
    * `options.purpose` — what the request is for, a kebab-case code (`reply`,
-   * `address`, `rewatch`, `lookup`, `read-link`,
+   * `address`, `rewatch`, `lookup`,
    * `search-summary`, `describe`, ...): the requests that share one model role are told
    * apart by it in the journal.
    * `options.origin` — where the request comes from when it is not live chat

@@ -14,7 +14,7 @@
 // - `analyzer`   the core's classifier model: picks one of a few given options (address, room,
 //                merge, route-channel, participation-pick, rewatch, split, gif-pick, missed),
 //                plans a search and turns sources into notes (lookup, recall-summary,
-//                search-summary, read-link, diary-plan) and runs the persona's raw web search
+//                search-summary, diary-plan) and runs the persona's raw web search
 //                on the OpenRouter engine (web-search);
 // - `vision`     describes a picture (describe, relook, avatar);
 // - `video`      watches a video and looks at it again;
@@ -160,7 +160,6 @@ export const PURPOSE_ROLES = Object.freeze({
   lookup: 'analyzer',
   'recall-summary': 'analyzer',
   'search-summary': 'analyzer',
-  'read-link': 'analyzer',
   'diary-plan': 'analyzer',
   speech: 'analyzer',
   'web-search': 'analyzer',
