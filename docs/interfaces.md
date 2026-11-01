@@ -2,7 +2,7 @@
 
 The engine talks to people through an interface adapter. The adapter translates between a chat platform and the engine's own protocol: plain serialisable objects with opaque string ids. The engine never imports a platform library. Today one adapter exists (Discord). A second one, the fake adapter, stands in for tests.
 
-The protocol lives in `src/protocol/`. The port contract lives in `src/interface/port.js`, which re-exports the outbound half of the protocol. The event door, the single entry for all inbound events, lives in `src/interface/door.js`. The link that carries both between the core and an adapter is described in [the link](#the-link).
+The protocol lives in `src/protocol/`. The port contract lives in `src/interface/port.ts`, which re-exports the outbound half of the protocol. The event door, the single entry for all inbound events, lives in `src/interface/door.ts`. The link that carries both between the core and an adapter is described in [the link](#the-link).
 
 ## The protocol
 
@@ -171,7 +171,7 @@ Validation checks shapes only: known kinds, required keys, string ids, finite nu
 
 ## The event door
 
-All inbound events enter the core through one door (`src/interface/door.js`). The door validates an event with `validateEvent`, checks its id against those already handled, and hands it to the handler registered for its kind.
+All inbound events enter the core through one door (`src/interface/door.ts`). The door validates an event with `validateEvent`, checks its id against those already handled, and hands it to the handler registered for its kind.
 
 - An id the door has seen returns `duplicate`. The handler does not run again.
 - An id whose handler threw returns `failed`. The id is not remembered, so a redelivery gets another try.
@@ -188,7 +188,7 @@ An envelope travels as one line of JSON ending in a newline. `encodeEnvelope` an
 
 ### The typing lease
 
-The typing indicator is held as a lease (`src/interface/typing.js`). The turn starts it; the lease refreshes the platform's indicator on a timer until the turn stops it. If the turn hangs or a code path forgets, the lease expires on its own after 5 minutes (`TYPING_LEASE_MS`).
+The typing indicator is held as a lease (`src/interface/typing.ts`). The turn starts it; the lease refreshes the platform's indicator on a timer until the turn stops it. If the turn hangs or a code path forgets, the lease expires on its own after 5 minutes (`TYPING_LEASE_MS`).
 
 ## The link
 
@@ -256,7 +256,7 @@ The core calls `open()` once its door has its handlers, because the door answers
 
 A failed startup check, such as a private directory that does not exist, a missing key, a required prompt or a second core (see [One core at a time](#one-core-at-a-time)), rejects with a one-line error and never exits the process. `stop()` ends the timers, the stores, the memory database, the interface and the link, removes the socket file and the memory database's lock file, and runs once however often it is called.
 
-`src/index.js` is the entry. It reads the paths and the private directory's `.env`, and `interfaceMode` (`src/interface/mode.ts`) reads `interfaces.mode`. With `inprocess` it loads `interfaces/discord/index.js` by path and calls `startCore` with the Discord token wrapped into the interface's `env`. With `units` it calls `startCore` with no interface and reads no Discord token. Either way it handles `SIGINT`, `SIGTERM` and `unhandledRejection`, turns a rejected start into the exit code, and exits after `stop()`. Neither `src/index.js` nor `src/core.js` imports `discord.js` or `interfaces/`, and `structure.json` enforces it.
+`src/index.js` is the entry. It reads the paths and the private directory's `.env`, and `interfaceMode` (`src/interface/mode.ts`) reads `interfaces.mode`. With `inprocess` it loads `interfaces/discord/index.ts` by path and calls `startCore` with the Discord token wrapped into the interface's `env`. With `units` it calls `startCore` with no interface and reads no Discord token. Either way it handles `SIGINT`, `SIGTERM` and `unhandledRejection`, turns a rejected start into the exit code, and exits after `stop()`. Neither `src/index.js` nor `src/core.js` imports `discord.js` or `interfaces/`, and `structure.json` enforces it.
 ### Interfaces as units
 
 With `interfaces.mode: units` each interface runs in a process of its own, `neptunia interface run <name> [--interfaces-dir <dir>]` (`bin/neptunia.ts`, the `bin` of `package.json`), which `deploy/neptunia-interface@.service` starts. The runner loads `<dir>/<name>/index.ts`, else `index.js`, from `interfaces/` in the checkout unless `--interfaces-dir` names another folder. It reads the client's token from `$NEPTUNIA_PRIVATE_DIR/clients/<name>.token`, which `tools/client-token.mjs add <name> --kind interface --iface <iface>` writes, connects to `$NEPTUNIA_DATA_DIR/run/core.sock` and calls the package's `start(host)`. The host's `dataDir` is `<data directory>/interfaces/<name>`. Its `env` is the process environment, so the unit's environment file carries the platform token. Its `config()` is `config/config.json`, then the package's own `config.json`, then `config.local/config.json` and `config.local/interfaces/<name>.json` when the unit's user can read them, read again whenever one of the files changes. The runner needs no `.env`. Then it calls `open()`.
@@ -293,7 +293,7 @@ At most 256 actions wait for an answer. A call past that answers `failed` with t
 
 ### What crosses
 
-Only plain data crosses the socket, that is events, results and attachments, whose bytes travel as base64. A discord.js object, a platform error or a handle never does. A read of a conversation, a message or a member crosses as the data of its answer. The live glance at voice and presence crosses as the events `voice.changed`, `presence.changed`, `presence.snapshot` and `connection.changed`. `interfaces/discord/around.js` builds them from discord.js objects and the core's around store in `src/behavior/around-store.ts` keeps what they report for the `<people_now>` block.
+Only plain data crosses the socket, that is events, results and attachments, whose bytes travel as base64. A discord.js object, a platform error or a handle never does. A read of a conversation, a message or a member crosses as the data of its answer. The live glance at voice and presence crosses as the events `voice.changed`, `presence.changed`, `presence.snapshot` and `connection.changed`. `interfaces/discord/around.ts` builds them from discord.js objects and the core's around store in `src/behavior/around-store.ts` keeps what they report for the `<people_now>` block.
 
 ## Conversations and memory scope
 
@@ -303,7 +303,7 @@ Observations from a community channel are scoped to the community (`group`). Obs
 
 ## The Discord adapter
 
-The Discord adapter lives in `interfaces/discord/` as the npm workspace package `@neptunia/interface-discord`. It depends on discord.js 14 and is the only place in the project that imports it. The entry loads it by path, and the tests and tools import `interfaces/discord/index.js`.
+The Discord adapter lives in `interfaces/discord/` as the npm workspace package `@neptunia/interface-discord`. It depends on discord.js 14 and is the only place in the project that imports it. The entry loads it by path, and the tests and tools import `interfaces/discord/index.ts`.
 
 ### What it maps
 
@@ -326,7 +326,7 @@ Besides the port, `createDiscordInterface` returns a frozen capabilities object:
 - Emoji: the server's custom emoji index.
 - Audience: warming the member cache for the audience rail.
 
-The core reaches none of them. Everything it asks of the platform goes through the reads and the port, and a test or a tool hands in a fake adapter (`src/interface/fake.js`).
+The core reaches none of them. Everything it asks of the platform goes through the reads and the port, and a test or a tool hands in a fake adapter (`src/interface/fake.ts`).
 
 The conversation reads of the table above are answered by `interfaces/discord/reads.ts`, which `createDiscordAdapter` adds to its port. The turn, the pipeline and the wake modules take only those reads and the port: the conversations of the community, their permissions, audiences and viewers, the history, the members and the reactors come from the adapter, and the core keeps who reacted to the persona's messages in its own store (`src/behavior/reactor-store.ts`), fed by `reaction.changed`.
 
@@ -352,7 +352,7 @@ The two privileged intents are controlled by `discord.intents.presences` (defaul
 
 Discord allows 2000 characters per message, 10 files per message and 10 MiB per file (on a server without boosts). The adapter declares these as `maxChars`, `maxFiles` and `maxFileBytes`, and the jump-link forms as `messageUrl`.
 
-A send with an `idempotencyKey` gives each part a message nonce, the first 25 hex characters of the SHA-256 of the key and the part's index (`nonceOf` in `interfaces/discord/port.js`), and sets `enforceNonce`, so Discord answers a repeat of the same part within its window with the message already posted. People never see a nonce. Discord gives it back on the bot's own message in the gateway's message create event and in the answer to the send, never on a message read later. The adapter keeps the nonces of the messages it posted in this process, the newest 2,000, and declares `reconcile`, so `fetchMessages` with a key finds a send whose answer was lost. A send from before the interface started is not found and stays `unknown`.
+A send with an `idempotencyKey` gives each part a message nonce, the first 25 hex characters of the SHA-256 of the key and the part's index (`nonceOf` in `interfaces/discord/port.ts`), and sets `enforceNonce`, so Discord answers a repeat of the same part within its window with the message already posted. People never see a nonce. Discord gives it back on the bot's own message in the gateway's message create event and in the answer to the send, never on a message read later. The adapter keeps the nonces of the messages it posted in this process, the newest 2,000, and declares `reconcile`, so `fetchMessages` with a key finds a send whose answer was lost. A send from before the interface started is not found and stays `unknown`.
 
 Discord errors map to result statuses:
 
@@ -372,7 +372,7 @@ One instance serves exactly one Discord server. The guild is resolved from `bot.
 
 ## The fake adapter
 
-`src/interface/fake.js` is an in-memory adapter for tests. It keeps conversations and messages in memory, records every call in order (`calls`), and lets a test queue results for any operation (`failNext`). It validates every outbound action through `validateAction`, so a test driving the persona through the fake also proves she only asks for well-formed actions. A send keeps its `idempotencyKey` on each part it posted, and `fetchMessages` with that key answers them. The fake declares `reconcile` only when its `capabilities` option says so.
+`src/interface/fake.ts` is an in-memory adapter for tests. It keeps conversations and messages in memory, records every call in order (`calls`), and lets a test queue results for any operation (`failNext`). It validates every outbound action through `validateAction`, so a test driving the persona through the fake also proves she only asks for well-formed actions. A send keeps its `idempotencyKey` on each part it posted, and `fetchMessages` with that key answers them. The fake declares `reconcile` only when its `capabilities` option says so.
 
 The fake answers every read from what a test seeds: `seedConversation(info)` gives a conversation with its permissions, audience and viewers, `seedEvent(event)` puts a whole message into a conversation's history, `seedMember`, `seedGroups`, `seedEmoji` and `seedReactors` give the members, groups, emoji and reactors a read returns, and `removeConversation` takes a conversation away. The `reads` option limits which reads the fake declares, and `showSendsInHistory(false)` keeps the persona's own sends out of the history it serves.
 
@@ -390,7 +390,7 @@ To wire up a new chat platform:
 
 2. Implement the port. Your adapter exports an object with `iface` (a unique namespace string), the six effect methods (`send`, `edit`, `delete`, `react`, `unreact`, `typing`), the ten reads of the table above, `capabilities()` with the `reads` it answers, and the three declared hooks (`onMessage`, `onEdit`, `onDelete`). Every method resolves a `PortResult` and never rejects. Every reference your adapter builds uses your `iface`.
 
-3. Build protocol events from your platform's gateway events. Each event must match the shapes in `src/protocol/events.js` and pass `validateEvent`. Conversations, messages, authors and addressing must be filled from your platform's data with opaque string ids namespaced by your `iface`.
+3. Build protocol events from your platform's gateway events. Each event must match the shapes in `src/protocol/events.ts` and pass `validateEvent`. Conversations, messages, authors and addressing must be filled from your platform's data with opaque string ids namespaced by your `iface`.
 
 4. Export `start(host)` from the package's entry file. It builds the platform client, serves the adapter with `serveAdapter` over `host.connect()`, subscribes to the platform's events, builds protocol events from them and sends each through `emit`. It holds the events until `open()` is called. The entry loads the package with a dynamic `import()` and passes `start` to `startCore`, which injects the link's adapter into the engine's modules.
 

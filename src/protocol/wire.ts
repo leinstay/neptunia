@@ -5,12 +5,12 @@
 // (src/interface/socket.ts) reuses the same reader, so a test over the loopback checks the bytes the
 // socket carries. A transport reports its end through `onClose` with a reason: `frame-too-large` when a
 // line passes the cap, `closed` when this side closed, `peer-closed` when the other side did, `error` otherwise.
-// The decoder checks the frame of an envelope and not its body (envelope.js#validateFrame): an envelope with
+// The decoder checks the frame of an envelope and not its body (envelope.ts#validateFrame): an envelope with
 // a bad body reaches the receiver, which answers it `invalid` and keeps the link open.
 
 import net from 'node:net';
-import type { envelope } from './envelope.js';
-import { validateFrame } from './envelope.js';
+import type { envelope } from './envelope.ts';
+import { validateFrame } from './envelope.ts';
 
 export type Envelope = ReturnType<typeof envelope>;
 

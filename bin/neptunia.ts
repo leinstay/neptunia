@@ -39,8 +39,8 @@
 // key or token value is ever printed.
 //
 // `errand-runner` reads config.json and, when its user can read it, the local layer's config.local.json, takes the socket and the output folder
-// from `agents.<name>.socket` and `.out` (src/agent-runner/profiles.js#agentSettings), and serves the agent's tasks
-// (src/agent-runner/server.js). On SIGTERM it ends open tasks and exits 0.
+// from `agents.<name>.socket` and `.out` (src/agent-runner/profiles.ts#agentSettings), and serves the agent's tasks
+// (src/agent-runner/server.ts). On SIGTERM it ends open tasks and exits 0.
 //
 // `interface run` loads `<dir>/<name>/index.ts` or `index.js` (the default dir is the checkout's `interfaces/`), reads
 // the client's token from `<private>/clients/<name>.token`, connects to the core's socket and calls the package's
@@ -69,10 +69,11 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
-import { createRunnerServer } from '../src/agent-runner/server.js';
-import { DEFAULT_OPENCODE_PATH, createOpencodeRunner } from '../src/agent-runner/opencode.js';
-import { agentSettings, profileOf } from '../src/agent-runner/profiles.js';
-import { startSweeper } from '../src/agent-runner/sweep.js';
+import { createRunnerServer } from '../src/agent-runner/server.ts';
+import { DEFAULT_OPENCODE_PATH, createOpencodeRunner } from '../src/agent-runner/opencode.ts';
+import { agentSettings, profileOf } from '../src/agent-runner/profiles.ts';
+import type { RunnerTask } from '../src/agent-runner/protocol.ts';
+import { startSweeper } from '../src/agent-runner/sweep.ts';
 import { ROOT_DIR, deepMerge, parseEnv, readConfig, resolveEnvRefs } from '../src/config.js';
 import { moveConfigKeys } from '../src/config-moves.ts';
 import { checkConfig as checkSettings } from '../src/config/check.ts';
@@ -90,8 +91,8 @@ import { CONFIG_SCHEMA } from '../src/config/schema.ts';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
-import { BASE_ROLES, MEMORY_ROLE } from '../src/llm/roles.js';
-import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../src/llm/openrouter.js';
+import { BASE_ROLES, MEMORY_ROLE } from '../src/llm/roles.ts';
+import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../src/llm/openrouter.ts';
 import { log, logToStderr } from '../src/log.js';
 import { resolvePaths } from '../src/paths.js';
 import type {
@@ -883,14 +884,10 @@ function profileFlag(argv: ReadonlyArray<string>): string {
   return name;
 }
 
-// The runner's modules are JavaScript: their results are read through the fields named here.
-type RunnerSettings = { socket?: unknown; out?: unknown; limits?: Settings; cost?: unknown; searchProvider?: unknown };
-type Task = Settings & { id?: unknown; limits?: Settings; model?: unknown; cost?: unknown; searchProvider?: unknown };
-
 async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
   const name = profileFlag(argv);
   const where = paths();
-  const profile = profileOf(name) as (Settings & { defaultLimits?: Settings }) | null;
+  const profile = profileOf(name);
   if (profile === null) die(`unknown profile: ${name} (expected scout or server)`);
   // config/config.json, then the private settings file when this user can read it: the runner's user may not read the
   // local layer.
@@ -899,9 +896,9 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
   const read = (): Settings => files.read();
   let config = read();
   const errands = isObject(config.errands) ? config.errands : {};
-  const settings = (agentSettings(name, config) ?? {}) as RunnerSettings;
-  const socketPath = typeof settings.socket === 'string' ? settings.socket : '';
-  const outDir = typeof settings.out === 'string' ? settings.out : '';
+  const settings = agentSettings(name, config);
+  const socketPath = typeof settings?.socket === 'string' ? settings.socket : '';
+  const outDir = typeof settings?.out === 'string' ? settings.out : '';
   if (socketPath === '') die(`no socket for ${name}: set agents.${name}.socket`);
   if (outDir === '') die(`no output folder for ${name}: set agents.${name}.out`);
   const opencodePath = typeof errands.opencodePath === 'string' ? errands.opencodePath : DEFAULT_OPENCODE_PATH;
@@ -921,28 +918,27 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
   const engine = createOpencodeRunner({
     profile,
     outDir,
-    env: process.env as Record<string, string>,
+    env: process.env,
     opencodePath,
     getConfig: currentConfig,
-  }) as { checkPrompt(): void; run(task: Task): Promise<unknown> };
+  });
   try {
     engine.checkPrompt();
   } catch (err) {
     die((err as Error).message);
   }
   const limitsDefault = {
-    ...(profile.defaultLimits ?? {}),
-    ...(settings.limits ?? {}),
+    ...profile.defaultLimits,
+    ...settings?.limits,
     toolResultChars: errands.toolResultChars,
   };
   const runner = {
-    run: (task: Task): Promise<unknown> =>
+    run: (task: RunnerTask) =>
       engine.run({
         ...task,
-        limits: { ...limitsDefault, ...(task.limits ?? {}) },
-        model: task.model,
-        cost: task.cost ?? settings.cost,
-        searchProvider: task.searchProvider ?? settings.searchProvider,
+        limits: { ...limitsDefault, ...task.limits },
+        cost: task.cost ?? settings?.cost,
+        searchProvider: task.searchProvider ?? settings?.searchProvider,
       }),
   };
   const server = createRunnerServer({ profile: name, runner, socketPath }) as {

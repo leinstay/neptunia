@@ -6,10 +6,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as sandbox from '../src/behavior/sandbox.js';
-import { fetchHistoryWindow } from '../interfaces/discord/index.js';
+import { fetchHistoryWindow } from '../interfaces/discord/index.ts';
 import { formatTranscript } from '../src/format.js';
-import { videoUrlCacheKey } from '../src/media/video-sites.js';
-import { createCalibrator } from '../src/llm/tokens.js';
+import { videoUrlCacheKey } from '../src/media/video-sites.ts';
+import { createCalibrator } from '../src/llm/tokens.ts';
 import { fill } from '../src/format.js';
 import { buildRequest } from '../src/behavior/prompt.js';
 import { handleOf } from '../src/behavior/handles.js';
@@ -36,7 +36,7 @@ const ALICE = '111111111111111111';
 const BRUNO = '222222222222222222';
 const CHANNEL = { id: '500000000000000001', name: 'general', category: 'Talk', topic: null };
 
-/** A moment as normalized channel messages (interfaces/discord/collect.js#normalizeMessage), oldest first:
+/** A moment as normalized channel messages (interfaces/discord/collect.ts#normalizeMessage), oldest first:
  * one `[authorId, authorName, text, minutesBefore]` per line, the last one the trigger. */
 function moment(lines) {
   const base = {

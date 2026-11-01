@@ -1,6 +1,6 @@
 // The GIF library: pure collection/ranking (src/memory/gifs.js), its storage
 // in gifs.json (src/memory/store.js), the live pipeline that feeds it
-// (src/memory/update.js#observe), the <gif> tag (src/llm/parse.js) and the
+// (src/memory/update.js#observe), the <gif> tag (src/llm/parse.ts) and the
 // poster (src/behavior/turn.js).
 
 import { test } from 'node:test';
@@ -20,7 +20,7 @@ import {
 } from '../src/memory/gifs.js';
 import { createStore } from '../src/memory/store.js';
 import { createMemoryUpdater } from '../src/memory/update.js';
-import { parseOutput } from '../src/llm/parse.js';
+import { parseOutput } from '../src/llm/parse.ts';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { labels } from './fixtures/labels.js';

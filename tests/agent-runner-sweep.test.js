@@ -1,4 +1,4 @@
-// Tests for src/agent-runner/sweep.js: the runner deletes task directories under its out dir
+// Tests for src/agent-runner/sweep.ts: the runner deletes task directories under its out dir
 // whose newest entry is older than errands.keepFilesHours, never a live task's, never a name that
 // is not a task id; a nested fresh file keeps its directory; a missing out dir is an empty
 // sweep; the sweeper logs one line of counts per sweep, never a name.
@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { sweepOutputs, startSweeper, keepHoursOf, DEFAULT_KEEP_FILES_HOURS } from '../src/agent-runner/sweep.js';
+import { sweepOutputs, startSweeper, keepHoursOf, DEFAULT_KEEP_FILES_HOURS } from '../src/agent-runner/sweep.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
 

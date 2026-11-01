@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveGuild } from '../interfaces/discord/index.js';
+import { resolveGuild } from '../interfaces/discord/index.ts';
 
 test("resolveGuild: configured id present among the bot's guilds resolves to it", () => {
   const guilds = [

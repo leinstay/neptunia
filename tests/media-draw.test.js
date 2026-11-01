@@ -1,4 +1,4 @@
-// Drawing, the core's built-in ability (src/media/draw.js): the prompt builder, the direct
+// Drawing, the core's built-in ability (src/media/draw.ts): the prompt builder, the direct
 // generation (her scene verbatim, the avatar reference, the failure left as the image client threw
 // it) and the call sites: the turn's draw.create call, a diary set and `/nep draw`. The image
 // client stays the injected boundary: its calls are asserted byte for byte in
@@ -9,14 +9,14 @@ import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.j
 import { createAdmin } from '../src/admin.js';
 import '../src/tools/impl/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
-import { familyOf } from '../src/llm/images.js';
+import { familyOf } from '../src/llm/images.ts';
 import { onWorld, world } from './fixtures/turn-world.ts';
 import { labels as baseLabels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { publishTo } from './fixtures/diary-mirror.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
-import { drawPicture, drawPromptOf } from '../src/media/draw.js';
-import { ImageGenError, UnsupportedImageModelError } from '../src/llm/images.js';
+import { drawPicture, drawPromptOf } from '../src/media/draw.ts';
+import { ImageGenError, UnsupportedImageModelError } from '../src/llm/images.ts';
 
 const createTurnRunner = onWorld(createRealTurnRunner);
 
@@ -298,7 +298,7 @@ test("draw.create from a member's mention: the picture is charged to the member"
 });
 
 test("draw.create operation quotes the message it replies to, in that message's channel (a link) and refuses a channel that disagrees", async () => {
-  const { createFakeAdapter } = await import('../src/interface/fake.js');
+  const { createFakeAdapter } = await import('../src/interface/fake.ts');
   const hotValue = hot();
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   port.seed('c1', { authorId: 'u1', messageId: 'm9', text: 'a lighthouse?' });

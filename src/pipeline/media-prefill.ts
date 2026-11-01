@@ -9,7 +9,7 @@ import {
   collectReadableLinks,
   collectVideos,
   isDescribable,
-} from '../media/classify.js';
+} from '../media/classify.ts';
 import type { formatTranscript } from '../format.js';
 import type { PipelineHot } from './types.ts';
 
@@ -140,7 +140,7 @@ export function createMediaPrefill({ hot, describer, lookup }: MediaPrefillConte
 
   /**
    * Fire-and-forget like warmMediaCache: read the message's first readable
-   * link now (src/web/lookup.js), not when a turn needs it.
+   * link now (src/web/lookup.ts), not when a turn needs it.
    */
   function warmLinkCache(guildId: string, normalized: MediaLine): void {
     if (typeof lookup?.readLinks !== 'function') return;

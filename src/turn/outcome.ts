@@ -7,7 +7,7 @@ import type { FactInput } from '../behavior/inner.ts';
 import { wakeInputs } from '../behavior/diary-turn.ts';
 import { portIface } from '../interface/capabilities.ts';
 import type { Reads } from '../interface/reads.ts';
-import { errorCodeOf } from '../llm/openrouter.js';
+import { errorCodeOf } from '../llm/openrouter.ts';
 import { log } from '../log.js';
 import type { ConversationRef } from '../protocol/adapter.ts';
 import type { Facts } from './facts.ts';

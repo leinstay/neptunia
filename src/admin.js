@@ -36,16 +36,16 @@ export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSumm
  *   a message (src/tools/impl/message.ts). The operations read it as `env.reads`.
  * `spontaneous` — the spontaneous scheduler: `force(conversation, mode)` and `status()`, the conversation as a
  *   reference `{ iface, conversationId }`.
- * `calibrator` — token calibrator (src/llm/tokens.js), read for `.ratio`.
+ * `calibrator` — token calibrator (src/llm/tokens.ts), read for `.ratio`.
  * `getGuildId` — the single guild this instance serves, or null before it resolves.
  * `turns` — from createTurnRunner() (src/behavior/turn.js), optional: `waitIdle()`, used by
  *   `bot.pause` to wait out a turn already in flight. Absent -> the wait is simply skipped.
  * `pending` — `{ clear() }`, optional: clears src/behavior/pipeline.js's pending-ping queue on pause.
  *   Absent -> nothing to clear.
- * `images` — from createImageGen() (src/llm/images.js), optional: `generate()` for `draw.create`,
+ * `images` — from createImageGen() (src/llm/images.ts), optional: `generate()` for `draw.create`,
  *   `quota()` and `familyOf()` for the image lines of `status.show` and `model.show`.
  *   Absent -> `draw.create` reports it is not available and `status.show` has no image lines.
- * `imageFetcher` — from createImageFetcher() (src/media/fetch-image.js), optional: downloads the
+ * `imageFetcher` — from createImageFetcher() (src/media/fetch-image.ts), optional: downloads the
  *   bot's avatar as the reference of a `draw.create` picture of herself. Absent -> no reference is sent.
  * `emojiBackfill` — from createEmojiBackfill() (src/memory/emoji-backfill.js), optional: `run` (with
  *   `force`, awaited by `media.rescan` for emoji) and `isRunning` (a note in `media.status`).
@@ -64,10 +64,10 @@ export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSumm
  *   `memory.journal.read`. Absent -> no records, and that read reports it is not available.
  *   `withWriterLock` holds the journal's, the record's and the archive's writes while
  *   `memory.snapshot` copies `data/`; absent, it runs without it.
- * `llm` — from createLlm() (src/llm/openrouter.js), optional: `complete()`, the probe the owner's
+ * `llm` — from createLlm() (src/llm/openrouter.ts), optional: `complete()`, the probe the owner's
  *   status card sends to each role's model, and `modelEndpoints()`, its free check of the
  *   drawing model. Absent -> the card names the models without probing them.
- * `embedder` — from createEmbedder() (src/llm/embed.js), optional: `embed()`, the one-input
+ * `embedder` — from createEmbedder() (src/llm/embed.ts), optional: `embed()`, the one-input
  *   embedding request the owner's status card probes the `embedding` role with.
  *   Absent -> that role is shown unchecked.
  * `embedQueue` — from src/memory/embedder.js#createEmbedder, optional: `catchUp(guildId)`, the
@@ -78,7 +78,7 @@ export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSumm
  *   record line says it is not available.
  * `metrics` — from src/tools/impl/metrics.ts#createMetrics, optional: `summary`, the owner card's speed
  *   field, and the turns of the last hour its storage line weighs. Absent -> no speed figures.
- * `lookup` — from src/web/lookup.js#createLookup, optional: `searchEngine` and `hasSearch`, the
+ * `lookup` — from src/web/lookup.ts#createLookup, optional: `searchEngine` and `hasSearch`, the
  *   `search:` line of the limits field. Absent -> no search line.
  * `describer` — from src/memory/describe.js#createDescriber, optional: its second look
  *   (`relookImage`, `rewatchVideo`, `rewatchGif`, `videoCapsLeft`) behind `media.look`.
@@ -90,7 +90,7 @@ export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSumm
  * `managementKey` — the optional management key (OPENROUTER_MANAGEMENT_KEY), a string: used only for
  *   the read-only activity GETs behind each key's last 7 and 30 days on the owner card. Absent -> the
  *   bot's own accumulator (the simulator key: its calendar week and month).
- * `port` — the persona's interface (src/interface/port.js), optional: what the `message.*`
+ * `port` — the persona's interface (src/interface/port.ts), optional: what the `message.*`
  *   operations and `draw.create` in another channel post through, as the persona. Absent -> those
  *   report they are not available.
  * `errands` — from createErrandService() (src/errands/service.ts), optional: what the `errand.*`

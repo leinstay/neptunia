@@ -19,7 +19,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { toolCallsOf } from '../../src/llm/openrouter.js';
+import { toolCallsOf } from '../../src/llm/openrouter.ts';
 
 export const ANSWERS_POLL_MS = 2000;
 export const ANSWERS_TIMEOUT_MIN = 20;

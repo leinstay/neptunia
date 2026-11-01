@@ -19,16 +19,16 @@ import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { handleOf } from '../src/behavior/handles.js';
-import { ImageGenError } from '../src/llm/images.js';
-import { DailyCapError, TokenLimitError } from '../src/llm/openrouter.js';
+import { ImageGenError } from '../src/llm/images.ts';
+import { DailyCapError, TokenLimitError } from '../src/llm/openrouter.ts';
 import { pingStatus } from '../src/behavior/elsewhere.ts';
 import { findGif } from '../src/memory/gifs.js';
 import { callMarksOf, createJournal } from '../src/memory/journal.js';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 import '../src/tools/impl/index.ts';
 import { loadSkills, skillRegistry } from '../src/tools/registry.ts';
 import { createAdmin } from '../src/admin.js';
-import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.js';
+import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.ts';
 import { createLocalFacts } from '../src/behavior/inner.ts';
 import { freshWorld, onWorld, world } from './fixtures/turn-world.ts';
 import { snapshotOf } from '../src/behavior/snapshot.ts';
@@ -408,7 +408,7 @@ function fakeClient(overrides = {}) {
   return { user: { id: 'self-id', username: 'Bot' }, ...overrides };
 }
 
-/** A fake createImageFetcher()-shaped dependency (see src/media/fetch-image.js). `result` may be
+/** A fake createImageFetcher()-shaped dependency (see src/media/fetch-image.ts). `result` may be
  * `null` (every download fails), a fixed success object, or `(url, options) => result|null`. */
 function fakeImageFetcher(
   result = { dataUrl: 'data:image/webp;base64,ZmFrZQ==', bytes: 4, contentType: 'image/webp' }
@@ -1524,7 +1524,7 @@ test('createTurnRunner: lookup -- a turn a returned errand opened runs no engine
 
 const DRAW_IMAGE_CFG = { maxPromptChars: 800, reference: 'avatar', referenceMaxBytes: 4_000_000 };
 
-/** A fake createImageGen()-shaped dependency (see src/llm/images.js). */
+/** A fake createImageGen()-shaped dependency (see src/llm/images.ts). */
 function fakeImages({ error = null, mediaType = 'image/png' } = {}) {
   const generateCalls = [];
   return {
@@ -7041,7 +7041,7 @@ function journalOverMemory() {
 
 /**
  * An LLM whose one answer reports provider usage: 700 completion tokens, 300 of the prompt cached.
- * Like the real client (src/llm/openrouter.js), it tells the request's `limits` collector the
+ * Like the real client (src/llm/openrouter.ts), it tells the request's `limits` collector the
  * completion reached its cap: the request's `maxOutputTokens`, else `defaultMax()`.
  */
 function usageLlm(text, defaultMax = () => Infinity) {

@@ -32,9 +32,9 @@ import { createRecall } from '../src/behavior/recall-run.js';
 import { toRecordLine } from '../src/memory/record.js';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createLookup } from '../src/web/lookup.js';
-import { createBraveSearch } from '../src/web/brave.js';
-import { createExaSearch } from '../src/web/exa.js';
+import { createLookup } from '../src/web/lookup.ts';
+import { createBraveSearch } from '../src/web/brave.ts';
+import { createExaSearch } from '../src/web/exa.ts';
 import { webSearchKeys, webSearchReady } from '../tools/recall-eval.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

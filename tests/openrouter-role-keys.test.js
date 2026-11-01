@@ -7,9 +7,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createLlm, keyHashOf, roleApiKey, roleKeyGroups } from '../src/llm/openrouter.js';
-import { createEmbedder } from '../src/llm/embed.js';
-import { OPENCODE_ROLES } from '../src/llm/roles.js';
+import { createLlm, keyHashOf, roleApiKey, roleKeyGroups } from '../src/llm/openrouter.ts';
+import { createEmbedder } from '../src/llm/embed.ts';
+import { OPENCODE_ROLES } from '../src/llm/roles.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

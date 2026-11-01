@@ -4,12 +4,12 @@
 // here as it would on the socket, and that can deliver an envelope the codec would have refused.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ackOf, encodeEnvelope, portAction } from '../src/protocol/index.js';
+import { ackOf, encodeEnvelope, portAction } from '../src/protocol/index.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
 import type { Hello } from '../src/protocol/serve.ts';
 import type { Capabilities } from '../src/protocol/adapter.ts';
 import type { Envelope, Transport } from '../src/protocol/wire.ts';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 
 type Log = {
   info(msg: string, meta?: unknown): void;

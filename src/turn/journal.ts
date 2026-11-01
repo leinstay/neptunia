@@ -44,7 +44,7 @@ export const NO_OP: Readonly<JournalOp> = Object.freeze({
   unknown: async () => {},
 });
 
-/** An interface port result (src/interface/port.js), as far as the turn reads it. */
+/** An interface port result (src/interface/port.ts), as far as the turn reads it. */
 export type PortResult =
   | {
       status?: string;
@@ -56,7 +56,7 @@ export type PortResult =
   | undefined;
 
 /**
- * How an interface port result that is not `ok` (src/interface/port.js) closes its journal
+ * How an interface port result that is not `ok` (src/interface/port.ts) closes its journal
  * operation: `unknown` (a network error, a timeout, a 5xx: it may have taken effect anyway) is
  * `unknown` -- the restart's reconciliation looks for a post; nothing is ever sent again --, any
  * other status is `failed` with the port's code (`http-<status>` for a platform's refusals).
@@ -66,14 +66,14 @@ export function closeResult(op: Pick<JournalOp, 'unknown' | 'failed'>, result: P
   return op.failed(result?.error?.code ?? result?.status ?? CODE.ERROR);
 }
 
-/** A parser's note on an answer (src/llm/parse.js `diagnostics`). */
+/** A parser's note on an answer (src/llm/parse.ts `diagnostics`). */
 type Diagnostic = Record<string, unknown> & { kind?: unknown };
 
 /** The part of a draft that keeps the parser's notes until a request carried them. */
 type DiagnosticsDraft = { diagnostics?: Array<Diagnostic & { told?: boolean }> };
 
 /**
- * What the parser left unsaid about an answer (src/llm/parse.js `diagnostics`), kept in the draft
+ * What the parser left unsaid about an answer (src/llm/parse.ts `diagnostics`), kept in the draft
  * until a request that carried it completed (`told`) or the turn ended and it became a fact. An
  * unclosed `<think>` counts only when the answer stopped on its own (`stop`): a cut-off one is the
  * cut-off's own business.
@@ -84,7 +84,7 @@ export function noteDiagnostics(
   completion: { finishReason?: string | null } | null | undefined
 ): void {
   if (!draft || !Array.isArray(parsed?.diagnostics)) return;
-  // The parser's diagnostics are records (src/llm/parse.js), each with its `kind`.
+  // The parser's diagnostics are records (src/llm/parse.ts), each with its `kind`.
   for (const diagnostic of parsed.diagnostics as Array<Diagnostic>) {
     if (diagnostic.kind === 'thinkUnclosed' && completion?.finishReason === 'length') continue;
     (draft.diagnostics ??= []).push({ ...diagnostic, told: false });

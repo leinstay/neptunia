@@ -1,4 +1,4 @@
-// Tests for src/agent-runner/opencode.js: one task driven by a FAKE OpenCode
+// Tests for src/agent-runner/opencode.ts: one task driven by a FAKE OpenCode
 // child (an injected spawn returning a controllable process that prints a
 // canned JSON event stream) -- a done task with summed usage and sources,
 // a costly step never stopping the child, cancel, the per-step refusal of a withheld
@@ -16,10 +16,10 @@ import { PassThrough } from 'node:stream';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { createOpencodeRunner } from '../src/agent-runner/opencode.js';
-import { SERVER, SCOUT, SCOUT_TOOLS_DIR } from '../src/agent-runner/profiles.js';
-import { WEB_SEARCH_MODEL_ENV } from '../src/web/web-search.js';
-import { ROLE_DEFAULTS } from '../src/llm/roles.js';
+import { createOpencodeRunner } from '../src/agent-runner/opencode.ts';
+import { SERVER, SCOUT, SCOUT_TOOLS_DIR } from '../src/agent-runner/profiles.ts';
+import { WEB_SEARCH_MODEL_ENV } from '../src/web/web-search.ts';
+import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
 

@@ -12,12 +12,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MessageReferenceType, PermissionFlagsBits } from 'discord.js';
 import { deepMerge } from '../src/config.js';
-import { DailyCapError } from '../src/llm/openrouter.js';
-import { ROLE_DEFAULTS } from '../src/llm/roles.js';
+import { DailyCapError } from '../src/llm/openrouter.ts';
+import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { createStore } from '../src/memory/store.js';
-import { normalizeMessage, normalizeOptions, toEvent } from '../interfaces/discord/index.js';
+import { normalizeMessage, normalizeOptions, toEvent } from '../interfaces/discord/index.ts';
 import { createActivity } from '../src/behavior/activity.js';
 import { tempDir } from './fixtures/tmp.js';
 import {
@@ -277,7 +277,7 @@ function makeHandler({
 
 /**
  * The handler driven as src/index.js drives it: each fake discord.js message (or update, or
- * deletion) becomes its protocol event (interfaces/discord/collect.js#toEvent) at the moment of the
+ * deletion) becomes its protocol event (interfaces/discord/collect.ts#toEvent) at the moment of the
  * call, with the options read from the live config then.
  */
 function asDiscordEvents(handler, hot, client, names = { self: 'Ζωή' }) {
@@ -350,7 +350,7 @@ function fakeAddressPrompts() {
   };
 }
 
-/** A controllable fake LLM client (src/llm/openrouter.js#createLlm shape): `respond(text)` resolves
+/** A controllable fake LLM client (src/llm/openrouter.ts#createLlm shape): `respond(text)` resolves
  * every currently-queued call, `fail(err)` rejects it instead -- lets a test hold a call open to
  * probe single-flight behaviour before letting it settle. */
 function fakeFollowUpLlm() {

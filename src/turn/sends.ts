@@ -23,7 +23,7 @@ export type SendsConfig = Record<string, unknown>;
 /** The labels a post's jump link is joined with (prompts.labels). */
 type SendsLabels = { elsewhere?: { link?: unknown } | null } | null | undefined;
 
-/** The interface port (src/interface/port.js), as a jump link names its interface. */
+/** The interface port (src/interface/port.ts), as a jump link names its interface. */
 type MirrorPort = Parameters<typeof messageLinkOf>[0];
 
 /** What createSends reads: the dependencies and the runner state the sends use. */

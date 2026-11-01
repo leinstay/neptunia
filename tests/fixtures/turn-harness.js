@@ -1,13 +1,13 @@
 // The harness of the turn tests that drive her tools: one mention by Alice (an owner) in #general answered by a
-// scripted fake model over a real admin and the fake interface adapter (src/interface/fake.js); no network,
+// scripted fake model over a real admin and the fake interface adapter (src/interface/fake.ts); no network,
 // no data/. An answer of the script is a string (speech only), a toolAnswer (tests/fixtures/tool-answers.js) or a
 // function of the request that builds one; the last one repeats.
 import { after } from 'node:test';
 import path from 'node:path';
 import { createTurnRunner as createRealTurnRunner } from '../../src/behavior/turn.js';
 import { userText } from '../../src/behavior/prompt.js';
-import { createFakeAdapter } from '../../src/interface/fake.js';
-import { createDiscordInterface } from '../../interfaces/discord/index.js';
+import { createFakeAdapter } from '../../src/interface/fake.ts';
+import { createDiscordInterface } from '../../interfaces/discord/index.ts';
 import { createJournal } from '../../src/memory/journal.js';
 import { createErrandStores } from '../../src/errands/store.ts';
 import { createErrandService } from '../../src/errands/service.ts';

@@ -14,7 +14,7 @@ import type { sceneLlm } from './diary-requests.ts';
 import { openTestMemory } from './memory-db/service.js';
 import { world } from './turn-world.ts';
 import { worldTurnRunner } from './world-runner.ts';
-import type { createFakeAdapter } from '../../src/interface/fake.js';
+import type { createFakeAdapter } from '../../src/interface/fake.ts';
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;

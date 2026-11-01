@@ -17,7 +17,7 @@ import { toRecordLine } from '../../memory/record.js';
 import { deliveriesIn, deliveryFiles, deliveryOf } from '../../memory/db/wake-queue.ts';
 import type { Delivery, DeliveryInput, DeliveryState } from '../../memory/db/wake-queue.ts';
 import type { Delivery as Sent, ConversationRef } from '../../protocol/adapter.ts';
-import type { Content } from '../../protocol/actions.js';
+import type { Content } from '../../protocol/actions.ts';
 import { createSendHold } from '../../tools/send-hold.ts';
 import type { HeldNote, SaidNote, SendHold } from '../../tools/send-hold.ts';
 import { errorCode, objOf } from '../../tools/types.ts';
@@ -90,7 +90,7 @@ function contentOf(life: InnerContext, delivery: Delivery): Content {
   const given = objOf(objOf(delivery.payload).content);
   const read = backendOf(life).read();
   const attachments = read ? deliveryFiles(read, life.dataDir, delivery) : [];
-  // The payload is what deliveriesOf recorded from a send's content (src/protocol/actions.js#Content).
+  // The payload is what deliveriesOf recorded from a send's content (src/protocol/actions.ts#Content).
   const replyTo = given.replyTo as Content['replyTo'] | null;
   const mentions = given.mentions as Content['mentions'] | null;
   return {

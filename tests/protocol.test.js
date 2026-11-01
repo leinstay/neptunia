@@ -1,4 +1,4 @@
-// Tests for src/protocol/ (through src/protocol/index.js): every
+// Tests for src/protocol/ (through src/protocol/index.ts): every
 // inbound event kind validated, malformed events and actions refused with a reason, every
 // outbound action validated, and the checks never throwing whatever they are given.
 import { test } from 'node:test';
@@ -23,8 +23,8 @@ import {
   validateAction,
   validateEnvelope,
   validateEvent,
-} from '../src/protocol/index.js';
-import * as port from '../src/interface/port.js';
+} from '../src/protocol/index.ts';
+import * as port from '../src/interface/port.ts';
 
 const conversation = { id: 'c1', kind: 'channel', communityId: 'g1', name: 'γενικά', topic: null, category: null };
 

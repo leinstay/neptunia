@@ -1,11 +1,11 @@
 // What a Discord embed is, as a media item of the message the package hands the core: a GIF (a GIF-picker post, a
 // tenor or giphy link, a pasted link to a GIF file on the Discord CDN) or a link with its thumbnail. Called by
-// collect.js#normalizeMessage for every embed of a message. Pure: no network, no discord.js import; it reads the plain
+// collect.ts#normalizeMessage for every embed of a message. Pure: no network, no discord.js import; it reads the plain
 // fields of an embed or a discord.js Embed's `data`.
 
-import { clipWithEllipsis, isGifHostUrl, positiveDimension, siteOf } from '../../src/media/classify.js';
-import { videoSiteFor } from '../../src/media/video-sites.js';
-import { DISCORD_CDN_HOSTS } from './media.js';
+import { clipWithEllipsis, isGifHostUrl, positiveDimension, siteOf } from '../../src/media/classify.ts';
+import { videoSiteFor } from '../../src/media/video-sites.ts';
+import { DISCORD_CDN_HOSTS } from './media.ts';
 
 /** The fields of an embed this module reads: a plain object, or a discord.js Embed with its raw `data`. */
 export type EmbedInput = {

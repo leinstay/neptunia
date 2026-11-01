@@ -1,10 +1,10 @@
-// Tests for src/web/brave.js: the Brave Search request (URL, query encoding,
+// Tests for src/web/brave.ts: the Brave Search request (URL, query encoding,
 // count cap, headers), result parsing with snippet cleaning, every
 // failure reason, and logs that carry a reason and a status only -- never the
 // query, never the key. fetch is a fake; nothing touches the network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createBraveSearch } from '../src/web/brave.js';
+import { createBraveSearch } from '../src/web/brave.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const KEY = 'test-key-abc123';

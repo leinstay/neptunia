@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createScheduler } from '../src/behavior/scheduler.ts';
 import type { Beat } from '../src/behavior/scheduler.ts';
-import { createEventDoor } from '../src/interface/door.js';
+import { createEventDoor } from '../src/interface/door.ts';
 
 type Entry = { at: number; fn: () => void; live: boolean; ms: number };
 type Logged = { msg: string; meta: unknown };

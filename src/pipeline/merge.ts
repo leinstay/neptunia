@@ -5,8 +5,8 @@
 
 import { SPAM_WINDOW_MS } from '../behavior/mention.js';
 import { authorCalls, foldInto, parseMergeAnswer } from '../behavior/pending.js';
-import { railReason, roleRequestOptions } from '../llm/openrouter.js';
-import { roleModel } from '../llm/roles.js';
+import { railReason, roleRequestOptions } from '../llm/openrouter.ts';
+import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.js';
 import { block, fillPromptTemplate } from '../turn/request/text.ts';
 import type { PendingQueueOps, PingKind } from './pending-queue.ts';

@@ -6,11 +6,11 @@
 // src/behavior/route.js; this module reads the live config and prompts, the
 // store's channel map and profiles, judges each listed channel with the pull
 // phase's own rails (src/behavior/pull-fetch.ts#checkPull over the turn's snapshot, no read) and
-// sends the one request through the rails of src/llm/openrouter.js.
+// sends the one request through the rails of src/llm/openrouter.ts.
 
 import { log } from '../log.js';
-import { roleRequestOptions, railReason } from '../llm/openrouter.js';
-import { roleModel } from '../llm/roles.js';
+import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
+import { roleModel } from '../llm/roles.ts';
 import { checkPull } from './pull-fetch.ts';
 import {
   buildRouteRequest,

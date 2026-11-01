@@ -20,7 +20,7 @@ import {
   USAGE_FILE,
   KEEP_DAYS,
 } from '../src/tools/impl/usage.ts';
-import { createLlm, keyHashOf } from '../src/llm/openrouter.js';
+import { createLlm, keyHashOf } from '../src/llm/openrouter.ts';
 import { tempDir } from './fixtures/tmp.js';
 
 const HOUR = 3_600_000;

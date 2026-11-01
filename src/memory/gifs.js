@@ -1,8 +1,8 @@
 // The GIF library the persona builds from the chat: every GIF a member posts
 // (a GIF embed -- a `gifv` one of any site, or a tenor/giphy/klipy page, see
-// src/media/classify.js#classifyEmbed -- or an attached .gif) is counted deterministically (no
+// src/media/classify.ts#classifyEmbed -- or an attached .gif) is counted deterministically (no
 // LLM) into data/guilds/<id>/gifs.json, and the persona can post one back by
-// its short handle (`<gif>g12</gif>`, see src/llm/parse.js and
+// its short handle (`<gif>g12</gif>`, see src/llm/parse.ts and
 // src/behavior/turn.js). An entry is keyed by the describer's item id of the
 // GIF, so its caption is found in the media cache under the same id; its
 // handle (`g<n>`, from `nextId`) never changes and is never reused. Rank is
@@ -21,7 +21,7 @@
 // attachment's address may expire).
 
 import { isPlainObject } from '../config.js';
-import { mediaParts } from '../media/classify.js';
+import { mediaParts } from '../media/classify.ts';
 import { sortByRank } from './ranking.js';
 
 // Production values, config cut of 2026-10-31.
@@ -123,14 +123,14 @@ export function normalizeGifs(value) {
 }
 
 /**
- * The GIFs of one normalized message (src/protocol/events.js#Message), the
+ * The GIFs of one normalized message (src/protocol/events.ts#Message), the
  * message's own first, then each forwarded snapshot's: every attachment of
  * kind `gif` (`key` = its platform id) and every embed link of kind `gif`
  * (`key` = its item id,
  * `url` = the page link the platform embeds again when posted). Items without an
  * id or a URL are skipped, and so is a gif embed of an expiring link (its
  * signed URL lapses, so it could not be posted back). Every item carries the OUTER message's id and
- * channel, like src/media/classify.js#collectPictures.
+ * channel, like src/media/classify.ts#collectPictures.
  * @param {object} message
  * @returns {{ key: string, kind: 'link'|'attachment', url: string, site?: string, name?: string,
  *   itemId: string, messageId: string, channelId: string }[]}

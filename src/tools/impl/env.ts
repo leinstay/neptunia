@@ -9,8 +9,8 @@ import path from 'node:path';
 import { moveConfigKeys } from '../../config-moves.ts';
 import { localConfigPath } from '../../config/files.ts';
 import { fromTokens } from '../../memory/mentions.ts';
-import { familyOf as imageFamilyOf } from '../../llm/images.js';
-import { roleModel } from '../../llm/roles.js';
+import { familyOf as imageFamilyOf } from '../../llm/images.ts';
+import { roleModel } from '../../llm/roles.ts';
 import { log } from '../../log.js';
 import { invalid } from './registry.ts';
 import { NO_GUILD, splitPath, setPath, ownValueAt, readLocalConfig, writeLocalConfig } from './shared.ts';
@@ -223,7 +223,7 @@ function buildEnv({
     return profile;
   }
 
-  /** The drawing model (`models.base.drawing`) for status and model show, `-` when unset, flagged when src/llm/images.js
+  /** The drawing model (`models.base.drawing`) for status and model show, `-` when unset, flagged when src/llm/images.ts
    * has no request mapping for its family (every generation would be refused). */
   function imageModelLabel(cfg: object): string {
     const model = roleModel(cfg, 'drawing');

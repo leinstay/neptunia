@@ -1,11 +1,11 @@
-// The conversation reads of the fake adapter (src/interface/fake.js): what a test seeds, answered the way an interface
+// The conversation reads of the fake adapter (src/interface/fake.ts): what a test seeds, answered the way an interface
 // answers it. The conversations, groups, members, custom emoji and reactors are held here; the messages are the fake's
 // own store, which this module reads. A read is recorded in `calls` under its method's name, checked as a protocol
 // action first (a malformed one is `failed` with `invalid-action`), refused `unsupported` when the fake does not offer
 // it, and answers a queued `failNext` result in place of doing it.
 
-import { portAction, validateAction } from '../protocol/index.js';
-import type { PortResult } from '../protocol/index.js';
+import { portAction, validateAction } from '../protocol/index.ts';
+import type { PortResult } from '../protocol/index.ts';
 import type {
   Adapter,
   ConversationInfo,
@@ -16,7 +16,7 @@ import type {
   MessageRef,
   PortError,
 } from '../protocol/adapter.ts';
-import { notOk, refRefusal } from './port.js';
+import { notOk, refRefusal } from './port.ts';
 import { CODE as CODES } from '../tools/codes.ts';
 
 const CODE: Record<string, string> = CODES;

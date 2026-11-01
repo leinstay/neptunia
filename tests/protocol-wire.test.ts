@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createLoopback, connectSocket, decodeEnvelope, encodeEnvelope, envelope } from '../src/protocol/index.js';
+import { createLoopback, connectSocket, decodeEnvelope, encodeEnvelope, envelope } from '../src/protocol/index.ts';
 import * as wire from '../src/protocol/wire.ts';
 
 type Env = ReturnType<typeof envelope>;

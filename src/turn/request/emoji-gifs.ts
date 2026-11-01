@@ -139,7 +139,7 @@ export function seenEmoji(messageSets: Array<Array<Message> | null | undefined>)
  * first call of the bucket computed; the first call of the next bucket (or
  * one with another signature) computes again and holds that. The reply's
  * stable part renders what memory changes through this (`<self_facts>`,
- * `<gifs>`), with `bucketMs` the cache TTL (src/llm/openrouter.js#cacheTtlMs):
+ * `<gifs>`), with `bucketMs` the cache TTL (src/llm/openrouter.ts#cacheTtlMs):
  * a memory batch or a GIF post then rewrites the cached prefix at most once
  * per TTL, and the persona sees the change at the next bucket edge. `signature`
  * names the settings the value is rendered with (labels, config), so an

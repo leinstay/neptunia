@@ -1,10 +1,10 @@
-// Tests for src/llm/embed.js: the embedding client's request shape, normalisation, retries, the
+// Tests for src/llm/embed.ts: the embedding client's request shape, normalisation, retries, the
 // two rails and the usage line. No network: fetchImpl is always a fake, the backoff sleep is injected.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createEmbedder, normalizeVector, EMBED_ROLE } from '../src/llm/embed.js';
-import { ROLE_DEFAULTS } from '../src/llm/roles.js';
-import { DailyCapError, NotByokError, TokenLimitError, llmCountToday } from '../src/llm/openrouter.js';
+import { createEmbedder, normalizeVector, EMBED_ROLE } from '../src/llm/embed.ts';
+import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
+import { DailyCapError, NotByokError, TokenLimitError, llmCountToday } from '../src/llm/openrouter.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const DAY = Date.UTC(2026, 9, 14, 12);

@@ -2,7 +2,7 @@
 // down when its model is switched off (`models.base.<role>: false`), when its key is missing, after a 401, 402 or
 // 404, after a 429 that says the daily limit is spent, or after three malformed answers in a row. One failed
 // request of another kind is not global. A failing role is retried on a backoff of 1, 5, 15 and then 60 minutes
-// and clears on its first success. The errors are shaped as src/llm/openrouter.js throws them (`statusCode`,
+// and clears on its first success. The errors are shaped as src/llm/openrouter.ts throws them (`statusCode`,
 // `body`); the clock is injected.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

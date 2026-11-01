@@ -1,6 +1,6 @@
-// The core's side of the errand agents' sockets (src/agent-runner/server.js): one Unix-socket
+// The core's side of the errand agents' sockets (src/agent-runner/server.ts): one Unix-socket
 // connection per agent profile (`scout`, `server`), opened on first use, speaking the JSON-lines
-// protocol of src/agent-runner/protocol.js. `run` sends one errand and resolves on its `end` event;
+// protocol of src/agent-runner/protocol.ts. `run` sends one errand and resolves on its `end` event;
 // `progress` events go to the `onProgress` listeners; `cancel` and `ping` are fire-and-answer.
 // Each outcome of the connect loop goes to the `onLink` listeners: `{ agent, up: true }` once a
 // connection opens, `{ agent, up: false, code }` when one fails (`code` the socket's error code)
@@ -23,9 +23,9 @@
 
 import net from 'node:net';
 import { log as defaultLog } from '../log.js';
-import { encodeLine, normalizeResult, normalizeUsage, MAX_PREAMBLE_CHARS } from '../agent-runner/protocol.js';
-import { agentSettings, profileOf } from '../agent-runner/profiles.js';
-import { roleModel } from '../llm/roles.js';
+import { encodeLine, normalizeResult, normalizeUsage, MAX_PREAMBLE_CHARS } from '../agent-runner/protocol.ts';
+import { agentSettings, profileOf } from '../agent-runner/profiles.ts';
+import { roleModel } from '../llm/roles.ts';
 import { composePreamble } from './preambles.ts';
 import { CODE } from '../tools/codes.ts';
 import { errorCode, objOf, textOf } from '../tools/types.ts';

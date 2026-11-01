@@ -63,7 +63,7 @@ const SCANNED = [
   'src/behavior/pending.js',
   'src/behavior/missed.js',
   'src/interface',
-  'interfaces/discord/port.js',
+  'interfaces/discord/port.ts',
 ];
 
 function sourceFiles(entry) {

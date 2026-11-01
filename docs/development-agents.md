@@ -64,7 +64,7 @@ The engine only describes the development agents. Running them takes external in
 
 ### API agent runner
 
-A dispatcher outside the engine reads the agent folders through `listAgents` (`src/agent-runner/profiles.js`), builds an OpenCode config from the profile (the prompt, the step cap, the model of `models.development.<name>` and its cost), and runs one OpenCode session per task attempt. The dispatcher adds the deployment's own rules to the prompt and sets the shell permissions by its own policy. `loadProfiles` (the worker reader) skips development agents.
+A dispatcher outside the engine reads the agent folders through `listAgents` (`src/agent-runner/profiles.ts`), builds an OpenCode config from the profile (the prompt, the step cap, the model of `models.development.<name>` and its cost), and runs one OpenCode session per task attempt. The dispatcher adds the deployment's own rules to the prompt and sets the shell permissions by its own policy. `loadProfiles` (the worker reader) skips development agents.
 
 ### Local coding assistant
 
@@ -78,7 +78,7 @@ The development agents' tasks, briefs, reviews, attempts and results live on the
 
 ## Config
 
-The price and the limits of a development agent live in its profile, and a deployment overrides them under `agents.<name>` in `config.local/config.json`. `agentSettings(name, config)` in `src/agent-runner/profiles.js` lays the override over the profile.
+The price and the limits of a development agent live in its profile, and a deployment overrides them under `agents.<name>` in `config.local/config.json`. `agentSettings(name, config)` in `src/agent-runner/profiles.ts` lays the override over the profile.
 
 | Key | Default (thinker / dev) | What it does |
 |---|---|---|

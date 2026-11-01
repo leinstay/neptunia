@@ -1,4 +1,4 @@
-// Tests for src/llm/roles.js (the model roles in three groups: `models.base` for the core, its
+// Tests for src/llm/roles.ts (the model roles in three groups: `models.base` for the core, its
 // helpers and drawing, `models.errands` for the errand agents, `models.development` for the
 // development agents; one resolver, no cross-role fallback), src/config.js#readConfig and the call sites.
 import { test } from 'node:test';
@@ -22,7 +22,7 @@ import {
   roleConfigKeys,
   roleGroup,
   roleModel,
-} from '../src/llm/roles.js';
+} from '../src/llm/roles.ts';
 import { readConfig } from '../src/config.js';
 import { MODEL_SET_ROLES } from '../src/tools/impl/catalog.ts';
 import { tempDir } from './fixtures/tmp.js';
@@ -262,14 +262,31 @@ test("purposes: under config.json every purpose resolves to its role's default m
 
 // ---- the call sites ----------------------------------------------------------
 
-/** Every .js/.mjs file under src/ and tools/, as [relative path, text]. */
+/**
+ * Every .js/.mjs file under src/ and tools/, as [relative path, text], and the TypeScript files of the folders that were
+ * JavaScript when this check was written (their call sites stay in the count after the conversion).
+ */
+const CONVERTED_FOLDERS = [
+  'src/agent-runner/',
+  'src/interface/',
+  'src/llm/',
+  'src/media/',
+  'src/protocol/',
+  'src/speech/',
+  'src/web/',
+];
+
 function sources() {
   const out = [];
   const walk = (dir) => {
     for (const name of fs.readdirSync(dir)) {
       const full = path.join(dir, name);
       if (fs.statSync(full).isDirectory()) walk(full);
-      else if (/\.m?js$/.test(name)) out.push([path.relative(ROOT, full), fs.readFileSync(full, 'utf8')]);
+      else if (
+        /\.m?js$/.test(name) ||
+        (name.endsWith('.ts') && CONVERTED_FOLDERS.some((folder) => path.relative(ROOT, full).startsWith(folder)))
+      )
+        out.push([path.relative(ROOT, full), fs.readFileSync(full, 'utf8')]);
     }
   };
   walk(path.join(ROOT, 'src'));

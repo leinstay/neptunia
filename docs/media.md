@@ -10,9 +10,9 @@ Transcript lines carry media in brackets: pictures, GIFs, videos, stickers, cust
 
 The persona does not receive images directly in her own request. A picture reaches her as a one-line caption in the transcript, written by a vision-capable model on the `vision` role (`models.base.vision`, default `google/gemini-3.8-flash`). The prompt is `prompts/describe.md`.
 
-Each attachment or embed is described once and cached in `data/guilds/<id>/media.json`, trimmed by LRU to 5,000 entries (`MEDIA_CACHE_ENTRIES` in `src/web/cache.js`). A repost costs nothing. A failed description is cached as a miss for one hour, except when the daily request cap (`llm.maxRequestsPerDay`) is spent: then nothing is downloaded or cached as a miss, so pictures from the last hours are still described after midnight UTC.
+Each attachment or embed is described once and cached in `data/guilds/<id>/media.json`, trimmed by LRU to 5,000 entries (`MEDIA_CACHE_ENTRIES` in `src/web/cache.ts`). A repost costs nothing. A failed description is cached as a miss for one hour, except when the daily request cap (`llm.maxRequestsPerDay`) is spent: then nothing is downloaded or cached as a miss, so pictures from the last hours are still described after midnight UTC.
 
-The picture is downloaded first (`src/media/fetch-image.js`) and sent to the model as a `data:` URL, because some providers get a 403 from Discord's CDN. Downloads are cached in a small in-memory LRU (about 50 entries, 10 minutes), keyed by the URL without its query string (Discord's CDN query params rotate between fetches of the same file).
+The picture is downloaded first (`src/media/fetch-image.ts`) and sent to the model as a `data:` URL, because some providers get a 403 from Discord's CDN. Downloads are cached in a small in-memory LRU (about 50 entries, 10 minutes), keyed by the URL without its query string (Discord's CDN query params rotate between fetches of the same file).
 
 The persona looks at a picture again herself by calling the `media.look` tool with a message reference and her own question, at most twice per turn (`lookPerTurn` in `src/tools/tools.ts`). The vision model answers, and the answer appears in the transcript alongside the original caption. With the `vision` role down the look goes to the core model or answers `ability-unavailable` (see [When a model role is down](#when-a-model-role-is-down)).
 
@@ -44,7 +44,7 @@ An optional proxy (`media.video.proxy`) routes yt-dlp downloads for sites listed
 
 #### The audio map
 
-A video model told nothing about the sound tends to invent it for a silent clip. To prevent this, the fetcher measures each clip with a read-only ffmpeg `silencedetect` pass (`src/media/audio-map.js`) and the describer adds a measured note to the video model's system prompt:
+A video model told nothing about the sound tends to invent it for a silent clip. To prevent this, the fetcher measures each clip with a read-only ffmpeg `silencedetect` pass (`src/media/audio-map.ts`) and the describer adds a measured note to the video model's system prompt:
 
 - `none`: no audio stream, or the entire track is silence.
 - `map`: a list of audible stretches in `m:ss-m:ss` format.
@@ -52,7 +52,7 @@ A video model told nothing about the sound tends to invent it for a silent clip.
 
 The note uses the label from `labels.videoAudio.none` or `labels.videoAudio.map`. A failed measurement is logged and the note omitted, never treated as a failed fetch. GIF clips are silent by design and skip the audio measurement.
 
-The measures are `AUDIO_MAP_DEFAULTS` in `src/media/audio-map.js`: a noise floor of -50 dB, silences of at least 0.5 seconds, at most 20 stretches, and a map instead of `full` for a clip with less than 80% audible time.
+The measures are `AUDIO_MAP_DEFAULTS` in `src/media/audio-map.ts`: a noise floor of -50 dB, silences of at least 0.5 seconds, at most 20 stretches, and a map instead of `full` for a clip with less than 80% audible time.
 
 #### Re-watch
 
@@ -62,7 +62,7 @@ Model role: `video`.
 
 ### Links
 
-Links in the transcript are fetched and shown. The reader is `src/web/lookup.js`, and its measures are constants there.
+Links in the transcript are fetched and shown. The reader is `src/web/lookup.ts`, and its measures are constants there.
 
 A link (http/https, private addresses refused, video-site links and the media hosts of `SKIP_SITES` excluded) is fetched through an SSRF-guarded page fetcher (at most 1,500,000 bytes, `LINK_MAX_BYTES`, with the timeout `web.links.fetchTimeoutMs`). The link's transcript tag carries the opening of the page's extracted text, cut at 700 characters (`LINK_PREVIEW_CHARS`), with no model request. A page that fails to load or has no text is cached as a miss.
 

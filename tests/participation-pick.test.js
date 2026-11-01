@@ -18,7 +18,7 @@ import {
 } from '../src/behavior/participation-pick.js';
 import { userText } from '../src/behavior/prompt.js';
 import { snapshotOf } from '../src/behavior/snapshot.ts';
-import { DailyCapError } from '../src/llm/openrouter.js';
+import { DailyCapError } from '../src/llm/openrouter.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 

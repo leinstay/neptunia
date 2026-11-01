@@ -7,7 +7,7 @@
 // other bots count like anyone. Pure but for the timer of `runBackfill`.
 
 import { reactionKey } from '../protocol/reaction-key.ts';
-import type { ReactionChanged } from '../protocol/events.js';
+import type { ReactionChanged } from '../protocol/events.ts';
 
 export { reactionKey };
 

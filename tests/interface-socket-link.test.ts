@@ -6,14 +6,14 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { connectSocket } from '../src/protocol/index.js';
+import { connectSocket } from '../src/protocol/index.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
 import type { Hello } from '../src/protocol/serve.ts';
 import type { Capabilities } from '../src/protocol/adapter.ts';
 import { openAdapterLink } from '../src/interface/link.ts';
 import { listenSocket } from '../src/interface/socket.ts';
-import { createEventDoor } from '../src/interface/door.js';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createEventDoor } from '../src/interface/door.ts';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 
 type Log = {
   info(msg: string, meta?: unknown): void;

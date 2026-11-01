@@ -6,14 +6,14 @@ export const WEB: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'web.acceptLanguage',
     'types': ['string'],
-    'reader': 'src/web/lookup.js',
+    'reader': 'src/web/lookup.ts',
     'default': 'en,ru;q=0.8',
     'text': 'Accept-Language header when a page is read',
   },
   {
     'key': 'web.links.readCacheHours',
     'types': ['number'],
-    'reader': 'src/web/lookup.js',
+    'reader': 'src/web/lookup.ts',
     'default': 6,
     'text': 'Hours a page read by `web.read` is cached',
   },
@@ -27,7 +27,7 @@ export const WEB: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'web.links.fetchTimeoutMs',
     'types': ['number'],
-    'reader': 'src/web/lookup.js',
+    'reader': 'src/web/lookup.ts',
     'default': 10000,
     'text': 'Download timeout per page (ms)',
   },
@@ -55,14 +55,14 @@ export const WEB: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'web.search.rawOutputTokens',
     'types': ['number'],
-    'reader': 'src/web/lookup.js',
+    'reader': 'src/web/lookup.ts',
     'default': 256,
     'text': "Max output tokens of the `openrouter` engine's request for `web.search`",
   },
   {
     'key': 'web.search.maxOutputTokens',
     'types': ['number'],
-    'reader': 'src/llm/openrouter.js',
+    'reader': 'src/llm/openrouter.ts',
     'default': 4000,
     'text': 'Max output tokens for the condenser',
   },
@@ -76,7 +76,7 @@ export const WEB: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'web.search.cacheHours',
     'types': ['number'],
-    'reader': 'src/web/lookup.js',
+    'reader': 'src/web/lookup.ts',
     'default': 24,
     'text': 'Hours a cached search result is served',
   },

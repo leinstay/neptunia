@@ -18,7 +18,7 @@ The token is resolved again for every envelope, so a rotated or revoked token cl
 
 ## Envelopes
 
-`src/protocol/envelope.js` adds two envelope types, and `src/protocol/plugin.ts` holds their bodies and checks.
+`src/protocol/envelope.ts` adds two envelope types, and `src/protocol/plugin.ts` holds their bodies and checks.
 
 | Envelope | Direction | Body | Answered by |
 |---|---|---|---|

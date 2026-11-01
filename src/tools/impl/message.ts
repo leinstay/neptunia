@@ -4,7 +4,7 @@
 // schedule -- an answer to the named message, else she reads the channel and joins the
 // conversation or starts a topic herself (src/behavior/spontaneous.js#force); when she calls it
 // (`context.actor` 'persona', her skills, src/tools/), her own text -- the call's body -- is
-// posted through her interface (src/interface/port.js, `env.port`), replying to a message when
+// posted through her interface (src/interface/port.ts, `env.port`), replying to a message when
 // one is named, and a reply notifies the replied author unless they turned pings off. Her text
 // (a post or an edit) arrives rendered as a `<msg>` of hers (src/tools/executors.ts#executeCall);
 // only the members it mentions (`context.mentionUserIds`) are notified, none with pings off. Edit,
@@ -35,12 +35,12 @@ import { lineOf } from '../../behavior/line-of.js';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import type { createMirrors } from '../../behavior/mirror.ts';
 import { writeDiaryMessage } from '../../behavior/diary-turn.ts';
-import { freshAttachmentUrl, gifPostUrl } from '../../media/gif-post.js';
+import { freshAttachmentUrl, gifPostUrl } from '../../media/gif-post.ts';
 import { CODE } from '../codes.ts';
 import { idText, objOf, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
 import type { Adapter, ConversationRef, Delivery } from '../../protocol/adapter.ts';
-import type { Content } from '../../protocol/actions.js';
+import type { Content } from '../../protocol/actions.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { Env } from './env.ts';
 
@@ -303,7 +303,7 @@ const handlers = perEnv((env) => {
   /**
    * The persona's own text posted as hers: the channel checked, the reply target in it. A `gif`
    * (her library's handle) follows the text, or goes alone when the text is empty, as a `<gif>`
-   * of a reply turn does (src/media/gif-post.js): the entry's URL as the text of a message of
+   * of a reply turn does (src/media/gif-post.ts): the entry's URL as the text of a message of
    * hers, stamped on its entry.
    */
   async function post(args: Obj, context: OpContext, p: Adapter) {

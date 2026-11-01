@@ -7,9 +7,9 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { ChannelType, Events } from 'discord.js';
 import { createLoopback } from '../src/protocol/wire.ts';
-import { validateEvent } from '../src/protocol/index.js';
+import { validateEvent } from '../src/protocol/index.ts';
 import { openAdapterLink } from '../src/interface/link.ts';
-import { createEventDoor } from '../src/interface/door.js';
+import { createEventDoor } from '../src/interface/door.ts';
 import { start } from '../interfaces/discord/session.ts';
 import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
 

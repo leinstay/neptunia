@@ -41,7 +41,7 @@ ExecStart=/opt/node/bin/node bin/neptunia.ts errand-runner --profile scout
 # checkout; an override this user cannot read is skipped with one warning and
 # the tracked prompt is used), and in a filtered scope withholds NEPTUNIA_DATA_DIR
 # and, when apart from the checkout, NEPTUNIA_PRIVATE_DIR
-# (src/agent-runner/policy.js); it writes under neither. A deployment that
+# (src/agent-runner/policy.ts); it writes under neither. A deployment that
 # keeps everything in the checkout deletes both lines.
 Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc
 Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data

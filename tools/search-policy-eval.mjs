@@ -138,8 +138,8 @@ export async function main(
   const { lookupClassifierInput } = await import('../src/behavior/turn.js');
   const { fillPromptTemplate } = await import('../src/behavior/prompt.js');
   const { parseLookupAnswer, recallSettings } = await import('../src/behavior/recall.js');
-  const { roleRequestOptions } = await import('../src/llm/openrouter.js');
-  const { roleModel } = await import('../src/llm/roles.js');
+  const { roleRequestOptions } = await import('../src/llm/openrouter.ts');
+  const { roleModel } = await import('../src/llm/roles.ts');
   const { skillsIndex } = await import('../src/tools/discovery.ts');
   const { skillRegistry } = await import('../src/tools/registry.ts');
   const { zonedDay } = await import('../src/time.js');
@@ -189,8 +189,8 @@ export async function main(
     let llm = llmClient;
     if (!llm) {
       const { loadDotEnv } = await import('../src/config.js');
-      const { createLlm } = await import('../src/llm/openrouter.js');
-      const { createCalibrator } = await import('../src/llm/tokens.js');
+      const { createLlm } = await import('../src/llm/openrouter.ts');
+      const { createCalibrator } = await import('../src/llm/tokens.ts');
       loadDotEnv(privateDirOf(rootDir, env));
       const apiKey = keyOf(flags['--key'], env);
       // Per-role keys are not looked up (env {}): the given key pays; the daily counters are a throwaway copy.

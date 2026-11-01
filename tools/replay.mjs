@@ -325,11 +325,11 @@
 // compose request, the pictures generated, and the entry recorded, which the slot reports as what its publication would
 // send. A post a slot made is kept in the in-memory diary and counters, so the next slot sees it as the live diary
 // would. What keeps the bot and its memory untouched: every Discord REST call but GET is refused; the turn acts through
-// an in-memory interface port only (src/interface/fake.js); the store is the real one over an in-memory copy of its state that is never flushed,
+// an in-memory interface port only (src/interface/fake.ts); the store is the real one over an in-memory copy of its state that is never flushed,
 // with today's diary post, diary picture and image counts at 0; no journal and no record are wired; requests carry
 // `origin: 'replay'` and never count against `llm.maxRequestsPerDay`.
 // `--draw fake` (the default): the image client is the real one
-// (src/llm/images.js#createImageGen, its caps and model check) over a fetch that
+// (src/llm/images.ts#createImageGen, its caps and model check) over a fetch that
 // answers a 1x1 fixture PNG, so no picture is paid for. `--draw live`: the real
 // client on OPENROUTER_SIM_KEY (required: no fall back to the bot's key here),
 // at most `--max-pictures` pictures (default 2; past it a picture is refused as
@@ -393,7 +393,7 @@
 // What it does:
 // - Fetches over REST the trigger and the `--before` messages preceding it,
 //   oldest first, normalized exactly as a live history is
-//   (interfaces/discord/collect.js#fetchHistoryWindow -> normalizeMessage): ids,
+//   (interfaces/discord/collect.ts#fetchHistoryWindow -> normalizeMessage): ids,
 //   authors (display names as the live client resolves them: every author and
 //   mentioned member is fetched over REST one by one before the messages are
 //   normalized), the persona's own messages marked `self`, reply references,
@@ -455,7 +455,7 @@
 //    src/behavior/recall-run.js#createRecall with the turn's arguments (the
 //    served guild, this channel, the persona's id and name, `history` = the
 //    fetched lines, `candidate` = the trigger, `server` = the parsed part),
-//    over REST: the member and message searches (interfaces/discord/search.js), the
+//    over REST: the member and message searches (interfaces/discord/search.ts), the
 //    pull rail toward this channel, the windows, the summary request
 //    (prompts/recall-summary.md, purpose `recall-summary`). Its clock starts
 //    at the trigger's moment (the summary's `{{today}}`, the recent-lines
@@ -1317,7 +1317,7 @@ async function loadRecallMods(load) {
   const describe = await load('memory/describe.js');
   const lookup = await load('web/lookup.js');
   const media = await load('media/classify.js');
-  const pull = await load('../interfaces/discord/index.js');
+  const pull = await load('../interfaces/discord/index.ts');
   const mods = {
     parseLookupAnswer: recall.parseLookupAnswer,
     recallSettings: recall.recallSettings,
@@ -1622,7 +1622,7 @@ async function runRecall({
         const body = await restGet(route, options);
         if (kind === 'members') entry.hits = Array.isArray(body) ? body.length : null;
         else if (Array.isArray(body?.messages)) {
-          // The same flattening as interfaces/discord/search.js#searchMessages.
+          // The same flattening as interfaces/discord/search.ts#searchMessages.
           let count = 0;
           for (const group of body.messages) {
             const list = Array.isArray(group) ? group : [group];
@@ -1882,7 +1882,7 @@ async function fetchWindow({ guild, channel, self, anchorId, limit, config, fetc
   }
   const members = await cacheMembers(guild, ids);
   // The audience rail's view of bots: the members named in per-member channel overwrites,
-  // fetched like src/index.js warms them at startup (interfaces/discord/audience-warm.js).
+  // fetched like src/index.js warms them at startup (interfaces/discord/audience-warm.ts).
   try {
     const warm = await import(
       pathToFileURL(path.join(process.cwd(), 'interfaces', 'discord', 'audience-warm.js')).href
@@ -2089,7 +2089,7 @@ export function overlayPromptsHot(createHot, root, promptsDir, { mergeJson = nul
  * `openrouter` need no key). Builds the lookup only to ask; no search is run
  * and nothing is read or written (its llm and store refuse everything).
  * @param {{ hot: object, createLookup: Function, searches: object, env?: object }} input
- *   `createLookup` from src/web/lookup.js; `searches` the engine clients (`{ brave, exa }`).
+ *   `createLookup` from src/web/lookup.ts; `searches` the engine clients (`{ brave, exa }`).
  * @returns {boolean}
  */
 export function searchAvailableOf({ hot, createLookup, searches, env = process.env }) {
@@ -2157,7 +2157,7 @@ export async function loadDiaryMods(load) {
     ...(await load('behavior/turn.js')),
     ...(await load('behavior/route-channel.js')),
     ...(await load('behavior/recall-run.js')),
-    ...(await load('../interfaces/discord/index.js')),
+    ...(await load('../interfaces/discord/index.ts')),
     ...(await load('interface/fake.js')),
     ...(await load('interface/reads.ts')),
     ...(await load('behavior/emoji-index.ts')),
@@ -2784,7 +2784,7 @@ export async function heartbeatReplayWake({
  * the transport's side of the answer (`{ answerOf, transport, toolCalls, finishReason }`: src/behavior/turn.js#answerOf
  * splits the text into speech and calls); without it the text is read as speech only. Pure.
  * @param {string|null} text  The raw reply.
- * @param {Function} parseOutput  src/llm/parse.js#parseOutput.
+ * @param {Function} parseOutput  src/llm/parse.ts#parseOutput.
  * @param {string|null} [failedCode]  The failure code when the model request of this step failed (no reply).
  * @param {{ answerOf?: Function, transport?: string, toolCalls?: object[]|null, finishReason?: string|null }|null} [tools]
  */
@@ -3603,7 +3603,7 @@ const TASK_RESULT_KEYS = Object.freeze(['agent', 'goal', 'state', 'text', 'files
 const TASK_FILE_KEYS = Object.freeze(['name', 'contentType', 'bytes']);
 /** The ends an errand's result turn follows (src/errands/store.ts: a cancelled one opens none). */
 const TASK_RESULT_STATES = Object.freeze(['done', 'failed']);
-/** An agent's name (src/agent-runner/profiles.js: the profile's key), the longest result text, the most files. */
+/** An agent's name (src/agent-runner/profiles.ts: the profile's key), the longest result text, the most files. */
 const AGENT_NAME = /^[A-Za-z0-9_-]{1,32}$/;
 const MAX_TASK_TEXT = 20_000;
 const MAX_TASK_FILES = 10;
@@ -3912,7 +3912,7 @@ export function scenarioDiscovery(scenario, names) {
 }
 
 /**
- * The invented message of a scenario as a normalized history line (interfaces/discord/collect.js#normalizeMessage's
+ * The invented message of a scenario as a normalized history line (interfaces/discord/collect.ts#normalizeMessage's
  * shape): by `authorId` / `authorName` in `channel` at `at`, the text as given, tagging the
  * persona (`mentionedUserIds`: `selfId`) unless `tagged` is false -- a burst's message, which
  * tags her only when its text holds her tag `<@selfId>` --, replying to nothing, without media.
@@ -4116,7 +4116,7 @@ export function loopCall({ simulate, runTool = null, inTurn, now = Date.now, log
 
 /**
  * Her in-turn tools for a replay (features.coreTools), run for real but writing nothing:
- * `web.search` through the live lookup module (src/web/lookup.js#createLookup over `hot`: its
+ * `web.search` through the live lookup module (src/web/lookup.ts#createLookup over `hot`: its
  * engines and `searches` with `keys`, its summary request on `llm` -- the replay's, on the
  * simulator key --, over a private copy of the media cache and of the daily web counter) and
  * `memory.search` through the live recall runner (src/behavior/recall-run.js#createRecall over a
@@ -6551,7 +6551,7 @@ async function loopDepsOf({
   const { createExaSearch } = await load('web/exa.js');
   const { createRecall } = await load('behavior/recall-run.js');
   const { createDescriber } = await load('memory/describe.js');
-  const { createDiscordInterface } = await load('../interfaces/discord/index.js');
+  const { createDiscordInterface } = await load('../interfaces/discord/index.ts');
   const {
     runWebSearch,
     runMemorySearch,
@@ -6755,7 +6755,7 @@ async function runMain(args, { root, signal, rng, answers }) {
   if (!fs.existsSync(path.join(src, 'behavior', 'sandbox.js')))
     throw new CliError(`replay-cli: no engine under ${src}; run it from the bot's directory`);
   const loadModule = (rel) => import(pathToFileURL(path.join(src, rel)).href);
-  // With an answers directory every llm client built from src/llm/openrouter.js answers Anthropic models from files.
+  // With an answers directory every llm client built from src/llm/openrouter.ts answers Anthropic models from files.
   let load = loadModule;
   if (answers) {
     const { roleModel } = await loadModule('llm/roles.js');
@@ -6962,7 +6962,7 @@ async function runMain(args, { root, signal, rng, answers }) {
     burstTurns,
     seededSelfLine,
   } = await load('behavior/sandbox.js');
-  const discordPackage = /** @type {Record<string, unknown>} */ (await load('../interfaces/discord/index.js'));
+  const discordPackage = /** @type {Record<string, unknown>} */ (await load('../interfaces/discord/index.ts'));
   const { channelDirectoryOf, fetchHistoryWindow, fetchMessage, resolveGuild } = discordPackage;
   const viewMods = { liveView, momentView, momentCutoff, hiddenLater };
   const splitMods = args.split

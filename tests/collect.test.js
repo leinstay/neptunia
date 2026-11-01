@@ -1,4 +1,4 @@
-// Tests for interfaces/discord/collect.js: normalizeMessage's media handling (voice
+// Tests for interfaces/discord/collect.ts: normalizeMessage's media handling (voice
 // flag, embed classification, raw-URL de-duplication, forwarded snapshots),
 // its mention ids, the lazy text-attachment preview fetch, the bot's channel
 // permissions, readable channels and neighbours, and the audience reader.
@@ -19,7 +19,7 @@ import {
   isReadableChannel,
   isWritableChannel,
   audienceOf,
-} from '../interfaces/discord/index.js';
+} from '../interfaces/discord/index.ts';
 import {
   ChannelType,
   Embed,
@@ -29,13 +29,13 @@ import {
   PermissionsBitField,
   SnowflakeUtil,
 } from 'discord.js';
-import { videoUrlCacheKey } from '../src/media/video-sites.js';
-import { collectPictures, collectVideos } from '../src/media/classify.js';
+import { videoUrlCacheKey } from '../src/media/video-sites.ts';
+import { collectPictures, collectVideos } from '../src/media/classify.ts';
 import { audienceCovers } from '../src/behavior/elsewhere.ts';
 import { emptyGifs, mergeGifs } from '../src/memory/gifs.js';
 import { formatTranscript } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
-import { validateEvent } from '../src/protocol/index.js';
+import { validateEvent } from '../src/protocol/index.ts';
 
 function flagsWith(names) {
   const set = new Set(names);

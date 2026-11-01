@@ -1,10 +1,10 @@
-// Tests for src/web/lookup.js: the link reader and the search on a question,
+// Tests for src/web/lookup.ts: the link reader and the search on a question,
 // driven with a fake page fetcher, a fake Brave client, a fake LLM and an
 // in-memory media cache. No network, no real data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createLookup, normalizeQuery, cleanQuery } from '../src/web/lookup.js';
-import { DailyCapError, roleRequestOptions, TokenLimitError } from '../src/llm/openrouter.js';
+import { createLookup, normalizeQuery, cleanQuery } from '../src/web/lookup.ts';
+import { DailyCapError, roleRequestOptions, TokenLimitError } from '../src/llm/openrouter.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
@@ -32,7 +32,7 @@ function fakeState() {
 }
 
 // PR 7d: the switches are code, the daily web cap is gone and the page and search measures are constants of
-// src/web/lookup.js (a page of 1 500 000 bytes and 6000 characters, a 700-character opening, 4000 read whole, five
+// src/web/lookup.ts (a page of 1 500 000 bytes and 6000 characters, a 700-character opening, 4000 read whole, five
 // results, a 900-character summary, the media hosts skipped), so only the settings stay.
 function fakeHot({ web = {}, config = {}, prompts = {} } = {}) {
   return {

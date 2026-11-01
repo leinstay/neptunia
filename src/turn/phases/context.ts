@@ -86,7 +86,7 @@ export type PhaseStore = Parameters<typeof recordEntry>[0]['store'] & {
   getParticipation: (guildId: string) => unknown;
 };
 
-/** The language model client (src/llm/openrouter.js#createLlm), as the reply request uses it. */
+/** The language model client (src/llm/openrouter.ts#createLlm), as the reply request uses it. */
 export type PhaseLlm = {
   complete: (messages: Array<object>, options: object) => Promise<StepCompletion & { estimated?: unknown }>;
 };
@@ -172,7 +172,7 @@ export type PhaseDescriber = {
   watchedGifs?: (guildId: string, items: Array<{ itemId: string }>) => Map<string, unknown>;
 };
 
-/** The web lookup (src/web/lookup.js#createLookup), as the preparation of a turn uses it. */
+/** The web lookup (src/web/lookup.ts#createLookup), as the preparation of a turn uses it. */
 export type PhaseWebLookup = {
   search?: unknown;
   hasSearch?: () => boolean;

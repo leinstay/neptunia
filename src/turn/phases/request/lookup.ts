@@ -20,7 +20,7 @@ export type Looked = {
 /** The new links read per turn. Production value, config cut of 2026-10-31. */
 const LINKS_PER_TURN = 2;
 
-/** The read texts of a link stage's answer (src/web/lookup.js#readLinks). */
+/** The read texts of a link stage's answer (src/web/lookup.ts#readLinks). */
 function readsOf(value: unknown): Map<string, unknown> {
   const reads = (value as { reads?: unknown } | null | undefined)?.reads;
   return reads instanceof Map ? (reads as Map<string, unknown>) : new Map<string, unknown>();
@@ -34,7 +34,7 @@ export function startLookup(ctx: PhaseContext, opened: Opened, setup: Setup, pla
   const { track } = staged;
   // The links: the newest readable links of the history, at most LINKS_PER_TURN NEW reads (cached excerpts are free).
   let linksStage: Looked['linksStage'] = null;
-  // Cache only: no fetch, no model request, no daily slot (src/web/lookup.js#cachedReads).
+  // Cache only: no fetch, no model request, no daily slot (src/web/lookup.ts#cachedReads).
   const cachedLinkReads = () => {
     if (!linksStage || typeof lookup?.cachedReads !== 'function') return undefined;
     try {

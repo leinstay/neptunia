@@ -107,7 +107,7 @@ export function feedbackFacts(
       steps: isFiniteNumber(loop.steps) ? loop.steps : 0,
     });
   }
-  // What the parser did with her output that no later step told her (src/llm/parse.js diagnostics).
+  // What the parser did with her output that no later step told her (src/llm/parse.ts diagnostics).
   for (const entry of listOf(inner.diagnostics)) {
     const diagnostic = objOf(entry);
     if (typeof diagnostic.kind === 'string') {

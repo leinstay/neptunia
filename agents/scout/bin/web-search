@@ -1,6 +1,6 @@
 #!/bin/sh
 # The scout agent's search command under the name its shell may run (`web-search *`,
-# src/agent-runner/profiles.js#WEB_SHELL_ALLOW): the runner puts this folder and node's own
-# on the OpenCode child's PATH (src/agent-runner/opencode.js). The engine checkout is
+# src/agent-runner/profiles.ts#WEB_SHELL_ALLOW): the runner puts this folder and node's own
+# on the OpenCode child's PATH (src/agent-runner/opencode.ts). The engine checkout is
 # read-only to the agent, so the agent cannot change what this runs.
-exec node "${0%/*}/../web-search.mjs" "$@"
+exec node "${0%/*}/../web-search.ts" "$@"

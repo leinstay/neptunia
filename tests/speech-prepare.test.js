@@ -1,8 +1,8 @@
-// Tests for src/speech/prepare.js: the pure word check and the preparation pass over a fake
+// Tests for src/speech/prepare.ts: the pure word check and the preparation pass over a fake
 // llm.complete. Non-ASCII test data is Greek or accented Latin, written as escapes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { prepareSpeech, sameWords } from '../src/speech/prepare.js';
+import { prepareSpeech, sameWords } from '../src/speech/prepare.ts';
 
 const ACUTE = '́';
 

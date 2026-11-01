@@ -16,10 +16,10 @@
 
 import { createPullViews } from './pull-fetch.ts';
 import { fallbackLookupPlan } from './recall.js';
-import { createImageFetcher } from '../media/fetch-image.js';
+import { createImageFetcher } from '../media/fetch-image.ts';
 import { createOffPeriodsReader } from '../memory/index.js';
 import { createParticipationPicker } from './participation-pick.js';
-import { createLimits } from '../llm/limits.js';
+import { createLimits } from '../llm/limits.ts';
 import { createThinkStore } from './previous-think.js';
 import { turnRoutes } from './turn-ability-route.ts';
 import { chunkPictures } from './mirror.ts';
@@ -113,11 +113,11 @@ export { fallbackLookupPlan };
 // The re-watch classifier's answer parser lives with the re-watch (src/turn/rewatch.ts).
 
 /**
- * `images` (src/llm/images.js#createImageGen) is optional: absent,
+ * `images` (src/llm/images.ts#createImageGen) is optional: absent,
  * `features.imageGeneration` false, or a channel where the bot cannot attach
  * files, her `draw.create` is refused and no drawing line reaches `<senses>`.
  *
- * `lookup` (src/web/lookup.js#createLookup) is optional too: absent, or
+ * `lookup` (src/web/lookup.ts#createLookup) is optional too: absent, or
  * `features.webLookup` not true, no link is read and no search is made.
  *
  * `recall` (src/behavior/recall-run.js#createRecall) is optional too: the
@@ -126,7 +126,7 @@ export { fallbackLookupPlan };
  * no server search is made. The one
  * lookup classifier serves both (maybeLookup) and the request's `lookup`
  * input carries both parts: the web search's result as it is
- * (src/web/lookup.js#search, `{ query, text, sources, cached? }`), with a
+ * (src/web/lookup.ts#search, `{ query, text, sources, cached? }`), with a
  * `server` key (`{ text, stretch, people }`, recall's result) added only when
  * the server search found something; a server part alone is `{ server }`.
  * A web-only result is exactly the web search's object, as before recall.
@@ -242,7 +242,7 @@ export { fallbackLookupPlan };
  * -- features.tools false, she goes silent; each refusal logs `skill: refused` (`skill`, `code`,
  * `reason`) and nothing is done; no picture or diary set is generated for a post the check
  * already refuses, and no typing indicator shows), then made through the interface port `port`
- * (src/interface/port.js). Nothing counts as posted (journal, record, stats, lastPostAt) unless the port
+ * (src/interface/port.ts). Nothing counts as posted (journal, record, stats, lastPostAt) unless the port
  * answered `ok`; `unknown` is journaled as unknown and never sent again.
  *
  * Skill calls: her skills are the owner's /nep commands (src/tools/registry.ts; `skills`: the
@@ -667,7 +667,7 @@ export function createTurnRunner({
    * posts plain).
    */
   async function runTurnOnce(args) {
-    // `limits`: what bit during this attempt (src/llm/limits.js), for its turn record.
+    // `limits`: what bit during this attempt (src/llm/limits.ts), for its turn record.
     const draft = { limits: createLimits() };
     let result;
     try {

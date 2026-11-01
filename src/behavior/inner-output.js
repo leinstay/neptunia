@@ -17,7 +17,7 @@ export const DESTINATION_REQUIRED = Object.freeze({ code: CODE.DESTINATION_REQUI
 
 /**
  * The call objects (`{ skill, args }`, plus `refuse` on one that must be refused) of the
- * output tags in `parsed` (src/llm/parse.js's, after the turn's own shaping), in the order they
+ * output tags in `parsed` (src/llm/parse.ts's, after the turn's own shaping), in the order they
  * are acted on.
  * @param {{ messages?: object[], reactions?: object[], untargetedReactions?: object[], gif?: object|null }} parsed
  * @param {{ current: string|null, turnChannel: string }} where  `current`: the id of the current channel,

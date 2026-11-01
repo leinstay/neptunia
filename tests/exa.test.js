@@ -1,4 +1,4 @@
-// Tests for src/web/exa.js: the MCP tools/call request (endpoint, body,
+// Tests for src/web/exa.ts: the MCP tools/call request (endpoint, body,
 // headers, count clamp, the key as a bearer header only when given), both
 // answer transports (an event stream and plain JSON), both documented forms of
 // the tool's text (JSON and formatted lines), the shape recorded from the live
@@ -6,7 +6,7 @@
 // reason and a status only. fetch is a fake; nothing touches the network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createExaSearch, parseExaText } from '../src/web/exa.js';
+import { createExaSearch, parseExaText } from '../src/web/exa.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 
 const KEY = 'exa-test-key-xyz';

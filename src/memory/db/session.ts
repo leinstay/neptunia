@@ -41,9 +41,9 @@
 
 import { block, fillPromptTemplate, renderProfile } from '../../behavior/prompt.js';
 import { concernsMember, isOpen } from '../../intentions/model.ts';
-import { ROLE_KEY_NAME } from '../../llm/openrouter.js';
-import { MEMORY_ROLE, roleModel } from '../../llm/roles.js';
-import { estimateMessages } from '../../llm/tokens.js';
+import { ROLE_KEY_NAME } from '../../llm/openrouter.ts';
+import { MEMORY_ROLE, roleModel } from '../../llm/roles.ts';
+import { estimateMessages } from '../../llm/tokens.ts';
 import { exportOne } from './export.ts';
 import { SELF_PERSON, nativeOf, shortHash } from './ids.ts';
 import { audienceOf, contextRow, dmContext, groupContext, issueContext, scopeWhere, wellFormed } from './scope.ts';

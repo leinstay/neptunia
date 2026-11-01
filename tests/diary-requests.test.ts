@@ -14,7 +14,7 @@ import { GUILD, NOW, sceneLlm, sceneMemory, sceneRunner, sceneWorld } from './fi
 import type { SceneMemory } from './fixtures/diary-requests.ts';
 import { chatBlock, historyMemory, historyRunner, historyWorld } from './fixtures/diary-history.ts';
 import type { Changes, HistoryMemory } from './fixtures/diary-history.ts';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 
 const RECORDED_FILE = new URL('./fixtures/diary-requests.json', import.meta.url);
 

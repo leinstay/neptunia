@@ -1,4 +1,4 @@
-// What one `<call>` of the persona's output (src/llm/parse.js) does once the gateway
+// What one `<call>` of the persona's output (src/llm/parse.ts) does once the gateway
 // (src/tools/gateway.ts#checkSkill) let it pass. Her skills have a table of their own
 // (src/tools/definitions.ts): a call names an operation and gives its arguments as attributes. Two steps. `resolveCall` turns the tag's string attributes into the
 // command's arguments on the server's side -- a channel reference she sees (`#handle`, `#name`,

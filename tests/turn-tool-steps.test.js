@@ -89,7 +89,7 @@ test('duplicate call ids: the second keeps a made-up unique id, and both get the
 });
 
 test('draw failure with held speech: nothing is posted in step 1, step 2 sees the result and the held notice, its speech goes out', async () => {
-  const { ImageGenError } = await import('../src/llm/images.js');
+  const { ImageGenError } = await import('../src/llm/images.ts');
   const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.js');
   const run = await drawTurn({
     answers: [
@@ -131,7 +131,7 @@ test('a picture and its announcement in one answer: the picture result covers th
 });
 
 test('dependent diary announcement: a failed picture and a post to the diary channel in one batch both run in order, the post goes through, the speech is held and step 2 sees both', async () => {
-  const { ImageGenError } = await import('../src/llm/images.js');
+  const { ImageGenError } = await import('../src/llm/images.ts');
   const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.js');
   const jardin = {
     id: 'c2',

@@ -9,10 +9,10 @@ import path from 'node:path';
 import { createHot } from '../src/hot.js';
 import { diaryTopic, localDayKey, planDay } from '../src/behavior/diary.ts';
 import { zonedEpoch } from '../src/time.js';
-import { createImageGen } from '../src/llm/images.js';
-import { createLookup } from '../src/web/lookup.js';
-import { createBraveSearch } from '../src/web/brave.js';
-import { createExaSearch } from '../src/web/exa.js';
+import { createImageGen } from '../src/llm/images.ts';
+import { createLookup } from '../src/web/lookup.ts';
+import { createBraveSearch } from '../src/web/brave.ts';
+import { createExaSearch } from '../src/web/exa.ts';
 import {
   parseArgs,
   storedDumps,

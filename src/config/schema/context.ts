@@ -148,7 +148,7 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'context.vision.fetchTimeoutMs',
     'types': ['number'],
-    'reader': 'src/media/fetch-image.js',
+    'reader': 'src/media/fetch-image.ts',
     'default': 10000,
     'text': 'Download timeout per picture (ms)',
   },

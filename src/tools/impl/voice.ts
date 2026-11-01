@@ -6,7 +6,7 @@
 // made on the speech role's route (src/tools/gateway.ts#callOnRoute over `env.roleHealth`): with the role down it is
 // made on the core model when the core declares `audioOut`, else the call answers `ability-unavailable`.
 
-import { SpeechError } from '../../speech/index.js';
+import { SpeechError } from '../../speech/index.ts';
 import { voiceAttachment } from '../../behavior/mirror.ts';
 import { messageRefOf, postingConversation } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
@@ -45,7 +45,7 @@ function speechFailure(err: SpeechError): unknown {
   };
 }
 
-/** A voice message as src/speech/index.js#say makes it, the fields this operation reads. */
+/** A voice message as src/speech/index.ts#say makes it, the fields this operation reads. */
 type Made = { ogg: Buffer; durationSecs: number; waveform: string; chars: number; cost: number; voiced: string };
 type Speech = { say: (args: { text: string; model?: string | null }) => Promise<Made> };
 
@@ -127,7 +127,7 @@ const handlers = perEnv((env) => {
 
     let spoken;
     try {
-      // `env.speech` is src/speech/index.js#createSpeech's client, untyped in the environment.
+      // `env.speech` is src/speech/index.ts#createSpeech's client, untyped in the environment.
       spoken = await sayOnRoute({ speech: speech as Speech, text, config: hot.config, health: env.roleHealth });
     } catch (err) {
       if (!(err instanceof SpeechError)) throw err;

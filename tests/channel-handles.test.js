@@ -19,9 +19,9 @@ import {
 } from '../src/behavior/handles.js';
 import { buildRequest, userText } from '../src/behavior/prompt.js';
 import { afterScenarioTurn } from '../src/behavior/sandbox.js';
-import { channelDirectoryOf as guildChannelDirectory } from '../interfaces/discord/index.js';
+import { channelDirectoryOf as guildChannelDirectory } from '../interfaces/discord/index.ts';
 import { formatTranscript } from '../src/format.js';
-import { withCacheMarker } from '../src/llm/openrouter.js';
+import { withCacheMarker } from '../src/llm/openrouter.ts';
 import { linkChannels } from '../src/memory/mentions.ts';
 import { resolveCall } from '../src/tools/executors.ts';
 import { skillRegistry } from '../src/tools/registry.ts';

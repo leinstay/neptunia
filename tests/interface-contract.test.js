@@ -1,13 +1,13 @@
-// Contract tests of the interface port (src/interface/port.js): the SAME suite runs against the
-// in-memory adapter (src/interface/fake.js) and the Discord adapter (interfaces/discord/port.js)
+// Contract tests of the interface port (src/interface/port.ts): the SAME suite runs against the
+// in-memory adapter (src/interface/fake.ts) and the Discord adapter (interfaces/discord/port.ts)
 // over a fake discord.js client, proving the engine can swap one for the other. Each harness
 // gives the suite a port and a neutral view of what reached its conversations.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CAPABILITIES, STATUSES } from '../src/interface/port.js';
-import { createFakeAdapter } from '../src/interface/fake.js';
-import * as discordInterface from '../interfaces/discord/index.js';
-import { createDiscordAdapter, createDiscordInterface, discordFailure } from '../interfaces/discord/index.js';
+import { CAPABILITIES, STATUSES } from '../src/interface/port.ts';
+import { createFakeAdapter } from '../src/interface/fake.ts';
+import * as discordInterface from '../interfaces/discord/index.ts';
+import { createDiscordAdapter, createDiscordInterface, discordFailure } from '../interfaces/discord/index.ts';
 
 const SELF = 'self-id';
 const OTHER = 'other-id';

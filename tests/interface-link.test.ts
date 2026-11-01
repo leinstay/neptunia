@@ -4,14 +4,14 @@
 // only when the test says so, to hold actions pending.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ackOf, createLoopback, envelope } from '../src/protocol/index.js';
+import { ackOf, createLoopback, envelope } from '../src/protocol/index.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
 import type { Hello } from '../src/protocol/serve.ts';
 import type { Capabilities, Delivery } from '../src/protocol/adapter.ts';
-import type { PortResult } from '../src/protocol/actions.js';
+import type { PortResult } from '../src/protocol/actions.ts';
 import { openAdapterLink } from '../src/interface/link.ts';
-import { createEventDoor } from '../src/interface/door.js';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createEventDoor } from '../src/interface/door.ts';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 
 type Log = {
   info(msg: string, meta?: unknown): void;

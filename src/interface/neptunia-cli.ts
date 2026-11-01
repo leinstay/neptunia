@@ -21,10 +21,10 @@
 // where the core sends her replies in `cli:dm:owner` (`chat()`).
 
 import fs from 'node:fs';
-import { roleModel } from '../llm/roles.js';
+import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.js';
 import { COMMANDS } from './commands/table.ts';
-import { ackOf, validateEvent } from '../protocol/index.js';
+import { ackOf, validateEvent } from '../protocol/index.ts';
 import type { Adapter } from '../protocol/adapter.ts';
 import type { RoleDown } from '../llm/role-health.ts';
 import type { Logger } from '../protocol/serve.ts';

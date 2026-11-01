@@ -185,7 +185,7 @@ const PACKAGES = [
 
 test('reachedModules: resolves a workspace package import to its entry through exports', () => {
   const read = reader({ 'tests/a.test.js': "import { x } from '@neptunia/interface-discord';" });
-  assert.deepEqual(reachedModules('tests/a.test.js', read, PACKAGES), ['interfaces/discord/index.js']);
+  assert.deepEqual(reachedModules('tests/a.test.js', read, PACKAGES), ['interfaces/discord/index.ts']);
 });
 
 test('reachedModules: resolves a subpath through the exports map and the main field', () => {
@@ -205,19 +205,19 @@ test('reachedModules: follows a workspace import made by a fixture and ignores o
     'tests/a.test.js': "import { f } from './fixtures/h.js';\nimport z from '@other/pkg';",
     'tests/fixtures/h.js': "const m = await import('@neptunia/interface-discord');",
   });
-  assert.deepEqual(reachedModules('tests/a.test.js', read, PACKAGES), ['interfaces/discord/index.js']);
+  assert.deepEqual(reachedModules('tests/a.test.js', read, PACKAGES), ['interfaces/discord/index.ts']);
 });
 
 test('reachedModules: a src shim that re-exports the package reaches the whole package graph', () => {
   const read = reader({
     'tests/a.test.js': "import { send } from '../src/interface/discord.js';",
     'src/interface/discord.js': "export * from '@neptunia/interface-discord';",
-    'interfaces/discord/index.js': "export * from './send.js';\nimport fs from 'node:fs';",
+    'interfaces/discord/index.ts': "export * from './send.js';\nimport fs from 'node:fs';",
     'interfaces/discord/send.js': "import { x } from './util.js';\nimport { y } from '../../src/time.js';",
     'interfaces/discord/util.js': '',
   });
   assert.deepEqual(reachedModules('tests/a.test.js', read, PACKAGES), [
-    'interfaces/discord/index.js',
+    'interfaces/discord/index.ts',
     'interfaces/discord/send.js',
     'interfaces/discord/util.js',
     'src/interface/discord.js',

@@ -5,7 +5,7 @@
 
 import { createHash } from 'node:crypto';
 import { fill, formatDate, formatDuration, formatTranscript, reactorIdsOf } from '../../format.js';
-import { fitSections } from '../../llm/budget.js';
+import { fitSections } from '../../llm/budget.ts';
 import { pulledMoment } from './text.ts';
 import type { Base, Room } from './head.ts';
 import type { HeadSections } from './sections.ts';

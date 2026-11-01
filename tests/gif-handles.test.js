@@ -1,12 +1,12 @@
 // A GIF of the library seen in a transcript carries its handle
-// (src/memory/gifs.js#gifHandleMap/gifHandleOf, src/media/classify.js#mediaLabelFor,
+// (src/memory/gifs.js#gifHandleMap/gifHandleOf, src/media/classify.ts#mediaLabelFor,
 // src/format.js#formatTranscript).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { gifHandleMap, gifHandleOf, matchGifKey, mergeGifs } from '../src/memory/gifs.js';
-import { mediaLabelFor } from '../src/media/classify.js';
+import { mediaLabelFor } from '../src/media/classify.ts';
 import { formatTranscript } from '../src/format.js';
 import { labels } from './fixtures/labels.js';
 

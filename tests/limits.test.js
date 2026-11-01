@@ -12,7 +12,7 @@ import {
   postPauseNotice,
 } from '../src/behavior/limits.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 
 const labels = { limits: { notice: 'limit hit: {limit} {used}/{cap}', paused: 'on a break (back soon) [*]' } };
 

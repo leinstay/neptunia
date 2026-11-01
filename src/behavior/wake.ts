@@ -18,7 +18,7 @@
 
 import { fill, formatClock, formatDate, formatNow } from '../format.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
-import { estimateTokens } from '../llm/tokens.js';
+import { estimateTokens } from '../llm/tokens.ts';
 import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
 import type { HeartbeatFacts } from './heartbeat-view.ts';
@@ -57,7 +57,7 @@ export function storedWakes(queue: unknown, kinds: ReadonlyArray<string>): Array
 export const WAKE_PURPOSE_CHARS = 200;
 
 /**
- * One diagnostic of the parser (src/llm/parse.js: what it dropped, cut or joined in her output) as a
+ * One diagnostic of the parser (src/llm/parse.ts: what it dropped, cut or joined in her output) as a
  * line: `labels.tools.diagnostics.<kind>` filled -- `{tag}` (`retiredTag`), `{chars}` (`messageCut`),
  * `{count}` (`messagesMerged`). `kind` is the diagnostic's own (`retiredTag`, ...), or `diagnostic` of a
  * kept fact, whose own is `fact.diagnostic`. '' without the kind's label. `labels` is the whole labels object.
@@ -292,7 +292,7 @@ type BodyOptions = {
  * A line the facts refer to (`ref`, an index into `facts.refs`) is worded with `{handle}`: `#N`, N numbered on
  * from `options.handleBase` (the first ref is `handleBase`); without a base the handle is ''. `options.onRefs`
  * gets the indexes of the refs the final block shows. When the block is over `facts.maxTokens` (the
- * estimate of src/llm/tokens.js) its lists shed their last items, in this order: the filtered lines, the lines of
+ * estimate of src/llm/tokens.ts) its lists shed their last items, in this order: the filtered lines, the lines of
  * her life, the places beyond 3, the people beyond 5; what is shed is counted in the list's `more`.
  * `placesBlock` is the places page's lines (placesLines), shown right after the people when the facts have no
  * `activity`.

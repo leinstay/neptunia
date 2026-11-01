@@ -15,7 +15,7 @@
 // the block is left out (''). Ids, codes and times are data, not wording.
 
 import { fill, formatClock, formatDate } from '../format.js';
-import { estimateTokens } from '../llm/tokens.js';
+import { estimateTokens } from '../llm/tokens.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import { DAY_MS } from '../time.js';
 import { DEFAULTS } from './model.ts';

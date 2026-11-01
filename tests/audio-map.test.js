@@ -1,4 +1,4 @@
-// Tests for src/media/audio-map.js: the measuring settings, the read-only
+// Tests for src/media/audio-map.ts: the measuring settings, the read-only
 // silencedetect run, reading ffmpeg's stderr, the audible stretches (complement,
 // merge, cap), the verdict none / map / full, the m:ss list and the note.
 import { test } from 'node:test';
@@ -12,7 +12,7 @@ import {
   silenceDetectArgs,
   videoAudioNote,
   withAudioNote,
-} from '../src/media/audio-map.js';
+} from '../src/media/audio-map.ts';
 
 const SETTINGS = { noiseDb: -40, minSilenceSeconds: 0.5, mapBelowShare: 0.8, maxSpans: 3 };
 

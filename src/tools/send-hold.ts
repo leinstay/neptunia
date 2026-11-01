@@ -10,7 +10,7 @@
 // record keeps of it once it is sent, as a sent post of a message turn is recorded (src/turn/journal-notes.ts#recordSaid).
 
 import type { ConversationRef, Delivery, SendOptions } from '../protocol/adapter.ts';
-import type { Content } from '../protocol/actions.js';
+import type { Content } from '../protocol/actions.ts';
 
 /** Her line as the record keeps a post once it is sent: her text as she wrote it, its reply and its mentions. */
 export type SaidNote = {

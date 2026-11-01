@@ -2,8 +2,8 @@
 // reports back, and what it declares it can handle. No platform concept appears here, so an adapter
 // for any platform fits. `deliveryOf` folds the results of a split send into one `Delivery`.
 
-import type { Content, PortResult } from './actions.js';
-import type { Conversation, Message, MessageReceived } from './events.js';
+import type { Content, PortResult } from './actions.ts';
+import type { Conversation, Message, MessageReceived } from './events.ts';
 
 export type ConversationRef = { iface: string; conversationId: string };
 
@@ -43,16 +43,16 @@ export type Capabilities = {
   maxChars: number;
   maxFiles: number;
   maxFileBytes: number;
-  edit: { ownOnly: boolean; windowMs: number | null };
-  history: boolean;
-  threads: boolean;
-  reactions: boolean;
-  customEmoji: boolean;
-  presence: boolean;
-  voiceFormats: ReadonlyArray<string>;
-  publish: ReadonlyArray<string>;
-  search: boolean;
-  /** The wire names of the reads the interface answers (READ_ACTIONS in src/protocol/actions.js). */
+  edit?: { ownOnly: boolean; windowMs: number | null };
+  history?: boolean;
+  threads?: boolean;
+  reactions?: boolean;
+  customEmoji?: boolean;
+  presence?: boolean;
+  voiceFormats?: ReadonlyArray<string>;
+  publish?: ReadonlyArray<string>;
+  search?: boolean;
+  /** The wire names of the reads the interface answers (READ_ACTIONS in src/protocol/actions.ts). */
   reads?: ReadonlyArray<string>;
   /** Absent or null: the platform gives a message no address. */
   messageUrl?: MessageUrlTemplate | null;
@@ -97,7 +97,7 @@ export type Audience = {
 };
 
 /**
- * A conversation with what the core reads about it: the record of events.js plus the interface it belongs to, what the
+ * A conversation with what the core reads about it: the record of events.ts plus the interface it belongs to, what the
  * persona may do there, its owner (a member id, null when the platform has none), the time of its newest message,
  * whether it is a voice room, whether everyone in the community may view it, and, when asked for, its audience and
  * which of the named viewers can see it.

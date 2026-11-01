@@ -8,7 +8,7 @@ import { zonedDay } from '../../time.js';
 import { block } from './text.ts';
 import type { Labels } from './types.ts';
 
-/** The web search's result (src/web/lookup.js#search). */
+/** The web search's result (src/web/lookup.ts#search). */
 type WebLookup = {
   readonly query?: string;
   readonly text?: string | null;
@@ -61,7 +61,7 @@ function siteOf(url: unknown): string {
 
 /**
  * The web part of `<lookup>`: what the persona looked up online this turn
- * (src/web/lookup.js#search) -- `labels.lookup.header` with the query, then
+ * (src/web/lookup.ts#search) -- `labels.lookup.header` with the query, then
  * the condensed text and `labels.lookup.sources` with the distinct sites, or
  * `labels.lookup.none` when nothing useful came back. '' when an older
  * labels.json has no `labels.lookup.header`.
@@ -186,7 +186,7 @@ export function prefetchText(prefetch: Prefetch | null | undefined, labels: Labe
  * The `<lookup>` block body as candidates in order of preference, for the
  * budget to take the first that fits (all of them one piece, never split).
  * `lookup` is the turn's `lookup` input: the web search's result
- * (src/web/lookup.js#search) and, under `server`, the server search's
+ * (src/web/lookup.ts#search) and, under `server`, the server search's
  * (renderServerLookup); either may be missing. The web part alone renders
  * exactly as it did before the server part existed (no part header); the
  * server part alone renders under its header. With both, the block is

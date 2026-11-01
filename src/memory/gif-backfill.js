@@ -12,7 +12,7 @@
 // what each GIF shows. Runs once at startup (`startIfNeeded`) and again only
 // on the owner's `/nep gifs rescan` (`run` with `force`).
 
-import { collectPictures } from '../media/classify.js';
+import { collectPictures } from '../media/classify.ts';
 import { readMemberHistory } from './emoji-backfill.js';
 import { GIF_HALF_LIFE_DAYS, gifOpts, rankGifs } from './gifs.js';
 import { log as defaultLog } from '../log.js';
@@ -48,7 +48,7 @@ export function createGifBackfill({ hot, store, reads, iface, describer = null, 
   /**
    * Describe the top `limit` library entries (rank order) that have no
    * cached caption: one describer item per entry -- the GIF's picture item
-   * read this run (src/media/classify.js#collectPictures: an attachment's
+   * read this run (src/media/classify.ts#collectPictures: an attachment's
    * file, an embed's thumbnail and its animation, so the describer can watch
    * it), under the entry's `itemId`; an entry without one is skipped.
    * Returns how many got a caption.

@@ -35,7 +35,7 @@ export const PACE: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'pace.replyHedgeMs',
     'types': ['number'],
-    'reader': 'src/llm/openrouter.js',
+    'reader': 'src/llm/openrouter.ts',
     'default': 30000,
     'text':
       'On a direct call, when the reply has no answer after this long, a second request is sent. `0` = one attempt only',

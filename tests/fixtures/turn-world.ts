@@ -8,12 +8,12 @@
 //
 // `world()` is the current test's world, created on first use and dropped when the test ends.
 import { afterEach } from 'node:test';
-import { createFakeAdapter } from '../../src/interface/fake.js';
+import { createFakeAdapter } from '../../src/interface/fake.ts';
 import { createReads } from '../../src/interface/reads.ts';
 import type { Reads } from '../../src/interface/reads.ts';
 import type { ConversationInfo, MemberInfo, MessageRef, Permissions } from '../../src/protocol/adapter.ts';
 import { PermissionFlagsBits, SnowflakeUtil } from 'discord.js';
-import { normalizeOptions, toEvent } from '../../interfaces/discord/index.js';
+import { normalizeOptions, toEvent } from '../../interfaces/discord/index.ts';
 
 export type Raw = Record<string, unknown>;
 export type Fake = ReturnType<typeof createFakeAdapter>;

@@ -1,11 +1,11 @@
-// Tests for src/web/readable.js: the hand-written HTML-to-text used when the
+// Tests for src/web/readable.ts: the hand-written HTML-to-text used when the
 // persona reads a linked page -- scope choice (article/main over body),
 // boilerplate and raw-text elements dropped, entities, block newlines,
 // whitespace collapse, the word-boundary cut, malformed input and the page
 // title.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { htmlToText, pageTitle, truncateText } from '../src/web/readable.js';
+import { htmlToText, pageTitle, truncateText } from '../src/web/readable.ts';
 
 test('htmlToText: the article is preferred over the rest of the body', () => {
   const html =

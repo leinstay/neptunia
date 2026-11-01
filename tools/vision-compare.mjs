@@ -101,9 +101,9 @@ async function connectDiscord(token) {
  * Read only: the GIF library and the record are read, never written; Discord over GET.
  */
 async function resolveFromCache({ picked, dataDir, guildId, hot, nowMs, token }) {
-  const { collectPictures, collectVideos } = await import('../src/media/classify.js');
-  const { emojiUrl } = await import('../interfaces/discord/collect.js');
-  const { normalizeMessage } = await import('../interfaces/discord/index.js');
+  const { collectPictures, collectVideos } = await import('../src/media/classify.ts');
+  const { emojiUrl } = await import('../interfaces/discord/collect.ts');
+  const { normalizeMessage } = await import('../interfaces/discord/index.ts');
   const { normalizeGifs } = await import('../src/memory/gifs.js');
   const { recordFinder, snowflakeMs } = await import('../src/memory/gif-recache.js');
   const found = new Map();
@@ -255,10 +255,10 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
       `vision-compare: ${items.length} item(s) x ${args.models.length} model(s), one request at a time (a GIF up to 2), none started once the cost passes ${args.maxUsd} USD\n`
     );
 
-    const { createLlm } = await import('../src/llm/openrouter.js');
-    const { createCalibrator } = await import('../src/llm/tokens.js');
-    const { createImageFetcher } = await import('../src/media/fetch-image.js');
-    const { createVideoFetcher } = await import('../src/media/fetch-video.js');
+    const { createLlm } = await import('../src/llm/openrouter.ts');
+    const { createCalibrator } = await import('../src/llm/tokens.ts');
+    const { createImageFetcher } = await import('../src/media/fetch-image.ts');
+    const { createVideoFetcher } = await import('../src/media/fetch-video.ts');
     const apiKey = simKey(ORIGIN);
     const stored = readJson(path.join(dataDir, 'state.json'), {});
     const calibrator = createCalibrator(stored?.calibration);

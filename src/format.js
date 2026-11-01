@@ -1,5 +1,5 @@
 // Pure text formatting of normalized messages (see normalizeMessage in
-// collect.js) into the transcript the model reads. No platform SDK imports here,
+// collect.ts) into the transcript the model reads. No platform SDK imports here,
 // so everything is unit-testable. Every word that ends up in the prompt comes
 // from `labels` (see prompts/labels.json and docs/prompt-contract.md);
 // this module only knows the shape of a transcript line, e.g.:
@@ -13,7 +13,7 @@
 // live conversation from a dead chat that somebody has just poked.
 
 import { reasonText } from './tools/codes.ts';
-import { clipWithEllipsis, mediaLabelFor, stickerLabelFor } from './media/classify.js';
+import { clipWithEllipsis, mediaLabelFor, stickerLabelFor } from './media/classify.ts';
 import { gifHandleOf } from './memory/index.js';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from './time.js';
 import { clampWithEllipsis, oneLine } from './memory/clamp.js';
@@ -183,7 +183,7 @@ export function formatDuration(ms, units) {
 /**
  * One rendered tag per attachment/embed/sticker of `message`, most
  * informative form available (see docs/prompt-contract.md, "Media in
- * a transcript line" and src/media/classify.js#mediaLabelFor/stickerLabelFor):
+ * a transcript line" and src/media/classify.ts#mediaLabelFor/stickerLabelFor):
  * described > blind, plus one extra tag per distinct described custom emoji
  * unless `context.emojiInline` is false (the request describes them once
  * elsewhere). `context.descriptions` is an optional `Map` keyed by the item's id (an
@@ -197,7 +197,7 @@ export function formatDuration(ms, units) {
  * with that key blanked; a video state's
  * `answer` (a second look on a question) likewise needs
  * `transcript.videoAnswered`. `context.reads` is an optional `Map` of link
- * ids to the excerpt the web lookup read from that page (src/web/lookup.js);
+ * ids to the excerpt the web lookup read from that page (src/web/lookup.ts);
  * it needs `transcript.linkRead`, blanked the same way to switch it off.
  * `context.imageAnswers` is an optional `Map` of picture ids to a second look
  * on a question (`{ question, text }`, src/memory/describe.js#relookImage);
@@ -797,7 +797,7 @@ function numberMessageRefs(text, refs, numberOf) {
  *   `videoWatched`/`videoNotWatched*`/`linkWatched`/`linkNotWatched*` forms.
  *   Ignored when the labels have no `transcript.videoWatched` key.
  * @param {Map<string, string>} [options.reads]  Link id -> the excerpt the web lookup read from
- *   that page (src/web/lookup.js); renders `transcript.linkRead`. Ignored when the labels have
+ *   that page (src/web/lookup.ts); renders `transcript.linkRead`. Ignored when the labels have
  *   no `transcript.linkRead` key.
  * @param {Map<string, string>} [options.gifHandles]  The GIF library's handles
  *   (src/memory/gifs.js#gifHandleMap); a GIF it knows renders `transcript.gifKnown` /

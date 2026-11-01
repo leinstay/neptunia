@@ -4,7 +4,7 @@
 // answer's data, never its wording. The fake adapter only fills the hello: the core never sends an agent anything
 // but command results.
 import { randomUUID } from 'node:crypto';
-import { createFakeAdapter } from '../../src/interface/fake.js';
+import { createFakeAdapter } from '../../src/interface/fake.ts';
 import { serveAdapter } from '../../src/protocol/serve.ts';
 import type { CommandResult } from '../../src/protocol/serve.ts';
 import { MAX_FRAME_BYTES, connectSocket } from '../../src/protocol/wire.ts';

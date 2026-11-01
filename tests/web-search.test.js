@@ -1,4 +1,4 @@
-// Tests for src/web/web-search.js, the scout agent's search command: the command
+// Tests for src/web/web-search.ts, the scout agent's search command: the command
 // line (query words, --count), the request it sends (OpenRouter's chat
 // completions with the web plugin on Exa, the agent's key, the model the
 // runner passes), the results read from the answer's url_citation annotations
@@ -16,8 +16,8 @@ import {
   searchResults,
   WEB_SEARCH_MODEL_ENV,
   webSearchModel,
-} from '../src/web/web-search.js';
-import { ROLE_DEFAULTS } from '../src/llm/roles.js';
+} from '../src/web/web-search.ts';
+import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 
 /** An answer of the chat-completions API carrying `annotations` on its first choice. */
 function answer(annotations, text = 'Some text the command never prints.') {

@@ -1,6 +1,6 @@
 // Assembles one LLM request for a turn. Pure: takes already-fetched data and
 // the live prompts/config, returns chat-completions messages. The token budget
-// is spent in this priority order (see src/llm/budget.js):
+// is spent in this priority order (see src/llm/budget.ts):
 //   1. system prompt (persona + live rules + output format), task, clock, tempo, and the
 //      interlocutor's `<people_now>` entry (what is current about them) — never cut
 //   2. memory about the trigger's author (the person the persona is talking to, or the one overheard)
@@ -57,7 +57,7 @@
 // built here too.
 
 import { createHash } from 'node:crypto';
-import { fitSections, requestTokenLimit, sectionCost } from '../llm/budget.js';
+import { fitSections, requestTokenLimit, sectionCost } from '../llm/budget.ts';
 import { computeTempo, fill, formatNow, formatTranscript, renderTempo, renderTranscript } from '../format.js';
 import { RECENT_EPISODES_PER_MEMBER, recentSettings, recentView } from '../memory/recent.js';
 import { DEFAULT_HISTORY_POSTS, renderKindsBlock } from './diary.ts';
@@ -275,12 +275,12 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  * @param {Map<string, { question: string, text: string }>|null} [input.imageAnswers]  Picture or GIF id ->
  *   a second look on a question (src/memory/describe.js#relookImage / #rewatchGif), passed to formatTranscript.
  * @param {Map<string, string>} [input.reads]  Link id -> the excerpt the web lookup read from that
- *   page (src/web/lookup.js#readLinks), passed to formatTranscript.
+ *   page (src/web/lookup.ts#readLinks), passed to formatTranscript.
  * @param {{ query?: string, text?: string, sources?: object[], cached?: boolean,
  *   server?: { text: string|null, stretch: { channelId: string, channelName: string|null, startTs: number,
  *   lines: string }|null, people: object[] } }|null} [input.lookup]  What was looked up this turn,
  *   rendered as `<lookup>` (see `lookupCandidates`): the web search's result
- *   (src/web/lookup.js#search) as it is, and under `server` what the search of the server's own
+ *   (src/web/lookup.ts#search) as it is, and under `server` what the search of the server's own
  *   history found (src/behavior/recall-run.js; src/behavior/turn.js adds the key only when it found
  *   something). A web result without `server` renders exactly as before the server part existed;
  *   the server part needs `labels.lookup.serverHeader`, its stretch `labels.lookup.stretch`.
@@ -427,7 +427,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  *   (src/tools/discovery.ts#exposedSkillNames): only the in-turn ones (`web.search`, `web.read`,
  *   `media.look`, `memory.search`) matter here, to `<senses>` (the search
  *   lines say she calls them). The tools themselves travel as the request's `tools`, not in a block.
- * @param {string|null} [input.toolsBlock]  The `<tools>` body (src/llm/tool-text.js#toolsBlockText), the text
+ * @param {string|null} [input.toolsBlock]  The `<tools>` body (src/llm/tool-text.ts#toolsBlockText), the text
  *   transport only: in the stable part where the three skills blocks used to stand, fixed, never cut.
  *   Omitted, null or '' -> no block (the native transport sends the tools as a request field).
  * @param {number|null} [input.toolsTokens]  The calibrated tokens the request's `tools` field costs
@@ -474,7 +474,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  *   the stable part shows from memory (src/behavior/turn.js keeps one per guild): with
  *   `features.promptCache` exactly true, `<self_facts>` (and `<gifs>`) render as they were at the
  *   first request of the current time bucket, one bucket being the cache TTL
- *   (src/llm/openrouter.js#cacheTtlMs: an hour for `llm.cache.ttl` `'1h'`), see freezePerBucket;
+ *   (src/llm/openrouter.ts#cacheTtlMs: an hour for `llm.cache.ttl` `'1h'`), see freezePerBucket;
  *   a memory batch's change shows at the next bucket edge. Omitted, null or the cache off ->
  *   rendered from the input every time.
  * @returns {{ messages: object[], stats: object, segments: { segment: 'stable'|'profiles'|'tail', chars: number, hash: string }[],

@@ -1,10 +1,10 @@
-// Tests for interfaces/discord/pull-fetch.js: the pull rails over discord.js objects for the one reader that still
+// Tests for interfaces/discord/pull-fetch.ts: the pull rails over discord.js objects for the one reader that still
 // takes them (the recall runner). The rails of a turn's pull over the interface's listing are in
 // tests/pull-fetch-core.test.ts. Discord objects are plain fixtures shaped just enough for the code to read.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { OverwriteType, PermissionFlagsBits, PermissionsBitField, SnowflakeUtil } from 'discord.js';
-import { audienceAllows, checkPull, isReadableChannel } from '../interfaces/discord/index.js';
+import { audienceAllows, checkPull, isReadableChannel } from '../interfaces/discord/index.ts';
 
 const MIN = 60_000;
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);

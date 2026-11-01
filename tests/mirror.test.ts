@@ -13,8 +13,8 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { contentHash, preparePublication } from '../src/memory/db/publish.ts';
 import { issueContext } from '../src/memory/db/scope.ts';
-import { notOk } from '../src/protocol/actions.js';
-import type { Content } from '../src/protocol/actions.js';
+import { notOk } from '../src/protocol/actions.ts';
+import type { Content } from '../src/protocol/actions.ts';
 import { GUILD, NOW, sceneHot, sceneLlm, sceneRunner } from './fixtures/diary-requests.ts';
 import { dbOf, diaryPublications, diaryRows, entryOf, seedMirror } from './fixtures/diary-mirror.ts';
 import { openTestMemory } from './fixtures/memory-db/service.js';
@@ -228,7 +228,7 @@ function setAndVoiceTurns(store: Awaited<ReturnType<typeof scene>>['store'], pic
       generate: () =>
         Promise.resolve({ buffer: Buffer.alloc(pictureBytes, 1), mediaType: 'image/png', seconds: 1, cost: 0 }),
     },
-    // The speech client as src/speech/index.js#createSpeech answers: the voice file and what was voiced.
+    // The speech client as src/speech/index.ts#createSpeech answers: the voice file and what was voiced.
     speech: {
       say: ({ text }: { text: string }) =>
         Promise.resolve({

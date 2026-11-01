@@ -4,7 +4,7 @@
 // arrives as an `updated` change and replaces the name at once; a member who left is forgotten. Names are kept per
 // community, so one member of two communities has two names.
 
-import type { MembershipChanged } from '../protocol/events.js';
+import type { MembershipChanged } from '../protocol/events.ts';
 
 export function createMemberDirectory(): {
   apply(event: MembershipChanged): void;

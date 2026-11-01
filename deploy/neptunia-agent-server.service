@@ -8,7 +8,7 @@
 # granted CAP_DAC_READ_SEARCH so it can read any file like root WITHOUT being
 # root -- the read-only guarantee is this unit (ProtectSystem=strict, no
 # write paths), not a command filter. What it may DISCLOSE is cut by the
-# engine per scope (src/agent-runner/policy.js), not by the OS here.
+# engine per scope (src/agent-runner/policy.ts), not by the OS here.
 #
 # Keys: every key lives in the bot's .env, which this process cannot read. The
 # core sends the agents' key (OPENROUTER_ERRAND_KEY) with each task. The
@@ -43,7 +43,7 @@ ExecStart=/opt/node/bin/node bin/neptunia.ts errand-runner --profile server
 # checkout; an override this user cannot read is skipped with one warning and
 # the tracked prompt is used), and in a filtered scope withholds NEPTUNIA_DATA_DIR
 # and, when apart from the checkout, NEPTUNIA_PRIVATE_DIR
-# (src/agent-runner/policy.js); it writes under neither. A deployment that
+# (src/agent-runner/policy.ts); it writes under neither. A deployment that
 # keeps everything in the checkout deletes both lines.
 Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc
 Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data

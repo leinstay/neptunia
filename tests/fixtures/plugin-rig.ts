@@ -7,7 +7,7 @@ import type { ChildProcess } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startCore } from '../../src/core.js';
-import { envelope } from '../../src/protocol/index.js';
+import { envelope } from '../../src/protocol/index.ts';
 import type { PluginManifest, ToolAnswer, ToolCallBody, ToolDeclaration } from '../../src/protocol/plugin.ts';
 import { MAX_FRAME_BYTES, connectSocket } from '../../src/protocol/wire.ts';
 import type { Logger } from '../../src/protocol/serve.ts';

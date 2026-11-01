@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemberDirectory } from '../src/interface/members.ts';
-import type { MembershipChanged } from '../src/protocol/events.js';
+import type { MembershipChanged } from '../src/protocol/events.ts';
 
 let counter = 0;
 function changed(

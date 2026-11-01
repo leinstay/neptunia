@@ -1,10 +1,10 @@
-// The boundary check of the read actions (src/protocol/validate.js#validateAction, READ_ACTIONS in
-// src/protocol/actions.js). A table of good and bad actions per read: references go through the same reference check as
+// The boundary check of the read actions (src/protocol/validate.ts#validateAction, READ_ACTIONS in
+// src/protocol/actions.ts). A table of good and bad actions per read: references go through the same reference check as
 // every action, id lists must hold ids, `limit` is an integer from 1 to 10,000, one anchor at most, finite times, at
 // most 25 viewers, at most 50 texts of at most 2,000 characters.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { READ_ACTIONS, validateAction } from '../src/protocol/index.js';
+import { READ_ACTIONS, validateAction } from '../src/protocol/index.ts';
 
 const CONVERSATION = { iface: 'fake', conversationId: 'c1' };
 const MESSAGE = { iface: 'fake', conversationId: 'c1', messageId: 'm1' };

@@ -34,7 +34,7 @@ import {
   scanArchive,
   searchPlan,
 } from '../src/behavior/recall.js';
-import { estimateTokens } from '../src/llm/tokens.js';
+import { estimateTokens } from '../src/llm/tokens.ts';
 import { createRecord, toRecordLine } from '../src/memory/record.js';
 import { labels } from './fixtures/labels.js';
 import fs, { readFileSync } from 'node:fs';

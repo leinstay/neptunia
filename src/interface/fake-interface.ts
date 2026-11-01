@@ -1,4 +1,4 @@
-// The fake interface: the in-memory adapter (src/interface/fake.js) started the way an interface package is, so a test
+// The fake interface: the in-memory adapter (src/interface/fake.ts) started the way an interface package is, so a test
 // runs the core over the real link with no platform behind it. `start(host)` opens the interface's end of the link
 // with `host.connect()`, says hello with the fake's capabilities and serves the adapter over it, and resolves with
 // the running interface plus two handles for the test: `emit(event)` injects an inbound event as the interface would
@@ -23,7 +23,7 @@ import { createOutbox } from '../protocol/outbox.ts';
 import { serveAdapter } from '../protocol/serve.ts';
 import type { AckStatus, Named } from '../protocol/serve.ts';
 import type { InterfaceHost, RunningInterface } from '../protocol/host.ts';
-import { createFakeAdapter } from './fake.js';
+import { createFakeAdapter } from './fake.ts';
 
 /** The community the fake serves when a test names none: the one fake guild of the legacy fixture. */
 const DEFAULT_COMMUNITY: Named = { id: 'g1', name: 'Fake community' };

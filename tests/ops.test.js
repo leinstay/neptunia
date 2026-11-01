@@ -10,7 +10,7 @@ import { listOps, runOp } from '../src/tools/impl/index.ts';
 // PR 7b: the old command keys of the stored grants are read in src/config-moves.ts, beside the other old config keys.
 import { legacyGrantOps } from '../src/config-moves.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
+import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { createErrandStore } from '../src/errands/store.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';

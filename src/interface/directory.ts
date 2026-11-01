@@ -4,7 +4,7 @@
 // messages seen in it (`observe`): the interface announces no change for one. `dmConversationOf(partnerId)` answers the
 // one-to-one chat with that member, the newest when two were seen.
 
-import type { Conversation, ConversationChanged, MessageReceived } from '../protocol/events.js';
+import type { Conversation, ConversationChanged, MessageReceived } from '../protocol/events.ts';
 
 export function createConversationDirectory(): {
   apply(event: ConversationChanged): void;

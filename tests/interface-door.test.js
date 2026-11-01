@@ -1,10 +1,10 @@
-// Tests for src/interface/door.js: the one event door -- validation at the boundary, idempotent
+// Tests for src/interface/door.ts: the one event door -- validation at the boundary, idempotent
 // ids (at-least-once delivery), failed handlers retried by redelivery, derived ids of the core's
 // own events, the bounded memory of ids, and the envelope form answered by acks.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createEventDoor, eventIdOf } from '../src/interface/door.js';
-import { envelope } from '../src/protocol/index.js';
+import { createEventDoor, eventIdOf } from '../src/interface/door.ts';
+import { envelope } from '../src/protocol/index.ts';
 
 const quiet = () => {
   const lines = [];
@@ -177,7 +177,7 @@ test('door: envelopes -- hello and ping are acked, an event envelope is acked by
 
 test('door: two removals of the same emoji at different times both pass; the same instant is a duplicate', async () => {
   const { reactionEvent, reactionClearAllEvent, reactionClearEmojiEvent } =
-    await import('../interfaces/discord/index.js');
+    await import('../interfaces/discord/index.ts');
   const message = { id: 'm1', channelId: 'c1', guildId: 'g1', partial: false, author: { id: 'a1' } };
   const react = { message, emoji: { name: '\u{1F389}' } };
   const user = { id: 'u1' };

@@ -309,7 +309,7 @@ The settings every errand reads, whichever agent runs it. See [Errands](errands.
 
 ## `agents`
 
-The settings of one agent live in its profile, `agents/<name>/profile.json` (see [the agents folder](../agents/README.md)). A deployment overrides a setting under `agents.<name>` of `config.local/config.json`, and `agentSettings(name, config)` in `src/agent-runner/profiles.js` lays the override over the profile, a nested object merged key by key. The core, the agent runner and the dispatcher all read an agent's settings through it.
+The settings of one agent live in its profile, `agents/<name>/profile.json` (see [the agents folder](../agents/README.md)). A deployment overrides a setting under `agents.<name>` of `config.local/config.json`, and `agentSettings(name, config)` in `src/agent-runner/profiles.ts` lays the override over the profile, a nested object merged key by key. The core, the agent runner and the dispatcher all read an agent's settings through it.
 
 <!-- settings: agents -->
 

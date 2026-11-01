@@ -1,8 +1,8 @@
 // Tests for interfaces/discord/embed.ts: what a Discord embed is as a media item (a GIF or a link with its thumbnail),
-// and that a classified GIF-picker post is never a page the core reads (src/media/classify.js#collectReadableLinks).
+// and that a classified GIF-picker post is never a page the core reads (src/media/classify.ts#collectReadableLinks).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectReadableLinks } from '../src/media/classify.js';
+import { collectReadableLinks } from '../src/media/classify.ts';
 import { classifyEmbed } from '../interfaces/discord/embed.ts';
 
 // --- classifyEmbed -----------------------------------------------------------

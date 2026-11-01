@@ -6,7 +6,7 @@
 
 import { recordEntry } from '../../behavior/diary-turn.ts';
 import { limitOf } from '../../behavior/limits.js';
-import { DailyCapError, TokenLimitError, errorCodeOf, railReason } from '../../llm/openrouter.js';
+import { DailyCapError, TokenLimitError, errorCodeOf, railReason } from '../../llm/openrouter.ts';
 import { log } from '../../log.js';
 import { skillUsesOfTurn } from '../../skills/uses.ts';
 import type { HeldSpeech } from '../act.ts';

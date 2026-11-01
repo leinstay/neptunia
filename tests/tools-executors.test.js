@@ -13,12 +13,12 @@ import { PermissionFlagsBits } from 'discord.js';
 import '../src/tools/impl/index.ts';
 import { createAdmin } from '../src/admin.js';
 import { toolResultText } from '../src/tools/tool-calls.ts';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 import { RESULT_STATUSES, executeCall, outcomeDetail, refusalStatus, resolveCall } from '../src/tools/executors.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { checkSkill } from '../src/tools/gateway.ts';
 import { labels } from './fixtures/labels.js';
-import { createDiscordInterface } from '../interfaces/discord/index.js';
+import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { freshWorld, seedExisting, syncStub, useIface, useSelf, world } from './fixtures/turn-world.ts';
 

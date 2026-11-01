@@ -1,6 +1,6 @@
 // The reads of the adapter contract on the wire: their action names, the action object each method call becomes
 // (`readAction`, used by `portAction`), and the boundary check of a read action (`readActionProblem`, used by
-// `validateAction`). Shapes only, like validate.js: whether a reference belongs to an interface and what a read finds
+// `validateAction`). Shapes only, like validate.ts: whether a reference belongs to an interface and what a read finds
 // stay with the adapter. The methods and their results are typed in src/protocol/adapter.ts.
 
 /** The read action that fetches messages by id. It changes nothing, so it is not a capability. */
@@ -212,7 +212,7 @@ export function readActionProblem(given: unknown): Problem | null {
 /**
  * The first problem of the fields a message event carries beyond the old shape: `sourceText` and `system` when
  * present, what a deletion still knows (`message.at`, `message.author`) and `previous` of an edit. `isWholeMessage`
- * is validate.js's own check of a whole message, applied to `previous`.
+ * is validate.ts's own check of a whole message, applied to `previous`.
  */
 export function messageExtrasProblem(given: unknown, isWholeMessage: (message: Fields) => boolean): Problem | null {
   const event: Fields = isObject(given) ? given : {};

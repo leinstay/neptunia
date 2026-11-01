@@ -4,7 +4,7 @@
 // (src/behavior/prompt.js) calls them last.
 
 import { fill, formatDuration, formatNow, renderTranscript } from '../../format.js';
-import { mediaParts } from '../../media/classify.js';
+import { mediaParts } from '../../media/classify.ts';
 import { block, pulledMoment } from './text.ts';
 import type { Senses } from './senses.ts';
 import type { LabelGroup, Labels, Message, TranscriptItem } from './types.ts';
@@ -17,7 +17,7 @@ const chatText = (items: Array<TranscriptItem>, timezone: string, labels: Labels
   // renderTranscript has no declared types; it returns the joined text.
   renderTranscript(items, timezone, labels) as string;
 
-/** One part of a message's media (src/media/classify.js#mediaParts). */
+/** One part of a message's media (src/media/classify.ts#mediaParts). */
 type MediaPart = { readonly attachments?: Array<{ readonly kind?: string; readonly previewText?: unknown } | null> };
 
 /**
@@ -78,7 +78,7 @@ export function nowBlock(now: number, timezone: string, labels: Labels, periods:
  * renderSenses' two halves. A segment with no block is left
  * out; every part but the last ends with the blank line that separates
  * blocks, so the parts' texts joined with nothing (userText) are the whole
- * user text. `cacheSegment` is a neutral tag: src/llm/openrouter.js#withCacheMarker
+ * user text. `cacheSegment` is a neutral tag: src/llm/openrouter.ts#withCacheMarker
  * turns it into the provider's marker under the cache policy and never sends it.
  * `errands`: the `<errands>` and `<errand_result>` bodies
  * (buildRequest's `input.errands`), in the tail before `<people_now>`. `diary` (a diary post only): the

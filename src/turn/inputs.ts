@@ -32,7 +32,7 @@ export type InputsConfig = {
 /** The labels as the inputs hand them on; the block functions read their own sections. */
 type InputsLabels = { locale?: string; [key: string]: unknown } | null | undefined;
 
-/** The interface port (src/interface/port.js), as far as its interface name is read. */
+/** The interface port (src/interface/port.ts), as far as its interface name is read. */
 type InputsPort = { iface: string };
 
 /** What a memory read's execution context is issued for: a private chat's partner, or a group's destination. */

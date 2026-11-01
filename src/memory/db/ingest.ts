@@ -1,6 +1,6 @@
 // The ingestion record of the memory database (schema v16): one `ingest` row per event the core committed, keyed by
 // the principal that sent it, and in `ingest_cursor` the contiguous watermark acknowledged to each principal. The
-// event door (src/interface/door.js) asks `ingested` before it hands an event on and commits the row with
+// event door (src/interface/door.ts) asks `ingested` before it hands an event on and commits the row with
 // `insertIngest` once the handler succeeded; the live message path commits the same row in the transaction of the
 // observation it makes (observe.ts#observe), and the door's later insert then changes nothing. The link
 // (src/interface/link.ts) answers `hello` with `cursorOf` and writes each new watermark with `ackCursor`. Every

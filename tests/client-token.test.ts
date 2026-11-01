@@ -12,9 +12,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadPrincipals, principalOfToken } from '../src/interface/principals.ts';
 import { openAdapterLink } from '../src/interface/link.ts';
-import { createEventDoor } from '../src/interface/door.js';
-import { createFakeAdapter } from '../src/interface/fake.js';
-import { createLoopback } from '../src/protocol/index.js';
+import { createEventDoor } from '../src/interface/door.ts';
+import { createFakeAdapter } from '../src/interface/fake.ts';
+import { createLoopback } from '../src/protocol/index.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
 import { tempDir } from './fixtures/tmp.js';
 

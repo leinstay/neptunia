@@ -72,7 +72,7 @@ export function createPauseNotice({
     const channel = await infoNow(event.iface, event.conversation.id);
     if (!channel?.permissions.send) return null;
     const normalized = normalize();
-    // The door refuses a whole message without its addressing (src/protocol/validate.js).
+    // The door refuses a whole message without its addressing (src/protocol/validate.ts).
     const kind: unknown = detectTrigger({
       mentionsSelf: event.addressing!.mentioned,
       repliesToSelf: event.addressing!.replyToSelf || (await resolveReference(refOf(channel), normalized.replyToId)),

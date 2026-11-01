@@ -10,8 +10,8 @@ import { emptyAffinity, affinityBand, roundScore } from '../../memory/index.js';
 import { topByRank } from '../../memory/ranking.js';
 import { fromTokens } from '../../memory/mentions.ts';
 import { MODEL_ROLES } from './catalog.ts';
-import { roleModel } from '../../llm/roles.js';
-import { IMAGE_ROLE } from '../../llm/images.js';
+import { roleModel } from '../../llm/roles.ts';
+import { IMAGE_ROLE } from '../../llm/images.ts';
 import { oneLine } from '../../memory/clamp.js';
 import { utcDay } from '../../time.js';
 import { denied, invalid } from './registry.ts';
@@ -570,7 +570,7 @@ export function writeLocalConfig(localPath: string, value: unknown): void {
 export const MODEL_ID_RE = /^[\w.:/-]{3,100}$/;
 
 /** Every role a route may name: the chat and embedding roles, then the drawing model's; never an
- * OpenCode role (src/llm/roles.js#OPENCODE_ROLES), whose worker reads no route. */
+ * OpenCode role (src/llm/roles.ts#OPENCODE_ROLES), whose worker reads no route. */
 export const ROUTE_ROLES: ReadonlyArray<string> = [...MODEL_ROLES, IMAGE_ROLE];
 
 /** A provider slug as OpenRouter writes it: lowercase letters, digits and `-`. */
@@ -578,7 +578,7 @@ export const PROVIDER_SLUG_RE = /^[a-z0-9-]+$/;
 
 /** The model id one role resolves to right now (`/nep model show`, `/nep route`, the status
  * card): `models.<group>.<role>`, else the role's own default
- * (src/llm/roles.js#roleModel; no purpose, so no `models.byPurpose` entry). */
+ * (src/llm/roles.ts#roleModel; no purpose, so no `models.byPurpose` entry). */
 export function modelForRole(role: string, cfg: object): string | undefined {
   return roleModel(cfg, role);
 }
@@ -602,7 +602,7 @@ export function fallbacksText(value: Obj): string {
   return onOff(value.allow_fallbacks !== false);
 }
 
-/** `on` only when the routing object says exactly `byok: true` (src/llm/openrouter.js#assertByok). */
+/** `on` only when the routing object says exactly `byok: true` (src/llm/openrouter.ts#assertByok). */
 export function byokText(value: Obj): string {
   return onOff(value.byok === true);
 }
@@ -831,7 +831,7 @@ export async function messageRefOf(
 }
 
 /**
- * An interface port's answer (src/interface/port.js) as an operation's: `{ text, ref, at }` when
+ * An interface port's answer (src/interface/port.ts) as an operation's: `{ text, ref, at }` when
  * it went out, else a `failed` result with the port's code and `data.unknown` true when it may
  * have taken effect anyway (never retried).
  * `name` is the operation's name, for the summary, and `text` the answer when it went out.

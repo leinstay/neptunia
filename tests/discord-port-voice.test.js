@@ -1,9 +1,9 @@
-// The Discord port's voice payload (interfaces/discord/port.js): an attachment with `voice`
+// The Discord port's voice payload (interfaces/discord/port.ts): an attachment with `voice`
 // is sent with the voice-message flag, its duration and waveform, and no text.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MessageFlags } from 'discord.js';
-import { createDiscordAdapter } from '../interfaces/discord/port.js';
+import { createDiscordAdapter } from '../interfaces/discord/port.ts';
 
 function portOver(sent) {
   const channel = {

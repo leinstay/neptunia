@@ -3,7 +3,7 @@
 // rendered as one markdown section. A number the source does not carry stays null and prints
 // `N/A`; nothing is guessed. No I/O here: the scripts read the files and print.
 
-import { LIMIT_KINDS } from '../../src/llm/limits.js';
+import { LIMIT_KINDS } from '../../src/llm/limits.ts';
 
 /** What a missing number prints as. */
 export const NA = 'N/A';

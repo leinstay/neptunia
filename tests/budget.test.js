@@ -1,10 +1,10 @@
-// Tests for src/llm/budget.js: fitSections, the priority-ordered token trimmer, and the two
+// Tests for src/llm/budget.ts: fitSections, the priority-ordered token trimmer, and the two
 // pieces every request builder hands it -- requestTokenLimit (the limit) and sectionCost (the
 // price of one item).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { budgetDrops, fitSections, requestTokenLimit, sectionCost, SectionsTooLargeError } from '../src/llm/budget.js';
-import { createLimits } from '../src/llm/limits.js';
+import { budgetDrops, fitSections, requestTokenLimit, sectionCost, SectionsTooLargeError } from '../src/llm/budget.ts';
+import { createLimits } from '../src/llm/limits.ts';
 
 // Every item costs its own string length in "tokens" -- makes the arithmetic
 // in assertions trivial and readable.

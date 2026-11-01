@@ -22,8 +22,8 @@
 //     key is null when its variable is unset: no other key stands in. Names only, never a value.
 //   effectiveModelsLine(list) -> string[]    `purpose=model@KEY` per entry, for the start-up log line
 
-import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../../llm/openrouter.js';
-import { MEMORY_PURPOSES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.js';
+import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../../llm/openrouter.ts';
+import { MEMORY_PURPOSES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.ts';
 import { batchOf, cursorKey, DESCRIPTION_FIELDS, scopeSweepsToday, scopesOf, sessionSettings } from './session.ts';
 import { descriptionIdFor, scopeOfContext } from './describe.ts';
 import { dmContext, groupContext } from './scope.ts';

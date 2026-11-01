@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reconcileUnknown } from '../src/interface/reconcile.ts';
-import { createFakeAdapter } from '../src/interface/fake.js';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 
 const CONVERSATION = { iface: 'fake', conversationId: 'c1' };
 const KEY = 'turn-1:0:c1';

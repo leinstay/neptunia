@@ -3,7 +3,7 @@
 // older than the chat that matter). buildRequest and buildDiaryPlanRequest (src/behavior/prompt.js) call them.
 
 import { AGE_AFTER_MINUTES, fill, formatClock, formatDate, formatDuration, formatTranscript } from '../../format.js';
-import { fitSections } from '../../llm/budget.js';
+import { fitSections } from '../../llm/budget.ts';
 import { cutEpisode, earlierEpisodes, participationSettings, selectEpisodes, topEpisodes } from '../../memory/index.js';
 import { oneLine } from '../../memory/clamp.js';
 import {

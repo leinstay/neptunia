@@ -66,14 +66,14 @@
 // it is memory about real people, kept under data/ only.
 
 import { log } from '../log.js';
-import { roleRequestOptions, railReason } from '../llm/openrouter.js';
+import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
 import { clampChars, oneLine } from '../memory/clamp.js';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.js';
 import { DAY_MS } from '../time.js';
 import { audienceCovers } from './elsewhere.ts';
 import { audienceAllows, railAudience } from './snapshot.ts';
 import { checkPull } from './pull-fetch.ts';
-import { roleModel } from '../llm/roles.js';
+import { roleModel } from '../llm/roles.ts';
 import { pullPictures } from './pull.js';
 import {
   buildRecallRequest,
@@ -379,7 +379,7 @@ function summaryFailure(err) {
  * @param {{ iterate: Function }|null} [deps.record]  From createRecord (src/memory/record.js): only `iterate` is used (read only); without it the record is not read.
  * @param {{ search: Function }|null} [deps.vectors]  From createVectors (src/memory/vectors.js): only
  *   `search` is used. Without it (or `deps.embed`) no run searches by meaning.
- * @param {((texts: string[], opts: object) => Promise<Float32Array[]>)|null} [deps.embed]  src/llm/embed.js's `embed`: one call per run that searches by meaning.
+ * @param {((texts: string[], opts: object) => Promise<Float32Array[]>)|null} [deps.embed]  src/llm/embed.ts's `embed`: one call per run that searches by meaning.
  * @param {{ database: () => (object|null) }|null} [deps.memoryDb]  src/memory/db/service.ts: the open memory database
  *   (the persona's own search, her window reads and the prefetch).
  * @param {string} [deps.iface]  The interface the persona's ids belong to (`hello.iface`); the legacy namespace without one.

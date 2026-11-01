@@ -97,7 +97,7 @@ export function diaryVoiceTool({
     'voice.say': async (args) => {
       const text = typeof args.text === 'string' ? args.text.trim() : '';
       if (!text) return { status: 'invalid', code: CODE.INVALID_ARGS, data: { text: '' } };
-      // src/speech/index.js#createSpeech answers the file and what was voiced.
+      // src/speech/index.ts#createSpeech answers the file and what was voiced.
       const made = (await (say as (input: { text: string }) => Promise<unknown>)({ text })) as {
         ogg: Uint8Array;
         durationSecs: number;

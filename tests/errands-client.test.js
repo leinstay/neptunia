@@ -15,9 +15,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createErrandClient } from '../src/errands/client.ts';
-import { encodeLine, MAX_PREAMBLE_CHARS } from '../src/agent-runner/protocol.js';
+import { encodeLine, MAX_PREAMBLE_CHARS } from '../src/agent-runner/protocol.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { ROLE_DEFAULTS } from '../src/llm/roles.js';
+import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 
 function socketPath() {
   return path.join(os.tmpdir(), `errand-sock-${process.pid}-${Math.random().toString(36).slice(2)}.sock`);

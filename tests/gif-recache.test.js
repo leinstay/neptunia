@@ -22,7 +22,7 @@ import {
   snowflakeMs,
 } from '../src/memory/gif-recache.js';
 import { createStore } from '../src/memory/store.js';
-import { normalizeOptions, toEvent } from '../interfaces/discord/index.js';
+import { normalizeOptions, toEvent } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { IFACE, channel, rig } from './fixtures/reads-rig.ts';
 

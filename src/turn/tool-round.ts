@@ -14,9 +14,9 @@ import { diagnosticText } from '../behavior/wake.ts';
 import { WAKE_PURPOSE_CHARS } from '../behavior/wake.ts';
 import { callReason, fill, formatTranscript } from '../format.js';
 import type { Reads } from '../interface/reads.ts';
-import { requestTokenLimit } from '../llm/budget.js';
-import { REPLY_REQUEST } from '../llm/openrouter.js';
-import { estimateMessages, estimateTools } from '../llm/tokens.js';
+import { requestTokenLimit } from '../llm/budget.ts';
+import { REPLY_REQUEST } from '../llm/openrouter.ts';
+import { estimateMessages, estimateTools } from '../llm/tokens.ts';
 import { log } from '../log.js';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
 import type { ConversationRef } from '../protocol/adapter.ts';
@@ -70,14 +70,14 @@ export type ToolRoundConfig = Parameters<typeof resultCharsFor>[1] & {
 /** The labels, as the tool round hands them on; the text functions read their own sections. */
 type RoundLabels = { task?: { continueInnerOpen?: unknown } | null; [key: string]: unknown };
 
-/** A completion of the language model client (src/llm/openrouter.js#createLlm), as a step reads it. */
+/** A completion of the language model client (src/llm/openrouter.ts#createLlm), as a step reads it. */
 export type StepCompletion = NonNullable<Parameters<typeof cutOffOf>[0]> & {
   text?: unknown;
   toolCalls?: unknown;
   usage?: unknown;
 };
 
-/** The language model client (src/llm/openrouter.js#createLlm), as a step's follow-up request uses it. */
+/** The language model client (src/llm/openrouter.ts#createLlm), as a step's follow-up request uses it. */
 type RoundLlm = { complete: (messages: Array<object>, options: object) => Promise<StepCompletion> };
 
 /** The calibrator of the token estimate (src/llm/calibrate.js), as the room of a request is judged. */
@@ -736,8 +736,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       const limit = requestTokenLimit(hot.config);
       const cost = (list: Array<object>): number =>
         // The request's messages, as appendStep builds them.
-        calibrator.apply(estimateMessages(list as Array<{ content: string }>)) +
-        (transport === 'native' ? estimateTools(draft.tools) : 0);
+        calibrator.apply(estimateMessages(list)) + (transport === 'native' ? estimateTools(draft.tools) : 0);
       if (cost(sent) > limit) {
         const excessChars = Math.ceil(((cost(sent) - limit) * 3.5) / Math.max(0.1, calibrator.ratio));
         last = true;

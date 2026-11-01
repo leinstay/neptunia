@@ -9,16 +9,16 @@
 // rest. This module holds the decisions -- the settings and the switch, which
 // turns may ask, the list, the request, the answer parser -- and the thin I/O
 // side that reads the store and sends the one request through the rails of
-// src/llm/openrouter.js. No wording of ours goes into the request: the prompt
+// src/llm/openrouter.ts. No wording of ours goes into the request: the prompt
 // file says everything, the list lines carry structural fields only.
 
 import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
 import { formatDuration } from '../format.js';
-import { roleRequestOptions, railReason } from '../llm/openrouter.js';
+import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
 import { oneLine } from '../memory/clamp.js';
 import { PARTICIPATION_DEFAULTS, episodeHeadlines, participationSettings } from '../memory/index.js';
-import { roleModel } from '../llm/roles.js';
+import { roleModel } from '../llm/roles.ts';
 import { block, fillPromptTemplate, stableThenTail } from './prompt.js';
 import { routeCandidate, routeContext } from './route.js';
 

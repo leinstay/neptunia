@@ -12,7 +12,7 @@
 // fallbacks exist once. No I/O, no platform SDK: callers pass plain normalized
 // messages and the clock.
 
-import { collectEmojiItems, collectPictures, isDescribable } from '../media/classify.js';
+import { collectEmojiItems, collectPictures, isDescribable } from '../media/classify.ts';
 import { DAY_MS, MINUTE_MS } from '../time.js';
 
 /**

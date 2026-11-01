@@ -11,7 +11,7 @@ import { main } from '../tools/search-compare.mjs';
 import { main as scoreMain } from '../tools/replay-score.mjs';
 import { CliError } from '../tools/lib/cli.mjs';
 import { parseBlindScores, parseQueries, seededShuffle, tallySearchScores } from '../tools/lib/search-compare.mjs';
-import { NotByokError } from '../src/llm/openrouter.js';
+import { NotByokError } from '../src/llm/openrouter.ts';
 import { tempDir } from './fixtures/tmp.js';
 
 const NOW = Date.UTC(2026, 9, 17, 12, 0, 0);

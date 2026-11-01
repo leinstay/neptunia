@@ -24,9 +24,9 @@ import {
 } from '../src/memory/db/session.ts';
 import * as memoryIds from '../src/memory/db/ids.ts';
 import { groupContext, whereFor } from '../src/memory/db/scope.ts';
-import { roleApiKey, STRICT_KEY_ROLES } from '../src/llm/openrouter.js';
-import { estimateMessages } from '../src/llm/tokens.js';
-import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, roleConfigKeys, roleModel } from '../src/llm/roles.js';
+import { roleApiKey, STRICT_KEY_ROLES } from '../src/llm/openrouter.ts';
+import { estimateMessages } from '../src/llm/tokens.ts';
+import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, roleConfigKeys, roleModel } from '../src/llm/roles.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';

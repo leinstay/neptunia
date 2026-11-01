@@ -8,7 +8,7 @@ How the engine processes one event from start to finish: the event door, the pip
 
 ## The event door
 
-Every event enters through one door (`src/interface/door.js`). An interface adapter (Discord today) normalizes what the platform delivers into a typed event (defined in `src/protocol/events.js`): a received message, a reaction, an owner command, a membership change, a voice state change. The core's own events (a scheduler tick, a completed errand, an inner-life wake) enter the same way.
+Every event enters through one door (`src/interface/door.ts`). An interface adapter (Discord today) normalizes what the platform delivers into a typed event (defined in `src/protocol/events.ts`): a received message, a reaction, an owner command, a membership change, a voice state change. The core's own events (a scheduler tick, a completed errand, an inner-life wake) enter the same way.
 
 The door validates each event against the protocol's schema and deduplicates by event id. An id that was already handled gets a `duplicate` status and its handler does not run again. An id whose handler threw is not remembered, so redelivery gets another try. Nothing throws out of the door: the answer is always a status with a reason.
 
@@ -30,9 +30,9 @@ A turn (`src/behavior/turn.js` and its phases in `src/turn/phases/`) has four st
 
 **Collect.** The turn gathers the context it needs: channel history, memory profiles, the persona's recent participation on other channels, media descriptions (pictures, video) from the `vision` and `video` model roles, lorebook entries matched by the transcript, and recall hits if a search classifier or the automatic prefetch found anything relevant.
 
-**Build.** `src/behavior/prompt.js` assembles one LLM request under the token budget. The budget is spent in priority order (see "Prompt assembly" below). What does not fit is trimmed by `src/llm/budget.js`, lowest priority first.
+**Build.** `src/behavior/prompt.js` assembles one LLM request under the token budget. The budget is spent in priority order (see "Prompt assembly" below). What does not fit is trimmed by `src/llm/budget.ts`, lowest priority first.
 
-**Call.** The request goes to the LLM through `src/llm/openrouter.js`. The response is parsed for output tags (`src/llm/parse.js`): `<msg>`, `<react>`, `<draw>`, `<gif>`, `<call>`, `<skip/>` and others defined in `prompts/format.md`.
+**Call.** The request goes to the LLM through `src/llm/openrouter.ts`. The response is parsed for output tags (`src/llm/parse.ts`): `<msg>`, `<react>`, `<draw>`, `<gif>`, `<call>`, `<skip/>` and others defined in `prompts/format.md`.
 
 **Act.** Messages are posted with realistic timing: a pause proportional to the text length, a typing indicator, multiple short messages sent in sequence. Reactions land on the message they answer. Drawings go through the image generation client. Tool calls enter the tool loop.
 
@@ -74,7 +74,7 @@ The user message is split into three text parts, stable to per-turn:
 2. **Profiles.** The interlocutor's profile alone.
 3. **Tail.** Everything else: other people's profiles, current states, the chat transcript, the clock, per-turn senses, tempo and the task text (where the model attends most).
 
-The block order is laid out for caching and is not cosmetic. `src/llm/openrouter.js#withCacheMarker` is the one place cache markers are set.
+The block order is laid out for caching and is not cosmetic. `src/llm/openrouter.ts#withCacheMarker` is the one place cache markers are set.
 
 ## Model roles
 
@@ -98,7 +98,7 @@ The persona can search the web and read pages behind links. The code lives in `s
 
 ### How a search happens
 
-The persona calls `web.search` and `web.read` as tools in the tool loop. `web.search` returns the results raw (title, URL, site, snippet, date) with no summary request. `web.read` fetches a single page through the SSRF-guarded fetcher (`src/web/fetch-page.js`) and returns its extracted main text, cut at `PAGE_READ_CHARS` (4,000 characters) in `src/web/lookup.js`.
+The persona calls `web.search` and `web.read` as tools in the tool loop. `web.search` returns the results raw (title, URL, site, snippet, date) with no summary request. `web.read` fetches a single page through the SSRF-guarded fetcher (`src/web/fetch-page.ts`) and returns its extracted main text, cut at `PAGE_READ_CHARS` (4,000 characters) in `src/web/lookup.ts`.
 
 Only the diary's search is condensed: the `analyzer` role reads the numbered results through `prompts/search-summary.md` and writes one note with inline sources, at most `SEARCH_SUMMARY_CHARS` (900 characters).
 
@@ -106,15 +106,15 @@ Only the diary's search is condensed: the `analyzer` role reads the numbered res
 
 `web.search.engine` picks which engine runs the search:
 
-- `brave` (the default): the Brave Search API (`src/web/brave.js`). Needs `BRAVE_SEARCH_API_KEY`.
-- `exa`: Exa's public MCP endpoint (`src/web/exa.js`). Works without a key; `EXA_API_KEY` is optional.
+- `brave` (the default): the Brave Search API (`src/web/brave.ts`). Needs `BRAVE_SEARCH_API_KEY`.
+- `exa`: Exa's public MCP endpoint (`src/web/exa.ts`). Works without a key; `EXA_API_KEY` is optional.
 - `openrouter`: OpenRouter's web plugin on Exa. The summary request itself searches in one call, billed to credits. Sources come from the answer's `url_citation` annotations.
 
 `web.search.fallback` lists engines to try in order when one fails with `rate-limited`, `timeout` or `network`. A search that returns nothing (`empty`) is not retried.
 
 ### Link reading
 
-When a message contains a link, the engine reads the page. The excerpt is the opening of the page's own extracted text, cut at `LINK_PREVIEW_CHARS` (700 characters) in `src/web/lookup.js`, with no model request.
+When a message contains a link, the engine reads the page. The excerpt is the opening of the page's own extracted text, cut at `LINK_PREVIEW_CHARS` (700 characters) in `src/web/lookup.ts`, with no model request.
 
 ### Limits
 
@@ -164,7 +164,7 @@ Her errands are tasks of the board's errand lane, written by the errand store as
 
 Two hard limits that cannot be turned off:
 
-1. **Per-request token cap.** No request larger than `llm.maxRequestTokens` (default 50,000 tokens) ever leaves the process. `src/llm/budget.js` trims to fit; `src/llm/openrouter.js` refuses what is still too large.
+1. **Per-request token cap.** No request larger than `llm.maxRequestTokens` (default 50,000 tokens) ever leaves the process. `src/llm/budget.ts` trims to fit; `src/llm/openrouter.ts` refuses what is still too large.
 2. **Daily request cap.** No more than `llm.maxRequestsPerDay` requests are made per UTC day. This prevents a spam of mentions from burning the API budget.
 
 Both errors reach the persona through their turn result: a `token-limit` or `daily-cap` code. When the persona was asked directly and a rail refuses, one plain limit notice is posted from `config/labels.json` wording so the person knows what happened.

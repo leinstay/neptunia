@@ -25,10 +25,10 @@
 // taken is missing with nothing left to send it (lost). Logs carry counts and guild ids, never text.
 
 import { log as defaultLog } from '../log.js';
-import { roleModel } from '../llm/roles.js';
-import { EMBED_ROLE } from '../llm/embed.js';
-import { railReason } from '../llm/openrouter.js';
-import { estimateTokens } from '../llm/tokens.js';
+import { roleModel } from '../llm/roles.ts';
+import { EMBED_ROLE } from '../llm/embed.ts';
+import { railReason } from '../llm/openrouter.ts';
+import { estimateTokens } from '../llm/tokens.ts';
 import { HOUR_MS, MINUTE_MS } from '../time.js';
 import {
   CHUNK_CONTEXT_LINES,
@@ -77,7 +77,7 @@ const layerOf = (privateUserId) => (typeof privateUserId === 'string' && private
  * @param {object} deps
  * @param {{ config: object }} deps.hot  The live config, read at the moment of use.
  * @param {{ append: Function }} deps.vectors  src/memory/vectors.js#createVectors
- * @param {(texts: string[], opts: object) => Promise<Float32Array[]>} deps.embed  src/llm/embed.js's `embed`
+ * @param {(texts: string[], opts: object) => Promise<Float32Array[]>} deps.embed  src/llm/embed.ts's `embed`
  * @param {{ iterate: Function }} deps.record  The record (unwrapped): rings are filled from it.
  * @param {{ info: Function, warn: Function }} [deps.log]
  * @param {() => number} [deps.now]
