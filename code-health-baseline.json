@@ -68,7 +68,7 @@
     },
     "src/behavior/inner/drain.ts": {
       "drain": {
-        "complexity": 89,
+        "complexity": 88,
         "function-length": 386
       }
     },
@@ -350,7 +350,7 @@
     },
     "src/memory/db/service.js": {
       "createMemoryDb": {
-        "function-length": 1135
+        "function-length": 1109
       },
       "createMemoryDb>sessionJob": {
         "complexity": 30

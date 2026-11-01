@@ -154,8 +154,7 @@ export const SANDBOX_OMITS = Object.freeze({
   diaryChannel: 'no diary is offered: a sandbox turn never posts, so <senses> has no diary line',
   diary: 'never a diary post: no <world>, <diary>, <plan> or <found> block',
   offPeriods: 'a replay has no journal of downtime: <now> shows the time only',
-  skillsInventory:
-    'no skills inventory: a replay runs no search classifier, so no <skills> block (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
+  skillsInventory: 'no catalogue: a replay runs no classifier (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
   skillIndex: 'no skill registry in a replay: no <skills> index of her active skills',
   around:
     'a replay has no live gateway: no voice channels or statuses, so <people_now> has no live fields (its fields from memory stay)',
@@ -812,7 +811,6 @@ export function sandboxRequestInput({
     diary: null,
     offPeriods: null,
     around: null,
-    // No skill registry (SANDBOX_OMITS): no <skills> index.
     skillIndex: null,
     // Absent but in a skill scenario: the catalogue rows it hands in.
     skillsInventory: Array.isArray(skillsInventory) && skillsInventory.length > 0 ? skillsInventory : null,
@@ -824,7 +822,6 @@ export function sandboxRequestInput({
     errands: resultText ? { list: '', result: resultText } : null,
     // No intention store (SANDBOX_OMITS): no <intentions> block.
     intentions: null,
-    // Not an inner turn (SANDBOX_OMITS): no <wake> block.
     wake: null,
     wakeKind: null,
     // No places view (SANDBOX_OMITS): no <places> block.
