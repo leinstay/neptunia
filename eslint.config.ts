@@ -1,8 +1,7 @@
 // ESLint flat config: the recommended sets plus the rules STYLEGUIDE.md names with a "Lint:" line.
-// The tree is JavaScript today, so the rules that only make sense on type syntax (consistent-type-imports,
-// consistent-type-definitions, array-type, the enum selector) are scoped to .ts files, where they can fire on
-// real type syntax. Type-aware rules (recommendedTypeChecked, switch-exhaustiveness-check) run on .js too because
-// tsconfig has checkJs. Existing violations live in eslint-suppressions.json and may only shrink.
+// The tree is TypeScript, and ESLint 9 loads this file through the `unstable_native_nodejs_ts_config` flag (the
+// `ESLINT_FLAGS` variable of the lint scripts and CI). Existing violations live in eslint-suppressions.json and may
+// only shrink.
 
 import js from '@eslint/js';
 import globals from 'globals';
@@ -11,7 +10,7 @@ import tseslint from 'typescript-eslint';
 
 import { plugin as testRules } from './scripts/eslint-test-rules.ts';
 
-const code = ['**/*.js', '**/*.mjs', '**/*.ts'];
+const code = ['**/*.ts'];
 const typeSyntax = ['**/*.ts'];
 
 export default tseslint.config(
@@ -43,7 +42,7 @@ export default tseslint.config(
   },
   {
     // The config file sits outside tsconfig's include, so it gets the syntax-only rules.
-    files: ['eslint.config.js'],
+    files: ['eslint.config.ts'],
     extends: [tseslint.configs.disableTypeChecked],
     // ESLint reads the config through its default export.
     rules: { 'import-x/no-default-export': 'off' },
@@ -51,12 +50,12 @@ export default tseslint.config(
   {
     // node:test's test() and describe() return promises that the runner collects. Awaiting each one is not
     // wanted, so the rule would fire on every test file.
-    files: ['tests/**/*.js', 'tests/**/*.ts'],
+    files: ['tests/**/*.ts'],
     rules: { '@typescript-eslint/no-floating-promises': 'off' },
   },
   {
     // The test method of AGENTS.md (section Tests), as rules from scripts/eslint-test-rules.ts.
-    files: ['tests/**/*.js', 'tests/**/*.ts'],
+    files: ['tests/**/*.ts'],
     plugins: { tests: testRules },
     rules: {
       'tests/assertion-in-test': 'error',

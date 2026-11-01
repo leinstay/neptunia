@@ -36,9 +36,14 @@ jobs:
         run: |
           bad=$(git ls-files -- CLAUDE.local.md .claude .opencode .agents .local.git .secrets references prompts.local skills.local plugins.local config.local.json config.local data .env '.env.*' | grep -vx '.env.example' || true)
           if [ -n "$bad" ]; then echo "::error::private files are tracked:"; echo "$bad"; exit 1; fi
+      - name: No JavaScript tracked
+        # The engine, its tests and its scripts are TypeScript run by Node's type stripping (allowJs is off).
+        run: |
+          js=$(git ls-files -- '*.js' '*.mjs' '*.cjs' || true)
+          if [ -n "$js" ]; then echo "::error::JavaScript files are tracked:"; echo "$js"; exit 1; fi
 
   lint:
-    # ESLint over the tree with the type-aware rules (eslint.config.js; the rules STYLEGUIDE.md names). Old
+    # ESLint over the tree with the type-aware rules (eslint.config.ts, loaded through the `unstable_native_nodejs_ts_config` flag; the rules STYLEGUIDE.md names). Old
     # violations live in eslint-suppressions.json and that file may only shrink. The cache keeps unchanged files
     # from being linted again on the next run.
     runs-on: ubuntu-latest
@@ -53,9 +58,11 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .eslintcache
-          key: eslint-${{ hashFiles('package-lock.json', 'eslint.config.js', 'tsconfig.json') }}-${{ github.sha }}
-          restore-keys: eslint-${{ hashFiles('package-lock.json', 'eslint.config.js', 'tsconfig.json') }}-
+          key: eslint-${{ hashFiles('package-lock.json', 'eslint.config.ts', 'tsconfig.json') }}-${{ github.sha }}
+          restore-keys: eslint-${{ hashFiles('package-lock.json', 'eslint.config.ts', 'tsconfig.json') }}-
       - run: npx eslint . --pass-on-unpruned-suppressions --cache --cache-location .eslintcache
+        env:
+          ESLINT_FLAGS: unstable_native_nodejs_ts_config
 
   types:
     # `typecheck`: tsc, strict, over the .ts files only (type-baseline.json may only shrink). `health`: file,

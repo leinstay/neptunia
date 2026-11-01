@@ -1,4 +1,4 @@
-// The ESLint rules that hold the test method on `tests/**` (AGENTS.md, section Tests). eslint.config.js registers
+// The ESLint rules that hold the test method on `tests/**` (AGENTS.md, section Tests). eslint.config.ts registers
 // the plugin as `tests`. The rules read the `node:test` and `node:assert` imports of a file, so a renamed import
 // is followed. They are syntax checks, not proofs: they catch a test with no assertion, an assertion that only
 // says a value exists, and a deepEqual on a wide literal nobody commented.

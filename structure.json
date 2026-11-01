@@ -127,7 +127,7 @@
       "test": "none"
     },
     {
-      "path": "eslint.config.js",
+      "path": "eslint.config.ts",
       "purpose": "The ESLint flat configuration.",
       "layer": "public",
       "imports": [
