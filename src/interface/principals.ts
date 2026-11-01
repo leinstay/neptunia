@@ -2,7 +2,8 @@
 // name to its principal: `kind` (`interface`, `cli`, `plugin` or `agent`), `iface` for an interface, `tokenFile` (a
 // path under the private directory, `clients/<name>.token`, mode 0600), `permissions`, and for a client of the task
 // board its `boardRoles` (src/board/board.ts reads those). tools/client-token.mjs writes both. An agent's principal has
-// no `iface`: it says hello under `agent` (src/interface/link.ts). The link resolves the token of every envelope
+// no `iface`: it says hello under `agent` (src/interface/link.ts), and a plugin's has none either: it says hello under
+// `plugin` (src/plugins/link.ts). The link resolves the token of every envelope
 // through `principalOfToken`, which reads the files at each call, so a rotated or revoked token stops at the next
 // envelope. With no `clients.json` the core's boot principal, made at start for its one in-process interface, is the
 // only one. A `clients.json` that cannot be read makes every token no one. Logs nothing and never throws.
@@ -46,7 +47,7 @@ function entryOf(name: string, value: unknown): ClientEntry | null {
   if (!isObject(value) || !isKind(value.kind)) return null;
   if (typeof value.tokenFile !== 'string' || value.tokenFile === '') return null;
   const named = typeof value.iface === 'string' && value.iface !== '' ? value.iface : null;
-  const iface = value.kind === 'agent' ? null : named;
+  const iface = value.kind === 'agent' || value.kind === 'plugin' ? null : named;
   if (value.kind === 'interface' && iface === null) return null;
   const permissions = Array.isArray(value.permissions)
     ? value.permissions.filter((item): item is string => typeof item === 'string')
