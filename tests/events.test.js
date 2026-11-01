@@ -2829,7 +2829,7 @@ async function drainAfter(change, { privates = {} } = {}) {
 }
 
 test('private: a queued DM whose author was forgotten meanwhile is dropped at drain time', async () => {
-  const { turns, store, channel, logs, handler } = await drainAfter(({ profiles }) => {
+  const { turns, channel, logs, handler } = await drainAfter(({ profiles }) => {
     delete profiles.u1; // /nep memory forget
   });
   assert.equal(turns.calls.length, 0);
@@ -2838,7 +2838,7 @@ test('private: a queued DM whose author was forgotten meanwhile is dropped at dr
 });
 
 test('private: a queued DM is dropped at drain time when private.enabled was switched off', async () => {
-  const { turns, store, channel, logs, handler } = await drainAfter(({ config }) => {
+  const { turns, channel, logs, handler } = await drainAfter(({ config }) => {
     config.private.enabled = false;
   });
   assert.equal(turns.calls.length, 0);
@@ -5661,35 +5661,6 @@ test('events: a call in a writable channel is untouched by routing', async () =>
 // when it is over, spontaneous.runNoticed runs the comment. events.js is only
 // the glue: the rails and the roll are the scheduler's.
 
-/**
- * A fake scheduler for the noticed path: `noticeElsewhere` answers `hit` (recording its calls),
- * `runNoticed` records the source it got and answers `result`.
- */
-function noticingSpontaneous({ hit = true, result = { outcome: 'spoke' } } = {}) {
-  const fake = fakeSpontaneous();
-  fake.noticeCalls = [];
-  fake.runCalls = [];
-  fake.noticeElsewhere = (channel, normalized) => {
-    fake.noticeCalls.push({ channel, normalized });
-    return hit;
-  };
-  fake.runNoticed = async (channel) => {
-    fake.runCalls.push(channel);
-    return result;
-  };
-  return fake;
-}
-
-/** An untriggered member line in `channel`. */
-const plainLine = (id, extra = {}) => ({
-  id,
-  mention: false,
-  authorId: 'u2',
-  authorName: 'Ίων',
-  content: 'σημείωση',
-  ...extra,
-});
-
 // ---------------------------------------------------------------------------
 // Room questions (spontaneous.roomQuestionChance) -- a line put to everyone
 // present, outside any follow-up window, that failed the eavesdrop roll may
@@ -6128,8 +6099,9 @@ async function withLiveLogs(fn) {
 }
 
 /** Resolves after `check()` holds, or after a bounded number of event-loop turns (no wall clock). */
-async function tickUntil(check, rounds = 500) {
-  for (let i = 0; i < rounds && !check(); i += 1) await new Promise((resolve) => setImmediate(resolve));
+async function tickUntil(check, rounds = 3000) {
+  // PR 7d: the real turn is longer now (memory and the typing imitation are code), so a round waits a millisecond.
+  for (let i = 0; i < rounds && !check(); i += 1) await new Promise((resolve) => setTimeout(resolve, 1));
 }
 
 /**
@@ -6518,7 +6490,7 @@ test('private: DMs queue and fold the same way', async () => {
   // The first merge call: `new`; the second folds into item 3 (parts 2 and 3, then the queued DM).
   const merge = (index) => (index === 0 ? 'new' : '3');
   const scene = liveScene({ dm: true, talk, split: LIVE_PARTS.map((part) => `- ${part}`).join('\n'), merge });
-  const { logs } = await withLiveLogs(async (logs) => {
+  await withLiveLogs(async (logs) => {
     await scene.call('dm-1', 'u1', LIVE_SPLIT);
     await tickUntil(() => scene.calls.talk.length === 1);
     await scene.call('dm-2', 'u1', 'και κάτι άλλο');
@@ -7184,7 +7156,7 @@ test('onMessage: a member line soon after the persona spoke joins her participat
   assert.ok(!JSON.stringify(logs).includes('ευχαριστώ'), 'no text in the logs');
 });
 
-test('onMessage: no recent own post, the switch off, a bot or the diary channel never touch the participation store', async () => {
+test('onMessage: no recent own post, a bot or the diary channel never touch the participation store', async () => {
   const ownAt = Date.UTC(2026, 9, 10, 12, 0, 0);
   const guild = fakeGuild();
   const channel = fakeChannel('c1', guild);
@@ -7196,16 +7168,6 @@ test('onMessage: no recent own post, the switch off, a bot or the diary channel 
     makeHandler({ store: stale, turns: { ...fakeTurns(), lastPostAt: () => ownAt - 3_600_000 } })(line())
   );
   assert.equal(stale.reads.length, 0, 'the persona has not posted here lately: the store is not even read');
-
-  const off = participationEventsStore(ownAt);
-  await withCapturedLogs(() =>
-    makeHandler({
-      store: off,
-      turns: { ...fakeTurns(), lastPostAt: () => ownAt },
-      config: baseConfig({ features: { participation: false } }),
-    })(line())
-  );
-  assert.equal(off.writes.length + off.reads.length, 0);
 
   const bot = participationEventsStore(ownAt);
   await withCapturedLogs(() =>
@@ -7237,7 +7199,7 @@ test('events: a deleted message writes a deleted line and an edit writes revisio
       return { written: lines.length, duplicates: 0 };
     },
   };
-  const config = baseConfig({ features: { record: true } });
+  const config = baseConfig();
   const store = tmpStore();
   const at = Date.UTC(2026, 9, 13, 10, 0, 0);
   const handler = makeHandler({ config, store, record, now: () => at });
@@ -7282,12 +7244,10 @@ test('events: a deleted message writes a deleted line and an edit writes revisio
   await withCapturedLogs(() => handler.onMessageUpdate(edited, again));
   assert.equal(appended[2].lines[0].revision, 3);
 
-  // Another bot, another guild, or features.record off: nothing.
+  // Another bot or another guild: nothing.
   const otherBot = fakeMessage({ ...created, author: { id: 'b2', bot: true, globalName: 'B', username: 'b' } });
   await handler.onMessageDelete(otherBot);
   const elsewhere = fakeMessage({ ...created, guild: fakeGuild('g2'), channel: fakeChannel('c9', fakeGuild('g2')) });
   await handler.onMessageDelete(elsewhere);
-  config.features.record = false;
-  await handler.onMessageDelete(created);
   assert.equal(appended.length, 3);
 });
