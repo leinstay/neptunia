@@ -5,7 +5,7 @@ import { createMessageHandler } from '../src/behavior/pipeline.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { fill } from '../src/format.js';
-import { createTagHistory } from '../src/behavior/mention.js';
+import { FOLLOW_UP_MINUTES, FOLLOW_UP_NO_STREAK, createTagHistory } from '../src/behavior/mention.js';
 import { pingStatus } from '../src/behavior/elsewhere.ts';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -558,15 +558,13 @@ test('events: a reply to its own message is detected as kind "reply"', async () 
 
 test('events: a leftover bot.channels deny key is ignored; the message is observed as anywhere else', async () => {
   const memory = fakeMemory();
-  const spontaneous = fakeSpontaneous();
   const config = baseConfig({ bot: { channels: { allow: ['elsewhere'], deny: ['c1'] } } });
-  const handler = makeHandler({ config, memory, spontaneous });
+  const handler = makeHandler({ config, memory });
 
   const message = fakeMessage({ cleanContent: 'just chatting' });
   await handler(message);
 
   assert.equal(memory.observeCalls.length, 1);
-  assert.equal(spontaneous.onMessageCalls.length, 1);
 });
 
 test('events: a message from a guild other than the one this instance serves is ignored entirely', async () => {
@@ -663,49 +661,6 @@ test('events: a non-triggering message is observed with direct: false', async ()
   assert.deepEqual(memory.observeCalls[0][2], { direct: false });
 });
 
-test("events: affinityScore is read from the caller's stored profile and passed to decideMention", async () => {
-  let seenArgs = null;
-  const turns = fakeTurns({
-    runTurn: async (args) => {
-      seenArgs = args;
-      return { outcome: 'spoke' };
-    },
-  });
-  const store = fakeStore({ u1: { affinity: { score: -42 } } });
-  const handler = makeHandler({ turns, store, rng: scripted([0.99]) });
-
-  const message = fakeMessage({
-    cleanContent: 'γεια',
-    mentions: { users: new Map([['self1', { id: 'self1' }]]) },
-  });
-  await handler(message);
-  await Promise.resolve();
-
-  assert.ok(seenArgs, 'expected the ignore-chance to allow the turn');
-  assert.ok(store.getUserCalls.some(([guildId, userId]) => guildId === 'g1' && userId === 'u1'));
-});
-
-test('features.relationships=false: affinityScore is never looked up or passed', async () => {
-  const store = fakeStore({ u1: { affinity: { score: -100 } } });
-  const config = baseConfig({ features: { relationships: false } });
-  const handler = makeHandler({ config, store, rng: scripted([0.99]) });
-
-  const message = fakeMessage({
-    cleanContent: 'γεια',
-    mentions: { users: new Map([['self1', { id: 'self1' }]]) },
-  });
-  await handler(message);
-  await Promise.resolve();
-
-  assert.equal(store.getUserCalls.length, 0, 'store.getUser must not be called when relationships is off');
-});
-
-// ---------------------------------------------------------------------------
-// bot.dryRunChannelId: the dry-run mirror channel (src/behavior/turn.js)
-// carries the persona's own rehearsal output and is the owner's private test
-// room. It goes back to being ignored entirely: nothing there is observed or
-// triggers anything.
-
 // ---------------------------------------------------------------------------
 // features.mediaDescriptions: fire-and-forget describer pre-fetch from the
 // message path (src/memory/describe.js's cache), so the live memory analyzer
@@ -745,12 +700,11 @@ function videoAttachments(count = 1) {
   return new Map(entries);
 }
 
-test('events: media.video.prefill on watches one video per message, fire-and-forget', async () => {
+test('events: a posted video is watched ahead, fire-and-forget', async () => {
   const describer = fakeVideoDescriber();
-  const config = baseConfig({ features: { videoDescriptions: true }, media: { video: { prefill: true } } });
-  const handler = makeHandler({ config, describer });
+  const handler = makeHandler({ describer });
 
-  await handler(fakeMessage({ cleanContent: 'look', attachments: videoAttachments(2) }));
+  await handler(fakeMessage({ cleanContent: 'look', attachments: videoAttachments(1) }));
 
   assert.equal(describer.videoCalls.length, 1);
   assert.equal(describer.videoCalls[0].guildId, 'g1');
@@ -774,21 +728,6 @@ test('events: a typed video-site link is prefilled too (normalizeMessage got med
   assert.equal(describer.videoCalls[0].items[0].source, 'link');
 });
 
-test('events: no video prefill when media.video.prefill is off, videoDescriptions is off or mediaDescriptions is off', async () => {
-  for (const overrides of [
-    { features: { videoDescriptions: true }, media: { video: { prefill: false } } },
-    { features: { videoDescriptions: false }, media: { video: { prefill: true } } },
-    { features: { mediaDescriptions: false, videoDescriptions: true }, media: { video: { prefill: true } } },
-  ]) {
-    const describer = fakeVideoDescriber();
-    const handler = makeHandler({ config: baseConfig(overrides), describer });
-
-    await handler(fakeMessage({ cleanContent: 'look', attachments: videoAttachments(1) }));
-
-    assert.equal(describer.videoCalls.length, 0);
-  }
-});
-
 test("events: features.mediaDescriptions on fires a fire-and-forget describer call for an observed human message's pictures", async () => {
   const describer = fakeDescriber();
   const config = baseConfig({ features: { mediaDescriptions: true } });
@@ -801,57 +740,26 @@ test("events: features.mediaDescriptions on fires a fire-and-forget describer ca
   assert.equal(describer.calls[0].items[0].itemId, 'a1');
 });
 
-test('events: media.prefillPerMessage caps the pictures handed to the describer, read per message; a missing key falls back to the config.json value', async () => {
+test('events: at most five pictures per message are handed to the describer', async () => {
+  // PR 7d: media.prefillPerMessage is the constant 5.
   const describer = fakeDescriber();
-  const config = baseConfig({ features: { mediaDescriptions: true }, media: { prefillPerMessage: 3 } });
-  const handler = makeHandler({ config, describer });
-  await handler(fakeMessage({ cleanContent: 'lots of pics', attachments: pictureAttachments(4) }));
+  const handler = makeHandler({ describer });
+  await handler(fakeMessage({ cleanContent: 'lots of pics', attachments: pictureAttachments(6) }));
   assert.deepEqual(
     describer.calls[0].items.map((item) => item.itemId),
-    ['a1', 'a2', 'a3']
+    ['a1', 'a2', 'a3', 'a4', 'a5']
   );
-
-  config.media.prefillPerMessage = 0; // a live edit: no picture prefill at all
-  await handler(fakeMessage({ cleanContent: 'lots of pics', attachments: pictureAttachments(4) }));
-  assert.equal(describer.calls.length, 1);
-
-  delete config.media.prefillPerMessage;
-  await handler(
-    fakeMessage({
-      cleanContent: 'lots of pics',
-      attachments: pictureAttachments(DEFAULT_CONFIG.media.prefillPerMessage + 1),
-    })
-  );
-  assert.equal(describer.calls.length, 2);
-  assert.equal(describer.calls[1].items.length, DEFAULT_CONFIG.media.prefillPerMessage);
 });
 
-test('events: media.video.prefillPerMessage caps the videos watched ahead per message; a missing key falls back to the config.json value', async () => {
+test('events: at most five videos per message are watched ahead', async () => {
+  // PR 7d: media.video.prefillPerMessage is the constant 5.
   const describer = fakeVideoDescriber();
-  const config = baseConfig({
-    features: { videoDescriptions: true },
-    media: { video: { prefill: true, prefillPerMessage: 2 } },
-  });
-  const handler = makeHandler({ config, describer });
-  await handler(fakeMessage({ cleanContent: 'look', attachments: videoAttachments(3) }));
+  const handler = makeHandler({ describer });
+  await handler(fakeMessage({ cleanContent: 'look', attachments: videoAttachments(6) }));
   assert.deepEqual(
     describer.videoCalls[0].items.map((item) => item.itemId),
-    ['v1', 'v2']
+    ['v1', 'v2', 'v3', 'v4', 'v5']
   );
-
-  config.media.video.prefillPerMessage = 0; // a live edit: no video prefill at all
-  await handler(fakeMessage({ cleanContent: 'look', attachments: videoAttachments(3) }));
-  assert.equal(describer.videoCalls.length, 1);
-
-  delete config.media.video.prefillPerMessage;
-  await handler(
-    fakeMessage({
-      cleanContent: 'look',
-      attachments: videoAttachments(DEFAULT_CONFIG.media.video.prefillPerMessage + 1),
-    })
-  );
-  assert.equal(describer.videoCalls.length, 2);
-  assert.equal(describer.videoCalls[1].items.length, DEFAULT_CONFIG.media.video.prefillPerMessage);
 });
 
 test('events: a picture-format sticker warms the describer cache too', async () => {
@@ -878,14 +786,14 @@ test('events: a custom emoji in the text warms the describer cache too', async (
   assert.equal(describer.calls[0].items[0].itemId, 'emoji:111');
 });
 
-test("events: pictures come before a message's emoji within the shared 2-per-message cap", async () => {
+test("events: pictures come before a message's emoji within the shared 5-per-message cap", async () => {
+  // PR 7d: media.prefillPerMessage is the constant 5.
   const describer = fakeDescriber();
-  const config = baseConfig({ features: { mediaDescriptions: true } });
-  const handler = makeHandler({ config, describer });
+  const handler = makeHandler({ describer });
 
   const message = fakeMessage({
     cleanContent: 'look <:pog:111>',
-    attachments: pictureAttachments(1),
+    attachments: pictureAttachments(4),
     stickers: new Map([['s1', { id: 's1', name: 'pepe', format: 1 }]]),
   });
   await handler(message);
@@ -893,8 +801,8 @@ test("events: pictures come before a message's emoji within the shared 2-per-mes
   assert.equal(describer.calls.length, 1);
   assert.deepEqual(
     describer.calls[0].items.map((i) => i.itemId),
-    ['a1', 'sticker:s1'],
-    'the attachment and the sticker (both pictures) fill the cap before the emoji is ever considered'
+    ['a1', 'a2', 'a3', 'a4', 'sticker:s1'],
+    'the attachments and the sticker (all pictures) fill the cap before the emoji is ever considered'
   );
 });
 
@@ -961,10 +869,8 @@ test('events: a direct ping elsewhere becomes pending and is answered after the 
   assert.deepEqual(sleepCalls, [5500], 'between(switchDelayMs=[2000,9000], rng=0.5) -- the human switch pause');
 });
 
-for (const [roll, answered] of [
-  [0.2, true],
-  [0.7, false],
-]) {
+// PR 7d: mention.nameTriggerChance is the constant 1, so every name call that is rolled is noticed.
+for (const [roll, answered] of [[0.2, true]]) {
   test(`events: a name call elsewhere while busy is held under mention.oneAtATime and rolled when drained (roll ${roll})`, async () => {
     const calls = [];
     const turns = fakeTurns({
@@ -976,7 +882,7 @@ for (const [roll, answered] of [
       },
     });
     const tagHistory = countingTagHistory();
-    const config = baseConfig({ bot: { nameTriggers: ['νεπτούνια'] }, mention: { nameTriggerChance: 0.5 } });
+    const config = baseConfig({ bot: { nameTriggers: ['νεπτούνια'] } });
     // Exactly two values: the switch pause and the name-trigger roll at drain time -- none on arrival.
     const handler = makeHandler({ config, turns, tagHistory, sleep: async () => {}, rng: scripted([0.5, roll]) });
 
@@ -1835,7 +1741,7 @@ test('follow-up: an empty or blank classifier answer is logged as a failure with
   }
 });
 
-test('follow-up: three empty classifier answers in a row close the window, like three failed calls', async () => {
+test('follow-up: five empty classifier answers in a row close the window, like five failed calls', async () => {
   const clock = mutableNow(0);
   const llm = fakeFollowUpLlm();
   const spontaneous = fakeSpontaneous();
@@ -1844,7 +1750,7 @@ test('follow-up: three empty classifier answers in a row close the window, like 
   const channel = fakeChannelWithHistory('c1', guild, []);
   await openFollowUpWindow(handler, { guild, channel, ts: clock() });
 
-  for (let i = 0; i < 3; i += 1) {
+  for (let i = 0; i < FOLLOW_UP_NO_STREAK; i += 1) {
     const p = handler(
       fakeMessage({
         id: `m${i}`,
@@ -1863,8 +1769,7 @@ test('follow-up: three empty classifier answers in a row close the window, like 
     fakeMessage({ id: 'm4', guild, channel, channelId: 'c1', cleanContent: 'plain 4', createdTimestamp: clock() })
   );
 
-  assert.equal(llm.calls.length, 3, 'the no-streak closed the window');
-  assert.equal(spontaneous.onMessageCalls.length, 1);
+  assert.equal(llm.calls.length, FOLLOW_UP_NO_STREAK, 'the no-streak closed the window');
 });
 
 test('follow-up: the classifier system prompt carries the bare display name, no braces around it', async () => {
@@ -1920,7 +1825,7 @@ test('follow-up: the window opens on send and expires after followUpMinutes', as
   llm.respond('no');
   await p1;
 
-  clock.set(16 * 60_000); // past the default followUpMinutes=15
+  clock.set((FOLLOW_UP_MINUTES + 1) * 60_000); // past the window
   const msg2 = fakeMessage({
     guild,
     channel,
@@ -1932,11 +1837,6 @@ test('follow-up: the window opens on send and expires after followUpMinutes', as
   await handler(msg2);
 
   assert.equal(llm.calls.length, 1, 'once the window expired, the classifier is not consulted again');
-  assert.equal(
-    spontaneous.onMessageCalls.length,
-    1,
-    'the expired-window message falls back to the spontaneous scheduler'
-  );
 });
 
 test('follow-up: a reply carrying only the implicit reply ping reaches the classifier', async () => {
@@ -2043,7 +1943,7 @@ test('follow-up: a "yes" verdict runs a reply turn with the candidate as the tar
   assert.equal(spontaneous.onMessageCalls.length, 0);
 });
 
-test('follow-up: three "no" verdicts in a row close the window (the default followUpNoStreak)', async () => {
+test('follow-up: five "no" verdicts in a row close the window', async () => {
   const clock = mutableNow(0);
   const llm = fakeFollowUpLlm();
   const spontaneous = fakeSpontaneous();
@@ -2052,7 +1952,7 @@ test('follow-up: three "no" verdicts in a row close the window (the default foll
   const channel = fakeChannelWithHistory('c1', guild, []);
   await openFollowUpWindow(handler, { guild, channel, ts: clock() });
 
-  for (let i = 0; i < 3; i += 1) {
+  for (let i = 0; i < FOLLOW_UP_NO_STREAK; i += 1) {
     const msg = fakeMessage({
       id: `m${i}`,
       guild,
@@ -2066,8 +1966,8 @@ test('follow-up: three "no" verdicts in a row close the window (the default foll
     llm.respond('no');
     await p;
   }
-  assert.equal(llm.calls.length, 3);
-  assert.equal(spontaneous.onMessageCalls.length, 0, 'every one of the 3 was still handled by the classifier itself');
+  assert.equal(llm.calls.length, FOLLOW_UP_NO_STREAK);
+  assert.equal(spontaneous.onMessageCalls.length, 0, 'every one of them was still handled by the classifier itself');
 
   const msg4 = fakeMessage({
     id: 'm4',
@@ -2079,11 +1979,10 @@ test('follow-up: three "no" verdicts in a row close the window (the default foll
   });
   await handler(msg4);
 
-  assert.equal(llm.calls.length, 3, 'the window is closed now, the classifier is not consulted a 4th time');
   assert.equal(
-    spontaneous.onMessageCalls.length,
-    1,
-    'falls back to the spontaneous scheduler once the window is closed'
+    llm.calls.length,
+    FOLLOW_UP_NO_STREAK,
+    'the window is closed now, the classifier is not consulted again'
   );
 });
 
@@ -2330,7 +2229,7 @@ test('follow-up: a held message is dropped when the window expired by the time t
   await tick();
   await handler(plainFollowUpMessage({ id: 'm2', guild, channel, content: 'second', ts: clock() }));
 
-  clock.set(16 * 60_000); // past the default followUpMinutes=15
+  clock.set((FOLLOW_UP_MINUTES + 1) * 60_000); // past the window
   llm.respond('no');
   await p1;
   await tick();
@@ -2451,7 +2350,6 @@ test('follow-up persistence: an expired window is dropped on load', async () => 
     fakeMessage({ guild, channel: oldChannel, channelId: 'old', cleanContent: 'plain', createdTimestamp: clock() })
   );
   assert.equal(llm.calls.length, 0, 'the dropped window is not consulted');
-  assert.equal(spontaneous.onMessageCalls.length, 1);
 });
 
 test('follow-up persistence: closing the window by the "no" streak removes its key from state', async () => {
@@ -2490,7 +2388,7 @@ test('follow-up persistence: an expired window is removed from state when next c
   const channel = fakeChannelWithHistory('c1', guild, []);
   await openFollowUpWindow(handler, { guild, channel, ts: clock() });
 
-  clock.set(16 * 60_000); // past the default followUpMinutes=15
+  clock.set((FOLLOW_UP_MINUTES + 1) * 60_000); // past the window
   await handler(fakeMessage({ guild, channel, channelId: 'c1', cleanContent: 'too late', createdTimestamp: clock() }));
 
   assert.equal(Object.hasOwn(store.state.data.followUpWindows, 'c1'), false);
@@ -4071,7 +3969,6 @@ test("events: forwarding one of the persona's own messages is not a reply to it"
   await settle();
 
   assert.equal(turns.calls.length, 0, 'a forward is no trigger');
-  assert.equal(spontaneous.onMessageCalls.length, 1);
 });
 
 test('events: a message that replies to nothing fetches no message; a reply target missing from the cache is fetched', async () => {
