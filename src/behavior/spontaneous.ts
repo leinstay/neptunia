@@ -36,14 +36,22 @@ export function createSpontaneous({
 }: {
   turns: { runTurn: (params: Record<string, Untyped>) => Promise<unknown> };
 }): {
-  force: (conversation: Untyped, mode?: null, { requester }?: { requester?: null | undefined }) => Promise<unknown>;
+  force: (
+    conversation: Untyped,
+    mode?: string | null,
+    options?: { requester?: { id?: string | null; roleIds?: Array<string> } | null }
+  ) => Promise<unknown>;
 } {
   /**
    * Run a turn right now (`message.create`), in the conversation `conversation` (a reference
    * `{ iface, conversationId }`): in `mode` when given, else the turn reads the channel and joins it or starts a topic
    * (forcedMode). `requester`: the person who asked, the requester of her skill calls in that turn.
    */
-  function force(conversation: Untyped, mode = null, { requester = null } = {}) {
+  function force(
+    conversation: Untyped,
+    mode: string | null = null,
+    { requester = null }: { requester?: { id?: string | null; roleIds?: Array<string> } | null } = {}
+  ) {
     const asked = requester ? { requester } : {};
     if (mode) return turns.runTurn({ conversation, mode, forced: true, ...asked });
     return turns.runTurn({

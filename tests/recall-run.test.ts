@@ -1,0 +1,1952 @@
+// Tests for src/behavior/recall-run.js: the recall runner over the interface's reads (a fake guild whose search and
+// history answer the way Discord's REST does, read into the neutral hits and events the runner takes), a fake store, a fake
+// LLM and a fake describer. No network, no real data.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createRecall } from '../src/behavior/recall-run.ts';
+import { createStore } from '../src/memory/store.ts';
+import { HIT_MARK } from '../src/behavior/recall.ts';
+import { snapshotOf } from '../src/behavior/snapshot.ts';
+import { toRecordLine } from '../src/memory/record.ts';
+import { DailyCapError } from '../src/llm/openrouter.ts';
+import { labels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { tempDir } from './fixtures/tmp.ts';
+import { channel as channelInfo, privateChannel } from './fixtures/reads-rig.ts';
+import { eventOfLine, line, neutralMembers, neutralSearch, rawHit, snowflakeAt } from './fixtures/recall-lines.ts';
+import type { Untyped } from '../src/tools/types.ts';
+import type { ConversationInfo } from '../src/protocol/adapter.ts';
+import { asRecord } from './fixtures/records.ts';
+import {
+  BUDGET,
+  GARDEN_LINES,
+  GUILD,
+  HOUR,
+  MINUTE,
+  NOW,
+  PRIVATE_LINES,
+  PROMPT,
+  RABBIT,
+  RABBIT_LINES,
+  RABBIT_SERVER,
+  config,
+  deferred,
+  hangUntilAbort,
+  manualTimers,
+  rabbitAnswers,
+  searches,
+} from './fixtures/recall-run-kit.ts';
+
+// The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
+
+/**
+ * A scene: a community with #general (c1, the turn's conversation), #garden (c2) and #private (c4, which the community's
+ * everyone cannot view, so the audience rail refuses it here); `lines` per conversation id; `answers(route, query)` gives
+ * the REST body the interface would read a search from (the neutral query is shown to it the way Discord's REST takes
+ * it: `content`, `author_id`, `min_id`, `max_id`, `offset`).
+ */
+function scene({
+  lines = {},
+  answers = () => ({ total_results: 0, messages: [] }),
+  answer = 'stretch: 1\nAna did it on October 1.',
+  features = {},
+  recall = {},
+  state = {},
+  capLeft = 100,
+  describer = null,
+  profiles = [],
+  memory = {},
+  timers,
+  now = () => NOW,
+  archive = null,
+  record = null,
+  vectors = null,
+  embed = null,
+}: Record<string, Untyped> = {}) {
+  const calls: Array<{ route: string; query: Record<string, Untyped>; signal: AbortSignal }> = [];
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const fetches: Array<{ channel: Untyped; around: Untyped; limit: Untyped }> = [];
+  const follows: Array<{ channel: Untyped; after: Untyped; limit: Untyped }> = [];
+  // The conversations of the community: the partner u5 views #general and #garden, not #private.
+  const infos: Record<string, ConversationInfo> = {
+    c1: channelInfo('c1', { name: 'general', viewers: { u5: true } }),
+    c2: channelInfo('c2', { name: 'garden', viewers: { u5: true } }),
+    c4: { ...privateChannel('c4', []), name: 'private', viewers: { u5: false } },
+  };
+  const snapshot = snapshotOf(GUILD, { conversations: Object.values(infos), groups: [] });
+  // The history reads of a conversation, which a test may break (`broken`).
+  const broken = new Set();
+  const reads = {
+    searchMessages: async (scope: Untyped, query: Untyped) => {
+      const rest = {
+        ...(query.text ? { content: query.text } : {}),
+        ...(query.authorId ? { author_id: query.authorId } : {}),
+        ...(Number.isFinite(query.after) ? { min_id: snowflakeAt(query.after) } : {}),
+        ...(Number.isFinite(query.before) ? { max_id: snowflakeAt(query.before) } : {}),
+        ...(query.offset ? { offset: String(query.offset) } : {}),
+      };
+      const route = `/guilds/${scope.communityId}/messages/search`;
+      // A read cannot be cancelled: the signal the answer may wait on never fires.
+      const signal = new AbortController().signal;
+      calls.push({ route, query: rest, signal });
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await Promise.resolve();
+      inFlight -= 1;
+      let body;
+      try {
+        body = await Promise.resolve(answers(route, rest, signal));
+      } catch {
+        return null;
+      }
+      return neutralSearch(body);
+    },
+    searchMembers: async (scope: Untyped, query: Untyped) => {
+      const route = `/guilds/${scope.communityId}/members/search`;
+      const rest = { query: query.prefix, limit: String(query.limit) };
+      const signal = new AbortController().signal;
+      calls.push({ route, query: rest, signal });
+      let body;
+      try {
+        body = await Promise.resolve(answers(route, rest, signal));
+      } catch {
+        return null;
+      }
+      return neutralMembers(body);
+    },
+    history: async (ref: Untyped, query: Untyped) => {
+      await Promise.resolve();
+      const stored = lines[ref.conversationId] ?? [];
+      const info = infos[ref.conversationId];
+      if (!info || broken.has(ref.conversationId)) return null;
+      const events = (rows: Untyped) => rows.map((l: Untyped) => eventOfLine(info, l));
+      if (query.after !== undefined) {
+        follows.push({ channel: ref.conversationId, after: query.after, limit: query.limit });
+        const from = stored.findIndex((l: Untyped) => l.id === query.after) + 1;
+        return { events: events(stored.slice(from, from + query.limit)), complete: true };
+      }
+      fetches.push({ channel: ref.conversationId, around: query.around, limit: query.limit });
+      const at = stored.findIndex((l: Untyped) => l.id === query.around);
+      const from = Math.max(0, at - Math.floor(query.limit / 2));
+      return { events: events(stored.slice(from, from + query.limit)), complete: true };
+    },
+  };
+  const guild = {
+    reads,
+    /** Makes every history read of conversation `id` fail. */
+    breakHistory: (id: string) => broken.add(id),
+    /** Replaces the history read of the conversation (`replace(query)`). */
+    history: (replace: Untyped) => {
+      const original = reads.history;
+      reads.history = async (ref, query) => replace(ref, query, () => original(ref, query));
+    },
+  };
+
+  const data = { ...state };
+  let dirty = 0;
+  const store = {
+    state: {
+      get data() {
+        return data;
+      },
+      markDirty() {
+        dirty += 1;
+      },
+    },
+    listUserProfiles: () => profiles,
+    // The other stored memory a test hands over: getLore, getGuild, getRecent, getPrivate.
+    ...memory,
+  };
+  const llmCalls: Array<{ messages: Array<{ role: string; content: string }>; options: Record<string, unknown> }> = [];
+  const llm = {
+    capLeft: () => capLeft,
+    complete: async (messages: Array<{ role: string; content: string }>, options: Record<string, unknown>) => {
+      llmCalls.push({ messages, options });
+      if (answer instanceof Error) throw answer;
+      if (typeof answer === 'function') return answer(messages, options);
+      return { text: answer };
+    },
+  };
+  const hot = {
+    config: config({ features, recall: { ...recall }, llm: { analyzerTimeoutMs: 30000 } }),
+    prompts: { 'recall-summary': PROMPT, labels },
+  };
+  const recaller = createRecall({
+    reads,
+    hot,
+    store,
+    llm,
+    describer,
+    now,
+    archive,
+    record,
+    vectors,
+    embed,
+    ...(timers ? { timers } : {}),
+  } as unknown as Parameters<typeof createRecall>[0]);
+  const history = [
+    {
+      id: 'h1',
+      channelId: 'c1',
+      ts: NOW - 30 * MINUTE,
+      self: false,
+      bot: false,
+      authorName: 'Nikos',
+      content: 'τι έγινε με το κουνέλι;',
+    },
+    {
+      id: 'h2',
+      channelId: 'c1',
+      ts: NOW - MINUTE,
+      self: false,
+      bot: false,
+      authorName: 'Nikos',
+      content: 'ποιος σκότωσε το κουνέλι;',
+    },
+  ];
+  // A private chat with the member u5, as the interface describes it (no community, no audience).
+  const dm = channelInfo('dm1', { kind: 'dm', communityId: null, chatType: 'dm', partnerId: 'u5', audience: null });
+  const args = {
+    guildId: GUILD,
+    channel: infos.c1,
+    snapshot,
+    partnerId: null,
+    selfId: 'self',
+    selfName: 'Zoë',
+    history,
+    candidate: history[1],
+  };
+  return {
+    recaller,
+    args,
+    dm,
+    guild,
+    calls,
+    fetches,
+    follows,
+    llmCalls,
+    data,
+    hot,
+    dirty: () => dirty,
+    maxInFlight: () => maxInFlight,
+  };
+}
+
+test('recall: forms are searched one after another in order; the summary reads the windows and names a stretch', async () => {
+  const s = scene({
+    lines: { c1: RABBIT_LINES, c2: GARDEN_LINES, c4: PRIVATE_LINES },
+    answers: rabbitAnswers,
+    recall: { answerChars: 900 },
+  });
+  const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  assert.deepEqual(
+    searches(s.calls).map((c: Untyped) => c.query.content),
+    ['κουνέλι', 'κουνελιού']
+  );
+  assert.equal(s.maxInFlight(), 1, 'never two searches at once');
+  assert.ok(
+    searches(s.calls).every((c: Untyped) => c.query.max_id === undefined),
+    "no range asked: the turn's own chat bounds no query"
+  );
+  assert.equal(result.text, 'Ana did it on October 1.');
+  assert.equal(result.stretch?.channelId, 'c1');
+  assert.equal(result.stretch?.channelName, 'general');
+
+  const { messages, options } = s.llmCalls[0];
+  assert.equal(options.purpose, 'recall-summary');
+  assert.equal(options.role, 'analyzer');
+  assert.equal(options.long, true, 'a summary: the long hedge limit');
+  assert.equal(messages[0].content, 'You are Zoë; 1200.');
+  const user = messages[1].content;
+  assert.ok(user.includes('## 1 | 2026-10-01 | #general') && user.includes('## 2 | 2026-09-30 | #garden'), user);
+  assert.ok(user.includes(`${HIT_MARK}#3 [18:44] Βασίλης: το κουνέλι πέθανε`), user);
+  assert.ok(user.endsWith('<question>\nNikos: ποιος σκότωσε το κουνέλι;\n</question>'));
+  const summary = logs.find((l) => l.msg === 'recall: summary');
+  assert.deepEqual([summary?.answer, summary?.stretch], ['text', true]);
+});
+
+test('recall: a channel the audience rail refuses contributes nothing, other bots are dropped, the persona stays', async () => {
+  const own = line('r5', RABBIT + 5 * MINUTE, { name: 'Zoë', author: 'self', content: 'κουνέλι, αντίο' });
+  const s = scene({
+    lines: { c1: [...RABBIT_LINES, own], c2: GARDEN_LINES, c4: PRIVATE_LINES },
+    answers: (route: string, query: Untyped) =>
+      query.content === 'κουνέλι'
+        ? {
+            total_results: 3,
+            messages: [[rawHit('c1', own)], [rawHit('c1', RABBIT_LINES[4])], [rawHit('c4', PRIVATE_LINES[0])]],
+          }
+        : rabbitAnswers(route, query),
+  });
+  const { logs } = await withCapturedLogs(() =>
+    s.recaller.run({ ...s.args, server: { ...RABBIT_SERVER, forms: ['κουνέλι'] } })
+  );
+  assert.ok(!s.fetches.some((f) => f.channel === 'c4'), 'no window of the refused channel');
+  assert.deepEqual(
+    s.fetches.map((f) => f.around),
+    ['r5'],
+    "the bot's hit is gone, the persona's own is kept"
+  );
+  const user = s.llmCalls[0].messages[1].content;
+  assert.ok(
+    !user.includes('μυστικό') && !user.includes('birthday'),
+    'neither the refused channel nor the bot line is shown'
+  );
+  assert.ok(user.includes('Zoë (you): κουνέλι, αντίο'));
+  const searched = logs.find((l) => l.msg === 'recall: searched');
+  assert.deepEqual([searched?.hits, searched?.kept, searched?.clusters], [3, 1, 1]);
+});
+
+test("recall: the turn's own lines are dropped from the hits and the windows", async () => {
+  const visible = line('h2', NOW - MINUTE, { name: 'Nikos', author: 'u5', content: 'ποιος σκότωσε το κουνέλι;' });
+  const s = scene({
+    lines: { c1: [...RABBIT_LINES.slice(0, 4), visible] },
+    answers: (route: string, query: Untyped) =>
+      query.content === 'κουνέλι'
+        ? { total_results: 2, messages: [[rawHit('c1', visible)], [rawHit('c1', RABBIT_LINES[3])]] }
+        : { total_results: 0, messages: [] },
+  });
+  const { logs } = await withCapturedLogs(() =>
+    s.recaller.run({ ...s.args, server: { ...RABBIT_SERVER, forms: ['κουνέλι'] } })
+  );
+  assert.equal(logs.find((l) => l.msg === 'recall: searched')?.kept, 1);
+  assert.deepEqual(
+    s.fetches.map((f) => f.around),
+    ['r3']
+  );
+  assert.ok(
+    !s.llmCalls[0].messages[1].content.includes('<found>\n## 1 | 2026-10-05'),
+    'the window holds no line of the turn'
+  );
+  assert.equal(
+    (s.llmCalls[0].messages[1].content.match(/ποιος σκότωσε/g) ?? []).length,
+    1,
+    'the question alone carries it'
+  );
+});
+
+test('recall: a Latin name form found by the member search adds an author query; a stored name needs no member search', async () => {
+  const kite = line('k1', RABBIT - 300 * HOUR, { name: 'Kitezu', author: 'u7', content: 'γεια' });
+  const s = scene({
+    lines: { c1: [kite] },
+    answers: (route: Untyped, query: Untyped) => {
+      if (route.endsWith('/members/search'))
+        return [{ nick: null, user: { id: 'u7', username: 'kitezu.', global_name: 'Kitezu', bot: false } }];
+      if (query.author_id === 'u7') return { total_results: 1, messages: [[rawHit('c1', kite)]] };
+      return { total_results: 0, messages: [] };
+    },
+  });
+  const { result } = await withCapturedLogs(() =>
+    s.recaller.run({ ...s.args, server: { forms: [], who: ['kitezu'], from: null, to: null } })
+  );
+  assert.deepEqual(
+    s.calls.map((c) => [c.route.split('/').at(-2), c.query.query ?? c.query.content ?? c.query.author_id]),
+    [
+      ['members', 'kitezu'],
+      ['messages', 'kitezu'],
+      ['messages', 'u7'],
+    ]
+  );
+  assert.deepEqual(result.people, [{ id: 'u7', name: 'Kitezu', username: 'kitezu.', count: 1, newestTs: kite.ts }]);
+  assert.ok(s.llmCalls[0].messages[1].content.includes('<people>\nKitezu | kitezu. | 1 | 2026-09-19\n</people>'));
+
+  const stored = scene({ profiles: [{ id: 'u3', names: ['Éloïse'], aliases: [{ name: 'Ελο' }] }] });
+  await withCapturedLogs(() =>
+    stored.recaller.run({ ...stored.args, server: { forms: [], who: ['ελο'], from: null, to: null } })
+  );
+  assert.ok(!stored.calls.some((c) => c.route.endsWith('/members/search')), 'no member search for a stored name');
+  assert.deepEqual(
+    searches(stored.calls).map((c: Untyped) => c.query.content ?? c.query.author_id),
+    ['ελο', 'u3']
+  );
+});
+
+test('recall: a date range alone is sampled at evenly spaced offsets of its total', async () => {
+  const day = line('d1', Date.UTC(2025, 11, 18, 15), { content: 'καλημέρα' });
+  const s = scene({
+    lines: { c1: [day] },
+    recall: { dateSamples: 4 },
+    answers: (route: string, query: Untyped) => ({
+      total_results: 2115,
+      messages: query.offset ? [] : [[rawHit('c1', day)]],
+    }),
+  });
+  const from = Date.UTC(2025, 11, 18);
+  const to = Date.UTC(2025, 11, 19) - 1;
+  await withCapturedLogs(() => s.recaller.run({ ...s.args, server: { forms: [], who: [], from, to } }));
+  const sent = searches(s.calls);
+  assert.deepEqual(
+    sent.map((c: Untyped) => c.query.offset ?? '0'),
+    ['0', '528', '1057', '1586']
+  );
+  assert.ok(
+    sent.every(
+      (c: Untyped) =>
+        !c.query.content &&
+        !c.query.author_id &&
+        c.query.min_id === snowflakeAt(from) &&
+        c.query.max_id === snowflakeAt(to + 1)
+    )
+  );
+});
+
+test('recall: a spent daily request cap stops it before any request', async () => {
+  const spent = scene({ capLeft: 0 });
+  const second = await withCapturedLogs(() => spent.recaller.run({ ...spent.args, server: RABBIT_SERVER }));
+  assert.equal(spent.calls.length, 0);
+  assert.deepEqual(
+    second.logs.map((l) => [l.msg, l.reason]),
+    [['recall: skipped', 'daily-cap']]
+  );
+  assert.equal(second.result.text, null);
+  assert.equal(scene().recaller.available(), true);
+});
+
+test('recall: a private chat or nothing asked make no request', async () => {
+  const dm = scene();
+  const priv = await withCapturedLogs(() => dm.recaller.run({ ...dm.args, channel: dm.dm, server: RABBIT_SERVER }));
+  assert.deepEqual(
+    priv.logs.map((l) => l.reason),
+    ['private-chat']
+  );
+  const none = await withCapturedLogs(() =>
+    dm.recaller.run({ ...dm.args, server: { forms: [], who: [], from: null, to: null } })
+  );
+  assert.deepEqual(
+    none.logs.map((l) => l.reason),
+    ['no-query']
+  );
+  assert.equal(dm.calls.length, 0);
+});
+
+test('recall: a private chat with its partner searches the server, keeps only what the partner can view, and its own chat bounds nothing', async () => {
+  const s = scene({
+    lines: { c1: RABBIT_LINES, c2: GARDEN_LINES, c4: PRIVATE_LINES },
+    answers: rabbitAnswers,
+    memory: {
+      getRecent: () => ({
+        nextId: 3,
+        lines: [
+          { id: 1, at: NOW - 2 * HOUR, addedAt: null, channelId: 'c2', text: 'κουνέλι in garden', who: [], weight: 2 },
+          { id: 2, at: NOW - 2 * HOUR, addedAt: null, channelId: 'c4', text: 'μυστικό κουνέλι', who: [], weight: 3 },
+        ],
+      }),
+    },
+  });
+  const history = [
+    {
+      id: 'p1',
+      channelId: 'dm1',
+      ts: NOW - MINUTE,
+      self: false,
+      bot: false,
+      authorName: 'Nikos',
+      content: 'ποιος σκότωσε το κουνέλι;',
+    },
+  ];
+  const { result } = await withCapturedLogs(() =>
+    s.recaller.run({ ...s.args, channel: s.dm, partnerId: 'u5', history, candidate: history[0], server: RABBIT_SERVER })
+  );
+  assert.deepEqual(
+    searches(s.calls).map((c: Untyped) => c.query.content),
+    ['κουνέλι', 'κουνελιού']
+  );
+  assert.ok(
+    searches(s.calls).every((c: Untyped) => c.query.max_id === undefined),
+    'the private chat is not the server: no search stops at its oldest line'
+  );
+  assert.ok(!s.fetches.some((f) => f.channel === 'c4'), 'no window of a channel the partner cannot view');
+  const user = s.llmCalls[0].messages[1].content;
+  assert.ok(user.includes('#general') && user.includes('#garden'), user);
+  assert.ok(user.includes('κουνέλι in garden'), user);
+  assert.ok(!user.includes('μυστικό'), 'neither a hit nor a recent line of the channel the partner cannot view');
+  assert.equal(result.text, 'Ana did it on October 1.');
+});
+
+test('recall: a search still out at 60 % of the budget is cut; with nothing found there is no text and no summary', async () => {
+  const timers = manualTimers();
+  const sent = deferred();
+  const s = scene({
+    recall: BUDGET,
+    timers,
+    answers: (route: string, query: Untyped, signal: AbortSignal) => {
+      sent.resolve?.();
+      return hangUntilAbort(signal);
+    },
+  });
+  const { result, logs } = await withCapturedLogs(async () => {
+    const running = s.recaller.run({ ...s.args, server: RABBIT_SERVER });
+    await sent.promise;
+    assert.deepEqual(
+      timers.pending().sort((a, b) => a - b),
+      [BUDGET.timeoutMs * 0.6, BUDGET.timeoutMs]
+    );
+    timers.fire(BUDGET.timeoutMs * 0.6);
+    return running;
+  });
+  assert.deepEqual([result.text, result.stretch], [null, null]);
+  // A read cannot be cancelled: the runner stops waiting for it and goes on without its answer.
+  assert.equal(searches(s.calls).length, 1, 'no further search after the cut');
+  assert.deepEqual([result.stats.queries, result.stats.failed], [1, 1]);
+  assert.ok(logs.some((l) => l.msg === 'recall: skipped' && l.reason === 'no-hits'));
+  assert.ok(!logs.some((l) => l.msg === 'recall: summary'));
+  assert.equal(s.llmCalls.length, 0);
+  assert.deepEqual(timers.pending(), [], 'both timers cleared');
+});
+
+test('recall: a cut search keeps what the earlier ones found; the summary gets the rest of the budget', async () => {
+  const timers = manualTimers();
+  const second = deferred();
+  let t = NOW;
+  const s = scene({
+    lines: { c1: RABBIT_LINES },
+    recall: BUDGET,
+    timers,
+    now: () => t,
+    answers: (route: string, query: Untyped, signal: AbortSignal) => {
+      if (query.content === 'κουνέλι') {
+        t = NOW + 3000;
+        return rabbitAnswers(route, query);
+      }
+      second.resolve?.();
+      return hangUntilAbort(signal);
+    },
+  });
+  const { result } = await withCapturedLogs(async () => {
+    const running = s.recaller.run({
+      ...s.args,
+      server: { ...RABBIT_SERVER, forms: ['κουνέλι', 'κουνελιού', 'κήπος'] },
+    });
+    await second.promise;
+    t = NOW + BUDGET.timeoutMs * 0.6;
+    timers.fire(BUDGET.timeoutMs * 0.6);
+    return running;
+  });
+  assert.deepEqual(
+    searches(s.calls).map((c: Untyped) => c.query.content),
+    ['κουνέλι', 'κουνελιού'],
+    'the third form is never sent'
+  );
+  assert.deepEqual(
+    s.fetches.map((f) => f.around),
+    ['r3', 'g1'],
+    "the first search's hits reach the windows"
+  );
+  assert.equal(s.llmCalls[0].options.timeoutMs, BUDGET.timeoutMs * 0.4, 'the summary is limited to what is left');
+  assert.equal(result.text, 'Ana did it on October 1.');
+  assert.equal(result.stats.summary, 'answered');
+});
+
+test('recall: no search is sent once half of the budget is gone', async () => {
+  let t = NOW;
+  const s = scene({
+    lines: { c1: RABBIT_LINES },
+    recall: BUDGET,
+    now: () => t,
+    answers: (route: string, query: Untyped) => {
+      t = NOW + BUDGET.timeoutMs * 0.5;
+      return rabbitAnswers(route, query);
+    },
+  });
+  const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  assert.equal(searches(s.calls).length, 1);
+  assert.deepEqual([result.stats.planned, result.stats.queries], [2, 1]);
+  assert.equal(s.llmCalls[0].options.timeoutMs, BUDGET.timeoutMs * 0.5);
+});
+
+test('recall: the windows of the kept clusters are fetched together', async () => {
+  const s = scene({ lines: { c1: RABBIT_LINES, c2: GARDEN_LINES }, answers: rabbitAnswers });
+  let inFlight = 0;
+  let most = 0;
+  s.guild.history(async (ref: Untyped, query: Untyped, original: Untyped) => {
+    inFlight += 1;
+    most = Math.max(most, inFlight);
+    await new Promise((resolve) => setImmediate(resolve));
+    inFlight -= 1;
+    return original();
+  });
+  await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  assert.equal(s.fetches.length, 2);
+  assert.equal(most, 2, 'both windows were out at once');
+});
+
+/** The rabbit scene plus a newer one-hit cluster in #garden: the newest cluster is not the best-matched one. */
+const GARDEN_AGAIN = line('g9', RABBIT + 2 * HOUR, { name: 'Éloïse', author: 'u3', content: 'κουνέλι ξανά' });
+function rankedAnswers(route: Untyped, query: Untyped) {
+  if (route.endsWith('/members/search')) return [];
+  if (query.content !== 'κουνέλι') return { total_results: 0, messages: [] };
+  // PR 7d: recall.rareHits is the constant 5, so a total of 30 keeps the form from counting as rare.
+  return {
+    total_results: 30,
+    messages: [[rawHit('c2', GARDEN_AGAIN)], [rawHit('c1', RABBIT_LINES[3])], [rawHit('c1', RABBIT_LINES[2])]],
+  };
+}
+const RANKED_LINES = { c1: RABBIT_LINES, c2: [...GARDEN_LINES, GARDEN_AGAIN] };
+
+const RANKED_STRETCH = [
+  '[18:38] Βασίλης: πάμε κυνήγι',
+  '[18:40] Ana: bang [image]',
+  `${HIT_MARK}[18:44] Βασίλης: το κουνέλι πέθανε`,
+  `${HIT_MARK}[18:46] Ana: κηδεία για το κουνέλι`,
+].join('\n');
+
+test('recall: a summary that fails or times out returns the first-ranked window verbatim, without a text', async () => {
+  const cases: Array<[Error, string]> = [
+    [new Error('fixture: provider down'), 'failed'],
+    [Object.assign(new Error('fixture: cut at its limit'), { name: 'TimeoutError' }), 'timeout'],
+  ];
+  for (const [answer, kind] of cases) {
+    const s = scene({ lines: RANKED_LINES, answers: rankedAnswers, answer, recall: BUDGET });
+    const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+    assert.equal(s.llmCalls.length, 1, kind);
+    assert.equal(result.text, null, kind);
+    assert.equal(result.stretch?.channelId, 'c1', `${kind}: the best-matched of the newest three, not the newest`);
+    assert.equal(result.stretch?.lines, RANKED_STRETCH, kind);
+    assert.equal(result.stretch?.startTs, RABBIT_LINES[0].ts, kind);
+    assert.equal(result.stats.summary, kind);
+    const summary = logs.find((l) => l.msg === 'recall: summary');
+    assert.deepEqual([summary?.answer, summary?.summary, summary?.stretch], ['fallback', kind, true], kind);
+    assert.equal(logs.find((l) => l.msg === 'recall: failed')?.name, answer.name, kind);
+  }
+});
+
+test('recall: with less than recall.minSummaryMs left the summary is skipped and the fallback returned at once', async () => {
+  let t = NOW;
+  const s = scene({
+    lines: RANKED_LINES,
+    recall: BUDGET,
+    now: () => t,
+    answers: (route: string, query: Untyped) => {
+      t = NOW + BUDGET.timeoutMs - BUDGET.minSummaryMs + 1;
+      return rankedAnswers(route, query);
+    },
+  });
+  const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  assert.equal(s.llmCalls.length, 0);
+  assert.equal(result.text, null);
+  assert.equal(result.stretch?.lines, RANKED_STRETCH);
+  assert.equal(result.stats.summary, 'skipped');
+  const summary = logs.find((l) => l.msg === 'recall: summary');
+  assert.deepEqual([summary?.answer, summary?.summary, summary?.ms], ['fallback', 'skipped', 0]);
+  assert.ok(!logs.some((l) => l.msg === 'recall: failed'));
+});
+
+test('recall: the run budget running out during the summary aborts it and returns the fallback', async () => {
+  const timers = manualTimers();
+  const asked = deferred();
+  const s = scene({
+    lines: RANKED_LINES,
+    answers: rankedAnswers,
+    recall: BUDGET,
+    timers,
+    answer: (messages: unknown, options: Untyped) => {
+      asked.resolve?.();
+      return hangUntilAbort(options.signal);
+    },
+  });
+  const { result, logs } = await withCapturedLogs(async () => {
+    const running = s.recaller.run({ ...s.args, server: RABBIT_SERVER });
+    await asked.promise;
+    timers.fire(BUDGET.timeoutMs);
+    return running;
+  });
+  assert.ok((s.llmCalls[0].options.signal as AbortSignal).aborted);
+  assert.equal(result.text, null);
+  assert.equal(result.stretch?.lines, RANKED_STRETCH);
+  assert.equal(result.stats.summary, 'timeout');
+  assert.ok(logs.some((l) => l.msg === 'recall: failed' && l.reason === 'timeout'));
+  const summary = logs.find((l) => l.msg === 'recall: summary');
+  assert.deepEqual([summary?.answer, summary?.summary], ['fallback', 'timeout']);
+});
+
+test('recall: the run budget running out before the windows are read abandons it with nothing', async () => {
+  const timers = manualTimers();
+  const reading = deferred();
+  const s = scene({ lines: RANKED_LINES, answers: rankedAnswers, recall: BUDGET, timers });
+  s.guild.history(() => {
+    reading.resolve?.();
+    return new Promise(() => {});
+  });
+  const { result, logs } = await withCapturedLogs(async () => {
+    const running = s.recaller.run({ ...s.args, server: RABBIT_SERVER });
+    await reading.promise;
+    timers.fire(BUDGET.timeoutMs);
+    return running;
+  });
+  assert.deepEqual([result.text, result.stretch, result.stats.summary], [null, null, null]);
+  assert.ok(logs.some((l) => l.msg === 'recall: failed' && l.reason === 'timeout'));
+  assert.ok(!logs.some((l) => l.msg === 'recall: summary'));
+  assert.equal(s.llmCalls.length, 0);
+});
+
+test('recall: a nothing answer gives no text and no stretch; a refused summary logs its rail code', async () => {
+  const s = scene({ lines: { c1: RABBIT_LINES }, answers: rabbitAnswers, answer: 'nothing' });
+  const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  assert.deepEqual([result.text, result.stretch], [null, null]);
+  const summary = logs.find((l) => l.msg === 'recall: summary');
+  assert.deepEqual([summary?.answer, summary?.stretch], ['nothing', false]);
+
+  const refused = scene({ lines: { c1: RABBIT_LINES }, answers: rabbitAnswers, answer: new DailyCapError('cap') });
+  const second = await withCapturedLogs(() => refused.recaller.run({ ...refused.args, server: RABBIT_SERVER }));
+  assert.equal(second.result.text, null);
+  assert.equal(second.logs.find((l) => l.msg === 'recall: failed')?.reason, 'daily-cap');
+});
+
+test('recall: no hit left skips the summary', async () => {
+  const s = scene();
+  const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  assert.equal(result.text, null);
+  assert.equal(s.llmCalls.length, 0);
+  assert.ok(logs.some((l) => l.msg === 'recall: skipped' && l.reason === 'no-hits'));
+});
+
+test('recall: a window shows the cached caption of its picture and asks for no fresh one', async () => {
+  const asked: Array<Untyped> = [];
+  const describer = {
+    cachedDescriptions: (guildId: string, items: Untyped) => {
+      asked.push(items.map((i: Untyped) => i.itemId));
+      return new Map([['p1', 'ένα κουνέλι στο γρασίδι']]);
+    },
+    describeMany: async () => {
+      throw new Error('fixture: no fresh caption may be asked');
+    },
+  };
+  const s = scene({ lines: { c1: RABBIT_LINES }, answers: rabbitAnswers, describer });
+  await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  assert.deepEqual(asked, [['p1']]);
+  assert.ok(s.llmCalls[0].messages[1].content.includes('Ana: bang [image: ένα κουνέλι στο γρασίδι]'));
+});
+
+test('recall: the stretch is the named window without indices; out of range names none', async () => {
+  const s = scene({
+    lines: { c1: RABBIT_LINES, c2: GARDEN_LINES },
+    answers: rabbitAnswers,
+    answer: 'stretch: 2\nÉloïse saw one.',
+  });
+  const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  assert.equal(result.stretch?.channelId, 'c2');
+  assert.equal(result.stretch?.startTs, GARDEN_LINES[0].ts);
+  assert.equal(result.stretch?.lines, `${HIT_MARK}[12:44] Éloïse: ένα κουνέλι στον κήπο\n[12:45] Ana: ωραίο`);
+
+  const far = scene({
+    lines: { c1: RABBIT_LINES, c2: GARDEN_LINES },
+    answers: rabbitAnswers,
+    answer: 'stretch: 3\nÉloïse saw one.',
+  });
+  const second = await withCapturedLogs(() => far.recaller.run({ ...far.args, server: RABBIT_SERVER }));
+  assert.equal(second.result.stretch, null);
+  assert.equal(second.result.text, 'Éloïse saw one.');
+});
+
+test('recall: logs carry counts, ids and codes, never a form, a name or a message', async () => {
+  const s = scene({
+    lines: { c1: RABBIT_LINES, c2: GARDEN_LINES },
+    answers: rabbitAnswers,
+    profiles: [{ id: 'u3', names: ['Éloïse'], aliases: [] }],
+  });
+  const { logs } = await withCapturedLogs(() =>
+    s.recaller.run({ ...s.args, server: { ...RABBIT_SERVER, who: ['éloïse'] } })
+  );
+  const text = JSON.stringify(logs);
+  for (const secret of [
+    'κουνέλι',
+    'κουνελιού',
+    'éloïse',
+    'Éloïse',
+    'Βασίλης',
+    'πέθανε',
+    'Ana did it',
+    'general',
+    'garden',
+  ]) {
+    assert.ok(!text.includes(secret), secret);
+  }
+  assert.ok(logs.some((l) => l.msg === 'recall: searched' && Number.isInteger(l.queries)));
+});
+
+// ---- stored memory ---------------------------------------------------------------------------
+
+const ANA_ID = '411111111111111111';
+const ELO_ID = '433333333333333333';
+const MEMORY_PROFILES = [
+  {
+    id: ANA_ID,
+    names: ['Ana'],
+    aliases: [],
+    episodes: [
+      {
+        date: '2026-10-01',
+        what: `held a funeral for the κουνέλι with <@${ELO_ID}>`,
+        quote: 'ο δολοφόνος έρχεται στην κηδεία',
+        feeling: '',
+        weight: 5,
+        addedAt: '2026-10-01T20:00:00.000Z',
+      },
+      {
+        date: '2026-09-20',
+        what: 'baked bread',
+        quote: '',
+        feeling: 'thinks of the κουνέλι',
+        weight: 5,
+        addedAt: '2026-09-20T20:00:00.000Z',
+      },
+    ],
+  },
+  { id: ELO_ID, names: ['Éloïse'], aliases: [], episodes: [] },
+];
+const MEMORY_LORE = [
+  { id: 'l1', title: 'Το κουνέλι', keys: ['κουνέλι'], text: 'The rabbit of the main channel.', weight: 3 },
+];
+const FUNERAL_LINE = `episode | 2026-10-01 | Ana | held a funeral for the κουνέλι with Éloïse "ο δολοφόνος έρχεται στην κηδεία"`;
+const LORE_LINE = 'lore | - | - | Το κουνέλι: The rabbit of the main channel.';
+
+test('recall: stored memory is read before any Discord request and reaches the summary as <memory> before <found>', async () => {
+  let readAt = null;
+  const holder: Record<string, Untyped> = {};
+  const s = scene({
+    lines: { c1: RABBIT_LINES },
+    answers: rabbitAnswers,
+    profiles: MEMORY_PROFILES,
+    memory: {
+      getLore: () => {
+        readAt ??= holder.scene.calls.length;
+        return MEMORY_LORE;
+      },
+    },
+  });
+  holder.scene = s;
+  const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  assert.equal(readAt, 0, 'no Discord request before the memory was read');
+  const user = s.llmCalls[0].messages[1].content;
+  assert.ok(user.startsWith(['<memory>', FUNERAL_LINE, LORE_LINE, '</memory>', '<found>\n'].join('\n')), user);
+  assert.ok(!user.includes('baked bread'), 'a feeling is never searched');
+  assert.equal(result.stats.memory, 2);
+  assert.equal(logs.find((l) => l.msg === 'recall: searched')?.memory, 2);
+  assert.equal(result.text, 'Ana did it on October 1.');
+});
+
+test('recall: stored memory alone still asks the summary; without an answer it gives nothing verbatim', async () => {
+  const s = scene({ profiles: MEMORY_PROFILES });
+  const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  assert.equal(searches(s.calls).length, 2, 'the forms were searched and found nothing');
+  assert.equal(s.llmCalls.length, 1);
+  const user = s.llmCalls[0].messages[1].content;
+  assert.ok(user.startsWith(`<memory>\n${FUNERAL_LINE}\n</memory>\n`) && user.includes('<question>'), user);
+  assert.ok(!user.includes('<found>'));
+  assert.deepEqual([result.text, result.stretch, result.stats.summary], ['Ana did it on October 1.', null, 'answered']);
+  assert.ok(!logs.some((l) => l.msg === 'recall: skipped'));
+
+  const failed = scene({ profiles: MEMORY_PROFILES, answer: new Error('fixture: provider down') });
+  const second = await withCapturedLogs(() => failed.recaller.run({ ...failed.args, server: RABBIT_SERVER }));
+  assert.equal(searches(failed.calls).length, 2, 'the forms were searched and found nothing');
+  assert.equal(failed.llmCalls.length, 1);
+  assert.deepEqual([second.result.text, second.result.stretch, second.result.stats.summary], [null, null, 'failed']);
+});
+
+test('recall: a recent line from a channel the audience cannot see is left out; a private layer is never read', async () => {
+  const at = NOW - 2 * HOUR;
+  const recent = {
+    nextId: 4,
+    lines: [
+      { id: 1, at, addedAt: null, channelId: 'c1', text: 'κουνέλι in general', who: [], weight: 2 },
+      { id: 2, at: at - HOUR, addedAt: null, channelId: 'c2', text: 'κουνέλι in garden', who: [], weight: 2 },
+      { id: 3, at, addedAt: null, channelId: 'c4', text: 'μυστικό κουνέλι', who: [], weight: 3 },
+    ],
+  };
+  const learned = [
+    {
+      id: 1,
+      text: 'the κουνέλι was called Bun',
+      from: `<@${ELO_ID}>`,
+      weight: 1,
+      firstSeen: '2026-09-01T00:00:00.000Z',
+      lastSeen: '2026-09-02T00:00:00.000Z',
+    },
+  ];
+  let privateReads = 0;
+  const s = scene({
+    profiles: MEMORY_PROFILES,
+    memory: {
+      getRecent: () => structuredClone(recent),
+      getGuild: () => ({ learned }),
+      getPrivate: () => {
+        privateReads += 1;
+        return { episodes: [{ date: '2026-10-01', what: 'κουνέλι secret', weight: 5 }] };
+      },
+    },
+  });
+  await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  const user = s.llmCalls[0].messages[1].content;
+  assert.ok(user.includes('recent | 2026-10-05 | - | κουνέλι in general'), user);
+  assert.ok(user.includes('recent | 2026-10-05 | - | κουνέλι in garden'), user);
+  assert.ok(user.includes('learned | - | Éloïse | the κουνέλι was called Bun'), user);
+  assert.ok(!user.includes('μυστικό'), 'the line of a channel @everyone cannot view');
+  assert.ok(!user.includes('secret'));
+  assert.equal(privateReads, 0);
+});
+
+// ---- the current conversation, the persona's own stretches, the context, the trace ------------
+
+/** #general holds the turn's chat (h1, h2) and, just before it, an older hit x1; #garden a stretch with the persona's line. */
+const CHAT_LINES = {
+  c1: [
+    line('x1', NOW - 40 * MINUTE, { content: 'το κουνέλι ξανά' }),
+    line('h1', NOW - 30 * MINUTE, { name: 'Nikos', author: 'u9', content: 'τι έγινε με το κουνέλι;' }),
+    line('h2', NOW - MINUTE, { name: 'Nikos', author: 'u9', content: 'ποιος σκότωσε το κουνέλι;' }),
+  ],
+  c2: [
+    GARDEN_LINES[0],
+    line('g3', GARDEN_LINES[0].ts + 2 * MINUTE, { name: 'Zoë', author: 'self', content: 'το είδα κι εγώ' }),
+  ],
+};
+
+/** `κουνέλι` finds x1, the chat's own h2 and the garden line. */
+function chatAnswers(route: Untyped, query: Untyped) {
+  if (route.endsWith('/members/search')) return [];
+  if (query.content === 'κουνέλι') {
+    return {
+      total_results: 3,
+      messages: [[rawHit('c1', CHAT_LINES.c1[2])], [rawHit('c1', CHAT_LINES.c1[0])], [rawHit('c2', CHAT_LINES.c2[0])]],
+    };
+  }
+  return { total_results: 0, messages: [] };
+}
+
+/** The fixture labels with the two stretch flags (the shipped wording is the dev agent's). */
+const FLAGGED = { ...labels, lookup: { ...labels.lookup, stretchSelf: '[SELF]', stretchCurrent: '[CURRENT]' } };
+
+test("recall: hits shown in the chat are dropped and counted; a window reaching into the chat and one with the persona's line are flagged", async () => {
+  const s = scene({ lines: CHAT_LINES, answers: chatAnswers, recall: { maxClusters: 2, selfExtra: 0 } });
+  s.hot.prompts.labels = FLAGGED;
+  const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  assert.equal(result.stats.inChatDropped, 1);
+  assert.equal(result.stats.selfClusters, 1);
+  assert.deepEqual(s.fetches.map((f) => f.around).sort(), ['g1', 'x1'], 'no window is centred on a chat line');
+  const user = s.llmCalls[0].messages[1].content;
+  const headers = user.split('\n').filter((l: Untyped) => l.startsWith('## '));
+  assert.deepEqual(headers, ['## 1 | 2026-10-05 | #general [CURRENT]', '## 2 | 2026-09-30 | #garden [SELF]']);
+  assert.ok(
+    !user.slice(user.indexOf('<found>'), user.indexOf('</found>')).includes('ποιος σκότωσε'),
+    'the chat lines stay out of the windows'
+  );
+  const searched = logs.find((l) => l.msg === 'recall: searched');
+  assert.deepEqual([searched?.inChatDropped, searched?.selfClusters], [1, 1]);
+});
+
+test('recall: the summary reads the last six chat lines as <context> right before <question>', async () => {
+  const s = scene({ lines: CHAT_LINES, answers: chatAnswers });
+  const routed = [
+    {
+      id: 'o1',
+      channelId: 'c2',
+      ts: NOW - 2 * MINUTE,
+      self: true,
+      bot: false,
+      authorName: 'Zoë',
+      content: 'σε άλλο κανάλι',
+    },
+    s.args.history[1],
+  ];
+  await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  const user = s.llmCalls[0].messages[1].content;
+  assert.match(
+    user,
+    /<\/found>\n<context>\n=== .+ ===\n#\d+ \[11:30\] Nikos: τι έγινε με το κουνέλι;\n<\/context>\n<question>\nNikos: ποιος σκότωσε το κουνέλι;\n<\/question>$/
+  );
+
+  const other = scene({ lines: CHAT_LINES, answers: chatAnswers });
+  await withCapturedLogs(() =>
+    other.recaller.run({ ...other.args, context: routed, server: RABBIT_SERVER } as unknown as Parameters<
+      typeof other.recaller.run
+    >[0])
+  );
+  const withRouted = other.llmCalls[0].messages[1].content;
+  assert.match(
+    withRouted,
+    /<context>\n=== .+ ===\n#\d+ \[11:58\] Zoë \(you\): σε άλλο κανάλι\n<\/context>/,
+    'the lines the question was read in; own lines under labels.self'
+  );
+});
+
+/** A real store in a fresh temporary directory (never data/), and its trace file of guild g1. */
+function tempStore() {
+  const dataDir = tempDir('recall-trace-');
+  const store = createStore({ dataDir });
+  const file = path.join(dataDir, 'guilds', GUILD, 'recall-trace.jsonl');
+  const lines = () =>
+    fs.existsSync(file)
+      ? fs
+          .readFileSync(file, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+          .map((l) => JSON.parse(l))
+      : [];
+  return { store, file, lines, cleanup: () => fs.rmSync(dataDir, { recursive: true, force: true }) };
+}
+
+test('recall: every run appends one trace line with the clusters, the summary and its stretch', async () => {
+  const t = tempStore();
+  try {
+    const s = scene({
+      lines: CHAT_LINES,
+      answers: chatAnswers,
+      memory: {
+        appendRecallTrace: (...args: Parameters<typeof t.store.appendRecallTrace>) =>
+          t.store.appendRecallTrace(...args),
+      },
+    });
+    const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+    const [record, ...rest] = t.lines();
+    assert.equal(rest.length, 0);
+    assert.deepEqual(Object.keys(record), [
+      'at',
+      'channelId',
+      'triggerId',
+      'forms',
+      'who',
+      'when',
+      'hits',
+      'inChatDropped',
+      'clusters',
+      'summary',
+      'lookupChars',
+      'skipped',
+      'people',
+      'plan',
+      'memory',
+      'record',
+      'meaning',
+    ]);
+    assert.equal(record.meaning, null, 'no meaning search with features.meaningSearch off');
+    assert.equal(record.at, new Date(NOW).toISOString());
+    assert.deepEqual(
+      [record.channelId, record.triggerId, record.forms, record.who, record.when],
+      ['c1', 'h2', RABBIT_SERVER.forms, [], null]
+    );
+    assert.deepEqual([record.hits, record.inChatDropped], [3, 1]);
+    assert.deepEqual(record.clusters, [
+      {
+        channelId: 'c1',
+        from: new Date(CHAT_LINES.c1[0].ts).toISOString(),
+        to: new Date(CHAT_LINES.c1[0].ts).toISOString(),
+        // PR 7d: recall.rareHits is the constant 5, so the form of three hits is rare and weighs two.
+        score: 2,
+        queries: 1,
+        self: false,
+        overlapsChat: true,
+        // PR 7d: recall.maxClusters is the constant 5, so the older chat window is kept too.
+        kept: true,
+      },
+      {
+        channelId: 'c2',
+        from: new Date(GARDEN_LINES[0].ts).toISOString(),
+        to: new Date(GARDEN_LINES[0].ts).toISOString(),
+        score: 3,
+        queries: 1,
+        self: true,
+        overlapsChat: false,
+        kept: true,
+      },
+    ]);
+    assert.deepEqual(record.summary, {
+      answer: 'text',
+      // PR 7d: with all five clusters kept the windows are numbered in the order of the fetches, c1 first.
+      stretch: { n: 1, channelId: 'c1', channelName: 'general', lines: result.stretch?.lines },
+      text: 'Ana did it on October 1.',
+      note: 'stretch: 1\nAna did it on October 1.',
+    });
+    assert.equal(record.skipped, null);
+    assert.ok(record.summary.stretch.lines.includes('το κουνέλι ξανά'), 'the stretch lines themselves');
+    assert.equal(record.lookupChars, [...(result.text ?? '')].length + [...(result.stretch?.lines ?? [])].length);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('recall: one trace line holds every source -- stored memory, record windows, search clusters -- the people, the plan and the full note', async () => {
+  const t = tempStore();
+  try {
+    const record = fakeSource({
+      guild: [
+        recLine('g1', GARDEN_LINES[0].ts, 'ένα κουνέλι στον κήπο'),
+        recLine('r-c2', NOW - 2 * HOUR, 'κουνέλι στον κήπο σήμερα'),
+      ],
+    });
+    const archive = fakeSource({
+      guild: [
+        archEntry(
+          'rc-2',
+          'recent',
+          { text: 'κουνέλι archived in the garden' } as unknown as Parameters<typeof archEntry>[2],
+          { channel: 'c2' } as unknown as Parameters<typeof archEntry>[3]
+        ),
+      ],
+    });
+    const s = scene({
+      lines: CHAT_LINES,
+      answers: chatAnswers,
+      features: { recallTrace: true },
+      recall: { recordDays: 7, recordContext: 0, archiveMonths: 1 },
+      profiles: MEMORY_PROFILES,
+      memory: {
+        getLore: () => MEMORY_LORE,
+        appendRecallTrace: (...args: Parameters<typeof t.store.appendRecallTrace>) =>
+          t.store.appendRecallTrace(...args),
+      },
+      record,
+      archive,
+    });
+    const { logs } = await withCapturedLogs(() =>
+      s.recaller.run({ ...s.args, server: { forms: ['κουνέλι'], who: ['Ana'], from: null, to: null } })
+    );
+    const [line, ...rest] = t.lines();
+    assert.equal(rest.length, 0);
+    assert.equal(line.skipped, null);
+    assert.deepEqual(line.people, [{ id: ANA_ID, form: 'Ana', how: 'stored' }]);
+    assert.deepEqual(line.plan, [
+      { kind: 'form', content: 'κουνέλι', authorId: null, offset: 0, sent: true, total: 3 },
+      { kind: 'who', content: 'Ana', authorId: null, offset: 0, sent: true, total: 0 },
+      { kind: 'author', content: null, authorId: ANA_ID, offset: 0, sent: true, total: 0 },
+    ]);
+    for (const item of line.memory)
+      assert.deepEqual(Object.keys(item), ['kind', 'date', 'itemId', 'text', 'memberId', 'self', 'score']);
+    assert.deepEqual(
+      line.memory.find((item: Untyped) => item.kind === 'archived recent'),
+      { kind: 'archived recent', date: '2026-10-04', itemId: 'rc-2', text: null, memberId: null, self: false, score: 1 }
+    );
+    assert.deepEqual(
+      line.memory.find((item: Untyped) => item.kind === 'lore'),
+      {
+        kind: 'lore',
+        date: null,
+        itemId: null,
+        text: 'Το κουνέλι: The rabbit of the main channel.',
+        memberId: null,
+        self: false,
+        score: 1,
+      }
+    );
+    assert.ok(
+      line.memory.some((item: Untyped) => item.kind === 'episode' && item.memberId === ANA_ID && item.score === 2)
+    );
+    // PR 7d: recall.recordContext is the constant 3, so the record window and the search hit of #garden are one window.
+    assert.deepEqual(line.record, [
+      {
+        channelId: 'c2',
+        from: new Date(GARDEN_LINES[0].ts).toISOString(),
+        to: new Date(NOW - 2 * HOUR).toISOString(),
+        hitIds: ['g1', 'r-c2'],
+        kept: true,
+      },
+    ]);
+    assert.equal(line.clusters.length, 2);
+    assert.deepEqual(line.summary.note, 'stretch: 1\nAna did it on October 1.');
+    assert.equal(line.summary.text, 'Ana did it on October 1.');
+    const all = JSON.stringify(logs);
+    for (const text of ['κουνέλι', 'Ana did it', 'rc-2'])
+      assert.ok(!all.includes(text), `nothing new in the service log: ${text}`);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('recall: a run skipped early still writes its trace line with the reason', async () => {
+  const t = tempStore();
+  try {
+    const capped = scene({
+      features: { recallTrace: true },
+      capLeft: 0,
+      memory: {
+        appendRecallTrace: (...args: Parameters<typeof t.store.appendRecallTrace>) =>
+          t.store.appendRecallTrace(...args),
+      },
+    });
+    await withCapturedLogs(() => capped.recaller.run({ ...capped.args, server: RABBIT_SERVER }));
+    const planless = scene({
+      features: { recallTrace: true },
+      memory: {
+        appendRecallTrace: (...args: Parameters<typeof t.store.appendRecallTrace>) =>
+          t.store.appendRecallTrace(...args),
+      },
+    });
+    await withCapturedLogs(() =>
+      planless.recaller.run({ ...planless.args, server: { forms: [], who: [], from: NOW, to: NOW - HOUR } })
+    );
+    const [first, second, ...rest] = t.lines();
+    assert.equal(rest.length, 0);
+    assert.equal(first.skipped, 'daily-cap');
+    assert.deepEqual([first.channelId, first.triggerId, first.forms], ['c1', 'h2', RABBIT_SERVER.forms]);
+    assert.deepEqual([first.clusters, first.people, first.plan, first.memory, first.record], [[], [], [], [], []]);
+    assert.deepEqual(first.summary, { answer: null, stretch: null, text: null, note: null });
+    assert.equal(second.skipped, 'no-query');
+    assert.equal(capped.llmCalls.length + planless.llmCalls.length, 0);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('recall: the searched log line carries counts only, never a text, with the trace on', async () => {
+  const t = tempStore();
+  try {
+    const s = scene({
+      lines: CHAT_LINES,
+      answers: chatAnswers,
+      features: { recallTrace: true },
+      memory: {
+        appendRecallTrace: (...args: Parameters<typeof t.store.appendRecallTrace>) =>
+          t.store.appendRecallTrace(...args),
+      },
+    });
+    const { logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+    const searched = logs.find((l) => l.msg === 'recall: searched');
+    const { msg, level, time, channel, ...fields } = asRecord(searched);
+    assert.equal(channel, 'c1');
+    for (const [key, value] of Object.entries(fields)) assert.equal(typeof value, 'number', key);
+    assert.ok('inChatDropped' in fields && 'selfClusters' in fields);
+    const all = JSON.stringify(logs);
+    for (const text of ['κουνέλι', 'Ana did it', 'το είδα']) assert.ok(!all.includes(text), text);
+  } finally {
+    t.cleanup();
+  }
+});
+
+// ---- the archive and the recent record ---------------------------------------------------------
+
+/** A record line of a channel near NOW (src/memory/record.ts#toRecordLine), private ones scoped to their owner. */
+function recLine(
+  id: string,
+  ts: number,
+  text: string,
+  { channelId = 'c2', by = ANA_ID, owner = null }: Record<string, Untyped> = {}
+) {
+  const line = toRecordLine(
+    { id, channelId, authorId: by, content: text, ts },
+    { now: () => NOW, uuid: () => `x-${id}` }
+  );
+  return owner ? { ...line, scope: { user: owner, private: true, channel: channelId } } : line;
+}
+
+/** An archive entry of `itemKind` (the fields recall reads). */
+function archEntry(itemId: string, itemKind: string, text: string, scope: string) {
+  return {
+    v: 1,
+    id: `a-${itemId}`,
+    kind: 'archive',
+    event: 'evicted',
+    itemKind,
+    itemId,
+    revisionId: 'rv-1',
+    scope,
+    participants: [],
+    observedAt: { date: '2026-10-04', precision: 'day' },
+    neutral: null,
+    text,
+    stored: {},
+    recordedAt: '2026-10-05T00:00:00.000Z',
+    guildId: GUILD,
+  };
+}
+
+/** A fake archive or record: `iterate` streams the list of the base it is asked for (the guild's, or a private owner's). */
+function fakeSource(byBase: Untyped) {
+  const queries: Array<Record<string, Untyped>> = [];
+  return {
+    queries,
+    async *iterate(guildId: string, query: Record<string, Untyped> = {}) {
+      queries.push(query);
+      yield* byBase[query.privateUserId ?? 'guild'] ?? [];
+    },
+  };
+}
+
+const RECENT_SERVER = { forms: ['κουνέλι'], who: [], from: null, to: null, recent: true };
+
+test('recall-run: a channel the member cannot read is skipped before matching', async () => {
+  const record = fakeSource({
+    guild: [
+      recLine('r-c2', NOW - 2 * HOUR, 'κουνέλι στον κήπο σήμερα'),
+      recLine('r-c4', NOW - HOUR, 'μυστικό κουνέλι', { channelId: 'c4' }),
+    ],
+  });
+  const archive = fakeSource({
+    guild: [
+      archEntry(
+        'rc-2',
+        'recent',
+        { text: 'κουνέλι archived in the garden' } as unknown as Parameters<typeof archEntry>[2],
+        { channel: 'c2' } as unknown as Parameters<typeof archEntry>[3]
+      ),
+      archEntry(
+        'rc-4',
+        'recent',
+        { text: 'μυστικό κουνέλι archived' } as unknown as Parameters<typeof archEntry>[2],
+        { channel: 'c4' } as unknown as Parameters<typeof archEntry>[3]
+      ),
+    ],
+  });
+  const s = scene({ profiles: MEMORY_PROFILES, record, archive });
+  const { result } = await withCapturedLogs(() =>
+    s.recaller.run({ ...s.args, server: RECENT_SERVER } as unknown as Parameters<typeof s.recaller.run>[0])
+  );
+  const user = s.llmCalls[0].messages[1].content;
+  assert.ok(user.includes('archived recent | 2026-10-04 | - | κουνέλι archived in the garden'), user);
+  assert.ok(user.includes('κουνέλι στον κήπο σήμερα') && user.includes('#garden | source: record'), user);
+  assert.ok(
+    !user.includes('μυστικό'),
+    'neither a record line nor an archived item of the channel @everyone cannot view'
+  );
+  assert.equal(result.stats.record, 1);
+  assert.ok(Date.parse(record.queries[0].from) >= NOW - 3 * 24 * HOUR, 'the last recordDays');
+});
+
+test('recall-run: a dateless question with no recent cue reads the record too, recordDays 0 reads none', async () => {
+  const lines = () => fakeSource({ guild: [recLine('r-old', NOW - 2 * 24 * HOUR, 'κουνέλι στον κήπο τότε')] });
+  const record = lines();
+  const s = scene({ profiles: MEMORY_PROFILES, record });
+  const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  assert.equal(result.stats.record, 1, 'no when: range and no recent cue, the record is still read');
+  assert.ok(s.llmCalls[0].messages[1].content.includes('κουνέλι στον κήπο τότε'));
+  assert.ok(Date.parse(record.queries[0].from) >= NOW - 3 * 24 * HOUR, 'the last recordDays');
+
+  const offRecord = lines();
+  const off = scene({ profiles: MEMORY_PROFILES, record: offRecord, recall: { recordDays: 0 } });
+  const { result: offResult } = await withCapturedLogs(() => off.recaller.run({ ...off.args, server: RABBIT_SERVER }));
+  assert.equal(offResult.stats.record, 0);
+  assert.equal(offRecord.queries.length, 0, 'recordDays 0 reads nothing');
+});
+
+test('recall-run: private entries match only for their owner', async () => {
+  const sources = () => ({
+    archive: fakeSource({
+      guild: [
+        archEntry(
+          'ep-g',
+          'episode',
+          { what: 'κουνέλι in the open' } as unknown as Parameters<typeof archEntry>[2],
+          { user: ANA_ID } as unknown as Parameters<typeof archEntry>[3]
+        ),
+        archEntry(
+          'ep-stray',
+          'episode',
+          { what: 'κουνέλι stray secret' } as unknown as Parameters<typeof archEntry>[2],
+          { user: 'u5', private: true } as unknown as Parameters<typeof archEntry>[3]
+        ),
+      ],
+      u5: [
+        archEntry(
+          'ep-p',
+          'episode',
+          { what: 'κουνέλι whispered' } as unknown as Parameters<typeof archEntry>[2],
+          { user: 'u5', private: true } as unknown as Parameters<typeof archEntry>[3]
+        ),
+      ],
+      u6: [
+        archEntry(
+          'ep-q',
+          'episode',
+          { what: 'κουνέλι of another' } as unknown as Parameters<typeof archEntry>[2],
+          { user: 'u6', private: true } as unknown as Parameters<typeof archEntry>[3]
+        ),
+      ],
+    }),
+    record: fakeSource({
+      u5: [recLine('d1', NOW - HOUR, 'κουνέλι in the dm', { channelId: 'dm1', by: 'u5', owner: 'u5' })],
+    }),
+  });
+  const ask = async (who: string | null) => {
+    const s = scene({ profiles: MEMORY_PROFILES, ...sources() });
+    const history = [
+      {
+        id: 'p1',
+        channelId: 'dm1',
+        ts: NOW - MINUTE,
+        self: false,
+        bot: false,
+        authorName: 'Nikos',
+        content: 'κουνέλι;',
+      },
+    ];
+    const args =
+      who === null
+        ? { ...s.args, server: RECENT_SERVER }
+        : {
+            ...s.args,
+            channel: s.dm,
+            partnerId: who,
+            history,
+            candidate: history[0],
+            server: RECENT_SERVER,
+          };
+    await withCapturedLogs(() => s.recaller.run(args as unknown as Parameters<typeof s.recaller.run>[0]));
+    return s.llmCalls[0]?.messages[1].content ?? '';
+  };
+  const owner = await ask('u5');
+  assert.ok(
+    owner.includes('κουνέλι whispered') &&
+      owner.includes('κουνέλι stray secret') &&
+      owner.includes('κουνέλι in the dm'),
+    owner
+  );
+  assert.ok(owner.includes('κουνέλι in the open'));
+  assert.ok(!owner.includes('another'), "another member's private layer is never read");
+  const other = await ask('u6');
+  assert.ok(other.includes('κουνέλι of another') && other.includes('κουνέλι in the open'), other);
+  assert.ok(!other.includes('whispered') && !other.includes('stray') && !other.includes('in the dm'), other);
+  const server = await ask(null);
+  assert.ok(server.includes('κουνέλι in the open'), server);
+  assert.ok(
+    !server.includes('whispered') &&
+      !server.includes('stray') &&
+      !server.includes('another') &&
+      !server.includes('in the dm'),
+    'a server turn reads no private entry'
+  );
+});
+
+// ---- a window follows its conversation -------------------------------------------------------
+
+/** #garden: a name question (n2) answered minutes after a short window around it, then a long silence. */
+const NAME_LINES = [
+  line('n0', RABBIT - 2 * MINUTE, { name: 'Éloïse', author: 'u3' }),
+  line('n1', RABBIT - MINUTE),
+  line('n2', RABBIT, { name: 'Éloïse', author: 'u3', content: 'είναι το όνομά μου Ίρις;' }),
+  line('n3', RABBIT + MINUTE, { name: 'Zoë', author: 'self', content: 'στοίχημα πως ναι' }),
+  line('n4', RABBIT + 2 * MINUTE),
+  line('n5', RABBIT + 4 * MINUTE, { name: 'Éloïse', author: 'u3' }),
+  line('n6', RABBIT + 5 * MINUTE, { name: 'Birthdays', author: 'bot1', content: 'birthday!', bot: true }),
+  line('n7', RABBIT + 8 * MINUTE, { content: 'κέρδισες, Ηλέκτρα' }),
+  line('n8', RABBIT + 20 * MINUTE, { content: 'αργότερα' }),
+];
+const NAME_SERVER = { forms: ['όνομά'], who: [], from: null, to: null };
+
+/** `όνομά` finds n2 in #garden. */
+function nameAnswers(route: Untyped, query: Untyped) {
+  if (route.endsWith('/members/search')) return [];
+  return query.content === 'όνομά'
+    ? { total_results: 1, messages: [[rawHit('c2', NAME_LINES[2])]] }
+    : { total_results: 0, messages: [] };
+}
+
+/** The ids of the name lines shown in <found>, in order. */
+function foundIds(s: Untyped) {
+  const user = s.llmCalls[0].messages[1].content;
+  const found = user.slice(user.indexOf('<found>'), user.indexOf('</found>'));
+  return NAME_LINES.filter((l) => found.includes(`: ${l.content}`)).map((l) => l.id);
+}
+
+test('recall-run: a failing follow fetch keeps the window as it was', async () => {
+  const s = scene({ lines: { c2: NAME_LINES }, answers: nameAnswers });
+  // The read that follows the window fails: the interface answers nothing for it (and its own log says so).
+  s.guild.history(async (ref: Untyped, query: Untyped, original: Untyped) =>
+    query.after !== undefined ? null : original()
+  );
+  const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: NAME_SERVER }));
+  // PR 7d: recall.windowMessages is the constant 16, so the window holds every line of the garden but the bot's.
+  assert.deepEqual(foundIds(s), ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n7', 'n8']);
+  assert.equal(result.stats.windows, 1);
+});
+
+test("recall-run: a window that follows into the turn's chat is flagged and shows none of it", async () => {
+  // PR 7d: recall.windowMessages is the constant 16, so twenty older lines keep the window short of the chat.
+  const older = Array.from({ length: 20 }, (_, n) =>
+    line(`y${n + 1}`, NOW - (60 - n) * MINUTE, { content: `το κουνέλι ${n + 1}` })
+  );
+  const lines = {
+    c1: [
+      ...older,
+      line('h1', NOW - 40 * MINUTE, { name: 'Nikos', author: 'u9', content: 'τι έγινε με το κουνέλι;' }),
+      line('h2', NOW - MINUTE, { name: 'Nikos', author: 'u9', content: 'ποιος σκότωσε το κουνέλι;' }),
+    ],
+  };
+  const answers = (route: string, query: Untyped) =>
+    query.content === 'κουνέλι'
+      ? { total_results: 1, messages: [[rawHit('c1', lines.c1[0])]] }
+      : { total_results: 0, messages: [] };
+  const s = scene({ lines, answers });
+  s.hot.prompts.labels = FLAGGED;
+  await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
+  assert.equal(s.follows.length, 1, 'the window was followed');
+  const user = s.llmCalls[0].messages[1].content;
+  assert.deepEqual(
+    user.split('\n').filter((l: Untyped) => l.startsWith('## ')),
+    ['## 1 | 2026-10-05 | #general [CURRENT]']
+  );
+  assert.ok(
+    !user.slice(user.indexOf('<found>'), user.indexOf('</found>')).includes('τι έγινε'),
+    'the chat line stays out'
+  );
+});
+
+// ---- the whole server past the visible chat; stored names for `who` ------------------------------
+
+test("recall-run: a dated question searches past the visible chat's oldest line; the chat itself is dropped by id", async () => {
+  const early = Date.UTC(2026, 9, 5, 3, 37);
+  const morning = line('m7', Date.UTC(2026, 9, 5, 7, 0), {
+    name: 'Éloïse',
+    author: 'u3',
+    content: 'καλημέρα από τον κήπο',
+  });
+  const visible = line('h2', NOW - MINUTE, { name: 'Nikos', author: 'u5', content: 'τι έκανε σήμερα;' });
+  const s = scene({
+    lines: { c1: [visible], c2: [morning] },
+    answers: (route: Untyped, query: Untyped) =>
+      route.endsWith('/messages/search') && !query.offset
+        ? { total_results: 2, messages: [[rawHit('c1', visible)], [rawHit('c2', morning)]] }
+        : { total_results: 0, messages: [] },
+  });
+  const history = [
+    { id: 'h1', channelId: 'c1', ts: early, self: false, bot: false, authorName: 'Nikos', content: 'καλημέρα' },
+    {
+      id: 'h2',
+      channelId: 'c1',
+      ts: NOW - MINUTE,
+      self: false,
+      bot: false,
+      authorName: 'Nikos',
+      content: 'τι έκανε σήμερα;',
+    },
+  ];
+  const from = Date.UTC(2026, 9, 5);
+  const { logs } = await withCapturedLogs(() =>
+    s.recaller.run({ ...s.args, history, candidate: history[1], server: { forms: [], who: [], from, to: NOW } })
+  );
+  const sent = searches(s.calls);
+  assert.ok(sent.length > 0);
+  assert.ok(
+    sent.every((c: Untyped) => c.query.max_id === snowflakeAt(NOW + 1) && c.query.min_id === snowflakeAt(from)),
+    'the range alone bounds the query'
+  );
+  assert.ok(
+    sent.every((c: Untyped) => c.query.max_id !== snowflakeAt(early)),
+    'never capped at the visible chat'
+  );
+  assert.deepEqual(
+    s.fetches.map((f) => f.around),
+    ['m7'],
+    'the hit of the other channel is kept'
+  );
+  const searched = logs.find((l) => l.msg === 'recall: searched');
+  assert.deepEqual([searched?.hits, searched?.inChatDropped, searched?.kept], [2, 1, 1]);
+});
+
+test('recall-run: nothing planned skips with reason no-query', async () => {
+  const s = scene();
+  const { logs } = await withCapturedLogs(() =>
+    s.recaller.run({ ...s.args, server: { forms: [], who: [], from: NOW, to: NOW - HOUR } })
+  );
+  assert.equal(searches(s.calls).length, 0);
+  assert.deepEqual(
+    logs.filter((l) => l.msg === 'recall: skipped').map((l) => l.reason),
+    ['no-query']
+  );
+});
+
+test('recall-run: a who form equal to a stored alias (folded) finds the member when the member search finds nobody; the record is read by author', async () => {
+  const record = fakeSource({ guild: [recLine('r-elo', NOW - 2 * HOUR, 'καλημέρα κήπε', { by: ELO_ID })] });
+  const s = scene({
+    profiles: [{ id: ELO_ID, names: ['Éloïse'], aliases: [{ name: 'Lulú' }], episodes: [] }],
+    answers: (route: Untyped) => (route.endsWith('/members/search') ? [] : { total_results: 0, messages: [] }),
+    record,
+  });
+  const { result } = await withCapturedLogs(() =>
+    s.recaller.run({ ...s.args, server: { forms: [], who: ['lulu'], from: Date.UTC(2026, 9, 5), to: NOW } })
+  );
+  assert.deepEqual(
+    result.people.map((p) => p.id),
+    [ELO_ID]
+  );
+  assert.ok(
+    searches(s.calls).some((c: Untyped) => c.query.author_id === ELO_ID),
+    'an author query for the member'
+  );
+  assert.equal(result.stats.record, 1, 'the record line found by its author');
+  assert.ok(s.llmCalls[0].messages[1].content.includes('καλημέρα κήπε'));
+});
+
+test("recall-run: the persona's own stored profile never joins the people", async () => {
+  const s = scene({
+    profiles: [{ id: 'self', names: ['Zoë'], aliases: [], episodes: [] }],
+    answers: (route: Untyped) => (route.endsWith('/members/search') ? [] : { total_results: 0, messages: [] }),
+  });
+  const { result } = await withCapturedLogs(() =>
+    s.recaller.run({ ...s.args, server: { forms: [], who: ['zoë'], from: Date.UTC(2026, 9, 5), to: NOW } })
+  );
+  assert.deepEqual(result.people, []);
+  assert.ok(!searches(s.calls).some((c: Untyped) => c.query.author_id === 'self'));
+});
+
+// ---- meaning search ---------------------------------------------------------------------------
+
+const DAY = 24 * HOUR;
+const MEANT_AT = NOW - 20 * DAY;
+
+/** A fake record that honours the query's [from, to], `channelIds` and base, and notes each query. */
+function rangedSource(byBase: Untyped) {
+  const queries: Array<Record<string, Untyped>> = [];
+  return {
+    queries,
+    async *iterate(guildId: string, query: Record<string, Untyped> = {}) {
+      queries.push(query);
+      const from = query.from ? Date.parse(query.from) : -Infinity;
+      const to = query.to ? Date.parse(query.to) : Infinity;
+      for (const line of byBase[query.privateUserId ?? 'guild'] ?? []) {
+        const at = Date.parse(line.occurredAt);
+        if (at < from || at > to) continue;
+        if (Array.isArray(query.channelIds) && !query.channelIds.includes(line.scope?.channel)) continue;
+        yield line;
+      }
+    },
+  };
+}
+
+/** A row of the vector index as src/memory/vectors.ts#search returns it. */
+function vrow(
+  id: string,
+  ts: number,
+  score: number,
+  { kind = 'record', channelId = 'c2', revision = 1, sourceIds = [id] }: Record<string, Untyped> = {}
+) {
+  return {
+    meta: {
+      kind,
+      id,
+      revision,
+      occurredAt: new Date(ts).toISOString(),
+      channelId: kind === 'archive' ? null : channelId,
+      by: null,
+      participants: [],
+      sourceIds,
+    },
+    score,
+  };
+}
+
+/** A fake index: `search` applies the caller's filter to the rows of the base asked and notes each call. */
+function fakeVectors(byBase: Untyped, { fail = null }: Record<string, Untyped> = {}) {
+  const calls: Array<{ guildId: Untyped; query: Untyped; opts: Untyped }> = [];
+  return {
+    calls,
+    async search(guildId: string, query: unknown, opts: Record<string, Untyped> = {}) {
+      calls.push({ guildId, query, opts });
+      if (fail) throw fail;
+      const rows = (byBase[opts.privateUserId ?? 'guild'] ?? []).filter(
+        (row: Untyped) => typeof opts.filter !== 'function' || opts.filter(row.meta)
+      );
+      return [...rows].sort((a, b) => b.score - a.score).slice(0, opts.k);
+    },
+  };
+}
+
+/** A fake embedding call: one unit vector per text, or `impl`'s answer. */
+function fakeEmbed(impl: ((texts: Untyped, opts: Untyped) => unknown) | null = null) {
+  const calls: Array<{ texts: Untyped; opts: Untyped }> = [];
+  const embed = async (texts: Untyped, opts: Untyped) => {
+    calls.push({ texts, opts });
+    if (impl) return impl(texts, opts);
+    return texts.map(() => Float32Array.from([1, 0, 0, 0]));
+  };
+  embed.calls = calls;
+  return embed;
+}
+
+/** The record of the meaning tests: two word hits of today, an old exchange only meaning finds, one line @everyone cannot see. */
+const MEANING_RECORD = {
+  guild: [
+    recLine('m-ctx', MEANT_AT - MINUTE, 'who invented it?', { by: ELO_ID }),
+    recLine('m-old', MEANT_AT, 'he made the whole story up'),
+    recLine('m-hidden', MEANT_AT - 5 * DAY, 'secret meaning', { channelId: 'c4' }),
+    recLine('r-word2', NOW - 30 * HOUR, 'κουνέλι again', { channelId: 'c1' }),
+    recLine('r-word', NOW - 2 * HOUR, 'κουνέλι στον κήπο σήμερα'),
+  ],
+};
+/** The index rows: the old line twice (two revisions), the hidden channel's, the visible chat's, an archived episode. */
+const MEANING_ROWS = {
+  guild: [
+    vrow('m-old', MEANT_AT, 0.85, { sourceIds: ['m-ctx', 'm-old'] }),
+    vrow('m-old', MEANT_AT, 0.8, { revision: 2, sourceIds: ['m-ctx', 'm-old'] }),
+    vrow('m-hidden', MEANT_AT - 5 * DAY, 0.9, { channelId: 'c4' }),
+    vrow('h1', NOW - 30 * MINUTE, 0.95, { channelId: 'c1' }),
+    vrow('ep-meant', Date.UTC(2026, 9, 4), 0.7, { kind: 'archive', revision: 'rv-1', sourceIds: [] }),
+  ],
+};
+const MEANING_ARCHIVE = {
+  guild: [
+    archEntry(
+      'ep-meant',
+      'episode',
+      { what: 'the story was made up' } as unknown as Parameters<typeof archEntry>[2],
+      { user: ANA_ID } as unknown as Parameters<typeof archEntry>[3]
+    ),
+  ],
+};
+const MEANING_SERVER = { forms: ['κουνέλι'], who: [], from: null, to: null };
+
+/** A scene for the meaning tests: the record, the archive, the index and the embedding call above. */
+function meaningScene({ recall = {}, vectors = fakeVectors(MEANING_ROWS), embed = fakeEmbed(), memory = {} } = {}) {
+  const record = rangedSource(MEANING_RECORD);
+  const archive = fakeSource(MEANING_ARCHIVE);
+  const s = scene({
+    recall: { ...recall },
+    profiles: MEMORY_PROFILES,
+    record,
+    archive,
+    vectors,
+    embed,
+    memory,
+  });
+  return { ...s, record, vectors, embed };
+}
+
+test('recall-run: one embedding of the question; meaning rows fused ahead of a weaker word hit, windows built around them, archive rows joined', async () => {
+  const t = tempStore();
+  try {
+    const s = meaningScene({
+      memory: {
+        appendRecallTrace: (...args: Parameters<typeof t.store.appendRecallTrace>) =>
+          t.store.appendRecallTrace(...args),
+      },
+    });
+    const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: MEANING_SERVER }));
+    assert.equal(s.embed.calls.length, 1);
+    assert.deepEqual(s.embed.calls[0].texts, ['ποιος σκότωσε το κουνέλι;']);
+    assert.equal(s.embed.calls[0].opts.purpose, 'recall-query');
+    assert.equal(s.vectors.calls.length, 1, 'the guild index only on a server turn');
+    assert.deepEqual(
+      [s.vectors.calls[0].guildId, s.vectors.calls[0].opts.from, s.vectors.calls[0].opts.to, s.vectors.calls[0].opts.k],
+      [GUILD, null, null, 80],
+      'no range asked: every month'
+    );
+
+    const user = s.llmCalls[0].messages[1].content;
+    assert.ok(
+      user.includes('who invented it?') && user.includes('he made the whole story up'),
+      'the old exchange with its neighbour'
+    );
+    assert.ok(user.includes('κουνέλι στον κήπο σήμερα'), 'the best word hit stays');
+    assert.ok(!user.includes('secret meaning'), 'a row of a channel @everyone cannot see is dropped');
+    assert.ok(user.includes('archived episode | 2026-10-04 | Ana | the story was made up'), user);
+    // PR 7d: recall.recordContext is the constant 3 and recall.maxClusters 5, so the record windows are wider and all kept.
+    assert.equal(result.stats.record, 3);
+    assert.equal(result.stats.meaning, 2);
+
+    const [line] = t.lines();
+    assert.deepEqual(line.meaning, {
+      query: 'question',
+      candidates: 3,
+      kept: [
+        { id: 'm-old', kind: 'record', score: 0.8, rank: 1 },
+        { id: 'ep-meant', kind: 'archive', score: 0.7, rank: 2 },
+      ],
+      ms: 0,
+    });
+    assert.ok(
+      line.record.some((w: Untyped) => w.hitIds.includes('m-old') && w.kept),
+      JSON.stringify(line.record)
+    );
+    const searched = logs.find((l) => l.msg === 'recall: searched');
+    assert.deepEqual([searched?.meaning, searched?.meaningMs], [2, 0]);
+    const all = JSON.stringify(logs);
+    for (const text of ['story', 'κουνέλι', 'm-old', 'ep-meant'])
+      assert.ok(!all.includes(text), `the service log has counts only: ${text}`);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('recall-run: a failed embedding or search logs a warn and the run goes on with words only', async () => {
+  const failures: Array<[string, Record<string, unknown>]> = [
+    [
+      'embed',
+      {
+        embed: fakeEmbed(() => Promise.reject(Object.assign(new Error('boom'), { statusCode: 500 }))),
+      },
+    ],
+    ['search', { vectors: fakeVectors(MEANING_ROWS, { fail: new Error('disk') }) }],
+  ];
+  for (const [stage, kit] of failures) {
+    const s = meaningScene({ ...kit });
+    const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: MEANING_SERVER }));
+    const warn = logs.find((l) => l.msg === 'recall: meaning failed');
+    assert.equal(warn?.stage, stage);
+    assert.equal(warn.level, 'warn');
+    if (stage === 'embed') assert.equal(s.vectors.calls.length, 0, 'no search without a vector');
+    const user = s.llmCalls[0].messages[1].content;
+    assert.ok(
+      user.includes('κουνέλι στον κήπο σήμερα') && user.includes('κουνέλι again'),
+      'the word hits as without meaning'
+    );
+    assert.ok(!user.includes('he made the whole story up'));
+    assert.equal(result.stats.meaning, 0);
+  }
+});
+
+test("recall-run: a private turn searches its partner's private layer and the guild index", async () => {
+  const record = rangedSource({
+    ...MEANING_RECORD,
+    u5: [recLine('d-old', MEANT_AT, 'the dm memory', { channelId: 'dm1', by: 'u5', owner: 'u5' })],
+  });
+  const vectors = fakeVectors({ ...MEANING_ROWS, u5: [vrow('d-old', MEANT_AT, 0.9, { channelId: 'dm1' })] });
+  const embed = fakeEmbed();
+  const s = scene({
+    features: { meaningSearch: true },
+    recall: { recordDays: 3, recordContext: 1, maxClusters: 4 },
+    profiles: MEMORY_PROFILES,
+    record,
+    archive: fakeSource(MEANING_ARCHIVE),
+    vectors,
+    embed,
+  });
+  const history = [
+    {
+      id: 'p1',
+      channelId: 'dm1',
+      ts: NOW - MINUTE,
+      self: false,
+      bot: false,
+      authorName: 'Nikos',
+      content: 'what did he make up?',
+    },
+  ];
+  await withCapturedLogs(() =>
+    s.recaller.run({
+      ...s.args,
+      channel: s.dm,
+      partnerId: 'u5',
+      history,
+      candidate: history[0],
+      server: MEANING_SERVER,
+    })
+  );
+  assert.deepEqual(
+    vectors.calls.map((c) => c.opts.privateUserId ?? null),
+    [null, 'u5']
+  );
+  const user = s.llmCalls[0].messages[1].content;
+  assert.ok(user.includes('the dm memory') && user.includes('he made the whole story up'), user);
+});
+
+// ---- a when: that only locates (when-role) ---------------------------------------------------
+
+const CUE_DAY = { from: Date.UTC(2026, 9, 3), to: Date.UTC(2026, 9, 4) - 1 };
+/** The event three days before the day the asker named: a hit and the persona's own answer. */
+const CUE_EVENT = [
+  line('e1', Date.UTC(2026, 8, 30, 18, 0), { name: 'Ana', content: 'βγάλε το κουνέλι από τη λίστα' }),
+  line('e2', Date.UTC(2026, 8, 30, 18, 1), { name: 'Zoë', author: 'self', content: 'όχι, το κουνέλι μένει' }),
+];
+const CUE_D1 = line('d1', Date.UTC(2026, 9, 3, 10, 0), {
+  name: 'Éloïse',
+  author: 'u3',
+  content: 'ένα κουνέλι στο παράθυρο',
+});
+const CUE_D2 = line('d2', Date.UTC(2026, 9, 3, 14, 0), { name: 'Éloïse', author: 'u3', content: 'πάλι κουνέλι' });
+
+/** Search answers: a query bounded below finds the two lines of the named day, the broad page the old event. */
+function cueAnswers(route: Untyped, query: Untyped) {
+  if (!route.endsWith('/messages/search')) return [];
+  if (query.min_id) return { total_results: 2, messages: [[rawHit('c1', CUE_D2)], [rawHit('c2', CUE_D1)]] };
+  return { total_results: 1, messages: [[rawHit('c2', CUE_EVENT[0])]] };
+}
+
+/** A scene for the locator runs: maxClusters 2, one more window fetched, one-line windows, the locator numbers set here. */
+function cueScene({ recall = {}, features = {}, memory = {}, archive = null }: Record<string, Untyped> = {}) {
+  const record = fakeSource({ guild: [] });
+  const s = scene({
+    lines: { c1: [CUE_D2], c2: [...CUE_EVENT, CUE_D1] },
+    answers: cueAnswers,
+    features,
+    memory,
+    archive,
+    record,
+    recall: {
+      maxClusters: 2,
+      selfExtra: 1,
+      selfBonus: 1,
+      windowMessages: 1,
+      recordDays: 3,
+      locatorBonus: 2,
+      locatorDecayDays: 7,
+      locatorBroadShare: 0.5,
+      ...recall,
+    },
+  });
+  return { ...s, record };
+}
+
+const CUE_SERVER = { forms: ['κουνέλι'], who: [], ...CUE_DAY };
+
+test('recall-run: a locator whose record reaches past the decay margin sends no broad page; the local sources read past the date', async () => {
+  const archive = fakeSource({ guild: [] });
+  const s = cueScene({ recall: { recordDays: 10, archiveMonths: 6 }, archive });
+  await withCapturedLogs(() => s.recaller.run({ ...s.args, server: { ...CUE_SERVER, locator: true } }));
+  assert.equal(searches(s.calls).length, 1, 'the record covers everything the date could point near');
+  assert.equal(
+    archive.queries[0].from,
+    new Date(Date.UTC(2026, 4, 1)).toISOString(),
+    'the archive over its usual months'
+  );
+  assert.deepEqual(
+    s.record.queries.map((q) => [q.from, q.to]),
+    [[new Date(NOW - 10 * DAY).toISOString(), new Date(NOW).toISOString()]],
+    'the record over its days, the named day among them'
+  );
+
+  const meant = meaningScene({});
+  await withCapturedLogs(() =>
+    meant.recaller.run({ ...meant.args, server: { ...MEANING_SERVER, ...CUE_DAY, locator: true } })
+  );
+  assert.deepEqual(
+    [meant.vectors.calls[0].opts.from, meant.vectors.calls[0].opts.to],
+    [null, null],
+    'every month of the index'
+  );
+  assert.deepEqual(
+    meant.record.queries.filter((q) => !q.channelIds).map((q) => [q.from, q.to]),
+    [[new Date(NOW - 3 * DAY).toISOString(), new Date(NOW).toISOString()]],
+    'the record over its last days, the named day among them'
+  );
+});
+
+// The persona's own memory.search (src/tools/tools.ts): what she is told when it finds nothing.
+
+test('recall-run outcome: a spent daily request cap is named', async () => {
+  const spent = scene({ capLeft: 0 });
+  const second = await withCapturedLogs(() =>
+    spent.recaller.run({ ...spent.args, server: RABBIT_SERVER, quotes: true } as unknown as Parameters<
+      typeof spent.recaller.run
+    >[0])
+  );
+  assert.deepEqual(asRecord(second.result).outcome, { kind: 'daily-cap' });
+  const other = await withCapturedLogs(() =>
+    // @ts-expect-error: the call passes a gate flag the input type does not name
+    scene().recaller.run({ ...scene().args, server: { forms: [], who: [], from: null, to: null }, quotes: true })
+  );
+  assert.equal(asRecord(other.result).outcome, undefined, 'a gate that is no news to her says nothing');
+});
+
+test("recall-run outcome: a throw is an error; with no open memory database the persona's own search is not-configured", async () => {
+  const thrown = scene();
+  const server = {
+    get forms() {
+      throw new Error('boom');
+    },
+    who: [],
+    from: null,
+    to: null,
+  };
+  const failed = await withCapturedLogs(() =>
+    thrown.recaller.run({ ...thrown.args, server, quotes: true } as unknown as Parameters<
+      typeof thrown.recaller.run
+    >[0])
+  );
+  assert.deepEqual(asRecord(failed.result).outcome, { kind: 'error' });
+  const closed = scene({ lines: { c1: RABBIT_LINES }, answers: rabbitAnswers });
+  const none = await withCapturedLogs(() =>
+    closed.recaller.run({ ...closed.args, server: RABBIT_SERVER, quotes: true } as unknown as Parameters<
+      typeof closed.recaller.run
+    >[0])
+  );
+  assert.deepEqual(asRecord(none.result).outcome, { kind: 'not-configured' });
+  assert.equal(searches(closed.calls).length, 0, 'no Discord search for her own search');
+});

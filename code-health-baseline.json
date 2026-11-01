@@ -10,9 +10,9 @@
     "tests/inner.test.js": 2437,
     "tests/openrouter.test.ts": 3557,
     "tests/prompt.test.ts": 6595,
-    "tests/recall.test.js": 2442,
-    "tests/store.test.js": 3230,
-    "tests/turn.test.js": 9136,
+    "tests/recall.test.ts": 2419,
+    "tests/store.test.ts": 3169,
+    "tests/turn.test.ts": 9082,
     "tools/lib/inner-week.mjs": 2196,
     "tools/replay.mjs": 7553
   },

@@ -44,10 +44,14 @@ export type LiveViewInput = {
 export type LiveViewResult = {
   readonly prompts: Untyped;
   readonly config: Untyped;
-  calibrator: { readonly ratio: number; apply: (n: number) => number; observe: () => number };
+  calibrator: {
+    readonly ratio: number;
+    apply: (n: number) => number;
+    observe: (rawEstimate?: number, actualTokens?: number) => number;
+  };
   memory: {
     getGuild: () => Untyped;
-    getUser: (id: string) => Untyped;
+    getUser: (id: string | undefined) => Untyped;
     listUserProfiles: () => Array<Untyped>;
     listChannels: () => Array<Untyped>;
     getLore: () => Array<Untyped>;
@@ -142,7 +146,7 @@ export type AnswerReplyInput = {
   situation: { history: Array<Untyped>; triggerId?: string | null; kind?: string | null; mode?: string | null };
   selfId: string;
   selfName: string;
-  channel: { id: string; name?: string; category?: string; topic?: string };
+  channel: { id: string; name?: string; category?: string; topic?: string | null };
   llm: { complete: (...args: Array<Untyped>) => Untyped };
   samples: number;
   at: number;
