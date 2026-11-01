@@ -78,8 +78,8 @@ const OLD_TOOLS_FILE = path.join(LOCAL_PROMPTS_DIRNAME, 'skills.json');
  * Config keys a deployment may still carry that are no longer read, each with what is read
  * instead: `memory.voiceModel` (the memory wording runs on `models.base.core`, the persona's one model);
  * `features.vision` and `features.attachedDescriptions` (pictures never go into the persona's own
- * request any more: she sees through the describer's captions, `features.mediaDescriptions`, and
- * her second look, `features.imageRelook`, both on the `vision` model role); `innerLife.loop.strayFollowUps`
+ * request: she sees through the describer's captions and her second look, both on the `vision` model
+ * role); `innerLife.loop.strayFollowUps`
  * (an inner turn's output tags act as calls now, so nothing is left to follow up). No bound in the
  * engine is in dollars: `innerLife.caps.usdPerDay`, `innerLife.estimatedTurnUsd`,
  * `innerLife.errandReserveMaxMinutes`, `agents.<agent>.daily.usd` and `agents.<agent>.limits.usd` are
@@ -87,12 +87,8 @@ const OLD_TOOLS_FILE = path.join(LOCAL_PROMPTS_DIRNAME, 'skills.json');
  */
 const RETIRED_CONFIG_KEYS = Object.freeze([
   { key: 'memory.voiceModel', use: 'models.base.core', read: (config) => config?.memory?.voiceModel },
-  { key: 'features.vision', use: 'features.mediaDescriptions', read: (config) => config?.features?.vision },
-  {
-    key: 'features.attachedDescriptions',
-    use: 'features.mediaDescriptions',
-    read: (config) => config?.features?.attachedDescriptions,
-  },
+  { key: 'features.vision', use: null, read: (config) => config?.features?.vision },
+  { key: 'features.attachedDescriptions', use: null, read: (config) => config?.features?.attachedDescriptions },
   {
     key: 'innerLife.loop.strayFollowUps',
     use: 'innerLife.loop.maxSteps',
@@ -106,11 +102,7 @@ const RETIRED_CONFIG_KEYS = Object.freeze([
   { key: 'innerLife.errandReserveMaxMinutes', use: null, read: (config) => config?.innerLife?.errandReserveMaxMinutes },
   { key: 'intentions.droppedDays', use: null, read: (config) => config?.intentions?.droppedDays },
   { key: 'innerLife.heartbeat.droppedDays', use: null, read: (config) => config?.innerLife?.heartbeat?.droppedDays },
-  {
-    key: 'innerLife.heartbeat.droppedShown',
-    use: 'innerLife.heartbeat.closedShown',
-    read: (config) => config?.innerLife?.heartbeat?.droppedShown,
-  },
+  { key: 'innerLife.heartbeat.droppedShown', use: null, read: (config) => config?.innerLife?.heartbeat?.droppedShown },
   ...['scout', 'server', 'thinker', 'dev'].flatMap((agent) => [
     { key: `agents.${agent}.daily.usd`, use: null, read: (config) => config?.agents?.[agent]?.daily?.usd },
     { key: `agents.${agent}.limits.usd`, use: null, read: (config) => config?.agents?.[agent]?.limits?.usd },

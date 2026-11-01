@@ -25,12 +25,12 @@ import type {
   Line,
   PendingQueue,
   Ping,
-  PipelineConfig,
   PipelineHot,
   PipelineMissed,
   PipelineTurns,
   TurnRequest,
 } from './types.ts';
+import { MAX_MESSAGE_CHARS } from '../format.js';
 
 /** What src/behavior/pending.js answers a change of the list with: it keeps the entries it is given. */
 type Kept = { list: Array<Ping>; evicted: Ping | null };
@@ -46,7 +46,6 @@ export type PendingQueueContext = {
   missed: PipelineMissed | null;
   pending: PendingQueue;
   followUpMuted: FollowUpWindows['followUpMuted'];
-  followUpOff: FollowUpWindows['followUpOff'];
 };
 
 export type PendingQueueOps = {
@@ -67,13 +66,9 @@ export type PendingQueueOps = {
   requeueBusy: (ping: Ping) => boolean;
 };
 
-/**
- * Whether a turn blocks a new one in `channelId` (config read by the caller
- * now): with one turn at a time (mention.oneAtATime, default on) a turn running
- * anywhere, otherwise one running in this channel -- the rule runTurn applies.
- */
-export function turnBlocked(turns: PipelineTurns, channelId: string, config: PipelineConfig): boolean {
-  return config.mention?.oneAtATime !== false ? turns.isAnyBusy() : turns.isBusy(channelId);
+/** Whether a turn blocks a new one: one turn at a time, so a turn running anywhere -- the rule runTurn applies. */
+export function turnBlocked(turns: PipelineTurns): boolean {
+  return turns.isAnyBusy();
 }
 
 /** Whether a pending entry is a deferred follow-up or overheard line (deferFollowUp), not a call. */
@@ -91,7 +86,6 @@ export function createPendingQueue({
   missed,
   pending,
   followUpMuted,
-  followUpOff,
 }: PendingQueueContext): PendingQueueOps {
   /** How many calls `authorId` has waiting in `channelId` (authorCalls): the `queued` count of the pending logs. */
   function queuedCount(channelId: string, authorId: string): number {
@@ -100,7 +94,7 @@ export function createPendingQueue({
 
   /** A waiting item's or a candidate's text as the merge classifier and the task labels show it: one line, cut. */
   function itemText(text: string | undefined): string {
-    return clampChars(oneLine(text), hot.config.context?.maxMessageChars ?? 2000);
+    return clampChars(oneLine(text), MAX_MESSAGE_CHARS);
   }
 
   /**
@@ -187,9 +181,7 @@ export function createPendingQueue({
     const config = hot.config;
     const channelId = channel.id;
     const sameChannel = turns.isBusy(channelId);
-    let reason: string | null = followUpMuted();
-    if (!reason && (followUpOff(config) || (sameChannel && config.mention.pendingSameChannel === false)))
-      reason = 'busy';
+    const reason: string | null = followUpMuted();
     if (reason) {
       log.info('follow-up: dropped', { channel: channelId, message: trigger.id, reason });
       return;
@@ -295,7 +287,7 @@ export function createPendingQueue({
       queued: queuedCount(ping.channelId, ping.trigger.authorId),
     });
     if (evicted) logEvicted(evicted, maxPending);
-    return turnBlocked(turns, ping.destination?.id ?? ping.channelId, hot.config);
+    return turnBlocked(turns);
   }
 
   return {

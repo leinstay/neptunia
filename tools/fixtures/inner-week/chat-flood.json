@@ -1,11 +1,11 @@
 {
   "name": "chat-flood",
-  "description": "A morning flood of messages to her holds the one attention for over three hours; six intentions come due meanwhile in two channels. The queue is held at four, so the rest overflow (journalled, never silent); once the flood ends the queued wakes coalesce by channel.",
+  "description": "A morning flood of messages to her holds the one attention for over three hours; twenty intentions come due meanwhile in two channels and her heartbeat beats every twenty minutes, more wakes than the queue of twenty holds, so the rest overflow (journalled, never silent); once the flood ends the queued wakes coalesce by channel.",
   "start": "2026-11-02",
   "days": 3,
   "timezone": "UTC",
   "seed": 67,
-  "innerLife": { "queueMax": 4 },
+  "innerLife": { "heartbeat": { "enabled": true, "everyMinutes": 20, "jitterMinutes": 0 } },
   "channels": [
     { "id": "c-general", "name": "general" },
     { "id": "c-games", "name": "games" }
@@ -17,12 +17,26 @@
     "intention_due": [[{ "skill": "intention.update", "args": { "id": "$intention", "state": "done" } }]]
   },
   "intentions": [
-    { "key": "g1", "purpose": "post the event schedule", "channel": "c-general", "due": "2 09:30" },
-    { "key": "g2", "purpose": "thank Noor for the fan art", "channel": "c-general", "due": "2 09:45" },
-    { "key": "m1", "purpose": "send Pavel the build guide", "channel": "c-games", "due": "2 10:00" },
-    { "key": "m2", "purpose": "ask Elif about the tournament", "channel": "c-games", "due": "2 10:15" },
-    { "key": "g3", "purpose": "share the patch summary", "channel": "c-general", "due": "2 10:30" },
-    { "key": "m3", "purpose": "post the team list", "channel": "c-games", "due": "2 11:00" }
+    { "key": "g1", "purpose": "post the event schedule (1)", "channel": "c-general", "due": "2 09:10" },
+    { "key": "g2", "purpose": "thank Noor for the fan art (2)", "channel": "c-general", "due": "2 09:17" },
+    { "key": "m3", "purpose": "send Pavel the build guide (3)", "channel": "c-games", "due": "2 09:24" },
+    { "key": "m4", "purpose": "ask Elif about the tournament (4)", "channel": "c-games", "due": "2 09:31" },
+    { "key": "g5", "purpose": "share the patch summary (5)", "channel": "c-general", "due": "2 09:38" },
+    { "key": "m6", "purpose": "post the team list (6)", "channel": "c-games", "due": "2 09:45" },
+    { "key": "g7", "purpose": "post the event schedule (7)", "channel": "c-general", "due": "2 09:52" },
+    { "key": "g8", "purpose": "thank Noor for the fan art (8)", "channel": "c-general", "due": "2 09:59" },
+    { "key": "m9", "purpose": "send Pavel the build guide (9)", "channel": "c-games", "due": "2 10:06" },
+    { "key": "m10", "purpose": "ask Elif about the tournament (10)", "channel": "c-games", "due": "2 10:13" },
+    { "key": "g11", "purpose": "share the patch summary (11)", "channel": "c-general", "due": "2 10:20" },
+    { "key": "m12", "purpose": "post the team list (12)", "channel": "c-games", "due": "2 10:27" },
+    { "key": "g13", "purpose": "post the event schedule (13)", "channel": "c-general", "due": "2 10:34" },
+    { "key": "g14", "purpose": "thank Noor for the fan art (14)", "channel": "c-general", "due": "2 10:41" },
+    { "key": "m15", "purpose": "send Pavel the build guide (15)", "channel": "c-games", "due": "2 10:48" },
+    { "key": "m16", "purpose": "ask Elif about the tournament (16)", "channel": "c-games", "due": "2 10:55" },
+    { "key": "g17", "purpose": "share the patch summary (17)", "channel": "c-general", "due": "2 11:02" },
+    { "key": "m18", "purpose": "post the team list (18)", "channel": "c-games", "due": "2 11:09" },
+    { "key": "g19", "purpose": "post the event schedule (19)", "channel": "c-general", "due": "2 11:16" },
+    { "key": "g20", "purpose": "thank Noor for the fan art (20)", "channel": "c-general", "due": "2 11:23" }
   ],
   "events": [
     { "kind": "flood", "at": "2 09:00", "channel": "c-general", "count": 600, "every": "20s", "authors": ["Noor", "Pavel", "Elif"], "text": "hey persona" }

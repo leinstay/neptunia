@@ -1,17 +1,13 @@
-// Pure logic for private chat (direct messages, `features.privateMessages`): who
+// Pure logic for private chat (direct messages, `private.enabled`): who
 // may talk to the persona in private, and how the public profile and the
 // per-member private layer combine for that one conversation. The gate is
 // checked locally with zero tokens; anything it refuses is dropped by the
-// caller (src/behavior/pipeline.js), except the daily-cap notice. The private
+// caller (src/behavior/pipeline.js). The private
 // layer never changes the public profile: `mergeProfiles` builds a NEW
 // object for rendering only, and the public affinity score alone decides the
 // gate -- see docs/prompt-contract.md.
 
 import { normalizeTopic, clampScore } from '../memory/index.js';
-import { countToday } from '../time.js';
-
-/** The fields of the private file's `replies` counter (`{ day, count }`), counted by src/memory/store.js#bumpPrivateReplies. */
-const REPLIES_DAILY = { dayKey: 'day', countKey: 'count' };
 
 function finiteOr(value, fallback) {
   return Number.isFinite(value) ? value : fallback;
@@ -37,47 +33,23 @@ function maxIso(a, b) {
 
 /**
  * Whether a DM from this author is answered. Checked in order: the switch
- * (`features.privateMessages === true`), membership in the served guild, a
- * stored public profile, the public `affinity.score >= private.minAffinity`
- * (owners skip this one check), and today's reply count under the cap
- * (`private.maxPerOwnerPerDay` for owners, `private.maxPerUserPerDay`
- * otherwise). `replies` is the private file's `{ day, count }`; a `day` other
- * than `today` counts as 0 replies. A missing `private.*` number fails closed
- * (no threshold passes, a cap of 0).
- * @param {{ config: object, isMember: boolean, profile: object|null, isOwner: boolean,
- *   replies?: { day?: string, count?: number }|null, today: string }} input
- * @returns {{ ok: true, cap: number } | { ok: false, reason: 'off'|'not-member'|'unknown'|'affinity'|'cap', cap?: number, used?: number }}
+ * (`private.enabled === true`), membership in the served guild, a stored
+ * public profile, and the public `affinity.score >= private.minAffinity`
+ * (owners skip this one check). A missing `private.minAffinity` fails closed
+ * (no threshold passes).
+ * @param {{ config: object, isMember: boolean, profile: object|null, isOwner: boolean }} input
+ * @returns {{ ok: true } | { ok: false, reason: 'off'|'not-member'|'unknown'|'affinity' }}
  */
-export function privateGate({ config, isMember, profile, isOwner, replies, today }) {
-  if (config?.features?.privateMessages !== true) return { ok: false, reason: 'off' };
+export function privateGate({ config, isMember, profile, isOwner }) {
+  const settings = config?.private ?? {};
+  if (settings.enabled !== true) return { ok: false, reason: 'off' };
   if (!isMember) return { ok: false, reason: 'not-member' };
   if (!profile) return { ok: false, reason: 'unknown' };
-
-  const settings = config.private ?? {};
   if (!isOwner) {
     const score = finiteOr(profile.affinity?.score, 0);
     if (score < finiteOr(settings.minAffinity, Infinity)) return { ok: false, reason: 'affinity' };
   }
-
-  const { used, cap } = privateRepliesToday({ config, isOwner, replies, today });
-  if (used >= cap) return { ok: false, reason: 'cap', cap, used };
-  return { ok: true, cap };
-}
-
-/**
- * Today's DM replies to one member against their daily cap, the numbers
- * `privateGate` decides on (and `/nep private show` reports): the cap is
- * `private.maxPerOwnerPerDay` for an owner, `private.maxPerUserPerDay`
- * otherwise, a missing one counting as 0; the replies are read through
- * src/time.js#countToday, so those stored for a `day` other than `today` --
- * and a count that is not a finite number >= 0 -- count as 0. Read only.
- * @param {{ config: object, isOwner: boolean, replies?: { day?: string, count?: number }|null, today: string }} input
- * @returns {{ used: number, cap: number }}
- */
-export function privateRepliesToday({ config, isOwner, replies, today }) {
-  const settings = config?.private ?? {};
-  const cap = finiteOr(isOwner ? settings.maxPerOwnerPerDay : settings.maxPerUserPerDay, 0);
-  return { used: countToday(replies, REPLIES_DAILY, today), cap };
+  return { ok: true };
 }
 
 /**

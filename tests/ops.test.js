@@ -234,12 +234,13 @@ test('ops: a stored grant on a command or group that runs no operation any more 
 // reads as lines.
 test('status.show answers the card as its fields, with no embed', async () => {
   const env = makeEnv();
-  const result = await runOp('status.show', { field: 'features' }, { env, guildId: 'g1', userId: '42', roleIds: [] });
+  // PR 7d: the `features` field went with the switches; `limits` is the one field asked here.
+  const result = await runOp('status.show', { field: 'limits' }, { env, guildId: 'g1', userId: '42', roleIds: [] });
   assert.equal(result.status, 'ok');
   const data = /** @type {{ fields?: Array<{ name: string }> }} */ (result.data);
   assert.deepEqual(
     [Object.hasOwn(data, 'embeds'), (data.fields ?? []).map((field) => field.name)],
-    [false, ['features']]
+    [false, ['limits']]
   );
 });
 

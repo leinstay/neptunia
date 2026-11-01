@@ -8,7 +8,7 @@
 //              talked with them and where (the record: their own line, or a line of hers naming them,
 //              else the profile's `lastSeen` with no place), the top 3 interests of the profile, the
 //              places where they wrote lately (no presence or do-not-disturb state: the owner, 2026-10-20);
-//              with `innerLife.heartbeat.focusSource` `db` the members come from her focus set instead (the injected
+//              the members come from her focus set when the memory database gives it (the injected
 //              `focusPeople()`, src/memory/db/focus.js): the close members first, then the exploring ones with a share of
 //              `focus.exploringShare` of `heartbeat.people` (rounded, at least one when there are any; more when the
 //              close set leaves room). The reader returns null while the switch is off or the database is closed, and
@@ -899,7 +899,7 @@ export type HeartbeatInput = {
   now: number;
   /** Her previous heartbeat (epoch ms); null: the last day. */
   since?: number | null;
-  /** `innerLife.heartbeat`: the numbers of the view and `intentionsOnly`. */
+  /** `innerLife.heartbeat`: the numbers of the view. */
   settings?: Readonly<Record<string, unknown>> | null;
   /** The member profiles (store.listUserProfiles). */
   profiles?: unknown;
@@ -929,7 +929,7 @@ export type HeartbeatInput = {
   placeName?: (id: string) => unknown;
   /** Where a member wrote lately (names). */
   activePlaces?: ((memberId: string) => unknown) | null;
-  /** Her focus set as member ids (`innerLife.heartbeat.focusSource` `db`); null or absent: the profiles' affinity ranks. */
+  /** Her focus set as member ids; null or absent: the profiles' affinity ranks. */
   focusPeople?: (() => unknown) | null;
   log?: { warn?(message: string, fields: Obj): void } | null;
 };
@@ -1060,7 +1060,9 @@ export async function buildHeartbeatFacts({
     activity,
     refs: book.refs,
     maxTokens: s.maxTokens,
-    intentionsOnly: settings?.intentionsOnly === true,
+    // A heartbeat is held to intention changes only: `innerLife.heartbeat.intentionsOnly` was on in production, config
+    // cut of 2026-10-31.
+    intentionsOnly: true,
     life: lifeOf(common),
     skills: skillFamilies(skills),
     agents: listOf(agents).filter((name): name is string => typeof name === 'string' && name !== ''),

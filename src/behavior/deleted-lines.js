@@ -5,14 +5,8 @@
 // channel and turns each deletion the history lacks into a placeholder message at its own place,
 // numbered like any line and rendered without text (src/format.js, labels.transcript.deleted).
 
-/** How many placeholders a window keeps when `context.deletedLinesMax` is not a whole number of at least 0. */
-export const DELETED_LINES_MAX_DEFAULT = 10;
-
-/** The placeholders cap under `context` (`deletedLinesMax`; 0 allowed, anything else unusable takes the default). */
-export function deletedLinesMax(context) {
-  const value = context?.deletedLinesMax;
-  return Number.isInteger(value) && value >= 0 ? value : DELETED_LINES_MAX_DEFAULT;
-}
+/** How many placeholders a window keeps, newest first. Production value, config cut of 2026-10-31. */
+export const DELETED_LINES_MAX = 10;
 
 /**
  * The deletions of `channelId` over the span of `history` (from its oldest line that is not a
@@ -36,7 +30,7 @@ export async function deletedLinesOf({
   selfId = null,
   selfName = '',
   nameOf = null,
-  max = DELETED_LINES_MAX_DEFAULT,
+  max = DELETED_LINES_MAX,
   clock = Date.now,
 }) {
   const started = clock();

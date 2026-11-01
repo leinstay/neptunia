@@ -124,6 +124,7 @@ import {
   topExcerptLine,
   traceAgreement,
 } from './lib/recall-eval.mjs';
+import { MAX_MESSAGE_CHARS } from '../src/format.js';
 
 const USAGE =
   'usage: node tools/recall-eval.mjs [<questions.json>] [--limit N] [--max-usd 3] [--dry] [--discord] [--web] [--prefetch] [--no-deadline] [--db <memory.db>] [--guild <id>] [--data <dir>] [--self-id <id>] [--self-name <name>]\n' +
@@ -409,8 +410,8 @@ async function traces(flags, { dataDir, guildId, now, cwd }) {
     };
     const config = hot.config;
     const settings = recallSettings(config);
-    if (!settings) throw new CliError('recall-eval: features.recall is off: there is no recall to measure');
-    const meaningOn = !dry && config.features?.meaningSearch === true;
+    if (!settings) throw new CliError('recall-eval: recall is not set up: there is no recall to measure');
+    const meaningOn = !dry;
     process.stderr.write(
       `recall-eval: ${runs.length} live recall run(s)${meaningOn ? `, up to ${runs.length} embedding(s) on the simulator key` : ', no request'}\n`
     );
@@ -618,13 +619,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   const evalHot = {
     get config() {
       const live = hot.config;
-      return withoutDeadline(
-        {
-          ...live,
-          features: { ...(live.features ?? {}), recallTrace: true, ...(useWeb ? { webLookup: true } : {}) },
-        },
-        noDeadline
-      );
+      return withoutDeadline(live, noDeadline);
     },
     get prompts() {
       return hot.prompts;
@@ -632,10 +627,10 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
   };
   const config = hot.config;
   const settings = recallSettings(config);
-  if (!settings) throw new CliError('recall-eval: features.recall is off: there is no recall to measure');
+  if (!settings) throw new CliError('recall-eval: recall is not set up: there is no recall to measure');
   if (!dry && !hot.prompts?.lookup) throw new CliError('recall-eval: prompts.lookup is missing');
   if (useWeb && !hot.prompts?.['search-summary']) throw new CliError('recall-eval: --web needs prompts.search-summary');
-  const meaningOn = !dry && config.features?.meaningSearch === true;
+  const meaningOn = !dry;
   const stages = {
     classifier: !dry,
     database: true,
@@ -771,9 +766,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     const searchCfg = hot.config.web?.search ?? {};
     const contextMessages = Math.max(0, Math.floor(searchCfg.contextMessages ?? 50));
     const context = contextMessages > 0 ? history.filter((m) => m.id !== trigger.id).slice(-contextMessages) : [];
-    const triggerText = [...String(trigger.content ?? '')]
-      .slice(0, hot.config.context?.maxMessageChars ?? 2000)
-      .join('');
+    const triggerText = [...String(trigger.content ?? '')].slice(0, MAX_MESSAGE_CHARS).join('');
     const transcript =
       context.length === 0
         ? ''
@@ -1076,7 +1069,7 @@ export async function main(argv, { cwd = process.cwd(), now = Date.now } = {}) {
     stages,
     settings: {
       recall: settings,
-      meaningSearch: config.features?.meaningSearch === true,
+      meaningSearch: true,
       channelMessages: historyCount,
     },
     stopped: outcome.stopped,

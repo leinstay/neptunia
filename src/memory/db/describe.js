@@ -23,10 +23,10 @@
 // reviewDescription(db, subject, field, { ctx }) -> { status, code?, draft?, final?, reason?, row? }
 //   subject: { kind: 'person' | 'place' | 'self', id, name? }
 //   ctx:     { llm, hot ({ config, prompts }), env, now, write, log, selfName, readCtx (a scope context, group by default) }
-//   With `memoryDb.audienceColumn` the review reads (and finds its description) through `audience_id`, not the triple.
+//   The review reads (and finds its description) through `audience_id`, not the triple.
 
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.js';
-import { MEMORY_LIMIT_DEFAULTS } from '../text-limits.js';
+import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.js';
 import { shortHash } from './ids.ts';
 import { ifaceOrLegacy } from './legacy-namespace.ts';
 import { audienceOf, dmScope, groupContext, groupScope, scopeWhere } from './scope.ts';
@@ -43,19 +43,14 @@ const SOURCE_CHARS = 200;
 const codeOf = (error) => error?.code ?? error?.name ?? 'ERROR';
 const present = (value) => typeof value === 'string' && value.trim() !== '';
 
-/** A finite number above 0, else `fallback`. */
-const positive = (value, fallback) =>
-  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
-
 /**
  * The display cap of a field, in characters: the limits the store applies to the same kind of text
  * (`relationships.textChars` for a relationship, twice `memory.fieldChars` for the server notes, `memory.fieldChars`
  * for a portrait; config.json's values when missing).
  */
 export function fieldCap(config, field) {
-  const fieldChars = positive(config?.memory?.fieldChars, MEMORY_LIMIT_DEFAULTS.fieldChars);
-  if (field === 'relationship')
-    return positive(config?.relationships?.textChars, MEMORY_LIMIT_DEFAULTS.relationshipChars);
+  const fieldChars = MEMORY_LIMITS.fieldChars;
+  if (field === 'relationship') return RELATIONSHIP_LIMITS.textChars;
   if (field === 'patterns' || field === 'starters') return fieldChars * 2;
   return fieldChars;
 }
@@ -283,7 +278,6 @@ async function ask(ctx, messages, { purpose, maxOutputTokens }) {
     model: roleModel(config, MEMORY_ROLE),
     maxOutputTokens,
     timeoutMs: sessionSettings(config).timeoutMs,
-    temperature: config?.llm?.temperature,
     skipCalibration: true,
     cache: false,
     origin: purpose,
@@ -303,9 +297,8 @@ export async function reviewDescription(db, subject, field, { ctx }) {
   if (refused) return { status: refused === CODES.OFF ? 'off' : 'refused', code: refused };
   if (!DESCRIPTION_FIELDS.includes(field) || !subject?.id || !['person', 'place', 'self'].includes(subject.kind))
     return { status: 'refused', code: 'bad_subject' };
-  // Read through `audience_id` when the live config says so (`memoryDb.audienceColumn`) or the caller's context does.
-  const given = ctx.readCtx ?? groupContext(ifaceOrLegacy(ctx));
-  const readCtx = config?.memoryDb?.audienceColumn === true ? { ...given, audienceColumn: true } : given;
+  // Read through `audience_id`, as every context the core issues reads.
+  const readCtx = { ...(ctx.readCtx ?? groupContext(ifaceOrLegacy(ctx))), audienceColumn: true };
   const settings = sessionSettings(config);
   const cap = fieldCap(config, field);
   const selfName = ctx.selfName ?? '';

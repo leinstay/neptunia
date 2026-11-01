@@ -24,16 +24,19 @@ import { isPlainObject } from '../config.js';
 import { mediaParts } from '../media/classify.js';
 import { sortByRank } from './ranking.js';
 
+// Production values, config cut of 2026-10-31.
+/** The GIFs the library keeps. */
+export const GIF_STORE_MAX = 300;
+/** The half-life in days of a GIF's use in its rank. */
+export const GIF_HALF_LIFE_DAYS = 30;
+
 /**
- * The library options from `gifs`, read by the caller at the moment of use: `storeMax` (300)
- * and `halfLifeDays` (30), config.json's values when a key is missing. Shared by the
- * live observer (src/memory/update.js, recording on arrival) and the history backfill.
- * @param {object} config  Live config.
+ * The library options: `storeMax` and `halfLifeDays`. Shared by the live observer (src/memory/update.js, recording
+ * on arrival) and the history backfill.
  * @returns {{ storeMax: number, halfLifeDays: number }}
  */
-export function gifOpts(config) {
-  const gifCfg = config?.gifs ?? {};
-  return { storeMax: gifCfg.storeMax ?? 300, halfLifeDays: gifCfg.halfLifeDays ?? 30 };
+export function gifOpts() {
+  return { storeMax: GIF_STORE_MAX, halfLifeDays: GIF_HALF_LIFE_DAYS };
 }
 
 const KINDS = new Set(['link', 'attachment']);

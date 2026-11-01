@@ -35,33 +35,13 @@ export const REPO = fileURLToPath(new URL('../..', import.meta.url));
 export const BIN = join(REPO, 'bin', 'neptunia.ts');
 const INTERFACES_DIR = join(REPO, 'tests', 'fixtures', 'interfaces');
 
-/** The private layer of every rig: units mode, the settle wait and typing off, every optional behaviour off. */
+/** The private layer of every rig: units mode, the settle wait and typing off. PR 7d: the `features` switches are code
+ * or gone with the cut, so the rig no longer turns optional behaviour off. */
 const BASE_CONFIG: Settings = {
   bot: { timezone: 'UTC', owners: [], guildId: 'g1' },
   interfaces: { mode: 'units', drainMs: 2000 },
   pace: { settleMs: 0, settleMaxMs: 0 },
   typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },
-  features: {
-    typingSimulation: false,
-    spontaneous: false,
-    eavesdrop: false,
-    followUp: false,
-    participation: false,
-    customEmoji: false,
-    gifs: false,
-    offlineCatchUp: false,
-    diary: false,
-    mediaDescriptions: false,
-    missedAnswers: false,
-    channelRoute: false,
-    recall: false,
-    memoryPrefetch: false,
-    channelPull: false,
-    elsewhere: false,
-    speech: false,
-    pauseNotice: false,
-    innerLife: false,
-  },
 };
 
 export const isRecord = (value: unknown): value is Settings =>

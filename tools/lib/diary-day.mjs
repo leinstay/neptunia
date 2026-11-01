@@ -127,19 +127,32 @@ export function fixtureImagesFetch() {
   });
 }
 
+/** The refusal of the tool's own picture cap (`--max-pictures`), carrying `key`, `used` and `cap` as a rail error does. */
+export class PictureCapError extends Error {
+  /**
+   * @param {string} reason
+   * @param {string} message
+   */
+  constructor(reason, message) {
+    super(message);
+    this.name = 'PictureCapError';
+    this.reason = reason;
+  }
+}
+
 /**
  * An image client over `images` (createImageGen's shape) whose `generate()` records every call
  * first -- `{ prompt, reference: referenceOf(reference), userId }` -- in `calls`, then, past
- * `maxPictures` generations (`maxPictures` null: no cap), refuses it with `ImageCapError` (key
- * MAX_PICTURES_KEY, as an image cap reads to the turn) before anything is sent. Each call's
+ * `maxPictures` generations (`maxPictures` null: no cap), refuses it with `PictureCapError` (key
+ * MAX_PICTURES_KEY, as a rail error reads to the turn) before anything is sent. Each call's
  * `result` is filled once it ends: `{ bytes, mediaType, cost, seconds }`, or `{ error, reason }`;
  * `onPicture(picture, index)` sees every picture that came out (`index` from 1); a string it
  * returns is kept as the call's `file`.
- * @param {{ images: object, ImageCapError: Function, maxPictures?: number|null,
+ * @param {{ images: object, maxPictures?: number|null,
  *   onPicture?: ((picture: object, index: number) => string|null|void)|null }} input
  * @returns {{ calls: object[], quota: Function, familyOf: Function, generate: Function }}
  */
-export function recordingImages({ images, ImageCapError, maxPictures = null, onPicture = null }) {
+export function recordingImages({ images, maxPictures = null, onPicture = null }) {
   const calls = [];
   let made = 0;
   return {
@@ -155,7 +168,7 @@ export function recordingImages({ images, ImageCapError, maxPictures = null, onP
       };
       calls.push(call);
       if (maxPictures !== null && made >= maxPictures) {
-        const err = Object.assign(new ImageCapError('daily', `replay picture cap reached (${maxPictures})`), {
+        const err = Object.assign(new PictureCapError('daily', `replay picture cap reached (${maxPictures})`), {
           key: MAX_PICTURES_KEY,
           used: made,
           cap: maxPictures,

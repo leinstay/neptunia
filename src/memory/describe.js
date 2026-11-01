@@ -6,11 +6,11 @@
 // picture at once (a message prefill and a turn) share one download and one
 // request. Results are cached per
 // attachment/embed id in data/guilds/<id>/media.json (src/memory/store.js),
-// LRU-trimmed to `media.cacheEntries`. A failure is cached as a miss for an
+// LRU-trimmed to `MEDIA_CACHE_ENTRIES` (src/web/cache.js). A failure is cached as a miss for an
 // hour, so a broken picture is not retried on every turn/batch -- except a
 // refusal by `llm.maxRequestsPerDay`, which says nothing about the picture.
-// Once that cap is spent (llm.capLeft) nothing is downloaded, no daily video,
-// re-watch or GIF slot is taken and no miss is cached, so the pictures and
+// Once that cap is spent (llm.capLeft) nothing is downloaded
+// and no miss is cached, so the pictures and
 // videos of the last hours are still described after 00:00 UTC. Descriptions
 // are data: never logged. A caption is capped at `media.descriptionChars`
 // (the describe prompt may learn the cap through `{{maxChars}}`).
@@ -49,10 +49,7 @@
 // `size` miss, or an `error`
 // miss (retried after `media.video.errorRetryMinutes`, default 60, or at
 // once on a forced attempt -- describeVideo's `force`, used when the person
-// asks to try a video that did not load again). A separate daily
-// counter (`state.data.videoDay` / `videoCount`, `media.video.maxPerDay`)
-// caps how many videos are attempted per day: the slot is reserved before the
-// fetch and kept even when the fetch or the request fails. Summaries are
+// asks to try a video that did not load again). Summaries are
 // data: never logged. `checkYoutube()` probes one canary video to tell the
 // operator which link of the YouTube duration chain works here.
 //
@@ -70,20 +67,16 @@
 // prompt learns the cap through `{{maxChars}}`). `rewatchVideo()` is the
 // second look on a question (features.videoRewatch, a missing key counts as
 // on): the same media fetch as a watch, asked one question through the
-// `rewatch-answer` prompt. It has its own daily counter
-// (`state.data.rewatchDay` / `rewatchCount`, `media.video.rewatch.maxPerDay`)
-// on top of the ordinary video one; its answer is cached for an hour under
+// `rewatch-answer` prompt. Its answer is cached for an hour under
 // `video:<itemId>:q:<hash of the question>`, failures never. `relookImage()`
-// is the same second look at a picture (features.imageRelook): the picture
+// is the same second look at a picture: the picture
 // downloaded as for a caption, the question asked through the same prompt on
-// the media model. It takes the same re-watch counter (one counter for both
-// kinds), never a video slot, and its answer is cached apart from the
+// the media model. Its answer is cached apart from the
 // picture's caption, under `image:<itemId>:q:<hash>`. `rewatchGif()` is the
 // same second look at a watched GIF (features.videoRewatch, GIFs watched now):
 // its clip fetched again exactly as the GIF watch fetches it (the first
 // `media.gif.maxSeconds`), the question asked through the same prompt on the
-// video model. It takes a re-watch slot and a GIF watch slot
-// (`media.gif.maxPerDay`), never a video slot; its answer is cached for an
+// video model. Its answer is cached for an
 // hour under `gif:<itemId>:q:<hash>`. `watchedGifs()` tells, from the cache
 // alone, which GIFs were watched (the re-watch classifier's candidates).
 //
@@ -92,9 +85,7 @@
 // describe-video prompt, see src/memory/gif-watch.js): its animation -- the
 // mp4 of a tenor/giphy embed, an attached .gif, a .gif link -- is converted
 // to a short mp4 (the first `media.gif.maxSeconds`) and summarised by the
-// video model under the video request rails, but with its own daily counter
-// (`state.data.gifWatchDay` / `gifWatchCount`, `media.gif.maxPerDay`): a GIF
-// never takes a video slot, nor a video a GIF one. The caption is cached under the
+// video model under the video request rails. The caption is cached under the
 // GIF's own item id like a picture's (so the transcript, the analyzer and
 // the GIF library read it unchanged), marked `watched: true`, with the
 // answer's three fields beside it (`reaction`, `action`, `screen`: what reply
@@ -117,56 +108,68 @@
 // at the moment of use; null = off) a cached description whose `describedAt`
 // is missing or earlier is stale: it is treated as a miss and described
 // again through the normal path, under every cap of a new one
-// (`llm.maxRequestsPerDay`, the caller's `maxNew`, the daily video and GIF
-// counters). A failed attempt keeps the old text (better a stale
+// (`llm.maxRequestsPerDay`, the caller's `maxNew`). A failed attempt keeps the old text (better a stale
 // description than none), stamps the entry `refreshFailedAt` and is not
 // tried again for the miss TTL (an hour; `media.video.errorRetryMinutes` for
-// a video); a refusal by the daily cap or a spent daily slot only serves the
+// a video); a refusal by the daily cap only serves the
 // old text. A stale watched GIF is never replaced by a one-frame caption.
 
 import { isPlainObject } from '../config.js';
 import { watchedLengths } from '../media/classify.js';
-import { createImageFetcher } from '../media/fetch-image.js';
+import { createImageFetcher, VISION_MAX_BYTES } from '../media/fetch-image.js';
 import { createVideoFetcher } from '../media/fetch-video.js';
 import { audioMapSettings, videoAudioNote, withAudioNote } from '../media/audio-map.js';
 import { isDirectUrlSite, proxyFor, publicVideoUrl, safeLocation, youtubeVideoId } from '../media/video-sites.js';
 import {
   roleRequestOptions,
   railReason,
-  VIDEO_TOKENS_PER_SECOND_FALLBACK as STATIC_TOKENS_PER_SECOND_FALLBACK,
+  VIDEO_TOKENS_PER_SECOND as STATIC_TOKENS_PER_SECOND_FALLBACK,
 } from '../llm/openrouter.js';
 import { clampText, oneLine } from './clamp.js';
 import { roleModel } from '../llm/roles.js';
 import { fillPromptTemplate } from '../behavior/prompt.js';
-import { createYoutubeCheck, isVideoVisionOn } from './youtube-check.js';
-import { gifWatchBlocker as gifWatchBlockerOf, gifWatchCap, gifWatchPrompt } from './gif-watch.js';
+import { createYoutubeCheck } from './youtube-check.js';
+import { gifWatchBlocker as gifWatchBlockerOf, gifWatchPrompt } from './gif-watch.js';
 import { log } from '../log.js';
-import { countToday as readDailyCount, dailyCounter, MINUTE_MS, utcDay } from '../time.js';
-import { hashedKey, touchKey, trimCache } from '../web/cache.js';
+import { MINUTE_MS, utcDay } from '../time.js';
+import { MEDIA_CACHE_ENTRIES, hashedKey, touchKey, trimCache } from '../web/cache.js';
 import { normalizeQuery } from '../web/lookup.js';
 
 const MISS_TTL_MS = 60 * MINUTE_MS;
-// Only when media.descriptionChars is missing or invalid (config.json always has it).
-const DESCRIPTION_CHARS_FALLBACK = 500;
 // Only when media.video.errorRetryMinutes is missing or invalid (config.json always has it).
 const VIDEO_ERROR_RETRY_MINUTES_FALLBACK = 60;
-// Only when media.video.urlProcessing is missing (config.json always has it; null omits the field).
-const VIDEO_URL_PROCESSING_FALLBACK = 'agentic';
-// Only when media.video.summaryChars is missing (config.json always has it, the same value).
-const VIDEO_TEXT_CHARS_FALLBACK = 1500;
-const REWATCH_ANSWER_CHARS_FALLBACK = 1200;
+// The describer's measures. Production values, config cut of 2026-10-31.
+/** The length of a picture's or a GIF's caption. */
+const DESCRIPTION_CHARS = 500;
+/** The seconds of a GIF that are watched. */
+const GIF_MAX_SECONDS = 15;
+/** The length of the answer of a second look. */
+const REWATCH_ANSWER_CHARS = 1200;
+/**
+ * The fixed fields of `media.video`, laid over the live section by videoSettingsOf: the summary's length, the
+ * lengths a clip and a public URL may run, the clip's bytes, the per-second estimates, the sites whose videos go out
+ * by their public URL, the processing mode of a public URL and the reasoning effort of a video request.
+ */
+const VIDEO_FIXED = Object.freeze({
+  summaryChars: 1500,
+  maxSeconds: 300,
+  directUrlMaxSeconds: 3600,
+  maxBytes: 14500000,
+  tokensPerSecond: 120,
+  directUrlTokensPerSecond: 10,
+  directUrlSites: Object.freeze(['youtube.com', 'youtu.be']),
+  urlProcessing: 'agentic',
+  reasoning: Object.freeze({ effort: 'low' }),
+});
+
+/** The live `media.video` section with the fixed fields (VIDEO_FIXED) over it. */
+function videoSettingsOf(config) {
+  return { ...(config?.media?.video ?? {}), ...VIDEO_FIXED };
+}
 const REWATCH_TTL_MS = 60 * MINUTE_MS;
 const PERMANENT_VIDEO_MISSES = new Set(['length', 'size']);
-/** The state.json fields of the daily video counter (every watch and every re-watch attempt). */
-export const VIDEO_DAILY = Object.freeze({ dayKey: 'videoDay', countKey: 'videoCount' });
-/** The state.json fields of the daily second-look counter: a video re-watch and a picture relook alike. */
-const REWATCH_DAILY = Object.freeze({ dayKey: 'rewatchDay', countKey: 'rewatchCount' });
-/** The state.json fields of the daily GIF watch counter: a GIF watch and a GIF's second look alike. */
-const GIF_WATCH_DAILY = Object.freeze({ dayKey: 'gifWatchDay', countKey: 'gifWatchCount' });
 /** What cachedPicture returns for a picture whose recent failure is still remembered. */
 const FRESH_MISS = Symbol('fresh-miss');
-// Only when media.gif.maxSeconds is missing or invalid (config.json always has it).
-const GIF_MAX_SECONDS_FALLBACK = 15;
 
 /**
  * The file a GIF watch downloads: a gif embed's `animationUrl` (the mp4 of
@@ -266,11 +269,6 @@ export function parseGifDescription(raw, { descriptionChars }) {
   return { text, reaction: bound(reactionWhole), action: bound(actionWhole), screen: bound(screenWhole) };
 }
 
-/** A positive number from the config, else `fallback`. */
-function positiveOr(value, fallback) {
-  return typeof value === 'number' && value > 0 ? value : fallback;
-}
-
 /**
  * The cache key of one question's answer: `<prefix>:<itemId>:q:` (`video`
  * for a re-watch, `image` for a picture's second look, `gif` for a GIF's) and the sha1 prefix
@@ -288,11 +286,6 @@ function questionKey(itemId, question, prefix = 'video') {
  */
 function pictureImageUrl(item) {
   return item.previewUrl ?? item.url;
-}
-
-/** A stand-in for the persistent state when none is wired (tests, tools): the daily count lives in memory. */
-function memoryState() {
-  return { data: {}, markDirty() {} };
 }
 
 /** ≤200 chars, with any query string stripped -- an error message must never leak a signed URL. */
@@ -358,7 +351,7 @@ function staticRequestSeconds(videoCfg, llmCfg) {
 
 /** The processing mode a public URL goes out with (see videoPart), or null when the field is omitted. */
 function urlProcessingMode(videoCfg) {
-  const mode = videoCfg.urlProcessing === undefined ? VIDEO_URL_PROCESSING_FALLBACK : videoCfg.urlProcessing;
+  const mode = videoCfg.urlProcessing;
   return typeof mode === 'string' && mode ? mode : null;
 }
 
@@ -371,7 +364,7 @@ function urlProcessingMode(videoCfg) {
  * `media.video.errorRetryMinutes`, see describeVideo), or a `length` miss whose duration is
  * unknown or fits the length cap that applies to `item` now (a raised cap retries it). `item`
  * (a collectVideos candidate) only decides the cap: a pinnable direct-URL link has its own; without
- * one (a buffered message keeps no URL) the cap is `media.video.maxSeconds`. Pure. Used by the
+ * one (a buffered message keeps no URL) the cap is VIDEO_FIXED's `maxSeconds`. Pure. Used by the
  * describer's cache lookup.
  * @param {object|undefined} entry
  * @param {object} config  Live config (`media.video`, `llm`).
@@ -387,7 +380,7 @@ export function videoStateFromCache(entry, config, item = {}) {
   if (entry.reason === 'length') {
     // An unknown duration (older entries included) costs one probe to learn.
     if (typeof entry.durationSec !== 'number') return null;
-    if (entry.durationSec <= lengthCap(item, config?.media?.video ?? {}, config?.llm)) return null;
+    if (entry.durationSec <= lengthCap(item, videoSettingsOf(config), config?.llm)) return null;
   }
   return { state: 'limit', reason: entry.reason };
 }
@@ -438,7 +431,6 @@ export function createDescriber({
   now = Date.now,
   imageFetcher = createImageFetcher(),
   videoFetcher = createVideoFetcher(),
-  state = memoryState(),
   youtubeApiKey = null,
 }) {
   /** Today's UTC date as `YYYY-MM-DD` from the injected clock: the daily counters and the prompts' `{{today}}`. */
@@ -455,19 +447,17 @@ export function createDescriber({
     return typeof llm?.capLeft === 'function' && llm.capLeft() <= 0;
   }
 
-  /** Whether pictures are described under the live config and prompts (the switch and the describe prompt). */
+  /** Whether pictures are described under the live prompts (the describe prompt is there). */
   function picturesOn() {
     return pictureBlocker() === null;
   }
 
   /**
-   * Why pictures are not described under the live config and prompts, or
-   * null when they are: `off` (features.mediaDescriptions not true) or
-   * `no-prompt` (no describe prompt).
-   * @returns {'off'|'no-prompt'|null}
+   * Why pictures are not described under the live prompts, or null when
+   * they are: `no-prompt` (no describe prompt).
+   * @returns {'no-prompt'|null}
    */
   function pictureBlocker() {
-    if (hot.config.features?.mediaDescriptions !== true) return 'off';
     if (!hot.prompts?.describe) return 'no-prompt';
     return null;
   }
@@ -589,7 +579,7 @@ export function createDescriber({
     const promptText = hot.prompts?.describe;
     if (!promptText) return null;
     const mediaCfg = hot.config.media ?? {};
-    const descriptionChars = positiveOr(mediaCfg.descriptionChars, DESCRIPTION_CHARS_FALLBACK);
+    const descriptionChars = DESCRIPTION_CHARS;
     const cache = store.getMediaCache(guildId);
 
     // The old caption kept on a failure, its entry stamped when `mark` is set.
@@ -623,7 +613,7 @@ export function createDescriber({
       if (previous) return keepPrevious(mark);
       if (mark) {
         touchKey(cache, item.itemId, { miss: true, ts: now() });
-        trimCache(cache, mediaCfg.cacheEntries ?? Infinity);
+        trimCache(cache, MEDIA_CACHE_ENTRIES);
         store.markMediaCacheDirty(guildId);
       }
       return null;
@@ -631,7 +621,7 @@ export function createDescriber({
 
     const visionCfg = hot.config.context?.vision ?? {};
     const downloaded = await imageFetcher.fetchAsDataUrl(imageUrl, {
-      maxBytes: visionCfg.maxBytes,
+      maxBytes: VISION_MAX_BYTES,
       timeoutMs: visionCfg.fetchTimeoutMs,
     });
     if (!downloaded) {
@@ -692,7 +682,7 @@ export function createDescriber({
     if (item.kind === 'gif') entry.gif = true;
     if (watchFailed) entry.watchFailed = entry.ts;
     touchKey(cache, item.itemId, entry);
-    trimCache(cache, mediaCfg.cacheEntries ?? Infinity);
+    trimCache(cache, MEDIA_CACHE_ENTRIES);
     store.markMediaCacheDirty(guildId);
     return { text, usage: completion.usage ?? null, estimated: completion.estimated ?? 0 };
   }
@@ -703,7 +693,7 @@ export function createDescriber({
    * @returns {'off'|'video-off'|'no-prompt'|null}
    */
   function gifWatchBlocker() {
-    return gifWatchBlockerOf(hot.config, hot.prompts);
+    return gifWatchBlockerOf(hot.prompts);
   }
 
   /**
@@ -714,9 +704,7 @@ export function createDescriber({
    * (`{{maxChars}}` = `media.descriptionChars` -- a GIF caption keeps a
    * picture caption's length -- and `{{seconds}}` = `media.gif.maxSeconds`),
    * else the `describe-video` prompt with `{{maxChars}}` alone as before;
-   * under the video token cap and output budget, and a slot of the GIF's own
-   * `media.gif.maxPerDay` (never the video one) reserved before the fetch and
-   * kept on failure. The answer is read as three fields (parseGifDescription,
+   * under the video token cap and output budget. The answer is read as three fields (parseGifDescription,
    * each kept whole under `media.descriptionChars`) and cached under the
    * GIF's own item id as `{ text, reaction, action, screen, ts, watched: true,
    * gif: true }`; nothing is cached otherwise.
@@ -724,14 +712,13 @@ export function createDescriber({
    * 'failed', reason }` (the fetch, the conversion, the request or an empty
    * answer) or `{ state: 'unavailable', reason: 'daily'|'daily-cap' }` (a
    * daily rail is spent: no failure of this GIF; with `llm.maxRequestsPerDay`
-   * spent before the watch, nothing is fetched and no GIF slot is taken). One
+   * spent before the watch, nothing is fetched). One
    * `describe: gif` log line, codes only.
    */
   async function watchGifNow(guildId, item, source) {
-    const mediaCfg = hot.config.media ?? {};
-    const videoCfg = mediaCfg.video ?? {};
-    const maxSeconds = positiveOr(mediaCfg.gif?.maxSeconds, GIF_MAX_SECONDS_FALLBACK);
-    const descriptionChars = positiveOr(mediaCfg.descriptionChars, DESCRIPTION_CHARS_FALLBACK);
+    const videoCfg = videoSettingsOf(hot.config);
+    const maxSeconds = GIF_MAX_SECONDS;
+    const descriptionChars = DESCRIPTION_CHARS;
     const report = (outcome, extra = {}) => {
       log.info('describe: gif', {
         state: outcome.state,
@@ -746,11 +733,6 @@ export function createDescriber({
 
     // The request would be refused: no fetch, no GIF slot.
     if (capSpent()) return report({ state: 'unavailable', reason: 'daily-cap' });
-    // The daily GIF slot, reserved synchronously like a video watch's.
-    const watchedToday = countToday('gifWatchDay', 'gifWatchCount');
-    if (watchedToday >= gifWatchCap(hot.config)) return report({ state: 'unavailable', reason: 'daily' });
-    state.data.gifWatchCount = watchedToday + 1;
-    state.markDirty();
 
     const fetched = await fetchGifClip(source, maxSeconds);
     if (!fetched.ok) return report({ state: 'failed', reason: fetched.reason });
@@ -800,7 +782,7 @@ export function createDescriber({
    * bytes }` (`seconds` never above `maxSeconds`) or `{ ok: false, reason }`.
    */
   async function fetchGifClip(source, maxSeconds) {
-    const videoCfg = hot.config.media?.video ?? {};
+    const videoCfg = videoSettingsOf(hot.config);
     const media = await videoFetcher.fetchGif(source, {
       maxSeconds,
       maxBytes: videoCfg.maxBytes,
@@ -963,7 +945,7 @@ export function createDescriber({
    */
   function cachedDescriptions(guildId, items) {
     const descriptions = new Map();
-    if (hot.config.features?.mediaDescriptions !== true || !hot.prompts?.describe) return descriptions;
+    if (!hot.prompts?.describe) return descriptions;
     const cache = store.getMediaCache(guildId);
     for (const item of items ?? []) {
       const entry = item?.itemId ? cache[item.itemId] : undefined;
@@ -982,7 +964,7 @@ export function createDescriber({
   function putVideoEntry(guildId, key, value) {
     const cache = store.getMediaCache(guildId);
     touchKey(cache, key, value);
-    trimCache(cache, hot.config.media?.cacheEntries ?? Infinity);
+    trimCache(cache, MEDIA_CACHE_ENTRIES);
     store.markMediaCacheDirty(guildId);
   }
 
@@ -1017,48 +999,6 @@ export function createDescriber({
     const minutes = hot.config.media?.video?.errorRetryMinutes;
     const valid = typeof minutes === 'number' && Number.isFinite(minutes) && minutes >= 0;
     return (valid ? minutes : VIDEO_ERROR_RETRY_MINUTES_FALLBACK) * MINUTE_MS;
-  }
-
-  /**
-   * Today's count of one daily counter (`state.data[dayKey]` / `[countKey]`);
-   * resets it when the day changed (same day logic as the LLM client's).
-   */
-  function countToday(dayKey, countKey) {
-    const { count, rolled } = dailyCounter(state.data, { dayKey, countKey }, now());
-    if (rolled) state.markDirty();
-    return count;
-  }
-
-  /** Today's video count (every watch and every re-watch attempt). */
-  function videoCountToday() {
-    return countToday(VIDEO_DAILY.dayKey, VIDEO_DAILY.countKey);
-  }
-
-  /**
-   * The video slots left today, read only (the counters are never rolled
-   * over or written here): `video` under `media.video.maxPerDay` (a watch, a
-   * retry and a re-watch each take one) and `rewatch` under
-   * `media.video.rewatch.maxPerDay` (a re-watch also needs a `video` slot; a
-   * picture's second look, relookImage, takes a `rewatch` slot only), plus
-   * `gif` under `media.gif.maxPerDay` (gifWatchCap; a GIF's second look,
-   * rewatchGif, takes a `rewatch` and a `gif` slot, never a video one).
-   * A cap that is not a number leaves its rail unlimited (Infinity), as the
-   * watch itself reads it. For a turn that skips a classifier whose action
-   * could not run.
-   * @returns {{ video: number, rewatch: number, gif: number }}
-   */
-  function videoCapsLeft() {
-    const videoCfg = hot.config.media?.video ?? {};
-    const nowMs = now();
-    const left = (cap, keys) =>
-      typeof cap === 'number' && !Number.isNaN(cap)
-        ? Math.max(0, cap - readDailyCount(state.data, keys, nowMs))
-        : Infinity;
-    return {
-      video: left(videoCfg.maxPerDay, VIDEO_DAILY),
-      rewatch: left(videoCfg.rewatch?.maxPerDay, REWATCH_DAILY),
-      gif: left(gifWatchCap(hot.config), GIF_WATCH_DAILY),
-    };
   }
 
   /**
@@ -1140,7 +1080,7 @@ export function createDescriber({
    */
   async function fetchVideoMedia(item, videoCfg) {
     const { maxSeconds, maxBytes, toolTimeoutMs, ffmpegPath, ytdlpPath } = videoCfg;
-    const audioMap = audioMapSettings(videoCfg.audioMap);
+    const audioMap = audioMapSettings();
     if (item.source === 'attachment') {
       const got = await videoFetcher.fetchAttachment(item.url, {
         durationSec: item.durationSec,
@@ -1185,11 +1125,6 @@ export function createDescriber({
     // without one the clip is downloaded like any other site's.
     const pinnable = isPinnableLink(item, videoCfg);
     if (!probe.ok) {
-      // No duration at all: only the owner's explicit switch sends the URL,
-      // billed as the longest allowed video.
-      if (pinnable && videoCfg.directUrlUnknownDuration === true) {
-        return { ok: true, url: publicVideoUrl(item.url), seconds: maxSeconds, bytes: null, pinned: true };
-      }
       return probe;
     }
     const durationSec = probe.durationSec ?? item.durationSec ?? null;
@@ -1240,8 +1175,8 @@ export function createDescriber({
    * with its entry stamped `refreshFailedAt` -- never a miss over it.
    */
   async function watchVideo(guildId, item, key, promptText, forced = false, previous = null) {
-    const videoCfg = hot.config.media?.video ?? {};
-    const summaryChars = positiveOr(videoCfg.summaryChars, VIDEO_TEXT_CHARS_FALLBACK);
+    const videoCfg = videoSettingsOf(hot.config);
+    const summaryChars = videoCfg.summaryChars;
     const report = (result, extra = {}) => {
       log.info('describe: video', {
         source: item.source,
@@ -1277,17 +1212,6 @@ export function createDescriber({
       report({ state: 'skipped' }, { reason: 'daily-cap' });
       return { result: previous?.result ?? null, sent: false, attempted: false };
     }
-
-    // Reserve the daily slot synchronously, before any await, so concurrent
-    // watches can never overshoot maxPerDay. A failed fetch or request keeps
-    // its slot: attempts count, like media.video.maxPerTurn.
-    const countToday = videoCountToday();
-    if (countToday >= (videoCfg.maxPerDay ?? Infinity)) {
-      const limit = report({ state: 'limit', reason: 'daily' });
-      return { result: previous?.result ?? limit, sent: false, attempted: false };
-    }
-    state.data.videoCount = countToday + 1;
-    state.markDirty();
 
     const media = await fetchVideoMedia(item, videoCfg);
     if (!media.ok) {
@@ -1363,8 +1287,6 @@ export function createDescriber({
    * still applies).
    */
   async function describeVideoCharged(guildId, item, { cacheOnly = false, force = false } = {}) {
-    // Video vision needs both switches, like the senses line (src/behavior/prompt.js#renderSenses).
-    if (!isVideoVisionOn(hot.config)) return { result: null, sent: false, attempted: false };
     const promptText = hot.prompts?.['describe-video'];
     if (!promptText || !isVideoCandidate(item)) return { result: null, sent: false, attempted: false };
 
@@ -1469,26 +1391,22 @@ export function createDescriber({
    * too, never left literal) and the question goes as a text part of the user
    * message next to the video. Needs video vision on,
    * `features.videoRewatch` not false, the prompt, a video candidate and a
-   * non-empty question. Both daily counters must have room
-   * (`media.video.rewatch.maxPerDay` and `media.video.maxPerDay`); both
-   * slots are reserved before the fetch and kept on failure. An answer is
+   * non-empty question. An answer is
    * cached for an hour under `video:<itemId>:q:<hash>`; a failure is never
-   * cached. With `llm.maxRequestsPerDay` spent nothing is fetched and no slot
-   * is taken. The question and the answer are data: never logged.
+   * cached. With `llm.maxRequestsPerDay` spent nothing is fetched. The question and the answer are data: never logged.
    * @param {string} guildId
    * @param {object} item  One collectVideos candidate.
    * @param {string} question
    * @returns {Promise<{ question: string, text: string }|null>}
    */
   async function rewatchVideo(guildId, item, question, { model = null } = {}) {
-    if (!isVideoVisionOn(hot.config) || hot.config.features?.videoRewatch === false) return null;
     const promptText = hot.prompts?.['rewatch-answer'];
     const asked = String(question ?? '').trim();
     if (!promptText || !isVideoCandidate(item) || !asked) return null;
 
-    const videoCfg = hot.config.media?.video ?? {};
+    const videoCfg = videoSettingsOf(hot.config);
     const rewatchCfg = videoCfg.rewatch ?? {};
-    const answerChars = positiveOr(rewatchCfg.answerChars, REWATCH_ANSWER_CHARS_FALLBACK);
+    const answerChars = REWATCH_ANSWER_CHARS;
     const report = (outcome, extra = {}) => {
       log.info('describe: rewatch', {
         source: item.source,
@@ -1519,16 +1437,6 @@ export function createDescriber({
       report('limit', { reason: 'daily-cap' });
       return null;
     }
-    // Both rails, both reserved synchronously before any await (like a watch).
-    const rewatchedToday = countToday(REWATCH_DAILY.dayKey, REWATCH_DAILY.countKey);
-    const videosToday = videoCountToday();
-    if (rewatchedToday >= (rewatchCfg.maxPerDay ?? Infinity) || videosToday >= (videoCfg.maxPerDay ?? Infinity)) {
-      report('limit', { reason: 'daily' });
-      return null;
-    }
-    state.data.rewatchCount = rewatchedToday + 1;
-    state.data.videoCount = videosToday + 1;
-    state.markDirty();
 
     const media = await fetchVideoMedia(item, videoCfg);
     if (!media.ok) {
@@ -1576,12 +1484,9 @@ export function createDescriber({
    * `media.video.rewatch.answerChars`; a `{{question}}` still in it is filled
    * too, never left literal) and the question goes as a text part of the user
    * message next to the picture. Only an `image` item with a URL and a
-   * non-empty question. It shares the one second-look counter with
-   * rewatchVideo (`media.video.rewatch.maxPerDay`, `state.data.rewatchDay` /
-   * `rewatchCount`), reserved before the download and kept on failure; it
-   * never takes a video slot. The answer is NOT the picture's caption: it is
+   * non-empty question. The answer is NOT the picture's caption: it is
    * cached for an hour under `image:<itemId>:q:<hash>`, failures never. With
-   * `llm.maxRequestsPerDay` spent nothing is downloaded and no slot is taken.
+   * `llm.maxRequestsPerDay` spent nothing is downloaded.
    * The question and the answer are data: never logged.
    * @param {string} guildId
    * @param {object} item  One collectPictures item of kind `image`.
@@ -1589,14 +1494,13 @@ export function createDescriber({
    * @returns {Promise<{ question: string, text: string }|null>}
    */
   async function relookImage(guildId, item, question, { model = null } = {}) {
-    if (hot.config.features?.imageRelook === false) return null;
     const promptText = hot.prompts?.['rewatch-answer'];
     const asked = String(question ?? '').trim();
     if (!promptText || item?.kind !== 'image' || !item.itemId || !item.url || !asked) return null;
 
     const mediaCfg = hot.config.media ?? {};
     const rewatchCfg = mediaCfg.video?.rewatch ?? {};
-    const answerChars = positiveOr(rewatchCfg.answerChars, REWATCH_ANSWER_CHARS_FALLBACK);
+    const answerChars = REWATCH_ANSWER_CHARS;
     const report = (outcome, extra = {}) => {
       log.info('describe: relook', {
         source: item.source ?? null,
@@ -1625,18 +1529,10 @@ export function createDescriber({
       report('limit', { reason: 'daily-cap' });
       return null;
     }
-    // The one second-look counter, reserved synchronously before any await.
-    const lookedToday = countToday(REWATCH_DAILY.dayKey, REWATCH_DAILY.countKey);
-    if (lookedToday >= (rewatchCfg.maxPerDay ?? Infinity)) {
-      report('limit', { reason: 'daily' });
-      return null;
-    }
-    state.data.rewatchCount = lookedToday + 1;
-    state.markDirty();
 
     const visionCfg = hot.config.context?.vision ?? {};
     const downloaded = await imageFetcher.fetchAsDataUrl(pictureImageUrl(item, mediaCfg), {
-      maxBytes: visionCfg.maxBytes,
+      maxBytes: VISION_MAX_BYTES,
       timeoutMs: visionCfg.fetchTimeoutMs,
     });
     if (!downloaded) {
@@ -1717,15 +1613,11 @@ export function createDescriber({
    * (`{{question}}`, `{{maxChars}}` = `media.video.rewatch.answerChars`,
    * output capped at `media.video.rewatch.maxOutputTokens`), under the video
    * request rails. Needs GIFs watched now (gifWatchBlocker),
-   * `features.videoRewatch` not false, the prompt, a `gif` item with an
-   * animation and a non-empty question. Two daily counters must have room:
-   * the second-look one (`media.video.rewatch.maxPerDay`, shared with
-   * rewatchVideo and relookImage) and the GIF watch one
-   * (`media.gif.maxPerDay`) -- never a video slot; both are reserved before
-   * the fetch and kept on failure. An answer is cached for an hour under
+   * the prompt, a `gif` item with an
+   * animation and a non-empty question. An answer is cached for an hour under
    * `gif:<itemId>:q:<hash>` (the GIF's own item id, `<message>#e<n>` for an
    * embed); a failure never. With `llm.maxRequestsPerDay` spent nothing is
-   * fetched and no slot is taken. One `describe: rewatch` line with
+   * fetched. One `describe: rewatch` line with
    * `kind: 'gif'`; the question and the answer are data: never logged.
    * @param {string} guildId
    * @param {object} item  One collectPictures item of kind `gif`.
@@ -1733,17 +1625,16 @@ export function createDescriber({
    * @returns {Promise<{ question: string, text: string }|null>}
    */
   async function rewatchGif(guildId, item, question, { model = null } = {}) {
-    if (gifWatchBlocker() !== null || hot.config.features?.videoRewatch === false) return null;
+    if (gifWatchBlocker() !== null) return null;
     const promptText = hot.prompts?.['rewatch-answer'];
     const asked = String(question ?? '').trim();
     const source = gifAnimationSource(item);
     if (!promptText || !item?.itemId || !source || !asked) return null;
 
-    const mediaCfg = hot.config.media ?? {};
-    const videoCfg = mediaCfg.video ?? {};
+    const videoCfg = videoSettingsOf(hot.config);
     const rewatchCfg = videoCfg.rewatch ?? {};
-    const answerChars = positiveOr(rewatchCfg.answerChars, REWATCH_ANSWER_CHARS_FALLBACK);
-    const maxSeconds = positiveOr(mediaCfg.gif?.maxSeconds, GIF_MAX_SECONDS_FALLBACK);
+    const answerChars = REWATCH_ANSWER_CHARS;
+    const maxSeconds = GIF_MAX_SECONDS;
     const report = (outcome, extra = {}) => {
       log.info('describe: rewatch', {
         kind: 'gif',
@@ -1775,16 +1666,6 @@ export function createDescriber({
       report('limit', { reason: 'daily-cap' });
       return null;
     }
-    // Both rails, both reserved synchronously before any await (like a watch).
-    const lookedToday = countToday(REWATCH_DAILY.dayKey, REWATCH_DAILY.countKey);
-    const gifsToday = countToday(GIF_WATCH_DAILY.dayKey, GIF_WATCH_DAILY.countKey);
-    if (lookedToday >= (rewatchCfg.maxPerDay ?? Infinity) || gifsToday >= gifWatchCap(hot.config)) {
-      report('limit', { reason: 'daily' });
-      return null;
-    }
-    state.data.rewatchCount = lookedToday + 1;
-    state.data.gifWatchCount = gifsToday + 1;
-    state.markDirty();
 
     const fetched = await fetchGifClip(source, maxSeconds);
     if (!fetched.ok) {
@@ -1837,7 +1718,6 @@ export function createDescriber({
     relookImage,
     rewatchGif,
     watchedGifs,
-    videoCapsLeft,
     watchGif,
     gifWatchBlocker,
     checkYoutube,

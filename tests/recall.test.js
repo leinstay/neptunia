@@ -5,7 +5,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   HIT_MARK,
-  RECALL_DEFAULTS,
   RRF_K,
   buildRecallRequest,
   clusterHits,
@@ -39,8 +38,6 @@ import { estimateTokens } from '../src/llm/tokens.js';
 import { createRecord, toRecordLine } from '../src/memory/record.js';
 import { labels } from './fixtures/labels.js';
 import fs, { readFileSync } from 'node:fs';
-import path from 'node:path';
-import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory } from './fixtures/memory-db/service.js';
 
 const SHIPPED_CONFIG = JSON.parse(readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
@@ -53,25 +50,6 @@ const BERLIN = 'Europe/Berlin';
 /** The snowflake's timestamp back in ms. */
 
 // ---- settings ------------------------------------------------------------------------------
-
-test('recallSettings: a missing switch counts as on, false turns it off, unusable numbers fall back', () => {
-  assert.equal(recallSettings({ features: { recall: false } }), null);
-  assert.deepEqual(recallSettings({}), { ...RECALL_DEFAULTS });
-  const s = recallSettings({
-    recall: { maxForms: 3.9, maxPeople: 0, dateSamples: 0, windowMessages: 500, timeoutMs: 'x', stretchChars: -1 },
-  });
-  assert.equal(s.maxForms, 3);
-  assert.equal(s.maxPeople, 0, '0 people is a usable value');
-  assert.equal(s.dateSamples, RECALL_DEFAULTS.dateSamples, 'below 1 falls back');
-  assert.equal(s.windowMessages, 100, 'one page at most');
-  assert.equal(s.timeoutMs, RECALL_DEFAULTS.timeoutMs);
-  assert.equal(s.stretchChars, RECALL_DEFAULTS.stretchChars);
-  assert.equal(recallSettings({ recall: { minSummaryMs: -1 } }).minSummaryMs, RECALL_DEFAULTS.minSummaryMs);
-  assert.equal(recallSettings({ recall: { minSummaryMs: 0 } }).minSummaryMs, 0, 'the summary asked whatever is left');
-  assert.equal(recallSettings({ recall: { keepOldest: 0 } }).keepOldest, 0, '0 keeps only the newest');
-  assert.equal(recallSettings({ recall: { keepOldest: 2.7 } }).keepOldest, 2);
-  assert.equal(recallSettings({ recall: { keepOldest: -1 } }).keepOldest, RECALL_DEFAULTS.keepOldest);
-});
 
 // ---- the lookup answer -----------------------------------------------------------------------
 
@@ -432,21 +410,6 @@ test('clusterHits: keepOldest takes the oldest clusters of at least two queries 
   assert.deepEqual(ids(all, 9), ['n0', 'o2', 'o1'], 'never more than maxClusters');
 });
 
-test('clusterHits: a missing keepOldest falls back to the shipped config value', () => {
-  const t = Date.UTC(2026, 9, 1, 8);
-  const hits = [
-    ...Array.from({ length: 4 }, (_, i) => found(`n${i}`, t + i * 2 * HOUR, ['form:a', 'form:b'])),
-    found('o1', Date.UTC(2021, 2, 1), ['form:a', 'form:c']),
-  ];
-  const shipped = SHIPPED_CONFIG.recall.keepOldest;
-  assert.equal(RECALL_DEFAULTS.keepOldest, shipped);
-  assert.equal(recallSettings({ recall: {} }).keepOldest, shipped);
-  assert.deepEqual(
-    clusterHits(hits, { gapMinutes: 30, maxClusters: 3 }).map((c) => c.middleId),
-    clusterHits(hits, { gapMinutes: 30, maxClusters: 3, keepOldest: shipped }).map((c) => c.middleId)
-  );
-});
-
 test('rareFormKeys: the form keys whose search totals at most rareHits; 0 marks none', () => {
   const totals = new Map([
     ['form:κουνέλι', 1],
@@ -512,16 +475,6 @@ test('clusterHits: keepOldest takes a cluster of one rare form, never one of one
     );
   assert.deepEqual(ids(['form:z']), ['n2', 'r'], 'one rare form scores 2');
   assert.deepEqual(ids([]), ['n2', 'n0'], 'no rare form: the oldest two-form cluster, never the one common form');
-});
-
-test('recallSettings: a missing rareHits falls back to the shipped config value; 0 is kept', () => {
-  const shipped = SHIPPED_CONFIG.recall.rareHits;
-  assert.equal(typeof shipped, 'number');
-  assert.equal(RECALL_DEFAULTS.rareHits, shipped);
-  assert.equal(recallSettings({ recall: {} }).rareHits, shipped);
-  assert.equal(recallSettings({ recall: { rareHits: 0 } }).rareHits, 0, '0 = no rarity bonus');
-  assert.equal(recallSettings({ recall: { rareHits: 2.7 } }).rareHits, 2);
-  assert.equal(recallSettings({ recall: { rareHits: -1 } }).rareHits, shipped);
 });
 
 test('clusterHits: with no more clusters than maxClusters, keepOldest changes nothing', () => {
@@ -1098,22 +1051,6 @@ test('rankClusters: without a persona line it keeps what clusterHits keeps', () 
   }
 });
 
-test('recallSettings: the trace cap, the self bonus, the extra windows and the context lines', () => {
-  const s = recallSettings({});
-  for (const key of ['traceMaxLines', 'selfBonus', 'selfExtra', 'contextMessages'])
-    assert.equal(s[key], SHIPPED_CONFIG.recall[key], key);
-  const zero = recallSettings({ recall: { traceMaxLines: 0, selfBonus: 0, selfExtra: 0, contextMessages: 0 } });
-  assert.equal(zero.traceMaxLines, SHIPPED_CONFIG.recall.traceMaxLines, 'the trace keeps at least one line');
-  assert.equal(zero.selfBonus, 0);
-  assert.equal(zero.selfExtra, 0);
-  assert.equal(zero.contextMessages, 0);
-  const set = recallSettings({ recall: { traceMaxLines: 7.5, selfBonus: 1.5, selfExtra: 2.9, contextMessages: -1 } });
-  assert.deepEqual(
-    [set.traceMaxLines, set.selfBonus, set.selfExtra, set.contextMessages],
-    [7, 1.5, 2, SHIPPED_CONFIG.recall.contextMessages]
-  );
-});
-
 test('recallContext: the last lines before the question, the question itself left out', () => {
   const t = Date.UTC(2026, 9, 10, 20);
   const history = Array.from({ length: 5 }, (_, i) => msg(`h${i}`, t + i * MINUTE));
@@ -1479,7 +1416,6 @@ test('recall: the memory block stops at memoryTokens', () => {
   assert.equal(memoryBlock(undefined), ['<memory>', ...lines, '</memory>'].join('\n'), 'no cap given');
   assert.equal(recallSettings({}).memoryTokens, SHIPPED_CONFIG.recall.memoryTokens);
   assert.equal(recallSettings({ recall: { recordDays: 0 } }).recordDays, 0, 'the record reader off');
-  assert.equal(recallSettings({ recall: { archiveMonths: 0 } }).archiveMonths, 0, 'the archive not searched');
 });
 
 /** A record line of `channelId` (src/memory/record.js#toRecordLine), `kind` seen unless said. */
@@ -1792,18 +1728,6 @@ test('recall: a record line outside the range is not read: each read asks the re
   }
 });
 
-test('recallSettings: followMessages and followGapMinutes read like the rest, followMessages 0 is off', () => {
-  const s = recallSettings({ recall: { followMessages: 7.8, followGapMinutes: 2.5 } });
-  assert.deepEqual([s.followMessages, s.followGapMinutes], [7, 2.5]);
-  assert.equal(recallSettings({ recall: { followMessages: 0 } }).followMessages, 0, 'the follow off');
-  assert.equal(recallSettings({ recall: { followMessages: 500 } }).followMessages, 100, 'one Discord page at most');
-  assert.equal(recallSettings({ recall: { followMessages: -1 } }).followMessages, RECALL_DEFAULTS.followMessages);
-  assert.equal(
-    recallSettings({ recall: { followGapMinutes: 'x' } }).followGapMinutes,
-    RECALL_DEFAULTS.followGapMinutes
-  );
-});
-
 test('followConversation: takes the following lines until a silence longer than the gap or the cap', () => {
   const T = NOW - HOUR;
   const after = [5, 1, 3, 9, 30].map((m) => ({ id: `a${m}`, ts: T + m * MINUTE }));
@@ -1946,15 +1870,6 @@ test('recall: record windows that meet after following still merge into one', as
 });
 
 // ---- meaning search: the query, the fusion, the record and memory joins ------------------------
-
-test('recallSettings: meaningCandidates and meaningWithReply fall back to config.json; the reply only exactly true', () => {
-  assert.equal(recallSettings({}).meaningCandidates, SHIPPED_CONFIG.recall.meaningCandidates);
-  assert.equal(recallSettings({}).meaningWithReply, SHIPPED_CONFIG.recall.meaningWithReply);
-  assert.equal(recallSettings({ recall: { meaningCandidates: 12.7 } }).meaningCandidates, 12);
-  assert.equal(recallSettings({ recall: { meaningCandidates: 0 } }).meaningCandidates, 0, 'no candidate asked');
-  assert.equal(recallSettings({ recall: { meaningWithReply: 'yes' } }).meaningWithReply, false);
-  assert.equal(recallSettings({ recall: { meaningWithReply: true } }).meaningWithReply, true);
-});
 
 test('fuseRanks: reciprocal rank fusion with k = 60; an item of both lists leads, a tie goes to the earlier list', () => {
   assert.equal(RRF_K, 60);
@@ -2234,22 +2149,6 @@ test('parseLookupAnswer: a question only about a time is always scope; the role 
     server: null,
     reason: 'none',
   });
-});
-
-test('recallSettings: the locator numbers are read as set, unusable ones fall back', () => {
-  const s = recallSettings({ recall: { locatorBonus: 1.5, locatorDecayDays: 3, locatorBroadShare: 0.25 } });
-  assert.deepEqual([s.locatorBonus, s.locatorDecayDays, s.locatorBroadShare], [1.5, 3, 0.25]);
-  const zero = recallSettings({ recall: { locatorBonus: 0, locatorDecayDays: 0, locatorBroadShare: 0 } });
-  assert.deepEqual(
-    [zero.locatorBonus, zero.locatorDecayDays, zero.locatorBroadShare],
-    [0, 0, 0],
-    'no bonus, only inside the range, no reserved share'
-  );
-  const bad = recallSettings({ recall: { locatorBonus: -1, locatorDecayDays: 'x', locatorBroadShare: 1.5 } });
-  assert.deepEqual(
-    [bad.locatorBonus, bad.locatorDecayDays, bad.locatorBroadShare],
-    [RECALL_DEFAULTS.locatorBonus, RECALL_DEFAULTS.locatorDecayDays, RECALL_DEFAULTS.locatorBroadShare]
-  );
 });
 
 test('proximityBonus: full inside the range, falling linearly to 0 at decayDays away, never outside [0, bonus]', () => {
@@ -2540,14 +2439,4 @@ test("memorySearchPlan: her terms and people first, then the question's long wor
     from: Date.UTC(2026, 9, 1),
     to: Date.UTC(2026, 9, 2) - 1,
   });
-});
-
-test('recallSettings: the memory.search quote bounds read their own values and fall back to the defaults', () => {
-  assert.equal(recallSettings({ recall: { quoteWindowChars: 700, quoteMaxChars: 5000 } }).quoteWindowChars, 700);
-  assert.equal(recallSettings({ recall: { quoteWindowChars: 700, quoteMaxChars: 5000 } }).quoteMaxChars, 5000);
-  assert.equal(
-    recallSettings({ recall: { quoteWindowChars: 0, quoteMaxChars: 'x' } }).quoteWindowChars,
-    RECALL_DEFAULTS.quoteWindowChars
-  );
-  assert.equal(recallSettings({}).quoteMaxChars, RECALL_DEFAULTS.quoteMaxChars);
 });

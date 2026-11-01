@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { deletedLinesMax, deletedLinesOf, withDeletedLines } from '../src/behavior/deleted-lines.js';
+import { deletedLinesOf, withDeletedLines } from '../src/behavior/deleted-lines.js';
 
 const T0 = Date.UTC(2026, 9, 19, 10, 0, 0);
 const iso = (ts) => new Date(ts).toISOString();
@@ -74,7 +74,7 @@ test('deletedLinesOf: a deleted message the history lacks becomes a placeholder 
   );
 });
 
-test('deletedLinesOf: only the newest context.deletedLinesMax placeholders stay, every id is still known; a failed read gives none', async () => {
+test('deletedLinesOf: only the newest `max` placeholders stay, every id is still known; a failed read gives none', async () => {
   const history = [live('m1', T0)];
   const lines = [1, 2, 3, 4].flatMap((n) => [seen(`d${n}`, T0 + n * 1000), deleted(`d${n}`, T0 + 60_000)]);
   const found = await deletedLinesOf({ record: fakeRecord(lines), guildId: 'g1', channelId: 'c1', history, max: 2 });
@@ -90,10 +90,6 @@ test('deletedLinesOf: only the newest context.deletedLinesMax placeholders stay,
   };
   const failed = await deletedLinesOf({ record: broken, guildId: 'g1', channelId: 'c1', history });
   assert.deepEqual([failed.placeholders, failed.deletedIds.size, failed.failed], [[], 0, true]);
-  assert.deepEqual(
-    [deletedLinesMax({}), deletedLinesMax({ deletedLinesMax: 3 }), deletedLinesMax({ deletedLinesMax: -1 })],
-    [10, 3, 10]
-  );
 });
 
 test('withDeletedLines: each placeholder sits before the first later line, after the reply parents; none changes nothing', () => {

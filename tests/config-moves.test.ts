@@ -148,13 +148,14 @@ function deployment(local: Settings | null) {
 
 const warnings = (logs: Array<Record<string, unknown>>) => logs.filter((entry) => entry.level === 'warn');
 
+// PR 7d: `features.tools`, the new name of `features.skills`, is code, so the loader cuts it after the move; the
+// settings under `skills.*` are the old keys this test still moves.
 test('lets an old key of the local file override the shipped default of its new name', async () => {
-  const root = deployment({ skills: { safeMode: true, loop: { maxSteps: 7 } }, features: { skills: false } });
+  const root = deployment({ skills: { safeMode: true, loop: { maxSteps: 7 } } });
   const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
   const tools = result.tools as Settings;
   assert.equal(tools.safeMode, true);
   assert.deepEqual(tools.loop, { maxSteps: 7, maxCallsPerStep: 4 });
-  assert.equal((result.features as Settings).tools, false);
   assert.equal(Object.hasOwn(result, 'skills'), false);
 });
 
@@ -513,15 +514,16 @@ function memoryFile({ mirror }: { mirror: boolean }): string {
   return file;
 }
 
+// PR 7d: `diary.maxPerDay` is a daily cap the cut drops, so the key kept beside the channel is `quietDayChance`.
 test('config-migrate drops diary.channelId on --apply when the database it is given has the diary mirror', () => {
-  const file = localCopy({ diary: { channelId: 'c9', maxPerDay: 3 } });
+  const file = localCopy({ diary: { channelId: 'c9', quietDayChance: 0.2 } });
   const db = memoryFile({ mirror: true });
   const dry = migrate(['--dry-run', '--db', db], file);
   assert.equal(dry.code, 0);
   assert.equal(dry.out.includes('diary.channelId'), true, 'the dry run names the key');
   const applied = migrate(['--apply', '--db', db], file);
   assert.equal(applied.code, 0);
-  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { diary: { maxPerDay: 3 } });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { diary: { quietDayChance: 0.2 } });
 });
 
 test('config-migrate keeps diary.channelId and says so in one line when the database has no diary mirror', () => {
@@ -544,18 +546,18 @@ test('drops bot.commandName and features.adminCommands, lists both and keeps wha
   assert.deepEqual([moved, [...dropped].sort()], [[], ['bot.commandName', 'features.adminCommands']]);
 });
 
+// PR 7d: `features.memberCommands` is code and the cut drops it, so the key kept beside the two is `board`'s.
 test('config-migrate --apply drops bot.commandName and features.adminCommands and changes nothing else', () => {
   const access = { 'lore.list': { everyone: true, roles: [], users: [] } };
   const file = localCopy({
     bot: { owners: ['o1'], commandName: 'nep', access },
-    features: { adminCommands: true, memberCommands: true },
+    features: { adminCommands: true },
     board: { leaseTtlMinutes: 45 },
   });
   const applied = migrate(['--apply'], file);
   assert.equal(applied.code, 0, applied.err);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {
     bot: { owners: ['o1'], access },
-    features: { memberCommands: true },
     board: { leaseTtlMinutes: 45 },
   });
 });
@@ -567,4 +569,76 @@ test('the shipped config.json holds neither bot.commandName nor features.adminCo
   >;
   const has = (section: string, key: string): boolean => Object.hasOwn(shipped[section] ?? {}, key);
   assert.deepEqual([has('bot', 'commandName'), has('features', 'adminCommands')], [false, false]);
+});
+
+// ---- the cut of PR 7d (src/config/cut.ts) through config-migrate ----------------------------------------------------
+// A layer of the new layout: `<private>/config.local/config.json`. The Discord keys go to
+// `<private>/config.local/interfaces/discord.json`, merged over what that file holds, the file's own values winning.
+
+function cutLayer(local: Settings, discord: Settings | null = null): { dir: string; file: string; discord: string } {
+  const dir = tempDir('nep-cut-migrate-');
+  const file = path.join(dir, 'config.local', 'config.json');
+  const own = path.join(dir, 'config.local', 'interfaces', 'discord.json');
+  fs.mkdirSync(path.dirname(own), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(local, null, 2)}\n`);
+  if (discord !== null) fs.writeFileSync(own, `${JSON.stringify(discord, null, 2)}\n`);
+  return { dir, file, discord: own };
+}
+
+const readJson = (file: string): unknown => JSON.parse(fs.readFileSync(file, 'utf8'));
+
+test('config-migrate --dry-run names each cut key, the one live value apart from its constant, and writes nothing', () => {
+  const layer = cutLayer({
+    capture: { before: 5, after: 3 },
+    image: { maxPerDay: 3 },
+    features: { privateMessages: true },
+    discord: { intents: { members: true } },
+    recall: { timeoutMs: 25000 },
+  });
+  const before = fs.readFileSync(layer.file, 'utf8');
+  const run = migrate(['--dry-run'], layer.file);
+  assert.equal(run.code, 0, run.err);
+  const lines = run.out.split('\n');
+  for (const line of [
+    'capture.before dropped (constant)',
+    'capture.after dropped (constant)',
+    'image.maxPerDay dropped (cap)',
+    'capture.before differs: live 5, constant 3',
+    'features.privateMessages -> private.enabled',
+    'discord.intents.members -> config.local/interfaces/discord.json',
+  ])
+    assert.ok(lines.includes(line), line);
+  assert.equal(
+    lines.some((line) => line.startsWith('capture.after differs')),
+    false,
+    'a live value equal to its constant is no difference'
+  );
+  assert.equal(fs.readFileSync(layer.file, 'utf8'), before);
+  assert.equal(fs.existsSync(layer.discord), false);
+});
+
+test('config-migrate --apply writes the cut layer and the Discord file, the file of the interface winning', () => {
+  const layer = cutLayer(
+    {
+      capture: { before: 5 },
+      features: { privateMessages: true, innerLife: true },
+      discord: { intents: { presences: true, members: true } },
+      recall: { timeoutMs: 25000 },
+    },
+    { discord: { intents: { presences: false } } }
+  );
+  const run = migrate(['--apply'], layer.file);
+  assert.equal(run.code, 0, run.err);
+  assert.deepEqual(readJson(layer.file), { private: { enabled: true }, recall: { timeoutMs: 25000 } });
+  assert.deepEqual(readJson(layer.discord), { discord: { intents: { presences: false, members: true } } });
+});
+
+test('config-migrate finds nothing to cut in a layer it already cut', () => {
+  const layer = cutLayer({ capture: { before: 5 }, discord: { intents: { members: true } }, bot: { owners: ['o1'] } });
+  migrate(['--apply'], layer.file);
+  const settled = [fs.readFileSync(layer.file, 'utf8'), fs.readFileSync(layer.discord, 'utf8')];
+  const again = migrate(['--apply'], layer.file);
+  assert.equal(again.code, 0, again.err);
+  assert.deepEqual([fs.readFileSync(layer.file, 'utf8'), fs.readFileSync(layer.discord, 'utf8')], settled);
+  assert.equal(again.out, 'nothing to move\n');
 });

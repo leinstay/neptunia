@@ -7,7 +7,6 @@ import {
   affinityBand,
   applyDelta,
   decayAffinity,
-  ignoreAdjustment,
   roundScore,
   bandGap,
   relationshipStaleOf,
@@ -173,28 +172,6 @@ test('applyDelta: history is trimmed to the last historySize entries', () => {
 test('applyDelta: tolerates a malformed/undefined affinity (a profile written before this feature)', () => {
   assert.equal(applyDelta(undefined, 5, 'x', OPTS).score, 5);
   assert.equal(applyDelta({ score: 'not a number' }, 5, 'x', OPTS).score, 5);
-});
-
-// --- ignoreAdjustment ------------------------------------------------------
-
-const MENTION_CFG = { affinityIgnoreBonus: 0.3, affinityLikeBonus: 0.08 };
-
-// [label, score, expected adjustment]
-const IGNORE_CASES = [
-  ['0 changes nothing', 0, 0],
-  ['a non-finite score (NaN) changes nothing', NaN, 0],
-  ['score -100 adds the full affinityIgnoreBonus', -100, MENTION_CFG.affinityIgnoreBonus],
-  ['score 100 subtracts the full affinityLikeBonus', 100, -MENTION_CFG.affinityLikeBonus],
-];
-
-test('ignoreAdjustment: nothing at 0 or a non-finite score, the full bonus at either end of the scale', () => {
-  for (const [label, score, expected] of IGNORE_CASES) {
-    assert.equal(ignoreAdjustment(score, MENTION_CFG), expected, label);
-  }
-});
-
-test('ignoreAdjustment: score -50 adds half the affinityIgnoreBonus (linear)', () => {
-  assert.equal(ignoreAdjustment(-50, MENTION_CFG), MENTION_CFG.affinityIgnoreBonus * 0.5);
 });
 
 // --- applyDelta: relationships.damping --------------------------------------

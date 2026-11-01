@@ -1,9 +1,7 @@
-// Tests for what a heartbeat turn may do (docs/inner-life.md "What a heartbeat may do"): with
-// innerLife.heartbeat.intentionsOnly memory inspection, an intention change and a skip are accepted (other calls are
-// refused heartbeat-only and she reads why), the turn ends after the first change that goes through with no
-// further request, the engine stamps origin `heartbeat` on what the turn creates and the updates keep it,
-// the caps (maxOpen, maxRecurring) refuse naming the open ones, and the switch gives the earlier
-// behaviour back. Over a real admin, a real intention service on a temp data dir and the fake interface
+// Tests for what a heartbeat turn may do (docs/inner-life.md "What a heartbeat may do"): memory inspection, an
+// intention change and a skip are accepted (other calls are refused heartbeat-only and she reads why), the turn ends
+// after the first change that goes through with no further request, the engine stamps origin `heartbeat` on what the
+// turn creates and the updates keep it, and the caps (maxOpen, maxRecurring) refuse naming the open ones. Over a real admin, a real intention service on a temp data dir and the fake interface
 // adapter; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -60,52 +58,28 @@ function fakeStore() {
   };
 }
 
-function hotWith({ features = {}, access = {}, innerLife = {} } = {}) {
+// PR 7d: the switches are code, the heartbeat holds to intention changes and its caps (3 open, 1 recurring) are
+// constants, so the config holds only the keys that are still settings.
+function hotWith({ access = {}, innerLife = {} } = {}) {
   return {
     config: {
-      bot: { timezone: 'UTC', dryRunChannelId: '', owners: ['u1'], access },
+      bot: { timezone: 'UTC', owners: ['u1'], access },
       context: {
         channelMessages: 100,
-        neighborMessages: 5,
-        neighborMaxAgeMinutes: 60,
-        neighborMaxChannels: 8,
-        maxMessageChars: 800,
-        gapMarkerMinutes: 20,
-        otherProfiles: 6,
         caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
-        vision: {
-          maxImages: 2,
-          tokensPerImage: 400,
-          imageSize: 512,
-          recentImages: 0,
-          recentImageMinutes: 0,
-          maxBytes: 1_500_000,
-          fetchTimeoutMs: 10_000,
-        },
-        pull: { scanMessages: 20, maxChannels: 1, sameAudience: true },
+        vision: { fetchTimeoutMs: 10_000 },
+        pull: { sameAudience: true },
       },
-      llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
+      llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      features: {
-        memory: true,
-        reactions: true,
-        multiMessage: true,
-        typingSimulation: false,
-        vision: false,
-        callMarkers: true,
-        coreTools: true,
-        ...features,
-      },
       models: { base: { analyzer: 'x/text' } },
-      media: { maxPerTurn: 6, filePreviewChars: 500 },
-      gifs: { maxPerDay: 40 },
       tools: {
         safeMode: false,
         resultMaxChars: 2000,
         callTimeoutMs: 120000,
         loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 },
       },
-      innerLife: { mode: 'shadow', chatMessages: 2, ...innerLife },
+      innerLife: { mode: 'shadow', ...innerLife },
     },
     prompts: {
       'system-prompt': 'You are a regular member of this chat, not an assistant.',
@@ -171,13 +145,12 @@ function intentionService(hot) {
 
 /**
  * One live inner turn in #general answered with `answers`, over the real intention service. `wake` is the turn's
- * wake (a heartbeat by default), `beat` the `innerLife.heartbeat` section of the turn's config, `seed(service)`
+ * wake (a heartbeat by default), `seed(service)`
  * what exists before the turn.
  */
 async function liveTurn({
   answers,
   wake = BEAT_WAKE,
-  beat = {},
   seed = null,
   intentionsCfg = {},
   transport = 'native',
@@ -185,9 +158,8 @@ async function liveTurn({
 }) {
   const history = [rawMessage({ id: 'm0', ts: NOW - 120_000, content: 'πρώτο' })];
   const hot = hotWith({
-    features: { intentions: true },
     access: personaGrants(GRANTS),
-    innerLife: { mode: 'live', heartbeat: beat },
+    innerLife: { mode: 'live' },
   });
   hot.config.tools.transport = transport;
   hot.config.intentions = { expiresDays: 14, maxOpen: 20, ...intentionsCfg };
@@ -341,8 +313,6 @@ test('heartbeat caps: at maxOpen intention.set is refused heartbeat-cap and the 
     },
   });
   assert.deepEqual(actionsOf(freed), ['intention.set:executed:ok']);
-  const own = await liveTurn({ answers: [SET('a fourth'), '<skip/>'], beat: { maxOpen: 4 }, seed });
-  assert.deepEqual(actionsOf(own), ['intention.set:executed:ok'], 'a turn sets its own cap');
 });
 
 test('heartbeat caps: one recurring at most, for a new one and for a one-off made recurring', async () => {
@@ -373,26 +343,6 @@ test('heartbeat caps: one recurring at most, for a new one and for a one-off mad
   });
   assert.deepEqual(actionsOf(made), ['intention.update:executed:heartbeat-recurring-cap']);
   assert.equal(made.list().filter((r) => r.every).length, 1);
-  const other = await liveTurn({ answers: [SET('x', { every: 'day' })], beat: { maxRecurring: 2 }, seed });
-  assert.deepEqual(actionsOf(other), ['intention.set:executed:ok']);
-  assert.equal(other.list().filter((r) => r.every).length, 2);
-});
-
-test('heartbeat turn: the switch off gives the earlier behaviour back (a post goes out and the change is no end of the turn by itself); the origin is still stamped', async () => {
-  const run = await liveTurn({
-    answers: [
-      toolAnswer(`${THINK}`, [
-        call('message.create', { channel: `#general`, text: `καλημέρα` }),
-        call('intention.set', { due: `1h`, text: `later` }),
-      ]),
-      '<skip/>',
-    ],
-    beat: { intentionsOnly: false },
-  });
-  assert.deepEqual(actionsOf(run), ['message.create:executed:ok', 'intention.set:executed:ok']);
-  assert.equal(run.sends.length, 1);
-  assert.equal(run.llm.calls.length, 1, 'the post and the change both went through: nothing is left to read');
-  assert.equal(run.list()[0].origin, 'heartbeat');
 });
 
 test('an intention_due turn is not limited to intention changes', async () => {
@@ -403,7 +353,7 @@ test('an intention_due turn is not limited to intention changes', async () => {
   assert.equal(run.sends.length, 1);
 });
 
-test('the heartbeat view marks an open intention a heartbeat made; the wake words it compactly and says what the wake accepts only with the switch on', async () => {
+test('the heartbeat view marks an open intention a heartbeat made; the wake words it compactly and says what the wake accepts', async () => {
   const record = (id, extra = {}) => ({
     id,
     status: 'pending',
@@ -435,8 +385,6 @@ test('the heartbeat view marks an open intention a heartbeat made; the wake word
   assert.ok(lineOf('ia').endsWith(labels.wake.heartbeat.openOrigin), lineOf('ia'));
   assert.ok(!lineOf('ib').includes(labels.wake.heartbeat.openOrigin), 'an intention of hers has no mark');
   assert.ok(text.includes(labels.wake.heartbeat.intentionsOnly));
-  const off = await view({ intentionsOnly: false });
-  assert.ok(!wakeBlockText({ ...BEAT_WAKE, heartbeat: off }, labels).includes(labels.wake.heartbeat.intentionsOnly));
 });
 
 for (const transport of ['native', 'text']) {

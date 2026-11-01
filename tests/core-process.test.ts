@@ -624,3 +624,36 @@ test('the in-process fake and the fake unit give the model the same request for 
     assert.equal(shapeOf(llm.requests[0]), shapeOf(inProcessLlm.requests[0]));
   });
 });
+
+// PR 7d: `memoryDb.wakeRuns` and `memoryDb.focus.enabled` are code (owner, 2026-10-31). With no memoryDb setting the
+// core records its heartbeat as a wake run and runs the day's focus job.
+test('a core with no memoryDb setting records its heartbeat as a wake run and runs the focus job of the day', async () => {
+  const realStart = Date.now();
+  const now = (): number => T0 + (Date.now() - realStart) * 60;
+  await withRig(
+    {
+      features: { innerLife: true, intentions: false },
+      innerLife: {
+        mode: 'shadow',
+        tickSeconds: 1,
+        review: { enabled: false },
+        heartbeat: { enabled: true, everyMinutes: 1, jitterMinutes: 0 },
+      },
+    },
+    async ({ dirs, llm, cores }) => {
+      cores.push(await startUnitsCore(dirs, llm, now));
+      await until(
+        () => query(dirs, "SELECT 1 FROM wake_runs WHERE kind = 'heartbeat'").length > 0,
+        'a heartbeat wake run',
+        10000
+      );
+      await until(
+        () => query(dirs, "SELECT 1 FROM meta WHERE key = 'focus_last_day'").length > 0,
+        'the focus job of the day',
+        10000
+      );
+      const runs = query(dirs, "SELECT status FROM wake_runs WHERE kind = 'heartbeat'");
+      assert.ok(runs.length >= 1, 'the heartbeat is a wake run');
+    }
+  );
+});

@@ -2,8 +2,7 @@
 // registry (src/tools/impl/registry.ts), in the registry's order (that order drives the skills index,
 // the family listing and the expansion of `*` in a grant). An entry holds what she sees (`name`,
 // `params`, the JSON Schema of her arguments), how a call reaches the operation (`op`, `body`,
-// `toArgs`), and what the operation costs and changes (`effects`, `costClass`, `feature`,
-// `result`). Nothing here reads the owner's slash commands; `toArgs` maps her arguments to the
+// `toArgs`), and what the operation costs and changes (`effects`, `costClass`, `result`). Nothing here reads the owner's slash commands; `toArgs` maps her arguments to the
 // operation's arguments by hand. Pure: no state, and it imports only types.
 
 import { idText, isObj, objOf } from './types.ts';
@@ -52,7 +51,6 @@ export type Definition = {
   body: string | null;
   effects: EffectClass;
   costClass: 'free' | 'paid';
-  feature: string | null;
   result: 'effect' | 'job' | 'data';
   toArgs: ToArgs;
 };
@@ -264,12 +262,11 @@ type Row = {
   refs?: Readonly<Record<string, RefKind>>;
   body?: string | null;
   effects: EffectClass;
-  feature?: string | null;
   toArgs: ToArgs;
 };
 
 /** One entry: the table row with the fields every row shares worked out from `effects` and the name. */
-function def(name: string, { params, refs = NO_REFS, body = null, effects, feature = null, toArgs }: Row): Definition {
+function def(name: string, { params, refs = NO_REFS, body = null, effects, toArgs }: Row): Definition {
   return {
     name,
     api: API_NAMES[name] ?? '',
@@ -279,7 +276,6 @@ function def(name: string, { params, refs = NO_REFS, body = null, effects, featu
     body,
     effects,
     costClass: effects === 'paid' ? 'paid' : 'free',
-    feature,
     result: JOBS.includes(name) ? 'job' : effects === 'read' ? 'data' : 'effect',
     toArgs,
   };
@@ -331,7 +327,7 @@ const ENTRIES: Array<Definition> = [
         'memory',
         'speed',
       ]),
-      part: oneOf(['overview', 'limits', 'models', 'memory', 'inner', 'errands', 'features', 'all']),
+      part: oneOf(['overview', 'limits', 'models', 'memory', 'inner', 'errands', 'all']),
     }),
     effects: 'read',
     toArgs: (a) => ({ field: val(a, 'field') ?? null, ...(val(a, 'part') ? { part: val(a, 'part') } : {}) }),
@@ -369,7 +365,6 @@ const ENTRIES: Array<Definition> = [
     refs: { channel: 'channel' },
     body: 'text',
     effects: 'paid',
-    feature: 'speech',
     toArgs: (a) => {
       const channelId = idOf(a, 'channel');
       const replyTo = opt(a, 'reply');
@@ -668,7 +663,6 @@ const ENTRIES: Array<Definition> = [
     refs: { channel: 'channel', attend: 'channel' },
     body: 'text',
     effects: 'write',
-    feature: 'intentions',
     toArgs: intentArgs('add'),
   }),
   def('intention.update', {
@@ -676,20 +670,17 @@ const ENTRIES: Array<Definition> = [
     refs: { channel: 'channel' },
     body: 'text',
     effects: 'write',
-    feature: 'intentions',
     toArgs: intentArgs('update'),
   }),
   def('intention.cancel', {
     params: INTENT_PARAMS.cancel,
     body: 'id',
     effects: 'write',
-    feature: 'intentions',
     toArgs: intentArgs('cancel'),
   }),
   def('intention.list', {
     params: INTENT_PARAMS.list,
     effects: 'read',
-    feature: 'intentions',
     toArgs: intentArgs('list'),
   }),
   def('places.list', {
@@ -711,16 +702,14 @@ const ENTRIES: Array<Definition> = [
   def('inner.stop', {
     params: EMPTY(),
     effects: 'administrative',
-    feature: 'innerLife',
     toArgs: () => ({ action: 'stop' }),
   }),
   def('inner.start', {
     params: EMPTY(),
     effects: 'administrative',
-    feature: 'innerLife',
     toArgs: () => ({ action: 'start' }),
   }),
-  def('inner.status', { params: EMPTY(), effects: 'read', feature: 'innerLife', toArgs: () => ({ action: 'status' }) }),
+  def('inner.status', { params: EMPTY(), effects: 'read', toArgs: () => ({ action: 'status' }) }),
   def('web.search', {
     params: obj({ query: str(200), goal: str(300) }, ['query']),
     body: 'query',
@@ -737,7 +726,6 @@ const ENTRIES: Array<Definition> = [
     params: obj({ message: str(200), url: str(2000), question: str(500), item: int(1, 20) }, ['question']),
     body: 'question',
     effects: 'read',
-    feature: 'coreTools',
     toArgs: (a) => ({
       message: opt(a, 'message'),
       url: opt(a, 'url'),
@@ -749,7 +737,6 @@ const ENTRIES: Array<Definition> = [
     params: obj({ query: str(200), n: int(1, 10) }, ['query']),
     body: 'query',
     effects: 'read',
-    feature: 'coreTools',
     toArgs: (a) => ({ query: val(a, 'query'), ...(val(a, 'n') == null ? {} : { n: val(a, 'n') }) }),
   }),
   def('memory.search', {
@@ -861,7 +848,7 @@ function checkArguments(name: string, definition: Obj, properties: Obj, required
  * Checks a list of definitions; throws on the first problem (a programming error, found at
  * start): a missing or repeated name, a missing or repeated or ill-formed API name, an unknown
  * effect, cost class or result, a body that is not a string argument, a reference that is not
- * an argument or has an unknown kind, a feature that is not a name, a missing `params` or `toArgs`.
+ * an argument or has an unknown kind, a missing `params` or `toArgs`.
  */
 export function validateDefinitions(
   definitions: ReadonlyArray<unknown> = SKILL_DEFINITIONS
@@ -875,8 +862,6 @@ export function validateDefinitions(
     const { properties, required } = checkSchema(name, definition);
     checkKinds(name, definition);
     checkArguments(name, definition, properties, required);
-    if (definition.feature !== null && (typeof definition.feature !== 'string' || !definition.feature))
-      throw new Error(`skill ${name}: feature must be null or a name`);
     if (typeof definition.toArgs !== 'function') throw new Error(`skill ${name}: toArgs is required`);
   }
   // Every entry passed the checks above, which are the whole of the `Definition` type.

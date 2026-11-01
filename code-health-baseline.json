@@ -1,25 +1,22 @@
 {
   "files": {
-    "src/behavior/recall-run.js": 2331,
-    "src/behavior/recall.js": 2491,
-    "src/behavior/sandbox.js": 2136,
-    "src/memory/store.js": 3342,
-    "tests/admin.test.js": 3877,
-    "tests/describe.test.js": 3705,
-    "tests/events.test.js": 9301,
-    "tests/format.test.js": 2060,
-    "tests/inner.test.js": 2447,
-    "tests/memory-db-session.test.js": 2111,
-    "tests/openrouter.test.js": 3653,
-    "tests/prompt.test.js": 7072,
-    "tests/prompts-shipped.test.js": 2063,
-    "tests/recall-run.test.js": 2384,
-    "tests/recall.test.js": 2553,
-    "tests/sandbox.test.js": 2068,
-    "tests/store.test.js": 3255,
-    "tests/turn.test.js": 12881,
+    "src/behavior/recall-run.js": 2278,
+    "src/behavior/recall.js": 2458,
+    "src/behavior/sandbox.js": 2121,
+    "src/memory/store.js": 3303,
+    "tests/admin.test.js": 3769,
+    "tests/describe.test.js": 3115,
+    "tests/events.test.js": 7253,
+    "tests/format.test.js": 2020,
+    "tests/inner.test.js": 2437,
+    "tests/memory-db-session.test.js": 2109,
+    "tests/openrouter.test.js": 3557,
+    "tests/prompt.test.js": 6640,
+    "tests/recall.test.js": 2442,
+    "tests/store.test.js": 3230,
+    "tests/turn.test.js": 9136,
     "tools/lib/inner-week.mjs": 2196,
-    "tools/replay.mjs": 7705
+    "tools/replay.mjs": 7553
   },
   "functions": {
     "interfaces/discord/collect.js": {
@@ -59,11 +56,6 @@
         "complexity": 24
       }
     },
-    "src/behavior/catch-up.js": {
-      "createOfflineCatchUp>run": {
-        "complexity": 21
-      }
-    },
     "src/behavior/deleted-lines.js": {
       "deletedLinesOf": {
         "complexity": 34
@@ -74,15 +66,10 @@
         "complexity": 43
       }
     },
-    "src/behavior/inner.ts": {
-      "createInnerLife>tick": {
-        "complexity": 22
-      }
-    },
     "src/behavior/inner/drain.ts": {
       "drain": {
-        "complexity": 91,
-        "function-length": 387
+        "complexity": 89,
+        "function-length": 386
       }
     },
     "src/behavior/inner/facts.ts": {
@@ -97,18 +84,15 @@
     },
     "src/behavior/inner/status.ts": {
       "status": {
-        "complexity": 24
+        "complexity": 23
       }
     },
     "src/behavior/missed.js": {
       "createMissed": {
-        "function-length": 652
+        "function-length": 648
       },
       "createMissed>onTurnEnd": {
         "complexity": 23
-      },
-      "createMissed>recover": {
-        "complexity": 21
       },
       "reconcileFromRecords": {
         "complexity": 32
@@ -126,28 +110,28 @@
     },
     "src/behavior/prompt.js": {
       "buildDiaryPlanRequest": {
-        "complexity": 28
+        "complexity": 25
       }
     },
     "src/behavior/recall-run.js": {
       "createRecall": {
-        "function-length": 1934
+        "function-length": 1884
       },
       "createRecall>findPeople": {
         "complexity": 36
       },
       "createRecall>prefetch": {
-        "complexity": 42
+        "complexity": 40
       },
       "createRecall>recallWith": {
-        "complexity": 75,
-        "function-length": 497
+        "complexity": 74,
+        "function-length": 482
       },
       "createRecall>run": {
-        "complexity": 30
+        "complexity": 28
       },
       "createRecall>storedMemory": {
-        "complexity": 47
+        "complexity": 40
       }
     },
     "src/behavior/recall.js": {
@@ -186,14 +170,9 @@
         "complexity": 38
       }
     },
-    "src/behavior/spontaneous.js": {
-      "createSpontaneous": {
-        "function-length": 428
-      }
-    },
     "src/behavior/turn.js": {
       "createTurnRunner": {
-        "function-length": 505
+        "function-length": 470
       }
     },
     "src/behavior/wake.ts": {
@@ -256,10 +235,7 @@
     },
     "src/intentions/service.ts": {
       "createIntentionService": {
-        "function-length": 715
-      },
-      "createIntentionService>addCandidates": {
-        "complexity": 21
+        "function-length": 709
       },
       "createIntentionService>set": {
         "complexity": 24
@@ -278,15 +254,15 @@
     },
     "src/llm/images.js": {
       "createImageGen>generate": {
-        "complexity": 34
+        "complexity": 31
       }
     },
     "src/llm/openrouter.js": {
       "createLlm": {
-        "function-length": 631
+        "function-length": 620
       },
       "createLlm>complete": {
-        "complexity": 46
+        "complexity": 45
       }
     },
     "src/llm/parse.js": {
@@ -319,7 +295,7 @@
         "complexity": 27
       },
       "reviewDescription": {
-        "complexity": 25
+        "complexity": 24
       }
     },
     "src/memory/db/diary-media.js": {
@@ -374,7 +350,7 @@
     },
     "src/memory/db/service.js": {
       "createMemoryDb": {
-        "function-length": 1141
+        "function-length": 1135
       },
       "createMemoryDb>sessionJob": {
         "complexity": 30
@@ -412,34 +388,20 @@
     },
     "src/memory/describe.js": {
       "createDescriber": {
-        "function-length": 1412
+        "function-length": 1299
       },
       "createDescriber>fetchVideoMedia": {
-        "complexity": 23
-      },
-      "createDescriber>relookImage": {
-        "complexity": 22
-      },
-      "createDescriber>rewatchGif": {
-        "complexity": 22
-      },
-      "createDescriber>rewatchVideo": {
-        "complexity": 26
+        "complexity": 21
       },
       "createDescriber>watchVideo": {
-        "complexity": 28
+        "complexity": 24
       }
     },
     "src/memory/embedder.js": {
       "createEmbedder": {
-        "function-length": 487
+        "function-length": 486
       },
       "createEmbedder>runFlush": {
-        "complexity": 21
-      }
-    },
-    "src/memory/gif-backfill.js": {
-      "createGifBackfill>run": {
         "complexity": 21
       }
     },
@@ -466,7 +428,7 @@
         "complexity": 42
       },
       "createJournal": {
-        "function-length": 626
+        "function-length": 625
       },
       "journalLine": {
         "complexity": 22
@@ -503,10 +465,7 @@
     },
     "src/memory/store.js": {
       "createStore": {
-        "function-length": 2310
-      },
-      "normalizePrivate": {
-        "complexity": 21
+        "function-length": 2276
       }
     },
     "src/memory/vectors.js": {
@@ -544,7 +503,7 @@
     },
     "src/tools/gateway.ts": {
       "checkSkill": {
-        "complexity": 31
+        "complexity": 30
       },
       "requesterRefusal": {
         "complexity": 21
@@ -552,7 +511,7 @@
     },
     "src/tools/impl/draw.ts": {
       "<anonymous>>cmdDraw": {
-        "complexity": 37
+        "complexity": 36
       }
     },
     "src/tools/impl/errand.ts": {
@@ -562,31 +521,31 @@
     },
     "src/tools/impl/intention.ts": {
       "<anonymous>>cmdUpdate": {
-        "complexity": 22
+        "complexity": 21
       }
     },
     "src/tools/impl/memory.ts": {
       "<anonymous>": {
-        "function-length": 471
+        "function-length": 462
       },
       "<anonymous>>cmdMemoryShow": {
-        "complexity": 23
+        "complexity": 22
       }
     },
     "src/tools/impl/message.ts": {
       "<anonymous>": {
-        "function-length": 320
+        "function-length": 308
       },
       "<anonymous>>mediaFile": {
         "complexity": 26
       },
       "<anonymous>>post": {
-        "complexity": 36
+        "complexity": 34
       }
     },
     "src/tools/impl/metrics.ts": {
       "metricsTap><anonymous>": {
-        "complexity": 26
+        "complexity": 24
       }
     },
     "src/tools/impl/shared.ts": {
@@ -596,7 +555,7 @@
     },
     "src/tools/impl/status.ts": {
       "<anonymous>#2": {
-        "function-length": 641
+        "function-length": 618
       },
       "<anonymous>#2>keyCostsValue": {
         "complexity": 21
@@ -617,7 +576,7 @@
     },
     "src/tools/registry.ts": {
       "loadSkills": {
-        "complexity": 26
+        "complexity": 25
       }
     },
     "src/tools/schema.ts": {
@@ -635,13 +594,10 @@
         "complexity": 35
       },
       "runMediaLook": {
-        "complexity": 41
+        "complexity": 36
       },
       "runMemorySearch": {
         "complexity": 35
-      },
-      "runWebRead": {
-        "complexity": 23
       }
     },
     "src/web/exa.js": {
@@ -656,13 +612,10 @@
     },
     "src/web/lookup.js": {
       "createLookup": {
-        "function-length": 659
+        "function-length": 542
       },
       "createLookup>search": {
-        "complexity": 23
-      },
-      "createLookup>searchResults": {
-        "complexity": 22
+        "complexity": 21
       }
     },
     "src/web/readable.js": {
@@ -745,14 +698,14 @@
     },
     "tools/recall-eval.mjs": {
       "main": {
-        "complexity": 46,
-        "function-length": 536
+        "complexity": 45,
+        "function-length": 528
       },
       "main>askClassifier": {
         "complexity": 24
       },
       "traces": {
-        "complexity": 33
+        "complexity": 32
       }
     },
     "tools/replay-compare.mjs": {
@@ -778,25 +731,25 @@
         "complexity": 27
       },
       "preTurnLookup": {
-        "complexity": 43
+        "complexity": 42
       },
       "runDiary": {
-        "complexity": 54
+        "complexity": 52
       },
       "runDiaryDay": {
-        "complexity": 35
+        "complexity": 32
       },
       "runInner": {
         "complexity": 63,
         "function-length": 393
       },
       "runMain": {
-        "complexity": 160,
-        "function-length": 761
+        "complexity": 155,
+        "function-length": 758
       },
       "runRecall": {
-        "complexity": 70,
-        "function-length": 395
+        "complexity": 64,
+        "function-length": 390
       },
       "runRecall><anonymous>#2": {
         "complexity": 21
@@ -809,11 +762,11 @@
         "function-length": 548
       },
       "runSplit": {
-        "complexity": 28
+        "complexity": 26
       },
       "runTriggerLoops": {
-        "complexity": 56,
-        "function-length": 377
+        "complexity": 48,
+        "function-length": 325
       }
     },
     "tools/search-compare.mjs": {

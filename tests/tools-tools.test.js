@@ -20,7 +20,7 @@ import { videoSiteFor, videoUrlCacheKey } from '../src/media/video-sites.js';
 import { labels } from './fixtures/labels.js';
 
 const NOW = Date.UTC(2026, 9, 17, 12);
-const WEB_ON = { features: { webLookup: true }, web: { search: { enabled: true } } };
+const WEB_ON = { web: { search: { enabled: true } } };
 
 function fakeLookup({
   found = {
@@ -197,11 +197,11 @@ test('memorySearchText: each stretch is cut on its own, the whole by stretches t
   );
 });
 
-test('runWebSearch: her query goes to the raw search as written, the results are cut by the config; the statuses of a search that cannot run', async () => {
+test('runWebSearch: her query goes to the raw search as written, the results are cut at the snippet length; the statuses of a search that cannot run', async () => {
   const lookup = fakeLookup();
   const ok = await runWebSearch({
     lookup,
-    config: { ...WEB_ON, web: { search: { enabled: true, snippetChars: 5 } } },
+    config: WEB_ON,
     labels,
     guildId: 'g1',
     args: { query: '  τελικός 2026 ', goal: 'ποιος' },
@@ -209,7 +209,7 @@ test('runWebSearch: her query goes to the raw search as written, the results are
   assert.equal(ok.status, 'ok');
   assert.deepEqual(lookup.searches, [{ guildId: 'g1', query: 'τελικός 2026' }]);
   assert.ok(ok.data.text.startsWith(fill(labels.tools.tools.web.source, { query: 'τελικός 2026' })), ok.data.text);
-  assert.ok(ok.data.text.includes('https://www.example.com/a') && ok.data.text.endsWith('Η…'), ok.data.text);
+  assert.ok(ok.data.text.includes('https://www.example.com/a'), ok.data.text);
   const status = async (overrides) => {
     const result = await runWebSearch({
       lookup: fakeLookup(overrides.lookup),
@@ -221,9 +221,7 @@ test('runWebSearch: her query goes to the raw search as written, the results are
     return [result.status, result.code];
   };
   assert.deepEqual(await status({ args: {} }), ['invalid', 'invalid-args']);
-  assert.deepEqual(await status({ config: { features: { webLookup: false } } }), ['not_configured', 'not-configured']);
   assert.deepEqual(await status({ lookup: { hasSearch: false } }), ['not_configured', 'not-configured']);
-  assert.deepEqual(await status({ lookup: { capLeft: 0 } }), ['failed', 'daily-cap']);
   assert.deepEqual(await status({ lookup: { found: null } }), ['failed', 'error']);
   assert.deepEqual(
     (await runWebSearch({ lookup: null, config: WEB_ON, labels, guildId: 'g1', args: { query: 'x' } })).status,
@@ -235,7 +233,7 @@ test('runWebRead: a link, or the link of a message, goes to the page reader; the
   const lookup = fakeLookup();
   const ok = await runWebRead({
     lookup,
-    config: { ...WEB_ON, web: { links: { readChars: 1234 } } },
+    config: WEB_ON,
     labels,
     guildId: 'g1',
     args: { url: ' https://example.com/p ' },
@@ -245,7 +243,8 @@ test('runWebRead: a link, or the link of a message, goes to the page reader; the
   assert.equal(
     ok.data.text,
     [
-      fill(labels.tools.tools.read.source, { url: 'https://example.com/p', maxChars: '1234' }),
+      // PR 7d: web.links.readChars is the constant 4000.
+      fill(labels.tools.tools.read.source, { url: 'https://example.com/p', maxChars: '4000' }),
       fill(labels.tools.tools.read.title, { title: 'Σελίδα' }),
       'Το κείμενο της σελίδας.',
     ].join('\n')
@@ -280,9 +279,7 @@ test('runWebRead: a link, or the link of a message, goes to the page reader; the
   };
   assert.deepEqual(await status({ args: {} }), ['invalid', 'invalid-args']);
   assert.deepEqual(await status({ args: { message: 'm1' } }), ['invalid', 'no-link'], 'a message without a link');
-  assert.deepEqual(await status({ config: { features: { webLookup: false } } }), ['not_configured', 'not-configured']);
   assert.deepEqual(await status({ lookup: null }), ['not_configured', 'not-configured']);
-  assert.deepEqual(await status({ lookup: { capLeft: 0 } }), ['failed', 'daily-cap']);
   assert.deepEqual(await status({ lookup: { page: { ok: false, reason: 'private' } } }), ['failed', 'private']);
   assert.deepEqual(await status({ lookup: { page: { ok: false, reason: 'scheme' } } }), ['invalid', 'scheme']);
   const empty = await runWebRead({
@@ -507,7 +504,7 @@ test('runMediaLook: her question goes to the second look of the item she names, 
   assert.deepEqual([...new Set(asked)], ['m7']);
 });
 
-test('runMediaLook: the statuses -- arguments, message, media, switches, the turn cap and the daily second-look limits', async () => {
+test('runMediaLook: the statuses -- arguments, message, media, the turn cap and a describer that gives nothing', async () => {
   const run = async ({
     args = { message: 'm7', question: 'τι;' },
     config = LOOK_ON,
@@ -535,56 +532,10 @@ test('runMediaLook: the statuses -- arguments, message, media, switches, the tur
   ]);
   assert.deepEqual(await run({ args: { message: 'm7', question: 'τι;', item: 9 } }), ['invalid', 'invalid-args']);
   assert.deepEqual(await run({ describer: null }), ['not_configured', 'not-configured']);
-  assert.deepEqual(await run({ config: { ...LOOK_ON, features: { ...LOOK_ON.features, imageRelook: false } } }), [
-    'not_configured',
-    'not-configured',
-  ]);
-  assert.deepEqual(
-    await run({
-      args: { message: 'm7', question: 'τι;', item: 2 },
-      config: { ...LOOK_ON, features: { ...LOOK_ON.features, videoRewatch: false } },
-    }),
-    ['not_configured', 'not-configured']
-  );
-  assert.deepEqual(
-    await run({
-      args: { message: 'm7', question: 'τι;', item: 2 },
-      config: { ...LOOK_ON, features: { ...LOOK_ON.features, mediaDescriptions: false } },
-    }),
-    ['not_configured', 'not-configured'],
-    'a video without video vision'
-  );
-  // The daily limits the second look already has: one second-look counter, a video slot for a video, a GIF watch slot for a GIF.
-  assert.deepEqual(await run({ describer: fakeDescriber({ caps: { video: 5, rewatch: 0, gif: 5 } }) }), [
-    'failed',
-    'daily-cap',
-  ]);
-  assert.deepEqual(
-    await run({
-      args: { message: 'm7', question: 'τι;', item: 2 },
-      describer: fakeDescriber({ caps: { video: 0, rewatch: 5, gif: 5 } }),
-    }),
-    ['failed', 'daily-cap']
-  );
-  assert.deepEqual(
-    await run({ describer: fakeDescriber({ caps: { video: 0, rewatch: 5, gif: 0 } }) }),
-    ['ok', undefined],
-    'a picture takes no video or GIF slot'
-  );
-  assert.deepEqual(
-    await run({
-      args: { message: 'm7', question: 'τι;', item: 3 },
-      describer: fakeDescriber({ caps: { video: 5, rewatch: 5, gif: 0 } }),
-    }),
-    ['failed', 'daily-cap']
-  );
   // The turn's own cap: the slot is taken only once every other check passed.
   let slots = 1;
   const takeTurnSlot = () => (slots > 0 ? ((slots -= 1), true) : false);
-  assert.deepEqual(await run({ describer: fakeDescriber({ caps: { video: 5, rewatch: 0, gif: 5 } }), takeTurnSlot }), [
-    'failed',
-    'daily-cap',
-  ]);
+  assert.deepEqual(await run({ args: { question: 'τι;' }, takeTurnSlot }), ['invalid', 'invalid-args']);
   assert.equal(slots, 1, 'a refused look takes no slot of the turn');
   assert.deepEqual(await run({ takeTurnSlot }), ['ok', undefined]);
   assert.deepEqual(await run({ takeTurnSlot }), ['failed', 'turn-cap']);
@@ -688,7 +639,7 @@ test('runMediaLook url: exactly one of message and url; an unparseable or non-ht
   ]);
 });
 
-test('runMediaLook url: the video switch, the daily caps and the turn cap the message looks have, the turn count shared', async () => {
+test('runMediaLook url: a video link has the turn cap the message looks have, the turn count shared', async () => {
   const given = { url: 'https://youtube.com/watch?v=abc', question: 'τι;' };
   const run = ({ describer = fakeDescriber(), config = LOOK_ON, takeTurnSlot, args = given } = {}) =>
     runMediaLook({
@@ -700,24 +651,7 @@ test('runMediaLook url: the video switch, the daily caps and the turn cap the me
       mediaOf: () => mediaMessage(),
       ...(takeTurnSlot ? { takeTurnSlot } : {}),
     }).then((r) => [r.status, r.code]);
-  assert.deepEqual(await run({ config: { ...LOOK_ON, features: { ...LOOK_ON.features, videoRewatch: false } } }), [
-    'not_configured',
-    'not-configured',
-  ]);
   assert.deepEqual(await run({ describer: null }), ['not_configured', 'not-configured']);
-  assert.deepEqual(await run({ describer: fakeDescriber({ caps: { video: 0, rewatch: 5 } }) }), [
-    'failed',
-    'daily-cap',
-  ]);
-  assert.deepEqual(await run({ describer: fakeDescriber({ caps: { video: 5, rewatch: 0 } }) }), [
-    'failed',
-    'daily-cap',
-  ]);
-  assert.deepEqual(
-    await run({ describer: fakeDescriber({ caps: { video: 5, rewatch: 5, gif: 0 } }) }),
-    ['ok', undefined],
-    'a video link takes no GIF slot'
-  );
   // One per-turn count for both kinds of look.
   let slots = 1;
   const takeTurnSlot = () => (slots > 0 ? ((slots -= 1), true) : false);
@@ -864,27 +798,6 @@ test('runMemorySearch: an empty search that really ran stays ok with the none la
   assert.equal(cut.status, 'ok');
   assert.equal(cut.data.text.split('\n').at(-1), fill(l.partial, { failed: '2', total: '5' }));
   assert.ok(!cut.data.text.includes(l.degraded));
-});
-
-test('runMediaLook: a second look that is switched off names the switch', async () => {
-  const given = { message: 'm7', question: 'τι;', item: '1' };
-  const run = (features, item = '1') =>
-    runMediaLook({
-      describer: fakeDescriber(),
-      config: { ...LOOK_ON, features: { ...LOOK_ON.features, ...features } },
-      labels,
-      guildId: 'g1',
-      args: { ...given, item },
-      mediaOf: () => mediaMessage(),
-    });
-  const picture = await run({ imageRelook: false });
-  assert.deepEqual([picture.status, picture.code], ['not_configured', 'not-configured']);
-  assert.equal(picture.data.text, fill(labels.tools.tools.look.off, { feature: 'features.imageRelook' }));
-  const clip = await run({ videoRewatch: false }, '2');
-  assert.equal(clip.data.text, fill(labels.tools.tools.look.off, { feature: 'features.videoRewatch' }));
-  const noVision = await run({ videoDescriptions: false, mediaDescriptions: false }, '2');
-  assert.equal(noVision.status, 'not_configured');
-  assert.ok(noVision.data.text.length > 0, 'the video vision switch is named too');
 });
 
 test('memorySearchText: with a registry each quoted line carries a #N handle numbered on, the lines that stayed are registered, a cut line is not', () => {

@@ -13,7 +13,6 @@ import { world } from './fixtures/turn-world.ts';
 
 const ZOE = '730000000000000001';
 const IASON = '730000000000000002';
-const MIRROR_ID = '740000000000000009';
 const SAME_AUDIENCE = { context: { pull: { sameAudience: true } } };
 const RAIL_OFF = { context: { pull: { sameAudience: false } } };
 
@@ -76,28 +75,24 @@ test('audienceAllows lets a private chat in on exactly the sources its partner c
   }
 });
 
-test('isReadable refuses a thread, a private chat, an unreadable conversation and the dry-run mirror', () => {
-  const bot = { dryRunChannelId: MIRROR_ID };
-  assert.equal(isReadable(info('open'), bot), true);
-  assert.equal(isReadable(info('thread', { kind: 'thread' }), bot), false);
-  assert.equal(isReadable(info('dm', { kind: 'dm', communityId: null }), bot), false);
+test('isReadable refuses a thread, a private chat and an unreadable conversation', () => {
+  assert.equal(isReadable(info('open')), true);
+  assert.equal(isReadable(info('thread', { kind: 'thread' })), false);
+  assert.equal(isReadable(info('dm', { kind: 'dm', communityId: null })), false);
   assert.equal(
-    isReadable(info('hidden', { permissions: { read: false, send: true, attach: true, react: true } }), bot),
+    isReadable(info('hidden', { permissions: { read: false, send: true, attach: true, react: true } })),
     false
   );
-  assert.equal(isReadable(info(MIRROR_ID), bot), false);
-  assert.equal(isReadable(info(MIRROR_ID), { dryRunChannelId: '' }), true, 'only the configured mirror is refused');
 });
 
 test('isWritable needs a readable conversation she can send in', () => {
-  const bot = {};
-  assert.equal(isWritable(info('open'), bot), true);
+  assert.equal(isWritable(info('open')), true);
   assert.equal(
-    isWritable(info('diary', { permissions: { read: true, send: false, attach: true, react: true } }), bot),
+    isWritable(info('diary', { permissions: { read: true, send: false, attach: true, react: true } })),
     false
   );
   assert.equal(
-    isWritable(info('blind', { permissions: { read: false, send: true, attach: true, react: true } }), bot),
+    isWritable(info('blind', { permissions: { read: false, send: true, attach: true, react: true } })),
     false
   );
 });

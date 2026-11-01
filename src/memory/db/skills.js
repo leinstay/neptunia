@@ -75,7 +75,7 @@ export function manifestOf(definition, nested = []) {
       ...(String(definition.name).startsWith('web.') ? ['web'] : []),
     ],
     fileAccess: params.includes('file') ? ['errand-files'] : [],
-    capabilities: [definition.effects, ...(definition.feature ? [`feature:${definition.feature}`] : [])],
+    capabilities: [definition.effects],
   };
   return Object.fromEntries(MANIFEST_KEYS.map((key) => [key, sorted(manifest[key])]));
 }

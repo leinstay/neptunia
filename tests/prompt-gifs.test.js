@@ -25,12 +25,9 @@ function fakeConfig(overrides = {}) {
         lore: 1500,
         ...overrides.caps,
       },
-      vision: { maxImages: 0, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
-      customEmoji: { max: 30 },
     },
-    features: { vision: false, ...overrides.features },
-    gifs: { max: 20, halfLifeDays: 30, ...overrides.gifs },
-    llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
+    // PR 7d: the GIF list's measures are constants (25 entries, 40 and 70 characters a field, 24 hours of own posts).
+    llm: { maxRequestTokens: 50000 },
     lore: { scanMessages: 30 },
     memory: {},
   };
@@ -116,10 +113,11 @@ test('buildRequest: <gifs> lists the library by rank, header first, handles only
   assert.deepEqual(lines, [labels.gifs.header, 'g2', 'g3', 'g1']);
 });
 
-test('buildRequest: <gifs> shows only the top gifs.max entries (read at use)', () => {
-  const config = fakeConfig({ gifs: { max: 2 } });
-  const lines = gifsBlock(buildRequest(baseInput({ config, gifs: THREE })));
-  assert.deepEqual(lines, [labels.gifs.header, 'g2', 'g3']);
+// PR 7d: `gifs.max` is the constant 25, so the library holds 26 entries.
+test('buildRequest: <gifs> shows only the top gifs.max entries', () => {
+  const many = library(Array.from({ length: 26 }, (_, i) => linkEntry(i + 1, 100 - i)));
+  const lines = gifsBlock(buildRequest(baseInput({ gifs: many })));
+  assert.deepEqual(lines, [labels.gifs.header, ...Array.from({ length: 25 }, (_, i) => `g${i + 1}`)]);
 });
 
 test("buildRequest: <gifs> attaches the cached caption under the entry's itemId, entryNoText otherwise", () => {
@@ -129,20 +127,6 @@ test("buildRequest: <gifs> attaches the cached caption under the entry's itemId,
   };
   const lines = gifsBlock(buildRequest(baseInput({ gifs: THREE, mediaCache })));
   assert.deepEqual(lines, [labels.gifs.header, 'g2 -- a cat dancing on a ὄρνις', 'g3', 'g1']);
-});
-
-test('buildRequest: features.gifs off -> no <gifs> block, no senses line, no handles in the chat', () => {
-  const config = fakeConfig({ features: { gifs: false } });
-  const history = [
-    {
-      ...baseInput().history[0],
-      links: [{ id: 'k2', kind: 'gif', url: 'https://tenor.com/view/gif-2', site: 'Tenor', title: 'Danse 2' }],
-    },
-  ];
-  const request = buildRequest(baseInput({ config, gifs: THREE, history }));
-  assert.equal(gifsBlock(request), null);
-  assert.ok(!sensesOf(request).includes(labels.senses.gifs));
-  assert.ok(userText(request).includes('[gif: Danse 2]'));
 });
 
 test('buildRequest: an empty or missing library -> no <gifs> block and no senses line', () => {
@@ -193,12 +177,12 @@ function longCaption(n) {
 test('buildRequest: <gifs> cuts an older one-line caption to gifs.actionChars at a word boundary with an ellipsis; the stored caption is untouched', () => {
   const caption = longCaption(2);
   const mediaCache = { k2: { text: caption, ts: NOW } };
-  const config = fakeConfig({ gifs: { actionChars: 40 } });
-  const lines = gifsBlock(buildRequest(baseInput({ config, gifs: THREE, mediaCache })));
+  // PR 7d: `gifs.actionChars` is the constant 70.
+  const lines = gifsBlock(buildRequest(baseInput({ gifs: THREE, mediaCache })));
   const line = lines[1];
   assert.ok(line.startsWith('g2 -- '), line);
   const shown = line.slice('g2 -- '.length);
-  assert.ok([...shown].length <= 40, shown);
+  assert.ok([...shown].length <= 70, shown);
   assert.ok(shown.endsWith('…'), 'the cut is marked');
   const kept = shown.slice(0, -1);
   assert.ok(caption.startsWith(kept), 'a prefix of the caption');
@@ -206,7 +190,7 @@ test('buildRequest: <gifs> cuts an older one-line caption to gifs.actionChars at
   assert.equal(mediaCache.k2.text, caption);
 
   const short = { k2: { text: 'a cat', ts: NOW } };
-  assert.equal(gifsBlock(buildRequest(baseInput({ config, gifs: THREE, mediaCache: short })))[1], 'g2 -- a cat');
+  assert.equal(gifsBlock(buildRequest(baseInput({ gifs: THREE, mediaCache: short })))[1], 'g2 -- a cat');
 });
 
 test('buildRequest: <gifs> renders a three-field caption through labels.gifs.entryFields', () => {
@@ -270,38 +254,24 @@ test('buildRequest: entryFields keeps the label as written around the fields; a 
 });
 
 test('buildRequest: gifs.reactionChars and gifs.actionChars cut a three-field caption at render time, the cache untouched', () => {
+  // PR 7d: `gifs.reactionChars` and `gifs.actionChars` are the constants 40 and 70, so the fields are longer than that.
+  const reaction = 'quiet firm agreement with a slow nod and a small smile that says yes';
   const mediaCache = {
     k2: {
       text: 'a cat lifts its chin',
-      reaction: 'quiet firm agreement',
-      action: 'a cat lifts its chin slowly',
-      screen: 'yes yes yes',
+      reaction,
+      action: 'a cat lifts its chin slowly, looks at the camera, blinks twice and turns away from the window light',
+      screen: 'yes yes yes yes yes yes yes yes yes yes yes yes yes yes',
       ts: NOW,
       watched: true,
       gif: true,
     },
   };
-  const config = fakeConfig({ gifs: { reactionChars: 8, actionChars: 14 } });
   assert.equal(
-    gifsBlock(buildRequest(baseInput({ config, gifs: library([linkEntry(2, 9)]), mediaCache })))[1],
-    'g2 -- quiet…; a cat lifts…; "yes yes…"'
+    gifsBlock(buildRequest(baseInput({ gifs: library([linkEntry(2, 9)]), mediaCache })))[1],
+    'g2 -- quiet firm agreement with a slow nod…; a cat lifts its chin slowly, looks at the camera, blinks twice and…; "yes yes yes yes yes yes yes yes yes yes…"'
   );
-  assert.equal(mediaCache.k2.reaction, 'quiet firm agreement');
-});
-
-test('buildRequest: with gifs.actionChars the same context.caps.gifs holds more entries than with full captions', () => {
-  const many = library(Array.from({ length: 40 }, (_, i) => linkEntry(i + 1, 80 - i)));
-  const mediaCache = Object.fromEntries(
-    Array.from({ length: 40 }, (_, i) => [`k${i + 1}`, { text: longCaption(i + 1), ts: NOW }])
-  );
-  const shownWith = (actionChars) => {
-    const config = fakeConfig({ gifs: { max: 40, actionChars }, caps: { gifs: 900 } });
-    return gifsBlock(buildRequest(baseInput({ config, gifs: many, mediaCache }))).length - 1;
-  };
-  const full = shownWith(0);
-  const clamped = shownWith(70);
-  assert.ok(full > 0 && full < 40, `full captions: ${full}`);
-  assert.ok(clamped > full, `clamped ${clamped} vs full ${full}`);
+  assert.equal(mediaCache.k2.reaction, reaction);
 });
 
 test('buildRequest: <gifs> closes the stable part, right after <about_chat>; <server> and <emoji> follow in the tail', () => {
@@ -372,32 +342,6 @@ test('buildRequest: a whole stored on-screen text is still cut per field in <gif
   assert.equal(mediaCache.k2.screen, WHOLE_SCREEN, 'the cache untouched');
 });
 
-test('buildRequest: the chat cuts gifKnownFields by gifs.reactionChars / gifs.actionChars, read at the moment of use', () => {
-  const mediaCache = {
-    k2: {
-      text: 'a cat lifts its chin slowly',
-      reaction: 'quiet firm agreement',
-      action: 'a cat lifts its chin slowly',
-      screen: 'yes yes yes',
-      ts: NOW,
-      watched: true,
-      gif: true,
-    },
-  };
-  const history = [
-    {
-      ...baseInput().history[0],
-      links: [{ id: 'k2', kind: 'gif', url: 'https://tenor.com/view/gif-2', site: 'Tenor', title: 'Danse 2' }],
-    },
-  ];
-  const descriptions = new Map([['k2', 'a cat lifts its chin slowly']]);
-  const config = fakeConfig({ gifs: { reactionChars: 8, actionChars: 14 } });
-  const text = userText(
-    buildRequest(baseInput({ config, gifs: library([linkEntry(2, 9)]), mediaCache, history, descriptions }))
-  );
-  assert.ok(text.includes('[gif g2 -- quiet…; a cat lifts…; "yes yes…"]'), text);
-});
-
 const HOUR = 3_600_000;
 
 /** THREE with g2 posted by the persona `agoMs` before NOW and g3 posted 30 h before. */
@@ -415,8 +359,7 @@ function gifsRecentBlock(request) {
 }
 
 test('buildRequest: <gifs> never marks a gif the persona posted; <gifs_recent> in the tail names it with gifs.ownMark and its age', () => {
-  const config = fakeConfig({ gifs: { ownMarkHours: 24 } });
-  const request = buildRequest(baseInput({ config, gifs: withOwnPosts(2 * HOUR) }));
+  const request = buildRequest(baseInput({ gifs: withOwnPosts(2 * HOUR) }));
   assert.deepEqual(gifsBlock(request), [labels.gifs.header, 'g2', 'g3', 'g1'], 'rank order, no mark');
   assert.deepEqual(
     gifsRecentBlock(request),
@@ -429,35 +372,28 @@ test('buildRequest: <gifs> never marks a gif the persona posted; <gifs_recent> i
   assert.ok(userText(request).indexOf('<gifs_recent>') > userText(request).indexOf('</gifs>'));
 });
 
+// PR 7d: `gifs.max` is the constant 25, so the 26th entry is the one the list does not show.
 test("buildRequest: <gifs_recent> lists the persona's posts newest first, only GIFs the <gifs> list shows", () => {
-  const config = fakeConfig({ gifs: { ownMarkHours: 24, max: 3 } });
-  const gifs = library([
-    { ...linkEntry(1, 9), ownLast: NOW - 3 * HOUR },
-    linkEntry(2, 7),
-    { ...linkEntry(3, 5), ownLast: NOW - HOUR },
-    { ...linkEntry(4, 1), ownLast: NOW - 10 * 60_000 },
-  ]);
-  const request = buildRequest(baseInput({ config, gifs }));
-  assert.deepEqual(gifsBlock(request), [labels.gifs.header, 'g1', 'g2', 'g3']);
+  const own = { 1: NOW - 3 * HOUR, 3: NOW - HOUR, 26: NOW - 10 * 60_000 };
+  const gifs = library(
+    Array.from({ length: 26 }, (_, i) => ({
+      ...linkEntry(i + 1, 100 - i),
+      ...(own[i + 1] ? { ownLast: own[i + 1] } : {}),
+    }))
+  );
+  const request = buildRequest(baseInput({ gifs }));
+  assert.deepEqual(gifsBlock(request), [labels.gifs.header, ...Array.from({ length: 25 }, (_, i) => `g${i + 1}`)]);
   assert.deepEqual(gifsRecentBlock(request), [
     `g3 (you, ${formatDuration(HOUR, labels.units)})`,
     `g1 (you, ${formatDuration(3 * HOUR, labels.units)})`,
   ]);
 });
 
-test('buildRequest: gifs.ownMarkHours 0 -> no <gifs_recent>', () => {
-  const config = fakeConfig({ gifs: { ownMarkHours: 0 } });
-  const request = buildRequest(baseInput({ config, gifs: withOwnPosts(2 * HOUR) }));
-  assert.deepEqual(gifsBlock(request), [labels.gifs.header, 'g2', 'g3', 'g1']);
-  assert.equal(gifsRecentBlock(request), null);
-});
-
 test('buildRequest: a labels.json without gifs.ownMark -> no <gifs_recent>, the list unchanged', () => {
   const { ownMark, ...gifsLabels } = labels.gifs;
   const older = { ...labels, gifs: gifsLabels };
-  const config = fakeConfig({ gifs: { ownMarkHours: 24 } });
   const request = buildRequest(
-    baseInput({ config, gifs: withOwnPosts(2 * HOUR), prompts: { ...baseInput().prompts, labels: older } })
+    baseInput({ gifs: withOwnPosts(2 * HOUR), prompts: { ...baseInput().prompts, labels: older } })
   );
   assert.deepEqual(gifsBlock(request), [older.gifs.header, 'g2', 'g3', 'g1']);
   assert.equal(gifsRecentBlock(request), null);

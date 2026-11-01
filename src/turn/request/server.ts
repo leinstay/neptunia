@@ -9,6 +9,7 @@ import { ID_DIGITS } from '../../memory/mentions.ts';
 import { topByRank } from '../../memory/ranking.js';
 import { resolveChatText } from './text.ts';
 import type { Claim, LabelGroup, Labels, Message, NameOf, RequestConfig } from './types.ts';
+import { MEMORY_LIMITS } from '../../memory/text-limits.js';
 
 /** A channel's stored note (store.listChannels), or the current channel's stand-in. */
 export type StoredChannel = {
@@ -101,7 +102,6 @@ export function serverItems(
   neighborChannelIds: Array<string>,
   history: Array<Message>,
   now: number,
-  activityCfg: RequestConfig['context']['channelActivity'],
   labels: Labels,
   nameOf: NameOf,
   readOnlyIds: Set<string> = new Set(),
@@ -128,7 +128,7 @@ export function serverItems(
       labels,
       {
         current: channel.id === currentChannelId,
-        activity: channelActivity(channel, now, activityCfg),
+        activity: channelActivity(channel, now),
         now,
         nameOf,
         readOnly: readOnlyIds.has(channel.id),
@@ -149,21 +149,12 @@ function teacherId(from: unknown): string | null {
   return match ? (match[1] ?? match[2] ?? null) : null;
 }
 
-/**
- * The `learnedCfg` of `learnedText` read from the live config at the moment
- * of use: `memory.maxLearned` (default 20), `memory.learnedHalfLifeDays`
- * (default 720), `memory.confirmAfter` (unset when absent).
- */
-export function learnedConfig(config: Pick<RequestConfig, 'memory'>): LearnedConfig {
-  return {
-    max:
-      config.memory?.maxLearned !== undefined && Number.isInteger(config.memory.maxLearned)
-        ? config.memory.maxLearned
-        : 20,
-    halfLifeDays: typeof config.memory?.learnedHalfLifeDays === 'number' ? config.memory.learnedHalfLifeDays : 720,
-    confirmAfter: typeof config.memory?.confirmAfter === 'number' ? config.memory.confirmAfter : undefined,
-  };
-}
+/** The `learnedCfg` of `learnedText`: the memory limits' `maxLearned`, `learnedHalfLifeDays` and `confirmAfter`. */
+export const learnedConfig: (config?: Pick<RequestConfig, 'memory'>) => LearnedConfig = () => ({
+  max: MEMORY_LIMITS.maxLearned,
+  halfLifeDays: MEMORY_LIMITS.learnedHalfLifeDays,
+  confirmAfter: MEMORY_LIMITS.confirmAfter,
+});
 
 /**
  * The `labels.aboutChat.learned` line's `{text}`: the top `learnedCfg.max`

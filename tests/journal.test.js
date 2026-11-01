@@ -62,13 +62,13 @@ function recordingMemory(lines) {
   };
 }
 
-function journalAt(clock, { thinkChars = 4000 } = {}) {
+function journalAt(clock) {
   const appendStore = fakeAppendStore();
   const journal = createJournal({
     appendStore,
     memoryDb: recordingMemory(appendStore.lines),
     dataDir: DATA,
-    config: () => ({ thinkChars }),
+    config: () => ({}),
     now: () => clock.ms,
     uuid: counter('u-'),
   });
@@ -115,16 +115,17 @@ test('journal: start allots a turnId and writes turn.start to the day of occurre
   assert.equal(second.attemptId, 2);
 });
 
+// PR 7d: `journal.thinkChars` is the constant 4000, so the think is longer than that.
 test('journal: turn record carries the envelope and caps think at thinkChars', async () => {
   const clock = { ms: DAY_D };
-  const { journal, appendStore } = journalAt(clock, { thinkChars: 20 });
+  const { journal, appendStore } = journalAt(clock);
   await journal.turn('g1', {
     turnId: 't-1',
     attemptId: 1,
     channelId: 'c1',
     outcome: 'spoke',
     reason: null,
-    think: 'Ελένη ρώτησε για το γλυκό και θέλω να απαντήσω σύντομα.',
+    think: 'Ελένη ρώτησε για το γλυκό και θέλω να απαντήσω σύντομα. '.repeat(80),
     participants: ['u1', 'u2'],
     sourceMessageIds: ['m1', 'm2'],
     posted: [{ messageId: 's1', replyTo: 'm2' }],
@@ -148,7 +149,7 @@ test('journal: turn record carries the envelope and caps think at thinkChars', a
   assert.equal(record.id, 'u-1');
   assert.deepEqual(record.scope, { channel: 'c1' });
   assert.deepEqual(record.participants, ['u1', 'u2']);
-  assert.ok(Array.from(record.think).length <= 20, record.think);
+  assert.ok(Array.from(record.think).length <= 4000, record.think);
   assert.ok(record.think.length > 0);
   assert.equal(record.thinkTruncated, true);
   assert.deepEqual(record.posted, [{ messageId: 's1', replyTo: 'm2' }]);

@@ -26,7 +26,6 @@ import {
 } from '../src/tools/registry.ts';
 import {
   CARRIED_OVER,
-  FEATURE_SKILLS,
   NESTED_CAPABILITIES,
   NOT_GRANTABLE_TO_PERSONA,
   grantedToPersona,
@@ -50,9 +49,8 @@ const persona = Object.freeze({ kind: 'persona' });
 const audience = Object.freeze({ conversationId: HERE, memberIds: [MEMBER] });
 
 /** A config with the settings these tests read, each set here (never the shipped defaults). */
-function config({ features = {}, tools = {}, access = {} } = {}) {
+function config({ tools = {}, access = {} } = {}) {
   return {
-    features: { tools: true, journal: true, ...features },
     tools: { safeMode: false, ...tools },
     bot: { owners: [OWNER], access },
   };
@@ -395,11 +393,10 @@ test('skills access: the irreversible and administrative operations are never op
   ]);
   assert.equal(NOT_GRANTABLE_TO_PERSONA.includes('rule.add'), false, 'adding a rule stays grantable');
   for (const name of NOT_GRANTABLE_TO_PERSONA) {
-    // The inner life's switch on, so its kill switch exists to be refused (src/tools/access.ts#FEATURE_SKILLS).
     assert.deepEqual(
       skillAccess({
         skill: skillRegistry().get(name),
-        config: granting([name], config({ features: { innerLife: true } })),
+        config: granting([name], config()),
         selfId: SELF,
       }),
       { allowed: false, reason: 'not-grantable' },
@@ -420,11 +417,6 @@ test('skills access: her reply tags are carried over in the current conversation
     assert.deepEqual(
       checkReplyEffect({ skill, principal: persona, config: config({ tools: { safeMode: true } }) }),
       { ok: true },
-      skill
-    );
-    assert.deepEqual(
-      checkReplyEffect({ skill, principal: persona, config: config({ features: { tools: false } }) }),
-      { ok: false, code: 'skills-off', reason: 'features.tools' },
       skill
     );
   }
@@ -668,35 +660,8 @@ test('skills gateway: a destructive skill waits out its cooldown in a channel (t
   );
 });
 
-test("skills gateway: draw.create is paid -- the drawing budget applies, the requester's cap included", () => {
-  const draw = (images, requester = { id: OWNER }) =>
-    check({ skill: 'draw.create', args: { text: 'ένα δέντρο' }, granted: ['draw.create'], images, requester });
-  assert.deepEqual(draw(imagesWith({})), { ok: true });
-  assert.deepEqual(draw(imagesWith({ spent: true })), { ok: false, code: 'daily-cap', reason: 'image.maxPerDay' });
-  assert.deepEqual(draw(imagesWith({ userSpent: true })), {
-    ok: false,
-    code: 'daily-cap',
-    reason: 'image.maxPerUserPerDay',
-  });
-  assert.deepEqual(draw(undefined), { ok: false, code: 'no-budget', reason: 'unavailable' });
-  let asked = 'none';
-  draw({
-    quota: ({ userId }) => {
-      asked = userId;
-      return { spent: false, userSpent: false };
-    },
-  });
-  assert.equal(asked, OWNER, "the per-member cap is the requester's");
-});
-
-test('skills gateway: features.tools off refuses everything; safe mode lets only the carried-over calls pass', () => {
-  const off = config({ features: { tools: false } });
-  assert.deepEqual(check({ cfg: off, granted: ['lore.list'] }), {
-    ok: false,
-    code: 'skills-off',
-    reason: 'features.tools',
-  });
-  assert.equal(check({ skill: 'message.pin', cfg: off }).code, 'skills-off');
+// PR 7d: features.tools is code, so the switch-off half of this test went with it.
+test('skills gateway: safe mode lets only the carried-over calls pass', () => {
   const safe = config({ tools: { safeMode: true } });
   assert.deepEqual(check({ granted: ['lore.list'], cfg: safe }), {
     ok: false,
@@ -704,23 +669,15 @@ test('skills gateway: features.tools off refuses everything; safe mode lets only
     reason: 'tools.safeMode',
   });
   assert.deepEqual(check({ skill: 'message.create', args: { text: 'γεια' }, cfg: safe }), { ok: true });
-  // a missing switch counts as on
+  // a config without tools settings is not in safe mode
   assert.deepEqual(check({ granted: ['lore.list'], cfg: { bot: { owners: [OWNER] } } }), { ok: true });
 });
 
 // ---- wake envelopes (innerLife.wakes.<kind>) ------------------------------------------
 
 /** One gateway check of an inner turn's call: her own initiative, nobody asked, `wakeKind` and the calls so far. */
-function innerCheck({
-  skill,
-  args = {},
-  wakes = {},
-  wakeKind = 'heartbeat',
-  wakeActions = [],
-  granted = [],
-  features = {},
-}) {
-  const cfg = granting(granted, { ...config({ features }), innerLife: { wakes } });
+function innerCheck({ skill, args = {}, wakes = {}, wakeKind = 'heartbeat', wakeActions = [], granted = [] }) {
+  const cfg = granting(granted, { ...config(), innerLife: { wakes } });
   return checkSkill({
     skill,
     args,
@@ -759,7 +716,6 @@ test('wake envelope: a tool outside the allowlist is refused at the call, carrie
       skill: 'intention.set',
       args: { text: 'ρωτήσω αύριο' },
       granted: ['intention.set'],
-      features: { intentions: true },
       wakes,
     }),
     { ok: true }
@@ -889,8 +845,8 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
   const cfg = granting(['message.edit', 'memory.restore', 'draw.create', 'memory.private.read']);
   const texts = { 'message.create': { title: 'Στείλε', whenToUse: 'όταν θέλεις', whenNotToUse: 'όχι' } };
   const rows = listSkills({ config: cfg, selfId: SELF, texts, requester: { id: OWNER }, audience });
-  // A skill behind a feature switch that is off has no row (src/tools/access.ts#FEATURE_SKILLS).
-  assert.equal(rows.length, skillNames().filter((name) => !Object.hasOwn(FEATURE_SKILLS, name)).length);
+  // PR 7d: no skill sits behind a feature switch any more, so every skill has a row.
+  assert.equal(rows.length, skillNames().length);
   const byName = new Map(rows.map((row) => [row.name, row]));
   const channel = { name: 'channel', required: false };
   const body = { name: 'text', required: true };
@@ -952,14 +908,6 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
     [row('message.edit', { id: MEMBER }).allowed, row('message.edit', { id: MEMBER }).reason],
     [true, 'allowed']
   );
-  const off = listSkills({
-    config: granting(['message.edit'], config({ features: { tools: false } })),
-    selfId: SELF,
-    texts,
-    requester: null,
-    audience,
-  });
-  assert.ok(off.every((row) => row.allowed === false && row.reason === 'skills-off'));
 });
 
 // ---- the owner grants a skill to her: /nep access grant|revoke with her as the user ------------
@@ -1114,24 +1062,14 @@ test('persona grants: she never changes her effective authority -- not herself, 
       assert.deepEqual([result.status, result.code], ['denied', 'self-grant'], `${name} ${JSON.stringify(args)}`);
     }
     assert.deepEqual(t.stored(), {}, 'nothing was written');
-    // the governed keys, one list: owners, rights, her kill switch and safe mode, her skills, the journal
-    for (const key of [
-      'bot.owners',
-      'bot.access',
-      'features.tools',
-      'tools.safeMode',
-      'tools.callTimeoutMs',
-      'features.journal',
-      'features.memberCommands',
-      'bot',
-    ])
+    // the governed keys, one list: owners, rights, safe mode and her tools' settings
+    for (const key of ['bot.owners', 'bot.access', 'tools.safeMode', 'tools.callTimeoutMs', 'bot'])
       assert.ok(governsPersona(key), key);
-    for (const key of ['llm.maxRequestsPerDay', 'features.diary', 'bot.timezone'])
-      assert.equal(governsPersona(key), false, key);
-    assert.ok(PERSONA_GOVERNED_CONFIG.includes('features.tools'));
+    for (const key of ['llm.maxRequestsPerDay', 'bot.timezone']) assert.equal(governsPersona(key), false, key);
+    assert.ok(PERSONA_GOVERNED_CONFIG.includes('tools'));
     const set = await runOp('config.set', { path: 'tools.safeMode', value: 'false' }, asPersona);
     assert.deepEqual([set.status, set.code], ['denied', 'self-grant']);
-    const unset = await runOp('config.unset', { path: 'features.tools' }, asPersona);
+    const unset = await runOp('config.unset', { path: 'tools.safeMode' }, asPersona);
     assert.deepEqual([unset.status, unset.code], ['denied', 'self-grant']);
     // someone else's role, for an owner who asked her: the normal path
     const other = await runOp('access.grant', { command: 'lore.add', roleId: 'r-other' }, asPersona);

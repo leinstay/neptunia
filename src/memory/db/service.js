@@ -10,11 +10,11 @@
 //     (src/memory/db/recall.js).
 //   - `recordTurnReads` resolves the memory rows one step's request carried when it is called, at assembly time, on the
 //     read connection (the block each was in, its order, the exact claim / description version and source revision),
-//     and writes the turn_reads rows deferred, one transaction (`memoryDb.turnReads`). The persistence is deferred; the
+//     and writes the turn_reads rows deferred, one transaction. The persistence is deferred; the
 //     resolution is not, so a later write cannot change which version a turn is said to have read.
 //   - `memoryWrite` is the one way her memory session and the description review write (session-write.js): a message to
-//     the worker, so the bot's loop never holds a write transaction. The service stamps `memoryDb.audienceColumn` (the
-//     read predicate of the target check) into every write. After an apply, its committed attitude moves are told
+//     the worker, so the bot's loop never holds a write transaction. The service stamps `audienceColumn` (the target check
+//     reads through `audience_id`) into every write. After an apply, its committed attitude moves are told
 //     once to the subscribers of `onAffinityMoves(fn)` (the store, whose cached profiles would otherwise write an older
 //     score over them).
 //   - `status().observe` counts the observations waiting for the database (`queued`), under way (`writing`) and lost
@@ -23,18 +23,18 @@
 //   - the task board (src/board/writer.ts) writes through `memoryWrite` too: an agent's `task.*` command, a board call
 //     of her tools and the reaper's beat are each a write of kind `board`, run by the writer whole.
 //   - `issueContext(spec)` issues an execution context (scope.ts#issueContext: an id, the mode, the destination) read
-//     through the triple or `audience_id` as `memoryDb.audienceColumn` says, and records it in `execution_contexts`
+//     through `audience_id`, and records it in `execution_contexts`
 //     (deferred, through the writer) while the database is open; closed, the context is a pure object all the same.
 //     `recordTurnReads` stores the context id (`contextId`, '' without one) and the reader kind (`turn` by default).
-//   - the focus job (schema v10, focus.js; `memoryDb.focus.enabled`, off by default): once per UTC day, at a tick, the
+//   - the focus job (schema v10, focus.js): once per UTC day, at a tick, the
 //     relationship counts of yesterday and today are recounted and the close and exploring sets recomputed, through the
 //     writer (the worker), with the live `focus` settings. `focusPeople()` reads the sets for the heartbeat's people
 //     view on the read connection (an internal reader), with `focus.exploringShare`; null while the database is closed.
-//   - schema v11 (wakes.js, skills.js, index-policy.js), every part behind its own switch, all off by default:
-//       `memoryDb.wakeRuns`: `recordWake(update)` is the inner life's one way to write its wake runs (src/behavior/
+//   - schema v11 (wakes.js, skills.js, index-policy.js):
+//       the wake runs: `recordWake(update)` is the inner life's one way to write its wake runs (src/behavior/
 //       inner.ts), through the writer; at each open the runs a dead process left `running` longer than the inner
 //       turn's time budget (`innerLife.loop.timeBudgetMs`) become `interrupted`.
-//       `memoryDb.skillsRegistry`: at each open every skill of src/tools/definitions.ts is registered with its
+//       `memoryDb.skillsRegistry` (off by default): at each open every skill of src/tools/definitions.ts is registered with its
 //       content hash (its definition and its operation's source file under src/tools/impl/), its manifest and the engine
 //       commit (`git rev-parse HEAD`, else `unknown`; `commit` injects it).
 //       `recall.db.vectorEviction`: once per UTC day, at a tick, the index policy classifies every line and evicts
@@ -102,7 +102,7 @@ import { LEGACY_IFACE, liveIface, withLiveIface } from './legacy-namespace.ts';
 import { contextRow, issueContext as issuePureContext } from './scope.ts';
 import { applyDiaryUpdate, createDiaryMedia } from './diary-media.js';
 import { NEWEST_CLAIM_VERSION_SQL, applyMemoryWrite, writeTurnReadRows } from './session-write.js';
-import { focusView, lastFocusDay, runFocusDay } from './focus.js';
+import { FOCUS_DEFAULTS, focusView, lastFocusDay, runFocusDay } from './focus.js';
 import { utcDay } from '../../time.js';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -375,7 +375,7 @@ function openContextOf(config, dataDir) {
  *   open?: typeof openMemoryDb, defer?: (fn: () => void) => void, worker?: boolean, iface?: () => string | null,
  *   diaryMediaDeps?: () => ({ port: object, imageFetcher: object }|null) }} options
  *   `diaryMediaDeps` (read at each tick) gives the interface port and the image fetcher the diary media job needs
- *   (`memoryDb.diaryMedia`, diary-media.js); without it the job does nothing.
+ *   (diary-media.js); without it the job does nothing.
  *   `defer` runs a function on the next turn of the event loop (setImmediate), injected by the tests.
  *   `embed` is the embedding client's `embed(texts, { config, purpose })` (the re-embed job; none: the job does
  *   nothing), `commit` the engine commit for the skills registry (default `git rev-parse HEAD`), `selfName()` her name
@@ -418,7 +418,6 @@ export function createMemoryDb({
     const closeMs = given.closeTimeoutMs;
     return {
       file: typeof given.file === 'string' && given.file ? given.file : DEFAULT_FILE,
-      turnReads: given.turnReads !== false,
       closeMs:
         typeof closeMs === 'number' && Number.isFinite(closeMs) && closeMs > 0 ? closeMs : DEFAULT_CLOSE_TIMEOUT_MS,
     };
@@ -506,7 +505,7 @@ export function createMemoryDb({
   });
   function startDiaryMedia() {
     if (closing || !handle) return;
-    if (hot.config?.memoryDb?.diaryMedia !== true || engine?.dead) return;
+    if (engine?.dead) return;
     if (!diaryJob.hasWork()) return;
     diaryJob.run().catch((error) => log.warn('diary media: run failed', { code: codeOf(error) }));
   }
@@ -657,22 +656,20 @@ export function createMemoryDb({
     return Promise.resolve().then(() => applyMemoryWrite(handle, update));
   }
 
-  /** What each open does once (schema v11): stale wake runs interrupted, the skills registered (each behind its switch). */
+  /** What each open does once (schema v11): stale wake runs interrupted, the skills registered (behind its switch). */
   function startupJobs() {
     const given = hot.config?.memoryDb ?? {};
-    if (given.wakeRuns === true) {
-      const budget = hot.config?.innerLife?.loop?.timeBudgetMs;
-      write({
-        kind: 'wake',
-        op: 'interrupt',
-        now: now(),
-        limitMs: Number.isFinite(budget) && budget > 0 ? budget : DEFAULT_TURN_BUDGET_MS,
+    const budget = hot.config?.innerLife?.loop?.timeBudgetMs;
+    write({
+      kind: 'wake',
+      op: 'interrupt',
+      now: now(),
+      limitMs: Number.isFinite(budget) && budget > 0 ? budget : DEFAULT_TURN_BUDGET_MS,
+    })
+      .then((done) => {
+        if (done?.interrupted > 0) log.debug?.('memory db: wake runs interrupted', { runs: done.interrupted });
       })
-        .then((done) => {
-          if (done?.interrupted > 0) log.debug?.('memory db: wake runs interrupted', { runs: done.interrupted });
-        })
-        .catch((error) => log.warn('memory db: wake interrupt failed', { code: codeOf(error) }));
-    }
+      .catch((error) => log.warn('memory db: wake interrupt failed', { code: codeOf(error) }));
     if (given.skillsRegistry === true) {
       Promise.resolve()
         .then(async () => {
@@ -701,11 +698,11 @@ export function createMemoryDb({
   }
 
   /**
-   * One write of the inner life's wake runs (wakes.js#applyWakeWrite) through the writer, while `memoryDb.wakeRuns` is
-   * exactly true and the database is open; else null (nothing is written).
+   * One write of the inner life's wake runs (wakes.js#applyWakeWrite) through the writer while the database is open;
+   * else null (nothing is written).
    */
   function recordWake(update) {
-    if (!handle || closing || hot.config?.memoryDb?.wakeRuns !== true || update?.kind !== 'wake') return null;
+    if (!handle || closing || update?.kind !== 'wake') return null;
     return write(update);
   }
 
@@ -975,7 +972,6 @@ export function createMemoryDb({
   let focusDay = null;
   function startFocus() {
     if (closing || !handle || focusRun || engine?.dead) return;
-    if (hot.config?.memoryDb?.focus?.enabled !== true) return;
     const at = now();
     const day = utcDay(at);
     if (focusDay === day) return;
@@ -1016,8 +1012,7 @@ export function createMemoryDb({
     if (!handle) return null;
     try {
       const sets = focusView(handle.db, { iface });
-      const share = hot.config?.focus?.exploringShare;
-      return { ...sets, exploringShare: Number.isFinite(share) && share >= 0 && share <= 1 ? share : 0.15 };
+      return { ...sets, exploringShare: FOCUS_DEFAULTS.exploringShare };
     } catch (error) {
       log.warn('memory db: focus read failed', { code: codeOf(error) });
       return null;
@@ -1298,7 +1293,7 @@ export function createMemoryDb({
     contextId = null,
     readerKind = 'turn',
   }) {
-    if (!handle || !settings().turnReads || !turnId || !Array.isArray(carried) || carried.length === 0) return;
+    if (!handle || !turnId || !Array.isArray(carried) || carried.length === 0) return;
     // Resolved now, from the rows as they are when the request is assembled; only the write waits for a quiet loop.
     let rows;
     try {
@@ -1403,8 +1398,8 @@ export function createMemoryDb({
    */
   async function memoryWrite(update) {
     if (!handle || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
-    // The read predicate of the target check is the live config's; a diary entry's media go under the data directory.
-    const stamped = { ...update, audienceColumn: hot.config?.memoryDb?.audienceColumn === true, dataDir };
+    // The target check reads through `audience_id`; a diary entry's media go under the data directory.
+    const stamped = { ...update, audienceColumn: true, dataDir };
     // A session's batch read its lines: touched while eviction is on.
     if (update?.kind === 'session' && Array.isArray(update.reads))
       touchSources(update.reads.filter((row) => row?.row_kind === 'sources').map((row) => row.row_id));
@@ -1418,13 +1413,12 @@ export function createMemoryDb({
   }
 
   /**
-   * Issues an execution context for one turn, session or wake (scope.ts#issueContext), read through `audience_id` when
-   * `memoryDb.audienceColumn` is on. While the database is open the context is recorded in `execution_contexts`,
+   * Issues an execution context for one turn, session or wake (scope.ts#issueContext), read through `audience_id`. While the database is open the context is recorded in `execution_contexts`,
    * deferred through the writer (a failure is logged with a code); otherwise it is only the object.
    * @param {{ kind: 'group'|'dm'|'internal', iface?: string, person?: string, place?: string|null, destination?: string|null }} spec
    */
   function issueContext(spec = {}) {
-    const ctx = issuePureContext({ ...spec, now, audienceColumn: hot.config?.memoryDb?.audienceColumn === true });
+    const ctx = issuePureContext({ ...spec, now });
     if (!handle || closing) return ctx;
     const update = { kind: 'context', context: contextRow(ctx) };
     defer(() => {

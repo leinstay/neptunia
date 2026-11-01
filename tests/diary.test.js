@@ -45,7 +45,9 @@ const seq = (values) => {
   return () => values[i++ % values.length];
 };
 
-const base = { quietDayChance: 0, minGapMinutes: 0, maxPerDay: 10 };
+// PR 7d: the gap between slots (90 minutes), the quiet carry (0.25) and the hunger boost (0.5) are constants of
+// src/behavior/diary.ts, and the daily post cap is gone.
+const base = { quietDayChance: 0 };
 
 test('localDayKey: the local date of the zone, not the UTC one', () => {
   const t = Date.parse('2026-03-10T23:30:00Z');
@@ -56,9 +58,10 @@ test('localDayKey: the local date of the zone, not the UTC one', () => {
 test('planDay: a window crossing midnight stays inside it in Europe/Athens', () => {
   const nowMs = Date.parse('2026-03-10T05:00:00Z');
   const cfg = { ...base, windows: [{ from: 18, to: 1, posts: [2, 2] }] };
+  // PR 7d: two slots stay 90 minutes apart, so no case puts both into the hour after midnight.
   for (const values of [
     [0.5, 0.5, 0, 0.999],
-    [0.5, 0.5, 0.95, 0.99],
+    [0.5, 0.5, 0.95, 0.05],
     [0.5, 0.5, 0.1, 0.6],
   ]) {
     const plan = planDay(cfg, nowMs, 'Europe/Athens', seq(values));
@@ -76,35 +79,6 @@ test('planDay: a window crossing midnight stays inside it in Europe/Athens', () 
   }
 });
 
-test('planDay: posts count is drawn per window and capped by maxPerDay', () => {
-  const cfg = {
-    ...base,
-    maxPerDay: 2,
-    windows: [
-      { from: 7, to: 9, posts: [1, 1] },
-      { from: 12, to: 14, posts: [1, 1] },
-      { from: 18, to: 20, posts: [1, 1] },
-    ],
-  };
-  const plan = planDay(cfg, Date.parse('2026-03-10T05:00:00Z'), 'UTC', seq([0.5]));
-  assert.equal(plan.slots.length, 2);
-});
-
-test('planDay: slots over maxPerDay are dropped at random, not the latest', () => {
-  const cfg = {
-    ...base,
-    maxPerDay: 2,
-    windows: [
-      { from: 7, to: 9, posts: [1, 1] },
-      { from: 12, to: 14, posts: [1, 1] },
-      { from: 18, to: 20, posts: [1, 1] },
-    ],
-  };
-  // quiet roll, then count + placement per window (all mid-window), then the drop roll picks index 0
-  const plan = planDay(cfg, Date.parse('2026-03-10T05:00:00Z'), 'UTC', seq([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.1]));
-  assert.deepEqual(plan.slots, [Date.parse('2026-03-10T13:00:00Z'), Date.parse('2026-03-10T19:00:00Z')]);
-});
-
 test('planDay: the count is drawn inside the window range', () => {
   const cfg = { ...base, windows: [{ from: 12, to: 16, posts: [0, 2] }] };
   const nowMs = Date.parse('2026-03-10T05:00:00Z');
@@ -113,7 +87,7 @@ test('planDay: the count is drawn inside the window range', () => {
 });
 
 test('planDay: minGapMinutes drops a slot too close to another', () => {
-  const cfg = { ...base, minGapMinutes: 90, windows: [{ from: 12, to: 16, posts: [2, 2] }] };
+  const cfg = { ...base, windows: [{ from: 12, to: 16, posts: [2, 2] }] };
   const nowMs = Date.parse('2026-03-10T05:00:00Z');
   // quiet roll, count roll, then two placements 10 minutes apart in a 240-minute window
   const plan = planDay(cfg, nowMs, 'UTC', seq([0.5, 0.5, 0.5, 0.5 + 10 / 240]));
@@ -175,34 +149,22 @@ const counted = (values) => {
 const H_NOW = Date.parse('2026-03-10T05:00:00Z');
 
 test('planDay: the quiet chance shrinks by quietCarry per quiet day in a row', () => {
-  const cfg = {
-    ...base,
-    quietDayChance: 0.4,
-    quietCarry: 0.5,
-    hungerBoost: 0.5,
-    windows: [{ from: 12, to: 16, posts: [1, 1] }],
-  };
+  const cfg = { ...base, quietDayChance: 0.4, windows: [{ from: 12, to: 16, posts: [1, 1] }] };
   const first = planDay(cfg, H_NOW, 'UTC', seq([0.3, 0.5, 0.5]), { hunger: [2], quietStreak: 0 });
   assert.equal(first.quiet, true, '0.3 < 0.4');
   assert.deepEqual(first.hunger, [2]);
   assert.equal(first.quietStreak, 0);
   assert.deepEqual(first.posted, []);
   const second = planDay(cfg, H_NOW, 'UTC', seq([0.3, 0.5, 0.5]), { hunger: [2], quietStreak: 1 });
-  assert.equal(second.quiet, false, '0.3 >= 0.4 * 0.5');
+  assert.equal(second.quiet, false, '0.3 >= 0.4 * 0.25');
   assert.equal(second.quietStreak, 1);
   assert.deepEqual(second.posted, []);
-  assert.equal(planDay(cfg, H_NOW, 'UTC', seq([0.15, 0.5, 0.5]), { quietStreak: 1 }).quiet, true, '0.15 < 0.2');
-  assert.equal(planDay(cfg, H_NOW, 'UTC', seq([0.15, 0.5, 0.5]), { quietStreak: 2 }).quiet, false, '0.15 >= 0.1');
-  const flat = { ...cfg, quietCarry: 1 };
-  assert.equal(
-    planDay(flat, H_NOW, 'UTC', seq([0.3, 0.5, 0.5]), { quietStreak: 3 }).quiet,
-    true,
-    'quietCarry 1 keeps the chance'
-  );
+  assert.equal(planDay(cfg, H_NOW, 'UTC', seq([0.05, 0.5, 0.5]), { quietStreak: 1 }).quiet, true, '0.05 < 0.1');
+  assert.equal(planDay(cfg, H_NOW, 'UTC', seq([0.05, 0.5, 0.5]), { quietStreak: 2 }).quiet, false, '0.05 >= 0.025');
 });
 
 test('planDay: a hungry window redraws an empty count, at most once per hunger point', () => {
-  const cfg = { ...base, hungerBoost: 0.5, quietCarry: 0.5, windows: [{ from: 12, to: 16, posts: [0, 1] }] };
+  const cfg = { ...base, windows: [{ from: 12, to: 16, posts: [0, 1] }] };
   // quiet roll, count 0, then (boost roll, redraw) pairs: 0.7 >= 0.5 redraws to 0, then to 1; placement mid-window
   const values = [0.9, 0.1, 0.7, 0.2, 0.7, 0.8, 0.5];
   assert.deepEqual(planDay(cfg, H_NOW, 'UTC', seq(values), { hunger: [2] }).slots, [
@@ -214,18 +176,9 @@ test('planDay: a hungry window redraws an empty count, at most once per hunger p
   assert.deepEqual(planDay(cfg, H_NOW, 'UTC', seq([0.9, 0.1, 0.3, 0.3, 0.3]), { hunger: [3] }).slots, []);
 });
 
-test('planDay: hungerBoost 1 makes hunger change nothing', () => {
-  const cfg = { ...base, hungerBoost: 1, quietCarry: 0.5, windows: [{ from: 12, to: 16, posts: [0, 1] }] };
-  const values = [0.9, 0.1, 0.7, 0.8, 0.5];
-  assert.deepEqual(planDay(cfg, H_NOW, 'UTC', seq(values), { hunger: [5] }).slots, []);
-  assert.deepEqual(planDay(cfg, H_NOW, 'UTC', seq(values), { hunger: [0] }).slots, []);
-});
-
 test('planDay: a [0, 0] window never redraws and adds no deficit', () => {
   const cfg = {
     ...base,
-    hungerBoost: 0.5,
-    quietCarry: 0.5,
     windows: [
       { from: 7, to: 11, posts: [0, 0] },
       { from: 12, to: 16, posts: [0, 1] },
@@ -242,8 +195,6 @@ test('planDay: a [0, 0] window never redraws and adds no deficit', () => {
 test('planDay: an empty window of the day raises the hunger of the later windows', () => {
   const cfg = {
     ...base,
-    hungerBoost: 0.5,
-    quietCarry: 0.5,
     windows: [
       { from: 7, to: 11, posts: [0, 1] },
       { from: 12, to: 16, posts: [0, 1] },
@@ -805,7 +756,6 @@ after(async () => {
 function diaryHarness({
   mirror = true,
   diary = {},
-  features = {},
   data = {},
   posts = [],
   channel = diaryChannelFake(),
@@ -821,15 +771,7 @@ function diaryHarness({
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
-      features: { diary: true, ...features },
-      diary: {
-        windows: [{ from: 18, to: 1, posts: [1, 1] }],
-        quietDayChance: 0,
-        minGapMinutes: 0,
-        maxPerDay: 3,
-        slotGraceMinutes: 30,
-        ...diary,
-      },
+      diary: { windows: [{ from: 18, to: 1, posts: [1, 1] }], quietDayChance: 0, ...diary },
     },
     prompts: { labels },
   };
@@ -878,11 +820,8 @@ function diaryHarness({
 
 // Stage 3 design, section 3 item 1: `diary.channelId` no longer gates the tick, so the case without it is gone; the
 // tick with no channel and no mirror is "posts with zero mirrors" below.
-test('tick: no-op with features.diary false, when paused', async () => {
-  const cases = [
-    ['off', { features: { diary: false } }],
-    ['paused', { data: { paused: true } }],
-  ];
+test('tick: no-op when paused', async () => {
+  const cases = [['paused', { data: { paused: true } }]];
   for (const [reason, setup] of cases) {
     const h = diaryHarness(setup);
     h.setNow(SLOT + MINUTE_MS);
@@ -1022,7 +961,6 @@ test('force: a manual post never feeds the hunger', async () => {
 test('tick: a new day takes its hunger from the last plan and logs it', async () => {
   const fired = Date.UTC(2026, 9, 5, 20, 0, 0);
   const h = diaryHarness({
-    diary: { quietCarry: 0.5, hungerBoost: 0.5 },
     data: {
       diary: {
         g1: { day: '2026-10-05', slots: [fired], done: [fired], posted: [], quiet: false, hunger: [1], quietStreak: 0 },
@@ -1038,7 +976,6 @@ test('tick: a new day takes its hunger from the last plan and logs it', async ()
   assert.equal(line.quietStreak, 0);
 
   const quiet = diaryHarness({
-    diary: { quietCarry: 0.5, hungerBoost: 0.5 },
     data: {
       diary: { g1: { day: '2026-10-05', slots: [], done: [], posted: [], quiet: true, hunger: [1], quietStreak: 1 } },
     },
@@ -1089,15 +1026,6 @@ test('tick: backfills an empty history before the first post', async () => {
   assert.equal(kept.length, 0, 'a history already there is not backfilled');
 });
 
-test('tick: refuses when the daily post cap is reached', async () => {
-  const h = diaryHarness({ diary: { maxPerDay: 2 }, data: { diaryDay: '2026-10-06', diaryPosts: 2 } });
-  h.setNow(SLOT + MINUTE_MS);
-  const { logs } = await withCapturedLogs(() => h.diary.tick());
-  assert.equal(h.turnCalls.length, 0);
-  assert.ok(logs.some((l) => l.msg === 'diary: skip' && l.reason === 'cap'));
-  assert.deepEqual(h.store.state.data.diary.g1.done, [SLOT], 'the slot is spent');
-});
-
 // Stage 3 design, sections 3 and 5: the entry is recorded first and the mirror's capability is read only when it is
 // published, so a mirror place she cannot send or attach in no longer refuses the post.
 test('tick: a mirror place she cannot send or attach in does not refuse the post', async () => {
@@ -1120,18 +1048,13 @@ test('tick: posts with zero mirrors and no channel', async () => {
   assert.ok(!logs.some((l) => l.msg === 'diary: skip' && l.reason === 'no-channel'));
 });
 
-test('force: runs now with the kind, ignores the plan and the quiet day, obeys the caps', async () => {
+test('force: runs now with the kind, ignores the plan and the quiet day', async () => {
   const h = diaryHarness({ diary: { quietDayChance: 1 } });
   const result = await h.diary.force({ kind: 'meme' });
   assert.equal(result.outcome, 'spoke');
   assert.equal(h.turnCalls.length, 1);
   assert.deepEqual(h.turnCalls[0].params.diary, { kind: 'meme', forced: true });
   assert.equal(h.store.state.data.diary, undefined, 'no plan touched');
-
-  const capped = diaryHarness({ diary: { maxPerDay: 1 }, data: { diaryDay: '2026-10-06', diaryPosts: 1 } });
-  const refused = await capped.diary.force({ kind: 'meme' });
-  assert.deepEqual(refused, { outcome: 'refused', reason: 'cap', limit: { key: 'diary.maxPerDay', used: 1, cap: 1 } });
-  assert.equal(capped.turnCalls.length, 0);
 
   const paused = diaryHarness({ data: { paused: true } });
   assert.deepEqual(await paused.diary.force({}), { outcome: 'paused' });
@@ -1161,11 +1084,9 @@ test('stop: no tick after stop', async () => {
   assert.equal(h.store.state.data.diary, undefined);
 });
 
-test('status: the channel, the day plan, the counts of today and the history size', async () => {
-  const h = diaryHarness({
-    posts: [{}, {}],
-    data: { diaryDay: '2026-10-06', diaryPosts: 1, diaryPicturesDay: '2026-10-06', diaryPictures: 1 },
-  });
+// PR 7d: the daily counts of posts and pictures went with the caps.
+test('status: the channel, the day plan and the history size', async () => {
+  const h = diaryHarness({ posts: [{}, {}] });
   await h.diary.tick();
   // Stage 3 design, section 5: `channelId` is the conversation of the diary's first mirror.
   assert.deepEqual(h.diary.status(), {
@@ -1176,8 +1097,6 @@ test('status: the channel, the day plan, the counts of today and the history siz
     quiet: false,
     hunger: [0],
     quietStreak: 0,
-    posts: 1,
-    pictures: 1,
     history: 2,
   });
 });

@@ -155,25 +155,19 @@ function scriptedModel(answers: ReadonlyArray<unknown>, port: Fake, died: () => 
 }
 
 /**
- * The live config of the core: the inner life in `mode`, her tools on, the heartbeat on only when asked (every hour,
- * no jitter, not held to intention changes), the journal off.
+ * The live config of the core: the inner life in `mode`, the heartbeat on only when asked (every hour, no jitter).
+ * PR 7d: the switches are code and a heartbeat holds to intention changes.
  */
 function hotOf(mode: 'live' | 'shadow', heartbeat: boolean) {
   const hot = hotWith({
-    features: { innerLife: true, intentions: true, journal: false, coreTools: true },
     tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
     access: personaGrants(['lore.list', 'message.create', 'message.edit', 'message.react.add']),
     config: {
-      mention: { oneAtATime: true },
       innerLife: {
         mode,
         tickSeconds: 60,
-        queueMax: 20,
-        chatMessages: 30,
-        review: { enabled: false, historyDays: 14 },
-        heartbeat: heartbeat
-          ? { enabled: true, everyMinutes: 60, jitterMinutes: 0, dueJitterMinutes: 0, intentionsOnly: false }
-          : { enabled: false, dueJitterMinutes: 0 },
+        review: { historyDays: 14 },
+        heartbeat: heartbeat ? { enabled: true, everyMinutes: 60, jitterMinutes: 0 } : { enabled: false },
         caps: { perChain: 3 },
       },
     },
@@ -211,8 +205,6 @@ async function core(
   const port = world().port;
   const clock = { t: T };
   const hot = hotOf(mode, heartbeat);
-  // Her lines are recorded only while features.record is exactly true.
-  if (record) Object.assign(hot.config.features, { record: true });
   const dataDir = tempDir('nep-inner-wake-sends-');
   const flags: PauseFlags = {};
   const service = createIntentionService({
@@ -557,7 +549,8 @@ test('the stop switch turned on after the completion keeps the deliveries queued
   }
 });
 
-test('a heartbeat in shadow mode holds nothing and sends nothing: her post is only proposed', async () => {
+// PR 7d: a heartbeat holds to intention changes, so her post is refused heartbeat-only rather than proposed.
+test('a heartbeat in shadow mode holds nothing and sends nothing: her post is refused', async () => {
   const run = await core(
     {
       answers: [toolAnswer('', [call('message.create', { channel: '#chan-c1', text: 'καλημέρα' })]), '<skip/>'],
@@ -571,7 +564,7 @@ test('a heartbeat in shadow mode holds nothing and sends nothing: her post is on
     await run.life.tick();
     assert.equal(run.calls.length, 1, 'the heartbeat ran');
     assert.equal(run.calls[0]?.inner.wake.kind, 'heartbeat');
-    assert.deepEqual(actionsOf(run.results[0]), ['message.create:shadow']);
+    assert.deepEqual(actionsOf(run.results[0]), ['message.create:heartbeat-only']);
     assert.deepEqual(sendsOf(run.port), []);
     assert.deepEqual(queuedDeliveries(readHandleOf(run.memory)), [], 'nothing was recorded to send');
   } finally {

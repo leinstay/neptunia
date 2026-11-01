@@ -25,6 +25,9 @@ import { MESSAGE_RECEIVED, REACTION_CHANGED } from '../../src/protocol/index.js'
 import { memberView } from './members.ts';
 import { DISCORD_IFACE } from './port.js';
 
+/** The longer side of a picture's preview, in pixels. Production value, config cut of 2026-10-31. */
+const IMAGE_SIZE = 512;
+
 /** Discord's REST page size for a message list. */
 export const PAGE = 100;
 
@@ -520,8 +523,8 @@ const idString = (value) => (value === undefined || value === null ? null : Stri
 
 /**
  * The normalizeMessage options from the live config (`media.embedTextChars`,
- * `media.video.sites`, `context.maxUrlChars`, `media.imageSize`): the one copy every caller reads.
- * @param {{ media?: { embedTextChars?: number, imageSize?: number, video?: { sites?: string[] } },
+ * `media.video.sites`, `context.maxUrlChars`) and IMAGE_SIZE: the one copy every caller reads.
+ * @param {{ media?: { embedTextChars?: number, video?: { sites?: string[] } },
  *   context?: { maxUrlChars?: number } }|null|undefined} config
  * @returns {{ embedTextChars?: number, videoSites?: string[], maxUrlChars?: number, imageSize?: number }}
  */
@@ -530,7 +533,7 @@ export function normalizeOptions(config) {
     embedTextChars: config?.media?.embedTextChars,
     videoSites: config?.media?.video?.sites,
     maxUrlChars: config?.context?.maxUrlChars,
-    imageSize: config?.media?.imageSize,
+    imageSize: IMAGE_SIZE,
   };
 }
 
@@ -958,38 +961,30 @@ export async function fetchMessage(channel, id) {
 
 /**
  * Whether `channel` is one the persona may read: a text channel, not a
- * thread, not the dry-run mirror (`bot.dryRunChannelId`, the owner's
- * rehearsal room, never real conversation), and the bot can read its history
- * (canRead). Discord's permissions are the only limit on which channels.
+ * thread, and the bot can read its history (canRead). Discord's permissions are the only limit on which channels.
  * @param {object} channel  A discord.js guild channel.
- * @param {object} botConfig  The live `config.bot`.
  * @returns {boolean}
  */
-export function isReadableChannel(channel, botConfig) {
-  const mirrorId = botConfig?.dryRunChannelId;
-  return !(mirrorId && channel.id === mirrorId) && channel.isTextBased() && !channel.isThread() && canRead(channel);
+export function isReadableChannel(channel) {
+  return channel.isTextBased() && !channel.isThread() && canRead(channel);
 }
 
 /**
  * Whether the persona may speak in `channel`: one it may read
- * (isReadableChannel: a text channel, not a thread, not the dry-run mirror,
- * its history readable) where the bot can send
+ * (isReadableChannel: a text channel, not a thread, its history readable) where the bot can send
  * (canSend). The one rule for a channel words go to unasked or on someone's
  * behalf: a routed call's or a noticed comment's destination
  * (src/behavior/turn.js#usableDestination), a spontaneous turn's channel.
  * @param {object} channel  A discord.js guild channel.
- * @param {object} botConfig  The live `config.bot`.
  * @returns {boolean}
  */
-export function isWritableChannel(channel, botConfig) {
-  return isReadableChannel(channel, botConfig) && canSend(channel);
+export function isWritableChannel(channel) {
+  return isReadableChannel(channel) && canSend(channel);
 }
 
 /** The channels of a guild the persona may read (isReadableChannel), excluding `exceptId`. */
 export function readableChannels(guild, botConfig, exceptId = null) {
-  return [...guild.channels.cache.values()].filter(
-    (channel) => channel.id !== exceptId && isReadableChannel(channel, botConfig)
-  );
+  return [...guild.channels.cache.values()].filter((channel) => channel.id !== exceptId && isReadableChannel(channel));
 }
 
 /**
@@ -997,10 +992,9 @@ export function readableChannels(guild, botConfig, exceptId = null) {
  * channel of `guild` the persona may read (isReadableChannel), never a thread, as `{ id, name, category }`, the
  * category its parent's name or null. [] without a guild (a private chat).
  * @param {object|null|undefined} guild  A discord.js Guild.
- * @param {object} botConfig  The live `config.bot`.
  * @returns {{ id: string, name: string, category: string|null }[]}
  */
-export function channelDirectoryOf(guild, botConfig) {
+export function channelDirectoryOf(guild) {
   const cache = guild?.channels?.cache;
   if (!cache || typeof cache.values !== 'function' || !guild.members) return [];
   // A channel object without the discord.js checks (a partial one) is never listed.
@@ -1011,7 +1005,7 @@ export function channelDirectoryOf(guild, botConfig) {
   // Never a thread: discord.js caches threads as they turn active or archived, and each one listed
   // would rewrite the cached stable part (a thread still resolves and renders by its `#name`).
   return [...cache.values()]
-    .filter((channel) => usable(channel) && !channel.isThread() && isReadableChannel(channel, botConfig))
+    .filter((channel) => usable(channel) && !channel.isThread() && isReadableChannel(channel))
     .map((channel) => ({
       id: String(channel.id),
       name: channel.name,

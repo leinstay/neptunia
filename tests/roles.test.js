@@ -54,15 +54,7 @@ test("roleModel: models.byPurpose for the purpose, else the role's own key, else
 });
 
 test('roles: the lookup purposes go out on the analyzer, each pinnable by itself', () => {
-  for (const purpose of [
-    'lookup',
-    'planner',
-    'recall-summary',
-    'search-summary',
-    'read-link',
-    'diary-plan',
-    'web-search',
-  ]) {
+  for (const purpose of ['recall-summary', 'search-summary', 'diary-plan', 'web-search']) {
     assert.equal(PURPOSE_ROLES[purpose], 'analyzer', purpose);
     assert.equal(
       roleModel({ models: { base: { analyzer: 'x/a' }, byPurpose: { [purpose]: 'x/pinned' } } }, 'analyzer', purpose),

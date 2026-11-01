@@ -4,20 +4,6 @@ import type { SchemaEntry } from '../schema.ts';
 
 export const IMAGE: ReadonlyArray<SchemaEntry> = [
   {
-    'key': 'image.maxPerDay',
-    'types': ['number'],
-    'reader': 'src/llm/images.js',
-    'default': 50,
-    'text': 'Daily generation cap',
-  },
-  {
-    'key': 'image.maxPerUserPerDay',
-    'types': ['number'],
-    'reader': 'src/llm/images.js',
-    'default': 50,
-    'text': 'Daily cap per member',
-  },
-  {
     'key': 'image.maxPromptChars',
     'types': ['number'],
     'reader': 'src/behavior/prompt.js',
@@ -31,27 +17,6 @@ export const IMAGE: ReadonlyArray<SchemaEntry> = [
     'default': 'avatar',
     'text':
       'Visual reference when the persona is in the picture. `"avatar"` downloads the bot\'s avatar; anything else sends nothing',
-  },
-  {
-    'key': 'image.referenceMaxBytes',
-    'types': ['number'],
-    'reader': 'src/media/fetch-image.js',
-    'default': 4000000,
-    'text': 'Max avatar file size (bytes)',
-  },
-  {
-    'key': 'image.outputFormat',
-    'types': ['string'],
-    'reader': 'src/llm/images.js',
-    'default': 'png',
-    'text': 'Output format (`png`, `jpeg`, `webp`)',
-  },
-  {
-    'key': 'image.aspectRatio',
-    'types': ['string'],
-    'reader': 'src/llm/images.js',
-    'default': 'auto',
-    'text': 'Aspect ratio. For Google models, `auto` is omitted',
   },
   {
     'key': 'image.timeoutMs',
@@ -80,13 +45,6 @@ export const IMAGE: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/llm/images.js',
     'default': 'medium',
     'text': 'Image quality for `openai/*` models',
-  },
-  {
-    'key': 'image.openai.background',
-    'types': ['string'],
-    'reader': 'src/llm/images.js',
-    'default': 'auto',
-    'text': 'Background mode for `openai/*` models',
   },
   {
     'key': 'image.openai.moderation',

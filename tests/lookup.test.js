@@ -31,40 +31,19 @@ function fakeState() {
   return { data: {}, markDirty() {} };
 }
 
-function fakeHot({ features = {}, web = {}, config = {}, prompts = {} } = {}) {
+// PR 7d: the switches are code, the daily web cap is gone and the page and search measures are constants of
+// src/web/lookup.js (a page of 1 500 000 bytes and 6000 characters, a 700-character opening, 4000 read whole, five
+// results, a 900-character summary, the media hosts skipped), so only the settings stay.
+function fakeHot({ web = {}, config = {}, prompts = {} } = {}) {
   return {
     config: {
-      features: { webLookup: true, ...features },
       llm: { timeoutMs: 300_000 },
       models: { base: { analyzer: 'x/reason', vision: 'x/media' } },
-      media: { cacheEntries: 100, video: { sites: ['youtube.com', 'youtu.be'] } },
+      media: { video: { sites: ['youtube.com', 'youtu.be'] } },
       web: {
-        maxPerDay: 60,
         acceptLanguage: 'el,en;q=0.5',
-        links: {
-          enabled: true,
-          prefill: true,
-          maxPerTurn: 2,
-          maxBytes: 1_500_000,
-          textChars: 6000,
-          summaryChars: 700,
-          maxOutputTokens: 300,
-          fetchTimeoutMs: 10_000,
-          skipSites: [],
-          ...web.links,
-        },
-        search: {
-          enabled: true,
-          maxPerTurn: 1,
-          results: 5,
-          summaryChars: 900,
-          maxOutputTokens: 400,
-          cacheHours: 24,
-          contextMessages: 50,
-          timeoutMs: 10_000,
-          ...web.search,
-        },
-        ...(web.maxPerDay !== undefined ? { maxPerDay: web.maxPerDay } : {}),
+        links: { maxOutputTokens: 300, fetchTimeoutMs: 10_000, ...web.links },
+        search: { enabled: true, maxOutputTokens: 400, cacheHours: 24, timeoutMs: 10_000, ...web.search },
       },
       ...config,
     },
@@ -158,34 +137,6 @@ async function readOne(lookup, link, guildId = 'g1') {
 
 // --- readLinks: one link ----------------------------------------------------
 
-test('readLinks: fetches the page, condenses it on the analyzer model and caches the excerpt', async () => {
-  const { lookup, llm, pageFetcher, store } = setup();
-  const result = await readOne(lookup, LINK);
-
-  assert.equal(result, 'An article about a simple recipe: three eggs, flour, ten minutes.');
-  assert.equal(pageFetcher.calls.length, 1);
-  assert.equal(pageFetcher.calls[0].url, 'https://example.org/a');
-  assert.deepEqual(pageFetcher.calls[0].options, {
-    maxBytes: 1_500_000,
-    timeoutMs: 10_000,
-    maxChars: 6000,
-    acceptLanguage: 'el,en;q=0.5',
-  });
-  assert.equal(llm.calls.length, 1);
-  const { messages, options } = llm.calls[0];
-  assert.equal(messages[0].content, 'Condense this page, up to 700 characters.');
-  assert.equal(messages[1].content, 'Ricetta\n\nUna ricetta semplice con tre uova e farina.');
-  assert.equal(options.model, 'x/reason', 'the analyzer role, its own model');
-  assert.equal(options.role, 'analyzer', 'routed as the helper');
-  assert.equal(options.purpose, 'read-link');
-  assert.equal(options.maxOutputTokens, 300);
-  assert.equal(options.skipCalibration, true);
-  assert.equal(options.countAgainstDailyCap, true);
-  const entry = store.getMediaCache('g1')['read:m1#e0'];
-  assert.equal(entry.text, result);
-  assert.equal(entry.ts, NOW);
-});
-
 test('readLinks: web.acceptLanguage is read at the moment of use and handed to the page fetcher', async () => {
   const { lookup, pageFetcher, hot } = setup();
   await readOne(lookup, LINK);
@@ -198,12 +149,11 @@ test('readLinks: web.acceptLanguage is read at the moment of use and handed to t
 });
 
 test('readLinks: a cached excerpt is free -- no fetch, no LLM call, no daily slot', async () => {
-  const { lookup, llm, pageFetcher, store, state } = setup();
-  store.getMediaCache('g1')['read:m1#e0'] = { text: 'déjà lu', ts: NOW - HOUR };
+  const { lookup, llm, pageFetcher, store } = setup();
+  store.getMediaCache('g1')['preview:m1#e0'] = { text: 'déjà lu', ts: NOW - HOUR };
   assert.equal(await readOne(lookup, LINK), 'déjà lu');
   assert.equal(pageFetcher.calls.length, 0);
   assert.equal(llm.calls.length, 0);
-  assert.equal(state.data.webCount ?? 0, 0);
 });
 
 test('readLinks: a failed fetch is cached as a miss with its reason and skipped for 6 hours', async () => {
@@ -213,7 +163,7 @@ test('readLinks: a failed fetch is cached as a miss with its reason and skipped 
     now: () => now,
   });
   assert.equal(await readOne(lookup, LINK), null);
-  assert.deepEqual(store.getMediaCache('g1')['read:m1#e0'], { miss: true, ts: NOW, reason: 'http' });
+  assert.deepEqual(store.getMediaCache('g1')['preview:m1#e0'], { miss: true, ts: NOW, reason: 'http' });
   assert.equal(llm.calls.length, 0);
 
   now = NOW + 5 * HOUR;
@@ -225,76 +175,8 @@ test('readLinks: a failed fetch is cached as a miss with its reason and skipped 
   assert.equal(pageFetcher.calls.length, 2, 'an older miss is retried');
 });
 
-test('readLinks: a very short answer (4 words or fewer) means unreadable -- cached as a miss', async () => {
-  const { lookup, store } = setup({ llmText: 'Cookie wall only.' });
-  assert.equal(await readOne(lookup, LINK), null);
-  const entry = store.getMediaCache('g1')['read:m1#e0'];
-  assert.equal(entry.miss, true);
-  assert.equal(entry.reason, 'unreadable');
-});
-
-test('readLinks: the excerpt is whitespace-collapsed and capped at summaryChars', async () => {
-  const long = `Una   pagina\n\nlunga ${'parola '.repeat(200)}`;
-  const { lookup } = setup({ llmText: long, hotOptions: { web: { links: { summaryChars: 100 } } } });
-  const text = await readOne(lookup, LINK);
-  assert.ok([...text].length <= 100, `${[...text].length}`);
-  assert.ok(text.startsWith('Una pagina lunga parola'));
-  assert.ok(!/\s{2,}|\n/.test(text));
-});
-
-test('readLinks: the daily web cap is reserved before the fetch and refuses once spent, caching nothing', async () => {
-  const { lookup, pageFetcher, state, store } = setup({
-    page: { ok: false, reason: 'timeout' },
-    hotOptions: { web: { maxPerDay: 1 } },
-  });
-  await readOne(lookup, LINK);
-  assert.equal(state.data.webCount, 1, 'a failed fetch keeps its slot');
-  assert.equal(state.data.webDay, '2026-09-20');
-
-  const other = { ...LINK, id: 'm2#e0', url: 'https://example.org/b' };
-  assert.equal(await readOne(lookup, other), null);
-  assert.equal(pageFetcher.calls.length, 1, 'no fetch past the daily cap');
-  assert.equal(store.getMediaCache('g1')['read:m2#e0'], undefined, 'the cap is not a miss');
-});
-
-test('readLinks: the daily counter resets on a new UTC day', async () => {
-  let now = NOW;
-  const { lookup, pageFetcher, state } = setup({ hotOptions: { web: { maxPerDay: 1 } }, now: () => now });
-  await readOne(lookup, LINK);
-  now = NOW + 24 * HOUR;
-  await readOne(lookup, { ...LINK, id: 'm2#e0' });
-  assert.equal(pageFetcher.calls.length, 2);
-  assert.equal(state.data.webCount, 1);
-});
-
-test('readLinks / search: a web.maxPerDay that is not a finite number counts as 0 -- nothing fetched, nothing searched', async () => {
-  const missing = fakeHot();
-  delete missing.config.web.maxPerDay;
-  for (const hot of [missing, fakeHot({ web: { maxPerDay: null } }), fakeHot({ web: { maxPerDay: '60' } })]) {
-    const pageFetcher = fakePageFetcher();
-    const braveSearch = fakeBrave();
-    const state = fakeState();
-    const lookup = createLookup({
-      hot,
-      store: fakeStore(),
-      llm: fakeLlm(),
-      state,
-      pageFetcher,
-      searches: { brave: braveSearch },
-      keys: { brave: 'k' },
-      now: () => NOW,
-    });
-    assert.equal(await readOne(lookup, LINK), null);
-    assert.equal(await lookup.search('g1', 'x y'), null);
-    assert.equal(pageFetcher.calls.length, 0);
-    assert.equal(braveSearch.calls.length, 0);
-    assert.equal(state.data.webCount ?? 0, 0);
-  }
-});
-
-test('readLinks: skipSites and video-site links are never read; a gif is never read', async () => {
-  const { lookup, pageFetcher, llm } = setup({ hotOptions: { web: { links: { skipSites: ['example.org'] } } } });
-  assert.equal(await readOne(lookup, { ...LINK, url: 'https://sub.example.org/x' }), null);
+test('readLinks: video-site links are never read; a gif is never read', async () => {
+  const { lookup, pageFetcher, llm } = setup();
   assert.equal(
     await readOne(lookup, { id: 'v', url: 'https://www.youtube.com/watch?v=abc', site: 'youtube.com', title: '' }),
     null
@@ -307,18 +189,17 @@ test('readLinks: skipSites and video-site links are never read; a gif is never r
   assert.equal(llm.calls.length, 0);
 });
 
-test('readLinks: a GIF page (tenor, giphy, klipy) is never read, even with an empty skipSites', async () => {
-  const { lookup, pageFetcher, llm, state } = setup({ hotOptions: { web: { links: { skipSites: [] } } } });
+test('readLinks: a GIF page (tenor, giphy, klipy) is never read', async () => {
+  const { lookup, pageFetcher, llm } = setup();
   for (const url of ['https://klipy.com/gifs/dancing-cat', 'https://tenor.com/view/x', 'https://giphy.com/gifs/x']) {
     assert.equal(await readOne(lookup, { ...LINK, id: url, url, kind: 'link' }), null, url);
   }
   assert.equal(pageFetcher.calls.length, 0);
   assert.equal(llm.calls.length, 0);
-  assert.equal(state.data.webCount ?? 0, 0, 'no daily slot spent');
 });
 
 test('readLinks: a URL whose path ends with a binary extension is never read, whatever the case or query', async () => {
-  const { lookup, pageFetcher, llm, state } = setup();
+  const { lookup, pageFetcher, llm } = setup();
   for (const ext of [
     'png',
     'jpg',
@@ -346,7 +227,6 @@ test('readLinks: a URL whose path ends with a binary extension is never read, wh
   assert.equal(await readOne(lookup, { ...LINK, id: 'frag', url: 'https://example.org/clip.mp4#t=10' }), null);
   assert.equal(pageFetcher.calls.length, 0);
   assert.equal(llm.calls.length, 0);
-  assert.equal(state.data.webCount ?? 0, 0, 'no daily slot spent');
 });
 
 test('readLinks: an extension only in the query, the host or mid-path does not block the read', async () => {
@@ -359,7 +239,7 @@ test('readLinks: an extension only in the query, the host or mid-path does not b
 });
 
 test('readLinks: skipped links (binary path, skip site) spend no maxNew attempt', async () => {
-  const { lookup, pageFetcher } = setup({ hotOptions: { web: { links: { skipSites: ['klipy.com'] } } } });
+  const { lookup, pageFetcher } = setup();
   const links = [
     { ...LINK, id: 'b', url: 'https://example.org/x.gif' },
     { ...LINK, id: 'k', url: 'https://klipy.com/gifs/x' },
@@ -379,67 +259,6 @@ test('readLinks: an embed whose kind is not link (gif, video) is never read; kin
   assert.ok(await readOne(lookup, { ...LINK, id: 'l', kind: 'link' }));
   assert.ok(await readOne(lookup, { ...LINK, id: 'n' }));
   assert.equal(pageFetcher.calls.length, 2);
-});
-
-test('readLinks: feature off (false or missing), links.enabled off or no read-link prompt -> null, zero calls', async () => {
-  const cases = [
-    fakeHot({ features: { webLookup: false } }),
-    fakeHot({ web: { links: { enabled: false } } }),
-    fakeHot({ prompts: { 'read-link': '' } }),
-  ];
-  const missing = fakeHot();
-  delete missing.config.features.webLookup;
-  cases.push(missing);
-  for (const hot of cases) {
-    const pageFetcher = fakePageFetcher();
-    const llm = fakeLlm();
-    const lookup = createLookup({
-      hot,
-      store: fakeStore(),
-      llm,
-      state: fakeState(),
-      pageFetcher,
-      searches: { brave: fakeBrave() },
-      keys: { brave: 'k' },
-      now: () => NOW,
-    });
-    assert.equal(await readOne(lookup, LINK), null);
-    assert.deepEqual(await lookup.readLinks('g1', [LINK]), { reads: new Map(), newCount: 0 });
-    assert.equal(pageFetcher.calls.length, 0);
-    assert.equal(llm.calls.length, 0);
-  }
-});
-
-test("readLinks: an LLM failure is a miss; the token rail's refusal is a miss too, with its own reason; the daily cap's is none", async () => {
-  const failing = setup({ llmText: Object.assign(new Error('boom'), { statusCode: 500 }) });
-  assert.equal(await readOne(failing.lookup, LINK), null);
-  assert.equal(failing.store.getMediaCache('g1')['read:m1#e0'].reason, 'llm');
-
-  const capped = setup({ llmText: new DailyCapError('cap') });
-  const { result, logs } = await withCapturedLogs(() => readOne(capped.lookup, LINK));
-  assert.equal(result, null);
-  assert.equal(capped.store.getMediaCache('g1')['read:m1#e0'], undefined, 'read after the reset');
-  const line = logs.find((l) => l.msg === 'lookup: link');
-  assert.equal(line.state, 'limit');
-  assert.equal(line.reason, 'daily-cap');
-
-  const tooBig = setup({ llmText: new TokenLimitError('too big') });
-  assert.equal(await readOne(tooBig.lookup, LINK), null);
-  assert.deepEqual(tooBig.store.getMediaCache('g1')['read:m1#e0'], { miss: true, ts: NOW, reason: 'token-limit' });
-});
-
-test('readLinks: after a safety-rail refusal the link is not fetched or charged again for 6 hours', async () => {
-  let now = NOW;
-  const { lookup, pageFetcher, llm, state } = setup({ llmText: new TokenLimitError('too big'), now: () => now });
-  await readOne(lookup, LINK);
-  now = NOW + 5 * HOUR;
-  assert.equal(await readOne(lookup, LINK), null);
-  assert.equal(pageFetcher.calls.length, 1);
-  assert.equal(llm.calls.length, 1);
-  assert.equal(state.data.webCount, 1);
-  now = NOW + 6 * HOUR + 1;
-  await readOne(lookup, LINK);
-  assert.equal(pageFetcher.calls.length, 2, 'retried once the miss is older than 6 h');
 });
 
 test('readLinks: logs the host/path and the reason code, never the page text or the excerpt', async () => {
@@ -464,7 +283,7 @@ test('readLinks: every attempt counts toward maxNew; cache hits are free; past m
         ? { ok: false, reason: 'http', status: 500 }
         : { ok: true, text: 'Testo della pagina.', title: '' },
   });
-  store.getMediaCache('g1')['read:c'] = { text: 'in cache', ts: NOW };
+  store.getMediaCache('g1')['preview:c'] = { text: 'in cache', ts: NOW };
   const links = [
     { id: 'a', url: 'https://example.org/a', site: 'example.org', title: '' },
     { id: 'c', url: 'https://example.org/c', site: 'example.org', title: '' },
@@ -491,11 +310,11 @@ test('readLinks: the same link twice is read once', async () => {
 // --- cachedReads ------------------------------------------------------------
 
 test('cachedReads: only what the cache holds -- no fetch, no model request, no web slot, no miss recorded', () => {
-  const { lookup, pageFetcher, llm, store, state } = setup();
+  const { lookup, pageFetcher, llm, store } = setup();
   const cache = store.getMediaCache('g1');
-  cache['read:c'] = { text: 'già letto', ts: NOW - HOUR };
-  cache['read:m'] = { miss: true, ts: NOW - HOUR, reason: 'http' };
-  cache['read:v'] = { text: 'a video excerpt', ts: NOW - HOUR };
+  cache['preview:c'] = { text: 'già letto', ts: NOW - HOUR };
+  cache['preview:m'] = { miss: true, ts: NOW - HOUR, reason: 'http' };
+  cache['preview:v'] = { text: 'a video excerpt', ts: NOW - HOUR };
   const links = [
     { id: 'c', url: 'https://example.org/c', site: 'example.org', title: '' },
     { id: 'n', url: 'https://example.org/n', site: 'example.org', title: '' },
@@ -508,21 +327,8 @@ test('cachedReads: only what the cache holds -- no fetch, no model request, no w
   assert.deepEqual([...reads], [['c', 'già letto']], 'a video-site link is not readable, as in readLinks');
   assert.equal(pageFetcher.calls.length, 0);
   assert.equal(llm.calls.length, 0);
-  assert.equal(state.data.webCount ?? 0, 0);
-  assert.equal(cache['read:n'], undefined, 'an uncached link records no miss');
-  assert.deepEqual(Object.keys(cache).sort(), ['read:c', 'read:m', 'read:v']);
-});
-
-test('cachedReads: the feature off or no read-link prompt gives an empty map', () => {
-  for (const hotOptions of [
-    { features: { webLookup: false } },
-    { web: { links: { enabled: false } } },
-    { prompts: { 'read-link': '' } },
-  ]) {
-    const { lookup, store } = setup({ hotOptions });
-    store.getMediaCache('g1')['read:m1#e0'] = { text: 'già letto', ts: NOW };
-    assert.equal(lookup.cachedReads('g1', [LINK]).size, 0, JSON.stringify(hotOptions));
-  }
+  assert.equal(cache['preview:n'], undefined, 'an uncached link records no miss');
+  assert.deepEqual(Object.keys(cache).sort(), ['preview:c', 'preview:m', 'preview:v']);
 });
 
 // --- search -----------------------------------------------------------------
@@ -559,7 +365,7 @@ test('search: Brave results are condensed on the analyzer model; sources carry t
 
 test('search: the cache is keyed by the normalised query and served while younger than cacheHours', async () => {
   let now = NOW;
-  const { lookup, braveSearch, llm, state } = setup({ now: () => now });
+  const { lookup, braveSearch, llm } = setup({ now: () => now });
   await lookup.search('g1', 'Qui a gagné la finale ?');
   now = NOW + 23 * HOUR;
   const hit = await lookup.search('g1', '  qui a GAGNÉ   la finale ? ');
@@ -567,7 +373,6 @@ test('search: the cache is keyed by the normalised query and served while younge
   assert.equal(hit.sources.length, 2);
   assert.equal(braveSearch.calls.length, 1);
   assert.equal(llm.calls.length, 1);
-  assert.equal(state.data.webCount, 1);
 
   now = NOW + 25 * HOUR;
   const fresh = await lookup.search('g1', 'qui a gagné la finale ?');
@@ -616,12 +421,11 @@ test('normalizeQuery: lower-cased, whitespace-collapsed, trimmed', () => {
 });
 
 test('search: no key -> null and nothing counted, no Brave call, no LLM call; hasSearch reports the key', async () => {
-  const { lookup, braveSearch, llm, state } = setup({ braveApiKey: null });
+  const { lookup, braveSearch, llm } = setup({ braveApiKey: null });
   assert.equal(lookup.hasSearch(), false);
   assert.equal(await lookup.search('g1', 'τι ώρα είναι'), null);
   assert.equal(braveSearch.calls.length, 0);
   assert.equal(llm.calls.length, 0);
-  assert.equal(state.data.webCount ?? 0, 0);
   assert.equal(setup().lookup.hasSearch(), true);
 });
 
@@ -668,7 +472,6 @@ test('search: a safety-rail refusal of the summary is logged with a kebab-case r
 test('search: a Brave failure or an LLM failure -> null, nothing cached', async () => {
   const failing = setup({ brave: { ok: false, reason: 'http', status: 429 } });
   assert.equal(await failing.lookup.search('g1', 'x y'), null);
-  assert.equal(failing.state.data.webCount, 1, 'the slot is reserved before the request');
   assert.deepEqual(Object.keys(failing.store.getMediaCache('g1')), []);
 
   const llmFailing = setup({ llmText: new Error('boom') });
@@ -676,19 +479,8 @@ test('search: a Brave failure or an LLM failure -> null, nothing cached', async 
   assert.deepEqual(Object.keys(llmFailing.store.getMediaCache('g1')), []);
 });
 
-test('search: the daily web cap is shared with links', async () => {
-  const { lookup, braveSearch } = setup({ hotOptions: { web: { maxPerDay: 1 } } });
-  await readOne(lookup, LINK);
-  assert.equal(await lookup.search('g1', 'x y'), null);
-  assert.equal(braveSearch.calls.length, 0);
-});
-
-test('search: feature off, search.enabled off, no prompt or a blank query -> null, zero calls', async () => {
-  const cases = [
-    fakeHot({ features: { webLookup: false } }),
-    fakeHot({ web: { search: { enabled: false } } }),
-    fakeHot({ prompts: { 'search-summary': '' } }),
-  ];
+test('search: search.enabled off, no prompt or a blank query -> null, zero calls', async () => {
+  const cases = [fakeHot({ web: { search: { enabled: false } } }), fakeHot({ prompts: { 'search-summary': '' } })];
   for (const hot of cases) {
     const braveSearch = fakeBrave();
     const llm = fakeLlm();
@@ -762,10 +554,8 @@ test('search: engine openrouter -- one analyzer request with the Exa web plugin;
     { type: 'url_citation', url_citation: { url: 'javascript:alert(1)', title: 'Bad' } },
     { type: 'other' },
   ];
-  const { lookup, braveSearch, exaSearch, llm, store } = engineSetup(
-    { engine: 'openrouter', results: 3 },
-    { braveApiKey: null }
-  );
+  // PR 7d: `web.search.results` is the constant 5.
+  const { lookup, braveSearch, exaSearch, llm, store } = engineSetup({ engine: 'openrouter' }, { braveApiKey: null });
   llm.complete = async (messages, options) => {
     llm.calls.push({ messages, options });
     return { text: 'The answer, searched and condensed.', usage: {}, estimated: 5, annotations };
@@ -782,7 +572,7 @@ test('search: engine openrouter -- one analyzer request with the Exa web plugin;
   const { messages, options } = llm.calls[0];
   assert.equal(messages[0].content, 'The query: Qui a gagné ?. Up to 900 characters.', 'the same system prompt');
   assert.equal(messages[1].content, 'Qui a gagné ?', 'the user content is the question');
-  assert.deepEqual(options.plugins, [{ id: 'web', engine: 'exa', max_results: 3 }]);
+  assert.deepEqual(options.plugins, [{ id: 'web', engine: 'exa', max_results: 5 }]);
   assert.equal(options.model, 'x/reason');
   assert.equal(options.role, 'analyzer');
   assert.equal(options.purpose, 'search-summary');
@@ -817,15 +607,11 @@ test('search: the fallback order is tried on rate-limited, timeout, network and 
     { ok: false, reason: 'network' },
     { ok: false, reason: 'http', status: 429 },
   ]) {
-    const { lookup, braveSearch, exaSearch, state } = engineSetup(
-      { engine: 'brave', fallback: ['exa'] },
-      { brave: failure }
-    );
+    const { lookup, braveSearch, exaSearch } = engineSetup({ engine: 'brave', fallback: ['exa'] }, { brave: failure });
     const { result, logs } = await withCapturedLogs(() => lookup.search('g1', 'x y'));
     assert.equal(result.sources[0].url, 'https://exa.example.net/one', JSON.stringify(failure));
     assert.equal(braveSearch.calls.length, 1);
     assert.equal(exaSearch.calls.length, 1);
-    assert.equal(state.data.webCount, 1, 'the cap is spent once per lookup');
     const lines = logs.filter((l) => l.msg === 'lookup: search');
     assert.deepEqual(
       lines.map((l) => [l.state, l.reason, l.engine, l.fallback]),
@@ -838,7 +624,7 @@ test('search: the fallback order is tried on rate-limited, timeout, network and 
 });
 
 test('search: the fallback list runs in its order, each engine once, past a second failure; all failing -> null', async () => {
-  const { lookup, exaSearch, llm, state } = engineSetup(
+  const { lookup, exaSearch, llm } = engineSetup(
     { engine: 'brave', fallback: ['brave', 'nope', 'exa', 'exa', 'openrouter'] },
     { brave: { ok: false, reason: 'timeout' }, exa: { ok: false, reason: 'rate-limited', status: 429 } }
   );
@@ -847,7 +633,6 @@ test('search: the fallback list runs in its order, each engine once, past a seco
   assert.equal(llm.calls.length, 1);
   assert.ok(llm.calls[0].options.plugins, 'the openrouter engine answered last');
   assert.ok(result.text);
-  assert.equal(state.data.webCount, 1);
   assert.deepEqual(
     logs.filter((l) => l.msg === 'lookup: search').map((l) => [l.engine, l.fallback]),
     [
@@ -863,7 +648,6 @@ test('search: the fallback list runs in its order, each engine once, past a seco
   );
   assert.equal(await allFail.lookup.search('g1', 'x y'), null);
   assert.equal(allFail.braveSearch.calls.length, 1);
-  assert.equal(allFail.state.data.webCount, 1);
   assert.deepEqual(Object.keys(allFail.store.getMediaCache('g1')), []);
 });
 
@@ -892,7 +676,7 @@ test('search: no fallback on empty (nothing found is the answer, no summary), no
   assert.equal(blankSummary.exaSearch.calls.length, 0);
 });
 
-test('search: a fallback engine that cannot run is skipped; the fallback with maxPerDay 1 still runs (one slot)', async () => {
+test('search: a fallback engine that cannot run is skipped; a fallback that can runs', async () => {
   const { lookup, braveSearch, exaSearch } = engineSetup(
     { engine: 'exa', fallback: ['brave'] },
     { braveApiKey: null, exa: { ok: false, reason: 'timeout' } }
@@ -901,13 +685,12 @@ test('search: a fallback engine that cannot run is skipped; the fallback with ma
   assert.equal(exaSearch.calls.length, 1);
   assert.equal(braveSearch.calls.length, 0, 'brave without its key is not a fallback');
 
-  const capped = setup({
+  const fell = setup({
     brave: { ok: false, reason: 'timeout' },
-    hotOptions: { web: { maxPerDay: 1, search: { fallback: ['exa'] } } },
+    hotOptions: { web: { search: { fallback: ['exa'] } } },
   });
-  assert.ok(await capped.lookup.search('g1', 'x y'));
-  assert.equal(capped.exaSearch.calls.length, 1);
-  assert.equal(capped.state.data.webCount, 1);
+  assert.ok(await fell.lookup.search('g1', 'x y'));
+  assert.equal(fell.exaSearch.calls.length, 1);
 });
 
 test('search: the openrouter engine maps a 429 and a timeout to fallback reasons; the daily request cap stops a fallback', async () => {
@@ -956,40 +739,21 @@ function cappedSetup(left, overrides = {}) {
   return run;
 }
 
-test('readLinks: with the daily request cap spent no page is fetched, no web slot is taken, no miss is cached', async () => {
-  const { lookup, pageFetcher, llm, state, store } = cappedSetup(0);
-  const { result, logs } = await withCapturedLogs(() => lookup.readLinks('g1', [LINK], { maxNew: 1 }));
-  assert.deepEqual(result, { reads: new Map(), newCount: 0 });
-  assert.equal(pageFetcher.calls.length, 0);
-  assert.equal(llm.calls.length, 0);
-  assert.equal(state.data.webCount ?? 0, 0);
-  assert.deepEqual(Object.keys(store.getMediaCache('g1')), []);
-  const line = logs.find((l) => l.msg === 'lookup: link');
-  assert.equal(line.state, 'limit');
-  assert.equal(line.reason, 'daily-cap');
-
-  const open = cappedSetup(1);
-  assert.ok(await readOne(open.lookup, LINK), 'a slot left: read as before');
-});
-
 test('search: with the daily request cap spent no search is sent and no web slot is taken', async () => {
-  const { lookup, braveSearch, llm, state } = cappedSetup(0);
+  const { lookup, braveSearch, llm } = cappedSetup(0);
   assert.equal(await lookup.search('g1', 'ποιος κέρδισε'), null);
   assert.equal(braveSearch.calls.length, 0);
   assert.equal(llm.calls.length, 0);
-  assert.equal(state.data.webCount ?? 0, 0);
 });
 
-test('lookup: the link read and the search summary are helper requests (llm.analyzerTimeoutMs, purpose)', async () => {
+// PR 7d: a link is read as its opening (her own tools are code), which sends no request; the search summary is the one.
+test('lookup: the search summary is a helper request (llm.analyzerTimeoutMs, purpose)', async () => {
   const tuned = setup({ hotOptions: { config: { llm: { timeoutMs: 300_000, analyzerTimeoutMs: 4321 } } } });
   await readOne(tuned.lookup, LINK);
   await tuned.lookup.search('g1', 'x y');
   assert.deepEqual(
     tuned.llm.calls.map((c) => [c.options.timeoutMs, c.options.purpose]),
-    [
-      [4321, 'read-link'],
-      [4321, 'search-summary'],
-    ]
+    [[4321, 'search-summary']]
   );
   for (const { options } of tuned.llm.calls) {
     assert.equal(options.countAgainstDailyCap, true);
@@ -998,7 +762,7 @@ test('lookup: the link read and the search summary are helper requests (llm.anal
   }
 
   const unset = setup();
-  await readOne(unset.lookup, LINK);
+  await unset.lookup.search('g1', 'x y');
   assert.equal(
     unset.llm.calls[0].options.timeoutMs,
     roleRequestOptions({}).timeoutMs,
@@ -1006,24 +770,10 @@ test('lookup: the link read and the search summary are helper requests (llm.anal
   );
 });
 
-test('webCapLeft: the web slots left today, read only; the whole cap is back after 00:00 UTC', async () => {
-  let now = NOW;
-  const run = setup({ now: () => now, hotOptions: { web: { maxPerDay: 3 } } });
-  await readOne(run.lookup, LINK);
-  const before = structuredClone(run.state.data);
-  assert.equal(run.lookup.webCapLeft(), 2);
-  now = NOW + 24 * HOUR;
-  assert.equal(run.lookup.webCapLeft(), 3);
-  assert.deepEqual(run.state.data, before, 'never rolled over or written');
-
-  const broken = setup({ hotOptions: { web: { maxPerDay: 'many' } } });
-  assert.equal(broken.lookup.webCapLeft(), 0, 'a cap that is not a number counts as 0, as the reservation reads it');
-});
-
-// --- the persona's own raw tools: searchResults, readPage, the link preview (features.coreTools) ---
+// --- the persona's own raw tools: searchResults, readPage, the link preview ---
 
 test('searchResults: Brave results come back raw -- title, url, site, snippet, date -- with no model request; cached apart, one daily slot', async () => {
-  const { lookup, braveSearch, llm, store, state } = setup();
+  const { lookup, braveSearch, llm, store } = setup();
   const { result, logs } = await withCapturedLogs(() => lookup.searchResults('g1', 'Qui a gagné  la finale ?'));
   assert.deepEqual(result, {
     query: 'Qui a gagné  la finale ?',
@@ -1045,7 +795,6 @@ test('searchResults: Brave results come back raw -- title, url, site, snippet, d
   });
   assert.equal(llm.calls.length, 0, 'no summary request');
   assert.deepEqual(braveSearch.calls[0].options, { apiKey: 'test-key', count: 5, timeoutMs: 10_000 });
-  assert.equal(state.data.webCount, 1);
   const keys = Object.keys(store.getMediaCache('g1'));
   assert.ok(keys.some((k) => k.startsWith('results:')) && !keys.some((k) => k.startsWith('search:')), keys.join(','));
   const line = logs.find((entry) => entry.msg === 'lookup: search');
@@ -1055,7 +804,6 @@ test('searchResults: Brave results come back raw -- title, url, site, snippet, d
   const again = await lookup.searchResults('g1', 'qui a gagné la finale ?');
   assert.equal(again.cached, true, 'the normalised query hits the cache');
   assert.equal(braveSearch.calls.length, 1);
-  assert.equal(state.data.webCount, 1, 'a cache hit is free');
 });
 
 test('searchResults: engine openrouter -- one analyzer request (purpose web-search) with the plugin and only the query; the annotations with their content are the results', async () => {
@@ -1067,8 +815,9 @@ test('searchResults: engine openrouter -- one analyzer request (purpose web-sear
     { type: 'url_citation', url_citation: { url: 'https://www.example.com/one', title: 'Twice', content: 'again' } },
     { type: 'url_citation', url_citation: { url: 'javascript:alert(1)', title: 'Bad' } },
   ];
+  // PR 7d: `web.search.results` is the constant 5.
   const { lookup, braveSearch, exaSearch, llm } = engineSetup(
-    { engine: 'openrouter', results: 3, rawOutputTokens: 64 },
+    { engine: 'openrouter', rawOutputTokens: 64 },
     { braveApiKey: null }
   );
   llm.complete = async (messages, options) => {
@@ -1085,7 +834,7 @@ test('searchResults: engine openrouter -- one analyzer request (purpose web-sear
   assert.equal(braveSearch.calls.length + exaSearch.calls.length, 0);
   const [{ messages, options }] = llm.calls;
   assert.deepEqual(messages, [{ role: 'user', content: 'Qui a gagné ?' }], 'no prompt: only her query');
-  assert.deepEqual(options.plugins, [{ id: 'web', engine: 'exa', max_results: 3 }]);
+  assert.deepEqual(options.plugins, [{ id: 'web', engine: 'exa', max_results: 5 }]);
   assert.deepEqual(
     [
       options.model,
@@ -1107,14 +856,13 @@ test('searchResults: engine openrouter -- one analyzer request (purpose web-sear
   );
 });
 
-test('searchResults: the fallback engines answer the same failures as the summary path; the request cap and the daily slots stop it; off returns a coded failure', async () => {
+test('searchResults: the fallback engines answer the same failures as the summary path; the request cap stops it; off returns a coded failure', async () => {
   const fell = engineSetup(
     { engine: 'brave', fallback: ['exa'] },
     { brave: { ok: false, reason: 'rate-limited', status: 429 } }
   );
   const found = await fell.lookup.searchResults('g1', 'x y');
   assert.equal(found.results[0].url, 'https://exa.example.net/one');
-  assert.equal(fell.state.data.webCount, 1, 'one slot whatever the attempts');
   const stopped = engineSetup(
     { engine: 'brave', fallback: ['exa'] },
     { brave: { ok: false, reason: 'http', status: 500 } }
@@ -1126,7 +874,6 @@ test('searchResults: the fallback engines answer the same failures as the summar
   capped.llm.capLeft = () => 0;
   assert.deepEqual(await capped.lookup.searchResults('g1', 'x y'), { failed: { code: 'cap' } });
   assert.equal(capped.llm.calls.length, 0);
-  assert.equal(capped.state.data.webCount ?? 0, 0, 'no slot taken under the request cap');
   const braveCapped = setup();
   braveCapped.llm.capLeft = () => 0;
   assert.ok(
@@ -1134,12 +881,6 @@ test('searchResults: the fallback engines answer the same failures as the summar
     'Brave sends no model request: the request cap does not stop it'
   );
 
-  const full = setup({ hotOptions: { web: { maxPerDay: 0 } } });
-  assert.deepEqual(await full.lookup.searchResults('g1', 'x y'), { failed: { code: 'cap' } });
-  assert.equal(full.braveSearch.calls.length, 0);
-  assert.deepEqual(await setup({ hotOptions: { features: { webLookup: false } } }).lookup.searchResults('g1', 'x y'), {
-    failed: { code: 'not-configured' },
-  });
   assert.deepEqual(
     await setup({ hotOptions: { web: { search: { enabled: false } } } }).lookup.searchResults('g1', 'x y'),
     { failed: { code: 'not-configured' } }
@@ -1151,10 +892,11 @@ test('searchResults: the fallback engines answer the same failures as the summar
   );
 });
 
-test('readPage: the page text as extracted, cut at web.links.readChars, with its title and final url; no model request; one daily slot; cached', async () => {
-  const long = 'mot '.repeat(50).trim();
-  const { lookup, pageFetcher, llm, state, store } = setup({
-    hotOptions: { web: { links: { readChars: 40, readCacheHours: 2 } } },
+// PR 7d: `web.links.readChars` is the constant 4000, so the page is longer than that.
+test('readPage: the page text as extracted, cut at web.links.readChars, with its title and final url; no model request; cached', async () => {
+  const long = 'mot '.repeat(1100).trim();
+  const { lookup, pageFetcher, llm, store } = setup({
+    hotOptions: { web: { links: { readCacheHours: 2 } } },
     page: {
       ok: true,
       text: long,
@@ -1169,7 +911,7 @@ test('readPage: the page text as extracted, cut at web.links.readChars, with its
   assert.equal(page.url, 'https://example.org/final');
   assert.equal(page.title, 'Une page');
   assert.equal(page.cut, true);
-  assert.ok(page.text.length <= 40 && page.text.endsWith('…'), page.text);
+  assert.ok(page.text.length <= 4000 && page.text.endsWith('…'), page.text);
   assert.equal(llm.calls.length, 0, 'no model request');
   assert.equal(pageFetcher.calls[0].url, 'https://example.org/a?x=1');
   assert.deepEqual(pageFetcher.calls[0].options, {
@@ -1177,7 +919,6 @@ test('readPage: the page text as extracted, cut at web.links.readChars, with its
     timeoutMs: 10_000,
     acceptLanguage: 'el,en;q=0.5',
   });
-  assert.equal(state.data.webCount, 1);
   assert.ok(Object.keys(store.getMediaCache('g1')).some((k) => k.startsWith('page:')));
   assert.ok(
     !JSON.stringify(logs).includes('mot') && !JSON.stringify(logs).includes('x=1'),
@@ -1187,10 +928,9 @@ test('readPage: the page text as extracted, cut at web.links.readChars, with its
   const again = await lookup.readPage('g1', 'https://example.org/a?x=1');
   assert.equal(again.cached, true);
   assert.equal(pageFetcher.calls.length, 1);
-  assert.equal(state.data.webCount, 1, 'a cache hit is free');
 });
 
-test('readPage: a short page is not cut; failures and the daily cap say why and are not cached; off is not-configured', async () => {
+test('readPage: a short page is not cut; failures say why and are not cached', async () => {
   const short = setup();
   const page = await short.lookup.readPage('g1', 'https://example.org/a');
   assert.deepEqual([page.ok, page.cut, page.text], [true, false, 'Una ricetta semplice con tre uova e farina.']);
@@ -1209,28 +949,20 @@ test('readPage: a short page is not cut; failures and the daily cap say why and 
     ),
     { ok: false, reason: 'empty' }
   );
-  const full = setup({ hotOptions: { web: { maxPerDay: 0 } } });
-  assert.deepEqual(await full.lookup.readPage('g1', 'https://example.org/a'), { ok: false, reason: 'daily-cap' });
-  assert.equal(full.pageFetcher.calls.length, 0);
-  assert.deepEqual(
-    await setup({ hotOptions: { features: { webLookup: false } } }).lookup.readPage('g1', 'https://example.org/a'),
-    { ok: false, reason: 'not-configured' }
-  );
 });
 
-test('readLinks under features.coreTools: the preview is the opening of the page text, no helper request, cached apart from the condensed reads', async () => {
-  const text = `Una ricetta semplice. ${'Poi altro testo. '.repeat(20)}`;
+// PR 7d: her own tools are code, so a link is always read as its opening, the constant 700 characters.
+test('readLinks: the preview is the opening of the page text, no helper request', async () => {
+  const text = `Una ricetta semplice. ${'Poi altro testo. '.repeat(60)}`;
   const run = setup({
-    hotOptions: { features: { coreTools: true }, web: { links: { previewChars: 60 } }, prompts: { 'read-link': '' } },
+    hotOptions: { prompts: { 'read-link': '' } },
     page: { ok: true, text, title: 'Ricetta', finalUrl: 'https://example.org/a' },
   });
   const preview = await readOne(run.lookup, LINK);
-  assert.ok(preview.startsWith('Una ricetta semplice.') && preview.length <= 60, preview);
+  assert.ok(preview.startsWith('Una ricetta semplice.') && preview.length <= 700, preview);
   assert.equal(run.llm.calls.length, 0, 'no condensing request (and no read-link prompt needed)');
-  assert.equal(run.state.data.webCount, 1);
   const cache = run.store.getMediaCache('g1');
   assert.equal(cache['preview:m1#e0'].text, preview);
-  assert.equal(cache['read:m1#e0'], undefined);
   assert.deepEqual(
     [...run.lookup.cachedReads('g1', [LINK]).values()],
     [preview],
@@ -1240,12 +972,4 @@ test('readLinks under features.coreTools: the preview is the opening of the page
   run.llm.capLeft = () => 0;
   const other = await readOne(run.lookup, { ...LINK, id: 'm2#e0', url: 'https://example.org/b' });
   assert.ok(other, 'a preview sends no model request: the request cap does not stop it');
-
-  // Switched off again: the condensed excerpt, under its own key.
-  run.hot.config.features.coreTools = false;
-  run.hot.prompts['read-link'] = 'Condense this page, up to {{maxChars}} characters.';
-  run.llm.capLeft = () => 10;
-  const condensed = await readOne(run.lookup, LINK);
-  assert.equal(condensed, 'An article about a simple recipe: three eggs, flour, ten minutes.');
-  assert.equal(run.llm.calls.length, 1);
 });

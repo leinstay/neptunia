@@ -33,7 +33,7 @@ export type Limit = { key: string; used?: number; cap?: number };
 
 /** A turn's result as the pipeline reads it (src/turn/outcome.ts). */
 export type TurnResult =
-  { outcome?: TurnOutcome; limit?: Limit | null; dryRun?: boolean; delivered?: boolean; reason?: string } | undefined;
+  { outcome?: TurnOutcome; limit?: Limit | null; delivered?: boolean; reason?: string } | undefined;
 
 /** A queued call of the pending queue (src/behavior/pending.js#PendingPing), with its conversations and its line. */
 export type Ping = Omit<PendingPing, 'channel' | 'trigger' | 'destination'> & {
@@ -50,26 +50,8 @@ export type PendingQueue = { list: Array<Ping> };
 
 /** The live config, as far as the message pipeline reads it. */
 export type PipelineConfig = {
-  readonly features?: {
-    readonly mediaDescriptions?: unknown;
-    readonly webLookup?: unknown;
-    readonly followUp?: unknown;
-    readonly mentions?: unknown;
-    readonly replies?: unknown;
-    readonly nameTriggers?: unknown;
-    readonly seeReactions?: unknown;
-    readonly memory?: unknown;
-    readonly relationships?: unknown;
-    readonly participation?: unknown;
-    readonly pauseNotice?: unknown;
-    readonly privateMessages?: unknown;
-    readonly elsewhere?: unknown;
-  };
   readonly media?: {
-    readonly prefillPerMessage?: number;
     readonly video?: {
-      readonly prefill?: unknown;
-      readonly prefillPerMessage?: number;
       readonly sites?: Array<string>;
     };
   };
@@ -80,14 +62,7 @@ export type PipelineConfig = {
   readonly mention: MentionConfig;
   readonly bot: {
     readonly timezone: string;
-    readonly dryRunChannelId?: string | null;
     readonly nameTriggers?: Array<string>;
-  };
-  readonly context: {
-    readonly gapMarkerMinutes: number;
-    readonly maxMessageChars: number;
-    readonly reactionsPerMessage?: number;
-    readonly replyQuoteChars?: number;
   };
   readonly memory?: { readonly aliasHalfLifeDays?: number; readonly mainChannelIds?: unknown };
 };

@@ -8,9 +8,8 @@
 // for her yet (NOT_GRANTABLE_TO_PERSONA). Her reply tags of today are carried over without a grant, in the
 // current conversation only, so nothing she does now is blocked (the skills design, "carry
 // permissions over"): `<msg>` and `<gif>` are `message.create`, `<react>` is `message.react.add`,
-// a picture is `draw.create` -- the operations the owner's `/nep message` and `/nep draw` run. Two switches, read by the caller from the live config: `features.tools`
-// false refuses every skill, and `tools.safeMode` true lets only the carried-over tags pass; a
-// skill behind a feature switch of its own (FEATURE_SKILLS) is refused while that switch is off.
+// a picture is `draw.create` -- the operations the owner's `/nep message` and `/nep draw` run. One switch, read by the caller from the live config:
+// `tools.safeMode` true lets only the carried-over tags pass.
 // Wake envelopes (schema v11 stage, spec 2026-10-24-memory-schema-v7, sections 6 and 11): an inner turn's call is
 // also checked against the envelope of its wake kind, `innerLife.wakes.<kind>` (`tools`: `"*"` or a list of skill
 // names, `family.*` naming a family; `maxActs`: the most calls that change something per turn; `maxTasks`: the most
@@ -56,19 +55,6 @@ export const NOT_GRANTABLE_TO_PERSONA: ReadonlyArray<string> = Object.freeze([
   'inner.stop',
   'inner.start',
 ]);
-
-/**
- * The skills that exist for the persona only while a feature switch is exactly true (skill name
- * -> `features.<key>`): off, they are refused (`feature-off`), never listed to her and never
- * offered to a classifier, so a request is as it was before them.
- */
-export const FEATURE_SKILLS: Readonly<Record<string, string>> = Object.freeze(
-  Object.fromEntries(
-    SKILL_DEFINITIONS.flatMap((definition) =>
-      definition.feature === null ? [] : [[definition.name, definition.feature] as const]
-    )
-  )
-);
 
 /** The policy version of the wake envelopes (recorded on every wake run). */
 export const WAKE_POLICY_VERSION = 1;
@@ -200,17 +186,6 @@ export function nestedRefusal({
   return null;
 }
 
-/** Whether skill `name` exists now: no switch of its own (FEATURE_SKILLS), or its switch exactly true. */
-export function skillFeatureOn(name: string, config: unknown): boolean {
-  const key = Object.hasOwn(FEATURE_SKILLS, name) ? (FEATURE_SKILLS[name] ?? null) : null;
-  return key === null || objOf(objOf(config).features)[key] === true;
-}
-
-/** True when `features.tools` is not false (a missing key counts as on). */
-export function skillsOn(config: unknown): boolean {
-  return objOf(objOf(config).features).tools !== false;
-}
-
 /** True when `tools.safeMode` is exactly true. */
 export function safeModeOn(config: unknown): boolean {
   return objOf(objOf(config).tools).safeMode === true;
@@ -230,7 +205,7 @@ export function grantedToPersona(config: unknown, selfId: string | null | undefi
 
 /**
  * Whether the persona may use `skill` now, before its arguments and targets are looked at:
- * `{ allowed, reason }` with, in order, `skills-off` (features.tools false), `carried-over` (a
+ * `{ allowed, reason }` with, in order, `carried-over` (a
  * current tag aimed at the current conversation: `conversationId` absent or equal to
  * `currentConversationId`), `safe-mode` (tools.safeMode: nothing else passes), `not-grantable`
  * (NOT_GRANTABLE_TO_PERSONA, whatever is stored), `allowed` (a
@@ -256,8 +231,6 @@ export function skillAccess({
   wakeKind?: string | null;
   wakeActions?: ReadonlyArray<WakeAction> | null;
 }): SkillVerdict {
-  if (!skillsOn(config)) return { allowed: false, reason: CODE.SKILLS_OFF };
-  if (!skillFeatureOn(skill.name, config)) return { allowed: false, reason: CODE.FEATURE_OFF };
   const envelope = wakeEnvelopeRefusal({ config, wakeKind, skill: skill.name, actions: wakeActions });
   if (envelope) return envelope;
   const target = conversationId ?? currentConversationId;

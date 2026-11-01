@@ -11,7 +11,7 @@
 import { fill } from '../format.js';
 import { formatDurationShort } from './classify.js';
 
-/** `media.video.audioMap` values used for a missing or invalid key (config.json carries the same). */
+/** The audio measuring's settings. Production values, config cut of 2026-10-31. */
 export const AUDIO_MAP_DEFAULTS = Object.freeze({
   noiseDb: -50,
   minSilenceSeconds: 0.5,
@@ -28,34 +28,12 @@ const INPUT_LINE = /^Input #\d+,/m;
 const AUDIO_STREAM_LINE = /^\s*Stream #\d+:\d+.*?:\s*Audio:/m;
 const SILENCE_EVENT = /silence_(start|end):\s*(-?\d+(?:\.\d+)?(?:e[-+]?\d+)?)/gi;
 
-/** A finite number, else `fallback`. */
-function finiteOr(value, fallback) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
 /**
- * The measuring settings from `media.video.audioMap`: null when it is `null`
- * or `false` (measuring off); otherwise each of `noiseDb` (a finite number),
- * `minSilenceSeconds` (> 0), `mapBelowShare` (0..1) and `maxSpans` (an
- * integer >= 1) from the value, AUDIO_MAP_DEFAULTS for a missing or invalid
- * one -- a missing `audioMap` (or `true`) is all defaults. Pure.
- * @param {unknown} value
- * @returns {{ noiseDb: number, minSilenceSeconds: number, mapBelowShare: number, maxSpans: number }|null}
+ * The measuring settings (AUDIO_MAP_DEFAULTS): `noiseDb`, `minSilenceSeconds`, `mapBelowShare` and `maxSpans`. The
+ * live config holds none. Pure.
+ * @type {(value?: unknown) => { noiseDb: number, minSilenceSeconds: number, mapBelowShare: number, maxSpans: number }}
  */
-export function audioMapSettings(value) {
-  if (value === null || value === false) return null;
-  const given = value && typeof value === 'object' ? value : {};
-  const d = AUDIO_MAP_DEFAULTS;
-  const minSilence = finiteOr(given.minSilenceSeconds, NaN);
-  const share = finiteOr(given.mapBelowShare, NaN);
-  const spans = finiteOr(given.maxSpans, NaN);
-  return {
-    noiseDb: finiteOr(given.noiseDb, d.noiseDb),
-    minSilenceSeconds: minSilence > 0 ? minSilence : d.minSilenceSeconds,
-    mapBelowShare: share >= 0 && share <= 1 ? share : d.mapBelowShare,
-    maxSpans: spans >= 1 ? Math.floor(spans) : d.maxSpans,
-  };
-}
+export const audioMapSettings = () => ({ ...AUDIO_MAP_DEFAULTS });
 
 /**
  * The read-only ffmpeg run that measures `clipPath`'s audio: the input is

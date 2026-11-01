@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { moveConfigKeys } from '../../config-moves.ts';
+import { cutConfigKeys } from '../../config/cut.ts';
 import { checkConfig } from '../../config/check.ts';
 import { localConfigPath } from '../../config/files.ts';
 import { CONFIG_SCHEMA } from '../../config/schema.ts';
@@ -24,7 +25,6 @@ import { serverHealth, systemProbe, worse } from '../../health/server.ts';
 import type { HealthStatus } from '../../health/server.ts';
 import { DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../../llm/roles.js';
 import { backupDatabase, backupName, backupSettings, backupsIn, partialOf } from '../../memory/db/backup.js';
-import { skillFeatureOn } from '../../tools/access.ts';
 import { grantedSkillNames } from '../../tools/discovery.ts';
 import { ownValueAt, splitPath } from '../../tools/impl/shared.ts';
 import { skillRegistry } from '../../tools/registry.ts';
@@ -137,7 +137,8 @@ function configShow(privateDir: string): Answer {
 
 /**
  * `/config check`: the private settings file against the schema (src/config/check.ts), its keys of an old name moved
- * to the new one first (src/config-moves.ts), one line per unknown key or key of the wrong type.
+ * to the new one first (src/config-moves.ts) and the keys of the config cut taken out (src/config/cut.ts), one line per
+ * unknown key or key of the wrong type.
  */
 function configCheck(privateDir: string): Answer {
   const file = localConfigPath(privateDir);
@@ -149,7 +150,7 @@ function configCheck(privateDir: string): Answer {
   } catch (err) {
     return { text: `${shown} does not parse: ${err instanceof Error ? err.message : String(err)}`, status: 'failed' };
   }
-  const settled = isRecord(local) ? moveConfigKeys(local).config : local;
+  const settled = isRecord(local) ? cutConfigKeys(moveConfigKeys(local).config).config : local;
   const problems = checkConfig(settled, CONFIG_SCHEMA);
   if (problems.length === 0) return { text: `${shown}: every key is known and of its type`, status: 'ok' };
   const lines = problems.map(({ key, kind }) => (kind === 'unknown' ? `${key}: unknown key` : `${key}: wrong type`));
@@ -326,7 +327,7 @@ export function createConsole(deps: ConsoleDeps): {
     const registry = skillRegistry();
     const granted = new Set(grantedSkillNames({ config: settings, selfId: deps.selfId(), registry }));
     const lines = [...registry.keys()].sort().map((tool) => {
-      const state = !skillFeatureOn(tool, settings) ? 'off by its feature switch' : granted.has(tool) ? 'granted' : '-';
+      const state = granted.has(tool) ? 'granted' : '-';
       return `${tool}  ${state}`;
     });
     return { text: lines.join('\n'), status: 'ok' };

@@ -4,9 +4,6 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   PARTICIPATION_DEFAULTS,
   cutEpisode,
@@ -22,7 +19,6 @@ import {
   selectEpisodes,
 } from '../src/memory/participation.js';
 
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 const T0 = Date.UTC(2026, 9, 10, 12, 0, 0);
@@ -51,21 +47,16 @@ const ids = (episode) => episode.messages.map((m) => m.id);
 
 // --- settings ------------------------------------------------------------------
 
-test('participation: defaults equal config.json and missing keys fall back to them', () => {
-  // PR 7c: the shipped settings live in config/config.json.
-  const config = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
-  assert.deepEqual({ ...PARTICIPATION_DEFAULTS }, config.participation);
-  assert.equal(config.features.participation, true);
+// PR 7d: the participation measures are constants; the request's output cap and pick timeout are the settings left.
+test('participation: missing keys fall back to the defaults, the two settings are read', () => {
   assert.deepEqual(participationSettings({}), { ...PARTICIPATION_DEFAULTS });
-  assert.deepEqual(participationSettings(config), { ...PARTICIPATION_DEFAULTS });
-  assert.deepEqual(participationSettings({ participation: { hours: 24, shown: 2 } }), {
+  assert.deepEqual(participationSettings({ participation: { maxOutputTokens: 9, pickTimeoutMs: 700 } }), {
     ...PARTICIPATION_DEFAULTS,
-    hours: 24,
-    shown: 2,
+    maxOutputTokens: 9,
+    pickTimeoutMs: 700,
   });
   assert.ok(Object.isFrozen(PARTICIPATION_DEFAULTS));
 });
-
 // --- recordOwnLine ---------------------------------------------------------------
 
 test('recordOwnLine: a first line opens an episode with the lines before it, chronological', () => {

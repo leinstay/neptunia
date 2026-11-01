@@ -4,7 +4,6 @@
 // object proves nothing in the code is language-bound.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import {
   fill,
   fillGifFields,
@@ -790,11 +789,10 @@ test('formatTranscript: a video watched only in part renders videoWatchedPart wi
   );
 });
 
-test('formatTranscript: the reason code is swapped for its label, for all four codes', () => {
+test('formatTranscript: the reason code is swapped for its label, for all three codes', () => {
   const cases = [
     [{ state: 'limit', reason: 'length' }, 'too long'],
     [{ state: 'limit', reason: 'size' }, 'too big'],
-    [{ state: 'limit', reason: 'daily' }, 'daily limit'],
     [{ state: 'error' }, 'failed'],
   ];
   for (const [video, label] of cases) {
@@ -1245,44 +1243,6 @@ test('renderTempo: mentions when the last own message went unanswered (no trigge
 test('renderTempo: does not mention the unanswered line when there is a trigger', () => {
   const text = renderTempo(baseTempo({ lastIsOwn: true, hasTrigger: true }), labels, THRESHOLDS);
   assert.ok(!text.includes(labels.tempo.ownUnanswered));
-});
-
-test('format: the code fallbacks equal the values in config.json', () => {
-  const shipped = JSON.parse(readFileSync(new URL('../config/config.json', import.meta.url), 'utf8')).context;
-  // Tempo: a thresholds argument that is missing, or missing a key, reads as the shipped pair.
-  const { liveMessages10min, deadSilenceMinutes } = shipped.tempo;
-  const probes = [
-    { last10min: liveMessages10min - 1, silenceMs: 0 },
-    { last10min: liveMessages10min, silenceMs: 0 },
-    { last10min: 0, silenceMs: deadSilenceMinutes * MIN - 1 },
-    { last10min: 0, silenceMs: deadSilenceMinutes * MIN },
-  ];
-  for (const probe of probes) {
-    const expected = renderTempo(baseTempo(probe), labels, shipped.tempo);
-    assert.equal(renderTempo(baseTempo(probe), labels), expected, JSON.stringify(probe));
-    assert.equal(renderTempo(baseTempo(probe), labels, {}), expected, JSON.stringify(probe));
-  }
-  // Reactions per message: the omitted option reads as the shipped number.
-  const T = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const reactions = Array.from({ length: shipped.reactionsPerMessage + 3 }, (_, i) => ({
-    emoji: `:e${i}:`,
-    count: 1,
-    mine: false,
-  }));
-  const options = { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels };
-  assert.deepEqual(
-    formatTranscript([msg('1', T, { reactions })], options),
-    formatTranscript([msg('1', T, { reactions })], { ...options, reactionsPerMessage: shipped.reactionsPerMessage })
-  );
-  // The reply quote: the omitted option reads as the shipped length.
-  const long = Array.from({ length: shipped.replyQuoteChars }, (_, i) => `λέξη${i}`).join(' ');
-  const thread = [msg('1', T, { content: long }), msg('2', T + MIN, { replyToId: '1' })];
-  const withShipped = formatTranscript(thread, { ...options, maxChars: 0, replyQuoteChars: shipped.replyQuoteChars });
-  assert.notEqual(
-    withShipped[1].text,
-    formatTranscript(thread, { ...options, maxChars: 0, replyQuoteChars: shipped.replyQuoteChars + 10 })[1].text
-  );
-  assert.equal(formatTranscript(thread, { ...options, maxChars: 0 })[1].text, withShipped[1].text);
 });
 
 // --- formatTranscript: a second look on a question (videoAnswered) -----------------

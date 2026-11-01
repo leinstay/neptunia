@@ -16,6 +16,7 @@ import { search, window, quotesOf, dbSettings } from '../src/memory/db/recall.js
 import { fillStems, loadStemmer, stemsOf } from '../src/memory/db/stems.js';
 import { seedUnits } from './fixtures/memory-db/seed.js';
 import { insertRows } from '../src/memory/db/rows.js';
+import { fillEnvAudiences } from './fixtures/memory-db/audiences.js';
 import { channelPlaceId, dmPlaceId, messageSourceId, personId } from '../src/memory/db/ids.ts';
 import { dmContext, dmScope, groupContext, groupScope, internalContext } from '../src/memory/db/scope.ts';
 import { quantize } from '../src/memory/vectors.js';
@@ -659,6 +660,8 @@ const withHidden = {
  * places rows hold both channels and Bob's DM (`places: false`: none; the runner's place rule reads them).
  */
 function runner(env, { open = true, meaning = false, embed = null, places = true } = {}) {
+  // PR 7d: every context reads through `audience_id`, so the rows the fixture wrote carry it.
+  fillEnvAudiences(env);
   if (places) {
     insertRows(
       env.db,

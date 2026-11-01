@@ -5,7 +5,7 @@ import { createMessageHandler } from '../src/behavior/pipeline.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { userText } from '../src/behavior/prompt.js';
 import { fill } from '../src/format.js';
-import { createTagHistory } from '../src/behavior/mention.js';
+import { FOLLOW_UP_MINUTES, FOLLOW_UP_NO_STREAK, createTagHistory } from '../src/behavior/mention.js';
 import { pingStatus } from '../src/behavior/elsewhere.ts';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -500,21 +500,6 @@ test('events: another bot is ignored entirely', async () => {
   assert.equal(turns.notePostCalls.length, 0);
 });
 
-test('events: a plain message is observed and handed to the spontaneous scheduler, no turn', async () => {
-  const memory = fakeMemory();
-  const spontaneous = fakeSpontaneous();
-  const turns = fakeTurns();
-  const handler = makeHandler({ memory, spontaneous, turns });
-
-  const message = fakeMessage({ cleanContent: 'ένα μήνυμα χωρίς πρόκληση' });
-  await handler(message);
-
-  assert.equal(memory.observeCalls.length, 1);
-  assert.equal(spontaneous.onMessageCalls.length, 1);
-  assert.equal(spontaneous.onMessageCalls[0][0].id, message.channel.id);
-  assert.equal(spontaneous.onMessageCalls[0][1].content, 'ένα μήνυμα χωρίς πρόκληση');
-});
-
 test('events: a mention with rng above ignoreChance runs a reply turn', async () => {
   let seenArgs = null;
   const turns = fakeTurns({
@@ -540,29 +525,6 @@ test('events: a mention with rng above ignoreChance runs a reply turn', async ()
   assert.equal(seenArgs.mode, 'reply');
   assert.equal(seenArgs.triggerKind, 'mention');
   assert.equal(seenArgs.trigger.content, 'γεια');
-  assert.equal(memory.observeCalls.length, 1);
-});
-
-test('events: a mention with rng below ignoreChance is observed but not answered', async () => {
-  let called = false;
-  const config = baseConfig({ mention: { ignoreChance: 0.5 } });
-  const turns = fakeTurns({
-    runTurn: async () => {
-      called = true;
-      return { outcome: 'spoke' };
-    },
-  });
-  const memory = fakeMemory();
-  const handler = makeHandler({ config, turns, memory, rng: scripted([0.0]) });
-
-  const message = fakeMessage({
-    cleanContent: 'γεια',
-    mentions: { users: new Map([['self1', { id: 'self1' }]]) },
-  });
-  await handler(message);
-  await Promise.resolve();
-
-  assert.equal(called, false);
   assert.equal(memory.observeCalls.length, 1);
 });
 
@@ -594,93 +556,15 @@ test('events: a reply to its own message is detected as kind "reply"', async () 
   assert.equal(seenArgs.triggerKind, 'reply');
 });
 
-test('events: an untagged reply meets followUpIgnoreChance, a reply with a typed tag meets ignoreChance', async () => {
-  // [label, message fields, expected reason]
-  const cases = [
-    ['no ping', {}, 'ignored:follow-up'],
-    [
-      'reply ping only',
-      {
-        content: 'έχεις δίκιο',
-        mentions: { users: new Map([['self1', { id: 'self1' }]]), repliedUser: { id: 'self1' } },
-      },
-      'ignored:follow-up',
-    ],
-    [
-      'typed tag',
-      {
-        content: '<@self1> έχεις δίκιο',
-        mentions: { users: new Map([['self1', { id: 'self1' }]]), repliedUser: { id: 'self1' } },
-      },
-      'respond',
-    ],
-  ];
-  for (const [label, extra, reason] of cases) {
-    const turns = recordingTurns();
-    const config = baseConfig({ mention: { ignoreChance: 0, followUpIgnoreChance: 1 } });
-    const guild = fakeGuild();
-    const channel = fakeChannel('c1', guild, {
-      messages: { cache: new Map([['m100', { author: { id: 'self1' } }]]), fetch: async () => null },
-    });
-    const handler = makeHandler({ config, turns, rng: () => 0.5 });
-    const { logs } = await withCapturedLogs(async () => {
-      await handler(
-        fakeMessage({
-          guild,
-          channel,
-          channelId: 'c1',
-          cleanContent: 'έχεις δίκιο',
-          reference: { messageId: 'm100' },
-          ...extra,
-        })
-      );
-      await Promise.resolve();
-    });
-    const decided = logs.filter((l) => l.msg === 'mention: decided').map((l) => [l.kind, l.reason]);
-    assert.deepEqual(decided, [['reply', reason]], label);
-    assert.equal(turns.calls.length, reason === 'respond' ? 1 : 0, label);
-  }
-});
-
-test('events: a name trigger respects config.mention.nameTriggerChance', async () => {
-  let calls = 0;
-  const config = baseConfig({ bot: { nameTriggers: ['νεπτούνια'] }, mention: { nameTriggerChance: 0.5 } });
-  const turnsRespond = fakeTurns({
-    runTurn: async () => {
-      calls += 1;
-      return { outcome: 'spoke' };
-    },
-  });
-  const handlerRespond = makeHandler({ config, turns: turnsRespond, rng: scripted([0.1]) });
-  const message1 = fakeMessage({ cleanContent: 'γεια νεπτούνια όμορφη' });
-  await handlerRespond(message1);
-  await Promise.resolve();
-  assert.equal(calls, 1, 'rng below nameTriggerChance should respond');
-
-  const turnsIgnore = fakeTurns({
-    runTurn: async () => {
-      calls += 1;
-      return { outcome: 'spoke' };
-    },
-  });
-  const handlerIgnore = makeHandler({ config, turns: turnsIgnore, rng: scripted([0.99]) });
-  const message2 = fakeMessage({ cleanContent: 'γεια νεπτούνια όμορφη' });
-  await handlerIgnore(message2);
-  await Promise.resolve();
-  assert.equal(calls, 1, 'rng above nameTriggerChance should not respond');
-});
-
 test('events: a leftover bot.channels deny key is ignored; the message is observed as anywhere else', async () => {
   const memory = fakeMemory();
-  const spontaneous = fakeSpontaneous();
   const config = baseConfig({ bot: { channels: { allow: ['elsewhere'], deny: ['c1'] } } });
-  const handler = makeHandler({ config, memory, spontaneous });
+  const handler = makeHandler({ config, memory });
 
   const message = fakeMessage({ cleanContent: 'just chatting' });
   await handler(message);
 
   assert.equal(memory.observeCalls.length, 1);
-  assert.equal(spontaneous.onMessageCalls.length, 1);
 });
 
 test('events: a message from a guild other than the one this instance serves is ignored entirely', async () => {
@@ -724,135 +608,6 @@ test('events: a throwing dependency does not escape the handler', async () => {
 // ---------------------------------------------------------------------------
 // features.* switches — each masks one input of detectTrigger, or short-
 // circuits a whole side effect, without detectTrigger itself changing.
-
-test('features.mentions=false: a plain @mention is no longer a trigger', async () => {
-  let called = false;
-  const spontaneous = fakeSpontaneous();
-  const turns = fakeTurns({
-    runTurn: async () => {
-      called = true;
-      return { outcome: 'spoke' };
-    },
-  });
-  const config = baseConfig({ features: { mentions: false } });
-  const handler = makeHandler({ config, turns, spontaneous, rng: scripted([0.99]) });
-
-  const message = fakeMessage({
-    cleanContent: 'γεια',
-    mentions: { users: new Map([['self1', { id: 'self1' }]]) },
-  });
-  await handler(message);
-  await Promise.resolve();
-
-  assert.equal(called, false);
-  assert.equal(spontaneous.onMessageCalls.length, 1);
-});
-
-test('features.replies=false: a reply to its own message is no longer a trigger by itself', async () => {
-  let called = false;
-  const spontaneous = fakeSpontaneous();
-  const turns = fakeTurns({
-    runTurn: async () => {
-      called = true;
-      return { outcome: 'spoke' };
-    },
-  });
-  const guild = fakeGuild();
-  const channel = fakeChannel('c1', guild, {
-    messages: { cache: new Map([['m100', { author: { id: 'self1' } }]]), fetch: async () => null },
-  });
-  const config = baseConfig({ features: { replies: false } });
-  const handler = makeHandler({ config, turns, spontaneous, rng: scripted([0.99]) });
-
-  const message = fakeMessage({
-    guild,
-    channel,
-    channelId: 'c1',
-    cleanContent: 'έχεις δίκιο',
-    reference: { messageId: 'm100' },
-  });
-  await handler(message);
-  await Promise.resolve();
-
-  assert.equal(called, false);
-  assert.equal(spontaneous.onMessageCalls.length, 1);
-});
-
-test('features.replies=false: a reply that also pings still counts as a mention', async () => {
-  let seenArgs = null;
-  const turns = fakeTurns({
-    runTurn: async (args) => {
-      seenArgs = args;
-      return { outcome: 'spoke' };
-    },
-  });
-  const guild = fakeGuild();
-  const channel = fakeChannel('c1', guild, {
-    messages: { cache: new Map([['m100', { author: { id: 'self1' } }]]), fetch: async () => null },
-  });
-  const config = baseConfig({ features: { replies: false } });
-  const handler = makeHandler({ config, turns, rng: scripted([0.99]) });
-
-  const message = fakeMessage({
-    guild,
-    channel,
-    channelId: 'c1',
-    cleanContent: 'έχεις δίκιο',
-    reference: { messageId: 'm100' },
-    mentions: { users: new Map([['self1', { id: 'self1' }]]) },
-  });
-  await handler(message);
-  await Promise.resolve();
-
-  assert.ok(seenArgs, 'expected runTurn to be called');
-  assert.equal(seenArgs.triggerKind, 'mention');
-});
-
-test('features.nameTriggers=false: a name is never a trigger, even when configured', async () => {
-  let called = false;
-  const spontaneous = fakeSpontaneous();
-  const turns = fakeTurns({
-    runTurn: async () => {
-      called = true;
-      return { outcome: 'spoke' };
-    },
-  });
-  const config = baseConfig({ bot: { nameTriggers: ['νεπτούνια'] }, features: { nameTriggers: false } });
-  const handler = makeHandler({ config, turns, spontaneous, rng: scripted([0.1]) });
-
-  const message = fakeMessage({ cleanContent: 'γεια νεπτούνια όμορφη' });
-  await handler(message);
-  await Promise.resolve();
-
-  assert.equal(called, false);
-  assert.equal(spontaneous.onMessageCalls.length, 1);
-});
-
-test('features.memory=false: a regular message is never observed', async () => {
-  const memory = fakeMemory();
-  const spontaneous = fakeSpontaneous();
-  const config = baseConfig({ features: { memory: false } });
-  const handler = makeHandler({ config, memory, spontaneous });
-
-  const message = fakeMessage({ cleanContent: 'ένα απλό μήνυμα' });
-  await handler(message);
-
-  assert.equal(memory.observeCalls.length, 0);
-  assert.equal(spontaneous.onMessageCalls.length, 1);
-});
-
-test('features.memory=false: its own message still notes the post, but is never observed', async () => {
-  const turns = fakeTurns();
-  const memory = fakeMemory();
-  const config = baseConfig({ features: { memory: false } });
-  const handler = makeHandler({ config, turns, memory });
-
-  const message = fakeMessage({ author: { id: 'self1', bot: true, globalName: 'Bot', username: 'bot' } });
-  await handler(message);
-
-  assert.equal(turns.notePostCalls.length, 1);
-  assert.equal(memory.observeCalls.length, 0);
-});
 
 test('a config with no "features" key at all behaves as if every switch were on', async () => {
   let called = false;
@@ -906,83 +661,6 @@ test('events: a non-triggering message is observed with direct: false', async ()
   assert.deepEqual(memory.observeCalls[0][2], { direct: false });
 });
 
-test("events: affinityScore is read from the caller's stored profile and passed to decideMention", async () => {
-  let seenArgs = null;
-  const turns = fakeTurns({
-    runTurn: async (args) => {
-      seenArgs = args;
-      return { outcome: 'spoke' };
-    },
-  });
-  const store = fakeStore({ u1: { affinity: { score: -42 } } });
-  const handler = makeHandler({ turns, store, rng: scripted([0.99]) });
-
-  const message = fakeMessage({
-    cleanContent: 'γεια',
-    mentions: { users: new Map([['self1', { id: 'self1' }]]) },
-  });
-  await handler(message);
-  await Promise.resolve();
-
-  assert.ok(seenArgs, 'expected the ignore-chance to allow the turn');
-  assert.ok(store.getUserCalls.some(([guildId, userId]) => guildId === 'g1' && userId === 'u1'));
-});
-
-test('features.relationships=false: affinityScore is never looked up or passed', async () => {
-  const store = fakeStore({ u1: { affinity: { score: -100 } } });
-  const config = baseConfig({ features: { relationships: false } });
-  const handler = makeHandler({ config, store, rng: scripted([0.99]) });
-
-  const message = fakeMessage({
-    cleanContent: 'γεια',
-    mentions: { users: new Map([['self1', { id: 'self1' }]]) },
-  });
-  await handler(message);
-  await Promise.resolve();
-
-  assert.equal(store.getUserCalls.length, 0, 'store.getUser must not be called when relationships is off');
-});
-
-// ---------------------------------------------------------------------------
-// bot.dryRunChannelId: the dry-run mirror channel (src/behavior/turn.js)
-// carries the persona's own rehearsal output and is the owner's private test
-// room. It goes back to being ignored entirely: nothing there is observed or
-// triggers anything.
-
-test('events: any message in the dry-run mirror channel is ignored entirely', async () => {
-  const memory = fakeMemory();
-  const spontaneous = fakeSpontaneous();
-  const turns = fakeTurns();
-  const config = baseConfig({ bot: { dryRunChannelId: 'mirror1' } });
-  const channel = fakeChannel('mirror1', fakeGuild());
-  const handler = makeHandler({ config, memory, spontaneous, turns });
-
-  const message = fakeMessage({ channel, channelId: 'mirror1', cleanContent: 'just chatting, no command' });
-  await handler(message);
-
-  assert.equal(memory.observeCalls.length, 0);
-  assert.equal(spontaneous.onMessageCalls.length, 0);
-  assert.equal(turns.notePostCalls.length, 0);
-});
-
-test("events: the persona's own messages mirrored into the dry-run channel are never observed", async () => {
-  const memory = fakeMemory();
-  const turns = fakeTurns();
-  const config = baseConfig({ bot: { dryRunChannelId: 'mirror1' } });
-  const channel = fakeChannel('mirror1', fakeGuild());
-  const handler = makeHandler({ config, memory, turns });
-
-  const message = fakeMessage({
-    channel,
-    channelId: 'mirror1',
-    author: { id: 'self1', bot: true, globalName: 'Bot', username: 'bot' },
-  });
-  await handler(message);
-
-  assert.equal(memory.observeCalls.length, 0);
-  assert.equal(turns.notePostCalls.length, 0);
-});
-
 // ---------------------------------------------------------------------------
 // features.mediaDescriptions: fire-and-forget describer pre-fetch from the
 // message path (src/memory/describe.js's cache), so the live memory analyzer
@@ -1022,12 +700,11 @@ function videoAttachments(count = 1) {
   return new Map(entries);
 }
 
-test('events: media.video.prefill on watches one video per message, fire-and-forget', async () => {
+test('events: a posted video is watched ahead, fire-and-forget', async () => {
   const describer = fakeVideoDescriber();
-  const config = baseConfig({ features: { videoDescriptions: true }, media: { video: { prefill: true } } });
-  const handler = makeHandler({ config, describer });
+  const handler = makeHandler({ describer });
 
-  await handler(fakeMessage({ cleanContent: 'look', attachments: videoAttachments(2) }));
+  await handler(fakeMessage({ cleanContent: 'look', attachments: videoAttachments(1) }));
 
   assert.equal(describer.videoCalls.length, 1);
   assert.equal(describer.videoCalls[0].guildId, 'g1');
@@ -1051,32 +728,6 @@ test('events: a typed video-site link is prefilled too (normalizeMessage got med
   assert.equal(describer.videoCalls[0].items[0].source, 'link');
 });
 
-test('events: no video prefill when media.video.prefill is off, videoDescriptions is off or mediaDescriptions is off', async () => {
-  for (const overrides of [
-    { features: { videoDescriptions: true }, media: { video: { prefill: false } } },
-    { features: { videoDescriptions: false }, media: { video: { prefill: true } } },
-    { features: { mediaDescriptions: false, videoDescriptions: true }, media: { video: { prefill: true } } },
-  ]) {
-    const describer = fakeVideoDescriber();
-    const handler = makeHandler({ config: baseConfig(overrides), describer });
-
-    await handler(fakeMessage({ cleanContent: 'look', attachments: videoAttachments(1) }));
-
-    assert.equal(describer.videoCalls.length, 0);
-  }
-});
-
-test('events: features.mediaDescriptions off makes zero describer calls from the message path', async () => {
-  const describer = fakeDescriber();
-  const config = baseConfig({ features: { mediaDescriptions: false } });
-  const handler = makeHandler({ config, describer });
-
-  const message = fakeMessage({ cleanContent: 'look at this', attachments: pictureAttachments(1) });
-  await handler(message);
-
-  assert.equal(describer.calls.length, 0);
-});
-
 test("events: features.mediaDescriptions on fires a fire-and-forget describer call for an observed human message's pictures", async () => {
   const describer = fakeDescriber();
   const config = baseConfig({ features: { mediaDescriptions: true } });
@@ -1089,57 +740,26 @@ test("events: features.mediaDescriptions on fires a fire-and-forget describer ca
   assert.equal(describer.calls[0].items[0].itemId, 'a1');
 });
 
-test('events: media.prefillPerMessage caps the pictures handed to the describer, read per message; a missing key falls back to the config.json value', async () => {
+test('events: at most five pictures per message are handed to the describer', async () => {
+  // PR 7d: media.prefillPerMessage is the constant 5.
   const describer = fakeDescriber();
-  const config = baseConfig({ features: { mediaDescriptions: true }, media: { prefillPerMessage: 3 } });
-  const handler = makeHandler({ config, describer });
-  await handler(fakeMessage({ cleanContent: 'lots of pics', attachments: pictureAttachments(4) }));
+  const handler = makeHandler({ describer });
+  await handler(fakeMessage({ cleanContent: 'lots of pics', attachments: pictureAttachments(6) }));
   assert.deepEqual(
     describer.calls[0].items.map((item) => item.itemId),
-    ['a1', 'a2', 'a3']
+    ['a1', 'a2', 'a3', 'a4', 'a5']
   );
-
-  config.media.prefillPerMessage = 0; // a live edit: no picture prefill at all
-  await handler(fakeMessage({ cleanContent: 'lots of pics', attachments: pictureAttachments(4) }));
-  assert.equal(describer.calls.length, 1);
-
-  delete config.media.prefillPerMessage;
-  await handler(
-    fakeMessage({
-      cleanContent: 'lots of pics',
-      attachments: pictureAttachments(DEFAULT_CONFIG.media.prefillPerMessage + 1),
-    })
-  );
-  assert.equal(describer.calls.length, 2);
-  assert.equal(describer.calls[1].items.length, DEFAULT_CONFIG.media.prefillPerMessage);
 });
 
-test('events: media.video.prefillPerMessage caps the videos watched ahead per message; a missing key falls back to the config.json value', async () => {
+test('events: at most five videos per message are watched ahead', async () => {
+  // PR 7d: media.video.prefillPerMessage is the constant 5.
   const describer = fakeVideoDescriber();
-  const config = baseConfig({
-    features: { videoDescriptions: true },
-    media: { video: { prefill: true, prefillPerMessage: 2 } },
-  });
-  const handler = makeHandler({ config, describer });
-  await handler(fakeMessage({ cleanContent: 'look', attachments: videoAttachments(3) }));
+  const handler = makeHandler({ describer });
+  await handler(fakeMessage({ cleanContent: 'look', attachments: videoAttachments(6) }));
   assert.deepEqual(
     describer.videoCalls[0].items.map((item) => item.itemId),
-    ['v1', 'v2']
+    ['v1', 'v2', 'v3', 'v4', 'v5']
   );
-
-  config.media.video.prefillPerMessage = 0; // a live edit: no video prefill at all
-  await handler(fakeMessage({ cleanContent: 'look', attachments: videoAttachments(3) }));
-  assert.equal(describer.videoCalls.length, 1);
-
-  delete config.media.video.prefillPerMessage;
-  await handler(
-    fakeMessage({
-      cleanContent: 'look',
-      attachments: videoAttachments(DEFAULT_CONFIG.media.video.prefillPerMessage + 1),
-    })
-  );
-  assert.equal(describer.videoCalls.length, 2);
-  assert.equal(describer.videoCalls[1].items.length, DEFAULT_CONFIG.media.video.prefillPerMessage);
 });
 
 test('events: a picture-format sticker warms the describer cache too', async () => {
@@ -1166,14 +786,14 @@ test('events: a custom emoji in the text warms the describer cache too', async (
   assert.equal(describer.calls[0].items[0].itemId, 'emoji:111');
 });
 
-test("events: pictures come before a message's emoji within the shared 2-per-message cap", async () => {
+test("events: pictures come before a message's emoji within the shared 5-per-message cap", async () => {
+  // PR 7d: media.prefillPerMessage is the constant 5.
   const describer = fakeDescriber();
-  const config = baseConfig({ features: { mediaDescriptions: true } });
-  const handler = makeHandler({ config, describer });
+  const handler = makeHandler({ describer });
 
   const message = fakeMessage({
     cleanContent: 'look <:pog:111>',
-    attachments: pictureAttachments(1),
+    attachments: pictureAttachments(4),
     stickers: new Map([['s1', { id: 's1', name: 'pepe', format: 1 }]]),
   });
   await handler(message);
@@ -1181,26 +801,9 @@ test("events: pictures come before a message's emoji within the shared 2-per-mes
   assert.equal(describer.calls.length, 1);
   assert.deepEqual(
     describer.calls[0].items.map((i) => i.itemId),
-    ['a1', 'sticker:s1'],
-    'the attachment and the sticker (both pictures) fill the cap before the emoji is ever considered'
+    ['a1', 'a2', 'a3', 'a4', 'sticker:s1'],
+    'the attachments and the sticker (all pictures) fill the cap before the emoji is ever considered'
   );
-});
-
-test('events: the dry-run mirror channel never triggers a describer call, even with a picture', async () => {
-  const describer = fakeDescriber();
-  const config = baseConfig({ features: { mediaDescriptions: true }, bot: { dryRunChannelId: 'mirror1' } });
-  const channel = fakeChannel('mirror1', fakeGuild());
-  const handler = makeHandler({ config, describer });
-
-  const message = fakeMessage({
-    channel,
-    channelId: 'mirror1',
-    cleanContent: 'look',
-    attachments: pictureAttachments(1),
-  });
-  await handler(message);
-
-  assert.equal(describer.calls.length, 0);
 });
 
 test("events: the persona's own message never triggers a describer call", async () => {
@@ -1266,10 +869,8 @@ test('events: a direct ping elsewhere becomes pending and is answered after the 
   assert.deepEqual(sleepCalls, [5500], 'between(switchDelayMs=[2000,9000], rng=0.5) -- the human switch pause');
 });
 
-for (const [roll, answered] of [
-  [0.2, true],
-  [0.7, false],
-]) {
+// PR 7d: mention.nameTriggerChance is the constant 1, so every name call that is rolled is noticed.
+for (const [roll, answered] of [[0.2, true]]) {
   test(`events: a name call elsewhere while busy is held under mention.oneAtATime and rolled when drained (roll ${roll})`, async () => {
     const calls = [];
     const turns = fakeTurns({
@@ -1281,7 +882,7 @@ for (const [roll, answered] of [
       },
     });
     const tagHistory = countingTagHistory();
-    const config = baseConfig({ bot: { nameTriggers: ['νεπτούνια'] }, mention: { nameTriggerChance: 0.5 } });
+    const config = baseConfig({ bot: { nameTriggers: ['νεπτούνια'] } });
     // Exactly two values: the switch pause and the name-trigger roll at drain time -- none on arrival.
     const handler = makeHandler({ config, turns, tagHistory, sleep: async () => {}, rng: scripted([0.5, roll]) });
 
@@ -1452,72 +1053,6 @@ test('events: a name trigger in the channel whose turn is running is deferred an
   );
 });
 
-test('events: mention.pendingSameChannel=false restores the busy drop for a same-channel mention, read hot', async () => {
-  const turns = busyChannelTurns();
-  const tagHistory = countingTagHistory();
-  const config = baseConfig({ mention: { pendingSameChannel: false } });
-  // No rng value: the busy drop comes before decideMention; the drain must find nothing.
-  const handler = makeHandler({ config, turns, tagHistory, sleep: async () => {}, rng: scripted([]) });
-
-  const guild = fakeGuild();
-  const channel = fakeChannelWithMessage('c1', guild, 'm1');
-  const { logs } = await withCapturedLogs(async () => {
-    await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  assert.equal(turns.calls.length, 0, 'dropped before it is decided: no turn is asked for');
-  assert.equal(tagHistory.hits, 0, 'not counted');
-  assert.equal(
-    logs.some((entry) => entry.msg === 'mention: decided'),
-    false,
-    'no ignore roll'
-  );
-  assert.ok(
-    logs.some((entry) => entry.msg === 'mention: dropped' && entry.reason === 'busy' && entry.kind === 'mention')
-  );
-
-  turns.finish();
-  await handler.drainPending();
-  assert.equal(turns.calls.length, 0, 'nothing was queued');
-});
-
-test('events: mention.pendingSameChannel=false drops a same-channel name call like a mention', async () => {
-  const turns = busyChannelTurns();
-  const tagHistory = countingTagHistory();
-  const config = baseConfig({ bot: { nameTriggers: ['νεπτούνια'] }, mention: { pendingSameChannel: false } });
-  // No rng value: the busy drop comes before the name-trigger roll; the drain must find nothing.
-  const handler = makeHandler({ config, turns, tagHistory, sleep: async () => {}, rng: scripted([]) });
-
-  const guild = fakeGuild();
-  const channel = fakeChannelWithMessage('c1', guild, 'm1');
-  const { logs } = await withCapturedLogs(async () => {
-    await handler(fakeMessage({ id: 'm1', guild, channel, channelId: 'c1', cleanContent: 'γεια νεπτούνια' }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  assert.equal(turns.calls.length, 0, 'dropped before it is decided: no turn is asked for');
-  assert.equal(tagHistory.hits, 0, 'not counted');
-  assert.equal(
-    logs.some((entry) => entry.msg === 'mention: decided'),
-    false,
-    'no roll'
-  );
-  assert.equal(
-    logs.some((entry) => entry.msg === 'mention: deferred'),
-    false,
-    'not held'
-  );
-  assert.deepEqual(
-    logs.filter((entry) => entry.msg === 'mention: dropped').map(({ channel: id, kind, reason }) => [id, kind, reason]),
-    [['c1', 'name', 'busy']]
-  );
-
-  turns.finish();
-  await handler.drainPending();
-  assert.equal(turns.calls.length, 0, 'nothing was queued');
-});
-
 test('events: a deferred ping the last speaking turn already had in view is not answered again', async () => {
   const turns = busyChannelTurns({ seen: ['m1'] });
   const handler = makeHandler({ turns, sleep: async () => {}, rng: scripted([0.5]) });
@@ -1636,30 +1171,6 @@ test('events: clearPending empties the pending queue -- drainPending afterwards 
   await handler.drainPending();
 
   assert.equal(called, false, 'the cleared ping must never be answered');
-});
-
-test('events: the ignore decision is rolled at pick-up time, not when the ping arrived', async () => {
-  let respondedArgs = null;
-  const turns = fakeTurns({
-    isBusy: () => false,
-    isAnyBusy: () => true,
-    runTurn: async (args) => {
-      respondedArgs = args;
-      return { outcome: 'spoke' };
-    },
-  });
-  // Exactly one value for the switch-delay sample, one for decideMention -- if
-  // arrival wrongly rolled decideMention too, this queue would run out and throw.
-  const config = baseConfig({ mention: { ignoreChance: 0.5 } });
-  const handler = makeHandler({ config, turns, sleep: async () => {}, rng: scripted([0.5, 0]) });
-
-  const guild = fakeGuild();
-  const channel = fakeChannelWithMessage('c1', guild, 'm1');
-  await assert.doesNotReject(() => handler(directPingMessage({ guild, channel, channelId: 'c1' })));
-
-  await handler.drainPending();
-
-  assert.equal(respondedArgs, null, 'rng=0 at pick-up time is below the configured ignoreChance (0.5): ignored');
 });
 
 test('events: a pending ping whose message no longer exists is dropped with reason gone', async () => {
@@ -1838,48 +1349,6 @@ test('events: several pending pings drain oldest first, one at a time (never con
 
   assert.deepEqual(order, ['c1', 'c2', 'c3'], 'oldest arrival first');
   assert.equal(sawConcurrency, false, 'never more than one deferred turn in flight at once');
-});
-
-test('events: a hot change to mention.oneAtATime is picked up without recreating the handler', async () => {
-  const config = baseConfig();
-  const answeredChannels = [];
-  const turns = fakeTurns({
-    isBusy: () => false,
-    isAnyBusy: () => true,
-    runTurn: async (args) => {
-      answeredChannels.push(args.conversation.conversationId);
-      return { outcome: 'spoke' };
-    },
-  });
-  const sleepCalls = [];
-  const sleep = async (ms) => {
-    sleepCalls.push(ms);
-  };
-  // 1st value: channel "b"'s IMMEDIATE decideMention (oneAtATime off, no delay involved).
-  // 2nd value: the switch-delay sample for "a" at drain time (irrelevant here, switchDelayMs is fixed).
-  // 3rd value: "a"'s decideMention at drain time.
-  const handler = makeHandler({ config, turns, sleep, rng: scripted([0.5, 0.5, 0.99]) });
-
-  const guild = fakeGuild();
-  const channelA = fakeChannelWithMessage('a', guild, 'm-a');
-  await handler(directPingMessage({ id: 'm-a', guild, channel: channelA, channelId: 'a', cleanContent: 'a' }));
-  assert.equal(answeredChannels.length, 0, 'oneAtATime true (default): deferred, not run immediately');
-
-  config.mention.oneAtATime = false;
-  const channelB = fakeChannelWithMessage('b', guild, 'm-b');
-  await handler(directPingMessage({ id: 'm-b', guild, channel: channelB, channelId: 'b', cleanContent: 'b' }));
-  await Promise.resolve();
-  assert.deepEqual(answeredChannels, ['b'], 'oneAtATime=false: runs immediately, ignoring busy elsewhere');
-
-  config.mention.oneAtATime = true;
-  config.mention.switchDelayMs = [1234, 1234];
-  await handler.drainPending();
-  assert.deepEqual(sleepCalls, [1234], 'the new switchDelayMs is read fresh at drain time');
-  assert.deepEqual(
-    answeredChannels.sort(),
-    ['a', 'b'],
-    'the earlier pending ping for "a" is still answered once re-enabled'
-  );
 });
 
 test('events: a hot change to mention.pendingMinutes is picked up (a shorter window expires sooner)', async () => {
@@ -2272,7 +1741,7 @@ test('follow-up: an empty or blank classifier answer is logged as a failure with
   }
 });
 
-test('follow-up: three empty classifier answers in a row close the window, like three failed calls', async () => {
+test('follow-up: five empty classifier answers in a row close the window, like five failed calls', async () => {
   const clock = mutableNow(0);
   const llm = fakeFollowUpLlm();
   const spontaneous = fakeSpontaneous();
@@ -2281,7 +1750,7 @@ test('follow-up: three empty classifier answers in a row close the window, like 
   const channel = fakeChannelWithHistory('c1', guild, []);
   await openFollowUpWindow(handler, { guild, channel, ts: clock() });
 
-  for (let i = 0; i < 3; i += 1) {
+  for (let i = 0; i < FOLLOW_UP_NO_STREAK; i += 1) {
     const p = handler(
       fakeMessage({
         id: `m${i}`,
@@ -2300,8 +1769,7 @@ test('follow-up: three empty classifier answers in a row close the window, like 
     fakeMessage({ id: 'm4', guild, channel, channelId: 'c1', cleanContent: 'plain 4', createdTimestamp: clock() })
   );
 
-  assert.equal(llm.calls.length, 3, 'the no-streak closed the window');
-  assert.equal(spontaneous.onMessageCalls.length, 1);
+  assert.equal(llm.calls.length, FOLLOW_UP_NO_STREAK, 'the no-streak closed the window');
 });
 
 test('follow-up: the classifier system prompt carries the bare display name, no braces around it', async () => {
@@ -2357,7 +1825,7 @@ test('follow-up: the window opens on send and expires after followUpMinutes', as
   llm.respond('no');
   await p1;
 
-  clock.set(16 * 60_000); // past the default followUpMinutes=15
+  clock.set((FOLLOW_UP_MINUTES + 1) * 60_000); // past the window
   const msg2 = fakeMessage({
     guild,
     channel,
@@ -2369,11 +1837,6 @@ test('follow-up: the window opens on send and expires after followUpMinutes', as
   await handler(msg2);
 
   assert.equal(llm.calls.length, 1, 'once the window expired, the classifier is not consulted again');
-  assert.equal(
-    spontaneous.onMessageCalls.length,
-    1,
-    'the expired-window message falls back to the spontaneous scheduler'
-  );
 });
 
 test('follow-up: a reply carrying only the implicit reply ping reaches the classifier', async () => {
@@ -2429,36 +1892,6 @@ test('follow-up: a reply that also mentions a third member is "no" without consu
   assert.equal(spontaneous.onMessageCalls.length, 0, 'handled by the pre-filter, not handed to spontaneous');
 });
 
-test('follow-up: mention.followUpClassifyReplies=false pre-filters any reply, read hot', async () => {
-  const config = baseConfig({ mention: { followUpClassifyReplies: false } });
-  const llm = fakeFollowUpLlm();
-  const spontaneous = fakeSpontaneous();
-  const handler = makeHandler({ config, spontaneous, llm, prompts: fakeAddressPrompts() });
-  const guild = fakeGuild();
-  const channel = fakeChannelWithHistory('c1', guild, []);
-  await openFollowUpWindow(handler, { guild, channel, ts: Date.now() });
-
-  const reply = (id) =>
-    fakeMessage({
-      id,
-      guild,
-      channel,
-      channelId: 'c1',
-      cleanContent: 'replying to someone else',
-      reference: { messageId: 'm-other' },
-    });
-  await handler(reply('m1'));
-  assert.equal(llm.calls.length, 0, 'switch off: a reply never reaches the model');
-  assert.equal(spontaneous.onMessageCalls.length, 0);
-
-  config.mention.followUpClassifyReplies = true;
-  const pending = handler(reply('m2'));
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(llm.calls.length, 1, 'switched back on without recreating the handler');
-  llm.respond('no');
-  await pending;
-});
-
 test('follow-up: a mention of another member is "no" without consulting the model', async () => {
   const llm = fakeFollowUpLlm();
   const spontaneous = fakeSpontaneous();
@@ -2510,7 +1943,7 @@ test('follow-up: a "yes" verdict runs a reply turn with the candidate as the tar
   assert.equal(spontaneous.onMessageCalls.length, 0);
 });
 
-test('follow-up: three "no" verdicts in a row close the window (the default followUpNoStreak)', async () => {
+test('follow-up: five "no" verdicts in a row close the window', async () => {
   const clock = mutableNow(0);
   const llm = fakeFollowUpLlm();
   const spontaneous = fakeSpontaneous();
@@ -2519,7 +1952,7 @@ test('follow-up: three "no" verdicts in a row close the window (the default foll
   const channel = fakeChannelWithHistory('c1', guild, []);
   await openFollowUpWindow(handler, { guild, channel, ts: clock() });
 
-  for (let i = 0; i < 3; i += 1) {
+  for (let i = 0; i < FOLLOW_UP_NO_STREAK; i += 1) {
     const msg = fakeMessage({
       id: `m${i}`,
       guild,
@@ -2533,8 +1966,8 @@ test('follow-up: three "no" verdicts in a row close the window (the default foll
     llm.respond('no');
     await p;
   }
-  assert.equal(llm.calls.length, 3);
-  assert.equal(spontaneous.onMessageCalls.length, 0, 'every one of the 3 was still handled by the classifier itself');
+  assert.equal(llm.calls.length, FOLLOW_UP_NO_STREAK);
+  assert.equal(spontaneous.onMessageCalls.length, 0, 'every one of them was still handled by the classifier itself');
 
   const msg4 = fakeMessage({
     id: 'm4',
@@ -2546,11 +1979,10 @@ test('follow-up: three "no" verdicts in a row close the window (the default foll
   });
   await handler(msg4);
 
-  assert.equal(llm.calls.length, 3, 'the window is closed now, the classifier is not consulted a 4th time');
   assert.equal(
-    spontaneous.onMessageCalls.length,
-    1,
-    'falls back to the spontaneous scheduler once the window is closed'
+    llm.calls.length,
+    FOLLOW_UP_NO_STREAK,
+    'the window is closed now, the classifier is not consulted again'
   );
 });
 
@@ -2568,22 +2000,6 @@ test('follow-up: a missing prompts.address is a "no" without calling the model',
 
   assert.equal(llm.calls.length, 0);
   assert.equal(spontaneous.onMessageCalls.length, 0, 'still handled (as a no), not handed to spontaneous');
-});
-
-test('features.followUp=false: an open window is never consulted, falls back to spontaneous', async () => {
-  const config = baseConfig({ features: { followUp: false } });
-  const llm = fakeFollowUpLlm();
-  const spontaneous = fakeSpontaneous();
-  const handler = makeHandler({ config, spontaneous, llm, prompts: fakeAddressPrompts() });
-  const guild = fakeGuild();
-  const channel = fakeChannelWithHistory('c1', guild, []);
-  await openFollowUpWindow(handler, { guild, channel, ts: Date.now() });
-
-  const msg = fakeMessage({ guild, channel, channelId: 'c1', cleanContent: 'plain follow-up' });
-  await handler(msg);
-
-  assert.equal(llm.calls.length, 0);
-  assert.equal(spontaneous.onMessageCalls.length, 1);
 });
 
 test('follow-up: a message that carries a trigger is never sent to the classifier, even inside an open window', async () => {
@@ -2813,7 +2229,7 @@ test('follow-up: a held message is dropped when the window expired by the time t
   await tick();
   await handler(plainFollowUpMessage({ id: 'm2', guild, channel, content: 'second', ts: clock() }));
 
-  clock.set(16 * 60_000); // past the default followUpMinutes=15
+  clock.set((FOLLOW_UP_MINUTES + 1) * 60_000); // past the window
   llm.respond('no');
   await p1;
   await tick();
@@ -2823,12 +2239,18 @@ test('follow-up: a held message is dropped when the window expired by the time t
 });
 
 test('follow-up: a held message is dropped when a "no" streak closed the window', async () => {
-  const config = baseConfig({ mention: { followUpNoStreak: 1 } });
   const llm = fakeFollowUpLlm();
-  const handler = makeHandler({ config, llm, prompts: fakeAddressPrompts() });
+  const handler = makeHandler({ llm, prompts: fakeAddressPrompts() });
   const guild = fakeGuild();
   const channel = fakeChannelWithHistory('c1', guild, []);
   await openFollowUpWindow(handler, { guild, channel, ts: Date.now() });
+  // PR 7d: followUpNoStreak is the constant 5: four "no" verdicts first, so the next one closes the window.
+  for (let i = 0; i < FOLLOW_UP_NO_STREAK - 1; i += 1) {
+    const earlier = handler(plainFollowUpMessage({ id: `e${i}`, guild, channel, content: `plain ${i}` }));
+    await tick();
+    llm.respond('no');
+    await earlier;
+  }
 
   const p1 = handler(
     plainFollowUpMessage({ id: 'm1', guild, channel, content: 'first', authorId: 'u1', authorName: 'Alice' })
@@ -2839,44 +2261,7 @@ test('follow-up: a held message is dropped when a "no" streak closed the window'
   await p1;
   await tick();
 
-  assert.equal(llm.calls.length, 1, 'the one "no" closed the window, nothing left to classify');
-});
-
-test('follow-up: with mention.classifyWhileBusy off, a held message is dropped when the channel is busy by the time the call ends', async () => {
-  let busy = false;
-  const turns = fakeTurns({ isBusy: () => busy, isAnyBusy: () => busy });
-  const llm = fakeFollowUpLlm();
-  const spontaneous = fakeSpontaneous();
-  const config = baseConfig({ mention: { classifyWhileBusy: false } });
-  const handler = makeHandler({ config, turns, spontaneous, llm, prompts: fakeAddressPrompts() });
-  const guild = fakeGuild();
-  const channel = fakeChannelWithHistory('c1', guild, []);
-  await openFollowUpWindow(handler, { guild, channel, ts: Date.now() });
-
-  const p1 = handler(
-    plainFollowUpMessage({ id: 'm1', guild, channel, content: 'first', authorId: 'u1', authorName: 'Alice' })
-  );
-  await tick();
-  await handler(plainFollowUpMessage({ id: 'm2', guild, channel, content: 'second' }));
-
-  busy = true;
-  llm.respond('no');
-  await p1;
-  await tick();
-
-  assert.equal(llm.calls.length, 1, 'a turn is running in the channel: the held message is not classified');
-  assert.equal(spontaneous.onMessageCalls.length, 0);
-
-  // Nothing stays held: once the channel is free, a new message is classified on its own.
-  busy = false;
-  const p3 = handler(plainFollowUpMessage({ id: 'm3', guild, channel, content: 'third' }));
-  await tick();
-  assert.equal(llm.calls.length, 2);
-  assert.match(llm.calls[1].messages[1].content, /<candidate>[\s\S]*third/);
-  llm.respond('no');
-  await p3;
-  await tick();
-  assert.equal(llm.calls.length, 2);
+  assert.equal(llm.calls.length, FOLLOW_UP_NO_STREAK, 'the last "no" closed the window, nothing left to classify');
 });
 
 test('follow-up: a held message is dropped when the bot was paused meanwhile, nothing marked dirty', async () => {
@@ -2900,26 +2285,6 @@ test('follow-up: a held message is dropped when the bot was paused meanwhile, no
 
   assert.equal(llm.calls.length, 1, 'paused: the held message is not classified');
   assert.equal(store.dirtyCount - dirtyBefore, 1, 'only the in-flight "no" bumped the streak, the held one did not');
-});
-
-test('follow-up: a hot change to mention.followUpMinutes is picked up without recreating the handler', async () => {
-  const clock = mutableNow(0);
-  const config = baseConfig();
-  const llm = fakeFollowUpLlm();
-  const spontaneous = fakeSpontaneous();
-  const handler = makeHandler({ config, spontaneous, now: clock, llm, prompts: fakeAddressPrompts() });
-  const guild = fakeGuild();
-  const channel = fakeChannelWithHistory('c1', guild, []);
-  await openFollowUpWindow(handler, { guild, channel, ts: clock() });
-
-  config.mention.followUpMinutes = 1; // was 15
-
-  clock.set(90_000); // 1.5 min: inside the old default, past the new shorter one
-  const msg = fakeMessage({ guild, channel, channelId: 'c1', cleanContent: 'plain follow-up' });
-  await handler(msg);
-
-  assert.equal(llm.calls.length, 0, 'the shorter window (read live) had already expired');
-  assert.equal(spontaneous.onMessageCalls.length, 1);
 });
 
 // ---------------------------------------------------------------------------
@@ -2991,7 +2356,6 @@ test('follow-up persistence: an expired window is dropped on load', async () => 
     fakeMessage({ guild, channel: oldChannel, channelId: 'old', cleanContent: 'plain', createdTimestamp: clock() })
   );
   assert.equal(llm.calls.length, 0, 'the dropped window is not consulted');
-  assert.equal(spontaneous.onMessageCalls.length, 1);
 });
 
 test('follow-up persistence: closing the window by the "no" streak removes its key from state', async () => {
@@ -3003,7 +2367,7 @@ test('follow-up persistence: closing the window by the "no" streak removes its k
   const channel = fakeChannelWithHistory('c1', guild, []);
   await openFollowUpWindow(handler, { guild, channel, ts: clock() });
 
-  for (let i = 0; i < 3; i += 1) {
+  for (let i = 0; i < FOLLOW_UP_NO_STREAK; i += 1) {
     const p = handler(
       fakeMessage({
         id: `m${i}`,
@@ -3030,7 +2394,7 @@ test('follow-up persistence: an expired window is removed from state when next c
   const channel = fakeChannelWithHistory('c1', guild, []);
   await openFollowUpWindow(handler, { guild, channel, ts: clock() });
 
-  clock.set(16 * 60_000); // past the default followUpMinutes=15
+  clock.set((FOLLOW_UP_MINUTES + 1) * 60_000); // past the window
   await handler(fakeMessage({ guild, channel, channelId: 'c1', cleanContent: 'too late', createdTimestamp: clock() }));
 
   assert.equal(Object.hasOwn(store.state.data.followUpWindows, 'c1'), false);
@@ -3104,23 +2468,6 @@ test('events: web.links.prefill on reads the first readable link of a message, f
   );
 });
 
-test('events: no link prefill when webLookup is off or missing, links are disabled or prefill is off', async () => {
-  const missing = webConfig();
-  delete missing.features.webLookup;
-  for (const config of [
-    webConfig({ features: { webLookup: false } }),
-    missing,
-    webConfig({ web: { links: { enabled: false } } }),
-    webConfig({ web: { links: { prefill: false } } }),
-    baseConfig(),
-  ]) {
-    const lookup = fakeLookup();
-    const handler = makeHandler({ config, lookup });
-    await handler(fakeMessage({ id: 'm1', cleanContent: 'κοίτα', embeds: LINK_EMBEDS }));
-    assert.equal(lookup.readCalls.length, 0);
-  }
-});
-
 /** A lookup whose every prefill read is a new fetch attempt (newCount = the links it was allowed). */
 function attemptingLookup({ attempted = true } = {}) {
   const readCalls = [];
@@ -3145,48 +2492,6 @@ function linkMessage(id, authorId) {
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
-test('events: link prefill is capped per member per day by web.links.prefillPerUserPerDay; others are unaffected', async () => {
-  const lookup = attemptingLookup();
-  const handler = makeHandler({
-    config: webConfig({ web: { links: { prefillPerUserPerDay: 2 } } }),
-    lookup,
-    now: () => Date.UTC(2026, 8, 20, 10),
-  });
-  for (const id of ['m1', 'm2', 'm3', 'm4']) {
-    await handler(linkMessage(id, 'u1'));
-    await settle();
-  }
-  assert.deepEqual(
-    lookup.readCalls.map((c) => c.links[0].url),
-    ['https://example.org/m1', 'https://example.org/m2']
-  );
-  assert.ok(lookup.readCalls.every((c) => c.options.maxNew === 1));
-
-  await handler(linkMessage('m5', 'u2'));
-  await settle();
-  assert.equal(lookup.readCalls.length, 3, 'another member still gets a prefill');
-  assert.equal(lookup.readCalls[2].links[0].url, 'https://example.org/m5');
-});
-
-test('events: the per-member prefill count resets on a new UTC day', async () => {
-  let now = Date.UTC(2026, 8, 20, 23, 59);
-  const lookup = attemptingLookup();
-  const handler = makeHandler({
-    config: webConfig({ web: { links: { prefillPerUserPerDay: 1 } } }),
-    lookup,
-    now: () => now,
-  });
-  await handler(linkMessage('m1', 'u1'));
-  await settle();
-  await handler(linkMessage('m2', 'u1'));
-  await settle();
-  assert.equal(lookup.readCalls.length, 1);
-  now = Date.UTC(2026, 8, 21, 0, 1);
-  await handler(linkMessage('m3', 'u1'));
-  await settle();
-  assert.equal(lookup.readCalls.length, 2);
-});
-
 test('events: a prefill that fetched nothing new (a cache hit) does not count toward the member limit', async () => {
   const lookup = attemptingLookup({ attempted: false });
   const handler = makeHandler({ config: webConfig({ web: { links: { prefillPerUserPerDay: 1 } } }), lookup });
@@ -3195,25 +2500,6 @@ test('events: a prefill that fetched nothing new (a cache hit) does not count to
     await settle();
   }
   assert.equal(lookup.readCalls.length, 3);
-});
-
-test('events: prefillPerUserPerDay 0 turns the link prefill off; a missing key falls back to the config.json value', async () => {
-  const off = attemptingLookup();
-  const offHandler = makeHandler({ config: webConfig({ web: { links: { prefillPerUserPerDay: 0 } } }), lookup: off });
-  await offHandler(linkMessage('m1', 'u1'));
-  await settle();
-  assert.equal(off.readCalls.length, 0);
-
-  const config = webConfig();
-  delete config.web.links.prefillPerUserPerDay;
-  const byDefault = attemptingLookup();
-  const handler = makeHandler({ config, lookup: byDefault });
-  const perDay = DEFAULT_CONFIG.web.links.prefillPerUserPerDay;
-  for (let i = 0; i < perDay + 2; i += 1) {
-    await handler(linkMessage(`n${i}`, 'u1'));
-    await settle();
-  }
-  assert.equal(byDefault.readCalls.length, perDay);
 });
 
 test('events: a message with no readable link never calls readLinks; a lookup failure is swallowed', async () => {
@@ -3244,7 +2530,8 @@ const TODAY_MS = Date.parse(`${TODAY}T12:00:00Z`);
 function privateConfig(overrides = {}) {
   return baseConfig(
     deepMerge(
-      { features: { privateMessages: true }, bot: { owners: ['owner1'] }, private: { maxPerUserPerDay: 100 } },
+      // PR 7d: features.privateMessages is the key private.enabled, and the daily reply caps are gone.
+      { bot: { owners: ['owner1'] }, private: { enabled: true } },
       overrides
     )
   );
@@ -3293,24 +2580,17 @@ function fakePrivateStore({
   profiles = { u1: { affinity: { score: 10 } }, owner1: { affinity: { score: -50 } } },
   privates = {},
 } = {}) {
-  const bumps = [];
-  const noticed = [];
   return {
     state: { data: {} },
     getUser: (guildId, userId) => profiles[userId] ?? null,
     getPrivate: (guildId, userId) => privates[userId] ?? null,
-    bumpPrivateReplies: (guildId, userId, today) => {
-      bumps.push([guildId, userId, today]);
-    },
-    markPrivateNoticed: (guildId, userId, today) => {
-      noticed.push([guildId, userId, today]);
-      privates[userId] = {
-        ...(privates[userId] ?? {}),
-        replies: { ...(privates[userId]?.replies ?? {}), noticedDay: today },
-      };
-    },
-    bumps,
-    noticed,
+    // PR 7d: memory is code, so the real turn reads these of the store.
+    getGuild: () => ({}),
+    listChannels: () => [],
+    listUserProfiles: () => [],
+    countUsers: () => Object.keys(profiles).length,
+    getLore: () => [],
+    getMediaCache: () => ({}),
   };
 }
 
@@ -3346,10 +2626,6 @@ test('private: every gate reason drops the DM without a turn or an observe', asy
     { reason: 'not-member', client: fakeDmClient({ members: [] }) },
     { reason: 'unknown', store: fakePrivateStore({ profiles: {} }) },
     { reason: 'affinity', store: fakePrivateStore({ profiles: { u1: { affinity: { score: 4 } } } }) },
-    {
-      reason: 'cap',
-      store: fakePrivateStore({ privates: { u1: { replies: { day: TODAY, count: 100, noticedDay: TODAY } } } }),
-    },
   ];
   for (const { reason, ...deps } of cases) {
     freshWorld();
@@ -3438,42 +2714,7 @@ test('private: an owner below minAffinity is still answered (owners bypass the t
   assert.equal(turns.calls.length, 1);
 });
 
-test('private: the daily cap posts the limit notice once a day and marks it noticed', async () => {
-  const store = fakePrivateStore({
-    privates: { u1: { replies: { day: TODAY, count: 100, noticedDay: '2026-09-28' } } },
-  });
-  const turns = recordingTurns();
-  const memory = fakeMemory();
-  const channel = fakeDmChannel();
-  const handler = makeDmHandler({ store, turns, memory });
-
-  await handler(fakeDmMessage({ channel }));
-  await settle();
-  await handler(fakeDmMessage({ channel, id: 'dm-m2' }));
-  await settle();
-
-  assert.deepEqual(
-    noticesOf(handler, channel.id),
-    [lineOf('limit reached (private.maxPerUserPerDay, 100/100)', channel.id, 'dm-m1')],
-    'one notice, not one per message'
-  );
-  assert.deepEqual(store.noticed, [['g1', 'u1', TODAY]]);
-  assert.equal(turns.calls.length, 0);
-  assert.equal(memory.observeCalls.length, 0);
-});
-
-test("private: an owner's cap notice names private.maxPerOwnerPerDay", async () => {
-  const store = fakePrivateStore({ privates: { owner1: { replies: { day: TODAY, count: 200, noticedDay: '' } } } });
-  const channel = fakeDmChannel('dm2', 'owner1');
-  const handler = makeDmHandler({ store });
-  await handler(
-    fakeDmMessage({ channel, author: { id: 'owner1', bot: false, globalName: 'Owner', username: 'owner' } })
-  );
-  await settle();
-  assert.deepEqual(textsOf(handler, channel.id), ['limit reached (private.maxPerOwnerPerDay, 200/200)']);
-});
-
-test('private: a DM that passes is observed privately, answered with the pinned guildId, then counted', async () => {
+test('private: a DM that passes is observed privately and answered with the pinned guildId', async () => {
   const store = fakePrivateStore();
   const turns = recordingTurns();
   const memory = fakeMemory();
@@ -3495,27 +2736,8 @@ test('private: a DM that passes is observed privately, answered with the pinned 
   assert.equal(args.mode, 'reply');
   assert.equal(args.triggerKind, 'private');
   assert.equal(args.trigger.id, 'dm-m1');
-  assert.deepEqual(store.bumps, [['g1', 'u1', TODAY]]);
   assert.equal(spontaneous.onMessageCalls.length, 0);
   assert.deepEqual(noticesOf(handler, channel.id), []);
-});
-
-test('private: a turn that never reached the model is not counted against the daily cap', async () => {
-  for (const outcome of ['refused', 'busy', 'paused', 'error', 'not-now']) {
-    const store = fakePrivateStore();
-    const handler = makeDmHandler({ store, turns: recordingTurns({ outcome }) });
-    await handler(fakeDmMessage());
-    await settle();
-    assert.deepEqual(store.bumps, [], outcome);
-  }
-});
-
-test('private: a turn that reached the model and chose silence (skip) counts against the daily cap', async () => {
-  const store = fakePrivateStore();
-  const handler = makeDmHandler({ store, turns: recordingTurns({ outcome: 'skip' }) });
-  await handler(fakeDmMessage());
-  await settle();
-  assert.deepEqual(store.bumps, [['g1', 'u1', TODAY]]);
 });
 
 test('private: a DM refused by a rail posts the limit notice', async () => {
@@ -3526,10 +2748,9 @@ test('private: a DM refused by a rail posts the limit notice', async () => {
   await handler(fakeDmMessage({ channel }));
   await settle();
   assert.deepEqual(textsOf(handler, channel.id), ['limit reached (llm.maxRequestsPerDay, 800/800)']);
-  assert.deepEqual(store.bumps, []);
 });
 
-test('private: while busy elsewhere the DM is pending as "private"; the drain passes guildId and counts the reply', async () => {
+test('private: while busy elsewhere the DM is pending as "private"; the drain passes guildId', async () => {
   let busy = true;
   const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
   const store = fakePrivateStore();
@@ -3555,7 +2776,6 @@ test('private: while busy elsewhere the DM is pending as "private"; the drain pa
   assert.equal(turns.calls[0].guildId, 'g1');
   assert.equal(turns.calls[0].triggerKind, 'private');
   assert.deepEqual(turns.calls[0].conversation, refTo(channel));
-  assert.deepEqual(store.bumps, [['g1', 'u1', TODAY]]);
 });
 
 test('private: a drained DM whose turn finds another one running is re-queued and answered on the next drain', async () => {
@@ -3577,7 +2797,6 @@ test('private: a drained DM whose turn finds another one running is re-queued an
   state.busy = false;
   const { logs } = await withCapturedLogs(() => handler.drainPending());
   assert.equal(turns.calls.length, 1);
-  assert.deepEqual(store.bumps, [], 'a busy turn is not counted');
   const again = logs.find((l) => l.msg === 'mention: deferred again' && l.reason === 'busy');
   assert.ok(again);
   assert.equal(again.kind, 'private');
@@ -3588,7 +2807,6 @@ test('private: a drained DM whose turn finds another one running is re-queued an
   assert.equal(turns.calls.length, 2);
   assert.equal(turns.calls[1].trigger.id, 'dm-m1');
   assert.equal(turns.calls[1].guildId, 'g1');
-  assert.deepEqual(store.bumps, [['g1', 'u1', TODAY]]);
 });
 
 /** A DM queued while busy elsewhere; `change` runs before the drain. Returns what the drain did. */
@@ -3611,34 +2829,19 @@ async function drainAfter(change, { privates = {} } = {}) {
 }
 
 test('private: a queued DM whose author was forgotten meanwhile is dropped at drain time', async () => {
-  const { turns, store, channel, logs, handler } = await drainAfter(({ profiles }) => {
+  const { turns, channel, logs, handler } = await drainAfter(({ profiles }) => {
     delete profiles.u1; // /nep memory forget
   });
   assert.equal(turns.calls.length, 0);
-  assert.deepEqual(store.bumps, []);
   assert.deepEqual(noticesOf(handler, channel.id), []);
   assert.equal(logs.find((l) => l.msg === 'private: dropped')?.reason, 'unknown');
 });
 
-test('private: a queued DM is dropped at drain time once the previous turn hit the cap, with the once-a-day notice', async () => {
-  const { turns, store, channel, logs, handler } = await drainAfter(({ privates }) => {
-    privates.u1 = { replies: { day: TODAY, count: 100, noticedDay: '' } };
+test('private: a queued DM is dropped at drain time when private.enabled was switched off', async () => {
+  const { turns, channel, logs, handler } = await drainAfter(({ config }) => {
+    config.private.enabled = false;
   });
   assert.equal(turns.calls.length, 0);
-  assert.deepEqual(store.bumps, []);
-  assert.equal(logs.find((l) => l.msg === 'private: dropped')?.reason, 'cap');
-  assert.deepEqual(store.noticed, [['g1', 'u1', TODAY]]);
-  assert.deepEqual(noticesOf(handler, channel.id), [
-    lineOf('limit reached (private.maxPerUserPerDay, 100/100)', channel.id, 'dm-m1'),
-  ]);
-});
-
-test('private: a queued DM is dropped at drain time when features.privateMessages was switched off', async () => {
-  const { turns, store, channel, logs, handler } = await drainAfter(({ config }) => {
-    config.features.privateMessages = false;
-  });
-  assert.equal(turns.calls.length, 0);
-  assert.deepEqual(store.bumps, []);
   assert.deepEqual(noticesOf(handler, channel.id), []);
   assert.equal(logs.find((l) => l.msg === 'private: dropped')?.reason, 'off');
 });
@@ -3755,26 +2958,6 @@ test('limits: a refusal with no limit, or another outcome, posts nothing', async
     await settle();
     assert.deepEqual(noticesOf(handler, 'c1'), [], JSON.stringify(result));
   }
-});
-
-test('limits: in dry-run the notice is logged and mirrored, never sent to the channel', async () => {
-  const guild = fakeGuild();
-  const channel = sendingChannel('c1', guild);
-  const mirror = world().channel({ id: 'mirror1', name: 'mirror' }, { keep: true });
-  const config = baseConfig({ features: { dryRun: true }, bot: { dryRunChannelId: 'mirror1' } });
-  const handler = makeHandler({ config, turns: refusedTurns(), rng: scripted([0.99]), prompts: { labels } });
-  const { logs } = await withCapturedLogs(async () => {
-    await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
-    await settle();
-  });
-  assert.deepEqual(noticesOf(handler, 'c1'), []);
-  const line = logs.find((l) => l.msg === 'dry-run: would notify limit');
-  assert.ok(line);
-  assert.equal(line.key, 'llm.maxRequestsPerDay');
-  assert.equal(line.used, 800);
-  assert.equal(line.cap, 800);
-  assert.equal(mirror.sent.length, 1);
-  assert.deepEqual(mirror.sent[0].allowedMentions, { parse: [], users: [], repliedUser: false });
 });
 
 test('limits: a follow-up turn refused by a rail posts the notice', async () => {
@@ -3912,26 +3095,6 @@ test("follow-up: the classifier waits for the candidate's own picture prefill, w
   await p;
 });
 
-test('follow-up: with mediaDescriptions off the describer is never consulted and the sticker stays bare', async () => {
-  const llm = fakeFollowUpLlm();
-  const describer = fakeCachingDescriber(new Map([['sticker:s1', 'a penguin waving hello']]));
-  const config = baseConfig({ features: { mediaDescriptions: false } });
-  const handler = makeHandler({ config, llm, describer, prompts: fakeAddressPrompts() });
-  const guild = fakeGuild();
-  const channel = fakeChannelWithHistory('c1', guild, []);
-  await openFollowUpWindow(handler, { guild, channel, ts: Date.now() });
-
-  const p = handler(stickerOnlyMessage({ guild, channel }));
-  await tick();
-
-  assert.equal(describer.calls.length, 0);
-  assert.equal(describer.cachedCalls.length, 0);
-  assert.match(llm.calls[0].messages[1].content, /\[sticker: pingo\]\n<\/candidate>/);
-
-  llm.respond('no');
-  await p;
-});
-
 // ---------------------------------------------------------------------------
 // The address classifier -- the <author> block: who the candidate's author is
 // known as (stored aliases, ranked, capped by mention.followUpAliases), so the
@@ -4029,12 +3192,6 @@ test('follow-up author: a profile without aliases, or no stored profile, adds no
   }
 });
 
-test('follow-up author: followUpAliases 0 adds no <author> block', async () => {
-  const store = fakeStore({ u7: profileWithAliases('u7', ['Λένα']) });
-  const user = await classifierUserMessage({ store, config: baseConfig({ mention: { followUpAliases: 0 } }) });
-  assert.ok(!user.includes('<author>'));
-});
-
 test('follow-up author: without labels.address.author the block is omitted', async () => {
   const store = fakeStore({ u7: profileWithAliases('u7', ['Λένα']) });
   const prompts = { ...fakeAddressPrompts(), labels: { ...labels, address: undefined } };
@@ -4068,23 +3225,6 @@ test('follow-up author: reading the profile writes nothing', async () => {
 // Audit fixes: the follow-up gate and one attention, the drain under a pause,
 // forwards, classifier failures, the drain re-checking switches, embed text.
 
-test('follow-up: with one attention and mention.classifyWhileBusy off, a turn running in another channel skips the classifier (no paid call)', async () => {
-  const llm = fakeFollowUpLlm();
-  const spontaneous = fakeSpontaneous();
-  const turns = fakeTurns({ isBusy: () => false, isAnyBusy: () => true });
-  const config = baseConfig({ mention: { classifyWhileBusy: false } });
-  const handler = makeHandler({ config, turns, spontaneous, llm, prompts: fakeAddressPrompts() });
-  const guild = fakeGuild();
-  const channel = fakeChannelWithHistory('c1', guild, []);
-  await openFollowUpWindow(handler, { guild, channel, ts: Date.now() });
-
-  const p = handler(plainFollowUpMessage({ id: 'm1', guild, channel, content: 'plain follow-up' }));
-  await tick();
-  assert.equal(llm.calls.length, 0, 'busy elsewhere: the classifier is never asked');
-  await p;
-  assert.equal(spontaneous.onMessageCalls.length, 1, 'falls back to the usual handling');
-});
-
 test('follow-up: with mention.oneAtATime off, a turn in another channel does not block the classifier', async () => {
   const llm = fakeFollowUpLlm();
   const config = baseConfig({ mention: { oneAtATime: false } });
@@ -4099,43 +3239,6 @@ test('follow-up: with mention.oneAtATime off, a turn in another channel does not
   assert.equal(llm.calls.length, 1);
   llm.respond('no');
   await p;
-});
-
-test('follow-up: a "yes" that finds a turn started elsewhere runs no turn now: it is deferred, and with mention.classifyWhileBusy off the held message says busy', async () => {
-  const llm = fakeFollowUpLlm();
-  let anyBusy = false;
-  const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => anyBusy });
-  const config = baseConfig({ mention: { classifyWhileBusy: false } });
-  const handler = makeHandler({ config, turns, llm, prompts: fakeAddressPrompts() });
-  const guild = fakeGuild();
-  const channel = fakeChannelWithHistory('c1', guild, []);
-  await openFollowUpWindow(handler, { guild, channel, ts: Date.now() });
-
-  const { logs } = await withCapturedLogs(async () => {
-    const p1 = handler(
-      plainFollowUpMessage({ id: 'm1', guild, channel, content: 'first', authorId: 'u1', authorName: 'Alice' })
-    );
-    await tick();
-    await handler(plainFollowUpMessage({ id: 'm2', guild, channel, content: 'second' }));
-    anyBusy = true; // a turn started in another channel while the classifier was thinking
-    llm.respond('yes');
-    await p1;
-    await tick();
-  });
-
-  assert.equal(turns.calls.length, 0, 'no turn while another one is running');
-  assert.equal(llm.calls.length, 1, 'the held message is not classified either');
-  assert.equal(
-    logs.some((l) => l.msg === 'follow-up: dropped'),
-    false,
-    'the "yes" is not lost'
-  );
-  const deferred = logs.find((l) => l.msg === 'follow-up: deferred');
-  assert.ok(deferred, 'the "yes" waits in the pending queue');
-  assert.equal(deferred.channel, 'c1');
-  assert.equal(deferred.message, 'm1');
-  const held = logs.find((l) => l.msg === 'follow-up: held message dropped');
-  assert.equal(held?.reason, 'busy', 'no turn ran, so the held message is not dropped as "turn"');
 });
 
 // ---------------------------------------------------------------------------
@@ -4259,56 +3362,6 @@ test('follow-up: a "yes" during a turn elsewhere is deferred, then picked up and
   assert.equal(tagHistory.hits, 1);
 });
 
-test('follow-up: a deferred "yes" the followUpIgnoreChance roll lets pass runs no turn when picked up', async () => {
-  const tagHistory = countingTagHistory();
-  const config = baseConfig({ mention: { ignoreChance: 0, followUpIgnoreChance: 1 } });
-  const scene = await deferredFollowUps({ config, tagHistory });
-  const logs = await endTurnAndDrain(scene);
-  assert.deepEqual(
-    logs.filter((l) => l.msg === 'mention: decided').map(({ kind, reason, deferred }) => [kind, reason, deferred]),
-    [['followUp', 'ignored:follow-up', true]]
-  );
-  assert.equal(scene.turns.calls.length, 0);
-  assert.equal(tagHistory.hits, 1, 'still counted for spam');
-});
-
-test('follow-up: a live "yes" the followUpIgnoreChance roll lets pass runs no turn and leaves the window open', async () => {
-  const tagHistory = countingTagHistory();
-  const llm = fakeFollowUpLlm();
-  const turns = recordingTurns();
-  const store = fakeStateStore();
-  const config = baseConfig({ mention: { ignoreChance: 0, followUpIgnoreChance: 1, followUpNoStreak: 1 } });
-  const handler = makeHandler({ config, turns, llm, tagHistory, store, rng: () => 0.5, prompts: fakeAddressPrompts() });
-  const guild = fakeGuild();
-  const channel = fakeChannelWithHistory('c1', guild, []);
-  await openFollowUpWindow(handler, { guild, channel, ts: Date.now() });
-
-  const { logs } = await withCapturedLogs(async () => {
-    const p = handler(plainFollowUpMessage({ id: 'm1', guild, channel, content: 'and then?' }));
-    await tick();
-    llm.respond('yes');
-    await p;
-  });
-  assert.equal(turns.calls.length, 0);
-  assert.deepEqual(
-    logs.filter((l) => l.msg === 'mention: decided').map(({ kind, reason }) => [kind, reason]),
-    [['followUp', 'ignored:follow-up']]
-  );
-  assert.equal(tagHistory.hits, 1, 'still counted for spam');
-  assert.equal(store.state.data.followUpWindows.c1.noStreak, 0, 'the no-streak is not bumped');
-  assert.equal(
-    logs.some((l) => l.msg === 'follow-up: window closed'),
-    false
-  );
-
-  // The window is still open: the next line goes to the classifier again.
-  const p2 = handler(plainFollowUpMessage({ id: 'm2', guild, channel, content: 'well?' }));
-  await tick();
-  assert.equal(llm.calls.length, 2);
-  llm.respond('no');
-  await p2;
-});
-
 test('follow-up: an "overheard" answer is never rolled for followUpIgnoreChance', async () => {
   const config = baseConfig({ mention: { followUpIgnoreChance: 1 } });
   const { llm, handler, guild, channel, turns } = await overheardScene({ config });
@@ -4354,9 +3407,10 @@ test('follow-up: a line that arrived after the running turn fetched its history 
 });
 
 test('follow-up: a deferred "yes" is dropped when its window closed while it waited', async () => {
-  const config = baseConfig({ mention: { followUpMinutes: 5, pendingMinutes: 10 } });
+  // PR 7d: followUpMinutes is the constant 15, so pendingMinutes is raised to keep the ping alive past the window.
+  const config = baseConfig({ mention: { pendingMinutes: 30 } });
   const scene = await deferredFollowUps({ config });
-  scene.clock.set(FOLLOW_UP_T0 + 6 * 60_000); // past the window, not past pendingMinutes
+  scene.clock.set(FOLLOW_UP_T0 + (FOLLOW_UP_MINUTES + 1) * 60_000); // past the window, not past pendingMinutes
   const logs = await endTurnAndDrain(scene);
   assert.equal(scene.turns.calls.length, 0);
   assert.deepEqual(followUpDropped(logs), [['m1', 'closed']]);
@@ -4385,32 +3439,6 @@ test('follow-up: a newer deferred "yes" in the same channel replaces the older o
     scene.turns.calls.map((c) => c.trigger.id),
     ['m2']
   );
-});
-
-test('follow-up: with features.followUp turned off before the "yes" meets the running turn, nothing is deferred', async () => {
-  const config = baseConfig();
-  const scene = await deferredFollowUps({ config, beforeAnswer: () => (config.features.followUp = false) });
-  assert.equal(
-    scene.logs.some((l) => l.msg === 'follow-up: deferred'),
-    false
-  );
-  assert.deepEqual(followUpDropped(scene.logs), [['m1', 'busy']]);
-  await endTurnAndDrain(scene);
-  assert.equal(scene.turns.calls.length, 0);
-});
-
-test('follow-up: pendingOverheard off drops it as before', async () => {
-  const scene = await deferredFollowUps({
-    answers: ['overheard'],
-    config: baseConfig({ mention: { pendingOverheard: false } }),
-  });
-  assert.equal(
-    scene.logs.some((l) => l.msg === 'follow-up: deferred'),
-    false
-  );
-  assert.deepEqual(followUpDropped(scene.logs), [['m1', 'busy']]);
-  await endTurnAndDrain(scene);
-  assert.equal(scene.turns.calls.length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -4451,25 +3479,6 @@ test('follow-up: an "overheard" answer runs a reply turn with triggerKind overhe
   assert.equal(turns.calls[0].trigger.id, 'm1');
   assert.deepEqual(turns.calls[0].conversation, refTo(channel));
   assert.equal(spontaneous.onMessageCalls.length, 0);
-});
-
-test('follow-up: with mention.followUpOverheard off (read hot) an "overheard" answer runs a plain followUp turn', async () => {
-  const config = baseConfig();
-  const tagHistory = countingTagHistory();
-  const { llm, handler, guild, channel, turns } = await overheardScene({ config, tagHistory });
-  config.mention.followUpOverheard = false;
-
-  const { logs } = await withCapturedLogs(async () => {
-    const p = handler(plainFollowUpMessage({ id: 'm1', guild, channel, content: 'she always says that' }));
-    await tick();
-    llm.respond('overheard');
-    await p;
-  });
-
-  assert.equal(turns.calls.length, 1);
-  assert.equal(turns.calls[0].triggerKind, 'followUp');
-  assert.equal(tagHistory.hits, 1, 'counted like any follow-up');
-  assert.equal(logs.find((l) => l.msg === 'follow-up: verdict').answer, 'overheard', 'the log keeps the real answer');
 });
 
 test('follow-up: verdict logs the answer (yes, overheard, no) next to the two-way verdict', async () => {
@@ -4543,27 +3552,6 @@ test('follow-up: an "overheard" answer neither bumps the no-streak nor counts to
     turns.calls.map((c) => c.triggerKind),
     ['overheard', 'overheard', 'overheard', 'followUp']
   );
-});
-
-test('follow-up: with mention.pendingOverheard off, an "overheard" answer that finds a turn started elsewhere runs no turn and is dropped as busy', async () => {
-  let anyBusy = false;
-  const { llm, handler, guild, channel, turns } = await overheardScene({
-    config: baseConfig({ mention: { pendingOverheard: false } }),
-    turns: recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => anyBusy }),
-  });
-
-  const { logs } = await withCapturedLogs(async () => {
-    const p = handler(plainFollowUpMessage({ id: 'm1', guild, channel, content: 'she again' }));
-    await tick();
-    anyBusy = true;
-    llm.respond('overheard');
-    await p;
-  });
-
-  assert.equal(turns.calls.length, 0);
-  const dropped = logs.find((l) => l.msg === 'follow-up: dropped');
-  assert.equal(dropped?.reason, 'busy');
-  assert.equal(dropped.message, 'm1');
 });
 
 test('limits: an overheard turn refused by a rail posts no notice', async () => {
@@ -4706,56 +3694,6 @@ test('follow-up: a message the pre-filter answers "no" on arrival is never held:
   );
 });
 
-test('follow-up: a held message the pre-filter answers "no" on its re-check lets the overheard turn start for the original candidate', async () => {
-  const config = baseConfig();
-  const { llm, turns, logs } = await overheardWithHeld({
-    config,
-    // A reply to another member reaches the classifier on arrival, so it is held...
-    held: { content: 'right?', reference: { messageId: 'm-other' } },
-    // ...and replies are pre-filtered by the time m1's answer comes back.
-    beforeAnswer: () => {
-      config.mention.followUpClassifyReplies = false;
-    },
-  });
-  assert.deepEqual(heldLines(logs), ['m2'], 'm2 was really held');
-  assert.equal(llm.calls.length, 1, 'the pre-filter answers without the model');
-  const verdicts = logs.filter((l) => l.msg === 'follow-up: verdict').map((l) => [l.author, l.answer]);
-  assert.deepEqual(verdicts, [
-    ['u1', 'overheard'],
-    ['u2', 'no'],
-  ]);
-  assert.deepEqual(heldDropped(logs), []);
-  assert.deepEqual(startedTurns(turns), [['m1', 'overheard']]);
-});
-
-test('follow-up: with mention.followUpOverheard off, an "overheard" answer drops the held message like a "yes"', async () => {
-  const { llm, turns, logs } = await overheardWithHeld({
-    config: baseConfig({ mention: { followUpOverheard: false } }),
-  });
-  assert.equal(llm.calls.length, 1, 'the held message is not classified');
-  assert.deepEqual(
-    turns.calls.map((c) => [c.trigger.id, c.triggerKind]),
-    [['m1', 'followUp']]
-  );
-  assert.equal(logs.find((l) => l.msg === 'follow-up: held message dropped')?.reason, 'turn');
-});
-
-test('follow-up: mention.followUpOverheard switched off while an overheard line waits on a held message starts a followUp turn for it', async () => {
-  const config = baseConfig();
-  const tagHistory = countingTagHistory();
-  const { llm, turns } = await overheardWithHeld({ config, tagHistory });
-  assert.equal(llm.calls.length, 2, 'the held message is being classified');
-  assert.equal(turns.calls.length, 0, 'the overheard line waits on it');
-
-  // The owner turns the overheard kind off before the held message's verdict lands.
-  config.mention.followUpOverheard = false;
-  const logs = await answerFollowUp(llm, 'no');
-
-  assert.deepEqual(startedTurns(turns), [['m1', 'followUp']], 'the kind is read when the waiting line starts');
-  assert.deepEqual(followUpDropped(logs), []);
-  assert.equal(tagHistory.hits, 1, 'counted like any follow-up');
-});
-
 // The waiting overheard line starts after at least one more classifier call: the
 // gate's checks that do not depend on the window are read again at that moment.
 // [what the test calls it, the logged reason, () => ({ options for the scene, block() })]
@@ -4766,22 +3704,6 @@ const WAITING_LINE_BLOCKERS = [
     () => {
       const store = fakeStateStore();
       return { options: { store }, block: () => (store.state.data.paused = true) };
-    },
-  ],
-  [
-    'features.followUp is off',
-    'off',
-    () => {
-      const config = baseConfig();
-      return { options: { config }, block: () => (config.features.followUp = false) };
-    },
-  ],
-  [
-    'features.mentions is off',
-    'off',
-    () => {
-      const config = baseConfig();
-      return { options: { config }, block: () => (config.features.mentions = false) };
     },
   ],
   [
@@ -4822,33 +3744,6 @@ for (const [when, reason, makeBlocker] of WAITING_LINE_BLOCKERS) {
     assert.deepEqual(followUpDropped(logs), [['m1', reason]]);
   });
 }
-
-test('follow-up: with mention.classifyWhileBusy and mention.pendingOverheard off, a held message dropped as busy drops the overheard line waiting on it as busy too', async () => {
-  let anyBusy = false;
-  const { llm, turns, logs } = await overheardWithHeld({
-    config: baseConfig({ mention: { classifyWhileBusy: false, pendingOverheard: false } }),
-    turns: recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => anyBusy }),
-    beforeAnswer: () => (anyBusy = true),
-  });
-  assert.equal(llm.calls.length, 1, 'the held message is not classified');
-  assert.equal(turns.calls.length, 0, 'no turn starts');
-  assert.deepEqual(heldDropped(logs), [['m2', 'busy']]);
-  assert.deepEqual(followUpDropped(logs), [['m1', 'busy']]);
-});
-
-test('follow-up: with mention.pendingOverheard off, an overheard line that waited meets a turn started elsewhere: dropped as busy, no turn', async () => {
-  let anyBusy = false;
-  const { llm, turns } = await overheardWithHeld({
-    config: baseConfig({ mention: { pendingOverheard: false } }),
-    turns: recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => anyBusy }),
-  });
-  assert.equal(llm.calls.length, 2, 'the held message is being classified');
-
-  anyBusy = true;
-  const logs = await answerFollowUp(llm, 'no');
-  assert.equal(turns.calls.length, 0, 'no turn starts');
-  assert.deepEqual(followUpDropped(logs), [['m1', 'busy']]);
-});
 
 test('follow-up: a held message dropped because the window expired lets the overheard line waiting on it start', async () => {
   const clock = mutableNow(0);
@@ -4912,15 +3807,6 @@ test('follow-up: an "overheard" on a held message with a newer one held makes it
   assert.deepEqual(startedTurns(turns), [['m2', 'overheard']]);
 });
 
-test('follow-up: a "no" streak that closes the window mid-chain drops the next held message and the waiting overheard line starts', async () => {
-  const { llm, turns } = await overheardChain({ config: baseConfig({ mention: { followUpNoStreak: 1 } }) });
-
-  const logs = await answerFollowUp(llm, 'no');
-  assert.equal(llm.calls.length, 2, 'm3 is not classified');
-  assert.deepEqual(heldDropped(logs), [['m3', 'closed']]);
-  assert.deepEqual(startedTurns(turns), [['m1', 'overheard']]);
-});
-
 test('events: drainPending does nothing while paused; the queued ping waits for the pause to end', async () => {
   let busy = true;
   const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
@@ -4957,7 +3843,7 @@ test('events: a pause landing during the switch pause stops the drain before the
   assert.equal(turns.calls.length, 0);
 });
 
-test('private: a pause landing during the switch pause drops the drained DM: no turn, no notice, nothing marked', async () => {
+test('private: a pause landing during the switch pause drops the drained DM: no turn, no notice', async () => {
   let busy = true;
   const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
   const privates = {};
@@ -4970,12 +3856,10 @@ test('private: a pause landing during the switch pause drops the drained DM: no 
   await handler(fakeDmMessage({ channel }));
   await settle();
 
-  privates.u1 = { replies: { day: TODAY, count: 100, noticedDay: '' } };
   busy = false;
   await handler.drainPending();
 
   assert.equal(turns.calls.length, 0);
-  assert.deepEqual(store.noticed, [], 'nothing marked while paused');
   assert.deepEqual(noticesOf(handler, channel.id), []);
 });
 
@@ -5015,7 +3899,6 @@ test("events: forwarding one of the persona's own messages is not a reply to it"
   await settle();
 
   assert.equal(turns.calls.length, 0, 'a forward is no trigger');
-  assert.equal(spontaneous.onMessageCalls.length, 1);
 });
 
 test('events: a message that replies to nothing fetches no message; a reply target missing from the cache is fetched', async () => {
@@ -5181,13 +4064,17 @@ async function failOpenScenario({
 
 test('follow-up: a thrown classifier call keeps a one-to-one exchange whose last line of hers answered this author a minute ago', async () => {
   const { turns, logs, llm } = await failOpenScenario({
-    // With a no-streak limit of 1, a counted "no" would close the window before the next line.
-    mention: { followUpNoStreak: 1 },
+    // PR 7d: followUpNoStreak is the constant 5. A counted fail-open would close the window after four more "no"
+    // verdicts, so the line after them must still reach the classifier.
     extra: async ({ handler, llm, guild, channel, t0 }) => {
-      const p = handler(plainFollowUpMessage({ id: 'm-next', guild, channel, content: 'still there?', ts: t0 + 1000 }));
-      await tick();
-      llm.respond('no');
-      await p;
+      for (let i = 0; i <= FOLLOW_UP_NO_STREAK - 1; i += 1) {
+        const p = handler(
+          plainFollowUpMessage({ id: `m-next${i}`, guild, channel, content: 'still there?', ts: t0 + 1000 + i })
+        );
+        await tick();
+        llm.respond('no');
+        await p;
+      }
     },
   });
   assert.equal(turns.calls.length, 1, 'a reply turn');
@@ -5201,7 +4088,11 @@ test('follow-up: a thrown classifier call keeps a one-to-one exchange whose last
   assert.equal(open.open, true);
   assert.ok(!JSON.stringify(open).includes('and then?'), 'no message contents');
   assert.equal(logs.find((l) => l.msg === 'follow-up: verdict')?.verdict, 'yes');
-  assert.equal(llm.calls.length, 2, 'a fail-open "yes" leaves the no-streak alone: the window is still open');
+  assert.equal(
+    llm.calls.length,
+    FOLLOW_UP_NO_STREAK + 1,
+    'a fail-open "yes" leaves the no-streak alone: the window is still open'
+  );
 });
 
 test('follow-up: an empty classifier answer keeps the same one-to-one exchange', async () => {
@@ -5234,7 +4125,6 @@ test('follow-up: a failed classifier is a "no" when the exchange is not an activ
     { label: 'her line is ten minutes old', agoMs: 10 * 60_000 },
     { label: 'her line answered someone else', preceding: 'u3' },
     { label: 'her line followed someone else', reply: false, preceding: 'u3' },
-    { label: 'mention.failOpenMinutes 0 switches it off', mention: { failOpenMinutes: 0 } },
   ];
   for (const failure of ['throw', 'empty']) {
     for (const { label, ...scenario } of cases) {
@@ -5243,9 +4133,7 @@ test('follow-up: a failed classifier is a "no" when the exchange is not an activ
       assert.equal(spontaneous.onMessageCalls.length, 0, `${failure}, ${label}: still handled`);
       assert.equal(logs.find((l) => l.msg === 'follow-up: verdict')?.verdict, 'no', `${failure}, ${label}`);
       const open = logs.find((l) => l.msg === 'follow-up: fail-open');
-      if (scenario.mention?.failOpenMinutes === 0)
-        assert.equal(open, undefined, `${failure}, ${label}: switched off, not logged`);
-      else assert.equal(open?.open, false, `${failure}, ${label}`);
+      assert.equal(open?.open, false, `${failure}, ${label}`);
     }
   }
 });
@@ -5279,14 +4167,6 @@ test('follow-up: a failed classifier is a missed-answer fact, gate-failopen when
   assert.deepEqual(
     dropped.facts.map((f) => [f.reason, f.message.id, f.failure]),
     [['gate-failed', 'm-candidate', 'empty']]
-  );
-
-  const off = recordingMissed();
-  await failOpenScenario({ failure: 'throw', mention: { failOpenMinutes: 0 }, missed: off });
-  assert.deepEqual(
-    off.facts.map((f) => f.reason),
-    ['gate-failed'],
-    'fail-open switched off: still a failed gate'
   );
 
   for (const answer of ['no', 'yes']) {
@@ -5325,64 +4205,6 @@ test('events: a bot.channels deny key added while a mention waits is ignored at 
   busy = false;
   await handler.drainPending();
   assert.equal(turns.calls.length, 1);
-});
-
-test('events: a queued mention or reply whose switch was turned off meanwhile is not answered at drain time', async () => {
-  for (const [kind, switchName] of [
-    ['mention', 'mentions'],
-    ['reply', 'replies'],
-  ]) {
-    let busy = true;
-    const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
-    const config = baseConfig();
-    const handler = makeHandler({ config, turns, sleep: async () => {}, rng: scripted([0.5, 0.99]) });
-    const guild = fakeGuild();
-    const channel = fakeChannelWithMessage('c1', guild, 'm1');
-    channel.messages.cache.set('m0', { author: { id: 'self1' } });
-    const message =
-      kind === 'mention'
-        ? directPingMessage({ guild, channel, channelId: 'c1' })
-        : fakeMessage({
-            id: 'm1',
-            guild,
-            channel,
-            channelId: 'c1',
-            cleanContent: 'γεια',
-            reference: { messageId: 'm0' },
-          });
-    await handler(message);
-
-    config.features[switchName] = false;
-    busy = false;
-    await handler.drainPending();
-    assert.equal(turns.calls.length, 0, kind);
-  }
-});
-
-test('events: a queued name call answers to features.nameTriggers at drain time, not features.mentions', async () => {
-  for (const [switchName, answered] of [
-    ['nameTriggers', false],
-    ['mentions', true],
-  ]) {
-    let busy = true;
-    const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
-    const config = baseConfig({ bot: { nameTriggers: ['νεπτούνια'] } });
-    const handler = makeHandler({ config, turns, sleep: async () => {}, rng: scripted(answered ? [0.5, 0.2] : [0.5]) });
-    const guild = fakeGuild();
-    const channel = fakeChannelWithMessage('c1', guild, 'm1');
-    await handler(fakeMessage({ id: 'm1', guild, channel, channelId: 'c1', cleanContent: 'γεια νεπτούνια' }));
-
-    config.features[switchName] = false;
-    busy = false;
-    const { logs } = await withCapturedLogs(() => handler.drainPending());
-    assert.equal(turns.calls.length, answered ? 1 : 0, switchName);
-    assert.deepEqual(
-      logs.filter((entry) => entry.msg === 'mention: dropped').map(({ kind, reason }) => [kind, reason]),
-      answered ? [] : [['name', 'off']],
-      switchName
-    );
-    if (answered) assert.equal(turns.calls[0].triggerKind, 'name');
-  }
 });
 
 // ---------------------------------------------------------------------------
@@ -5609,61 +4431,6 @@ test('events: a ping in a read-only channel waits for the settle, then runs a re
   assert.equal(decided.channel, 's1', 'the call is decided where it was written');
   assert.equal(decided.destination, 'd1');
   assert.equal(byMsg(logs, 'mention: dropped').length, 0);
-});
-
-test('events: the ring keeps elsewhere.rememberPings calls, read when each call arrives', async () => {
-  const scene = routeScene({ config: { elsewhere: { rememberPings: 3 } } });
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  await routeSend(scene, scene.source, 10, { id: 'm2', authorId: 'u2', authorName: 'Ίων' });
-  assert.deepEqual(
-    scene.store.state.data.elsewherePings.map((entry) => entry.messageId),
-    ['m1', 'm2']
-  );
-
-  // The owner lowers the cap while the bot runs: the next call is kept under the new one.
-  scene.config.elsewhere.rememberPings = 2;
-  await routeSend(scene, scene.source, 20, { id: 'm3', authorId: 'u3', authorName: 'Χλόη' });
-  assert.deepEqual(
-    scene.store.state.data.elsewherePings.map((entry) => entry.messageId),
-    ['m2', 'm3']
-  );
-
-  scene.config.elsewhere.rememberPings = 1;
-  await routeSend(scene, scene.source, 30, { id: 'm4' });
-  assert.deepEqual(
-    scene.store.state.data.elsewherePings.map((entry) => entry.messageId),
-    ['m4']
-  );
-});
-
-test('events: elsewhere.settleSeconds and settleMaxSeconds are read each time the wait moves', async () => {
-  const scene = routeScene();
-  const note = (id) => ({ id, mention: false, authorId: 'u2', authorName: 'Ίων', content: 'σημείωση' });
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  assert.deepEqual(
-    scene.timers.live().map((timer) => timer.ms),
-    [90 * SECOND]
-  );
-
-  scene.config.elsewhere.settleSeconds = 30;
-  await routeSend(scene, scene.source, 10, note('m2'));
-  assert.deepEqual(
-    scene.timers.live().map((timer) => timer.ms),
-    [30 * SECOND],
-    'due 30 s after the message at 10 s'
-  );
-
-  scene.config.elsewhere.settleMaxSeconds = 20;
-  await routeSend(scene, scene.source, 15, note('m3'));
-  assert.deepEqual(
-    scene.timers.live().map((timer) => timer.ms),
-    [5 * SECOND],
-    'never later than 20 s after the call'
-  );
-
-  const { logs } = await withCapturedLogs(() => routeFire(scene, 20));
-  assert.equal(byMsg(logs, 'elsewhere: settled')[0].waitedMs, 20 * SECOND);
-  assert.equal(scene.turns.calls.length, 1);
 });
 
 test('events: each new message in the source moves the settle, never past settleMaxSeconds', async () => {
@@ -6143,21 +4910,6 @@ test('events: the settle wait marks no turn busy: a call in the main channel mea
   assert.deepEqual(turns.calls[1].source, { channelId: 's1', reason: 'routed' });
 });
 
-test('events: features.elsewhere off drops the ping with cannot-send and route off', async () => {
-  const scene = routeScene({ config: { features: { elsewhere: false } } });
-  const { logs } = await withCapturedLogs(() => routeSend(scene, scene.source, 0, { id: 'm1' }));
-
-  const dropped = byMsg(logs, 'mention: dropped');
-  assert.equal(dropped.length, 1);
-  assert.equal(dropped[0].channel, 's1');
-  assert.equal(dropped[0].kind, 'mention');
-  assert.equal(dropped[0].reason, 'cannot-send');
-  assert.equal(dropped[0].route, 'off');
-  assert.equal(scene.timers.all.length, 0, 'no settle');
-  assert.equal(scene.store.state.data.elsewherePings, undefined, 'not in the ring');
-  assert.equal(scene.turns.calls.length, 0);
-});
-
 for (const [when, config, mainCanSend] of [
   ['memory.mainChannelIds is empty', { memory: { mainChannelIds: [] } }, true],
   ['the main channel is the source itself', { memory: { mainChannelIds: ['s1'] } }, true],
@@ -6214,7 +4966,6 @@ test('events: a settle that fires while paused drops the call (paused)', async (
 });
 
 for (const [reason, change] of [
-  ['off', (scene) => (scene.config.features.elsewhere = false)],
   ['no-destination', (scene) => (scene.config.memory.mainChannelIds = [])],
   // @everyone loses the source; the main channel stays visible to everyone.
   ['audience', (scene) => scene.source.setViewers(scene.sourceViewers.filter((role) => role !== 'g1'))],
@@ -6231,58 +4982,6 @@ for (const [reason, change] of [
     assert.equal(dropped[0].reason, reason);
   });
 }
-
-test('events: a routed call whose switch was turned off during the settle is not answered', async () => {
-  const mention = { id: 'm1' };
-  // A reply to the persona's own line in s1 (cached as hers), not a mention.
-  const reply = { id: 'm1', mention: false, replyTo: 'm0', content: 'έχεις δίκιο' };
-  const name = { id: 'm1', mention: false, content: 'νεπτούνια, δες εδώ' };
-  for (const [label, call, kind, reason, change] of [
-    ['mentions off', mention, 'mention', 'off', (config) => (config.features.mentions = false)],
-    ['replies off', reply, 'reply', 'off', (config) => (config.features.replies = false)],
-    ['nameTriggers off', name, 'name', 'off', (config) => (config.features.nameTriggers = false)],
-  ]) {
-    const scene = routeScene();
-    scene.source.messages.cache.set('m0', { id: 'm0', author: { id: 'self1' } });
-    await routeSend(scene, scene.source, 0, call);
-    assert.equal(scene.timers.live().length, 1, `${label}: armed`);
-    change(scene.config);
-    const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-
-    assert.equal(scene.turns.calls.length, 0, label);
-    const dropped = byMsg(logs, 'mention: dropped');
-    assert.equal(dropped.length, 1, label);
-    assert.equal(dropped[0].channel, 's1', label);
-    assert.equal(dropped[0].kind, kind, label);
-    assert.equal(dropped[0].reason, reason, label);
-    assert.equal(dropped[0].destination, undefined, 'dropped before a destination is resolved');
-  }
-});
-
-test('events: the busy rules of a routed call are keyed by the main channel', async () => {
-  // oneAtATime off: only a turn in the channel the routed turn posts in holds it back.
-  for (const [busyId, expectTurn] of [
-    ['s1', true],
-    ['d1', false],
-  ]) {
-    const turns = recordingTurns({ outcome: 'spoke' }, { isBusy: (id) => id === busyId, isAnyBusy: () => true });
-    const scene = routeScene({ turns, config: { mention: { oneAtATime: false } } });
-    await routeSend(scene, scene.source, 0, { id: 'm1' });
-    const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-
-    assert.equal(turns.calls.length, expectTurn ? 1 : 0, `busy ${busyId}`);
-    assert.equal(byMsg(logs, 'mention: dropped').length, 0, `busy ${busyId}: nothing dropped`);
-    const deferred = byMsg(logs, 'mention: deferred');
-    assert.equal(deferred.length, expectTurn ? 0 : 1, `busy ${busyId}`);
-    if (!expectTurn) {
-      assert.deepEqual(
-        [deferred[0].channel, deferred[0].destination, deferred[0].sameChannel],
-        ['s1', 'd1', true],
-        'queued under its source; the busy check names the main channel'
-      );
-    }
-  }
-});
 
 /** Lets the bot keep viewing `channel` but no longer send there. */
 function revokeSend(scene, channel) {
@@ -6481,7 +5180,6 @@ test('events: a drained routed ping posts in the main channel resolved now, not 
 });
 
 for (const [reason, change] of [
-  ['off', (scene) => (scene.config.features.elsewhere = false)],
   ['no-destination', (scene) => (scene.config.memory.mainChannelIds = [])],
   // @everyone loses the source; the main channel stays visible to everyone.
   ['audience', (scene) => scene.source.setViewers(scene.sourceViewers.filter((role) => role !== 'g1'))],
@@ -6715,36 +5413,6 @@ test('events: a routed call the persona let pass is marked skipped, one whose tu
   }
 });
 
-test('events: dry run never marks a ring entry answered', async () => {
-  const scene = routeScene({
-    turns: recordingTurns({ outcome: 'spoke', mode: 'reply', dryRun: true }),
-    config: { features: { dryRun: true } },
-  });
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  const dirty = scene.store.dirtyCount;
-  const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-
-  assert.equal(scene.turns.calls.length, 1);
-  const [entry] = scene.store.state.data.elsewherePings;
-  assert.deepEqual([entry.answeredAt, entry.skippedAt], [null, null], 'nothing reached the chat');
-  assert.equal(scene.store.dirtyCount, dirty);
-  assert.equal(byMsg(logs, 'elsewhere: marked').length, 0);
-
-  // A dry-run skip is the persona's silence like any skip (a skip claims no answer): stamped skipped.
-  const quiet = routeScene({
-    turns: recordingTurns({ outcome: 'skip', mode: 'reply' }),
-    config: { features: { dryRun: true } },
-  });
-  await routeSend(quiet, quiet.source, 0, { id: 'm1' });
-  const skipped = await withCapturedLogs(() => routeFire(quiet, 90));
-  const [silent] = quiet.store.state.data.elsewherePings;
-  assert.deepEqual([silent.answeredAt, silent.skippedAt], [null, routeAt(90)]);
-  assert.deepEqual(
-    byMsg(skipped.logs, 'elsewhere: marked').map((line) => line.status),
-    ['skipped']
-  );
-});
-
 /** The state of each ring entry by message id: `answered`, `skipped` or `unanswered`. */
 function ringStates(scene) {
   return Object.fromEntries(scene.store.state.data.elsewherePings.map((entry) => [entry.messageId, pingStatus(entry)]));
@@ -6762,7 +5430,6 @@ test("events: a routed turn's outcome stamps its own call only; the other calls 
       [['m2', 'answered']],
     ],
     ['skip', { outcome: 'skip', mode: 'reply' }, { m1: 'unanswered', m2: 'skipped' }, [['m2', 'skipped']]],
-    ['dry run', { outcome: 'spoke', mode: 'reply', dryRun: true }, { m1: 'unanswered', m2: 'unanswered' }, []],
     ['error', { outcome: 'error' }, { m1: 'unanswered', m2: 'unanswered' }, []],
   ]) {
     const scene = routeScene({ turns: recordingTurns(result) });
@@ -6799,117 +5466,6 @@ test("events: a routed turn's outcome stamps its own call only; the other calls 
     [['m2', 'answered']],
     'only what changed is logged'
   );
-});
-
-test('events: a routed call the ignore roll lets pass is stamped skipped and runs no turn', async () => {
-  // The live path once the settle is over, and the drain of a call queued meanwhile.
-  for (const queued of [false, true]) {
-    let busy = queued;
-    const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
-    const scene = routeScene({ turns, config: { mention: { ignoreChance: 1 } } });
-    await routeSend(scene, scene.source, 0, { id: 'm1' });
-    const { logs } = await withCapturedLogs(async () => {
-      await routeFire(scene, 90);
-      busy = false;
-      if (queued) {
-        scene.clock.set(routeAt(100));
-        await scene.handler.drainPending();
-      }
-    });
-
-    assert.equal(turns.calls.length, 0, `queued ${queued}`);
-    const [decided] = byMsg(logs, 'mention: decided');
-    assert.deepEqual([decided.reason, decided.destination], ['ignored:random', 'd1'], `queued ${queued}`);
-    const [entry] = scene.store.state.data.elsewherePings;
-    assert.deepEqual([entry.answeredAt, entry.skippedAt], [null, routeAt(queued ? 100 : 90)], `queued ${queued}`);
-    assert.deepEqual(
-      byMsg(logs, 'elsewhere: marked').map(({ source, message, status }) => [source, message, status]),
-      [['s1', 'm1', 'skipped']]
-    );
-  }
-});
-
-test('events: a routed call the ignore roll lets pass takes the calls its settle replaced with it; queued calls are decided each', async () => {
-  // The settle groups a burst into one decision: a call a newer one replaced in the settle wait,
-  // or a weaker one the waiting call outranked, shares its decline. Calls that each waited in
-  // the pending queue are messages of their own: each meets the ignore roll.
-  const mention = (id, authorId = 'u1') => ({ id, authorId, authorName: 'Ίων' });
-  const name = (id) => ({
-    id,
-    mention: false,
-    authorId: 'u3',
-    authorName: 'Χλόη',
-    content: 'η νεπτούνια είναι αστεία',
-  });
-  // [label, calls as [seconds, spec], the settle fire after each call (none: one fire after both,
-  // nothing held), the authors of the calls that were decided]
-  const cases = [
-    [
-      'replaced in the settle',
-      [
-        [0, mention('m1')],
-        [20, mention('m2', 'u2')],
-      ],
-      [],
-      ['u2'],
-    ],
-    [
-      'outranked in the settle',
-      [
-        [0, mention('m1')],
-        [20, name('m2')],
-      ],
-      [],
-      ['u1'],
-    ],
-    [
-      'each waiting in the pending queue',
-      [
-        [0, mention('m1')],
-        [100, mention('m2', 'u2')],
-      ],
-      [90, 190],
-      ['u1', 'u2'],
-    ],
-  ];
-  for (const [label, calls, fires, decidedAuthors] of cases) {
-    let busy = fires.length > 0;
-    const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
-    const scene = routeScene({ turns, config: { mention: { ignoreChance: 1 } } });
-    // m0, an older call no turn ever showed (lost in a restart), is not part of this burst.
-    scene.store.state.data.elsewherePings = [
-      { messageId: 'm0', channelId: 's1', ts: routeAt(-600), answeredAt: null, skippedAt: null },
-    ];
-    const { logs } = await withCapturedLogs(async () => {
-      for (const [index, [seconds, spec]] of calls.entries()) {
-        await routeSend(scene, scene.source, seconds, spec);
-        if (fires[index] !== undefined) await routeFire(scene, fires[index]);
-      }
-      if (fires.length === 0) await routeFire(scene, 110);
-      busy = false;
-      scene.clock.set(routeAt(200));
-      await scene.handler.drainPending();
-    });
-
-    assert.equal(turns.calls.length, 0, label);
-    const decided = byMsg(logs, 'mention: decided');
-    assert.deepEqual(
-      decided.map((line) => [line.reason, line.author, line.channel, line.destination]),
-      decidedAuthors.map((author) => ['ignored:random', author, 's1', 'd1']),
-      `${label}: one decision per message`
-    );
-    assert.deepEqual(ringStates(scene), { m0: 'unanswered', m1: 'skipped', m2: 'skipped' }, label);
-    assert.deepEqual(
-      byMsg(logs, 'elsewhere: marked')
-        .map(({ source, message, status }) => [source, message, status])
-        .sort((a, b) => a[1].localeCompare(b[1])),
-      [
-        ['s1', 'm1', 'skipped'],
-        ['s1', 'm2', 'skipped'],
-      ],
-      label
-    );
-  }
 });
 
 test('events: a routed call queued after an older one from its source waits beside it; each gets its own turn', async () => {
@@ -6996,51 +5552,6 @@ test('events: a routed name call while busy is held and answered in the main cha
   assert.deepEqual(ringStates(scene), { m1: 'answered' });
 });
 
-test('events: a routed name call whose main channel is busy is held before the dice and rolled at drain time', async () => {
-  // oneAtATime off: the turn running in the main channel is the one that holds the call back.
-  let busy = true;
-  const tagHistory = countingTagHistory();
-  const turns = recordingTurns({ outcome: 'spoke' }, { isBusy: (id) => busy && id === 'd1', isAnyBusy: () => busy });
-  // Exactly two values, both at drain time: the switch pause and the name-trigger roll (above the chance).
-  const scene = routeScene({
-    turns,
-    tagHistory,
-    rng: scripted([0.5, 0.7]),
-    config: { mention: { oneAtATime: false, nameTriggerChance: 0.5 } },
-  });
-  await routeSend(scene, scene.source, 0, { id: 'm1', mention: false, content: 'νεπτούνια, δες εδώ' });
-  const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-
-  assert.equal(turns.calls.length, 0);
-  assert.equal(tagHistory.hits, 0, 'not counted on arrival');
-  assert.equal(byMsg(logs, 'mention: decided').length, 0, 'not rolled on arrival');
-  assert.deepEqual(byMsg(logs, 'mention: dropped'), [], 'nothing dropped');
-  assert.deepEqual(
-    byMsg(logs, 'mention: deferred').map(({ channel, kind, sameChannel, destination }) => [
-      channel,
-      kind,
-      sameChannel,
-      destination,
-    ]),
-    [['s1', 'name', true, 'd1']]
-  );
-  assert.equal(byMsg(logs, 'elsewhere: settle failed').length, 0);
-  // Waiting is not her choice: the call is neither answered nor skipped yet.
-  assert.deepEqual(ringStates(scene), { m1: 'unanswered' });
-  assert.equal(byMsg(logs, 'elsewhere: marked').length, 0);
-
-  busy = false;
-  const drained = await withCapturedLogs(() => scene.handler.drainPending());
-  assert.equal(tagHistory.hits, 1, 'counted once, at drain time');
-  assert.deepEqual(
-    byMsg(drained.logs, 'mention: decided').map(({ kind, reason, deferred }) => [kind, reason, deferred]),
-    [['name', 'name-unnoticed', true]]
-  );
-  assert.equal(turns.calls.length, 0, 'the roll let it pass');
-  // Letting it pass is her choice: stamped skipped.
-  assert.deepEqual(ringStates(scene), { m1: 'skipped' });
-});
-
 test('events: a refused routed turn posts the notice in the destination, not as a reply', async () => {
   const limit = { key: 'llm.maxRequestsPerDay', used: 800, cap: 800 };
   // The live path and the drain of a queued call alike.
@@ -7068,50 +5579,6 @@ test('events: a refused routed turn posts the notice in the destination, not as 
     );
     assert.equal(scene.store.state.data.elsewherePings[0].answeredAt, null, 'a refusal answers nothing');
   }
-
-  // Dry-run: logged and mirrored under the main channel, sent nowhere.
-  const turns = recordingTurns({ outcome: 'refused', limit });
-  const scene = routeScene({
-    turns,
-    prompts: { labels },
-    config: { features: { dryRun: true }, bot: { dryRunChannelId: 'mirror1' } },
-  });
-  const mirror = world().channel({ id: 'mirror1', name: 'mirror' }, { keep: true });
-  const mirrorHot = { config: scene.config, prompts: { labels } };
-  const mirrorClient = fakeClient();
-  const port = world().port;
-  scene.handler = asDiscordEvents(
-    createMessageHandler({
-      port,
-      hot: mirrorHot,
-      store: scene.store,
-      reads: world().reads,
-      selfId: () => mirrorClient.user.id,
-      getSelfName: () => 'Ζωή',
-      turns,
-      spontaneous: fakeSpontaneous(),
-      memory: fakeMemory(),
-      tagHistory: createTagHistory(),
-      getGuildId: () => 'g1',
-      rng: () => 0.5,
-      now: scene.clock,
-      sleep: async () => {},
-      timers: scene.timers,
-    }),
-    mirrorHot,
-    mirrorClient
-  );
-  scene.handler.port = port;
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-
-  assert.deepEqual([noticesOf(scene.handler, 'd1'), noticesOf(scene.handler, 's1')], [[], []]);
-  assert.deepEqual(
-    byMsg(logs, 'dry-run: would notify limit').map((entry) => entry.channel),
-    ['d1']
-  );
-  assert.equal(mirror.sent.length, 1);
-  assert.ok(mirror.sent[0].content.startsWith('[dry-run] #d1 · limit'), mirror.sent[0].content);
 });
 
 test('events: a settle whose turn throws is logged and never escapes the timer', async () => {
@@ -7126,29 +5593,6 @@ test('events: a settle whose turn throws is logged and never escapes the timer',
 
   const [failed] = byMsg(logs, 'elsewhere: settle failed');
   assert.equal(failed.source, 's1');
-});
-
-test('events: a name written in a read-only channel is routed and rolls the ordinary name-trigger chance', async () => {
-  for (const [roll, answered] of [
-    [0.7, false],
-    [0.2, true],
-  ]) {
-    const scene = routeScene({ config: { mention: { nameTriggerChance: 0.5 } }, rng: scripted([roll]) });
-    await routeSend(scene, scene.source, 0, { id: 'm1', mention: false, content: 'νεπτούνια, δες εδώ' });
-    assert.equal(scene.store.state.data.elsewherePings.length, 1, 'a name call enters the ring too');
-    const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-
-    const [decided] = byMsg(logs, 'mention: decided');
-    assert.equal(decided.kind, 'name');
-    assert.equal(decided.reason, answered ? 'name' : 'name-unnoticed');
-    assert.equal(scene.turns.calls.length, answered ? 1 : 0);
-    if (answered) {
-      assert.equal(scene.turns.calls[0].triggerKind, 'name');
-      assert.deepEqual(scene.turns.calls[0].source, { channelId: 's1', reason: 'routed' });
-    }
-    // She may skip a name there like anywhere: a later pull never presents it as waiting.
-    assert.deepEqual(ringStates(scene), { m1: answered ? 'answered' : 'skipped' }, `roll ${roll}`);
-  }
 });
 
 test('events: a restart during the settle wait loses the timer and leaves the ring entry unanswered', async () => {
@@ -7216,129 +5660,6 @@ test('events: a call in a writable channel is untouched by routing', async () =>
 // channel (spontaneous.noticeElsewhere) arms a settle wait of kind `noticed`;
 // when it is over, spontaneous.runNoticed runs the comment. events.js is only
 // the glue: the rails and the roll are the scheduler's.
-
-/**
- * A fake scheduler for the noticed path: `noticeElsewhere` answers `hit` (recording its calls),
- * `runNoticed` records the source it got and answers `result`.
- */
-function noticingSpontaneous({ hit = true, result = { outcome: 'spoke' } } = {}) {
-  const fake = fakeSpontaneous();
-  fake.noticeCalls = [];
-  fake.runCalls = [];
-  fake.noticeElsewhere = (channel, normalized) => {
-    fake.noticeCalls.push({ channel, normalized });
-    return hit;
-  };
-  fake.runNoticed = async (channel) => {
-    fake.runCalls.push(channel);
-    return result;
-  };
-  return fake;
-}
-
-/** An untriggered member line in `channel`. */
-const plainLine = (id, extra = {}) => ({
-  id,
-  mention: false,
-  authorId: 'u2',
-  authorName: 'Ίων',
-  content: 'σημείωση',
-  ...extra,
-});
-
-test('events: an eavesdrop hit in a read-only channel settles, then runs the noticed turn', async () => {
-  const spontaneous = noticingSpontaneous();
-  const scene = routeScene({ spontaneous });
-  const { logs } = await withCapturedLogs(async () => {
-    await routeSend(scene, scene.source, 0, plainLine('m1'));
-    assert.equal(spontaneous.noticeCalls.length, 1);
-    assert.equal(spontaneous.noticeCalls[0].channel.id, scene.source.id);
-    assert.equal(spontaneous.noticeCalls[0].normalized.id, 'm1');
-    assert.equal(scene.timers.live().length, 1, 'one settle timer for the source');
-    assert.equal(scene.timers.live()[0].ms, 90 * SECOND);
-
-    await routeSend(scene, scene.source, 30, plainLine('m2', { authorId: 'u3', authorName: 'Χλόη' }));
-    assert.equal(spontaneous.noticeCalls.length, 1, 'a wait already armed in the source asks no second roll');
-    assert.equal(spontaneous.runCalls.length, 0, 'nothing runs before the source settles');
-    await routeFire(scene, 120);
-  });
-
-  assert.equal(spontaneous.runCalls.length, 1);
-  assert.equal(spontaneous.runCalls[0].id, scene.source.id, 'the noticed comment runs on its source');
-  assert.equal(scene.turns.calls.length, 0, "the turn is the scheduler's, not a call's");
-  assert.equal(scene.store.state.data.elsewherePings, undefined, 'a noticed message is no call of the ring');
-  assert.deepEqual(
-    byMsg(logs, 'elsewhere: settling').map(({ source, kind, message, destination }) => ({
-      source,
-      kind,
-      message,
-      destination,
-    })),
-    [{ source: 's1', kind: 'noticed', message: 'm1', destination: 'd1' }]
-  );
-  const [settled] = byMsg(logs, 'elsewhere: settled');
-  assert.equal(settled.kind, 'noticed');
-  assert.equal(settled.waitedMs, 120 * SECOND);
-  assert.equal(settled.moved, 1);
-  assert.equal(byMsg(logs, 'elsewhere: dropped').length, 0);
-});
-
-test('events: a call arriving during a noticed settle takes its place', async () => {
-  const spontaneous = noticingSpontaneous();
-  const scene = routeScene({ spontaneous });
-  const { logs } = await withCapturedLogs(async () => {
-    await routeSend(scene, scene.source, 0, plainLine('m1'));
-    await routeSend(scene, scene.source, 30, { id: 'm2' });
-    assert.equal(scene.timers.live().length, 1, 'still one wait for the source');
-    await routeFire(scene, 120);
-  });
-
-  assert.equal(spontaneous.runCalls.length, 0, 'no noticed comment once a call took the wait');
-  assert.equal(scene.turns.calls.length, 1);
-  const [args] = scene.turns.calls;
-  assert.deepEqual(args.conversation, refTo(scene.main));
-  assert.equal(args.trigger.id, 'm2');
-  assert.deepEqual(args.source, { channelId: 's1', reason: 'routed' });
-  assert.deepEqual(
-    byMsg(logs, 'elsewhere: dropped').map(({ source, kind, message, reason }) => [source, kind, message, reason]),
-    [['s1', 'noticed', 'm1', 'replaced']]
-  );
-  assert.equal(byMsg(logs, 'elsewhere: settled')[0].kind, 'ping');
-  assert.equal(byMsg(logs, 'elsewhere: settled')[0].waitedMs, 120 * SECOND, 'the wait keeps its start');
-  assert.deepEqual(
-    scene.store.state.data.elsewherePings.map((entry) => entry.messageId),
-    ['m2'],
-    'only the call is in the ring'
-  );
-});
-
-test('events: a noticed settle that ends while paused runs nothing', async () => {
-  const spontaneous = noticingSpontaneous();
-  const scene = routeScene({ spontaneous });
-  await routeSend(scene, scene.source, 0, plainLine('m1'));
-  scene.store.state.data.paused = true;
-  const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-  assert.equal(spontaneous.runCalls.length, 0);
-  assert.deepEqual(
-    byMsg(logs, 'elsewhere: dropped').map(({ kind, reason }) => [kind, reason]),
-    [['noticed', 'paused']]
-  );
-});
-
-test('events: an eavesdrop miss, or a writable channel, arms no noticed settle', async () => {
-  const miss = noticingSpontaneous({ hit: false });
-  const missScene = routeScene({ spontaneous: miss });
-  await routeSend(missScene, missScene.source, 0, plainLine('m1'));
-  assert.equal(miss.noticeCalls.length, 1);
-  assert.equal(missScene.timers.all.length, 0, 'a miss arms nothing');
-
-  const writable = noticingSpontaneous();
-  const writableScene = routeScene({ spontaneous: writable });
-  await routeSend(writableScene, writableScene.main, 0, plainLine('m1'));
-  assert.equal(writable.noticeCalls.length, 0, 'a channel the bot can send in is never a source');
-  assert.equal(writable.onMessageCalls.length, 1, 'its ordinary eavesdrop is unchanged');
-  assert.equal(writableScene.timers.all.length, 0);
-});
 
 // ---------------------------------------------------------------------------
 // Room questions (spontaneous.roomQuestionChance) -- a line put to everyone
@@ -7439,104 +5760,6 @@ test('follow-up: the address request is byte-identical to the one before the roo
   await p;
 });
 
-test('events: a failed eavesdrop roll may roll roomQuestionChance and ask the room classifier', async () => {
-  const llm = fakeFollowUpLlm();
-  const spontaneous = roomSpontaneous();
-  // The chance is set here, so the test does not move with the shipped default.
-  const config = baseConfig({ spontaneous: { roomQuestionChance: 0.5 } });
-  const handler = makeHandler({
-    llm,
-    spontaneous,
-    config,
-    prompts: fakeRoomPrompts(),
-    rng: scripted([0.49]),
-    now: () => ROOM_T0,
-  });
-  const channel = roomChannel();
-  const p = handler(roomMessage(channel));
-  await tickOnce();
-
-  assert.equal(llm.calls.length, 1, 'the room classifier was asked');
-  const [{ messages, options }] = llm.calls;
-  assert.equal(messages[0].role, 'system');
-  assert.equal(
-    messages[0].content,
-    'You watch the room for Neptunia. Is the candidate put to everyone? Answer yes or no.',
-    'room.md, {{name}} filled'
-  );
-  assert.equal(messages[1].role, 'user');
-  assert.match(
-    messages[1].content,
-    /earlier line[\s\S]*<candidate>\n[^\n]*ποιος θέλει καφέ;\n<\/candidate>$/,
-    'the transcript, then the candidate'
-  );
-  assert.deepEqual(
-    { ...options },
-    {
-      model: config.models.base.analyzer,
-      role: 'analyzer',
-      maxOutputTokens: config.mention.followUpMaxOutputTokens,
-      countAgainstDailyCap: true,
-      skipCalibration: true,
-      timeoutMs: config.llm.analyzerTimeoutMs,
-      purpose: 'room',
-      signal: undefined,
-      isRoleRequest: true,
-    },
-    'the helper request options: the analyzer role, mention.followUpMaxOutputTokens, the daily cap, llm.analyzerTimeoutMs'
-  );
-  llm.respond('no');
-  await p;
-
-  // The roll is strict: at the chance itself the classifier is not asked.
-  const llm2 = fakeFollowUpLlm();
-  const handler2 = makeHandler({
-    llm: llm2,
-    spontaneous: roomSpontaneous(),
-    config,
-    prompts: fakeRoomPrompts(),
-    rng: scripted([0.5]),
-    now: () => ROOM_T0,
-  });
-  await handler2(roomMessage(roomChannel()));
-  assert.equal(llm2.calls.length, 0);
-});
-
-test('events: the room classifier is never asked when the eavesdrop rails fail', async () => {
-  const noRoll = () => {
-    throw new Error('no room roll');
-  };
-  const llm = fakeFollowUpLlm();
-  const spontaneous = roomSpontaneous({ ready: false });
-  const handler = makeHandler({ llm, spontaneous, prompts: fakeRoomPrompts(), rng: noRoll, now: () => ROOM_T0 });
-  const channel = roomChannel();
-  await handler(roomMessage(channel));
-  assert.equal(spontaneous.readyCalls.length, 1, 'the rails were asked');
-  assert.equal(spontaneous.readyCalls[0].id, channel.id);
-  assert.equal(llm.calls.length, 0);
-
-  // The pre-filter: a reply or a member mention, or no text, is never a room line.
-  const ready = roomSpontaneous();
-  const handler2 = makeHandler({
-    llm,
-    spontaneous: ready,
-    prompts: fakeRoomPrompts(),
-    rng: noRoll,
-    now: () => ROOM_T0,
-  });
-  await handler2(roomMessage(channel, { id: 'm-r1', reference: { messageId: 'other' } }));
-  await handler2(roomMessage(channel, { id: 'm-r2', mentions: { users: new Map([['u2', { id: 'u2' }]]) } }));
-  await handler2(roomMessage(channel, { id: 'm-r3', cleanContent: '   ' }));
-  assert.equal(llm.calls.length, 0);
-
-  // An eavesdrop that scheduled leaves nothing to the room path.
-  const hit = roomSpontaneous({ scheduled: true });
-  const handler3 = makeHandler({ llm, spontaneous: hit, prompts: fakeRoomPrompts(), rng: noRoll, now: () => ROOM_T0 });
-  await handler3(roomMessage(channel));
-  assert.equal(hit.readyCalls.length, 0);
-  assert.equal(llm.calls.length, 0);
-});
-
 test('events: roomQuestionChance 0 never asks', async () => {
   const llm = fakeFollowUpLlm();
   const spontaneous = roomSpontaneous();
@@ -7557,167 +5780,6 @@ test('events: roomQuestionChance 0 never asks', async () => {
     false,
     'silent'
   );
-});
-
-test('events: a yes schedules the room turn, a no leaves the message', async () => {
-  for (const [answer, scheduled] of [
-    ['yes', true],
-    ['Yes.', true],
-    ['no', false],
-    ['overheard', false],
-  ]) {
-    const llm = fakeFollowUpLlm();
-    const spontaneous = roomSpontaneous();
-    const handler = makeHandler({
-      llm,
-      spontaneous,
-      prompts: fakeRoomPrompts(),
-      rng: scripted([0]),
-      now: () => ROOM_T0,
-    });
-    const channel = roomChannel();
-    const { logs } = await withCapturedLogs(async () => {
-      const p = handler(roomMessage(channel));
-      await tickOnce();
-      llm.respond(answer);
-      await p;
-    });
-    assert.equal(spontaneous.calls.length, scheduled ? 2 : 1, answer);
-    const [first] = spontaneous.calls;
-    assert.equal(first.length, 2, 'the ordinary eavesdrop comes first, no options');
-    if (scheduled) {
-      const [roomChannelArg, roomLine, options] = spontaneous.calls[1];
-      assert.equal(roomChannelArg.id, channel.id);
-      assert.equal(roomLine, first[1], 'the same message is the focus');
-      assert.deepEqual(options, { room: true });
-    }
-    const verdict = logs.find((entry) => entry.msg === 'room: verdict');
-    assert.equal(verdict?.answer, scheduled ? 'yes' : 'no', answer);
-    assert.equal(verdict.channel, 'c1');
-    assert.equal(verdict.author, 'u7');
-    assert.equal(typeof verdict.ms, 'number');
-    assert.ok(!JSON.stringify(logs).includes('καφέ'), 'no message text in the logs');
-  }
-});
-
-test('events: a failed or empty room classifier call schedules nothing and says why', async () => {
-  const rows = [
-    [
-      'an error',
-      (llm) => llm.fail(Object.assign(new Error('boom'), { statusCode: 503 })),
-      { reason: 'llm-error', status: 503 },
-    ],
-    ['the daily cap', (llm) => llm.fail(new DailyCapError('cap')), { reason: 'daily-cap', status: null }],
-    ['an empty answer', (llm) => llm.respond('   '), { reason: 'empty', status: null }],
-  ];
-  for (const [label, settle, expected] of rows) {
-    const llm = fakeFollowUpLlm();
-    const spontaneous = roomSpontaneous();
-    const handler = makeHandler({
-      llm,
-      spontaneous,
-      prompts: fakeRoomPrompts(),
-      rng: scripted([0]),
-      now: () => ROOM_T0,
-    });
-    const { logs } = await withCapturedLogs(async () => {
-      const p = handler(roomMessage(roomChannel()));
-      await tickOnce();
-      settle(llm);
-      await p;
-    });
-    assert.equal(spontaneous.calls.length, 1, `${label}: nothing scheduled`);
-    const failed = logs.find((entry) => entry.msg === 'room: classifier failed');
-    assert.equal(failed?.channel, 'c1', label);
-    assert.equal(failed.reason, expected.reason, label);
-    assert.equal(failed.status, expected.status, label);
-    assert.equal(
-      logs.some((entry) => entry.msg === 'room: verdict'),
-      false,
-      `${label}: no verdict`
-    );
-  }
-
-  // No room.md: skipped with its code, nothing asked.
-  const llm = fakeFollowUpLlm();
-  const handler = makeHandler({
-    llm,
-    spontaneous: roomSpontaneous(),
-    prompts: fakeAddressPrompts(),
-    rng: scripted([0]),
-    now: () => ROOM_T0,
-  });
-  const { logs } = await withCapturedLogs(() => handler(roomMessage(roomChannel())));
-  assert.equal(llm.calls.length, 0);
-  assert.deepEqual(
-    logs.filter((entry) => entry.msg === 'room: skipped').map((entry) => [entry.channel, entry.reason]),
-    [['c1', 'no-prompt']]
-  );
-});
-
-test('events: one room call per channel at a time', async () => {
-  const llm = fakeFollowUpLlm();
-  const spontaneous = roomSpontaneous();
-  const handler = makeHandler({ llm, spontaneous, prompts: fakeRoomPrompts(), rng: () => 0, now: () => ROOM_T0 });
-  const guild = fakeGuild('g1', 'Neptunia');
-  const c1 = roomChannel('c1', guild);
-  const c2 = roomChannel('c2', guild);
-  const { logs } = await withCapturedLogs(async () => {
-    const first = handler(roomMessage(c1, { id: 'm1' }));
-    await tickOnce();
-    await handler(roomMessage(c1, { id: 'm2' }));
-    assert.equal(llm.calls.length, 1, 'the second line of c1 is skipped while the first is classified');
-    const other = handler(roomMessage(c2, { id: 'm3' }));
-    await tickOnce();
-    assert.equal(llm.calls.length, 2, 'another channel has its own slot');
-    llm.respond('no');
-    await Promise.all([first, other]);
-    const third = handler(roomMessage(c1, { id: 'm4' }));
-    await tickOnce();
-    assert.equal(llm.calls.length, 3, 'the slot is free again once the call ended');
-    llm.respond('no');
-    await third;
-  });
-  assert.deepEqual(
-    logs.filter((entry) => entry.msg === 'room: skipped').map((entry) => [entry.channel, entry.reason]),
-    [['c1', 'in-flight']]
-  );
-});
-
-test('events: a message inside an open follow-up window never reaches the room path', async () => {
-  // The address classifier handles it: one address call, no room call.
-  const llm = fakeFollowUpLlm();
-  const spontaneous = roomSpontaneous();
-  const handler = makeHandler({ llm, spontaneous, prompts: fakeRoomPrompts(), rng: () => 0, now: () => ROOM_T0 });
-  const channel = roomChannel();
-  await openFollowUpWindow(handler, { guild: channel.guild, channel, ts: ROOM_T0 - 30000 });
-  const p = handler(roomMessage(channel));
-  await tickOnce();
-  assert.equal(llm.calls.length, 1);
-  assert.match(llm.calls[0].messages[0].content, /addressed to you/, 'the address classifier, not room.md');
-  llm.respond('no');
-  await p;
-  assert.equal(llm.calls.length, 1);
-  assert.equal(spontaneous.readyCalls.length, 0);
-
-  // An open window the address classifier passed over (features.followUp off here): still no room path.
-  const config = baseConfig({ features: { followUp: false } });
-  const llm2 = fakeFollowUpLlm();
-  const spontaneous2 = roomSpontaneous();
-  const handler2 = makeHandler({
-    llm: llm2,
-    spontaneous: spontaneous2,
-    config,
-    prompts: fakeRoomPrompts(),
-    rng: () => 0,
-    now: () => ROOM_T0,
-  });
-  const channel2 = roomChannel();
-  await openFollowUpWindow(handler2, { guild: channel2.guild, channel: channel2, ts: ROOM_T0 - 30000 });
-  await handler2(roomMessage(channel2));
-  assert.equal(spontaneous2.calls.length, 1, 'the ordinary eavesdrop still sees it');
-  assert.equal(llm2.calls.length, 0);
-  assert.equal(spontaneous2.readyCalls.length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -7880,9 +5942,7 @@ test('pause notice: a line that is not a direct call stays silent', async () => 
 test('pause notice: a call where the bot may not answer stays silent', async () => {
   const cases = [
     { label: 'cannot send', config: pauseConfig(), overrides: { permissionsFor: () => ({ has: () => false }) } },
-    { label: 'dry-run mirror', config: pauseConfig({ bot: { dryRunChannelId: 'c1' } }), overrides: {} },
     { label: 'thread', config: pauseConfig(), overrides: { isThread: () => true } },
-    { label: 'mentions off', config: pauseConfig({ features: { mentions: false } }), overrides: {} },
   ];
   for (const { label, config, overrides } of cases) {
     const scene = pausedScene({ config });
@@ -7917,18 +5977,8 @@ test('pause notice: a second call inside the interval posts nothing and logs not
   assertPausedQuiet(scene, 'interval');
 });
 
-test('pause notice: an interval of 0 lets every call get one', async () => {
-  const scene = pausedScene({ config: pauseConfig({ mention: { pauseNoticeMinutes: 0 } }) });
-  const guild = fakeGuild();
-  const channel = pausedChannel('c1', guild);
-  await scene.handler(directPingMessage({ id: 'm1', guild, channel, channelId: 'c1' }));
-  await scene.handler(directPingMessage({ id: 'm2', guild, channel, channelId: 'c1' }));
-  assert.equal(noticesOf(scene.handler, 'c1').length, 2);
-});
-
-test('pause notice: the switch off or a missing label posts nothing', async () => {
+test('pause notice: a missing label posts nothing', async () => {
   const cases = [
-    { label: 'switch off', config: pauseConfig({ features: { pauseNotice: false } }), prompts: { labels } },
     {
       label: 'no label',
       config: pauseConfig(),
@@ -7952,21 +6002,6 @@ test('pause notice: the switch off or a missing label posts nothing', async () =
   }
 });
 
-test('pause notice: in a dry run it is mirrored, never posted', async () => {
-  const scene = pausedScene({
-    config: pauseConfig({ features: { dryRun: true }, bot: { dryRunChannelId: 'mirror1' } }),
-  });
-  const mirror = world().channel({ id: 'mirror1', name: 'mirror' }, { keep: true });
-  const guild = fakeGuild();
-  const channel = pausedChannel('c1', guild);
-  await scene.handler(directPingMessage({ guild, channel, channelId: 'c1' }));
-  await settle();
-  assert.deepEqual(noticesOf(scene.handler, 'c1'), []);
-  assert.equal(mirror.sent.length, 1);
-  assert.ok(mirror.sent[0].content.endsWith(`\n${labels.limits.paused}`));
-  assertPausedQuiet(scene, 'dry run');
-});
-
 function pausedDmScene(storeOptions, clientOptions) {
   const store = fakePrivateStore(storeOptions);
   store.state = pausedState();
@@ -7987,7 +6022,7 @@ function pausedDmScene(storeOptions, clientOptions) {
   return { handler, store, state: store.state, turns, memory, spontaneous, llm };
 }
 
-test('pause notice: a private message from someone the gate lets through gets it like a private limit notice', async () => {
+test('pause notice: a private message from someone the gate lets through gets it', async () => {
   const scene = pausedDmScene();
   const message = fakeDmMessage();
   const { logs } = await withCapturedLogs(async () => {
@@ -8003,18 +6038,7 @@ test('pause notice: a private message from someone the gate lets through gets it
     logs.filter((l) => l.msg === 'limits: pause notice').map((l) => [l.channel, l.kind]),
     [['dm1', 'private']]
   );
-  assert.deepEqual([scene.store.bumps, scene.store.noticed], [[], []]);
   assertPausedQuiet(scene, 'private');
-});
-
-test('pause notice: the private daily cap alone does not withhold it', async () => {
-  const scene = pausedDmScene({ privates: { u1: { replies: { day: TODAY, count: 100 } } } });
-  const message = fakeDmMessage();
-  await scene.handler(message);
-  await settle();
-  assert.deepEqual(textsOf(scene.handler, 'dm1'), [labels.limits.paused]);
-  assert.deepEqual(scene.store.noticed, [], 'no cap notice is marked while paused');
-  assertPausedQuiet(scene, 'cap');
 });
 
 test('pause notice: a private message the gate refuses gets nothing', async () => {
@@ -8039,8 +6063,8 @@ test('pause notice: a private message the gate refuses gets nothing', async () =
 // own turn, in arrival order; a call about something still waiting is folded into it.
 
 const LIVE_T0 = Date.UTC(2026, 9, 5, 12, 0, 0);
-const LIVE_SPLIT = 'ποιος είναι ο Νίκος; κοίτα το κανάλι της Ελένης, και πες μου αν το μιμίδιο είναι αστείο.';
-const LIVE_PARTS = ['ποιος είναι ο Νίκος', 'κοίτα το κανάλι της Ελένης', 'το μιμίδιο είναι αστείο;'];
+const LIVE_SPLIT = 'ποιος είναι ο Νίκος ακριβώς; κοίτα το κανάλι της Ελένης, και πες μου αν το μιμίδιο είναι αστείο.';
+const LIVE_PARTS = ['ποιος είναι ο Νίκος ακριβώς', 'κοίτα το κανάλι της Ελένης', 'το μιμίδιο είναι αστείο;'];
 const LIVE_NAMES = { u1: 'Alice', u2: 'Léa' };
 
 /**
@@ -8075,8 +6099,9 @@ async function withLiveLogs(fn) {
 }
 
 /** Resolves after `check()` holds, or after a bounded number of event-loop turns (no wall clock). */
-async function tickUntil(check, rounds = 500) {
-  for (let i = 0; i < rounds && !check(); i += 1) await new Promise((resolve) => setImmediate(resolve));
+async function tickUntil(check, rounds = 3000) {
+  // PR 7d: the real turn is longer now (memory and the typing imitation are code), so a round waits a millisecond.
+  for (let i = 0; i < rounds && !check(); i += 1) await new Promise((resolve) => setTimeout(resolve, 1));
 }
 
 /**
@@ -8098,17 +6123,12 @@ function liveScene({
   const config = baseConfig(
     deepMerge(
       {
-        features: {
-          typingSimulation: false,
-          memory: false,
-          privateMessages: true,
-          imageGeneration: false,
-          mediaDescriptions: false,
-          channelPull: false,
-          recent: false,
-        },
-        split: { minChars: 20, minPartChars: 0, maxTasks: 4, contextMessages: 2, maxOutputTokens: 50 },
-        mention: { ignoreChance: 0, repeatPenalty: 0, spamThreshold: 50, maxPending: 6, pendingMinutes: 10 },
+        // PR 7d: the switches are code, features.privateMessages is private.enabled, and the split measures are constants.
+        private: { enabled: true },
+        // The typing imitation is code too: no pause, so the turns of a chain follow each other at once.
+        typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
+        split: { maxOutputTokens: 50 },
+        mention: { maxPending: 6, pendingMinutes: 10 },
       },
       overrides
     )
@@ -8465,12 +6485,12 @@ test('events: mention.maxPending evicts the oldest waiting call of an author too
   assert.equal(liveTask(scene.calls.talk[1]).includes('δύο'), false, 'm2, the oldest, was evicted');
 });
 
-test('private: DMs queue and fold the same way; one incoming message counts once toward the daily cap', async () => {
+test('private: DMs queue and fold the same way', async () => {
   const { talk, open } = heldFirst();
   // The first merge call: `new`; the second folds into item 3 (parts 2 and 3, then the queued DM).
   const merge = (index) => (index === 0 ? 'new' : '3');
   const scene = liveScene({ dm: true, talk, split: LIVE_PARTS.map((part) => `- ${part}`).join('\n'), merge });
-  const { logs } = await withLiveLogs(async (logs) => {
+  await withLiveLogs(async (logs) => {
     await scene.call('dm-1', 'u1', LIVE_SPLIT);
     await tickUntil(() => scene.calls.talk.length === 1);
     await scene.call('dm-2', 'u1', 'και κάτι άλλο');
@@ -8481,15 +6501,9 @@ test('private: DMs queue and fold the same way; one incoming message counts once
     );
     open();
     await tickUntil(() => scene.calls.talk.length === 4);
-    await tickUntil(() => scene.store.bumps.length === 2);
   });
   assert.equal(scene.calls.talk.length, 4, 'three parts, then the queued DM; the folded one has no turn');
   assert.ok(liveTask(scene.calls.talk[3]).endsWith(fill(labels.task.added, { added: 'λοιπόν;' })));
-  assert.deepEqual(
-    scene.store.bumps.map(([, userId]) => userId),
-    ['u1', 'u1'],
-    'the split DM once, the queued DM once'
-  );
 });
 
 // ---------------------------------------------------------------------------
@@ -8577,17 +6591,6 @@ test('follow-up: a candidate arriving during a turn in its own channel is classi
   assert.deepEqual(startedTurns(scene.turns), [['m1', 'followUp']]);
 });
 
-test('follow-up: with mention.pendingSameChannel off, a candidate in its own busy channel is not classified (its "yes" could not wait)', async () => {
-  const scene = await busyFollowUpScene({
-    busyIn: 'c1',
-    config: baseConfig({ mention: { pendingSameChannel: false } }),
-  });
-  await scene.send('m1');
-  await tick();
-  assert.equal(scene.llm.calls.length, 0);
-  assert.equal(scene.spontaneous.onMessageCalls.length, 1, 'falls back to the usual handling');
-});
-
 test('follow-up: a "no" on a candidate classified during a busy turn defers nothing and starts nothing', async () => {
   const scene = await busyFollowUpScene();
   const logs = await busyCandidate(scene, 'm1', 'no');
@@ -8600,34 +6603,6 @@ test('follow-up: a "no" on a candidate classified during a busy turn defers noth
   assert.equal(scene.spontaneous.onMessageCalls.length, 0);
   await endTurnAndDrain(scene);
   assert.equal(scene.turns.calls.length, 0);
-});
-
-test('follow-up: with mention.pendingOverheard off, an "overheard" on a candidate classified during a busy turn is dropped as busy, not deferred', async () => {
-  const scene = await busyFollowUpScene({ config: baseConfig({ mention: { pendingOverheard: false } }) });
-  const logs = await busyCandidate(scene, 'm1', 'overheard');
-  assert.equal(scene.llm.calls.length, 1);
-  assert.deepEqual(deferredOf(logs), []);
-  assert.deepEqual(followUpDropped(logs), [['m1', 'busy']]);
-  await endTurnAndDrain(scene);
-  assert.equal(scene.turns.calls.length, 0);
-});
-
-test('follow-up: with mention.classifyWhileBusy off (read hot), a candidate during a busy turn skips the classifier as before', async () => {
-  const config = baseConfig();
-  const scene = await busyFollowUpScene({ config });
-  config.mention.classifyWhileBusy = false;
-  await scene.send('m1');
-  await tick();
-  assert.equal(scene.llm.calls.length, 0, 'no paid call');
-  assert.equal(scene.spontaneous.onMessageCalls.length, 1, 'falls back to the usual handling');
-
-  // Switched back on: the next candidate is classified again.
-  config.mention.classifyWhileBusy = true;
-  const p = scene.send('m2');
-  await tick();
-  assert.equal(scene.llm.calls.length, 1);
-  scene.llm.respond('no');
-  await p;
 });
 
 test('follow-up: a missing mention.classifyWhileBusy counts as on', async () => {
@@ -8692,10 +6667,10 @@ test('follow-up: a line the turn had in its history is dropped as answered', asy
 });
 
 test('follow-up: a "yes" classified during the turn is dropped as closed at pickup when a "no" streak closed the window meanwhile', async () => {
-  const scene = await busyFollowUpScene({ config: baseConfig({ mention: { followUpNoStreak: 2 } }) });
+  const scene = await busyFollowUpScene();
   await busyCandidate(scene, 'm1', 'yes');
-  await busyCandidate(scene, 'm2', 'no');
-  await busyCandidate(scene, 'm3', 'no');
+  // PR 7d: followUpNoStreak is the constant 5.
+  for (let i = 0; i < FOLLOW_UP_NO_STREAK; i += 1) await busyCandidate(scene, `n${i}`, 'no');
   const drain = await endTurnAndDrain(scene);
   assert.equal(scene.turns.calls.length, 0);
   assert.deepEqual(followUpDropped(drain), [['m1', 'closed']]);
@@ -8818,17 +6793,6 @@ test('onMessageUpdate: without the message as it was, a late embed is an accepte
   const late = logs.filter((entry) => entry.msg === 'events: embeds late');
   assert.equal(late.length, 1);
   assert.equal(late[0].items, 1);
-});
-
-test('onMessageUpdate: off with features.embedUpdates false', async () => {
-  const scene = updateScene({ config: baseConfig({ features: { embedUpdates: false } }) });
-  const { created, updated } = tenorPost();
-  const { logs } = await withCapturedLogs(() => scene.handler.onMessageUpdate(created, updated));
-  assert.equal(gifEntries(scene.store).length, 0);
-  assert.equal(
-    logs.some((entry) => entry.msg.startsWith('events: embeds')),
-    false
-  );
 });
 
 // ---------------------------------------------------------------------------
@@ -9192,7 +7156,7 @@ test('onMessage: a member line soon after the persona spoke joins her participat
   assert.ok(!JSON.stringify(logs).includes('ευχαριστώ'), 'no text in the logs');
 });
 
-test('onMessage: no recent own post, the switch off, a bot or the diary channel never touch the participation store', async () => {
+test('onMessage: no recent own post, a bot or the diary channel never touch the participation store', async () => {
   const ownAt = Date.UTC(2026, 9, 10, 12, 0, 0);
   const guild = fakeGuild();
   const channel = fakeChannel('c1', guild);
@@ -9204,16 +7168,6 @@ test('onMessage: no recent own post, the switch off, a bot or the diary channel 
     makeHandler({ store: stale, turns: { ...fakeTurns(), lastPostAt: () => ownAt - 3_600_000 } })(line())
   );
   assert.equal(stale.reads.length, 0, 'the persona has not posted here lately: the store is not even read');
-
-  const off = participationEventsStore(ownAt);
-  await withCapturedLogs(() =>
-    makeHandler({
-      store: off,
-      turns: { ...fakeTurns(), lastPostAt: () => ownAt },
-      config: baseConfig({ features: { participation: false } }),
-    })(line())
-  );
-  assert.equal(off.writes.length + off.reads.length, 0);
 
   const bot = participationEventsStore(ownAt);
   await withCapturedLogs(() =>
@@ -9245,7 +7199,7 @@ test('events: a deleted message writes a deleted line and an edit writes revisio
       return { written: lines.length, duplicates: 0 };
     },
   };
-  const config = baseConfig({ features: { record: true } });
+  const config = baseConfig();
   const store = tmpStore();
   const at = Date.UTC(2026, 9, 13, 10, 0, 0);
   const handler = makeHandler({ config, store, record, now: () => at });
@@ -9290,12 +7244,10 @@ test('events: a deleted message writes a deleted line and an edit writes revisio
   await withCapturedLogs(() => handler.onMessageUpdate(edited, again));
   assert.equal(appended[2].lines[0].revision, 3);
 
-  // Another bot, another guild, or features.record off: nothing.
+  // Another bot or another guild: nothing.
   const otherBot = fakeMessage({ ...created, author: { id: 'b2', bot: true, globalName: 'B', username: 'b' } });
   await handler.onMessageDelete(otherBot);
   const elsewhere = fakeMessage({ ...created, guild: fakeGuild('g2'), channel: fakeChannel('c9', fakeGuild('g2')) });
   await handler.onMessageDelete(elsewhere);
-  config.features.record = false;
-  await handler.onMessageDelete(created);
   assert.equal(appended.length, 3);
 });

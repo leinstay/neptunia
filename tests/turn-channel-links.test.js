@@ -1,7 +1,7 @@
 // Tests for the channel links on the way out (src/behavior/turn.js with
 // src/memory/mentions.ts#linkChannels): a `#name` of one of the guild's text
-// channels in a `<msg>` is sent as the `<#id>` link, behind
-// features.channelLinks. Fake discord.js-shaped objects, a fake LLM and store.
+// channels in a `<msg>` is sent as the `<#id>` link.
+// Fake discord.js-shaped objects, a fake LLM and store.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
@@ -68,43 +68,18 @@ function fakeStore() {
   };
 }
 
-function fakeHot(channelLinks) {
+function fakeHot() {
   return {
     config: {
-      bot: { timezone: 'UTC', dryRunChannelId: '' },
+      bot: { timezone: 'UTC' },
       context: {
         channelMessages: 100,
-        neighborMessages: 5,
-        neighborMaxAgeMinutes: 60,
-        neighborMaxChannels: 8,
-        maxMessageChars: 800,
-        gapMarkerMinutes: 20,
-        otherProfiles: 6,
         caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
-        vision: {
-          maxImages: 2,
-          tokensPerImage: 400,
-          imageSize: 512,
-          recentImages: 0,
-          recentImageMinutes: 0,
-          maxBytes: 1_500_000,
-          fetchTimeoutMs: 10_000,
-        },
-        pull: { scanMessages: 20, maxChannels: 1, sameAudience: true },
+        vision: { fetchTimeoutMs: 10_000 },
+        pull: { sameAudience: true },
       },
-      llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
+      llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      features: {
-        memory: true,
-        multiMessage: true,
-        typingSimulation: false,
-        channelPull: false,
-        channelRoute: false,
-        elsewhere: false,
-        channelLinks,
-      },
-      media: { maxPerTurn: 6, filePreviewChars: 500 },
-      gifs: { maxPerDay: 40 },
     },
     prompts: {
       'system-prompt': 'You are a regular member of this chat, not an assistant.',
@@ -116,11 +91,11 @@ function fakeHot(channelLinks) {
   };
 }
 
-async function runLinkTurn(channelLinks, answer = '<msg>δες στο #γενικά και στο #φωνή</msg>') {
+async function runLinkTurn(answer = '<msg>δες στο #γενικά και στο #φωνή</msg>') {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel([raw]);
   const turns = createTurnRunner({
-    hot: fakeHot(channelLinks),
+    hot: fakeHot(),
     store: fakeStore(),
     llm: fakeLlm(answer),
     calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
@@ -135,22 +110,16 @@ async function runLinkTurn(channelLinks, answer = '<msg>δες στο #γενι�
 }
 
 test('runTurn: a #name of a guild text channel is sent as its <#id> link', async () => {
-  const { result, channel } = await runLinkTurn(true);
+  const { result, channel } = await runLinkTurn();
   assert.equal(result.outcome, 'spoke');
   assert.equal(channel.sent.length, 1);
   assert.equal(channel.sent[0].content, `δες στο <#${LINKED_ID}> και στο #φωνή`);
 });
 
-test('runTurn: features.channelLinks false sends #name as written', async () => {
-  const { result, channel } = await runLinkTurn(false);
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(channel.sent[0].content, 'δες στο #γενικά και στο #φωνή');
-});
-
 test('runTurn: a URL in a <msg> is posted exactly as written; a #name and an @handle outside it still turn into links', async () => {
   const handle = handleOf('u1');
   const url = `https://www.youtube.com/@${handle}/#γενικά?si=Ab_9&t=5`;
-  const { result, channel } = await runLinkTurn(true, `<msg>@${handle} δες ${url} στο #γενικά</msg>`);
+  const { result, channel } = await runLinkTurn(`<msg>@${handle} δες ${url} στο #γενικά</msg>`);
   assert.equal(result.outcome, 'spoke');
   assert.equal(channel.sent[0].content, `<@u1> δες ${url} στο <#${LINKED_ID}>`);
 });

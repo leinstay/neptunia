@@ -5,7 +5,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   audibleSpans,
-  audioMapSettings,
   classifyAudio,
   formatSpans,
   mergeSpans,
@@ -39,24 +38,6 @@ function stderrWith(...events) {
     'size=N/A time=00:00:19.98 bitrate=N/A',
   ].join('\n');
 }
-
-test('audioMapSettings: null or false turns measuring off; missing or invalid keys take the defaults', () => {
-  assert.equal(audioMapSettings(null), null);
-  assert.equal(audioMapSettings(false), null);
-  const defaults = { noiseDb: -50, minSilenceSeconds: 0.5, mapBelowShare: 0.8, maxSpans: 20 };
-  assert.deepEqual(audioMapSettings(undefined), defaults);
-  assert.deepEqual(audioMapSettings(true), defaults);
-  assert.deepEqual(
-    audioMapSettings({ noiseDb: 'loud', minSilenceSeconds: 0, mapBelowShare: 2, maxSpans: 0 }),
-    defaults
-  );
-  assert.deepEqual(audioMapSettings({ noiseDb: -35, minSilenceSeconds: 1.5, mapBelowShare: 0.5, maxSpans: 7.9 }), {
-    noiseDb: -35,
-    minSilenceSeconds: 1.5,
-    mapBelowShare: 0.5,
-    maxSpans: 7,
-  });
-});
 
 test('silenceDetectArgs: decodes the audio only, writes nothing', () => {
   assert.deepEqual(

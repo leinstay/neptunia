@@ -20,7 +20,7 @@ import { requestTokenLimit, sectionCost } from '../../llm/budget.js';
 import { cacheTtlMs } from '../../llm/openrouter.js';
 import { gifHandleMap, normalizeGifs } from '../../memory/index.js';
 import { memberIdOf } from '../../memory/recent.js';
-import { emojiMax, freezePerBucket, gifFieldChars, gifFieldsMap } from './emoji-gifs.ts';
+import { freezePerBucket, gifFieldChars, gifFieldsMap } from './emoji-gifs.ts';
 import type { Held } from './emoji-gifs.ts';
 import { anchoredOn } from './memory.ts';
 import { authorsInView } from './pulled.ts';
@@ -38,6 +38,7 @@ import type {
   RequestInput,
   TranscriptItem,
 } from './types.ts';
+import { RELATIONSHIP_LIMITS } from '../../memory/text-limits.js';
 
 /** The live glance at the server's sidebar (src/behavior/around-store.ts), as `<people_now>` reads it. */
 export type AroundSnapshot = {
@@ -104,22 +105,21 @@ export function requestHead(given: RequestInput): Base {
   // TTL bucket while the prompt cache is on (freezePerBucket): a memory batch or the persona's
   // GIF post rewrites the cached prefix at most once per bucket.
   const stableFreeze =
-    config.features?.promptCache === true && given.stableFreeze instanceof Map
+    given.stableFreeze instanceof Map
       ? // The caller's holder of what freezePerBucket keeps for this request.
         (given.stableFreeze as Map<string, Held<unknown>>)
       : null;
   const frozen = <T>(key: string, signature: string, compute: () => T): T =>
     freezePerBucket(stableFreeze, key, { now, bucketMs: cacheTtlMs(config), signature }, compute);
-  // Mention handles (features.mentionHandles, a missing key counts as on): every member with a
+  // Mention handles: every member with a
   // stored profile gets one in `<directory>` (the stable part), the authors in view on their lines.
-  const handlesOn = config.features?.mentionHandles !== false;
-  // `<people_now>`'s live part (features.around, a missing key counts as on): the snapshot of
+  const handlesOn = true;
+  // `<people_now>`'s live part: the snapshot of
   // the gateway's voice states and presences, never in a private chat or a diary post.
   // The live glance as the turn hands it: checked to be an object with a snapshot below.
   const aroundInput = given.around as
     { snapshot?: AroundSnapshot | null; channelNameOf?: (channelId: string) => string | null } | null | undefined;
   const liveOn =
-    config.features?.around !== false &&
     !privateChat &&
     mode !== 'diary' &&
     isPlainObject(aroundInput) &&
@@ -193,45 +193,37 @@ export function requestHead(given: RequestInput): Base {
   // heading and at the start of their `<people_now>` entry, as `<directory>` lists it.
   const handleFor = (memberId: string | null) =>
     memberId !== null && handleById ? (handleById.get(memberId) ?? null) : null;
-  // `<now>`: the clock, then the persona's recent time away (features.offPeriods, read now).
-  const nowText = nowBlock(now, timezone, labels, config.features?.offPeriods !== false ? given.offPeriods : null);
-  const relationships = config.features?.relationships !== false;
+  // `<now>`: the clock, then the persona's recent time away.
+  const nowText = nowBlock(now, timezone, labels, given.offPeriods);
+  const relationships = true;
   // How many attitude moves follow the attitude in a `<people_now>` entry (profileStateFields).
-  const shownMoves = config.relationships?.shownMoves ?? 4;
-  const episodesOn = config.features?.episodes !== false;
-  const loreOn = config.features?.lore !== false;
+  const shownMoves = RELATIONSHIP_LIMITS.shownMoves;
+  const episodesOn = true;
+  const loreOn = true;
   // The GIF library: the switch (a missing key counts as on) and at least one entry.
-  const gifLibrary = config.features?.gifs !== false && given.gifs ? normalizeGifs(given.gifs) : null;
+  const gifLibrary = given.gifs ? normalizeGifs(given.gifs) : null;
   const gifsOn = gifLibrary !== null && Object.keys(gifLibrary.entries).length > 0;
   // The server's custom emoji: the switch (a missing key counts as on) and a non-empty index.
-  const customEmoji: Array<EmojiRef> =
-    config.features?.customEmoji !== false && Array.isArray(given.customEmoji)
-      ? // The emoji index's list as the turn hands it (src/behavior/emoji-index.ts).
-        (given.customEmoji as Array<EmojiRef>)
-      : [];
+  const customEmoji: Array<EmojiRef> = Array.isArray(given.customEmoji)
+    ? // The emoji index's list as the turn hands it (src/behavior/emoji-index.ts).
+      (given.customEmoji as Array<EmojiRef>)
+    : [];
   // A custom emoji of the transcript is described once, in `<emoji>` (emojiItems), when that
   // block can carry it; otherwise its lines keep the inline `transcript.emojiDescribed` tag.
   const emojiLabels = labels.emoji;
   const emojiOnce =
     Boolean(emojiLabels?.header && emojiLabels.entryNoText && emojiLabels.entry && emojiLabels.seenInChat) &&
-    emojiMax(config.context.customEmoji) > 0 &&
     customEmoji.some((emoji) => emoji?.id && emoji.name);
   const formatOptions = {
     timezone,
-    gapMinutes: config.context.gapMarkerMinutes,
-    maxChars: config.context.maxMessageChars,
     selfName,
     labels,
     // An old line carries its age against the same clock as `<now>` and `<tempo>`: the chat,
     // neighbour and pulled channels alike.
     now,
-    ageMinutes: config.context.ageAfterMinutes ?? 60,
-    seeReactions: config.features?.seeReactions !== false,
-    reactionsPerMessage: config.context.reactionsPerMessage,
-    // Who reacted to the persona's own lines, named like authors (features.reactionNames).
-    reactionNames: config.features?.reactionNames !== false,
-    reactionNamesMax: config.context.reactions?.maxNames ?? 5,
-    replyQuoteChars: config.context.replyQuoteChars,
+    seeReactions: true,
+    // Who reacted to the persona's own lines, named like authors.
+    reactionNames: true,
     emojiInline: !emojiOnce,
     descriptions,
     videos,
@@ -241,8 +233,8 @@ export function requestHead(given: RequestInput): Base {
     // Each author in view carries their mention handle (transcript.author).
     handles: handleById ?? undefined,
     memberNames: memberNames ?? undefined,
-    // A message link to a line of the same rendering reads as its `#n` (features.messageLinks).
-    messageNumbers: config.features?.messageLinks !== false,
+    // A message link to a line of the same rendering reads as its `#n`.
+    messageNumbers: true,
     // Each channel a line mentions carries its handle (transcript.channel).
     channels: channelHandleById
       ? new Map(
@@ -255,7 +247,7 @@ export function requestHead(given: RequestInput): Base {
     // ...and its three caption fields, cut like the `<gifs>` list (transcript.gifKnownFields).
     gifFields:
       gifsOn && labels.transcript?.gifKnownFields && given.mediaCache
-        ? gifFieldsMap(given.mediaCache, gifFieldChars(config.gifs))
+        ? gifFieldsMap(given.mediaCache, gifFieldChars())
         : undefined,
   };
 
@@ -269,7 +261,7 @@ export function requestHead(given: RequestInput): Base {
   ]
     .filter(Boolean)
     .join('\n\n');
-  // The anchored window (features.anchoredWindow): the reply parents leave `<chat>` for
+  // The anchored window: the reply parents leave `<chat>` for
   // `<earlier>` but keep their numbers, so a reply marker or a link in the chat still names them.
   const anchored = anchoredOn(config, labels, privateChat);
   const chatOptions = anchored
@@ -330,7 +322,7 @@ export function requestRoom(given: RequestInput): Room {
     toolsExposed && reserveRaw !== undefined && Number.isFinite(reserveRaw) && reserveRaw > 0
       ? Math.floor(reserveRaw)
       : 0;
-  // The prompt rail is the same with or without tools: requestTokenLimit (llm.maxRequestTokens x llm.safetyMargin). The output budget is separate.
+  // The prompt rail is the same with or without tools: requestTokenLimit (llm.maxRequestTokens x SAFETY_MARGIN). The output budget is separate.
   const limit = Math.max(0, requestTokenLimit(config) - TAG_OVERHEAD - toolsTokens - stepReserve);
   return { caps, cost, limit };
 }

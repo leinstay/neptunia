@@ -23,31 +23,12 @@ export const SELF = { id: 'self-id', name: 'Nova' };
 export const COMMUNITY = { id: 'g1', name: 'Alpha' };
 export const ANSWER = 'γεια σου, καλημέρα';
 
-/** The private layer of every rig: the settle wait, typing, and every optional behaviour off. */
+/** The private layer of every rig: the settle wait and typing off. PR 7d: the `features` switches are code or gone with
+ * the cut, so the rig no longer turns optional behaviour off. */
 const BASE_CONFIG: Settings = {
   bot: { timezone: 'UTC', owners: [], guildId: 'g1' },
   pace: { settleMs: 0, settleMaxMs: 0 },
   typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },
-  features: {
-    typingSimulation: false,
-    spontaneous: false,
-    eavesdrop: false,
-    followUp: false,
-    participation: false,
-    customEmoji: false,
-    gifs: true,
-    offlineCatchUp: false,
-    diary: false,
-    mediaDescriptions: false,
-    missedAnswers: false,
-    channelRoute: false,
-    recall: false,
-    memoryPrefetch: false,
-    channelPull: false,
-    elsewhere: false,
-    speech: false,
-    pauseNotice: false,
-  },
   // The GIF backfill reads every conversation's history at start; a rig counts the reads a turn makes, so it reads none.
   gifs: { backfillMessages: 0 },
 };

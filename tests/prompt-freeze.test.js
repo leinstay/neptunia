@@ -23,7 +23,7 @@ function fakeConfig(overrides = {}) {
       vision: { maxImages: 0, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
       customEmoji: { max: 30 },
     },
-    features: { vision: false, promptCache: true, ...overrides.features },
+    features: { ...overrides.features },
     gifs: { max: 20, halfLifeDays: 30, ownMarkHours: 24 },
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9, cache: { ttl: '1h', ...overrides.cache } },
     lore: { scanMessages: 30 },
@@ -113,17 +113,11 @@ test('buildRequest: a memory batch inside one bucket leaves the stable part byte
   assert.ok(stableText(nextBucket).includes('- hates mornings'));
 });
 
-test('buildRequest: the self facts follow memory at once with the prompt cache off or without a holder', () => {
+// PR 7d: the prompt cache is code, so a request without a holder is the case that follows memory at once.
+test('buildRequest: the self facts follow memory at once without a holder', () => {
   const batch = { self: ['likes tea', 'hates mornings'] };
-  const off = fakeConfig({ features: { promptCache: false } });
-  const stableFreeze = new Map();
-  buildRequest(baseInput({ config: off, stableFreeze, guildMemory: { self: ['likes tea'] } }));
-  assert.ok(
-    stableText(buildRequest(baseInput({ config: off, stableFreeze, guildMemory: batch }))).includes('- hates mornings')
-  );
   assert.ok(stableText(buildRequest(baseInput({ guildMemory: batch }))).includes('- hates mornings'));
 });
-
 test('buildRequest: with llm.cache.ttl 5m the bucket is five minutes', () => {
   const config = fakeConfig({ cache: { ttl: '5m' } });
   const stableFreeze = new Map();

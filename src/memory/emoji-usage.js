@@ -9,16 +9,19 @@
 import { isPlainObject } from '../config.js';
 import { sortByRank } from './ranking.js';
 
+// Production values, config cut of 2026-10-31.
+/** The custom emoji whose use the store counts. */
+export const EMOJI_STORE_MAX = 200;
+/** The half-life in days of an emoji's use in its rank. */
+export const EMOJI_HALF_LIFE_DAYS = 30;
+
 /**
- * The `mergeEmojiUsage` options from `context.customEmoji`, read by the caller at the
- * moment of use: `storeMax` (200) and `halfLifeDays` (30), config.json's values when a key
- * is missing. Shared by the live observer (src/memory/update.js) and the history backfill.
- * @param {object} config  Live config.
+ * The `mergeEmojiUsage` options: `storeMax` and `halfLifeDays`. Shared by the live observer (src/memory/update.js)
+ * and the history backfill.
  * @returns {{ storeMax: number, halfLifeDays: number }}
  */
-export function emojiUsageOpts(config) {
-  const emojiCfg = config?.context?.customEmoji ?? {};
-  return { storeMax: emojiCfg.storeMax ?? 200, halfLifeDays: emojiCfg.halfLifeDays ?? 30 };
+export function emojiUsageOpts() {
+  return { storeMax: EMOJI_STORE_MAX, halfLifeDays: EMOJI_HALF_LIFE_DAYS };
 }
 
 /**

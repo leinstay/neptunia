@@ -46,9 +46,7 @@ const handlers = perEnv((env) => {
 
   function cmdStatus(args: Obj, context: OpContext) {
     const s = inner().status(resolvedGuildId(context));
-    const lines = [
-      `inner life: ${s.on ? 'on' : 'off (features.innerLife)'}, mode ${s.mode}, ${s.stopped ? `stopped since ${stamp(s.stoppedAt)}` : 'running'}`,
-    ];
+    const lines = [`inner life: mode ${s.mode}, ${s.stopped ? `stopped since ${stamp(s.stoppedAt)}` : 'running'}`];
     lines.push(
       `queue: ${s.queue.length}${s.queue.length > 0 ? ` (${s.queue.map((wake: Untyped) => `${wake.kind} due ${stamp(wake.dueAt)}${wake.capped ? ` capped ${wake.capped}` : ''}`).join('; ')})` : ''}`
     );

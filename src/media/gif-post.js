@@ -1,9 +1,7 @@
 // The pieces of posting one of the persona's library GIFs that the reply turn
 // (src/behavior/turn.js#postGif, a `<gif>`) and `message.create`'s `gif` option
 // (src/tools/impl/message.ts) share: a fresh URL of an attached GIF, the URL a GIF
-// posts as, and the daily count against `gifs.maxPerDay`. No wording here.
-
-import { bumpDaily } from '../time.js';
+// posts as. No wording here.
 
 /**
  * A fresh URL of an attached GIF: its original message is read again (attachment URLs of a platform expire)
@@ -52,9 +50,4 @@ export async function freshAttachmentUrl({ reads, channel, entry, onError = () =
  */
 export function gifPostUrl(entry, fresh) {
   return fresh ?? entry.url;
-}
-
-/** Count one posted GIF against `gifs.maxPerDay` (the counter restarts on a new UTC day); the caller marks the state dirty. */
-export function countGifPost(data, nowMs) {
-  bumpDaily(data, { dayKey: 'gifDay', countKey: 'gifCount' }, nowMs);
 }

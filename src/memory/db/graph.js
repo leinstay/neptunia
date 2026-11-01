@@ -45,6 +45,7 @@ import { NODE_KINDS, RELATION_EDGES, UNIT_OF, UNIT_ORDER } from './graph-manifes
 export const EPOCH = '1970-01-01T00:00:00.000Z';
 const SELF = 'person:self';
 const CONTAINERS = new Set(['guild', 'server', 'workspace', 'category']);
+/** The graph walk's limits. Production values, config cut of 2026-10-31. */
 const DEFAULTS = Object.freeze({ maxDepth: 6, maxRows: 2000 });
 const PENDING_KEY = 'graph_pending';
 const SLICE_UNITS = 2000;
@@ -66,12 +67,11 @@ const edgeIdOf = (predicate, src, dst, evidence) =>
     .digest('hex')
     .slice(0, 32)}`;
 
-/** The graph settings of this moment (`graph` in the live config). */
-export function graphSettings(config) {
-  const given = config?.graph ?? {};
-  const pos = (value, fallback) => (Number.isInteger(value) && value > 0 ? value : fallback);
-  return { maxDepth: pos(given.maxDepth, DEFAULTS.maxDepth), maxRows: pos(given.maxRows, DEFAULTS.maxRows) };
-}
+/**
+ * The graph's walk limits (DEFAULTS, production values of the config cut of 2026-10-31); the live config holds none.
+ * @type {(config?: unknown) => { maxDepth: number, maxRows: number }}
+ */
+export const graphSettings = () => ({ maxDepth: DEFAULTS.maxDepth, maxRows: DEFAULTS.maxRows });
 
 // ---------- the connection ----------
 

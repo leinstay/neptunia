@@ -27,7 +27,6 @@ export type Told = {
   guildMemory: unknown;
   taggedCall: boolean | null;
   offPeriods: unknown;
-  skillsInventory: Array<object> | null;
 };
 
 // health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.js in stage 5c, a pure split
@@ -40,11 +39,11 @@ export async function tellFacts(
   pulled: Pulled,
   gathered: Gathered
 ): Promise<Told> {
-  const { store, iface, facts, privateChannels, promptState, offPeriodsFor, discoverSkills } = ctx;
+  const { store, iface, facts, privateChannels, promptState, offPeriodsFor } = ctx;
   const { mode, trigger = null, triggerKind = null, part = null, queued = null, added = null } = params;
   const { missed = null, source = null } = params;
   const { channel, guildId, isPrivate } = opened;
-  const { config, now, memoryOn, selfId, asked, skillsAnswer } = setup;
+  const { config, now, memoryOn, selfId } = setup;
   const { finalMode } = pulled;
   const { history, prompts } = gathered;
   // A part of a split message, the author's other calls still queued, the messages folded into this one.
@@ -128,11 +127,6 @@ export async function tellFacts(
     promptState.followUpMissing = missing;
   }
   // `<now>`: the persona's recent time away (the journal's pauses and stops).
-  const offPeriods = await offPeriodsFor(guildId, config);
-  // Skills discovery on a turn someone asked for: the catalogue when the question was what the
-  // persona can do; named skills only logged and journaled (shadow).
-  const skillsInventory = asked
-    ? discoverSkills({ config, channel, trigger, answer: skillsAnswer.value, draft })
-    : null;
-  return { factsText, tasks, notAnswered, guildMemory, taggedCall, offPeriods, skillsInventory };
+  const offPeriods = await offPeriodsFor(guildId);
+  return { factsText, tasks, notAnswered, guildMemory, taggedCall, offPeriods };
 }

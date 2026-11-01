@@ -1,8 +1,8 @@
 // The persona keeps a diary: one owner-chosen channel where it posts on its
 // own, rarely and irregularly, the way a person runs a personal feed. This
 // module owns the diary's decisions: which local times of a day get a post
-// (configured windows in `bot.timezone`, quiet days, a minimum gap, a daily
-// cap, and the hunger that empty windows and quiet days carry into later
+// (configured windows in `bot.timezone`, quiet days, a minimum gap,
+// and the hunger that empty windows and quiet days carry into later
 // ones), which planned slot is due now (a slot missed by more than the grace
 // while the bot was down is dropped, never fired late in a burst), which kind
 // of post a plan names (validated against the weighted `diary.kinds`, with a
@@ -21,7 +21,7 @@
 import { fill } from '../format.js';
 import { log } from '../log.js';
 import { oneLine, clampText, stripUrls } from '../memory/clamp.js';
-import { MINUTE_MS, countToday, zonedDay, zonedEpoch, utcDay } from '../time.js';
+import { MINUTE_MS, zonedDay, zonedEpoch, utcDay } from '../time.js';
 import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
 import type { Reads } from '../interface/reads.ts';
@@ -32,11 +32,6 @@ import { diaryPlaces, readMirrors } from './mirror.ts';
 
 /** A day counter of the store's state (src/time.js#countToday): the key of its day and the key of its count. */
 export type Daily = { dayKey: string; countKey: string };
-
-/** The daily counter of diary posts in state.json (src/time.js dailyCounter / bumpDaily). */
-export const DIARY_DAILY: Daily = { dayKey: 'diaryDay', countKey: 'diaryPosts' };
-/** The daily counter of diary pictures in state.json (src/time.js dailyCounter / bumpDaily). */
-export const DIARY_PICTURES_DAILY: Daily = { dayKey: 'diaryPicturesDay', countKey: 'diaryPictures' };
 
 /** The diary's plan of one local day, as state.json keeps it (`diary[guildId]`). */
 export type DayPlan = {
@@ -119,8 +114,6 @@ export type DiaryStatus = {
   quiet: boolean;
   hunger: Array<number>;
   quietStreak: number;
-  posts: number;
-  pictures: number;
   history: number;
 };
 
@@ -141,23 +134,41 @@ const diaryWords = (labels: unknown): Obj => sectionOf(labels, 'diary');
 
 const BRIEF_CHARS = 300;
 const TOPIC_CHARS = 1000;
-const DEFAULT_GRACE_MINUTES = 30; // diary.slotGraceMinutes
-const DEFAULT_MAX_PER_DAY = 12; // diary.maxPerDay
 const DEFAULT_QUIET_DAY_CHANCE = 0.3; // diary.quietDayChance
-const DEFAULT_QUIET_CARRY = 0.25; // diary.quietCarry
-const DEFAULT_HUNGER_BOOST = 0.5; // diary.hungerBoost
 const DEFAULT_FORCE_WAIT_MS = 120000; // diary.forceWaitMs
-const DEFAULT_HISTORY_POSTS = 150; // diary.historyPosts
-const DEFAULT_GIST_CHARS = 200; // diary.gistChars
-const DEFAULT_SEARCH_KINDS: Array<string> = ['news', 'facts']; // diary.searchKinds
+// The diary's measures. Production values, config cut of 2026-10-31.
+const DEFAULT_GRACE_MINUTES = 30;
+const DEFAULT_QUIET_CARRY = 0.25;
+const DEFAULT_HUNGER_BOOST = 0.5;
+const MIN_GAP_MINUTES = 90;
+export const DEFAULT_HISTORY_POSTS = 150;
+export const DEFAULT_GIST_CHARS = 200;
+/** The weight of each kind of post the planner picks among. */
+export const DIARY_KINDS: Readonly<Record<string, number>> = Object.freeze({
+  selfPicture: 3,
+  picture: 2,
+  meme: 1,
+  thought: 2,
+  people: 2,
+  news: 2,
+  facts: 1,
+  status: 3,
+  photoset: 1,
+  randomSet: 1,
+});
+/** The seed sets a post's request carries. */
+export const SEED_SETS = 2;
+export const DEFAULT_SEARCH_KINDS: Array<string> = ['news', 'facts'];
+/** The messages one diary post sends at most. */
+export const DIARY_MAX_MESSAGES = 3;
 /** The kinds that mean a picture when `diary.pictureKinds` is not a list. */
-export const DEFAULT_PICTURE_KINDS: Array<string> = ['selfPicture', 'picture', 'meme', 'photoset', 'randomSet']; // diary.pictureKinds
+export const DEFAULT_PICTURE_KINDS: Array<string> = ['selfPicture', 'picture', 'meme', 'photoset', 'randomSet'];
 /** The kinds whose post is a set of pictures when `diary.setKinds` is not a list. */
-export const DEFAULT_SET_KINDS: Array<string> = ['photoset', 'randomSet']; // diary.setKinds
-const DEFAULT_SET_PICTURES: [number, number] = [4, 6]; // diary.set.pictures
-const DEFAULT_SET_MIN_POSTED = 2; // diary.set.minPosted
-const DEFAULT_SET_SEED_SETS = 6; // diary.set.seedSets
-const DEFAULT_SET_MAX_MESSAGE_BYTES = 8000000; // diary.set.maxMessageBytes
+export const DEFAULT_SET_KINDS: Array<string> = ['photoset', 'randomSet'];
+const DEFAULT_SET_PICTURES: [number, number] = [4, 6];
+const DEFAULT_SET_MIN_POSTED = 2;
+const DEFAULT_SET_SEED_SETS = 6;
+const DEFAULT_SET_MAX_MESSAGE_BYTES = 8000000;
 const DEFAULT_FAMILY = 'seed';
 
 /**
@@ -181,11 +192,6 @@ function hourOf(value: unknown): number | null {
 /** A non-negative whole count, or 0. */
 function countOf(value: unknown): number {
   return isFiniteNumber(value) && value > 0 ? Math.floor(value) : 0;
-}
-
-/** `value` clamped to 0..1, or `fallback` when it is not a finite number. */
-function fractionOf(value: unknown, fallback: number): number {
-  return isFiniteNumber(value) ? Math.min(1, Math.max(0, value)) : fallback;
 }
 
 /** The `[min, max]` post count of a window (`posts`), both whole and non-negative. */
@@ -226,11 +232,9 @@ function windowSpan(window: unknown, dayKey: string, timezone: string): [number,
  * with `max === 0` or a malformed one never redraws and never counts. Each
  * window places its slots uniformly inside itself (local hours; a window with
  * `to <= from` ends the next day); the slots are sorted, a slot closer than
- * `minGapMinutes` to the previous kept one is dropped, and while more than
- * `maxPerDay` remain one of them, chosen at random (one roll each), is
- * dropped, so the cap does not always cost the latest window. Slots already
+ * MIN_GAP_MINUTES to the previous kept one is dropped. Slots already
  * past at planning time are kept: dueSlot decides what still fires.
- * `cfg` is `config.diary` (`windows`, `quietDayChance`, `quietCarry`, `hungerBoost`, `minGapMinutes`, `maxPerDay`),
+ * `cfg` is `config.diary` (`windows`, `quietDayChance`),
  * `timezone` is `bot.timezone`, `carry` is nextHunger's result (zeros when missing). The result's `hunger` has one
  * whole count per window, `posted` is empty.
  */
@@ -248,11 +252,11 @@ export function planDay(
   const hunger = windows.map((_, i) => countOf(Array.isArray(carry?.hunger) ? carry.hunger[i] : 0));
   const quietStreak = countOf(carry?.quietStreak);
   const kept = { posted: [], hunger, quietStreak };
-  const quietCarry = fractionOf(c.quietCarry, DEFAULT_QUIET_CARRY);
+  const quietCarry = DEFAULT_QUIET_CARRY;
   const quiet = rng() < Number(c.quietDayChance ?? DEFAULT_QUIET_DAY_CHANCE) * quietCarry ** quietStreak;
   if (quiet) return { day, slots: [], quiet: true, done: [], ...kept };
 
-  const boost = fractionOf(c.hungerBoost, DEFAULT_HUNGER_BOOST);
+  const boost = DEFAULT_HUNGER_BOOST;
   const placed: Array<number> = [];
   let deficit = 0;
   windows.forEach((window, index) => {
@@ -273,15 +277,11 @@ export function planDay(
   });
   placed.sort((a, b) => a - b);
 
-  const gapMs = Math.max(0, Number(c.minGapMinutes ?? 90)) * MINUTE_MS;
+  const gapMs = MIN_GAP_MINUTES * MINUTE_MS;
   const slots: Array<number> = [];
   for (const slot of placed) {
     if (slots.length > 0 && slot - slots[slots.length - 1] < gapMs) continue;
     slots.push(slot);
-  }
-  const cap = countOf(c.maxPerDay ?? DEFAULT_MAX_PER_DAY);
-  while (slots.length > cap) {
-    slots.splice(Math.min(slots.length - 1, Math.floor(rng() * slots.length)), 1);
   }
   return { day, slots, quiet: false, done: [], ...kept };
 }
@@ -683,17 +683,15 @@ export type DiaryDeps = {
 
 /**
  * The diary's scheduler and its owner-facing edge. `tick()` (every 30 s,
- * src/index.js) does nothing while `features.diary` is false (a missing key
- * counts as on) or the bot is paused (`diary: skip` with `reason` `off` or
- * `paused`, once per local day and reason). Otherwise it keeps the day plan of the
+ * src/index.js) does nothing while the bot is paused (`diary: skip` with `reason`
+ * `paused`, once per local day). Otherwise it keeps the day plan of the
  * served guild in state.json (`diary[guildId] = { day, slots, done, quiet,
  * posted, hunger, quietStreak }`, `day` the local date in `bot.timezone`):
  * nextHunger from the stored plan, then planDay once per local day (`diary:
  * plan` with `hunger` and `quietStreak`), the not-done slots of the previous plan still ahead or
  * within the grace merged in. A due slot (dueSlot, `diary.slotGraceMinutes`)
  * is marked done before its post runs; slots missed by more than the grace
- * are marked done unfired (`diary: skip`, `grace`). The post needs the day's
- * posts under `diary.maxPerDay` (`cap`); then, with an empty history,
+ * are marked done unfired (`diary: skip`, `grace`). Then, with an empty history,
  * `backfill` once per place and process from the place her diary is posted to
  * (`diary: backfill` with `count`), and the selfreflection wake
  * `turns.runTurn({ mode: 'diary', diary: { kind, forced }, guildId })`, which
@@ -741,8 +739,7 @@ export function createDiary({
   }
 
   /** Why no post may run now, or null. */
-  function gate(config: unknown) {
-    if (sectionOf(config, 'features').diary === false) return 'off';
+  function gate() {
     if (stateData(store).paused) return 'paused';
     return null;
   }
@@ -758,9 +755,9 @@ export function createDiary({
     const plans = plansOf(store, true);
     const stored: DayPlan | undefined = plans[guildId];
     if (stored && stored.day === day && Array.isArray(stored.slots)) return stored;
-    const hunger = nextHunger(stored, diaryCfg.windows, timezone, t, diaryCfg.slotGraceMinutes);
+    const hunger = nextHunger(stored, diaryCfg.windows, timezone, t, DEFAULT_GRACE_MINUTES);
     const fresh = planDay(diaryCfg, t, timezone, rng, hunger);
-    const { plan, carried } = withCarriedSlots(fresh, stored, t, diaryCfg.slotGraceMinutes);
+    const { plan, carried } = withCarriedSlots(fresh, stored, t, DEFAULT_GRACE_MINUTES);
     plans[guildId] = plan;
     store.state.markDirty();
     log.info('diary: plan', {
@@ -773,15 +770,6 @@ export function createDiary({
       quietStreak: plan.quietStreak,
     });
     return plan;
-  }
-
-  /** `diary.maxPerDay` of `config`, its default when missing. */
-  const capOf = (config: unknown): unknown => sectionOf(config, 'diary').maxPerDay ?? DEFAULT_MAX_PER_DAY;
-
-  /** Why the post may not run now (`cap`: the day's posts reached `diary.maxPerDay`), or null. */
-  function postBlock(config: unknown, t: number) {
-    if (countToday(stateData(store), DIARY_DAILY, t) >= Number(capOf(config))) return 'cap';
-    return null;
   }
 
   /**
@@ -830,7 +818,6 @@ export function createDiary({
       outcome: answer.outcome ?? null,
       ...(answer.reason ? { reason: answer.reason } : {}),
       forced,
-      ...(answer.dryRun ? { dryRun: true } : {}),
     });
     const entry = made.entry;
     if (entry && mirrors) {
@@ -850,7 +837,7 @@ export function createDiary({
     const config = hot.config;
     const t = now();
     const day = localDayKey(t, zoneOf(config));
-    const blocked = gate(config);
+    const blocked = gate();
     if (blocked) {
       skip(blocked, day);
       return;
@@ -858,7 +845,7 @@ export function createDiary({
     const guildId = getGuildId();
     if (!guildId) return;
     const plan = currentPlan(guildId, config, t);
-    const due = dueSlot(plan, t, sectionOf(config, 'diary').slotGraceMinutes);
+    const due = dueSlot(plan, t, DEFAULT_GRACE_MINUTES);
     if (!due) return;
     if (due.dropped.length > 0) {
       plan.done = [...(plan.done ?? []), ...due.dropped];
@@ -870,14 +857,6 @@ export function createDiary({
 
     inFlight = true;
     try {
-      const block = postBlock(config, t);
-      if (block) {
-        // Not this slot: it is spent, the next one tries again.
-        plan.done = [...(plan.done ?? []), slot];
-        store.state.markDirty();
-        skip(block, day);
-        return;
-      }
       await backfillOnce(guildId, config);
       if (stopped) return;
       // Marked before the turn runs, like the spontaneous scheduler reschedules first.
@@ -904,21 +883,11 @@ export function createDiary({
     topic = null,
   }: { kind?: string | null; topic?: string | null } = {}): Promise<unknown> {
     const config = hot.config;
-    const t = now();
-    const blocked = gate(config);
+    const blocked = gate();
     if (blocked === 'paused') return { outcome: 'paused' };
     if (blocked) return { outcome: 'not-now', reason: blocked };
     const guildId = getGuildId();
     if (!guildId) return { outcome: 'not-now', reason: 'no-guild' };
-    const block = postBlock(config, t);
-    if (block === 'cap') {
-      const cap = capOf(config);
-      return {
-        outcome: 'refused',
-        reason: 'cap',
-        limit: { key: 'diary.maxPerDay', used: countToday(stateData(store), DIARY_DAILY, t), cap },
-      };
-    }
     await backfillOnce(guildId, config);
     const params = { kind: typeof kind === 'string' && kind ? kind : null, topic: diaryTopic(topic), forced: true };
     // One turn at a time: a running turn is waited for (diary.forceWaitMs at most), once.
@@ -942,7 +911,6 @@ export function createDiary({
   }
 
   function status(): DiaryStatus {
-    const t = now();
     const guildId = getGuildId();
     const plan = guildId ? (plansOf(store, false)[guildId] ?? null) : null;
     const history = guildId && typeof store.getDiary === 'function' ? listOf(store.getDiary(guildId)?.posts).length : 0;
@@ -954,8 +922,6 @@ export function createDiary({
       quiet: plan?.quiet === true,
       hunger: Array.isArray(plan?.hunger) ? plan.hunger.map(countOf) : [],
       quietStreak: countOf(plan?.quietStreak),
-      posts: countToday(stateData(store), DIARY_DAILY, t),
-      pictures: countToday(stateData(store), DIARY_PICTURES_DAILY, t),
       history,
     };
   }
@@ -976,18 +942,10 @@ export function createDiary({
  * `config` is the live merged config (`diary` read now); `labels` the live labels; `reads` the core's reads of the
  * interface. Answers the number of posts written (0 when the history was not empty).
  */
-export async function backfillDiary({
-  store,
-  reads,
-  conversation,
-  guildId,
-  config,
-  labels,
-}: BackfillArgs): Promise<number> {
+export async function backfillDiary({ store, reads, conversation, guildId, labels }: BackfillArgs): Promise<number> {
   if (listOf(store.getDiary(guildId)?.posts).length > 0) return 0;
-  const diaryCfg = sectionOf(config, 'diary');
-  const max = diaryCfg.historyPosts ?? DEFAULT_HISTORY_POSTS;
-  const gistChars = diaryCfg.gistChars ?? DEFAULT_GIST_CHARS;
+  const max = DEFAULT_HISTORY_POSTS;
+  const gistChars = DEFAULT_GIST_CHARS;
   const history = await historyLines(reads, conversation, { limit: Number(max) });
   const posts: Array<BackfillPost> = history
     .filter((message) => message.self === true)

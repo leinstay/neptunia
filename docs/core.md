@@ -12,18 +12,17 @@ Every event enters through one door (`src/interface/door.js`). An interface adap
 
 The door validates each event against the protocol's schema and deduplicates by event id. An id that was already handled gets a `duplicate` status and its handler does not run again. An id whose handler threw is not remembered, so redelivery gets another try. Nothing throws out of the door: the answer is always a status with a reason.
 
-The behaviours' clock is one such event. `src/behavior/scheduler.ts` keeps one timer for the earliest of its beats: `spontaneous.tick` and `diary.tick` (which also sends what the diary's mirrors hold queued) every 30 seconds and the inner life's tick every `innerLife.tickSeconds` (default 60), read before each wait. A wait ends in a `scheduler.tick` event submitted through the door, and the door's handler starts every beat that is due without waiting for it. A beat that throws is logged and the others still run. The housekeeping timers (store flush, memory database tick, embedding and avatar queues, metrics, usage, archive drain, affinity decay) are plain intervals in `src/core.js`.
+The behaviours' clock is one such event. `src/behavior/scheduler.ts` keeps one timer for the earliest of its beats: `diary.tick` (which also sends what the diary's mirrors hold queued) every 30 seconds, the board's `board.reap` every `board.reapSeconds`, and the inner life's tick every `innerLife.tickSeconds` (default 60), each read before each wait. A wait ends in a `scheduler.tick` event submitted through the door, and the door's handler starts every beat that is due without waiting for it. A beat that throws is logged and the others still run. The housekeeping timers (store flush, memory database tick, embedding and avatar queues, metrics, usage, archive drain, affinity decay) are plain intervals in `src/core.js`.
 
 ## The pipeline
 
 A `message.received` event enters the message pipeline. `createMessageHandler` in `src/behavior/pipeline.js` builds the topic modules of `src/pipeline/` once, and `src/pipeline/handle-message.ts` takes each message through the steps below. The pipeline decides the outcome:
 
 1. **Filter.** Bot messages, system messages, empty messages and messages from the bot itself are ignored.
-2. **Private-chat gate.** A direct message goes through `src/behavior/private.js`: it needs `features.privateMessages`, server membership, a profile and a passing affinity check.
+2. **Private-chat gate.** A direct message goes through `src/behavior/private.js`: it needs `private.enabled`, server membership, a profile and a passing affinity check.
 3. **Trigger detection.** The pipeline checks whether the message is a mention, a reply, a name trigger or a follow-up to an earlier exchange (`src/behavior/mention.js`). An address classifier (an `analyzer` call with `prompts/address.md`, `src/pipeline/follow-up.ts`) decides ambiguous cases.
-4. **Spontaneous interest.** A message that is not addressed to the persona may still trigger a spontaneous answer: eavesdropping, random interjection, or a question put to the whole room (`src/pipeline/room.ts`).
-5. **Pending queue.** When the persona is already answering someone, a new call goes into the pending queue (`src/pipeline/pending-queue.ts`), which `src/pipeline/drain.ts` works off after each turn. One turn runs at a time across the whole server. Calls are answered in order, any number per channel and author, up to `mention.maxPending` (default 6). A new message about something already waiting is folded into that pending item instead of queueing separately.
-6. **Turn.** A call that passes the queue starts a turn.
+4. **Pending queue.** When the persona is already answering someone, a new call goes into the pending queue (`src/pipeline/pending-queue.ts`), which `src/pipeline/drain.ts` works off after each turn. One turn runs at a time across the whole server. Calls are answered in order, any number per channel and author, up to `mention.maxPending` (default 6). A new message about something already waiting is folded into that pending item instead of queueing separately.
+5. **Turn.** A call that passes the queue starts a turn.
 
 ## A turn
 
@@ -39,11 +38,9 @@ A turn (`src/behavior/turn.js` and its phases in `src/turn/phases/`) has four st
 
 ## The tool loop
 
-When `features.coreTools` is on, the persona's granted tools appear in the LLM request as callable tools (native tool definitions by default, or as a `<tools>` text block with `tools.transport` set to `text`). Each `<call>` in the model's output passes the tool gateway (`src/tools/gateway.ts`): it checks access, validates arguments against the tool's schema, checks the requester's rights and the budget.
+The persona's granted tools appear in the LLM request as callable tools (native tool definitions by default, or as a `<tools>` text block with `tools.transport` set to `text`). Each `<call>` in the model's output passes the tool gateway (`src/tools/gateway.ts`): it checks access, validates arguments against the tool's schema, checks the requester's rights and the budget.
 
 After the calls of one answer run, their results come back in another LLM request. This loop repeats up to `tools.loop.maxSteps` times (default 3), with a time budget of `tools.loop.timeBudgetMs` (default 20 seconds) and at most `tools.loop.maxCallsPerStep` calls per answer (default 4). When the step or time limit runs out, the current answer is the persona's last.
-
-When `features.coreTools` is off (the default), the classifiers before the reply do the work instead: a lookup classifier picks web and server searches, a rewatch classifier picks a second look at media, and a route classifier picks another channel to show. The persona has no callable tools in this mode.
 
 The persona's tools are defined in `src/tools/definitions.ts`: operations covering messages, reactions, drawing, voice, web search, memory reads, errands, intentions, config, media and more. Each is wired to an operation of the ops layer (`src/tools/impl/`), and each has a declared effect (read, write, destructive, administrative, paid) that the gateway enforces.
 
@@ -97,17 +94,13 @@ A role never borrows another role's model. An unset role uses its own default (t
 
 ## Web search and page reading
 
-The persona can search the web and read pages behind links. Both require `features.webLookup` set to `true` (off by default). The code lives in `src/web/` (the clients) and `src/tools/tools.ts` (the tool wrappers).
+The persona can search the web and read pages behind links. The code lives in `src/web/` (the clients) and `src/tools/tools.ts` (the tool wrappers).
 
 ### How a search happens
 
-There are two paths, depending on whether `features.coreTools` is on.
+The persona calls `web.search` and `web.read` as tools in the tool loop. `web.search` returns the results raw (title, URL, site, snippet, date) with no summary request. `web.read` fetches a single page through the SSRF-guarded fetcher (`src/web/fetch-page.js`) and returns its extracted main text, cut at `PAGE_READ_CHARS` (4,000 characters) in `src/web/lookup.js`.
 
-With `features.coreTools` off (the default), a lookup classifier (`prompts/lookup.md`, run on the `analyzer` role) reads the recent chat and decides whether the question needs a web search, a server history search, or both. Its output is a plan with labelled lines (`web:` a query, `server:` word forms, `who:` name forms, `when:` a date range). The `analyzer` then condenses the search results through `prompts/search-summary.md` into one note with inline sources.
-
-With `features.coreTools` on, the lookup classifier does not run. The persona calls `web.search` and `web.read` as tools in the tool loop. `web.search` returns the results raw (title, URL, site, snippet, date) with no summary request. `web.read` fetches a single page through the SSRF-guarded fetcher (`src/web/fetch-page.js`) and returns its extracted main text, cut at `web.links.readChars` (default 4,000 characters).
-
-When the turn planner is on (`features.turnPlanner`), its lookup block replaces the classifier.
+Only the diary's search is condensed: the `analyzer` role reads the numbered results through `prompts/search-summary.md` and writes one note with inline sources, at most `SEARCH_SUMMARY_CHARS` (900 characters).
 
 ### Search engines
 
@@ -121,11 +114,11 @@ When the turn planner is on (`features.turnPlanner`), its lookup block replaces 
 
 ### Link reading
 
-When `features.webLookup` is on and a message contains a link, the engine reads the page. With `features.coreTools` off, the `analyzer` condenses the page through `prompts/read-link.md` into an excerpt of at most `web.links.summaryChars` (default 700). With `features.coreTools` on, the excerpt is the opening of the page's own extracted text, cut at `web.links.previewChars` (default 700), with no model request.
+When a message contains a link, the engine reads the page. The excerpt is the opening of the page's own extracted text, cut at `LINK_PREVIEW_CHARS` (700 characters) in `src/web/lookup.js`, with no model request.
 
 ### Limits
 
-All web activity (link reads and searches) shares one daily counter: `web.maxPerDay` (default 60). Each lookup takes one slot, whatever the attempts. Search results are cached for `web.search.cacheHours` (default 24 hours). Page reads are cached for `web.links.readCacheHours` (default 6 hours). Every model call also counts against `llm.maxRequestsPerDay`.
+Search results are cached for `web.search.cacheHours` (default 24 hours). Page reads are cached for `web.links.readCacheHours` (default 6 hours). Every model call counts against `llm.maxRequestsPerDay`.
 
 ### Compared to a scout errand
 

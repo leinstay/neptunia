@@ -291,7 +291,6 @@ export function toolHot(base, { model }) {
           base: { ...baseModels, vision: model, video: model },
           ...(byPurpose ? { byPurpose } : {}),
         },
-        features: { ...(live.features ?? {}), mediaDescriptions: true, videoDescriptions: true },
       };
     },
     get prompts() {

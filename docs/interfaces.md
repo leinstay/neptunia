@@ -267,7 +267,7 @@ The core serves one interface namespace. When it starts with no interface, it ta
 
 ### One core at a time
 
-`claimCore` in `src/memory/db/open.js` runs at the start of `startCore`, before anything touches the socket. It takes the memory database's writer lock, so a live holder refuses the start with `memory db ... is locked by pid ...`. Then it reads the `core:alive` lease, which the inner life renews at every tick while `features.innerLife` is on (`src/behavior/inner/recovery.ts`). While another holder's lease is within its ttl, `context.turnLeaseMs`, the start lets the lock go and refuses with `core-running`. A lock left by a process that is gone means that core crashed, and its lease, fresh as it may be, no longer stops the start, so a restart after a crash never waits out the ttl. A clean `stop()` lets `core:alive` go, so the next start goes ahead at once. `deploy/neptunia-core.service` conflicts with `deploy/neptunia-bot.service` as well, so systemd never runs both.
+`claimCore` in `src/memory/db/open.js` runs at the start of `startCore`, before anything touches the socket. It takes the memory database's writer lock, so a live holder refuses the start with `memory db ... is locked by pid ...`. Then it reads the `core:alive` lease, which the inner life renews at every tick (`src/behavior/inner/recovery.ts`). While another holder's lease is within its ttl, `context.turnLeaseMs`, the start lets the lock go and refuses with `core-running`. A lock left by a process that is gone means that core crashed, and its lease, fresh as it may be, no longer stops the start, so a restart after a crash never waits out the ttl. A clean `stop()` lets `core:alive` go, so the next start goes ahead at once. `deploy/neptunia-core.service` conflicts with `deploy/neptunia-bot.service` as well, so systemd never runs both.
 
 ### Events
 
@@ -344,7 +344,7 @@ The client requests these gateway intents:
 | GuildPresences | yes | Online/idle/dnd status. Off by default (`discord.intents.presences`). |
 | GuildMembers | yes | Member join/leave/update events. Off by default (`discord.intents.members`). |
 
-The two privileged intents are controlled by `discord.intents.presences` (default `false`) and `discord.intents.members` (default `false`). Turn them on when the bot is approved for them in the Discord Developer Portal.
+The two privileged intents are controlled by `discord.intents.presences` (default `false`) and `discord.intents.members` (default `false`), settings of the Discord package in `interfaces/discord/config.json`. Turn them on when the bot is approved for them in the Discord Developer Portal.
 
 ### Limits and error mapping
 
@@ -404,7 +404,7 @@ A command of the `cli` principal is a command of the chat's table (see [The nept
 
 The chat's direct conversation `cli:dm:owner` is a conversation of the namespace `cli`, beside the one interface the core serves. `createIfaceRouter` in `src/interface/link.ts` puts both behind the core's one port: a call whose reference names `iface: 'cli'` goes to the link of the chat that sent the last line, and every other call to the served interface. With no chat connected such a call answers as a link that dropped. The router's capabilities are the served interface's, with the reads of the connected chat added, so the core reads the chat's conversation and history at all. A turn names a conversation under the `iface` its info gives (`conversationOf` in `src/behavior/turn.js`), so her reply in the chat goes back to the chat.
 
-The private-chat gate lets the chat through whatever `features.privateMessages` and `bot.owners` say (`privateChatsOff` and `CLI_GATE` in `src/behavior/core-pause.ts`). Only the `cli` principal may name that namespace, so the chat is the owner's.
+The private-chat gate lets the chat through whatever `private.enabled` and `bot.owners` say (`privateChatsOff` and `CLI_GATE` in `src/behavior/core-pause.ts`). Only the `cli` principal may name that namespace, so the chat is the owner's.
 
 ## What the core takes from the interface
 

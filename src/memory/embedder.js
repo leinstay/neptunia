@@ -1,7 +1,7 @@
 // The live embedding queue: keeps the meaning index (src/memory/vectors.js) current while the
 // bot runs. Every `seen` / `said` line the record takes (src/index.js wraps the record's append,
-// so every writer is covered) is queued with its revision; every `embed.flushSeconds` (on the
-// caller's tick) or once `embed.batch` lines wait, one embedding request carries a batch of
+// so every writer is covered) is queued with its revision; every `FLUSH_SECONDS` (on the
+// caller's tick) or once `BATCH` lines wait, one embedding request carries a batch of
 // chunks (src/memory/chunks.js: the line and the lines before it in the same channel and layer)
 // and the vectors are appended to the index. Off unless `features.meaningSearch` and
 // `features.embedIndex` are both exactly true (read at each enqueue and flush): nothing is queued
@@ -10,17 +10,17 @@
 // The context of a chunk comes from a small ring of recent lines per channel and layer, kept in
 // memory and filled from the record the first time a channel is flushed. A job is dropped, before
 // the request and again before the append, when a newer revision of its message was queued. A
-// failed request or append keeps the batch for the next flush; the queue holds at most `embed.queueMax` jobs, the
+// failed request or append keeps the batch for the next flush; the queue holds at most `QUEUE_MAX` jobs, the
 // oldest dropped with a warn. On shutdown `close` flushes once more, briefly, and stops the queue.
 //
 // The catch-up keeps the index whole across every gap the queue cannot see (a stop, a crash, a
 // pause, the switches turned on late, a line the queue dropped): `catchUp` reads the record of the
-// last `embed.catchUpHours` in the guild and every private layer, takes each message's newest
+// last `CATCH_UP_HOURS` in the guild and every private layer, takes each message's newest
 // revision, and queues every message whose
 // `record:<id>:<revision>` the index does not hold (src/memory/vectors.js#has), with its channel
-// context from the same read, at most up to `embed.queueMax`; the rest goes on a later pass, run
+// context from the same read, at most up to `QUEUE_MAX`; the rest goes on a later pass, run
 // once the queue has drained. A pass runs when the caller starts it (the start, `/nep resume`),
-// on the tick when the switches turn on, and every `embed.catchUpEveryMinutes`; never while the
+// on the tick when the switches turn on, and every `CATCH_UP_EVERY_MINUTES`; never while the
 // bot is paused. Each pass logs its coverage (counts), and warns when a message the queue had
 // taken is missing with nothing left to send it (lost). Logs carry counts and guild ids, never text.
 
@@ -44,18 +44,19 @@ import { isoOf } from './record.js';
 import { createReadSeam } from './db/readers/common.js';
 import { recordLayers } from './db/readers/record.js';
 
-/** `embed.batch` when missing or invalid: config.json's value. */
-const BATCH_FALLBACK = 64;
-/** `embed.flushSeconds` when missing or invalid: config.json's value. */
-const FLUSH_SECONDS_FALLBACK = 180;
-/** `embed.queueMax` when missing or invalid: config.json's value. */
-const QUEUE_MAX_FALLBACK = 2000;
+// The embedding queue's measures. Production values, config cut of 2026-10-31.
+/** The lines one embedding request carries. */
+const BATCH = 64;
+/** How often the queue flushes, in seconds. */
+const FLUSH_SECONDS = 180;
+/** The jobs the queue holds. */
+const QUEUE_MAX = 2000;
+/** How far back a catch-up pass reads, in hours. */
+const CATCH_UP_HOURS = 72;
+/** How often a catch-up pass runs, in minutes. */
+const CATCH_UP_EVERY_MINUTES = 60;
 /** `llm.maxRequestTokens` when missing: config.json's value. */
 const MAX_REQUEST_TOKENS_FALLBACK = 50000;
-/** `embed.catchUpHours` when missing or invalid: config.json's value. */
-const CATCH_UP_HOURS_FALLBACK = 72;
-/** `embed.catchUpEveryMinutes` when missing or invalid: config.json's value. */
-const CATCH_UP_EVERY_MINUTES_FALLBACK = 60;
 /** Lines kept per channel ring: enough context for a batch that arrives out of order. */
 const RING_SIZE = 16;
 /** How far back a ring is filled from the record on first use (and a catch-up reads for context). */
@@ -65,7 +66,6 @@ const LATEST_MAX = 20000;
 /** How long `close` waits for its one flush on shutdown before it gives up. */
 const CLOSE_TIMEOUT_MS = 5000;
 
-const positiveInt = (value, fallback) => (Number.isInteger(value) && value > 0 ? value : fallback);
 const positiveNumber = (value, fallback) =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
 const revisionOf = (line) => (Number.isInteger(line?.revision) && line.revision > 0 ? line.revision : 1);
@@ -100,16 +100,16 @@ const layerOf = (privateUserId) => (typeof privateUserId === 'string' && private
  *   `enqueue` (synchronous) queues each embeddable line not queued before at its revision (an
  *   older revision still waiting is replaced) and returns how many it queued; a full batch starts a
  *   flush in the background. `flush` sends at most one request (the oldest jobs, up to
- *   `embed.batch` and within `llm.maxRequestTokens`) and appends what survives the checks; one
- *   flush runs at a time. `tick` flushes once `embed.flushSeconds` have passed since the last one;
+ *   `BATCH` and within `llm.maxRequestTokens`) and appends what survives the checks; one
+ *   flush runs at a time. `tick` flushes once `FLUSH_SECONDS` have passed since the last one;
  *   with `guildId` it first runs a catch-up pass when one is due (the switches just turned on, the
- *   first tick, `embed.catchUpEveryMinutes` since the last pass, or a pass that left messages
+ *   first tick, `CATCH_UP_EVERY_MINUTES` since the last pass, or a pass that left messages
  *   behind and a drained queue); null when it did nothing. `catchUp` runs one pass (one at a time:
  *   a second call shares the running one) and resolves `{ messages, indexed, missing, queued,
  *   waiting, left, lost, oldestMissing }` (`waiting`: missing but already queued or in flight;
  *   `left`: no room in the queue this pass; `lost`: missing although the queue had taken them),
  *   or null when the index is off, the bot is paused, the queue closed or the index has no `has`.
- *   `coverage` reads the same window (`hours`, default `embed.catchUpHours`) without queueing,
+ *   `coverage` reads the same window (`hours`, default `CATCH_UP_HOURS`) without queueing,
  *   whatever the switches say. `indexSummary`: the rows of the guild's index and every private
  *   layer's, and the missing count of the guild's last pass (null before one). `close` (shutdown)
  *   flushes once, waiting at most `timeoutMs` (default 5000), and resolves its counts, or null on
@@ -145,19 +145,18 @@ export function createEmbedder({
   let appendedDuringPass = null;
   const lastPass = new Map();
 
-  const on = () => hot.config?.features?.meaningSearch === true && hot.config?.features?.embedIndex === true;
+  const on = () => true;
   const isPaused = () => typeof paused === 'function' && paused() === true;
   const jobKey = (idKey, revision) => `${idKey}#${revision}`;
 
   function settings() {
-    const embedConfig = hot.config?.embed ?? {};
     return {
-      batch: positiveInt(embedConfig.batch, BATCH_FALLBACK),
-      flushSeconds: positiveNumber(embedConfig.flushSeconds, FLUSH_SECONDS_FALLBACK),
-      queueMax: positiveInt(embedConfig.queueMax, QUEUE_MAX_FALLBACK),
+      batch: BATCH,
+      flushSeconds: FLUSH_SECONDS,
+      queueMax: QUEUE_MAX,
       maxTokens: positiveNumber(hot.config?.llm?.maxRequestTokens, MAX_REQUEST_TOKENS_FALLBACK),
-      catchUpHours: positiveNumber(embedConfig.catchUpHours, CATCH_UP_HOURS_FALLBACK),
-      catchUpEveryMinutes: positiveNumber(embedConfig.catchUpEveryMinutes, CATCH_UP_EVERY_MINUTES_FALLBACK),
+      catchUpHours: CATCH_UP_HOURS,
+      catchUpEveryMinutes: CATCH_UP_EVERY_MINUTES,
     };
   }
 

@@ -1,7 +1,7 @@
-// The pictures and GIFs of a turn: the image prompt the dry run shows, one picture and her `draw.create` tool, the day's
+// The pictures and GIFs of a turn: one picture and her `draw.create` tool, the day's
 // GIF count, a `<gif>` resolved against the library, the GIF's post, and the GIF picker that may answer her first
 // message with a GIF. createTurnRunner (src/behavior/turn.js) builds it once per runner with createDrawGif; the act,
-// the dry act, her calls and the attempt call its functions.
+// her calls and the attempt call its functions.
 
 import { imageFileName } from '../behavior/mirror.ts';
 import { setSettings } from '../behavior/diary.ts';
@@ -23,19 +23,16 @@ import {
   renderGifLibrary,
 } from '../behavior/gif-pick.js';
 import type { PictureGate } from '../behavior/diary-turn.ts';
-import { DIARY_PICTURES_DAILY } from '../behavior/diary.ts';
-import { limitOf } from '../behavior/limits.js';
 import { replyMarker } from '../format.js';
 import type { Reads } from '../interface/reads.ts';
-import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
+import { ImageGenError, UnsupportedImageModelError } from '../llm/images.js';
 import { cacheTtlMs, railReason, roleRequestOptions } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { log } from '../log.js';
-import { drawPicture, drawPromptOf } from '../media/draw.js';
-import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl, countGifPost } from '../media/gif-post.js';
-import { gifPostsToday, rankGifs } from '../memory/index.js';
+import { drawPicture } from '../media/draw.js';
+import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl } from '../media/gif-post.js';
+import { rankGifs } from '../memory/index.js';
 import type { ConversationInfo, ConversationRef, MessageRef } from '../protocol/adapter.ts';
-import { bumpDaily, utcDay } from '../time.js';
 import { CODE } from '../tools/codes.ts';
 import { refusalStatus } from '../tools/executors.ts';
 import { messageRefOf, postingConversation } from '../tools/impl/shared.ts';
@@ -44,13 +41,12 @@ import type { JournalOp, PortResult } from './journal.ts';
 import { sendArgs, withLink } from './targets.ts';
 import { askedFor } from './triggers.ts';
 import type { TriggerKind } from './triggers.ts';
+import { GIF_HALF_LIFE_DAYS } from '../memory/gifs.js';
+import { OWN_MARK_HOURS } from './request/emoji-gifs.ts';
 
 /** The live config, as far as the pictures and GIFs read it; the settings functions read their own sections. */
 export type DrawGifConfig = {
-  features?: { imageGeneration?: unknown; gifs?: unknown; gifPicker?: unknown; promptCache?: unknown } | null;
   diary?: unknown;
-  gifs?: { halfLifeDays?: number; ownMarkHours?: number } | null;
-  context?: { replyQuoteChars?: number } | null;
 };
 
 /** The labels the GIF picker reads (prompts.labels). */
@@ -168,7 +164,6 @@ type PickArgs = {
 };
 
 export type DrawGif = {
-  drawPromptFor: (selfName: string, draw: { text: string; self?: unknown }) => string;
   drawTool: (
     args: { self?: unknown; text?: unknown; channelId?: unknown; replyTo?: unknown } | null | undefined,
     at: {
@@ -183,12 +178,7 @@ export type DrawGif = {
     },
     model?: string | null
   ) => Promise<DrawResult>;
-  resolveGif: (
-    guildId: string,
-    gif: GifCall | null | undefined,
-    channelId: string,
-    limits?: DrawDraft['limits']
-  ) => ResolvedGif | null;
+  resolveGif: (guildId: string, gif: GifCall | null | undefined, channelId: string) => ResolvedGif | null;
   postGif: (
     channel: PostChannel,
     guildId: string,
@@ -231,17 +221,6 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     lastPostAt,
     diaryPictureGate,
   } = ctx;
-
-  /**
-   * The image prompt for `draw` (a `draw.create` call's `{ text, self }`), as the core builds it
-   * (src/media/draw.js#drawPromptOf): prompts read now, the request clamped to
-   * image.maxPromptChars, the local date and time now (`bot.timezone`, read now) as its
-   * `{{when}}` -- every picture, so its light and season follow the clock. Only the dry run
-   * shows it; a live picture is made by `makePicture`.
-   */
-  function drawPromptFor(selfName: string, draw: { text: string; self?: unknown }): string {
-    return drawPromptOf({ hot, selfName, scene: draw.text, self: draw.self === true, withTime: true, now: clock });
-  }
 
   /**
    * One picture (src/media/draw.js#drawPicture): her scene verbatim into the drawing prompt, the avatar reference for a
@@ -294,9 +273,8 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    * `image-cap-daily` or `image-cap-user-daily`, a generation failure `image-moderation`, `image-timeout` or
    * `image-error`, a refused publication its gateway code, and the port's answer to the upload passes through
    * (`unknown` when it may have gone out: never generated again). In a diary turn (`mode` 'diary') the picture is
-   * staged into `draft.staged` as `{ picture, self, text }` instead of posted (ok, code `staged`), counted against the
-   * day's diary pictures as it is generated, and refused `daily-cap` (reason: the gate that closed, diaryPictureGate)
-   * while the post may carry none, `loop-cap` past what the post's kind takes (one picture, or `diary.set.pictures[1]`
+   * staged into `draft.staged` as `{ picture, self, text }` instead of posted (ok, code `staged`), and refused
+   * `daily-cap` (reason `pictures`, diaryPictureGate: no image client or no Attach Files) while the post may carry none, `loop-cap` past what the post's kind takes (one picture, or `diary.set.pictures[1]`
    * for a set kind: `draft.diary.set`). Never throws.
    */
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5b, a pure move
@@ -322,17 +300,15 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       data: none,
     });
     if (!images) return failed('not_configured', CODE.NOT_CONFIGURED);
-    if (hot.config.features?.imageGeneration === false) return failed('denied', CODE.FEATURE_OFF);
     const self = args?.self === true;
     // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the model's argument may be any JSON value, read as text
     const scene = String(args?.text ?? '');
     const asked = askedFor(trigger, triggerKind);
     const staging = mode === 'diary';
     if (staging) {
-      // A diary post's pictures: the gate is asked at every picture (the day's count moves as they are made).
+      // A diary post's pictures: the gate is asked at every picture.
       const gate = diaryPictureGate(hot.config, channel, clock());
-      if (!gate.allowed)
-        return failed(refusalStatus(CODE.DAILY_CAP), CODE.DAILY_CAP, { reason: gate.limit?.key ?? 'image.maxPerDay' });
+      if (!gate.allowed) return failed(refusalStatus(CODE.DAILY_CAP), CODE.DAILY_CAP, { reason: 'pictures' });
       if ((draft?.staged?.length ?? 0) >= (draft?.diary?.set ? setSettings(hot.config.diary).pictures[1] : 1))
         return failed(refusalStatus(CODE.LOOP_CAP), CODE.LOOP_CAP, { reason: 'extra-call' });
     }
@@ -378,18 +354,6 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
           ...(staging && draft ? { avatar: (draft.avatar ??= {}) } : {}),
         });
       } catch (err) {
-        if (err instanceof ImageCapError) {
-          const limit = limitOf(err);
-          log.info('turn: draw refused by a limit', {
-            channel: channel.id,
-            key: limit?.key ?? null,
-            used: limit?.used ?? null,
-            cap: limit?.cap ?? null,
-            spontaneous: !trigger,
-            asked,
-          });
-          return failed('failed', err.reason === 'userDaily' ? CODE.IMAGE_CAP_USER_DAILY : CODE.IMAGE_CAP_DAILY);
-        }
         if (err instanceof UnsupportedImageModelError) return failed('failed', CODE.UNSUPPORTED_MODEL);
         if (err instanceof ImageGenError) {
           log.warn('turn: draw error', { channel: channel.id, reason: err.reason, status: err.statusCode ?? null });
@@ -410,9 +374,6 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       if (referenceMissing) log.warn('turn: avatar reference unavailable', { channel: channel.id });
       if (staging) {
         (draft ? (draft.staged ??= []) : []).push({ picture, self, text: scene });
-        // Counted when it is generated, posted or not.
-        bumpDaily(store.state.data, DIARY_PICTURES_DAILY, clock());
-        store.state.markDirty();
         return { status: 'ok', code: CODE.STAGED, data: none };
       }
       const name = imageFileName(picture.mediaType);
@@ -455,51 +416,18 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     }
   }
 
-  /** Today's UTC date `YYYY-MM-DD` on the injected clock (the daily GIF counter). */
-  function todayDate(): string {
-    return utcDay(clock());
-  }
-
-  /** GIFs the persona posted today against `gifs.maxPerDay` (src/memory/gif-watch.js#gifPostsToday); reads only. */
-  function gifsToday(): { used: number; cap: number } {
-    return gifPostsToday(store.state.data, hot.config, todayDate());
-  }
-
-  /** Count one posted GIF against `gifs.maxPerDay` (the counter restarts on a new UTC day). */
-  function countGif(): void {
-    countGifPost(store.state.data, clock());
-    store.state.markDirty();
-  }
-
   /**
    * The persona's `<gif>` resolved against the guild's library: `{ id,
-   * replyTo, entry }`, or null (logged with its reason, never a URL) when
-   * features.gifs is false, the handle is unknown, or `gifs.maxPerDay`
-   * (default 40, read now) is spent -- the last told to `limits` (optional) as a `daily-cap`.
+   * replyTo, entry }`, or null (logged with its reason, never a URL) when the handle is unknown.
    */
-  function resolveGif(
-    guildId: string,
-    gif: GifCall | null | undefined,
-    channelId: string,
-    limits: DrawDraft['limits'] = null
-  ): ResolvedGif | null {
+  function resolveGif(guildId: string, gif: GifCall | null | undefined, channelId: string): ResolvedGif | null {
     if (!gif) return null;
-    let reason: string | null = null;
-    let entry: GifEntry | null | undefined = null;
-    if (hot.config.features?.gifs === false) reason = 'off';
-    else {
-      entry = store.findGif(guildId, gif.id);
-      const posts = gifsToday();
-      if (!entry) reason = 'unknown';
-      else if (posts.used >= posts.cap) reason = 'daily';
-    }
-    if (reason) {
-      if (reason === 'daily') limits?.add({ kind: 'daily-cap', where: 'gifs.maxPerDay' });
-      log.info('turn: gif dropped', { channel: channelId, reason, usedToday: gifsToday().used });
+    const entry: GifEntry | null | undefined = store.findGif(guildId, gif.id);
+    if (!entry) {
+      log.info('turn: gif dropped', { channel: channelId, reason: 'unknown' });
       return null;
     }
-    // No reason means the library found the entry.
-    return { ...gif, entry: entry! };
+    return { ...gif, entry };
   }
 
   /**
@@ -521,8 +449,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    * Post the persona's GIF (after its messages, or in place of the first one
    * when the GIF picker chose it): a link GIF as its stored
    * URL (the platform embeds tenor and giphy links), an attached one as a fresh URL of
-   * its attachment, the stored one when that fails. Counted against
-   * `gifs.maxPerDay` once sent, and stamped on its library entry of
+   * its attachment, the stored one when that fails. Stamped once sent on its library entry of
    * `guildId` (store.recordOwnGif: `ownLast`/`ownUses`, the `<gifs>` list's
    * own-post mark). Never throws; resolves `{ message, op }` once sent
    * (`message`: postedOf the port's answer; `op`: its journal operation),
@@ -562,7 +489,6 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       }
       const message = postedOf(result);
       if (op.opId) await op.succeeded({ messageId: message.id });
-      countGif();
       if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(guildId, entry.key, clock());
       lastPostAt.set(channel.id, clock());
       log.info('turn: gif sent', {
@@ -583,9 +509,8 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
   /**
    * The GIF picker (src/behavior/gif-pick.js), on the turn's FIRST message as
    * the model wrote it (a picked GIF takes its place; the rest are posted as
-   * written): with features.gifPicker and features.gifs on (a missing key counts as
-   * on), prompts['gif-pick'] present, the guild's library readable, room left
-   * under `gifs.maxPerDay` (gifsToday) and pickCandidates saying yes (a first
+   * written): with prompts['gif-pick'] present, the guild's library readable
+   * and pickCandidates saying yes (a first
    * message of at most `gifs.pick.maxChars` code points, no `<gif>` of the
    * turn's own -- the model's own GIF is never second-guessed --, at least one
    * captioned entry), ONE `analyzer` request on the classifier model
@@ -623,32 +548,27 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     trigger = null,
   }: PickArgs): Promise<ResolvedGif | null> {
     const config = hot.config;
-    if (config.features?.gifPicker === false || config.features?.gifs === false) return null;
     const prompt = hot.prompts?.['gif-pick'];
     if (typeof prompt !== 'string' || prompt.trim() === '') return null;
     if (typeof store.getGifs !== 'function' || typeof store.findGif !== 'function' || messages.length === 0)
       return null;
     const settings = gifPickSettings(config);
     const first = messages[0];
-    const gifsCfg = config.gifs ?? {};
-    const chars = gifFieldChars(gifsCfg);
+    const chars = gifFieldChars();
     const labels = hot.prompts?.labels;
     const at = clock();
     // The library as the first pick of this cache bucket rendered it (no clock in it); the
     // signature lets an edit of its labels or settings show at once.
-    const freeze =
-      config.features?.promptCache === true
-        ? stableFreezeOf<{ library: Array<string>; handles: Array<string> }>(guildId)
-        : null;
+    const freeze = stableFreezeOf<{ library: Array<string>; handles: Array<string> }>(guildId);
     const { library, handles } = freezePerBucket<{ library: Array<string>; handles: Array<string> }>(
       freeze,
       'gif-pick',
-      { now: at, bucketMs: cacheTtlMs(config), signature: JSON.stringify([labels?.gifs ?? null, gifsCfg]) },
+      { now: at, bucketMs: cacheTtlMs(config), signature: JSON.stringify([labels?.gifs ?? null]) },
       () => {
         const mediaCache = typeof store.getMediaCache === 'function' ? (store.getMediaCache(guildId) ?? null) : null;
         const listed = captionedEntries(
           // The check above found getGifs on the store.
-          rankGifs(store.getGifs!(guildId), gifsCfg.halfLifeDays ?? 30),
+          rankGifs(store.getGifs!(guildId), GIF_HALF_LIFE_DAYS),
           mediaCache,
           chars.actionChars
         );
@@ -661,8 +581,6 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       }
     );
     if (!pickCandidates({ text: first.text, postsGif: Boolean(gif), captioned: library.length }, settings)) return null;
-    const posts = gifsToday();
-    if (posts.used >= posts.cap) return null;
     // The line the first message answers: its reply target (a pulled line is not in `history`), else the trigger.
     const replyId =
       first.replyTo !== null && first.replyTo !== undefined ? (idByIndex.get(first.replyTo) ?? null) : null;
@@ -679,13 +597,12 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
         ? replyMarker(context.messages[context.answeredIndex - 1], context.answeredIndex, {
             labels,
             selfName,
-            replyQuoteChars: config.context?.replyQuoteChars,
           })
         : '';
     const replyBody = answersMark ? `${answersMark} ${first.text}` : first.text;
     // Which of the listed GIFs the persona posted lately, with how long ago: per call, in the tail.
     const recent = labels
-      ? ownGifLines(store.getGifs(guildId), handles, labels, { ownMarkHours: gifsCfg.ownMarkHours ?? 24, now: at })
+      ? ownGifLines(store.getGifs(guildId), handles, labels, { ownMarkHours: OWN_MARK_HOURS, now: at })
       : [];
     let completion: unknown;
     try {
@@ -759,5 +676,5 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     });
   }
 
-  return { drawPromptFor, drawTool, resolveGif, postGif, pickedInTime, pickGifSafely };
+  return { drawTool, resolveGif, postGif, pickedInTime, pickGifSafely };
 }

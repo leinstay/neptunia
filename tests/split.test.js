@@ -2,17 +2,11 @@
 // the strict parse of its answer. Every behaviour test sets its own settings.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  SPLIT_DEFAULTS,
-  foldShortParts,
-  mayHaveParts,
-  parseSplitAnswer,
-  splitCandidate,
-  splitSettings,
-} from '../src/behavior/split.js';
+import { foldShortParts, mayHaveParts, parseSplitAnswer, splitCandidate } from '../src/behavior/split.js';
 
 const SETTINGS = { minChars: 40, maxTasks: 3, contextMessages: 2, maxOutputTokens: 100 };
-const config = (split = SETTINGS, features = { splitTasks: true }) => ({ features, split });
+// PR 7d: the split switch is code.
+const config = (split = SETTINGS) => ({ split });
 const LONG = 'πρώτα πες μου ποιος είναι ο Νίκος, μετά κοίτα το κανάλι της Ελένης; και το μιμίδιο είναι αστείο.';
 
 test('mayHaveParts: long text with two separators passes', () => {
@@ -53,22 +47,6 @@ test('splitCandidate: an overheard line and an unprompted turn never are', () =>
   assert.equal(splitCandidate(null, null, config()), false);
 });
 
-test('splitCandidate: features.splitTasks false turns it off; a missing key counts as on', () => {
-  assert.equal(splitCandidate({ content: LONG }, 'mention', config(SETTINGS, { splitTasks: false })), false);
-  assert.equal(splitCandidate({ content: LONG }, 'mention', config(SETTINGS, {})), true);
-});
-
-test('splitCandidate: maxTasks below 2 can split nothing', () => {
-  assert.equal(splitCandidate({ content: LONG }, 'mention', config({ ...SETTINGS, maxTasks: 1 })), false);
-});
-
-test('splitCandidate: minChars is read from the settings', () => {
-  assert.equal(
-    splitCandidate({ content: LONG }, 'mention', config({ ...SETTINGS, minChars: [...LONG].length + 1 })),
-    false
-  );
-});
-
 test('parseSplitAnswer: the word one is one request', () => {
   assert.deepEqual(parseSplitAnswer('one', 3), { parts: null, reason: 'one' });
   assert.deepEqual(parseSplitAnswer('  One \n', 3), { parts: null, reason: 'one' });
@@ -102,27 +80,6 @@ test('parseSplitAnswer: anything else is one request, unparsed', () => {
 test('parseSplitAnswer: an empty or missing answer is empty', () => {
   assert.deepEqual(parseSplitAnswer('  \n', 3), { parts: null, reason: 'empty' });
   assert.deepEqual(parseSplitAnswer(undefined, 3), { parts: null, reason: 'empty' });
-});
-
-test('splitSettings: an unusable value takes the default, a usable one is floored', () => {
-  assert.deepEqual(
-    splitSettings({
-      split: { minChars: -1, maxTasks: 'x', contextMessages: 2.7, maxOutputTokens: 0, minPartChars: -3 },
-    }),
-    {
-      minChars: SPLIT_DEFAULTS.minChars,
-      maxTasks: SPLIT_DEFAULTS.maxTasks,
-      contextMessages: 2,
-      maxOutputTokens: SPLIT_DEFAULTS.maxOutputTokens,
-      minPartChars: SPLIT_DEFAULTS.minPartChars,
-    }
-  );
-});
-
-test('splitSettings: minPartChars is read and floored, 0 allowed', () => {
-  assert.equal(splitSettings({ split: { minPartChars: 12.9 } }).minPartChars, 12);
-  assert.equal(splitSettings({ split: { minPartChars: 0 } }).minPartChars, 0);
-  assert.equal(splitSettings({ split: { minPartChars: 'x' } }).minPartChars, SPLIT_DEFAULTS.minPartChars);
 });
 
 const OPENER = 'θα έχει μειονεκτήματα;';

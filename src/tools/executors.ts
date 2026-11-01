@@ -581,7 +581,7 @@ function fromPort(answer: unknown): CallResult {
  * with (`/nep draw` without a channel) are posted to the current conversation through
  * `deps.port` (`deps.refOf`), as the owner's command shows them to the owner: the call is then
  * that post's result, never generated again. A skill `deps.inTurn` holds (the turn's in-turn
- * tools, features.coreTools: name -> `(args) => result`) runs there instead, on the operation's
+ * tools: name -> `(args) => result`) runs there instead, on the operation's
  * arguments her call maps to (`dispatch.toOp`, as above), under the same timeout; its result is the call's as it is (a result without a
  * known status is `failed`). On her own initiative (an inner turn) the wake envelope of `envelope.wakeKind`
  * (src/tools/access.ts#nestedRefusal, over `deps.config`, the live config) is checked at the capabilities the skill

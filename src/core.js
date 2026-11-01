@@ -14,7 +14,7 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { localConfigPath } from './config/files.ts';
+import { localConfigPath, readInterfaceConfig } from './config/files.ts';
 import { createHot } from './hot.js';
 import { log, onLog } from './log.js';
 import { createMetrics, metricsTap } from './tools/impl/metrics.ts';
@@ -36,7 +36,6 @@ import {
   createAvatarQueue,
   startYoutubeCheck,
 } from './memory/index.js';
-import { mirrorDryRun } from './behavior/limits.js';
 import { DAY_MS, utcDay } from './time.js';
 import { createCalibrator } from './llm/tokens.js';
 import { createLlm, roleApiKey } from './llm/openrouter.js';
@@ -106,6 +105,7 @@ import { PROFILES as AGENT_PROFILES } from './agent-runner/profiles.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './behavior/pipeline.js';
 import { createLeasedAttention } from './behavior/attention.ts';
+import { RELATIONSHIP_LIMITS } from './memory/text-limits.js';
 
 const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply', 'interject', 'initiate'];
 
@@ -342,7 +342,8 @@ async function buildCore(options, cleanups) {
   // hot list loses it, while features.archive is exactly true (read at each write). Its own append
   // store for the pending queue (an operational file), so its counts speak for the archive alone.
   const archiveAppendStore = createAppendStore({
-    fsyncMs: hot.config.appendStore?.fsyncMs ?? 500,
+    // Production value, config cut of 2026-10-31.
+    fsyncMs: 500,
     retryMax: hot.config.appendStore?.retryMax ?? 1000,
     log,
   });
@@ -364,9 +365,7 @@ async function buildCore(options, cleanups) {
   const store = createStore({
     dataDir,
     record,
-    recordOn: () => hot.config.features?.record === true,
     archive,
-    archiveOn: () => hot.config.features?.archive === true,
     memoryDb,
   });
 
@@ -396,7 +395,7 @@ async function buildCore(options, cleanups) {
     paused: () => store.state.data.paused === true,
     memoryDb,
   });
-  // The persona's drawings (features.imageGeneration): its own daily rails, counted on the same state.
+  // The persona's drawings: its own daily rails, counted on the same state.
   // Pictures are paid with the drawing role's key (`llm.keyByRole.drawing`, the agents' key), read at
   // each request; the main key when the role names none.
   const images = createImageGen({
@@ -404,7 +403,7 @@ async function buildCore(options, cleanups) {
     getConfig: () => hot.config,
     state: store.state,
   });
-  // The persona's voice messages (features.speech): the preparation pass on the analyzer, the synthesis on the
+  // The persona's voice messages: the preparation pass on the analyzer, the synthesis on the
   // voice role's key and model, the conversion with the system ffmpeg. Without ffmpeg there is no `speech` at
   // all (the skill answers `speech-not-configured`), reported once.
   const speechReady = ffmpegAvailable();
@@ -588,6 +587,27 @@ async function buildCore(options, cleanups) {
   // client, logs in, waits for the guild, says hello and serves its adapter; the events it sees wait until
   // `running.open()` below, when the door has its handlers. A refusal (no token, no guild, no login) stops the start
   // here. A unit does all of it in its own process (bin/neptunia.ts).
+  // The interface's settings are the core's with its package's own and its private file over them
+  // (src/config/files.ts#readInterfaceConfig), read again when the core's settings reload.
+  /**
+   * @param {string} name
+   * @param {() => Record<string, unknown>} current  The core's settings now.
+   * @returns {() => Record<string, unknown>}
+   */
+  const interfaceConfigOf = (name, current) => {
+    /** @type {unknown} */
+    let seen = null;
+    /** @type {Record<string, unknown>} */
+    let settings = {};
+    return () => {
+      const core = current();
+      if (core !== seen) {
+        seen = core;
+        settings = readInterfaceConfig({ rootDir: paths.rootDir, privateDir: paths.privateDir, name, base: core });
+      }
+      return settings;
+    };
+  };
   const running = asUnits
     ? null
     : await interfaces[0]
@@ -596,7 +616,7 @@ async function buildCore(options, cleanups) {
           token: linkToken,
           dataDir: path.join(dataDir, 'interfaces', interfaces[0].name),
           env: {},
-          config: () => hot.config,
+          config: interfaceConfigOf(interfaces[0].name, () => hot.config),
           onConfigChange: (listener) => hot.onReload(listener),
           log,
         })
@@ -614,7 +634,7 @@ async function buildCore(options, cleanups) {
   if (hello !== null) greet(hello);
   // The around store tells a presence event from a voice one by what the interface declares in `hello`: whether it
   // reports presences at all (intents are fixed at login, the interface reads its own at its start).
-  // The live glance at the voice channels and the scene's statuses (features.around): a snapshot in process memory,
+  // The live glance at the voice channels and the scene's statuses: a snapshot in process memory,
   // fed by the interface's voice, presence and connection events through the door below, never written anywhere.
   const around = createAroundStore({ presences: () => coreLink.adapter.capabilities().presence === true });
   // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
@@ -653,12 +673,10 @@ async function buildCore(options, cleanups) {
     paused: () => store.state.data.paused === true,
   });
   // Who reacted to her messages, fed by `reaction.changed` (the door below) and by the `reactors` read.
-  const reactors = createReactorStore({
-    maxMessages: () => Number(hot.config.context?.reactions?.maxMessages ?? 500),
-  });
-  // The route classifier (features.channelRoute): picks a channel the conversation is about for <channel_view>.
+  const reactors = createReactorStore();
+  // The route classifier: picks a channel the conversation is about for <channel_view>.
   const routeChannels = createChannelRouter({ hot, store, llm });
-  // The search of the server's own history beside the web search (features.recall): the lookup's server part.
+  // The search of the server's own history beside the web search: the lookup's server part.
   // It reads the archive and the record too (read only), and with features.meaningSearch the meaning
   // index (one embedding of the question per run).
   const recall = createRecall({
@@ -734,7 +752,7 @@ async function buildCore(options, cleanups) {
     log,
     onFinished: (task, guildId) => submitErrandEnd(task, guildId),
   });
-  // The persona's intentions (features.intentions): data/guilds/<id>/intentions.json, her own
+  // The persona's intentions: data/guilds/<id>/intentions.json, her own
   // `intent.*` calls, the analyzer's candidates from her lines, and the waits on her errands.
   // Both stores send their writes to the database; `flush` is their retry and shutdown step.
   const intentionStores = createIntentionStores({ log, memoryDb });
@@ -748,7 +766,7 @@ async function buildCore(options, cleanups) {
     hot,
     store,
     roleHealth,
-    // The memory rows a turn's request carried go to the database (memoryDb.turnReads).
+    // The memory rows a turn's request carried go to the database.
     memoryReads: (args) => memoryDb.recordTurnReads(args),
     // One execution context per turn for its memory reads (recorded while the database is open).
     memoryContext: (spec) => memoryDb.issueContext({ iface: identity.iface, ...spec }),
@@ -789,12 +807,12 @@ async function buildCore(options, cleanups) {
     errands,
     // What a turn writes to her diary with message.create, published by the diary's mirrors when it ends.
     mirrors,
-    // `<intentions>`: her open intentions and the candidates from her lines (features.intentions).
+    // `<intentions>`: her open intentions and the candidates from her lines.
     intentions,
     // `<places>` on an addressed turn (context.places): the inner life's places view, read at call time.
     places: (guildId, options) => inner.places(guildId, options),
   });
-  const spontaneous = createSpontaneous({ hot, store, reads, turns, getGuildId });
+  const spontaneous = createSpontaneous({ turns });
   // The persona's diary: its own entries on a day plan as the selfreflection wake, ticked below, each published to the
   // diary's mirrors. The diary's posts are rows of the memory database already: no backfill from the channel.
   const diary = createDiary({ hot, store, reads, turns, getGuildId, mirrors });
@@ -823,7 +841,7 @@ async function buildCore(options, cleanups) {
     placeListings.set(
       String(communityId),
       snapshot.conversations
-        .filter((entry) => isReadable(entry, /** @type {{ dryRunChannelId?: unknown }|undefined} */ (hot.config.bot)))
+        .filter((entry) => isReadable(entry))
         .map((entry) => ({ id: entry.id, name: entry.name ?? entry.id, writable: entry.permissions.send }))
     );
   }
@@ -858,7 +876,7 @@ async function buildCore(options, cleanups) {
     // People's turns first: an inner turn waits while a direct ping is queued.
     peopleWaiting: () => onMessage.pendingCount() > 0,
     submit: (event) => door.submit(event),
-    // Each inner turn as a wake run in the memory database (memoryDb.wakeRuns).
+    // Each inner turn as a wake run in the memory database.
     memoryDb,
     // A live wake turn's posts go out through the guarded port once the wake completed (src/behavior/inner/deliveries.ts).
     port: iface,
@@ -870,8 +888,7 @@ async function buildCore(options, cleanups) {
       skills: () => grantedSkillNames({ config: hot.config, selfId: identity.selfId, registry: skillRegistry() }),
       agents: () => Object.keys(AGENT_PROFILES),
       selfId: () => identity.selfId,
-      focusPeople: () =>
-        hot.config.innerLife?.heartbeat?.focusSource === 'db' ? memoryDb.focusPeople({ iface: identity.iface }) : null,
+      focusPeople: () => memoryDb.focusPeople({ iface: identity.iface }),
     },
     log,
   });
@@ -939,7 +956,6 @@ async function buildCore(options, cleanups) {
     reads,
     selfId: () => identity.selfId,
     turns,
-    spontaneous,
     memory,
     tagHistory,
     getGuildId,
@@ -1092,7 +1108,7 @@ async function buildCore(options, cleanups) {
 
   // Once at startup, fire-and-forget: tell the operator whether YouTube links can
   // be watched here (only when video vision is on). Logs the status, never the URL or key.
-  startYoutubeCheck({ hot, checkYoutube: describer.checkYoutube });
+  startYoutubeCheck({ checkYoutube: describer.checkYoutube });
 
   const timers = [];
 
@@ -1108,7 +1124,7 @@ async function buildCore(options, cleanups) {
   }
 
   /**
-   * relationships.decayPerDay: every stored affinity (public and private) drifts toward zero, one
+   * RELATIONSHIP_LIMITS.decayPerDay: every stored affinity (public and private) drifts toward zero, one
    * step per whole day (src/memory/store.js#decayAffinities). Cheap to run hourly: it only applies
    * full days. Skipped while paused (the owner may be editing data/).
    */
@@ -1118,7 +1134,7 @@ async function buildCore(options, cleanups) {
   function sweepAffinityDecay() {
     const guildId = instance.guildId;
     const config = hot.config;
-    if (!guildId || config.features?.relationships === false) return;
+    if (!guildId) return;
     if (store.state.data.paused) return;
     // Decay counts only time she was running: the sweep runs hourly, so a gap of more than two sweeps since the last one
     // (kept in the state file) is downtime, and all of it but one sweep's hour is skipped.
@@ -1126,7 +1142,7 @@ async function buildCore(options, cleanups) {
     const last = Date.parse(store.state.data.affinityDecaySweptAt ?? '');
     const gap = Number.isFinite(last) ? now - last : 0;
     const skipMs = gap > 2 * AFFINITY_SWEEP_MS ? gap - AFFINITY_SWEEP_MS : 0;
-    const counts = store.decayAffinities(guildId, now, { ...(config.relationships ?? {}), skipMs });
+    const counts = store.decayAffinities(guildId, now, { ...RELATIONSHIP_LIMITS, skipMs });
     store.state.data.affinityDecaySweptAt = new Date(now).toISOString();
     store.state.markDirty();
     if (counts.decayed > 0 || skipMs > 0)
@@ -1176,12 +1192,11 @@ async function buildCore(options, cleanups) {
   }
 
   /**
-   * The journal's operations left open by the last run (features.journal, read now), yesterday's
+   * The journal's operations left open by the last run, yesterday's
    * and today's: a post is looked for among the persona's own messages, everything else is marked
    * unknown; nothing is sent again. Only operations started before this start are touched.
    */
   async function reconcileJournal(guildId) {
-    if (hot.config.features?.journal !== true) return;
     const startedAt = Date.now();
     const days = [utcDay(startedAt - DAY_MS), utcDay(startedAt)];
     const counts = await journal.reconcile(guildId, {
@@ -1218,9 +1233,9 @@ async function buildCore(options, cleanups) {
   }
 
   /** Whether the journal is written now (features.journal exactly true, read now). */
-  const journalOn = () => hot.config.features?.journal === true;
+  const journalOn = () => true;
 
-  /** Delete the request dumps older than journal.keepRequests days (features.journal, read now). */
+  /** Delete the request dumps older than journal.keepRequests days. */
   async function pruneJournalRequests(guildId) {
     if (!journalOn()) return;
     const { removed } = await journal.pruneRequests(guildId);
@@ -1273,7 +1288,6 @@ async function buildCore(options, cleanups) {
     },
     log,
   });
-  scheduler.add({ name: 'spontaneous.tick', everyMs: () => 30_000, run: () => spontaneous.tick() });
   // The diary's beat also sends what its mirrors still hold queued.
   scheduler.add({
     name: 'diary.tick',
@@ -1401,7 +1415,6 @@ async function buildCore(options, cleanups) {
     log.info('index: shutting down', { signal });
     for (const id of timers) clearInterval(id);
     if (archiveDrainTimer) clearTimeout(archiveDrainTimer);
-    spontaneous.stop();
     diary.stop();
     onMessage.stop();
     missed.stop();
@@ -1474,11 +1487,11 @@ async function buildCore(options, cleanups) {
   // The spontaneous, diary and inner life ticks: the scheduler's beats, each wait a `scheduler.tick` through the door.
   scheduler.start();
   every(AFFINITY_SWEEP_MS, sweepAffinityDecay, 'affinity decay');
-  // The embedding queue flushes every embed.flushSeconds (read at each tick; a full batch sooner);
-  // the same tick runs its catch-up pass when the switches turn on and every embed.catchUpEveryMinutes.
+  // The embedding queue flushes on its own clock (src/memory/embedder.js; a full batch sooner);
+  // the same tick runs its catch-up pass at the start and then on its own clock.
   every(30_000, () => embedQueue.tick(instance.guildId), 'embed.tick');
   // The avatar queue: its first tick scans the profiled members, then once a day; between
-  // requests it waits avatars.intervalMs (read at each tick). A no-op with the switch off.
+  // requests it waits its interval (src/memory/avatar-queue.js).
   every(5_000, () => avatars.tick(), 'avatars.tick');
   // The speed samples written to data/metrics.json (at most once a minute; nothing new, no write).
   every(60_000, () => metrics.save(), 'metrics.save');
@@ -1528,8 +1541,7 @@ async function buildCore(options, cleanups) {
   await startupStep('intentions.reconcile', () => intentions.reconcile(instance.guildId), { wait: true });
 
   // The meaning index caught up with what the record took while the queue was down (the last
-  // embed.catchUpHours). Fire-and-forget; nothing while paused or
-  // with the switches off.
+  // CATCH_UP_HOURS of src/memory/embedder.js). Fire-and-forget; nothing while paused.
   await startupStep('embed.catchUp', () => embedQueue.catchUp(instance.guildId));
 
   // Once per guild after the deploy that keyed access by operation: the stored grants re-expanded
@@ -1540,7 +1552,7 @@ async function buildCore(options, cleanups) {
   // starting meanwhile is never touched (only earlier operations are), and it never sends.
   await startupStep('journal.reconcile', () => reconcileJournal(instance.guildId).finally(journalReconciled));
 
-  // The messages posted while the bot was down (features.offlineCatchUp): observed, and a call
+  // The messages posted while the bot was down: observed, and a call
   // younger than offlineCatchUp.windowMinutes answered as live. Fire-and-forget: REST per
   // channel, never throws; the gateway's own messages are not held up meanwhile.
   await startupStep('offlineCatchUp.run', () => offlineCatchUp.run(instance.guildId));
@@ -1549,12 +1561,10 @@ async function buildCore(options, cleanups) {
   await startupStep('journal.prune', () => pruneJournalRequests(instance.guildId));
   every(DAY_MS, () => pruneJournalRequests(instance.guildId), 'journal.prune');
 
-  // The custom emoji ranking from history, once (features.customEmoji on, no emojiBackfill stamp,
-  // context.customEmoji.backfillMessages > 0). Fire-and-forget: never blocks the persona, logs its errors.
+  // The custom emoji ranking from history, once (no emojiBackfill stamp). Fire-and-forget: never blocks the persona, logs its errors.
   await startupStep('emojiBackfill.startIfNeeded', () => emojiBackfill.startIfNeeded(instance.guildId));
 
-  // The GIF library from history, once (features.gifs on, no backfill stamp in gifs.json,
-  // gifs.backfillMessages > 0). Fire-and-forget: never blocks the persona, logs its errors.
+  // The GIF library from history, once (no backfill stamp in gifs.json). Fire-and-forget: never blocks the persona, logs its errors.
   await startupStep('gifBackfill.startIfNeeded', () => gifBackfill.startIfNeeded(instance.guildId));
 
   // Affinity decay: once now (catches up the days the process was down), then hourly (above).

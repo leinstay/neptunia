@@ -78,7 +78,7 @@
 // turn's wakes again, and a wake that fell due while the core was down or paused sleeps and never
 // runs. Logs carry ids, codes and counts, never text.
 //
-// With `memoryDb.wakeRuns` exactly true (read at the turn) each inner turn is also a wake run in the memory database
+// Each inner turn is also a wake run in the memory database
 // (src/memory/db/wakes.js, through the service's writer): started before the turn runs (its id the in-flight turn id,
 // its inputs the ids and versions its view showed, the envelope's policy version), each action recorded once by its
 // number, ended `succeeded` or `failed` with the outcome. The journal and the state file are unchanged by it.
@@ -90,7 +90,6 @@
 
 import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
-import { intentionsOn } from '../intentions/model.ts';
 import { errorCode } from '../tools/types.ts';
 import { createCostMeter, drain, onTaskFinished } from './inner/drain.ts';
 import type { DrainAnswer } from './inner/drain.ts';
@@ -102,7 +101,7 @@ import type { PlacesQuery } from './inner/places.ts';
 import { addFact, deadlineWakes, mayAct, note, onWake, save, stateOf, wakeFields, wakeOfDue } from './inner/queue.ts';
 import type { WakeAnswer } from './inner/queue.ts';
 import { reviewDue } from './inner/review.ts';
-import { innerOn, innerSettings } from './inner/settings.ts';
+import { innerSettings } from './inner/settings.ts';
 import { start, status, stop } from './inner/status.ts';
 import type { InnerStatus, SwitchAnswer, SwitchOptions } from './inner/status.ts';
 import type {
@@ -124,14 +123,7 @@ import type {
   Wake,
 } from './inner/types.ts';
 
-export {
-  DELIVERY_SKILLS,
-  FACTS_SHOWN_MAX,
-  POSTING_SKILLS,
-  WAKE_KINDS,
-  innerOn,
-  innerSettings,
-} from './inner/settings.ts';
+export { DELIVERY_SKILLS, FACTS_SHOWN_MAX, POSTING_SKILLS, WAKE_KINDS, innerSettings } from './inner/settings.ts';
 export { createLocalFacts, factPayload, feedbackFacts } from './inner/facts.ts';
 export { coalesceGroup, deadlineWakes, emptyState, normalizeState, wakeOfDue } from './inner/queue.ts';
 export { PLACE_SORTS, attendWake, placesPage } from './inner/places.ts';
@@ -303,7 +295,6 @@ export function createInnerLife({
    */
   async function tick(): Promise<TickAnswer> {
     const config = hot.config;
-    if (!innerOn(config)) return { ran: false, reason: 'off' };
     const guildId = getGuildId();
     if (!guildId) return { ran: false, reason: 'no-guild' };
     if (life.ticking) return { ran: false, reason: 'ticking' };
@@ -314,7 +305,7 @@ export function createInnerLife({
       const settings = innerSettings(config);
       const at = now();
       const listed: Array<Wake> = [];
-      if (intentions && intentionsOn(config)) {
+      if (intentions) {
         let due: ReadonlyArray<Parameters<typeof wakeOfDue>[0]> = [];
         try {
           due = intentions.due?.(guildId) ?? [];
@@ -333,7 +324,7 @@ export function createInnerLife({
       if (review) listed.push(review);
       const beat = heartbeatDue(life, guildId, settings, at);
       if (beat) listed.push(beat);
-      if (intentions && intentionsOn(config)) {
+      if (intentions) {
         await refreshPlaces(life, guildId, at, settings);
         listed.push(...attendWakes(life, guildId, at));
       }
@@ -377,7 +368,7 @@ export function createInnerLife({
    * answer carried. `enabled` follows the switch; without it the turn runner keeps its own in process.
    */
   const factsApi: FactsApi = {
-    enabled: () => innerOn(hot.config),
+    enabled: () => true,
     add(guildId, fact) {
       const key = guildId ?? getGuildId();
       if (!key) return null;

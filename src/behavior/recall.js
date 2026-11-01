@@ -45,7 +45,7 @@
 import { isPlainObject } from '../config.js';
 import { estimateTokens } from '../llm/tokens.js';
 import { block, fillPromptTemplate } from './prompt.js';
-import { fill, formatTranscript, renderTranscript } from '../format.js';
+import { fill, formatTranscript, GAP_MARKER_MINUTES, MAX_MESSAGE_CHARS, renderTranscript } from '../format.js';
 import { clampText, oneLine } from '../memory/clamp.js';
 import { episodeDate } from '../memory/index.js';
 import {
@@ -61,7 +61,8 @@ import { DAY_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../time.js';
 import { parseSkillsLines, takeSkillsLines } from '../tools/discovery.ts';
 
 /**
- * Defaults of `recall.prefetch` (config.json carries the same values): the automatic retrieval
+ * The prefetch's measures (production values of the config cut of 2026-10-31, and the fallbacks of `deadlineMs`,
+ * `maxTokens`, `contextTokens`, `trivial` and `deictic`): the automatic retrieval
  * before a turn of the persona's tool loop (src/behavior/prefetch.js, recall-run.js `prefetch`).
  * `trivial` and `deictic` are matching data (folded phrases and words), never wording she reads.
  */
@@ -107,7 +108,10 @@ export const PREFETCH_DEFAULTS = Object.freeze({
   deictic: Object.freeze(['that', 'this', 'it', 'he', 'she', 'they', 'him', 'her', 'them', 'there', 'those', 'these']),
 });
 
-/** Defaults of the `recall` config group (config.json carries the same values). */
+/**
+ * The recall's measures: production values of the config cut of 2026-10-31, and the fallbacks of the keys the live
+ * config holds (`timeoutMs`, `maxOutputTokens`, `memoryTokens`, `recordDays` and the index policy of `db`).
+ */
 export const RECALL_DEFAULTS = Object.freeze({
   maxForms: 8,
   maxPeople: 2,
@@ -123,7 +127,6 @@ export const RECALL_DEFAULTS = Object.freeze({
   stretchChars: 1500,
   quoteWindowChars: 1500,
   quoteMaxChars: 9000,
-  maxPerDay: 100,
   timeoutMs: 15000,
   minSummaryMs: 2500,
   maxOutputTokens: 500,
@@ -136,9 +139,7 @@ export const RECALL_DEFAULTS = Object.freeze({
   recordDays: 3,
   recordContext: 3,
   archiveMonths: 6,
-  fallbackOnClassifierFailure: true,
   meaningCandidates: 80,
-  meaningWithReply: false,
   locatorBonus: 2,
   locatorDecayDays: 7,
   locatorBroadShare: 0.5,
@@ -212,88 +213,59 @@ function numberAtLeast(value, fallback, min) {
 }
 
 /**
- * The `recall` settings read from the live config, or null when
- * `features.recall` is false (a missing key counts as on). Each number falls
- * back to RECALL_DEFAULTS when missing or unusable; counts are floored.
- * `maxForms`, `maxPeople`, `maxPerDay`, `stretchChars`, `minSummaryMs`,
- * `memoryItems`, `keepOldest` and `rareHits` may be 0 (no content query, no
- * member lookup, no recall today, no stretch, the summary asked whatever time
- * is left, no stored memory searched, no slot reserved for old clusters, no
- * form counted rare); so may `selfBonus` (a number, not floored: no bonus
- * for the persona's own stretches), `selfExtra` (no window beyond
- * `maxClusters`) and `contextMessages` (no `<context>` block);
- * `quoteWindowChars` and `quoteMaxChars` (a memory.search result's per-window and whole bounds) are at least 1;
- * `traceMaxLines` is at least 1; `windowMessages` is at most 100;
- * `followMessages` is at most 100 (one page of the interface's history read) and may be 0 (a window
- * is not followed past its end); `followGapMinutes` is a number of at least 0;
- * `memoryTokens` (no `<memory>` line fits), `recordDays` (the record is not
- * read), `recordContext` (no neighbours) and `archiveMonths` (the archive is
- * not searched without a `when:` range) may be 0 too. `fallbackOnClassifierFailure`
- * is on unless it is `false` (src/behavior/turn.js#fallbackLookupPlan).
- * `meaningCandidates` (the rows one meaning search returns, see
- * src/behavior/recall-run.js) may be 0 (none); `meaningWithReply` (the
- * replied-to line joins the meaning query, meaningQuery) is on only when it
- * is exactly `true`. The locator numbers (a `when:` that only locates, see
- * proximityBonus and locatorKeep): `locatorBonus` and `locatorDecayDays`
- * numbers of at least 0, `locatorBroadShare` a number from 0 to 1. `db` (the memory database's
- * search, src/memory/db/recall.js): `gateShare` 0..1, `candidates` at least 1, `minMeaning` -1..1.
- * `prefetch`: `recall.prefetch`
- * read by prefetchSettingsOf (the automatic memory prefetch, src/behavior/prefetch.js).
+ * The `recall` settings: RECALL_DEFAULTS (production values of the config cut of 2026-10-31) with the keys the live
+ * config holds read from it: `timeoutMs` and `maxOutputTokens` (whole numbers of at least 1), `memoryTokens` and
+ * `recordDays` (at least 0), and the index policy of `db` (src/memory/db/index-policy.js, schema v11: `vectorDays`
+ * and `touchDays` at least 1, `vectorEviction` and `reembed` on only when exactly `true`). `prefetch`:
+ * `recall.prefetch` read by prefetchSettingsOf (the automatic memory prefetch, src/behavior/prefetch.js).
  * @param {object} config  The live config.
  * @returns {{ maxForms: number, maxPeople: number, dateSamples: number, clusterGapMinutes: number,
  *   maxClusters: number, keepOldest: number, rareHits: number, windowMessages: number, followMessages: number,
- *   followGapMinutes: number, answerChars: number, stretchChars: number, quoteWindowChars: number, quoteMaxChars: number, maxPerDay: number,
+ *   followGapMinutes: number, answerChars: number, stretchChars: number, quoteWindowChars: number, quoteMaxChars: number,
  *   timeoutMs: number, minSummaryMs: number, maxOutputTokens: number, memoryItems: number, selfBonus: number, selfExtra: number,
  *   contextMessages: number, traceMaxLines: number, memoryTokens: number, recordDays: number, recordContext: number,
- *   archiveMonths: number, fallbackOnClassifierFailure: boolean, meaningCandidates: number, meaningWithReply: boolean,
- *   locatorBonus: number, locatorDecayDays: number, locatorBroadShare: number, prefetch: ReturnType<typeof prefetchSettingsOf> }|null}
+ *   archiveMonths: number, meaningCandidates: number, locatorBonus: number, locatorDecayDays: number,
+ *   locatorBroadShare: number, db: object, prefetch: ReturnType<typeof prefetchSettingsOf> }|null}
  */
 export function recallSettings(config) {
-  if (config?.features?.recall === false) return null;
   const r = config?.recall ?? {};
   const d = RECALL_DEFAULTS;
   return {
-    maxForms: intAtLeast(r.maxForms, d.maxForms, 0),
-    maxPeople: intAtLeast(r.maxPeople, d.maxPeople, 0),
-    dateSamples: intAtLeast(r.dateSamples, d.dateSamples, 1),
-    clusterGapMinutes: numberAtLeast(r.clusterGapMinutes, d.clusterGapMinutes, 0),
-    maxClusters: intAtLeast(r.maxClusters, d.maxClusters, 1),
-    keepOldest: intAtLeast(r.keepOldest, d.keepOldest, 0),
-    rareHits: intAtLeast(r.rareHits, d.rareHits, 0),
-    windowMessages: Math.min(MAX_WINDOW_MESSAGES, intAtLeast(r.windowMessages, d.windowMessages, 1)),
-    followMessages: Math.min(MAX_WINDOW_MESSAGES, intAtLeast(r.followMessages, d.followMessages, 0)),
-    followGapMinutes: numberAtLeast(r.followGapMinutes, d.followGapMinutes, 0),
-    answerChars: intAtLeast(r.answerChars, d.answerChars, 1),
-    stretchChars: intAtLeast(r.stretchChars, d.stretchChars, 0),
-    quoteWindowChars: intAtLeast(r.quoteWindowChars, d.quoteWindowChars, 1),
-    quoteMaxChars: intAtLeast(r.quoteMaxChars, d.quoteMaxChars, 1),
-    maxPerDay: intAtLeast(r.maxPerDay, d.maxPerDay, 0),
+    maxForms: d.maxForms,
+    maxPeople: d.maxPeople,
+    dateSamples: d.dateSamples,
+    clusterGapMinutes: d.clusterGapMinutes,
+    maxClusters: d.maxClusters,
+    keepOldest: d.keepOldest,
+    rareHits: d.rareHits,
+    windowMessages: d.windowMessages,
+    followMessages: d.followMessages,
+    followGapMinutes: d.followGapMinutes,
+    answerChars: d.answerChars,
+    stretchChars: d.stretchChars,
+    quoteWindowChars: d.quoteWindowChars,
+    quoteMaxChars: d.quoteMaxChars,
     timeoutMs: intAtLeast(r.timeoutMs, d.timeoutMs, 1),
-    minSummaryMs: intAtLeast(r.minSummaryMs, d.minSummaryMs, 0),
+    minSummaryMs: d.minSummaryMs,
     maxOutputTokens: intAtLeast(r.maxOutputTokens, d.maxOutputTokens, 1),
-    memoryItems: intAtLeast(r.memoryItems, d.memoryItems, 0),
-    selfBonus: numberAtLeast(r.selfBonus, d.selfBonus, 0),
-    selfExtra: intAtLeast(r.selfExtra, d.selfExtra, 0),
-    contextMessages: intAtLeast(r.contextMessages, d.contextMessages, 0),
-    traceMaxLines: intAtLeast(r.traceMaxLines, d.traceMaxLines, 1),
+    memoryItems: d.memoryItems,
+    selfBonus: d.selfBonus,
+    selfExtra: d.selfExtra,
+    contextMessages: d.contextMessages,
+    traceMaxLines: d.traceMaxLines,
     memoryTokens: intAtLeast(r.memoryTokens, d.memoryTokens, 0),
     recordDays: intAtLeast(r.recordDays, d.recordDays, 0),
-    recordContext: intAtLeast(r.recordContext, d.recordContext, 0),
-    archiveMonths: intAtLeast(r.archiveMonths, d.archiveMonths, 0),
-    fallbackOnClassifierFailure: r.fallbackOnClassifierFailure !== false,
-    meaningCandidates: intAtLeast(r.meaningCandidates, d.meaningCandidates, 0),
-    meaningWithReply: r.meaningWithReply === true,
-    locatorBonus: numberAtLeast(r.locatorBonus, d.locatorBonus, 0),
-    locatorDecayDays: numberAtLeast(r.locatorDecayDays, d.locatorDecayDays, 0),
-    locatorBroadShare: shareOf(r.locatorBroadShare, d.locatorBroadShare),
+    recordContext: d.recordContext,
+    archiveMonths: d.archiveMonths,
+    meaningCandidates: d.meaningCandidates,
+    locatorBonus: d.locatorBonus,
+    locatorDecayDays: d.locatorDecayDays,
+    locatorBroadShare: d.locatorBroadShare,
     db: {
-      gateShare: shareOf(r.db?.gateShare, d.db.gateShare),
-      candidates: intAtLeast(r.db?.candidates, d.db.candidates, 1),
-      wordPool: intAtLeast(r.db?.wordPool, d.db.wordPool, 1),
-      minMeaning:
-        Number.isFinite(r.db?.minMeaning) && r.db.minMeaning >= -1 && r.db.minMeaning <= 1
-          ? r.db.minMeaning
-          : d.db.minMeaning,
+      gateShare: d.db.gateShare,
+      candidates: d.db.candidates,
+      wordPool: d.db.wordPool,
+      minMeaning: d.db.minMeaning,
       // The index policy (src/memory/db/index-policy.js, schema v11): read there from the live config, normalised here alike.
       vectorDays: intAtLeast(r.db?.vectorDays, d.db.vectorDays, 1),
       touchDays: intAtLeast(r.db?.touchDays, d.db.touchDays, 1),
@@ -318,13 +290,9 @@ function phraseList(value, fallback) {
 }
 
 /**
- * `recall.prefetch` read from its config value (PREFETCH_DEFAULTS for a missing or unusable
- * key): `deadlineMs`, `candidates`, `maxExcerpts`, `maxTokens`, `excerptChars` and `shortWords`
- * whole numbers of at least 1; `contextLines`, `contextTokens` and `minFormsMatched` of at least
- * 0 (`contextLines` 0: no recent-lines lane); `minMeaningScore`, `strongMeaningScore`,
- * `singleTermScore`, `maxTermShare` and `minPhraseShare` numbers from 0 to 1; `maxPhraseDf` a whole
- * number of at least 1, `rareTermDf` of at least 0; `trivial` and `deictic` lists of strings,
- * folded. Pure.
+ * The prefetch settings: PREFETCH_DEFAULTS, with the keys `recall.prefetch` holds read from its config value (the
+ * default for a missing or unusable one): `deadlineMs` and `maxTokens` whole numbers of at least 1, `contextTokens`
+ * of at least 0, `trivial` and `deictic` lists of strings, folded. Pure.
  * @param {unknown} value
  */
 function prefetchSettingsOf(value) {
@@ -332,21 +300,21 @@ function prefetchSettingsOf(value) {
   const d = PREFETCH_DEFAULTS;
   return {
     deadlineMs: intAtLeast(p.deadlineMs, d.deadlineMs, 1),
-    candidates: intAtLeast(p.candidates, d.candidates, 1),
-    maxExcerpts: intAtLeast(p.maxExcerpts, d.maxExcerpts, 1),
+    candidates: d.candidates,
+    maxExcerpts: d.maxExcerpts,
     maxTokens: intAtLeast(p.maxTokens, d.maxTokens, 1),
-    excerptChars: intAtLeast(p.excerptChars, d.excerptChars, 1),
-    contextLines: intAtLeast(p.contextLines, d.contextLines, 0),
+    excerptChars: d.excerptChars,
+    contextLines: d.contextLines,
     contextTokens: intAtLeast(p.contextTokens, d.contextTokens, 0),
-    shortWords: intAtLeast(p.shortWords, d.shortWords, 1),
-    minFormsMatched: intAtLeast(p.minFormsMatched, d.minFormsMatched, 0),
-    minMeaningScore: shareOf(p.minMeaningScore, d.minMeaningScore),
-    strongMeaningScore: shareOf(p.strongMeaningScore, d.strongMeaningScore),
-    singleTermScore: shareOf(p.singleTermScore, d.singleTermScore),
-    maxTermShare: shareOf(p.maxTermShare, d.maxTermShare),
-    maxPhraseDf: intAtLeast(p.maxPhraseDf, d.maxPhraseDf, 1),
-    minPhraseShare: shareOf(p.minPhraseShare, d.minPhraseShare),
-    rareTermDf: intAtLeast(p.rareTermDf, d.rareTermDf, 0),
+    shortWords: d.shortWords,
+    minFormsMatched: d.minFormsMatched,
+    minMeaningScore: d.minMeaningScore,
+    strongMeaningScore: d.strongMeaningScore,
+    singleTermScore: d.singleTermScore,
+    maxTermShare: d.maxTermShare,
+    maxPhraseDf: d.maxPhraseDf,
+    minPhraseShare: d.minPhraseShare,
+    rareTermDf: d.rareTermDf,
     trivial: phraseList(p.trivial, d.trivial),
     deictic: phraseList(p.deictic, d.deictic),
   };
@@ -1154,8 +1122,8 @@ export function renderRecallWindows(
     labels,
     timezone = 'UTC',
     selfName = '',
-    gapMinutes = 20,
-    maxChars = 800,
+    gapMinutes = GAP_MARKER_MINUTES,
+    maxChars = MAX_MESSAGE_CHARS,
     seeReactions = true,
     reactionsPerMessage,
     indexed = true,
@@ -1742,8 +1710,8 @@ export function buildRecallRequest({
   timezone = 'UTC',
   answerChars,
   now,
-  maxChars = 800,
-  gapMinutes = 20,
+  maxChars = MAX_MESSAGE_CHARS,
+  gapMinutes = GAP_MARKER_MINUTES,
   seeReactions = true,
   reactionsPerMessage,
   memoryTokens,
@@ -2443,8 +2411,7 @@ export function fallbackLookupPlan({ text, profiles = [], selfId = null, selfNam
 const TOOL_LIST_SPLIT_RE = /[,;\n]/;
 
 /**
- * The server search the persona's own `memory.search` call asks for (features.coreTools,
- * src/tools/tools.ts): no model role, only the deterministic expansion -- her `terms` (exact
+ * The server search the persona's own `memory.search` call asks for (src/tools/tools.ts): no model role, only the deterministic expansion -- her `terms` (exact
  * words or phrases, comma-separated) and `people` (names, comma-separated) cleaned as the
  * classifier's `server:` and `who:` values are (2 to 40 characters, at most three words each,
  * lowercased, each once), then what fallbackLookupPlan finds in her `question` (its long words,

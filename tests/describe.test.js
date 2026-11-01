@@ -20,16 +20,11 @@ import {
   videoStateFromCache,
 } from '../src/memory/describe.js';
 import { createHash } from 'node:crypto';
-import {
-  createLlm,
-  roleRequestOptions,
-  TokenLimitError,
-  DailyCapError,
-  VIDEO_TOKENS_PER_SECOND_FALLBACK,
-} from '../src/llm/openrouter.js';
+import { createLlm, roleRequestOptions, TokenLimitError, DailyCapError } from '../src/llm/openrouter.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
+import { MEDIA_CACHE_ENTRIES } from '../src/web/cache.js';
 
 // One directory under the system temp dir per run, removed when the process exits (tests/fixtures/tmp.js);
 // every call gets its own empty subdirectory of it, so a run leaves nothing behind.
@@ -44,13 +39,13 @@ function tmpDataDir() {
   return dir;
 }
 
+// PR 7d: the describer's switches are code and its sizes constants, so the config holds only what is still a setting.
 function fakeHot(overrides = {}) {
   return {
     config: {
-      features: { mediaDescriptions: true },
       models: { base: { vision: 'x/haiku' } },
-      media: { maxOutputTokens: 120, imageSize: 512, cacheEntries: 5000, maxPerTurn: 6 },
-      context: { vision: { maxBytes: 1_500_000, fetchTimeoutMs: 10_000 } },
+      media: { maxOutputTokens: 120 },
+      context: { vision: { fetchTimeoutMs: 10_000 } },
       ...overrides.config,
     },
     prompts: { describe: 'Describe this picture in one plain line.', ...overrides.prompts },
@@ -90,20 +85,6 @@ function fakeImageFetcher(result = SUCCESSFUL_DOWNLOAD) {
     },
   };
 }
-
-test('describe: feature off returns null without any request', async () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
-  const hot = fakeHot({ config: { features: { mediaDescriptions: false } } });
-  const llm = fakeLlm({ text: 'a cat' });
-  const imageFetcher = fakeImageFetcher();
-  const describer = createDescriber({ hot, store, llm, imageFetcher });
-
-  const result = await describer.describe('g1', pictureItem('a1'));
-  assert.equal(result, null);
-  assert.equal(llm.calls.length, 0);
-  assert.equal(imageFetcher.calls.length, 0, 'the feature switch must short-circuit before any download');
-});
 
 test('describe: missing prompts.describe returns null without any request', async () => {
   const dir = tmpDataDir();
@@ -152,68 +133,28 @@ function proseLine(words) {
   return Array.from({ length: words }, (_, i) => `mot${i % 10}é`).join(' ');
 }
 
-async function describeWith(media, text, prompt) {
+async function describeWith(text, prompt) {
   const store = createStore({ dataDir: tmpDataDir() });
-  const hot = fakeHot({
-    config: { media: { maxOutputTokens: 120, imageSize: 512, cacheEntries: 5000, ...media } },
-    ...(prompt === undefined ? {} : { prompts: { describe: prompt } }),
-  });
+  const hot = fakeHot(prompt === undefined ? {} : { prompts: { describe: prompt } });
   const llm = fakeLlm({ text });
   const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher() });
   const result = await describer.describe('g1', pictureItem('a1'));
   return { result, llm };
 }
 
-test('describe: code fallbacks equal config.json', async () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8')).media;
-  const today = new Date().toISOString().slice(0, 10);
-
-  // media.descriptionChars missing: the {{maxChars}} a picture prompt gets.
-  const { llm } = await describeWith({}, 'Une chatte grise.', 'At most {{maxChars}}.');
-  assert.equal(llm.calls[0].messages[0].content, `At most ${shipped.descriptionChars}.`);
-
-  // media.gif.maxSeconds and media.gif.maxPerDay missing.
-  const hot = gifHot();
-  delete hot.config.media.gif.maxSeconds;
-  delete hot.config.media.gif.maxPerDay;
-  const below = gifDescriber({
-    hot,
-    state: fakeState({ gifWatchDay: today, gifWatchCount: shipped.gif.maxPerDay - 1 }),
-  });
-  await below.describer.describe('g1', gifEmbedItem());
-  assert.equal(below.videoFetcher.calls.length, 1);
-  assert.equal(below.videoFetcher.calls[0].options.maxSeconds, shipped.gif.maxSeconds);
-  const spent = gifDescriber({
-    hot,
-    state: fakeState({ gifWatchDay: today, gifWatchCount: shipped.gif.maxPerDay }),
-    llm: fakeLlm({ text: 'a still' }),
-  });
-  await spent.describer.describe('g1', gifEmbedItem());
-  assert.equal(spent.videoFetcher.calls.length, 0);
-
-  // media.video.summaryChars missing: the {{maxChars}} of the video prompt.
-  const videoConfig = videoHot({ prompts: { 'describe-video': 'At most {{maxChars}} characters.' } });
-  delete videoConfig.config.media.video.summaryChars;
-  const video = videoDescriber({ hot: videoConfig, llm: fakeLlm({ text: 'scène' }) });
-  await video.describer.describeVideo('g1', videoAttachment());
-  assert.equal(video.llm.calls[0].messages[0].content, `At most ${shipped.video.summaryChars} characters.`);
-});
-
-test('describe: an over-long line is cut at or under media.descriptionChars on a boundary', async () => {
-  const line = proseLine(70);
-  const { result } = await describeWith({ descriptionChars: 100 }, line);
-  assert.ok(result.text.length <= 100, `length ${result.text.length}`);
+// PR 7d: `media.descriptionChars` is the describer's constant, 500.
+test('describe: an over-long line is cut at or under the description length on a boundary', async () => {
+  const line = proseLine(100);
+  const { result } = await describeWith(line);
+  assert.ok(result.text.length <= 500, `length ${result.text.length}`);
   assert.ok(line.startsWith(result.text));
   assert.equal(line[result.text.length], ' ');
 });
 
-test('describe: {{maxChars}} in the describe prompt is filled with media.descriptionChars', async () => {
-  const { llm } = await describeWith(
-    { descriptionChars: 350 },
-    'Une chatte grise.',
-    'Say it in at most {{maxChars}} characters. Keep {{other}}.'
-  );
-  assert.equal(llm.calls[0].messages[0].content, 'Say it in at most 350 characters. Keep {{other}}.');
+// PR 7d: `media.descriptionChars` is the describer's constant, 500.
+test('describe: {{maxChars}} in the describe prompt is filled with the description length', async () => {
+  const { llm } = await describeWith('Une chatte grise.', 'Say it in at most {{maxChars}} characters. Keep {{other}}.');
+  assert.equal(llm.calls[0].messages[0].content, 'Say it in at most 500 characters. Keep {{other}}.');
 });
 
 test('describe: a cache hit is free -- no download, no LLM request, marked cached', async () => {
@@ -339,35 +280,44 @@ test('describe: an empty caption is treated as a miss, not cached as a success, 
   assert.equal(line.reason, 'empty');
 });
 
+/**
+ * Fills the guild's media cache with old entries up to `MEDIA_CACHE_ENTRIES` (src/web/cache.js), the cache's size.
+ * @param {{ getMediaCache: (guildId: string) => Record<string, unknown> }} store
+ */
+function fillCache(store) {
+  const cache = store.getMediaCache('g1');
+  for (let n = 0; Object.keys(cache).length < MEDIA_CACHE_ENTRIES; n += 1) cache[`old${n}`] = { text: 'old', ts: 1 };
+}
+
+// PR 7d: `media.cacheEntries` is the constant MEDIA_CACHE_ENTRIES, so the cache is filled to it before the next entry.
 test('describe: LRU-trims the cache to media.cacheEntries, evicting the least recently used', async () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
-  const hot = fakeHot({ config: { features: { mediaDescriptions: true }, media: { cacheEntries: 2 } } });
   const llm = fakeLlm([{ text: 'one' }, { text: 'two' }, { text: 'three' }]);
-  const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher() });
+  const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher: fakeImageFetcher() });
 
   await describer.describe('g1', pictureItem('a1'));
-  await describer.describe('g1', pictureItem('a2'));
-  await describer.describe('g1', pictureItem('a3')); // evicts a1 (oldest)
+  fillCache(store);
+  await describer.describe('g1', pictureItem('a2')); // evicts a1 (oldest)
 
   const cache = store.getMediaCache('g1');
-  assert.deepEqual(Object.keys(cache).sort(), ['a2', 'a3']);
+  assert.deepEqual([Object.keys(cache).length, 'a1' in cache, 'a2' in cache], [MEDIA_CACHE_ENTRIES, false, true]);
 });
 
 test('describe: LRU access order -- re-describing (cache hit) bumps recency, protecting it from eviction', async () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
-  const hot = fakeHot({ config: { features: { mediaDescriptions: true }, media: { cacheEntries: 2 } } });
   const llm = fakeLlm([{ text: 'one' }, { text: 'two' }, { text: 'three' }]);
-  const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher() });
+  const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher: fakeImageFetcher() });
 
   await describer.describe('g1', pictureItem('a1'));
   await describer.describe('g1', pictureItem('a2'));
+  fillCache(store);
   await describer.describe('g1', pictureItem('a1')); // cache hit: a1 becomes most-recent
   await describer.describe('g1', pictureItem('a3')); // must evict a2, not a1
 
   const cache = store.getMediaCache('g1');
-  assert.deepEqual(Object.keys(cache).sort(), ['a1', 'a3']);
+  assert.deepEqual(['a1' in cache, 'a2' in cache, 'a3' in cache], [true, false, true]);
 });
 
 test('describe: the media cache is persisted across store instances', async () => {
@@ -407,7 +357,7 @@ test('describe: an item with a preview url is downloaded from the preview, never
 test('describe: an item with no preview url is downloaded from its own url exactly as given', async () => {
   const imageFetcher = fakeImageFetcher();
   const describer = createDescriber({
-    hot: fakeHot({ config: { features: { mediaDescriptions: true }, media: { imageSize: 256 } } }),
+    hot: fakeHot(),
     store: createStore({ dataDir: tmpDataDir() }),
     llm: fakeLlm({ text: 'a cat' }),
     imageFetcher,
@@ -477,7 +427,7 @@ test('describe: the picture model is models.base.vision; the deprecated media.mo
   assert.equal(await run({ models: { base: { vision: 'x/vision' } } }), 'x/vision');
   const stale = {
     models: { base: { vision: null } },
-    media: { model: 'x/old-media', maxOutputTokens: 120, imageSize: 512, cacheEntries: 5000, maxPerTurn: 6 },
+    media: { model: 'x/old-media', maxOutputTokens: 120 },
   };
   assert.equal(
     await run(stale),
@@ -741,32 +691,27 @@ test('describe: a refusal by the daily request cap caches no miss; the token rai
 // --- describeVideo -------------------------------------------------------
 
 const VIDEO_PROMPT = 'Watch this clip and say what happens.';
+// PR 7d: the video lengths, sizes, rates, the direct-URL sites and the processing mode are the describer's
+// constants (VIDEO_FIXED of src/memory/describe.js: a clip of at most 300 s and 14 500 000 bytes, a direct URL up to
+// 3600 s at 10 tokens a second, a clip at 120, `agentic`), and the daily video cap is gone.
 const VIDEO_CFG = {
   provider: { order: ['pinned'], allow_fallbacks: false },
   maxOutputTokens: 400,
   maxRequestTokens: 60_000,
-  maxSeconds: 60,
-  directUrlMaxSeconds: 180,
-  maxBytes: 8_000_000,
-  maxPerTurn: 1,
-  maxPerDay: 40,
   timeoutMs: 90_000,
   toolTimeoutMs: 60_000,
   sites: ['youtube.com', 'youtu.be', 'tiktok.com'],
-  directUrlSites: ['youtube.com', 'youtu.be'],
   ytdlpPath: 'yt-dlp-test',
   ffmpegPath: 'ffmpeg-test',
-  urlProcessing: 'agentic',
   errorRetryMinutes: 60,
 };
 
-function videoHot({ features = {}, video = {}, prompts = {} } = {}) {
+function videoHot({ video = {}, prompts = {} } = {}) {
   return {
     config: {
-      features: { mediaDescriptions: true, videoDescriptions: true, ...features },
       models: { base: { vision: 'x/haiku', video: 'x/video-model' } },
-      media: { maxOutputTokens: 120, cacheEntries: 5000, video: { ...VIDEO_CFG, ...video } },
-      context: { vision: { maxBytes: 1_500_000, fetchTimeoutMs: 10_000 } },
+      media: { maxOutputTokens: 120, video: { ...VIDEO_CFG, ...video } },
+      context: { vision: { fetchTimeoutMs: 10_000 } },
     },
     prompts: { describe: 'Describe this picture.', 'describe-video': VIDEO_PROMPT, ...prompts },
   };
@@ -869,7 +814,7 @@ function videoDescriber({
 }
 
 test('describeVideo: attachment is watched through a data URL with the video settings', async () => {
-  const { describer, llm, videoFetcher, state } = videoDescriber();
+  const { describer, llm, videoFetcher } = videoDescriber();
   const result = await describer.describeVideo('g1', videoAttachment());
 
   assert.equal(result.state, 'watched');
@@ -878,8 +823,8 @@ test('describeVideo: attachment is watched through a data URL with the video set
   assert.equal(videoFetcher.calls[0].fn, 'fetchAttachment');
   assert.deepEqual(videoFetcher.calls[0].options, {
     durationSec: 12,
-    maxSeconds: 60,
-    maxBytes: 8_000_000,
+    maxSeconds: 300,
+    maxBytes: 14_500_000,
     toolTimeoutMs: 60_000,
     ffmpegPath: 'ffmpeg-test',
     audioMap: AUDIO_MAP_ON,
@@ -901,7 +846,6 @@ test('describeVideo: attachment is watched through a data URL with the video set
   assert.equal(options.provider, undefined, 'a downloaded clip does not pin the provider');
   assert.equal(options.skipCalibration, true, 'a video request must never feed the text calibration');
   assert.equal(options.countAgainstDailyCap, true);
-  assert.equal(state.data.videoCount, 1);
 });
 
 test('describeVideo: the video model is models.base.video; the deprecated media.video.model is ignored', async () => {
@@ -960,8 +904,8 @@ test('describeVideo: a non-direct site downloads a clip; the raw URL never reach
   assert.deepEqual(videoFetcher.calls[1].options, {
     ytdlpPath: 'yt-dlp-test',
     ffmpegPath: 'ffmpeg-test',
-    maxSeconds: 60,
-    maxBytes: 8_000_000,
+    maxSeconds: 300,
+    maxBytes: 14_500_000,
     toolTimeoutMs: 60_000,
     durationSec: 30,
     proxy: null,
@@ -976,7 +920,7 @@ test('describeVideo: a non-direct site downloads a clip; the raw URL never reach
 });
 
 test('describeVideo: a direct-URL site longer than maxSeconds (or of unknown length) is clipped instead', async () => {
-  for (const durationSec of [600, null]) {
+  for (const durationSec of [4000, null]) {
     const videoFetcher = fakeVideoFetcher({ probe: { ok: true, durationSec, title: null } });
     const { describer, llm } = videoDescriber({ videoFetcher });
     const result = await describer.describeVideo('g1', videoLink());
@@ -991,7 +935,7 @@ test('describeVideo: a direct-URL site longer than maxSeconds (or of unknown len
 });
 
 test('describeVideo: a cache hit is free and marked cached', async () => {
-  const { describer, llm, videoFetcher, state } = videoDescriber();
+  const { describer, llm, videoFetcher } = videoDescriber();
   await describer.describeVideo('g1', videoAttachment());
   const again = await describer.describeVideo('g1', videoAttachment());
 
@@ -1005,13 +949,12 @@ test('describeVideo: a cache hit is free and marked cached', async () => {
   });
   assert.equal(llm.calls.length, 1);
   assert.equal(videoFetcher.calls.length, 1);
-  assert.equal(state.data.videoCount, 1);
 });
 
 test('describeVideo: an attachment size failure is a permanent limit, never retried', async () => {
   let t = 1_000_000;
   const videoFetcher = fakeVideoFetcher({ attachment: { ok: false, reason: 'size' } });
-  const { describer, llm, store, state } = videoDescriber({ videoFetcher, now: () => t });
+  const { describer, llm, store } = videoDescriber({ videoFetcher, now: () => t });
 
   assert.deepEqual(await describer.describeVideo('g1', videoAttachment()), { state: 'limit', reason: 'size' });
   t += 30 * 24 * 60 * 60_000;
@@ -1020,7 +963,6 @@ test('describeVideo: an attachment size failure is a permanent limit, never retr
   assert.equal(videoFetcher.calls.length, 1, 'the permanent miss is served from the cache');
   assert.equal(llm.calls.length, 0);
   assert.equal(store.getMediaCache('g1')['video:v1'].reason, 'size');
-  assert.equal(state.data.videoCount, 1, 'the attempt reserved its daily slot, which it keeps');
 });
 
 test('describeVideo: a download/tool/timeout failure is an error miss, retried after an hour', async () => {
@@ -1087,7 +1029,7 @@ test('describeVideo: force retries an error miss at once and logs forced: true',
     await fetchAttachment(url, options);
     return attachment;
   };
-  const { describer, llm, state } = videoDescriber({ videoFetcher, now: () => t });
+  const { describer, llm } = videoDescriber({ videoFetcher, now: () => t });
 
   assert.deepEqual(await describer.describeVideo('g1', videoAttachment()), { state: 'error' });
   t += 60_000;
@@ -1100,7 +1042,6 @@ test('describeVideo: force retries an error miss at once and logs forced: true',
   assert.equal(result.text, 'someone dances');
   assert.equal(videoFetcher.calls.length, 2);
   assert.equal(llm.calls.length, 1);
-  assert.equal(state.data.videoCount, 2, 'the forced attempt takes a daily slot like any other');
   const line = logs.find((l) => l.msg === 'describe: video');
   assert.equal(line.forced, true);
   assert.equal(line.cached, false);
@@ -1125,20 +1066,7 @@ test('describeVideo: force still honours a limit miss and a watched entry', asyn
   assert.equal(watched.llm.calls.length, 1);
 });
 
-test('describeVideo: force keeps the daily cap', async () => {
-  const hot = videoHot();
-  hot.config.media.video.maxPerDay = 1;
-  const videoFetcher = fakeVideoFetcher({ attachment: { ok: false, reason: 'download' } });
-  const { describer } = videoDescriber({ hot, videoFetcher });
-  assert.deepEqual(await describer.describeVideo('g1', videoAttachment()), { state: 'error' });
-  assert.deepEqual(await describer.describeVideo('g1', videoAttachment(), { force: true }), {
-    state: 'limit',
-    reason: 'daily',
-  });
-  assert.equal(videoFetcher.calls.length, 1);
-});
-
-test('describeVideo: a public-URL part carries media.video.urlProcessing; a data: URL part never does', async () => {
+test('describeVideo: a public-URL part carries the agentic processing; a data: URL part never does', async () => {
   const pinned = videoDescriber();
   await pinned.describer.describeVideo('g1', videoLink());
   assert.deepEqual(pinned.llm.calls[0].messages[1].content, [
@@ -1153,30 +1081,12 @@ test('describeVideo: a public-URL part carries media.video.urlProcessing; a data
   assert.deepEqual(clipped.llm.calls[0].messages[1].content, [
     { type: 'video_url', video_url: { url: CLIP_DATA_URL } },
   ]);
-
-  const custom = videoDescriber({ hot: videoHot({ video: { urlProcessing: 'frames' } }) });
-  await custom.describer.describeVideo('g1', videoLink());
-  assert.equal(custom.llm.calls[0].messages[1].content[0].video_url.processing, 'frames');
-
-  const hot = videoHot({ video: { urlProcessing: null } });
-  const off = videoDescriber({ hot });
-  await off.describer.describeVideo('g1', videoLink());
-  assert.equal('processing' in off.llm.calls[0].messages[1].content[0].video_url, false, 'null omits the field');
 });
 
-test('describeVideo: without urlProcessing a public URL goes out in the mode config.json ships (code fallback = shipped value)', async () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
-  const { describer, llm } = videoDescriber({ hot: videoHot({ video: { urlProcessing: undefined } }) });
-  assert.equal((await describer.describeVideo('g1', videoLink())).state, 'watched');
-  const part = llm.calls[0].messages[1].content[0].video_url;
-  assert.equal(part.url, 'https://www.youtube.com/watch?v=abc', 'the pinned public URL');
-  assert.equal(part.processing, shipped.media.video.urlProcessing);
-});
-
-test('describeVideo: the request body carries media.video.reasoning (shipped default) through the real client; a non-object omits it', async () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
-  const run = async (reasoning) => {
-    const hot = videoHot({ video: { reasoning } });
+// PR 7d: `media.video.reasoning` is the describer's constant, so the body always carries it.
+test('describeVideo: the request body carries the video reasoning through the real client', async () => {
+  const run = async () => {
+    const hot = videoHot();
     hot.config.llm = {
       baseUrl: 'https://openrouter.test/api/v1',
       temperature: 1,
@@ -1205,9 +1115,7 @@ test('describeVideo: the request body carries media.video.reasoning (shipped def
     assert.equal((await describer.describeVideo('g1', videoAttachment())).state, 'watched');
     return bodies[0];
   };
-  assert.deepEqual((await run(shipped.media.video.reasoning)).reasoning, { effort: 'low' });
-  assert.equal('reasoning' in (await run(null)), false);
-  assert.equal('reasoning' in (await run('off')), false);
+  assert.deepEqual((await run()).reasoning, { effort: 'low' });
 });
 
 test('describeVideo: a forced retry and a re-watch pass media.video.reasoning too', async () => {
@@ -1243,7 +1151,7 @@ test('describeVideo: an LLM error (the token rail included) is an error miss', a
 });
 
 test('describeVideo: a refusal by the daily request cap caches no miss, so the video is watched after the reset', async () => {
-  const { describer, store, videoFetcher, state } = videoDescriber({
+  const { describer, store, videoFetcher } = videoDescriber({
     llm: fakeLlm([new DailyCapError('day'), { text: 'someone dances' }]),
   });
   const { result, logs } = await withCapturedLogs(() => describer.describeVideo('g1', videoAttachment()));
@@ -1253,13 +1161,12 @@ test('describeVideo: a refusal by the daily request cap caches no miss, so the v
   assert.equal(line.state, 'skipped');
   assert.equal(line.reason, 'daily-cap');
   assert.equal(videoFetcher.calls.length, 1);
-  assert.equal(state.data.videoCount, 1, 'the slot reserved before the fetch is kept');
   assert.equal((await describer.describeVideo('g1', videoAttachment())).state, 'watched');
 });
 
-test('describeVideo: with the daily request cap spent nothing is fetched, no video slot is taken, nothing is cached', async () => {
+test('describeVideo: with the daily request cap spent nothing is fetched, nothing is cached', async () => {
   const llm = cappedLlm(0);
-  const { describer, store, videoFetcher, state } = videoDescriber({ llm });
+  const { describer, store, videoFetcher } = videoDescriber({ llm });
   const { result, logs } = await withCapturedLogs(() =>
     describer.describeVideos('g1', [videoAttachment('v1'), videoLink()], { maxNew: 1 })
   );
@@ -1267,46 +1174,17 @@ test('describeVideo: with the daily request cap spent nothing is fetched, no vid
   assert.equal(result.newCount, 0, 'the spent cap is no attempt');
   assert.equal(videoFetcher.calls.length, 0);
   assert.equal(llm.calls.length, 0);
-  assert.equal(state.data.videoCount, undefined);
   assert.deepEqual(Object.keys(store.getMediaCache('g1')), []);
   assert.ok(
     logs.filter((l) => l.msg === 'describe: video').every((l) => l.state === 'skipped' && l.reason === 'daily-cap')
   );
 });
 
-test('rewatchVideo: with the daily request cap spent nothing is fetched and neither slot is taken', async () => {
+test('rewatchVideo: with the daily request cap spent nothing is fetched', async () => {
   const llm = cappedLlm(0);
-  const { describer, videoFetcher, state } = videoDescriber({ hot: rewatchHot(), llm });
+  const { describer, videoFetcher } = videoDescriber({ hot: rewatchHot(), llm });
   assert.equal(await describer.rewatchVideo('g1', videoAttachment(), 'τι χρώμα;'), null);
   assert.equal(videoFetcher.calls.length, 0);
-  assert.equal(state.data.rewatchCount, undefined);
-  assert.equal(state.data.videoCount, undefined);
-});
-
-test('videoCapsLeft: the video, re-watch and GIF watch slots left today, read only, the whole caps back after 00:00 UTC', async () => {
-  const now = clock(Date.parse('2026-09-23T23:59:00Z'));
-  const state = fakeState({
-    videoDay: '2026-09-23',
-    videoCount: 3,
-    rewatchDay: '2026-09-23',
-    rewatchCount: 2,
-    gifWatchDay: '2026-09-23',
-    gifWatchCount: 1,
-  });
-  const hot = rewatchHot({ video: { maxPerDay: 5 }, rewatch: { maxPerDay: 4 } });
-  hot.config.media.gif = { maxPerDay: 7 };
-  const { describer } = videoDescriber({ hot, state, now });
-  const before = structuredClone(state.data);
-  assert.deepEqual(describer.videoCapsLeft(), { video: 2, rewatch: 2, gif: 6 });
-  now.advance(2 * 60_000);
-  assert.deepEqual(describer.videoCapsLeft(), { video: 5, rewatch: 4, gif: 7 });
-  assert.deepEqual(state.data, before, 'never rolled over or written');
-  assert.equal(state.dirtyCount, 0);
-
-  const unlimitedHot = rewatchHot({ video: { maxPerDay: null }, rewatch: { maxPerDay: null } });
-  unlimitedHot.config.media.gif = { maxPerDay: 3 };
-  const unlimited = videoDescriber({ hot: unlimitedHot });
-  assert.deepEqual(unlimited.describer.videoCapsLeft(), { video: Infinity, rewatch: Infinity, gif: 3 });
 });
 
 test('videoStateFromCache: watched, a permanent limit, or null -- a length miss that fits the cap now is no limit', () => {
@@ -1358,32 +1236,8 @@ test('videoStateFromCache: watched, a permanent limit, or null -- a length miss 
   });
 });
 
-test('describeVideo: the daily cap returns daily without a request and without caching', async () => {
-  const now = () => Date.parse('2026-09-23T12:00:00Z');
-  const state = fakeState({ videoDay: '2026-09-23', videoCount: 40 });
-  const { describer, llm, videoFetcher, store } = videoDescriber({ state, now });
-
-  assert.deepEqual(await describer.describeVideo('g1', videoAttachment()), { state: 'limit', reason: 'daily' });
-  assert.equal(llm.calls.length, 0);
-  assert.equal(videoFetcher.calls.length, 0);
-  assert.equal(store.getMediaCache('g1')['video:v1'], undefined);
-  assert.equal(state.data.videoCount, 40);
-});
-
-test('describeVideo: the daily counter resets on a new day and counts only sent requests', async () => {
-  const now = () => Date.parse('2026-09-24T00:30:00Z');
-  const state = fakeState({ videoDay: '2026-09-23', videoCount: 40 });
-  const { describer } = videoDescriber({ state, now });
-
-  assert.equal((await describer.describeVideo('g1', videoAttachment())).state, 'watched');
-  assert.equal(state.data.videoDay, '2026-09-24');
-  assert.equal(state.data.videoCount, 1);
-  assert.ok(state.dirtyCount > 0);
-});
-
-test('describeVideo: feature off, missing prompt or a non-video item -> null without any request', async () => {
+test('describeVideo: a missing prompt or a non-video item -> null without any request', async () => {
   const cases = [
-    { hot: videoHot({ features: { videoDescriptions: false } }), item: videoAttachment() },
     { hot: videoHot({ prompts: { 'describe-video': undefined } }), item: videoAttachment() },
     { hot: videoHot(), item: pictureItem('a1') },
   ];
@@ -1395,17 +1249,15 @@ test('describeVideo: feature off, missing prompt or a non-video item -> null wit
   }
 });
 
-test('describeVideo: the text is collapsed to one line and capped at 600 chars on a word boundary', async () => {
-  const long = `  Première   scène\n\nκάποιος χορεύει\t${'mot '.repeat(300)}`;
-  const { describer } = videoDescriber({
-    hot: videoHot({ video: { summaryChars: 600 } }),
-    llm: fakeLlm({ text: long }),
-  });
+// PR 7d: `media.video.summaryChars` is the describer's constant, 1500.
+test('describeVideo: the text is collapsed to one line and capped at 1500 chars on a word boundary', async () => {
+  const long = `  Première   scène\n\nκάποιος χορεύει\t${'mot '.repeat(600)}`;
+  const { describer } = videoDescriber({ llm: fakeLlm({ text: long }) });
   const { text } = await describer.describeVideo('g1', videoAttachment());
 
   assert.ok(text.startsWith('Première scène κάποιος χορεύει mot'));
   assert.ok(!/\s{2,}|[\n\t]/.test(text));
-  assert.ok([...text].length <= 600);
+  assert.ok([...text].length <= 1500);
   assert.ok(text.endsWith('mot'), 'cut at a word boundary');
 });
 
@@ -1521,45 +1373,6 @@ test('describeVideos: a failed fetch counts toward maxNew -- with maxNew 1 the n
   assert.ok(!videos.has('v2'));
 });
 
-test('describeVideo: mediaDescriptions off with videoDescriptions on -> null and no fetcher call', async () => {
-  const hot = videoHot({ features: { mediaDescriptions: false, videoDescriptions: true } });
-  const { describer, llm, videoFetcher } = videoDescriber({ hot });
-
-  assert.equal(await describer.describeVideo('g1', videoAttachment()), null);
-  assert.equal(videoFetcher.calls.length, 0);
-  assert.equal(llm.calls.length, 0);
-});
-
-test('describeVideo: the daily slot is reserved before the fetch -- two concurrent new videos at cap-1 fetch once', async () => {
-  const now = () => Date.parse('2026-09-23T12:00:00Z');
-  const state = fakeState({ videoDay: '2026-09-23', videoCount: 39 });
-  const { describer, llm, videoFetcher } = videoDescriber({ state, now });
-
-  const [a, b] = await Promise.all([
-    describer.describeVideo('g1', videoAttachment('v1')),
-    describer.describeVideo('g1', videoAttachment('v2')),
-  ]);
-
-  assert.equal(a.state, 'watched');
-  assert.deepEqual(b, { state: 'limit', reason: 'daily' });
-  assert.equal(videoFetcher.calls.length, 1);
-  assert.equal(llm.calls.length, 1);
-  assert.equal(state.data.videoCount, 40);
-});
-
-test('describeVideo: a fetch that fails after the reservation keeps its daily slot', async () => {
-  const now = () => Date.parse('2026-09-23T12:00:00Z');
-  const state = fakeState({ videoDay: '2026-09-23', videoCount: 39 });
-  const videoFetcher = fakeVideoFetcher({ attachment: { ok: false, reason: 'download' } });
-  const { describer, llm } = videoDescriber({ state, now, videoFetcher });
-
-  assert.deepEqual(await describer.describeVideo('g1', videoAttachment('v1')), { state: 'error' });
-  assert.equal(state.data.videoCount, 40);
-  assert.deepEqual(await describer.describeVideo('g1', videoAttachment('v2')), { state: 'limit', reason: 'daily' });
-  assert.equal(videoFetcher.calls.length, 1);
-  assert.equal(llm.calls.length, 0);
-});
-
 test('describeVideo: without a usable provider object a direct-URL site is downloaded, never sent by public URL', async () => {
   for (const provider of [null, undefined, 'google-ai-studio', ['pinned']]) {
     const { describer, llm, videoFetcher } = videoDescriber({ hot: videoHot({ video: { provider } }) });
@@ -1646,27 +1459,6 @@ test('describeVideo: every probe failed and directUrlUnknownDuration off (or not
   }
 });
 
-test('describeVideo: every probe failed and directUrlUnknownDuration on -> the URL goes out pinned with videoSeconds = maxSeconds', async () => {
-  const videoFetcher = fakeVideoFetcher({ probe: PROBE_FAILED });
-  const { describer, llm } = videoDescriber({
-    videoFetcher,
-    hot: videoHot({ video: { directUrlUnknownDuration: true } }),
-  });
-
-  const result = await describer.describeVideo('g1', videoLink());
-
-  assert.equal(result.state, 'watched');
-  assert.deepEqual(
-    videoFetcher.calls.map((c) => c.fn),
-    ['probeSite', 'probeYoutube']
-  );
-  assert.deepEqual(llm.calls[0].messages[1].content, [
-    { type: 'video_url', video_url: { url: 'https://www.youtube.com/watch?v=abc', processing: 'agentic' } },
-  ]);
-  assert.deepEqual(llm.calls[0].options.provider, VIDEO_CFG.provider);
-  assert.equal(llm.calls[0].options.videoSeconds, 60);
-});
-
 test('describeVideo: directUrlUnknownDuration never sends a non-direct site or an unpinned URL', async () => {
   const on = videoHot({ video: { directUrlUnknownDuration: true } });
   const first = videoDescriber({ videoFetcher: fakeVideoFetcher({ probe: PROBE_FAILED }), hot: on });
@@ -1684,9 +1476,10 @@ test('describeVideo: directUrlUnknownDuration never sends a non-direct site or a
 });
 
 test('describeVideo: longer than maxSeconds and the clip fails -> a permanent length limit, never retried', async () => {
+  // PR 7d: a YouTube link is sent as a URL up to the constant 3600 s, so the long video here is longer than that.
   const setups = [
-    { probe: { ok: true, durationSec: 600, title: null } },
-    { probe: PROBE_FAILED, youtube: { ok: true, durationSec: 600 } },
+    { probe: { ok: true, durationSec: 4000, title: null } },
+    { probe: PROBE_FAILED, youtube: { ok: true, durationSec: 4000 } },
   ];
   for (const setup of setups) {
     for (const reason of ['download', 'tool', 'timeout', 'size']) {
@@ -1746,20 +1539,10 @@ test('describeVideo: a pinned YouTube link with a playlist goes out by its canon
   ]);
 });
 
-test('describeVideo: with an unknown duration a pinned YouTube link also goes out canonical', async () => {
-  const videoFetcher = fakeVideoFetcher({ probe: PROBE_FAILED });
-  const { describer, llm } = videoDescriber({
-    videoFetcher,
-    hot: videoHot({ video: { directUrlUnknownDuration: true } }),
-  });
-  const link = videoLink(undefined, { url: 'https://youtu.be/abc?list=PL1&t=9' });
-  assert.equal((await describer.describeVideo('g1', link)).state, 'watched');
-  assert.equal(llm.calls[0].messages[1].content[0].video_url.url, 'https://www.youtube.com/watch?v=abc');
-});
-
-test('describeVideo: a 120 s non-direct link whose clip fails stores a length miss with durationSec 120', async () => {
+// PR 7d: a clip is at most the constant 300 s, so the link here is 400 s long.
+test('describeVideo: a 400 s non-direct link whose clip fails stores a length miss with durationSec 400', async () => {
   const videoFetcher = fakeVideoFetcher({
-    probe: { ok: true, durationSec: 120, title: null },
+    probe: { ok: true, durationSec: 400, title: null },
     clip: { ok: false, reason: 'download' },
   });
   const { describer, store } = videoDescriber({ videoFetcher, now: () => 7_000 });
@@ -1769,26 +1552,22 @@ test('describeVideo: a 120 s non-direct link whose clip fails stores a length mi
     miss: true,
     ts: 7_000,
     reason: 'length',
-    durationSec: 120,
+    durationSec: 400,
   });
   // Still over maxSeconds for a non-direct site: served from the cache, no new fetch.
   assert.deepEqual(await describer.describeVideo('g1', item), { state: 'limit', reason: 'length' });
   assert.equal(videoFetcher.calls.length, 2);
 });
 
-test('describeVideo: a cached length miss is re-read against the live caps (maxSeconds raised for a non-direct site)', async () => {
-  const hot = videoHot();
-  const { describer, store, videoFetcher } = videoDescriber({ hot });
+// PR 7d: the caps are constants (300 s for a clip), so a miss stored under a lower cap is the case that is re-read.
+test('describeVideo: a cached length miss is re-read against the caps of today (300 s for a non-direct site)', async () => {
+  const { describer, store, videoFetcher } = videoDescriber();
   const item = videoLink('video:url:bbbbbbbbbbbbbbbb', TIKTOK);
-  store.getMediaCache('g1')['video:video:url:bbbbbbbbbbbbbbbb'] = {
-    miss: true,
-    ts: 1,
-    reason: 'length',
-    durationSec: 120,
-  };
+  const miss = (durationSec) => ({ miss: true, ts: 1, reason: 'length', durationSec });
+  store.getMediaCache('g1')['video:video:url:bbbbbbbbbbbbbbbb'] = miss(400);
   assert.deepEqual(await describer.describeVideo('g1', item), { state: 'limit', reason: 'length' });
   assert.equal(videoFetcher.calls.length, 0);
-  hot.config.media.video.maxSeconds = 120;
+  store.getMediaCache('g1')['video:video:url:bbbbbbbbbbbbbbbb'] = miss(120);
   assert.equal((await describer.describeVideo('g1', item)).state, 'watched');
   assert.equal(videoFetcher.calls.length, 2);
 });
@@ -1806,34 +1585,13 @@ test('describeVideo: every video request carries media.video.maxRequestTokens as
   assert.equal(clip.llm.calls[0].options.maxRequestTokens, 60_000, 'a downloaded clip too');
 });
 
-test('describeVideo: a 180 s direct-URL video passes the video cap through the real client, while the 50 000 global cap alone would refuse it', async () => {
+// PR 7d: the rates are constants (10 tokens a second for an agentic URL), so the global cap is set low enough for a
+// 3000 s link to pass the video cap of 60 000 and fail the global one of 30 000.
+test('describeVideo: a 3000 s direct-URL video passes the video cap through the real client, while the 30 000 global cap alone would refuse it', async () => {
   const hot = videoHot();
-  hot.config.media.video.tokensPerSecond = 300;
-  hot.config.llm = {
-    baseUrl: 'https://openrouter.test/api/v1',
-    temperature: 1,
-    maxOutputTokens: 100,
-    maxRequestTokens: 50_000,
-    maxRequestsPerDay: 300,
-    timeoutMs: 5_000,
-    retries: 0,
-  };
-  const bodies = [];
-  const llm = createLlm({
-    apiKey: 'k',
-    getConfig: () => hot.config,
-    calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
-    state: { data: {}, markDirty() {} },
-    fetchImpl: async (url, init) => {
-      bodies.push(JSON.parse(init.body));
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ choices: [{ message: { content: 'someone dances' } }], usage: {} }),
-      };
-    },
-  });
-  const videoFetcher = fakeVideoFetcher({ probe: { ok: true, durationSec: 180, title: null } });
+  const { llm, bodies } = realVideoLlm(hot);
+  hot.config.llm.maxRequestTokens = 30_000;
+  const videoFetcher = fakeVideoFetcher({ probe: { ok: true, durationSec: 3000, title: null } });
   const { describer } = videoDescriber({ hot, llm, videoFetcher });
 
   assert.equal((await describer.describeVideo('g1', videoLink())).state, 'watched');
@@ -1844,12 +1602,11 @@ test('describeVideo: a 180 s direct-URL video passes the video cap through the r
     { role: 'user', content: [{ type: 'video_url', video_url: { url: 'https://www.youtube.com/watch?v=abc' } }] },
   ];
   await assert.rejects(
-    llm.complete(messages, { videoSeconds: 180, skipCalibration: true }),
+    llm.complete(messages, { videoSeconds: 3000, videoTokensPerSecond: 10, skipCalibration: true }),
     (err) => err instanceof TokenLimitError
   );
   assert.equal(bodies.length, 1, 'the refused request never left the process');
 });
-
 test('describeVideo: a cached length miss with durationSec null or absent (an older entry) is retried', async () => {
   for (const extra of [{ durationSec: null }, {}]) {
     const videoFetcher = fakeVideoFetcher({ probe: { ok: true, durationSec: 120, title: null } });
@@ -1867,19 +1624,10 @@ test('describeVideo: a cached length miss with durationSec null or absent (an ol
 
 // --- directUrlTokensPerSecond: the estimate of an agentic public-URL request ---
 
-// The shipped long-video settings on top of the test defaults.
-const LONG_URL_VIDEO = {
-  directUrlMaxSeconds: 3600,
-  directUrlTokensPerSecond: 10,
-  tokensPerSecond: 300,
-  urlProcessing: 'agentic',
-};
-
 /** A real client (fake fetch) over `hot`, recording every request body that left the process. */
 function realVideoLlm(hot) {
   hot.config.llm = {
     baseUrl: 'https://openrouter.test/api/v1',
-    temperature: 1,
     maxOutputTokens: 100,
     maxRequestTokens: 50_000,
     maxRequestsPerDay: 300,
@@ -1905,7 +1653,7 @@ function realVideoLlm(hot) {
 }
 
 test('describeVideo: a pinned agentic link of 3289 s goes out by URL, estimated at directUrlTokensPerSecond under maxRequestTokens', async () => {
-  const hot = videoHot({ video: LONG_URL_VIDEO });
+  const hot = videoHot();
   const { llm, bodies } = realVideoLlm(hot);
   const videoFetcher = fakeVideoFetcher({ probe: { ok: true, durationSec: 3289, title: null } });
   const { describer } = videoDescriber({ hot, llm, videoFetcher });
@@ -1925,151 +1673,44 @@ test('describeVideo: a pinned agentic link of 3289 s goes out by URL, estimated 
   assert.deepEqual(bodies[0].provider, VIDEO_CFG.provider);
 });
 
-test('describeVideo: a pinnable 3289 s link with another or no processing mode takes the clip route at tokensPerSecond', async () => {
-  for (const urlProcessing of ['static', 'frames', null, '']) {
-    const hot = videoHot({ video: { ...LONG_URL_VIDEO, urlProcessing } });
-    const { llm, bodies } = realVideoLlm(hot);
-    const videoFetcher = fakeVideoFetcher({ probe: { ok: true, durationSec: 3289, title: null } });
-    const { describer } = videoDescriber({ hot, llm, videoFetcher });
-
-    const result = await describer.describeVideo('g1', videoLink());
-    assert.equal(result.state, 'watched', String(urlProcessing));
-    assert.ok(result.estimated >= 60 * 300, `${String(urlProcessing)}: ${result.estimated}`);
-    assert.deepEqual(
-      videoFetcher.calls.map((c) => c.fn),
-      ['probeSite', 'fetchSiteClip']
-    );
-    assert.equal(bodies.length, 1);
-    assert.deepEqual(bodies[0].messages[1].content, [{ type: 'video_url', video_url: { url: CLIP_DATA_URL } }]);
-    assert.equal(bodies[0].provider, undefined);
-
-    const fake = videoDescriber({
-      hot: videoHot({ video: { ...LONG_URL_VIDEO, urlProcessing } }),
-      videoFetcher: fakeVideoFetcher({ probe: { ok: true, durationSec: 3289, title: null } }),
-    });
-    await fake.describer.describeVideo('g1', videoLink());
-    assert.equal(fake.llm.calls[0].options.videoTokensPerSecond, undefined, String(urlProcessing));
-  }
-});
-
-/** Which route a pinnable link of `durationSec` takes under `video`: 'url' (sent pinned) or 'clip'. */
-async function linkRoute(video, durationSec, hotPatch = (hot) => hot) {
+/** Which route a pinnable link of `durationSec` takes: 'url' (sent pinned) or 'clip'. */
+async function linkRoute(durationSec) {
   const videoFetcher = fakeVideoFetcher({ probe: { ok: true, durationSec, title: null } });
-  const { describer, llm } = videoDescriber({ hot: hotPatch(videoHot({ video })), videoFetcher });
+  const { describer, llm } = videoDescriber({ videoFetcher });
   await describer.describeVideo('g1', videoLink());
   const pinned = llm.calls[0].messages[1].content[0].video_url.url === 'https://www.youtube.com/watch?v=abc';
   return pinned ? 'url' : 'clip';
 }
 
-test('describeVideo: a non-agentic pinnable link is capped at min(directUrlMaxSeconds, floor(maxRequestTokens / tokensPerSecond))', async () => {
-  for (const urlProcessing of ['static', null]) {
-    const video = { ...LONG_URL_VIDEO, urlProcessing };
-    assert.equal(await linkRoute(video, 200), 'url', `${urlProcessing}: 60000 / 300 = 200 s`);
-    assert.equal(await linkRoute(video, 201), 'clip', String(urlProcessing));
-    assert.equal(await linkRoute({ ...video, tokensPerSecond: 400 }, 150), 'url');
-    assert.equal(await linkRoute({ ...video, tokensPerSecond: 400 }, 151), 'clip');
-    assert.equal(
-      await linkRoute({ ...video, directUrlMaxSeconds: 120 }, 120),
-      'url',
-      'directUrlMaxSeconds is the smaller one'
-    );
-    assert.equal(await linkRoute({ ...video, directUrlMaxSeconds: 120 }, 121), 'clip');
-  }
-});
-
 test('describeVideo: an agentic pinnable link is capped at directUrlMaxSeconds alone', async () => {
-  assert.equal(await linkRoute(LONG_URL_VIDEO, 3600), 'url');
-  assert.equal(await linkRoute(LONG_URL_VIDEO, 3601), 'clip');
-  assert.equal(
-    await linkRoute({ ...LONG_URL_VIDEO, urlProcessing: undefined }, 3600),
-    'url',
-    'a missing mode resolves to agentic'
-  );
+  assert.equal(await linkRoute(3600), 'url');
+  assert.equal(await linkRoute(3601), 'clip');
 });
 
-test('describeVideo: the non-agentic cap falls back like the client for missing token settings', async () => {
-  const video = { ...LONG_URL_VIDEO, urlProcessing: 'static' };
-  // tokensPerSecond missing -> the fallback src/llm/openrouter.js exports: 60000 tokens / that rate.
-  const fallbackSeconds = Math.floor(VIDEO_CFG.maxRequestTokens / VIDEO_TOKENS_PER_SECOND_FALLBACK);
-  assert.equal(await linkRoute({ ...video, tokensPerSecond: undefined }, fallbackSeconds), 'url');
-  assert.equal(await linkRoute({ ...video, tokensPerSecond: undefined }, fallbackSeconds + 1), 'clip');
-  // media.video.maxRequestTokens missing -> the global llm.maxRequestTokens the client then applies.
-  const withGlobal = (hot) => {
-    hot.config.llm = { maxRequestTokens: 30_000 };
-    return hot;
-  };
-  assert.equal(await linkRoute({ ...video, maxRequestTokens: undefined }, 100, withGlobal), 'url');
-  assert.equal(await linkRoute({ ...video, maxRequestTokens: undefined }, 101, withGlobal), 'clip');
-  // No token cap known at all -> directUrlMaxSeconds alone; no directUrlMaxSeconds -> maxSeconds.
-  assert.equal(await linkRoute({ ...video, maxRequestTokens: undefined }, 3600), 'url');
-  assert.equal(await linkRoute({ ...video, maxRequestTokens: undefined, directUrlMaxSeconds: undefined }, 60), 'url');
-  assert.equal(await linkRoute({ ...video, maxRequestTokens: undefined, directUrlMaxSeconds: undefined }, 61), 'clip');
-});
-
-test('describeVideo: a cached length miss is re-read against the mode-dependent cap', async () => {
-  const hot = videoHot({ video: { ...LONG_URL_VIDEO, urlProcessing: 'static' } });
-  const videoFetcher = fakeVideoFetcher({ probe: { ok: true, durationSec: 570, title: null } });
-  const { describer, store, llm } = videoDescriber({ hot, videoFetcher });
-  store.getMediaCache('g1')[LINK_KEY] = { miss: true, ts: 1, reason: 'length', durationSec: 570 };
-
-  assert.deepEqual(await describer.describeVideo('g1', videoLink()), { state: 'limit', reason: 'length' });
-  assert.equal(videoFetcher.calls.length, 0, 'over the 200 s static cap: served from the cache');
-
-  hot.config.media.video.urlProcessing = 'agentic';
-  assert.equal((await describer.describeVideo('g1', videoLink())).state, 'watched');
-  assert.deepEqual(
-    videoFetcher.calls.map((c) => c.fn),
-    ['probeSite']
-  );
-  assert.equal(llm.calls[0].messages[1].content[0].video_url.url, 'https://www.youtube.com/watch?v=abc');
-});
-
+// PR 7d: `media.video.tokensPerSecond` is the constant 120.
 test('describeVideo: a data-URL clip is still estimated at tokensPerSecond', async () => {
-  const hot = videoHot({ video: LONG_URL_VIDEO });
+  const hot = videoHot();
   const { llm, bodies } = realVideoLlm(hot);
   const { describer } = videoDescriber({ hot, llm });
   const watched = await describer.describeVideo('g1', videoAttachment());
   assert.equal(watched.state, 'watched');
-  assert.ok(watched.estimated >= 12 * 300, String(watched.estimated));
+  assert.ok(watched.estimated >= 12 * 120, String(watched.estimated));
   assert.equal(bodies.length, 1);
 
-  const attachment = videoDescriber({ hot: videoHot({ video: LONG_URL_VIDEO }) });
+  const attachment = videoDescriber();
   await attachment.describer.describeVideo('g1', videoAttachment());
   assert.equal(attachment.llm.calls[0].options.videoTokensPerSecond, undefined);
 
-  const siteClip = videoDescriber({ hot: videoHot({ video: LONG_URL_VIDEO }) });
+  const siteClip = videoDescriber();
   await siteClip.describer.describeVideo('g1', videoLink('video:url:bbbbbbbbbbbbbbbb', TIKTOK));
   assert.equal(siteClip.llm.calls[0].messages[1].content[0].video_url.url, CLIP_DATA_URL);
   assert.equal(siteClip.llm.calls[0].options.videoTokensPerSecond, undefined);
 });
 
-test('describeVideo: a missing or invalid directUrlTokensPerSecond falls back to tokensPerSecond', async () => {
-  for (const directUrlTokensPerSecond of [undefined, null, 0, -5, NaN, Infinity, '10', {}]) {
-    const label = String(directUrlTokensPerSecond);
-    const fake = videoDescriber({
-      hot: videoHot({ video: { ...LONG_URL_VIDEO, directUrlTokensPerSecond } }),
-      videoFetcher: fakeVideoFetcher({ probe: { ok: true, durationSec: 120, title: null } }),
-    });
-    await fake.describer.describeVideo('g1', videoLink());
-    assert.equal(fake.llm.calls[0].options.videoTokensPerSecond, undefined, label);
-
-    const hot = videoHot({ video: { ...LONG_URL_VIDEO, directUrlTokensPerSecond } });
-    const { llm, bodies } = realVideoLlm(hot);
-    const { describer } = videoDescriber({
-      hot,
-      llm,
-      videoFetcher: fakeVideoFetcher({ probe: { ok: true, durationSec: 120, title: null } }),
-    });
-    const result = await describer.describeVideo('g1', videoLink());
-    assert.ok(result.estimated >= 120 * 300, `${label}: ${result.estimated}`);
-    assert.equal(bodies.length, 1, label);
-  }
-});
-
 test('describeVideo: cached length misses of 2719 s and 570 s pinned links are retried under the 3600 s cap, not served', async () => {
   for (const durationSec of [2719, 570]) {
     const videoFetcher = fakeVideoFetcher({ probe: { ok: true, durationSec, title: null } });
-    const { describer, store, llm } = videoDescriber({ hot: videoHot({ video: LONG_URL_VIDEO }), videoFetcher });
+    const { describer, store, llm } = videoDescriber({ videoFetcher });
     store.getMediaCache('g1')[LINK_KEY] = { miss: true, ts: 1, reason: 'length', durationSec };
 
     const result = await describer.describeVideo('g1', videoLink());
@@ -2086,23 +1727,13 @@ test('describeVideo: cached length misses of 2719 s and 570 s pinned links are r
   }
 });
 
-test('describeVideo: config.json ships a direct-URL cap that, at the shipped agentic rate, stays within maxRequestTokens', async () => {
+// PR 7d: the direct-URL cap (3600 s) and its rate (10 tokens a second) are the describer's constants; the request cap
+// is still config.json's.
+test('describeVideo: the direct-URL cap at the agentic rate stays within the maxRequestTokens config.json ships', async () => {
   const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
   const prompt = fs.readFileSync(new URL('../prompts/describe-video.md', import.meta.url), 'utf8');
-  const video = shipped.media.video;
-  // Only the values under test come from config.json. What makes a link go out by its URL at the direct-URL
-  // rate is pinned, whatever config.json ships for it: agentic processing (the only mode that rate applies
-  // in) here, the pinned provider, the direct-URL sites and the daily rail by the test defaults (VIDEO_CFG).
-  const hot = videoHot({
-    video: {
-      urlProcessing: 'agentic',
-      directUrlMaxSeconds: video.directUrlMaxSeconds,
-      directUrlTokensPerSecond: video.directUrlTokensPerSecond,
-      tokensPerSecond: video.tokensPerSecond,
-      maxRequestTokens: video.maxRequestTokens,
-    },
-    prompts: { 'describe-video': prompt },
-  });
+  const { maxRequestTokens } = shipped.media.video;
+  const hot = videoHot({ video: { maxRequestTokens }, prompts: { 'describe-video': prompt } });
   const { llm: client, bodies } = realVideoLlm(hot);
   const options = [];
   const llm = {
@@ -2112,7 +1743,7 @@ test('describeVideo: config.json ships a direct-URL cap that, at the shipped age
       return client.complete(messages, opts);
     },
   };
-  const videoFetcher = fakeVideoFetcher({ probe: { ok: true, durationSec: video.directUrlMaxSeconds, title: null } });
+  const videoFetcher = fakeVideoFetcher({ probe: { ok: true, durationSec: 3600, title: null } });
   const { describer } = videoDescriber({ hot, llm, videoFetcher });
 
   const watched = await describer.describeVideo('g1', videoLink());
@@ -2125,47 +1756,33 @@ test('describeVideo: config.json ships a direct-URL cap that, at the shipped age
   );
   assert.equal(bodies.length, 1, 'the token rail let the request through');
   assert.equal(bodies[0].messages[1].content[0].video_url.url, videoLink().url, 'sent by its public URL');
-  assert.equal(options[0].videoSeconds, video.directUrlMaxSeconds);
-  assert.equal(
-    options[0].videoTokensPerSecond,
-    video.directUrlTokensPerSecond,
-    'src applies the shipped rate, not a fallback'
-  );
-  assert.ok(watched.estimated >= video.directUrlMaxSeconds * video.directUrlTokensPerSecond, String(watched.estimated));
-  assert.ok(watched.estimated < video.maxRequestTokens, String(watched.estimated));
+  assert.equal(options[0].videoSeconds, 3600);
+  assert.equal(options[0].videoTokensPerSecond, 10);
+  assert.ok(watched.estimated >= 3600 * 10, String(watched.estimated));
+  assert.ok(watched.estimated < maxRequestTokens, String(watched.estimated));
 });
-
-test('describeVideo: config.json ships clips whose base64 fits the inline request limit, estimated at the code-fallback rate', () => {
-  const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
-  const video = shipped.media.video;
-  // Base64 of the largest clip stays under the provider's ~20 MB inline request limit.
-  assert.ok(Math.ceil(video.maxBytes / 3) * 4 < 20_000_000);
-  // Data-URL clips keep the static estimate; a missing tokensPerSecond must mean the same rate.
-  assert.equal(video.tokensPerSecond, VIDEO_TOKENS_PER_SECOND_FALLBACK);
-});
-
-test('describeVideo: a shipped-length clip at the shipped rate plus the shipped prompt stays under media.video.maxRequestTokens', async () => {
+// PR 7d: the clip length (300 s) and its rate (120 tokens a second) are the describer's constants.
+test('describeVideo: a clip of the longest length at its rate plus the shipped prompt stays under media.video.maxRequestTokens', async () => {
   const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
   const prompt = fs.readFileSync(new URL('../prompts/describe-video.md', import.meta.url), 'utf8');
-  const video = shipped.media.video;
-  const hot = videoHot({ video, prompts: { 'describe-video': prompt } });
+  const { maxRequestTokens } = shipped.media.video;
+  const hot = videoHot({ video: { maxRequestTokens }, prompts: { 'describe-video': prompt } });
   const { llm, bodies } = realVideoLlm(hot);
   const videoFetcher = fakeVideoFetcher({
-    attachment: { ok: true, dataUrl: CLIP_DATA_URL, mimeType: 'video/mp4', seconds: video.maxSeconds, bytes: 4 },
+    attachment: { ok: true, dataUrl: CLIP_DATA_URL, mimeType: 'video/mp4', seconds: 300, bytes: 4 },
   });
   const { describer } = videoDescriber({ hot, llm, videoFetcher });
 
-  const watched = await describer.describeVideo('g1', videoAttachment('v1', { durationSec: video.maxSeconds }));
+  const watched = await describer.describeVideo('g1', videoAttachment('v1', { durationSec: 300 }));
 
   assert.equal(watched.state, 'watched');
   assert.equal(bodies.length, 1, 'the token rail let the request through');
-  assert.ok(watched.estimated >= video.maxSeconds * video.tokensPerSecond, String(watched.estimated));
-  assert.ok(watched.estimated < video.maxRequestTokens, String(watched.estimated));
+  assert.ok(watched.estimated >= 300 * 120, String(watched.estimated));
+  assert.ok(watched.estimated < maxRequestTokens, String(watched.estimated));
 });
-
 test('rewatchVideo: a pinned agentic link passes directUrlTokensPerSecond like a watch; a clip does not', async () => {
   const pinned = videoDescriber({
-    hot: rewatchHot({ video: LONG_URL_VIDEO }),
+    hot: rewatchHot(),
     videoFetcher: fakeVideoFetcher({ probe: { ok: true, durationSec: 3289, title: null } }),
     llm: fakeLlm({ text: 'rouge' }),
   });
@@ -2173,11 +1790,11 @@ test('rewatchVideo: a pinned agentic link passes directUrlTokensPerSecond like a
   assert.equal(pinned.llm.calls[0].options.videoSeconds, 3289);
   assert.equal(pinned.llm.calls[0].options.videoTokensPerSecond, 10);
 
-  const clip = videoDescriber({ hot: rewatchHot({ video: LONG_URL_VIDEO }), llm: fakeLlm({ text: 'rouge' }) });
+  const clip = videoDescriber({ hot: rewatchHot(), llm: fakeLlm({ text: 'rouge' }) });
   await clip.describer.rewatchVideo('g1', videoAttachment(), 'τι λέει;');
   assert.equal(clip.llm.calls[0].options.videoTokensPerSecond, undefined);
 
-  const hot = rewatchHot({ video: LONG_URL_VIDEO });
+  const hot = rewatchHot();
   const { llm, bodies } = realVideoLlm(hot);
   const real = videoDescriber({
     hot,
@@ -2190,27 +1807,25 @@ test('rewatchVideo: a pinned agentic link passes directUrlTokensPerSecond like a
 
 // --- account length: media.video.summaryChars ------------------------------
 
+// PR 7d: `media.video.summaryChars` is the describer's constant, 1500.
 test('describeVideo: the account is capped at media.video.summaryChars and {{maxChars}} is filled with it', async () => {
-  const hot = videoHot({
-    video: { summaryChars: 40 },
-    prompts: { 'describe-video': 'Summarise in at most {{maxChars}} characters.' },
-  });
-  const { describer, llm } = videoDescriber({ hot, llm: fakeLlm({ text: `Première scène ${'mot '.repeat(50)}` }) });
+  const hot = videoHot({ prompts: { 'describe-video': 'Summarise in at most {{maxChars}} characters.' } });
+  const { describer, llm } = videoDescriber({ hot, llm: fakeLlm({ text: `Première scène ${'mot '.repeat(500)}` }) });
   const { text } = await describer.describeVideo('g1', videoAttachment());
 
-  assert.ok([...text].length <= 40, text);
+  assert.ok([...text].length <= 1500, text);
   assert.ok(text.startsWith('Première scène mot'));
-  assert.equal(llm.calls[0].messages[0].content, 'Summarise in at most 40 characters.');
+  assert.equal(llm.calls[0].messages[0].content, 'Summarise in at most 1500 characters.');
 });
 
 // --- rewatchVideo: the second look on a question ---------------------------------
 
 const REWATCH_PROMPT = 'Question: {{question}}. At most {{maxChars}} characters.';
-const REWATCH_CFG = { model: null, maxPerDay: 20, maxOutputTokens: 600, answerChars: 1200, recentMessages: 15 };
+// PR 7d: the second look's daily cap is gone and its answer length (1200) is the describer's constant.
+const REWATCH_CFG = { maxOutputTokens: 600 };
 
-function rewatchHot({ features = {}, video = {}, rewatch = {}, prompts = {} } = {}) {
+function rewatchHot({ video = {}, rewatch = {}, prompts = {} } = {}) {
   return videoHot({
-    features,
     video: { rewatch: { ...REWATCH_CFG, ...rewatch }, ...video },
     prompts: { 'rewatch-answer': REWATCH_PROMPT, ...prompts },
   });
@@ -2227,11 +1842,9 @@ function clock(start = Date.parse('2026-09-23T12:00:00Z')) {
 
 test('rewatchVideo: one fetch and one video request with the question and answerChars filled', async () => {
   const now = clock();
-  const state = fakeState();
   const { describer, llm, videoFetcher, store } = videoDescriber({
     hot: rewatchHot(),
     llm: fakeLlm({ text: '  la voiture   est rouge ' }),
-    state,
     now,
   });
 
@@ -2254,8 +1867,6 @@ test('rewatchVideo: one fetch and one video request with the question and answer
   assert.equal(options.videoSeconds, 12);
   assert.equal(options.skipCalibration, true);
   assert.equal(options.countAgainstDailyCap, true);
-  assert.equal(state.data.rewatchCount, 1);
-  assert.equal(state.data.videoCount, 1);
   const keys = Object.keys(store.getMediaCache('g1')).filter((k) => k.startsWith('video:v1:q:'));
   assert.equal(keys.length, 1);
   assert.equal(store.getMediaCache('g1')[keys[0]].answer, 'la voiture est rouge');
@@ -2270,7 +1881,7 @@ test('rewatchVideo: the persisted answer key keeps its shape (lower-cased, colla
 
 test('rewatchVideo: the same question within an hour is free; after an hour it is asked again', async () => {
   const now = clock();
-  const { describer, llm, videoFetcher, state } = videoDescriber({
+  const { describer, llm, videoFetcher } = videoDescriber({
     hot: rewatchHot(),
     llm: fakeLlm({ text: 'rouge' }),
     now,
@@ -2282,7 +1893,6 @@ test('rewatchVideo: the same question within an hour is free; after an hour it i
   assert.equal(again.text, 'rouge');
   assert.equal(videoFetcher.calls.length, 1, 'a cached answer costs no fetch');
   assert.equal(llm.calls.length, 1);
-  assert.equal(state.data.rewatchCount, 1);
 
   now.advance(2 * 60_000);
   await describer.rewatchVideo('g1', videoAttachment(), 'Quelle couleur ?');
@@ -2303,42 +1913,8 @@ test('rewatchVideo: a failure is not cached -- the next call fetches again', asy
   assert.equal(videoFetcher.calls.length, 2);
 });
 
-test('rewatchVideo: a full re-watch counter or a full video counter refuses without a fetch', async () => {
-  const now = () => Date.parse('2026-09-23T12:00:00Z');
+test('rewatchVideo: a missing prompt, a non-video item or an empty question -> null, no fetch', async () => {
   const cases = [
-    fakeState({ rewatchDay: '2026-09-23', rewatchCount: 20, videoDay: '2026-09-23', videoCount: 0 }),
-    fakeState({ rewatchDay: '2026-09-23', rewatchCount: 0, videoDay: '2026-09-23', videoCount: 40 }),
-  ];
-  for (const state of cases) {
-    const before = { ...state.data };
-    const { describer, llm, videoFetcher } = videoDescriber({ hot: rewatchHot(), state, now });
-    assert.equal(await describer.rewatchVideo('g1', videoAttachment(), 'q?'), null);
-    assert.equal(videoFetcher.calls.length, 0);
-    assert.equal(llm.calls.length, 0);
-    assert.equal(state.data.rewatchCount, before.rewatchCount);
-    assert.equal(state.data.videoCount, before.videoCount);
-  }
-});
-
-test('rewatchVideo: the re-watch counter resets on a new day; a failed fetch keeps both slots', async () => {
-  const now = () => Date.parse('2026-09-24T00:10:00Z');
-  const state = fakeState({ rewatchDay: '2026-09-23', rewatchCount: 20 });
-  const { describer } = videoDescriber({
-    hot: rewatchHot(),
-    state,
-    now,
-    videoFetcher: fakeVideoFetcher({ attachment: { ok: false, reason: 'download' } }),
-  });
-  assert.equal(await describer.rewatchVideo('g1', videoAttachment(), 'q?'), null);
-  assert.equal(state.data.rewatchDay, '2026-09-24');
-  assert.equal(state.data.rewatchCount, 1);
-  assert.equal(state.data.videoCount, 1);
-});
-
-test('rewatchVideo: feature off, video vision off, missing prompt, a non-video item or an empty question -> null, no fetch', async () => {
-  const cases = [
-    { hot: rewatchHot({ features: { videoRewatch: false } }), item: videoAttachment(), question: 'q?' },
-    { hot: rewatchHot({ features: { videoDescriptions: false } }), item: videoAttachment(), question: 'q?' },
     { hot: rewatchHot({ prompts: { 'rewatch-answer': undefined } }), item: videoAttachment(), question: 'q?' },
     { hot: rewatchHot(), item: pictureItem('a1'), question: 'q?' },
     { hot: rewatchHot(), item: videoAttachment(), question: '   ' },
@@ -2365,10 +1941,8 @@ test('rewatchVideo: logs one describe: rewatch line -- never the question, the a
 // --- relookImage: the second look at a picture on a question ----------------------
 
 /** rewatchHot with the picture switches on and the image settings the download reads. */
-function relookHot({ features = {}, rewatch = {}, prompts = {} } = {}) {
-  const hot = rewatchHot({ features: { imageRelook: true, ...features }, rewatch, prompts });
-  hot.config.media.imageSize = 512;
-  return hot;
+function relookHot({ rewatch = {}, prompts = {} } = {}) {
+  return rewatchHot({ rewatch, prompts });
 }
 
 function relookDescriber({
@@ -2392,7 +1966,7 @@ function relookDescriber({
 }
 
 test('relookImage: one download and one vision request with the question; the answer is not the picture caption', async () => {
-  const { describer, store, llm, imageFetcher, state } = relookDescriber({ now: clock() });
+  const { describer, store, llm, imageFetcher } = relookDescriber({ now: clock() });
   const item = pictureItem('a1', { previewUrl: 'https://previews.example/a1.webp' });
   const result = await describer.relookImage('g1', item, 'Y a-t-il un chargeur dans la pupille ?');
   assert.deepEqual(result, {
@@ -2414,8 +1988,6 @@ test('relookImage: one download and one vision request with the question; the an
   assert.equal(options.purpose, 'relook');
   assert.equal(options.maxOutputTokens, 600, 'media.video.rewatch.maxOutputTokens');
   assert.equal(options.countAgainstDailyCap, true);
-  assert.equal(state.data.rewatchCount, 1, 'the one second-look counter');
-  assert.equal(state.data.videoCount, undefined, 'a picture never takes a video slot');
   const cache = store.getMediaCache('g1');
   assert.equal(cache.a1, undefined, 'never stored as the picture caption');
   const keys = Object.keys(cache).filter((k) => k.startsWith('image:a1:q:'));
@@ -2442,14 +2014,13 @@ test('relookImage: with no {{question}} in the prompt the question goes only as 
 
 test('relookImage: the same question within an hour is free; another question asks again', async () => {
   const now = clock();
-  const { describer, llm, imageFetcher, state } = relookDescriber({ now });
+  const { describer, llm, imageFetcher } = relookDescriber({ now });
   await describer.relookImage('g1', pictureItem('a1'), 'Quelle couleur ?');
   assert.deepEqual(await describer.relookImage('g1', pictureItem('a1'), '  quelle   COULEUR ? '), {
     question: 'Quelle couleur ?',
     text: 'pas de chargeur, juste un reflet',
   });
   assert.equal(llm.calls.length, 1);
-  assert.equal(state.data.rewatchCount, 1);
   await describer.relookImage('g1', pictureItem('a1'), 'Combien de singes ?');
   assert.equal(llm.calls.length, 2);
   assert.equal(imageFetcher.calls.length, 2);
@@ -2458,38 +2029,22 @@ test('relookImage: the same question within an hour is free; another question as
   assert.equal(llm.calls.length, 3, 'an answer older than an hour is asked again');
 });
 
-test('relookImage: one daily counter with rewatchVideo -- a full counter refuses both without a download', async () => {
-  const now = clock();
-  const state = fakeState({ rewatchDay: '2026-09-23', rewatchCount: 19 });
-  const { describer, llm, imageFetcher } = relookDescriber({ state, now });
-  assert.ok(await describer.relookImage('g1', pictureItem('a1'), 'q?'));
-  assert.equal(state.data.rewatchCount, 20);
-  assert.equal(await describer.relookImage('g1', pictureItem('a2'), 'q?'), null);
-  assert.equal(await describer.rewatchVideo('g1', videoAttachment(), 'q?'), null);
-  assert.equal(imageFetcher.calls.length, 1);
-  assert.equal(llm.calls.length, 1);
-  assert.equal(describer.videoCapsLeft().rewatch, 0);
-});
-
-test('relookImage: a spent llm.maxRequestsPerDay takes no slot; a failed download or request caches nothing', async () => {
+test('relookImage: a spent llm.maxRequestsPerDay downloads nothing; a failed download or request caches nothing', async () => {
   const capped = relookDescriber({ llm: { ...fakeLlm({ text: 'x' }), capLeft: () => 0 } });
   assert.equal(await capped.describer.relookImage('g1', pictureItem('a1'), 'q?'), null);
   assert.equal(capped.imageFetcher.calls.length, 0);
-  assert.equal(capped.state.data.rewatchCount, undefined, 'no slot taken');
 
   const noDownload = relookDescriber({ imageFetcher: fakeImageFetcher(null) });
   assert.equal(await noDownload.describer.relookImage('g1', pictureItem('a1'), 'q?'), null);
   assert.equal(noDownload.llm.calls.length, 0);
-  assert.equal(noDownload.state.data.rewatchCount, 1, 'the slot is reserved before the download and kept');
 
   const failed = relookDescriber({ llm: fakeLlm(new Error('boom')) });
   assert.equal(await failed.describer.relookImage('g1', pictureItem('a1'), 'q?'), null);
   assert.deepEqual(Object.keys(failed.store.getMediaCache('g1')), []);
 });
 
-test('relookImage: imageRelook off, no rewatch-answer prompt, a non-picture or an empty question -> null, no download', async () => {
+test('relookImage: no rewatch-answer prompt, a non-picture or an empty question -> null, no download', async () => {
   const cases = [
-    { hot: relookHot({ features: { imageRelook: false } }), item: pictureItem('a1'), question: 'q?' },
     { hot: relookHot({ prompts: { 'rewatch-answer': undefined } }), item: pictureItem('a1'), question: 'q?' },
     { hot: relookHot(), item: pictureItem('a1', { kind: 'gif' }), question: 'q?' },
     { hot: relookHot(), item: videoAttachment(), question: 'q?' },
@@ -2518,14 +2073,12 @@ const TODAY_NOW = Date.parse('2026-09-30T23:30:00Z');
 
 test('describe: {{today}} in the describe prompt is filled with the date of the injected now', async () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  const hot = fakeHot({
-    config: { media: { maxOutputTokens: 120, imageSize: 512, cacheEntries: 5000, descriptionChars: 200 } },
-    prompts: { describe: 'Today is {{today}}; at most {{maxChars}} characters.' },
-  });
+  const hot = fakeHot({ prompts: { describe: 'Today is {{today}}; at most {{maxChars}} characters.' } });
   const llm = fakeLlm({ text: 'Une affiche datée.' });
   const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher(), now: () => TODAY_NOW });
   await describer.describe('g1', pictureItem('a1'));
-  assert.equal(llm.calls[0].messages[0].content, 'Today is 2026-09-30; at most 200 characters.');
+  // PR 7d: `media.descriptionChars` is the describer's constant, 500.
+  assert.equal(llm.calls[0].messages[0].content, 'Today is 2026-09-30; at most 500 characters.');
 });
 
 // cachedDescriptions / cachedVideos: the cache-only accessors the address
@@ -2553,7 +2106,7 @@ test('cachedDescriptions: returns only cached captions, skips misses and unknown
 });
 
 test('cachedVideos: returns cached video states only, never fetches or spends a daily slot', async () => {
-  const { describer, store, llm, videoFetcher, state } = videoDescriber();
+  const { describer, store, llm, videoFetcher } = videoDescriber();
   store.getMediaCache('g1')['video:v1'] = { text: 'someone dances', ts: 1, watched: true };
 
   const videos = await describer.cachedVideos('g1', [videoAttachment('v1'), videoAttachment('v2')]);
@@ -2563,7 +2116,6 @@ test('cachedVideos: returns cached video states only, never fetches or spends a 
   assert.equal(videos.get('v1').text, 'someone dances');
   assert.equal(llm.calls.length, 0);
   assert.equal(videoFetcher.calls.length, 0);
-  assert.equal(state.data.videoCount, undefined, 'no daily video slot is reserved');
 });
 
 // Provider routing: every request says which role makes it (llm.providerByModel keys of the form "<prefix>@<role>").
@@ -2574,15 +2126,11 @@ const GIF_CLIP_URL = 'data:video/mp4;base64,Z2lm';
 const GIF_VIDEO_PROMPT = 'Account of this clip, up to {{maxChars}} characters.';
 
 /** videoHot plus the GIF settings and a describe-video prompt that shows its cap. */
-function gifHot({ features = {}, gif = {}, video = {}, media = {}, prompts = {} } = {}) {
-  const hot = videoHot({ features, video, prompts: { 'describe-video': GIF_VIDEO_PROMPT, ...prompts } });
-  hot.config.media = {
-    ...hot.config.media,
-    imageSize: 512,
-    descriptionChars: 200,
-    gif: { watch: true, maxSeconds: 8, ...gif },
-    ...media,
-  };
+// PR 7d: GIF watching is code, its length (15 s) and the caption length (500) are the describer's constants, and the
+// daily GIF cap is gone.
+function gifHot({ video = {}, media = {}, prompts = {} } = {}) {
+  const hot = videoHot({ video, prompts: { 'describe-video': GIF_VIDEO_PROMPT, ...prompts } });
+  hot.config.media = { ...hot.config.media, ...media };
   return hot;
 }
 
@@ -2650,7 +2198,7 @@ function gifAttachmentItem(itemId = 'a9', overrides = {}) {
 }
 
 test('describe: a gifv embed is watched from its mp4 by the video model, cached watched under its own id', async () => {
-  const { describer, store, llm, videoFetcher, imageFetcher, state } = gifDescriber();
+  const { describer, store, llm, videoFetcher, imageFetcher } = gifDescriber();
 
   const result = await describer.describe('g1', gifEmbedItem());
 
@@ -2662,27 +2210,24 @@ test('describe: a gifv embed is watched from its mp4 by the video model, cached 
     [['fetchGif', TENOR_MP4]]
   );
   assert.deepEqual(videoFetcher.calls[0].options, {
-    maxSeconds: 8,
-    maxBytes: 8_000_000,
+    maxSeconds: 15,
+    maxBytes: 14_500_000,
     toolTimeoutMs: 60_000,
     ffmpegPath: 'ffmpeg-test',
     fetchTimeoutMs: 10_000,
   });
   assert.equal(llm.calls.length, 1);
   const [system, user] = llm.calls[0].messages;
-  assert.deepEqual(system, { role: 'system', content: 'Account of this clip, up to 200 characters.' });
+  assert.deepEqual(system, { role: 'system', content: 'Account of this clip, up to 500 characters.' });
   assert.deepEqual(user.content, [{ type: 'video_url', video_url: { url: GIF_CLIP_URL } }]);
   const options = llm.calls[0].options;
   assert.equal(options.role, 'video');
   assert.equal(options.model, 'x/video-model');
   assert.equal(options.maxOutputTokens, 400);
   assert.equal(options.maxRequestTokens, 60_000, 'the video token cap applies');
-  assert.equal(options.videoSeconds, 8);
+  assert.equal(options.videoSeconds, 15);
   assert.equal(options.provider, undefined);
   assert.equal(options.skipCalibration, true);
-  assert.equal(state.data.gifWatchCount, 1, 'a GIF watch takes a daily GIF slot');
-  assert.equal(state.data.gifWatchDay, new Date().toISOString().slice(0, 10));
-  assert.equal(state.data.videoCount, undefined, 'never a daily video slot');
 
   const entry = store.getMediaCache('g1')['m1#e0'];
   assert.equal(entry.text, 'a man pulls a child back as a train rushes past');
@@ -2715,25 +2260,25 @@ test('describe: an attached .gif is downloaded and converted by the fetcher, the
   assert.equal(store.getMediaCache('g1').a9.watched, true);
 });
 
-test('describe: media.gif.maxSeconds caps the watched length', async () => {
-  const capped = gifDescriber({ hot: gifHot({ gif: { maxSeconds: 5 } }) });
+test('describe: the GIF length (15 s) caps the watched length', async () => {
+  const capped = gifDescriber();
   await capped.describer.describe('g1', gifEmbedItem());
-  assert.equal(capped.videoFetcher.calls[0].options.maxSeconds, 5);
-  assert.equal(capped.llm.calls[0].options.videoSeconds, 5);
+  assert.equal(capped.videoFetcher.calls[0].options.maxSeconds, 15);
+  assert.equal(capped.llm.calls[0].options.videoSeconds, 15);
 
   // A fetcher reporting more than asked never raises the billed length.
   const liar = gifDescriber({
     videoFetcher: gifFetcher({ ok: true, dataUrl: GIF_CLIP_URL, mimeType: 'video/mp4', seconds: 600, bytes: 9 }),
   });
   await liar.describer.describe('g1', gifEmbedItem());
-  assert.equal(liar.llm.calls[0].options.videoSeconds, 8);
+  assert.equal(liar.llm.calls[0].options.videoSeconds, 15);
 });
 
 test('describe: the watched caption keeps media.descriptionChars, collapsed to one line', async () => {
-  const words = Array.from({ length: 80 }, (_, i) => `mot${i % 10}é`).join(' ');
+  const words = Array.from({ length: 120 }, (_, i) => `mot${i % 10}é`).join(' ');
   const { describer } = gifDescriber({ llm: fakeLlm({ text: `Première ligne.\n${words}` }) });
   const result = await describer.describe('g1', gifEmbedItem());
-  assert.ok(result.text.length <= 200, `${result.text.length} chars`);
+  assert.ok(result.text.length <= 500, `${result.text.length} chars`);
   assert.ok(!result.text.includes('\n'));
   assert.ok(result.text.startsWith('Première ligne. mot0é'));
 });
@@ -2752,21 +2297,13 @@ function assertOneFrame({ imageFetcher, llm, store }, itemId, { watchFailed = fa
   assert.equal(typeof entry.watchFailed === 'number', watchFailed);
 }
 
-test('describe: video vision off, media.gif.watch false or no describe-video prompt -> the one-frame description, no watch', async () => {
-  const setups = [
-    gifHot({ features: { videoDescriptions: false } }),
-    gifHot({ gif: { watch: false } }),
-    gifHot({ prompts: { 'describe-video': undefined } }),
-  ];
-  for (const hot of setups) {
-    const run = gifDescriber({ hot, llm: fakeLlm({ text: 'a sign by a railway crossing' }) });
-    const result = await run.describer.describe('g1', gifEmbedItem());
-    assert.equal(result.text, 'a sign by a railway crossing');
-    assert.equal(run.videoFetcher.calls.length, 0);
-    assert.equal(run.state.data.videoCount, undefined, 'no daily video slot');
-    assert.equal(run.state.data.gifWatchCount, undefined, 'no daily GIF slot');
-    assertOneFrame(run, 'm1#e0');
-  }
+test('describe: no describe-video prompt -> the one-frame description, no watch', async () => {
+  const hot = gifHot({ prompts: { 'describe-video': undefined } });
+  const run = gifDescriber({ hot, llm: fakeLlm({ text: 'a sign by a railway crossing' }) });
+  const result = await run.describer.describe('g1', gifEmbedItem());
+  assert.equal(result.text, 'a sign by a railway crossing');
+  assert.equal(run.videoFetcher.calls.length, 0);
+  assertOneFrame(run, 'm1#e0');
 });
 
 test('describe: a GIF that cannot be fetched or converted falls back to one frame, marked watchFailed, logging codes only', async () => {
@@ -2780,8 +2317,6 @@ test('describe: a GIF that cannot be fetched or converted falls back to one fram
     assert.equal(line.reason, reason);
     assert.equal(line.location, 'cdn.discordapp.com/attachments/1/2/anim.gif');
     assert.ok(!JSON.stringify(logs).includes('secret'));
-    assert.equal(run.state.data.gifWatchCount, 1, 'the attempt keeps its daily GIF slot');
-    assert.equal(run.state.data.videoCount, undefined, 'never a daily video slot');
   }
 });
 
@@ -2797,20 +2332,7 @@ test('describe: a failed or empty watch request falls back to one frame, marked 
   assertOneFrame(empty, 'm1#e0', { watchFailed: true });
 });
 
-test('describe: a spent daily GIF cap or request cap falls back to one frame, not marked as a failed watch', async () => {
-  const today = new Date().toISOString().slice(0, 10);
-  const daily = gifDescriber({
-    hot: gifHot({ gif: { maxPerDay: 1 } }),
-    state: fakeState({ gifWatchDay: today, gifWatchCount: 1 }),
-  });
-  const { logs } = await withCapturedLogs(() => daily.describer.describe('g1', gifEmbedItem()));
-  assert.equal(daily.videoFetcher.calls.length, 0);
-  assertOneFrame(daily, 'm1#e0');
-  assert.equal(daily.state.data.gifWatchCount, 1, 'a refused watch takes no slot');
-  const line = logs.find((l) => l.msg === 'describe: gif');
-  assert.equal(line.state, 'unavailable');
-  assert.equal(line.reason, 'daily');
-
+test('describe: a spent request cap falls back to one frame, not marked as a failed watch', async () => {
   const capped = gifDescriber({ llm: fakeLlm([new DailyCapError('cap'), { text: 'a still' }]) });
   await capped.describer.describe('g1', gifEmbedItem());
   assertOneFrame(capped, 'm1#e0');
@@ -2918,100 +2440,32 @@ test('watchGif: a request failure is reported with a kebab-case code', async () 
   }
 });
 
-test('watchGif: with the daily request cap spent nothing is fetched, no GIF slot is taken, nothing is marked', async () => {
+test('watchGif: with the daily request cap spent nothing is fetched, nothing is marked', async () => {
   const run = gifDescriber({ llm: cappedLlm(0) });
   assert.deepEqual(await run.describer.watchGif('g1', gifEmbedItem()), { state: 'unavailable', reason: 'daily-cap' });
   assert.equal(run.videoFetcher.calls.length, 0);
-  assert.equal(run.state.data.gifWatchCount, undefined);
   assert.equal(run.store.getMediaCache('g1')['m1#e0'], undefined);
 });
 
-test('watchGif: unavailable while GIFs are not watched or a daily rail is spent, nothing marked', async () => {
-  const off = gifDescriber({ hot: gifHot({ features: { videoDescriptions: false } }) });
-  assert.deepEqual(await off.describer.watchGif('g1', gifEmbedItem()), { state: 'unavailable', reason: 'video-off' });
-  assert.equal(off.describer.gifWatchBlocker(), 'video-off');
-  const noWatch = gifDescriber({ hot: gifHot({ gif: { watch: false } }) });
-  assert.equal(noWatch.describer.gifWatchBlocker(), 'off');
+test('watchGif: unavailable without a watch prompt, nothing marked', async () => {
+  const off = gifDescriber({ hot: gifHot({ prompts: { 'describe-video': undefined } }) });
+  assert.deepEqual(await off.describer.watchGif('g1', gifEmbedItem()), { state: 'unavailable', reason: 'no-prompt' });
+  assert.equal(off.describer.gifWatchBlocker(), 'no-prompt');
+  assert.equal(off.store.getMediaCache('g1')['m1#e0'], undefined);
   assert.equal(gifDescriber().describer.gifWatchBlocker(), null);
-
-  const daily = gifDescriber({ hot: gifHot({ gif: { maxPerDay: 0 } }) });
-  assert.deepEqual(await daily.describer.watchGif('g1', gifEmbedItem()), { state: 'unavailable', reason: 'daily' });
-  assert.equal(daily.store.getMediaCache('g1')['m1#e0'], undefined);
 });
 
-// --- The GIF watch's own daily cap and prompt --------------------------------
-
-test('describe: a spent daily video cap never stops a GIF watch', async () => {
-  const today = new Date().toISOString().slice(0, 10);
-  const run = gifDescriber({
-    hot: gifHot({ video: { maxPerDay: 1 } }),
-    state: fakeState({ videoDay: today, videoCount: 1 }),
-  });
-  const result = await run.describer.describe('g1', gifEmbedItem());
-  assert.equal(result.text, 'a man pulls a child back as a train rushes past');
-  assert.equal(run.store.getMediaCache('g1')['m1#e0'].watched, true);
-  assert.equal(run.state.data.videoCount, 1, 'the video count is untouched');
-  assert.equal(run.state.data.gifWatchCount, 1);
-});
-
-test('describeVideo: a spent daily GIF cap never stops a video watch, and a video takes no GIF slot', async () => {
-  const today = new Date().toISOString().slice(0, 10);
-  const run = gifDescriber({
-    hot: gifHot({ gif: { maxPerDay: 1 } }),
-    state: fakeState({ gifWatchDay: today, gifWatchCount: 1 }),
-  });
-  const video = await run.describer.describeVideo('g1', videoAttachment());
-  assert.equal(video.state, 'watched');
-  assert.equal(run.state.data.videoCount, 1);
-  assert.equal(run.state.data.gifWatchCount, 1, 'the GIF count is untouched');
-
-  const fresh = gifDescriber();
-  await fresh.describer.describeVideo('g1', videoAttachment());
-  assert.equal(fresh.state.data.videoCount, 1);
-  assert.equal(fresh.state.data.gifWatchCount, undefined);
-});
-
-test('describe: the GIF cap counts every watch attempt up to media.gif.maxPerDay, then falls back to one frame', async () => {
-  const run = gifDescriber({ hot: gifHot({ gif: { maxPerDay: 2 } }), llm: fakeLlm({ text: 'a clip' }) });
-  await run.describer.describe('g1', gifEmbedItem('m1#e0'));
-  await run.describer.describe('g1', gifEmbedItem('m2#e0'));
-  await run.describer.describe('g1', gifEmbedItem('m3#e0'));
-  assert.equal(run.videoFetcher.calls.length, 2, 'the third GIF is not fetched');
-  assert.equal(run.state.data.gifWatchCount, 2);
-  assert.equal(run.store.getMediaCache('g1')['m2#e0'].watched, true);
-  assertOneFrame(run, 'm3#e0');
-});
-
-test('describe: the GIF count rolls over with the UTC day', async () => {
-  let clock = Date.parse('2026-10-01T23:59:00Z');
-  const state = fakeState({ gifWatchDay: '2026-10-01', gifWatchCount: 3 });
-  const run = gifDescriber({
-    hot: gifHot({ gif: { maxPerDay: 3 } }),
-    state,
-    now: () => clock,
-    llm: fakeLlm({ text: 'a still' }),
-  });
-  await run.describer.describe('g1', gifEmbedItem('m1#e0'));
-  assert.equal(run.videoFetcher.calls.length, 0, 'spent today');
-  assert.equal(state.data.gifWatchCount, 3);
-
-  clock = Date.parse('2026-10-02T00:01:00Z');
-  await run.describer.describe('g1', gifEmbedItem('m2#e0'));
-  assert.equal(run.videoFetcher.calls.length, 1, 'a new day, a new slot');
-  assert.equal(state.data.gifWatchDay, '2026-10-02');
-  assert.equal(state.data.gifWatchCount, 1);
-});
+// --- The GIF watch's own prompt ----------------------------------------------
 
 test('describe: a GIF watch uses describe-gif when present, with {{maxChars}} and {{seconds}}', async () => {
   const hot = gifHot({
-    gif: { maxSeconds: 6 },
     prompts: { 'describe-gif': 'Silent loop of {{seconds}} s, caption up to {{maxChars}}, {{today}}.' },
   });
   const run = gifDescriber({ hot, now: () => Date.parse('2026-10-01T12:00:00Z') });
   await run.describer.describe('g1', gifEmbedItem());
   assert.deepEqual(run.llm.calls[0].messages[0], {
     role: 'system',
-    content: 'Silent loop of 6 s, caption up to 200, 2026-10-01.',
+    content: 'Silent loop of 15 s, caption up to 500, 2026-10-01.',
   });
   assert.equal(run.llm.calls[0].options.role, 'video');
 });
@@ -3023,7 +2477,7 @@ test('describe: describe-gif alone (no describe-video) is enough to watch GIFs',
   assert.equal(run.describer.gifWatchBlocker(), null);
   await run.describer.describe('g1', gifEmbedItem());
   assert.equal(run.videoFetcher.calls[0].fn, 'fetchGif');
-  assert.equal(run.llm.calls[0].messages[0].content, 'Loop, 200.');
+  assert.equal(run.llm.calls[0].messages[0].content, 'Loop, 500.');
 });
 
 // --- The GIF describer's three fields ------------------------------------------
@@ -3152,10 +2606,8 @@ test('watchGif: an old-format watched entry (no reaction field) is watched again
 // --- rewatchGif / watchedGifs: the second look at a watched GIF -----------------
 
 /** gifHot with the re-watch prompt and settings. */
-function gifRewatchHot({ features = {}, gif = {}, rewatch = {} } = {}) {
+function gifRewatchHot({ rewatch = {} } = {}) {
   return gifHot({
-    features,
-    gif,
     video: { rewatch: { ...REWATCH_CFG, ...rewatch } },
     prompts: { 'rewatch-answer': REWATCH_PROMPT },
   });
@@ -3171,7 +2623,7 @@ const WATCHED_GIF_ENTRY = {
   gif: true,
 };
 
-test('watchedGifs: only watched GIF entries with an animation, from the cache alone; none while GIFs are not watched', async () => {
+test('watchedGifs: only watched GIF entries with an animation, from the cache alone', async () => {
   const run = gifDescriber({ hot: gifRewatchHot() });
   const cache = run.store.getMediaCache('g1');
   cache['m1#e0'] = { ...WATCHED_GIF_ENTRY };
@@ -3186,18 +2638,12 @@ test('watchedGifs: only watched GIF entries with an animation, from the cache al
   assert.deepEqual([...run.describer.watchedGifs('g1', items)], [['m1#e0', 'a woman looks into a mirror']]);
   assert.equal(run.videoFetcher.calls.length, 0);
   assert.equal(run.llm.calls.length, 0);
-
-  const off = gifDescriber({ hot: gifRewatchHot({ gif: { watch: false } }) });
-  off.store.getMediaCache('g1')['m1#e0'] = { ...WATCHED_GIF_ENTRY };
-  assert.equal(off.describer.watchedGifs('g1', items).size, 0);
 });
 
 test('rewatchGif: one GIF clip fetch and one video request with the question; the answer cached under gif:<itemId>:q:', async () => {
-  const state = fakeState();
   const run = gifDescriber({
-    hot: gifRewatchHot({ gif: { maxSeconds: 6 } }),
+    hot: gifRewatchHot(),
     llm: fakeLlm({ text: '  une autre personne   dans le miroir ' }),
-    state,
   });
 
   const result = await run.describer.rewatchGif('g1', gifEmbedItem(), 'Qui est dans le miroir ?');
@@ -3205,7 +2651,7 @@ test('rewatchGif: one GIF clip fetch and one video request with the question; th
   assert.deepEqual(result, { question: 'Qui est dans le miroir ?', text: 'une autre personne dans le miroir' });
   assert.deepEqual(
     run.videoFetcher.calls.map((c) => [c.fn, c.url, c.options.maxSeconds]),
-    [['fetchGif', TENOR_MP4, 6]]
+    [['fetchGif', TENOR_MP4, 15]]
   );
   assert.equal(run.llm.calls.length, 1);
   const [system, user] = run.llm.calls[0].messages;
@@ -3214,10 +2660,7 @@ test('rewatchGif: one GIF clip fetch and one video request with the question; th
   const options = run.llm.calls[0].options;
   assert.equal(options.role, 'video');
   assert.equal(options.maxOutputTokens, 600);
-  assert.equal(options.videoSeconds, 6);
-  assert.equal(state.data.rewatchCount, 1);
-  assert.equal(state.data.gifWatchCount, 1, 'a GIF watch slot, like the first watch');
-  assert.equal(state.data.videoCount, undefined, 'never a video slot');
+  assert.equal(options.videoSeconds, 15);
   const digest = createHash('sha1').update('qui est dans le miroir ?').digest('hex').slice(0, 16);
   assert.equal(run.store.getMediaCache('g1')[`gif:m1#e0:q:${digest}`].answer, 'une autre personne dans le miroir');
 
@@ -3226,38 +2669,17 @@ test('rewatchGif: one GIF clip fetch and one video request with the question; th
   assert.equal(run.llm.calls.length, 1, 'the same question within an hour is free');
 });
 
-test('rewatchGif: a full re-watch or GIF counter refuses without a fetch; a failed fetch keeps both slots and caches nothing', async () => {
-  const today = new Date().toISOString().slice(0, 10);
-  for (const data of [
-    { rewatchDay: today, rewatchCount: 2 },
-    { gifWatchDay: today, gifWatchCount: 3 },
-  ]) {
-    const run = gifDescriber({
-      hot: gifRewatchHot({ gif: { maxPerDay: 3 }, rewatch: { maxPerDay: 2 } }),
-      state: fakeState({ ...data }),
-    });
-    assert.equal(await run.describer.rewatchGif('g1', gifEmbedItem(), 'q ?'), null);
-    assert.equal(run.videoFetcher.calls.length, 0, JSON.stringify(data));
-  }
-  const state = fakeState();
-  const failing = gifDescriber({
-    hot: gifRewatchHot(),
-    videoFetcher: gifFetcher({ ok: false, reason: 'convert' }),
-    state,
-  });
+test('rewatchGif: a failed fetch caches nothing', async () => {
+  const failing = gifDescriber({ hot: gifRewatchHot(), videoFetcher: gifFetcher({ ok: false, reason: 'convert' }) });
   assert.equal(await failing.describer.rewatchGif('g1', gifEmbedItem(), 'q ?'), null);
   assert.equal(failing.llm.calls.length, 0);
-  assert.deepEqual([state.data.rewatchCount, state.data.gifWatchCount], [1, 1]);
   assert.ok(!Object.keys(failing.store.getMediaCache('g1')).some((key) => key.startsWith('gif:')));
 });
 
-test('rewatchGif: GIFs not watched, videoRewatch off, no prompt, no animation or an empty question -> null, no fetch', async () => {
+test('rewatchGif: no prompt, no animation or an empty question -> null, no fetch', async () => {
   const noPrompt = gifRewatchHot();
   delete noPrompt.prompts['rewatch-answer'];
   const cases = [
-    [gifRewatchHot({ gif: { watch: false } }), gifEmbedItem(), 'q ?'],
-    [gifRewatchHot({ features: { videoRewatch: false } }), gifEmbedItem(), 'q ?'],
-    [gifRewatchHot({ features: { videoDescriptions: false } }), gifEmbedItem(), 'q ?'],
     [noPrompt, gifEmbedItem(), 'q ?'],
     [gifRewatchHot(), gifEmbedItem('m1#e0', { animationUrl: undefined }), 'q ?'],
     [gifRewatchHot(), gifEmbedItem(), '   '],
@@ -3353,7 +2775,7 @@ test('describe: with media.recacheBefore null an old entry is served from the ca
   const llm = fakeLlm({ text: 'new' });
   const imageFetcher = fakeImageFetcher();
   const describer = createDescriber({
-    hot: fakeHot({ config: { media: { recacheBefore: null, cacheEntries: 5000 } } }),
+    hot: fakeHot({ config: { media: { recacheBefore: null } } }),
     store,
     llm,
     imageFetcher,
@@ -3373,7 +2795,7 @@ test('describe: with media.recacheBefore set, an entry described before it (or n
   cache.earlier = { text: 'une photo', ts: 2, describedAt: CUTOFF - 1, model: 'x/old' };
   cache.fresh = { text: 'une photo récente', ts: 3, describedAt: CUTOFF + 1, model: 'x/haiku' };
   const llm = fakeLlm({ text: 'une nouvelle description' });
-  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO, cacheEntries: 5000 } } });
+  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO } } });
   const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher(), now: () => CUTOFF + HOUR });
 
   assert.equal((await describer.describe('g1', pictureItem('old'))).text, 'une nouvelle description');
@@ -3395,7 +2817,7 @@ test('describe: a stale entry whose new description fails keeps its old text and
   cache.a1 = { text: 'une vieille photo', ts: 1 };
   const clock = handClock(CUTOFF + HOUR);
   const llm = fakeLlm([new Error('boom'), { text: 'enfin' }]);
-  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO, cacheEntries: 5000 } } });
+  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO } } });
   const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher(), now: clock.now });
 
   const failed = await describer.describe('g1', pictureItem('a1'));
@@ -3417,7 +2839,7 @@ test('describe: a stale entry whose new description fails keeps its old text and
 test('describe: a stale entry whose download fails keeps its old text', async () => {
   const store = createStore({ dataDir: tmpDataDir() });
   store.getMediaCache('g1').a1 = { text: 'une vieille photo', ts: 1 };
-  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO, cacheEntries: 5000 } } });
+  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO } } });
   const describer = createDescriber({
     hot,
     store,
@@ -3434,7 +2856,7 @@ test('describe: a stale entry with the daily request cap spent is served as it i
   store.getMediaCache('g1').a1 = { text: 'une vieille photo', ts: 1 };
   const llm = cappedLlm(0);
   const imageFetcher = fakeImageFetcher();
-  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO, cacheEntries: 5000 } } });
+  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO } } });
   const describer = createDescriber({ hot, store, llm, imageFetcher, now: () => CUTOFF + HOUR });
   assert.equal((await describer.describe('g1', pictureItem('a1'))).text, 'une vieille photo');
   const many = await describer.describeMany('g1', [pictureItem('a1')], { maxNew: 6 });
@@ -3449,7 +2871,7 @@ test('describeMany: stale entries count toward maxNew; past it their old text is
   cache.s1 = { text: 'vieux un', ts: 1 };
   cache.s2 = { text: 'vieux deux', ts: 1 };
   const llm = fakeLlm({ text: 'neuf' });
-  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO, cacheEntries: 5000 } } });
+  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO } } });
   const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher(), now: () => CUTOFF + HOUR });
   const charged = [];
   const { descriptions, newCount } = await describer.describeMany('g1', [pictureItem('s1'), pictureItem('s2')], {
@@ -3522,7 +2944,7 @@ test('describeVideo: a stale summary whose watch fails keeps its text and waits 
   const hot = videoHot();
   hot.config.media.recacheBefore = CUTOFF_ISO;
   const clock = handClock(CUTOFF + HOUR);
-  const { describer, store, llm, state } = videoDescriber({
+  const { describer, store, llm } = videoDescriber({
     hot,
     llm: fakeLlm([new Error('boom'), { text: 'enfin' }]),
     now: clock.now,
@@ -3540,20 +2962,9 @@ test('describeVideo: a stale summary whose watch fails keeps its text and waits 
 
   clock.at += 31 * 60 * 1000;
   assert.equal((await describer.describeVideo('g1', videoAttachment())).text, 'enfin');
-  assert.equal(state.data.videoCount, 2, 'each attempt takes a daily video slot');
 });
 
-test('describeVideo: a stale summary with the daily video rail spent is served as it is', async () => {
-  const hot = videoHot({ video: { maxPerDay: 0 } });
-  hot.config.media.recacheBefore = CUTOFF_ISO;
-  const { describer, store, videoFetcher } = videoDescriber({ hot, now: () => CUTOFF + HOUR });
-  store.getMediaCache('g1')['video:v1'] = { text: 'une vieille vidéo', ts: 1, watched: true };
-  const result = await describer.describeVideo('g1', videoAttachment());
-  assert.equal(result.text, 'une vieille vidéo');
-  assert.equal(videoFetcher.calls.length, 0);
-});
-
-test('redescribe: describes a picture again whatever its cache holds; a failure keeps the old text; a spent cap is unavailable', async () => {
+test('redescribe: describes a picture again whatever its cache holds; a failure keeps the old text; a spent cap or no prompt is unavailable', async () => {
   const store = createStore({ dataDir: tmpDataDir() });
   const cache = store.getMediaCache('g1');
   cache.a1 = { text: 'par un vieux modèle', ts: 1, describedAt: 1, model: 'x/old' };
@@ -3570,13 +2981,13 @@ test('redescribe: describes a picture again whatever its cache holds; a failure 
   const spent = createDescriber({ hot: fakeHot(), store, llm: cappedLlm(0), imageFetcher: fakeImageFetcher() });
   assert.deepEqual(await spent.redescribe('g1', pictureItem('a1')), { state: 'unavailable', reason: 'daily-cap' });
   const off = createDescriber({
-    hot: fakeHot({ config: { features: { mediaDescriptions: false } } }),
+    hot: fakeHot({ prompts: { describe: '' } }),
     store,
     llm,
     imageFetcher: fakeImageFetcher(),
   });
-  assert.deepEqual(await off.redescribe('g1', pictureItem('a1')), { state: 'unavailable', reason: 'off' });
-  assert.equal(off.pictureBlocker(), 'off');
+  assert.deepEqual(await off.redescribe('g1', pictureItem('a1')), { state: 'unavailable', reason: 'no-prompt' });
+  assert.equal(off.pictureBlocker(), 'no-prompt');
   assert.equal(describer.pictureBlocker(), null);
 });
 
@@ -3629,17 +3040,6 @@ test('describeVideo: a mostly silent clip gets videoAudio.map with its stretches
     await describer.describeVideo('g1', item);
     assert.equal(llm.calls[0].messages[0].content, expected);
   }
-});
-
-test('describeVideo: media.video.audioMap null or false passes no measuring to the fetcher', async () => {
-  for (const audioMap of [null, false]) {
-    const { describer, videoFetcher } = videoDescriber({ hot: videoHot({ video: { audioMap } }) });
-    await describer.describeVideo('g1', videoAttachment());
-    assert.equal(videoFetcher.calls[0].options.audioMap, null);
-  }
-  const custom = videoDescriber({ hot: videoHot({ video: { audioMap: { noiseDb: -30 } } }) });
-  await custom.describer.describeVideo('g1', videoAttachment());
-  assert.deepEqual(custom.videoFetcher.calls[0].options.audioMap, { ...AUDIO_MAP_ON, noiseDb: -30 });
 });
 
 test('rewatchVideo: the measured note is appended to the rewatch-answer prompt too', async () => {
@@ -3702,4 +3102,14 @@ test('describeVideo: a downloaded clip stores its length as watchedSeconds; a pi
   assert.equal('watchedSeconds' in pinned.store.getMediaCache('g1')[`video:${link.itemId}`], false);
   assert.equal('totalSeconds' in pinned.store.getMediaCache('g1')[`video:${link.itemId}`], false);
   assert.equal(pinned.llm.calls[0].messages[0].content, VIDEO_PROMPT);
+});
+
+// PR 7d: the daily caps of plan section 4.5 are gone; a local layer not yet cut that still sets them changes nothing.
+test('describeVideo: a hundred videos in one day are all watched, a stale media.video.maxPerDay of 1 included', async () => {
+  const hot = videoHot();
+  hot.config.media.video.maxPerDay = 1;
+  const { describer } = videoDescriber({ hot });
+  const states = [];
+  for (let n = 0; n < 100; n += 1) states.push((await describer.describeVideo('g1', videoAttachment(`v${n}`))).state);
+  assert.deepEqual([...new Set(states)], ['watched']);
 });

@@ -24,7 +24,7 @@
 
 import { createHash } from 'node:crypto';
 import { estimateMessages, estimateTools } from './tokens.js';
-import { safetyMarginOf } from './budget.js';
+import { SAFETY_MARGIN } from './budget.js';
 import { isPlainObject } from '../config.js';
 import { HOUR_MS, MINUTE_MS, bumpDaily, countToday, dailyCounter } from '../time.js';
 import { log } from '../log.js';
@@ -218,7 +218,7 @@ const ANALYZER_TIMEOUT_MS_FALLBACK = 30000;
  * @param {string} [request.role]             The model role, `analyzer` say (see `complete`).
  * @param {number} [request.maxOutputTokens]  Undefined leaves `llm.maxOutputTokens` in charge.
  * @param {string} [request.purpose]          What the request is for, a kebab-case code for the
- *   `llm: usage` line (`address`, `rewatch`, `lookup`, `read-link`, `search-summary`, `route-channel`,
+ *   `llm: usage` line (`address`, `rewatch`, `lookup`, `search-summary`, `route-channel`,
  *   `describe`); never sent.
  * @param {AbortSignal} [request.signal]      The caller's own abort signal, if it has one.
  * @param {number} [request.timeoutMs]        A request with a clock of its own; else
@@ -297,12 +297,16 @@ function hedgeOf(config, options) {
   return { afterMs: hedge.afterMs, timeoutMs: options.long === true ? hedge.longTimeoutMs : hedge.timeoutMs };
 }
 
+// Production values, config cut of 2026-10-31.
 /**
- * Video tokens per second when `media.video.tokensPerSecond` is unset or
- * invalid: config.json's value (the rate of a statically sampled clip). The
- * media describer (src/memory/describe.js) sizes its clips with the same one.
+ * Video tokens per second of a statically sampled clip. The media describer (src/memory/describe.js) sizes its clips
+ * with the same one.
  */
-export const VIDEO_TOKENS_PER_SECOND_FALLBACK = 120;
+export const VIDEO_TOKENS_PER_SECOND = 120;
+/** Her sampling temperature. */
+const TEMPERATURE = 1;
+/** The TTL of the profiles segment's cache marker. */
+const PROFILES_TTL = '1h';
 
 export class TokenLimitError extends Error {}
 export class DailyCapError extends Error {}
@@ -513,7 +517,6 @@ export function cacheTtlFor(config, role, model, force) {
   const cache = config?.llm?.cache;
   const ttl = cache?.ttl === '5m' ? '5m' : '1h';
   if (force === true) return ttl;
-  if (config?.features?.promptCache !== true) return null;
   const roles = Array.isArray(cache?.roles) ? cache.roles : DEFAULT_CACHE_ROLES;
   if (typeof role !== 'string' || !roles.includes(role)) return null;
   const models = Array.isArray(cache?.models) ? cache.models : DEFAULT_CACHE_MODELS;
@@ -532,20 +535,6 @@ export function cacheTtlFor(config, role, model, force) {
  */
 export function cacheTtlMs(config) {
   return config?.llm?.cache?.ttl === '5m' ? 5 * MINUTE_MS : HOUR_MS;
-}
-
-/**
- * The TTL of the profiles segment's marker (`cacheSegment: 'profiles'`, see `withCacheMarker`):
- * `config.llm.cache.profilesTtl` -- `'5m'` as it is, `null` or `false` -> null (no marker on that
- * part), anything else (missing included) `'1h'`, config.json's value. Pure; the caller passes
- * the live config read at the moment of use.
- * @param {unknown} config  The whole live config.
- * @returns {'1h'|'5m'|null}
- */
-export function profilesTtlFor(config) {
-  const value = config?.llm?.cache?.profilesTtl;
-  if (value === null || value === false) return null;
-  return value === '5m' ? '5m' : '1h';
 }
 
 // The marker of one TTL, a fresh object per call: `5m` is the provider's default (no `ttl` key),
@@ -711,30 +700,16 @@ function hasCacheMarker(messages) {
  * The provider's count of the WHOLE prompt of one answered request -- the cached and the
  * cache-written parts included -- or null when the usage reports none. What the calibration and
  * the over-cap warning are fed: if they saw only the uncached part, the ratio would sink toward
- * its floor and the 50k rail would under-estimate. `config.llm.cache.promptIncludesCached`
- * (missing = true, config.json's) says how the marked route reports it, set by the owner from a
- * probe and never guessed per response: true -> `usage.prompt_tokens` as reported (OpenRouter's
- * normalised usage counts cached and written tokens inside it); false -> for a request that was
- * sent with a cache marker (`marked === true`, the route the probe measured), `prompt_tokens` plus
- * `prompt_tokens_details.cached_tokens` plus `prompt_tokens_details.cache_write_tokens` (a detail
- * that is not a positive count adds nothing). An unmarked request always counts `prompt_tokens`
- * as reported: a provider that caches on its own already counts those tokens inside it.
- * `prompt_tokens` must be a finite number >= 0; a total that is not positive is null.
+ * its floor and the 50k rail would under-estimate. `usage.prompt_tokens` as reported: OpenRouter's normalised usage
+ * counts cached and written tokens inside it (production's probe, config cut of 2026-10-31). `prompt_tokens` must be
+ * a finite number >= 0; a total that is not positive is null.
  * @param {unknown} usage   The response's `usage` object.
- * @param {unknown} config  The whole live config.
- * @param {unknown} marked  Whether the sent request carried a cache marker (only `true` counts).
  * @returns {number|null}
  */
-export function fullPromptTokens(usage, config, marked) {
+export function fullPromptTokens(usage) {
   const prompt = usage?.prompt_tokens;
   if (typeof prompt !== 'number' || !Number.isFinite(prompt) || prompt < 0) return null;
-  let total = prompt;
-  if (marked === true && config?.llm?.cache?.promptIncludesCached === false) {
-    total +=
-      countOrZero(usage.prompt_tokens_details?.cached_tokens) +
-      countOrZero(usage.prompt_tokens_details?.cache_write_tokens);
-  }
-  return total > 0 ? total : null;
+  return prompt > 0 ? prompt : null;
 }
 
 // The `cache` code of one `llm: usage` line: `off` when the request carried no marker; else what
@@ -1126,9 +1101,8 @@ export function createLlm({
   /**
    * Send one chat completion. Returns `{ text, usage, estimated, finishReason, provider, promptTokens }`.
    * `promptTokens` is the provider's count of the whole prompt, its cached part included
-   * (`fullPromptTokens` with whether this request carried a cache marker), or null when the
-   * usage reports none -- the count a caller's own token budget should add up, since a raw
-   * `usage.prompt_tokens` may leave the cached part out (`llm.cache.promptIncludesCached` false).
+   * (`fullPromptTokens`), or null when the usage reports none -- the count a caller's own token budget should add
+   * up.
    * `finishReason` is the provider's `choices[0].finish_reason` verbatim
    * (e.g. `'stop'`, `'length'`), or `undefined` when the provider omitted it —
    * callers use it to tell a cut-off completion (`'length'`) from a genuinely
@@ -1193,7 +1167,7 @@ export function createLlm({
    * in charge. Exists for the reply of a turn with a bar (`pace.replyHedgeMs`): a provider stall
    * must not let a direct call pass its bar unanswered.
    * `options.purpose` — what the request is for, a kebab-case code (`reply`,
-   * `address`, `rewatch`, `lookup`, `read-link`,
+   * `address`, `rewatch`, `lookup`,
    * `search-summary`, `describe`, ...): the requests that share one model role are told
    * apart by it in the journal.
    * `options.origin` — where the request comes from when it is not live chat
@@ -1203,8 +1177,7 @@ export function createLlm({
    * The calibrator is fed, and the over-cap warning
    * (`llm: provider counted more prompt tokens than the cap`) compares, the
    * provider's count of the whole prompt, its cached part included
-   * (`promptTokens` above: `fullPromptTokens`, by `llm.cache.promptIncludesCached`
-   * for a marked request).
+   * (`promptTokens` above: `fullPromptTokens`).
    * `options.cache` — the prompt-cache marker for this one call: `true` forces
    * it (whatever the model), `false` forbids it, anything else leaves the policy
    * in charge (a marker only while `features.promptCache` is true, `options.role`
@@ -1261,24 +1234,22 @@ export function createLlm({
    * estimate before calibration, because `estimateMessages` cannot size a
    * `video_url` part on its own; the token cap then applies to the sum.
    * `tokensPerSecond` is `options.videoTokensPerSecond` when that is a finite
-   * positive number, else `media.video.tokensPerSecond` (`VIDEO_TOKENS_PER_SECOND_FALLBACK`,
-   * 120 per second, when unset; the rate of a statically sampled clip). The override exists for
+   * positive number, else `VIDEO_TOKENS_PER_SECOND`. The override exists for
    * the video describer's public-URL requests in agentic processing, where the
    * provider does not count the video as prompt tokens and the per-second cost
-   * is far lower (`media.video.directUrlTokensPerSecond`).
+   * is far lower (src/memory/describe.js#DIRECT_URL_TOKENS_PER_SECOND).
    * `options.limits` — a collector (src/llm/limits.js#createLimits; never sent) told the limits
    * this answered request hit: `estimate-off` (`where`: the purpose, else the model role, else
    * `request`; `lost`: the tokens over the estimate; `detail`: `estimate->actual`) when the
-   * provider counted the whole prompt above the estimate by more than `1 - llm.safetyMargin` of
+   * provider counted the whole prompt above the estimate by more than `1 - SAFETY_MARGIN` of
    * it (the room the margin leaves), and `output-cap` (`where: 'completion'`) when the
    * completion reached the request's `max_tokens`.
    */
   /**
    * The limits one answered request hit, told to `limits` (`options.limits`, see `complete`).
-   * The margin is read now (src/llm/budget.js#safetyMarginOf).
    */
   function reportLimits(limits, { where, estimated, promptTokens, completion, maxTokens }) {
-    const margin = safetyMarginOf(getConfig());
+    const margin = SAFETY_MARGIN;
     if (
       Number.isFinite(promptTokens) &&
       Number.isFinite(estimated) &&
@@ -1299,11 +1270,10 @@ export function createLlm({
 
   async function complete(messages, options = {}) {
     const cfg = getConfig().llm;
-    const tokensPerImage = getConfig().context?.vision?.tokensPerImage;
     const tools = Array.isArray(options.tools) && options.tools.length ? options.tools : null;
     // The tools are counted apart (src/llm/tokens.js#estimateTools): added to the calibrated estimate, never fed to the calibrator.
     const toolsTokens = tools ? estimateTools(tools) : 0;
-    let raw = estimateMessages(messages, tokensPerImage);
+    let raw = estimateMessages(messages);
     if (
       typeof options.videoSeconds === 'number' &&
       Number.isFinite(options.videoSeconds) &&
@@ -1311,9 +1281,7 @@ export function createLlm({
     ) {
       const override = options.videoTokensPerSecond;
       const tokensPerSecond =
-        typeof override === 'number' && Number.isFinite(override) && override > 0
-          ? override
-          : (getConfig().media?.video?.tokensPerSecond ?? VIDEO_TOKENS_PER_SECOND_FALLBACK);
+        typeof override === 'number' && Number.isFinite(override) && override > 0 ? override : VIDEO_TOKENS_PER_SECOND;
       raw += Math.ceil(options.videoSeconds * tokensPerSecond);
     }
     const estimated = calibrator.apply(raw) + toolsTokens;
@@ -1332,12 +1300,8 @@ export function createLlm({
       model,
       // The cache marker goes on only now: `raw` above was estimated from the caller's own
       // messages, and a marker is a JSON field, not prompt text.
-      messages: withCacheMarker(
-        messages,
-        cacheTtlFor(getConfig(), options.role, model, options.cache),
-        profilesTtlFor(getConfig())
-      ),
-      temperature: options.temperature ?? cfg.temperature,
+      messages: withCacheMarker(messages, cacheTtlFor(getConfig(), options.role, model, options.cache), PROFILES_TTL),
+      temperature: options.temperature ?? TEMPERATURE,
       max_tokens: options.maxOutputTokens ?? cfg.maxOutputTokens,
     };
     // What was actually sent: the usage of a marked request is read by the route the probe measured.
@@ -1407,7 +1371,7 @@ export function createLlm({
       const usage = json.usage ?? {};
       const finishReason = json.choices?.[0]?.finish_reason ?? undefined;
       // The whole prompt as the provider counted it, its cached part included (see fullPromptTokens).
-      const promptTokens = fullPromptTokens(usage, getConfig(), marked);
+      const promptTokens = fullPromptTokens(usage);
       if (options.skipCalibration !== true && promptTokens !== null)
         calibrator.observe(raw, promptTokens - toolsTokens);
       if (promptTokens !== null && promptTokens > requestTokenCap) {

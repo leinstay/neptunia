@@ -59,7 +59,7 @@ import { linkChannels } from '../memory/mentions.ts';
 import { answerOf, continuationHistory, loopSettings, pickOtherProfiles, taskInput } from './turn.js';
 import { appendStep, cutToFit, roomLeft, segments, stepNote, stepVerdict, thinkMissing } from './tool-step.js';
 import { diagnosticText } from './wake.ts';
-import { callReason, withCalls } from '../format.js';
+import { callReason, MAX_MESSAGE_CHARS, withCalls } from '../format.js';
 import { grant as accessGrant, revoke as accessRevoke } from '../tools/impl/grants.ts';
 import { collectEmojiItems, collectPictures, collectVideos, isDescribable, watchedLengths } from '../media/classify.js';
 import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.js';
@@ -71,7 +71,7 @@ import { findGif } from '../memory/index.js';
 import { tokenIds } from '../memory/mentions.ts';
 import { liveRecent, recentSettings } from '../memory/recent.js';
 import { checkSkill, listSkills } from '../tools/gateway.ts';
-import { discoveryOn, exposedSkillNames, proposalVerdicts, proposedRows } from '../tools/discovery.ts';
+import { exposedSkillNames, proposalVerdicts, proposedRows } from '../tools/discovery.ts';
 import { outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
 import { coerceArgs, toolResultText, transportOf } from '../tools/tool-calls.ts';
 import { buildTools } from '../tools/tools-json.ts';
@@ -84,6 +84,7 @@ import { diaryConversationIds, viewDiaryIds } from './mirror.ts';
 import { utcDay } from '../time.js';
 import { DEFAULT_RESULT_MAX_CHARS, errandResultText } from '../errands/blocks.ts';
 import { CODE } from '../tools/codes.ts';
+import { MARK_TEXT_CHARS } from '../turn/calls.ts';
 
 // Token estimates taken as they are: the calibrator of a view built without a live one.
 const IDENTITY_CALIBRATOR = Object.freeze({ ratio: 1, apply: (n) => n, observe: () => 1 });
@@ -145,8 +146,7 @@ export const SANDBOX_OMITS = Object.freeze({
     'no automatic memory prefetch: no <retrieved> block (a scenario run with her tool loop hands in the one a live turn would get: `coreTools.prefetch`)',
   imageAnswers: 'no second look at a picture is run: no imageAnswered line',
   recallAvailable: 'no server search is run: <senses> does not offer it',
-  drawQuota: 'no drawing is offered: a sandbox never draws, so <senses> has no drawing line',
-  focus: 'no room question: a live turn has no caller for it either',
+  drawOn: 'no drawing is offered: a sandbox never draws, so <senses> has no drawing line',
   tasks:
     "no part of a split message, no queued or folded call: a replay knows none (a skill scenario's burst hands in its waiting calls: `queued`)",
   recentAudience: "no guild to compare audiences in: <recent> shows the lines of the turn's own channel only",
@@ -658,7 +658,7 @@ function recentLinesOf(view, at) {
  */
 function sandboxChannels(given, view, channel) {
   if (Array.isArray(given)) return given;
-  const memoryOn = view.config.features?.memory !== false;
+  const memoryOn = true;
   const stored = memoryOn && typeof view.memory?.listChannels === 'function' ? (view.memory.listChannels() ?? []) : [];
   const list = stored
     .filter((entry) => entry && entry.id !== undefined && entry.id !== null)
@@ -695,11 +695,10 @@ function sandboxChannels(given, view, channel) {
  * opens, as src/errands/turns.ts runs it: trigger kind `errand` whatever the mode, and `errands`
  * carrying its `<errand_result>` body (src/errands/blocks.ts#errandResultText, cut to
  * `errands.resultMaxChars` read now) with no `<errands>` list -- a replay knows no other errand of
- * hers. `coreTools` (`{ recallAvailable, prefetch? }`, a skill scenario run with features.coreTools on)
+ * hers. `coreTools` (`{ recallAvailable, prefetch? }`, a skill scenario run with her tool loop)
  * hands in whether the server search could run (`recallAvailable`) and the automatic memory prefetch of
  * the trigger (`prefetch`, `<retrieved>`), which every other sandbox turn leaves out (SANDBOX_OMITS). The view is
- * read now and nothing is written. `preTurn` (`{ lookup, recallAvailable }`, tools/replay.mjs with
- * features.coreTools off) hands in what a live turn's search classifier and searches found before her
+ * read now and nothing is written. `preTurn` (`{ lookup, recallAvailable }`, an input no replay mode hands in now) hands in what a live turn's search classifier and searches found before her
  * reply (`<lookup>`) and whether the server search could run. `toolset` (sandboxToolset's) hands in her
  * tools: their names (`<senses>`), the `<tools>` block of the text transport and the tokens the native
  * `tools` field takes off the room.
@@ -744,7 +743,7 @@ export function sandboxRequestInput({
     ? taskInput({ part: null, queued: () => waiting, added: null, labels: view.prompts?.labels, channelId: channel.id })
         .input
     : null;
-  const memoryOn = config.features?.memory !== false;
+  const memoryOn = true;
   const { history, trigger, triggerKind } = situationHistory(situation);
   // pickOtherProfiles reads a store-shaped object; this one reads the view.
   const viewAsStore = { getUser: (guildId, id) => memory.getUser(id) };
@@ -766,9 +765,7 @@ export function sandboxRequestInput({
     taggedCall: trigger ? isTaggedCall(trigger, selfId) : null,
     guildMemory: memoryOn ? memory.getGuild() : {},
     interlocutor: memoryOn && trigger ? memory.getUser(trigger.authorId) : null,
-    otherProfiles: memoryOn
-      ? pickOtherProfiles(viewAsStore, SANDBOX_GUILD, history, trigger?.authorId, config.context.otherProfiles)
-      : [],
+    otherProfiles: memoryOn ? pickOtherProfiles(viewAsStore, SANDBOX_GUILD, history, trigger?.authorId) : [],
     candidateProfiles: memoryOn ? memory.listUserProfiles() : [],
     nameOf: memoryOn ? (id) => memory.getUser(id)?.names?.[0] ?? null : null,
     channels: memoryOn ? memory.listChannels() : [],
@@ -798,14 +795,13 @@ export function sandboxRequestInput({
     privateChat: null,
     privateProfile: null,
     reads: null,
-    // Absent (SANDBOX_OMITS) but with features.coreTools off (tools/replay.mjs `preTurn`): what the searches found, as live.
+    // Absent (SANDBOX_OMITS) unless a caller hands in `preTurn`: what a search classifier found before her reply.
     lookup: preTurn?.lookup ?? null,
     // Absent (SANDBOX_OMITS) but with her tool loop (`coreTools.prefetch`): the memory prefetch a live turn would show.
     prefetch: coreTools?.prefetch ?? null,
     // Absent (SANDBOX_OMITS) but with her tool loop (`coreTools`) or the pre-turn searches: whether the server search runs.
     recallAvailable: coreTools ? coreTools.recallAvailable === true : preTurn ? preTurn.recallAvailable === true : null,
-    drawQuota: null,
-    focus: null,
+    drawOn: false,
     // Absent but on a burst's turn with calls still waiting (`queued`).
     tasks,
     recentAudience: null,
@@ -877,7 +873,7 @@ export function sandboxToolset({ view, selfId = null, registry = skillRegistry()
  * at `at` and the members' moments of those hours (`recentLinesOf`; a
  * `momentView` holds the lines added before the moment). Left out, unlike a
  * real turn: every input of `SANDBOX_OMITS` (neighbours, other channels, the
- * web lookup, the server search, a drawing offer, a room question, the recent
+ * web lookup, the server search, a drawing offer, the recent
  * lines of other channels, a private chat), pictures (a user message with
  * image parts is sent as its text-only re-render), an owner-forced turn's
  * text, the daily GIF cap, and a custom-emoji reaction is kept as written
@@ -1052,12 +1048,11 @@ function sandboxMessages(input, samples, { segments = false } = {}) {
  * what a live turn would mention (handleMentions); its `text` stays as she wrote it.
  */
 function shapeAnswer(parsed, config, gifs, handles = null) {
-  const features = config.features ?? {};
-  const reactions = features.reactions === false ? [] : parsed.reactions;
-  const kept = features.multiMessage === false ? parsed.messages.slice(0, 1) : parsed.messages;
+  const reactions = parsed.reactions;
+  const kept = parsed.messages;
   const replies = kept.map((message) => ({ ...message, ...handleMentions(message.text, handles) }));
   // As src/behavior/turn.js: a GIF off the library or with the switch off is dropped.
-  const gif = parsed.gif && features.gifs !== false && findGif(gifs, parsed.gif.id) ? parsed.gif : null;
+  const gif = parsed.gif && findGif(gifs, parsed.gif.id) ? parsed.gif : null;
   const nothingToDo = replies.length === 0 && reactions.length === 0 && gif === null;
   return { messages: replies, reactions, gif, skip: parsed.skip || nothingToDo, think: parsed.think };
 }
@@ -1124,8 +1119,7 @@ export function personaGrantsConfig(config, selfId, names) {
  * (src/tools/gateway.ts#listSkills over `config`, `selfId`, the skills layer `texts`) whole
  * when the search classifier would have answered `skills: inventory` (`discovery`
  * `'inventory'`), the rows of the skills it would have named (`discovery` a list of names:
- * proposalVerdicts, proposedRows), none for `'none'`. Null with discovery off
- * (`features.tools` / `features.toolsDiscovery`) or nothing to show. Pure.
+ * proposalVerdicts, proposedRows), none for `'none'`. Null when there is nothing to show. Pure.
  * @param {{ config: object, selfId: string, texts?: object, requester: object|null, conversationId: string,
  *   registry: Map<string, object>, discovery?: 'inventory'|'none'|string[], getOp?: Function }} input
  * @returns {object[]|null}
@@ -1140,7 +1134,7 @@ export function scenarioInventory({
   discovery = 'inventory',
   getOp,
 }) {
-  if (!discoveryOn(config) || discovery === 'none') return null;
+  if (discovery === 'none') return null;
   const rows = listSkills({
     config,
     selfId,
@@ -1269,18 +1263,15 @@ export function skillScenarioRequest(input) {
 /** How far apart a scenario's continuation places her posts, the call and its request (ms). */
 const CONTINUATION_STEP_MS = 1000;
 
-/** The operation's own message on a call mark when `tools.markTextMaxChars` is not set (config.json's value). */
-const MARK_TEXT_MAX_CHARS = 200;
-
 /**
  * The mark one call of hers leaves on the transcript, in src/format.js#withCalls's shape
  * and as a live turn notes it (src/behavior/turn.js, `noteCall`): `outcome` (simulateCall's) made
  * in the turn of `channelId`, its result back at `at`; its status and, when it did not work, why
- * (outcomeDetail, `tools.markTextMaxChars` read from `config`); its target from the resolved
+ * (outcomeDetail, cut at MARK_TEXT_CHARS); its target from the resolved
  * arguments; `postedId` the message the call itself posted, `posted` every message the turn
  * posted. Pure.
  */
-function callMarkOf({ outcome, channelId, at, postedId, posted, config }) {
+function callMarkOf({ outcome, channelId, at, postedId, posted }) {
   const result = outcome.result;
   const args = outcome.executed?.args ?? {};
   const idOf = (value) => (typeof value === 'string' && value ? value : null);
@@ -1289,7 +1280,7 @@ function callMarkOf({ outcome, channelId, at, postedId, posted, config }) {
     at,
     skill: result.skill,
     status: result.status,
-    detail: outcomeDetail(result, { textChars: config.tools?.markTextMaxChars ?? MARK_TEXT_MAX_CHARS }),
+    detail: outcomeDetail(result, { textChars: MARK_TEXT_CHARS }),
     target: { messageId: idOf(args.message) ?? idOf(args.reply), channelId: idOf(args.channel) },
     postedId: postedId ?? null,
     posted,
@@ -1298,7 +1289,7 @@ function callMarkOf({ outcome, channelId, at, postedId, posted, config }) {
 
 /** A channel's name by id for a call mark: the view's channel map, the turn's `channel` by its own name. */
 function channelNamesOf(view, channel) {
-  const memoryOn = view.config.features?.memory !== false;
+  const memoryOn = true;
   const stored = memoryOn && typeof view.memory?.listChannels === 'function' ? (view.memory.listChannels() ?? []) : [];
   const names = new Map(
     stored.filter((entry) => entry && typeof entry.name === 'string').map((entry) => [String(entry.id), entry.name])
@@ -1332,7 +1323,7 @@ function channelNamesOf(view, channel) {
  * `loop` (`{ settings?, now? }`: src/behavior/turn.js#loopSettings's bounds, the clock; the bounds
  * default to the config's) sets the bounds and the clock. `coreTools` (`{ recallAvailable, prefetch? }`)
  * puts the server search's senses line and the memory prefetch into the request, as
- * features.coreTools does live (sandboxRequestInput).
+ * a live turn does (sandboxRequestInput).
  * What a run keeps: `run.loop = { steps: [{ step, answer, calls: [{ call, outcome, ms }], dropped,
  * capped, held, thinkMissing, coerced, usage, ms, requestChars, requests?, error? }], ms }` (step 0 the
  * reply), and for the single-call fields `call` / `callError` / `outcome` (the reply's first call),
@@ -1371,7 +1362,7 @@ export async function answerSkillScenario({
   registry = skillRegistry(),
 }) {
   // The earlier steps' calls on her lines, as a live turn's history carries them (linkCalls).
-  const earlier = Array.isArray(callMarks) && view.config.features?.callMarkers !== false ? callMarks : [];
+  const earlier = Array.isArray(callMarks) ? callMarks : [];
   const moment =
     earlier.length > 0
       ? {
@@ -1566,7 +1557,7 @@ function preRefusal(record, { isFinal, room, maxCallsPerStep, finalReason }) {
  * messages untouched, her whole text and her calls, one result per call in call order, a note (the
  * held-speech notice, the last-step notice, the parser's diagnostics) -- appendStep over both
  * transports. The last request allowed is final; its calls get `loop-cap` results, its speech is
- * held. A request over the room (the prompt rail, llm.maxRequestTokens x llm.safetyMargin, the tools counted) cuts
+ * held. A request over the room (the prompt rail, llm.maxRequestTokens x SAFETY_MARGIN, the tools counted) cuts
  * the results to fit and is final. What it did is kept on the run (see answerSkillScenario). Resolves
  * `{ stopped }`; the clock is `clock`.
  */
@@ -1889,7 +1880,7 @@ function withOwnReaction(line, emoji) {
  * `postedId`) for the next steps' requests. Not carried: a GIF, an edit or a deletion, the image
  * quota. Ids are snowflakes of their moments. Pure.
  * @param {{ transcript: object[], callMarks?: object[], run: object, at: number, selfId: string, selfName: string,
- *   channel: { id: string }, triggerId?: string|null, config: object }} input
+ *   channel: { id: string }, triggerId?: string|null, config?: object }} input
  * @returns {{ transcript: object[], callMarks: object[], posted: string[] }}
  */
 export function afterScenarioTurn({
@@ -1901,7 +1892,6 @@ export function afterScenarioTurn({
   selfName,
   channel,
   triggerId = null,
-  config,
 }) {
   const callMarks = Array.isArray(earlier) ? earlier : [];
   const channelId = String(channel.id);
@@ -1984,7 +1974,6 @@ export function afterScenarioTurn({
       at: callAt,
       postedId,
       posted: own.map((line) => line.id),
-      config: config ?? {},
     });
   };
   // The turn's steps: every step's posted speech (a held step's is not in the chat), then its calls' effects and marks,
@@ -2048,8 +2037,6 @@ export function seededSelfLine({ text, at, selfId, selfName, channel }) {
   return continuationHistory({ history: [], own: [line], selfName })[0];
 }
 
-/** A burst's waiting text when `context.maxMessageChars` is not set (config.json's value). */
-const QUEUED_TEXT_MAX_CHARS = 2000;
 /** The pending queue's cap when `mention.maxPending` is not set (config.json's value). */
 const MAX_PENDING = 6;
 
@@ -2069,7 +2056,7 @@ const MAX_PENDING = 6;
  * The queue is then drained oldest first (popOldest), each entry its own turn. Each turn's
  * `queued` is what still waits besides it, arrival order, as src/pipeline/pending-queue.ts#queuedFor lists
  * it: the trigger author's own as `{ id, text }`, another member's as `{ id, text, author }`
- * (their display name), the text on one line cut to `context.maxMessageChars`. Not modelled: the
+ * (their display name), the text on one line cut to `MAX_MESSAGE_CHARS`. Not modelled: the
  * ignore rolls, the merge classifier folding a call into an earlier one, a follow-up's window and
  * staleness checks. Pure; nothing handed in is changed.
  * @param {object[]} incoming
@@ -2080,22 +2067,20 @@ const MAX_PENDING = 6;
 export function burstTurns(incoming, { selfId, config, history = [] }) {
   const lines = (Array.isArray(incoming) ? incoming : []).filter(Boolean);
   if (lines.length === 0) return { turns: [], replaced: [], dropped: [] };
-  const features = config?.features ?? {};
   const self = String(selfId);
-  const nameTriggers =
-    features.nameTriggers !== false && Array.isArray(config?.bot?.nameTriggers) ? config.bot.nameTriggers : [];
+  const nameTriggers = Array.isArray(config?.bot?.nameTriggers) ? config.bot.nameTriggers : [];
   const herLines = new Set(
     [...(Array.isArray(history) ? history : []), ...lines].filter((line) => line?.self === true).map((line) => line.id)
   );
   const kindOf = (line) =>
     detectTrigger({
-      mentionsSelf: features.mentions !== false && (line.mentionedUserIds ?? []).includes(self),
-      repliesToSelf: features.replies !== false && Boolean(line.replyToId) && herLines.has(line.replyToId),
+      mentionsSelf: (line.mentionedUserIds ?? []).includes(self),
+      repliesToSelf: Boolean(line.replyToId) && herLines.has(line.replyToId),
       content: String(line.content ?? ''),
       nameTriggers,
     }) ?? 'followUp';
   const maxPending = config?.mention?.maxPending ?? MAX_PENDING;
-  const maxChars = config?.context?.maxMessageChars ?? QUEUED_TEXT_MAX_CHARS;
+  const maxChars = MAX_MESSAGE_CHARS;
   const [first, ...rest] = lines;
   let pending = [];
   const replaced = [];

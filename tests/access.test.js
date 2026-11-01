@@ -68,8 +68,8 @@ function legacy(key) {
 const everyone = () => ({ everyone: true, roles: [], users: [] });
 
 /** isAllowed for user `userId` (roles `roleIds`) on the fixture op `name`, owner `1`. */
-function allowed(name, access, { userId = '2', roleIds = [], features } = {}) {
-  return isAllowed({ op: byName(name) ?? op(name), member: { userId, roleIds }, access, owners: ['1'], features });
+function allowed(name, access, { userId = '2', roleIds = [] } = {}) {
+  return isAllowed({ op: byName(name) ?? op(name), member: { userId, roleIds }, access, owners: ['1'] });
 }
 
 // ---------------------------------------------------------------------------
@@ -214,16 +214,8 @@ test('isAllowed: a member op passes for anyone, with no owners and no access at 
     isAllowed({ op: byName('pings.get'), member: { userId: '2', roleIds: [] }, owners: [], access: undefined }),
     true
   );
-  assert.equal(allowed('pings.get', {}, { features: { memberCommands: true } }), true);
   // it opens nothing else
   assert.equal(allowed('status.show', {}), false);
-});
-
-test('isAllowed: memberCommands false closes a member op to everyone but an owner, a grant on it included', () => {
-  const off = { features: { memberCommands: false } };
-  assert.equal(allowed('pings.get', {}, off), false);
-  assert.equal(allowed('pings.get', { 'pings.get': everyone(), '*': everyone() }, off), false);
-  assert.equal(allowed('pings.get', {}, { ...off, userId: '1' }), true);
 });
 
 // ---------------------------------------------------------------------------

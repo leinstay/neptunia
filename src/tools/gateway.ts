@@ -15,7 +15,7 @@ import { getOp as registryGetOp } from './impl/registry.ts';
 import type { Op } from './impl/registry.ts';
 import { rightsRefusal } from './impl/rights.ts';
 import { skillRegistry, describeSkill } from './registry.ts';
-import { CARRIED_OVER, skillAccess, skillFeatureOn, skillsOn } from './access.ts';
+import { CARRIED_OVER, skillAccess } from './access.ts';
 import { schemaError } from './schema.ts';
 import { skillArgs } from './discovery.ts';
 import { MINUTE_MS } from '../time.js';
@@ -126,21 +126,14 @@ function requesterRefusal(
 }
 
 /**
- * The budget of each paid skill: a function of the call's context, requester and arguments
- * answering the caps as src/llm/images.js#quota does (`{ spent, userSpent }`; `code` and `key`
- * naming the refusal and the cap that is spent when they are not the drawing's), or null when
- * unavailable.
+ * The budget of a paid skill that has one: a function of the call's context, requester and arguments answering
+ * `{ spent }` (`code` and `key` naming the refusal and the cap that is spent), or null when unavailable. An errand's is
+ * its agent's caps (open tasks and tasks a day), `context.tasks`; a drawing and a voice message have no daily budget.
  */
-const drawBudget = (context: GateContext, requester: Requester | null): unknown =>
-  typeof context.images?.quota === 'function' ? context.images.quota({ userId: requester?.id ?? null }) : null;
-/** An errand's budget: its agent's caps (open tasks, tasks and dollars a day), `context.tasks`. */
 const taskBudget = (context: GateContext, _requester: Requester | null, args: unknown): unknown =>
   typeof context.tasks?.budget === 'function' ? context.tasks.budget(objOf(args).agent) : null;
-/** A voice message's budget: today's count against `speech.maxPerDay`, `context.speech`. */
-const speechBudget = (context: GateContext): unknown =>
-  typeof context.speech?.quota === 'function' ? context.speech.quota() : null;
 const BUDGETS: Readonly<Record<string, (context: GateContext, requester: Requester | null, args: unknown) => unknown>> =
-  Object.freeze({ 'draw.create': drawBudget, 'voice.say': speechBudget, 'errand.run': taskBudget });
+  Object.freeze({ 'errand.run': taskBudget });
 
 /** Minutes between two destructive calls from one channel (`tools.destructiveCooldownMinutes`; config.json's value). */
 const DESTRUCTIVE_COOLDOWN_MINUTES = 10;
@@ -159,19 +152,19 @@ function cooldownRefusal(skill: Skill, context: GateContext): Refusal | null {
   return now - lastRunAt < minutes * MINUTE_MS ? refused(CODE.COOLDOWN, 'tools.destructiveCooldownMinutes') : null;
 }
 
-/** Null when a paid skill still has budget today, else the refusal. Fails closed. */
+/** Null when a paid skill with a budget still has some today, else the refusal; a budget it cannot read fails closed. */
 function budgetRefusal(skill: Skill, requester: Requester | null, context: GateContext, args: unknown): Refusal | null {
   if (skill.costClass !== 'paid') return null;
   const ask = BUDGETS[skill.name];
-  const answer = Object.hasOwn(BUDGETS, skill.name) && ask !== undefined ? ask(context, requester, args) : null;
+  if (!Object.hasOwn(BUDGETS, skill.name) || ask === undefined) return null;
+  const answer = ask(context, requester, args);
   if (!isObj(answer)) return refused(CODE.NO_BUDGET, 'unavailable');
   const budget: Budget = answer;
   if (budget.spent === true)
     return refused(
       typeof budget.code === 'string' && budget.code ? budget.code : CODE.DAILY_CAP,
-      typeof budget.key === 'string' && budget.key ? budget.key : 'image.maxPerDay'
+      typeof budget.key === 'string' && budget.key ? budget.key : 'unavailable'
     );
-  if (budget.userSpent === true) return refused(CODE.DAILY_CAP, 'image.maxPerUserPerDay');
   return null;
 }
 
@@ -204,7 +197,6 @@ export function checkSkill({
   context?: GateContext;
 }): { ok: true } | Refusal {
   if (principal?.kind !== 'persona') return refused(CODE.UNKNOWN_PRINCIPAL, idText(principal?.kind));
-  if (!skillsOn(context.config)) return refused(CODE.SKILLS_OFF, 'features.tools');
   const registry = context.registry ?? skillRegistry();
   const skill = registry.get(name);
   if (!skill) return refused(CODE.UNKNOWN_SKILL, idText(name));
@@ -250,20 +242,16 @@ export function checkSkill({
  * Whether one effect of the persona's ordinary reply may happen now -- a `<msg>` or `<gif>`
  * (`message.create`), a `<react>` (`message.react.add`), a `draw.create` call, always in the
  * current conversation: carried over without a grant (src/tools/access.ts#CARRIED_OVER), even in
- * safe mode; refused only under the full stop (`features.tools` false: she goes silent). Never
- * throws.
+ * safe mode. Never throws.
  */
 export function checkReplyEffect({
   skill,
   principal,
-  config,
 }: {
   skill: string;
   principal: { kind?: string } | null | undefined;
-  config: unknown;
 }): { ok: true } | Refusal {
   if (principal?.kind !== 'persona') return refused(CODE.UNKNOWN_PRINCIPAL, idText(principal?.kind));
-  if (!skillsOn(config)) return refused(CODE.SKILLS_OFF, 'features.tools');
   if (!CARRIED_OVER.includes(skill)) return refused(CODE.UNKNOWN_SKILL, idText(skill));
   return { ok: true };
 }
@@ -298,8 +286,6 @@ export function listSkills({
 }): Array<ListedSkill> {
   const rows: Array<ListedSkill> = [];
   for (const skill of registry.values()) {
-    // A skill whose feature switch is off does not exist for her: no row.
-    if (!skillFeatureOn(skill.name, config)) continue;
     const { title, whenToUse } = describeSkill(skill, texts);
     const current = audience?.conversationId ?? null;
     let { allowed, reason } = skillAccess({

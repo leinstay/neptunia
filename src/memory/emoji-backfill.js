@@ -2,7 +2,7 @@
 // only from the lines it sees (src/memory/update.js), so on a server
 // with a long history the `<emoji>` block would show the server's first emoji
 // in server order until enough lines pass. This reads the last
-// `context.customEmoji.backfillMessages` messages of every readable channel
+// `BACKFILL_MESSAGES` messages of every readable channel
 // through the interface's history reads -- no LLM, no token budget -- and counts them into
 // guild.json's `emojiUsage` at once (src/memory/emoji-usage.js), starting from
 // a cleared ranking, then stamps `emojiBackfill: { at, channels, messages }`
@@ -18,8 +18,8 @@ import { log as defaultLog } from '../log.js';
 /** How many messages one `store.recordEmojiUsage` call takes. */
 const CHUNK = 500;
 
-/** Default of `context.customEmoji.backfillMessages` when the key is missing. */
-const DEFAULT_BACKFILL_MESSAGES = 500;
+/** The messages read per channel. Production value, config cut of 2026-10-31. */
+const BACKFILL_MESSAGES = 500;
 
 /**
  * The newest `limit` messages of every readable conversation of the community `communityId`, read one conversation
@@ -30,13 +30,13 @@ const DEFAULT_BACKFILL_MESSAGES = 500;
  * @param {import('../interface/reads.ts').Reads} reads
  * @param {string} communityId
  * @param {number} limit
- * @param {{ config: object, iface: string, log?: object, prefix: string }} deps  `config` is the live config (`bot`).
+ * @param {{ iface: string, log?: object, prefix: string }} deps
  * @returns {Promise<{ channels: number, messages: object[] }|null>}  `messages` as lines, in read order.
  */
-export async function readMemberHistory(reads, communityId, limit, { config, iface, log = defaultLog, prefix }) {
+export async function readMemberHistory(reads, communityId, limit, { iface, log = defaultLog, prefix }) {
   const listing = await reads.conversations({ communityId });
   if (listing === null) return null;
-  const channels = listing.conversations.filter((entry) => isReadable(entry, config.bot));
+  const channels = listing.conversations.filter((entry) => isReadable(entry));
   if (channels.length === 0) return null;
   const messages = [];
   for (const channel of channels) {
@@ -56,8 +56,7 @@ export async function readMemberHistory(reads, communityId, limit, { config, ifa
 /**
  * The emoji history backfill for the served guild.
  * @param {object} deps
- * @param {object} deps.hot     src/hot.js view; `config.context.customEmoji`, `config.bot`,
- *   `config.media.embedTextChars`, `config.features.customEmoji` read at use.
+ * @param {object} deps.hot     src/hot.js view; `config` read at use.
  * @param {object} deps.store   src/memory/store.js.
  * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface (readMemberHistory's).
  * @param {() => string} deps.iface  The interface's name, read when a run starts.
@@ -83,8 +82,7 @@ export function createEmojiBackfill({ hot, store, reads, iface, log = defaultLog
    * Channels are read one after another (readMemberHistory). Messages of bots and of the persona are skipped, as are those
    * still in the analyzer buffer (the analyzer counts them when it consumes
    * them). Clearing, counting and stamping happen together after every
-   * channel is read. Skips (never throws) when paused, when
-   * `backfillMessages` is 0, when already stamped (no `force`), while another
+   * channel is read. Skips (never throws) when paused, when already stamped (no `force`), while another
    * run is in flight, or when the interface lists no readable conversation of the community; an
    * unexpected error is thrown.
    * @param {string} guildId
@@ -94,13 +92,11 @@ export function createEmojiBackfill({ hot, store, reads, iface, log = defaultLog
   async function run(guildId, { force = false } = {}) {
     if (running) return skipped('running');
     if (store.state?.data?.paused) return skipped('paused');
-    const limit = hot.config.context?.customEmoji?.backfillMessages ?? DEFAULT_BACKFILL_MESSAGES;
-    if (!Number.isInteger(limit) || limit <= 0) return skipped('disabled');
     if (!force && store.getGuild(guildId).emojiBackfill?.at) return skipped('done');
 
     running = true;
     try {
-      const history = await readMemberHistory(reads, guildId, limit, {
+      const history = await readMemberHistory(reads, guildId, BACKFILL_MESSAGES, {
         config: hot.config,
         iface: iface(),
         log,
@@ -116,7 +112,7 @@ export function createEmojiBackfill({ hot, store, reads, iface, log = defaultLog
 
       if (store.state?.data?.paused) return skipped('paused');
       const members = [...collected].sort((a, b) => a.ts - b.ts);
-      const opts = emojiUsageOpts(hot.config);
+      const opts = emojiUsageOpts();
 
       // Always from a cleared ranking: the window already holds what the live counting counted so far.
       store.clearEmojiUsage(guildId);
@@ -144,10 +140,6 @@ export function createEmojiBackfill({ hot, store, reads, iface, log = defaultLog
    */
   async function startIfNeeded(guildId) {
     try {
-      if (hot.config.features?.customEmoji === false) {
-        skipped('feature-off');
-        return;
-      }
       await run(guildId);
     } catch (err) {
       log.error('emoji-backfill: failed', { error: err });

@@ -29,8 +29,8 @@ import { HOUR_MS, MINUTE_MS } from '../time.js';
 import { clampText, oneLine } from './clamp.js';
 
 /**
- * config.json's own values for the `participation` section, the code fallbacks
- * when a deployment's config lacks a key. `contextMessages`, `maxOutputTokens` and
+ * The participation measures: production values of the config cut of 2026-10-31, and the fallbacks of the two
+ * keys `participation.maxOutputTokens` and `participation.pickTimeoutMs`. `contextMessages`, `maxOutputTokens` and
  * `pickTimeoutMs` belong to the pick classifier (src/behavior/participation-pick.js, which
  * applies the time limit), `earlierHours` and `earlierShown` to the current channel's
  * `<earlier>` block (`earlierEpisodes`).
@@ -67,9 +67,8 @@ const HEADLINE_JOIN = ' / ';
 const CUT_EDGE = 2;
 
 /**
- * The participation settings, read from `config` at the moment of use:
- * `config.participation`'s numbers with `PARTICIPATION_DEFAULTS` as fallbacks.
- * The `features.participation` switch is not read here (the caller's).
+ * The participation settings: `PARTICIPATION_DEFAULTS` (production values, config cut of 2026-10-31), with the
+ * pick classifier's `maxOutputTokens` and `pickTimeoutMs` read from `config.participation` at the moment of use.
  * @param {object} config
  * @returns {{ hours: number, linesBefore: number, linesAfter: number, followMinutes: number,
  *   mergeGapMinutes: number, contextMinutes: number, maxMessages: number, maxStored: number, maxTextChars: number,
@@ -78,8 +77,8 @@ const CUT_EDGE = 2;
  */
 export function participationSettings(config) {
   const section = isPlainObject(config?.participation) ? config.participation : {};
-  const out = {};
-  for (const [key, fallback] of Object.entries(PARTICIPATION_DEFAULTS)) out[key] = section[key] ?? fallback;
+  const out = { ...PARTICIPATION_DEFAULTS };
+  for (const key of ['maxOutputTokens', 'pickTimeoutMs']) out[key] = section[key] ?? PARTICIPATION_DEFAULTS[key];
   return out;
 }
 

@@ -1,4 +1,4 @@
-// The persona's in-turn tools (features.coreTools): `web.search`, `web.read`, `media.look` and `memory.search`,
+// The persona's in-turn tools: `web.search`, `web.read`, `media.look` and `memory.search`,
 // skills she calls herself in a turn whose result comes back in the same turn (src/behavior/turn.js,
 // the tool loop). No model role chooses for her or reads for her: her query goes to the existing
 // web search engines as she wrote it and their results come back raw (src/web/lookup.js#searchResults:
@@ -29,9 +29,8 @@ import { zonedDay } from '../time.js';
 import { RECALL_DEFAULTS, memorySearchPlan, recallSettings } from '../behavior/recall.js';
 import { collectPictures, collectVideos } from '../media/classify.js';
 import { videoSiteFor, videoUrlCacheKey } from '../media/video-sites.js';
-import { isVideoVisionOn } from '../memory/youtube-check.js';
 import { foldText } from '../memory/recent.js';
-import { rankGifs } from '../memory/gifs.js';
+import { GIF_HALF_LIFE_DAYS, rankGifs } from '../memory/gifs.js';
 import { gifFieldChars, gifFields, gifLine } from '../behavior/prompt.js';
 import { IN_TURN_TOOLS } from './discovery.ts';
 import { CODE, FEATURE, WHAT, isCode } from './codes.ts';
@@ -52,7 +51,6 @@ export type WebLookup = {
   searchResults?: (guildId: string | null, query: string) => Promise<unknown>;
   readPage?: (guildId: string | null, url: string) => Promise<unknown>;
   hasSearch?: () => boolean;
-  webCapLeft?: () => number;
 };
 
 /** The result of a tool: a status, a code and the text she reads. Further fields carry what the executor passes on. */
@@ -90,7 +88,6 @@ export type LookDescriber = {
   relookImage?: (guildId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
   rewatchVideo?: (guildId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
   rewatchGif?: (guildId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
-  videoCapsLeft?: () => { rewatch?: number; video?: number; gif?: number } | null;
 };
 
 /** The model a second look goes out on: the core model's id when it is routed there, else the role's own. */
@@ -132,18 +129,15 @@ function toolLabels(labels: unknown, kind: string): ToolLabels {
 /** How long a title or a link in a web.search result may be. */
 const RESULT_TITLE_MAX = 120;
 const RESULT_URL_MAX = 300;
-/** `web.search.snippetChars` and `web.search.resultsChars` when missing (config.json's values). */
-const SNIPPET_CHARS_FALLBACK = 400;
-const RESULTS_CHARS_FALLBACK = 3000;
-/** `web.links.readChars` when missing (config.json's value). */
-const READ_CHARS_FALLBACK = 4000;
+// The web tools' measures. Production values, config cut of 2026-10-31.
+/** The length of one web.search result's snippet. */
+const SNIPPET_CHARS = 400;
+/** The length of web.search's whole answer. */
+const RESULTS_CHARS = 3000;
+/** The length of a page web.read shows. */
+const READ_CHARS = 4000;
 /** Query parameters that only track the click and never pick the page. */
 const TRACKING_PARAM = /^(utm_\w+|fbclid|gclid|yclid|mc_cid|mc_eid|ref_src)$/i;
-
-/** A positive whole number from the config, else `fallback`. */
-function positiveOr(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
-}
 
 /**
  * A result's link as she may hand it on: http(s) only, the fragment and tracking parameters
@@ -183,8 +177,8 @@ export function webSearchText(
   {
     goal = '',
     labels,
-    snippetChars = SNIPPET_CHARS_FALLBACK,
-    maxChars = RESULTS_CHARS_FALLBACK,
+    snippetChars = SNIPPET_CHARS,
+    maxChars = RESULTS_CHARS,
   }: { goal?: unknown; labels: unknown; snippetChars?: number; maxChars?: number }
 ): string {
   const l = toolLabels(labels, 'web');
@@ -253,7 +247,7 @@ export function webSearchText(
  */
 export function webReadText(
   page: unknown,
-  { labels, maxChars = READ_CHARS_FALLBACK }: { labels: unknown; maxChars?: number }
+  { labels, maxChars = READ_CHARS }: { labels: unknown; maxChars?: number }
 ): string {
   const l = toolLabels(labels, 'read');
   const lines: Array<string> = [];
@@ -401,9 +395,9 @@ function cutWindowLines(value: string, limit: number): { text: string; dropped: 
 
 /**
  * One web.search: `args.query` (her words, as she wrote them) through `lookup.searchResults` (the
- * existing engines, their cache, the daily web slot `web.maxPerDay`; the results raw, no
+ * existing engines, their cache, the results raw, no
  * summary), `args.goal` only echoed back with the result. `not_configured` (`not-configured`)
- * without the client, the feature (features.webLookup, read now) or a search engine; `invalid`
+ * without the client, the feature or a search engine; `invalid`
  * (`invalid-args`) without a query; `failed` with `daily-cap` once the day's web slots are spent,
  * `error` when the search gave nothing back; the lookup's own failures by their code: `not-configured`,
  * `invalid` (`empty-query`), `cap`, `failed` (`provider`, with the last engine status in `values.status`); else `ok` with webSearchText (cut by
@@ -418,7 +412,7 @@ export async function runWebSearch({
   args,
 }: {
   lookup: WebLookup | null;
-  config: unknown;
+  config?: unknown;
   labels: unknown;
   guildId: string | null;
   args: unknown;
@@ -428,17 +422,10 @@ export async function runWebSearch({
     const query = text(given.query);
     if (!query) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.query:required' };
     const searchCfg = objOf(objOf(objOf(config).web).search);
-    if (
-      !lookup ||
-      typeof lookup.searchResults !== 'function' ||
-      objOf(objOf(config).features).webLookup !== true ||
-      searchCfg.enabled === false
-    )
+    if (!lookup || typeof lookup.searchResults !== 'function' || searchCfg.enabled === false)
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
     if (typeof lookup.hasSearch === 'function' && !lookup.hasSearch())
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
-    if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0))
-      return { status: 'failed', code: CODE.DAILY_CAP };
     const answer = await lookup.searchResults(guildId, query);
     if (!isObj(answer)) return { status: 'failed', code: CODE.ERROR };
     const found = answer;
@@ -458,8 +445,8 @@ export async function runWebSearch({
       {
         goal: given.goal,
         labels,
-        snippetChars: positiveOr(searchCfg.snippetChars, SNIPPET_CHARS_FALLBACK),
-        maxChars: positiveOr(searchCfg.resultsChars, RESULTS_CHARS_FALLBACK),
+        snippetChars: SNIPPET_CHARS,
+        maxChars: RESULTS_CHARS,
       }
     );
     return { status: 'ok', data: { text: shown } };
@@ -486,24 +473,22 @@ const READ_INVALID = new Set(['scheme']);
 /**
  * One web.read: the page at `args.url`, or the first link of the message `args.message` names
  * (an id her `#N` resolved to: `linkOf(id)`, the caller's, resolves to a url or null), through
- * `lookup.readPage` (the SSRF-guarded fetcher, the daily web slot, no model request).
+ * `lookup.readPage` (the SSRF-guarded fetcher, no model request).
  * `invalid` (`invalid-args`) without either, (`no-link`) when that message holds no link, and
  * (`scheme`) for a url that is not http(s); `not_configured` (`not-configured`) without the
- * client or the feature (features.webLookup, read now); `failed` with `daily-cap` once the day's
- * web slots are spent, else with the page's code (`private`, `type`, `size`, `http`,
- * `timeout`, ...); `ok` with webReadText (`web.links.readChars`, read now) as its `data.text`, or
+ * client; `failed` with the page's code (`private`, `type`, `size`, `http`,
+ * `timeout`, ...); `ok` with webReadText (READ_CHARS) as its `data.text`, or
  * `.none` when the page had no text. Never throws.
  */
 export async function runWebRead({
   lookup,
-  config,
   labels,
   guildId,
   args,
   linkOf = null,
 }: {
   lookup: WebLookup | null;
-  config: unknown;
+  config?: unknown;
   labels: unknown;
   guildId: string | null;
   args: unknown;
@@ -514,16 +499,14 @@ export async function runWebRead({
     let url = text(given.url);
     const messageId = text(given.message);
     if (!url && !messageId) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url:required' };
-    if (!lookup || typeof lookup.readPage !== 'function' || objOf(objOf(config).features).webLookup !== true)
+    if (!lookup || typeof lookup.readPage !== 'function')
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
     if (!url) {
       url = text(typeof linkOf === 'function' ? await linkOf(messageId) : null);
       if (!url) return { status: 'invalid', code: CODE.NO_LINK };
     }
-    if (typeof lookup.webCapLeft === 'function' && !(lookup.webCapLeft() > 0))
-      return { status: 'failed', code: CODE.DAILY_CAP };
     const page = objOf(await lookup.readPage(guildId, url));
-    const maxChars = positiveOr(objOf(objOf(objOf(config).web).links).readChars, READ_CHARS_FALLBACK);
+    const maxChars = READ_CHARS;
     if (page.ok === true) return { status: 'ok', data: { text: webReadText(page, { labels, maxChars }) } };
     const reason = plain(page.reason ?? CODE.ERROR);
     if (reason === 'empty') {
@@ -716,15 +699,9 @@ export async function runMemorySearch({
   }
 }
 
-/** `media.look.maxPerTurn` when missing (config.json's value). */
-export const LOOK_PER_TURN_FALLBACK = 2;
-
-/**
- * The most second looks one turn of hers may take (`media.look.maxPerTurn`, read by the caller
- * now; a whole number of at least 1, else LOOK_PER_TURN_FALLBACK). Pure.
- */
-export function lookPerTurn(config: unknown): number {
-  return positiveOr(objOf(objOf(objOf(config).media).look).maxPerTurn, LOOK_PER_TURN_FALLBACK);
+/** The most second looks one turn of hers may take. Production value, config cut of 2026-10-31. */
+export function lookPerTurn(): number {
+  return 2;
 }
 
 /**
@@ -783,40 +760,16 @@ export function mediaLookText(
 }
 
 /**
- * The describer's second look for each kind and whether its switches let it run now: a picture
- * under features.imageRelook (the look runs through the vision model like a caption), a video and a GIF under video vision
- * (src/memory/youtube-check.js#isVideoVisionOn) and features.videoRewatch (a missing key counts
- * as on, each, as the describer reads them).
+ * The describer's second look for each kind: a picture through the vision model like a caption, a video and a GIF
+ * through the video model.
  */
 const LOOKS: Readonly<
-  Record<
-    'image' | 'video' | 'gif',
-    {
-      method: 'relookImage' | 'rewatchVideo' | 'rewatchGif';
-      role: 'vision' | 'video';
-      on: (features: Obj, config: unknown) => boolean;
-    }
-  >
+  Record<'image' | 'video' | 'gif', { method: 'relookImage' | 'rewatchVideo' | 'rewatchGif'; role: 'vision' | 'video' }>
 > = Object.freeze({
-  image: { method: 'relookImage', role: 'vision', on: (features) => features.imageRelook !== false },
-  video: {
-    method: 'rewatchVideo',
-    role: 'video',
-    on: (features, config) => isVideoVisionOn(objOf(config)) && features.videoRewatch !== false,
-  },
-  gif: {
-    method: 'rewatchGif',
-    role: 'video',
-    on: (features, config) => isVideoVisionOn(objOf(config)) && features.videoRewatch !== false,
-  },
+  image: { method: 'relookImage', role: 'vision' },
+  video: { method: 'rewatchVideo', role: 'video' },
+  gif: { method: 'rewatchGif', role: 'video' },
 });
-
-/** Whether the describer's day has no second look of `kind` left (a video also needs a video slot, a GIF a GIF watch slot). */
-function lookSpent(slots: ReturnType<NonNullable<LookDescriber['videoCapsLeft']>>, kind: string): boolean {
-  if (!slots) return false;
-  if (!((slots.rewatch ?? 0) > 0)) return true;
-  return (kind === 'video' && !((slots.video ?? 0) > 0)) || (kind === 'gif' && !((slots.gif ?? Infinity) > 0));
-}
 
 /** The look on its route: through `onRoute` when the caller routes, else on the role's own model. */
 function lookOnRoute(
@@ -826,13 +779,6 @@ function lookOnRoute(
 ): Promise<{ route: AbilityRoute | null; value: unknown }> {
   if (typeof onRoute === 'function') return onRoute(role, call);
   return call(null).then((value) => ({ route: null, value }));
-}
-
-/** The switch that keeps the second look of `kind` off, by its name (`features.<name>`, or the video vision's own); '' when none is, the describer lacking the method. */
-function switchOf(kind: string, features: Obj, config: unknown): string {
-  if (kind === 'image') return features.imageRelook === false ? 'features.imageRelook' : '';
-  if (!isVideoVisionOn(objOf(config))) return 'video vision';
-  return features.videoRewatch === false ? 'features.videoRewatch' : '';
 }
 
 /**
@@ -846,7 +792,7 @@ function switchOf(kind: string, features: Obj, config: unknown): string {
  * message-or-url (both or neither) or a question, an unparseable url, or with an item the message does not hold; `invalid`
  * (`unknown-message`, reason `message-deleted` for a deleted one) when the message is not one she sees, (`no-media`) when it holds nothing to
  * look at; `not_configured` (`not-configured`) without the describer or its second look for that
- * kind, or while the kind's switches are off (read now; the switch named in `data.text` from `labels.tools.tools.look.off`, `{feature}`); `failed` with `daily-cap` when the
+ * kind; `failed` with `daily-cap` when the
  * describer's `videoCapsLeft()` says the day's second looks are spent (a video also needs a video
  * slot, a GIF a GIF watch slot), with `turn-cap` when `takeTurnSlot()` (the caller's per-turn
  * count, asked only once every other check passed) refuses, with `error` when the second look
@@ -877,7 +823,6 @@ export async function runMediaLook({
     const link = text(given.url);
     const question = text(given.question);
     const mediaCfg = objOf(objOf(config).media);
-    const features = objOf(objOf(config).features);
     if (messageId && link) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url|message:one' };
     if (!messageId && !link) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.url|message:one' };
     if (!question) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.question:required' };
@@ -932,18 +877,7 @@ export async function runMediaLook({
       ({ kind, item } = chosen);
     }
     const look = LOOKS[kind];
-    if (!look.on(features, config) || typeof describer?.[look.method] !== 'function') {
-      // The switch that is off, by name (`labels.tools.tools.look.off`, as the call mark's op text).
-      const feature = switchOf(kind, features, config);
-      const off = toolLabels(labels, 'look').off;
-      return {
-        status: 'not_configured',
-        code: CODE.NOT_CONFIGURED,
-        ...(feature && off ? { data: { text: fill(off, { feature }) } } : {}),
-      };
-    }
-    const slots = typeof describer?.videoCapsLeft === 'function' ? describer.videoCapsLeft() : null;
-    if (lookSpent(slots, kind)) return { status: 'failed', code: CODE.DAILY_CAP };
+    if (typeof describer?.[look.method] !== 'function') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
     if (typeof takeTurnSlot === 'function' && !takeTurnSlot()) return { status: 'failed', code: CODE.TURN_CAP };
     const looked = await lookOnRoute(onRoute, look.role, (model) =>
       Promise.resolve(describer?.[look.method]?.(guildId, item, question, model ? { model } : {}))
@@ -1001,7 +935,7 @@ export function findGifs(
   gifs: unknown,
   mediaCache: Obj | null,
   query: string,
-  { n = FIND_DEFAULT, halfLifeDays = 30 }: { n?: unknown; halfLifeDays?: number } = {}
+  { n = FIND_DEFAULT, halfLifeDays = GIF_HALF_LIFE_DAYS }: { n?: unknown; halfLifeDays?: number } = {}
 ): Array<GifEntry> {
   const wanted = [...new Set(wordsOf(query))];
   if (wanted.length === 0) return [];
@@ -1046,7 +980,6 @@ export function mediaFindText(
     query = '',
     labels,
     mediaCache = null,
-    config = {},
   }: { query?: string; labels: unknown; mediaCache?: Obj | null; config?: unknown }
 ): string {
   const l = toolLabels(labels, 'find');
@@ -1057,7 +990,7 @@ export function mediaFindText(
     return lines.join('\n');
   }
   if (l.source) lines.push(fill(l.source, { query: oneLine(query), count: String(found.length) }));
-  const chars = gifFieldChars(objOf(objOf(config).gifs));
+  const chars = gifFieldChars();
   for (const entry of found)
     lines.push(gifLine(entry, mediaCache, objOf(labels), { ...chars, ownMarkHours: 0, now: 0 }));
   return lines.join('\n');
@@ -1088,7 +1021,7 @@ export function runMediaFind({
     const query = text(asked.query);
     if (!query || wordsOf(query).length === 0)
       return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.query:required' };
-    if (!store || typeof store.getGifs !== 'function' || !guildId || objOf(objOf(config).features).gifs === false)
+    if (!store || typeof store.getGifs !== 'function' || !guildId)
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
     const given = asked.n;
     if (
@@ -1100,11 +1033,7 @@ export function runMediaFind({
       return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.n:range' };
     const cache = typeof store.getMediaCache === 'function' ? store.getMediaCache(guildId) : null;
     const mediaCache = isObj(cache) ? cache : null;
-    const halfLife = objOf(objOf(config).gifs).halfLifeDays;
-    const found = findGifs(store.getGifs(guildId), mediaCache, query, {
-      n: given,
-      halfLifeDays: typeof halfLife === 'number' ? halfLife : 30,
-    });
+    const found = findGifs(store.getGifs(guildId), mediaCache, query, { n: given });
     return { status: 'ok', data: { text: mediaFindText(found, { query, labels, mediaCache, config }) } };
   } catch {
     return { status: 'failed', code: CODE.ERROR };

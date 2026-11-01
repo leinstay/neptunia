@@ -301,7 +301,7 @@ test('a tool result is data: a call written inside what a search gave back runs 
 // No helper chooses for her: with the switch on the search classifier never runs; her own
 // tools are listed in full in the cached part instead of a classifier naming them.
 
-test('core tools on: no search classifier before her reply, her tools go with the request as its tools field, the search senses say she calls them', async () => {
+test('no search classifier before her reply, her tools go with the request as its tools field, the search senses say she calls them', async () => {
   const on = await coreTurn({
     answers: ['<msg>ok</msg>'],
     allowed: ['web.search', 'memory.search', 'errand.run', 'lore.list'],
@@ -320,7 +320,17 @@ test('core tools on: no search classifier before her reply, her tools go with th
   // Sorted by name: the errand tool sits between draw_create and lore_list.
   assert.deepEqual(
     sent.tools.map((tool) => tool.function.name),
-    ['draw_create', 'errand_run', 'lore_list', 'memory_search', 'message_create', 'message_react_add', 'web_search'],
+    // PR 7d: features.speech is code, so voice.say is carried over with the others.
+    [
+      'draw_create',
+      'errand_run',
+      'lore_list',
+      'memory_search',
+      'message_create',
+      'message_react_add',
+      'voice_say',
+      'web_search',
+    ],
     'what is granted to her and the carried-over ones, sorted'
   );
   assert.deepEqual(
@@ -329,12 +339,14 @@ test('core tools on: no search classifier before her reply, her tools go with th
     'the same list on every request of the turn'
   );
   assert.ok(stable.text.includes(labels.senses.searchTool), 'the web line says she calls web.search');
-  assert.ok(!stable.text.includes(labels.senses.search));
   const text = requestText(on.llm, 0);
-  assert.ok(text.includes(labels.senses.recallTool) && !text.includes(labels.senses.recall));
+  assert.ok(text.includes(labels.senses.recallTool));
   assert.ok(!text.includes('<lookup>'));
   assert.ok(!stable.text.includes(labels.senses.readTool), 'web.read not granted: no line about it');
-  assert.ok(stable.text.split('\n').includes(labels.senses.links), 'web.read not granted: the plain links line');
+  assert.ok(
+    stable.text.split('\n').includes(labels.senses.linksWatch),
+    'web.read not granted: the links line without the reader'
+  );
   const reader = await coreTurn({
     answers: ['<msg>ok</msg>'],
     allowed: ['web.read'],
@@ -345,8 +357,8 @@ test('core tools on: no search classifier before her reply, her tools go with th
   const readerStable = reader.llm.calls[0][1].content[0].text;
   assert.ok(readerStable.includes(labels.senses.readTool), 'granted: the senses say she can open a page');
   assert.ok(
-    readerStable.split('\n').includes(labels.senses.linksTool) &&
-      !readerStable.split('\n').includes(labels.senses.links),
+    readerStable.split('\n').includes(labels.senses.linksWatchTool) &&
+      !readerStable.split('\n').includes(labels.senses.linksWatch),
     'the links line mentions previews and web.read'
   );
   assert.ok(reader.llm.options[0].tools.some((tool) => tool.function.name === 'web_read'));
@@ -359,23 +371,12 @@ test('core tools on: no search classifier before her reply, her tools go with th
     runner: { lookup: fakeLookup(), recall: fakeRecall() },
   });
   const bareText = requestText(bare.llm, 0);
-  assert.ok(!bareText.includes(labels.senses.searchTool) && !bareText.includes(labels.senses.search), bareText);
+  assert.ok(!bareText.includes(labels.senses.searchTool), bareText);
   assert.deepEqual(
     bare.llm.options[0].tools.map((tool) => tool.function.name),
-    ['draw_create', 'message_create', 'message_react_add'],
+    ['draw_create', 'message_create', 'message_react_add', 'voice_say'],
     'only the carried-over ones'
   );
-  // Off: the classifier runs as before; her tools are still sent.
-  const off = await coreTurn({
-    coreTools: false,
-    answers: ['<msg>ok</msg>'],
-    allowed: ['web.search'],
-    features: { webLookup: true, recall: true },
-    config: WEB_CONFIG,
-    runner: { lookup: fakeLookup(), recall: fakeRecall() },
-  });
-  assert.equal(off.llm.classifierCalls.length, 1);
-  assert.ok(off.llm.options[0].tools.some((tool) => tool.function.name === 'web_search'));
 });
 
 // Dispatch: an errand only from her own accepted errand.run call, recorded with the turn and the
@@ -557,29 +558,6 @@ test('prefetch: nothing qualified shows the status line; a trivial trigger is no
   assert.equal(trivial.prefetches.length, 0);
   assert.ok(greeted.logs.some((entry) => entry.msg === 'recall: prefetch skipped' && entry.reason === 'trivial'));
   assert.ok(!requestText(greeted.llm, 0).includes('<retrieved>'));
-
-  const offRecall = prefetchRecall();
-  const off = await coreTurn({
-    coreTools: false,
-    answers: ['<msg>ok</msg>'],
-    features: { recall: true },
-    config: WEB_CONFIG,
-    runner: { recall: offRecall },
-    content: 'θυμάσαι τη ζωγραφιά;',
-  });
-  assert.equal(offRecall.prefetches.length, 0, 'features.coreTools off: no prefetch');
-  assert.ok(!requestText(off.llm, 0).includes('<retrieved>'));
-
-  const switchedOff = prefetchRecall();
-  const noPrefetch = await coreTurn({
-    answers: ['<msg>ok</msg>'],
-    features: { recall: true, memoryPrefetch: false },
-    config: WEB_CONFIG,
-    runner: { recall: switchedOff },
-    content: 'θυμάσαι τη ζωγραφιά;',
-  });
-  assert.equal(switchedOff.prefetches.length, 0, 'features.memoryPrefetch false');
-  assert.ok(!requestText(noPrefetch.llm, 0).includes('<retrieved>'));
 });
 
 test('prefetch: a failing runner never fails the turn; the request says unavailable', async () => {
@@ -642,19 +620,7 @@ function lookDescriber({ answer = 'ένα κλειδί στο τραπέζι', c
   };
 }
 
-test("media.look off: the re-watch classifier is asked as before; on: it is not, and her call runs the second look with her question, the answer labelled as the image model's", async () => {
-  const off = await coreTurn({
-    coreTools: false,
-    answers: ['<msg>ok</msg>'],
-    allowed: ['media.look'],
-    content: 'τι κρατά στη φωτογραφία;',
-    features: { vision: true },
-    firstAttachments: TWO_PICTURES,
-    prompts: LOOK_PROMPTS,
-    runner: { describer: lookDescriber(), imageFetcher: fakePictures },
-  });
-  assert.equal(off.llm.rewatchCalls.length, 1, 'off: the classifier picks a second look as before');
-
+test("media.look: no re-watch classifier is asked, and her call runs the second look with her question, the answer labelled as the image model's", async () => {
   const describer = lookDescriber();
   const run = await coreTurn({
     answers: [
@@ -678,10 +644,10 @@ test("media.look off: the re-watch classifier is asked as before; on: it is not,
   assert.ok(!JSON.stringify(run.logs).includes('γάτα'), 'never her question in the log');
   // The senses: her own second look in place of the classifier's.
   const stable = userText([run.llm.calls[0][1].content[0]]);
-  assert.ok(stable.includes(labels.senses.lookTool) && !stable.includes(labels.senses.videoRewatch), stable);
+  assert.ok(stable.includes(labels.senses.lookTool), stable);
 });
 
-test("media.look caps: at most media.look.maxPerTurn second looks in one turn, across the steps; the day's second-look limit refuses with daily-cap", async () => {
+test('media.look caps: at most two second looks in one turn, across the steps', async () => {
   const describer = lookDescriber();
   const run = await coreTurn({
     answers: [
@@ -705,40 +671,6 @@ test("media.look caps: at most media.look.maxPerTurn second looks in one turn, a
     .map((entry) => `${entry.status}:${entry.code ?? ''}`);
   assert.deepEqual(called, ['ok:', 'ok:', 'failed:turn-cap']);
   assert.ok(toolContent(run.llm, 2, 2).includes(labels.tools.result.reasons['turn-cap']), 'she hears why');
-
-  const spent = lookDescriber({ caps: { video: 5, rewatch: 0, gif: 5 } });
-  const capped = await coreTurn({
-    answers: [toolAnswer('', [call('media.look', { message: '#1', question: 'τι είναι;' })]), '<msg>ok</msg>'],
-    allowed: ['media.look'],
-    features: { vision: true },
-    firstAttachments: TWO_PICTURES,
-    prompts: LOOK_PROMPTS,
-    runner: { describer: spent, imageFetcher: fakePictures },
-  });
-  assert.equal(spent.calls.length, 0);
-  assert.ok(
-    capped.logs.some(
-      (entry) =>
-        entry.msg === 'skills: called' &&
-        entry.skill === 'media.look' &&
-        entry.status === 'failed' &&
-        entry.code === 'daily-cap'
-    )
-  );
-});
-
-test('media.look is no skill of hers with the tool loop off: refused as switched off, never listed', async () => {
-  const describer = lookDescriber();
-  const run = await coreTurn({
-    coreTools: false,
-    answers: [toolAnswer('', [call('media.look', { message: '#1', question: 'τι είναι;' })]), '<msg>ok</msg>'],
-    allowed: ['media.look'],
-    features: { vision: true },
-    firstAttachments: TWO_PICTURES,
-    runner: { describer, imageFetcher: fakePictures },
-  });
-  assert.equal(describer.calls.length, 0);
-  assert.ok(!userText(run.llm.calls[0][1].content).includes('media.look'));
 });
 
 // --- her one previous think (src/behavior/previous-think.js) -----------------
@@ -856,11 +788,9 @@ test('draw.create in the loop: the turn makes the picture from her scene and pos
   assert.ok(!run.logs.some((entry) => entry.msg === 'turn: draw refused by a limit' && entry.asked === false));
 });
 
-test('draw.create: the daily caps and the generation failures come back as results with their own codes; no limit notice', async () => {
-  const { ImageCapError, ImageGenError } = await import('../src/llm/images.js');
+test('draw.create: the generation failures come back as results with their own codes; no limit notice', async () => {
+  const { ImageGenError } = await import('../src/llm/images.js');
   const cases = [
-    [new ImageCapError('daily'), 'image-cap-daily'],
-    [new ImageCapError('userDaily'), 'image-cap-user-daily'],
     [new ImageGenError('moderation'), 'image-moderation'],
     [new ImageGenError('timeout'), 'image-timeout'],
     [new ImageGenError('error'), 'image-error'],

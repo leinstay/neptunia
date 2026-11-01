@@ -7,7 +7,9 @@ import { fill, fillGifFields, formatDuration } from '../../format.js';
 import { normalizeGifs, rankEmojiUsage, rankGifs } from '../../memory/index.js';
 import { clampWithEllipsis } from '../../memory/clamp.js';
 import { HOUR_MS } from '../../time.js';
-import type { Cost, EmojiConfig, EmojiRef, Fit, GifsConfig, Labels, Message, RequestConfig } from './types.ts';
+import type { Cost, EmojiRef, Fit, Labels, Message, RequestConfig } from './types.ts';
+import { GIF_HALF_LIFE_DAYS } from '../../memory/gifs.js';
+import { EMOJI_HALF_LIFE_DAYS } from '../../memory/emoji-usage.js';
 
 /** The describer cache (store.getMediaCache), read only: a caption, or a three-field GIF description, per item id. */
 export type MediaCache = {
@@ -48,30 +50,28 @@ export type Held<T> = { bucket: number; signature: string; value: T };
  * `seenInChat` as a sub-heading, one `entry` line each. `[]` when the index
  * is empty or the labels lack `header`/`entryNoText` (an older labels.json).
  * `index` is the emoji index's list (createEmojiIndex().list()), `usage` is `guild.emojiUsage`, `mediaCache` the
- * describer cache (store.getMediaCache, read only) and `emojiCfg` is `context.customEmoji`.
+ * describer cache (store.getMediaCache, read only).
  */
 export function emojiItems(
   index: Array<EmojiRef | null | undefined>,
   usage: unknown,
   mediaCache: MediaCache | null,
   labels: Labels,
-  emojiCfg: EmojiConfig | undefined,
   { seen = [], describe = () => '' }: { seen?: Array<EmojiRef>; describe?: (id: string) => string } = {}
 ): Array<string> {
   const e = labels.emoji;
   if (!e?.header || !e.entryNoText) return [];
   const list = Array.isArray(index) ? index.filter((emoji): emoji is EmojiRef => Boolean(emoji?.id && emoji.name)) : [];
   if (list.length === 0) return [];
-  const max = emojiMax(emojiCfg);
   const byId = new Map(list.map((emoji) => [String(emoji.id), emoji]));
   const chosen: Array<EmojiRef> = [];
   const taken = new Set<string>();
   const take = (emoji: EmojiRef | undefined) => {
-    if (!emoji || taken.has(String(emoji.id)) || chosen.length >= max) return;
+    if (!emoji || taken.has(String(emoji.id)) || chosen.length >= EMOJI_MAX) return;
     taken.add(String(emoji.id));
     chosen.push(emoji);
   };
-  for (const used of rankEmojiUsage(usage, emojiCfg?.halfLifeDays ?? 30)) take(byId.get(used.id));
+  for (const used of rankEmojiUsage(usage, EMOJI_HALF_LIFE_DAYS)) take(byId.get(used.id));
   for (const emoji of list) take(emoji);
   if (chosen.length === 0) return [];
   const captionOf = (id: string) => {
@@ -103,10 +103,13 @@ export function emojiCaption(key: string, maps: Array<unknown>): string {
   return '';
 }
 
-/** `context.customEmoji.max` (30, config.json's value, when missing or unusable). */
-export function emojiMax(emojiCfg: EmojiConfig | undefined): number {
-  return emojiCfg?.max !== undefined && Number.isInteger(emojiCfg.max) && emojiCfg.max >= 0 ? emojiCfg.max : 30;
-}
+// Production values, config cut of 2026-10-31.
+/** The custom emoji `<emoji>` lists. */
+export const EMOJI_MAX = 30;
+/** The GIFs `<gifs>` lists. */
+const GIFS_MAX = 25;
+/** How long, in hours, a GIF she posted carries its own-post mark. */
+export const OWN_MARK_HOURS = 24;
 
 /**
  * The custom emoji used in `messageSets` (arrays of normalized messages, a
@@ -165,33 +168,29 @@ export function freezePerBucket<T>(
 
 /**
  * The `<gifs>` section's items: `labels.gifs.header` first, then one line
- * per GIF of the library -- the top `gifsCfg.max` (default 40) by rank
- * (src/memory/gifs.js#rankGifs, `gifsCfg.halfLifeDays`, default 30), each
+ * per GIF of the library -- the top `GIFS_MAX` by rank
+ * (src/memory/gifs.js#rankGifs, `GIF_HALF_LIFE_DAYS`), each
  * rendered by gifLine (the three caption fields through
  * `labels.gifs.entryFields`, an older one-line caption through
- * `labels.gifs.entry`, cut per field by `gifsCfg.reactionChars` /
- * `gifsCfg.actionChars` -- only here: the cached caption stays as stored --,
+ * `labels.gifs.entry`, cut per field by gifFieldChars -- only here: the cached caption stays as stored --,
  * else `labels.gifs.entryNoText`), never with an own-post mark: the list sits
  * in the cached stable part, so which GIFs the persona posted lately is said
  * in the tail (`<gifs_recent>`, ownGifLines). `ids[i]` is the handle of
  * `items[i + 1]`. `items` is `[]` when the library is empty or the labels lack
  * `header`/`entryNoText` (an older labels.json).
- * `gifs` is the library (store.getGifs), `mediaCache` the describer cache (store.getMediaCache, read only) and
- * `gifsCfg` is `config.gifs`.
+ * `gifs` is the library (store.getGifs) and `mediaCache` the describer cache (store.getMediaCache, read only).
  */
 export function gifItems(
   gifs: unknown,
   mediaCache: MediaCache | null,
-  labels: Labels,
-  gifsCfg: GifsConfig | undefined
+  labels: Labels
 ): { items: Array<string>; ids: Array<string> } {
   const g = labels.gifs;
   if (!g?.header || !g.entryNoText) return { items: [], ids: [] };
-  const max = gifsCfg?.max !== undefined && Number.isInteger(gifsCfg.max) && gifsCfg.max >= 0 ? gifsCfg.max : 25;
   // rankGifs ranks the library's entries, which it returns as plain objects.
-  const chosen = (rankGifs(gifs, gifsCfg?.halfLifeDays ?? 30) as Array<GifEntry>).slice(0, max);
+  const chosen = (rankGifs(gifs, GIF_HALF_LIFE_DAYS) as Array<GifEntry>).slice(0, GIFS_MAX);
   if (chosen.length === 0) return { items: [], ids: [] };
-  const options = { ...gifFieldChars(gifsCfg), ownMarkHours: 0, now: 0 };
+  const options = { ...gifFieldChars(), ownMarkHours: 0, now: 0 };
   return {
     items: [g.header, ...chosen.map((entry) => gifLine(entry, mediaCache, labels, options))],
     ids: chosen.map((entry) => entry.id),
@@ -231,14 +230,11 @@ export function ownGifLines(
 }
 
 /**
- * `gifs.reactionChars` (40) and `gifs.actionChars` (70) of `gifsCfg`
- * (`config.gifs`), config.json's value when missing or not a number >= 0;
- * 0 = no cut. The one reader of both for the `<gifs>` list and the GIF picker.
+ * The cut of a GIF caption's reaction and action fields, for the `<gifs>` list and the GIF picker. Production
+ * values, config cut of 2026-10-31.
  */
-export function gifFieldChars(gifsCfg: GifsConfig | null | undefined): { reactionChars: number; actionChars: number } {
-  const read = (value: number | undefined, fallback: number) =>
-    value !== undefined && Number.isFinite(value) && value >= 0 ? value : fallback;
-  return { reactionChars: read(gifsCfg?.reactionChars, 40), actionChars: read(gifsCfg?.actionChars, 70) };
+export function gifFieldChars(): { reactionChars: number; actionChars: number } {
+  return { reactionChars: 40, actionChars: 70 };
 }
 
 /**
@@ -368,10 +364,10 @@ export function gifListOf(given: {
   gifLibrary: unknown;
   frozen: <T>(key: string, signature: string, compute: () => T) => T;
 }): { items: Array<string>; ids: Array<string> } {
-  const { config, labels, gifsOn, gifLibrary, frozen } = given;
+  const { labels, gifsOn, gifLibrary, frozen } = given;
   const gifList = gifsOn
-    ? frozen('gifs', JSON.stringify([labels.gifs, labels.units, config.gifs ?? null]), () =>
-        gifItems(gifLibrary, given.mediaCache ?? null, labels, config.gifs)
+    ? frozen('gifs', JSON.stringify([labels.gifs, labels.units]), () =>
+        gifItems(gifLibrary, given.mediaCache ?? null, labels)
       )
     : { items: [], ids: [] };
   return gifList;
@@ -396,7 +392,7 @@ export function trimLists(
 ): void {
   const { kept, stats } = fit;
   let { used } = fit;
-  const { config, now, labels, emojiOnce, gifLibrary, gifList, cost, limit } = given;
+  const { now, labels, emojiOnce, gifLibrary, gifList, cost, limit } = given;
   // The emoji seen in the chat lost to the cap leave no sub-heading of their own behind.
   if (emojiOnce && kept.emoji.length > 0 && kept.emoji.at(-1) === labels.emoji?.seenInChat)
     kept.emoji = kept.emoji.slice(0, -1);
@@ -408,7 +404,7 @@ export function trimLists(
   kept.gifsRecent = [];
   if (kept.gifs.length > 0) {
     const ownLines = ownGifLines(gifLibrary, gifList.ids.slice(0, kept.gifs.length - 1), labels, {
-      ownMarkHours: config.gifs?.ownMarkHours ?? 24,
+      ownMarkHours: OWN_MARK_HOURS,
       now,
     });
     const price = ownLines.length > 0 ? cost(ownLines.join('\n')) : 0;

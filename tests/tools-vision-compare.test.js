@@ -195,12 +195,11 @@ test('vision-compare toolHot: the model is overridden in the tool view only', ()
   assert.equal(view.config.models.base.video, 'cand/model');
   assert.equal(view.config.models.byPurpose.describe, undefined);
   assert.equal(view.config.models.byPurpose.reply, 'pinned/reply');
-  assert.equal(view.config.features.mediaDescriptions, true);
   assert.equal(view.prompts, base.prompts);
   assert.deepEqual(base.config, before);
   // A live reload is seen by the view at the next read.
-  base.config.media.descriptionChars = 120;
-  assert.equal(view.config.media.descriptionChars, 120);
+  base.config.media.maxOutputTokens = 120;
+  assert.equal(view.config.media.maxOutputTokens, 120);
 });
 
 test('vision-compare describeOne: a picture goes through the live describer with the overridden model', async () => {

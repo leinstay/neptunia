@@ -2,7 +2,7 @@
 // calls `onFinished`), she gets a turn of her own in the conversation it was asked in, the way
 // the missed-answer recovery opens one (src/behavior/missed.js): through the turn runner's one
 // attention (a turn running anywhere holds it back; mention.oneAtATime), a cooldown per
-// conversation between two such turns (`errands.resultCooldownSeconds`), and she may answer with
+// conversation between two such turns (`DEFAULT_COOLDOWN_SECONDS`), and she may answer with
 // silence. The turn's trigger is the message the errand was asked in (her answer replies to it),
 // else -- a slash command, or a message gone since -- an interjection; its kind is `errand`, its
 // requester the person who asked, and its request carries the `<errand_result>` block
@@ -30,7 +30,7 @@ import type { Reads } from '../interface/reads.ts';
 import type { ErrandRecord, ErrandService, ErrorLogger } from './types.ts';
 
 /** What the turn runner answers a result turn with. */
-type TurnResult = { outcome?: string; dryRun?: boolean } | null | undefined;
+type TurnResult = { outcome?: string } | null | undefined;
 
 /** The turn runner as the result turn uses it. */
 type TurnsPort = {
@@ -52,8 +52,9 @@ export type ErrandDoneEvent = {
 /** What a timer function hands back. */
 type TimerHandle = ReturnType<typeof setTimeout>;
 
-/** `errands.resultRetrySeconds` and `errands.resultCooldownSeconds` when missing (config.json carries the same). */
+/** `errands.resultRetrySeconds` when missing (config.json carries the same). */
 export const DEFAULT_RETRY_SECONDS = 30;
+/** The least time between two result turns in one conversation. Production value, config cut of 2026-10-31. */
 export const DEFAULT_COOLDOWN_SECONDS = 60;
 /** How many times a result turn is tried before the errand is left to the `<errands>` block. */
 export const RESULT_ATTEMPTS = 20;
@@ -128,7 +129,7 @@ export function createErrandTurns({
   /** Whether a turn would find the attention taken in `channelId` now (the rule runTurn applies). */
   function attentionTaken(channelId: string): boolean {
     if (typeof turns?.isBusy === 'function' && turns.isBusy(channelId)) return true;
-    return hot.config?.mention?.oneAtATime !== false && typeof turns?.isAnyBusy === 'function' && turns.isAnyBusy();
+    return typeof turns?.isAnyBusy === 'function' && turns.isAnyBusy();
   }
 
   /** Try `errand` again in `ms`, unless it ran out of attempts. */
@@ -171,7 +172,7 @@ export function createErrandTurns({
       log.info('errands: result without a conversation', { id: errand.id });
       return null;
     }
-    const cooldownMs = seconds('resultCooldownSeconds', DEFAULT_COOLDOWN_SECONDS) * 1000;
+    const cooldownMs = DEFAULT_COOLDOWN_SECONDS * 1000;
     const last = lastAt.get(channelId);
     if (typeof last === 'number' && Number.isFinite(last) && now() - last < cooldownMs) {
       later(errand, guildId, attempt, last + cooldownMs - now());
@@ -207,10 +208,6 @@ export function createErrandTurns({
       result = { outcome: 'error' };
     }
     const outcome = result?.outcome ?? 'error';
-    if (result?.dryRun === true) {
-      log.info('errands: result turn', { id: errand.id, channelId, outcome, dryRun: true });
-      return result;
-    }
     if (!DONE.has(outcome)) {
       // Held back, or failed on its own: the result is still unread, so the turn is tried again.
       lastAt.delete(channelId);

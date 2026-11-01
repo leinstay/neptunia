@@ -10,7 +10,7 @@ import { openMemoryDb } from '../src/memory/db/open.js';
 import { insertRows } from '../src/memory/db/rows.js';
 import { channelPlaceId } from '../src/memory/db/ids.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
-import { createDiaryMedia, applyDiaryUpdate, GAP_MS } from '../src/memory/db/diary-media.js';
+import { createDiaryMedia, applyDiaryUpdate, DEFAULT_AUDIO_MAX_BYTES, GAP_MS } from '../src/memory/db/diary-media.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { createDiscordAdapter } from '../interfaces/discord/port.js';
 import { buildDataDir, guildDir, writeJson } from './fixtures/memory-db/datadir.js';
@@ -70,7 +70,6 @@ function setup({ posts, config = {} } = {}) {
   };
   const hot = {
     config: {
-      image: { referenceMaxBytes: 1000 },
       context: { vision: { fetchTimeoutMs: 5000 } },
       ...config,
     },
@@ -215,9 +214,10 @@ test('a post gets its messages joined in order, its pictures saved and a media r
     assert.ok(row.scope_kind);
     assert.deepEqual(
       env.downloads.map((d) => [d.maxBytes, d.timeoutMs]),
+      // PR 7d: the picture cap is the constant REFERENCE_MAX_BYTES of the job, 4 000 000 bytes.
       [
-        [1000, 5000],
-        [1000, 5000],
+        [4_000_000, 5000],
+        [4_000_000, 5000],
       ]
     );
     assert.equal(
@@ -278,7 +278,8 @@ test('it is idempotent: a second start asks for nothing, and a rewrite of the sa
 test('a picture over the cap is skipped without a download; a failed download leaves the post for the next start', async () => {
   const env = setup({ posts: [post('d-1', ['x'])] });
   try {
-    const big = env.say('big one', [{ name: 'big.png', bytes: png('big') }], 5000);
+    // PR 7d: the picture cap is the constant 4 000 000 bytes, so the big one says it is larger.
+    const big = env.say('big one', [{ name: 'big.png', bytes: png('big') }], 5_000_000);
     const flaky = env.say('flaky one', [{ name: 'flaky.png' }]);
     env.writePosts([post('d-1', [big]), post('d-2', [flaky])]);
     env.writeUnits();
@@ -429,36 +430,35 @@ test('the Discord adapter reads messages by id: text, attachments, and missing f
   assert.equal(nowhere.status, 'failed');
 });
 
-test('the service runs the job once the database is open, only with memoryDb.diaryMedia on', async () => {
+// PR 7d: `memoryDb.diaryMedia` is code, so the job always runs.
+test('the service runs the job once the database is open', async () => {
   const { createMemoryDb } = await import('../src/memory/db/service.js');
-  for (const flag of [false, true]) {
-    const env = setup({ posts: [post('d-1', ['x'])] });
+  const env = setup({ posts: [post('d-1', ['x'])] });
+  try {
+    const a = env.say('served');
+    env.writePosts([post('d-1', [a])]);
+    env.writeUnits();
+    env.handle.close();
+    const hot = { config: { ...env.hot.config } };
+    const service = createMemoryDb({
+      hot,
+      dataDir: env.data,
+      worker: false,
+      log: { info() {}, warn() {}, error() {}, debug() {} },
+      diaryMediaDeps: () => ({ port: env.port, imageFetcher: { fetchAsDataUrl: async () => null } }),
+      diarySleep: async () => {},
+    });
+    await service.tick();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await service.close();
+    const reader = openMemoryDb(env.dbFile, { readOnly: true });
     try {
-      const a = env.say('served');
-      env.writePosts([post('d-1', [a])]);
-      env.writeUnits();
-      env.handle.close();
-      const hot = { config: { ...env.hot.config, memoryDb: { diaryMedia: flag } } };
-      const service = createMemoryDb({
-        hot,
-        dataDir: env.data,
-        worker: false,
-        log: { info() {}, warn() {}, error() {}, debug() {} },
-        diaryMediaDeps: () => ({ port: env.port, imageFetcher: { fetchAsDataUrl: async () => null } }),
-        diarySleep: async () => {},
-      });
-      await service.tick();
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      await service.close();
-      const reader = openMemoryDb(env.dbFile, { readOnly: true });
-      try {
-        assert.equal(reader.db.prepare('SELECT text FROM diary WHERE id = ?').get('d-1').text, flag ? 'served' : null);
-      } finally {
-        reader.close();
-      }
+      assert.equal(reader.db.prepare('SELECT text FROM diary WHERE id = ?').get('d-1').text, 'served');
     } finally {
-      fs.rmSync(env.root, { recursive: true, force: true });
+      reader.close();
     }
+  } finally {
+    fs.rmSync(env.root, { recursive: true, force: true });
   }
 });
 
@@ -504,9 +504,10 @@ test('an audio attachment without a matching voice field keeps its own duration 
 });
 
 test('audio over the cap is skipped without a download; a failed audio download leaves the post', async () => {
-  const env = setup({ posts: [post('d-1', ['x'])], config: { memoryDb: { diaryAudioMaxBytes: 10 } } });
+  // PR 7d: the audio cap is the constant DEFAULT_AUDIO_MAX_BYTES, so the big one says it is larger.
+  const env = setup({ posts: [post('d-1', ['x'])] });
   try {
-    const big = env.sayVoice('big', { bytes: Buffer.alloc(50), name: 'big.ogg' });
+    const big = env.sayVoice('big', { bytes: Buffer.alloc(50), name: 'big.ogg', size: DEFAULT_AUDIO_MAX_BYTES + 1 });
     const missing = env.sayVoice('gone', { bytes: Buffer.alloc(5), name: 'gone.ogg' });
     env.writePosts([post('d-1', [big]), post('d-2', [missing])]);
     env.writeUnits();

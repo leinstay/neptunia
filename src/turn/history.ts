@@ -10,41 +10,27 @@ import type { ConversationInfo } from '../protocol/adapter.ts';
 /** No `<recent>` input: no store's lines handed over, so the request builder builds no block. */
 export const NO_RECENT = Object.freeze({ lines: undefined, audience: undefined });
 
-/** The config keys withReplyParents reads. */
-type ReplyParentsConfig = {
-  context?: { fetchReplyParents?: unknown; replyParentsFor?: number; replyParentsMax?: number } | null;
-  features?: { anchoredWindow?: unknown } | null;
-};
+/** The parent lines placed before the window per turn. Production value, config cut of 2026-10-31. */
+const REPLY_PARENTS_MAX = 4;
 
 /**
  * `history` with the messages its replies answer from outside it prepended as its oldest lines
  * (src/behavior/reply-parents.ts#fetchReplyParents): the parent of `trigger` when it lives in this
- * channel, one level of that parent's own parent, and the parents of the last
- * `context.replyParentsFor` lines (every line of the window with `features.anchoredWindow`
- * exactly true: the request then shows the parents as anchors in `<earlier>`), at most
- * `context.replyParentsMax` in all, each marked `replyParent: true`. Off with
- * `context.fetchReplyParents` false (a missing key counts as on); `history` as it is then.
+ * channel, one level of that parent's own parent, and the parents of every line of the window (the request shows
+ * them as anchors in `<earlier>`), at most `REPLY_PARENTS_MAX` in all, each marked `replyParent: true`.
  * `reads` are the core's reads of the interface (src/interface/reads.ts).
  */
 export async function withReplyParents(
   reads: Reads,
   channel: ConversationInfo,
   history: Array<Line>,
-  {
-    trigger,
-    config,
-  }: {
-    trigger: { id?: string; channelId?: string | null; replyToId?: string | null } | null;
-    config: ReplyParentsConfig;
-  }
+  { trigger }: { trigger: { id?: string; channelId?: string | null; replyToId?: string | null } | null }
 ): Promise<Array<Line>> {
-  const context = config.context ?? {};
-  if (context.fetchReplyParents === false) return history;
   const own = trigger && (!trigger.channelId || trigger.channelId === channel.id) ? trigger : null;
   const parents = await fetchReplyParents(reads, { iface: channel.iface, conversationId: channel.id }, history, {
     trigger: own,
-    recent: config.features?.anchoredWindow === true ? history.length : (context.replyParentsFor ?? 3),
-    max: context.replyParentsMax ?? 4,
+    recent: history.length,
+    max: REPLY_PARENTS_MAX,
   });
   // Marked, so the request can say which of its lines came from outside the window (the journal's `seen.parents`).
   return parents.length > 0 ? [...parents.map((parent) => ({ ...parent, replyParent: true })), ...history] : history;

@@ -52,9 +52,7 @@ export function isGrantableOp(op: Partial<OpInfo> | null | undefined): boolean {
 
 /**
  * True when the caller may run `op`. Order: an owner passes; an `ownerOnly` or `grantable: false`
- * operation refuses everyone else, `*` included; a `member` operation passes anyone while
- * `features.memberCommands` is not false (read by the caller at the moment of use), else only an
- * owner; anything else passes on a grant stored on the exact operation name (everyone, one of the
+ * operation refuses everyone else, `*` included; a `member` operation passes anyone; anything else passes on a grant stored on the exact operation name (everyone, one of the
  * caller's roles, or the caller). No descriptor or an access that is not an object: refused.
  */
 export function isAllowed({
@@ -62,13 +60,11 @@ export function isAllowed({
   member,
   access,
   owners,
-  features,
 }: {
   op: Partial<OpInfo> | null | undefined;
   member?: { userId?: unknown; roleIds?: ReadonlyArray<unknown> };
   access?: unknown;
   owners?: unknown;
-  features?: unknown;
 }): boolean {
   const userId = member?.userId;
   if (listsOwner(owners, userId)) return true;
@@ -76,7 +72,7 @@ export function isAllowed({
   const rights = op?.rights;
   if (rights === undefined || typeof op?.name !== 'string') return false;
   if (rights.ownerOnly === true) return false;
-  if (rights.member === true) return objOf(features).memberCommands !== false;
+  if (rights.member === true) return true;
   if (rights.grantable === false) return false;
   if (!isObj(access)) return false;
 

@@ -9,6 +9,7 @@ import { defineOp, perEnv, invalid } from './registry.ts';
 import { callMethod, idText, objOf, textOf } from '../types.ts';
 import type { Env } from './env.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
+import { MEMORY_LIMITS } from '../../memory/text-limits.js';
 
 const handlers = perEnv((env) => {
   const { hot, store, assertNotPaused, requireGuildId, requireProfile } = env;
@@ -37,7 +38,7 @@ const handlers = perEnv((env) => {
     if (!name) throw invalid('a name is required');
 
     const before = requireProfile(guildId, userId);
-    const memoryCfg = hot.config?.memory ?? {};
+    const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
     const target = confirmTarget(memoryCfg);
 
     // The identity the store keeps for `name` (clamped the store's way), to find it once stored.
@@ -81,7 +82,7 @@ const handlers = perEnv((env) => {
     if (!name) throw invalid('a name is required');
 
     requireProfile(guildId, userId);
-    const memoryCfg = hot.config?.memory ?? {};
+    const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
     store.applyProfileOps(
       guildId,
       userId,

@@ -11,9 +11,9 @@
 
 import { estimateTokens } from './tokens.js';
 
-// What a broken or missing setting counts as: config.json's `llm.safetyMargin`
-// and `llm.maxRequestTokens`.
-const DEFAULT_SAFETY_MARGIN = 0.9;
+/** The share of the token cap a request may fill. Production value, config cut of 2026-10-31. */
+export const SAFETY_MARGIN = 0.9;
+// What a broken or missing `llm.maxRequestTokens` counts as: config.json's value.
 const DEFAULT_MAX_REQUEST_TOKENS = 50000;
 
 /**
@@ -42,19 +42,8 @@ const DEFAULT_MAX_REQUEST_TOKENS = 50000;
 export class SectionsTooLargeError extends Error {}
 
 /**
- * `llm.safetyMargin` of `config`: a number in (0, 1], else 0.9 (config.json's value).
- * @param {object} config  The live config; `config.llm` may be missing.
- * @returns {number}
- */
-export function safetyMarginOf(config) {
-  const given = config?.llm?.safetyMargin;
-  return Number.isFinite(given) && given > 0 && given <= 1 ? given : DEFAULT_SAFETY_MARGIN;
-}
-
-/**
- * The input budget of one request: `floor(maxRequestTokens * llm.safetyMargin)`. A margin that
- * is not a number in (0, 1] counts as 0.9 and a token cap that is not a positive finite number
- * as 50000 (config.json's values), so a partial or broken config still gives a limit
+ * The input budget of one request: `floor(maxRequestTokens * SAFETY_MARGIN)`. A token cap that is not a positive
+ * finite number counts as 50000 (config.json's value), so a partial or broken config still gives a limit
  * `fitSections` accepts.
  * @param {object} config  The live config; `config.llm` may be missing.
  * @param {number} [maxRequestTokens]  The token cap to use instead of `config.llm.maxRequestTokens`
@@ -62,9 +51,8 @@ export function safetyMarginOf(config) {
  * @returns {number}  A finite integer >= 0.
  */
 export function requestTokenLimit(config, maxRequestTokens = config?.llm?.maxRequestTokens) {
-  const margin = safetyMarginOf(config);
   const cap = Number.isFinite(maxRequestTokens) && maxRequestTokens > 0 ? maxRequestTokens : DEFAULT_MAX_REQUEST_TOKENS;
-  return Math.floor(cap * margin);
+  return Math.floor(cap * SAFETY_MARGIN);
 }
 
 /**

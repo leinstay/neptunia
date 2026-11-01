@@ -258,10 +258,6 @@ test('normalizeMessage: the preview of a video is a webp poster frame with no wi
   assert.equal(preview, 'https://media.discordapp.net/attachments/1/2/clip.mp4?ex=1&format=webp');
 });
 
-test('normalizeOptions: media.imageSize reaches the normaliser as imageSize', () => {
-  assert.equal(normalizeOptions({ media: { imageSize: 384 } }).imageSize, 384);
-});
-
 test('collectPictures: a picture carries the preview url of its attachment', () => {
   const url = 'https://cdn.discordapp.com/attachments/1/2/pic.png?ex=1';
   const raw = rawMessage({
@@ -312,17 +308,17 @@ test('normalizeMessage: classifies attachments through media.js, keeping url/siz
 
 test('normalizeOptions: the normaliser settings from the config, absent ones left to its defaults', () => {
   const config = { media: { embedTextChars: 50, video: { sites: ['a'] } }, context: { maxUrlChars: 30 } };
-  // `imageSize` (media.imageSize, the size of a preview) is covered in tests/collect-references.test.js.
+  // PR 7d: `media.imageSize` is the package's constant, the 512 of production, whatever the config says.
   assert.deepEqual(normalizeOptions(config), {
     embedTextChars: 50,
     videoSites: ['a'],
     maxUrlChars: 30,
-    imageSize: undefined,
+    imageSize: 512,
   });
   assert.deepEqual(normalizeOptions({}), {
     embedTextChars: undefined,
     videoSites: undefined,
     maxUrlChars: undefined,
-    imageSize: undefined,
+    imageSize: 512,
   });
 });

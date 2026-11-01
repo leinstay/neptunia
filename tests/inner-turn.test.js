@@ -90,52 +90,28 @@ function fakeStore() {
   };
 }
 
-function hotWith({ features = {}, access = {}, innerLife = {} } = {}) {
+// PR 7d: the switches are code, a heartbeat holds to intention changes and the inner turn's slice of the channel is
+// the constant 30 lines, so the config holds only the keys that are still settings.
+function hotWith({ access = {}, innerLife = {} } = {}) {
   return {
     config: {
-      bot: { timezone: 'UTC', dryRunChannelId: '', owners: ['u1'], access },
+      bot: { timezone: 'UTC', owners: ['u1'], access },
       context: {
         channelMessages: 100,
-        neighborMessages: 5,
-        neighborMaxAgeMinutes: 60,
-        neighborMaxChannels: 8,
-        maxMessageChars: 800,
-        gapMarkerMinutes: 20,
-        otherProfiles: 6,
         caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
-        vision: {
-          maxImages: 2,
-          tokensPerImage: 400,
-          imageSize: 512,
-          recentImages: 0,
-          recentImageMinutes: 0,
-          maxBytes: 1_500_000,
-          fetchTimeoutMs: 10_000,
-        },
-        pull: { scanMessages: 20, maxChannels: 1, sameAudience: true },
+        vision: { fetchTimeoutMs: 10_000 },
+        pull: { sameAudience: true },
       },
-      llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
+      llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      features: {
-        memory: true,
-        reactions: true,
-        multiMessage: true,
-        typingSimulation: false,
-        vision: false,
-        callMarkers: true,
-        coreTools: true,
-        ...features,
-      },
       models: { base: { analyzer: 'x/text' } },
-      media: { maxPerTurn: 6, filePreviewChars: 500 },
-      gifs: { maxPerDay: 40 },
       tools: {
         safeMode: false,
         resultMaxChars: 2000,
         callTimeoutMs: 120000,
         loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 },
       },
-      innerLife: { mode: 'shadow', chatMessages: 2, ...innerLife },
+      innerLife: { mode: 'shadow', ...innerLife },
     },
     prompts: {
       'system-prompt': 'You are a regular member of this chat, not an assistant.',
@@ -218,7 +194,6 @@ async function innerTurn({
   journal = null,
   allowed = ['lore.list'],
   onCall = null,
-  features = {},
   intentions = null,
   withErrands = false,
   errandConfigured = true,
@@ -228,17 +203,15 @@ async function innerTurn({
   slowMs = 0,
   gifs = null,
   innerLife = {},
+  filler = 0,
 }) {
   const history = [
     rawMessage({ id: 'm0', ts: NOW - 120_000, content: 'πρώτο' }),
+    ...Array.from({ length: filler }, (_, n) => rawMessage({ id: `f${n}`, ts: NOW - 110_000 + n, content: 'πάλι' })),
     rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Zoë', content: 'δεύτερο' }),
     rawMessage({ id: 'm2', ts: NOW - 30_000, content: 'τρίτο' }),
   ];
-  const hot = hotWith({
-    features: { journal: Boolean(journal), ...features },
-    access: personaGrants(allowed),
-    innerLife,
-  });
+  const hot = hotWith({ access: personaGrants(allowed), innerLife });
   if (loop) hot.config.innerLife.loop = { ...loop };
   if (skillsLoop) hot.config.tools.loop = { ...hot.config.tools.loop, ...skillsLoop };
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
@@ -310,7 +283,8 @@ async function innerTurn({
 }
 
 test('inner turn: no message is fabricated; the request carries <wake>, the inner task and the bounded slice of the channel', async () => {
-  const run = await innerTurn({ answers: ['<skip/>'] });
+  // PR 7d: the slice is the constant 30 lines, so 28 lines between m0 and m1 push m0 out of it.
+  const run = await innerTurn({ answers: ['<skip/>'], filler: 28 });
   const text = userText(run.llm.calls[0][1].content);
   assert.ok(text.includes(`<wake>\n${labels.wake.header}`), text);
   assert.ok(text.includes('πες καλημέρα στο κανάλι'));
@@ -345,11 +319,12 @@ test("inner turn: her tools are the same list as an addressed turn's -- the gran
   const allowed = ['lore.list', 'web.read', 'message.create', 'message.react.add', 'draw.create'];
   const run = await innerTurn({ answers: ['<skip/>'], allowed });
   const names = run.llm.options[0].tools.map((tool) => tool.function.name);
-  assert.deepEqual(names, ['draw_create', 'lore_list', 'message_create', 'message_react_add', 'web_read']);
+  // PR 7d: voice messages are code, so voice.say is among the posting skills carried over.
+  assert.deepEqual(names, ['draw_create', 'lore_list', 'message_create', 'message_react_add', 'voice_say', 'web_read']);
   const bare = await innerTurn({ answers: ['<skip/>'], allowed: ['lore.list', 'web.read'] });
   assert.deepEqual(
     bare.llm.options[0].tools.map((tool) => tool.function.name),
-    ['draw_create', 'lore_list', 'message_create', 'message_react_add', 'web_read'],
+    ['draw_create', 'lore_list', 'message_create', 'message_react_add', 'voice_say', 'web_read'],
     'the posting skills are carried over, granted or not'
   );
 });
@@ -429,9 +404,10 @@ test('inner turn, live: a <react> needs a target; without one it is refused targ
 });
 
 test('inner turn, live: <msg reply="#N"> replies to that line; her calls go first, then the tags, in the order of an addressed turn', async () => {
+  // PR 7d: the slice holds the channel's three lines (its bound is 30), so m2 is #3.
   const run = await innerTurn({
     answers: [
-      toolAnswer('<msg reply="#2">πρώτο</msg><msg>δεύτερο</msg>', [call('message.create', { text: 'τρίτο' })]),
+      toolAnswer('<msg reply="#3">πρώτο</msg><msg>δεύτερο</msg>', [call('message.create', { text: 'τρίτο' })]),
       '<skip/>',
     ],
     shadow: false,
@@ -444,7 +420,8 @@ test('inner turn, live: <msg reply="#N"> replies to that line; her calls go firs
   assert.equal(run.sends[2].replyTo, undefined);
 });
 
-test('inner turn, live: a #N handle the heartbeat showed on a line resolves for <msg reply> in the turn and in its next step', async () => {
+// PR 7d: a heartbeat holds to intention changes, so no post of hers replies to the handle; the numbering is what stays.
+test("inner turn, live: the heartbeat shows a line under a #N handle numbered past the turn's own lines", async () => {
   const seenLine = {
     kind: 'seen',
     messageId: 'hb-1',
@@ -479,24 +456,6 @@ test('inner turn, live: a #N handle the heartbeat showed on a line resolves for 
   const handle = /(#\d+) Zoë, [^\n]*they still make clips/.exec(request)?.[1];
   assert.ok(handle, 'the request quotes the line under a handle');
   assert.ok(Number(handle.slice(1)) > 3, "numbered past the turn's own lines");
-  // These two post from a heartbeat, so the intention-only limit is off for them.
-  const innerLife = { heartbeat: { intentionsOnly: false } };
-  const direct = await innerTurn({
-    answers: [`<msg reply="${handle}">nice</msg>`, '<skip/>'],
-    shadow: false,
-    gate: { wake },
-    innerLife,
-  });
-  assert.equal(direct.sends[0].replyTo?.messageId, 'hb-1');
-  // A read first: the reply comes in the loop's next step, over a transcript rebuilt around the same handle.
-  const stepped = await innerTurn({
-    answers: [toolAnswer('', [call('lore.list')]), `<msg reply="${handle}">still here</msg>`, '<skip/>'],
-    shadow: false,
-    gate: { wake },
-    innerLife,
-  });
-  assert.ok(stepped.llm.calls.length >= 2, 'the read gave the loop a second step');
-  assert.equal(stepped.sends[0]?.replyTo?.messageId, 'hb-1');
 });
 
 test('inner turn, shadow: a read runs, a post is only proposed and journalled as shadow, with no call mark', async () => {
@@ -575,10 +534,10 @@ test('inner turn, live: no count of posts refuses a post; a read still runs', as
   assert.equal(run.result.inner.actions[1].delivery, undefined);
 });
 
-test("inner turn: an ordinary reply's request is the same with the inner life on or off", async () => {
-  const requestOf = async (innerLife) => {
+test("inner turn: an ordinary reply's request carries no <wake>", async () => {
+  const requestOf = async () => {
     const history = [rawMessage({ id: 'm1', content: 'γεια' })];
-    const hot = hotWith({ features: { innerLife } });
+    const hot = hotWith();
     const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
     const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
     const llm = sequenceLlm(['<skip/>']);
@@ -612,15 +571,12 @@ test("inner turn: an ordinary reply's request is the same with the inner life on
     );
     return llm.calls[0];
   };
-  const off = await requestOf(false);
-  const on = await requestOf(true);
-  assert.deepEqual(on, off);
-  assert.ok(!userText(off[1].content).includes('<wake>'));
+  const request = await requestOf();
+  assert.ok(!userText(request[1].content).includes('<wake>'));
 });
 
 test('gateway: with nobody asking only a read runs, unless the turn is her own initiative', () => {
   const config = {
-    features: { tools: true },
     bot: { owners: ['u1'], access: personaGrants(['lore.add']) },
     tools: { safeMode: false },
   };
@@ -907,7 +863,6 @@ test('inner turn, live: message.create with gif= posts the text then the GIF', a
     run.sends.map((send) => send.text),
     ['νιάου', 'https://tenor.example/cat']
   );
-  assert.equal(run.store.state.data.gifCount, 1);
   assert.deepEqual(
     run.result.inner.actions.map((a) => `${a.skill}:${a.status}`),
     ['message.create:executed']
@@ -1011,7 +966,6 @@ test('inner turn: the open line names only intentions no intent call touched', a
   const touched = await innerTurn({
     answers: [toolAnswer('<msg>έτοιμο</msg>', [call('intention.update', { id: 'i1', state: 'done' })]), '<skip/>'],
     allowed: ['lore.list', 'intention.update'],
-    features: { intentions: true },
   });
   assert.deepEqual(
     touched.result.inner.actions.map((a) => `${a.skill}:${a.status}`),
@@ -1027,7 +981,6 @@ test('inner turn: the open line names only intentions no intent call touched', a
   const bare = await innerTurn({
     answers: [toolAnswer('<msg>έτοιμο</msg>', [call('intention.update', { state: 'done', text: 'i1' })]), '<skip/>'],
     allowed: ['lore.list', 'intention.update'],
-    features: { intentions: true },
   });
   assert.deepEqual(
     bare.result.inner.actions.map((a) => `${a.skill}:${a.status}`),
@@ -1052,7 +1005,6 @@ test('inner turn, last step: one post or intention change still runs, nothing fo
     shadow: false,
     loop: { maxSteps: 1 },
     allowed: ['lore.list', 'intention.update'],
-    features: { intentions: true },
   });
   assert.equal(run.llm.calls.length, 2, 'the last request, and none after its action');
   assert.ok(noteOf(run, 1).includes(LAST), 'the note says one post or intention change still runs');
@@ -1086,7 +1038,6 @@ test('inner turn, open follow-up: a post that leaves nothing to show while a wok
       toolAnswer('', [call('intention.update', { id: 'i1', state: 'done' })]),
     ],
     allowed: ['lore.list', 'intention.update'],
-    features: { intentions: true },
   });
   assert.equal(run.llm.calls.length, 2, 'the open follow-up request; the proposed update leaves nothing to show');
   assert.equal(noteOf(run, 1), OPEN_LINE);
@@ -1105,7 +1056,6 @@ test('inner turn, open follow-up: a post that leaves nothing to show while a wok
     ],
     shadow: false,
     allowed: ['lore.list', 'intention.update'],
-    features: { intentions: true },
   });
   assert.equal(noteOf(live, 1), OPEN_LINE);
   assert.equal(live.sends.length, 1);
@@ -1132,7 +1082,6 @@ test('inner turn, open follow-up: once per turn; none when her post named the in
       '<skip/>',
     ],
     allowed: ['lore.list', 'intention.update'],
-    features: { intentions: true },
   });
   assert.equal(named.llm.calls.length, 1, 'nothing left open: no request');
   assert.equal(named.result.inner.openFollowUp, undefined);
@@ -1213,7 +1162,6 @@ test('inner turn, open follow-up: on the last request the open line comes with t
     ],
     loop: { maxSteps: 1 },
     allowed: ['lore.list', 'intention.update'],
-    features: { intentions: true },
   });
   assert.equal(run.llm.calls.length, 2, 'the extra request is the last one; its terminal action ends the turn');
   assert.equal(noteOf(run, 1), `${LAST}\n\n${OPEN_LINE}`);
@@ -1279,13 +1227,11 @@ test("inner turn: the result carries the loop's end state, a refused post as a f
     shadow: false,
     loop: { maxSteps: 1 },
     allowed: ['lore.list', 'intention.update'],
-    features: { intentions: true },
   });
   assert.deepEqual(cut.result.inner.loop, { steps: 1, cut: 'steps', droppedCalls: 2 });
   const done = await innerTurn({
     answers: [toolAnswer('', [call('intention.update', { id: 'i1', state: 'done' })]), '<skip/>'],
     allowed: ['lore.list', 'intention.update'],
-    features: { intentions: true },
   });
   const action = done.result.inner.actions[0];
   assert.equal(action.skill, 'intention.update');
@@ -1610,7 +1556,7 @@ test("inner turn: a heartbeat turn and an addressed reply in the same channel sh
     'places.list',
   ];
   const requestOf = async (kind, withProfile) => {
-    const hot = hotWith({ features: { intentions: true }, access: personaGrants(allowed) });
+    const hot = hotWith({ access: personaGrants(allowed) });
     const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
     const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
     const llm = sequenceLlm(['<skip/>']);

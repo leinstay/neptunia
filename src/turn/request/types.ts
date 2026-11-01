@@ -80,31 +80,16 @@ export type Labels = {
 /** The live prompts: the prompt files by name, and the labels. */
 export type Prompts = { readonly labels: Labels; readonly [file: string]: unknown };
 
-/** A switch of `features`: compared with `true` or `false`, a missing key read by each reader's own default. */
-export type Features = { readonly [name: string]: unknown };
-
 /** `context.caps`: the token cap of each budget section. */
 export type Caps = { readonly [section: string]: number | undefined };
 
 /** The live config, as far as the request builders read it. */
 export type RequestConfig = {
   readonly bot: { readonly timezone: string };
-  readonly features?: Features;
+  readonly private?: { readonly enabled?: unknown; readonly likeServer?: unknown };
   readonly context: {
     readonly caps: Caps;
-    readonly gapMarkerMinutes: number;
-    readonly maxMessageChars: number;
-    readonly ageAfterMinutes?: number;
-    readonly reactionsPerMessage?: number;
-    readonly reactions?: { readonly maxNames?: number };
-    readonly replyQuoteChars?: number;
     readonly customEmoji?: EmojiConfig;
-    readonly tempo?: { liveMessages10min: number; deadSilenceMinutes: number };
-    readonly channelActivity?: { liveMessagesPerDay?: number; deadAfterDays?: number };
-    readonly neighborMessageChars?: number;
-    readonly askedAboutProfiles?: number;
-    readonly askedAboutEpisodes?: number;
-    readonly attitudes?: number;
     readonly around?: { readonly maxTokens?: number };
   };
   readonly memory?: {
@@ -300,17 +285,16 @@ export type RequestInput = {
   readonly videos?: Map<string, { state: 'watched' | 'limit' | 'error' | 'pending'; text?: string; reason?: string }>;
   readonly imageAnswers?: Map<string, { question: string; text: string }> | null;
   readonly reads?: Map<string, string>;
-  readonly lookup: Lookup | null;
+  readonly lookup?: Lookup | null;
   readonly prefetch?: Prefetch | null;
   readonly searchAvailable?: unknown;
   readonly recallAvailable?: unknown;
-  readonly drawQuota?: { spent: boolean; userSpent: boolean } | null;
+  readonly drawOn?: boolean;
   readonly customEmoji?: unknown;
   readonly mediaCache?: MediaCache | null;
   readonly gifs?: unknown;
   readonly pulled?: unknown;
   readonly source?: { readonly channelId: string; readonly reason: string } | null;
-  readonly focus?: { readonly id: string; readonly authorName?: string } | null;
   readonly tasks?: Tasks | null;
   readonly elsewhereDestination?: { readonly name?: string } | null;
   readonly readOnlyIds?: unknown;

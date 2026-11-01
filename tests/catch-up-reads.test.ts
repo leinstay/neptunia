@@ -15,13 +15,9 @@ const NOW = Date.parse('2026-10-18T12:00:00Z');
 const LAST_SEEN = NOW - 30 * MIN;
 const GUILD = 'g1';
 
+// PR 7d: the catch-up and the journal are code and the dry-run mirror is gone, so only the catch-up's own keys stay.
 function config(extra: object = {}) {
-  return {
-    features: { offlineCatchUp: true, journal: false },
-    offlineCatchUp: { windowMinutes: 15, maxMessages: 50 },
-    bot: { dryRunChannelId: '' },
-    ...extra,
-  };
+  return { offlineCatchUp: { windowMinutes: 15, maxMessages: 50 }, ...extra };
 }
 
 type Setup = {
@@ -128,21 +124,14 @@ test('reads a conversation whose newest time is unknown', async () => {
   assert.deepEqual(ids(delivered), ['m1']);
 });
 
-test('leaves a conversation the persona cannot read, and the dry-run mirror, alone', async () => {
-  const { catchUp, asked, fake } = setup({
-    channels: [
-      { id: 'c1', lastMessageAt: LAST_SEEN },
-      { id: 'mirror', lastMessageAt: LAST_SEEN },
-    ],
-    settings: { bot: { dryRunChannelId: 'mirror' } },
-  });
+test('leaves a conversation the persona cannot read alone', async () => {
+  const { catchUp, asked, fake } = setup({ channels: [{ id: 'c1', lastMessageAt: LAST_SEEN }] });
   fake.seedConversation(
     channel('c1', {
       lastMessageAt: NOW,
       permissions: { read: false, send: false, attach: false, react: false },
     })
   );
-  fake.seedConversation(channel('mirror', { lastMessageAt: NOW }));
   await catchUp.run(GUILD);
   assert.deepEqual(asked('history'), []);
   assert.deepEqual(asked('conversationInfo'), [{ iface: IFACE, conversationId: 'c1' }]);
@@ -186,12 +175,10 @@ test('tallies the outcome of each delivery per conversation, a delivery that thr
   ]);
 });
 
-test('does nothing while paused or with the switch off, and reads nothing', async () => {
+test('does nothing while paused, and reads nothing', async () => {
   const paused = setup({ paused: true });
   assert.equal(await paused.catchUp.run(GUILD), null);
-  const off = setup({ settings: { features: { offlineCatchUp: false } } });
-  assert.equal(await off.catchUp.run(GUILD), null);
-  assert.deepEqual([...paused.fake.calls, ...off.fake.calls], []);
+  assert.deepEqual(paused.fake.calls, []);
 });
 
 test('plans the events after the last seen, oldest first, from their own times and authors', () => {

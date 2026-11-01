@@ -9,7 +9,7 @@ import path from 'node:path';
 import { createHot } from '../src/hot.js';
 import { diaryTopic, localDayKey, planDay } from '../src/behavior/diary.ts';
 import { zonedEpoch } from '../src/time.js';
-import { ImageCapError, createImageGen } from '../src/llm/images.js';
+import { createImageGen } from '../src/llm/images.js';
 import { createLookup } from '../src/web/lookup.js';
 import { createBraveSearch } from '../src/web/brave.js';
 import { createExaSearch } from '../src/web/exa.js';
@@ -18,15 +18,15 @@ import {
   storedDumps,
   diaryTurnParams,
   diaryPromptLayers,
-  dryRunHot,
   searchAvailableOf,
   diaryDayGate,
   diaryDayKey,
-  noPostHot,
+  refuseDiscordWrites,
 } from '../tools/replay.mjs';
 import {
   FIXTURE_PNG,
   MAX_PICTURES_KEY,
+  PictureCapError,
   fixtureImagesFetch,
   recordingImages,
   renderDiaryDayReport,
@@ -45,7 +45,7 @@ function scratchRoot() {
   fs.mkdirSync(path.join(root, 'config'), { recursive: true });
   fs.writeFileSync(
     path.join(root, 'config', 'config.json'),
-    JSON.stringify({ features: { dryRun: false, diary: true }, bot: { dryRunChannelId: '42' } })
+    JSON.stringify({ features: { diary: true }, bot: { timezone: '42' } })
   );
   fs.mkdirSync(path.join(root, 'prompts'));
   fs.writeFileSync(path.join(root, 'prompts', 'reply.md'), 'tracked reply');
@@ -62,7 +62,7 @@ function scratchRoot() {
   return root;
 }
 
-test('replay: the diary mode builds a diary turn request with the kind forced and dryRun on', () => {
+test('replay: the diary mode builds a diary turn request with the kind forced', () => {
   const args = parseArgs([
     '--diary',
     'picture',
@@ -102,24 +102,6 @@ test('replay: the diary mode builds a diary turn request with the kind forced an
     () => parseArgs(['--pair', 'a', 'b', '--prompts', 'c', '123456789012345678', '223456789012345678']),
     /usage/
   );
-
-  // hot as the turn sees it: dry run on, mirroring nothing, the rest read live at use.
-  const root = scratchRoot();
-  const hot = quietHot({ rootDir: root });
-  try {
-    const view = dryRunHot(hot);
-    assert.equal(view.config.features.dryRun, true);
-    assert.equal(view.config.features.diary, true);
-    assert.equal(view.config.bot.dryRunChannelId, '');
-    assert.equal(hot.config.features.dryRun, false, 'the real config is untouched');
-    hot.config = { ...hot.config, diary: { channelId: '7' } };
-    assert.equal(view.config.diary.channelId, '7', 'read at use');
-    assert.equal(view.prompts.reply, 'local réply');
-    assert.equal(typeof view.onReload, 'function');
-  } finally {
-    hot.close();
-    fs.rmSync(root, { recursive: true, force: true });
-  }
 });
 
 test('replay: --prompts layering is one helper shared by pair and diary', () => {
@@ -165,11 +147,8 @@ test('replay: with NEPTUNIA_PRIVATE_DIR apart, --diary and --pair take config.lo
   const env = { NEPTUNIA_PRIVATE_DIR: privateDir };
   try {
     // The checkout keeps a stale local layer; the live one is in the private directory.
-    fs.writeFileSync(path.join(root, 'config.local.json'), JSON.stringify({ bot: { dryRunChannelId: 'checkout' } }));
-    fs.writeFileSync(
-      path.join(privateDir, 'config.local.json'),
-      JSON.stringify({ bot: { dryRunChannelId: 'private' } })
-    );
+    fs.writeFileSync(path.join(root, 'config.local.json'), JSON.stringify({ bot: { timezone: 'checkout' } }));
+    fs.writeFileSync(path.join(privateDir, 'config.local.json'), JSON.stringify({ bot: { timezone: 'private' } }));
     fs.mkdirSync(path.join(privateDir, 'prompts.local'));
     fs.writeFileSync(path.join(privateDir, 'prompts.local', 'reply.md'), 'private reply');
 
@@ -178,10 +157,10 @@ test('replay: with NEPTUNIA_PRIVATE_DIR apart, --diary and --pair take config.lo
     const diary = promptLayersHot(quietHot, root, layers, { tmpDir, env });
     assert.equal(diary.hot.prompts.reply, 'private reply', 'the checkout prompts.local/ is not read');
     assert.equal(diary.hot.prompts['diary-plan'], 'candidate plan');
-    assert.equal(diary.hot.config.bot.dryRunChannelId, 'private');
+    assert.equal(diary.hot.config.bot.timezone, 'private');
     diary.hot.close();
     const side = promptLayersHot(quietHot, root, ['candidate'], { tmpDir, env });
-    assert.equal(side.hot.config.bot.dryRunChannelId, 'private');
+    assert.equal(side.hot.config.bot.timezone, 'private');
     assert.equal(side.hot.prompts.reply, 'tracked reply');
     side.hot.close();
     // No prompts.local/ in the private directory: the checkout's is not taken instead.
@@ -380,7 +359,7 @@ test('replay: --diary-day records every generate() call at the image client and 
   const config = {
     llm: { baseUrl: 'https://openrouter.invalid/api/v1' },
     models: { base: { drawing: 'openai/image-model' } },
-    image: { maxPerDay: 5, maxPerUserPerDay: 2, retries: 0 },
+    image: { retries: 0 },
   };
   const real = createImageGen({
     apiKey: 'unused',
@@ -392,7 +371,6 @@ test('replay: --diary-day records every generate() call at the image client and 
   const written = [];
   const images = recordingImages({
     images: real,
-    ImageCapError,
     maxPictures: 1,
     onPicture: (picture, index) => {
       written.push(index);
@@ -405,10 +383,10 @@ test('replay: --diary-day records every generate() call at the image client and 
   );
   assert.ok(picture.buffer.equals(FIXTURE_PNG));
   assert.equal(FIXTURE_PNG.subarray(1, 4).toString('latin1'), 'PNG');
-  assert.equal(state.data.imageCount, 1, 'counted against image.maxPerDay as live');
+  // PR 7d: the engine's ImageCapError went with the daily caps; the tool's own --max-pictures cap throws PictureCapError.
   await assert.rejects(
     withCapturedLogs(() => images.generate({ prompt: 'second', reference: null, userId: 'u1' })),
-    (err) => err instanceof ImageCapError && err.key === MAX_PICTURES_KEY && err.cap === 1
+    (err) => err instanceof PictureCapError && err.key === MAX_PICTURES_KEY && err.cap === 1
   );
   assert.deepEqual(written, [1]);
   assert.deepEqual(images.calls, [
@@ -419,7 +397,7 @@ test('replay: --diary-day records every generate() call at the image client and 
       result: { bytes: FIXTURE_PNG.length, mediaType: 'image/png', cost: 0, seconds: 0 },
       file: 'pictures/picture-1.png',
     },
-    { prompt: 'second', reference: null, userId: 'u1', result: { error: 'ImageCapError', reason: 'daily' } },
+    { prompt: 'second', reference: null, userId: 'u1', result: { error: 'PictureCapError', reason: 'daily' } },
   ]);
   assert.match(images.calls[0].reference.sha256, /^[0-9a-f]{16}$/);
   const md = renderDiaryDayReport({
@@ -433,21 +411,10 @@ test('replay: --diary-day records every generate() call at the image client and 
   assert.ok(md.includes('```text\nA drawing.\n\nScene: a café\n```'), 'the whole prompt, as sent');
 });
 
-test('replay: --diary-day --draw live spends OPENROUTER_SIM_KEY only; hot acts to the end without typing waits', () => {
+test('replay: --diary-day --draw live spends OPENROUTER_SIM_KEY only', () => {
   assert.throws(() => diaryDayKey('live', { OPENROUTER_CORE_KEY: 'bot' }), /OPENROUTER_SIM_KEY/);
   assert.equal(diaryDayKey('live', { OPENROUTER_SIM_KEY: 'sim', OPENROUTER_CORE_KEY: 'bot' }), 'sim');
   assert.equal(diaryDayKey('fake', { OPENROUTER_SIM_KEY: 'sim' }), 'sim');
-
-  const hot = {
-    config: {
-      features: { dryRun: true, typingSimulation: true, diary: true },
-      bot: { dryRunChannelId: '42', timezone: 'UTC' },
-    },
-  };
-  const view = noPostHot(hot);
-  assert.deepEqual(view.config.features, { dryRun: false, typingSimulation: false, diary: true });
-  assert.deepEqual(view.config.bot, { dryRunChannelId: '', timezone: 'UTC' });
-  assert.equal(hot.config.features.dryRun, true, 'the real config is untouched');
 });
 
 test("replay: --show-request reads the base dumps of a turn by default, --steps adds each attempt's later requests after it", () => {
@@ -541,4 +508,17 @@ test('replay: recordingLlm keeps the native tool calls and the finish reason of 
   const plain = recordingLlm({ complete: async () => ({ text: 'x', usage: null }) }, calls);
   await plain.complete([], {});
   assert.deepEqual([calls[1].toolCalls, calls[1].finishReason], [null, null]);
+});
+
+test('refuseDiscordWrites: a GET passes to the REST queue and every write is refused, so a diary replay posts nothing', async () => {
+  // PR 7d: the dry-run switch is gone from the engine, so this refusal is what keeps a diary replay from posting.
+  const queued = [];
+  const client = { rest: { queueRequest: (request) => Promise.resolve(queued.push(request.method ?? 'GET')) } };
+  refuseDiscordWrites(client);
+  await client.rest.queueRequest({ method: 'GET' });
+  await client.rest.queueRequest({});
+  for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'post']) {
+    await assert.rejects(client.rest.queueRequest({ method }), /refused \(read-only tool\)/);
+  }
+  assert.deepEqual(queued, ['GET', 'GET']);
 });

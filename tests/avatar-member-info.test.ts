@@ -50,7 +50,6 @@ function setup(options: { reads?: ReadonlyArray<string>; profiles?: Array<Profil
         return Promise.resolve({ dataUrl: 'data:image/png;base64,ZmFrZQ==' });
       },
     },
-    state: { data: {}, markDirty() {} },
     getGuildId: () => COMMUNITY,
     selfId: () => SELF_ID,
     reads: world.reads,

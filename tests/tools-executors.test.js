@@ -465,10 +465,10 @@ function gifLibrary(over = {}) {
   };
 }
 
-test('message.create gif=: the GIF follows the text, goes alone without one, and counts like a <gif>; unknown handle and the daily cap refuse before anything is posted', async () => {
+// PR 7d: GIFs have no daily cap and no daily count, so the cap half and the gifCount checks went.
+test('message.create gif=: the GIF follows the text, goes alone without one, and stamps the GIF; an unknown handle refuses before anything is posted', async () => {
   const library = gifLibrary();
   const cfg = config();
-  cfg.gifs = { ...(cfg.gifs ?? {}), maxPerDay: 2 };
   const { admin, store, port } = makeAdmin({ cfg });
   library.patch(store);
   const mine = () =>
@@ -481,7 +481,6 @@ test('message.create gif=: the GIF follows the text, goes alone without one, and
   const both = await executeCall(resolve('message.create', { gif: 'g1' }, 'νιάου'), deps(admin, port));
   assert.equal(both.status, 'ok');
   assert.deepEqual(mine(), ['νιάου', 'https://tenor.example/cat']);
-  assert.equal(store.state.data.gifCount, 1);
   assert.deepEqual(library.stamped, ['k1']);
 
   // the GIF alone: no text needed
@@ -499,18 +498,9 @@ test('message.create gif=: the GIF follows the text, goes alone without one, and
   const aloneResult = await executeCall(alone, deps(admin, port));
   assert.equal(aloneResult.status, 'ok');
   assert.equal(mine().at(-1), 'https://tenor.example/cat');
-  assert.equal(store.state.data.gifCount, 2);
-
-  // over gifs.maxPerDay: refused before anything is posted, the text included
-  const before = mine().length;
-  const capped = await executeCall(resolve('message.create', { gif: 'g1' }, 'άλλο ένα'), deps(admin, port));
-  assert.deepEqual([capped.status, capped.code], ['invalid', 'gif-cap']);
-  assert.equal(store.state.data.gifCount, 2);
-  const cappedAlone = await executeCall(resolve('message.create', { gif: 'g1' }), deps(admin, port));
-  assert.deepEqual([cappedAlone.status, cappedAlone.code], ['invalid', 'gif-cap']);
-  assert.equal(mine().length, before);
 
   // an unknown handle: refused, the text not posted
+  const before = mine().length;
   const unknown = await executeCall(resolve('message.create', { gif: 'g9' }, 'δεν θα σταλεί'), deps(admin, port));
   assert.deepEqual([unknown.status, unknown.code], ['invalid', 'unknown-gif']);
   assert.equal(mine().length, before);
@@ -1394,9 +1384,8 @@ function pingsStore(off = []) {
   };
 }
 
-const pingsGranted = (features = {}) =>
+const pingsGranted = () =>
   config({
-    features: { memberCommands: true, ...features },
     access: { 'pings.set': { everyone: false, roles: [], users: [SELF] } },
   });
 
@@ -1424,15 +1413,4 @@ test('a member who asks her turns off their own pings through pings.set, and nob
 test('pings.set takes no member to switch: a call that names another member is refused before it runs', () => {
   const call = resolve('pings.set', { mode: 'off', user: '@Élodie' });
   assert.deepEqual([call.ok, call.reason], [false, 'args.user:unknown']);
-});
-
-test("pings.set is refused under the member's own right while features.memberCommands is off, and nothing changes", async () => {
-  const store = pingsStore();
-  const { admin, port } = makeAdmin({ cfg: pingsGranted({ memberCommands: false }), extra: { store } });
-  const result = await executeCall(
-    resolve('pings.set', { mode: 'off' }),
-    deps(admin, port, { requester: { id: MEMBER, roleIds: [] } })
-  );
-  assert.equal(result.status, 'denied');
-  assert.deepEqual([...store.keys], []);
 });

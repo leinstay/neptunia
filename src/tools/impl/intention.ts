@@ -29,7 +29,7 @@
 
 import { formatClock, formatDate } from '../../format.js';
 import { clampWithEllipsis, oneLine } from '../../memory/clamp.js';
-import { HEARTBEAT_ORIGIN, intentionsOn, isIntentionId, parseEvery, parseWhen } from '../../intentions/model.ts';
+import { HEARTBEAT_ORIGIN, isIntentionId, parseEvery, parseWhen } from '../../intentions/model.ts';
 import { isOwnerCaller } from './grants.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
@@ -69,13 +69,6 @@ const handlers = perEnv((env) => {
     if (!env.intentions || typeof env.intentions.set !== 'function')
       throw Object.assign(new Error('intentions are not running'), { code: CODE.NOT_CONFIGURED });
     return env.intentions;
-  }
-
-  /** The refusal with the switch off, or null. */
-  function off() {
-    return intentionsOn(hot.config)
-      ? null
-      : { status: 'failed', code: CODE.FEATURE_OFF, summary: 'intentions are off (features.intentions)', data: null };
   }
 
   /** Whether the conversation the command runs in is a private chat. */
@@ -253,8 +246,6 @@ const handlers = perEnv((env) => {
 
   /** `intention.set`: a new intention, its purpose the text; with `attend` an attention on that place. */
   function cmdSet(args: Obj, context: OpContext): Obj {
-    const refused = off();
-    if (refused) return refused;
     const place = text(args, 'attend');
     const purpose = text(args, 'text') ?? place;
     if (!purpose) throw invalid('a purpose is required');
@@ -280,8 +271,6 @@ const handlers = perEnv((env) => {
 
   /** `intention.update id ...` (the id alone in the body counts as `id`, idOf). */
   function cmdUpdate(given: Obj, context: OpContext): Obj {
-    const refused = off();
-    if (refused) return refused;
     const { id, args } = idOf(given);
     if (!id) throw invalid('an id is required');
     const state = text(args, 'state');
@@ -317,8 +306,6 @@ const handlers = perEnv((env) => {
 
   /** `intention.cancel id` (the id alone in the body counts as `id`, idOf). */
   function cmdCancel(given: Obj, context: OpContext): Obj {
-    const refused = off();
-    if (refused) return refused;
     const { id } = idOf(given);
     if (!id) throw invalid('an id is required');
     return answer(
@@ -329,8 +316,6 @@ const handlers = perEnv((env) => {
 
   /** `intention.list`: the open intentions, a private chat's own only in that chat (an owner's command sees all). */
   function cmdList(args: Obj, context: OpContext): Obj | string {
-    const refused = off();
-    if (refused) return refused;
     const records = intentions().list(resolvedGuildId(context), whereOf(context));
     return records.length > 0 ? records.map(lineOf).join('\n') : 'no open intentions';
   }

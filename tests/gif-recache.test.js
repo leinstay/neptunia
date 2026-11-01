@@ -129,7 +129,8 @@ test('recacheQueue: an old-format watched entry (no reaction field) is queued wi
   );
 });
 
-test('gif recache: old-format watched captions migrate over runs and the describer is asked for them', async () => {
+// PR 7d: `gifs.recachePerRun` is the constant 50, so both old captions go in one run.
+test('gif recache: old-format watched captions migrate and the describer is asked for them', async () => {
   await withStore(async (store) => {
     seed(store, [linkEntry(1), linkEntry(2)], {
       'm1#e0': { text: 'watched before', ts: 200, watched: true, gif: true },
@@ -138,27 +139,25 @@ test('gif recache: old-format watched captions migrate over runs and the describ
     const describer = fakeDescriber(store);
     const log = silentLog();
     const recache = createGifRecache({
-      hot: fakeHot({ recachePerRun: 1 }),
+      hot: fakeHot(),
       store,
       ...depsOf(fakeClient([rawGifMessage(1), rawGifMessage(2)])),
       describer,
       log,
     });
-    assert.deepEqual(recache.start('g1'), { ok: true, dropped: 0, queued: 1 });
-    await recache.waitIdle();
-    assert.deepEqual(recache.start('g1'), { ok: true, dropped: 0, queued: 1 });
+    assert.deepEqual(recache.start('g1'), { ok: true, dropped: 0, queued: 2 });
     await recache.waitIdle();
     assert.deepEqual(recache.start('g1'), { ok: true, dropped: 0, queued: 0 });
     await recache.waitIdle();
     assert.deepEqual(
       describer.calls.map((c) => c.item.itemId),
       ['m2#e0', 'm1#e0'],
-      'oldest first, one per run'
+      'oldest first'
     );
     const started = log.entries
       .filter((entry) => entry.message === 'gif-recache: started')
       .map((entry) => entry.fields);
-    assert.deepEqual(started[0], { dropped: 0, queued: 1 }, 'counts only');
+    assert.deepEqual(started[0], { dropped: 0, queued: 2 }, 'counts only');
   });
 });
 
@@ -277,8 +276,9 @@ function fakeDescriber(store, { outcome, blocker = null, gate } = {}) {
   };
 }
 
-function fakeHot(gifs = {}) {
-  return { config: { media: { embedTextChars: 200 }, gifs: { recachePerRun: 50, ...gifs } } };
+// PR 7d: the GIF measures are constants and `media.embedTextChars` is the Discord package's.
+function fakeHot() {
+  return { config: {} };
 }
 
 function silentLog() {
@@ -295,7 +295,9 @@ function seed(store, entries, cache = {}) {
   Object.assign(store.getMediaCache('g1'), cache);
 }
 
-test('gif recache: drops one-frame captions at once, then watches at most recachePerRun entries, oldest first, from a fresh read', async () => {
+// PR 7d: `gifs.recachePerRun` is the constant 50, so the three entries are watched in one run (recacheQueue's cap is
+// tested on its own above).
+test('gif recache: drops one-frame captions at once, then watches the entries, oldest first, from a fresh read', async () => {
   await withStore(async (store) => {
     seed(store, [linkEntry(1), linkEntry(2), linkEntry(3)], {
       'm1#e0': { text: 'a still', ts: 300 },
@@ -305,7 +307,7 @@ test('gif recache: drops one-frame captions at once, then watches at most recach
     });
     const describer = fakeDescriber(store);
     const recache = createGifRecache({
-      hot: fakeHot({ recachePerRun: 2 }),
+      hot: fakeHot(),
       store,
       ...depsOf(fakeClient([rawGifMessage(1), rawGifMessage(2), rawGifMessage(3)])),
       describer,
@@ -313,7 +315,7 @@ test('gif recache: drops one-frame captions at once, then watches at most recach
     });
 
     const started = recache.start('g1');
-    assert.deepEqual(started, { ok: true, dropped: 1, queued: 2 });
+    assert.deepEqual(started, { ok: true, dropped: 1, queued: 3 });
     assert.equal(
       store.getMediaCache('g1')['x9#e0'],
       undefined,
@@ -326,25 +328,26 @@ test('gif recache: drops one-frame captions at once, then watches at most recach
 
     assert.deepEqual(
       describer.calls.map((c) => c.item.itemId),
-      ['m3#e0', 'm2#e0'],
+      ['m3#e0', 'm2#e0', 'm1#e0'],
       'never described first, then the oldest'
     );
     const [first] = describer.calls;
     assert.equal(first.item.kind, 'gif');
     assert.equal(first.item.animationUrl, `${TENOR(3)}/loop.mp4`, 'the animation comes from the message read again');
     assert.equal(first.opts, undefined, 'every describer request counts: no option to say so');
-    assert.equal(store.getMediaCache('g1')['m1#e0'].text, 'a still', 'past the cap: left for the next run');
   });
 });
 
+// PR 7d: `gifs.recachePerRun` is the constant 50, so the library holds 51 entries for the second run to continue.
 test('gif recache: a second run skips what the first watched and continues with the rest', async () => {
   await withStore(async (store) => {
-    seed(store, [linkEntry(1), linkEntry(2), linkEntry(3)]);
+    const ids = Array.from({ length: 51 }, (_, n) => n + 1);
+    seed(store, ids.map(linkEntry));
     const describer = fakeDescriber(store);
     const recache = createGifRecache({
-      hot: fakeHot({ recachePerRun: 2 }),
+      hot: fakeHot(),
       store,
-      ...depsOf(fakeClient([rawGifMessage(1), rawGifMessage(2), rawGifMessage(3)])),
+      ...depsOf(fakeClient(ids.map(rawGifMessage))),
       describer,
       log: silentLog(),
     });
@@ -354,10 +357,10 @@ test('gif recache: a second run skips what the first watched and continues with 
     await recache.waitIdle();
     assert.deepEqual(
       describer.calls.map((c) => c.item.itemId),
-      ['m1#e0', 'm2#e0', 'm3#e0']
+      ids.map((n) => `m${n}#e0`)
     );
     assert.deepEqual(gifCaptionCounts(store.getGifs('g1'), store.getMediaCache('g1')), {
-      watched: 3,
+      watched: 51,
       'one-frame': 0,
       failed: 0,
       none: 0,
@@ -637,8 +640,7 @@ function fakeMediaDescriber(clock, { outcome, costMs = 0, blocker = null } = {})
 function mediaHot(media = {}) {
   return {
     config: {
-      media: { embedTextChars: 200, recacheIntervalMs: 3000, ...media },
-      gifs: { recachePerRun: 50 },
+      media: { ...media },
       models: { base: { vision: MODELS.vision, video: MODELS.video } },
     },
   };
@@ -752,7 +754,7 @@ test('media recache: descriptions are paced media.recacheIntervalMs apart on the
     const clock = fakeTime();
     const describer = fakeMediaDescriber(clock, { costMs: 1000 });
     const recache = createGifRecache({
-      hot: mediaHot({ recacheIntervalMs: 3000 }),
+      hot: mediaHot(),
       store,
       ...depsOf(fakeClient([])),
       describer,

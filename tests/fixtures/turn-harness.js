@@ -82,22 +82,20 @@ export function fakeStore({ profiles = [] } = {}) {
   };
 }
 
-export function hotWith({ features = {}, tools = {}, access = {}, config = {} } = {}) {
+// PR 7d: the `features` switches are code or gone, and the context, media and GIF knobs of the cut are constants of
+// their modules, so the hot config carries only the keys that are still settings.
+export function hotWith({ tools = {}, access = {}, config = {} } = {}) {
   return {
     config: {
-      bot: { timezone: 'UTC', dryRunChannelId: '', owners: ['u1'], access },
+      bot: { timezone: 'UTC', owners: ['u1'], access },
       context: {
-        channelMessages: 100, neighborMessages: 5, neighborMaxAgeMinutes: 60, neighborMaxChannels: 8, maxMessageChars: 800,
-        gapMarkerMinutes: 20, otherProfiles: 6, caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
-        vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0, maxBytes: 1_500_000, fetchTimeoutMs: 10_000 },
-        pull: { scanMessages: 20, maxChannels: 1, sameAudience: true },
+        channelMessages: 100, caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
+        vision: { fetchTimeoutMs: 10_000 },
+        pull: { sameAudience: true },
       },
-      llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
+      llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      features: { memory: true, reactions: true, multiMessage: true, typingSimulation: false, vision: false, callMarkers: true, ...features },
       models: { base: { analyzer: 'x/text' } },
-      media: { maxPerTurn: 6, filePreviewChars: 500 },
-      gifs: { maxPerDay: 40 },
       tools: { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000, ...tools },
       ...config,
     },
@@ -176,14 +174,13 @@ export function journalOverMemory() {
 
 /**
  * One mention by Alice (u1, an owner) in #general (c1) answered with `answers` in turn, with the
- * tool loop on (`coreTools`) and `loop` as tools.loop; `allowed` skills granted to the persona;
+ * tool loop on and `loop` as tools.loop; `allowed` skills granted to the persona;
  * `wrapCommand` wraps the admin's runSkillOp; `runner` and `adminExtra` go to the runner and the
  * admin as they are.
  */
-export async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read'], coreTools = true, loop = {}, features = {}, journal = null, wrapCommand = null, runner = {}, adminExtra = {}, store = fakeStore(), content = 'βρες κάτι', classifier = 'none', config = {}, firstAttachments = new Map(), prompts = {}, seeds = [], triggerKind = 'mention', neighbours = [], clientExtra = {}, setup = null, inner = null, spontaneous = null, onAnswer = /** @type {((index: number, history: unknown, port: ReturnType<typeof createFakeAdapter>) => void) | null} */ (null), withHot = /** @type {((hot: { config: unknown, prompts: unknown }) => void) | null} */ (null), earlier = [] }) {
+export async function coreTurn({ answers, allowed = ['lore.list', 'memory.server.read'], loop = {}, journal = null, wrapCommand = null, runner = {}, adminExtra = {}, store = fakeStore(), content = 'βρες κάτι', classifier = 'none', config = {}, firstAttachments = new Map(), prompts = {}, seeds = [], triggerKind = 'mention', neighbours = [], clientExtra = {}, setup = null, inner = null, spontaneous = null, onAnswer = /** @type {((index: number, history: unknown, port: ReturnType<typeof createFakeAdapter>) => void) | null} */ (null), withHot = /** @type {((hot: { config: unknown, prompts: unknown }) => void) | null} */ (null), earlier = [] }) {
   const history = [...earlier, rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα', attachments: firstAttachments }), rawMessage({ id: 'm1', content })];
   const hot = hotWith({
-    features: { coreTools, journal: Boolean(journal), ...features },
     tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4, ...loop } },
     access: personaGrants(allowed),
     config,
@@ -251,4 +248,5 @@ export function errandService(hot) {
 
 export const AGENTS = { errands: { maxOpen: 3, resultMaxChars: 400 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } };
 
-export const WEB_CONFIG = { web: { maxPerDay: 60, links: { enabled: false }, search: { enabled: true, maxPerTurn: 1, contextMessages: 50 } }, recall: { maxForms: 4 } };
+// PR 7d: the web cap is gone and the links, search counts and recall forms are constants.
+export const WEB_CONFIG = { web: { search: { enabled: true } } };

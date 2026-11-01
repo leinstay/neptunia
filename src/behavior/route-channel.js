@@ -22,10 +22,10 @@ import {
   routeEntries,
   routeSettings,
 } from './route.js';
+import { MEMORY_LIMITS } from '../memory/text-limits.js';
 
 /**
- * The numbered `<channels>` list of one route decision, shared by the route
- * hook below and the turn planner (src/behavior/planner.js): the stored
+ * The numbered `<channels>` list of one route decision for the route hook below: the stored
  * channels of `guildId` other than `channel` and the candidate's own, each
  * judged with the pull phase's rails (checkPull against `channel` over `snapshot`,
  * `partnerId` for a private chat; a check that throws drops that channel), at most
@@ -61,7 +61,7 @@ export function routeChannelOffer({
     check,
     profileOf: (userId) => store.getUser(guildId, userId),
     max: settings.maxChannels,
-    aliasHalfLifeDays: config.memory?.aliasHalfLifeDays,
+    aliasHalfLifeDays: MEMORY_LIMITS.aliasHalfLifeDays,
   });
   return routeChannelList(entries, { max: settings.maxChannels, purposeChars: settings.purposeChars });
 }

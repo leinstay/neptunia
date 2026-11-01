@@ -1,7 +1,7 @@
 // The owner's view and switch of the inner life: `status` for `/nep task inner` and the status tool, and the kill
 // switch `stop` and `start`, persisted with the state. Called through src/behavior/inner.ts.
 
-import { intentionsOn, isAttend, wakeTimeOf } from '../../intentions/model.ts';
+import { isAttend, wakeTimeOf } from '../../intentions/model.ts';
 import type { Intention } from '../../intentions/types.ts';
 import { CODE } from '../../tools/codes.ts';
 import { errorCode, isFiniteNumber, listOf, objOf } from '../../tools/types.ts';
@@ -10,7 +10,7 @@ import { asText } from './facts.ts';
 import { ATTEND_PREFIX } from './places.ts';
 import { markHandled, note, save, stateOf, timezoneOf, wakeOfDue } from './queue.ts';
 import { sleptCount } from './recovery.ts';
-import { innerOn, innerSettings } from './settings.ts';
+import { innerSettings } from './settings.ts';
 import type { InnerContext, InnerSettings, InnerState, TurnRecord } from './types.ts';
 
 /** The outcomes of runTurn that mean a turn ran for the wake (src/behavior/turn.js#TurnOutcome less the held ones). */
@@ -106,7 +106,6 @@ function nextWakeOf(
 
 /** What the owner's status of the inner life shows (`/nep task inner`, the status tool). */
 export type InnerStatus = {
-  on: boolean;
   mode: InnerSettings['mode'];
   stopped: boolean;
   stoppedAt?: number | null;
@@ -135,7 +134,6 @@ export function status(life: InnerContext, guildId: string | null = life.getGuil
   const settings = innerSettings(hot.config);
   if (!guildId)
     return {
-      on: innerOn(hot.config),
       mode: settings.mode,
       stopped: false,
       queue: [],
@@ -155,7 +153,7 @@ export function status(life: InnerContext, guildId: string | null = life.getGuil
   const timezone = timezoneOf(life);
   const { start } = dayBounds(at, timezone);
   let open: Array<Intention> = [];
-  if (intentions && intentionsOn(hot.config)) {
+  if (intentions) {
     try {
       const listed = listOf(intentions.list?.(guildId, { all: true }) ?? []);
       // The service's records; a test's narrower fake answers the fields read here.
@@ -195,7 +193,6 @@ export function status(life: InnerContext, guildId: string | null = life.getGuil
     if (wake.capped) attention.waiting += 1;
   }
   return {
-    on: innerOn(hot.config),
     mode: settings.mode,
     stopped: state.stopped,
     stoppedAt: state.stoppedAt,

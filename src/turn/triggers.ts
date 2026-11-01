@@ -36,12 +36,11 @@ export const DIRECT_CALLS: ReadonlySet<string | null | undefined> = new Set([
 ]);
 
 /**
- * Whether nobody waits for a turn of `triggerKind` -- a spontaneous one (no trigger kind: an
- * interject, an initiate, a noticed comment, a forced turn) or an overheard line -- so that, with
- * `pace.unpromptedWaits` on, it prepares without a deadline or a bar. `pace` is paceSettings of the turn's config.
+ * Whether nobody waits for a turn of `triggerKind` -- an unprompted one (no trigger kind: a noticed comment, a forced
+ * turn) or an overheard line -- so that it prepares without a deadline or a bar.
  */
-export function unhurried(triggerKind: TriggerKind | null | undefined, pace: { unpromptedWaits: boolean }): boolean {
-  return pace.unpromptedWaits && !DIRECT_CALLS.has(triggerKind);
+export function unhurried(triggerKind: TriggerKind | null | undefined): boolean {
+  return !DIRECT_CALLS.has(triggerKind);
 }
 
 /**
@@ -55,17 +54,12 @@ export function askedFor(trigger: unknown, triggerKind: TriggerKind | null | und
 }
 
 /**
- * Takes the attention for `id` when the turn may start: not while a turn runs there, and with one turn at a time
- * (`mention.oneAtATime`, default on) not while one runs anywhere (src/behavior/pipeline.js is the only caller that turns
+ * Takes the attention for `id` when the turn may start: one turn at a time, so not while one runs anywhere
+ * (src/behavior/pipeline.js is the only caller that turns
  * a direct ping caught by this into a pending one). True when taken.
  */
-export function takeAttention(
-  busy: Set<string>,
-  id: string,
-  config: { mention?: { oneAtATime?: unknown } | null }
-): boolean {
-  if (busy.has(id)) return false;
-  if (config.mention?.oneAtATime !== false && busy.size > 0) return false;
+export function takeAttention(busy: Set<string>, id: string): boolean {
+  if (busy.size > 0) return false;
   busy.add(id);
   return true;
 }

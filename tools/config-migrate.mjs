@@ -16,6 +16,13 @@
 // `--dry-run` prints each move as `from -> to`, each key nothing reads any more as `<path> dropped (no reader)`, and
 // writes nothing. A second run finds nothing to move.
 //
+// The config cut (src/config/cut.ts) runs after the moves. It prints `<key> dropped (<becomes>)` for each key that
+// left the settings, `<key> differs: live <json>, constant <json>` for each live value apart from the constant that
+// replaced it, `<from> -> <to>` for the two privacy switches, and `<key> -> config.local/interfaces/discord.json` for
+// each key of the Discord package. `--apply` writes those keys into `config.local/interfaces/discord.json` beside the
+// settings file (the private directory's `config.local/` for a file of the old layout), under the values that file
+// already holds.
+//
 // `--compare-with <config.json>` proves the move changed no setting. It merges the given `config.json` (the tracked one
 // from before the moves) under the raw local file and reads every moved setting the old way, merges this checkout's
 // `config.json` under the moved local file and reads the same settings through today's readers (`errands.*`,
@@ -26,7 +33,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DROPPED_GRANTS, ERRAND_KEYS, GRANT_MOVES, moveConfigKeys } from '../src/config-moves.ts';
 import { ROOT_DIR, deepMerge } from '../src/config.js';
-import { localConfigPath, trackedConfigPath } from '../src/config/files.ts';
+import { LOCAL_CONFIG_DIR, localConfigPath, trackedConfigPath } from '../src/config/files.ts';
+import { CUT_KEYS, cutConfigKeys } from '../src/config/cut.ts';
 import { agentSettings } from '../src/agent-runner/profiles.js';
 import { grantedToPersona } from '../src/tools/access.ts';
 import { openMemoryDb } from '../src/memory/db/open.js';
@@ -117,7 +125,9 @@ function compareSettings(before, after, selfId) {
     if (stable(old) === stable(now)) equal += 1;
     else differ.push(`${name}: before ${stable(old)}, after ${stable(now)}`);
   };
-  for (const key of ERRAND_KEYS)
+  // A key the cut turned into a constant is no longer a setting: the live value is reported as cut, not as a move.
+  const cut = new Set(CUT_KEYS.map((entry) => entry.key));
+  for (const key of ERRAND_KEYS.filter((name) => !cut.has(`errands.${name}`)))
     check(`agents.${key} -> errands.${key}`, objectOf(before.agents)[key], objectOf(after.errands)[key]);
   for (const [name, keys] of COMPARED_AGENTS) {
     const old = objectOf(objectOf(before.agents)[name]);
@@ -169,6 +179,81 @@ function compared(local, moved, oldFile, self) {
   };
 }
 
+/** The fate of each key the cut took out, for its `dropped` line. */
+const FATE_OF = new Map(CUT_KEYS.map((row) => [row.key, row.becomes]));
+
+/** The Discord package's private settings file, as the report names it. */
+const DISCORD_FILE = `${LOCAL_CONFIG_DIR}/interfaces/discord.json`;
+
+/**
+ * The private file of the Discord package beside the settings file `file`: `config.local/interfaces/discord.json`
+ * under the private directory, whose `config.local/` holds the file of the new layout or sits beside the old one.
+ * @param {string} file
+ * @returns {string}
+ */
+function discordFileOf(file) {
+  const dir = path.dirname(file);
+  const localDir = path.basename(dir) === LOCAL_CONFIG_DIR ? dir : path.join(dir, LOCAL_CONFIG_DIR);
+  return path.join(localDir, 'interfaces', 'discord.json');
+}
+
+/**
+ * The dotted paths of the leaves of `tree`, in order.
+ * @param {Record<string, unknown>} tree
+ * @param {string} [prefix]
+ * @returns {string[]}
+ */
+function leafKeys(tree, prefix = '') {
+  return Object.entries(tree).flatMap(([key, value]) =>
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? leafKeys(/** @type {Record<string, unknown>} */ (value), `${prefix}${key}.`)
+      : [`${prefix}${key}`]
+  );
+}
+
+/**
+ * The config cut of a moved layer (src/config/cut.ts): the cut layer, its report lines and the Discord keys.
+ * @param {Record<string, unknown>} moved
+ * @returns {{ config: Record<string, unknown>, cutLines: string[], discord: Record<string, unknown> }}
+ */
+function cutReport(moved) {
+  const { config, cut, differs, renamed, interfaces } = cutConfigKeys(moved);
+  const discord = interfaces.discord ?? {};
+  const cutLines = [
+    ...cut.map((key) => `${key} dropped (${FATE_OF.get(key) ?? 'constant'})`),
+    ...differs.map(
+      (one) => `${one.key} differs: live ${JSON.stringify(one.live)}, constant ${JSON.stringify(one.constant)}`
+    ),
+    ...renamed.map((one) => `${one.from} -> ${one.to}`),
+    ...leafKeys(discord).map((key) => `${key} -> ${DISCORD_FILE}`),
+  ];
+  return { config, cutLines, discord };
+}
+
+/**
+ * The migrated settings file written over `file`, and the Discord keys, when there are any, into its interface file.
+ * @param {string} file
+ * @param {Record<string, unknown>} config
+ * @param {Record<string, unknown>} discord
+ */
+function writeMigrated(file, config, discord) {
+  fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
+  if (Object.keys(discord).length > 0) writeInterfaceFile(discordFileOf(file), discord);
+}
+
+/**
+ * `moved` written into the interface file `target`, the values the file already holds winning.
+ * @param {string} target
+ * @param {Record<string, unknown>} moved
+ */
+function writeInterfaceFile(target, moved) {
+  const raw = fs.existsSync(target) ? fs.readFileSync(target, 'utf8').trim() : '';
+  /** @type {unknown} */
+  const held = raw === '' ? {} : JSON.parse(raw);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, `${JSON.stringify(deepMerge(moved, objectOf(held)), null, 2)}\n`);
+}
+
 /**
  * @param {string[]} argv
  * @returns {Promise<string>}
@@ -209,14 +294,16 @@ function migrate(argv) {
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
     throw new CliError(`${file} must hold a JSON object; nothing was changed`);
   const diaryMirror = hasDiaryMirror(flags['--db']);
-  const { config, moved, shadowed, dropped, toDatabase } = moveConfigKeys(parsed, { diaryMirror });
+  const { config: movedConfig, moved, shadowed, dropped, toDatabase } = moveConfigKeys(parsed, { diaryMirror });
+  const { config, cutLines, discord } = cutReport(movedConfig);
   const lines = [
     ...moved.map((move) => `${move.from} -> ${move.to}`),
     ...shadowed.map((move) => `${move.from} -> ${move.to} (already set; the old key is dropped)`),
     ...dropped.map((key) => `${key} dropped (no reader)`),
     ...toDatabase.map((key) => `${key} -> memory database (its diary mirror)`),
+    ...cutLines,
   ];
-  if (flags['--apply'] && lines.length > 0) fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
+  if (flags['--apply'] && lines.length > 0) writeMigrated(file, config, discord);
   const kept = Object.hasOwn(objectOf(config.diary), 'channelId')
     ? `diary.channelId kept: the memory database ${typeof flags['--db'] === 'string' ? 'has no diary mirror yet' : 'was not given (--db)'}\n`
     : '';

@@ -39,9 +39,9 @@ test('turnRequestInput: passes every named key through, in the list order, and n
 });
 
 test('turnRequestInput: null is a deliberately absent input and passes as null', () => {
-  const ctx = { ...fullContext(), drawQuota: null, recentLines: null };
+  // PR 7d: drawQuota became the boolean drawOn, so recentLines is the absent input this test passes.
+  const ctx = { ...fullContext(), recentLines: null };
   const input = turnRequestInput(ctx);
-  assert.equal(input.drawQuota, null);
   assert.equal(input.recentLines, null);
 });
 
@@ -51,9 +51,10 @@ test('turnRequestInput: a named key that holds undefined is left out, never a fa
 });
 
 test('turnRequestInput: a key missing from the context throws, naming it', () => {
+  // PR 7d: the focus input is gone with the room question, so the missing key is the mode.
   const missing = fullContext();
-  delete missing.focus;
-  assert.throws(() => turnRequestInput(missing), /focus/);
+  delete missing.mode;
+  assert.throws(() => turnRequestInput(missing), /mode/);
 });
 
 test('turnRequestInput: recallAvailable is a named input beside searchAvailable; leaving it out throws', () => {

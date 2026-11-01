@@ -16,9 +16,9 @@ import { collectEmojiItems, collectPictures, isDescribable } from '../media/clas
 import { DAY_MS, MINUTE_MS } from '../time.js';
 
 /**
- * Defaults of the `context.pull` config block (config.json carries the same
- * values). `maxAgeDays` 0 means no age limit: the window ends at the
- * channel's last message whatever its age.
+ * The pull's measures: production values of the config cut of 2026-10-31, and the fallbacks of the two keys
+ * `context.pull.describeTimeoutMs` and `context.pull.sameAudience`. `maxAgeDays` 0 means no age limit: the window
+ * ends at the channel's last message whatever its age.
  */
 export const PULL_DEFAULTS = Object.freeze({
   windowMinutes: 60,
@@ -47,10 +47,8 @@ function numberAtLeast(value, fallback, min) {
 }
 
 /**
- * The `context.pull` settings read from the live config, each falling back to
- * its default (PULL_DEFAULTS) when missing or unusable. Counts are floored;
- * `maxChannels` 0 leaves a turn its source alone, `maxAgeDays` 0 is no age
- * limit; only `false` turns `sameAudience` off.
+ * The pull settings: PULL_DEFAULTS, with `context.pull.describeTimeoutMs` (floored, at least 0, else the default)
+ * and `context.pull.sameAudience` (only `false` turns it off) read from the live config.
  * @param {object} config  The live config.
  * @returns {{ windowMinutes: number, minMessages: number, maxMessages: number, maxPictures: number,
  *   maxNewDescriptions: number, describeTimeoutMs: number, scanMessages: number, maxChannels: number,
@@ -60,31 +58,10 @@ export function pullSettings(config) {
   const p = config?.context?.pull ?? {};
   const d = PULL_DEFAULTS;
   return {
-    windowMinutes: numberAtLeast(p.windowMinutes, d.windowMinutes, 0),
-    minMessages: intAtLeast(p.minMessages, d.minMessages, 0),
-    maxMessages: intAtLeast(p.maxMessages, d.maxMessages, 1),
-    maxPictures: intAtLeast(p.maxPictures, d.maxPictures, 0),
-    maxNewDescriptions: intAtLeast(p.maxNewDescriptions, d.maxNewDescriptions, 0),
+    ...d,
     describeTimeoutMs: intAtLeast(p.describeTimeoutMs, d.describeTimeoutMs, 0),
-    scanMessages: intAtLeast(p.scanMessages, d.scanMessages, 0),
-    maxChannels: intAtLeast(p.maxChannels, d.maxChannels, 0),
-    maxAgeDays: numberAtLeast(p.maxAgeDays, d.maxAgeDays, 0),
     sameAudience: p.sameAudience !== false,
-    seenTtlMinutes: numberAtLeast(p.seenTtlMinutes, d.seenTtlMinutes, 0),
-    keepMinutes: numberAtLeast(p.keepMinutes, d.keepMinutes, 0),
-    keepTurns: intAtLeast(p.keepTurns, d.keepTurns, 0),
   };
-}
-
-/**
- * `features.channelPull` (a missing key counts as on): whether an explicit
- * `<#id>` or a route hook id pulls a channel. A turn's own source (a routed
- * call, a noticed comment) is pulled regardless: that is `features.elsewhere`.
- * @param {object} config  The live config.
- * @returns {boolean}
- */
-export function channelPullOn(config) {
-  return config?.features?.channelPull !== false;
 }
 
 /**
@@ -139,8 +116,7 @@ export function explicitChannelIds(messages) {
  * Mentions and route ids fill the slots the source leaves, up to
  * `maxChannels`, skipping the current channel, duplicates and ids for which
  * `isPullable(id)` is false. `isPullable` carries the caller's checks: same
- * guild, text based, not a thread, not the dry-run mirror
- * (`bot.dryRunChannelId`), and every check fetchPull
+ * guild, text based, not a thread, and every check fetchPull
  * (src/behavior/pull-fetch.ts) can make before its fetch (readable, the
  * audience rail), so a slot goes only to a channel the
  * fetch can serve and a refused newer mention never crowds out an older

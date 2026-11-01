@@ -220,8 +220,11 @@ export function storedNames(
   return known;
 }
 
+/** The profiles of other people a request shows. Production value, config cut of 2026-10-31. */
+const OTHER_PROFILES = 6;
+
 /**
- * Profiles of the people most recently active in the transcript, excluding `exceptId`.
+ * Profiles of the people most recently active in the transcript (at most `count`), excluding `exceptId`.
  * Also used by the replay sandbox (src/behavior/sandbox.js) with a store-shaped reader.
  */
 export function pickOtherProfiles<TProfile>(
@@ -229,7 +232,7 @@ export function pickOtherProfiles<TProfile>(
   guildId: string,
   history: ReadonlyArray<{ self?: boolean; bot?: boolean; authorId?: string }>,
   exceptId: string | undefined,
-  count: number
+  count: number = OTHER_PROFILES
 ): Array<TProfile> {
   const seen = new Set<string | undefined>();
   const profiles: Array<TProfile> = [];

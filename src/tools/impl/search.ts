@@ -6,7 +6,7 @@
 // runner, quoted as it was, no summary) and `conversation.read` (a channel read in order, from the
 // record and the interface's history; hers alone, no slash command: catalog.js `personaOnly`).
 // Her own calls of them run inside her turn with its context (src/behavior/turn.js, the tool
-// loop of features.coreTools); a command runs the same code (src/tools/tools.ts) over what an
+// loop); a command runs the same code (src/tools/tools.ts) over what an
 // operation knows: the channel it was typed in, no chat window to leave out. Reads, open to
 // every member while features.memberCommands is on (rights.member), as `errand.status` is.
 
@@ -194,7 +194,7 @@ const handlers = perEnv((env) => {
         String(id) === String(here.id) ||
         checkPull({ snapshot, channelId: String(id), destination: here, config, now: now() }).skip === null,
       readRecord: ({ channelId, from }) =>
-        config.features?.record === true && env.record && guildId
+        env.record && guildId
           ? recordMessages(env.record, guildId, { channelId, from, nameOf, selfName })
           : Promise.resolve([]),
       fetchLive: (request) =>
@@ -210,12 +210,9 @@ const handlers = perEnv((env) => {
         ),
       render: () => ({
         timezone,
-        gapMinutes: config.context?.gapMarkerMinutes,
-        maxChars: config.context?.maxMessageChars ?? 2000,
         selfName,
         labels,
-        seeReactions: config.features?.seeReactions !== false,
-        reactionsPerMessage: config.context?.reactionsPerMessage,
+        seeReactions: true,
       }),
       now: now(),
       timezone,

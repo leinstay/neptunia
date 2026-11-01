@@ -56,15 +56,9 @@ function worldOf(rooms) {
 /** What the backfill takes of the interface. */
 const depsOf = (world) => ({ reads: world.reads, iface: () => IFACE });
 
-function fakeHot({ customEmoji = {}, features = {} } = {}) {
-  return {
-    config: {
-      bot: {},
-      features,
-      media: { embedTextChars: 200 },
-      context: { customEmoji: { max: 30, storeMax: 200, halfLifeDays: 30, backfillMessages: 500, ...customEmoji } },
-    },
-  };
+// PR 7d: the switch is code and the emoji measures are constants (the backfill reads 500 messages a channel).
+function fakeHot() {
+  return { config: { bot: {} } };
 }
 
 function fakeLog() {
@@ -178,29 +172,19 @@ test("emoji backfill run: a first run over a ranking with counts ends with the h
   });
 });
 
-test('emoji backfill run: backfillMessages 0 disables it, even forced', async () => {
+// PR 7d: the messages read per channel are the constant 500, so the emoji sits in the oldest of 501.
+test('emoji backfill run: backfillMessages caps the messages read per channel', async () => {
   await withStore(async (store) => {
-    const log = fakeLog();
-    const world = worldOf(standardRooms());
-    const hot = fakeHot({ customEmoji: { backfillMessages: 0 } });
-    const backfill = createEmojiBackfill({ ...depsOf(world), hot, store, log });
+    const rooms = [
+      room('c1', (info) => [
+        rawMessage(info, 0, { content: `hello ${KAPPA}` }),
+        ...Array.from({ length: 500 }, (_, n) => rawMessage(info, n + 1, { content: 'no emoji here' })),
+      ]),
+    ];
+    const backfill = createEmojiBackfill({ ...depsOf(worldOf(rooms)), hot: fakeHot(), store, log: fakeLog() });
 
-    assert.deepEqual(await backfill.run('g1'), { ok: false, reason: 'disabled' });
-    assert.deepEqual(await backfill.run('g1', { force: true }), { ok: false, reason: 'disabled' });
-    assert.deepEqual(world.asked('history'), []);
-    assert.deepEqual(store.getGuild('g1').emojiUsage, {});
-    assert.equal(store.getGuild('g1').emojiBackfill, null);
-  });
-});
-
-test('emoji backfill run: backfillMessages caps the messages read per channel (read at use)', async () => {
-  await withStore(async (store) => {
-    const hot = fakeHot({ customEmoji: { backfillMessages: 2 } });
-    const backfill = createEmojiBackfill({ ...depsOf(worldOf(standardRooms())), hot, store, log: fakeLog() });
-
-    // c1's newest two are a member's message without emoji and a bot's; c2 has one member message.
     const result = await backfill.run('g1');
-    assert.deepEqual(result, { ok: true, channels: 2, messages: 2, emoji: 1 });
+    assert.deepEqual(result, { ok: true, channels: 1, messages: 500, emoji: 0 });
     assert.equal(store.getGuild('g1').emojiUsage['111'], undefined);
   });
 });
@@ -248,23 +232,6 @@ test('emoji backfill startIfNeeded: runs once when the feature is on and nothing
     const fetches = world.asked('history').length;
     await backfill.startIfNeeded('g1');
     assert.equal(world.asked('history').length, fetches, 'stamped: never again at startup');
-  });
-});
-
-test('emoji backfill startIfNeeded: features.customEmoji off skips it', async () => {
-  await withStore(async (store) => {
-    const log = fakeLog();
-    const world = worldOf(standardRooms());
-    const backfill = createEmojiBackfill({
-      ...depsOf(world),
-      hot: fakeHot({ features: { customEmoji: false } }),
-      store,
-      log,
-    });
-
-    await backfill.startIfNeeded('g1');
-    assert.deepEqual(world.asked('history'), []);
-    assert.equal(store.getGuild('g1').emojiBackfill, null);
   });
 });
 

@@ -140,7 +140,7 @@ export async function main(
   const { parseLookupAnswer, recallSettings } = await import('../src/behavior/recall.js');
   const { roleRequestOptions } = await import('../src/llm/openrouter.js');
   const { roleModel } = await import('../src/llm/roles.js');
-  const { discoveryOn, skillsIndex } = await import('../src/tools/discovery.ts');
+  const { skillsIndex } = await import('../src/tools/discovery.ts');
   const { skillRegistry } = await import('../src/tools/registry.ts');
   const { zonedDay } = await import('../src/time.js');
 
@@ -168,9 +168,7 @@ export async function main(
       const config = configNow();
       const { history, trigger } = rowChat(row, { now: now(), selfName });
       const { user } = lookupClassifierInput({ config, labels: hot.prompts.labels, selfName, history, trigger });
-      const discovery = discoveryOn(config)
-        ? { index: skillsIndex(skillRegistry(), hot.prompts?.tools), names: [...skillRegistry().keys()] }
-        : { index: '', names: [] };
+      const discovery = { index: skillsIndex(skillRegistry(), hot.prompts?.tools), names: [...skillRegistry().keys()] };
       const system = fillPromptTemplate(hot.prompts.lookup, {
         today: zonedDay(now(), config.bot?.timezone),
         name: selfName,

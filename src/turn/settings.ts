@@ -15,8 +15,6 @@ const PACE_FALLBACK = Object.freeze({
   prepareMediaMs: 20000,
   dropAfterMs: 120000,
   replyHedgeMs: 30000,
-  typingWhilePreparing: false,
-  unpromptedWaits: true,
   settleMs: 3000,
   settleMaxMs: 8000,
 });
@@ -30,8 +28,6 @@ export type PaceSettings = {
   prepareMediaMs: number | null;
   dropAfterMs: number | null;
   replyHedgeMs: number | null;
-  typingWhilePreparing: boolean;
-  unpromptedWaits: boolean;
   settleMs: number;
   settleMaxMs: number | null;
 };
@@ -53,14 +49,8 @@ export type PaceSettings = {
  * before a second, identical one is sent (the first answer wins);
  * each a positive number of milliseconds, or null -- no deadline, wait for
  * everything; no bar; no second request -- for 0, a negative value or a
- * non-number. A missing key takes config.json's value. `typingWhilePreparing` (only exactly true
- * turns it on; off as shipped): the typing indicator from the start of a turn
- * answering a direct call until its answer is in hand. Off, the indicator
- * shows only while the finished answer is being typed out, as before.
- * `unpromptedWaits` (a missing key counts as on; only false turns it off): a
- * turn nobody waits for (unhurried) gets neither the deadline nor the bar --
- * it waits for every stage and posts once ready. Off, every turn keeps the same
- * deadline and bar. `settleMs`: how long the author of a turn answering a person must have
+ * non-number. A missing key takes config.json's value. A turn nobody waits for (src/turn/triggers.ts#unhurried)
+ * gets neither the deadline nor the bar: it waits for every stage and posts once ready. `settleMs`: how long the author of a turn answering a person must have
  * been quiet before the turn reads the channel (0 = no wait, also for a negative value or a
  * non-number); `settleMaxMs`: the longest that wait runs, counted from the author's trigger
  * message (null for 0, a negative value or a non-number: one settle from it). A missing key
@@ -78,8 +68,6 @@ export function paceSettings(config: unknown): PaceSettings {
     prepareMediaMs: limit(pace.prepareMediaMs, PACE_FALLBACK.prepareMediaMs),
     dropAfterMs: limit(pace.dropAfterMs, PACE_FALLBACK.dropAfterMs),
     replyHedgeMs: limit(pace.replyHedgeMs, PACE_FALLBACK.replyHedgeMs),
-    typingWhilePreparing: pace.typingWhilePreparing === true,
-    unpromptedWaits: pace.unpromptedWaits !== false,
     settleMs: limit(pace.settleMs, PACE_FALLBACK.settleMs) ?? 0,
     settleMaxMs: limit(pace.settleMaxMs, PACE_FALLBACK.settleMaxMs),
   };
@@ -92,7 +80,7 @@ const DIARY_LOOP_FALLBACK = Object.freeze({ maxSteps: 2, timeBudgetMs: 600000 })
 /** The least time one call of the tool loop gets, whatever is left of its budget. */
 export const LOOP_MIN_CALL_MS = 2000;
 /**
- * The calls a heartbeat turn accepts while `innerLife.heartbeat.intentionsOnly` is on (docs/inner-life.md
+ * The calls a heartbeat turn accepts (docs/inner-life.md
  * "What a heartbeat may do"): memory inspection, then one change of an intention. Other calls are refused `heartbeat-only`;
  * `<skip/>` is no call.
  */
@@ -125,15 +113,6 @@ export const NO_LOOP = Object.freeze({ steps: 0, cut: null, droppedCalls: 0 });
 export const LOOP_WHY = Object.freeze({ extraCall: 'extra-call', steps: 'steps', time: 'time', tokens: 'tokens' });
 /** The intention calls of an inner turn that name an intention (`id`, or the id alone in the body). */
 export const INTENT_ID_SKILLS = Object.freeze(['intention.update', 'intention.cancel']);
-
-/**
- * Whether her own tools replace the classifiers before her reply (features.coreTools exactly true; tracked
- * default false): no search classifier, no re-watch classifier (her own `web.search`, `memory.search` and
- * `media.look` instead), the memory prefetch. The step engine and her tools run whatever it says. Read at the moment of use. Pure.
- */
-export function coreToolsOn(config: unknown): boolean {
-  return objOf(objOf(config).features).coreTools === true;
-}
 
 export type LoopSettings = {
   maxSteps: number;

@@ -167,7 +167,7 @@ function buildEnv({
 
   /** A `system` journal record of `guildId` (features.journal exactly true, read now); never throws. */
   async function journalSystem(guildId: string | null, record: unknown): Promise<void> {
-    if (!journal || !guildId || hot.config?.features?.journal !== true) return;
+    if (!journal || !guildId) return;
     try {
       await journal.system(guildId, record);
     } catch (err) {

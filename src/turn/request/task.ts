@@ -209,13 +209,6 @@ export function taskOf(given: RequestInput & Base & PulledView): Task {
     followUpPrompt.trim()
       ? followUpPrompt
       : null;
-  // A line put to everyone present (a room question), found in the chat.
-  const focus = privateChat ? null : (given.focus ?? null);
-  const focusItem = focus ? chatItems.find((item) => item.id === focus.id) : null;
-  const focusText =
-    focus && focusItem && labels.room?.focus
-      ? fill(labels.room.focus, { author: focus.authorName ?? '', target: `#${focusItem.index}` })
-      : '';
   // What else the author waits for: the part answered now and the rest, their queued calls, and
   // their later messages about this call.
   const tasksText = renderTasks(given.tasks, labels, { chatItems, now });
@@ -253,7 +246,7 @@ export function taskOf(given: RequestInput & Base & PulledView): Task {
       routed && sourceChannel && callItem && here && labels.elsewhere?.called
         ? fill(labels.elsewhere.called, { channel: sourceChannel.name, destination: here })
         : '';
-    return [baseTask, calledText, focusText, tasksText, privateText, forcedText].filter(Boolean).join('\n\n');
+    return [baseTask, calledText, tasksText, privateText, forcedText].filter(Boolean).join('\n\n');
   };
   // Fitted as if the call's line is shown: the pulled block keeps it whenever the request has
   // room for it (see fitPulledChannel); checked once the budget is spent.

@@ -23,7 +23,7 @@
 // A group context that has a better match only in a DM it may not open gets `hidden: true` and nothing else about it:
 // no text, no count (the owner, 2026-10-20).
 //
-// A context with `audienceColumn: true` (`memoryDb.audienceColumn`) is read through `audience_id` (scope.ts#scopeWhere,
+// A context with `audienceColumn: true` (every context the core issues) is read through `audience_id` (scope.ts#scopeWhere,
 // #canRead) instead of the three scope columns; both give the same rows on a database the resolver filled.
 //
 // window(db, { ctx, anchor, move, messages, minutes }) reads the lines of a place up (earlier) or down (later) from a

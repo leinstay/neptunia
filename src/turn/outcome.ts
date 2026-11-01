@@ -50,7 +50,6 @@ export type TurnResult = {
   outcome: string;
   reason?: unknown;
   mode?: unknown;
-  dryRun?: boolean;
   delivered?: boolean;
   turnId?: unknown;
   parts?: Array<string>;
@@ -84,7 +83,6 @@ export type TurnEnd = {
   outcome: string;
   reason: string | null;
   replyTargets: Array<string>;
-  dryRun: boolean;
   turnId: unknown;
 };
 
@@ -122,7 +120,7 @@ export type OutcomeContext = {
 
 export type Outcome = {
   runTurn: (params: TurnParams) => Promise<TurnResult>;
-  recordTurnFacts: (args: { guildId?: string | null }, draft: FactsDraft, result: TurnResult | undefined) => void;
+  recordTurnFacts: (args: { guildId?: string | null }, draft: FactsDraft) => void;
   notifyIdle: () => void;
   /**
    * The parts of the chain running in `channelId` not started yet, when its message is
@@ -217,8 +215,6 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   in `not-now`. `channel` is where the words go and the one marked busy; the first post
    *   links to the routed call, or to the newest line of the source shown (none when the budget
    *   dropped its block).
-   * @param {object|null} [params.focus]  A normalized message of this chat put to everyone present
-   *   (a room question): buildRequest appends `labels.room.focus` to the task.
    * @param {boolean} [params.forced]  True for a turn someone asked for (`/nep message create`; was `/nep interject`, `/nep
    *   initiate`) -- passed straight through to buildRequest, which appends prompts.forced (when
    *   present) to the task text so the model knows `<skip/>` is not the expected outcome this time.
@@ -258,14 +254,14 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   keeps its file (diary-turn.ts#diaryVoiceTool), and the entry is recorded (diary-turn.ts#recordEntry; a set kind
    *   with fewer than `diary.set.minPosted` pictures staged is not: `turn: set short`, `{ outcome: 'refused', reason:
    *   'set-short' }`). Its outcome carries `diary: { kind, picture, search, messages, pictures }` and the entry
-   *   (`diary.entry`) the mirrors publish (src/behavior/mirror.ts); a dry run records nothing.
+   *   (`diary.entry`) the mirrors publish (src/behavior/mirror.ts).
    *
    * A private chat (`channel` without a guild) works like a server turn on behalf of its partner
    * (the trigger's author, fetched as a member of the served guild: privatePartner) with
    * features.privateLikeServer on (a missing key counts as on): the explicit `<#id>` mentions and
    * the route hook's ids are pulled from the served guild when the partner has View Channel on
    * them (checkPull), and the search classifier may ask for the server search (recall), its hits
-   * judged by the same rule. It never has neighbours, a source or a focus, and the channels it
+   * judged by the same rule. It has neither neighbours nor a source, and the channels it
    * shows move no seen mark, stamp no call of the ring and count for no pending ping there: the
    * persona answered in private, not on the server. The switch off, or no partner: no pull, no
    * route hook, no server search, as before.
@@ -378,10 +374,10 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * not go out (`sendFailed`), calls the loop dropped (`loopCut`) and failed calls she never read the
    * result of (`callFailed`). Never throws.
    */
-  function recordTurnFacts(args: { guildId?: string | null }, draft: FactsDraft, result: TurnResult | undefined): void {
+  function recordTurnFacts(args: { guildId?: string | null }, draft: FactsDraft): void {
     try {
       const channel = draft.info;
-      if (!channel || result?.dryRun === true) return;
+      if (!channel) return;
       const entries: Array<FactInput> = [];
       if (draft.sendFailure) entries.push({ kind: 'sendFailed', ...draft.sendFailure });
       if ((draft.loopCut?.dropped ?? 0) > 0 && draft.loopCut)
@@ -444,7 +440,6 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
       outcome,
       reason,
       replyTargets: [...new Set(ends.replyTargets)],
-      dryRun: result?.dryRun === true,
       turnId: result?.turnId ?? null,
     };
     Promise.resolve()
@@ -530,18 +525,17 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
   /**
    * One result for a message answered part by part, as its caller counts a
    * turn: `spoke` when any part spoke (`delivered` when anything of any part
-   * reached the chat; `dryRun` when every part that spoke was a rehearsal),
+   * reached the chat),
    * else the first part's `skip`, else the first part's result (a refusal
    * keeps its `limit`).
    */
   function chainOutcome(results: Array<TurnResult>): TurnResult {
     const spoke = results.filter((result) => result.outcome === 'spoke');
     if (spoke.length > 0) {
-      const real = spoke.filter((result) => result.dryRun !== true);
       return {
         outcome: 'spoke',
         mode: spoke[0].mode,
-        ...(real.length === 0 ? { dryRun: true } : { delivered: real.some((result) => result.delivered === true) }),
+        delivered: spoke.some((result) => result.delivered === true),
       };
     }
     return results.find((result) => result.outcome === 'skip') ?? results[0] ?? { outcome: 'error' };

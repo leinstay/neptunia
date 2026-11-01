@@ -4,13 +4,6 @@ import type { SchemaEntry } from '../schema.ts';
 
 export const APPEND_STORE: ReadonlyArray<SchemaEntry> = [
   {
-    'key': 'appendStore.fsyncMs',
-    'types': ['number'],
-    'reader': 'src/core.js',
-    'default': 500,
-    'text': 'Milliseconds before a write is flushed to disk',
-  },
-  {
     'key': 'appendStore.retryMax',
     'types': ['number'],
     'reader': 'src/core.js',

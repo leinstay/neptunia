@@ -24,11 +24,8 @@ function fakeConfig(overrides = {}) {
         lore: 1500,
         ...overrides.caps,
       },
-      vision: { maxImages: 0, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
-      customEmoji: { max: 30, ...overrides.customEmoji },
     },
-    features: { vision: false, ...overrides.features },
-    llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
+    llm: { maxRequestTokens: 50000 },
     lore: { scanMessages: 30 },
     memory: {},
   };
@@ -101,9 +98,9 @@ test('buildRequest: <emoji> lists the top-ranked emoji of the index, header firs
       4: { name: 'delta', count: 5, last: NOW - DAY },
     },
   };
-  const config = fakeConfig({ customEmoji: { max: 2 } });
-  const lines = emojiBlock(buildRequest(baseInput({ config, guildMemory, customEmoji: INDEX })));
-  assert.deepEqual(lines, [labels.emoji.header, ':gamma:', ':delta:']);
+  // PR 7d: the block holds the constant 30 entries, so the unranked one tops the three ranked up.
+  const lines = emojiBlock(buildRequest(baseInput({ guildMemory, customEmoji: INDEX })));
+  assert.deepEqual(lines, [labels.emoji.header, ':gamma:', ':delta:', ':alpha:', ':beta:']);
 });
 
 test('buildRequest: <emoji> skips a ranked emoji the server no longer has and uses its current name', () => {
@@ -125,9 +122,9 @@ test('buildRequest: <emoji> tops up a short ranking with the rest of the index, 
 });
 
 test('buildRequest: <emoji> falls back to the index order when nothing is ranked yet', () => {
-  const config = fakeConfig({ customEmoji: { max: 3 } });
-  const lines = emojiBlock(buildRequest(baseInput({ config, customEmoji: INDEX })));
-  assert.deepEqual(lines, [labels.emoji.header, ':alpha:', ':beta:', ':gamma:']);
+  // PR 7d: the block holds the constant 30 entries, so the whole index shows.
+  const lines = emojiBlock(buildRequest(baseInput({ customEmoji: INDEX })));
+  assert.deepEqual(lines, [labels.emoji.header, ':alpha:', ':beta:', ':gamma:', ':delta:']);
 });
 
 test('buildRequest: <emoji> attaches the helper caption from the media cache, entryNoText otherwise', () => {
@@ -137,13 +134,6 @@ test('buildRequest: <emoji> attaches the helper caption from the media cache, en
   };
   const lines = emojiBlock(buildRequest(baseInput({ customEmoji: INDEX.slice(0, 3), mediaCache })));
   assert.deepEqual(lines, [labels.emoji.header, ':alpha: -- a smiling ὄρνις', ':beta:', ':gamma:']);
-});
-
-test('buildRequest: features.customEmoji off -> no <emoji> block and no senses line', () => {
-  const config = fakeConfig({ features: { customEmoji: false } });
-  const request = buildRequest(baseInput({ config, customEmoji: INDEX }));
-  assert.equal(emojiBlock(request), null);
-  assert.ok(!sensesOf(request).includes(labels.senses.customEmoji));
 });
 
 test('buildRequest: an empty index -> no <emoji> block and no senses line', () => {
@@ -162,14 +152,13 @@ test('buildRequest: a labels.json without the emoji keys renders nothing', () =>
 
 test('buildRequest: context.caps.emoji trims entries from the bottom, a cap below the header drops the block', () => {
   const many = Array.from({ length: 40 }, (_, i) => ({ id: String(i + 1), name: `emoji_${i + 1}`, animated: false }));
-  const full = buildRequest(baseInput({ customEmoji: many, config: fakeConfig({ customEmoji: { max: 40 } }) }));
-  assert.equal(emojiBlock(full).length, 41);
+  // PR 7d: `context.customEmoji.max` is the constant 30, so the full block is the header and 30 entries.
+  const full = buildRequest(baseInput({ customEmoji: many }));
+  assert.equal(emojiBlock(full).length, 31);
 
-  const tight = buildRequest(
-    baseInput({ customEmoji: many, config: fakeConfig({ customEmoji: { max: 40 }, caps: { emoji: 40 } }) })
-  );
+  const tight = buildRequest(baseInput({ customEmoji: many, config: fakeConfig({ caps: { emoji: 40 } }) }));
   const lines = emojiBlock(tight);
-  assert.ok(lines.length > 1 && lines.length < 41);
+  assert.ok(lines.length > 1 && lines.length < 31);
   assert.equal(lines[0], labels.emoji.header);
   assert.deepEqual(
     lines.slice(1),
@@ -227,11 +216,14 @@ test('buildRequest: a described emoji of the chat not in the top list is describ
     ['emoji:9', 'a surprised cat face'],
     ['emoji:1', 'a waving hand'],
   ]);
-  const config = fakeConfig({ customEmoji: { max: 1 } });
-  const request = buildRequest(baseInput({ config, customEmoji: INDEX, history, descriptions }));
+  // PR 7d: the block holds the constant 30 entries, so the whole index is the top list.
+  const request = buildRequest(baseInput({ customEmoji: INDEX, history, descriptions }));
   assert.deepEqual(emojiBlock(request), [
     labels.emoji.header,
     ':alpha: -- a waving hand',
+    ':beta:',
+    ':gamma:',
+    ':delta:',
     labels.emoji.seenInChat,
     ':pog: -- a surprised cat face',
   ]);
@@ -258,11 +250,6 @@ test('buildRequest: with no <emoji> block possible a chat line keeps the inline 
   const history = [chatLine('1', 'ωραίο :pog:', [{ id: '9', name: 'pog' }])];
   const descriptions = new Map([['emoji:9', 'a surprised cat face']]);
   const inline = 'Zoé: ωραίο :pog: [:pog: a surprised cat face]';
-  const off = fakeConfig({ features: { customEmoji: false } });
-  assert.ok(
-    chatBlock(buildRequest(baseInput({ config: off, customEmoji: INDEX, history, descriptions }))).endsWith(inline),
-    'switch off'
-  );
   assert.ok(
     chatBlock(buildRequest(baseInput({ customEmoji: [], history, descriptions }))).endsWith(inline),
     'empty index'

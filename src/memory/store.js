@@ -624,7 +624,6 @@ function emptyPrivate() {
     affinity: emptyAffinity(),
     firstSeen: '',
     lastSeen: '',
-    replies: { day: '', count: 0, noticedDay: '' },
     buffer: [],
   };
 }
@@ -659,12 +658,8 @@ function normalizePrivate(priv) {
     if (typeof priv[key] !== 'string') priv[key] = '';
   }
 
-  const replies = priv.replies && typeof priv.replies === 'object' && !Array.isArray(priv.replies) ? priv.replies : {};
-  priv.replies = {
-    day: typeof replies.day === 'string' ? replies.day : '',
-    count: Number.isInteger(replies.count) && replies.count >= 0 ? replies.count : 0,
-    noticedDay: typeof replies.noticedDay === 'string' ? replies.noticedDay : '',
-  };
+  // `replies`, a field nothing reads, is dropped; the next write of the file leaves it out.
+  delete priv.replies;
 
   if (!Array.isArray(priv.buffer)) priv.buffer = [];
 }
@@ -1027,7 +1022,7 @@ function normalizeChannel(channel) {
  *   row and its mirror's `sent` publication). `flushSettled({ final: true })` (the shutdown) waits for the outbox and
  *   keeps what still fails in `memory-pending/` (`memoryDb.keepPending`, replayed by the service at its next open);
  *   `dropCaches` keeps the entries the outbox holds; `validate` (`/nep resume`) checks the operational JSON files.
- *   Without a `memoryDb` (tests, a tool's dry run) the memory units live in the cache only: nothing is read or
+ *   Without a `memoryDb` (tests, a tool) the memory units live in the cache only: nothing is read or
  *   written for them.
  */
 export function createStore({
@@ -2272,40 +2267,6 @@ export function createStore({
     addPrivateEpisodes(guildId, userId, incoming, opts) {
       const item = privateEntry(guildId, userId);
       return mergeEpisodesInto(item, incoming, opts, { guildId, userId, layer: 'private' }).added;
-    },
-
-    /**
-     * Count one direct-message reply of the persona to a member for `today`
-     * (a UTC date key): the counter restarts at 0 when the stored day is
-     * another one. Creates the file.
-     * @param {string} guildId
-     * @param {string} userId
-     * @param {string} today
-     * @returns {{ day: string, count: number }}
-     */
-    bumpPrivateReplies(guildId, userId, today) {
-      const item = privateEntry(guildId, userId);
-      const replies = item.value.replies;
-      if (replies.day !== today) {
-        replies.day = today;
-        replies.count = 0;
-      }
-      replies.count += 1;
-      item.dirty = true;
-      return { day: replies.day, count: replies.count };
-    },
-
-    /**
-     * Remember that the daily-cap notice was posted to a member on `today`,
-     * so it is posted at most once a day. Creates the file.
-     * @param {string} guildId
-     * @param {string} userId
-     * @param {string} today
-     */
-    markPrivateNoticed(guildId, userId, today) {
-      const item = privateEntry(guildId, userId);
-      item.value.replies.noticedDay = today;
-      item.dirty = true;
     },
 
     /**

@@ -1,5 +1,5 @@
 // Tests for the "one attention" rail in src/behavior/turn.js:
-// isAnyBusy(), the busy-elsewhere refusal (mention.oneAtATime), and
+// isAnyBusy(), the busy-elsewhere refusal (one turn at a time), and
 // setOnIdle(). Kept in its own file (rather than tests/turn.test.js)
 // deliberately: its fixtures are otherwise identical to turn.test.js's, but
 // living alongside that file's ~40 other cases made a couple of these tests
@@ -92,9 +92,6 @@ function fakeHot(configOverrides = {}) {
       },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      features: {},
-      media: { maxPerTurn: 6, filePreviewChars: 500 },
-      mention: { oneAtATime: true },
       ...configOverrides,
     },
     prompts: {
@@ -144,9 +141,9 @@ async function waitForCalls(llm, count) {
 }
 
 // ---------------------------------------------------------------------------
-// isAnyBusy() / busy-elsewhere refusal (mention.oneAtATime)
+// isAnyBusy() / busy-elsewhere refusal (one turn at a time)
 
-test('createTurnRunner: a turn in another channel is refused as busy while one is running (mention.oneAtATime on)', async () => {
+test('createTurnRunner: a turn in another channel is refused as busy while one is running ', async () => {
   const raw1 = rawMessage({ id: 'm1' });
   const channel1 = fakeTurnChannel({ id: 'c1', historyMessages: [raw1] });
   const raw2 = rawMessage({ id: 'm2', authorId: 'u2' });
@@ -215,88 +212,6 @@ test('createTurnRunner: the SAME channel is still refused as busy exactly as bef
   await waitForCalls(llm, 1);
   llm.resolveNext();
   await firstPromise;
-});
-
-test("createTurnRunner: mention.oneAtATime=false lets two different channels run concurrently (today's behaviour)", async () => {
-  const raw1 = rawMessage({ id: 'm1' });
-  const channel1 = fakeTurnChannel({ id: 'c1', historyMessages: [raw1] });
-  const raw2 = rawMessage({ id: 'm2', authorId: 'u2' });
-  const channel2 = fakeTurnChannel({ id: 'c2', historyMessages: [raw2] });
-  const llm = controllableLlm();
-  const store = fakeStore();
-  const hot = fakeHot({ mention: { oneAtATime: false } });
-  const turns = createTurnRunner({
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-  });
-
-  const firstPromise = turns.runTurn({
-    channel: channel1,
-    mode: 'reply',
-    trigger: normalizedTrigger(raw1),
-    triggerKind: 'mention',
-  });
-  const secondPromise = turns.runTurn({
-    channel: channel2,
-    mode: 'reply',
-    trigger: normalizedTrigger(raw2),
-    triggerKind: 'mention',
-  });
-
-  await waitForCalls(llm, 2);
-  assert.equal(llm.calls.length, 2, 'both turns must have reached the model, neither blocked the other');
-
-  llm.resolveNext();
-  llm.resolveNext();
-  const [firstResult, secondResult] = await Promise.all([firstPromise, secondPromise]);
-  assert.equal(firstResult.outcome, 'spoke');
-  assert.equal(secondResult.outcome, 'spoke');
-});
-
-test('createTurnRunner: a hot change to mention.oneAtATime is picked up without recreating the runner', async () => {
-  const raw1 = rawMessage({ id: 'm1' });
-  const channel1 = fakeTurnChannel({ id: 'c1', historyMessages: [raw1] });
-  const raw2 = rawMessage({ id: 'm2', authorId: 'u2' });
-  const channel2 = fakeTurnChannel({ id: 'c2', historyMessages: [raw2] });
-  const llm = controllableLlm();
-  const store = fakeStore();
-  const hot = fakeHot({});
-  const turns = createTurnRunner({
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-  });
-
-  const firstPromise = turns.runTurn({
-    channel: channel1,
-    mode: 'reply',
-    trigger: normalizedTrigger(raw1),
-    triggerKind: 'mention',
-  });
-  const busyResult = await turns.runTurn({
-    channel: channel2,
-    mode: 'reply',
-    trigger: normalizedTrigger(raw2),
-    triggerKind: 'mention',
-  });
-  assert.equal(busyResult.outcome, 'busy', 'oneAtATime true: channel2 is refused');
-
-  hot.config.mention = { oneAtATime: false };
-  const secondPromise = turns.runTurn({
-    channel: channel2,
-    mode: 'reply',
-    trigger: normalizedTrigger(raw2),
-    triggerKind: 'mention',
-  });
-  await waitForCalls(llm, 2);
-  assert.equal(llm.calls.length, 2, 'once flipped off, the second channel is no longer refused');
-
-  llm.resolveNext();
-  llm.resolveNext();
-  await Promise.all([firstPromise, secondPromise]);
 });
 
 // ---------------------------------------------------------------------------

@@ -33,23 +33,12 @@ function entry(id, fields = {}) {
   };
 }
 
-test("gifPickSettings: each key read from gifs.pick, an unusable one takes config.json's value", () => {
-  assert.deepEqual(
-    gifPickSettings({ gifs: { pick: { maxChars: 30.7, contextMessages: 0, maxOutputTokens: 9, graceMs: 250.9 } } }),
-    { maxChars: 30, contextMessages: 0, maxOutputTokens: 9, graceMs: 250 }
-  );
-  assert.deepEqual(
-    gifPickSettings({ gifs: { pick: { maxChars: -1, contextMessages: 'x', maxOutputTokens: 0, graceMs: -5 } } }),
-    { ...GIF_PICK_DEFAULTS }
-  );
-  assert.equal(
-    gifPickSettings({ gifs: { pick: { graceMs: null } } }).graceMs,
-    null,
-    'null: wait for the answer however long'
-  );
+// PR 7d: the pick's length, context and grace are constants; `gifs.pick.maxOutputTokens` is the one key left.
+test("gifPickSettings: maxOutputTokens read from gifs.pick, an unusable one takes config.json's value", () => {
+  assert.equal(gifPickSettings({ gifs: { pick: { maxOutputTokens: 9.7 } } }).maxOutputTokens, 9);
+  assert.deepEqual(gifPickSettings({ gifs: { pick: { maxOutputTokens: 0 } } }), { ...GIF_PICK_DEFAULTS });
   assert.deepEqual(gifPickSettings({}), { ...GIF_PICK_DEFAULTS });
 });
-
 test('pickCandidates: a short reply, no GIF of its own and a captioned library run the picker', () => {
   assert.equal(pickCandidates({ text: 'ναι, σίγουρα', postsGif: false, captioned: 3 }, SETTINGS), true);
 });
@@ -66,7 +55,7 @@ test('pickCandidates: the length counts code points and maxChars is inclusive', 
 });
 
 test('pickCandidates: under gifs.pick.maxChars 160 a 160-character message is a candidate, 161 is not', () => {
-  const settings = gifPickSettings({ gifs: { pick: { maxChars: 160 } } });
+  const settings = gifPickSettings({});
   const long = 'ά'.repeat(160);
   assert.equal(pickCandidates({ text: long, postsGif: false, captioned: 1 }, settings), true);
   assert.equal(pickCandidates({ text: `${long}ά`, postsGif: false, captioned: 1 }, settings), false);

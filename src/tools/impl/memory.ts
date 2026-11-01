@@ -18,8 +18,7 @@ import {
   SNAPSHOTS_DIR,
 } from '../../memory/index.js';
 import { JOURNAL_KINDS, MEMORY_SHOW_SECTIONS } from './catalog.ts';
-import { isOwnerId } from './grants.ts';
-import { effectiveAffinity, privateRepliesToday } from '../../behavior/private.js';
+import { effectiveAffinity } from '../../behavior/private.js';
 import { log } from '../../log.js';
 import { clampAtBoundary } from '../../memory/clamp.js';
 import { DAY_MS, utcDay, zonedDay } from '../../time.js';
@@ -32,7 +31,6 @@ import {
   treeSize,
   NONE,
   isoDay,
-  todayUtc,
   onOff,
   MEMORY_SHOW_DEFAULT_LIMIT,
   MEMORY_SHOW_MAX_LIMIT,
@@ -55,6 +53,7 @@ import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { idText, objOf, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
+import { MEMORY_LIMITS } from '../../memory/text-limits.js';
 
 /** The list sections of `memory show` (aliases, interests, details): the profile field, the config keys and the line. */
 const LIST_SECTIONS: Readonly<
@@ -136,7 +135,7 @@ const handlers = perEnv((env) => {
     const guildId = requireGuildId(context);
     const profile = requireProfile(guildId, userId);
 
-    const memoryCfg = hot.config?.memory ?? {};
+    const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
     const requested = typeof args.section === 'string' ? args.section : '';
     const section = MEMORY_SHOW_SECTIONS.includes(requested) ? requested : 'summary';
     const order = args.order === 'recent' ? 'recent' : 'rank';
@@ -199,7 +198,6 @@ const handlers = perEnv((env) => {
     freshenIfPaused();
     const guildId = requireGuildId(context);
 
-    const activityCfg = hot.config?.context?.channelActivity ?? {};
     const now = Date.now();
     const { nameOf, resolve } = tokenResolver(guildId);
 
@@ -208,7 +206,7 @@ const handlers = perEnv((env) => {
       const channel = store.getChannel(guildId, channelId);
       if (!channel) throw invalid(`no channel entry for ${channelId}`, CODE.NOT_FOUND);
 
-      const activity = channelActivity(channel, now, activityCfg);
+      const activity = channelActivity(channel, now);
       const isMain = mainChannelIdSet().has(channelId);
       const writers = channelTopWritersText(channel.topWriters, nameOf);
 
@@ -234,7 +232,7 @@ const handlers = perEnv((env) => {
 
     return [...channels]
       .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0))
-      .map((channel) => channelTableLine(channel, channelActivity(channel, now, activityCfg)))
+      .map((channel) => channelTableLine(channel, channelActivity(channel, now)))
       .join('\n');
   }
 
@@ -486,19 +484,12 @@ const handlers = perEnv((env) => {
     const priv = store.getPrivate(guildId, userId);
     if (!priv) return `No private memory for this member: ${label}.`;
 
-    const memoryCfg = hot.config?.memory ?? {};
+    const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
     const { resolve } = tokenResolver(guildId);
 
     const privateAffinity = priv.affinity ?? emptyAffinity();
     const effective = effectiveAffinity(publicProfile?.affinity, privateAffinity);
     const privateReason = resolve(privateAffinity.reason);
-
-    const replies = privateRepliesToday({
-      config: hot.config,
-      isOwner: isOwnerId(hot.config, userId),
-      replies: priv.replies,
-      today: todayUtc(),
-    });
 
     const section = (title: string, items: ReadonlyArray<unknown>, lines: ReadonlyArray<string>): Array<string> => [
       `${title} (${items.length} stored):`,
@@ -512,7 +503,6 @@ const handlers = perEnv((env) => {
       `private memory: ${label}`,
       `private affinity: ${roundScore(privateAffinity.score ?? 0)} (${affinityBand(privateAffinity.score ?? 0)})${privateReason ? ` — ${privateReason}` : ''}`,
       `effective affinity: ${roundScore(effective.score)} (${affinityBand(effective.score)})`,
-      `replies today: ${replies.used} / ${replies.cap}`,
       `first seen: ${priv.firstSeen ? priv.firstSeen.slice(0, 10) : '-'} · last seen: ${priv.lastSeen ? priv.lastSeen.slice(0, 10) : '-'}`,
       `relationship: ${resolve(priv.relationship) || '(empty)'}`,
       ...section(

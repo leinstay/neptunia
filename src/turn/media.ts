@@ -8,8 +8,7 @@ import { collectEmojiItems, collectPictures, collectReadableLinks, isDescribable
 export const REWATCH_SUMMARY_CHARS = 200;
 // Protocol tokens of the re-watch classifier (docs/prompt-contract.md), not wording:
 // the kind and status columns of a `<media>` line. The answer's parser
-// (parseRewatchPickDetailed) lives in src/behavior/planner.js, which reads the
-// planner's re-watch block with it; it is re-exported from src/behavior/turn.js.
+// (parseRewatchPickDetailed) lives in src/turn/rewatch.ts; it is re-exported from src/behavior/turn.js.
 export const REWATCH_KIND_VIDEO = 'video';
 export const REWATCH_KIND_PICTURE = 'picture';
 // A watched GIF: listed to the classifier as a video (REWATCH_KIND_VIDEO); `gif` is the internal
@@ -47,7 +46,7 @@ export function readableLinkCandidates(
 
 /**
  * The pictures of `history` a second look on a question may be offered for
- * (features.imageRelook): every `image` item of collectPictures -- an attached
+ *: every `image` item of collectPictures -- an attached
  * picture, the persona's own posted drawings included -- newest message first.
  */
 export function relookCandidates(history: ReadonlyArray<MediaMessage>): Array<Picture> {
@@ -60,7 +59,7 @@ export function relookCandidates(history: ReadonlyArray<MediaMessage>): Array<Pi
 
 /**
  * The GIFs of `history` a second look on a question may be offered for
- * (features.videoRewatch): every `gif` item of collectPictures -- an
+ *: every `gif` item of collectPictures -- an
  * attached .gif, a tenor/giphy embed -- newest message first. Which of them
  * were watched is the describer's to say (describer.watchedGifs).
  */

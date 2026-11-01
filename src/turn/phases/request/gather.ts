@@ -3,8 +3,8 @@
 // pulled channels, a diary post's plan, the drawing quota and the `<recent>` lines. The request phase
 // (src/turn/phases/request.ts) runs it after the wait.
 
-import { deletedLinesMax, deletedLinesOf, withDeletedLines } from '../../../behavior/deleted-lines.js';
-import { isSetKind } from '../../../behavior/diary.ts';
+import { DELETED_LINES_MAX, deletedLinesOf, withDeletedLines } from '../../../behavior/deleted-lines.js';
+import { DEFAULT_SET_KINDS, isSetKind } from '../../../behavior/diary.ts';
 import type { Neighbor } from '../../../behavior/neighbors.ts';
 import type { PulledChannel } from '../../../behavior/pull-fetch.ts';
 import { lateVideoStates } from '../../../media/classify.js';
@@ -24,9 +24,7 @@ import type { SecondLook } from './second-look.ts';
 import type { Setup } from './setup.ts';
 import type { Staged } from './stages.ts';
 import type { Waited } from './wait.ts';
-
-// deletedLinesMax is JavaScript whose return type TypeScript cannot infer: the cap, a count of lines.
-const linesMax: (context: unknown) => number = deletedLinesMax;
+import { VIDEOS_PER_TURN } from './stages.ts';
 
 /** The excerpts the memory prefetch retrieved, if its result holds any. */
 function excerptsOf(result: unknown): unknown {
@@ -41,7 +39,6 @@ export type Gathered = {
   pendingMedia: { videoIds: Array<string>; captions: boolean };
   imageAnswers: Map<string, unknown> | null;
   reads: Map<string, unknown> | undefined;
-  lookupResult: Record<string, unknown> | null;
   prefetchResult: unknown;
   neighbors: Array<Neighbor>;
   neighborsHidden: number;
@@ -49,7 +46,6 @@ export type Gathered = {
   diaryPrep: Awaited<ReturnType<Diary['prepareDiary']>> | null;
   neighborDescriptions: Map<string, unknown> | undefined;
   drawOn: boolean;
-  drawQuota: unknown;
   readOnlyIds: Set<string>;
   destination: { name?: string | null } | null;
   recent: ReturnType<Participation['recentInput']>;
@@ -72,22 +68,21 @@ export async function gatherRequest(
   const { hot, store, clock, record, describer, images, noteSeen, recentInput } = ctx;
   const { trigger = null, taskResult = null } = params;
   const { channel, guildId, isPrivate, prep } = opened;
-  const { config, features, memoryOn, selfId, selfName, snapshot, now, asked, prefetching, diaryPending } = setup;
+  const { config, memoryOn, selfId, selfName, snapshot, now, prefetching, diaryPending } = setup;
   const { beforeBar } = setup;
   const { previewed, captions, captionCandidates, videoStage, videoCandidates } = staged;
   const { slot: second2, videosSoFar } = second;
-  const { linksStage, slot: lookupSlot } = looked;
+  const { linksStage } = looked;
   const { neighborsStage, pulledStage, timings } = waited;
   const { prefetchStage } = staged;
   const rewatchStage = second2.rewatch;
-  const lookupStage = lookupSlot.lookup;
   // The history the request is built from: with its file previews once they are ready.
   let history = previewed();
   // Messages deleted inside the window: the record's `deleted` lines over its span in this one
   // channel, each the history lacks put back as a placeholder at its own place (never in a
   // private chat); its read takes `timings.record`.
   timings.record = null;
-  if (!isPrivate && record && features.record === true && typeof record.iterate === 'function') {
+  if (!isPrivate && record && typeof record.iterate === 'function') {
     const found = await deletedLinesOf({
       record: record as { iterate: (...args: Array<unknown>) => unknown },
       guildId,
@@ -96,7 +91,7 @@ export async function gatherRequest(
       selfId,
       selfName,
       nameOf: memoryOn ? (id) => store.getUser(guildId, id)?.names?.[0] ?? null : null,
-      max: linesMax(config.context),
+      max: DELETED_LINES_MAX,
       clock,
     });
     timings.record = found.ms;
@@ -105,7 +100,7 @@ export async function gatherRequest(
     // withDeletedLines keeps the lines it is given and puts the placeholders, shaped like lines, among them.
     history = withDeletedLines(history, found.placeholders) as Array<HistoryLine>;
   }
-  // A text attachment cut at media.filePreviewChars (src/media/text-preview.ts#withTextPreviews).
+  // A text attachment cut at FILE_PREVIEW_CHARS (src/turn/phases/request/stages.ts, src/media/text-preview.ts#withTextPreviews).
   for (const message of history) {
     for (const attachment of message.attachments ?? []) {
       if ((attachment?.previewLost ?? 0) > 0)
@@ -126,10 +121,7 @@ export async function gatherRequest(
       : videoStage?.done
         ? videoStage.value?.videos
         : videoStage
-          ? (lateVideoStates(videoCandidates, await videosSoFar(), config.media?.video?.maxPerTurn ?? 5) as Map<
-              string,
-              VideoState
-            >)
+          ? (lateVideoStates(videoCandidates, await videosSoFar(), VIDEOS_PER_TURN) as Map<string, VideoState>)
           : undefined;
   // What the request shows as not ready, for the steps that follow (lateMediaTeller): the videos rendered
   // `pending`, and whether the captions were late.
@@ -140,13 +132,12 @@ export async function gatherRequest(
         : [],
     captions: Boolean(captions) && !captions?.done && captionCandidates.length > 0,
   };
-  // A picture's second look on a question (features.imageRelook): rendered under its line.
+  // A picture's second look on a question: rendered under its line.
   const imageAnswers =
     rewatchStage?.done && (rewatchStage.value?.imageAnswers?.size ?? 0) > 0
       ? (rewatchStage.value?.imageAnswers ?? null)
       : null;
   const reads = linksStage?.done ? linksStage.value : undefined;
-  const lookupResult = lookupStage?.done ? (lookupStage.value ?? null) : null;
   // A prefetch still out at the deadline: the request says so (`timeout`) instead of waiting.
   const prefetchResult = prefetching
     ? prefetchStage?.done
@@ -155,17 +146,15 @@ export async function gatherRequest(
     : null;
   prep.take('prefetch', prefetchResult !== null);
   // What the turn has in front of it from outside, for where her lines came from (noteSeen):
-  // someone's message she answers, the retrieved memory, pages read, a lookup, an errand's result.
+  // someone's message she answers, the retrieved memory, pages read, an errand's result.
   if (trigger && String(trigger.authorId ?? '') !== String(selfId)) noteSeen(draft, trigger.content);
   noteSeen(draft, excerptsOf(prefetchResult));
   noteSeen(draft, reads, { read: true });
-  noteSeen(draft, lookupResult, { read: true });
   noteSeen(draft, taskResult?.result, { read: true });
   // The journal: which preparation steps reached the request (the rest close as not delivered).
   prep.take('captions', Boolean(captions?.done), { hold: Boolean(captions) });
   prep.take('videos', Boolean(videoStage?.done), { hold: Boolean(videoStage) });
   prep.take('links', Boolean(linksStage?.done));
-  prep.take('lookup', Boolean(lookupStage?.done));
   const neighborsFound = neighborsStage?.done ? neighborsStage.value : null;
   const neighbors = Array.isArray(neighborsFound?.neighbors) ? neighborsFound.neighbors : [];
   const neighborsHidden = neighborsFound?.hidden ?? 0;
@@ -184,24 +173,17 @@ export async function gatherRequest(
     // A settled plan without an error is its value.
     diaryPrep = (settled as { value: NonNullable<Gathered['diaryPrep']> }).value;
     // The post's kind decides how many pictures it takes (drawTool, runSteps): a set kind several, any other one.
-    draft.diary = { set: isSetKind(diaryPrep.plan.kind, config.diary?.setKinds) };
+    draft.diary = { set: isSetKind(diaryPrep.plan.kind, DEFAULT_SET_KINDS) };
   }
   const neighborDescriptions =
-    features.mediaDescriptions === true && typeof describer?.cachedDescriptions === 'function' && neighbors.length > 0
+    typeof describer?.cachedDescriptions === 'function' && neighbors.length > 0
       ? describer.cachedDescriptions(
           guildId,
           neighbors.flatMap((neighbor) => describableCandidates(neighbor.messages))
         )
       : undefined;
-  // Drawing (features.imageGeneration, a missing key counts as on) needs the image client
-  // and Attach Files here. An unasked turn reads the quota for no member, like draw.create charges none.
-  // A diary post draws only while its picture check allowed it (its own daily cap and the image cap).
-  const drawOn =
-    Boolean(images) &&
-    features.imageGeneration !== false &&
-    channel.permissions.attach &&
-    (!diaryPrep || diaryPrep.pictureAllowed);
-  const drawQuota = drawOn ? images?.quota({ userId: asked ? (trigger?.authorId ?? null) : null }) : undefined;
+  // Drawing needs the image client and Attach Files here. A diary post draws only while its picture check allowed it.
+  const drawOn = Boolean(images) && channel.permissions.attach && (!diaryPrep || diaryPrep.pictureAllowed);
   // Neighbours the bot can read but not write in, marked in `<server>` (a pulled channel's
   // record carries its own mark). A pulled channel whose block is shown is left out of the
   // neighbours by buildRequest itself.
@@ -221,7 +203,6 @@ export async function gatherRequest(
     pendingMedia,
     imageAnswers,
     reads,
-    lookupResult,
     prefetchResult,
     neighbors,
     neighborsHidden,
@@ -229,7 +210,6 @@ export async function gatherRequest(
     diaryPrep,
     neighborDescriptions,
     drawOn,
-    drawQuota,
     readOnlyIds,
     destination,
     recent,

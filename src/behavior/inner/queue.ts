@@ -13,7 +13,7 @@ import { errorCode, isFiniteNumber, isObj, listOf, objOf } from '../../tools/typ
 import type { Obj } from '../../tools/types.ts';
 import { storedWakes } from '../wake.ts';
 import { addFactTo, asText, idOrNull } from './facts.ts';
-import { INNER_DEFAULTS, WAKE_KINDS, innerOn, innerSettings } from './settings.ts';
+import { INNER_DEFAULTS, WAKE_KINDS, innerSettings } from './settings.ts';
 import { backendOf, loadView, syncQueue } from './wake-store.ts';
 import type {
   Fact,
@@ -359,12 +359,12 @@ function fileStateOf(state: InnerState): Omit<InnerState, 'queue' | 'handled' | 
 }
 
 /**
- * One write of the turn's wake run through the memory database's writer (`memoryDb.wakeRuns` exactly true, read
- * now; src/memory/db/wakes.js), in order with the others; a failure is logged with a code. Never throws.
+ * One write of the turn's wake run through the memory database's writer (src/memory/db/wakes.js), in order with the
+ * others; a failure is logged with a code. Never throws.
  */
 export function wakeWrite(life: InnerContext, update: WakeUpdate): void {
-  const { hot, memoryDb, log } = life;
-  if (objOf(objOf(hot.config).memoryDb).wakeRuns !== true || typeof memoryDb?.recordWake !== 'function') return;
+  const { memoryDb, log } = life;
+  if (typeof memoryDb?.recordWake !== 'function') return;
   const record = memoryDb.recordWake.bind(memoryDb);
   Promise.resolve()
     .then(() => record(update))
@@ -373,8 +373,8 @@ export function wakeWrite(life: InnerContext, update: WakeUpdate): void {
 
 /** One `inner` journal record (features.journal exactly true, read now); never throws. */
 export function note(life: InnerContext, guildId: string, fields: Obj): void {
-  const { hot, journal, log } = life;
-  if (objOf(objOf(hot.config).features).journal !== true || typeof journal?.inner !== 'function') return;
+  const { journal, log } = life;
+  if (typeof journal?.inner !== 'function') return;
   const write = journal.inner.bind(journal);
   Promise.resolve()
     .then(() => write(guildId, fields))
@@ -559,6 +559,5 @@ export async function enqueue(life: InnerContext, guildId: string, wake: Wake): 
 
 /** Whether her actions may leave an inner turn now: the switch on, not stopped, not paused. */
 export function mayAct(life: InnerContext, guildId: unknown): boolean {
-  const { hot } = life;
-  return innerOn(hot.config) && !stateOf(life, guildId).stopped && !paused(life);
+  return !stateOf(life, guildId).stopped && !paused(life);
 }

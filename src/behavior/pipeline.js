@@ -1,16 +1,12 @@
 // The message pipeline: turns the `message.received` event of a platform's
 // new message (src/protocol/, built by the interface's adapter)
-// into one of a handful of outcomes (ignore, observe into memory, let the spontaneous
-// scheduler eavesdrop, or run a turn) without ever throwing into the interface.
-// A direct message goes through the private-chat gate instead
-// (features.privateMessages, src/behavior/private.js). A turn someone asked
+// into one of a handful of outcomes (ignore, observe into memory, or run a turn) without ever throwing into the
+// interface. A direct message goes through the private-chat gate instead
+// (private.enabled, src/behavior/private.js). A turn someone asked
 // for that a rail refused gets one plain limit notice (src/behavior/limits.js);
 // a direct call while paused gets the pause notice the same way.
 // A call in a channel the persona can read but not write in is answered in
-// the main channel (features.elsewhere) once that channel settles; so is a
-// remark the persona chose to make about it (a noticed comment). A line put
-// to the whole room may get a higher chance of an unprompted answer
-// (spontaneous.roomQuestionChance, the room classifier).
+// the main channel once that channel settles.
 // Owner commands are a separate pipeline entirely (the interface's command handler,
 // driven by a command, not a message). It reads the events an interface delivers
 // and nothing else: what it needs to know about a conversation (its permissions, its newest
@@ -35,7 +31,6 @@ import { createObserve } from '../pipeline/observe.ts';
 import { createPauseNotice } from '../pipeline/pause-notice.ts';
 import { createPendingQueue, turnBlocked as isTurnBlocked } from '../pipeline/pending-queue.ts';
 import { createPrivateGate } from '../pipeline/private-gate.ts';
-import { createRoom } from '../pipeline/room.ts';
 import { createSettles } from '../pipeline/settle.ts';
 
 /** @typedef {import('../protocol/events.js').Message} Msg */
@@ -50,37 +45,29 @@ import { createSettles } from '../pipeline/settle.ts';
  *   a member, and the listing of the community the route of a call reads.
  * @param {() => string} [deps.selfId]  The persona's id on the interface (`hello`).
  * @param {ReturnType<import('./turn.js').createTurnRunner>} deps.turns
- * @param {ReturnType<import('./spontaneous.js').createSpontaneous>} deps.spontaneous
  * @param {ReturnType<import('../memory/update.js').createMemoryUpdater>} deps.memory
  * @param {ReturnType<import('./mention.js').createTagHistory>} deps.tagHistory
  * @param {object} [deps.llm]  From createLlm() (src/llm/openrouter.js), used for the address
- *   classifier (`features.followUp`): a message with no trigger, arriving while a
- *   conversation window this instance opened by answering is still open, is checked here before
- *   ever running a turn. Absent -- an older/direct caller, or a test that never opens a window --
- *   simply means `features.followUp` cannot ever fire (nothing reaches this dependency otherwise).
- *   The room classifier (spontaneous.roomQuestionChance, src/pipeline/room.ts) uses it too; absent, no
- *   room call is made.
+ *   classifier: a message with no trigger, arriving while a conversation window this instance opened by
+ *   answering is still open, is checked here before ever running a turn. Absent -- an older/direct caller, or a test
+ *   that never opens a window -- the follow-up never fires (nothing reaches this dependency otherwise).
  * @param {() => string | null} deps.getGuildId  the single guild this instance serves, or null before it resolves
  * @param {(guildId: string) => string} [deps.getSelfName]  The persona's display name in a guild
  *   (src/core.js). Default: `bot`.
  * @param {object} [deps.describer]  From createDescriber() (src/memory/describe.js), optional: when
- *   absent, or features.mediaDescriptions is off, no description request is ever made from this
- *   pipeline. When present, every observed human message's pictures (up to
- *   media.prefillPerMessage) are handed to it fire-and-forget -- errors swallowed -- so the
- *   cache is already warm by the time a turn wants a caption for one of them. Only the
- *   address and room classifiers await a message's own prefill, then read captions from the cache alone
- *   (`describer.cachedDescriptions` / `cachedVideos`), never a new request. With
- *   features.mediaDescriptions, features.videoDescriptions (a missing key counts as on) and
- *   media.video.prefill all on, the message's first videos (up to
- *   media.video.prefillPerMessage) are handed to `describer.describeVideos` the same way.
- * @param {object} [deps.lookup]  From createLookup() (src/web/lookup.js), optional: with
- *   features.webLookup, web.links.enabled and web.links.prefill on, the message's first readable
+ *   absent, no description request is ever made from this pipeline. When present, every observed human
+ *   message's first pictures (src/pipeline/media-prefill.ts) are handed to it fire-and-forget -- errors
+ *   swallowed -- so the cache is already warm by the time a turn wants a caption for one of them. Only the
+ *   address classifier awaits a message's own prefill, then read captions from the cache alone
+ *   (`describer.cachedDescriptions` / `cachedVideos`), never a new request. The message's first videos are
+ *   handed to `describer.describeVideos` the same way.
+ * @param {object} [deps.lookup]  From createLookup() (src/web/lookup.js), optional: the message's first readable
  *   link (MAX_WARM_LINKS_PER_MESSAGE) is handed to `lookup.readLinks` the same way. Absent -> no
  *   link is ever read from this pipeline.
  * @param {() => number} [deps.rng]
  * @param {() => number} [deps.now]
  * @param {(ms: number) => Promise<void>} [deps.sleep]  Used only for the "human switch pause"
- *   before answering a deferred pending ping (mention.switchDelayMs) -- see src/pipeline/drain.ts.
+ *   before answering a deferred pending ping -- see src/pipeline/drain.ts.
  * @param {{ set: (fn: () => void, ms: number) => any, clear: (timer: any) => void }} [deps.timers]
  *   The settle waits of calls from channels the persona cannot write in (src/pipeline/settle.ts), and the
  *   deadline of a line's observation (src/pipeline/observe.ts).
@@ -132,7 +119,6 @@ export function createMessageHandler({
   reads,
   selfId: selfIdOf = () => '',
   turns,
-  spontaneous,
   memory,
   tagHistory,
   getGuildId,
@@ -156,15 +142,27 @@ export function createMessageHandler({
     getGuildId,
   });
   const { observeLine } = createObserve({ hot, memoryDb, selfIdOf, timers });
-  const turnBlocked = (channelId, config) => isTurnBlocked(turns, channelId, config);
+  const turnBlocked = () => isTurnBlocked(turns);
   const { warmMediaCache, cachedFollowUpMedia } = createMediaPrefill({ hot, describer, lookup, now });
 
   // The follow-up windows load their saved entries back here, before anything else is built.
-  const { windowOf, noteFollowUpSend, bumpFollowUpNoStreak, followUpOff, followUpMuted, followUpGate, followUpStale } =
-    createFollowUpWindows({ hot, store, now, turns, turnBlocked });
+  const { noteFollowUpSend, bumpFollowUpNoStreak, followUpMuted, followUpGate, followUpStale } = createFollowUpWindows({
+    hot,
+    store,
+    now,
+    turns,
+    turnBlocked,
+  });
   const { buildClassifierRequest } = createClassifierRequest({ reads, store, refOf, cachedFollowUpMedia });
-  const { notifyLimit, announceRefusal, afterCallTurn, passRoutedCall, skipSeenCalls, heldCallState } =
-    createCallOutcome({ hot, store, now, turns, reads, refOf, port });
+  const { announceRefusal, afterCallTurn, passRoutedCall, skipSeenCalls, heldCallState } = createCallOutcome({
+    hot,
+    store,
+    now,
+    turns,
+    reads,
+    refOf,
+    port,
+  });
 
   // The pending queue's list, shared by the queue, the merge and the drain. The drain is built last (it needs the
   // private gate), so the merge and the follow-up path reach it through `drain`.
@@ -172,7 +170,7 @@ export function createMessageHandler({
   let drain = null;
   const drainPending = () => drain.drainPending();
   const { queuedCount, itemText, queuedFor, noteUnanswered, logPending, deferFollowUp, enqueuePending, requeueBusy } =
-    createPendingQueue({ hot, now, turns, missed, pending, followUpMuted, followUpOff });
+    createPendingQueue({ hot, now, turns, missed, pending, followUpMuted });
   const { holdCall } = createMerge({
     hot,
     llm,
@@ -203,7 +201,7 @@ export function createMessageHandler({
     passRoutedCall,
   });
 
-  // The address classifier, the follow-up path and the room classifier.
+  // The address classifier and the follow-up path.
   const { classifyFollowUp } = createAddressClassifier({
     hot,
     llm,
@@ -218,7 +216,6 @@ export function createMessageHandler({
     turns,
     followUpGate,
     followUpMuted,
-    followUpOff,
     currentOf,
     refOf,
     classifyFollowUp,
@@ -228,7 +225,6 @@ export function createMessageHandler({
     drainPending,
     announceRefusal,
   });
-  const { maybeRoom } = createRoom({ hot, llm, now, rng, spontaneous, getSelfName, windowOf, buildClassifierRequest });
 
   // The private chat (src/pipeline/private-gate.ts): its gate, its drop and its count, and a direct message's path.
   const { afterPrivateTurn, checkPrivateGate, dropPrivate, onPrivateMessage } = createPrivateGate({
@@ -248,7 +244,6 @@ export function createMessageHandler({
     turnBlocked,
     holdCall,
     queuedFor,
-    notifyLimit,
     announceRefusal,
   });
 
@@ -276,18 +271,16 @@ export function createMessageHandler({
     checkPrivateGate,
     dropPrivate,
     afterPrivateTurn,
-    followUpOff,
     followUpStale,
     decideAndLog,
   });
 
-  const { clearSettles, rememberCall, armSettle, maybeNotice, touchSettle } = createSettles({
+  const { clearSettles, rememberCall, armSettle, touchSettle } = createSettles({
     hot,
     store,
     now,
     timers,
     turns,
-    spontaneous,
     routeOf,
     followUpMuted,
     heldCallState,
@@ -313,7 +306,6 @@ export function createMessageHandler({
     store,
     turns,
     memory,
-    spontaneous,
     activity,
     missed,
     getGuildId,
@@ -329,8 +321,6 @@ export function createMessageHandler({
     noteFollowingLine,
     touchSettle,
     maybeFollowUp,
-    maybeNotice,
-    maybeRoom,
     rememberCall,
     armSettle,
     answerCall,

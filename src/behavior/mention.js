@@ -1,10 +1,7 @@
 // Decides whether the persona reacts to being called at all — before any LLM
-// money is spent. People do not answer every ping: the persona sometimes
-// ignores one for no reason, ignores more when the same person keeps tagging
-// it, and almost always ignores tag spam. The model gets a second veto later
+// money is spent: she almost always ignores tag spam. The model gets a second veto later
 // (<skip/>) for calls that are simply not interesting.
 
-import { ignoreAdjustment } from '../memory/index.js';
 import { occursAsWholeWord } from '../memory/mentions.ts';
 import { MINUTE_MS } from '../time.js';
 
@@ -65,75 +62,53 @@ export function isTaggedCall(normalized, selfId) {
   return ids.includes(selfId) && normalized.replyPingUserId !== selfId;
 }
 
+// The call decision's measures. Production values, config cut of 2026-10-31.
+/** The calls by one member inside SPAM_WINDOW_MINUTES from which on they are spam. */
+const SPAM_THRESHOLD = 50;
+/** The chance a spam call is ignored. */
+const SPAM_IGNORE_CHANCE = 0.9;
+/** The chance a call by her name is noticed. */
+const NAME_TRIGGER_CHANCE = 1;
+/** The window in which one member's calls add up for the spam count, in minutes. */
+const SPAM_WINDOW_MINUTES = 10;
+
 /**
- * Whether the persona answers a call. The base ignore chance depends on the
- * kind: a follow-up -- kind `followUp` (an untagged line the address
- * classifier marked as said to the persona; `overheard` never reaches this
- * roll) or an untagged `reply` (a platform reply to the persona's line with no
- * tag, `tagged` false) -- starts from `mention.followUpIgnoreChance`
- * (missing = 0), so the persona sometimes lets the other person have the last
- * word; a `mention`, a tagged `reply` (`tagged` true or not given) start
- * from `mention.ignoreChance`; a `name` call rolls
- * `mention.nameTriggerChance` alone. The spam threshold, the bare-ping chance,
- * the repeat penalty, the affinity adjustment and the 0.97 clamp apply on top
- * as for any call; neverIgnore always answers. An ignored follow-up's reason
- * is `ignored:follow-up` (or `ignored:repeat` / `ignored:spam` when those
- * set the chance).
+ * Whether the persona answers a call. A `name` call is noticed at NAME_TRIGGER_CHANCE; any other call is answered
+ * unless it is tag spam (SPAM_THRESHOLD calls by the member inside the window, ignored at SPAM_IGNORE_CHANCE);
+ * neverIgnore always answers. An ignored call's reason is `ignored:spam`.
  * @param {object} input
  * @param {'mention'|'reply'|'name'|'followUp'} input.kind
- * @param {boolean} [input.tagged]      A `reply` only: whether it tags the persona (isTaggedCall).
- * @param {number} input.textLength     Length of the message without the mention.
- * @param {number} input.recentCalls    Calls by this user within the repeat window, this one included.
+ * @param {number} input.recentCalls    Calls by this user within the spam window, this one included.
  * @param {boolean} input.neverIgnore
- * @param {number} [input.affinityScore]  The caller's stored affinity score, if known
- *   (features.relationships). Nudges the ignore chance up for someone disliked, down
- *   for someone liked; never for neverIgnore, a name trigger, or tag spam.
- * @param {object} input.cfg            config.mention
  * @param {() => number} input.rng
  * @returns {{ respond: boolean, reason: string, ignoreChance: number, roll?: number }}  `roll`
  *   is the rng value drawn (absent for neverIgnore, which rolls nothing), for the decision log.
  */
-export function decideMention({ kind, tagged, textLength, recentCalls, neverIgnore, affinityScore, cfg, rng }) {
+export function decideMention({ kind, recentCalls, neverIgnore, rng }) {
   if (neverIgnore) return { respond: true, reason: 'never-ignore', ignoreChance: 0 };
 
   if (kind === 'name') {
     const roll = rng();
-    const respond = roll < cfg.nameTriggerChance;
-    return { respond, reason: respond ? 'name' : 'name-unnoticed', ignoreChance: 1 - cfg.nameTriggerChance, roll };
+    const respond = roll < NAME_TRIGGER_CHANCE;
+    return { respond, reason: respond ? 'name' : 'name-unnoticed', ignoreChance: 1 - NAME_TRIGGER_CHANCE, roll };
   }
 
-  const followUp = kind === 'followUp' || (kind === 'reply' && tagged === false);
-  let ignoreChance = followUp ? (cfg.followUpIgnoreChance ?? 0) : cfg.ignoreChance;
-  let reason = followUp ? 'follow-up' : 'random';
-  if (recentCalls >= cfg.spamThreshold) {
-    ignoreChance = cfg.spamIgnoreChance;
-    reason = 'spam';
-  } else {
-    if (kind === 'mention' && textLength === 0) {
-      ignoreChance = cfg.emptyMentionIgnoreChance;
-      reason = 'bare-ping';
-    }
-    if (recentCalls > 1) {
-      ignoreChance += cfg.repeatPenalty * (recentCalls - 1);
-      reason = 'repeat';
-    }
-    ignoreChance += ignoreAdjustment(affinityScore, cfg);
-  }
-  ignoreChance = Math.min(0.97, Math.max(0, ignoreChance));
-
+  const ignoreChance = recentCalls >= SPAM_THRESHOLD ? SPAM_IGNORE_CHANCE : 0;
   const roll = rng();
   const respond = roll >= ignoreChance;
-  return { respond, reason: respond ? 'respond' : `ignored:${reason}`, ignoreChance, roll };
+  return { respond, reason: respond ? 'respond' : 'ignored:spam', ignoreChance, roll };
 }
 
-/**
- * The window in which repeated calls by one member add up (`mention.repeatWindowMinutes`), in ms.
- * @param {{ repeatWindowMinutes: number }} cfg  config.mention
- * @returns {number}
- */
-export const repeatWindowMs = (cfg) => cfg.repeatWindowMinutes * MINUTE_MS;
+/** The window in which one member's calls add up for the spam count, in ms. */
+export const SPAM_WINDOW_MS = SPAM_WINDOW_MINUTES * MINUTE_MS;
 
 // --- The address classifier --------------------------------------------------
+// Production values, config cut of 2026-10-31.
+/** How long a follow-up window stays open after her answer, in minutes. */
+export const FOLLOW_UP_MINUTES = 15;
+/** The "no" verdicts in a row that close a follow-up window. */
+export const FOLLOW_UP_NO_STREAK = 5;
+
 // After the persona answers in a channel, a conversation window stays open for
 // a little while: an UNTAGGED message inside it is not answered blindly, it is
 // checked by a cheap classifier first (see pipeline.js and
@@ -142,17 +117,14 @@ export const repeatWindowMs = (cfg) => cfg.repeatWindowMinutes * MINUTE_MS;
 
 /**
  * Whether a follow-up window (per channel; see pipeline.js) is currently open:
- * the persona answered recently enough, and has not been ignored
- * `cfg.followUpNoStreak` times in a row since.
+ * the persona answered within FOLLOW_UP_MINUTES, and has not been ignored
+ * FOLLOW_UP_NO_STREAK times in a row since.
  * @param {{ lastAnswerAt: number, noStreak: number }|null|undefined} state
  * @param {number} now
- * @param {{ followUpMinutes?: number, followUpNoStreak?: number }} cfg  config.mention
  */
-export function isFollowUpOpen(state, now, cfg) {
+export function isFollowUpOpen(state, now) {
   if (!state) return false;
-  const minutes = cfg?.followUpMinutes ?? 15;
-  const noStreakLimit = cfg?.followUpNoStreak ?? 5;
-  return now - state.lastAnswerAt < minutes * MINUTE_MS && state.noStreak < noStreakLimit;
+  return now - state.lastAnswerAt < FOLLOW_UP_MINUTES * MINUTE_MS && state.noStreak < FOLLOW_UP_NO_STREAK;
 }
 
 /**
@@ -160,17 +132,13 @@ export function isFollowUpOpen(state, now, cfg) {
  * classifier is ever asked — see the prompt contract. A reply to another
  * member's message goes to the classifier like plain text; the reply ping
  * the platform adds for the replied-to author (`replyPingUserId`) is not a
- * mention. With `mention.followUpClassifyReplies` false (a missing key counts
- * as on) any reply is `no` as well. `normalized` is the shape
- * of src/protocol/events.js#Message.
+ * mention. `normalized` is the shape of src/protocol/events.js#Message.
  * @param {{ replyToId: string|null, mentionedUserIds: string[], replyPingUserId?: string|null }} normalized
  * @param {string} selfId
- * @param {{ followUpClassifyReplies?: boolean }} [cfg]  config.mention, read by the caller now
  * @returns {boolean} true = never the persona's: the answer is "no" without asking the model
  */
-export function followUpPreFilter(normalized, selfId, cfg) {
+export function followUpPreFilter(normalized, selfId) {
   const isReply = Boolean(normalized.replyToId);
-  if (isReply && cfg?.followUpClassifyReplies === false) return true;
   const replyPing = isReply ? (normalized.replyPingUserId ?? null) : null;
   return (normalized.mentionedUserIds ?? []).some((id) => id !== selfId && id !== replyPing);
 }
@@ -213,36 +181,13 @@ export function parseFollowUpVerdict(text) {
 
 /**
  * The trigger kind an address-classifier answer starts: null for `no`,
- * `followUp` for `yes`, `overheard` for `overheard` -- or `followUp` when
- * `mention.followUpOverheard` is false (a missing key counts as on).
+ * `followUp` for `yes`, `overheard` for `overheard`.
  * @param {'yes'|'overheard'|'no'} answer
- * @param {{ followUpOverheard?: boolean }} [cfg]  config.mention, read by the caller now
  * @returns {'followUp'|'overheard'|null}
  */
-export function followUpTriggerKind(answer, cfg) {
+export function followUpTriggerKind(answer) {
   if (answer === 'yes') return 'followUp';
-  if (answer !== 'overheard') return null;
-  return cfg?.followUpOverheard === false ? 'followUp' : 'overheard';
-}
-
-// --- Room questions ------------------------------------------------------------
-// Outside a conversation window, an untagged line put to everyone present may
-// get a higher chance of an unprompted answer (spontaneous.roomQuestionChance,
-// src/behavior/pipeline.js): a cheap classifier (prompts/room.md) is asked first.
-// The check below runs before any money is spent on it.
-
-/**
- * Whether `normalized` may be a line put to the whole room, before the room
- * classifier is asked: it has text (non-empty after trim), replies to nothing
- * and mentions no member. `normalized` is the shape
- * of src/protocol/events.js#Message.
- * @param {{ content?: string, replyToId?: string|null, mentionedUserIds?: string[] }} normalized
- * @returns {boolean}
- */
-export function roomPreFilter(normalized) {
-  if (String(normalized?.content ?? '').trim() === '') return false;
-  if (normalized.replyToId) return false;
-  return (normalized.mentionedUserIds ?? []).length === 0;
+  return answer === 'overheard' ? 'overheard' : null;
 }
 
 // The model roles are resolved by src/llm/roles.js#roleModel (one resolver for every model role).

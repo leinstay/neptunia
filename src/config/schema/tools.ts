@@ -18,13 +18,6 @@ export const TOOLS: ReadonlyArray<SchemaEntry> = [
     'text': "Characters of a tool's returned data shown in a call's result",
   },
   {
-    'key': 'tools.markTextMaxChars',
-    'types': ['number'],
-    'reader': 'src/behavior/sandbox.js',
-    'default': 200,
-    'text': "Characters of the operation's own error message shown in the transcript mark. `0` = never show it",
-  },
-  {
     'key': 'tools.destructiveCooldownMinutes',
     'types': ['number'],
     'reader': 'src/tools/gateway.ts',

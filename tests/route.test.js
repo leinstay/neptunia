@@ -4,7 +4,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  ROUTE_DEFAULTS,
   buildRouteRequest,
   parseRouteAnswer,
   routeAllowed,
@@ -12,7 +11,6 @@ import {
   routeChannelList,
   routeContext,
   routeEntries,
-  routeSettings,
   routeWriter,
 } from '../src/behavior/route.js';
 import { userText } from '../src/behavior/prompt.js';
@@ -48,28 +46,6 @@ function config(overrides = {}) {
 }
 
 // ---- settings and the switch ----------------------------------------------------------
-
-test('routeSettings: the shipped config.json values equal the code fallbacks', () => {
-  assert.deepEqual(SHIPPED_CONFIG.route, { ...ROUTE_DEFAULTS });
-  assert.equal(SHIPPED_CONFIG.features.channelRoute, true);
-});
-
-test('routeSettings: a missing group falls back, a missing switch counts as on, false turns it off', () => {
-  assert.deepEqual(routeSettings({}), { ...ROUTE_DEFAULTS });
-  assert.deepEqual(
-    routeSettings({
-      features: {},
-      route: { contextMessages: 5.7, maxChannels: -1, purposeChars: 'x', maxOutputTokens: 0 },
-    }),
-    {
-      contextMessages: 5,
-      maxChannels: ROUTE_DEFAULTS.maxChannels,
-      purposeChars: ROUTE_DEFAULTS.purposeChars,
-      maxOutputTokens: ROUTE_DEFAULTS.maxOutputTokens,
-    }
-  );
-  assert.equal(routeSettings({ features: { channelRoute: false } }), null);
-});
 
 test('routeAllowed: every reply kind and a turn without a trigger ask; overheard and private do not', () => {
   for (const triggerKind of ['mention', 'reply', 'name', 'followUp', null, undefined])
@@ -370,11 +346,11 @@ function fakeLlm(answer) {
 }
 
 /** A router over the fake guild (#secret, c4, hidden from the bot), the shipped config and a stand-in prompt. */
-async function routerScene({ answer = '1', features = {}, prompt = 'You are {{name}}.', channels } = {}) {
+async function routerScene({ answer = '1', prompt = 'You are {{name}}.', channels } = {}) {
   const { channel } = fakeGuild();
   const snapshot = await takeSnapshot(world().reads, GUILD);
   const hot = {
-    config: config({ features, llm: { analyzerTimeoutMs: 12345 } }),
+    config: config({ llm: { analyzerTimeoutMs: 12345 } }),
     prompts: { 'route-channel': prompt, labels },
   };
   const llm = fakeLlm(answer);
@@ -488,7 +464,7 @@ test('createChannelRouter: none, an unknown number or junk return no id', async 
   }
 });
 
-test('createChannelRouter: overheard and private turns, and the switch off, make no call', async () => {
+test('createChannelRouter: overheard and private turns make no call', async () => {
   for (const triggerKind of ['overheard', 'private']) {
     const { router, llm, args } = await routerScene();
     const { result, logs } = await withCapturedLogs(() => router({ ...args, triggerKind }));
@@ -496,11 +472,6 @@ test('createChannelRouter: overheard and private turns, and the switch off, make
     assert.equal(llm.calls.length, 0, triggerKind);
     assert.equal(logs.length, 0);
   }
-  const off = await routerScene({ features: { channelRoute: false } });
-  const { result, logs } = await withCapturedLogs(() => off.router(off.args));
-  assert.deepEqual(result, []);
-  assert.equal(off.llm.calls.length, 0);
-  assert.equal(logs.length, 0);
 });
 
 test('createChannelRouter: a private chat with its partner lists the server channels the partner can view; without one it makes no call', async () => {

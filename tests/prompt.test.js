@@ -4,7 +4,6 @@
 // the prompt contract.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import {
   block,
   buildDrawPrompt,
@@ -19,6 +18,7 @@ import {
   usesFollowUpTask,
 } from '../src/behavior/prompt.js';
 import { estimateTokens } from '../src/llm/tokens.js';
+import { SAFETY_MARGIN } from '../src/llm/budget.js';
 import { createFedAround as createAroundStore } from './fixtures/around-feed.ts';
 import { fill, formatClock, formatDate, formatDuration } from '../src/format.js';
 import { zonedDay } from '../src/time.js';
@@ -48,35 +48,23 @@ function fakePrompts(overrides = {}) {
   };
 }
 
+// PR 7d: the switches are code and the context, lore and memory measures constants, so only the settings stay.
 function fakeConfig(overrides = {}) {
   return {
     bot: { timezone: 'Europe/Moscow' },
     context: {
-      gapMarkerMinutes: 20,
-      maxMessageChars: 800,
       caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, server: 2500, lore: 1500 },
-      vision: { tokensPerImage: 400 },
-      // The settings the behaviour tests below rely on, pinned here once instead of
-      // leaning on the code fallbacks (one test compares those with config.json).
-      tempo: { liveMessages10min: 4, deadSilenceMinutes: 45 },
-      askedAboutEpisodes: 3,
       ...overrides.context,
     },
-    features: {
-      relationships: true,
-      episodes: true,
-      lore: true,
-      recent: true,
-      videoDescriptions: true,
-      videoRewatch: true,
-      imageGeneration: true,
-      ...overrides.features,
-    },
-    llm: { maxRequestTokens: 50000, safetyMargin: 0.9, ...overrides.llm },
-    lore: { scanMessages: 30, maxMatches: 8, ...overrides.lore },
-    memory: { recentHours: 72, ...overrides.memory },
+    llm: { maxRequestTokens: 50000, ...overrides.llm },
+    ...(overrides.memory ? { memory: overrides.memory } : {}),
+    ...(overrides.private ? { private: overrides.private } : {}),
   };
 }
+
+// PR 7d: llm.safetyMargin is the constant 0.9 (SAFETY_MARGIN of src/llm/budget.js), so a request limit of exactly
+// `tokens` needs a maxRequestTokens of tokens / 0.9.
+const exactly = (tokens) => Math.ceil(tokens / SAFETY_MARGIN);
 
 function makeMessage(id, ts, overrides = {}) {
   return {
@@ -184,17 +172,18 @@ test('buildRequest: system message is system-prompt + character-card + rules + f
   assert.equal(request.messages[0].content, 'SYSTEM_TEXT for Nept\n\nCARD_TEXT\n\nRULES_TEXT\n\nFORMAT_TEXT');
 });
 
-test('buildRequest: a reply in <chat> quotes its parent cut to context.replyQuoteChars', () => {
+test('buildRequest: a reply in <chat> quotes its parent cut at a word to 80 characters', () => {
+  // PR 7d: context.replyQuoteChars is the constant 80 (the production value).
+  const parent = 'je préfère les penalties '.repeat(5).trim();
   const history = [
-    makeMessage('1', NOW - 2 * MIN, { self: true, content: 'je préfère les penalties' }),
+    makeMessage('1', NOW - 2 * MIN, { self: true, content: parent }),
     makeMessage('2', NOW - MIN, { replyToId: '1', content: 'ah bon' }),
   ];
-  const request = buildRequest(baseInput({ history, config: fakeConfig({ context: { replyQuoteChars: 14 } }) }));
+  const request = buildRequest(baseInput({ history }));
   const text = contentText(request.messages[1].content);
+  const quote = `${'je préfère les penalties '.repeat(3)}je…`;
   assert.ok(
-    text.includes(
-      `User2: ah bon ${fill(labels.transcript.replyTo, { index: 1, author: 'Nept (you)', quote: 'je préfère…' })}`
-    ),
+    text.includes(`User2: ah bon ${fill(labels.transcript.replyTo, { index: 1, author: 'Nept (you)', quote })}`),
     text
   );
 });
@@ -518,7 +507,7 @@ test('buildRequest: blocks appear in the documented order', () => {
       neighbors: [{ channelName: 'general', messages: [makeMessage(9, NOW - 5 * MIN)] }],
       channels: [{ id: 'c1', name: 'general', lastMessageAt: NOW, days: {} }],
       currentChannelId: 'c1',
-      drawQuota: { spent: false, userSpent: false },
+      drawOn: true,
     })
   );
   const user = contentText(request.messages[1].content);
@@ -690,7 +679,7 @@ test('buildRequest: the tail ends with <now>, <senses>, <tempo> and <task>, afte
     segmentScene({
       lookup: { query: 'q', text: 'found it', sources: [] },
       config: fakeConfig({ features: { webLookup: true } }),
-      drawQuota: { spent: false, userSpent: false },
+      drawOn: true,
     })
   );
   const tags = blockTags(contentText(request.messages[1].content));
@@ -854,11 +843,6 @@ test('buildRequest: the cached interlocutor profile is byte-identical across pre
   const cat = withAvatar({}, { hash: 'h2', text: 'a sleeping cat', describedAt: '2026-10-15T10:00:00.000Z' });
   assert.equal(cat, shownAvatar.replace(fox.text, 'a sleeping cat'), 'a new avatar changes that line alone');
   assert.ok(withAvatar({}, { hash: null, default: true }).includes(`\n${labels.profile.avatarDefault}\n`));
-  // Switched off, a stored avatar shows nothing and the cached profile is as before.
-  assert.equal(
-    profilesPart(buildRequest(segmentScene({ interlocutor: { ...interlocutor, avatar: fox }, around: glance() }))),
-    cached
-  );
 });
 
 test('renderProfile: the avatar line under features.avatars, full and compact; an avatar alone is nothing learned', () => {
@@ -894,8 +878,9 @@ test('renderProfile: the avatar line under features.avatars, full and compact; a
 test('buildRequest: a profile is the same all day long: the stale and replaced-claim marks change only with the day', () => {
   const DAY = 24 * HOUR;
   const dayStart = Math.floor(NOW / DAY) * DAY;
-  // Stale after 30 days: last seen 30 days before the start of the day, plus an hour.
-  const lastSeen = new Date(dayStart - 30 * DAY + HOUR).toISOString();
+  // PR 7d: memory.interestStaleDays is the constant 90. Stale after 90 days: last seen 90 days before the start of the
+  // day, plus an hour.
+  const lastSeen = new Date(dayStart - 90 * DAY + HOUR).toISOString();
   // A replaced claim rides on its successor for 7 days from the successor's recording.
   const recordedAt = new Date(dayStart - 7 * DAY + HOUR).toISOString();
   const interlocutor = {
@@ -921,7 +906,6 @@ test('buildRequest: a profile is the same all day long: the stale and replaced-c
   const at = (now) =>
     buildRequest(
       baseInput({
-        config: fakeConfig({ memory: { interestStaleDays: 30 } }),
         now,
         history: [trigger],
         trigger,
@@ -953,13 +937,9 @@ const EMOJI_INDEX = [
  * A turn with every senses line it can have on a server and a full `<emoji>` block: the
  * ranked list and an emoji of the chat that is not on it.
  */
-function cacheScene({ triggerFields, config: configOverrides = {}, ...overrides } = {}) {
+function cacheScene({ triggerFields, ...overrides } = {}) {
   return segmentScene({
-    config: fakeConfig({
-      memory: { interestStaleDays: 30, confirmAfter: 2 },
-      features: { webLookup: true, mediaDescriptions: true, privateMessages: true, ...configOverrides.features },
-      context: { customEmoji: { max: 2 } },
-    }),
+    config: fakeConfig({ private: { enabled: true } }),
     triggerFields: { content: 'ωραίο :pog:', emojis: [{ id: '9', name: 'pog' }], ...triggerFields },
     guildMemory: {
       patterns: 'talks fast',
@@ -969,7 +949,7 @@ function cacheScene({ triggerFields, config: configOverrides = {}, ...overrides 
     customEmoji: EMOJI_INDEX,
     mediaCache: { 'emoji:9': { text: 'a surprised cat face', ts: 1 }, 'emoji:2': { text: 'a dancing bean', ts: 1 } },
     channels: [{ id: 'c1', name: 'κουζίνα', lastMessageAt: NOW - MIN, days: {} }],
-    drawQuota: { spent: false, userSpent: false },
+    drawOn: true,
     recallAvailable: true,
     searchAvailable: true,
     elsewhereDestination: { name: 'général' },
@@ -1011,7 +991,6 @@ test('buildRequest: the senses lines are the ones of one block, only moved; <emo
     S.imageDescribed,
     S.gifDescribed,
     S.videoWatch,
-    S.videoRewatch,
     S.stickerDescribed,
     S.lottie,
     S.customEmoji,
@@ -1019,8 +998,6 @@ test('buildRequest: the senses lines are the ones of one block, only moved; <emo
     S.voice,
     S.linksWatch,
     S.linksRead,
-    S.search,
-    S.recall,
     S.draw,
     S.files,
     S.time,
@@ -1029,7 +1006,7 @@ test('buildRequest: the senses lines are the ones of one block, only moved; <emo
     fill(S.diary, { channel: 'ημερολόγιο' }),
     S.privateAware,
   ];
-  const perTurn = new Set([S.recall, S.draw]);
+  const perTurn = new Set([S.draw]);
   const body = (blocks, tag) => blocks.find((b) => b.tag === tag).body.split('\n');
   assert.deepEqual(
     body(stableBlocks, 'senses'),
@@ -1045,10 +1022,12 @@ test('buildRequest: the senses lines are the ones of one block, only moved; <emo
     e.header,
     fill(e.entry, { name: 'beta', text: 'a dancing bean' }),
     fill(e.entryNoText, { name: 'alpha' }),
+    // PR 7d: context.customEmoji.max is the constant 30, so the whole list of three is shown.
+    fill(e.entryNoText, { name: 'gamma' }),
     e.seenInChat,
     fill(e.entry, { name: 'pog', text: 'a surprised cat face' }),
   ]);
-  assert.equal(request.stats.emoji.kept, 5);
+  assert.equal(request.stats.emoji.kept, 6);
 
   // Nothing of this turn in the cached part: its clock, tempo, channel, quotas, private flag, chat emoji.
   const turnValues = [
@@ -1089,8 +1068,6 @@ test('buildRequest: the stable part is byte-identical across the turns of a day,
       channels: [{ id: 'c2', name: 'κήπος', lastMessageAt: NOW - MIN, days: {} }],
       currentChannelId: 'c2',
     },
-    'the member quota spent': { drawQuota: { spent: false, userSpent: true } },
-    'the daily quota spent': { drawQuota: { spent: true, userSpent: true } },
     'no server search left': { recallAvailable: false },
     'no emoji in the chat': { triggerFields: { content: 'γεια', emojis: [] } },
     'the emoji ranking moved': {
@@ -1217,13 +1194,13 @@ test('hasRequiredLabels: an object with transcript passes; anything else fails',
   }
 });
 
-test('buildRequest: a neighbour message is cut at context.neighborMessageChars', () => {
+test('buildRequest: a neighbour message is cut at 300 characters', () => {
+  // PR 7d: context.neighborMessageChars is the constant 300 (the production value).
   const long = 'λ'.repeat(400);
   const neighbors = [{ channelName: 'general', messages: [makeMessage(9, NOW - 5 * MIN, { content: long })] }];
-  const config = fakeConfig({ context: { neighborMessageChars: 20 } });
-  const user = contentText(buildRequest(baseInput({ config, neighbors })).messages[1].content);
+  const user = contentText(buildRequest(baseInput({ neighbors })).messages[1].content);
   const cut = user.split('<other_channels>\n')[1].split('\n</other_channels>')[0];
-  assert.ok(cut.includes('λ'.repeat(20)) && !cut.includes('λ'.repeat(21)), cut);
+  assert.ok(cut.includes('λ'.repeat(300)) && !cut.includes('λ'.repeat(301)), cut);
 });
 
 /** The `<other_channels>` body of a request built from `overrides`. */
@@ -1289,7 +1266,7 @@ test('buildRequest: under a tiny token budget, neighbours and other profiles are
       // 340 was tight enough before the <senses> block grew a few lines
       // (stickers/lottie, part of the always-kept "fixed" section) so the
       // budget needs a little more headroom to still leave room for chat.
-      config: fakeConfig({ llm: { maxRequestTokens: 400, safetyMargin: 1 } }),
+      config: fakeConfig({ llm: { maxRequestTokens: exactly(400) } }),
     })
   );
 
@@ -1300,14 +1277,14 @@ test('buildRequest: under a tiny token budget, neighbours and other profiles are
   assert.ok(user.includes('message number 10'));
 });
 
-test('buildRequest: total token usage never exceeds maxRequestTokens * safetyMargin', () => {
+test('buildRequest: total token usage never exceeds maxRequestTokens * the safety margin', () => {
   const history = [];
   for (let i = 1; i <= 30; i += 1) {
     history.push(makeMessage(i, NOW - (31 - i) * MIN, { content: 'word '.repeat(20) }));
   }
-  const config = fakeConfig({ llm: { maxRequestTokens: 500, safetyMargin: 0.8 } });
+  const config = fakeConfig({ llm: { maxRequestTokens: 500 } });
   const request = buildRequest(baseInput({ history, config }));
-  const cap = config.llm.maxRequestTokens * config.llm.safetyMargin;
+  const cap = config.llm.maxRequestTokens * SAFETY_MARGIN;
   assert.ok(request.stats.used <= cap, `used ${request.stats.used} must be <= cap ${cap}`);
 });
 
@@ -1362,9 +1339,7 @@ test('prompt: returns the ids of the kept window, the parents and the previewed 
   const history = [makeMessage('p0', NOW - 40 * MIN, { replyParent: true, content: 'word '.repeat(20) })];
   for (let i = 1; i <= 10; i += 1)
     history.push(makeMessage(`n${i}`, NOW - (11 - i) * MIN, { content: 'word '.repeat(20) }));
-  const tight = buildRequest(
-    baseInput({ history, config: fakeConfig({ llm: { maxRequestTokens: 400, safetyMargin: 1 } }) })
-  );
+  const tight = buildRequest(baseInput({ history, config: fakeConfig({ llm: { maxRequestTokens: exactly(400) } }) }));
   assert.ok(tight.stats.chat.dropped > 0, 'the chat is trimmed');
   assert.equal(tight.seen.messageIds.length, tight.stats.chat.kept);
   assert.deepEqual(
@@ -1382,7 +1357,7 @@ test('buildRequest: idByIndex still covers messages later trimmed out of the ren
   }
   // 340 was tight enough before <senses> gained the channels line (part of
   // the always-kept "fixed" section); 400 still trims the chat.
-  const config = fakeConfig({ llm: { maxRequestTokens: 400, safetyMargin: 1 } });
+  const config = fakeConfig({ llm: { maxRequestTokens: exactly(400) } });
   const request = buildRequest(baseInput({ history, config }));
   assert.ok(request.stats.chat.dropped > 0, 'the chat is trimmed');
   // idByIndex is built from the FULL transcript, before trimming.
@@ -1391,23 +1366,6 @@ test('buildRequest: idByIndex still covers messages later trimmed out of the ren
 });
 
 // --- tempo thresholds come from config, not hardcoded in the renderer -------
-
-test('buildRequest: config.context.tempo reaches the tempo verdict rendered in <tempo>', () => {
-  // 1 message 5 minutes ago: below the base config's live threshold (4) and well
-  // under its dead silence (45 min), so it renders as "slow" there but as "live"
-  // once config lowers liveMessages10min to 1.
-  const history = [makeMessage(1, NOW - 5 * MIN)];
-
-  const baseRequest = buildRequest(baseInput({ history, trigger: null }));
-  const baseUser = contentText(baseRequest.messages[1].content);
-  assert.ok(baseUser.includes(labels.tempo.verdictSlow));
-  assert.ok(!baseUser.includes(labels.tempo.verdictLive));
-
-  const config = fakeConfig({ context: { tempo: { liveMessages10min: 1, deadSilenceMinutes: 45 } } });
-  const tunedRequest = buildRequest(baseInput({ history, trigger: null, config }));
-  const tunedUser = contentText(tunedRequest.messages[1].content);
-  assert.ok(tunedUser.includes(labels.tempo.verdictLive));
-});
 
 // --- <server>: the channel map -----------------------------------------------
 
@@ -1528,7 +1486,8 @@ test('buildRequest: under a tiny server cap, the map is trimmed but <chat> still
     fakeChannel('c2', { name: 'random', purpose: 'y'.repeat(200), lastMessageAt: NOW - MIN }),
   ];
   const neighbors = [{ channelId: 'c2', channelName: 'random', messages: [makeMessage(20, NOW - MIN)] }];
-  const config = fakeConfig({ llm: { maxRequestTokens: 360, safetyMargin: 1 } });
+  // PR 7d: the fixed sections grew with the always-on senses lines, so the cap leaves 400 tokens, not 360.
+  const config = fakeConfig({ llm: { maxRequestTokens: exactly(400) } });
   const request = buildRequest(baseInput({ history, channels, neighbors, currentChannelId: 'c1', config }));
 
   assert.equal(request.stats.server.kept, 0);
@@ -1793,19 +1752,25 @@ test('profileStateFields: a compact profile shows at most the one strongest move
   assert.equal(movesOf(none), null);
 });
 
-test('buildRequest: relationships.shownMoves and bot.timezone reach the moves of the interlocutor, in their <people_now> entry', () => {
-  const history = [attitudeMove(1, 2, 'α', 22), attitudeMove(2, 3, 'β'), attitudeMove(3, 4, 'γ')];
+test('buildRequest: the four shown moves and bot.timezone reach the moves of the interlocutor, in their <people_now> entry', () => {
+  // PR 7d: relationships.shownMoves is the constant 4, so the fifth move of five falls out.
+  const history = [
+    attitudeMove(1, 2, 'α', 22),
+    attitudeMove(2, 3, 'β'),
+    attitudeMove(3, 4, 'γ'),
+    attitudeMove(4, 5, 'δ'),
+    attitudeMove(5, 6, 'ε'),
+  ];
   const interlocutor = { ...movedProfile(history), id: 'author-1', names: ['Alice'] };
-  const config = { ...fakeConfig(), relationships: { shownMoves: 2 } };
-  const request = buildRequest(baseInput({ config, interlocutor }));
-  // Europe/Moscow: 22:00 UTC on 03-01 is 03-02.
-  assert.equal(fieldsOf(rowOf(request, 'Alice'))[F.moves], 'move +3 on 2026-03-02: β; move +4 on 2026-03-03: γ');
+  const request = buildRequest(baseInput({ interlocutor }));
+  assert.equal(
+    fieldsOf(rowOf(request, 'Alice'))[F.moves],
+    'move +3 on 2026-03-02: β; move +4 on 2026-03-03: γ; move +5 on 2026-03-04: δ; move +6 on 2026-03-05: ε'
+  );
   assert.ok(
     !request.messages[1].content.some((part) => part.cacheSegment && part.text.includes('move ')),
     'no move in a cached part'
   );
-  const off = buildRequest(baseInput({ config: { ...fakeConfig(), relationships: { shownMoves: 0 } }, interlocutor }));
-  assert.equal(fieldsOf(rowOf(off, 'Alice'))[F.moves], undefined);
 });
 
 // --- renderProfile: episodes --------------------------------------------------
@@ -1842,22 +1807,6 @@ test('renderProfile: opts.handle follows the name on the heading; none without i
   assert.equal(renderProfile(profile, labels, { handle: 'u1a2b' }).split('\n')[0], '## Carl (@u1a2b)');
   assert.equal(renderProfile(profile, labels, { compact: true, handle: 'u1a2b' }).split('\n')[0], '## Carl (@u1a2b)');
   assert.equal(renderProfile(profile, labels, { handle: null }).split('\n')[0], '## Carl');
-});
-
-test('buildRequest: with features.mentionHandles off the headings carry no handle', () => {
-  const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
-  const interlocutor = { id: 'author-1', names: ['Alice'], character: 'talkative' };
-  const request = buildRequest(
-    baseInput({
-      config: fakeConfig({ features: { mentionHandles: false } }),
-      history: [trigger],
-      trigger,
-      triggerKind: 'mention',
-      interlocutor,
-    })
-  );
-  assert.ok(contentText(request.messages[1].content).includes('<people>\n## Alice\n'));
-  assert.equal(request.handles, null);
 });
 
 test('renderProfile: the interlocutor heading is bare: the mark describes the request and lives in <people_now>', () => {
@@ -2088,20 +2037,21 @@ test('renderProfile: uses labels.profile.interestItem/interestItemNoNote when pr
   assert.ok(text.includes('interests: [Chess: weekly club]; <Anime>'));
 });
 
-test('buildRequest: config.memory.maxInterests caps how many interests render', () => {
+test('buildRequest: twelve interests render, the lightest of thirteen is left out', () => {
+  // PR 7d: memory.maxInterests is the constant 12 (the production value).
   const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
   const interlocutor = {
     id: 'author-1',
     names: ['Alice'],
-    interests: [interestFixture({ topic: 'A', weight: 1 }), interestFixture({ topic: 'B', weight: 2 })],
+    interests: Array.from({ length: 13 }, (_, i) => interestFixture({ topic: `T${i + 1}`, weight: 13 - i })),
   };
-  const config = fakeConfig({ memory: { maxInterests: 1 } });
   const request = buildRequest(
-    baseInput({ config, history: [trigger], trigger, triggerKind: 'mention', interlocutor, otherProfiles: [] })
+    baseInput({ history: [trigger], trigger, triggerKind: 'mention', interlocutor, otherProfiles: [] })
   );
   const user = contentText(request.messages[1].content);
-  assert.ok(user.includes('interests: B'));
-  assert.ok(!user.includes('interests: B; A'));
+  assert.ok(user.includes('interests: T1; T2'));
+  assert.ok(user.includes('T12'));
+  assert.ok(!user.includes('T13'));
 });
 
 // --- renderProfile: unsure/stale marks (opt-in via confirmAfter/staleDays) ----
@@ -2247,21 +2197,6 @@ test('renderProfile: an unconfirmed detail renders with unsureMark, details neve
   assert.ok(!text.includes(`Plays guitar${labels.profile.unsureMark}`));
 });
 
-test('buildRequest: features.relationships=false hides the attitude entirely', () => {
-  const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
-  const interlocutor = {
-    id: 'author-1',
-    names: ['Alice'],
-    affinity: { score: 40, reason: 'fun to talk to', history: [] },
-  };
-  const config = fakeConfig({ features: { relationships: false } });
-  const request = buildRequest(
-    baseInput({ config, history: [trigger], trigger, triggerKind: 'mention', interlocutor })
-  );
-  const user = contentText(request.messages[1].content);
-  assert.ok(!user.includes('attitude:'));
-});
-
 // --- <senses> ------------------------------------------------------------
 
 /** The `<senses>` bodies of a request: the stable part's (`stable`) and the tail's (`turn`), '' when absent. */
@@ -2281,7 +2216,7 @@ function sensesOf(request) {
 }
 
 test('buildRequest: the stable <senses> lines lead the stable part, the per-turn ones sit right after <now>', () => {
-  const request = buildRequest(baseInput({ drawQuota: { spent: false, userSpent: false } }));
+  const request = buildRequest(baseInput({ drawOn: true }));
   const [stable, tail] = request.messages[1].content;
   assert.equal(stable.cacheSegment, 'stable');
   assert.ok(stable.text.startsWith('<senses>\n'), stable.text);
@@ -2293,40 +2228,20 @@ test('buildRequest: the stable <senses> lines lead the stable part, the per-turn
   assert.equal(sensesHalves(request).turn, labels.senses.draw);
 });
 
-test('buildRequest: mediaDescriptions off -> the blind forms, never a first-hand imageSee line', () => {
-  const config = fakeConfig({ features: { mediaDescriptions: false } });
-  const request = buildRequest(baseInput({ config }));
-  const senses = sensesOf(request);
-  assert.ok(!senses.includes(labels.senses.imageSee));
-  assert.ok(senses.includes(labels.senses.imageBlind));
-  assert.ok(!senses.includes(labels.senses.imageDescribed));
-  assert.ok(senses.includes(labels.senses.gifBlind));
-  assert.ok(senses.includes(labels.senses.videoBlind));
-  assert.ok(senses.includes(labels.senses.voice));
-  assert.ok(senses.includes(labels.senses.links));
-  assert.ok(senses.includes(labels.senses.files));
-});
-
-test('buildRequest: mediaDescriptions on -> described forms replace the blind ones', () => {
-  // videoDescriptions off pins the still-frame video line (with it on, the
-  // video line becomes videoWatch -- see the video-watching tests below).
-  const config = fakeConfig({ features: { mediaDescriptions: true, videoDescriptions: false } });
-  const request = buildRequest(baseInput({ config }));
-  const senses = sensesOf(request);
+test('buildRequest: the senses carry the described forms of pictures, GIFs and videos', () => {
+  // PR 7d: the descriptions are code, so there are no blind forms and the video line is videoWatch.
+  const senses = sensesOf(buildRequest(baseInput()));
   assert.ok(senses.includes(labels.senses.imageDescribed));
   assert.ok(senses.includes(labels.senses.gifDescribed));
-  assert.ok(senses.includes(labels.senses.videoDescribed));
-  assert.ok(!senses.includes(labels.senses.imageBlind));
-  assert.ok(!senses.includes(labels.senses.gifBlind));
-  assert.ok(!senses.includes(labels.senses.videoBlind));
+  assert.ok(senses.includes(labels.senses.videoWatch));
+  assert.ok(!senses.includes(labels.senses.videoDescribed));
 });
 
 // --- <senses>: GIF watching -------------------------------------------------------
 
 /** The GIF line of a request's <senses> block under `config` and `prompts` overrides. */
-function gifSenses({ features = {}, media, prompts = {}, labelsOverride } = {}) {
-  const config = fakeConfig({ features: { mediaDescriptions: true, ...features } });
-  config.media = media ?? { gif: { watch: true } };
+function gifSenses({ prompts = {}, labelsOverride } = {}) {
+  const config = fakeConfig();
   const promptSet = fakePrompts({ ...(labelsOverride ? { labels: labelsOverride } : {}), ...prompts });
   return sensesOf(buildRequest(baseInput({ config, prompts: promptSet }))).split('\n');
 }
@@ -2340,32 +2255,16 @@ test('buildRequest: GIFs watched (video vision on, a watch prompt) -> senses.gif
     const lines = gifSenses({ prompts });
     assert.ok(lines.includes(labels.senses.gifWatched), JSON.stringify(Object.keys(prompts)));
     assert.ok(!lines.includes(labels.senses.gifDescribed));
-    assert.ok(!lines.includes(labels.senses.gifBlind));
   }
 });
 
 test('buildRequest: GIFs not watched -> senses.gifDescribed', () => {
-  const states = [
-    { prompts: {} },
-    { prompts: { 'describe-video': '' } },
-    { prompts: { 'describe-video': 'V' }, media: { gif: { watch: false } } },
-    { prompts: { 'describe-video': 'V' }, features: { videoDescriptions: false } },
-  ];
+  const states = [{ prompts: {} }, { prompts: { 'describe-video': '' } }];
   for (const state of states) {
     const lines = gifSenses(state);
     assert.ok(lines.includes(labels.senses.gifDescribed), JSON.stringify(state));
     assert.ok(!lines.includes(labels.senses.gifWatched));
   }
-});
-
-test('buildRequest: mediaDescriptions off -> senses.gifBlind even with GIF watching configured', () => {
-  const lines = gifSenses({
-    features: { mediaDescriptions: false },
-    prompts: { 'describe-video': 'V', 'describe-gif': 'G' },
-  });
-  assert.ok(lines.includes(labels.senses.gifBlind));
-  assert.ok(!lines.includes(labels.senses.gifWatched));
-  assert.ok(!lines.includes(labels.senses.gifDescribed));
 });
 
 test('buildRequest: an older labels.json without senses.gifWatched keeps senses.gifDescribed while GIFs are watched', () => {
@@ -2377,38 +2276,17 @@ test('buildRequest: an older labels.json without senses.gifWatched keeps senses.
 
 // --- <senses>: video watching ---------------------------------------------------
 
-test('buildRequest: mediaDescriptions and videoDescriptions on -> videoWatch and linksWatch', () => {
-  const config = fakeConfig({ features: { mediaDescriptions: true } });
-  const senses = sensesOf(buildRequest(baseInput({ config })));
+test('buildRequest: the senses carry videoWatch and linksWatch', () => {
+  const senses = sensesOf(buildRequest(baseInput()));
   assert.ok(senses.includes(labels.senses.videoWatch));
   assert.ok(senses.includes(labels.senses.linksWatch));
   assert.ok(!senses.includes(labels.senses.videoDescribed));
-  assert.ok(!senses.includes(labels.senses.videoBlind));
   assert.ok(!senses.split('\n').includes(labels.senses.links));
-});
-
-test('buildRequest: videoDescriptions false -> the still-frame video line and the plain links line', () => {
-  const config = fakeConfig({ features: { mediaDescriptions: true, videoDescriptions: false } });
-  const senses = sensesOf(buildRequest(baseInput({ config })));
-  assert.ok(senses.includes(labels.senses.videoDescribed));
-  assert.ok(senses.split('\n').includes(labels.senses.links));
-  assert.ok(!senses.includes(labels.senses.videoWatch));
-  assert.ok(!senses.includes(labels.senses.linksWatch));
-});
-
-test('buildRequest: mediaDescriptions off -> no video watching even with videoDescriptions on', () => {
-  const config = fakeConfig({ features: { mediaDescriptions: false, videoDescriptions: true } });
-  const senses = sensesOf(buildRequest(baseInput({ config })));
-  assert.ok(senses.includes(labels.senses.videoBlind));
-  assert.ok(senses.split('\n').includes(labels.senses.links));
-  assert.ok(!senses.includes(labels.senses.videoWatch));
-  assert.ok(!senses.includes(labels.senses.linksWatch));
 });
 
 test('buildRequest: an older labels set without videoWatch/linksWatch falls back to videoDescribed/links', () => {
   const oldLabels = { ...labels, senses: { ...labels.senses, videoWatch: undefined, linksWatch: undefined } };
-  const config = fakeConfig({ features: { mediaDescriptions: true } });
-  const senses = sensesOf(buildRequest(baseInput({ config, prompts: fakePrompts({ labels: oldLabels }) })));
+  const senses = sensesOf(buildRequest(baseInput({ prompts: fakePrompts({ labels: oldLabels }) })));
   assert.ok(senses.includes(labels.senses.videoDescribed));
   assert.ok(senses.split('\n').includes(labels.senses.links));
 });
@@ -2422,31 +2300,19 @@ test('buildRequest: <senses> is omitted entirely when labels has no senses secti
 
 // --- <senses>: stickers/Lottie -----------------------------------------------
 
-test('buildRequest: mediaDescriptions off -> stickerBlind + lottie, never a first-hand stickerSee line', () => {
-  const config = fakeConfig({ features: { mediaDescriptions: false } });
-  const request = buildRequest(baseInput({ config }));
-  const senses = sensesOf(request);
-  assert.ok(!senses.includes(labels.senses.stickerSee));
-  assert.ok(senses.includes(labels.senses.stickerBlind));
-  assert.ok(!senses.includes(labels.senses.stickerDescribed));
-  assert.ok(senses.includes(labels.senses.lottie));
-});
-
-test('buildRequest: mediaDescriptions on -> stickerDescribed replaces stickerBlind, lottie still shown', () => {
-  const config = fakeConfig({ features: { mediaDescriptions: true } });
-  const request = buildRequest(baseInput({ config }));
+test('buildRequest: the senses carry stickerDescribed and lottie', () => {
+  const request = buildRequest(baseInput());
   const senses = sensesOf(request);
   assert.ok(senses.includes(labels.senses.stickerDescribed));
-  assert.ok(!senses.includes(labels.senses.stickerBlind));
   assert.ok(senses.includes(labels.senses.lottie));
 });
 
 test('buildRequest: an older labels.json with no sticker senses keys omits them (and lottie) without breaking the rest', () => {
-  const oldLabels = { ...labels, senses: { ...labels.senses, stickerDescribed: undefined, stickerBlind: undefined } };
+  const oldLabels = { ...labels, senses: { ...labels.senses, stickerDescribed: undefined } };
   const request = buildRequest(baseInput({ prompts: fakePrompts({ labels: oldLabels }) }));
   const senses = sensesOf(request);
   assert.ok(!senses.includes(labels.senses.lottie));
-  assert.ok(senses.includes(labels.senses.imageBlind));
+  assert.ok(senses.includes(labels.senses.imageDescribed));
 });
 
 // --- <lore> ------------------------------------------------------------------
@@ -2498,13 +2364,6 @@ test('buildRequest: an "always" lore entry appears even without a textual match'
     baseInput({ history, loreEntries: [loreEntry({ always: true, keys: ['never-said'] })] })
   );
   assert.ok(contentText(request.messages[1].content).includes('<lore>'));
-});
-
-test('buildRequest: features.lore=false never renders <lore>, even with a match', () => {
-  const history = [makeMessage(1, NOW - MIN, { content: 'the flood happened' })];
-  const config = fakeConfig({ features: { lore: false } });
-  const request = buildRequest(baseInput({ history, config, loreEntries: [loreEntry()] }));
-  assert.ok(!contentText(request.messages[1].content).includes('<lore>'));
 });
 
 test('buildRequest: <lore> is omitted when labels.lore.entry is missing (older labels.json)', () => {
@@ -2985,7 +2844,7 @@ test('buildRequest: peopleShown names the members whose profile the budget kept,
   );
 });
 
-// --- <people>: episodes of the members asked about (context.askedAboutEpisodes) -----
+// --- <people>: episodes of the members asked about (context.askedAboutEpisodes, the constant 3) -----
 
 /** Five moments of one member: heaviest-then-newest order is ε5, ε4, ε3, ε2, ε1. */
 function askedEpisodes() {
@@ -3013,7 +2872,7 @@ function askedAboutScene({ context = {}, zoe = {}, ...overrides } = {}) {
   return { request, people: bodyOf(userText(request), 'people') ?? '' };
 }
 
-test('people: an asked-about member renders up to askedAboutEpisodes episodes, heaviest first', () => {
+test('people: an asked-about member renders up to three episodes, heaviest first', () => {
   const { people } = askedAboutScene();
   const lines = people.split('\n');
   assert.equal(lines[0], `## Zoé (@${handleOf('z1')})`);
@@ -3032,19 +2891,6 @@ test('people: an asked-about member renders up to askedAboutEpisodes episodes, h
   );
   assert.equal(lines[5], 'character: rêveuse');
   assert.ok(!people.includes('ε2') && !people.includes('ε1'), 'only the three heaviest of five are shown');
-
-  const two = askedAboutScene({ context: { askedAboutEpisodes: 2 } }).people;
-  assert.ok(two.includes('ε5') && two.includes('ε4') && !two.includes('ε3'));
-});
-
-test('people: askedAboutEpisodes 0 renders none', () => {
-  for (const askedAboutEpisodes of [0, -1, 1.5, '3']) {
-    const { people } = askedAboutScene({ context: { askedAboutEpisodes } });
-    assert.ok(people.includes('## Zoé') && people.includes('character: rêveuse'), 'the profile itself stays');
-    assert.ok(!people.includes(labels.profile.episodes) && !people.includes('στιγμή'), String(askedAboutEpisodes));
-  }
-  const off = askedAboutScene({ config: fakeConfig({ features: { episodes: false } }) }).people;
-  assert.ok(off.includes('## Zoé') && !off.includes('στιγμή'), 'features.episodes false renders none either');
 });
 
 test('people: a compact participant still renders no episodes', () => {
@@ -3077,11 +2923,9 @@ test('people: the interlocutor still renders every episode within caps.interlocu
       ),
       'people'
     );
-  const shown = own({ askedAboutEpisodes: 1 });
+  const shown = own({});
   for (const what of ['ε1', 'ε2', 'ε3', 'ε4', 'ε5'])
     assert.ok(shown.includes(what), `${what}: askedAboutEpisodes never caps the interlocutor`);
-  assert.equal(own({ askedAboutEpisodes: 0 }), shown);
-  assert.equal(own({}), shown);
 
   // A tight caps.interlocutor still drops the interlocutor's lightest episodes first, as before.
   const cost = (text) => estimateTokens(text) + 2;
@@ -3097,35 +2941,10 @@ test('people: the interlocutor still renders every episode within caps.interlocu
   ];
   const cap = cost(rest) + cost(labels.profile.episodes) + heavy.reduce((sum, line) => sum + cost(line), 0);
   const tight = own({
-    askedAboutEpisodes: 3,
     caps: { interlocutor: cap, aboutChat: 2500, people: 4000, neighbors: 3000, server: 2500, lore: 1500 },
   });
   assert.ok(tight.includes('ε5') && tight.includes('ε4'));
   assert.ok(!tight.includes('ε3') && !tight.includes('ε2') && !tight.includes('ε1'));
-});
-
-test('people: a request whose asked-about members have no episodes is the same whatever askedAboutEpisodes says', () => {
-  // The interlocutor and a compact participant have episodes, the member asked about has none.
-  const carl = { id: 'p2', names: ['Carl'], character: 'calm', episodes: askedEpisodes() };
-  const interlocutor = { id: 'u1', names: ['Ana'], character: 'vive', episodes: askedEpisodes() };
-  const scene = (askedAboutEpisodes) =>
-    askedAboutScene({
-      context: { askedAboutEpisodes },
-      zoe: { episodes: [] },
-      history: [
-        makeMessage(2, NOW - 2 * MIN, { authorId: 'p2', authorName: 'Carl' }),
-        makeMessage(1, NOW - MIN, { authorId: 'u1', authorName: 'Ana', content: 'τι έκανε η Zoé χθες;' }),
-      ],
-      otherProfiles: [carl],
-      interlocutor,
-    }).request;
-  const before = scene(0);
-  assert.ok(allPeopleOf(userText(before)).includes('## Zoé'));
-  for (const value of [3, 10]) {
-    const after = scene(value);
-    assert.deepEqual(after.messages, before.messages, String(value));
-    assert.deepEqual(after.stats, before.stats, String(value));
-  }
 });
 
 test('people: an asked-about member known only by episodes still shows them', () => {
@@ -3139,8 +2958,6 @@ test('people: an asked-about member known only by episodes still shows them', ()
     'the heading, the episodes heading and three episodes, nothing claiming she is unknown'
   );
   assert.ok(!people.includes(labels.profile.unknown));
-  const none = askedAboutScene({ zoe: { character: undefined }, context: { askedAboutEpisodes: 0 } }).people;
-  assert.equal(none, '', 'no episodes shown and nothing else known: no profile, as before');
 });
 
 test('people: under a tight caps.people the lightest episodes of an asked-about member go first and the member stays', () => {
@@ -3179,19 +2996,18 @@ test('people: near the request limit an asked-about member keeps her place and l
     makeMessage(2, NOW - 2 * MIN, { authorId: 'p2', authorName: 'Carl', content: 'καλημέρα' }),
     makeMessage(1, NOW - MIN, { authorId: 'u1', authorName: 'Ana', content: 'τι έκανε η Zoé χθες;' }),
   ];
-  const scene = (llm, askedAboutEpisodes) =>
+  const scene = (llm) =>
     askedAboutScene({
-      config: fakeConfig({ context: { askedAboutEpisodes }, llm }),
+      config: fakeConfig({ llm }),
       history,
       trigger: history[1],
       otherProfiles: [carl],
     });
   // What the sections ahead of <people> take: nothing after it is offered in this scene.
-  const loose = scene({}, 0).request.stats;
+  const loose = scene({}).request.stats;
   const ahead = loose.used - peopleSide(loose);
-  // A limit leaving <people> exactly `room` tokens (safetyMargin 1, no picture, 60 for the tags).
-  const tight = (room, askedAboutEpisodes) =>
-    scene({ maxRequestTokens: ahead + room + 60, safetyMargin: 1 }, askedAboutEpisodes);
+  // A limit leaving <people> exactly `room` tokens (no picture, 60 for the tags).
+  const tight = (room) => scene({ maxRequestTokens: exactly(ahead + room + 60) });
 
   const rest = renderProfile({ id: 'z1', names: ['Zoé'], character: 'rêveuse' }, labels, {
     relationships: true,
@@ -3205,9 +3021,8 @@ test('people: near the request limit an asked-about member keeps her place and l
   });
   const room = itemCost(rest, { id: 'z1', names: ['Zoé'] }) + cost(labels.profile.episodes) + cost(heaviest);
   assert.ok(room < fakeConfig().context.caps.people, 'the request limit binds, not caps.people');
-  assert.ok(tight(room, 0).people.startsWith(rest), 'without episodes she is shown');
 
-  const { request, people } = tight(room, 3);
+  const { request, people } = tight(room);
   assert.ok(
     people.startsWith(`## Zoé (@${handleOf('z1')})\n`),
     `the member asked about is never lost to her episodes: ${people}`
@@ -3216,7 +3031,7 @@ test('people: near the request limit an asked-about member keeps her place and l
   assert.ok(request.stats.used <= request.stats.limit);
 
   // Room for her profile and the episodes heading, none for an episode: no heading without an episode under it.
-  const headingOnly = tight(itemCost(rest, { id: 'z1', names: ['Zoé'] }) + cost(labels.profile.episodes), 3).people;
+  const headingOnly = tight(itemCost(rest, { id: 'z1', names: ['Zoé'] }) + cost(labels.profile.episodes)).people;
   assert.equal(headingOnly.split('\n\n')[0], rest);
   assert.ok(!headingOnly.includes(labels.profile.episodes));
 });
@@ -3309,20 +3124,15 @@ test("people: the first asked-about member's episodes never cost a later member 
     authorName: 'Ana',
     content: 'τι έκαναν η Zoé και ο Maxime χθες;',
   });
-  const scene = (askedAboutEpisodes) =>
-    buildRequest(
-      baseInput({
-        config: fakeConfig({ context: { caps, askedAboutEpisodes } }),
-        history: [trigger],
-        trigger,
-        triggerKind: 'mention',
-        candidateProfiles: [zoe, maxime],
-      })
-    );
-  const before = scene(0);
-  assert.deepEqual([before.stats.people.kept, before.stats.people.dropped], [2, 0], 'without episodes both are shown');
-
-  const request = scene(3);
+  const request = buildRequest(
+    baseInput({
+      config: fakeConfig({ context: { caps } }),
+      history: [trigger],
+      trigger,
+      triggerKind: 'mention',
+      candidateProfiles: [zoe, maxime],
+    })
+  );
   const body = bodyOf(userText(request), 'people');
   assert.equal(body, `${zoeWith(2)}\n\n${bareMaxime}`, 'Zoé loses her lightest episode, Maxime keeps his place');
   assert.deepEqual([request.stats.people.kept, request.stats.people.dropped], [2, 0]);
@@ -3345,10 +3155,10 @@ test('people: next to a pulled block near the request limit an asked-about membe
       content: `σελίδα ${i}: une longue page du journal, écrite avec soin`,
     })
   );
-  const scene = (llm, askedAboutEpisodes) =>
+  const scene = (llm) =>
     buildRequest(
       baseInput({
-        config: fakeConfig({ context: { askedAboutEpisodes }, llm }),
+        config: fakeConfig({ llm }),
         history: [trigger],
         trigger,
         triggerKind: 'mention',
@@ -3357,7 +3167,7 @@ test('people: next to a pulled block near the request limit an asked-about membe
       })
     );
   // What the sections ahead of <people> take, the pulled block included: nothing after it is offered.
-  const loose = scene({}, 0);
+  const loose = scene({});
   assert.equal(loose.stats.pulled.kept, 1);
   const ahead = loose.stats.used - peopleSide(loose.stats);
   assert.ok(
@@ -3365,8 +3175,8 @@ test('people: next to a pulled block near the request limit an asked-about membe
     'the block is larger than the two episodes left out'
   );
 
-  // A limit leaving <people> exactly her profile with her heaviest episode (safetyMargin 1, no picture, 60 for the tags).
-  const request = scene({ maxRequestTokens: ahead + itemCost(zoeWith(1), zoe) + 60, safetyMargin: 1 }, 3);
+  // A limit leaving <people> exactly her profile with her heaviest episode (no picture, 60 for the tags).
+  const request = scene({ maxRequestTokens: exactly(ahead + itemCost(zoeWith(1), zoe) + 60) });
   assert.deepEqual(
     [request.stats.pulled.kept, request.stats.pulled.linesCut],
     [1, 0],
@@ -3377,14 +3187,14 @@ test('people: next to a pulled block near the request limit an asked-about membe
   assert.ok(request.stats.used <= request.stats.limit);
 });
 
-test("people: a private chat shows an asked-about member's episodes like the server; privateLikeServer off hides them", () => {
+test("people: a private chat shows an asked-about member's episodes like the server; private.likeServer off hides them", () => {
   const zoe = { id: 'z1', names: ['Zoé'], character: 'rêveuse', episodes: askedEpisodes() };
   const history = [makeMessage(1, NOW - MIN, { authorId: 'u1', authorName: 'Alice', content: 'τι έκανε η Zoé χθες;' })];
   const shown = allPeopleOf(
     userText(buildRequest(privateScene({ history, trigger: history[0], candidateProfiles: [zoe] })))
   );
   assert.ok(shown.includes('## Zoé') && shown.includes('ε5'), 'a missing switch counts as on: the episodes show');
-  const off = fakeConfig({ features: { privateLikeServer: false } });
+  const off = fakeConfig({ private: { likeServer: false } });
   const user = userText(
     buildRequest(privateScene({ history, trigger: history[0], candidateProfiles: [zoe], config: off }))
   );
@@ -3413,37 +3223,10 @@ test('people: an author of a pulled line asked about through the pulled block sh
   assert.ok(people.includes('## Zoé') && people.includes('ε5') && !people.includes('ε2'));
 });
 
-// --- <senses>: the second look on a question (videoRewatch) --------------------------
-
-test('buildRequest: video watching and videoRewatch on -> the videoRewatch line right after the video line', () => {
-  const config = fakeConfig({ features: { mediaDescriptions: true } });
-  const lines = sensesOf(buildRequest(baseInput({ config }))).split('\n');
-  const at = lines.indexOf(labels.senses.videoWatch);
-  assert.ok(at !== -1);
-  assert.equal(lines[at + 1], labels.senses.videoRewatch);
-});
-
-test('buildRequest: videoRewatch false, video watching off, or no videoRewatch label -> no videoRewatch line', () => {
-  const cases = [
-    { features: { mediaDescriptions: true, videoRewatch: false } },
-    { features: { mediaDescriptions: true, videoDescriptions: false } },
-    { features: { mediaDescriptions: false } },
-  ];
-  for (const overrides of cases) {
-    const senses = sensesOf(buildRequest(baseInput({ config: fakeConfig(overrides) })));
-    assert.ok(!senses.includes(labels.senses.videoRewatch), JSON.stringify(overrides));
-  }
-  const oldLabels = { ...labels, senses: { ...labels.senses, videoRewatch: undefined } };
-  const config = fakeConfig({ features: { mediaDescriptions: true } });
-  const senses = sensesOf(buildRequest(baseInput({ config, prompts: fakePrompts({ labels: oldLabels }) })));
-  assert.ok(senses.includes(labels.senses.videoWatch));
-  assert.ok(!senses.includes(labels.senses.videoRewatch));
-});
-
 // --- the web lookup: <lookup>, read links, senses -----------------------------------
 
-function webConfig(features = {}, web = {}) {
-  const config = fakeConfig({ features: { webLookup: true, ...features } });
+function webConfig(web = {}) {
+  const config = fakeConfig();
   config.web = { links: { enabled: true, ...web.links }, search: { enabled: true, ...web.search } };
   return config;
 }
@@ -3626,127 +3409,100 @@ test('buildRequest: reads reach the <chat> transcript as linkRead', () => {
   assert.ok(contentText(request.messages[1].content).includes('[link: example.org — Crêpes] [page read: trois œufs]'));
 });
 
-test('buildRequest: webLookup on with links -> the links line stays and linksRead follows it; a search key -> the search line after that', () => {
+test('buildRequest: the links line stays and linksRead follows it; a search key and the grant -> the search line after that', () => {
   const senses = sensesOf(
-    buildRequest(baseInput({ config: webConfig({ mediaDescriptions: true }), searchAvailable: true }))
+    buildRequest(baseInput({ config: webConfig(), searchAvailable: true, toolsGranted: ['web.search'] }))
   ).split('\n');
   const at = senses.indexOf(labels.senses.linksWatch);
   assert.ok(at !== -1, 'the links line is the same as without the lookup');
   assert.equal(senses[at + 1], labels.senses.linksRead);
-  assert.equal(senses[at + 2], labels.senses.search);
+  assert.equal(senses[at + 2], labels.senses.searchTool);
   assert.equal(senses[at + 3], labels.senses.files);
-
-  const plain = sensesOf(buildRequest(baseInput({ config: webConfig(), searchAvailable: true }))).split('\n');
-  const plainAt = plain.indexOf(labels.senses.links);
-  assert.ok(plainAt !== -1, 'video watching off -> the plain links line');
-  assert.equal(plain[plainAt + 1], labels.senses.linksRead);
 });
 
-test('buildRequest: the search line needs searchAvailable -- no key, or searchAvailable omitted, shows no search line', () => {
-  for (const searchAvailable of [false, undefined]) {
-    const senses = sensesOf(buildRequest(baseInput({ config: webConfig(), searchAvailable }))).split('\n');
-    assert.ok(!senses.includes(labels.senses.search));
+test('buildRequest: the search line needs searchAvailable and the grant -- no key, no grant or searchAvailable omitted shows no search line', () => {
+  for (const [searchAvailable, toolsGranted] of [
+    [false, ['web.search']],
+    [undefined, ['web.search']],
+    [true, []],
+  ]) {
+    const senses = sensesOf(buildRequest(baseInput({ config: webConfig(), searchAvailable, toolsGranted }))).split(
+      '\n'
+    );
+    assert.ok(!senses.includes(labels.senses.searchTool));
     assert.ok(senses.includes(labels.senses.linksRead), 'reading links needs no search key');
   }
 });
 
-test('buildRequest: links disabled -> no linksRead; search disabled -> no search line even with a key', () => {
-  const noLinks = sensesOf(
+test('buildRequest: search disabled -> no search line even with a key and the grant', () => {
+  const noSearch = sensesOf(
     buildRequest(
       baseInput({
-        config: webConfig({ mediaDescriptions: true }, { links: { enabled: false } }),
+        config: webConfig({ search: { enabled: false } }),
         searchAvailable: true,
+        toolsGranted: ['web.search'],
       })
     )
-  ).split('\n');
-  assert.ok(noLinks.includes(labels.senses.linksWatch));
-  assert.ok(!noLinks.includes(labels.senses.linksRead));
-  assert.ok(noLinks.includes(labels.senses.search));
-  const noSearch = sensesOf(
-    buildRequest(baseInput({ config: webConfig({}, { search: { enabled: false } }), searchAvailable: true }))
   ).split('\n');
   assert.ok(noSearch.includes(labels.senses.linksRead));
-  assert.ok(!noSearch.includes(labels.senses.search));
+  assert.ok(!noSearch.includes(labels.senses.searchTool));
 });
 
-test('buildRequest: webLookup off or missing -> no linksRead and no search line, even with a key', () => {
-  for (const features of [{ webLookup: false }, {}]) {
-    const config = fakeConfig({ features });
-    config.web = { links: { enabled: true }, search: { enabled: true } };
-    const senses = sensesOf(buildRequest(baseInput({ config, searchAvailable: true }))).split('\n');
-    assert.ok(senses.includes(labels.senses.links));
-    assert.ok(!senses.includes(labels.senses.linksRead));
-    assert.ok(!senses.includes(labels.senses.search));
-  }
-});
-
-test('buildRequest: an older labels set without linksRead/search keeps only the links line', () => {
-  const older = { ...labels, senses: { ...labels.senses, linksRead: undefined, search: undefined } };
-  const withLabels = sensesOf(
-    buildRequest(baseInput({ config: webConfig({ mediaDescriptions: true }), searchAvailable: true }))
-  ).split('\n');
-  const senses = sensesOf(
-    buildRequest(
-      baseInput({
-        config: webConfig({ mediaDescriptions: true }),
-        searchAvailable: true,
-        prompts: fakePrompts({ labels: older }),
-      })
-    )
-  ).split('\n');
+test('buildRequest: an older labels set without linksRead/searchTool keeps only the links line', () => {
+  const older = { ...labels, senses: { ...labels.senses, linksRead: undefined, searchTool: undefined } };
+  const scene = { config: webConfig(), searchAvailable: true, toolsGranted: ['web.search'] };
+  const withLabels = sensesOf(buildRequest(baseInput(scene))).split('\n');
+  const senses = sensesOf(buildRequest(baseInput({ ...scene, prompts: fakePrompts({ labels: older }) }))).split('\n');
   assert.ok(senses.includes(labels.senses.linksWatch));
   assert.equal(senses.length, withLabels.length - 2);
 });
 
-test('buildRequest: recallAvailable true -> the recall line leads the per-turn senses, before the drawing line, whatever the web lookup does', () => {
+test('buildRequest: recallAvailable true and the grant -> the recall line leads the per-turn senses, before the drawing line', () => {
   const request = buildRequest(
     baseInput({
-      config: webConfig({ mediaDescriptions: true }),
+      config: webConfig(),
       searchAvailable: true,
       recallAvailable: true,
-      drawQuota: { spent: false, userSpent: false },
+      drawOn: true,
+      toolsGranted: ['web.search', 'memory.search'],
     })
   );
   const { stable, turn } = sensesHalves(request);
   const stableLines = stable.split('\n');
-  const at = stableLines.indexOf(labels.senses.search);
+  const at = stableLines.indexOf(labels.senses.searchTool);
   assert.ok(at !== -1);
   assert.equal(stableLines[at + 1], labels.senses.files, 'the search line stays in the cached half');
-  assert.deepEqual(turn.split('\n'), [labels.senses.recall, labels.senses.draw]);
-
-  // Its own switch: no web lookup at all, the recall line is still there.
-  const noWeb = sensesHalves(
-    buildRequest(baseInput({ config: fakeConfig({ features: { webLookup: false } }), recallAvailable: true }))
-  );
-  assert.ok(!noWeb.stable.split('\n').includes(labels.senses.search));
-  assert.equal(noWeb.turn, labels.senses.recall);
+  assert.deepEqual(turn.split('\n'), [labels.senses.recallTool, labels.senses.draw]);
 });
 
-test('buildRequest: no recall line unless recallAvailable is true -- false, omitted or null', () => {
-  for (const recallAvailable of [false, undefined, null]) {
+test('buildRequest: no recall line unless recallAvailable is true and the grant is there', () => {
+  for (const [recallAvailable, toolsGranted] of [
+    [false, ['memory.search']],
+    [undefined, ['memory.search']],
+    [null, ['memory.search']],
+    [true, []],
+  ]) {
     const senses = sensesOf(
-      buildRequest(baseInput({ config: webConfig(), searchAvailable: true, recallAvailable }))
+      buildRequest(baseInput({ config: webConfig(), searchAvailable: true, recallAvailable, toolsGranted }))
     ).split('\n');
-    assert.ok(!senses.includes(labels.senses.recall), String(recallAvailable));
+    assert.ok(!senses.includes(labels.senses.recallTool), String(recallAvailable));
   }
 });
 
 test('buildRequest: a private chat shows the recall line when the turn says recall is available, none otherwise', () => {
-  const on = sensesOf(buildRequest(privateScene({ recallAvailable: true }))).split('\n');
-  assert.ok(on.includes(labels.senses.recall));
-  const off = sensesOf(buildRequest(privateScene({ recallAvailable: false }))).split('\n');
-  assert.ok(!off.includes(labels.senses.recall));
+  const toolsGranted = ['memory.search'];
+  const on = sensesOf(buildRequest(privateScene({ recallAvailable: true, toolsGranted }))).split('\n');
+  assert.ok(on.includes(labels.senses.recallTool));
+  const off = sensesOf(buildRequest(privateScene({ recallAvailable: false, toolsGranted }))).split('\n');
+  assert.ok(!off.includes(labels.senses.recallTool));
 });
 
-test('buildRequest: an older labels set without senses.recall renders no recall line and no gap', () => {
-  const { recall: _recall, ...olderSenses } = labels.senses;
+test('buildRequest: an older labels set without senses.recallTool renders no recall line and no gap', () => {
+  const { recallTool: _recall, ...olderSenses } = labels.senses;
   const older = fakePrompts({ labels: { ...labels, senses: olderSenses } });
-  const withLabel = sensesOf(
-    buildRequest(baseInput({ config: webConfig(), searchAvailable: true, recallAvailable: true }))
-  ).split('\n');
-  const senses = sensesOf(
-    buildRequest(baseInput({ config: webConfig(), searchAvailable: true, recallAvailable: true, prompts: older }))
-  ).split('\n');
+  const scene = { config: webConfig(), searchAvailable: true, recallAvailable: true, toolsGranted: ['memory.search'] };
+  const withLabel = sensesOf(buildRequest(baseInput(scene))).split('\n');
+  const senses = sensesOf(buildRequest(baseInput({ ...scene, prompts: older }))).split('\n');
   assert.equal(senses.length, withLabel.length - 1);
   assert.ok(senses.every((line) => line.trim() !== ''));
 });
@@ -3782,8 +3538,7 @@ test('buildRequest: learned renders after the injokes, ranked, capped, with teac
       learnedItem('l2', 'pizza with <@322222222222222222> on Fridays', 3, '2026-09-10T00:00:00.000Z'),
     ],
   };
-  const config = fakeConfig({ memory: { maxLearned: 4, learnedHalfLifeDays: 720, confirmAfter: 2 } });
-  const lines = aboutChatOf(buildRequest(baseInput({ config, guildMemory, nameOf: learnedNameOf }))).split('\n');
+  const lines = aboutChatOf(buildRequest(baseInput({ guildMemory, nameOf: learnedNameOf }))).split('\n');
   assert.deepEqual(lines, [
     fill(labels.aboutChat.patterns, { text: 'short lines' }),
     fill(labels.aboutChat.injokes, { text: 'the lamp' }),
@@ -3794,27 +3549,28 @@ test('buildRequest: learned renders after the injokes, ranked, capped, with teac
         fill(labels.aboutChat.learnedItemNoFrom, { text: 'café closes at nine' }),
         fill(labels.aboutChat.learnedItem, { text: 'Friday is τυρόπιτα day', who: 'Björn' }) +
           labels.aboutChat.unsureMark,
+        fill(labels.aboutChat.learnedItemNoFrom, { text: 'forgotten one' }) + labels.aboutChat.unsureMark,
       ].join('; '),
     }),
   ]);
 });
 
-test('buildRequest: memory.learnedHalfLifeDays decides whether an old heavy fact outranks a recent light one', () => {
+test('buildRequest: twenty learned facts render, the lightest of twenty-two are left out', () => {
+  // PR 7d: memory.maxLearned is the constant 20 (the production value).
+  const learned = Array.from({ length: 22 }, (_, i) =>
+    learnedItem(`l${i}`, `fact number ${i}`, 30 - i, '2026-09-10T00:00:00.000Z')
+  );
+  const text = aboutChatOf(buildRequest(baseInput({ guildMemory: { learned } })));
+  assert.equal(text.split('; ').length, 20);
+  assert.ok(text.includes('fact number 19') && !text.includes('fact number 20'));
+});
+
+test('buildRequest: a recent light fact outranks an old heavy one under the learned half-life', () => {
+  // PR 7d: memory.learnedHalfLifeDays is the constant 720, so six years age a weight of 3 below a fresh 1.
   const oldHeavy = learnedItem('old', 'ancient heavy fact', 3, '2020-01-01T00:00:00.000Z');
   const recentLight = learnedItem('new', 'recent light fact', 1, '2026-09-01T00:00:00.000Z');
-  const rendered = (learnedHalfLifeDays) =>
-    aboutChatOf(
-      buildRequest(
-        baseInput({
-          config: fakeConfig({ memory: { learnedHalfLifeDays } }),
-          guildMemory: { learned: [oldHeavy, recentLight] },
-        })
-      )
-    );
-  const decayed = rendered(720);
-  assert.ok(decayed.indexOf('recent light fact') < decayed.indexOf('ancient heavy fact'));
-  const noDecay = rendered(1e9);
-  assert.ok(noDecay.indexOf('ancient heavy fact') < noDecay.indexOf('recent light fact'));
+  const rendered = aboutChatOf(buildRequest(baseInput({ guildMemory: { learned: [oldHeavy, recentLight] } })));
+  assert.ok(rendered.indexOf('recent light fact') < rendered.indexOf('ancient heavy fact'));
 });
 
 test('buildRequest: learned without nameOf falls back to the no-teacher form', () => {
@@ -3914,50 +3670,16 @@ test('buildDrawPrompt: includes the rendered appearance for a self picture', () 
   assert.ok(text.endsWith('waving at the café'));
 });
 
-const DRAW_OPEN = { spent: false, userSpent: false };
-
-test('renderSenses: draw line shows when the feature is on', () => {
-  const config = fakeConfig({ features: { imageGeneration: true } });
-  const { stable, turn } = sensesHalves(buildRequest(baseInput({ config, drawQuota: DRAW_OPEN })));
-  const senses = [...stable.split('\n'), ...turn.split('\n')];
+test('renderSenses: draw line shows when she can draw', () => {
+  const { stable, turn } = sensesHalves(buildRequest(baseInput({ drawOn: true })));
   assert.ok(turn.split('\n').includes(labels.senses.draw), 'the draw line is a per-turn line, in the tail');
   assert.ok(!stable.includes(labels.senses.draw));
   assert.ok(stable.split('\n').includes(labels.senses.files));
-  assert.ok(!senses.includes(labels.senses.drawSpent));
-  assert.ok(!senses.includes(labels.senses.drawSpentUser));
 });
 
-test('renderSenses: draw line is absent when features.imageGeneration is false', () => {
-  const senses = sensesOf(
-    buildRequest(
-      baseInput({
-        config: fakeConfig({ features: { imageGeneration: false } }),
-        drawQuota: { spent: true, userSpent: true },
-      })
-    )
-  );
-  for (const line of [labels.senses.draw, labels.senses.drawSpent, labels.senses.drawSpentUser])
-    assert.ok(!senses.includes(line));
-});
-
-test('renderSenses: draw line is absent without a drawQuota (no image client wired)', () => {
-  const senses = sensesOf(buildRequest(baseInput()));
-  for (const line of [labels.senses.draw, labels.senses.drawSpent, labels.senses.drawSpentUser])
-    assert.ok(!senses.includes(line));
-});
-
-test('renderSenses: shows drawSpent when the daily quota is spent', () => {
-  const senses = sensesOf(buildRequest(baseInput({ drawQuota: { spent: true, userSpent: true } }))).split('\n');
-  assert.ok(senses.includes(labels.senses.drawSpent));
-  assert.ok(!senses.includes(labels.senses.draw));
-  assert.ok(!senses.includes(labels.senses.drawSpentUser));
-});
-
-test("renderSenses: shows drawSpentUser when the member's quota is spent", () => {
-  const senses = sensesOf(buildRequest(baseInput({ drawQuota: { spent: false, userSpent: true } }))).split('\n');
-  assert.ok(senses.includes(labels.senses.drawSpentUser));
-  assert.ok(!senses.includes(labels.senses.draw));
-  assert.ok(!senses.includes(labels.senses.drawSpent));
+// PR 7d: the daily picture quota is gone, so the input says only whether she can draw (`drawOn`).
+test('renderSenses: draw line is absent without drawOn (no image client wired)', () => {
+  assert.ok(!sensesOf(buildRequest(baseInput())).includes(labels.senses.draw));
 });
 
 test('renderSenses: an older labels set without senses.draw shows no draw line', () => {
@@ -3967,16 +3689,14 @@ test('renderSenses: an older labels set without senses.draw shows no draw line',
     senses: {
       ...labels.senses,
       draw: undefined,
-      drawSpent: undefined,
-      drawSpentUser: undefined,
       time: undefined,
       channels: undefined,
       elsewhere: undefined,
     },
   };
-  const senses = sensesOf(
-    buildRequest(baseInput({ prompts: fakePrompts({ labels: older }), drawQuota: DRAW_OPEN }))
-  ).split('\n');
+  const senses = sensesOf(buildRequest(baseInput({ prompts: fakePrompts({ labels: older }), drawOn: true }))).split(
+    '\n'
+  );
   assert.equal(senses[senses.length - 1], labels.senses.files);
 });
 
@@ -4120,20 +3840,20 @@ test('buildRequest: privateChat keeps other profiles public-only', () => {
 });
 
 test('buildRequest: <senses> carries senses.privateChat in a private chat, never senses.privateAware', () => {
-  for (const privateMessages of [true, false, undefined]) {
-    const config = fakeConfig({ features: { privateMessages } });
+  for (const enabled of [true, false, undefined]) {
+    const config = fakeConfig({ private: { enabled } });
     const senses = sensesOf(buildRequest(privateScene({ config })));
     assert.ok(senses.includes(labels.senses.privateChat));
     assert.ok(!senses.includes(labels.senses.privateAware));
   }
 });
 
-test('buildRequest: <senses> carries senses.privateAware outside a private chat only when features.privateMessages is true', () => {
-  const on = sensesOf(buildRequest(baseInput({ config: fakeConfig({ features: { privateMessages: true } }) })));
+test('buildRequest: <senses> carries senses.privateAware outside a private chat only when private.enabled is true', () => {
+  const on = sensesOf(buildRequest(baseInput({ config: fakeConfig({ private: { enabled: true } }) })));
   assert.ok(on.includes(labels.senses.privateAware));
   assert.ok(!on.includes(labels.senses.privateChat));
-  for (const privateMessages of [false, undefined, 'yes']) {
-    const senses = sensesOf(buildRequest(baseInput({ config: fakeConfig({ features: { privateMessages } }) })));
+  for (const enabled of [false, undefined, 'yes']) {
+    const senses = sensesOf(buildRequest(baseInput({ config: fakeConfig({ private: { enabled } }) })));
     assert.ok(!senses.includes(labels.senses.privateAware));
     assert.ok(!senses.includes(labels.senses.privateChat));
   }
@@ -4471,27 +4191,6 @@ test('buildRequest: mode elsewhere uses prompts.elsewhere with channel and desti
   assert.equal(bodyOf(userText(request), 'task'), 'ELSEWHERE_TASK Nept read journal-de-zoé and may speak in général');
 });
 
-test('buildRequest: a focus line appends labels.room.focus with its index', () => {
-  const history = [
-    destMessage(1, NOW - 3 * MIN),
-    destMessage(2, NOW - 2 * MIN, { authorName: 'Léa', content: 'qui vient ce soir ?' }),
-    destMessage(3, NOW - MIN),
-  ];
-  const task = (overrides) =>
-    bodyOf(userText(buildRequest(baseInput({ history, mode: 'interject', ...overrides }))), 'task');
-  assert.equal(
-    task({ focus: history[1] }),
-    ['INTERJECT_TASK for Nept', fill(labels.room.focus, { author: 'Léa', target: '#2' })].join('\n\n')
-  );
-  assert.equal(
-    task({ focus: destMessage(99, NOW - 90 * MIN) }),
-    'INTERJECT_TASK for Nept',
-    'a focus outside the chat adds nothing'
-  );
-  const { room, ...noRoom } = labels;
-  assert.equal(task({ focus: history[1], prompts: fakePrompts({ labels: noRoom }) }), 'INTERJECT_TASK for Nept');
-});
-
 test('buildRequest: a part of a split message appends labels.task.part with the part and the other parts', () => {
   const trigger = makeMessage(1, NOW - MIN, {
     authorName: 'Alice',
@@ -4681,7 +4380,7 @@ test('buildRequest: senses carry the channels line on server turns and the elsew
 
   const withDestination = lines({
     elsewhereDestination: { name: 'général' },
-    config: fakeConfig({ features: { privateMessages: true } }),
+    config: fakeConfig({ private: { enabled: true } }),
   });
   const at = withDestination.indexOf(labels.senses.channels);
   assert.deepEqual(withDestination.slice(at, at + 3), [
@@ -4854,7 +4553,7 @@ test('buildRequest: earlier calls render under labels.pull.earlierPings ahead of
   ]);
 });
 
-test('buildRequest: authors of pulled lines join <people> as asked-about profiles under context.askedAboutProfiles', () => {
+test('buildRequest: authors of pulled lines join <people> as asked-about profiles, at most three', () => {
   const messages = [
     pulledMessage('p1', NOW - 40 * MIN, { authorId: 'w1', authorName: 'Zoé' }),
     pulledMessage('p2', NOW - 35 * MIN, { authorId: 'bot1', authorName: 'Robot', bot: true }),
@@ -4883,9 +4582,20 @@ test('buildRequest: authors of pulled lines join <people> as asked-about profile
   assert.ok(shown.indexOf('## Björn') < shown.indexOf('## Zoé'), "the newest line's author first");
   assert.ok(!shown.includes('ROBOT') && !shown.includes('SELF'));
 
-  const capped = people({ config: fakeConfig({ context: { askedAboutProfiles: 1 } }) });
-  assert.ok(capped.includes('## Björn') && !capped.includes('## Zoé'));
-  assert.equal(people({ config: fakeConfig({ context: { askedAboutProfiles: 0 } }) }), '');
+  // PR 7d: context.askedAboutProfiles is the constant 3, so the oldest of four authors drops out.
+  const chloe = { id: 'w3', names: ['Chloé'], character: 'vive' };
+  const dana = { id: 'w4', names: ['Dana'], character: 'sage' };
+  const more = [
+    ...messages,
+    pulledMessage('p5', NOW - 15 * MIN, { authorId: 'w3', authorName: 'Chloé' }),
+    pulledMessage('p6', NOW - 10 * MIN, { authorId: 'w4', authorName: 'Dana' }),
+  ];
+  const capped = people({
+    pulled: [pulledChannel({ messages: more })],
+    candidateProfiles: [zoe, bjorn, chloe, dana, robot, self],
+  });
+  assert.ok(capped.includes('## Dana') && capped.includes('## Chloé') && capped.includes('## Björn'));
+  assert.ok(!capped.includes('## Zoé'));
 
   // A participant of the chat who also wrote there is promoted to a full profile; the interlocutor is never repeated.
   const trigger = destMessage(1, NOW - MIN, { authorId: 'w1', authorName: 'Zoé' });
@@ -5082,7 +4792,7 @@ test('prompt: the recent section is trimmed after chat and before people', () =>
   const { stats } = loose;
   assert.ok(stats.people.used > 0 && stats.recent.used > 0 && stats.chat.used > 0);
   // A limit with room for everything but <people> (safetyMargin 1, no picture, 60 for the tags).
-  const tight = (room) => scene({ maxRequestTokens: room + 60, safetyMargin: 1 });
+  const tight = (room) => scene({ maxRequestTokens: exactly(room + 60) });
 
   const noPeople = tight(stats.used - peopleSide(stats));
   assert.equal(recentOf(noPeople), recentOf(loose), 'the recent block outranks <people>');
@@ -5211,9 +4921,6 @@ test("recent view: an asked-about member's shown episodes are left out, the rest
   assert.deepEqual(people, [3, 4, 5], 'askedAboutEpisodes 3: her three heaviest in <people>');
   assert.deepEqual(recent, [1, 2], 'the next two in <recent>, at most two per member');
   assert.equal(request.recent.repeated, 3);
-
-  const none = askedZoeScene({ context: { askedAboutEpisodes: 0 } });
-  assert.deepEqual([none.people, none.recent], [[], [4, 5]], 'none shown with her: her two heaviest in <recent>');
 });
 
 test("recent view: an asked-about member's episode cut from <people> is shown in <recent> instead", () => {
@@ -5285,7 +4992,7 @@ test('recent view: at a binding request limit <recent> never takes the room <peo
   const ahead = loose.request.stats.used - firstRecent - peopleSide(loose.request.stats);
   // A limit leaving `room` after the sections ahead of <people> (safetyMargin 1, no picture, 60 for the tags).
   const tight = (room) =>
-    askedZoeScene({ episodes, llm: { maxRequestTokens: ahead + firstRecent + room + 60, safetyMargin: 1 } });
+    askedZoeScene({ episodes, llm: { maxRequestTokens: exactly(ahead + firstRecent + room + 60) } });
   const shortTwo = entry('ζ1 στιγμή') + entry('ζ2 στιγμή');
   assert.ok(
     entry(long(4)) > shortTwo && entry(long(4)) <= shortTwo + itemCost(zoeWith(1), zoe),
@@ -5351,7 +5058,7 @@ test('recent view: the room <recent> frees never costs a member asked about thei
     'precondition: Maxime fits the freed room, not with Léa'
   );
 
-  const request = scene({ maxRequestTokens: ahead + loose.recent.used + room + 60, safetyMargin: 1 });
+  const request = scene({ maxRequestTokens: exactly(ahead + loose.recent.used + room + 60) });
   assert.equal(request.stats.recent.used, loose.recent.used - freed, 'the room <recent> freed');
   assert.equal(
     bodyOf(userText(request), 'people'),
@@ -5367,7 +5074,7 @@ test('recent view: the room <recent> frees never costs a member asked about thei
   assert.ok(request.stats.used <= request.stats.limit);
 });
 
-test('recent view: the lines and moments about a member asked about come first under a tight cap', () => {
+test('recent view: the lines about a member asked about come first under a tight cap', () => {
   const cost = (text) => estimateTokens(text) + 2;
   const trigger = makeMessage(1, NOW - MIN, {
     authorId: ANA_ID,
@@ -5401,23 +5108,6 @@ test('recent view: the lines and moments about a member asked about come first u
   assert.equal(
     recentOf(notAbout({ lines, candidateProfiles: [zoe], context: { caps: lineCaps } })),
     [RECENT_HEADER, lineTexts[1]].join('\n')
-  );
-
-  // Her light moment against a heavier one of a member nobody asks about (none of hers in <people>).
-  const zoeMoment = { ...zoe, episodes: [recentMoment('η στιγμή της Zoé', { weight: 1 })] };
-  const nikos = { id: NIKOS_ID, names: ['Nikos'], episodes: [recentMoment('η στιγμή του Nikos', { weight: 5 })] };
-  const momentTexts = [
-    fill(labels.recent.episode, { date: momentDate('2026-09-19'), name: 'Zoé', what: 'η στιγμή της Zoé' }),
-    fill(labels.recent.episode, { date: momentDate('2026-09-19'), name: 'Nikos', what: 'η στιγμή του Nikos' }),
-  ];
-  const context = { caps: capFor(...momentTexts), askedAboutEpisodes: 0 };
-  assert.equal(
-    recentOf(about({ lines: [], candidateProfiles: [nikos, zoeMoment], context })),
-    [RECENT_HEADER, momentTexts[0]].join('\n')
-  );
-  assert.equal(
-    recentOf(notAbout({ lines: [], candidateProfiles: [nikos, zoeMoment], context })),
-    [RECENT_HEADER, momentTexts[1]].join('\n')
   );
 });
 
@@ -5468,7 +5158,7 @@ test("recent view: an interlocutor's moment her own block does not show comes ba
   const loose = bigScene({}).stats;
   const without = loose.used - loose.interlocutor.used + cost(RECENT_HEADER) + cost(lightText);
   assert.ok(loose.interlocutor.used > without - loose.fixed.used, 'her block costs more than all the rest');
-  const dropped = bigScene({ maxRequestTokens: without + 60, safetyMargin: 1 });
+  const dropped = bigScene({ maxRequestTokens: exactly(without + 60) });
   assert.equal(dropped.stats.interlocutor.kept, 0);
   assert.equal(recentOf(dropped), [RECENT_HEADER, lightText].join('\n'));
   assert.equal(dropped.recent.repeated, 0);
@@ -5587,16 +5277,13 @@ test("prompt: a private chat shows only the lines the audience allows and no oth
   assert.equal(recentOf(dm({})), null, 'no audience given: a private chat shows no line');
 });
 
-test('prompt: features.recent false, no recentLines or nothing inside the window leaves the request as it was', () => {
+test('prompt: no recentLines or nothing inside the window leaves the request as it was', () => {
   const nikos = { id: NIKOS_ID, names: ['Nikos'], episodes: [recentMoment('η στιγμή του Nikos')] };
   const before = buildRequest(recentScene({ recentLines: undefined, candidateProfiles: [nikos] }));
   assert.ok(!userText(before).includes('<recent>'));
   assert.equal(before.recent, null);
-  // No store's lines handed over (the replay sandbox) or the switch off: no block, a moment in the window or not.
-  for (const overrides of [
-    { recentLines: 'όχι λίστα' },
-    { recentLines: [recentLine(1)], features: { recent: false } },
-  ]) {
+  // No store's lines handed over (the replay sandbox): no block, a moment in the window or not.
+  for (const overrides of [{ recentLines: 'όχι λίστα' }]) {
     const request = buildRequest(recentScene({ candidateProfiles: [nikos], ...overrides }));
     assert.deepEqual(request.messages, before.messages, JSON.stringify(overrides));
     assert.deepEqual(request.stats, before.stats, JSON.stringify(overrides));
@@ -5605,22 +5292,13 @@ test('prompt: features.recent false, no recentLines or nothing inside the window
   // A store's lines handed over, but no line and no moment inside the window.
   const old = { id: NIKOS_ID, names: ['Nikos'], episodes: [recentMoment('παλιά στιγμή', { date: '2026-09-10' })] };
   const plain = buildRequest(recentScene({ recentLines: undefined, candidateProfiles: [old] }));
-  const cases = [
-    { recentLines: [] },
-    { recentLines: [recentLine(1, { at: NOW - 73 * HOUR })] },
-    { recentLines: [recentLine(1, { at: NOW - 30 * HOUR })], memory: { recentHours: 24 } },
-  ];
+  const cases = [{ recentLines: [] }, { recentLines: [recentLine(1, { at: NOW - 73 * HOUR })] }];
   for (const overrides of cases) {
     const request = buildRequest(recentScene({ candidateProfiles: [old], ...overrides }));
     assert.deepEqual(request.messages, plain.messages, JSON.stringify(overrides));
     assert.deepEqual(request.stats, plain.stats, JSON.stringify(overrides));
     assert.equal(request.recent, null, 'nothing offered, hidden or repeated: nothing to count');
   }
-  // A longer window shows the older line at once, and the header says how long it is.
-  const longer = recentOf(
-    buildRequest(recentScene({ recentLines: [recentLine(1, { at: NOW - 73 * HOUR })], memory: { recentHours: 96 } }))
-  );
-  assert.ok(longer.startsWith(fill(labels.recent.header, { hours: 96 })));
 });
 
 test('prompt: the moments of the window show without any line, and a line this turn may not show changes nothing', () => {
@@ -5658,8 +5336,7 @@ test('prompt: near the request limit the recent block is cut, never a token-limi
   const lines = [1, 2, 3].map((id) => recentLine(id, { at: NOW - id * HOUR, text: `η σημείωση ${id} για όσα έγιναν` }));
   const loose = buildRequest(recentScene({ lines })).stats;
   const ahead = loose.used - loose.recent.used;
-  const tight = (room) =>
-    buildRequest(recentScene({ lines, llm: { maxRequestTokens: ahead + room + 60, safetyMargin: 1 } }));
+  const tight = (room) => buildRequest(recentScene({ lines, llm: { maxRequestTokens: exactly(ahead + room + 60) } }));
 
   const fewer = tight(loose.recent.used - 1);
   assert.equal(fewer.recent.lines, 2);
@@ -5698,14 +5375,13 @@ function attitudeCandidates() {
   ];
 }
 
-/** A server turn: Ana asks about Zoé; `attitudes` is context.attitudes (undefined = unset). */
-function attitudesScene({ attitudes, caps, features, llm, prompts, ...overrides } = {}) {
+/** A server turn: Ana asks about Zoé. */
+function attitudesScene({ caps, llm, prompts, ...overrides } = {}) {
   const trigger = makeMessage(1, NOW - MIN, { authorId: 'u0', authorName: 'Ana', content: 'what about Zoé' });
   const candidates = attitudeCandidates();
   return baseInput({
     config: fakeConfig({
       context: {
-        ...(attitudes === undefined ? {} : { attitudes }),
         caps: {
           interlocutor: 2500,
           aboutChat: 2500,
@@ -5717,7 +5393,6 @@ function attitudesScene({ attitudes, caps, features, llm, prompts, ...overrides 
           ...caps,
         },
       },
-      features,
       llm,
     }),
     prompts: prompts ?? fakePrompts(),
@@ -5738,14 +5413,17 @@ function attitudesOf(request) {
 
 const attitudeLine = (name, band) => fill(labels.attitudes.line, { name, band: labels.affinity.bands[band] });
 
-test('attitudes: the top context.attitudes members by |score|, warm and cool mixed, warmest first', () => {
-  const request = buildRequest(attitudesScene({ attitudes: 4 }));
+test('attitudes: the top six members by |score|, warm and cool mixed, warmest first', () => {
+  // PR 7d: context.attitudes is the constant 6, so Γιώργος with the weakest score of seven falls out.
+  const request = buildRequest(attitudesScene());
   assert.equal(
     attitudesOf(request),
     [
       labels.attitudes.header,
       attitudeLine('Ágata', 'devoted'),
       attitudeLine('Chloé', 'fond'),
+      attitudeLine('Èlia', 'warm'),
+      attitudeLine('Fañch', 'cool'),
       attitudeLine('Δήμος', 'dislike'),
       attitudeLine('Björn', 'hostile'),
     ].join('\n')
@@ -5754,7 +5432,7 @@ test('attitudes: the top context.attitudes members by |score|, warm and cool mix
 });
 
 test('attitudes: no score, a zero score, the interlocutor and the members shown in <people> are left out', () => {
-  const body = attitudesOf(buildRequest(attitudesScene({ attitudes: 20 })));
+  const body = attitudesOf(buildRequest(attitudesScene()));
   assert.equal(
     body,
     [
@@ -5762,7 +5440,6 @@ test('attitudes: no score, a zero score, the interlocutor and the members shown 
       attitudeLine('Ágata', 'devoted'),
       attitudeLine('Chloé', 'fond'),
       attitudeLine('Èlia', 'warm'),
-      attitudeLine('Γιώργος', 'neutral'),
       attitudeLine('Fañch', 'cool'),
       attitudeLine('Δήμος', 'dislike'),
       attitudeLine('Björn', 'hostile'),
@@ -5777,49 +5454,36 @@ test('attitudes: a member <people> was offered but the budget cut is listed', ()
   const trigger = makeMessage(2, NOW - MIN, { authorId: 'u0', authorName: 'Ana', content: 'what about Zoé' });
   const history = [makeMessage(1, NOW - 2 * MIN, { authorId: 'm2', authorName: 'Björn' }), trigger];
   const bjorn = { ...scored('m2', 'Björn', -80), character: 'ß'.repeat(4000) };
-  const shown = buildRequest(attitudesScene({ attitudes: 2, history, trigger, otherProfiles: [bjorn] }));
+  const shown = buildRequest(attitudesScene({ history, trigger, otherProfiles: [bjorn] }));
   assert.ok(contentText(shown.messages[1].content).includes('## Björn'));
-  assert.equal(
-    attitudesOf(shown),
-    [labels.attitudes.header, attitudeLine('Ágata', 'devoted'), attitudeLine('Δήμος', 'dislike')].join('\n')
-  );
+  assert.ok(!attitudesOf(shown).includes('Björn'), 'shown in <people>, so not listed here');
 
-  const zoeOnly = buildRequest(attitudesScene({ attitudes: 2, history, trigger })).stats.people.used;
+  const zoeOnly = buildRequest(attitudesScene({ history, trigger })).stats.people.used;
   const cut = buildRequest(
-    attitudesScene({ attitudes: 2, history, trigger, otherProfiles: [bjorn], caps: { people: zoeOnly + 50 } })
+    attitudesScene({ history, trigger, otherProfiles: [bjorn], caps: { people: zoeOnly + 50 } })
   );
   assert.deepEqual([cut.stats.people.kept, cut.stats.people.dropped], [1, 1]);
   assert.ok(!contentText(cut.messages[1].content).includes('## Björn'));
-  assert.equal(
-    attitudesOf(cut),
-    [labels.attitudes.header, attitudeLine('Ágata', 'devoted'), attitudeLine('Björn', 'hostile')].join('\n')
-  );
+  assert.ok(attitudesOf(cut).includes(attitudeLine('Björn', 'hostile')), 'offered and cut: listed here');
 });
 
-test('attitudes: context.attitudes 0, features.relationships off or a missing label make no block', () => {
-  assert.equal(attitudesOf(buildRequest(attitudesScene({ attitudes: 0 }))), null);
-  assert.equal(attitudesOf(buildRequest(attitudesScene({ attitudes: 4, features: { relationships: false } }))), null);
+test('attitudes: a missing label makes no block', () => {
   for (const key of ['header', 'line']) {
     const { [key]: _gone, ...rest } = labels.attitudes;
-    const request = buildRequest(
-      attitudesScene({ attitudes: 4, prompts: fakePrompts({ labels: { ...labels, attitudes: rest } }) })
-    );
+    const request = buildRequest(attitudesScene({ prompts: fakePrompts({ labels: { ...labels, attitudes: rest } }) }));
     assert.equal(attitudesOf(request), null, key);
   }
   const { attitudes: _none, ...older } = labels;
-  assert.equal(
-    attitudesOf(buildRequest(attitudesScene({ attitudes: 4, prompts: fakePrompts({ labels: older }) }))),
-    null
-  );
+  assert.equal(attitudesOf(buildRequest(attitudesScene({ prompts: fakePrompts({ labels: older }) }))), null);
 });
 
-test('attitudes: an unset context.attitudes lists six members', () => {
+test('attitudes: the block lists six members', () => {
   const body = attitudesOf(buildRequest(attitudesScene()));
   assert.equal(body.split('\n').length, 1 + 6);
 });
 
 test('attitudes: the block renders right after <people>, ahead of the chat', () => {
-  const user = contentText(buildRequest(attitudesScene({ attitudes: 4 })).messages[1].content);
+  const user = contentText(buildRequest(attitudesScene()).messages[1].content);
   assert.ok(user.indexOf('</people>') < user.indexOf('<attitudes>'));
   assert.ok(user.indexOf('</attitudes>') < user.indexOf('<chat>'));
 });
@@ -5834,12 +5498,10 @@ test('attitudes: a private chat gets the block from the public profiles, its par
 });
 
 test('attitudes: a tight budget drops the block whole, after the chat and the people', () => {
-  const roomy = buildRequest(attitudesScene({ attitudes: 6, llm: { safetyMargin: 1 } }));
+  const roomy = buildRequest(attitudesScene());
   assert.ok(roomy.stats.attitudes.used > 0);
   // Room for everything but the block's last token (the tags take 60): the block goes, nothing ahead of it is cut.
-  const tight = buildRequest(
-    attitudesScene({ attitudes: 6, llm: { maxRequestTokens: roomy.stats.used - 1 + 60, safetyMargin: 1 } })
-  );
+  const tight = buildRequest(attitudesScene({ llm: { maxRequestTokens: exactly(roomy.stats.used - 1 + 60) } }));
   assert.equal(attitudesOf(tight), null);
   assert.deepEqual([tight.stats.attitudes.kept, tight.stats.attitudes.dropped], [0, 1]);
   assert.equal(tight.stats.chat.dropped, 0);
@@ -5848,91 +5510,13 @@ test('attitudes: a tight budget drops the block whole, after the chat and the pe
 });
 
 test('attitudes: a block over context.caps.attitudes is dropped whole', () => {
-  const roomy = buildRequest(attitudesScene({ attitudes: 6 }));
-  const capped = buildRequest(attitudesScene({ attitudes: 6, caps: { attitudes: roomy.stats.attitudes.used - 1 } }));
+  const roomy = buildRequest(attitudesScene());
+  const capped = buildRequest(attitudesScene({ caps: { attitudes: roomy.stats.attitudes.used - 1 } }));
   assert.equal(attitudesOf(capped), null);
   assert.deepEqual([capped.stats.attitudes.kept, capped.stats.attitudes.dropped], [0, 1]);
 });
 
 // --- code fallbacks equal config.json --------------------------------------------
-
-test('buildRequest: the code fallbacks for missing settings equal the values in config.json', () => {
-  const shipped = JSON.parse(readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
-  const base = {
-    bot: { timezone: 'Europe/Moscow' },
-    context: { gapMarkerMinutes: 20, maxMessageChars: 800, caps: {}, vision: {} },
-    llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
-  };
-  // The same config with every setting the scenes below depend on written out from config.json.
-  const written = {
-    ...base,
-    context: {
-      ...base.context,
-      tempo: shipped.context.tempo,
-      neighborMessageChars: shipped.context.neighborMessageChars,
-      askedAboutEpisodes: shipped.context.askedAboutEpisodes,
-      attitudes: shipped.context.attitudes,
-      caps: { attitudes: shipped.context.caps.attitudes },
-      vision: { ...base.context.vision, tokensPerImage: shipped.context.vision.tokensPerImage },
-    },
-    lore: shipped.lore,
-    memory: { maxLearned: shipped.memory.maxLearned, learnedHalfLifeDays: shipped.memory.learnedHalfLifeDays },
-  };
-
-  const lines = (count, spacing) =>
-    Array.from({ length: count }, (_, i) => makeMessage(i + 1, NOW - (count - i) * spacing));
-  const zoe = { id: 'z1', names: ['Zoé'], character: 'rêveuse', episodes: askedEpisodes() };
-  const asker = makeMessage(1, NOW - MIN, { authorName: 'Ana', content: 'τι έκανε η Zoé χθες;' });
-  const floodHistory = [makeMessage(1, NOW - MIN, { content: 'the flood again' })];
-  const members = (count, name) =>
-    Array.from({ length: count }, (_, i) => scored(`a${i}`, name(i), (i % 2 ? -1 : 1) * (10 + i)));
-  const scenes = {
-    'neighbour message length': {
-      neighbors: [{ channelName: 'general', messages: [makeMessage(9, NOW - 5 * MIN, { content: 'λ'.repeat(400) })] }],
-    },
-    'below the live threshold': { history: lines(shipped.context.tempo.liveMessages10min - 1, MIN) },
-    'at the live threshold': { history: lines(shipped.context.tempo.liveMessages10min, MIN) },
-    'just under the dead silence': { history: lines(1, (shipped.context.tempo.deadSilenceMinutes - 1) * MIN) },
-    'at the dead silence': { history: lines(1, shipped.context.tempo.deadSilenceMinutes * MIN) },
-    'asked-about episodes': { history: [asker], trigger: asker, triggerKind: 'mention', candidateProfiles: [zoe] },
-    'learned count': {
-      guildMemory: {
-        learned: Array.from({ length: shipped.memory.maxLearned + 5 }, (_, i) =>
-          learnedItem(`m${i}`, `fact ${i}`, 2, `2026-09-${String((i % 28) + 1).padStart(2, '0')}T00:00:00.000Z`)
-        ),
-      },
-    },
-    'learned decay': {
-      guildMemory: {
-        learned: [
-          learnedItem('old', 'ancient heavy fact', 3, '2020-01-01T00:00:00.000Z'),
-          learnedItem('new', 'recent light fact', 1, '2026-09-01T00:00:00.000Z'),
-        ],
-      },
-    },
-    'lore matches': {
-      history: floodHistory,
-      loreEntries: Array.from({ length: shipped.lore.maxMatches + 3 }, (_, i) =>
-        loreEntry({ id: `l${i}`, title: `Flood ${i}`, text: `story ${i}` })
-      ),
-    },
-    'attitudes count': { candidateProfiles: members(shipped.context.attitudes + 3, (i) => `Mélo${i}`) },
-    'attitudes cap': {
-      candidateProfiles: members(shipped.context.attitudes, (i) => `Mélo${i} ${'λόγος '.repeat(26)}`),
-    },
-    'picture cost': {
-      history: [makeMessage(1, NOW - MIN, { attachments: [{ id: 'i1', kind: 'image', url: 'img1' }] })],
-      trigger: makeMessage(1, NOW - MIN, { attachments: [{ id: 'i1', kind: 'image', url: 'img1' }] }),
-      triggerKind: 'mention',
-    },
-  };
-  for (const [name, scene] of Object.entries(scenes)) {
-    const bare = buildRequest(baseInput({ ...scene, config: base }));
-    const explicit = buildRequest(baseInput({ ...scene, config: written }));
-    assert.deepEqual(bare.messages, explicit.messages, name);
-    assert.deepEqual(bare.stats, explicit.stats, name);
-  }
-});
 
 test('buildRequest: segments lists each text part with its length and a short hash, never content', () => {
   const first = buildRequest(segmentScene({ now: NOW, messageCount: 41 }));
@@ -6105,7 +5689,7 @@ test('buildRequest: an owner pause 10:00-10:20 is one line under the lead inside
   assert.equal(holder.cacheSegment, undefined);
 });
 
-test('buildRequest: a stopped period reads offStopped; none, or the switch off, leaves <now> bare', () => {
+test('buildRequest: a stopped period reads offStopped; none leaves <now> bare', () => {
   const from = NOW - 3 * 60 * MIN;
   const to = from + 5 * MIN;
   const stopped = nowBlockOf(buildRequest(baseInput({ offPeriods: [{ kind: 'stopped', from, to }] })));
@@ -6121,10 +5705,6 @@ test('buildRequest: a stopped period reads offStopped; none, or the switch off, 
   const bare = nowBlockOf(buildRequest(baseInput()));
   assert.equal(bare.split('\n').length, 1);
   assert.equal(nowBlockOf(buildRequest(baseInput({ offPeriods: [] }))), bare);
-  const off = buildRequest(
-    baseInput({ config: fakeConfig({ features: { offPeriods: false } }), offPeriods: [{ kind: 'stopped', from, to }] })
-  );
-  assert.equal(nowBlockOf(off), bare);
 });
 
 // --- renderProfile: the names people use and the real name -------------------------
@@ -6453,13 +6033,7 @@ test('buildRequest: skills -- the catalogue renders in the tail before <chat>: o
   assert.equal(blockTags(contentText(closed)).includes('skills'), false);
 });
 
-test('buildRequest: skills -- features.tools or features.toolsDiscovery false: no catalogue; no labels: no block', () => {
-  for (const features of [{ tools: false }, { toolsDiscovery: false }]) {
-    const text = contentText(
-      buildRequest(segmentScene({ config: fakeConfig({ features }), skillsInventory: SKILL_ROWS })).messages[1].content
-    );
-    assert.ok(!blockTags(text).includes('skills'), JSON.stringify(features));
-  }
+test('buildRequest: skills -- no labels: no block', () => {
   const prompts = fakePrompts({ labels: { ...labels, tools: undefined } });
   const bare = contentText(buildRequest(segmentScene({ prompts, skillsInventory: SKILL_ROWS })).messages[1].content);
   assert.ok(!blockTags(bare).includes('skills'));
@@ -6907,17 +6481,12 @@ test('buildRequest: people_now -- member text in an entry is one line per field,
   );
 });
 
-test('buildRequest: people_now -- no live fields with the switch off, no input, in a private chat or a diary post; the fields of memory stay', () => {
+test('buildRequest: people_now -- no live fields with no input, in a private chat or a diary post; the fields of memory stay', () => {
   const live = (request) => (peopleNowOf(request) ?? '').includes(`- ${F.voice}:`);
   assert.ok(live(buildRequest(aroundScene())), 'the control shows it');
   for (const [name, request] of Object.entries({
     'no input': buildRequest(aroundScene({ around: undefined })),
     'null input': buildRequest(aroundScene({ around: null })),
-    'features.around off': buildRequest(
-      aroundScene({
-        config: fakeConfig({ memory: { interestStaleDays: 30, confirmAfter: 2 }, features: { around: false } }),
-      })
-    ),
     'a private chat': buildRequest(aroundScene({ privateChat: { userId: 'author-1' } })),
   })) {
     assert.ok(!live(request), name);
@@ -6957,7 +6526,7 @@ test('buildRequest: people_now -- context.around.maxTokens caps the people in vo
   const whole = buildRequest(aroundScene());
   const tight = fakeConfig({
     memory: { interestStaleDays: 30, confirmAfter: 2 },
-    llm: { maxRequestTokens: whole.stats.fixed.used + 100, safetyMargin: 1 },
+    llm: { maxRequestTokens: exactly(whole.stats.fixed.used + 100) },
   });
   const squeezed = buildRequest(aroundScene({ config: tight }));
   assert.equal(fieldsOf(rowOf(squeezed, 'Alice'))[F.activity], 'playing Chess', 'the interlocutor entry survives');
@@ -6978,7 +6547,7 @@ test('buildRequest: people_now -- the people in voice are the lowest priority: t
     })
   );
   assert.equal(whole.stats.chat.dropped, 0);
-  const config = fakeConfig({ llm: { maxRequestTokens: whole.stats.used + 60 + 5, safetyMargin: 1 } });
+  const config = fakeConfig({ llm: { maxRequestTokens: exactly(whole.stats.used + 60 + 5) } });
   const withVoice = buildRequest(segmentScene({ history: messages, config, around: aroundInput() }));
   assert.equal(withVoice.stats.chat.dropped, 0, 'no chat line gives way to the people in voice');
   assert.ok(withVoice.stats.around.dropped > 0, 'the people in voice give way');
@@ -7008,14 +6577,13 @@ test('buildRequest: people_now -- with no interlocutor and no live part, a parti
     ].join('\n\n')
   );
   assert.ok(request.stats.used <= request.stats.limit);
-  // Nothing current to say (relationships off, no live part): no entry, no block. Otherwise the
+  // Nobody to describe (no profile of the participant): no entry, no block. Otherwise the
   // lead is counted with <people> once an entry is shown; nothing reserved in the fixed part.
   const plain = buildRequest(
     baseInput({
-      config: fakeConfig({ features: { relationships: false } }),
       mode: 'interject',
       history: [makeMessage(2, NOW - MIN, { authorId: 'p2', authorName: 'Carl' })],
-      otherProfiles: [carl],
+      otherProfiles: [],
     })
   );
   assert.equal(peopleNowOf(plain), null);

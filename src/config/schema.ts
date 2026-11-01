@@ -5,16 +5,11 @@
 // the defaults make, which tests/config-schema.test.ts holds equal to config/config.json; src/config/check.ts checks a
 // local layer and the readers against the schema, and tools/config-doc.mjs writes docs/configuration.md from it.
 
-import { FEATURES } from './schema/features.ts';
-import { DISCORD } from './schema/discord.ts';
 import { INTERFACES } from './schema/interfaces.ts';
 import { BOT } from './schema/bot.ts';
 import { MODELS } from './schema/models.ts';
 import { LLM } from './schema/llm.ts';
 import { MEMORY_DB } from './schema/memory-db.ts';
-import { CAPTURE } from './schema/capture.ts';
-import { GRAPH } from './schema/graph.ts';
-import { FOCUS } from './schema/focus.ts';
 import { EMBED } from './schema/embed.ts';
 import { CONTEXT } from './schema/context.ts';
 import { MENTION } from './schema/mention.ts';
@@ -25,11 +20,7 @@ import { PACE } from './schema/pace.ts';
 import { FORMAT } from './schema/format.ts';
 import { SPLIT } from './schema/split.ts';
 import { ROUTE } from './schema/route.ts';
-import { ELSEWHERE } from './schema/elsewhere.ts';
-import { SPONTANEOUS } from './schema/spontaneous.ts';
 import { MEMORY } from './schema/memory.ts';
-import { LORE } from './schema/lore.ts';
-import { RELATIONSHIPS } from './schema/relationships.ts';
 import { MEDIA } from './schema/media.ts';
 import { WEB } from './schema/web.ts';
 import { PARTICIPATION } from './schema/participation.ts';
@@ -38,7 +29,6 @@ import { IMAGE } from './schema/image.ts';
 import { SPEECH } from './schema/speech.ts';
 import { TOOLS } from './schema/tools.ts';
 import { DIARY } from './schema/diary.ts';
-import { AVATARS } from './schema/avatars.ts';
 import { GIFS } from './schema/gifs.ts';
 import { PRIVATE } from './schema/private.ts';
 import { ERRANDS } from './schema/errands.ts';
@@ -66,16 +56,11 @@ export type SchemaEntry = {
 
 /** Every key of the settings, in the order of config/config.json. */
 export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
-  ...FEATURES,
-  ...DISCORD,
   ...INTERFACES,
   ...BOT,
   ...MODELS,
   ...LLM,
   ...MEMORY_DB,
-  ...CAPTURE,
-  ...GRAPH,
-  ...FOCUS,
   ...EMBED,
   ...CONTEXT,
   ...MENTION,
@@ -86,11 +71,7 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...FORMAT,
   ...SPLIT,
   ...ROUTE,
-  ...ELSEWHERE,
-  ...SPONTANEOUS,
   ...MEMORY,
-  ...LORE,
-  ...RELATIONSHIPS,
   ...MEDIA,
   ...WEB,
   ...PARTICIPATION,
@@ -99,7 +80,6 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...SPEECH,
   ...TOOLS,
   ...DIARY,
-  ...AVATARS,
   ...GIFS,
   ...PRIVATE,
   ...ERRANDS,

@@ -141,7 +141,7 @@ test('runMediaFind: handles in the result are the library handles message.create
   for (const line of lines.slice(1)) assert.ok(block.includes(line), 'the same line the <gifs> block shows');
 });
 
-test('runMediaFind: nothing found is an ok with the none label; bad arguments and a switched-off library are refused', () => {
+test('runMediaFind: nothing found is an ok with the none label; bad arguments and no library are refused', () => {
   const store = storeOf(fixture(LIBRARY));
   const none = runMediaFind({ store, config: {}, labels, guildId: 'G', args: { query: 'submarine' } });
   assert.deepEqual([none.status, none.data.text], ['ok', 'Source: media.find "submarine", 0 found.\nNothing matched.']);
@@ -156,10 +156,6 @@ test('runMediaFind: nothing found is an ok with the none label; bad arguments an
   assert.equal(
     runMediaFind({ store, config: {}, labels, guildId: 'G', args: { query: 'cat', n: 0 } }).reason,
     'args.n:range'
-  );
-  assert.equal(
-    runMediaFind({ store, config: { features: { gifs: false } }, labels, guildId: 'G', args: { query: 'cat' } }).status,
-    'not_configured'
   );
   assert.equal(
     runMediaFind({ store: null, config: {}, labels, guildId: 'G', args: { query: 'cat' } }).status,

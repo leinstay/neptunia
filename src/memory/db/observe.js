@@ -113,6 +113,7 @@ export const ACCOUNT_KINDS = Object.freeze(['user', 'bot', 'shared', 'self']);
 const LINE_KINDS = new Set(['seen', 'said']);
 const TOKENED = new Set(['thread_token', 'site_token', 'post_number']);
 
+/** The capture's measures. Production values, config cut of 2026-10-31. */
 const CAPTURE_DEFAULTS = Object.freeze({
   ancestors: 2,
   before: 3,
@@ -183,29 +184,14 @@ function guarded(handle, fn, log) {
 
 // ---------- settings ----------
 
-const nonNeg = (value, fallback) => (Number.isInteger(value) && value >= 0 ? value : fallback);
-const posInt = (value, fallback) => (Number.isInteger(value) && value > 0 ? value : fallback);
-
 /**
- * The capture settings of this moment (`capture` in the live config): the first fetch (`ancestors`, `before`,
- * `after`), the page size of one expansion (`pageLines`), the watch offsets in minutes after the anchor (`watch`) and
- * how many later lines of a witnessed author a watch may ask for (`watchSameAuthor`).
+ * The capture settings (CAPTURE_DEFAULTS, production values of the config cut of 2026-10-31): the first fetch
+ * (`ancestors`, `before`, `after`), the page size of one expansion (`pageLines`), the watch offsets in minutes after
+ * the anchor (`watch`) and how many later lines of a witnessed author a watch may ask for (`watchSameAuthor`).
+ * @type {(config?: unknown) => { ancestors: number, before: number, after: number, pageLines: number,
+ *   watch: Array<number>, watchSameAuthor: number }}
  */
-export function captureSettings(config) {
-  const given = isObject(config?.capture) ? config.capture : {};
-  const watch =
-    Array.isArray(given.watch) && given.watch.length > 0 && given.watch.every((m) => Number.isInteger(m) && m > 0)
-      ? [...given.watch]
-      : [...CAPTURE_DEFAULTS.watch];
-  return {
-    ancestors: nonNeg(given.ancestors, CAPTURE_DEFAULTS.ancestors),
-    before: nonNeg(given.before, CAPTURE_DEFAULTS.before),
-    after: nonNeg(given.after, CAPTURE_DEFAULTS.after),
-    pageLines: posInt(given.pageLines, CAPTURE_DEFAULTS.pageLines),
-    watch,
-    watchSameAuthor: posInt(given.watchSameAuthor, CAPTURE_DEFAULTS.watchSameAuthor),
-  };
-}
+export const captureSettings = () => ({ ...CAPTURE_DEFAULTS, watch: [...CAPTURE_DEFAULTS.watch] });
 
 // ---------- validation ----------
 

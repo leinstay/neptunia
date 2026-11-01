@@ -7,9 +7,10 @@ import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
+import { LORE_LIMITS, MEMORY_LIMITS } from '../../memory/text-limits.js';
 
 const handlers = perEnv((env) => {
-  const { hot, store, assertNotPaused, freshenIfPaused, requireGuildId } = env;
+  const { store, assertNotPaused, freshenIfPaused, requireGuildId } = env;
 
   function cmdLoreAdd(args: Obj, context: OpContext): string {
     assertNotPaused();
@@ -24,14 +25,14 @@ const handlers = perEnv((env) => {
     const text = textOf(args.text).trim();
     if (!text) throw invalid('text is required');
 
-    const maxEntries = hot.config?.lore?.maxEntries ?? Infinity;
+    const maxEntries = LORE_LIMITS.maxEntries;
     const upserted = store.setLore(guildId, [{ title, keys, text, always: Boolean(args.always) }], {
       source: 'owner',
       by: 'owner',
       now: Date.now(),
       maxEntries,
-      textChars: hot.config?.lore?.textChars,
-      clampTolerance: hot.config?.memory?.clampTolerance,
+      textChars: LORE_LIMITS.textChars,
+      clampTolerance: MEMORY_LIMITS.clampTolerance,
     });
     if (upserted === 0) {
       throw invalid('invalid lore entry: needs a title, at least one key of 2+ characters, and non-empty text');

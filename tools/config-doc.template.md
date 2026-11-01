@@ -52,8 +52,6 @@ The persona's skills are tools in the settings. `src/config-moves.ts` holds the 
 | Old key | New key |
 |---|---|
 | `skills.*` | `tools.*` |
-| `features.skills` | `features.tools` |
-| `features.skillsDiscovery` | `features.toolsDiscovery` |
 | `bot.access."skills.describe"` | `bot.access."tools.describe"` |
 | `bot.access."task.run"`, `"task.status"`, `"task.read"`, `"task.resolve"`, `"task.cancel"`, `"task.list"` | `bot.access."errand.run"`, `"errand.status"`, `"errand.read"`, `"errand.resolve"`, `"errand.cancel"`, `"errand.list"` |
 | `bot.access."intent.set"`, `"intent.update"`, `"intent.cancel"`, `"intent.list"` | `bot.access."intention.set"`, `"intention.update"`, `"intention.cancel"`, `"intention.list"` |
@@ -74,19 +72,19 @@ The tool texts moved too: `prompts/skills.json` is `config/tools.json`, and a de
 Two hard rails that must stay on:
 
 - **50 000 tokens per request** (`llm.maxRequestTokens`). Every request the bot sends is budgeted against this cap. The prompt builder trims sections by priority to fit.
-- **Daily request cap** (`llm.maxRequestsPerDay`, default 5000). Every model request counts (requests on every model role, probes, tools, hedged duplicates).
+- **Daily request cap** (`llm.maxRequestsPerDay`, default 5000). Every model request counts (requests on every model role, probes, tools, hedged duplicates). It is the one daily count the engine refuses at.
 
-## `features`
+## The config cut
 
-On/off switches. A missing key counts as on, except the ones that need `=== true` to enable: `dryRun`, `webLookup`, `mediaDescriptions`, `privateMessages`, `recallTrace`, `journal`, `record`, `archive`, `meaningSearch`, `embedIndex`, `promptCache`, `turnPlanner`, `missedRecovery`, `avatars`, `coreTools`, `anchoredWindow`, `intentions`, `innerLife`.
+The settings hold the keys someone would change, the timeouts, budgets, retention and recovery limits, the privacy switches and the two rails. `src/config/cut.ts` lists every key the cut of 2026-10-31 took out and what it became: a named constant in the module that reads it, with the value production ran with; code that always runs, for a switch that was on (the `features.*` switches and the rollouts of `memoryDb`); nothing, for a switch that was off and the code it reached (`features.dryRun`, `features.spontaneous`, `features.eavesdrop`, `features.turnPlanner`, `pace.typingWhilePreparing`, `bot.dryRunChannelId`, `spontaneous.*`); and nothing, for a daily cap, whose counter went with it. `features.privateMessages` and `features.privateLikeServer` are `private.enabled` and `private.likeServer`, and the per-wake budgets are one `innerLife.wakes.*.<field>` entry each.
 
-<!-- settings: features -->
+`src/config.js` takes the cut keys out of the private settings file at each load, after the moves, and logs one warning line with the counts. `node tools/config-migrate.mjs --dry-run` prints `<key> dropped (<becomes>)` for each, `<key> differs: live <json>, constant <json>` for a live value apart from the constant that replaced it, `<from> -> <to>` for the two privacy switches, and `<key> -> config.local/interfaces/discord.json` for a key of the Discord package. `--apply` writes the file and merges the Discord keys under what `config.local/interfaces/discord.json` already holds.
 
-## `discord`
+`node tools/config-effective.mjs --snapshot <file> --private <dir>` writes the effective settings of a private layer and the objects the readers derive from them, and `--compare <file> --private <dir>` prints each leaf that differs as `<config|settings>.<path>: before <json>, after <json>`, marked ` (declared)` when the cut declares it, then `equal: <n>, differ: <n>, declared: <n>`. It exits 1 on an undeclared difference.
 
-<!-- settings: discord -->
+## The Discord package's settings
 
-The voice-state intent (voice channels in `<people_now>`) is not privileged and always requested.
+`discord.intents.presences` and `discord.intents.members` (default `false`, the privileged intents), `context.maxUrlChars` (default `200`, the longest a URL in a message's text reads) and `media.embedTextChars` (default `200`, the characters of an embed's title and of its text) live in `interfaces/discord/config.json`. The interface reads them over the core's settings with `config.local/interfaces/discord.json` over both (`src/config/files.ts#readInterfaceConfig`), in the core's process and as a unit alike. The voice-state intent (voice channels in `<people_now>`) is not privileged and always requested.
 
 ## `interfaces`
 
@@ -150,24 +148,6 @@ Her memory session: she reads new chat lines of one scope and says what she keep
 
 <!-- settings: memoryDb.session -->
 
-## `capture`
-
-Foreign capture: when the persona is mentioned in a place her connection does not read continuously, the adapter fetches the context around that line. Not wired to a live adapter yet.
-
-<!-- settings: capture -->
-
-## `graph`
-
-The memory graph: typed memory rows projected into nodes and edges, and the walks over it.
-
-<!-- settings: graph -->
-
-## `focus`
-
-Her focus set: the people her attention is on. Computed by the `memoryDb.focus` job. See [Memory](memory.md).
-
-<!-- settings: focus -->
-
 ## `embed`
 
 <!-- settings: embed -->
@@ -176,13 +156,9 @@ Her focus set: the people her attention is on. Computed by the `memoryDb.focus` 
 
 <!-- settings: context -->
 
-### `context.customEmoji`
-
-<!-- settings: context.customEmoji -->
-
 ### `context.pull`
 
-Settings for pulling another channel (`features.channelPull`).
+Settings for pulling another channel.
 
 <!-- settings: context.pull -->
 
@@ -192,13 +168,13 @@ Settings for pulling another channel (`features.channelPull`).
 
 ## `missed`
 
-Settings for missed-answer recovery (`features.missedAnswers`).
+Settings for missed-answer recovery.
 
 <!-- settings: missed -->
 
 ## `offlineCatchUp`
 
-Messages posted while the bot was down, read once at start (`features.offlineCatchUp`), and the messages that arrived while it was paused, handed back on resume (`src/behavior/core-pause.ts`). The same window decides which of them are answered.
+Messages posted while the bot was down, read once at start, and the messages that arrived while it was paused, handed back on resume (`src/behavior/core-pause.ts`). The same window decides which of them are answered.
 
 <!-- settings: offlineCatchUp -->
 
@@ -218,59 +194,41 @@ How long each stage of a turn may take. A request on a model role other than `co
 
 ## `split`
 
-Settings for the task splitter (`features.splitTasks`).
+Settings for the task splitter.
 
 <!-- settings: split -->
 
 ## `route`
 
-Settings for the channel route classifier (`features.channelRoute`).
+Settings for the channel route classifier.
 
 <!-- settings: route -->
-
-## `elsewhere`
-
-Settings for answering calls from channels where the bot can read but not send (`features.elsewhere`).
-
-<!-- settings: elsewhere -->
-
-## `spontaneous`
-
-<!-- settings: spontaneous -->
 
 ## `memory`
 
 <!-- settings: memory -->
 
-## `lore`
-
-<!-- settings: lore -->
-
-## `relationships`
-
-<!-- settings: relationships -->
-
 ## `media`
 
-Settings for the media describer (`features.mediaDescriptions`). The describer model is `models.base.vision`. See [Media](media.md).
+Settings for the media describer. The describer model is `models.base.vision`. See [Media](media.md).
 
 <!-- settings: media -->
 
 ## `web`
 
-Settings for web lookup (`features.webLookup`). Link reading, search and the persona's own `web.search` and `web.read` share a daily counter (`web.maxPerDay`). See [Media](media.md).
+Settings for web lookup. See [Media](media.md).
 
 <!-- settings: web -->
 
 ## `participation`
 
-The persona's own exchanges on other channels (`features.participation`).
+The persona's own exchanges on other channels.
 
 <!-- settings: participation -->
 
 ## `recall`
 
-Settings for the server-history search (`features.recall`). See [Memory](memory.md).
+Settings for the server-history search. See [Memory](memory.md).
 
 <!-- settings: recall -->
 
@@ -282,19 +240,19 @@ Database backend settings.
 
 ### `recall.prefetch`
 
-The automatic memory prefetch (`features.coreTools` with `features.memoryPrefetch`).
+The automatic memory prefetch.
 
 <!-- settings: recall.prefetch -->
 
 ## `image`
 
-Settings for drawing (`features.imageGeneration`). See [Media](media.md).
+Settings for drawing. See [Media](media.md).
 
 <!-- settings: image -->
 
 ## `speech`
 
-Settings for voice messages (`features.speech`). The persona's `voice.say` skill sends text through the `speech` role's model and posts it as a Discord voice message.
+Settings for voice messages. The persona's `voice.say` skill sends text through the `speech` role's model and posts it as a Discord voice message.
 
 <!-- settings: speech -->
 
@@ -304,7 +262,7 @@ Settings for voice messages (`features.speech`). The persona's `voice.say` skill
 
 ## `diary`
 
-Settings for the diary (`features.diary`). See [Diary](diary.md).
+Settings for the diary. See [Diary](diary.md).
 
 <!-- settings: diary -->
 
@@ -319,21 +277,15 @@ Default windows:
 ]
 ```
 
-## `avatars`
-
-Settings for avatar descriptions (`features.avatars`).
-
-<!-- settings: avatars -->
-
 ## `gifs`
 
-Settings for the GIF library (`features.gifs`).
+Settings for the GIF library.
 
 <!-- settings: gifs -->
 
 ## `private`
 
-Settings for private chat (`features.privateMessages`).
+`private.enabled` switches private chat on, and the other keys apply to it.
 
 <!-- settings: private -->
 
@@ -371,13 +323,13 @@ The task board's settings (`src/board/board.ts#boardSettings` and `#boardTimings
 
 ## `intentions`
 
-Settings for the persona's intentions (`features.intentions`). See [Inner life](inner-life.md).
+Settings for the persona's intentions. See [Inner life](inner-life.md).
 
 <!-- settings: intentions -->
 
 ## `innerLife`
 
-Settings for the persona's inner life (`features.innerLife`). See [Inner life](inner-life.md).
+Settings for the persona's inner life. See [Inner life](inner-life.md).
 
 <!-- settings: innerLife -->
 
@@ -389,12 +341,12 @@ The journal, record and archive's file writer.
 
 ## `journal`
 
-The persona's journal (`features.journal`).
+The persona's journal.
 
 <!-- settings: journal -->
 
 ## `archive`
 
-Before anything leaves hot memory, a copy goes to `data/guilds/<id>/archive/<YYYY-MM>.jsonl`. Needs `features.archive`.
+Before anything leaves hot memory, a copy goes to `data/guilds/<id>/archive/<YYYY-MM>.jsonl`.
 
 <!-- settings: archive -->

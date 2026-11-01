@@ -416,14 +416,12 @@ test('fetchPull ends the window at an explicit anchor', async () => {
     messages: [...burst(LAST - 300 * MIN, LAST - 120 * MIN, 20), ...burst(LAST - 30 * MIN, LAST, 10)],
   });
   const anchorId = diary.idAt(LAST - 120 * MIN);
-  const cfg = config({ pull: { minMessages: 2 } });
-  const pulled = pulledOf(
-    (await withCapturedLogs(() => pull(diary.id, { anchorId, reason: 'recall', config: cfg }))).result
-  );
+  const pulled = pulledOf((await withCapturedLogs(() => pull(diary.id, { anchorId, reason: 'recall' }))).result);
+  // PR 7d: pull.minMessages is the constant 5, so the hour before the anchor is widened by one older message.
   assert.deepEqual(
     pulled.messages.map((m) => m.ts),
-    [LAST - 180 * MIN, LAST - 160 * MIN, LAST - 140 * MIN, LAST - 120 * MIN],
-    'the hour before the anchor, nothing after it'
+    [LAST - 200 * MIN, LAST - 180 * MIN, LAST - 160 * MIN, LAST - 140 * MIN, LAST - 120 * MIN],
+    'the five messages up to the anchor, nothing after it'
   );
   assert.equal(pulled.olderNotShown, true);
   assert.equal(pulled.messages.at(-1)?.id, anchorId);
@@ -494,23 +492,21 @@ test('fetchPull skips as empty when nothing is before the previous view and as f
   assert.equal(failed.result.skip, 'fetch-failed');
 });
 
-test('fetchPull does not find a malformed anchor and refuses an anchor older than a positive maxAgeDays', async () => {
+test('fetchPull does not find a malformed anchor and pulls an anchor of any age', async () => {
   mainChannel();
   const diary = addChannel({ id: '760000000000000005', messages: [{ ts: NOW - 40 * DAY }, { ts: NOW - DAY }] });
   const oldId = diary.idAt(NOW - 40 * DAY);
   const { result } = await withCapturedLogs(async () => [
     await pull(diary.id, { anchorId: 'ημέρα' }),
-    await pull(diary.id, { anchorId: oldId, config: config({ pull: { maxAgeDays: 30 } }) }),
     await pull(diary.id, { anchorId: oldId }),
   ]);
   assert.equal(result[0]?.skip, 'not-found');
-  assert.equal(result[1]?.skip, 'too-old');
   assert.deepEqual(
-    result[2]?.pulled?.messages.map((m) => m.id),
+    result[1]?.pulled?.messages.map((m) => m.id),
     [oldId],
-    'maxAgeDays 0: no age limit'
+    'no age limit'
   );
-  // The anchors are read by id (three times); only the last pull read a page, the too-old anchor read none.
+  // The anchors are read by id (twice); only the last pull read a page, the malformed anchor read none.
   assert.equal(diary.calls().filter((call) => typeof call === 'object').length, 1, 'only the last pull read a page');
 });
 
@@ -548,17 +544,6 @@ test('fetchPull skips an unknown, thread or unreadable conversation with its rea
   for (const held of [thread, hidden]) assert.deepEqual(held.calls(), [], 'nothing read');
 });
 
-test('fetchPull skips the dry-run conversation with its own reason', async () => {
-  mainChannel();
-  const mirror = addChannel({ id: MIRROR_ID, messages: [{ ts: LAST }] });
-  const { result, logs } = await withCapturedLogs(() =>
-    pull(MIRROR_ID, { config: config({ bot: { dryRunChannelId: MIRROR_ID } }) })
-  );
-  assert.deepEqual(result, { pulled: null, skip: 'dry-run-channel' });
-  assert.equal(logged(logs, 'pull: skipped').reason, 'dry-run-channel');
-  assert.deepEqual(mirror.calls(), []);
-});
-
 test('fetchPull gives their own skip codes for an empty conversation and a failed read', async () => {
   mainChannel();
   const empty = addChannel({ id: '760000000000000021' });
@@ -570,22 +555,6 @@ test('fetchPull gives their own skip codes for an empty conversation and a faile
     loggedAll(logs, 'pull: skipped').map((entry) => entry.reason),
     ['empty', 'fetch-failed']
   );
-});
-
-test('fetchPull skips a conversation quieter than maxAgeDays and pulls it whatever its age with maxAgeDays 0', async () => {
-  mainChannel();
-  const old = addChannel({
-    id: '760000000000000031',
-    messages: burst(NOW - 280 * DAY, NOW - 280 * DAY + 30 * MIN, 10),
-  });
-  const { result } = await withCapturedLogs(async () => [
-    await pull(old.id, { config: config({ pull: { maxAgeDays: 30 } }) }),
-    await pull(old.id, { config: config({ pull: { maxAgeDays: 0 } }) }),
-  ]);
-  assert.deepEqual(result[0], { pulled: null, skip: 'too-old' });
-  assert.equal(old.calls().length, 1, 'only the second pull read: the too-old refusal made no read');
-  assert.equal(result[1]?.skip, null);
-  assert.equal(result[1]?.pulled?.messages.length, 4);
 });
 
 // ---- the audience rail ----------------------------------------------------------
@@ -710,7 +679,7 @@ test('checkPull refuses exactly the conversations isReadable refuses', async () 
     });
     const entry = snapshot.get(channel.id);
     if (entry === null) throw new Error(`${channel.id} is not listed`);
-    assert.equal(skip !== null && readableCodes.has(skip), !isReadable(entry, bot), `${channel.id}: ${skip}`);
+    assert.equal(skip !== null && readableCodes.has(skip), !isReadable(entry), `${channel.id}: ${skip}`);
   }
 });
 
@@ -909,30 +878,33 @@ function pictureChannel(id: string, count: number): Held {
   return addChannel({ id, messages });
 }
 
-test('fetchPull uses cached captions for every picture and fresh ones only within maxPictures and maxNewDescriptions', async () => {
+test('fetchPull uses cached captions for every picture and fresh ones only within ten pictures and eight new captions', async () => {
+  // PR 7d: pull.maxPictures (10) and pull.maxNewDescriptions (8) are constants.
   mainChannel();
-  const channel = pictureChannel('760000000000000071', 5);
+  const channel = pictureChannel('760000000000000071', 12);
+  const newest = ['p12', 'p11', 'p10', 'p9', 'p8', 'p7', 'p6', 'p5'];
   const describer = fakeDescriber({
     cached: { p4: 'λεζάντα p4', p1: 'λεζάντα p1' },
-    fresh: { p5: 'νέα p5', p3: 'νέα p3' },
+    fresh: Object.fromEntries(newest.map((id) => [id, `νέα ${id}`])),
   });
-  const cfg = config({ pull: { maxPictures: 3, maxNewDescriptions: 1 } });
-  const { result, logs } = await withCapturedLogs(() =>
-    pull(channel.id, { config: cfg, describer, turnCertain: true })
-  );
+  const { result, logs } = await withCapturedLogs(() => pull(channel.id, { describer, turnCertain: true }));
   const pulled = pulledOf(result);
   assert.deepEqual(
     describer.calls.cached,
-    [{ guildId: GUILD_ID, ids: ['p5', 'p4', 'p3', 'p2', 'p1'] }],
+    [{ guildId: GUILD_ID, ids: ['p12', 'p11', 'p10', 'p9', 'p8', 'p7', 'p6', 'p5', 'p4', 'p3', 'p2', 'p1'] }],
     'the cache is asked for every picture'
   );
-  assert.deepEqual(describer.calls.many, [{ guildId: GUILD_ID, ids: ['p5'], options: { maxNew: 1 } }]);
-  assert.deepEqual([...pulled.descriptions].sort(), [
-    ['p1', 'λεζάντα p1'],
-    ['p4', 'λεζάντα p4'],
-    ['p5', 'νέα p5'],
-  ]);
-  assert.equal(pulled.picturesNotSeen, 2, 'p3 (no fresh slot left) and p2 (past maxPictures, not cached)');
+  assert.deepEqual(
+    describer.calls.many,
+    newest.map((id) => ({ guildId: GUILD_ID, ids: [id], options: { maxNew: 1 } })),
+    'one request per fresh picture, newest first, none past the eight'
+  );
+  assert.deepEqual(Object.fromEntries(pulled.descriptions), {
+    p4: 'λεζάντα p4',
+    p1: 'λεζάντα p1',
+    ...Object.fromEntries(newest.map((id) => [id, `νέα ${id}`])),
+  });
+  assert.equal(pulled.picturesNotSeen, 2, 'p3 (no fresh slot left) and p2 (past ten pictures, not cached)');
   const line = logged(logs, 'pull: channel');
   assert.deepEqual(
     {
@@ -943,7 +915,7 @@ test('fetchPull uses cached captions for every picture and fresh ones only withi
       late: line.late,
       notSeen: line.notSeen,
     },
-    { pictures: 5, cached: 2, asked: 1, fresh: 1, late: 0, notSeen: 2 }
+    { pictures: 12, cached: 2, asked: 8, fresh: 8, late: 0, notSeen: 2 }
   );
 });
 
@@ -1035,26 +1007,18 @@ test('fetchPull uses only cached captions without turnCertain', async () => {
   assert.equal(pulled.picturesNotSeen, 2);
 });
 
-test('fetchPull makes no describer call with mediaDescriptions off', async () => {
-  mainChannel();
-  const channel = pictureChannel('760000000000000076', 2);
-  const describer = fakeDescriber({ cached: { p1: 'λεζάντα p1' }, fresh: { p2: 'νέα p2' } });
-  const cfg = config({ features: { mediaDescriptions: false } });
-  const pulled = pulledOf(
-    (await withCapturedLogs(() => pull(channel.id, { config: cfg, describer, turnCertain: true }))).result
-  );
-  assert.deepEqual(describer.calls, { cached: [], many: [] });
-  assert.equal(pulled.descriptions.size, 0);
-  assert.equal(pulled.picturesNotSeen, 2);
-});
-
 // ---- the caption top-up -----------------------------------------------------------
 
 test('captionPulled makes no read and asks only for uncached pictures within the limits', async () => {
+  // PR 7d: pull.maxPictures (10) and pull.maxNewDescriptions (8) are constants.
   const main = mainChannel();
-  const channel = pictureChannel('760000000000000078', 5);
-  const describer = fakeDescriber({ cached: { p4: 'λεζάντα p4' }, fresh: { p5: 'νέα p5', p3: 'νέα p3' } });
-  const cfg = config({ pull: { maxPictures: 3, maxNewDescriptions: 1 } });
+  const channel = pictureChannel('760000000000000078', 12);
+  const newest = ['p12', 'p11', 'p10', 'p9', 'p8', 'p7', 'p6', 'p5'];
+  const describer = fakeDescriber({
+    cached: { p4: 'λεζάντα p4' },
+    fresh: Object.fromEntries(newest.map((id) => [id, `νέα ${id}`])),
+  });
+  const cfg = config();
   const { result, logs } = await withCapturedLogs(async () => {
     const before = pulledOf(await pull(channel.id, { config: cfg, describer }));
     const requests = channel.calls().length;
@@ -1065,23 +1029,23 @@ test('captionPulled makes no read and asks only for uncached pictures within the
   assert.equal(channel.calls().length, requests, 'no read of the conversation');
   assert.deepEqual(
     describer.calls.many.map((call) => call.ids),
-    [['p5']],
-    'within maxPictures and maxNewDescriptions'
+    newest.map((id) => [id]),
+    'within ten pictures and eight new captions'
   );
   assert.deepEqual(
     describer.calls.cached.at(-1)?.ids,
-    ['p5', 'p3', 'p2', 'p1'],
+    ['p12', 'p11', 'p10', 'p9', 'p8', 'p7', 'p6', 'p5', 'p3', 'p2', 'p1'],
     'the cache is asked again, never for a known caption'
   );
-  assert.deepEqual([...after.descriptions].sort(), [
-    ['p4', 'λεζάντα p4'],
-    ['p5', 'νέα p5'],
-  ]);
+  assert.deepEqual(Object.fromEntries(after.descriptions), {
+    p4: 'λεζάντα p4',
+    ...Object.fromEntries(newest.map((id) => [id, `νέα ${id}`])),
+  });
   assert.equal(after.picturesNotSeen, 3);
   assert.equal(after.messages, before.messages, 'the same lines');
   assert.deepEqual(
     [[...before.descriptions], before.picturesNotSeen],
-    [[['p4', 'λεζάντα p4']], 4],
+    [[['p4', 'λεζάντα p4']], 11],
     'the given record is not changed'
   );
   const line = logged(logs, 'pull: captions');
@@ -1089,7 +1053,7 @@ test('captionPulled makes no read and asks only for uncached pictures within the
     { channel: line.channel, source: line.source, pullReason: line.pullReason },
     { channel: main.id, source: channel.id, pullReason: 'mention' }
   );
-  assert.deepEqual([line.pictures, line.cached, line.asked, line.fresh, line.late, line.notSeen], [5, 1, 1, 1, 0, 3]);
+  assert.deepEqual([line.pictures, line.cached, line.asked, line.fresh, line.late, line.notSeen], [12, 1, 8, 8, 0, 3]);
 });
 
 test('captionPulled renders a late caption blind and clears the timer when all arrive in time', async () => {

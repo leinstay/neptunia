@@ -56,12 +56,10 @@ export function audienceAllows(destination, source, config, { partner = null } =
  * isReadableChannel gains later) is `not-readable`. A channel without
  * `isTextBased` is `not-text` before the rule is asked.
  */
-function readableRefusal(channel, bot) {
+function readableRefusal(channel) {
   if (typeof channel.isTextBased !== 'function' || !channel.isTextBased()) return 'not-text';
-  if (isReadableChannel(channel, bot)) return null;
+  if (isReadableChannel(channel)) return null;
   if (channel.isThread?.()) return 'thread';
-  const mirrorId = bot.dryRunChannelId;
-  if (mirrorId && channel.id === mirrorId) return 'dry-run-channel';
   return 'not-readable';
 }
 
@@ -72,7 +70,7 @@ function readableRefusal(channel, bot) {
  * whatever the audience rail says); the id is a channel of `guild` (`not-found`); the channel is one the
  * persona may read (interfaces/discord/collect.js#isReadableChannel, the rule
  * neighbours obey too), the refusal named `not-text` (not a text channel),
- * `thread`, `dry-run-channel` (`bot.dryRunChannelId`) or else `not-readable`
+ * `thread` or else `not-readable`
  * (the bot cannot read its history);
  * the audience rail toward `destination` (`audience`, see audienceAllows: in
  * a private chat, the partner's View Channel on it);
@@ -90,7 +88,7 @@ export function checkPull({ guild, channelId, destination = null, partner = null
   const channel =
     typeof channelId === 'string' && channelId ? (guild?.channels?.cache?.get?.(channelId) ?? null) : null;
   if (!channel) return refused('not-found');
-  const unreadable = readableRefusal(channel, config?.bot ?? {});
+  const unreadable = readableRefusal(channel);
   if (unreadable) return refused(unreadable);
   if (!audienceAllows(destination, channel, config, { partner })) return refused('audience');
   const last = lastActivity(channel);

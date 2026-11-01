@@ -9,7 +9,6 @@ import {
   DEFAULTS,
   acceptRefusal,
   attendCounter,
-  attentionSettings,
   bumpAttend,
   isAttend,
   normalizeAttend,
@@ -760,7 +759,7 @@ test('attend: the per-day counter counts on its local day and starts again on th
   );
 });
 
-test('attend: a forget of one of the attended people takes the attention out; attentionSettings reads the live numbers', () => {
+test('attend: a forget of one of the attended people takes the attention out', () => {
   const record = createIntention({
     purpose: 'listen',
     provenance: { kind: 'self' },
@@ -770,15 +769,6 @@ test('attend: a forget of one of the attended people takes the attention out; at
   }).intention;
   assert.equal(concernsMember(record, { userId: 'u9' }), true);
   assert.equal(concernsMember(record, { userId: 'u8' }), false);
-  assert.deepEqual(attentionSettings({ innerLife: { attention: { settleSeconds: 0, perDayDefault: 3 } } }), {
-    settleSeconds: 0,
-    perDayDefault: 3,
-  });
-  assert.deepEqual(attentionSettings({ innerLife: { attention: { settleSeconds: -5, perDayDefault: 0 } } }), {
-    settleSeconds: 90,
-    perDayDefault: 12,
-  });
-  assert.deepEqual(attentionSettings({}), ATTEND_DEFAULTS);
 });
 
 test('dropped: any open record can be dropped with a reason; it is final, never due, never expires, and needs a reason', () => {

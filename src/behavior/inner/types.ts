@@ -151,7 +151,7 @@ export type InnerSettings = {
   tickSeconds: number;
   queueMax: number;
   chatMessages: number;
-  review: { enabled: boolean; historyDays: number; expiredMax: number };
+  review: { historyDays: number; expiredMax: number };
   heartbeat: {
     enabled: boolean;
     everyMinutes: number;
@@ -165,7 +165,6 @@ export type InnerSettings = {
     placesShown: number;
     placeLines: number;
     maxTokens: number;
-    intentionsOnly: boolean;
     maxOpen: number;
     maxRecurring: number;
   };

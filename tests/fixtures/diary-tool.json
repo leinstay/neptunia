@@ -5,7 +5,8 @@
   "writerTools": [
     "draw_create",
     "message_create",
-    "message_react_add"
+    "message_react_add",
+    "voice_say"
   ],
   "called": [
     "message.create:denied/diary-draw-only"

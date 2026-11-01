@@ -173,12 +173,6 @@ test('pull seen: an edited message counts as fresh, never older', () => {
   assert.equal(viewOf(built)[1], fill(labels.pull.seenBefore, { fresh: 1, older: 0, ago: ago(3) }));
 });
 
-test('pull seen: features.pullSeenMarker false -> no line', () => {
-  const built = request(PAGE, { seenBefore: shownBefore(request(PAGE), 3), features: { pullSeenMarker: false } });
-  assert.equal(viewOf(built).length, 4);
-  assert.equal(built.stats.pulled.seenFresh, undefined);
-});
-
 test('pull seen: a labels file without the keys renders no line', () => {
   const { seenBefore: _fresh, seenSame: _same, ...olderPull } = labels.pull;
   const built = request(PAGE, { seenBefore: shownBefore(request(PAGE), 3), labelSet: { ...labels, pull: olderPull } });

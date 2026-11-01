@@ -10,16 +10,7 @@ import { postLimitNotice } from '../behavior/limits.js';
 import type { Reads } from '../interface/reads.ts';
 import { log } from '../log.js';
 import type { ConversationRef } from './conversations.ts';
-import type {
-  Conv,
-  Line,
-  PipelineConfig,
-  PipelineHot,
-  PipelineState,
-  PipelineTurns,
-  TriggerKind,
-  TurnResult,
-} from './types.ts';
+import type { Conv, Line, PipelineHot, PipelineState, PipelineTurns, TriggerKind, TurnResult } from './types.ts';
 
 /** A rail's limit as the notice quotes it (src/behavior/limits.js#postLimitNotice). */
 export type NoticeLimit = Parameters<typeof postLimitNotice>[0]['limit'];
@@ -78,17 +69,6 @@ export function routedFields({ destination }: { destination?: Conv | null }): { 
 }
 
 /**
- * Whether the switch that lets a server call of `kind` through (onMessage
- * step 8) is off in `features` now: features.replies for a reply,
- * features.nameTriggers for a name, features.mentions for a mention.
- */
-export function callSwitchOff(kind: TriggerKind, features: NonNullable<PipelineConfig['features']>): boolean {
-  if (kind === 'reply') return features.replies === false;
-  if (kind === 'name') return features.nameTriggers === false;
-  return features.mentions === false;
-}
-
-/**
  * The `mention: dropped` reason for a call messageStillExists did not find:
  * `gone` (deleted) or `fetch-failed` (the lookup failed; it may still exist).
  */
@@ -99,7 +79,7 @@ export function missingReason(missing: 'gone' | 'error'): 'gone' | 'fetch-failed
 export function createCallOutcome({ hot, store, now, turns, reads, refOf, port }: CallOutcomeContext): CallOutcome {
   /**
    * Post the limit notice in `channel` (src/behavior/limits.js#postLimitNotice:
-   * labels, dry-run and the mirror read now). A follow-up's notice is never a
+   * labels read now). A follow-up's notice is never a
    * platform reply, like the follow-up turn itself; nor is one posted `plain`
    * (a routed call's, whose trigger lives in another channel). Never throws.
    */
@@ -117,7 +97,6 @@ export function createCallOutcome({ hot, store, now, turns, reads, refOf, port }
       asReply: !plain && triggerKind !== 'followUp',
       // postLimitNotice reads the labels it is given, a missing labels file as none.
       labels: hot.prompts?.labels as object,
-      config: hot.config,
       port,
     });
   }
@@ -171,16 +150,14 @@ export function createCallOutcome({ hot, store, now, turns, reads, refOf, port }
    * calls of the ring the turn showed -- one this call replaced, an earlier
    * one still waiting -- are the turn's to stamp, by what its output answered
    * (src/behavior/turn.js#stampShownCalls); one it did not show stays as it
-   * was. A dry run that spoke reached nobody and stamps nothing (the call
-   * stays unanswered); a dry run that skipped stamps it like any skip --
+   * was. A turn that skipped stamps it like any skip --
    * silence is the persona's choice, not a post. Any other outcome (an error,
    * a refusal, busy, paused) stamps nothing.
    */
   function markRoutedCall(messageId: string, result: TurnResult): void {
     let status: 'answered' | 'skipped' | null = null;
     if (result?.outcome === 'skip') status = 'skipped';
-    else if (result?.outcome === 'spoke' && result.dryRun !== true)
-      status = result.delivered === false ? 'skipped' : 'answered';
+    else if (result?.outcome === 'spoke') status = result.delivered === false ? 'skipped' : 'answered';
     if (status) stampRing([{ messageId, status }]);
   }
 
@@ -189,8 +166,7 @@ export function createCallOutcome({ hot, store, now, turns, reads, refOf, port }
    * decision for the burst the settle grouped: the call and every call it
    * took the place of (`superseded`: replaced in the settle wait, or
    * outranked by it) are stamped skipped (stampRing), so a
-   * later pull never presents them as waiting. Safe in a dry run: a skip
-   * claims no answer.
+   * later pull never presents them as waiting. A skip claims no answer.
    */
   function passRoutedCall(messageId: string, superseded: Array<string> = []): void {
     stampRing([messageId, ...superseded].map((id) => ({ messageId: id, status: 'skipped' as const })));
@@ -200,11 +176,10 @@ export function createCallOutcome({ hot, store, now, turns, reads, refOf, port }
    * A routed call a turn that spoke already had in view
    * (turns.spokeAfterSeeing): the call and every other call of its source in
    * the ring that turn showed are stamped skipped (stampRing) -- in view, so
-   * a later pull never presents them as waiting. A turn that spoke for real
+   * a later pull never presents them as waiting. A turn that spoke
    * stamped them itself already (src/behavior/turn.js#stampShownCalls; an
-   * answer it gave is kept), a rehearsal did not. A call of the source that
-   * turn did not show is left as it was. Safe in a dry run: a skip claims no
-   * answer.
+   * answer it gave is kept). A call of the source that
+   * turn did not show is left as it was.
    */
   function skipSeenCalls(sourceId: string, messageId: string): void {
     const seen = ringCalls(sourceId)

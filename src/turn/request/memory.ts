@@ -2,7 +2,7 @@
 // own exchanges on other channels in `<participation>`, and the anchored window `<earlier>` (this channel's lines
 // older than the chat that matter). buildRequest and buildDiaryPlanRequest (src/behavior/prompt.js) call them.
 
-import { fill, formatClock, formatDate, formatDuration, formatTranscript } from '../../format.js';
+import { AGE_AFTER_MINUTES, fill, formatClock, formatDate, formatDuration, formatTranscript } from '../../format.js';
 import { fitSections } from '../../llm/budget.js';
 import { cutEpisode, earlierEpisodes, participationSettings, selectEpisodes, topEpisodes } from '../../memory/index.js';
 import { oneLine } from '../../memory/clamp.js';
@@ -316,7 +316,7 @@ export function participationView(
   }
 ): ParticipationView | null {
   const p = labels.participation;
-  if (privateChat || config.features?.participation === false) return null;
+  if (privateChat) return null;
   if (!p?.header || !p.episode) return null;
   if (!participation || typeof participation !== 'object' || !participation.state) return null;
   const settings = participationSettings(config);
@@ -414,7 +414,7 @@ export function participationText(view: ParticipationView, keptEpisodes: Array<P
  * the request is the one the count-based window always made.
  */
 export function anchoredOn(config: RequestConfig, labels: Labels, privateChat: boolean): boolean {
-  return config.features?.anchoredWindow === true && !privateChat && Boolean(labels.participation?.earlierHeader);
+  return !privateChat && Boolean(labels.participation?.earlierHeader);
 }
 
 /**
@@ -480,10 +480,7 @@ export function anchorsView(
   const windowLines = history.filter((message) => message.replyParent !== true);
   const indexOf = new Map(history.map((message, i) => [message.id, i + 1]));
   const starts = windowLines.map((message) => message?.ts).filter(Number.isFinite);
-  const state =
-    config.features?.participation !== false && participation && typeof participation === 'object'
-      ? participation.state
-      : null;
+  const state = participation && typeof participation === 'object' ? participation.state : null;
   // earlierEpisodes cuts the stored episodes, which it returns as plain objects.
   const episodes = (
     state && starts.length > 0
@@ -615,7 +612,7 @@ export type MemoryViews = {
 
 /**
  * `<participation>`, the persona's own exchanges on other channels without a line the request already shows, and
- * `<earlier>`, the anchors of this channel (features.anchoredWindow). Neither in a private chat.
+ * `<earlier>`, the anchors of this channel. Neither in a private chat.
  */
 export function memoryViews(given: RequestInput & Base & PulledView): MemoryViews {
   const { config, history, neighbors, trigger, currentChannelId, channels, now, selfName } = given;
@@ -640,10 +637,10 @@ export function memoryViews(given: RequestInput & Base & PulledView): MemoryView
     shownIds,
     candidateText: participationCandidate?.content ?? '',
     now,
+    ageMinutes: AGE_AFTER_MINUTES,
     timezone,
     selfName,
     nameOf,
-    ageMinutes: config.context.ageAfterMinutes ?? 60,
   });
   const participationOffered = Boolean(participationBuilt && participationBuilt.episodes.length > 0);
   // `<earlier>`: the anchors, this channel's lines the chat window let go of but that matter
@@ -727,7 +724,7 @@ export function recentOf(given: RequestInput & Base & Room & InterlocutorBlocks 
       lines: given.recentLines,
       profiles: recentProfiles,
       now,
-      hours: recentCfg!.hours,
+      hours: recentCfg.hours,
       focusIds: recentFocus,
       excludeEpisodeKeys: new Set([...interlocutorKeys, ...askedShown]),
       isShown: recentAudience,
@@ -737,7 +734,7 @@ export function recentOf(given: RequestInput & Base & Room & InterlocutorBlocks 
     const items = view.items as Array<RecentItem>;
     const { entries, unnamed } = recentEntries(items, { labels, timezone, currentChannelId, channels, nameOf });
     return {
-      header: fill(labels.recent!.header, { hours: recentCfg!.hours }),
+      header: fill(labels.recent!.header, { hours: recentCfg.hours }),
       entries,
       hidden: view.hidden,
       repeated: view.repeated,

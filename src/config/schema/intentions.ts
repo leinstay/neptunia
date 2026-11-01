@@ -25,31 +25,10 @@ export const INTENTIONS: ReadonlyArray<SchemaEntry> = [
     'text': 'Max intentions open at once',
   },
   {
-    'key': 'intentions.maxCandidates',
-    'types': ['number'],
-    'reader': 'src/intentions/service.ts',
-    'default': 5,
-    'text': 'Max candidates from her lines per batch, and open at once',
-  },
-  {
     'key': 'intentions.candidateExpiresHours',
     'types': ['number'],
     'reader': 'src/intentions/model.ts',
     'default': 48,
     'text': 'Hours before an unhandled candidate expires',
-  },
-  {
-    'key': 'intentions.waitHours',
-    'types': ['number'],
-    'reader': 'src/intentions/service.ts',
-    'default': 2,
-    'text': 'Wait deadline when a wait names none',
-  },
-  {
-    'key': 'intentions.expiryNoticeDays',
-    'types': ['number'],
-    'reader': 'src/intentions/blocks.ts',
-    'default': 2,
-    'text': "Days before expiry at which the expiry shows on the intention's line",
   },
 ];

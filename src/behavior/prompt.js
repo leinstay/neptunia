@@ -60,7 +60,7 @@ import { createHash } from 'node:crypto';
 import { fitSections, requestTokenLimit, sectionCost } from '../llm/budget.js';
 import { computeTempo, fill, formatNow, formatTranscript, renderTempo, renderTranscript } from '../format.js';
 import { RECENT_EPISODES_PER_MEMBER, recentSettings, recentView } from '../memory/recent.js';
-import { renderKindsBlock } from './diary.ts';
+import { DEFAULT_HISTORY_POSTS, renderKindsBlock } from './diary.ts';
 import { diaryHistoryLines, diaryOf, worldText } from '../turn/request/diary.ts';
 import { gifListOf, trimLists } from '../turn/request/emoji-gifs.ts';
 import { requestHead, requestRoom } from '../turn/request/head.ts';
@@ -91,6 +91,7 @@ import { assembleUser, seenOf } from '../turn/request/tail.ts';
 import { finalTask, taskOf } from '../turn/request/task.ts';
 import { TAG_OVERHEAD, block, fillPromptTemplate, requireLabels } from '../turn/request/text.ts';
 import { wakeTexts } from '../turn/request/wake.ts';
+import { LORE_LIMITS } from '../memory/text-limits.js';
 
 // The block builders live in src/turn/request/; their importers read them from here.
 export { block, fillPromptTemplate, hasRequiredLabels } from '../turn/request/text.ts';
@@ -156,9 +157,7 @@ export function userText(content) {
  * lookup classifiers, src/behavior/turn.js#classifierContext): `messages`
  * (already chosen by the caller, oldest first) rendered as the chat renders
  * them (src/format.js) under the live `config` -- `bot.timezone`,
- * `context.gapMarkerMinutes`, `context.maxMessageChars` (800, config.json's
- * value, when missing), `features.seeReactions`, `context.reactionsPerMessage`
- * -- with the media states the caller already has (`descriptions`, `videos`,
+ * the transcript constants of src/format.js -- with the media states the caller already has (`descriptions`, `videos`,
  * `reads`; each optional). The one copy of these options for the classifiers;
  * the caller wraps the body. Pure.
  * @param {object[]} messages
@@ -169,13 +168,9 @@ export function userText(content) {
 export function classifierTranscript(messages, { config, selfName, labels, descriptions, videos, reads }) {
   const items = formatTranscript(messages, {
     timezone: config.bot?.timezone,
-    gapMinutes: config.context?.gapMarkerMinutes,
-    maxChars: config.context?.maxMessageChars ?? 2000,
     selfName,
     labels,
-    seeReactions: config.features?.seeReactions !== false,
-    reactionsPerMessage: config.context?.reactionsPerMessage,
-    replyQuoteChars: config.context?.replyQuoteChars,
+    seeReactions: true,
     descriptions,
     videos,
     reads,
@@ -290,8 +285,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  *   something). A web result without `server` renders exactly as before the server part existed;
  *   the server part needs `labels.lookup.serverHeader`, its stretch `labels.lookup.stretch`.
  * @param {{ status: 'ok'|'none'|'timeout'|'unavailable', basis: string[], excerpts: object[] }|null} [input.prefetch]
- *   The automatic memory prefetch of this turn (features.coreTools with features.memoryPrefetch:
- *   src/behavior/recall-run.js `prefetch`), rendered as `<retrieved>` in the tail right after
+ *   The automatic memory prefetch of this turn (src/behavior/recall-run.js `prefetch`), rendered as `<retrieved>` in the tail right after
  *   `<lookup>` (prefetchText): `labels.prefetch.header`, the query basis, the caution and one
  *   `<excerpt>` per excerpt, or the status line when nothing qualified, the deadline passed or
  *   the search was unavailable. One piece, ahead of the chat, already bounded by
@@ -302,8 +296,8 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  * @param {boolean} [input.recallAvailable]  Whether the search of the server's own history could
  *   run this turn (src/behavior/turn.js#recallAvailable, never in a private chat); `senses.recall`
  *   renders, right after the web search line, only when it is true (and never in a private chat).
- * @param {{ spent: boolean, userSpent: boolean }} [input.drawQuota]  The image client's
- *   quota for this turn (src/llm/images.js#quota); omitted -> no drawing line in `<senses>`.
+ * @param {boolean} [input.drawOn]  Whether this turn may draw (an image client and Attach Files);
+ *   false or omitted -> no drawing line in `<senses>`.
  * @param {{ id: string, name: string, animated?: boolean }[]} [input.customEmoji]  The served
  *   guild's custom emoji (src/behavior/emoji-index.ts#createEmojiIndex's `list()`). With
  *   `features.customEmoji` on (a missing key counts as on) and a non-empty list, `<emoji>`
@@ -343,9 +337,6 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  *   destination has no name) follows the mode's task text -- when it is not, `{{target}}` is ''
  *   and no called text follows. The pulled block is fitted before the chat, and `<tempo>` is
  *   measured to `now` without saying that nobody answered the persona.
- * @param {object|null} [input.focus]  A message of the chat put to everyone present (a room
- *   question): `labels.room.focus` (`{author}` `{target}`) follows the task text when it is in
- *   the chat.
  * @param {{ part: { index: number, total: number, parts: string[] }|null, queued: string[],
  *   queuedOthers?: { author: string, text: string }[], added: string[], failedEarlier?: { author: string, messageId: string, link?: string, at: number, code: string }[] }|null} [input.tasks]  What else the trigger's author is waiting for, after
  *   the task text (src/behavior/turn.js). `part`: this turn answers one part of a message that
@@ -363,7 +354,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  * @param {Set<string>|string[]} [input.readOnlyIds]  Channels the bot can read but not write in:
  *   their `<server>` entries (never the current channel's) carry `labels.server.readOnly`, as do
  *   pulled channels whose record says `readOnly`. A private chat ignores `pulled`, `source`,
- *   `focus`, `elsewhereDestination` and `readOnlyIds`; with none of them given the request is
+ *   `elsewhereDestination` and `readOnlyIds`; with none of them given the request is
  *   the one built before pulled channels existed, save `senses.channels` on a server turn.
  * @param {object[]} [input.recentLines]  The guild's recent lines (store.getRecent(guildId).lines;
  *   an empty array for a store that holds none). With it an array, `features.recent` on (a
@@ -431,7 +422,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  *   after `found`). Omitted or null -> no `<skills>`.
  * @param {string[]|null} [input.toolsGranted]  The names of the tools exposed to her this turn
  *   (src/tools/discovery.ts#exposedSkillNames): only the in-turn ones (`web.search`, `web.read`,
- *   `media.look`, `memory.search`) matter here, to `<senses>` under `features.coreTools` (the search
+ *   `media.look`, `memory.search`) matter here, to `<senses>` (the search
  *   lines say she calls them). The tools themselves travel as the request's `tools`, not in a block.
  * @param {string|null} [input.toolsBlock]  The `<tools>` body (src/llm/tool-text.js#toolsBlockText), the text
  *   transport only: in the stable part where the three skills blocks used to stand, fixed, never cut.
@@ -574,13 +565,12 @@ export function buildRequest(input) {
     prefetch: input.prefetch,
     searchAvailable: input.searchAvailable,
     recallAvailable: input.recallAvailable,
-    drawQuota: input.drawQuota,
+    drawOn: input.drawOn,
     customEmoji: input.customEmoji,
     mediaCache: input.mediaCache,
     gifs: input.gifs,
     pulled: input.pulled,
     source: input.source,
-    focus: input.focus,
     tasks: input.tasks,
     elsewhereDestination: input.elsewhereDestination,
     readOnlyIds: input.readOnlyIds,
@@ -613,9 +603,7 @@ export function buildRequest(input) {
   // On a routed turn the call is not in this chat: its silence is measured to now, and its
   // last line being the persona's own is no sign that nobody answered the persona.
   const tempo = computeTempo(given.history, given.now, view.routed ? null : given.trigger);
-  const tempoText = heartbeat
-    ? ''
-    : renderTempo(view.routed ? { ...tempo, lastIsOwn: false } : tempo, labels, given.config.context.tempo);
+  const tempoText = heartbeat ? '' : renderTempo(view.routed ? { ...tempo, lastIsOwn: false } : tempo, labels);
   const task = taskOf({ ...given, ...base, ...view });
   const senses = sensesOf({ ...given, ...base, ...views });
   const diary = diaryOf({ ...given, labels });
@@ -768,7 +756,7 @@ export function buildDiaryPlanRequest(input) {
 
   const system = fillPromptTemplate(prompts['diary-plan'] ?? '', { name: selfName }).trim();
   const nowText = formatNow(now, timezone, labels.locale);
-  const kindsText = renderKindsBlock(input.kinds, posts, labels, { window: config.diary?.historyPosts ?? 150 });
+  const kindsText = renderKindsBlock(input.kinds, posts, labels, { window: DEFAULT_HISTORY_POSTS });
   const diaryLines = diaryHistoryLines(posts, labels, config);
   const diaryIntro = diaryLines.length > 0 ? (labels.diary?.intro ?? '') : '';
 
@@ -779,7 +767,7 @@ export function buildDiaryPlanRequest(input) {
   );
   let recentBuilt = null;
   if (recentOn) {
-    const episodesOn = Boolean(labels.recent.episode) && config.features?.episodes !== false;
+    const episodesOn = Boolean(labels.recent.episode);
     const profiles = episodesOn && Array.isArray(input.candidateProfiles) ? input.candidateProfiles : [];
     const view = recentView({
       lines: input.recentLines,
@@ -823,7 +811,6 @@ export function buildDiaryPlanRequest(input) {
           channelIds,
           history,
           now,
-          config.context?.channelActivity,
           labels,
           nameOf,
           new Set(),
@@ -840,10 +827,7 @@ export function buildDiaryPlanRequest(input) {
         name: 'lore',
         cap: caps.lore,
         keep: 'first',
-        items:
-          config.features?.lore !== false
-            ? loreItems(input.loreEntries, history, null, labels, config.lore, nameOf)
-            : [],
+        items: loreItems(input.loreEntries, history, null, labels, LORE_LIMITS, nameOf),
       },
     ],
     limit,

@@ -20,7 +20,7 @@
 // when unknown here (`unknown-file`: a private chat's file goes only back to that chat), larger
 // than the interface takes (`attachment-too-large`) or unreadable (`file-unreadable`). It may also
 // carry one GIF of her library (`gif`, a handle), posted after the text or alone, counted like a
-// reply's `<gif>` (`unknown-gif`; over `gifs.maxPerDay` `gif-cap`; both refuse before anything is posted).
+// reply's `<gif>` (`unknown-gif`, refused before anything is posted).
 // Instead of either, it may repost a picture of one of HER OWN earlier messages (`media`, a message id or
 // link, `item` picking one of several attachments): the message is fetched, its attachment downloaded and
 // uploaded as a real file (never a link). Refused: another's message (`not-own-message`), an unknown or
@@ -32,13 +32,10 @@ import fsp from 'node:fs/promises';
 import { messageRefOf, portAnswer, postingConversation } from './shared.ts';
 import { heldPort } from '../send-hold.ts';
 import { lineOf } from '../../behavior/line-of.js';
-import { defineOp, perEnv, invalid, denied } from './registry.ts';
-import { DIARY_DAILY } from '../../behavior/diary.ts';
+import { defineOp, perEnv, invalid } from './registry.ts';
 import type { createMirrors } from '../../behavior/mirror.ts';
 import { writeDiaryMessage } from '../../behavior/diary-turn.ts';
-import { freshAttachmentUrl, gifPostUrl, countGifPost } from '../../media/gif-post.js';
-import { gifPostsToday } from '../../memory/gif-watch.js';
-import { countToday, utcDay } from '../../time.js';
+import { freshAttachmentUrl, gifPostUrl } from '../../media/gif-post.js';
 import { CODE } from '../codes.ts';
 import { idText, objOf, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
@@ -49,7 +46,6 @@ import type { Env } from './env.ts';
 
 /** The conversation a diary post names where a channel post names its channel. */
 const DIARY_TARGET = 'diary';
-const DEFAULT_DIARY_PER_DAY = 12; // diary.maxPerDay
 
 /** The ports that hold what is sent for her diary (diaryPort). */
 const DIARY_PORTS = new WeakSet<Adapter>();
@@ -57,16 +53,10 @@ const DIARY_PORTS = new WeakSet<Adapter>();
 /** The diary hold of the mirrors' publisher (src/behavior/mirror.ts). */
 type DiaryHold = Pick<ReturnType<typeof createMirrors>, 'holdDiary' | 'heldDiary'>;
 
-/** A positive whole number setting, else `fallback`. */
-function positive(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
-}
-
 /**
  * The port her post to her diary (`diary`) goes through: `real` whose `send` holds each message for the turn's one
  * entry (`env.mirrors`, src/behavior/mirror.ts#holdDiary), which the turn records and the mirrors publish when it ends
- * (src/behavior/diary-turn.ts#publishHeldDiary). Refused: a channel or a reply beside it (`invalid-args`), and the
- * turn's first diary message when `diary.maxPerDay` (default 12) entries are counted today (`cap-diary`).
+ * (src/behavior/diary-turn.ts#publishHeldDiary). Refused: a channel or a reply beside it (`invalid-args`).
  */
 function diaryPort(env: Env, args: Obj, context: OpContext, real: Adapter): Adapter {
   if (args.channelId || args.replyTo) throw invalid('a diary message goes to your diary, with no channel or reply');
@@ -75,13 +65,9 @@ function diaryPort(env: Env, args: Obj, context: OpContext, real: Adapter): Adap
   const guildId = env.resolvedGuildId(context);
   if (typeof hold?.holdDiary !== 'function' || !turnId || !guildId)
     throw Object.assign(new Error('your diary is not available here'), { code: CODE.NOT_CONFIGURED });
-  // The live config and the store's counters, untyped in the env.
+  // The live config, untyped in the env.
   const config = objOf(env.hot as unknown).config;
-  const counters = objOf(objOf(objOf(env.store as unknown).state).data);
-  const cap = positive(objOf(objOf(config).diary).maxPerDay, DEFAULT_DIARY_PER_DAY);
   const clock = typeof env.now === 'function' ? env.now : Date.now;
-  if (hold.heldDiary(turnId) === 0 && countToday(counters, DIARY_DAILY, clock()) >= cap)
-    throw denied(`your diary holds ${cap} entries a day at most`, CODE.CAP_DIARY);
   const held = Object.create(real) as Adapter;
   // Each send is one message of the turn's entry, kept in memory before the call answers.
   held.send = async (_to: ConversationRef, content: Content): Promise<Delivery> => {
@@ -232,16 +218,13 @@ async function errandFile(
 function gifEntry(env: Env, args: Obj, guildId: string | null): Untyped {
   const handle = textOf(args.gif).trim();
   if (!handle) return null;
-  const entry =
-    env.hot.config.features?.gifs === false || typeof env.store?.findGif !== 'function'
-      ? null
-      : env.store.findGif(guildId, handle);
+  const entry = typeof env.store?.findGif !== 'function' ? null : env.store.findGif(guildId, handle);
   if (!entry) throw invalid(`no GIF ${handle} in the library`, CODE.UNKNOWN_GIF);
   return entry;
 }
 
 const handlers = perEnv((env) => {
-  const { hot, store, spontaneous, turns, assertNotPaused, resolvedGuildId } = env;
+  const { store, spontaneous, turns, assertNotPaused, resolvedGuildId } = env;
   const { reads } = env;
   const port = env.port as Adapter | null | undefined;
   const fetchImpl = typeof env.fetchImpl === 'function' ? env.fetchImpl : fetch;
@@ -317,18 +300,11 @@ const handlers = perEnv((env) => {
     };
   }
 
-  /** Whether today's GIF posts are spent against `gifs.maxPerDay` (read now). */
-  function gifCapSpent() {
-    const posts = gifPostsToday(objOf(store.state.data), objOf(hot.config), utcDay(clock()));
-    return posts.used >= posts.cap;
-  }
-
   /**
    * The persona's own text posted as hers: the channel checked, the reply target in it. A `gif`
    * (her library's handle) follows the text, or goes alone when the text is empty, as a `<gif>`
    * of a reply turn does (src/media/gif-post.js): the entry's URL as the text of a message of
-   * hers, counted against `gifs.maxPerDay` and stamped on its entry. The day's cap spent: refused
-   * `gif-cap` before anything is posted.
+   * hers, stamped on its entry.
    */
   async function post(args: Obj, context: OpContext, p: Adapter) {
     const text = textOf(args.text).trim();
@@ -343,9 +319,6 @@ const handlers = perEnv((env) => {
     const repliedUser = Boolean(reply) && !pingsOff(context, context?.repliedAuthorId);
     const guildId = resolvedGuildId(context);
     const entry = gifEntry(env, args, guildId);
-    const capped = entry ? gifCapSpent() : false;
-    // Over the day's cap nothing is posted, the text included: she may call again without the GIF.
-    if (capped) throw invalid('the GIF limit for today is used up', CODE.GIF_CAP);
     const attachment = (await errandFile(env, args, context, channelId, p)) ?? (await mediaFile(args, context, p));
     const to = { iface: p.iface, conversationId: channelId };
     const content: Content = {
@@ -408,8 +381,6 @@ const handlers = perEnv((env) => {
       : { text: gifPostUrl(entry as { url: string }, fresh), mentions: { users: [], repliedUser: false } };
     const sent = await p.send(to, content);
     if (sent?.status === 'ok') {
-      countGifPost(store.state.data, clock());
-      store.state.markDirty();
       if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(guildId, entry.key, clock());
     }
     return sent;

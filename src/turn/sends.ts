@@ -1,14 +1,13 @@
 // How the persona's words are rendered and timed before they go out: a post's mentions, custom emoji, jump links and
-// channel links, the wait for the trigger's author to fall quiet, the name of her diary's place for `<senses>`, and one
-// dry-run mirror message. createTurnRunner (src/behavior/turn.js) builds it once per runner with createSends; the act,
-// the dry act, her calls and the attempt call its functions.
+// channel links, the wait for the trigger's author to fall quiet and the name of her diary's place for `<senses>`.
+// createTurnRunner (src/behavior/turn.js) builds it once per runner with createSends; the act, her calls and the
+// attempt call its functions.
 
 import { settleWait } from '../behavior/activity.js';
 import { messageLinkOf } from '../behavior/elsewhere.ts';
 import type { IndexedEmoji } from '../behavior/emoji-index.ts';
 import { renderCustomEmoji } from '../behavior/emoji.js';
 import { resolveHandles } from '../behavior/handles.js';
-import { mirrorDryRun } from '../behavior/limits.js';
 import { diaryPlaces, readMirrors } from '../behavior/mirror.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { log } from '../log.js';
@@ -19,16 +18,13 @@ import { SETTLE_STEP_MS, paceSettings } from './settings.ts';
 import { withLink } from './targets.ts';
 
 /** The live config, as far as the sends read it. */
-export type SendsConfig = {
-  features?: { messageLinks?: unknown; channelLinks?: unknown; customEmoji?: unknown; diary?: unknown } | null;
-  bot?: { dryRunChannelId?: string } | null;
-};
+export type SendsConfig = Record<string, unknown>;
 
 /** The labels a post's jump link is joined with (prompts.labels). */
 type SendsLabels = { elsewhere?: { link?: unknown } | null } | null | undefined;
 
-/** The interface port (src/interface/port.js), as the dry-run mirror posts through it. */
-type MirrorPort = Parameters<typeof mirrorDryRun>[0]['port'];
+/** The interface port (src/interface/port.js), as a jump link names its interface. */
+type MirrorPort = Parameters<typeof messageLinkOf>[0];
 
 /** What createSends reads: the dependencies and the runner state the sends use. */
 export type SendsContext = {
@@ -78,7 +74,6 @@ export type Sends = {
     snapshot?: Snapshot | null,
     own?: { id: string; name?: string | null } | null
   ) => string | null;
-  mirror: (header: string, body: string) => Promise<boolean>;
 };
 
 export function createSends(ctx: SendsContext): Sends {
@@ -106,7 +101,7 @@ export function createSends(ctx: SendsContext): Sends {
       pulledIds?: ReadonlyMap<string, string> | null;
     }
   ): string {
-    if (hot.config.features?.messageLinks === false || !idByIndex) return text;
+    if (!idByIndex) return text;
     const community = privateChat || !guildId ? null : guildId;
     return linkMessageNumbers(text, (n) => {
       const messageId = idByIndex.get(n);
@@ -129,7 +124,6 @@ export function createSends(ctx: SendsContext): Sends {
   ): string {
     // A Map of the request is handle -> channel id (src/behavior/prompt.js).
     const handles = channelHandles instanceof Map ? (channelHandles as Map<string, string>) : null;
-    if (hot.config.features?.channelLinks === false) return handles ? linkChannels(text, [], handles) : text;
     if (!snapshot || !inCommunity(channel)) return handles ? linkChannels(text, [], handles) : text;
     const channels = snapshot.conversations.map((entry) => ({ id: entry.id, name: entry.name }));
     return linkChannels(text, channels, handles);
@@ -137,7 +131,7 @@ export function createSends(ctx: SendsContext): Sends {
 
   /** The custom emoji lookup, or null when there is no index or features.customEmoji is off (read now). */
   function emojiLookup(): ((name: string) => IndexedEmoji | null) | null {
-    return emoji && hot.config.features?.customEmoji !== false ? emoji.byName : null;
+    return emoji ? emoji.byName : null;
   }
 
   /**
@@ -245,16 +239,11 @@ export function createSends(ctx: SendsContext): Sends {
     own: { id: string; name?: string | null } | null = null
   ): string | null {
     const found = own ? { conversationId: String(own.id), name: own.name } : readMirrors(store, diaryPlaces, [])[0];
-    const place = config.features?.diary === false ? null : (found ?? null);
+    const place = found ?? null;
     if (!place) return null;
     const name = snapshot?.get(place.conversationId)?.name ?? conversationName(place.conversationId) ?? place.name;
     return typeof name === 'string' && name ? name : null;
   }
 
-  /** One dry-run mirror message (src/behavior/limits.js#mirrorDryRun), `bot.dryRunChannelId` read now. */
-  function mirror(header: string, body: string): Promise<boolean> {
-    return mirrorDryRun({ port: iface, dryRunChannelId: hot.config.bot?.dryRunChannelId || '', header, body });
-  }
-
-  return { emojiLookup, renderPost, settleAuthor, diaryChannelName, mirror };
+  return { emojiLookup, renderPost, settleAuthor, diaryChannelName };
 }

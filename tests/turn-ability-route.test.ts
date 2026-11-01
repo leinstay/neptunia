@@ -132,7 +132,6 @@ test('with the drawing key revoked and a core that cannot draw, draw.create answ
   const run = await coreTurn({
     answers: [toolAnswer('', [call('draw.create', { text: 'ένας φάρος' })]), '<skip/>'],
     allowed: ['draw.create'],
-    features: { imageGeneration: true },
     config: {
       image: { maxPromptChars: 1000, reference: 'none' },
       models: { base: { core: 'x/core', analyzer: 'x/text', drawing: 'openai/image-model' }, abilities: {} },
@@ -238,7 +237,6 @@ test('a text-only core loses vision, video, drawing and speech, and she is told 
       '<skip/>',
     ],
     allowed: ['draw.create', 'media.look', 'voice.say'],
-    features: { imageGeneration: true, speech: true },
     firstAttachments: PICTURE,
     config: {
       image: { maxPromptChars: 1000, reference: 'none' },

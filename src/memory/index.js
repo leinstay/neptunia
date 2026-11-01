@@ -22,7 +22,7 @@ export { createAvatarQueue } from './avatar-queue.js';
 export { startYoutubeCheck } from './youtube-check.js';
 
 // Reads: profiles, the private layer, channels, lore, episodes, media and the journal's views.
-export { affinityBand, clampScore, emptyAffinity, ignoreAdjustment, roundScore, strongestMoves } from './affinity.js';
+export { affinityBand, clampScore, emptyAffinity, roundScore, strongestMoves } from './affinity.js';
 export { isConfirmed, isOpen, isStale, normalizeTopic } from './interests.js';
 export { rankAddressed } from './addressed.js';
 export { episodeDate, sortEpisodesForDisplay, topEpisodes } from './episodes.js';
@@ -40,10 +40,8 @@ export {
 export { normalizeAvatar } from './avatars.js';
 export { rankEmojiUsage } from './emoji-usage.js';
 export { findGif, gifHandleMap, gifHandleOf, gifOpts, normalizeGifs, rankGifs } from './gifs.js';
-export { gifPostsToday, gifWatchBlocker, gifWatchesToday } from './gif-watch.js';
+export { gifWatchBlocker } from './gif-watch.js';
 export { RECACHE_DAYS, gifCaptionCounts, gifFormatCounts } from './gif-recache.js';
-export { VIDEO_DAILY } from './describe.js';
-export { isVideoVisionOn } from './youtube-check.js';
 export { createOffPeriodsReader, journalLine, turnView } from './journal.js';
 export { ARCHIVE_EVENTS, ARCHIVE_KINDS, archiveEntry } from './archive.js';
 

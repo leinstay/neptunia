@@ -116,7 +116,6 @@ export async function reviewDue(
   at: number
 ): Promise<Wake | null> {
   const { rng, log } = life;
-  if (!settings.review.enabled) return null;
   const state = stateOf(life, guildId);
   const timezone = timezoneOf(life);
   const day = zonedDay(at, timezone);

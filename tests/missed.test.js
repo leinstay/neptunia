@@ -1,6 +1,6 @@
 // Missed answers (src/behavior/missed.js): the candidate registry fed from facts, its
 // resolution by later turns, the delayed sweep with its code filter and helper, the recovery
-// turn behind features.missedRecovery, the restart reconciliation and the day's figures.
+// turn, the restart reconciliation and the day's figures.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -110,12 +110,10 @@ function settings(overrides = {}) {
   return { ...missedSettings({}), ...overrides };
 }
 
+// PR 7d: the switches are code (the recovery turn included) and the context measures constants.
 function baseConfig(overrides = {}) {
   return {
-    features: { journal: true, missedAnswers: true, missedRecovery: false, ...(overrides.features ?? {}) },
     bot: { timezone: 'UTC' },
-    context: { gapMarkerMinutes: 30, maxMessageChars: 2000, replyQuoteChars: 80 },
-    mention: { oneAtATime: true },
     missed: { ...(overrides.missed ?? {}) },
     models: {},
     llm: {},
@@ -662,19 +660,6 @@ test('createMissed: a skip, a refusal, an overheard line, a routed call and a re
   assert.deepEqual(missed.candidates(), []);
 });
 
-test('createMissed: features.missedAnswers off notes nothing', () => {
-  const { missed, timers } = scene({ config: baseConfig({ features: { missedAnswers: false } }) });
-  missed.noteFact(fact('gate-failed', msg({ id: 'm1' })));
-  missed.onTurnEnd({
-    channelId: 'c1',
-    trigger: { id: 'm2', authorId: 'u1', ts: T0 },
-    triggerKind: 'mention',
-    outcome: 'error',
-  });
-  assert.deepEqual(missed.candidates(), []);
-  assert.equal(timers.size(), 0);
-});
-
 test('createMissed: a later turn of hers resolves the candidate, journaled resolved', async () => {
   const { missed, journal } = scene();
   missed.noteFact(fact('gate-failed', msg({ id: 'm1', ts: T0 })));
@@ -736,7 +721,8 @@ test('createMissed: the sweep waits sweepDelaySeconds after the last event, push
   assert.equal(timers.size(), 1, 'activity elsewhere arms nothing');
 });
 
-test('createMissed: the sweep filters by code, asks the helper once for the rest, and in shadow mode posts nothing', async () => {
+// PR 7d: the recovery turn is code, so the owed one gets its turn; the shadow mode went with the switch.
+test('createMissed: the sweep filters by code and asks the helper once for the rest; the owed one gets its turn', async () => {
   const history = [
     msg({ id: 'm1', content: 'πού είσαι;', ts: T0 }),
     msg({ id: 'm2', authorId: 'u2', authorName: 'Zoë', ts: T0 + 1000 }),
@@ -759,10 +745,10 @@ test('createMissed: the sweep filters by code, asks the helper once for the rest
     llm.calls[0].messages[1].content.includes('1: #1 gate-failed\n2: #2 turn-error'),
     llm.calls[0].messages[1].content
   );
-  assert.equal(turns.calls.length, 0, 'shadow mode: no turn');
+  assert.equal(turns.calls.length, 1, 'one recovery turn for the owed line');
   const states = Object.fromEntries(missed.candidates().map((c) => [c.messageId, [c.state, c.verdict]]));
   assert.deepEqual(states, {
-    m1: ['dismissed', 'owed'],
+    m1: ['resolved', 'owed'],
     m2: ['dismissed', 'stale'],
     m3: ['resolved', null],
     old: ['expired', null],
@@ -772,7 +758,7 @@ test('createMissed: the sweep filters by code, asks the helper once for the rest
   assert.deepEqual(
     verdicts.map((record) => [record.messageId, record.verdict, record.by, record.shadow]),
     [
-      ['m1', 'owed', 'model', true],
+      ['m1', 'owed', 'model', false],
       ['m2', 'stale', 'model', false],
     ]
   );
@@ -794,7 +780,7 @@ test('createMissed: a failed or timed-out helper leaves every candidate unchecke
       history,
       llm: fakeLlm(answer),
       turns,
-      config: baseConfig({ features: { missedRecovery: true } }),
+      config: baseConfig(),
     });
     missed.noteFact(fact('gate-failed', history[0]));
     await timers.fireAll();
@@ -832,7 +818,7 @@ test('createMissed: recovery starts one turn per channel with every owed candida
     history,
     llm: fakeLlm('1: owed\n2: owed'),
     turns,
-    config: baseConfig({ features: { missedRecovery: true } }),
+    config: baseConfig(),
   });
   missed.noteFact(fact('gate-failed', history[1]));
   missed.noteFact(fact('turn-error', history[0]));
@@ -867,7 +853,7 @@ test('createMissed: a second owed candidate inside the channel cooldown waits fo
     history,
     llm,
     turns,
-    config: baseConfig({ features: { missedRecovery: true }, missed: { channelCooldownMinutes: 5 } }),
+    config: baseConfig(),
   });
   missed.noteFact(fact('gate-failed', history[0]));
   await timers.fireAll();
@@ -921,7 +907,7 @@ test('createMissed: the pre-post check fails once she spoke in the channel or an
     history,
     llm: fakeLlm('1: owed'),
     turns,
-    config: baseConfig({ features: { missedRecovery: true } }),
+    config: baseConfig(),
   });
   missed.noteFact(fact('gate-failed', history[0]));
   await timers.fireAll();
@@ -934,7 +920,7 @@ test('createMissed: the pre-post check fails once she spoke in the channel or an
     history,
     llm: fakeLlm('1: owed'),
     turns: fakeTurns({ onRun: (params) => checks.push(params.stillDue()) && { outcome: 'not-now' } }),
-    config: baseConfig({ features: { missedRecovery: true } }),
+    config: baseConfig(),
   });
   second.missed.noteFact(fact('gate-failed', history[0]));
   second.turns.lastPost = T0 + 10 * MIN;
@@ -948,7 +934,7 @@ test('createMissed: no recovery where the bot cannot write, and a busy attention
     history,
     llm: fakeLlm('1: owed'),
     canSend: () => false,
-    config: baseConfig({ features: { missedRecovery: true } }),
+    config: baseConfig(),
   });
   mute.missed.noteFact(fact('gate-failed', history[0]));
   await mute.timers.fireAll();
@@ -959,7 +945,7 @@ test('createMissed: no recovery where the bot cannot write, and a busy attention
     history,
     llm: fakeLlm('1: owed'),
     turns: fakeTurns({ busy: true }),
-    config: baseConfig({ features: { missedRecovery: true } }),
+    config: baseConfig(),
   });
   busy.missed.noteFact(fact('gate-failed', history[0]));
   await busy.timers.fireAll();
@@ -984,7 +970,7 @@ test('createMissed: the reasons of a call that left the pending queue are candid
 test("createMissed: a private chat's fact goes to that person's private journal and its recovery turn runs in the chat only after the gate", async () => {
   const dm = { id: 'd1', recipientId: 'u1' };
   const history = [msg({ id: 'm1', ts: T0, channelId: 'd1' })];
-  const config = baseConfig({ features: { missedRecovery: true } });
+  const config = baseConfig();
   const refused = scene({ history, llm: fakeLlm('1: owed'), channels: [dm], config });
   refused.missed.noteFact(fact('pending-full', history[0]));
   await refused.timers.fireAll();

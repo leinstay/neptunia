@@ -8,13 +8,17 @@ import { log } from '../log.js';
 import { CODE } from '../tools/codes.ts';
 import type { Answer } from './answer.ts';
 import type { CallOutcome } from './call-outcome.ts';
-import { callSwitchOff, missingReason, routedFields } from './call-outcome.ts';
+import { missingReason, routedFields } from './call-outcome.ts';
 import type { ConversationRef, Conversations } from './conversations.ts';
 import type { FollowUpWindows } from './follow-up-window.ts';
 import type { PendingQueueOps } from './pending-queue.ts';
 import { isDeferredFollowUp } from './pending-queue.ts';
 import type { PrivateGate } from './private-gate.ts';
 import type { Conv, PendingQueue, Ping, PipelineHot, PipelineState, PipelineTurns } from './types.ts';
+
+/** The pause, in ms, before a deferred ping is answered (a human switching to it). Production value, config cut of
+ * 2026-10-31. */
+const SWITCH_DELAY_MS: [number, number] = [2000, 9000];
 
 /** What createDrain reads: the dependencies of createMessageHandler, the queue and its other parts' functions. */
 export type DrainContext = {
@@ -41,7 +45,6 @@ export type DrainContext = {
   checkPrivateGate: PrivateGate['checkPrivateGate'];
   dropPrivate: PrivateGate['dropPrivate'];
   afterPrivateTurn: PrivateGate['afterPrivateTurn'];
-  followUpOff: FollowUpWindows['followUpOff'];
   followUpStale: FollowUpWindows['followUpStale'];
   decideAndLog: Answer['decideAndLog'];
 };
@@ -70,7 +73,6 @@ export function createDrain({
   checkPrivateGate,
   dropPrivate,
   afterPrivateTurn,
-  followUpOff,
   followUpStale,
   decideAndLog,
 }: DrainContext): { drainPending: () => Promise<void> } {
@@ -148,7 +150,7 @@ export function createDrain({
         }
 
         logPending(ping, 'picked up', { queued: queuedCount(ping.channelId, ping.trigger.authorId) });
-        await sleep(between(mentionCfg.switchDelayMs ?? [2000, 9000], rng));
+        await sleep(between(SWITCH_DELAY_MS, rng));
 
         // Paused meanwhile: the ping goes back to the queue, which the resume drains.
         if (store?.state?.data?.paused) {
@@ -194,13 +196,12 @@ export function createDrain({
         }
 
         const config = hot.config;
-        const features = config.features ?? {};
         let stop = false; // set by requeueBusy while the turn that blocked this ping still runs
 
         // A private message is answered like a direct ping, without the
         // ignore roll; the channel has no guild, so the pinned one is passed.
-        // The gate is checked again here: the switch, the profile or today's
-        // cap may have changed while the ping waited.
+        // The gate is checked again here: the switch or the profile may have
+        // changed while the ping waited.
         if (ping.kind === 'private') {
           const privateGuildId = getGuildId();
           if (!privateGuildId) continue;
@@ -208,7 +209,7 @@ export function createDrain({
             const authorId = ping.trigger.authorId;
             const check = await checkPrivateGate(config, privateGuildId, authorId);
             if (!check.gate.ok) {
-              await dropPrivate(ping.channel, privateGuildId, authorId, ping.trigger, check);
+              dropPrivate(check);
               continue;
             }
             const result = await turns.runTurn({
@@ -226,14 +227,6 @@ export function createDrain({
             log.error('private: deferred turn failed', { channel: ping.channelId, error: err });
           }
           if (stop) break;
-          continue;
-        }
-
-        // The ping's own switch is hot: it may have changed while the ping
-        // waited.
-        const switchOff = isDeferredFollowUp(ping) ? followUpOff(config) : callSwitchOff(ping.kind, features);
-        if (switchOff) {
-          logPending(ping, 'dropped', { reason: 'off' });
           continue;
         }
 

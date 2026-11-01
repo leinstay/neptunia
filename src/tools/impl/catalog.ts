@@ -70,18 +70,9 @@ export const STATUS_FIELDS = Object.freeze([
 /**
  * The parts of the status card her own `status.show` call may ask for (`part`), each a few of the
  * card's fields (src/tools/impl/status.ts#PART_FIELDS): `overview` (the default of her call), `limits`,
- * `models`, `memory`, `inner`, `errands`, `features` and `all` (the whole card).
+ * `models`, `memory`, `inner`, `errands` and `all` (the whole card).
  */
-export const STATUS_PARTS = Object.freeze([
-  'overview',
-  'limits',
-  'models',
-  'memory',
-  'inner',
-  'errands',
-  'features',
-  'all',
-]);
+export const STATUS_PARTS = Object.freeze(['overview', 'limits', 'models', 'memory', 'inner', 'errands', 'all']);
 
 /** The roles a route may name: the `model.set` roles but the OpenCode ones (`scout`, `server`,
  * `thinker`, `dev`), whose workers never read `llm.providerByModel`, and `speech`, whose one model

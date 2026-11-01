@@ -39,8 +39,6 @@ export function createFollowing({ store, turns, memoryDb, now }: FollowingContex
    */
   function noteFollowingLine(guildId: string, normalized: Line, config: PipelineConfig): void {
     try {
-      const features = config.features ?? {};
-      if (features.memory === false || features.participation === false) return;
       if (diaryConversationIds(memoryDb).has(String(normalized.channelId))) return;
       const settings = participationSettings(config);
       const lastOwn = typeof turns.lastPostAt === 'function' ? turns.lastPostAt(normalized.channelId) : 0;

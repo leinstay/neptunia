@@ -1,4 +1,4 @@
-// Avatar descriptions (features.avatars), the pure part: whether the stored description is of the
+// Avatar descriptions, the pure part: whether the stored description is of the
 // avatar a member shows now (the platform's asset hash, null for its default avatar), and the
 // stored field's shape. The member's current avatar lives in their profile as `avatar`:
 // `{ hash, text, describedAt }`, or `{ hash: null, default: true }` for the default avatar; a new

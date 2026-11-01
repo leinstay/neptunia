@@ -43,7 +43,7 @@ const opLabel = (op: Obj): string =>
  * is cleared and the wakes run again as before. Never throws.
  */
 export async function resolveInflight(life: InnerContext, guildId: string): Promise<void> {
-  const { hot, journal, ready, now, log } = life;
+  const { journal, ready, now, log } = life;
   const state = stateOf(life, guildId);
   const mark = state.inflight;
   if (!mark) return;
@@ -56,7 +56,7 @@ export async function resolveInflight(life: InnerContext, guildId: string): Prom
     });
   }
   let ops: Array<Obj> = [];
-  if (objOf(objOf(hot.config).features).journal === true && typeof journal?.turnOperations === 'function') {
+  if (typeof journal?.turnOperations === 'function') {
     try {
       const at = now();
       const read = await journal.turnOperations(guildId, {

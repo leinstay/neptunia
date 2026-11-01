@@ -3,7 +3,7 @@
 // cut-off and silence that end the turn here. runTurnOnce (src/behavior/turn.js) calls it after the request phase;
 // the tool round reads its first answer and its reader of every later one.
 
-import { stripUrls } from '../../behavior/diary.ts';
+import { DIARY_MAX_MESSAGES, stripUrls } from '../../behavior/diary.ts';
 import { resolveReactionEmoji } from '../../behavior/emoji.js';
 import { innerOutputCalls } from '../../behavior/inner-output.js';
 import { thinkMissing } from '../../behavior/tool-step.js';
@@ -55,10 +55,10 @@ export async function responsePhase(
 ): Promise<Ended | Answered> {
   const { hot, store, llm, calibrator, clock, skills, pullViews } = ctx;
   const { dumpTurnRequest, emojiLookup, resolveGif, noteThink, markPulledSeen, stampShownCalls, journalOn } = ctx;
-  const { trigger = null, triggerKind = null, source = null, focus = null } = params;
+  const { trigger = null, triggerKind = null, source = null } = params;
   const { opened, setup, pulled: pulledStep, waited, gathered, request } = prepared;
   const { channel, guildId, isPrivate, settledMs, life } = opened;
-  const { config, features, transport, startedAt, now, bar, beforeBar, replyOptions } = setup;
+  const { transport, startedAt, now, bar, beforeBar, replyOptions } = setup;
   const { finalMode } = pulledStep;
   const { prepareMs, late, timings } = waited;
   const { diaryPrep, neighborsHidden, pulled } = gathered;
@@ -108,16 +108,11 @@ export async function responsePhase(
   const shapeOutput = (raw: RawParsed): Shaped => {
     // The one field shaping adds, `loweredCalls`, is set below before it returns.
     const parsed = raw as Shaped;
-    if (features.reactions === false) {
-      parsed.reactions = [];
-      parsed.untargetedReactions = [];
-    }
     // A custom emoji reaction resolves through the index; an unknown one (or the switch off) is dropped.
     const lookupEmoji = emojiLookup();
     parsed.reactions = parsed.reactions
       .map((reaction) => ({ ...reaction, emoji: resolveReactionEmoji(reaction.emoji, lookupEmoji) }))
       .filter((reaction): reaction is { to: number; emoji: string } => Boolean(reaction.emoji));
-    if (features.multiMessage === false) parsed.messages = parsed.messages.slice(0, 1);
     // format.stripDashes (a missing key counts as on): no em/en dash in a <msg> text; a message
     // left empty is not posted. Hyphens, <react>, <gif> and reply ids are untouched.
     if (hot.config.format?.stripDashes !== false) {
@@ -154,7 +149,7 @@ export async function responsePhase(
       parsed.messages = parsed.messages
         .map((message) => ({ ...message, replyTo: null, text: stripUrls(message.text) }))
         .filter((message) => message.text !== '')
-        .slice(0, Math.max(0, config.diary?.maxMessages ?? 3));
+        .slice(0, DIARY_MAX_MESSAGES);
     }
     return parsed;
   };
@@ -172,7 +167,7 @@ export async function responsePhase(
     const shaped = shapeOutput(parseOutput(split.speechText, { limits: draft.limits }));
     noteDiagnostics(draft, shaped, answered);
     noteThink(draft, shaped);
-    const resolved: Parsed = Object.assign(shaped, { gif: resolveGif(guildId, shaped.gif, channel.id, draft.limits) });
+    const resolved: Parsed = Object.assign(shaped, { gif: resolveGif(guildId, shaped.gif, channel.id) });
     // Counted, never refused: the answer is acted on all the same.
     if (thinkMissing(split.rawText)) {
       draft.format.thinkMissing += 1;
@@ -199,10 +194,9 @@ export async function responsePhase(
   log.info('turn: model answered', {
     mode: finalMode,
     trigger: triggerKind ?? null,
-    // Only on a turn about another channel, with channels pulled, or with a line put to the room.
+    // Only on a turn about another channel or with channels pulled.
     ...(source ? { source: source.channelId ?? null } : {}),
     ...(pulled.length > 0 ? { pulled: pulled.length } : {}),
-    ...(focus ? { focus: true } : {}),
     // Active neighbours the audience rail left out.
     ...(neighborsHidden > 0 ? { neighborsHidden } : {}),
     secondsToAnswer: Math.round((clock() - startedAt) / 100) / 10,
@@ -220,7 +214,7 @@ export async function responsePhase(
     gif: Boolean(parsed.gif),
     ...(first.calls.length > 0 ? { calls: first.calls.length } : {}),
   });
-  // The pulled channels whose block was in the request sent (a skip and a dry run included):
+  // The pulled channels whose block was in the request sent (a skip included):
   // their seen marks move to the newest line shown; a block the budget dropped moves none.
   const shownPulled = request.pulledKept ?? [];
   // What a private chat showed of the server stays there: no seen mark, no stamp, no pending ping.

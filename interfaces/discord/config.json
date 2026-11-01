@@ -1,1 +1,5 @@
-{}
+{
+  "discord": { "intents": { "presences": false, "members": false } },
+  "context": { "maxUrlChars": 200 },
+  "media": { "embedTextChars": 200 }
+}

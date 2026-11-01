@@ -49,6 +49,7 @@ import { SELF_PERSON, nativeOf, shortHash } from './ids.ts';
 import { audienceOf, contextRow, dmContext, groupContext, issueContext, scopeWhere, wellFormed } from './scope.ts';
 import { columnsOf } from './rows.js';
 import { turnReadRows } from './service.js';
+import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.js';
 
 export const SESSION_PURPOSE = 'memory-session';
 /** The blocks of a session request's user content, in their order. */
@@ -113,8 +114,8 @@ export function sessionSettings(config) {
       Number.isFinite(given.everyMinutes) && given.everyMinutes >= 0 ? given.everyMinutes : DEFAULTS.everyMinutes,
     reviewsPerDay:
       Number.isInteger(given.reviewsPerDay) && given.reviewsPerDay >= 0 ? given.reviewsPerDay : DEFAULTS.reviewsPerDay,
-    settleMinutes:
-      Number.isFinite(given.settleMinutes) && given.settleMinutes >= 0 ? given.settleMinutes : DEFAULTS.settleMinutes,
+    // Production value, config cut of 2026-10-31.
+    settleMinutes: DEFAULTS.settleMinutes,
     since: typeof given.since === 'string' && given.since ? given.since : null,
     maxPeople: posInt(given.maxPeople, DEFAULTS.maxPeople),
     claimsPerPerson: posInt(given.claimsPerPerson, DEFAULTS.claimsPerPerson),
@@ -562,16 +563,16 @@ export function buildSessionRequest({ db, scope, batch, config, prompts, selfNam
   const profileOptions = {
     interlocutor: true,
     relationships: true,
-    maxInterests: config?.memory?.maxInterests,
-    maxDetails: config?.memory?.maxDetails,
-    maxAliases: config?.memory?.maxAliases,
-    aliasHalfLifeDays: config?.memory?.aliasHalfLifeDays,
-    addressHalfLifeDays: config?.memory?.addressHalfLifeDays,
-    interestHalfLifeDays: config?.memory?.interestHalfLifeDays,
-    detailHalfLifeDays: config?.memory?.detailHalfLifeDays,
-    confirmAfter: config?.memory?.confirmAfter,
-    staleDays: config?.memory?.interestStaleDays,
-    supersededShownDays: config?.memory?.supersededShownDays,
+    maxInterests: MEMORY_LIMITS.maxInterests,
+    maxDetails: MEMORY_LIMITS.maxDetails,
+    maxAliases: MEMORY_LIMITS.maxAliases,
+    aliasHalfLifeDays: MEMORY_LIMITS.aliasHalfLifeDays,
+    addressHalfLifeDays: MEMORY_LIMITS.addressHalfLifeDays,
+    interestHalfLifeDays: MEMORY_LIMITS.interestHalfLifeDays,
+    detailHalfLifeDays: MEMORY_LIMITS.detailHalfLifeDays,
+    confirmAfter: MEMORY_LIMITS.confirmAfter,
+    staleDays: MEMORY_LIMITS.interestStaleDays,
+    supersededShownDays: MEMORY_LIMITS.supersededShownDays,
     now,
     nameOf,
   };
@@ -1095,7 +1096,7 @@ export async function sweep(ctx, options = {}) {
   let ran = 0;
   let capped = 0;
 
-  for (const scope of scopesOf(db, { audienceColumn: config?.memoryDb?.audienceColumn === true })) {
+  for (const scope of scopesOf(db, { audienceColumn: true })) {
     if (options.scope && options.scope !== scope.key) continue;
     if (options.scopes instanceof Set && !options.scopes.has(scope.key)) continue;
     const key = cursorKey(settings.mode, scope.key);
@@ -1139,13 +1140,12 @@ export function fitBatch(db, scope, batch, { config, prompts, selfName, now, min
   const cap = Number(config?.llm?.maxRequestTokens);
   if (!Number.isFinite(cap) || cap <= 0) return batch;
   const budget = Math.floor(cap * CAP_SHARE);
-  const tokensPerImage = config?.llm?.vision?.tokensPerImage ?? null;
   const largest = (lines) => {
     const pages = pagesOf(db, lines, config, selfName);
     let most = 0;
     for (let page = 0; page < pages; page += 1) {
       const request = buildSessionRequest({ db, scope, batch: lines, config, prompts, selfName, now, page });
-      most = Math.max(most, estimateMessages(request.messages, tokensPerImage));
+      most = Math.max(most, estimateMessages(request.messages));
     }
     return most;
   };
@@ -1391,7 +1391,7 @@ async function runScope(
         advance,
         pending,
         answer: extra.answer ? { text: extra.answer } : null,
-        maxDelta: config?.relationships?.maxDeltaPerUpdate,
+        maxDelta: RELATIONSHIP_LIMITS.maxDeltaPerUpdate,
         now: now(),
         ...(readSet ? { reads: readSet.rows, readStep: String(page), context: readSet.context } : {}),
       });
@@ -1467,7 +1467,6 @@ async function runScope(
       model: roleModel(config, MEMORY_ROLE),
       maxOutputTokens: settings.maxOutputTokens,
       timeoutMs: settings.timeoutMs,
-      temperature: config?.llm?.temperature,
       skipCalibration: true,
       cache: false,
       origin: SESSION_PURPOSE,

@@ -138,7 +138,7 @@ function evictOverflow(entries, maxEntries) {
  *   entry left with no title, no key or no text is skipped like one sent without them.
  *   `title` is a hard identity clamp at MAX_TITLE; `text` is free prose: a first write (a new
  *   entry, or one with no text) is clamped tolerantly (see src/memory/clamp.js) to `textChars`
- *   (config.lore.textChars; DEFAULT_MAX_TEXT when absent); a rewrite is stored as given, never
+ *   (DEFAULT_MAX_TEXT when the caller passes none); a rewrite is stored as given, never
  *   cut (the caller refuses one over the limit, src/memory/prose.js#acceptProse).
  * @returns {{ entries: object[], upserted: number, changes: { title: string, previousText: string, nextText: string }[] }}
  *   `upserted`: entries inserted or actually changed. `changes`: one pair per existing entry whose

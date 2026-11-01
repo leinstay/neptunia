@@ -1,0 +1,86 @@
+// `tools/config-effective.mjs` is the deploy proof of PR 7d. `--snapshot <file>` writes the effective config of a private
+// layer (`--private <dir>`) and the settings objects the readers derive from it, as `{ config, settings }`, the
+// settings keyed by the reader's name (`recallSettings`, `innerSettings`, ...). `--compare <file>` derives the same from
+// the layer as it is now and prints one line per difference, `<path>: before <json>, after <json>`, ending in
+// ` (declared)` when the cut declares it: a key the cut took out of the settings, or a daily cap's field. Its last line
+// is `equal: <n>, differ: <n>, declared: <n>`, and it exits 1 on a difference the cut does not declare. Synthetic layers.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { ROOT, layer } from './fixtures/private-layer.ts';
+import type { Layer } from './fixtures/private-layer.ts';
+import { tempDir } from './fixtures/tmp.js';
+
+type Tree = Record<string, unknown>;
+
+const isTree = (value: unknown): value is Tree => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+function tool(flags: Array<string>): { code: number | null; out: string; err: string } {
+  const run = spawnSync(process.execPath, ['tools/config-effective.mjs', ...flags], { cwd: ROOT, encoding: 'utf8' });
+  return { code: run.status, out: run.stdout, err: run.stderr };
+}
+
+/** A private layer of the new layout whose settings file sets the recall timeout. */
+function recallLayer(timeoutMs: number): Layer {
+  const target = layer();
+  target.write('config.local/config.json', { recall: { timeoutMs } });
+  return target;
+}
+
+function snapshot(target: Layer): string {
+  const file = path.join(tempDir('nep-effective-snap-'), 'before.json');
+  const run = tool(['--snapshot', file, '--private', target.dir]);
+  assert.equal(run.code, 0, run.err);
+  return file;
+}
+
+const lastLine = (text: string): string => text.trimEnd().split('\n').at(-1) ?? '';
+
+test('writes the effective config and the settings the readers derive from it', () => {
+  const file = snapshot(recallLayer(25000));
+  const written: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.ok(isTree(written) && isTree(written.config) && isTree(written.settings));
+  assert.equal(isTree(written.config.recall) ? written.config.recall.timeoutMs : null, 25000);
+  const recall = written.settings.recallSettings;
+  assert.equal(isTree(recall) ? recall.timeoutMs : null, 25000);
+});
+
+test('finds no difference against a snapshot of the same layer', () => {
+  const target = recallLayer(25000);
+  const file = snapshot(target);
+  const run = tool(['--compare', file, '--private', target.dir]);
+  assert.equal(run.code, 0, run.err);
+  assert.match(lastLine(run.out), /^equal: [1-9]\d*, differ: 0, declared: 0$/);
+});
+
+test('names a derived setting that changed and exits 1', () => {
+  const target = recallLayer(25000);
+  const file = snapshot(target);
+  target.write('config.local/config.json', { recall: { timeoutMs: 9000 } });
+  const run = tool(['--compare', file, '--private', target.dir]);
+  assert.equal(run.code, 1);
+  assert.ok(run.out.split('\n').includes('settings.recallSettings.timeoutMs: before 25000, after 9000'), run.out);
+});
+
+test('marks a key the cut took out of the settings as declared and exits 0', () => {
+  const target = recallLayer(25000);
+  const file = snapshot(target);
+  const written: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.ok(isTree(written) && isTree(written.config));
+  // The snapshot as a deploy before the cut wrote it: the tracked file still held `capture.before`.
+  written.config.capture = { ...(isTree(written.config.capture) ? written.config.capture : {}), before: 3 };
+  fs.writeFileSync(file, JSON.stringify(written));
+  const run = tool(['--compare', file, '--private', target.dir]);
+  assert.equal(run.code, 0, run.out);
+  const line = run.out.split('\n').find((one) => one.startsWith('config.capture.before:'));
+  assert.ok(line?.endsWith(' (declared)'), run.out);
+  assert.match(lastLine(run.out), /differ: 0, declared: 1$/);
+});
+
+test('refuses to run without --snapshot or --compare, and writes nothing', () => {
+  const run = tool(['--private', recallLayer(25000).dir]);
+  assert.equal(run.code === 0, false);
+  assert.match(run.err, /--snapshot|--compare/);
+});

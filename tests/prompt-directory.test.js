@@ -254,14 +254,6 @@ test('buildRequest: the authors of the pulled lines and the neighbours get handl
   assert.ok(directoryOf(stableOf(dm)), 'the directory is in a private chat too');
 });
 
-test('buildRequest: features.mentionHandles off -- no directory, no handles on the lines, no map', () => {
-  const request = buildRequest(input({ config: fakeConfig({ mentionHandles: false }) }));
-  const text = userText(request.messages[1].content);
-  assert.equal(directoryOf(text), null);
-  assert.ok(text.includes('Passer-by: line 2'), text);
-  assert.equal(request.handles, null);
-});
-
 test('buildRequest: without the directory labels no block, and without transcript.author bare names', () => {
   const request = buildRequest(input({ prompts: { ...input().prompts, labels: fixtureLabels } }));
   const text = userText(request.messages[1].content);

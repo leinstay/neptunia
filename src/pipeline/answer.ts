@@ -3,7 +3,7 @@
 // (src/behavior/pipeline.js) builds it once with createAnswer; the live path, the settle waits, the follow-up path and
 // the drain call it.
 
-import { decideMention, isTaggedCall, repeatWindowMs, strippedLength } from '../behavior/mention.js';
+import { SPAM_WINDOW_MS, decideMention } from '../behavior/mention.js';
 import { log } from '../log.js';
 import type { CallOutcome } from './call-outcome.ts';
 import { routedFields } from './call-outcome.ts';
@@ -58,13 +58,10 @@ export type Answer = {
 };
 
 export function createAnswer({
-  store,
   now,
   rng,
   turns,
   tagHistory,
-  selfIdOf,
-  getSelfName,
   refOf,
   holdCall,
   queuedFor,
@@ -77,9 +74,7 @@ export function createAnswer({
    * the caller's `hot.config`, read at the moment of use; `deferred` marks a
    * ping answered from the pending queue; `destination` is the channel a
    * routed call's turn posts in (logged beside `channel`, where the call was
-   * written). Whether the call tags the persona (isTaggedCall: not by the
-   * reply ping alone) is read off `trigger`, so an untagged reply meets
-   * mention.followUpIgnoreChance like a follow-up (decideMention).
+   * written).
    */
   function decideAndLog(
     channel: Conv,
@@ -88,24 +83,12 @@ export function createAnswer({
     config: PipelineConfig,
     { deferred = false, destination = null }: { deferred?: boolean; destination?: Conv | null } = {}
   ): Decision {
-    const features = config.features ?? {};
-    // A server call is written in a community, so its channel has the id.
-    const guildId = channel.communityId as string;
-    const recentCalls = tagHistory.hit(trigger.authorId, now(), repeatWindowMs(config.mention));
-    const affinityScore =
-      features.memory !== false && features.relationships !== false
-        ? store?.getUser?.(guildId, trigger.authorId)?.affinity?.score
-        : undefined;
+    const recentCalls = tagHistory.hit(trigger.authorId, now(), SPAM_WINDOW_MS);
     const decision = decideMention({
       // decideMention reads the kinds of a server call; a follow-up is one of them.
       kind: kind as 'mention' | 'reply' | 'name' | 'followUp',
-      tagged: isTaggedCall(trigger, selfIdOf()),
-      // A message event carries its text (src/protocol/events.js), so the line has it.
-      textLength: strippedLength(trigger.content as string, getSelfName(guildId)),
       recentCalls,
       neverIgnore: config.mention.neverIgnore.includes(trigger.authorId),
-      affinityScore,
-      cfg: config.mention,
       rng,
     });
     log.info('mention: decided', {
@@ -160,22 +143,21 @@ export function createAnswer({
     const turnChannel = destination ?? channel;
     const routed = routedFields({ destination });
     const direct = kind === 'mention' || kind === 'reply' || kind === 'name';
-    const oneAtATime = config.mention.oneAtATime !== false;
     const dropBusy = () => log.info('mention: dropped', { channel: channel.id, kind, reason: 'busy', ...routed });
     // A direct call is one of the queue's kinds.
     const holdDirect = () =>
       holdCall(channel, normalized, kind as 'mention' | 'reply' | 'name', destination, superseded);
     const sameChannelBusy = turns.isBusy(turnChannel.id);
-    if (sameChannelBusy && direct && config.mention.pendingSameChannel !== false) {
+    if (sameChannelBusy && direct) {
       holdDirect();
       return;
     }
-    // Not held (pendingSameChannel off): dropped before it is counted or rolled.
+    // Not held (not a direct call): dropped before it is counted or rolled.
     if (sameChannelBusy) {
       dropBusy();
       return;
     }
-    const busyElsewhere = oneAtATime && turns.isAnyBusy();
+    const busyElsewhere = turns.isAnyBusy();
     if (busyElsewhere) {
       if (direct) holdDirect();
       else dropBusy();

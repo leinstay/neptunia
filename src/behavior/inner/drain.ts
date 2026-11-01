@@ -9,13 +9,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { onLog } from '../../log.js';
 import { HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../time.js';
-import {
-  HEARTBEAT_ORIGIN,
-  attendCounter,
-  expiredToShow,
-  intentionsOn,
-  nextOccurrence,
-} from '../../intentions/model.ts';
+import { HEARTBEAT_ORIGIN, attendCounter, expiredToShow, nextOccurrence } from '../../intentions/model.ts';
 import type { Intention } from '../../intentions/types.ts';
 import { errorCodeOf } from '../../llm/openrouter.js';
 import { CODE } from '../../tools/codes.ts';
@@ -296,8 +290,8 @@ export async function conversationFor(
       fail(CODE.UNAVAILABLE);
       continue;
     }
-    // A private chat only while private chats are on (features.privateMessages, read now).
-    if (channel.communityId === null && objOf(objOf(hot.config).features).privateMessages !== true) {
+    // A private chat only while private chats are on (private.enabled, read now).
+    if (channel.communityId === null && objOf(objOf(hot.config).private).enabled !== true) {
       fail(CODE.DM_OFF);
       continue;
     }
@@ -433,7 +427,7 @@ function wakeInfoOf(life: InnerContext, guildId: string, group: ReadonlyArray<Wa
   };
 }
 
-/** The wake run of a turn as it starts (memoryDb.wakeRuns): what its view showed, ids with their versions. */
+/** The wake run of a turn as it starts: what its view showed, ids with their versions. */
 function startWakeRun(
   life: InnerContext,
   run: { turnKey: string; anchor: Wake; group: ReadonlyArray<Wake>; at: number; records: Array<Intention> },
@@ -560,8 +554,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   await startUp(life, guildId);
   if (state.queue.length === 0) return null;
   if (state.stopped || paused(life)) return { deferred: 'stopped' };
-  const oneAtATime = objOf(objOf(hot.config).mention).oneAtATime !== false;
-  if (oneAtATime && typeof turns?.isAnyBusy === 'function' && turns.isAnyBusy()) return { deferred: 'busy' };
+  if (typeof turns?.isAnyBusy === 'function' && turns.isAnyBusy()) return { deferred: 'busy' };
   if (peopleWaiting()) return { deferred: 'people' };
   const settings = innerSettings(hot.config);
   const at = now();
@@ -683,7 +676,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   // shown (never a candidate), the newest first, `review.expiredMax` of them; marked shown once the turn ran.
   const isReview = group.some((wake) => wake.kind === 'review');
   const expired =
-    isReview && intentions && intentionsOn(hot.config)
+    isReview && intentions
       ? expiredToShow(intentions.store?.(guildId)?.list?.() ?? [], { max: settings.review.expiredMax })
       : null;
   const shadow = settings.mode !== 'live';
@@ -719,7 +712,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   const claimed = await beginTurn(life, guildId, group, { at, channel, kind: anchor.kind });
   if (!claimed) return { deferred: 'claim' };
   const { turnId: turnKey, attempt } = claimed;
-  // The wake run (memoryDb.wakeRuns): what this turn's view showed; the journal and the `day` rows stay as they are.
+  // The wake run: what this turn's view showed; the journal and the `day` rows stay as they are.
   const shownIds = [...shownFacts.map((fact) => fact.id), ...[...ownFactIds].map(asText)];
   startWakeRun(life, { turnKey, anchor, group, at, records }, shownIds, {
     channelId: current.channelId ?? null,

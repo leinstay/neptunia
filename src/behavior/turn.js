@@ -19,13 +19,12 @@ import { fallbackLookupPlan } from './recall.js';
 import { createImageFetcher } from '../media/fetch-image.js';
 import { createOffPeriodsReader } from '../memory/index.js';
 import { createParticipationPicker } from './participation-pick.js';
-import { parseRewatchPickDetailed } from './planner.js';
 import { createLimits } from '../llm/limits.js';
 import { createThinkStore } from './previous-think.js';
 import { turnRoutes } from './turn-ability-route.ts';
 import { chunkPictures } from './mirror.ts';
 import { publishHeldDiary } from './diary-turn.ts';
-import { coreToolsOn, loopSettings, paceSettings } from '../turn/settings.ts';
+import { loopSettings, paceSettings } from '../turn/settings.ts';
 import { scheduleTimer } from '../turn/timers.ts';
 import { postsPlain } from '../turn/triggers.ts';
 import { lookupClassifierInput } from '../turn/lookup-input.ts';
@@ -34,7 +33,6 @@ import { continuationHistory } from '../turn/history.ts';
 import { createAct } from '../turn/act.ts';
 import { createDiary } from '../turn/diary.ts';
 import { createDrawGif } from '../turn/draw-gif.ts';
-import { createDryAct } from '../turn/dry-act.ts';
 import { createFacts } from '../turn/facts.ts';
 import { createInTurnTools } from '../turn/in-turn-tools.ts';
 import { createInputs } from '../turn/inputs.ts';
@@ -90,7 +88,6 @@ export {
   answerOf,
   callViewOf,
   continuationHistory,
-  coreToolsOn,
   journalResultOf,
   journalTurnRecord,
   lookupClassifierInput,
@@ -113,8 +110,7 @@ export {
 // The server search on a question's own words lives with the recall planning (src/behavior/recall.js).
 export { fallbackLookupPlan };
 
-// The re-watch classifier's answer parser lives with the planner (src/behavior/planner.js).
-export { parseRewatchPickDetailed };
+// The re-watch classifier's answer parser lives with the re-watch (src/turn/rewatch.ts).
 
 /**
  * `images` (src/llm/images.js#createImageGen) is optional: absent,
@@ -184,19 +180,10 @@ export { parseRewatchPickDetailed };
  * Participation (src/memory/participation.js; features.participation and features.memory,
  * a missing key counts as on; never in a private chat or a place of her diary): every message a
  * turn sends for real in a server channel is recorded in the guild's participation store with
- * the history lines before it and the line it replies to (recordOwnParticipation; a dry run
- * records nothing). A server turn that builds a reply request (not a diary post) hands the
+ * the history lines before it and the line it replies to (recordOwnParticipation). A server turn that builds a reply request (not a diary post) hands the
  * store to buildRequest as `<participation>`; beside its preparation the pick classifier
  * (src/behavior/participation-pick.js) chooses which stored episodes
  * of other channels come first, under the same deadline -- late, the newest are shown.
- *
- * The turn planner (src/behavior/planner.js; features.turnPlanner exactly true, read per turn):
- * one request (prompts/planner.md, role `analyzer`, purpose `planner`) stands in for
- * the route hook, the participation pick, the re-watch classifier and the search classifier,
- * none of which is asked then (createTurnPlan). Each answer block reaches the code its old
- * classifier fed; a block that is invalid or missing keeps that consumer's default (no channel,
- * the newest episodes, no second look), and the lookup block, or a failed call, takes the
- * search classifier's fallback.
  *
  * Everything a turn prepares before its reply request (the file previews, the
  * captions, the videos and their re-watch, the link reads, the search
@@ -238,7 +225,7 @@ export { parseRewatchPickDetailed };
  * (src/format.js#withTriggers), so the request's `<chat>` and `<channel_view>` and every
  * analyzer transcript built from that history name the message that started the turn which posted
  * each line (`transcript.triggeredBy` / `triggeredByOlder`). The neighbours' lines show no `#n`
- * and carry none. A spontaneous turn, a diary post or a dry run links nothing.
+ * and carry none. A spontaneous turn or a diary post links nothing.
  *
  * Call marks: every skill call she makes (runCall: its skill, status, target and the messages its
  * turn posted) is remembered in process, `seedCallMarks` adding the ones the journal kept from
@@ -256,8 +243,7 @@ export { parseRewatchPickDetailed };
  * `reason`) and nothing is done; no picture or diary set is generated for a post the check
  * already refuses, and no typing indicator shows), then made through the interface port `port`
  * (src/interface/port.js). Nothing counts as posted (journal, record, stats, lastPostAt) unless the port
- * answered `ok`; `unknown` is journaled as unknown and never sent again. A dry run calls neither
- * the gateway nor the port.
+ * answered `ok`; `unknown` is journaled as unknown and never sent again.
  *
  * Skill calls: her skills are the owner's /nep commands (src/tools/registry.ts; `skills`: the
  * registry checked against, default skillRegistry()). Her tools -- the skills granted to her and the
@@ -272,8 +258,7 @@ export { parseRewatchPickDetailed };
  * `runOwnOp`, src/admin.js#runOwnSkillOp, her grant alone; an inner turn's calls through
  * `runInitiativeOp`, src/admin.js#runInitiativeSkillOp, her grant alone). Her speech goes out after
  * the calls, when all of them worked and none gave her something to read; else it is held and the
- * results come back to her in one more request (runSteps), bounded by `tools.loop`. A dry run only
- * logs the call (`dry-run: would call`).
+ * results come back to her in one more request (runSteps), bounded by `tools.loop`.
  *
  * Reactors: `reactors` (src/behavior/reactor-store.ts#createReactorStore, null: none) is the store of
  * who reacted to her messages, fed by `reaction.changed`; the turn's history read names them on her lines
@@ -358,12 +343,10 @@ export function createTurnRunner({
     conversationOf,
     messageOf,
     checkEffect,
-    discoveryPrompt,
-    discoverSkills,
     errandsInputFor,
     intentionsInputFor,
     placesInputFor,
-  } = createInputs({ hot, store, iface, skills, selfIdOf, memoryContext, errands, intentions, places });
+  } = createInputs({ store, iface, memoryContext, errands, intentions, places });
 
   const { facts, setFactsSource } = createFacts({ clock });
   // The channels known to be private chats (a deferred call names only its channel).
@@ -464,7 +447,7 @@ export function createTurnRunner({
     journalOp,
     recentInput,
   });
-  const { drawPromptFor, drawTool, resolveGif, postGif, pickedInTime, pickGifSafely } = createDrawGif({
+  const { drawTool, resolveGif, postGif, pickedInTime, pickGifSafely } = createDrawGif({
     hot,
     store,
     llm,
@@ -483,7 +466,7 @@ export function createTurnRunner({
     lastPostAt,
     diaryPictureGate,
   });
-  const { emojiLookup, renderPost, settleAuthor, diaryChannelName, mirror } = createSends({
+  const { emojiLookup, renderPost, settleAuthor, diaryChannelName } = createSends({
     hot,
     store,
     emoji,
@@ -493,20 +476,7 @@ export function createTurnRunner({
     activity,
     iface,
   });
-  const { typingWhileCalls, typingWhilePreparing } = createTyping({ hot, iface, schedule, clock, conversationOf });
-  const { dryAct } = createDryAct({
-    hot,
-    ifaceReads,
-    iface,
-    clock,
-    lastPostAt,
-    journalOp,
-    renderPost,
-    emojiLookup,
-    mirror,
-    pickGifSafely,
-    drawPromptFor,
-  });
+  const { typingWhileCalls } = createTyping({ iface, schedule, clock, conversationOf });
   const { holdSpeech, act } = createAct({
     hot,
     store,
@@ -602,27 +572,16 @@ export function createTurnRunner({
     linkCalls,
     drawTool,
   });
-  const { classifierContext, maybeRewatch, rewatchOffer, applyRewatch } = createRewatch({ hot, llm, describer });
-  const {
-    startPrefetch,
-    recallAvailable,
-    turnDirectory,
-    privatePartner,
-    createTurnPlan,
-    lookupGate,
-    maybeLookup,
-    maybeSplit,
-  } = createLookup({
+  const { classifierContext } = createRewatch({ hot });
+  const { startPrefetch, recallAvailable, turnDirectory, privatePartner, maybeSplit } = createLookup({
     hot,
     store,
     llm,
     clock,
-    lookup,
     recall,
     membersOf,
     selfIdOf,
     ifaceReads,
-    discoveryPrompt,
     classifierContext,
     linkCalls,
   });
@@ -661,7 +620,6 @@ export function createTurnRunner({
     recentInput,
     turnContextOf,
     stableFreezeOf,
-    discoverSkills,
     errandsInputFor,
     intentionsInputFor,
     placesInputFor,
@@ -679,8 +637,6 @@ export function createTurnRunner({
     emojiLookup,
     settleAuthor,
     diaryChannelName,
-    typingWhilePreparing,
-    dryAct,
     pullChannels,
     captionAll,
     withSeenBefore,
@@ -693,16 +649,10 @@ export function createTurnRunner({
     runSteps,
     inTurnTools,
     classifierContext,
-    maybeRewatch,
-    rewatchOffer,
-    applyRewatch,
     startPrefetch,
     recallAvailable,
     turnDirectory,
     privatePartner,
-    createTurnPlan,
-    lookupGate,
-    maybeLookup,
     maybeSplit,
   };
 
@@ -728,7 +678,7 @@ export function createTurnRunner({
         try {
           const prepared = await requestPhase(phases, args, draft, opened);
           const answered = prepared.ended ? prepared : await responsePhase(phases, args, draft, prepared);
-          const acting = answered.ended ? answered : await actPhase(phases, args, draft, answered);
+          const acting = answered.ended ? answered : actPhase(phases, args, draft, answered);
           const rounded = acting.ended ? acting : await toolRoundPhase(phases, args, draft, acting);
           result = rounded.ended ?? outcomePhase(phases, args, draft, rounded);
         } catch (err) {
@@ -749,7 +699,7 @@ export function createTurnRunner({
         if (draft.factsShown) args.turnEnds.factsShown = draft.factsShown;
       }
       // What an addressed turn lost, kept for her next request there (an inner turn's go to the inner life).
-      if (!args.inner) recordTurnFacts(args, draft, result);
+      if (!args.inner) recordTurnFacts(args, draft);
       recordTurnThink(args, draft, result);
     }
     return attemptReport(args, draft, result);
@@ -768,7 +718,7 @@ export function createTurnRunner({
     lastPostAt: (channelId) => lastPostAt.get(channelId) ?? 0,
     notePost: (channelId, ts) => lastPostAt.set(channelId, ts),
     /**
-     * Whether the last turn that spoke in `channelId` (this process, dry-run included) had
+     * Whether the last turn that spoke in `channelId` (this process) had
      * `messageId` in its channel history -- so a direct ping queued while that turn ran was
      * already in front of the model and is not answered a second time. For a channel the bot
      * cannot write in: whether the last turn that spoke while showing that channel's lines

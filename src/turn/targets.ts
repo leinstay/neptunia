@@ -1,9 +1,7 @@
 // Where a post or a reaction of a turn lands and what it carries: the line a model's `reply="#n"` points at, the
 // channel a reaction goes to, the line a post about another channel links to, the text with its link, a post's
-// arguments for its check, and the parts a dry-run mirror splits a long text into. src/behavior/turn.js asks these
-// while it acts.
+// arguments for its check. src/behavior/turn.js asks these while it acts.
 
-import { portLimit } from '../interface/capabilities.ts';
 import type { Reads } from '../interface/reads.ts';
 import { fill } from '../format.js';
 import type { ConversationInfo } from '../protocol/adapter.ts';
@@ -118,32 +116,4 @@ export function sendArgs({
   replyId?: string | null;
 }): { text?: string; media?: unknown; replyTo?: string } {
   return { ...(text ? { text } : {}), ...(media ? { media } : {}), ...(replyId ? { replyTo: replyId } : {}) };
-}
-
-// The characters of one message when the adapter names no limit (`capabilities().maxChars`); the part mark is
-// ` (n/m)` on the header plus the newline.
-const DEFAULT_MESSAGE_CHARS = 2000;
-const MIRROR_PART_MARK_CHARS = 16;
-
-/** The room for the text of one part of a mirrored prompt: a message of `port` less its header and the part mark. */
-export const mirrorPartChars = (port: unknown, headerChars: number): number =>
-  portLimit(port, 'maxChars', DEFAULT_MESSAGE_CHARS) - headerChars - MIRROR_PART_MARK_CHARS;
-
-/**
- * `text` in pieces of at most `max` code points, each cut at its last newline
- * when there is one, so a dry-run mirror of a long text fits the interface's messages.
- */
-export function splitForMirror(text: string | null | undefined, max: number): Array<string> {
-  const limit = Math.max(1, Math.floor(max));
-  const parts: Array<string> = [];
-  let rest = [...String(text ?? '')];
-  while (rest.length > limit) {
-    const window = rest.slice(0, limit);
-    const newline = window.lastIndexOf('\n');
-    const cut = newline > 0 ? newline : limit;
-    parts.push(rest.slice(0, cut).join(''));
-    rest = rest.slice(newline > 0 ? cut + 1 : cut);
-  }
-  parts.push(rest.join(''));
-  return parts;
 }

@@ -3,7 +3,7 @@
 // watch page (src/memory/describe.js#fetchVideoMedia); on many servers
 // YouTube answers yt-dlp with a bot check and the page carries no duration,
 // so without the key most links end as "could not load" -- silently, one link
-// at a time. This probes one fixed canary video (`media.video.canaryUrl`)
+// at a time. This probes one fixed canary video (`CANARY_URL`)
 // through the same fetcher and says which link of that chain works, for
 // `/nep ping video` and one startup log line. No LLM call, nothing cached,
 // nothing written under data/; never logs the URL or the key.
@@ -11,15 +11,8 @@
 import { log as defaultLog } from '../log.js';
 import { proxyFor } from '../media/video-sites.js';
 
-/**
- * Whether video vision is on: features.mediaDescriptions AND
- * features.videoDescriptions (a missing key counts as on), like the describer.
- * @param {object} config
- */
-export function isVideoVisionOn(config) {
-  const features = config?.features ?? {};
-  return features.mediaDescriptions === true && features.videoDescriptions !== false;
-}
+/** The canary video probed. Production value, config cut of 2026-10-31. */
+const CANARY_URL = 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
 
 /** A probe failure's reason for the detail string; never an error message. */
 function reasonOf(result) {
@@ -43,8 +36,7 @@ export function createYoutubeCheck({ hot, videoFetcher, youtubeApiKey = null }) 
   return async function checkYoutube() {
     const keySet = typeof youtubeApiKey === 'string' && youtubeApiKey !== '';
     const videoCfg = hot.config.media?.video ?? {};
-    const url = videoCfg.canaryUrl;
-    if (typeof url !== 'string' || !url) return { status: 'blocked', detail: 'canaryUrl not set', keySet };
+    const url = CANARY_URL;
     const fetchTimeoutMs = hot.config.context?.vision?.fetchTimeoutMs;
 
     try {
@@ -80,13 +72,12 @@ export function createYoutubeCheck({ hot, videoFetcher, youtubeApiKey = null }) 
 }
 
 /**
- * The startup check: fire-and-forget, only when video vision is on. Logs the
- * status (info), or a warning with a hint when YouTube links will mostly fail.
- * @param {{ hot: object, checkYoutube: () => Promise<{ status: string }>, log?: object }} deps
- * @returns {Promise<void>|null}  null when the check was not run (video vision off).
+ * The startup check, fire-and-forget. Logs the status (info), or a warning with a hint when YouTube links will
+ * mostly fail.
+ * @param {{ checkYoutube: () => Promise<{ status: string }>, log?: object }} deps
+ * @returns {Promise<void>}
  */
-export function startYoutubeCheck({ hot, checkYoutube, log = defaultLog }) {
-  if (!isVideoVisionOn(hot.config)) return null;
+export function startYoutubeCheck({ checkYoutube, log = defaultLog }) {
   return Promise.resolve()
     .then(() => checkYoutube())
     .then(({ status }) => {

@@ -21,7 +21,7 @@ import { channelDirectoryOf } from '../../routing.ts';
 import type { PhaseContext, PhaseParams } from '../context.ts';
 import type { Opened } from '../preflight.ts';
 import type { Gathered } from './gather.ts';
-import type { Planned } from './planner.ts';
+import type { Planned } from './searches.ts';
 import type { Pulled } from './pulls.ts';
 import type { Setup } from './setup.ts';
 import type { Told } from './facts.ts';
@@ -61,18 +61,18 @@ export function buildTurnRequest(
   const { store, calibrator, skills, lookup, emoji, memoryReads, turnContextOf } = ctx;
   const { aroundInputFor, errandsInputFor, intentionsInputFor, placesInputFor, earlierThinkFor } = ctx;
   const { liveChannelName, diaryChannelName, stableFreezeOf, withSeenBefore, linkCalls, linkTriggers } = ctx;
-  const { trigger = null, triggerKind = null, forced = false, source = null, focus = null } = params;
+  const { trigger = null, triggerKind = null, forced = false, source = null } = params;
   const { taskResult = null } = params;
   const diaryParams = params.diary ?? null;
   const { channel, guildId, isPrivate } = opened;
-  const { config, features, transport, memoryOn, selfId, selfName, now, snapshot } = setup;
+  const { config, transport, memoryOn, selfId, selfName, now, snapshot } = setup;
   const { serverOn } = planned;
   const { finalMode } = pulled;
   const { participationShown, participationStage, participationAudienceOf } = waited;
   const { history, neighbors, descriptions, neighborDescriptions, videos, imageAnswers, reads } = gathered;
-  const { lookupResult, prefetchResult, drawQuota, diaryPrep, pulled: pulledList, readOnlyIds } = gathered;
+  const { prefetchResult, drawOn, diaryPrep, pulled: pulledList, readOnlyIds } = gathered;
   const { destination, recent, prompts } = gathered;
-  const { factsText, tasks, guildMemory, taggedCall, offPeriods, skillsInventory } = told;
+  const { factsText, tasks, guildMemory, taggedCall, offPeriods } = told;
   const pulled2 = pulledList;
   // Her tools, the same for every turn kind and pinned for this one (a grant removed meanwhile is still caught at each call):
   // the skills granted to her and the carried-over ones, as native tool definitions (or `<tools>` text). A diary post
@@ -119,14 +119,12 @@ export function buildTurnRequest(
     // A private chat: the partner's private layer joins their public profile (only there).
     privateChat: isPrivate ? { userId: trigger?.authorId ?? null } : null,
     privateProfile: isPrivate && memoryOn && trigger ? (store.getPrivate(guildId, trigger.authorId) ?? null) : null,
-    otherProfiles: memoryOn
-      ? pickOtherProfiles(store, guildId, history, trigger?.authorId, config.context.otherProfiles)
-      : [],
+    otherProfiles: memoryOn ? pickOtherProfiles(store, guildId, history, trigger?.authorId) : [],
     candidateProfiles: memoryOn ? store.listUserProfiles(guildId) : [],
     nameOf: memoryOn ? (id: string) => store.getUser(guildId, id)?.names?.[0] ?? null : null,
     channels: memoryOn ? store.listChannels(guildId) : [],
     // `<channel_directory>`: every text channel the persona can read, with its handle (none in a private chat).
-    channelDirectory: channelDirectoryOf(isPrivate ? null : snapshot, config.bot),
+    channelDirectory: channelDirectoryOf(isPrivate ? null : snapshot),
     loreEntries: memoryOn ? store.getLore(guildId) : [],
     currentChannelId: channel.id,
     diaryChannelIds: diaryConversationIds(store),
@@ -135,23 +133,20 @@ export function buildTurnRequest(
     videos: videos ?? null,
     imageAnswers,
     reads: reads ?? null,
-    lookup: lookupResult ?? null,
+    // `<lookup>` stays in the request layout, but no turn fills it: she searches through her own tools.
+    lookup: null,
     // `<retrieved>`: the automatic memory prefetch of this trigger (null: none ran).
     prefetch: prefetchResult,
-    searchAvailable:
-      features.webLookup === true && typeof lookup?.hasSearch === 'function' && lookup.hasSearch() === true,
+    searchAvailable: typeof lookup?.hasSearch === 'function' && lookup.hasSearch() === true,
     // The search of the server's own history: the value the lookup stage used.
     recallAvailable: serverOn,
-    drawQuota: drawQuota ?? null,
+    drawOn,
     // The `<emoji>` block: the index's emoji (ranked by guildMemory.emojiUsage) and their cached captions.
     customEmoji: emoji ? (emoji.list() ?? []) : [],
-    // The `<gifs>` block and the transcript's GIF handles: the guild's library (features.gifs).
-    gifs: features.gifs !== false && typeof store.getGifs === 'function' ? (store.getGifs(guildId) ?? null) : null,
+    // The `<gifs>` block and the transcript's GIF handles: the guild's library.
+    gifs: typeof store.getGifs === 'function' ? (store.getGifs(guildId) ?? null) : null,
     // The cached captions of both lists.
-    mediaCache:
-      emoji || (features.gifs !== false && typeof store.getGifs === 'function')
-        ? (store.getMediaCache(guildId) ?? null)
-        : null,
+    mediaCache: emoji || typeof store.getGifs === 'function' ? (store.getMediaCache(guildId) ?? null) : null,
     // `<channel_view>`: the channels pulled into this turn (each with the last view of it
     // shown in this channel, when one is within context.pull.seenTtlMinutes), the one it is
     // about, the chat line put to the room, where a call from a read-only channel is answered.
@@ -175,7 +170,6 @@ export function buildTurnRequest(
       now
     ),
     source,
-    focus,
     tasks: tasks.input,
     elsewhereDestination: destination?.name ? { name: destination.name } : null,
     readOnlyIds,
@@ -199,7 +193,8 @@ export function buildTurnRequest(
       ? { posts: diaryPrep.posts, plan: diaryPrep.plan, found: diaryPrep.found, seeds: diaryPrep.seeds ?? '' }
       : null,
     offPeriods,
-    skillsInventory,
+    // The skills catalogue text is never filled by a turn: her tools are the native definitions below.
+    skillsInventory: null,
     // Her tools this turn: the in-turn ones for `<senses>`, the text transport's `<tools>` body, and what the native
     // transport's `tools` field costs the request (the room the sections share).
     toolsGranted: draft.toolNames,

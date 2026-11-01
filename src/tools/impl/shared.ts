@@ -642,27 +642,22 @@ export function routeRoleArg(args: unknown): string | null {
  * reasons every background job shares -- paused, no guild -- are worded by `skipText`). */
 export const EMOJI_RESCAN_SKIPS: Record<string, string> = {
   running: 'An emoji backfill is already running.',
-  disabled: 'The emoji backfill is off (context.customEmoji.backfillMessages is 0).',
 };
 
 /** Why `/nep gifs rescan` did not run, by src/memory/gif-backfill.js's skip reason. */
 export const GIFS_RESCAN_SKIPS: Record<string, string> = {
   running: 'A GIF backfill is already running.',
-  disabled: 'The GIF backfill is off (gifs.backfillMessages is 0).',
 };
 
 /** Why `/nep gifs recache` did not start, by src/memory/gif-recache.js's skip reason. */
 export const GIFS_RECACHE_SKIPS: Record<string, string> = {
   unavailable: 'the GIF recache is not available',
-  off: 'GIFs are not watched (features.mediaDescriptions or media.gif.watch is off).',
-  'video-off': 'GIFs are not watched while video vision is off (features.videoDescriptions).',
   'no-prompt': 'GIFs are not watched: the describe-video prompt is missing.',
 };
 
 /** Why `/nep media kind:pictures action:recache` did not start, by src/memory/gif-recache.js#startMedia's skip reason. */
 export const PICTURES_RECACHE_SKIPS: Record<string, string> = {
   unavailable: 'the media recache is not available',
-  off: 'Pictures are not described (features.mediaDescriptions is off).',
   'no-prompt': 'Pictures are not described: the describe prompt is missing.',
 };
 

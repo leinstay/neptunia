@@ -14,7 +14,6 @@ import { PREPARE_STAGES } from '../../timers.ts';
 import type { Ended, PhaseContext, PhaseParams } from '../context.ts';
 import type { Opened } from '../preflight.ts';
 import type { Looked } from './lookup.ts';
-import type { Planned } from './planner.ts';
 import type { Pulled } from './pulls.ts';
 import type { SecondLook } from './second-look.ts';
 import type { Setup } from './setup.ts';
@@ -33,19 +32,12 @@ export type Waited = {
   timings: Record<string, number | null>;
 };
 
-/** The ids an answer's 1-based picks name in an offer's ids, those that exist. */
-function pickedIds(ids: unknown, indices: ReadonlyArray<number>): Array<unknown> {
-  const list: ReadonlyArray<unknown> = Array.isArray(ids) ? (ids as ReadonlyArray<unknown>) : [];
-  return indices.map((n) => list[n - 1]).filter(Boolean);
-}
-
 export async function waitForPreparation(
   ctx: PhaseContext,
   params: PhaseParams,
   draft: Draft,
   opened: Opened,
   setup: Setup,
-  planned: Planned,
   pulled: Pulled,
   staged: Staged,
   second: SecondLook,
@@ -55,11 +47,10 @@ export async function waitForPreparation(
   const { triggerKind = null } = params;
   const { channel, guildId, isPrivate, life } = opened;
   const { config, snapshot, now, likeServer, rawHistory, candidate, selfName, startedAt, historyMs, beforeBar } = setup;
-  const { planner } = planned;
   const { finalMode, pulledPending, pullStartedAt } = pulled;
   const { deadline, stages, track, previews, captions, videoStage, splitStage, hasParts, prefetchStage } = staged;
   const { rewatchChain } = second;
-  const { linksStage, lookupChain } = looked;
+  const { linksStage } = looked;
   // A private chat has no neighbouring channels. A neighbour passes the audience rail the
   // pulls pass (audienceAllows, context.pull.sameAudience): everyone who can read this channel
   // can read it. One refused takes no slot, costs no fetch, and never reaches `<server>`
@@ -74,7 +65,7 @@ export async function waitForPreparation(
           return allowed;
         };
         // Without the listing (the interface does not offer it) there are no neighbours to show.
-        const found = snapshot ? await fetchNeighbors(ifaceReads, snapshot, channel, config, now, { accept }) : [];
+        const found = snapshot ? await fetchNeighbors(ifaceReads, snapshot, channel, now, { accept }) : [];
         return { neighbors: found, hidden };
       });
   // The pulled channels started earlier: timed from their own start.
@@ -82,28 +73,22 @@ export async function waitForPreparation(
   // `<participation>`: the persona's own exchanges on other channels this turn may show, and
   // the pick classifier's choice among them (src/behavior/participation-pick.js; it asks
   // nothing when there is no episode to offer). Late or failed, the newest are shown.
-  const participationShown = participationOn(channel, config) && finalMode !== 'diary';
+  const participationShown = participationOn(channel) && finalMode !== 'diary';
   const participationAudienceOf = participationShown ? participationAudience(channel, config, snapshot) : null;
   const participationStage = participationAudienceOf
     ? track('participation', (): Promise<Array<unknown>> =>
-        planner
-          ? // The planner's episodes block, mapped back to the episode ids it was offered.
-            planner.result.then((plan) => {
-              const answer = plan.blocks.episodes;
-              return answer.state === 'ok' ? pickedIds(plan.offer.episodes?.ids ?? [], answer.indices) : [];
-            })
-          : pickParticipation({
-              guildId,
-              channel,
-              snapshot,
-              history: rawHistory,
-              trigger: candidate,
-              triggerKind,
-              mode: finalMode,
-              selfName,
-              audience: participationAudienceOf,
-              limits: draft.limits,
-            })
+        pickParticipation({
+          guildId,
+          channel,
+          snapshot,
+          history: rawHistory,
+          trigger: candidate,
+          triggerKind,
+          mode: finalMode,
+          selfName,
+          audience: participationAudienceOf,
+          limits: draft.limits,
+        })
       )
     : null;
 
@@ -119,7 +104,6 @@ export async function waitForPreparation(
         videoStage?.settled,
         rewatchChain,
         linksStage?.settled,
-        lookupChain,
         neighborsStage?.settled,
         pulledStage?.settled,
         participationStage?.settled,

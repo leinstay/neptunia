@@ -63,7 +63,7 @@
 // left of her caps as data/guilds/<id>/inner.json has them now. The real turn runner over
 // Discord REST (GET only, every write refused), an in-memory port and an unflushed copy of the
 // memory store; `innerLife.mode` forced to `shadow`, so her reads run (on the simulator key)
-// and every other call is only proposed; features.dryRun and the journal off (a journal read, `memory.journal.read`, answers from the journal of the data read, read only); intentions read
+// and every other call is only proposed; the journal is not written (a journal read, `memory.journal.read`, answers from the journal of the data read, read only); intentions read
 // only (an expiry sweep writes nothing). Prints the request's blocks (`--show-request`: the
 // whole request), her answers, her proposed and executed actions, the cost.
 //
@@ -304,8 +304,8 @@
 // its diary history from the channel, and so compares with her diary. Not the sandbox: the sandbox never
 // builds a diary post (src/behavior/sandbox.js#SANDBOX_OMITS). `--topic`: the owner's topic as `/nep diary post <kind>
 // <topic>` threads it (trimmed, blank is none, then src/behavior/diary.ts#diaryTopic). What keeps the bot and its
-// memory untouched here: hot is seen with `features.dryRun = true` and `bot.dryRunChannelId = ''` (the turn ends in its
-// dry-run branch: nothing acted, drawn, recorded or mirrored); every Discord REST call but GET is refused; the store is
+// memory untouched here: every Discord REST call but GET is refused (`refuseDiscordWrites`: nothing is posted, edited or
+// typed, whatever the turn or her tools try); the memory database is opened read only; the store is
 // the real one with an in-memory copy of its state that is never flushed (flush, forget, wipe and reload methods
 // throw); the image client keeps its quota and refuses to generate; in that in-memory state only, today's diary picture
 // and image counts read 0 so the picture gate opens. Requests carry `origin: 'replay'` and never count against
@@ -325,9 +325,7 @@
 // compose request, the pictures generated, and the entry recorded, which the slot reports as what its publication would
 // send. A post a slot made is kept in the in-memory diary and counters, so the next slot sees it as the live diary
 // would. What keeps the bot and its memory untouched: every Discord REST call but GET is refused; the turn acts through
-// an in-memory interface port only (src/interface/fake.js); hot is seen with `features.dryRun` off (the engine's
-// dry-run branch generates no picture, the very thing recorded here), `features.typingSimulation` off and
-// `bot.dryRunChannelId` empty; the store is the real one over an in-memory copy of its state that is never flushed,
+// an in-memory interface port only (src/interface/fake.js); the store is the real one over an in-memory copy of its state that is never flushed,
 // with today's diary post, diary picture and image counts at 0; no journal and no record are wired; requests carry
 // `origin: 'replay'` and never count against `llm.maxRequestsPerDay`.
 // `--draw fake` (the default): the image client is the real one
@@ -550,6 +548,7 @@ import {
   recallScope,
   requesterOfChannel,
 } from './lib/platform-objects.ts';
+import { MAX_MESSAGE_CHARS } from '../src/format.js';
 
 export { guildListing, hiddenReads, requesterOfChannel, roleIdsOf } from './lib/platform-objects.ts';
 
@@ -586,8 +585,6 @@ const DIARY_REQUESTS_PER_BRIEF = 2;
 const MAX_DIARY_COUNT = 50;
 /** The longest `--seed` of a `--diary-day` run. */
 const MAX_SEED_CHARS = 200;
-/** `diary.maxPerDay` when the config has none (src/behavior/diary.ts's default, config.json's value). */
-const DEFAULT_DIARY_MAX_PER_DAY = 12;
 /** The estimate per model request this tool sends: about what a persona answer costs on the live key. */
 const USD_PER_ANSWER = 0.15;
 /** A journal turn id (src/memory/journal.js#start). */
@@ -1157,7 +1154,7 @@ async function cacheMembers(guild, ids) {
 /**
  * The `--split` mode: the request src/behavior/turn.js#maybeSplit sends for
  * `trigger` (its classifierContext rebuilt here: the trigger's text cut to
- * `context.maxMessageChars`, the last `split.contextMessages` messages of
+ * `MAX_MESSAGE_CHARS`, the last `split.contextMessages` messages of
  * `history` other than the trigger in a `<transcript>` block), sent
  * `samples` times one after another, each answer parsed. A failed request
  * is a verdict with `reason: 'failed'` and its rail code; any failure or a
@@ -1194,7 +1191,7 @@ async function runSplit({
   const settings = splitSettings(config);
 
   // src/behavior/turn.js#classifierContext with the splitter's arguments (no videos, no reads).
-  const triggerText = [...String(trigger.content ?? '')].slice(0, config.context?.maxMessageChars ?? 800).join('');
+  const triggerText = [...String(trigger.content ?? '')].slice(0, MAX_MESSAGE_CHARS).join('');
   const context =
     settings.contextMessages > 0 ? history.filter((m) => m.id !== trigger.id).slice(-settings.contextMessages) : [];
   const transcriptBlock =
@@ -1210,7 +1207,6 @@ async function runSplit({
   const textPasses = mayHaveParts(trigger.content, settings.minChars);
   const labelsPart = Boolean(labels?.task?.part);
   const notAsked = [];
-  if (config?.features?.splitTasks === false) notAsked.push('feature-off');
   if (!['mention', 'reply', 'name', 'followUp', 'private'].includes(triggerKind)) notAsked.push('trigger-kind');
   if (settings.maxTasks < 2) notAsked.push('max-tasks');
   if (!textPasses) notAsked.push('text-too-short-or-one-sentence');
@@ -1295,8 +1291,6 @@ async function runSplit({
   };
 }
 
-/** The state.json fields of the daily recall counter (src/behavior/recall-run.js RECALL_DAILY). */
-const RECALL_DAILY = Object.freeze({ dayKey: 'recallDay', countKey: 'recallCount' });
 /** The heading of a `<found>` section (src/behavior/recall.js#buildRecallRequest): `## n | YYYY-MM-DD | #channel`. */
 const FOUND_HEADER_RE = /^## (\d+) \| (\d{4}-\d{2}-\d{2}) \| #(.*)$/;
 /**
@@ -1324,7 +1318,6 @@ async function loadRecallMods(load) {
   const lookup = await load('web/lookup.js');
   const media = await load('media/classify.js');
   const pull = await load('../interfaces/discord/index.js');
-  const youtube = await load('memory/youtube-check.js');
   const mods = {
     parseLookupAnswer: recall.parseLookupAnswer,
     recallSettings: recall.recallSettings,
@@ -1342,7 +1335,6 @@ async function loadRecallMods(load) {
     createLookup: lookup.createLookup,
     collectReadableLinks: media.collectReadableLinks,
     checkPull: pull.checkPull,
-    isVideoVisionOn: youtube.isVideoVisionOn,
   };
   for (const [name, fn] of Object.entries(mods)) {
     if (typeof fn !== 'function') throw new CliError(`replay-cli: the engine has no ${name} (--recall needs it)`);
@@ -1448,13 +1440,11 @@ async function runRecall({
     roleRequestOptions,
     railReason,
     zonedDay,
-    countToday,
     paceSettings,
     createDescriber,
     createLookup,
     collectReadableLinks,
     checkPull,
-    isVideoVisionOn,
   } = mods;
   const config = hot.config;
   const prompt = hot.prompts?.lookup;
@@ -1507,10 +1497,10 @@ async function runRecall({
 
   // 1. The search classifier, as maybeLookup builds it: the media states a live turn has by then, from the caches.
   const media = replayMedia(history, { cache: mediaCache, sites: config.media?.video?.sites, before: null });
-  const descriptions = config.features?.mediaDescriptions === true ? media.descriptions : undefined;
-  const videos = isVideoVisionOn(config) ? media.videos : undefined;
+  const descriptions = media.descriptions;
+  const videos = media.videos;
   let reads;
-  if (config.features?.webLookup === true && config.web?.links?.enabled !== false) {
+  if (config.web?.links?.enabled !== false) {
     // src/behavior/turn.js#readableLinkCandidates: newest message first.
     const sites = config.media?.video?.sites ?? [];
     const links = [];
@@ -1520,7 +1510,7 @@ async function runRecall({
   }
   const searchCfg = config.web?.search ?? {};
   const contextMessages = Math.max(0, Math.floor(searchCfg.contextMessages ?? 50));
-  const triggerText = [...String(trigger.content ?? '')].slice(0, config.context?.maxMessageChars ?? 800).join('');
+  const triggerText = [...String(trigger.content ?? '')].slice(0, MAX_MESSAGE_CHARS).join('');
   const context = contextMessages > 0 ? history.filter((m) => m.id !== trigger.id).slice(-contextMessages) : [];
   const transcriptBlock =
     context.length === 0
@@ -1577,10 +1567,7 @@ async function runRecall({
   if (classifierError !== null) notRun = 'no-classifier-answer';
   else if (!server) notRun = 'no-server-part';
   else if (!settings) notRun = 'feature-off';
-  else if (countToday(store.state.data, RECALL_DAILY, Date.now()) >= settings.maxPerDay) notRun = 'daily';
   else if (signal?.aborted) notRun = 'stopped';
-  if (notRun === 'daily')
-    process.stderr.write('replay-cli: recall.maxPerDay is spent today; the server search is not run\n');
 
   const searches = [];
   const rawHits = new Map();
@@ -2096,29 +2083,6 @@ export function overlayPromptsHot(createHot, root, promptsDir, { mergeJson = nul
 }
 
 /**
- * `hot` as a `--diary` turn sees it: `features.dryRun` on and
- * `bot.dryRunChannelId` empty (the turn acts on nothing and mirrors nothing);
- * everything else, the config's other keys included, read from `hot` at use.
- * @param {object} hot  From src/hot.js#createHot.
- */
-export function dryRunHot(hot) {
-  return new Proxy(hot, {
-    get(target, prop) {
-      if (prop === 'config') {
-        const config = target.config ?? {};
-        return {
-          ...config,
-          features: { ...(config.features ?? {}), dryRun: true },
-          bot: { ...(config.bot ?? {}), dryRunChannelId: '' },
-        };
-      }
-      const value = Reflect.get(target, prop, target);
-      return typeof value === 'function' ? value.bind(target) : value;
-    },
-  });
-}
-
-/**
  * Whether a live turn's web search could run (`<senses>`'s search line): the
  * lookup's own `hasSearch()` for the configured `web.search.engine`, wired as
  * src/index.js wires it (`brave` needs BRAVE_SEARCH_API_KEY, `exa` and
@@ -2284,7 +2248,7 @@ function addUsage(usage, mine) {
  * and never posts, edits or types there.
  * @param {unknown} given  a discord.js client
  */
-function refuseDiscordWrites(given) {
+export function refuseDiscordWrites(given) {
   // discord.js's client: its REST manager queues every request.
   const client = /** @type {{ rest: { queueRequest: (request: { method?: string }) => Promise<unknown> } }} */ (given);
   const queueRequest = client.rest.queueRequest.bind(client.rest);
@@ -2390,7 +2354,7 @@ export function diaryTurnRunner(
 
 async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv, log, signal, rng }) {
   const mods = await loadDiaryMods(load);
-  const { DIARY_PICTURES_DAILY, diaryTopic, isPictureKind, isSetKind, stripUrls, validatePlan } = mods;
+  const { DIARY_KINDS, diaryTopic, isPictureKind, isSetKind, stripUrls, validatePlan } = mods;
   const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild } = mods;
   const { parseJsonObject, parseOutput, stripDashes, countToday } = mods;
 
@@ -2415,29 +2379,24 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       layered = overlayPromptsHot(createHot, root, args.prompts);
       log.info('replay-cli: diary prompt layers', { layers: diaryPromptLayers(root, args.prompts).length });
     }
-    const hot = dryRunHot(layered?.hot ?? liveHot);
+    const hot = layered?.hot ?? liveHot;
     const config = hot.config;
-    if (config.features?.diary === false)
-      log.warn('replay-cli: features.diary is off; the live diary would not post', {});
-    const weight = config.diary?.kinds?.[kind];
+    const weight = DIARY_KINDS[kind];
     if (!(Number.isFinite(weight) && weight > 0))
-      log.warn('replay-cli: the kind has no positive weight in diary.kinds', { kind, weight: weight ?? null });
-    if (!isPictureKind(kind, config.diary?.pictureKinds))
-      log.warn('replay-cli: the kind is not in diary.pictureKinds; it draws only when the plan says picture', { kind });
-    if (isSetKind(kind, config.diary?.setKinds))
+      log.warn('replay-cli: the kind has no positive weight in DIARY_KINDS', { kind, weight: weight ?? null });
+    if (!isPictureKind(kind, undefined))
+      log.warn('replay-cli: the kind is not a picture kind; it draws only when the plan says picture', { kind });
+    if (isSetKind(kind, undefined))
       log.warn('replay-cli: the kind is a set kind; only the first <draw> is reported', { kind });
 
     // The store and the counters: an in-memory copy; the picture gate opened there only.
     const { store, state } = unflushedStore(createStore({ dataDir: liveData, memoryDb: memoryFor(liveData) }));
     const nowMs = Date.now();
     const were = {
-      diaryPictures: countToday(state.data, DIARY_PICTURES_DAILY, nowMs),
       images: countToday(state.data, { dayKey: 'imageDay', countKey: 'imageCount' }, nowMs),
     };
-    state.data[DIARY_PICTURES_DAILY.countKey] = 0;
     state.data.imageCount = 0;
     log.info('replay-cli: diary gates opened', {
-      diaryPicturesWere: were.diaryPictures,
       imagesWere: were.images,
       paused: Boolean(state.data.paused),
     });
@@ -2507,12 +2466,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
       }
       if (answer && typeof answer === 'object' && !Array.isArray(answer)) answer = { ...answer, kind };
       const pictureAllowed = result?.outcome !== 'refused' || result?.reason !== 'pictures';
-      const validated = validatePlan(
-        answer,
-        { [kind]: 1 },
-        { pictureAllowed, searchKinds: config.diary?.searchKinds, pictureKinds: config.diary?.pictureKinds },
-        rng
-      );
+      const validated = validatePlan(answer, { [kind]: 1 }, { pictureAllowed }, rng);
       const plan = topic ? { ...validated, topic } : validated;
 
       // The compose answer as runTurn reads it for a diary post.
@@ -2527,7 +2481,6 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
         const parsed = parseOutput(split.speechText);
         const live = hot.config;
         messages = parsed.messages.map((m) => m.text);
-        if (live.features?.multiMessage === false) messages = messages.slice(0, 1);
         if (live.format?.stripDashes !== false) messages = messages.map(stripDashes).filter((t) => t !== '');
         messages = messages
           .map(stripUrls)
@@ -2594,10 +2547,9 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
 // ---- an inner turn (--inner) ----------------------------------------------------
 
 /**
- * `hot` as an `--inner` turn sees it: `features.innerLife` on and `innerLife.mode` forced to
- * `shadow` (her reads run, nothing else does), `features.dryRun` off (shadow keeps everything in;
- * a dry run would not run her tool loop), `features.journal` off (nothing is journalled), the
- * dry-run mirror off. Every other value as the config read has it; the live config untouched.
+ * `hot` as an `--inner` turn sees it: `innerLife.mode` forced to `shadow` (her reads run, nothing else
+ * does). Every other value as the config read has it; the live config untouched. The journal stays
+ * off because the runner is given none (`journal: null`).
  */
 export function innerReplayHot(hot) {
   return new Proxy(hot, {
@@ -2606,8 +2558,6 @@ export function innerReplayHot(hot) {
         const config = target.config ?? {};
         return {
           ...config,
-          features: { ...(config.features ?? {}), innerLife: true, dryRun: false, journal: false },
-          bot: { ...(config.bot ?? {}), dryRunChannelId: '' },
           innerLife: { ...(config.innerLife ?? {}), mode: 'shadow' },
         };
       }
@@ -3112,7 +3062,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
           places: hiddenPlaces((id) => {
             const guild = client.guilds.cache.get(String(id));
             if (!guild) return [];
-            return capabilities.channelDirectoryOf(guild, hot.config.bot).map((entry) => {
+            return capabilities.channelDirectoryOf(guild).map((entry) => {
               let writable = null;
               try {
                 const found = guild.channels.cache.get(entry.id);
@@ -3344,29 +3294,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
 // ---- a diary day (--diary-day) ---------------------------------------------------
 
 /**
- * `hot` as a `--diary-day` turn sees it: `features.dryRun` off (its branch generates no
- * picture: the posts go to an in-memory port instead), `features.typingSimulation` off (no
- * waits) and `bot.dryRunChannelId` empty; everything else read from `hot` at use.
- * @param {object} hot  From src/hot.js#createHot.
- */
-export function noPostHot(hot) {
-  return new Proxy(hot, {
-    get(target, prop) {
-      if (prop === 'config') {
-        const config = target.config ?? {};
-        return {
-          ...config,
-          features: { ...(config.features ?? {}), dryRun: false, typingSimulation: false },
-          bot: { ...(config.bot ?? {}), dryRunChannelId: '' },
-        };
-      }
-      const value = Reflect.get(target, prop, target);
-      return typeof value === 'function' ? value.bind(target) : value;
-    },
-  });
-}
-
-/**
  * The OpenRouter key of a `--diary-day` run: with `--draw live` OPENROUTER_SIM_KEY only (a
  * CliError without it: live pictures never fall back to the bot's key), else the tools' slot
  * (tools/lib/cli.mjs#simKey). Never printed.
@@ -3429,10 +3356,9 @@ export function diaryDayGate(args, config, { planDay, zonedEpoch, localDayKey },
  */
 async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, signal }) {
   const mods = await loadDiaryMods(load);
-  const { DIARY_DAILY, DIARY_PICTURES_DAILY, localDayKey, planDay } = mods;
-  const { createStore, createCalibrator, createLlm, createImageGen, ImageCapError, resolveGuild, createFakeAdapter } =
-    mods;
-  const { parseJsonObject, countToday, zonedEpoch } = mods;
+  const { localDayKey, planDay } = mods;
+  const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild, createFakeAdapter } = mods;
+  const { parseJsonObject, zonedEpoch } = mods;
 
   // The day plan, before anything is read from Discord or sent: its slots are the estimate.
   const { timezone, date, seed, day, gate } = diaryDayGate(args, liveHot.config, { planDay, zonedEpoch, localDayKey });
@@ -3500,10 +3426,8 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
 
   let client = null;
   try {
-    const hot = noPostHot(liveHot);
+    const hot = liveHot;
     const config = hot.config;
-    if (config.features?.diary === false)
-      log.warn('replay-cli: features.diary is off; the live diary would not post', {});
 
     // The clock of the turn runner and the image client: the slot's instant, running on from there.
     const clock = { base: day.start, real: Date.now() };
@@ -3511,8 +3435,6 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
 
     // The store and the counters: an in-memory copy, today's diary and image counts at 0.
     const { store, state } = unflushedStore(createStore({ dataDir: liveData, memoryDb: memoryFor(liveData) }));
-    state.data[DIARY_DAILY.countKey] = 0;
-    state.data[DIARY_PICTURES_DAILY.countKey] = 0;
     state.data.imageCount = 0;
     if (state.data.paused) log.warn('replay-cli: the bot is paused; every slot will answer paused', {});
 
@@ -3531,7 +3453,6 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
     });
     const images = recordingImages({
       images: realImages,
-      ImageCapError,
       maxPictures: live ? args.maxPictures : null,
       onPicture: live
         ? (picture, index) => {
@@ -3605,14 +3526,6 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
         requests: 0,
         cost: 0,
       };
-      // The tick's own check: the day's posts under diary.maxPerDay.
-      const cap = hot.config.diary?.maxPerDay ?? DEFAULT_DIARY_MAX_PER_DAY;
-      if (countToday(state.data, DIARY_DAILY, now()) >= cap) {
-        Object.assign(slot, { outcome: 'skip', reason: 'cap' });
-        report.slots.push(slot);
-        writeReport();
-        continue;
-      }
       const fromCalls = calls.length;
       const fromDraws = images.calls.length;
       let result;
@@ -4334,14 +4247,11 @@ export function createReplayTools({
           return false;
         }
       },
-      readRecord: ({ channelId, from }) =>
-        config.features?.record === true
-          ? recordMessages(record, guildId, { channelId, from, nameOf, selfName })
-          : Promise.resolve([]),
+      readRecord: ({ channelId, from }) => recordMessages(record, guildId, { channelId, from, nameOf, selfName }),
       fetchLive: (request) => fetchSpan(reads, { iface, conversationId: String(request.channelId) }, request),
       render: (slice) => {
         let descriptions;
-        if (config.features?.mediaDescriptions === true && typeof describer?.cachedDescriptions === 'function') {
+        if (typeof describer?.cachedDescriptions === 'function') {
           const { items, rest, emoji } = pullPictures(slice, 0);
           try {
             descriptions = describer.cachedDescriptions(guildId, [...items, ...rest, ...emoji]) ?? undefined;
@@ -4351,13 +4261,10 @@ export function createReplayTools({
         }
         return {
           timezone,
-          gapMinutes: config.context?.gapMarkerMinutes,
-          maxChars: config.context?.maxMessageChars ?? 2000,
           selfName,
           labels,
           descriptions,
-          seeReactions: config.features?.seeReactions !== false,
-          reactionsPerMessage: config.context?.reactionsPerMessage,
+          seeReactions: true,
         };
       },
       refs: searchHandles(draft),
@@ -4400,7 +4307,7 @@ export function createReplayTools({
           .filter((p) => p?.id)
           .map((p) => [String(p.id), typeof p.names?.[0] === 'string' ? p.names[0] : null])
       );
-      const nameOf = hot.config.features?.memory !== false ? (id) => names.get(String(id)) ?? null : null;
+      const nameOf = (id) => names.get(String(id)) ?? null;
       const { lanes, skip } = prefetchLanes({
         trigger,
         triggerKind,
@@ -4467,7 +4374,7 @@ export function createReplayTools({
       // the attachment itself; the message `#N` named is looked up in the request's history. At most lookPerTurn per tools' life.
       if (skill === 'media.look' && mediaTools?.createDescriber && mediaTools.runMediaLook) {
         const lookDescriber = mediaTools.createDescriber({ hot, store: webStore, llm: client });
-        const cap = typeof mediaTools.lookPerTurn === 'function' ? mediaTools.lookPerTurn(hot.config) : Infinity;
+        const cap = typeof mediaTools.lookPerTurn === 'function' ? mediaTools.lookPerTurn() : Infinity;
         const result = await mediaTools.runMediaLook({
           describer: lookDescriber,
           config: hot.config,
@@ -5603,7 +5510,7 @@ async function runSkills({
     });
     // The files of the scenario's errand, named by their handles as live (`file:<task id>/<name>`).
     const fileOf = task ? scenarioFileOf(task, parseFileHandle) : null;
-    const memoryOn = scenarioConfig.features?.memory !== false;
+    const memoryOn = true;
     // Her call taken through the real resolution and gateway at `now`, never run: answered with `resultText`.
     // Her in-turn tools run for real (`tools`, loopCall); every other call, a write or a paid effect, is answered canned; an errand.run is only recorded.
     const onCallOf = (callRequester, now, resultText, tools) => {
@@ -5982,8 +5889,7 @@ export async function preTurnLookup({
     fallbackLookupPlan,
   } = deps;
   const searchCfg = config.web?.search ?? {};
-  const webOn =
-    config.features?.webLookup === true && searchCfg.enabled !== false && typeof lookup?.search === 'function';
+  const webOn = searchCfg.enabled !== false && typeof lookup?.search === 'function';
   const webCan =
     webOn &&
     (searchCfg.maxPerTurn ?? 1) >= 1 &&
@@ -6218,7 +6124,7 @@ function turnCounts(record) {
  * paid effect canned, an errand.run only recorded --, her turn on the step engine (src/behavior/sandbox.js#runSkillLoop).
  * `sides`: `[{ key, transport }]` -- A (native) and B (text) for the pair, one side (`--transport`, else the
  * config's) for the loop run. What a live turn runs before her reply is run once per trigger and shared by the
- * sides: with features.coreTools on the memory prefetch, else the search classifier (preTurnLookup). The pair
+ * sides: the memory prefetch. The pair
  * writes the sheet and key `--pair` writes (tools/lib/pair.mjs#renderSheet; the key's `pairs.<id>.answers` and, per
  * side, `runs`: the first request's estimated tokens, the tools' tokens, the tokens and cost reported, the latency,
  * the calls, `blocks`, the whole run record); the loop run writes `runs.jsonl` (one line per trigger: the
@@ -6235,7 +6141,6 @@ export async function runTriggerLoops({
   rng,
   hot,
   store,
-  guild,
   guildId,
   self,
   llm,
@@ -6268,7 +6173,6 @@ export async function runTriggerLoops({
     momentMode,
     momentKind,
     isSpontaneous,
-    scenarioInventory,
     situationHistory,
   } = mods;
   const registry = skillRegistry();
@@ -6347,7 +6251,7 @@ export async function runTriggerLoops({
     const requester = requesterOf(triggerLine, channel);
     const answers = {};
     const runs = {};
-    // What a live turn runs before her reply, once per side: the memory prefetch (coreTools on), else the search classifier.
+    // What a live turn runs before her reply, once per side: the memory prefetch.
     const baseConfig = structuredClone(hot.config);
     const baseHot = {
       get prompts() {
@@ -6358,60 +6262,11 @@ export async function runTriggerLoops({
       },
     };
     const shared = loopDeps.toolsFor({ hot: baseHot, channel, llm: capped });
-    const coreOn = loopDeps.coreToolsOn(baseConfig);
     let sharedInput = {};
-    let preTurn = null;
     let prefetched = null;
     try {
-      if (coreOn) {
-        prefetched = await shared.prefetch({ trigger: triggerLine, triggerKind, mode, history, at });
-        sharedInput = { coreTools: { recallAvailable: shared.recallAvailable(), prefetch: prefetched } };
-      } else {
-        const preStarted = Date.now();
-        const searchers = shared.searchers();
-        const found = await preTurnLookup({
-          config: baseConfig,
-          prompts: hot.prompts,
-          llm: searchers.client,
-          lookup: searchers.lookup,
-          recall: searchers.recall,
-          discovery: loopDeps.discoveryOf(baseConfig, registry, hot.prompts?.tools),
-          guild,
-          guildId,
-          channel,
-          selfId: self.id,
-          selfName: self.name,
-          history,
-          trigger: triggerLine,
-          triggerKind,
-          descriptions: media.descriptions,
-          videos: media.videos,
-          at,
-          store,
-          deps: loopDeps.preTurnDeps,
-        });
-        const discovery = found.skills
-          ? found.skills.inventory === true
-            ? 'inventory'
-            : Array.isArray(found.skills.names) && found.skills.names.length > 0
-              ? found.skills.names
-              : 'none'
-          : 'none';
-        const inventory = scenarioInventory({
-          config: baseConfig,
-          selfId: self.id,
-          texts: hot.prompts?.tools,
-          requester,
-          conversationId: channel.id,
-          registry,
-          discovery,
-        });
-        sharedInput = {
-          preTurn: { lookup: found.lookup, recallAvailable: found.recallAvailable },
-          ...(inventory ? { skillsInventory: inventory } : {}),
-        };
-        preTurn = { ...found.trace, skills: found.skills ?? null, usage: searchers.usage, ms: Date.now() - preStarted };
-      }
+      prefetched = await shared.prefetch({ trigger: triggerLine, triggerKind, mode, history, at });
+      sharedInput = { coreTools: { recallAvailable: shared.recallAvailable(), prefetch: prefetched } };
     } catch (err) {
       failed.push({ id, error: err instanceof CliError ? err.message : `${err?.name ?? 'Error'}` });
       continue;
@@ -6448,7 +6303,7 @@ export async function runTriggerLoops({
             idByIndex,
             lines: lines2,
             pulledIds: new Map(),
-            memoryOn: config.features?.memory !== false,
+            memoryOn: true,
             store,
             selfId: self.id,
             skills: registry,
@@ -6516,7 +6371,6 @@ export async function runTriggerLoops({
       }
     }
     const sharedOut = {
-      ...(preTurn ? { preTurn } : {}),
       ...(prefetched ? { prefetch: prefetchSummary(prefetched) } : {}),
     };
     if (single) {
@@ -6735,7 +6589,7 @@ async function loopDepsOf({
         }
       : null;
   const { transportOf } = await load('tools/tool-calls.ts');
-  const { skillsIndex, discoveryOn } = await load('tools/discovery.ts');
+  const { skillsIndex } = await load('tools/discovery.ts');
   // The automatic memory prefetch a live turn with the tool loop runs (absent from an older engine: none).
   const { prefetchLanes = null, prefetchOn = null } = await load('behavior/prefetch.js').catch(() => ({}));
   // The search classifier's path before her reply with features.coreTools off (preTurnLookup).
@@ -6773,7 +6627,6 @@ async function loopDepsOf({
     createArchive,
     createVectors,
     skillsIndex,
-    discoveryOn,
     ...preTurnDeps,
   };
   for (const [name, fn] of Object.entries(fns))
@@ -6791,7 +6644,7 @@ async function loopDepsOf({
     memoryDb: memoryFor(dataDir),
   };
   let embed = null;
-  if (hot.config.features?.meaningSearch === true && openrouterKey) {
+  if (openrouterKey) {
     const { createEmbedder } = await load('llm/embed.js');
     const embedder = createEmbedder({ apiKey: openrouterKey, env: {}, state: { data: {}, markDirty() {} } });
     embed = (texts, options = {}) =>
@@ -6817,15 +6670,13 @@ async function loopDepsOf({
   return {
     IN_TURN_TOOLS,
     transportOf,
-    // Whether the pre-reply classifiers are replaced by her own tools (features.coreTools); `coreOn` is the run's reading of it (--core-tools forces it).
+    // Her own tools stand in for the pre-reply classifiers in every loop run, so `coreOn` is true whenever the loop runs.
     coreOn,
-    coreToolsOn: turnMod.coreToolsOn,
     loopSettings: turnMod.loopSettings,
     preTurnDeps,
     // The search classifier's `{{skills}}` and the names its `skills:` line may give (src/behavior/turn.js#discoveryPrompt):
     // the registry without her in-turn tools, never offered to a classifier.
     discoveryOf: (config, registry, texts) => {
-      if (!discoveryOn(config)) return { index: '', names: [] };
       const offered = new Map([...registry].filter(([name]) => !IN_TURN_TOOLS.includes(name)));
       return { index: skillsIndex(offered, texts), names: [...offered.keys()] };
     },
@@ -6954,11 +6805,11 @@ async function runMain(args, { root, signal, rng, answers }) {
   const loopWanted = Boolean(scenarios || args.pairTransport || args.loopTriggers);
   if (loopWanted) await load('tools/impl/index.ts');
   const turnMod = loopWanted ? await load('behavior/turn.js') : null;
-  if (loopWanted && (typeof turnMod.coreToolsOn !== 'function' || typeof turnMod.loopSettings !== 'function')) {
+  if (loopWanted && typeof turnMod.loopSettings !== 'function') {
     hot.close();
-    throw new CliError('replay-cli: the engine has no step engine (coreToolsOn, loopSettings)');
+    throw new CliError('replay-cli: the engine has no step engine (loopSettings)');
   }
-  const coreOn = loopWanted && (args.coreTools || turnMod.coreToolsOn(hot.config));
+  const coreOn = loopWanted;
   const loopBounds = loopWanted ? turnMod.loopSettings(args.coreTools ? withCoreTools(hot.config) : hot.config) : null;
 
   // The spend gate: the estimate first; nothing is sent without --spend covering it.
@@ -7194,7 +7045,7 @@ async function runMain(args, { root, signal, rng, answers }) {
     const { guild, guildId, self } = connection;
     const config = hot.config;
     // `<channel_directory>`: the guild's readable text channels, as a live turn lists them.
-    const channelDirectory = channelDirectoryOf(guild, hot.config.bot);
+    const channelDirectory = channelDirectoryOf(guild);
 
     const realStore = createStore({ dataDir, memoryDb: memoryFor(dataDir) });
     const store = readOnlyStore(realStore, SANDBOX_STORE_READS);
@@ -7218,10 +7069,7 @@ async function runMain(args, { root, signal, rng, answers }) {
         }),
     };
     const mediaCache = typeof store.getMediaCache === 'function' ? (store.getMediaCache(guildId) ?? null) : null;
-    const gifs =
-      hot.config.features?.gifs !== false && typeof store.getGifs === 'function'
-        ? (store.getGifs(guildId) ?? null)
-        : null;
+    const gifs = typeof store.getGifs === 'function' ? (store.getGifs(guildId) ?? null) : null;
     const customEmoji = await customEmojiOf(discordReads(client, () => hot.config).reads, String(guildId));
     // Her tools that only read (web.search, memory.search) run for real over this guild, read only (createReplayTools).
     const loopDeps = loopWanted
@@ -7493,11 +7341,11 @@ async function runMain(args, { root, signal, rng, answers }) {
       // The trigger kind as the sandbox reads it: the journal's, else 'reply' to the persona, else 'mention'.
       const { triggerKind } = situationHistory(situation);
       // The live splitter gets captions only when the describer runs (features.mediaDescriptions === true).
-      const descriptions =
-        hot.config.features?.mediaDescriptions === true
-          ? replayMedia(history, { cache: mediaCache, sites: hot.config.media?.video?.sites, before: null })
-              .descriptions
-          : undefined;
+      const descriptions = replayMedia(history, {
+        cache: mediaCache,
+        sites: hot.config.media?.video?.sites,
+        before: null,
+      }).descriptions;
       // --text: the same message (author, time, id) with the operator's text in place of its own.
       const trigger = args.text !== null ? { ...triggerLine, content: args.text } : triggerLine;
       return await runSplit({

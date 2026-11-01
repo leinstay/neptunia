@@ -3,10 +3,12 @@
 // `config.local.json` and a flat `prompts.local/labels.json`, still loads until tools/config-files-move.mjs moves it,
 // and a layer holding a file at both places is refused. The loader (src/config.js, src/hot.js), the writer of
 // `/config set` (src/tools/impl/env.ts), the console's `/config show` and `/config check` and `neptunia doctor` ask this
-// module which file to read.
+// module which file to read. An interface's settings (`readInterfaceConfig`) are the core's with the package's own
+// `interfaces/<name>/config.json` and the private `config.local/interfaces/<name>.json` over them.
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { cutConfigKeys } from './cut.ts';
 
 /** The tracked folder of the settings, the labels and the tool texts, under the checkout. */
 export const CONFIG_DIR = 'config';
@@ -78,4 +80,49 @@ export function localConfigPath(privateDir: string): string {
 /** The absolute path of the tracked settings file under the checkout `rootDir`. */
 export function trackedConfigPath(rootDir: string): string {
   return path.join(rootDir, CONFIG_DIR, CONFIG_FILE);
+}
+
+type Tree = Record<string, unknown>;
+
+const isTree = (value: unknown): value is Tree => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** `over` laid on `base`: objects merge key by key, anything else in `over` replaces. */
+function layered(base: unknown, over: unknown): unknown {
+  if (over === undefined) return base;
+  if (!isTree(base) || !isTree(over)) return over;
+  const result: Tree = { ...base };
+  for (const [key, value] of Object.entries(over)) result[key] = layered(base[key], value);
+  return result;
+}
+
+/** The JSON object in `file`, or an empty one when the file is absent or empty. Throws on JSON that does not parse. */
+function readTree(file: string | null): Tree {
+  if (file === null || !fs.existsSync(file)) return {};
+  const raw = fs.readFileSync(file, 'utf8').trim();
+  if (raw === '') return {};
+  const parsed: unknown = JSON.parse(raw);
+  return isTree(parsed) ? parsed : {};
+}
+
+/** The private file of the interface `name`, under the private directory. */
+export function localInterfacePath(privateDir: string, name: string): string {
+  return path.join(privateDir, LOCAL_CONFIG_DIR, 'interfaces', `${name}.json`);
+}
+
+/** `base`, then <rootDir>/interfaces/<name>/config.json, then the package's keys a layer not yet cut holds in its
+ * settings file (cutConfigKeys(local).interfaces[name]), then <privateDir>/config.local/interfaces/<name>.json.
+ * `packageDir` names the package's folder when it is not under `<rootDir>/interfaces`. */
+export function readInterfaceConfig(args: {
+  rootDir: string;
+  privateDir: string;
+  name: string;
+  base: Record<string, unknown>;
+  packageDir?: string;
+}): Record<string, unknown> {
+  const { rootDir, privateDir, name, base } = args;
+  const own = readTree(path.join(args.packageDir ?? path.join(rootDir, 'interfaces', name), CONFIG_FILE));
+  const uncut = cutConfigKeys(readTree(localFiles(privateDir).config)).interfaces[name];
+  const local = readTree(localInterfacePath(privateDir, name));
+  const merged = [own, uncut, local].reduce<unknown>((into, layer) => layered(into, layer), base);
+  return isTree(merged) ? merged : {};
 }

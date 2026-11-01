@@ -1,5 +1,5 @@
 // Her attention mirrored as leases (src/behavior/attention.ts): the turn runner's set takes `attention:*` (one turn at
-// a time) or `attention:<conversation>` while a turn runs and lets it go when the turn ends; a write that fails leaves
+// a time) while a turn runs and lets it go when the turn ends; a write that fails leaves
 // the decision in process. A real in-memory memory database, the clock injected.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,11 +10,11 @@ import { applyWakeQueueWrite, leaseOf } from '../src/memory/db/wake-queue.ts';
 const T = Date.parse('2026-10-31T12:00:00.000Z');
 const TTL = 300_000;
 
-/** An attention over a fresh database, with `oneAtATime` as given; `settle()` waits for its writes. */
-function attentionOver(oneAtATime: boolean) {
+/** An attention over a fresh database; `settle()` waits for its writes. PR 7d: one turn at a time is code. */
+function attentionOver() {
   const handle = openMemoryDb(':memory:');
   const memoryDb = { memoryWrite: (update: unknown) => Promise.resolve(applyWakeQueueWrite(handle, update)) };
-  const hot = { config: { mention: { oneAtATime }, context: { turnLeaseMs: TTL } } };
+  const hot = { config: { context: { turnLeaseMs: TTL } } };
   const warnings: Array<string> = [];
   const log = { warn: (message: string) => warnings.push(message) };
   const attention = createLeasedAttention({ memoryDb, hot, holder: 'core-a', now: () => T, log });
@@ -23,7 +23,7 @@ function attentionOver(oneAtATime: boolean) {
 }
 
 test('a turn takes the one attention lease while it runs and lets it go when it ends', async () => {
-  const { handle, attention, settle } = attentionOver(true);
+  const { handle, attention, settle } = attentionOver();
   try {
     attention.add('c1');
     await settle();
@@ -37,21 +37,8 @@ test('a turn takes the one attention lease while it runs and lets it go when it 
   }
 });
 
-test('without one turn at a time the lease names the conversation', async () => {
-  const { handle, attention, settle } = attentionOver(false);
-  try {
-    attention.add('c2');
-    await settle();
-    assert.equal(leaseOf(handle, 'attention:*'), null);
-    assert.equal(leaseOf(handle, 'attention:c2')?.holder, 'core-a');
-  } finally {
-    attention.delete('c2');
-    handle.close();
-  }
-});
-
 test('a lease write that fails is logged and the set still holds the turn', async () => {
-  const { handle, attention, warnings, settle } = attentionOver(true);
+  const { handle, attention, warnings, settle } = attentionOver();
   handle.close();
   attention.add('c1');
   await settle();

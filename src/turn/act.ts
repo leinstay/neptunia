@@ -32,7 +32,6 @@ type TypingSettings = Parameters<typeof typingMs>[1] & {
 /** The live config, as far as the act reads it. */
 export type ActConfig = {
   typing: TypingSettings;
-  features?: { typingSimulation?: unknown } | null;
   diary?: unknown;
 };
 
@@ -314,7 +313,7 @@ export function createAct(ctx: ActContext): Act {
     draft = null,
   }: ActArgs): Promise<ActOutcome> {
     const cfg = hot.config.typing;
-    const typingOn = hot.config.features?.typingSimulation !== false;
+    const typingOn = true;
     // The typing imitation of one message: the indicator, then the time its text takes to type.
     // Typed only once the message it precedes passed its check (checkEffect).
     const typeFor = async (spoken: string): Promise<void> => {

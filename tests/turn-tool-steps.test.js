@@ -828,7 +828,6 @@ test("typing covers the calls: an addressed turn shows it while a step's calls r
         return '<think>y</think><msg>τέλος</msg>';
       },
     ],
-    features: { typingSimulation: true },
     runner: { schedule: timers.schedule },
     setup: (port) => {
       portRef = port;
@@ -852,7 +851,7 @@ test("typing covers the calls: an addressed turn shows it while a step's calls r
   assert.deepEqual(texts(run), ['τέλος']);
 });
 
-test('typing is released when the turn ends in a failure of the next request, and is not shown when typingSimulation is off or for an overheard line', async () => {
+test('typing is released when the turn ends in a failure of the next request, and is not shown for an overheard line', async () => {
   const timers = leaseTimers();
   const failing = await coreTurn({
     answers: [
@@ -861,20 +860,12 @@ test('typing is released when the turn ends in a failure of the next request, an
         throw new Error('boom');
       },
     ],
-    features: { typingSimulation: true },
     runner: { schedule: timers.schedule },
   });
   assert.ok(failing.port.typings.length >= 1);
   assert.equal(timers.live.size, 0);
-  const off = await coreTurn({
-    answers: [toolAnswer('<think>x</think>', [call('lore.list')]), '<skip/>'],
-    features: { typingSimulation: false },
-    runner: { schedule: timers.schedule },
-  });
-  assert.equal(off.port.typings.length, 0);
   const overheard = await coreTurn({
     answers: [toolAnswer('<think>x</think>', [call('lore.list')]), '<skip/>'],
-    features: { typingSimulation: true },
     triggerKind: 'overheard',
     runner: { schedule: timers.schedule },
   });

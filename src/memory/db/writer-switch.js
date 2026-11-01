@@ -11,7 +11,7 @@
 //     The description flags her session runs raised (`decisions` rows `flag:description`, `by` her) whose description
 //     has no accepted review (`origin` `review`) written since the flag, one per description (its oldest open flag: a
 //     flag raised after the last review opens the description again), in
-//     the order the reviews are run: with `memoryDb.focus.enabled` the people of her focus close set first (by their
+//     the order the reviews are run: the people of her focus close set first (by their
 //     focus score), then every other flag by its age, oldest first. `skip`: description ids not to offer again today.
 //   reviewsToday(db, now) -> number    the accepted reviews written on the UTC day of `now`
 //   effectiveModels(config, env) -> [{ purpose, role, model, key }]
@@ -47,7 +47,7 @@ export function dueScopes(db, config, now) {
   const settings = sessionSettings(config);
   const out = [];
   const settleBefore = now - settings.settleMinutes * MINUTE;
-  for (const scope of scopesOf(db, { audienceColumn: config?.memoryDb?.audienceColumn === true })) {
+  for (const scope of scopesOf(db, { audienceColumn: true })) {
     const cursor = Number(
       db.prepare('SELECT value FROM meta WHERE key = ?').get(cursorKey(settings.mode, scope.key))?.value ?? 0
     );
@@ -97,7 +97,7 @@ function subjectName(db, kind, id, selfName) {
 
 /** The description flags waiting for a review, in review order (see the head of this file). */
 export function openFlags(db, config, { skip = new Set(), selfName = '' } = {}) {
-  const audienceColumn = config?.memoryDb?.audienceColumn === true;
+  const audienceColumn = true;
   const rows = db
     .prepare(
       "SELECT id, at, extra FROM decisions WHERE action = 'flag:description' AND by = 'her' AND retired_at IS NULL ORDER BY at, id"
@@ -130,7 +130,7 @@ export function openFlags(db, config, { skip = new Set(), selfName = '' } = {}) 
     const name = subjectName(db, kind, subject.id, selfName);
     flags.push({ key, at: row.at, subject: name ? { ...subject, name } : subject, field: op.field, readCtx });
   }
-  const close = config?.memoryDb?.focus?.enabled === true ? closePeople(db) : [];
+  const close = closePeople(db);
   const rank = (flag) => {
     const at = flag.subject.kind === 'person' ? close.indexOf(flag.subject.id) : -1;
     return at === -1 ? Infinity : at;

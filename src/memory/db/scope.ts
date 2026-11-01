@@ -6,8 +6,8 @@
 // Contexts: `{ iface, kind: 'group' }`, `{ iface, kind: 'dm', person, place }`, `{ internal: true }`, and
 // `{ groups: true }` (`groupsContext`, the diary's entry: `none` and the groups of every interface, never a DM or an
 // internal row). A context the core issues (`issueContext`) also carries an `id` and is recorded in
-// `execution_contexts` by the service; a context with `audienceColumn: true` is read through `audience_id` instead of
-// the three columns (`memoryDb.audienceColumn`).
+// `execution_contexts` by the service, and is read through `audience_id` instead of the three columns (its
+// `audienceColumn: true`).
 //
 // Audiences (schema v7, spec 2026-10-24-memory-schema-v7 sections 2 and 11.2): every scoped row also carries
 // `audience_id`, the normalised twin of its three columns: `aud:none`, `aud:internal`, `aud:group:<iface>` and
@@ -347,7 +347,7 @@ export const CONTEXT_POLICY_VERSION = 1;
 /**
  * A context the core issues for one turn, session or wake: a read context (as `groupContext` / `dmContext` /
  * `internalContext`) with an `id`, its `mode` (`outward` for a group or DM, `internal` otherwise), the destination
- * place, the policy version and the time it was issued. Pure: `now` and `newId` are injected; the service records it.
+ * place, the policy version and the time it was issued, read through `audience_id` (`audienceColumn: true`). Pure: `now` and `newId` are injected; the service records it.
  * A spec that names no interface is read in the legacy namespace (src/memory/db/legacy-namespace.ts); the callers of a
  * live turn name theirs.
  */
@@ -360,7 +360,6 @@ export function issueContext({
   policyVersion = CONTEXT_POLICY_VERSION,
   now = Date.now,
   newId = () => `ctx:${randomUUID()}`,
-  audienceColumn = false,
 }: {
   kind?: 'group' | 'dm' | 'internal';
   iface?: string;
@@ -370,7 +369,6 @@ export function issueContext({
   policyVersion?: number;
   now?: () => number;
   newId?: () => string;
-  audienceColumn?: boolean;
 } = {}): Context {
   let base: Context;
   if (kind === 'group') base = groupContext(iface);
@@ -384,8 +382,8 @@ export function issueContext({
     destination: base.kind === 'dm' ? (destination ?? base.place ?? null) : (destination ?? null),
     policyVersion,
     issuedAt: new Date(now()).toISOString(),
+    audienceColumn: true,
   };
-  if (audienceColumn) ctx.audienceColumn = true;
   return ctx;
 }
 

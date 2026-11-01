@@ -7,23 +7,23 @@
 import { fill, formatDuration } from '../format.js';
 import { DAY_MS, utcDay } from '../time.js';
 
-const DEFAULT_ACTIVITY_THRESHOLDS = { liveMessagesPerDay: 20, deadAfterDays: 7 };
+// Production values, config cut of 2026-10-31.
+const LIVE_MESSAGES_PER_DAY = 20;
+const DEAD_AFTER_DAYS = 7;
 
 /**
  * How alive a channel is, from stored message statistics only.
- * `live`   — today's + yesterday's (UTC) message counts reach `liveMessagesPerDay`.
- * `dead`   — never seen a message, or the last one is older than `deadAfterDays`.
+ * `live`   — today's + yesterday's (UTC) message counts reach `LIVE_MESSAGES_PER_DAY`.
+ * `dead`   — never seen a message, or the last one is older than `DEAD_AFTER_DAYS`.
  * `slow`   — anything in between.
  *
  * @param {{ days?: Record<string, number>, lastMessageAt?: number|null }} channel
  * @param {number} nowMs
- * @param {{ liveMessagesPerDay?: number, deadAfterDays?: number }} [cfg]  Defaults to
- *   DEFAULT_ACTIVITY_THRESHOLDS when omitted or missing a key.
  * @returns {'live'|'slow'|'dead'}
  */
-export function channelActivity(channel, nowMs, cfg) {
-  const liveMessagesPerDay = cfg?.liveMessagesPerDay ?? DEFAULT_ACTIVITY_THRESHOLDS.liveMessagesPerDay;
-  const deadAfterDays = cfg?.deadAfterDays ?? DEFAULT_ACTIVITY_THRESHOLDS.deadAfterDays;
+export function channelActivity(channel, nowMs) {
+  const liveMessagesPerDay = LIVE_MESSAGES_PER_DAY;
+  const deadAfterDays = DEAD_AFTER_DAYS;
   const days = channel?.days ?? {};
 
   const todayKey = utcDay(nowMs);

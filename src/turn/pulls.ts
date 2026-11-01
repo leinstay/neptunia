@@ -6,7 +6,7 @@
 import { markSeen, stampPings } from '../behavior/elsewhere.ts';
 import { captionPulled, checkPull, fetchPull } from '../behavior/pull-fetch.ts';
 import type { PulledChannel, createPullViews } from '../behavior/pull-fetch.ts';
-import { channelPullOn, pullSettings, pullTargets } from '../behavior/pull.js';
+import { pullSettings, pullTargets } from '../behavior/pull.js';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { Reads } from '../interface/reads.ts';
 import { log } from '../log.js';
@@ -16,7 +16,7 @@ import type { TriggerKind } from './triggers.ts';
 type FetchArgs = Parameters<typeof fetchPull>[0];
 
 /** The live config, as far as the pulls read it; the settings functions read their own sections. */
-export type PullsConfig = FetchArgs['config'] & { features?: { mediaDescriptions?: unknown } | null };
+export type PullsConfig = FetchArgs['config'];
 
 /** A pull's settings (src/behavior/pull.js#pullSettings). */
 type PullSettings = ReturnType<typeof pullSettings>;
@@ -72,7 +72,6 @@ export type PullArgs = {
   now: number;
   certain: boolean;
   labelled: boolean;
-  routePlan?: ((args: { lines: unknown; routed: PulledChannel | null }) => Promise<ReadonlyArray<RoutePick>>) | null;
 };
 
 export type Pulls = {
@@ -180,9 +179,7 @@ export function createPulls(ctx: PullsContext): Pulls {
    * A private chat with its `partner` (privatePartner) pulls the same way from
    * `snapshot`, the served community's listing, every rail judged against the partner instead of
    * an audience (checkPull: their view of the candidate); it has no
-   * source. `routePlan` (the turn planner's route step, src/turn/phases/request/planner.ts; null
-   * without features.turnPlanner): `({ lines, routed }) => Promise<{ id,
-   * direction }[]>`, asked where the route hook would be, instead of it.
+   * source.
    * Resolves the PulledChannel records, source first; `sourceSkip` is the skip code of a source that could not be
    * pulled.
    */
@@ -202,10 +199,9 @@ export function createPulls(ctx: PullsContext): Pulls {
     now,
     certain,
     labelled,
-    routePlan = null,
   }: PullArgs): Promise<{ pulled: Array<PulledChannel>; sourceSkip: string | null }> {
     const settings = pullSettings(config);
-    const channelPull = channelPullOn(config) && labelled;
+    const channelPull = labelled;
     // Every candidate judged once: its skip code (null = pullable) and why it was a candidate.
     const judged = new Map<string, { skip: string | null; pullReason: string }>();
     let judging = 'mention';
@@ -254,9 +250,8 @@ export function createPulls(ctx: PullsContext): Pulls {
     };
     if (!labelled) {
       // What the turn would have pulled with the label (unjudged: no check is wasted on it).
-      const wanted = targetsWith([], { pullable: () => true, more: channelPullOn(config) });
-      const hookWanted =
-        typeof routeChannels === 'function' && channelPullOn(config) && wanted.length < settings.maxChannels;
+      const wanted = targetsWith([], { pullable: () => true, more: true });
+      const hookWanted = typeof routeChannels === 'function' && wanted.length < settings.maxChannels;
       if (wanted.length > 0 || hookWanted) log.info('pull: skipped', { channel: channel.id, reason: 'no-label' });
     }
     // The ring of calls the store keeps (src/behavior/elsewhere.ts).
@@ -297,22 +292,19 @@ export function createPulls(ctx: PullsContext): Pulls {
       }
       sourcePulled = result.pulled;
     }
-    if ((routePlan || typeof routeChannels === 'function') && channelPull && targets.length < settings.maxChannels) {
+    if (typeof routeChannels === 'function' && channelPull && targets.length < settings.maxChannels) {
       const routedLines = source?.reason === 'routed' ? sourcePulled?.messages : null;
-      // With the turn planner its channel block stands in for the route hook (never both).
-      const picks = routePlan
-        ? await routePlan({ lines: routedLines ?? history, routed: routedLines ? sourcePulled : null })
-        : await routeIds({
-            guildId,
-            channel,
-            snapshot,
-            partner,
-            history: routedLines ?? history,
-            trigger: candidate,
-            triggerKind,
-            selfName,
-            config,
-          });
+      const picks = await routeIds({
+        guildId,
+        channel,
+        snapshot,
+        partner,
+        history: routedLines ?? history,
+        trigger: candidate,
+        triggerKind,
+        selfName,
+        config,
+      });
       judging = 'route';
       for (const pick of picks)
         if (pick.direction === 'earlier' && pick.id !== sourceTarget?.channelId) earlierIds.add(pick.id);
@@ -413,8 +405,7 @@ export function createPulls(ctx: PullsContext): Pulls {
     pulled: Array<PulledChannel>,
     { guildId, config, destination }: { guildId: string | null; config: PullsConfig; destination: { id: string } }
   ): Promise<Array<PulledChannel>> {
-    if (pulled.length === 0 || config.features?.mediaDescriptions !== true || !describer)
-      return Promise.resolve(pulled);
+    if (pulled.length === 0 || !describer) return Promise.resolve(pulled);
     return Promise.all(
       pulled.map((entry) =>
         captionPulled(entry, { describer, guildId, config, destination }).catch((err: unknown) => {
@@ -486,7 +477,7 @@ export function createPulls(ctx: PullsContext): Pulls {
   /**
    * The ring of calls (`state.json` `elsewherePings`, read by every later
    * pull) after a turn that reached a decision -- it chose silence, or it
-   * spoke for real (a dry run that spoke reached nobody and stamps nothing):
+   * spoke:
    * every call of the ring among the lines it showed of a channel the bot
    * cannot write in (buildRequest's `pulledKept`) is stamped answered when
    * what reached the chat answered it (`answered`, from act), else skipped --

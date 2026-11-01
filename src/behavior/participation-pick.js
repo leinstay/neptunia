@@ -37,7 +37,7 @@ function intAtLeast(value, fallback, min) {
 /**
  * The pick classifier's settings read from the live config, or null when
  * `features.participation` is false (a missing key counts as on).
- * `contextMessages` (0 sends no transcript), `maxOutputTokens` (at least 1) and
+ * `contextMessages` (the production value of the config cut of 2026-10-31), `maxOutputTokens` (at least 1) and
  * `pickTimeoutMs` (how long the turn waits for the pick before it goes on
  * without one, at least 1; `null` = no limit but the turn's own deadline)
  * fall back to PARTICIPATION_PICK_DEFAULTS when missing or unusable; floored.
@@ -45,11 +45,10 @@ function intAtLeast(value, fallback, min) {
  * @returns {{ contextMessages: number, maxOutputTokens: number, pickTimeoutMs: number|null }|null}
  */
 export function participationPickSettings(config) {
-  if (config?.features?.participation === false) return null;
   const p = isPlainObject(config?.participation) ? config.participation : {};
   const d = PARTICIPATION_PICK_DEFAULTS;
   return {
-    contextMessages: intAtLeast(p.contextMessages, d.contextMessages, 0),
+    contextMessages: d.contextMessages,
     maxOutputTokens: intAtLeast(p.maxOutputTokens, d.maxOutputTokens, 1),
     pickTimeoutMs: p.pickTimeoutMs === null ? null : intAtLeast(p.pickTimeoutMs, d.pickTimeoutMs, 1),
   };
@@ -193,8 +192,7 @@ export function parseParticipationPick(raw, count) {
 }
 
 /**
- * The numbered `<episodes>` list of one pick, shared by the pick hook below
- * and the turn planner (src/behavior/planner.js): the live headlines of the
+ * The numbered `<episodes>` list of one pick for the pick hook below: the live headlines of the
  * guild's stored episodes outside `channel` that pass `audience`
  * (src/memory/participation.js#episodeHeadlines with the live
  * `participation` settings), rendered by participationEpisodeList with each

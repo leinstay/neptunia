@@ -157,7 +157,6 @@ test('metricsTap: the log events feed the speed metrics', () => {
   );
   tap(entry('turn: timings', { channel: 'c2', totalMs: 1000, stages: {} }, t0 + 40000));
   tap(entry('turn: sent', { channel: 'c2', secondsSinceTrigger: 1 }, t0 + 41000));
-  tap(entry('planner: classified', { channel: 'c1', ms: 700 }, t0));
   tap(entry('memory: update applied', { guildId: 'g1', ms: 40000 }, t0));
   tap(entry('memory: private update applied', { guildId: 'g1', ms: 20000 }, t0));
   tap(entry('embedder: flushed', { embedded: 64, dropped: 0, left: 0, ms: 1500 }, t0));
@@ -181,7 +180,6 @@ test('metricsTap: the log events feed the speed metrics', () => {
     { n: 1, median: 2000, mean: 2000 },
     'a skipped summary is no sample'
   );
-  assert.equal(median('planner'), 700);
   assert.equal(n('analyzer batch'), 2);
   assert.deepEqual(
     metrics.summary('embedding flush', 24),
@@ -195,9 +193,9 @@ test('metricsTap: subscribed to the log, it records what the log writes', async 
   const metrics = createMetrics({ dataDir: tmpDir(), now: clock() });
   const off = onLog(metricsTap(metrics));
   try {
-    await withCapturedLogs(() => log.info('planner: classified', { channel: 'c9', ms: 321 }));
+    await withCapturedLogs(() => log.info('memory: update applied', { guildId: 'g9', ms: 321 }));
   } finally {
     off();
   }
-  assert.deepEqual(metrics.summary('planner', 24), { n: 1, median: 321, mean: 321 });
+  assert.deepEqual(metrics.summary('analyzer batch', 24), { n: 1, median: 321, mean: 321 });
 });

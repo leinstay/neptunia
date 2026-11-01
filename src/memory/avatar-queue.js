@@ -1,4 +1,4 @@
-// Avatar descriptions (features.avatars), the queue: the persona knows what every profiled
+// Avatar descriptions, the queue: the persona knows what every profiled
 // member's avatar looks like, so a joke about one lands. Each avatar version is described ONCE by
 // the vision model (prompts/avatar.md, purpose `avatar`) and stored as the member's current
 // `avatar` field (src/memory/avatars.js; a platform's default avatar is stored without any request).
@@ -7,36 +7,25 @@
 // persona. When: a scan on the first tick and then once a day (every profiled member whose stored
 // hash differs from the current one), plus the gateway's member and user updates and the
 // members' own messages, each offering one member on a hash change. The work is a throttled
-// background queue: one request at a time, `avatars.intervalMs` apart, at most
-// `avatars.maxPerDay` a UTC day (state.json's `avatarDay` / `avatarCount`), never while
+// background queue: one request at a time, `INTERVAL_MS` apart, never while
 // `llm.maxRequestsPerDay` is spent, never while paused. A version that failed waits for the next
 // scan (no tight loop). Nothing here ever throws into a gateway handler or blocks a turn.
 // Logs carry counts and codes, never the description or a URL.
 
-import { dailyCapOf, roleRequestOptions, railReason } from '../llm/openrouter.js';
+import { roleRequestOptions, railReason } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
 import { fillPromptTemplate } from '../behavior/prompt.js';
 import { clampText, oneLine } from './clamp.js';
-import { bumpDaily, countToday, DAY_MS } from '../time.js';
+import { DAY_MS } from '../time.js';
 import { log as defaultLog } from '../log.js';
 import { hashOrNull, isAvatarDue } from './avatars.js';
+import { VISION_MAX_BYTES } from '../media/fetch-image.js';
 
-/** The state.json fields of the daily avatar counter (every request, sent or refused by the provider). */
-export const AVATAR_DAILY = Object.freeze({ dayKey: 'avatarDay', countKey: 'avatarCount' });
-
-// Only when the key is missing or invalid (config.json always has it, the same value).
-const INTERVAL_MS_FALLBACK = 20_000;
-const DESCRIPTION_CHARS_FALLBACK = 200;
-
-/** A positive finite number as it is, else `fallback`. */
-function positiveOr(value, fallback) {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
-/** A finite number >= 0 as it is, else `fallback`. */
-function nonNegativeOr(value, fallback) {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
-}
+// The queue's measures. Production values, config cut of 2026-10-31.
+/** The wait between two avatar requests, in ms. */
+const INTERVAL_MS = 20_000;
+/** The length of an avatar description. */
+const DESCRIPTION_CHARS = 200;
 
 /**
  * The avatar queue of the served guild.
@@ -45,7 +34,6 @@ function nonNegativeOr(value, fallback) {
  * @param {{ getUser: Function, listUserProfiles: Function, setAvatar: Function }} deps.store
  * @param {{ complete: Function, capLeft?: Function }} deps.llm
  * @param {{ fetchAsDataUrl: Function }} deps.imageFetcher  src/media/fetch-image.js.
- * @param {{ data: object, markDirty: Function }} deps.state  Where the daily counter lives.
  * @param {() => string|null} deps.getGuildId
  * @param {() => string|null} deps.selfId  The persona's user id.
  * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface: `memberInfo` gives a
@@ -59,7 +47,6 @@ export function createAvatarQueue({
   store,
   llm,
   imageFetcher,
-  state,
   getGuildId,
   selfId,
   reads,
@@ -81,7 +68,7 @@ export function createAvatarQueue({
 
   /** Whether the feature works under the live config and prompts: the switch exactly true and the prompt there. */
   function on() {
-    return hot.config?.features?.avatars === true && Boolean(hot.prompts?.avatar);
+    return Boolean(hot.prompts?.avatar);
   }
 
   /**
@@ -182,11 +169,7 @@ export function createAvatarQueue({
 
   /** Why the next request may not go out now, or null when it may. */
   function blocker() {
-    const config = hot.config ?? {};
-    const interval = nonNegativeOr(config.avatars?.intervalMs, INTERVAL_MS_FALLBACK);
-    if (lastRequestAt !== null && now() - lastRequestAt < interval) return 'wait';
-    const cap = dailyCapOf(config.avatars?.maxPerDay, 'avatars.maxPerDay');
-    if (countToday(state.data, AVATAR_DAILY, now()) >= cap) return 'avatar-cap';
+    if (lastRequestAt !== null && now() - lastRequestAt < INTERVAL_MS) return 'wait';
     if (typeof llm?.capLeft === 'function' && llm.capLeft() <= 0) return 'daily-cap';
     return null;
   }
@@ -199,7 +182,7 @@ export function createAvatarQueue({
   async function describe(item) {
     const config = hot.config ?? {};
     const promptText = hot.prompts?.avatar;
-    const descriptionChars = positiveOr(config.avatars?.descriptionChars, DESCRIPTION_CHARS_FALLBACK);
+    const descriptionChars = DESCRIPTION_CHARS;
     const fail = (reason, extra = {}) => {
       failed.set(item.userId, item.hash);
       log.warn('avatars: skipped', { reason, userId: item.userId, ...extra });
@@ -208,13 +191,11 @@ export function createAvatarQueue({
     if (!item.url) return fail('no-url');
     const visionCfg = config.context?.vision ?? {};
     const downloaded = await imageFetcher.fetchAsDataUrl(item.url, {
-      maxBytes: visionCfg.maxBytes,
+      maxBytes: VISION_MAX_BYTES,
       timeoutMs: visionCfg.fetchTimeoutMs,
     });
     if (!downloaded) return fail('download');
 
-    bumpDaily(state.data, AVATAR_DAILY, now());
-    state.markDirty();
     let completion;
     try {
       completion = await llm.complete(
@@ -252,7 +233,7 @@ export function createAvatarQueue({
   /**
    * One step of the queue, for a timer: the scan when one is due (the first tick, then once a
    * day), the free items, then at most one request. Never throws.
-   * @returns {Promise<'off'|'paused'|'no-guild'|'busy'|'idle'|'wait'|'avatar-cap'|'daily-cap'|'described'|'failed'|'error'>}
+   * @returns {Promise<'off'|'paused'|'no-guild'|'busy'|'idle'|'wait'|'daily-cap'|'described'|'failed'|'error'>}
    */
   async function tick() {
     try {

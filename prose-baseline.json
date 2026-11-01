@@ -14,8 +14,8 @@
     "slash": 1
   },
   "docs/configuration.md": {
-    "label": 7,
-    "slash": 4
+    "label": 4,
+    "slash": 1
   },
   "docs/core.md": {
     "label": 2
@@ -35,15 +35,15 @@
     "slash": 2
   },
   "docs/media.md": {
-    "label": 9,
+    "label": 4,
     "slash": 3
   },
   "docs/memory.md": {
     "label": 13
   },
   "docs/prompt-contract.md": {
-    "dash": 18,
-    "label": 44,
+    "dash": 15,
+    "label": 33,
     "slash": 8
   }
 }

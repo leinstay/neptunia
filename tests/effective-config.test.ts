@@ -2,7 +2,7 @@
 // names (`skills.*`, `features.skills`, `features.skillsDiscovery`, the grant on `skills.describe`) must mean what they
 // meant. The file is loaded the way a start loads it (src/config.js#readConfig) over a config.json that has only the new
 // names, and the functions that read the settings answer what the owner set: the tool transport, the tool loop's bounds,
-// safe mode, the switches, and the names of the tools granted to the persona. The shape is that of a production local
+// safe mode and the names of the tools granted to the persona. The shape is that of a production local
 // file: a few settings under `skills`, a switch off, grants for her user id on tools and on the tool `skills.describe`.
 // A second production-shaped file carries the errand and intention names of an earlier release: grants on `task.*` and
 // `intent.*`, a stale `memory.refresh.*` grant, `agents.resultRetrySeconds` and the `agents.scout`, `agents.server` and
@@ -18,8 +18,8 @@ import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
 import '../src/tools/impl/index.ts';
 import { transportOf } from '../src/tools/tool-calls.ts';
-import { safeModeOn, skillsOn } from '../src/tools/access.ts';
-import { discoveryOn, grantedSkillNames } from '../src/tools/discovery.ts';
+import { safeModeOn } from '../src/tools/access.ts';
+import { grantedSkillNames } from '../src/tools/discovery.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { agentSettings } from '../src/agent-runner/profiles.js';
 
@@ -28,14 +28,13 @@ const SELF = 'self-1';
 const grant = { everyone: false, roles: [], users: [SELF] };
 
 /** A checkout whose config.json has the new names only, and a private folder with `local` as config.local.json. */
-function load(local: Settings, features: Settings = {}): Settings {
+function load(local: Settings): Settings {
   const root = tempDir('nep-effective-');
   // PR 7c: the tracked settings live in config/config.json.
   fs.mkdirSync(path.join(root, 'config'), { recursive: true });
   fs.writeFileSync(
     path.join(root, 'config', 'config.json'),
     JSON.stringify({
-      features: { tools: true, toolsDiscovery: true, innerLife: false, intentions: false, ...features },
       errands: ERRAND_DEFAULTS,
       tools: {
         safeMode: false,
@@ -49,17 +48,14 @@ function load(local: Settings, features: Settings = {}): Settings {
   return readConfig(root, { privateDir: root }) as Settings;
 }
 
-/** The errand settings config.json carries, the ones every errand reads. */
+/** The errand settings config.json carries, the ones every errand reads (PR 7d: three more are constants). */
 const ERRAND_DEFAULTS = {
   opencodePath: '/opt/opencode/bin/opencode',
   toolResultChars: 6000,
   keepFilesHours: 24,
-  recentLines: 6,
   maxOpen: 3,
   resultMaxChars: 3000,
-  unreadShown: 5,
   resultRetrySeconds: 30,
-  resultCooldownSeconds: 60,
 };
 
 const granted = (config: Settings): Array<string> =>
@@ -76,7 +72,6 @@ const OLD_SHAPED = {
 };
 const NEW_SHAPED = {
   tools: { transport: 'text', loop: { maxSteps: 5, timeBudgetMs: 30_000 }, resultMaxChars: 3000 },
-  features: { toolsDiscovery: false },
   bot: {
     owners: ['o1'],
     access: { 'tools.describe': grant, 'message.edit': grant, 'memory.restore': grant },
@@ -102,22 +97,14 @@ test('lists the tools granted to her under their new names, leaving out the one 
   assert.deepEqual(granted(result), ['message.edit', 'tools.describe']);
 });
 
-test('reads the discovery switch an old local file turns off', async () => {
-  const { result } = await withCapturedLogs(() => load(OLD_SHAPED));
-  assert.equal(discoveryOn(result), false);
-});
-
-test('reads safe mode and the tools switch an old local file turns on and off', async () => {
-  const { result } = await withCapturedLogs(() => load({ skills: { safeMode: true }, features: { skills: false } }));
+test('reads safe mode an old local file turns on', async () => {
+  const { result } = await withCapturedLogs(() => load({ skills: { safeMode: true } }));
   assert.equal(safeModeOn(result), true);
-  assert.equal(skillsOn(result), false);
-  assert.deepEqual(granted(result), []);
 });
 
-test('leaves safe mode off and the tools on when the old file says nothing of them', async () => {
+test('leaves safe mode off when the old file says nothing of it', async () => {
   const { result } = await withCapturedLogs(() => load(OLD_SHAPED));
   assert.equal(safeModeOn(result), false);
-  assert.equal(skillsOn(result), true);
 });
 
 test('gives the same config as the file written by hand with the new names', async () => {
@@ -156,7 +143,7 @@ const ERRAND_ERA = {
 };
 
 test('lists the errand and intention tools of an old local file under their new names, the stale grant gone', async () => {
-  const { result } = await withCapturedLogs(() => load(ERRAND_ERA, { intentions: true }));
+  const { result } = await withCapturedLogs(() => load(ERRAND_ERA));
   assert.deepEqual(granted(result), [
     'errand.read',
     'errand.run',

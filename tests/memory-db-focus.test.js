@@ -12,13 +12,11 @@ import path from 'node:path';
 import { openMemoryDb } from '../src/memory/db/open.js';
 import { insertRows } from '../src/memory/db/rows.js';
 import {
-  FOCUS_DEFAULTS,
   MOVE_REASONS,
   affinity01,
   focusSettings,
   focusView,
   lastFocusDay,
-  recompute,
   recountDaily,
   runFocusDay,
   scoreOf,
@@ -93,10 +91,9 @@ function line(kind, at, extra = {}) {
 
 // ---------- the score ----------
 
-test('focus: the score of policy 1 and its settings', () => {
-  const s = focusSettings({ focus: { ...FOCUS_DEFAULTS } });
-  assert.deepEqual(focusSettings({ focus: { size: 'x', margin: -1, weights: { affinity: 0.4 } } }).size, 24);
-  assert.equal(focusSettings({ focus: { weights: { affinity: 0.4 } } }).weights.affinity, 0.4);
+// PR 7d: the focus settings are the constants FOCUS_DEFAULTS; the live config holds none.
+test('focus: the score of policy 1', () => {
+  const s = focusSettings();
   assert.equal(affinity01(-100), 0);
   assert.equal(affinity01(20), 0.6);
   assert.equal(affinity01(null), null);
@@ -206,107 +203,7 @@ test('recountDaily: addressed both ways from the stored lines, meaningful when b
   }
 });
 
-// ---------- the anti-churn rules, small ----------
-
-/** Puts one meaningful day for each named person on `day` straight into the counts (the recount is tested above). */
-function meaningful(db, day, ...people) {
-  for (const id of people) {
-    db.prepare(
-      `INSERT OR REPLACE INTO relationship_daily (person_id, day, audience_id, addressed_by_them, addressed_by_her, meaningful, last_contact_at)
-      VALUES (?, ?, 'aud:group:discord', 1, 1, 1, ?)`
-    ).run(id, new Date(day).toISOString().slice(0, 10), iso(day));
-  }
-}
 const affinity = (db, n, value) => db.prepare('UPDATE people SET affinity = ? WHERE id = ?').run(value, person(n));
-const bucketOf = (db, n) =>
-  db.prepare('SELECT bucket FROM focus_members WHERE person_id = ?').get(person(n))?.bucket ?? null;
-const reasonsOf = (db, n) =>
-  db
-    .prepare('SELECT reason FROM focus_events WHERE person_id = ? ORDER BY at, rowid')
-    .all(person(n))
-    .map((row) => row.reason);
-const ONE_SLOT = {
-  focus: {
-    size: 1,
-    exploring: 0,
-    settleDays: 0,
-    maxMovesPerWeek: 2,
-    margin: 0.08,
-    confirmHours: 24,
-    entryAffinity: 0.6,
-  },
-};
-
-test('recompute: a challenger beats the lowest member by the margin at recomputations a day apart; half a day is not enough; a lapse starts over', () => {
-  const handle = peopleDb(2);
-  const { db } = handle;
-  try {
-    const t0 = START + DAY;
-    affinity(db, 0, 40);
-    meaningful(db, t0, person(0), person(1));
-    recompute(handle, { now: t0, config: ONE_SLOT });
-    assert.equal(bucketOf(db, 0), 'close');
-    assert.deepEqual(reasonsOf(db, 0), ['seed']);
-    // The challenger: 0.55 * (1.0 - 0.7) = 0.165 above the member, over the margin.
-    affinity(db, 1, 100);
-    const t1 = t0 + HOUR;
-    recompute(handle, { now: t1, config: ONE_SLOT });
-    assert.deepEqual(reasonsOf(db, 1), ['challenge']);
-    recompute(handle, { now: t1 + 12 * HOUR, config: ONE_SLOT });
-    assert.equal(bucketOf(db, 1), null, 'half a day is not a second confirmation');
-    // Its lead goes for one recomputation: the run lapses, and the next lead is a new run.
-    affinity(db, 1, 45);
-    recompute(handle, { now: t1 + 18 * HOUR, config: ONE_SLOT });
-    affinity(db, 1, 100);
-    recompute(handle, { now: t1 + 25 * HOUR, config: ONE_SLOT });
-    assert.equal(bucketOf(db, 1), null, 'a lapse in between: no promotion');
-    assert.deepEqual(reasonsOf(db, 1), ['challenge', 'challenge_lapsed', 'challenge']);
-    recompute(handle, { now: t1 + 37 * HOUR, config: ONE_SLOT });
-    assert.equal(bucketOf(db, 1), null);
-    recompute(handle, { now: t1 + 49 * HOUR, config: ONE_SLOT });
-    assert.equal(bucketOf(db, 1), 'close');
-    assert.equal(bucketOf(db, 0), null);
-    assert.deepEqual(reasonsOf(db, 1), ['challenge', 'challenge_lapsed', 'challenge', 'challenge_won']);
-    assert.deepEqual(reasonsOf(db, 0), ['seed', 'replaced']);
-    // A lead under the margin is no challenge at all.
-    affinity(db, 0, 100);
-    affinity(db, 1, 95);
-    recompute(handle, { now: t1 + 80 * HOUR, config: ONE_SLOT });
-    assert.equal(reasonsOf(db, 0).at(-1), 'replaced', '0.55 * 0.025 is under the margin');
-  } finally {
-    handle.close();
-  }
-});
-
-test('recompute: a settling member cannot be replaced; the first computation seeds; a negative attitude leaves and never enters', () => {
-  const handle = peopleDb(3);
-  const { db } = handle;
-  try {
-    const config = { focus: { ...ONE_SLOT.focus, settleDays: 21 } };
-    // No member and no event ever: the first computation seeds without confirmation.
-    affinity(db, 0, 40);
-    recompute(handle, { now: START, config });
-    assert.equal(bucketOf(db, 0), 'close');
-    affinity(db, 1, 100);
-    for (let d = 1; d <= 25; d += 1) recompute(handle, { now: START + d * DAY, config });
-    const won = db
-      .prepare("SELECT at FROM focus_events WHERE person_id = ? AND reason = 'challenge_won'")
-      .get(person(1));
-    assert.ok(won, 'promoted once the member settled');
-    assert.ok(Date.parse(won.at) >= START + 21 * DAY, `not before 21 days (${won.at})`);
-    // A close member whose attitude turns negative leaves; a negative person with every other input high never enters.
-    affinity(db, 1, -5);
-    affinity(db, 2, -80);
-    meaningful(db, START + 26 * DAY, person(2));
-    recompute(handle, { now: START + 26 * DAY, config });
-    assert.equal(bucketOf(db, 1), null);
-    assert.equal(reasonsOf(db, 1).at(-1), 'negative_affinity');
-    assert.notEqual(bucketOf(db, 2), 'close');
-    assert.equal(bucketOf(db, 2), null, 'not even exploring');
-  } finally {
-    handle.close();
-  }
-});
 
 // ---------- the 40 people over 60 days ----------
 
@@ -322,19 +219,6 @@ function scriptedAffinity(n, d) {
   if (n === NEGATIVE) return -50;
   return 95;
 }
-const BIG = {
-  focus: {
-    size: 24,
-    exploring: 4,
-    exploringShare: 0.15,
-    entryAffinity: 0.6,
-    margin: 0.08,
-    confirmHours: 24,
-    maxMovesPerWeek: 2,
-    settleDays: 21,
-    policyVersion: 1,
-  },
-};
 let big = null;
 
 /**
@@ -370,7 +254,7 @@ function bigFixture() {
     if (d === 50)
       for (let n = 0; n < 30; n += 1)
         if (n !== 5 && n !== 19) setOverride(handle, { person: person(n), kind: 'pin', approvedBy: 'owner' });
-    runFocusDay(handle, { now: START + d * DAY + 12 * HOUR, config: BIG });
+    runFocusDay(handle, { now: START + d * DAY + 12 * HOUR });
     const members = db
       .prepare('SELECT person_id, bucket, since FROM focus_members')
       .all()
@@ -511,9 +395,8 @@ function serviceEnv({ worker = false } = {}) {
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
-  const hot = {
-    config: { memoryDb: { focus: { enabled: true } }, focus: { size: 3, exploring: 1, exploringShare: 0.25 } },
-  };
+  // PR 7d: the focus job and its measures are code (an exploring share of 0.15).
+  const hot = { config: {} };
   let time = Date.UTC(2026, 9, 24, 12, 0, 0);
   const service = createMemoryDb({
     hot,
@@ -548,14 +431,22 @@ const focusDayOf = (file) => {
 };
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
 
-test('service: the focus job runs once a UTC day when switched on, off by default; the reader carries the share; on the worker too', async () => {
+test('service: the focus job runs at the first tick with no setting', async () => {
   const env = serviceEnv();
   try {
-    env.hot.config.memoryDb.focus.enabled = false;
     await env.service.tick();
     await settle();
-    assert.equal(focusDayOf(env.file).day, null, 'off: nothing ran');
-    env.hot.config.memoryDb.focus.enabled = true;
+    assert.equal(focusDayOf(env.file).day, '2026-10-24');
+  } finally {
+    await env.done();
+  }
+});
+
+// PR 7d: `memoryDb.focus.enabled` is code (owner, 2026-10-31), so the step that held nothing ran with the switch off
+// is gone; the next test holds the job running with no setting.
+test('service: the focus job runs once a UTC day; the reader carries the share; on the worker too', async () => {
+  const env = serviceEnv();
+  try {
     await env.service.tick();
     await settle();
     assert.equal(focusDayOf(env.file).day, '2026-10-24');
@@ -570,7 +461,7 @@ test('service: the focus job runs once a UTC day when switched on, off by defaul
     assert.equal(focusDayOf(env.file).day, '2026-10-25');
     const view = env.service.focusPeople();
     assert.deepEqual(Object.keys(view).sort(), ['close', 'exploring', 'exploringShare']);
-    assert.equal(view.exploringShare, 0.25);
+    assert.equal(view.exploringShare, 0.15);
   } finally {
     await env.done();
   }

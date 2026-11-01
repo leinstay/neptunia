@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { SnowflakeUtil } from 'discord.js';
 import { joinLabels } from '../src/config/labels.ts';
 import { deepMerge, isPlainObject } from '../src/config.js';
-import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, zonedDay } from '../src/time.js';
+import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../src/time.js';
 import {
   buildDiaryPlanRequest,
   buildDrawPrompt,
@@ -25,13 +25,12 @@ import {
   hasRequiredLabels,
   userText,
 } from '../src/behavior/prompt.js';
-import { parseSeedFamilies, pickSeeds, renderSeedsBlock } from '../src/behavior/diary.ts';
+import { DIARY_KINDS, SEED_SETS, parseSeedFamilies, pickSeeds, renderSeedsBlock } from '../src/behavior/diary.ts';
 import { fill, formatDate } from '../src/format.js';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.js';
 import { createRecall } from '../src/behavior/recall-run.js';
 import { createChannelRouter } from '../src/behavior/route-channel.js';
 import { createParticipationPicker } from '../src/behavior/participation-pick.js';
-import { askPlanner } from '../src/behavior/planner.js';
 import { createTagHistory } from '../src/behavior/mention.js';
 import { createMissed } from '../src/behavior/missed.js';
 import { createMessageHandler } from '../src/behavior/pipeline.js';
@@ -105,6 +104,12 @@ const NOT_BUILT = {
   'memory-session': 'built over the memory database (src/memory/db/session.js)',
   'description-draft': 'built over the memory database (src/memory/db/describe.js)',
   'description-check': 'built over the memory database (src/memory/db/describe.js)',
+  // PR 7d: her own tools are code, so these load only behind a call of hers (web.search, web.read, memory.search,
+  // media.look), which no request built here makes; the tests of those tools check what they send.
+  'rewatch-answer': 'loaded behind her media.look call (src/memory/describe.js), which no turn here makes',
+  lookup: 'loaded behind her search calls (src/turn/phases/request), which no turn here makes',
+  'search-summary': 'loaded behind her web.search call (src/web/lookup.js), which no turn here makes',
+  'recall-summary': 'loaded behind her memory.search call (src/behavior/recall-run.js), which no turn here makes',
   // The errand agents' prompts are not here: they live in agents/<id>/prompt.md, read by the
   // agent runner process (src/agent-runner/profiles.js), never by a bot request.
 };
@@ -155,16 +160,12 @@ const LOADS = {
   avatar: ['avatar'],
   describeGif: ['describe-gif'],
   describeVideo: ['describe-video'],
-  rewatch: ['rewatch'],
   rewatchAnswer: ['rewatch-answer'],
-  readLink: ['read-link'],
   lookup: ['lookup'],
   searchSummary: ['search-summary'],
   recallSummary: ['recall-summary'],
   routeChannel: ['route-channel'],
   participationPick: ['participation-pick'],
-  planner: ['planner'],
-  room: ['room'],
   split: ['split'],
   merge: ['merge'],
   missed: ['missed'],
@@ -685,7 +686,8 @@ async function turnInput(overrides = {}) {
   const trigger = history.at(-1);
   const { descriptions, videos, reads } = mediaMaps(history);
   const config = shippedConfig({
-    features: { webLookup: true, imageGeneration: true, privateMessages: true, videoDescriptions: true },
+    // PR 7d: the switches are code; the private chats are `private.enabled`.
+    private: { enabled: true },
     memory: { mainChannelIds: [GENERAL] },
   });
   return {
@@ -927,11 +929,10 @@ test('buildRequest: the turn a finished errand opens without an origin message f
   assert.ok(!carries(text, 'interject'), 'interject.md is not sent as well');
 });
 
-test('buildRequest: interject and a forced initiate fill their task, forced.md after it, and the room line', async () => {
-  const history = await generalHistory();
-  const focus = history.at(-2);
+// PR 7d: the room question's focus line is gone, so this test checks the task files alone.
+test('buildRequest: interject and a forced initiate fill their task, forced.md after it', async () => {
   const interject = buildRequest(
-    await turnInput({ mode: 'interject', trigger: null, triggerKind: null, interlocutor: null, focus })
+    await turnInput({ mode: 'interject', trigger: null, triggerKind: null, interlocutor: null })
   );
   const text = assertFilled(
     interject.messages,
@@ -939,11 +940,6 @@ test('buildRequest: interject and a forced initiate fill their task, forced.md a
     'interject'
   );
   assert.ok(!carries(text, 'forced'), 'forced.md only on a forced turn');
-  const [focusIndex] = [...interject.idByIndex].find(([, id]) => id === focus.id) ?? [];
-  assert.ok(
-    text.includes(fill(LABELS.room.focus, { author: focus.authorName, target: `#${focusIndex}` })),
-    'room.focus follows the task'
-  );
   const initiate = buildRequest(
     await turnInput({ mode: 'initiate', forced: true, trigger: null, triggerKind: null, interlocutor: null })
   );
@@ -1299,7 +1295,8 @@ test('buildRequest: a diary post fills system-prompt, character-card, rules, for
 test('buildDiaryPlanRequest: diary-plan.md and world.md fill the plan request with its blocks', async () => {
   const config = shippedConfig({ diary: { world: true, channelId: DIARY } });
   const seeds = renderSeedsBlock(
-    pickSeeds(parseSeedFamilies(SHIPPED.prompts['diary-seeds']), config.diary.seedSets, () => 0.5),
+    // PR 7d: the seed sets and the kinds are the constants of src/behavior/diary.ts.
+    pickSeeds(parseSeedFamilies(SHIPPED.prompts['diary-seeds']), SEED_SETS, () => 0.5),
     LABELS
   );
   const request = buildDiaryPlanRequest({
@@ -1318,7 +1315,7 @@ test('buildDiaryPlanRequest: diary-plan.md and world.md fill the plan request wi
     candidateProfiles: Object.values(PROFILES),
     nameOf,
     posts: DIARY_POSTS,
-    kinds: config.diary.kinds,
+    kinds: DIARY_KINDS,
     seedsText: seeds,
   });
   assertFilled(
@@ -1385,8 +1382,10 @@ function recordingLlm(answer) {
   };
 }
 
-test('createTurnRunner: a reply turn fills the describer, re-watch, link, search, recall and turn requests', async () => {
-  const hot = shippedHot({ features: { webLookup: true, videoDescriptions: true } });
+// PR 7d: her own tools are code, so a reply turn sends no search, re-watch, link or recall request before her answer;
+// those prompts are named in NOT_BUILT.
+test('createTurnRunner: a reply turn fills the describer and turn requests', async () => {
+  const hot = shippedHot();
   // An old line of #jardin the server search finds (the turn's own chat is never a hit).
   const old = rawMessage(GARDEN_INFO, {
     ts: NOW - 4 * DAY_MS,
@@ -1436,8 +1435,6 @@ test('createTurnRunner: a reply turn fills the describer, re-watch, link, search
     'describe-video',
     'rewatch-answer',
     'describe',
-    'rewatch',
-    'read-link',
     'lookup',
     'search-summary',
     'recall-summary',
@@ -1449,7 +1446,6 @@ test('createTurnRunner: a reply turn fills the describer, re-watch, link, search
     'rewatch-answer': 'all three oranges are bright orange',
     describe: 'a tomato plant covered in frost',
     rewatch: '1 | what colour are the oranges?',
-    'read-link': 'How to grow tomatoes in pots on a balcony, with watering and frost advice.',
     lookup: 'web: tomato frost date\nserver: tomate, gelé',
     'search-summary': 'Tomatoes die below zero degrees [1].',
     'recall-summary': 'stretch: 1\nNikos said in #jardin four days ago that the tomato froze.',
@@ -1519,44 +1515,17 @@ test('createTurnRunner: a reply turn fills the describer, re-watch, link, search
     ['describe', LOADS.describe],
     ['describe-gif', LOADS.describeGif],
     ['describe-video', LOADS.describeVideo],
-    ['rewatch', LOADS.rewatch],
-    ['rewatch-answer', LOADS.rewatchAnswer],
-    ['read-link', LOADS.readLink],
-    ['lookup', LOADS.lookup],
-    ['search-summary', LOADS.searchSummary],
-    ['recall-summary', LOADS.recallSummary],
   ];
   for (const [kind, files] of expected) {
     const calls = llm.calls.filter((call) => kindOf(call.messages) === kind);
     assert.ok(calls.length > 0, `no ${kind} request was sent`);
     for (const call of calls) assertFilled(call.messages, { files }, kind);
   }
-  const [summary] = llm.calls.filter((call) => kindOf(call.messages) === 'recall-summary');
-  // `<memory>`: the stored lore entry keyed `tomate` matches the form `tomate`.
-  assertFilled(
-    summary.messages,
-    { files: LOADS.recallSummary, blocks: ['memory', 'found', 'question'] },
-    'recall-summary'
-  );
   const [turn] = llm.calls.filter((call) => kindOf(call.messages) === 'system-prompt');
-  const text = assertFilled(
+  assertFilled(
     turn?.messages,
-    {
-      files: LOADS.turn,
-      blocks: ['senses', 'about_chat', 'server', 'lore', 'people', 'lookup', 'chat', 'tempo', 'task'],
-    },
+    { files: LOADS.turn, blocks: ['senses', 'about_chat', 'server', 'lore', 'people', 'chat', 'tempo', 'task'] },
     'the turn'
-  );
-  // Both parts of <lookup>, with the stretch the summary named.
-  for (const key of ['bothNote', 'webHeader', 'serverHeader'])
-    assert.ok(text.includes(LABELS.lookup[key]), `the turn: no labels.lookup.${key}`);
-  assert.ok(
-    text.includes(
-      fill(LABELS.lookup.stretch, {
-        date: zonedDay(old.createdTimestamp, SHIPPED.config.bot.timezone),
-        channel: 'jardin',
-      })
-    )
   );
 });
 
@@ -1671,36 +1640,6 @@ test('createParticipationPicker: the pick classifier fills participation-pick.md
   );
 });
 
-test('askPlanner: the turn planner fills planner.md', async () => {
-  const hot = shippedHot();
-  const llm = recordingLlm(() => 'channel: none\nepisodes: none\nrewatch: none\nlookup: none');
-  const { result } = await withCapturedLogs(() =>
-    askPlanner({
-      llm,
-      config: hot.config,
-      prompt: hot.prompts.planner,
-      selfName: SELF_NAME,
-      today: zonedDay(NOW, hot.config.bot.timezone),
-      offer: {
-        channels: ['1 | #jardin | Nikos | the garden'],
-        episodes: ['1 | #journal | 40 min |  | Zoë: je relis mes notes'],
-        media: ['1 | video | clip.mp4 | watched | a tomato plant'],
-        lookup: true,
-      },
-      transcriptBlock: '<transcript>\nNikos: les tomates ont poussé\n</transcript>\n',
-      candidateBlock: '<candidate>\nAna: tu te souviens ?\n</candidate>',
-      now: () => NOW,
-    })
-  );
-  assert.equal(result.outcome, 'classified');
-  assert.equal(llm.calls.length, 1, 'one planner request');
-  assertFilled(
-    llm.calls[0].messages,
-    { files: LOADS.planner, blocks: ['channels', 'episodes', 'media', 'transcript', 'candidate'] },
-    'planner'
-  );
-});
-
 test('buildRequest: the <participation> block fills its labels and the senses line', async () => {
   const request = buildRequest(
     await turnInput({
@@ -1714,59 +1653,6 @@ test('buildRequest: the <participation> block fills its labels and the senses li
   );
   assert.ok(text.includes(LABELS.senses.participation), 'senses.participation rides with the block');
   assert.ok(text.indexOf('<participation>') < text.indexOf('<other_channels>'));
-});
-
-test('createMessageHandler: the room classifier fills room.md', async () => {
-  const hot = shippedHot({ memory: { mainChannelIds: [GENERAL] } });
-  worldChannelsOf([[GENERAL_INFO, generalRaws()]]);
-  // An untagged line put to everyone, outside any follow-up window; its author has a stored alias.
-  const line = rawMessage(GENERAL_INFO, {
-    ts: NOW - MINUTE_MS,
-    author: PEOPLE[NIKOS],
-    content: 'qui vient au marché samedi ?',
-  });
-  Object.assign(line, { guild: MESSAGE_GUILD, system: false, webhookId: null });
-  const store = { state: { data: {}, markDirty() {} }, getUser: (guildId, id) => PROFILES[id] ?? null };
-  const turns = {
-    notePost() {},
-    runTurn: async () => ({ outcome: 'skip' }),
-    isBusy: () => false,
-    isAnyBusy: () => false,
-    lastPostAt: () => 0,
-  };
-  const scheduled = [];
-  // The eavesdrop roll lost, its rails pass: the room path is next.
-  const spontaneous = {
-    onMessage: (...args) => {
-      scheduled.push(args);
-      return false;
-    },
-    eavesdropReady: () => true,
-  };
-  const llm = recordingLlm(() => 'yes');
-  const handler = createMessageHandler({
-    hot,
-    store,
-    reads: world().reads,
-    selfId: () => SELF_ID,
-    port: world().port,
-    turns,
-    spontaneous,
-    memory: { observe() {} },
-    tagHistory: createTagHistory(),
-    getGuildId: () => GUILD,
-    getSelfName: () => SELF_NAME,
-    llm,
-    rng: () => 0,
-    now: () => NOW,
-  });
-
-  await withCapturedLogs(() => handler(onWorldIface(toEvent(line, SELF_ID, normalizeOptions(hot.config)))));
-
-  assert.equal(llm.calls.length, 1, 'one room request');
-  assertFilled(llm.calls[0].messages, { files: LOADS.room, blocks: ['author', 'candidate'] }, 'room');
-  assert.equal(llm.calls[0].options.purpose, 'room');
-  assert.deepEqual(scheduled.at(-1)?.[2], { room: true }, 'the yes reached the scheduler');
 });
 
 // ---- several requests in one message, several calls waiting ------------------------------
@@ -1789,7 +1675,7 @@ function bareStore() {
 }
 
 test('createTurnRunner: the splitter fills split.md; each part, its queued calls and a folded message fill labels.task', async () => {
-  const hot = shippedHot({ features: { typingSimulation: false } });
+  const hot = shippedHot();
   const line = rawMessage(GENERAL_INFO, {
     ts: NOW - MINUTE_MS,
     author: PEOPLE[ANA],
@@ -1853,7 +1739,7 @@ test('createTurnRunner: the splitter fills split.md; each part, its queued calls
 // ---- the GIF picker ---------------------------------------------------------------------
 
 test('createTurnRunner: the GIF picker fills gif-pick.md', async () => {
-  const hot = shippedHot({ features: { typingSimulation: false } });
+  const hot = shippedHot();
   const line = rawMessage(GENERAL_INFO, {
     ts: NOW - MINUTE_MS,
     author: PEOPLE[ANA],
@@ -2020,7 +1906,7 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
 });
 
 test('createAvatarQueue: the avatar describer fills avatar.md', async () => {
-  const hot = shippedHot({ features: { avatars: true } });
+  const hot = shippedHot();
   const profile = { id: 'u1', names: ['Ελένη'] };
   const store = {
     getUser: (guildId, id) => (id === 'u1' ? profile : null),

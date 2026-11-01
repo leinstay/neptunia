@@ -7,25 +7,24 @@
 // `diaryVoiceTool` keeps her voice message for the entry instead of posting it. Logs: none.
 
 import { randomUUID } from 'node:crypto';
-import { DIARY_DAILY, DIARY_PICTURES_DAILY, gistOf, isPictureKind, setSettings } from './diary.ts';
-import type { Daily } from './diary.ts';
+import {
+  DEFAULT_GIST_CHARS,
+  DEFAULT_HISTORY_POSTS,
+  DEFAULT_PICTURE_KINDS,
+  gistOf,
+  isPictureKind,
+  setSettings,
+} from './diary.ts';
 import { lineOf } from './line-of.js';
 import { log } from '../log.js';
 import { diaryPlaces, readMirrors } from './mirror.ts';
 import type { DiaryEntry, DiaryPlace, EntryPicture, EntryVoice, HeldDiary, HeldDiaryMessage } from './mirror.ts';
-import { bumpDaily, countToday } from '../time.js';
 import { CODE } from '../tools/codes.ts';
 import type { ConversationInfo, ConversationRef, MessageEvent } from '../protocol/adapter.ts';
 
 type Config = Record<string, unknown>;
 type Row = Record<string, unknown>;
 type Db = { prepare(sql: string): { all(...params: Array<unknown>): Array<Row> } };
-/** The day counters of the store's state (`store.state.data`). */
-type Counters = Record<string, unknown>;
-
-// time.js is JS; these are its functions as this module calls them, with its own value types.
-const today = countToday as (state: Counters, keys: Daily, nowMs: number) => number;
-const bump = bumpDaily as (state: Counters, keys: Daily, nowMs: number) => void;
 
 const sectionOf = (config: Config, name: string): Config => {
   const found = config[name];
@@ -38,31 +37,20 @@ const numberOr = (value: unknown, fallback: number): number =>
 export type PictureGate = { allowed: boolean; limit: { key: string; used: number; cap: number } | null };
 
 /**
- * Whether a diary post may carry a picture, in this order: an image client (`imageQuota`), `features.imageGeneration`
- * (a missing key counts as on), Attach Files in the conversation (`attach`), the day's diary pictures under
- * `diary.maxPicturesPerDay` (8), the image client's own daily cap (`image.maxPerDay`). Pure.
+ * Whether a diary post may carry a picture: an image client (`drawing`) and Attach Files in the conversation
+ * (`attach`). Pure.
  */
 export function pictureGate({
-  config,
   attach,
-  imageQuota,
-  data,
-  now,
+  drawing,
 }: {
-  config: Config;
+  config?: Config;
   attach: boolean;
-  imageQuota: { used: number; cap: number } | null;
-  data: Counters;
-  now: number;
+  drawing: boolean;
+  data?: Record<string, unknown>;
+  now?: number;
 }): PictureGate {
-  const closed = (limit: PictureGate['limit'] = null): PictureGate => ({ allowed: false, limit });
-  if (!imageQuota || sectionOf(config, 'features').imageGeneration === false || !attach) return closed();
-  const picturesToday = today(data, DIARY_PICTURES_DAILY, now);
-  const diaryCap = numberOr(sectionOf(config, 'diary').maxPicturesPerDay, 8);
-  if (picturesToday >= diaryCap) return closed({ key: 'diary.maxPicturesPerDay', used: picturesToday, cap: diaryCap });
-  if (imageQuota.used >= imageQuota.cap)
-    return closed({ key: 'image.maxPerDay', used: imageQuota.used, cap: imageQuota.cap });
-  return { allowed: true, limit: null };
+  return drawing && attach ? { allowed: true, limit: null } : { allowed: false, limit: null };
 }
 
 /**
@@ -70,15 +58,14 @@ export function pictureGate({
  * gate that closed, or null. Asked before any request.
  */
 export function forcedPictureRefusal({
-  config,
   kind,
   gate,
 }: {
-  config: Config;
+  config?: Config;
   kind: unknown;
   gate: () => PictureGate;
 }): { outcome: 'refused'; reason: 'pictures'; limit: PictureGate['limit'] } | null {
-  if (typeof kind !== 'string' || !isPictureKind(kind, sectionOf(config, 'diary').pictureKinds)) return null;
+  if (typeof kind !== 'string' || !isPictureKind(kind, DEFAULT_PICTURE_KINDS)) return null;
   const closed = gate();
   return closed.allowed ? null : { outcome: 'refused', reason: 'pictures', limit: closed.limit };
 }
@@ -131,7 +118,7 @@ export type DiaryStore = {
   appendDiaryPost?: (guildId: string, post: Record<string, unknown>, opts: { max: number }) => unknown;
   getDiary?: (guildId: string) => { posts: Array<Record<string, unknown>> };
   setDiaryPosts?: (guildId: string, posts: Array<Record<string, unknown>>, opts: { max: number }) => unknown;
-  state: { data: Counters; markDirty(): void };
+  state: { data: Record<string, unknown>; markDirty(): void };
 };
 
 /**
@@ -163,7 +150,7 @@ function diaryPostOf({
   maxMessageBytes: number;
 } {
   const diaryCfg = sectionOf(config, 'diary');
-  const gistChars = numberOr(diaryCfg.gistChars, 200);
+  const gistChars = DEFAULT_GIST_CHARS;
   const first = staged[0];
   const maxMessageBytes = setSettings(diaryCfg).maxMessageBytes;
   const rendered = {
@@ -224,7 +211,6 @@ export function recordEntry({
   pictures: number;
   entry: DiaryEntry;
 } {
-  const diaryCfg = sectionOf(config, 'diary');
   const id = newId();
   const { post, rendered, maxMessageBytes } = diaryPostOf({
     config,
@@ -236,10 +222,7 @@ export function recordEntry({
     voice,
     id,
   });
-  if (typeof store.appendDiaryPost === 'function')
-    store.appendDiaryPost(guildId, post, { max: numberOr(diaryCfg.historyPosts, 150) });
-  bump(store.state.data, DIARY_DAILY, now);
-  store.state.markDirty();
+  if (typeof store.appendDiaryPost === 'function') store.appendDiaryPost(guildId, post, { max: DEFAULT_HISTORY_POSTS });
   const entry: DiaryEntry = {
     id,
     ...rendered,
@@ -277,10 +260,10 @@ function heldEntry(held: HeldDiary): DiaryEntry {
 }
 
 /** The post of the guild's diary with `post`'s `itemId` replaced by `post`; written with the store's next flush. */
-function replacePost(store: DiaryStore, guildId: string, post: Record<string, unknown>, config: Config): void {
+function replacePost(store: DiaryStore, guildId: string, post: Record<string, unknown>): void {
   const posts = store.getDiary?.(guildId)?.posts ?? [];
   const next = posts.map((one) => (one.itemId === post.itemId ? post : one));
-  store.setDiaryPosts?.(guildId, next, { max: numberOr(sectionOf(config, 'diary').historyPosts, 150) });
+  store.setDiaryPosts?.(guildId, next, { max: DEFAULT_HISTORY_POSTS });
 }
 
 /** Waits for the store's writes to land in memory, when it has them. */
@@ -322,7 +305,7 @@ export async function writeDiaryMessage({
   const diaryStore = store as DiaryStore;
   if (held.messages.length === 1)
     recordEntry({ ...entry, store: diaryStore, guildId, now: held.at, newId: () => held.id });
-  else replacePost(diaryStore, guildId, diaryPostOf({ ...entry, at: held.at, id: held.id }).post, config);
+  else replacePost(diaryStore, guildId, diaryPostOf({ ...entry, at: held.at, id: held.id }).post);
   await flushed(store);
   await publisher.queueEntry(heldEntry(held));
   log.info('diary: message held', { messages: held.messages.length });

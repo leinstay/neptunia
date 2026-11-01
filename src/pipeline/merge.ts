@@ -3,7 +3,7 @@
 // (turns.waitingParts) and their queued calls. createMessageHandler (src/behavior/pipeline.js) builds it once with
 // createMerge; the live path, a private message and a routed call hold through holdCall.
 
-import { repeatWindowMs } from '../behavior/mention.js';
+import { SPAM_WINDOW_MS } from '../behavior/mention.js';
 import { authorCalls, foldInto, parseMergeAnswer } from '../behavior/pending.js';
 import { railReason, roleRequestOptions } from '../llm/openrouter.js';
 import { roleModel } from '../llm/roles.js';
@@ -154,7 +154,7 @@ export function createMerge({
         folded = result.folded;
       }
       if (folded) {
-        if (kind !== 'private') tagHistory.hit(trigger.authorId, now(), repeatWindowMs(hot.config.mention));
+        if (kind !== 'private') tagHistory.hit(trigger.authorId, now(), SPAM_WINDOW_MS);
         return;
       }
     }

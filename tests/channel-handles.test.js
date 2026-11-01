@@ -190,7 +190,6 @@ function input(overrides = {}) {
         vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
         tempo: { liveMessages10min: 4, deadSilenceMinutes: 45 },
       },
-      features: { vision: true },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
       lore: { scanMessages: 30, maxMatches: 8 },
       memory: { recentHours: 72 },
@@ -271,15 +270,10 @@ test('buildRequest: the channel directory is byte-identical across turns with an
   assert.equal(stableOf(second), stableOf(first));
 });
 
-test('buildRequest: a channel a chat line mentions shows its handle; off with features.mentionHandles off', () => {
+test('buildRequest: a channel a chat line mentions shows its handle', () => {
   const handles = assignChannelHandles(CHANNELS.map((channel) => channel.id));
   const text = userText(buildRequest(input()).messages[1].content);
   assert.ok(text.includes(`in #κουζίνα [#${handles.get(KITCHEN)}] now`), text);
-  const off = buildRequest(input({ config: { ...input().config, features: { vision: true, mentionHandles: false } } }));
-  const offText = userText(off.messages[1].content);
-  assert.equal(channelDirectoryOf(offText), null);
-  assert.ok(offText.includes('in #κουζίνα now'), offText);
-  assert.equal(off.channelHandles, null);
   assert.equal(buildRequest(input({ channelDirectory: [] })).channelHandles, null, 'no channel given, no map');
 });
 

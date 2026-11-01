@@ -1,6 +1,6 @@
 // Tests for src/behavior/limits.js: the one plain line that says a rail
 // refused a directly requested action, reading the limit off an error, and
-// the shared posting side (the notice and the dry-run mirror).
+// the shared posting side (the notice).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -140,7 +140,8 @@ function noticesIn(port, conversationId = 'c1') {
 }
 
 const LIMIT = { key: 'llm.maxRequestsPerDay', used: 300, cap: 300 };
-const LIVE = { features: { dryRun: false }, bot: { dryRunChannelId: 'mirror1' } };
+// PR 7d: the dry run is gone, so the live config of a notice holds nothing of it.
+const LIVE = {};
 
 const NO_MENTIONS = { users: [], repliedUser: false };
 
@@ -206,24 +207,6 @@ test('postLimitNotice: a missing label or limit sends nothing', async () => {
     'none'
   );
   assert.deepEqual(port.calls, []);
-});
-
-test('postLimitNotice: in dry-run it is logged and mirrored, never sent; a DM is labelled private, not #null', async () => {
-  const channel = noticeChannel({ id: 'dm1', name: null });
-  const port = createFakeAdapter();
-  const config = { features: { dryRun: true }, bot: { dryRunChannelId: 'mirror1' } };
-  const { result, logs } = await withCapturedLogs(() =>
-    postLimitNotice({ channel, trigger: { id: 'm1' }, limit: LIMIT, asReply: true, labels, config, port })
-  );
-  assert.equal(result, 'dry-run');
-  // The mirror goes through the port, the only send there is, to the dry-run conversation and notifying nobody.
-  const [mirrored, ...rest] = port.calls.filter((call) => call.op === 'send');
-  assert.equal(rest.length, 0);
-  assert.equal(mirrored.args[0].conversationId, 'mirror1');
-  assert.equal(mirrored.args[1].text, '[dry-run] private · limit\nlimit hit: llm.maxRequestsPerDay 300/300');
-  assert.deepEqual(mirrored.args[1].mentions, { users: [], repliedUser: false });
-  const line = logs.find((l) => l.msg === 'dry-run: would notify limit');
-  assert.deepEqual([line.channel, line.key, line.used, line.cap], ['dm1', 'llm.maxRequestsPerDay', 300, 300]);
 });
 
 test('postLimitNotice: a send the adapter refuses answers failed and is logged, never thrown', async () => {
@@ -323,29 +306,6 @@ test('postPauseNotice: a missing label sends nothing', async () => {
   });
   assert.equal(result, 'none');
   assert.deepEqual(port.calls, []);
-});
-
-test('postPauseNotice: in dry-run it is mirrored, never sent', async () => {
-  const port = createFakeAdapter();
-  const config = { features: { dryRun: true }, bot: { dryRunChannelId: 'mirror1' } };
-  const { result, logs } = await withCapturedLogs(() =>
-    postPauseNotice({
-      channel: noticeChannel(),
-      trigger: { id: 'm1' },
-      kind: 'name',
-      asReply: true,
-      labels,
-      config,
-      port,
-    })
-  );
-  assert.equal(result, 'dry-run');
-  const mirrored = port.calls.filter((call) => call.op === 'send');
-  assert.equal(mirrored.length, 1);
-  assert.equal(mirrored[0].args[0].conversationId, 'mirror1');
-  assert.ok(mirrored[0].args[1].text.endsWith(`\n${labels.limits.paused}`));
-  assert.deepEqual(mirrored[0].args[1].mentions, { users: [], repliedUser: false });
-  assert.ok(!logs.some((l) => l.msg === 'limits: pause notice'), 'nothing was sent');
 });
 
 test('postPauseNotice: a send the adapter refuses answers failed, never thrown', async () => {
