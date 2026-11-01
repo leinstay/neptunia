@@ -24,6 +24,7 @@ const TABLE = [
   'rules',
   'tools',
   'skills',
+  'plugins',
   'interface',
   'help',
   'clear',
