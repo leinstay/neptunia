@@ -39,7 +39,7 @@ function baseInput(overrides = {}) {
       reply: 'REPLY_TASK',
       labels,
     },
-    calibrator: { ratio: 1, apply: (n) => n },
+    calibrator: { ratio: 1, apply: (/** @type {number} */ n) => n },
     mode: 'reply',
     now: NOW,
     selfName: 'Nept',
@@ -69,9 +69,15 @@ function baseInput(overrides = {}) {
 
 const INDEX = 'SKILLS_HEADER\n- look-it-up: I check the web first';
 
+/**
+ * The stable text and the tail text of a reply request.
+ * @param {{ messages: Array<{ content: Array<{ cacheSegment?: string, text: string }> }> }} request
+ * @returns {{ stable: string, tail: string }}
+ */
 function parts(request) {
   const content = request.messages[1].content;
-  return { stable: content.find((entry) => entry.cacheSegment === 'stable').text, tail: content.at(-1).text };
+  const stable = content.find((entry) => entry.cacheSegment === 'stable');
+  return { stable: stable?.text ?? '', tail: content.at(-1)?.text ?? '' };
 }
 
 test('buildRequest: with no skill indexed the request is byte-identical to one built without the input', () => {
