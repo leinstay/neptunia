@@ -7,7 +7,7 @@
 // connection, because the core holds the writer lock. The link socket sits at `<data>/run/core.sock`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +26,8 @@ const SELF_ID = 'self-id';
 const ANSWER = 'γεια σου, καλημέρα';
 const PRIVATE_CONFIG = {
   bot: { timezone: 'UTC', owners: [], guildId: 'g1' },
+  // No video role, so the start sends no canary probe to YouTube.
+  models: { base: { video: false } },
   pace: { settleMs: 0, settleMaxMs: 0 },
   typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },
   features: {
@@ -59,12 +61,12 @@ async function until(check: () => boolean, ms = 8000): Promise<void> {
 }
 
 // Short folders: a Unix socket path is limited to 108 bytes.
-function folders() {
+function folders(extra: Record<string, unknown> = {}) {
   const root = mkdtempSync(join(tmpdir(), 'cs-'));
   const dataDir = join(root, 'd');
   const privateDir = join(root, 'p');
   mkdirSync(privateDir);
-  writeFileSync(join(privateDir, 'config.local.json'), JSON.stringify(PRIVATE_CONFIG));
+  writeFileSync(join(privateDir, 'config.local.json'), JSON.stringify({ ...PRIVATE_CONFIG, ...extra }));
   return { root, dataDir, privateDir, paths: { rootDir: REPO, privateDir, dataDir } };
 }
 
@@ -80,8 +82,11 @@ function scriptedLlm() {
   };
 }
 
-async function withCore(body: (core: Awaited<ReturnType<typeof startCore>>, ctx: Context) => Promise<void>) {
-  const dirs = folders();
+async function withCore(
+  body: (core: Awaited<ReturnType<typeof startCore>>, ctx: Context) => Promise<void>,
+  extra: Record<string, unknown> = {}
+) {
+  const dirs = folders(extra);
   const llm = scriptedLlm();
   let running: Running | null = null;
   const core = await startCore({
@@ -215,5 +220,28 @@ test('a private directory that does not exist rejects the start with an error an
     );
   } finally {
     rmSync(dirs.root, { recursive: true, force: true });
+  }
+});
+
+test('a core whose video role is off starts no yt-dlp probe of the YouTube canary', async () => {
+  // `media.video.ytdlpPath` names a script that leaves a marker when it runs. The canary probe runs it at the start
+  // when the video role is up, so an absent marker after the start shows the probe never began.
+  const scratch = mkdtempSync(join(tmpdir(), 'cy-'));
+  const marker = join(scratch, 'ran');
+  const script = join(scratch, 'yt-dlp.sh');
+  writeFileSync(script, `#!/bin/sh\necho ran > '${marker}'\nexit 1\n`);
+  chmodSync(script, 0o755);
+  try {
+    await withCapturedLogs(() =>
+      withCore(
+        async () => {
+          await new Promise((resolve) => setTimeout(resolve, 600));
+          assert.equal(existsSync(marker), false);
+        },
+        { models: { base: { video: false } }, media: { video: { ytdlpPath: script } } }
+      )
+    );
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
   }
 });

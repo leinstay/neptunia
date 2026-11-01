@@ -133,3 +133,24 @@ test('stop closes the link, so the core sees its peer gone and a later send fail
   assert.notEqual(delivery.status, 'ok');
   assert.equal(running.adapter.messagesIn('c1').length, 0);
 });
+
+test('an interface started over an adapter the caller keeps serves that adapter, and its chat survives a second start', async () => {
+  const kept = createFakeAdapter({ selfId: SELF_ID });
+  const before = rig();
+  const first = await start(before.host, { adapter: kept });
+  await before.link.hello;
+  first.open();
+  await before.link.adapter.send(CONVERSATION, { text: 'before the restart' });
+  await first.stop();
+  const after = rig();
+  const second = await start(after.host, { adapter: kept });
+  await after.link.hello;
+  second.open();
+  await after.link.adapter.send(CONVERSATION, { text: 'after the restart' });
+  assert.equal(second.adapter, kept);
+  assert.deepEqual(
+    kept.messagesIn('c1').map((message) => message.text),
+    ['before the restart', 'after the restart']
+  );
+  await second.stop();
+});

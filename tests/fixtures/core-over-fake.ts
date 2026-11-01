@@ -27,6 +27,8 @@ export const ANSWER = 'γεια σου, καλημέρα';
  * the cut, so the rig no longer turns optional behaviour off. */
 const BASE_CONFIG: Settings = {
   bot: { timezone: 'UTC', owners: [], guildId: 'g1' },
+  // No video role, so the start sends no canary probe to YouTube.
+  models: { base: { video: false } },
   pace: { settleMs: 0, settleMaxMs: 0 },
   typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },
   // The GIF backfill reads every conversation's history at start; a rig counts the reads a turn makes, so it reads none.
@@ -45,7 +47,8 @@ function merged(base: Settings, extra: Settings): Settings {
   return out;
 }
 
-export async function until(check: () => boolean, ms = 4000): Promise<void> {
+// The deadline holds a turn under the load of the whole suite: one alone takes about 0.5 s, the suite stretched two past 4 s.
+export async function until(check: () => boolean, ms = 15_000): Promise<void> {
   const deadline = Date.now() + ms;
   while (!check()) {
     if (Date.now() > deadline) throw new Error('timed out waiting');

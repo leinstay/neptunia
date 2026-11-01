@@ -1251,8 +1251,9 @@ async function buildCore(options, cleanups) {
   });
 
   // Once at startup, fire-and-forget: tell the operator whether YouTube links can
-  // be watched here (only when video vision is on). Logs the status, never the URL or key.
-  startYoutubeCheck({ checkYoutube: describer.checkYoutube });
+  // be watched here (only when the video role is up: a role switched off watches nothing, so there is nothing to
+  // probe, and the probe's request would leave the host). Logs the status, never the URL or key.
+  if (roleHealth.down(settings.config, 'video') === null) startYoutubeCheck({ checkYoutube: describer.checkYoutube });
 
   const timers = [];
 
