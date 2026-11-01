@@ -101,6 +101,7 @@ import { createIntentionStores } from './intentions/store.ts';
 import { createIntentionService } from './intentions/service.ts';
 import { skillRegistry, missingDefinitions } from './tools/registry.ts';
 import { grantedSkillNames } from './tools/discovery.ts';
+import { wireSkills } from './skills/wiring.ts';
 import { PROFILES as AGENT_PROFILES } from './agent-runner/profiles.js';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './behavior/pipeline.js';
@@ -253,7 +254,7 @@ async function buildCore(options, cleanups) {
   const dataDir = paths.dataDir;
   // The parts of the hot reload the one-core claim and the interfaces' switches read and write (src/hot.js).
   const settings =
-    /** @type {{ config: Readonly<Record<string, Record<string, unknown> | undefined>>, reloadConfig(): boolean }} */ (
+    /** @type {{ config: Readonly<Record<string, Record<string, unknown> | undefined>>, prompts?: unknown, reloadConfig(): boolean }} */ (
       /** @type {unknown} */ (hot)
     );
   const configuredGuild = /** @type {string | undefined} */ (settings.config.bot?.guildId) ?? null;
@@ -311,6 +312,22 @@ async function buildCore(options, cleanups) {
     write: (write) => memoryDb.memoryWrite({ kind: 'board', write }),
     context: () => ({ at: clock(), settings: boardSettings(settings.config), privateDir: paths.privateDir }),
     briefWaitMs: () => boardTimings(settings.config).briefWaitMs,
+  });
+  // Her skills (src/skills/wiring.ts): the SKILL.md files of `skills/` and `skills.local/` read at each call, their
+  // registry in the memory database written through the memory writer, the index of the active ones for a request and
+  // the skill facts of the selfimprovement wake. An activation grants no tool.
+  const skillsWiring = wireSkills({
+    // The live settings and prompts, read at each use.
+    hot: settings,
+    memoryDb: /** @type {import('./skills/wiring.ts').SkillsWiringDeps['memoryDb']} */ (
+      /** @type {unknown} */ (memoryDb)
+    ),
+    board,
+    selfId: () => identity.selfId,
+    rootDir: paths.rootDir,
+    privateDir: paths.privateDir,
+    now: clock,
+    log,
   });
   // The record (src/memory/record.js): every observed message, the persona's own lines and her
   // feelings, written while features.record is exactly true (read at each write).
@@ -796,6 +813,9 @@ async function buildCore(options, cleanups) {
     record,
     port: iface,
     skills: skillRegistry(),
+    // The index of her active skills (`<skills>`) and the sink of the use rows (src/skills/uses.ts).
+    skillIndex: skillsWiring.index,
+    recordSkillUses: skillsWiring.record,
     // Her skills run by operation name, the requester's rights checked again
     // (src/admin.js#runSkillOp); read at call time, the admin being created below.
     runOp: (op, args, context) => admin.runSkillOp(op, args, context),
@@ -890,6 +910,9 @@ async function buildCore(options, cleanups) {
       selfId: () => identity.selfId,
       focusPeople: () => memoryDb.focusPeople({ iface: identity.iface }),
     },
+    // The selfimprovement wake's facts beyond the journal (src/behavior/selfimprovement-view.ts): her grants, her
+    // skills with their use counts, her proposals and her outbox rows on the board.
+    selfimprovement: skillsWiring.selfimprovement,
     log,
   });
   // The drops, holds and failures kept for her next request in a conversation live in the inner life's state.
@@ -999,6 +1022,8 @@ async function buildCore(options, cleanups) {
     store,
     // Her board tools (src/tools/impl/board.ts): she files and reads as the builtin principal `persona`.
     board,
+    // Her skill tools (src/tools/impl/skill.ts): `skill.read` and `skill.disable`.
+    skills: skillsWiring.access,
     roleHealth,
     // The operations' `env.reads`: the conversation they post in, a message's event.
     reads,
@@ -1088,11 +1113,15 @@ async function buildCore(options, cleanups) {
         return guildId ? recentChannelLines(guildId, conversationId, count) : [];
       },
       now: Date.now,
+      // `/skills` (src/interface/commands/skills.ts).
+      skills: skillsWiring.access,
     }),
     interfaces: interfaceLinks,
     guildId: getGuildId,
     // The agents' board commands (src/board/commands.ts), each run in the memory writer.
     tasks: board,
+    // The agents' `skill.pending` and `skill.activate` (src/skills/agent-commands.ts).
+    skills: skillsWiring.access,
     facts: () =>
       coreStatusFacts({
         hot,

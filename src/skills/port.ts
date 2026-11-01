@@ -40,25 +40,37 @@ export type SkillsPort = {
   record(uses: ReadonlyArray<SkillUse>): number;
 };
 
-export function createSkillsPort(deps: {
-  handle: SkillsHandle;
+/**
+ * The port as its callers hold it: each method answers at once (the port over a handle) or later (the core's client
+ * over the memory writer, client.ts). A caller awaits every answer.
+ */
+export type SkillsAccess = {
+  [TMethod in keyof SkillsPort]: (
+    ...args: Parameters<SkillsPort[TMethod]>
+  ) => ReturnType<SkillsPort[TMethod]> | Promise<ReturnType<SkillsPort[TMethod]>>;
+};
+
+/** What the reading side needs from the world: the grants and the tool registry now, the review window, the clock. */
+export type SkillsReadDeps = {
   now: () => number;
-  load: () => { skills: Array<LoadedSkill>; problems: Array<SkillProblem> };
   granted: () => ReadonlySet<string>;
   registered: () => ReadonlySet<string>;
   reviewDays: () => number;
-}): SkillsPort {
-  const { handle } = deps;
-  const state = () => ({ granted: deps.granted(), registered: deps.registered() });
+};
 
-  function sync(): { skills: number; versions: number; stale: number } {
-    return syncSkills(handle, deps.load().skills, { at: deps.now() });
-  }
+/** The reads of the registry over any connection with a `db` (the writer's, or the core's read connection). */
+export type SkillsReads = {
+  list(): Array<SkillListRow>;
+  active(): Array<ActiveSkill>;
+  show(name: string): { row: SkillListRow; text: string | null } | null;
+  pending(): Array<VersionView & { skill: string }>;
+  review(name: string): { active: VersionView | null; candidates: Array<VersionView> } | null;
+};
 
-  /** The rows of the registry with their availability and review mark, after a sync. */
-  function rows(): Array<SkillListRow> {
-    sync();
-    const grants = state();
+/** The reads of `handle`, each answering from what the registry holds at that moment. */
+export function skillsReads(handle: { db: object }, deps: SkillsReadDeps): SkillsReads {
+  function list(): Array<SkillListRow> {
+    const grants = { granted: deps.granted(), registered: deps.registered() };
     const due = new Set(reviewsDue(handle, { now: deps.now(), days: deps.reviewDays() }).map((one) => one.skill));
     return listSkills(handle).map((row) => {
       // The version that would run: the active one, else the newest candidate.
@@ -66,12 +78,11 @@ export function createSkillsPort(deps: {
       return { ...row, missing: missingTools(running?.tools ?? [], grants), reviewDue: due.has(row.name) };
     });
   }
-
   return {
-    sync,
+    list,
     active() {
       const out: Array<ActiveSkill> = [];
-      for (const row of rows()) {
+      for (const row of list()) {
         if (row.active === null || row.disabled || row.lifecycle !== 'active') continue;
         const parsed = parseSkillFile(row.active.source);
         if (!parsed.ok) continue;
@@ -86,18 +97,51 @@ export function createSkillsPort(deps: {
       }
       return out;
     },
-    list: rows,
     show(name) {
-      const row = rows().find((one) => one.name === name);
+      const row = list().find((one) => one.name === name);
       return row === undefined ? null : { row, text: row.active?.source ?? null };
+    },
+    pending: () => pendingVersions(handle),
+    review: (name) => reviewOf(handle, name),
+  };
+}
+
+export function createSkillsPort(deps: {
+  handle: SkillsHandle;
+  now: () => number;
+  load: () => { skills: Array<LoadedSkill>; problems: Array<SkillProblem> };
+  granted: () => ReadonlySet<string>;
+  registered: () => ReadonlySet<string>;
+  reviewDays: () => number;
+}): SkillsPort {
+  const { handle } = deps;
+  const reads = skillsReads(handle, deps);
+
+  function sync(): { skills: number; versions: number; stale: number } {
+    return syncSkills(handle, deps.load().skills, { at: deps.now() });
+  }
+
+  return {
+    sync,
+    active() {
+      sync();
+      return reads.active();
+    },
+    list() {
+      sync();
+      return reads.list();
+    },
+    show(name) {
+      sync();
+      return reads.show(name);
     },
     pending() {
       sync();
-      return pendingVersions(handle);
+      return reads.pending();
     },
     review(name) {
       sync();
-      return reviewOf(handle, name);
+      return reads.review(name);
     },
     activate(name, by) {
       sync();

@@ -72,7 +72,7 @@ export function buildTurnRequest(
   const { history, neighbors, descriptions, neighborDescriptions, videos, imageAnswers, reads } = gathered;
   const { prefetchResult, drawOn, diaryPrep, pulled: pulledList, readOnlyIds } = gathered;
   const { destination, recent, prompts } = gathered;
-  const { factsText, tasks, guildMemory, taggedCall, offPeriods } = told;
+  const { factsText, tasks, guildMemory, taggedCall, offPeriods, skillIndex } = told;
   const pulled2 = pulledList;
   // Her tools, the same for every turn kind and pinned for this one (a grant removed meanwhile is still caught at each call):
   // the skills granted to her and the carried-over ones, as native tool definitions (or `<tools>` text). A diary post
@@ -195,6 +195,8 @@ export function buildTurnRequest(
     offPeriods,
     // The skills catalogue text is never filled by a turn: her tools are the native definitions below.
     skillsInventory: null,
+    // `<skills>`: the index of her active skills, the stable part of every request (null: no skill is active).
+    skillIndex,
     // Her tools this turn: the in-turn ones for `<senses>`, the text transport's `<tools>` body, and what the native
     // transport's `tools` field costs the request (the room the sections share).
     toolsGranted: draft.toolNames,

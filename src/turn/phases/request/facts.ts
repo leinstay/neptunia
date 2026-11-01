@@ -27,6 +27,7 @@ export type Told = {
   guildMemory: unknown;
   taggedCall: boolean | null;
   offPeriods: unknown;
+  skillIndex: string | null;
 };
 
 // health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.js in stage 5c, a pure split
@@ -39,7 +40,7 @@ export async function tellFacts(
   pulled: Pulled,
   gathered: Gathered
 ): Promise<Told> {
-  const { store, iface, facts, privateChannels, promptState, offPeriodsFor } = ctx;
+  const { store, iface, facts, privateChannels, promptState, offPeriodsFor, skillIndex } = ctx;
   const { mode, trigger = null, triggerKind = null, part = null, queued = null, added = null } = params;
   const { missed = null, source = null } = params;
   const { channel, guildId, isPrivate } = opened;
@@ -128,5 +129,16 @@ export async function tellFacts(
   }
   // `<now>`: the persona's recent time away (the journal's pauses and stops).
   const offPeriods = await offPeriodsFor(guildId);
-  return { factsText, tasks, notAnswered, guildMemory, taggedCall, offPeriods };
+  // The index of her active skills: every turn kind shows it, and the turn counts the skills it showed.
+  const indexed = skillIndex == null ? null : await skillIndex();
+  draft.skillsIndexed = indexed?.indexed ?? [];
+  return {
+    factsText,
+    tasks,
+    notAnswered,
+    guildMemory,
+    taggedCall,
+    offPeriods,
+    skillIndex: indexed?.text ? indexed.text : null,
+  };
 }

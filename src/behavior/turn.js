@@ -303,6 +303,9 @@ export function createTurnRunner({
   record = null,
   port,
   skills = /** @type {import('../tools/types.ts').SkillMap | null} */ (null),
+  // Her skill index of a request and the sink of the use rows (src/skills/); null: none shown, none counted.
+  skillIndex = null,
+  recordSkillUses = null,
   runOp = /** @type {import('../tools/executors.ts').RunOperation | null} */ (null),
   runOwnOp = /** @type {import('../tools/executors.ts').RunOperation | null} */ (null),
   runInitiativeOp = /** @type {import('../tools/executors.ts').RunOperation | null} */ (null),
@@ -603,6 +606,8 @@ export function createTurnRunner({
     iface,
     ifaceReads,
     skills,
+    skillIndex,
+    recordSkillUses,
     memoryReads,
     busy,
     selfIdOf,

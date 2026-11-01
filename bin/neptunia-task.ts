@@ -55,6 +55,8 @@ export const TASK_USAGE = `usage: neptunia task <command> [options]   (--socket 
   task escalate Q-xxxxxx [--note "..."]        # the question's addressee hands it up to the owner
   task comment T-xxxxxx "..."                  task result T-xxxxxx --kind pr --uri https://... [--body -] [--no-submit]
                                                [--generation N]
+  task skill-pending [--json]                  # the SKILL.md versions waiting for an activation
+  task skill-activate <name>                   # activates the newest pending version of a skill, as this agent
   task events [--from <seq>] [--limit N] [--json]
   task inbox [--json]                          # the caller's outbox rows, acknowledged on read
   task costs [--now ISO] [--json]              # the agents: runs, tokens, USD today / 7 / 30 UTC days
@@ -432,6 +434,11 @@ const COMMANDS: Readonly<Record<string, Command>> = {
       },
     }));
   },
+  'skill-pending': () => ({ name: 'skill.pending', args: {} }),
+  'skill-activate': ({ positionals }) => ({
+    name: 'skill.activate',
+    args: { name: needText(positionals, 0, 'the skill name') },
+  }),
   events: ({ flags }) => ({
     name: 'task.events',
     args: { from: numberFlag(flags, 'from') ?? 0, ...(flags.limit ? { limit: numberFlag(flags, 'limit') } : {}) },

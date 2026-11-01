@@ -8,6 +8,7 @@ import { recordEntry } from '../../behavior/diary-turn.ts';
 import { limitOf } from '../../behavior/limits.js';
 import { DailyCapError, TokenLimitError, errorCodeOf, railReason } from '../../llm/openrouter.js';
 import { log } from '../../log.js';
+import { skillUsesOfTurn } from '../../skills/uses.ts';
 import type { HeldSpeech } from '../act.ts';
 import type { Draft } from '../draft.ts';
 import { untoldDiagnostics } from '../journal.ts';
@@ -18,7 +19,7 @@ import type { Opened } from './preflight.ts';
 import type { Rounded } from './tool-round.ts';
 
 export function outcomePhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, rounded: Rounded): AttemptResult {
-  const { hot, store, noteSpokeSaw, stampShownCalls } = ctx;
+  const { hot, store, noteSpokeSaw, stampShownCalls, recordSkillUses } = ctx;
   const { opened, setup, pulled: pulledStep, gathered, told, stepped, serverShown, ownCallId } = rounded;
   const { channel, guildId } = opened;
   const { now } = setup;
@@ -62,6 +63,18 @@ export function outcomePhase(ctx: PhaseContext, params: PhaseParams, draft: Draf
           }),
         }
       : {};
+  // The use of her skills this turn: what her request showed and what her calls did with it.
+  if (recordSkillUses != null && (draft.skillsIndexed?.length ?? 0) > 0) {
+    const uses = skillUsesOfTurn({
+      turnId: draft.started?.turnId ?? `turn:${now}`,
+      at: now,
+      index: draft.skillsIndexed ?? [],
+      calls: draft.skillCalls ?? [],
+    });
+    recordSkillUses(uses).catch((error: unknown) =>
+      log.warn('skills: uses not recorded', { count: uses.length, code: errorCodeOf(error) })
+    );
+  }
   // An inner turn in shadow mode delivers nothing, whatever it proposed.
   const delivered = stepped.delivered && draft.inner?.shadow !== true;
   return {

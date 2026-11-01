@@ -32,6 +32,8 @@ import type { Envelope } from '../protocol/wire.ts';
 import type { TaskAnswer } from '../board/commands.ts';
 import type { AdapterLink, From, LinkDoor } from './link.ts';
 import type { Principal } from './principals.ts';
+import { SKILL_COMMAND_PREFIX, skillCommandOf } from '../skills/agent-commands.ts';
+import type { SkillsAccess } from '../skills/port.ts';
 
 /** One command's answer: the text the owner reads and its outcome. */
 export type Answer = { text: string; status: string };
@@ -76,6 +78,8 @@ export type CommandDeps = {
   guildId(): string | null;
   /** The board's `task.*` commands, run under a principal's name. */
   tasks: { command(principal: string, name: string, args: Record<string, unknown>): Promise<TaskAnswer> };
+  /** Her skills: an agent lists the pending versions and activates one (`skill.*`); absent, those commands fail. */
+  skills?: SkillsAccess | null;
 };
 
 /** The prefix of the board's commands. */
@@ -170,6 +174,12 @@ export function createCommandDesk(deps: CommandDeps): {
     return deps.console.run(name, args, event.requester);
   }
 
+  async function skillCommandOfAgent(event: CommandEvent, principal: string): Promise<Answer> {
+    if (deps.skills == null) return { text: 'skills are not available here', status: 'failed' };
+    const answer = await skillCommandOf(deps.skills, { name: principal }, event.name, event.args);
+    return { text: answer.text, status: answer.status };
+  }
+
   async function boardCommand(event: CommandEvent, principal: string): Promise<Answer> {
     const answer = await deps.tasks.command(principal, event.name, event.args);
     return { text: answer.text, status: answer.status };
@@ -178,6 +188,8 @@ export function createCommandDesk(deps: CommandDeps): {
   return {
     async run(event, principal) {
       try {
+        if (principal.kind === 'agent' && event.name.startsWith(SKILL_COMMAND_PREFIX))
+          return await skillCommandOfAgent(event, principal.name);
         if (principal.kind === 'agent' || (principal.kind === 'cli' && event.name.startsWith(TASK_PREFIX)))
           return await boardCommand(event, principal.name);
         if (principal.kind === 'cli') return await cliCommand(event);

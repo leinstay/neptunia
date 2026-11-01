@@ -3,6 +3,8 @@
 // attempt's clocks and indicator that its end closes (Life), and the cancellation point at its bar (BeforeBar).
 // createTurnRunner (src/behavior/turn.js) builds the context once; runTurnOnce hands it to every phase.
 
+import type { SkillUse } from '../../memory/db/skills.ts';
+import type { IndexedSkill } from '../../skills/uses.ts';
 import type { createParticipationPicker } from '../../behavior/participation-pick.js';
 import type { createPullViews } from '../../behavior/pull-fetch.ts';
 import type { recordEntry } from '../../behavior/diary-turn.ts';
@@ -110,6 +112,9 @@ export type PhaseContext = {
   iface: unknown;
   ifaceReads: Reads;
   skills: SkillMap | null;
+  // Her skill index for a request and the sink of the use rows (src/skills/); absent: no skills are shown or counted.
+  skillIndex?: (() => Promise<{ text: string; indexed: Array<IndexedSkill> } | null>) | null;
+  recordSkillUses?: ((uses: Array<SkillUse>) => Promise<unknown>) | null;
   memoryReads: ((args: Record<string, unknown>) => void) | null;
   busy: Set<string>;
   selfIdOf: () => string;
