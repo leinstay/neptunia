@@ -1,4 +1,4 @@
-// Tests for tools/code-health.mjs: the size metrics of a source string, the comparison with a baseline, the
+// Tests for scripts/code-health.ts: the size metrics of a source string, the comparison with a baseline, the
 // judgement of waivers with an injected clock, the match of a path against the manifest, the import rule and the
 // required-test rule. Only the exported pure functions are used.
 import { test } from 'node:test';
@@ -12,7 +12,7 @@ import {
   matchEntry,
   measureSource,
   checkStructure,
-} from '../tools/code-health.mjs';
+} from '../scripts/code-health.ts';
 import { trackedEntries } from './fixtures/structure-manifest.ts';
 import type { Untyped } from '../src/tools/types.ts';
 

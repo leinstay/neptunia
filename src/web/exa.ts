@@ -4,7 +4,7 @@
 // (the errand agents' `websearch` uses the same provider), so this engine
 // needs no subscription; EXA_API_KEY, when given, goes as a bearer header.
 //
-// Transport: one JSON-RPC 2.0 POST, `method: 'tools/call'`, `params: { name:
+// Transport: one JSON-RPC 2.0 POST, `method: 'scripts/call'`, `params: { name:
 // 'web_search_exa', arguments: { query, numResults } }`, with `Accept:
 // application/json, text/event-stream`. No `initialize` handshake is needed.
 // Shape seen in the live probe of 2026-10-17 (keyless, field names only): HTTP
@@ -249,7 +249,7 @@ export function createExaSearch({
     const body = JSON.stringify({
       jsonrpc: '2.0',
       id: nextId++,
-      method: 'tools/call',
+      method: 'scripts/call',
       params: { name: TOOL, arguments: { query: q, numResults: n } },
     });
 

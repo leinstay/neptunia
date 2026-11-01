@@ -1,4 +1,4 @@
-// Tests for the virtual-week harness of the inner life (tools/lib/inner-week.mjs, tools/inner-week.mjs):
+// Tests for the virtual-week harness of the inner life (scripts/lib/inner-week.ts, scripts/inner-week.ts):
 // the fake clock and its jumps onto the tick grid, the fixture loading and its errors, the gates
 // computed from a run (each one shown to bite on a run that breaks it), and whole weeks of the
 // shipped fixtures with the stub voice over the production scheduler and intention service. No
@@ -34,7 +34,7 @@ import {
   reportOf,
   stepsOf,
   withChannelMap,
-} from '../tools/lib/inner-week.mjs';
+} from '../scripts/lib/inner-week.ts';
 import {
   addFixturePeople,
   effectsLookup,
@@ -43,19 +43,19 @@ import {
   parseArgs,
   readFixture,
   scriptedHistory,
-} from '../tools/inner-week.mjs';
+} from '../scripts/inner-week.ts';
 import '../src/tools/impl/index.ts';
 import { call as toolCall, callBlock as toolCallBlock } from './fixtures/tool-answers.ts';
 import { createStore } from '../src/memory/store.ts';
 import { directoryEntries } from '../src/behavior/handles.ts';
-import { CliError, REFUSED_EXIT } from '../tools/lib/cli.mjs';
+import { CliError, REFUSED_EXIT } from '../scripts/lib/cli.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS } from '../src/time.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const FIXTURES = path.join(ROOT, 'tools', 'fixtures', 'inner-week');
+const FIXTURES = path.join(ROOT, 'scripts', 'fixtures', 'inner-week');
 const effectsOf = effectsLookup();
 
 /** A minimal fixture, `extra` merged over it. */

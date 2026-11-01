@@ -1,7 +1,7 @@
 // The clients of the core and the principal each token stands for. The private layer's `clients.json` maps a client's
 // name to its principal: `kind` (`interface`, `cli`, `plugin` or `agent`), `iface` for an interface, `tokenFile` (a
 // path under the private directory, `clients/<name>.token`, mode 0600), `permissions`, and for a client of the task
-// board its `boardRoles` (src/board/board.ts reads those). tools/client-token.mjs writes both. An agent's principal has
+// board its `boardRoles` (src/board/board.ts reads those). scripts/client-token.ts writes both. An agent's principal has
 // no `iface`: it says hello under `agent` (src/interface/link.ts), and a plugin's has none either: it says hello under
 // `plugin` (src/plugins/link.ts). The link resolves the token of every envelope
 // through `principalOfToken`, which reads the files at each call, so a rotated or revoked token stops at the next

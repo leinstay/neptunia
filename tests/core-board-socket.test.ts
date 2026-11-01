@@ -2,7 +2,7 @@
 // says hello under `agent` and sends `task.*` commands, which the core answers from the board under the agent's
 // name with the board's own rights. The reaper runs on the core's scheduler beat (`board.reapSeconds`) over the
 // core's clock, which the test moves by hand. The core runs in the test process as the units run it
-// (tests/fixtures/core-units.ts); the agents are clients written by tools/client-token.mjs with `--kind agent`.
+// (tests/fixtures/core-units.ts); the agents are clients written by scripts/client-token.ts with `--kind agent`.
 // No interface and no model is involved.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

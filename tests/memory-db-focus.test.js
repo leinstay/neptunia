@@ -23,7 +23,7 @@ import {
   setOverride,
 } from '../src/memory/db/focus.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
-import { tableHashes } from '../tools/memory-db.mjs';
+import { tableHashes } from '../scripts/memory-db.ts';
 import { buildDataDir } from './fixtures/memory-db/datadir.ts';
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };

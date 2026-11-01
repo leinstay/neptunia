@@ -1,4 +1,4 @@
-// The table-level restore of tools/memory-db.mjs (`restore-tables`): the board and her memory share one file, and
+// The table-level restore of scripts/memory-db.ts (`restore-tables`): the board and her memory share one file, and
 // each comes back from a backup alone. A board-only restore leaves every memory table as it was, row for row and hash
 // for hash, and a memory-only restore leaves the board so. Each case changes both parts after the backup, so a restore
 // that copied the whole file, or the wrong part, shows as a hash that moved. Synthetic data, temporary directories.
@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
-import { main, tableHashes } from '../tools/memory-db.mjs';
+import { main, tableHashes } from '../scripts/memory-db.ts';
 import { openBoard } from '../src/board/board.ts';
 import type { Board, BoardSettings } from '../src/board/board.ts';
 import { BOARD_MIGRATIONS } from '../src/board/schema.ts';

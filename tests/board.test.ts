@@ -9,7 +9,7 @@ import path from 'node:path';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { reproject } from '../src/memory/db/graph.ts';
 import { UNIT_OF } from '../src/memory/db/graph-manifest.ts';
-import { tableHashes } from '../tools/memory-db.mjs';
+import { tableHashes } from '../scripts/memory-db.ts';
 import { openBoard } from '../src/board/board.ts';
 import type { Board, BoardOp, BoardSettings, TaskRecord } from '../src/board/board.ts';
 import { BoardError } from '../src/board/machine.ts';

@@ -10,7 +10,7 @@ import {
   isFormatOnly,
   capRanges,
   scoreFromReport,
-} from '../tools/mutation-diff.mjs';
+} from '../scripts/mutation-diff.ts';
 
 const diffOf = (...parts: Array<string>) => parts.join('\n') + '\n';
 const fileHead = (file: string) =>
@@ -77,7 +77,7 @@ test('sourceRanges: keeps js, mjs and ts under src and interfaces and drops test
     'src/prompts/p.md': [[1, 1]],
     'src/fixtures/f.js': [[1, 1]],
     'tests/a.test.js': [[1, 1]],
-    'tools/t.mjs': [[1, 1]],
+    'scripts/t.mjs': [[1, 1]],
     'src/deleted-only.js': [],
   };
   assert.deepEqual(Object.keys(sourceRanges(ranges)).sort(), [

@@ -1,7 +1,7 @@
 // The persona's skill calls as a turn makes them: who asks for a call, what a call is resolved against, the handles of
 // the lines a memory.search quoted, the envelope of a call, the split of an answer into speech and calls, the words of
 // a call that failed, the options of the reply request and the in-process caps of the call marks and trigger links.
-// src/behavior/turn.ts calls them for every answer; the replay's skill scenarios (tools/replay.mjs) and the tests read
+// src/behavior/turn.ts calls them for every answer; the replay's skill scenarios (scripts/replay.ts) and the tests read
 // the exported ones through its re-exports.
 
 import { randomUUID } from 'node:crypto';
@@ -50,7 +50,7 @@ export type Requester = { id: string; roleIds: Array<string> };
  * The requester of a skill call: `trigger`'s author (`{ id, roleIds }`, `roleIds` the ids of the groups
  * the interface says they hold, none when it does not know the member), or null when nobody
  * asked (a turn without a trigger author). Exported for the replay's skill scenarios
- * (tools/replay.mjs `--skills`), which build their requester exactly so. `trigger` is `{ authorId?: string }` or
+ * (scripts/replay.ts `--skills`), which build their requester exactly so. `trigger` is `{ authorId?: string }` or
  * null, `roleIds` a list of group ids.
  */
 export function requesterOf(

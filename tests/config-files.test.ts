@@ -3,7 +3,7 @@
 // `config.local/labels.json`, each deep-merged over its tracked file. `hot.prompts.labels` is the two sections joined,
 // so a reader finds every label at the path it always had. A private layer laid out the old way
 // (`config.local.json`, a flat `prompts.local/labels.json`) still loads, with one warning per start that names
-// tools/config-files-move.mjs, and gives the same settings and labels as the moved layer. A layer holding a settings
+// scripts/config-files-move.ts, and gives the same settings and labels as the moved layer. A layer holding a settings
 // file at both places refuses the start. Fake fs.watch, temporary folders, never the real local layer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -20,7 +20,7 @@ import { tempDir } from './fixtures/tmp.ts';
 
 type Tree = Record<string, unknown>;
 
-const MOVE_TOOL = 'tools/config-files-move.mjs';
+const MOVE_TOOL = 'scripts/config-files-move.ts';
 
 const BASE_CONFIG = { pace: { settleMs: 500, settleMaxMs: 3000 }, llm: { retries: 2 } };
 const BASE_LABELS = {

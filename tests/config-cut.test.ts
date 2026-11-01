@@ -1,7 +1,7 @@
 // The cut of a local layer written before PR 7d (src/config/cut.ts): `cutConfigKeys` drops every key the cut took out of
 // the settings, reports each live value that differs from the constant replacing it, writes the two privacy switches
 // under `private`, hands the Discord keys to the Discord package and keeps the per-wake budgets. The loader
-// (src/config.ts#readConfig) applies it to the local file, and tools/config-migrate.mjs writes it into the file. The
+// (src/config.ts#readConfig) applies it to the local file, and scripts/config-migrate.ts writes it into the file. The
 // layers are synthetic; no test reads a real local layer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

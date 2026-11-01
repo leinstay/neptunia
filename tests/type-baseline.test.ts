@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseTscOutput, compareToBaseline } from '../tools/type-baseline.mjs';
+import { parseTscOutput, compareToBaseline } from '../scripts/type-baseline.ts';
 
 const line = (file: string, code: string) => `${file}(3,5): error ${code}: Parameter 'x' implicitly has an 'any' type.`;
 

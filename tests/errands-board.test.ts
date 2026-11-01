@@ -16,7 +16,7 @@ import { createJournal } from '../src/memory/journal.ts';
 import { readBoard } from '../src/board/board.ts';
 import type { BoardDb } from '../src/board/schema.ts';
 import type { ErrandStore } from '../src/errands/types.ts';
-import { tableHashes } from '../tools/memory-db.mjs';
+import { tableHashes } from '../scripts/memory-db.ts';
 import { openTestMemorySync, tempDataDir } from './fixtures/memory-db/service.ts';
 import { ARCHIVE, GUILD, T0, archiveDataDir, archived } from './fixtures/errand-archive.ts';
 import { channel, rig } from './fixtures/reads-rig.ts';

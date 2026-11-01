@@ -1,7 +1,7 @@
 // The core as the units run it, for the tests of the `neptunia` command and of what reaches the core through it.
 // `startCore` (src/core.ts) runs in the test process with no interface of its own (`interfaces.mode: units`), over
 // temporary data and private folders, a scripted model and the tracked prompts. Clients are written by
-// tools/client-token.mjs, as an operator writes them. Two kinds of child process connect to the core's socket:
+// scripts/client-token.ts, as an operator writes them. Two kinds of child process connect to the core's socket:
 // - `spawnUnit` runs `bin/neptunia.ts interface run fake` over the fake interface of
 //   tests/fixtures/interfaces/fake/index.ts and drives it over its IPC channel;
 // - `spawnCli` and `runCli` run `bin/neptunia.ts` itself (the chat, `-p`, `doctor`, `errand-runner`) with its stdin
@@ -100,9 +100,9 @@ export type Client = {
 export const FAKE_CLIENT: Client = { name: 'fake', kind: 'interface', iface: 'fake' };
 export const CLI_CLIENT: Client = { name: 'cli', kind: 'cli' };
 
-/** Writes the client's entry and its token file `<private>/clients/<name>.token` with tools/client-token.mjs. */
+/** Writes the client's entry and its token file `<private>/clients/<name>.token` with scripts/client-token.ts. */
 export function addClient(privateDir: string, client: Client): void {
-  const args = ['tools/client-token.mjs', 'add', client.name, '--kind', client.kind];
+  const args = ['scripts/client-token.ts', 'add', client.name, '--kind', client.kind];
   if (client.iface !== undefined) args.push('--iface', client.iface);
   for (const permission of client.permissions ?? []) args.push('--permission', permission);
   if (client.roles !== undefined) args.push('--roles', client.roles.join(','));

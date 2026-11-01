@@ -1,13 +1,13 @@
-// Tests for tools/search-policy-eval.mjs and its pure part tools/lib/search-policy-eval.mjs: the
+// Tests for scripts/search-policy-eval.ts and its pure part scripts/lib/search-policy-eval.ts: the
 // sheet read, the decisions, the confusion matrix, the disagreement list, `--dry-run` and
 // `--limit`, with an injected fake llm and a temporary sheet (no network, no real prompts or data).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { main } from '../tools/search-policy-eval.mjs';
-import { CliError } from '../tools/lib/cli.mjs';
-import { decisionOf, parseSheet, rowChat, summarize } from '../tools/lib/search-policy-eval.mjs';
+import { main } from '../scripts/search-policy-eval.ts';
+import { CliError } from '../scripts/lib/cli.ts';
+import { decisionOf, parseSheet, rowChat, summarize } from '../scripts/lib/search-policy-eval.ts';
 import { lookupClassifierInput } from '../src/behavior/turn.ts';
 import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';

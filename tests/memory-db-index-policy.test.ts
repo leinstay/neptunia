@@ -25,7 +25,7 @@ import { channelPlaceId, messageSourceId } from '../src/memory/db/ids.ts';
 import { dmScope, groupContext, groupScope } from '../src/memory/db/scope.ts';
 import { quantize } from '../src/memory/vectors.ts';
 import { recordChunk } from '../src/memory/chunks.ts';
-import { main, tableHashes } from '../tools/memory-db.mjs';
+import { main, tableHashes } from '../scripts/memory-db.ts';
 import { buildDataDir, guildDir, writeJson } from './fixtures/memory-db/datadir.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { sqlOf, wrongly } from './fixtures/loose-types.ts';

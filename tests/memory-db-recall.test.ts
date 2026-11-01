@@ -1185,7 +1185,7 @@ test('memory.search: the hidden marker is one label line, with or without stretc
 });
 
 test('recall-eval: the database is --db, else <data>/memory.db, and the file must exist', async () => {
-  const { main } = await import('../tools/recall-eval.mjs');
+  const { main } = await import('../scripts/recall-eval.ts');
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-eval-'));
   try {
     const data = path.join(root, 'data');

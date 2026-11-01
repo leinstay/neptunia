@@ -1,10 +1,10 @@
-// Tests for tools/eslint-test-rules.mjs: the three ESLint rules that hold the test method on `tests/**`
+// Tests for scripts/eslint-test-rules.ts: the three ESLint rules that hold the test method on `tests/**`
 // (an assertion in every test, no presence-only assertion, no deepEqual on a wide literal without a comment).
 // ESLint's RuleTester runs the cases; node:test's describe and it are what it needs.
 import { describe, it } from 'node:test';
 import { RuleTester } from 'eslint';
 
-import { plugin } from '../tools/eslint-test-rules.mjs';
+import { plugin } from '../scripts/eslint-test-rules.ts';
 
 RuleTester.describe = describe;
 RuleTester.it = it;

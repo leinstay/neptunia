@@ -1,4 +1,4 @@
-// Tests for the errands in tools/replay.mjs's skill scenarios (`--skills`): the errand budget the
+// Tests for the errands in scripts/replay.ts's skill scenarios (`--skills`): the errand budget the
 // sandbox gateway reads from a read-only task store (sandboxErrandBudget), and the task-result
 // scenario (`taskResult`) that runs the turn an errand's end opens -- trigger kind `task`, the
 // `<errand_result>` block, the files named by their live handles -- with her calls through the real
@@ -33,12 +33,12 @@ import {
   scenarioTask,
   scenarioTaskId,
   skillRequestEstimate,
-} from '../tools/replay.mjs';
+} from '../scripts/replay.ts';
 import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
-import { readOnlyMemory } from '../tools/lib/memory-read.mjs';
+import { readOnlyMemory } from '../scripts/lib/memory-read.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
 

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { findBreakEdits, breakSource, parseTap, sortSummary, reachedModules } from '../tools/broken-module-run.mjs';
+import { findBreakEdits, breakSource, parseTap, sortSummary, reachedModules } from '../scripts/broken-module-run.ts';
 
 const THROW = "{ throw new Error('broken-module-run'); }";
 

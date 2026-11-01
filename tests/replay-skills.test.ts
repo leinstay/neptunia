@@ -1,4 +1,4 @@
-// Tests for the skill scenarios of tools/replay.mjs (`--skills`): the scenario loader, the
+// Tests for the skill scenarios of scripts/replay.ts (`--skills`): the scenario loader, the
 // persona's grants laid over a copy of the config, and her `<call>` taken through the real
 // resolution and the real gateway with the operation never run
 // (src/behavior/sandbox.ts#simulateCall), and multi-step scenarios played step by step with her
@@ -46,7 +46,7 @@ import {
   scenarioTrigger,
   sequenceSummary,
   skillRequestEstimate,
-} from '../tools/replay.mjs';
+} from '../scripts/replay.ts';
 import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { asRecord } from './fixtures/records.ts';
@@ -80,7 +80,7 @@ function load(items: unknown) {
 
 test('parseScenarios: the example file loads; omitted fields take their defaults', () => {
   const example = parseScenarios(
-    fs.readFileSync(new URL('../tools/prompts/skill-scenarios.example.json', import.meta.url), 'utf8')
+    fs.readFileSync(new URL('../scripts/prompts/skill-scenarios.example.json', import.meta.url), 'utf8')
   );
   assert.ok(example.length >= 3);
   for (const scenario of example) assert.ok(/^[A-Za-z0-9._-]+$/.test(scenario.id));

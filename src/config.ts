@@ -186,7 +186,7 @@ function mergeConfigFiles(rootDir: Untyped, privateDir: Untyped) {
 /**
  * The local file with its keys of an earlier name written under their new one (src/config-moves.ts), then the keys the
  * config cut took out of the settings removed (src/config/cut.ts), with one warning line per load when either changed
- * anything. The file itself is untouched: `tools/config-migrate.mjs` writes the same moves and the same cut into it.
+ * anything. The file itself is untouched: `scripts/config-migrate.ts` writes the same moves and the same cut into it.
  */
 function movedLocal(local: unknown): unknown {
   if (typeof local !== 'object' || local === null || Array.isArray(local)) return local;
@@ -203,7 +203,7 @@ function movedLocal(local: unknown): unknown {
       differs: after.differs.length,
       renamed: after.renamed.length,
       interfaces,
-      migrate: 'tools/config-migrate.mjs',
+      migrate: 'scripts/config-migrate.ts',
     });
   return after.config;
 }

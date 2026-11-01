@@ -1,5 +1,5 @@
-// Tests for tools/search-compare.mjs, its pure part tools/lib/search-compare.mjs and the
-// `--search` mode of tools/replay-score.mjs: two queries through three engines with fake Brave and
+// Tests for scripts/search-compare.ts, its pure part scripts/lib/search-compare.ts and the
+// `--search` mode of scripts/replay-score.ts: two queries through three engines with fake Brave and
 // Exa clients and a fake llm (no network, no real prompts or data): the results file, the summary
 // counts and percentiles, the blind sheet against its key, `--dry-run`, a keyless Brave, the cost
 // stop, and the scorer over a filled blind sheet.
@@ -7,10 +7,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { main } from '../tools/search-compare.mjs';
-import { main as scoreMain } from '../tools/replay-score.mjs';
-import { CliError } from '../tools/lib/cli.mjs';
-import { parseBlindScores, parseQueries, seededShuffle, tallySearchScores } from '../tools/lib/search-compare.mjs';
+import { main } from '../scripts/search-compare.ts';
+import { main as scoreMain } from '../scripts/replay-score.ts';
+import { CliError } from '../scripts/lib/cli.ts';
+import { parseBlindScores, parseQueries, seededShuffle, tallySearchScores } from '../scripts/lib/search-compare.ts';
 import { NotByokError } from '../src/llm/openrouter.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import type { Untyped } from '../src/tools/types.ts';

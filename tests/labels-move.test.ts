@@ -1,4 +1,4 @@
-// The labels half of tools/tools-file-move.mjs: a deployment's own `prompts.local/labels.json` may carry the wording of
+// The labels half of scripts/tools-file-move.ts: a deployment's own `prompts.local/labels.json` may carry the wording of
 // the tool results under `skills`, which the engine now reads under `tools`. The tool renames that one key of the local
 // file and leaves every other key as it was. A local file with both keys is cleaned when they agree and refused when
 // they differ. A refusal in either half of the tool, the labels or the tool texts, stops the whole run before it

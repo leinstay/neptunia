@@ -29,7 +29,7 @@ import {
   walk,
 } from '../src/memory/db/graph.ts';
 import { dmContext, groupContext, groupScope, internalContext } from '../src/memory/db/scope.ts';
-import { main, tableHashes } from '../tools/memory-db.mjs';
+import { main, tableHashes } from '../scripts/memory-db.ts';
 import { buildDataDir } from './fixtures/memory-db/datadir.ts';
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };

@@ -79,7 +79,7 @@
     },
     {
       "path": "config.local.json",
-      "purpose": "The old place of a deployment's settings, read until `tools/config-files-move.mjs` moves it into `config.local/`.",
+      "purpose": "The old place of a deployment's settings, read until `scripts/config-files-move.ts` moves it into `config.local/`.",
       "layer": "local",
       "imports": [],
       "test": "none"
@@ -135,7 +135,7 @@
         "globals",
         "eslint-plugin-import-x",
         "typescript-eslint",
-        "tools/eslint-test-rules.mjs"
+        "scripts/eslint-test-rules.ts"
       ],
       "test": "none"
     },
@@ -298,40 +298,40 @@
       "path": "tests/",
       "purpose": "The node:test files, one per module.",
       "layer": "public",
-      "imports": ["discord.js", "eslint", "node:*", "src/**", "interfaces/**", "tools/**", "bin/**", "tests/**"],
+      "imports": ["discord.js", "eslint", "node:*", "src/**", "interfaces/**", "scripts/**", "bin/**", "tests/**"],
       "test": "none"
     },
     {
       "path": "tests/fixtures/",
       "purpose": "Fakes, harnesses and sample data the tests share.",
       "layer": "public",
-      "imports": ["discord.js", "node:*", "src/**", "interfaces/**", "tools/**", "bin/**", "tests/**"],
+      "imports": ["discord.js", "node:*", "src/**", "interfaces/**", "scripts/**", "bin/**", "tests/**"],
       "test": "none"
     },
     {
-      "path": "tools/",
+      "path": "scripts/",
       "purpose": "Scripts for development and measurement, never run by the engine.",
       "layer": "public",
-      "imports": ["node:*", "src/**", "interfaces/**", "tools/**", "typescript", "discord.js"],
+      "imports": ["node:*", "src/**", "interfaces/**", "scripts/**", "typescript", "discord.js"],
       "test": "none"
     },
     {
-      "path": "tools/lib/",
-      "purpose": "What the scripts under tools share.",
+      "path": "scripts/lib/",
+      "purpose": "What the scripts under `scripts/` share.",
       "layer": "public",
-      "imports": ["node:*", "src/**", "interfaces/**", "tools/**"],
+      "imports": ["node:*", "src/**", "interfaces/**", "scripts/**"],
       "test": "none"
     },
     {
-      "path": "tools/fixtures/",
+      "path": "scripts/fixtures/",
       "purpose": "Sample data for the virtual-week harness.",
       "layer": "public",
       "imports": [],
       "test": "none"
     },
     {
-      "path": "tools/prompts/",
-      "purpose": "Example scenario files for the tools.",
+      "path": "scripts/prompts/",
+      "purpose": "Example scenario files for the scripts.",
       "layer": "public",
       "imports": [],
       "test": "none"

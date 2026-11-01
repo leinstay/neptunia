@@ -16,7 +16,7 @@ config.local.json
 # Model-facing text and fixtures keep their exact bytes.
 prompts
 tests/fixtures
-tools/fixtures
+scripts/fixtures
 
 # Documentation prose is reviewed against WRITING.md, not rewrapped by a tool.
 *.md

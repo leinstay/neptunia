@@ -11,7 +11,7 @@ import {
   withAnswersDir,
   renderRequest,
   isAnthropicModel,
-} from '../tools/lib/answers-dir.mjs';
+} from '../scripts/lib/answers-dir.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.

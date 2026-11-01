@@ -3,7 +3,7 @@
 // config written with the old keys must keep meaning what it meant, so `moveConfigKeys` writes each old key under its
 // new name, and the loader (src/config.ts#readConfig) does it to the local file before that file is laid over
 // config.json: an old key then overrides the shipped default of its new name, and a move is one warning line per load.
-// `tools/config-migrate.mjs` shows (`--dry-run`) or writes (`--apply`) the same moves on a copy of a local file.
+// `scripts/config-migrate.ts` shows (`--dry-run`) or writes (`--apply`) the same moves on a copy of a local file.
 // The errand and intention names add more of the same kind: the grants of `bot.access` on the ten tools renamed from
 // `task.*` and `intent.*`, the nine settings of `agents` that every errand reads (they live under `errands`),
 // `agents.<name>.search.provider` (now `searchProvider`), and the keys nothing reads any more, which are removed and
@@ -184,13 +184,13 @@ test('says nothing when the local file has no old key, or there is no local file
   assert.deepEqual([warnings(written.logs).length, warnings(absent.logs).length], [0, 0]);
 });
 
-// ---- tools/config-migrate.mjs -------------------------------------------------------------------------------
+// ---- scripts/config-migrate.ts -------------------------------------------------------------------------------
 
 /** Runs the migration tool on `file` with `flags`; the tool reads and writes nothing else. */
 function migrate(flags: Array<string>, file: string | null) {
   const run = spawnSync(
     process.execPath,
-    ['tools/config-migrate.mjs', ...flags, ...(file === null ? [] : ['--file', file])],
+    ['scripts/config-migrate.ts', ...flags, ...(file === null ? [] : ['--file', file])],
     { cwd: ROOT, encoding: 'utf8' }
   );
   return { code: run.status, out: run.stdout, err: run.stderr };

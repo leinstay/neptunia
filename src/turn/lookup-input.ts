@@ -1,5 +1,5 @@
 // The input of a classifier request over the chat before a trigger: the `<transcript>` block and the trigger's text.
-// The splitter builds its request with it, and tools/search-policy-eval.mjs measures the search classifier's input
+// The splitter builds its request with it, and scripts/search-policy-eval.ts measures the search classifier's input
 // through the re-export in src/behavior/turn.ts.
 
 import { classifierTranscript } from '../behavior/prompt.ts';
@@ -60,7 +60,7 @@ export function renderClassifierContext({
  * SEARCH_CONTEXT_MESSAGES messages of `history` before
  * `trigger` (renderClassifierContext, `labels` = prompts.labels), then the
  * trigger as `<candidate>` with its author's name. Exported so
- * tools/search-policy-eval.mjs measures exactly what production sends. Pure.
+ * scripts/search-policy-eval.ts measures exactly what production sends. Pure.
  */
 export function lookupClassifierInput({
   config,

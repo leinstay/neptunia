@@ -264,7 +264,7 @@ test("purposes: under config.json every purpose resolves to its role's default m
 // ---- the call sites ----------------------------------------------------------
 
 /**
- * Every .js/.mjs file under src/ and tools/, as [relative path, text], the TypeScript files of the folders that were
+ * Every .js/.mjs file under src/ and scripts/, as [relative path, text], the TypeScript files of the folders that were
  * JavaScript when this check was written, and the modules at the root of `src/` (their call sites stay in the count
  * after the conversion).
  */
@@ -278,6 +278,7 @@ const CONVERTED_FOLDERS = [
   'src/protocol/',
   'src/speech/',
   'src/web/',
+  'scripts/',
 ];
 
 function sources() {
@@ -296,7 +297,7 @@ function sources() {
     }
   };
   walk(path.join(ROOT, 'src'));
-  walk(path.join(ROOT, 'tools'));
+  walk(path.join(ROOT, 'scripts'));
   return out;
 }
 

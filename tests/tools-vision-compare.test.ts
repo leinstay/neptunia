@@ -1,4 +1,4 @@
-// Tests for tools/lib/vision-compare.mjs: the arguments, the media list, the pick from the media
+// Tests for scripts/lib/vision-compare.ts: the arguments, the media list, the pick from the media
 // cache, the tool-local model override over the live describer (with fakes: no network), the
 // USD stop and the HTML sheet's escaping.
 import { test } from 'node:test';
@@ -12,8 +12,8 @@ import {
   runComparison,
   summarizeModels,
   toolHot,
-} from '../tools/lib/vision-compare.mjs';
-import { CliError } from '../tools/lib/cli.mjs';
+} from '../scripts/lib/vision-compare.ts';
+import { CliError } from '../scripts/lib/cli.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';

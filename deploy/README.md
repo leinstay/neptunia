@@ -32,7 +32,7 @@ Every step is done once, as root, with the paths of the default layout.
    ```
 4. Make the client and its token. The core reads `clients.json` and every token file at each envelope, and the interface reads its own token, so the token belongs to the interface's user and the core's group:
    ```bash
-   NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc node tools/client-token.mjs add discord --kind interface --iface discord --permission commands
+   NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc node scripts/client-token.ts add discord --kind interface --iface discord --permission commands
    chown neptunia-bot /opt/neptunia/etc/clients.json
    chmod 0711 /opt/neptunia/etc/clients
    chown neptunia-discord-interface:neptunia-bot /opt/neptunia/etc/clients/discord.token
@@ -41,7 +41,7 @@ Every step is done once, as root, with the paths of the default layout.
    While `clients.json` exists the core lets in only the clients it names, and the boot token of an in-process interface counts for nothing. Without `--permission commands` the core refuses every `/nep` of the unit.
 5. Make the owner's client the same way, its token readable by the owner's user and the core's group, and put the owner's user in the group `neptunia` (`usermod -aG neptunia <owner>`) so it reaches the socket:
    ```bash
-   NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc node tools/client-token.mjs add cli --kind cli
+   NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc node scripts/client-token.ts add cli --kind cli
    chown <owner>:neptunia-bot /opt/neptunia/etc/clients/cli.token
    chmod 0640 /opt/neptunia/etc/clients/cli.token
    ```
@@ -61,7 +61,7 @@ One core runs at a time. `neptunia-core.service` conflicts with `neptunia-bot.se
 ### Going back
 
 1. Stop both: `systemctl disable --now neptunia-interface@discord neptunia-core`.
-2. Set `interfaces.mode` back to `inprocess`, put `DISCORD_TOKEN` back into the core's `.env`, remove the client with `node tools/client-token.mjs revoke discord`, and delete `/opt/neptunia/etc/clients.json` when no client is left in it, so the boot token of the in-process interface counts again.
+2. Set `interfaces.mode` back to `inprocess`, put `DISCORD_TOKEN` back into the core's `.env`, remove the client with `node scripts/client-token.ts revoke discord`, and delete `/opt/neptunia/etc/clients.json` when no client is left in it, so the boot token of the in-process interface counts again.
 3. Start the in-process core: `systemctl enable --now neptunia-bot`.
 
 The errand units run `neptunia errand-runner` in both modes.

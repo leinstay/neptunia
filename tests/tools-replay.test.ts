@@ -1,7 +1,7 @@
-// Tests for the pure parts of tools/replay.mjs's diary mode (the arguments, the turn it runs,
+// Tests for the pure parts of scripts/replay.ts's diary mode (the arguments, the turn it runs,
 // the dry-run view of hot), of its diary-day mode (the arguments, the seeded plan, the spend
-// gate, the recording image client of tools/lib/diary-day.mjs, the key) and for
-// tools/lib/prompt-layers.mjs, the one prompt layering both --pair and --diary use.
+// gate, the recording image client of scripts/lib/diary-day.ts, the key) and for
+// scripts/lib/prompt-layers.ts, the one prompt layering both --pair and --diary use.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -22,7 +22,7 @@ import {
   diaryDayGate,
   diaryDayKey,
   refuseDiscordWrites,
-} from '../tools/replay.mjs';
+} from '../scripts/replay.ts';
 import {
   FIXTURE_PNG,
   MAX_PICTURES_KEY,
@@ -30,9 +30,9 @@ import {
   fixtureImagesFetch,
   recordingImages,
   renderDiaryDayReport,
-} from '../tools/lib/diary-day.mjs';
-import { REFUSED_EXIT } from '../tools/lib/cli.mjs';
-import { promptLayersHot } from '../tools/lib/prompt-layers.mjs';
+} from '../scripts/lib/diary-day.ts';
+import { REFUSED_EXIT } from '../scripts/lib/cli.ts';
+import { promptLayersHot } from '../scripts/lib/prompt-layers.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { asRecord } from './fixtures/records.ts';
@@ -136,9 +136,9 @@ test('replay: --prompts layering is one helper shared by pair and diary', () => 
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
-  // One implementation: replay.mjs calls the lib helper for both modes and keeps no copy of its own.
-  const source = fs.readFileSync(new URL('../tools/replay.mjs', import.meta.url), 'utf8');
-  assert.ok(source.includes("from './lib/prompt-layers.mjs'"));
+  // One implementation: replay.ts calls the lib helper for both modes and keeps no copy of its own.
+  const source = fs.readFileSync(new URL('../scripts/replay.ts', import.meta.url), 'utf8');
+  assert.ok(source.includes("from './lib/prompt-layers.ts'"));
   assert.equal((source.match(/promptLayersHot\(/g) ?? []).length, 2, 'one call for --pair, one for --diary');
   assert.ok(!/function sideHot\b/.test(source));
   assert.ok(!/fs\.cpSync\(/.test(source), 'no prompt copying outside the helper');
@@ -498,7 +498,7 @@ test("replay: a stored dump's later messages are shown as role, tool_calls and t
 });
 
 test('replay: recordingLlm keeps the native tool calls and the finish reason of each answer, for the diary brief and the inner report', async () => {
-  const { recordingLlm } = await import('../tools/replay.mjs');
+  const { recordingLlm } = await import('../scripts/replay.ts');
   const toolCalls = [
     { id: 'c1', name: 'draw_create', arguments: '{"text":"a cat"}', parsed: { text: 'a cat' }, parseError: null },
   ];

@@ -1,4 +1,4 @@
-// Tests for tools/replay.mjs `--inner`: its flags, the hot it runs with (shadow forced, no dry
+// Tests for scripts/replay.ts `--inner`: its flags, the hot it runs with (shadow forced, no dry
 // run, no journal) and the wake it builds from the inner state read. Pure parts only: the mode
 // itself needs Discord and a key.
 import { test, after } from 'node:test';
@@ -19,7 +19,7 @@ import {
   parseArgs,
   readOnlyJournal,
   recordingLlm,
-} from '../tools/replay.mjs';
+} from '../scripts/replay.ts';
 import '../src/tools/impl/index.ts';
 import { parseOutput } from '../src/llm/parse.ts';
 import { answerOf } from '../src/behavior/turn.ts';

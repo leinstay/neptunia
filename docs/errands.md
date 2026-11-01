@@ -128,7 +128,7 @@ Each journal line of an errand references its task through the `day` row's `work
 
 A principal whose only board role is `errand-runner` sees the errand tasks of its own name and nothing else: `task.list` leaves the others out, and `task.show` of any other task answers `not-found`.
 
-Board version 3 moves the errands of the `work` table onto the board with their ids, and `tools/memory-db.mjs board verify-errands --db <file>` compares each archived errand with its task field by field (see [Memory](memory.md#the-task-boards-tables)).
+Board version 3 moves the errands of the `work` table onto the board with their ids, and `scripts/memory-db.ts board verify-errands --db <file>` compares each archived errand with its task field by field (see [Memory](memory.md#the-task-boards-tables)).
 
 ## Task operations
 

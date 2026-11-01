@@ -19,4 +19,4 @@ With `interfaces.mode: units`, the unit `neptunia-interface@discord` runs `neptu
 
 The interface keeps its events in an outbox under its data folder until the core acknowledges them, and it has `reconnect()`. When its link to the core drops, the runner opens a new one with backoff, and the outbox sends again what the core did not take, so a core restart loses no event the interface saw.
 
-Under `interfaces.mode: units` the interface sends each `/nep` interaction to the core as a `command.requested` event and replies with the text of the answer. Its client needs the permission `commands` (`--permission commands` of `tools/client-token.mjs add`), or the core refuses the command. It registers the command tree itself when it opens.
+Under `interfaces.mode: units` the interface sends each `/nep` interaction to the core as a `command.requested` event and replies with the text of the answer. Its client needs the permission `commands` (`--permission commands` of `scripts/client-token.ts add`), or the core refuses the command. It registers the command tree itself when it opens.

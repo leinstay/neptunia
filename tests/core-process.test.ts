@@ -3,7 +3,7 @@
 // interface runs the way a unit runs it: `bin/neptunia.ts interface run fake --interfaces-dir tests/fixtures/interfaces`
 // in a child process, which reads its token from `<private>/clients/fake.token`, connects to `<data>/run/core.sock`
 // and serves the fake interface of tests/fixtures/interfaces/fake/index.ts. The test drives that child over its IPC
-// channel. The token is written by tools/client-token.mjs, as an operator writes it. No Discord object and no provider
+// channel. The token is written by scripts/client-token.ts, as an operator writes it. No Discord object and no provider
 // is reached. The memory database is read through a second, read-only connection, because the core holds the lock.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -106,7 +106,7 @@ function folders(config: Settings = {}): Dirs {
 function addFakeClient(privateDir: string): void {
   const run = spawnSync(
     process.execPath,
-    ['tools/client-token.mjs', 'add', 'fake', '--kind', 'interface', '--iface', 'fake'],
+    ['scripts/client-token.ts', 'add', 'fake', '--kind', 'interface', '--iface', 'fake'],
     {
       cwd: REPO,
       encoding: 'utf8',

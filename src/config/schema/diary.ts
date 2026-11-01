@@ -9,7 +9,7 @@ export const DIARY: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/memory/db/service.ts',
     'default': '',
     'text':
-      "The seed of the diary's first mirror: schema v15 makes this channel's place a `diary` mirror, and `tools/config-migrate.mjs --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it",
+      "The seed of the diary's first mirror: schema v15 makes this channel's place a `diary` mirror, and `scripts/config-migrate.ts --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it",
   },
   {
     'key': 'diary.world',

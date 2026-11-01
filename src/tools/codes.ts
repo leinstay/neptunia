@@ -6,7 +6,7 @@
 // worded by `labels.tools.result.reasons.<code>` (the call mark in the transcript, the `<result>`
 // block and the facts read the same label with the same values), a `wake` code by
 // `labels.wake.feedback.codes.<code>`; `internal` codes are history or transport details the
-// persona is never told by themselves. `tools/labels-catalogue.mjs --check` compares this table,
+// persona is never told by themselves. `scripts/labels-catalogue.ts --check` compares this table,
 // the labels and the contract's list. This module imports only the leaf `types.ts`, so any module may import it.
 //
 // Fields of an entry: `status` the result status the code is reported under by default (`ok`,

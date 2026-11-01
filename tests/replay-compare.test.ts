@@ -1,4 +1,4 @@
-// Tests for tools/replay-compare.mjs: the old side read from the baseline folder's format (raw text with the
+// Tests for scripts/replay-compare.ts: the old side read from the baseline folder's format (raw text with the
 // retired tags, replay.out, the provider's meta), the new side from runs.jsonl lines, the blind sheet and key, the
 // metrics table and the pass bar of the stage 4 plan. Temporary folders, no network.
 import { test } from 'node:test';
@@ -15,10 +15,10 @@ import {
   readNewSide,
   readOldSide,
   renderMetrics,
-} from '../tools/replay-compare.mjs';
-import { runRecord } from '../tools/replay.mjs';
-import { sheetPairIds } from '../tools/lib/pair.mjs';
-import { CliError } from '../tools/lib/cli.mjs';
+} from '../scripts/replay-compare.ts';
+import { runRecord } from '../scripts/replay.ts';
+import { sheetPairIds } from '../scripts/lib/pair.ts';
+import { CliError } from '../scripts/lib/cli.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';

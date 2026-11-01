@@ -1,4 +1,4 @@
-// The replay sandbox (tools/replay.mjs). A sandbox turn takes a real moment of
+// The replay sandbox (scripts/replay.ts). A sandbox turn takes a real moment of
 // the chat -- normalized channel messages fetched again, the trigger among
 // them -- builds the request a real turn would build for it (live prompts,
 // live config, the stored memory or a snapshot of it), asks the model, parses
@@ -25,7 +25,7 @@
 // describer's cached captions and watched summaries render through
 // `replayMedia`, the cache only read.
 //
-// A skill scenario (tools/replay.mjs `--skills`, `answerSkillScenario`) is the
+// A skill scenario (scripts/replay.ts `--skills`, `answerSkillScenario`) is the
 // one sandbox turn that shows the persona her skills: the `<skills>` block of
 // the requester's catalogue (`scenarioInventory`, the live listing over a copy
 // of the config carrying the scenario's grants, `personaGrantsConfig`). Every
@@ -197,7 +197,7 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   errands:
     'no task store: a replay knows no errands of hers, so no <errands> or <errand_result> block (a task-result scenario hands in the one errand whose end opens its turn: `taskResult`)',
   intentions: 'no intention store: a replay knows no intentions of hers, so no <intentions> block',
-  wake: 'an inner turn only (tools/replay.mjs --inner runs the live turn runner instead of this sandbox)',
+  wake: 'an inner turn only (scripts/replay.ts --inner runs the live turn runner instead of this sandbox)',
   wakeKind: 'an inner turn only: no wake, so no heartbeat task text',
   places: "no inner life runs here, so no places view: no <places> block (context.places is a live turn's)",
   previousThink:
@@ -1947,7 +1947,7 @@ export function afterScenarioTurn({
 }
 
 /**
- * A line of the persona's seeded into a skill scenario (tools/replay.mjs `--skills`, a step
+ * A line of the persona's seeded into a skill scenario (scripts/replay.ts `--skills`, a step
  * `{ self }` or a burst item `{ self: true }`): `text` as if she had said it at `at` in
  * `channel`, no turn run for it. Shaped exactly as afterScenarioTurn shapes her live lines
  * (src/behavior/turn.ts#continuationHistory, `selfName` as author; its id a snowflake of its

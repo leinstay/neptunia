@@ -9,7 +9,7 @@ import globals from 'globals';
 import { importX } from 'eslint-plugin-import-x';
 import tseslint from 'typescript-eslint';
 
-import { plugin as testRules } from './tools/eslint-test-rules.mjs';
+import { plugin as testRules } from './scripts/eslint-test-rules.ts';
 
 const code = ['**/*.js', '**/*.mjs', '**/*.ts'];
 const typeSyntax = ['**/*.ts'];
@@ -22,7 +22,7 @@ export default tseslint.config(
       'data/**',
       'references/**',
       'prompts.local/**',
-      'tools/fixtures/**',
+      'scripts/fixtures/**',
       '.claude/**',
       '.opencode/**',
     ],
@@ -55,7 +55,7 @@ export default tseslint.config(
     rules: { '@typescript-eslint/no-floating-promises': 'off' },
   },
   {
-    // The test method of AGENTS.md (section Tests), as rules from tools/eslint-test-rules.mjs.
+    // The test method of AGENTS.md (section Tests), as rules from scripts/eslint-test-rules.ts.
     files: ['tests/**/*.js', 'tests/**/*.ts'],
     plugins: { tests: testRules },
     rules: {

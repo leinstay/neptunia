@@ -1,4 +1,4 @@
-// tools/tools-file-move.mjs: moves a deployment's local tool texts from `prompts.local/skills.json` to
+// scripts/tools-file-move.ts: moves a deployment's local tool texts from `prompts.local/skills.json` to
 // `config.local/tools.json`, renaming the entry `skills.describe` to `tools.describe` on the way. `--dry-run` says what
 // it would do and writes nothing, `--apply` does it, and a rerun finds nothing left to do. With the old file only, it
 // moves it. With the new one only, it does nothing. With both and the same content, it deletes the old one. With both
@@ -264,7 +264,7 @@ test('refuses a start with the old file in place, in one line that names the mov
   home.write(OLD, { 'message.create': SEND });
   assert.throws(
     () => load(checkout(), home.dir),
-    (error: Error) => error.message.includes('tools/tools-file-move.mjs') && !error.message.includes('\n')
+    (error: Error) => error.message.includes('scripts/tools-file-move.ts') && !error.message.includes('\n')
   );
 });
 

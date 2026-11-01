@@ -1,11 +1,11 @@
-// The board read with the core down or running (tools/memory-db.mjs `board list` and `board show`): both open the
+// The board read with the core down or running (scripts/memory-db.ts `board list` and `board show`): both open the
 // database read-only, so they take no lock, migrate nothing and write nothing. Synthetic tasks, temporary files.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
-import { main, tableHashes } from '../tools/memory-db.mjs';
+import { main, tableHashes } from '../scripts/memory-db.ts';
 import { openBoard } from '../src/board/board.ts';
 import type { BoardSettings, TaskRecord, TaskView } from '../src/board/board.ts';
 import type { BoardDb } from '../src/board/schema.ts';

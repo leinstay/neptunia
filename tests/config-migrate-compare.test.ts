@@ -1,4 +1,4 @@
-// `tools/config-migrate.mjs --compare-with <config.json>` is the deploy proof that moving a local file changes no setting.
+// `scripts/config-migrate.ts --compare-with <config.json>` is the deploy proof that moving a local file changes no setting.
 // It merges the given `config.json` (the one from before the errand names) under the raw local file and reads every moved
 // setting the old way, merges this checkout's `config.json` under the moved local file and reads the same settings
 // through the readers of today (`errands.*`, `agentSettings`, the tools granted to the persona, whose id comes from
@@ -91,7 +91,7 @@ function compare(local: Settings, old: Settings) {
   const before = fs.readFileSync(file, 'utf8');
   const run = spawnSync(
     process.execPath,
-    ['tools/config-migrate.mjs', '--dry-run', '--file', file, '--compare-with', oldFile, '--self', SELF],
+    ['scripts/config-migrate.ts', '--dry-run', '--file', file, '--compare-with', oldFile, '--self', SELF],
     { cwd: ROOT, encoding: 'utf8' }
   );
   return {

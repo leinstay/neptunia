@@ -10,7 +10,7 @@ import path from 'node:path';
 import { openMemoryDb, schemaVersion, MIGRATIONS } from '../src/memory/db/open.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { startRun } from '../src/memory/db/wakes.ts';
-import { backupDatabase, main, restoreDatabase, tableHashes } from '../tools/memory-db.mjs';
+import { backupDatabase, main, restoreDatabase, tableHashes } from '../scripts/memory-db.ts';
 import { buildDataDir } from './fixtures/memory-db/datadir.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { sqlOf } from './fixtures/loose-types.ts';

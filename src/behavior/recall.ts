@@ -1887,7 +1887,7 @@ function recordTexts(message: Untyped) {
 /**
  * A record line (src/memory/record.js) as a normalized chat message (the shape renderRecallWindows
  * reads): the persona's own `said` line marked `self` under `selfName`, any other author under
- * `nameOf(by)`, else `-`; its `links` as link previews. The one copy: tools/recall-eval.mjs reads
+ * `nameOf(by)`, else `-`; its `links` as link previews. The one copy: scripts/recall-eval.ts reads
  * the record's chat through it too. `line.scope.channel` must be set.
  */
 export function recordMessage(

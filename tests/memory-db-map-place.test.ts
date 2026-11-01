@@ -8,7 +8,7 @@ import { assertRoundTrip, generated, plain, roundTrip } from './fixtures/memory-
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { reproject } from '../src/memory/db/graph.ts';
-import { tableHashes } from '../tools/memory-db.mjs';
+import { tableHashes } from '../scripts/memory-db.ts';
 import { present, sqlOf } from './fixtures/loose-types.ts';
 import type { Untyped } from '../src/tools/types.ts';
 

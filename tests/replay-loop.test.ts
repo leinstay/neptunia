@@ -1,4 +1,4 @@
-// Tests for the step engine of tools/replay.mjs (`--skills`, `--pair-transport`, `--loop-triggers`): a
+// Tests for the step engine of scripts/replay.ts (`--skills`, `--pair-transport`, `--loop-triggers`): a
 // scenario run is answered as a live turn answers it -- every call of each answer through the real
 // gateway, her in-turn tools run (here by fakes), an errand.run only recorded, the turn continued step after
 // step within the loop's bounds, her speech held when a call left something to read -- and what runs.jsonl,
@@ -72,7 +72,7 @@ import {
   skillRequestEstimate,
   withCoreTools,
   withTransport,
-} from '../tools/replay.mjs';
+} from '../scripts/replay.ts';
 import { labels } from './fixtures/labels.ts';
 import { call, completionOf, textAnswer, toolAnswer } from './fixtures/tool-answers.ts';
 import { useIface, world } from './fixtures/turn-world.ts';

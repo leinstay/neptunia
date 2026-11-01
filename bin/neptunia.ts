@@ -16,7 +16,7 @@
 // does (src/paths.ts). A usage error exits 2.
 //
 // The chat is the `cli` interface. It connects to the core's socket `<data>/run/core.sock` with the token of the
-// client `cli` (`<private>/clients/cli.token`, tools/client-token.mjs writes it) and says hello as `iface: 'cli'`. Each
+// client `cli` (`<private>/clients/cli.token`, scripts/client-token.ts writes it) and says hello as `iface: 'cli'`. Each
 // line typed is a `message.received` event in the direct chat `cli:dm:owner` between the owner and the persona, and
 // her reply arrives as a send action and is printed. A line starting with `/` is parsed by the command table
 // (src/interface/commands/table.ts), which prints the reason of a line it refuses, and becomes a `command.requested`
@@ -136,7 +136,7 @@ const BACKOFF_MAX_MS = 30_000;
 /** A link that stayed up this long was healthy: the backoff starts over after it. */
 const STABLE_MS = 30_000;
 
-/** An interface name as tools/client-token.mjs accepts a client name. */
+/** An interface name as scripts/client-token.ts accepts a client name. */
 const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 /** The owner's command line: its client, its namespace and its one conversation. */
@@ -176,7 +176,7 @@ function readToken(privateDir: string, name: string): string {
     token = fs.readFileSync(file, 'utf8').replace(/\r?\n$/, '');
   } catch (err) {
     die(
-      `cannot read the token ${file} (${(err as NodeJS.ErrnoException).code ?? 'error'}); run tools/client-token.mjs add`
+      `cannot read the token ${file} (${(err as NodeJS.ErrnoException).code ?? 'error'}); run scripts/client-token.ts add`
     );
   }
   if (token === '') die(`the token file ${file} is empty`);
@@ -659,7 +659,7 @@ function checkBinaries(): Check {
 
 /**
  * The private settings file against the schema (src/config/check.ts): `warn` naming each unknown key and each key of
- * the wrong type, or the old layout that tools/config-files-move.mjs moves; `fail` when a file is not JSON, the
+ * the wrong type, or the old layout that scripts/config-files-move.ts moves; `fail` when a file is not JSON, the
  * tracked file is missing or a file sits at both its places.
  */
 function checkConfig(where: { rootDir: string; privateDir: string }): Check {

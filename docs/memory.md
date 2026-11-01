@@ -320,7 +320,7 @@ Everything else (profiles, places, channels, lore, the record's day files, the j
 
 The graph (`graph_nodes`, `graph_edges`, `node_access`) is entirely derived from the typed tables. The manifest (`src/memory/db/graph-manifest.ts`) names every node kind and every edge predicate, and says which typed table and columns each comes from. Every write transaction projects the affected rows into the graph at the same time.
 
-The graph is rebuildable: `tools/memory-db.mjs rebuild` drops and rebuilds it from the typed tables. An edge retired because its source row no longer produces it is history the typed tables do not hold; a rebuild does not bring it back.
+The graph is rebuildable: `scripts/memory-db.ts rebuild` drops and rebuilds it from the typed tables. An edge retired because its source row no longer produces it is history the typed tables do not hold; a rebuild does not bring it back.
 
 Each edge carries the audience of the row it came from. `node_access` holds one witness per (node, audience, evidence): a node with its own audience (a source, a claim) witnesses itself; every live edge witnesses both of its ends. A graph walk follows only edges the context may read.
 
@@ -328,35 +328,35 @@ Each edge carries the audience of the row it came from. `node_access` holds one 
 
 ### Backups
 
-`tools/memory-db.mjs backup` (or the service's daily job at `memoryDb.backup.hour` UTC, default 3, when `memoryDb.backup.enabled` is on): `VACUUM INTO` a copy, the diary media, and a manifest with SHA-256 hashes of every file, the schema version, the engine commit and the row count of every table. The newest `memoryDb.backup.keep` (default 7) backups are kept; older ones and unfinished ones are pruned.
+`scripts/memory-db.ts backup` (or the service's daily job at `memoryDb.backup.hour` UTC, default 3, when `memoryDb.backup.enabled` is on): `VACUUM INTO` a copy, the diary media, and a manifest with SHA-256 hashes of every file, the schema version, the engine commit and the row count of every table. The newest `memoryDb.backup.keep` (default 7) backups are kept; older ones and unfinished ones are pruned.
 
 ### Restore
 
-`tools/memory-db.mjs restore --from <backup> --db <target>`: checks every file in the backup against its manifest, copies the database (which must not exist, nor its WAL or SHM files), copies the diary media under the data directory, and checks the restored file's schema version and row counts.
+`scripts/memory-db.ts restore --from <backup> --db <target>`: checks every file in the backup against its manifest, copies the database (which must not exist, nor its WAL or SHM files), copies the diary media under the data directory, and checks the restored file's schema version and row counts.
 
 ### Restoring one part
 
-The board and her memory share the file, and `tools/memory-db.mjs restore-tables --part board|memory --from <backup> --db <file>` brings one of them back from a backup while the other stays as it is. It checks the backup against its manifest, takes the writer lock and replaces, in one transaction, every `board_*` table (`--part board`) or every other table (`--part memory`) with the backup's. A memory restore drops the triggers for the copy and makes them again, rebuilds the full-text indexes from the restored lines and checks the foreign keys before it commits. It refuses, and changes nothing, when the part's schema version in the backup differs from the file's, when the bot holds the lock, or when the backup fails its manifest.
+The board and her memory share the file, and `scripts/memory-db.ts restore-tables --part board|memory --from <backup> --db <file>` brings one of them back from a backup while the other stays as it is. It checks the backup against its manifest, takes the writer lock and replaces, in one transaction, every `board_*` table (`--part board`) or every other table (`--part memory`) with the backup's. A memory restore drops the triggers for the copy and makes them again, rebuilds the full-text indexes from the restored lines and checks the foreign keys before it commits. It refuses, and changes nothing, when the part's schema version in the backup differs from the file's, when the bot holds the lock, or when the backup fails its manifest.
 
 ### Restore test
 
-`tools/memory-db.mjs restore-test --from <backup>`: proves a backup in a temporary directory by restoring it and verifying everything matches.
+`scripts/memory-db.ts restore-test --from <backup>`: proves a backup in a temporary directory by restoring it and verifying everything matches.
 
 ### Inspection
 
 | Command | What it does |
 |---|---|
-| `tools/memory-db.mjs stats` | Row counts per table, per scope kind, per audience |
-| `tools/memory-db.mjs hash` | Content hash (SHA-256) per table, to verify round-trip integrity |
-| `tools/memory-db.mjs reproject` | Re-projects every typed row into the graph |
-| `tools/memory-db.mjs rebuild` | Drops and rebuilds the graph and full-text indexes |
-| `tools/memory-db.mjs index-policy` | Shows (or with `--apply` writes) the tier of every line and which vectors would be evicted |
-| `tools/memory-db.mjs media-check` | Checks which diary media files are present or missing |
-| `tools/memory-db.mjs board list` | Every task of the board, read-only, also while the bot runs (`--json` prints the answer of `task.list`) |
-| `tools/memory-db.mjs board show <id>` | One task with its dependencies, attempts, questions, reviews, results, comments and latest events (`--json` prints the answer of `task.show`, its latest handoff included) |
-| `tools/memory-db.mjs board verify-errands` | Every errand of the `work` archive compared with its board task field by field, read-only; exit 1 on any difference (`--json` prints `{ checked, mismatches: [{ id, field }] }`, the field `missing` for an errand with no task) |
-| `tools/memory-session.mjs` | Runs her memory session once, in shadow, on a copy of the database |
-| `tools/recall-eval.mjs` | Recall against questions with known answers |
+| `scripts/memory-db.ts stats` | Row counts per table, per scope kind, per audience |
+| `scripts/memory-db.ts hash` | Content hash (SHA-256) per table, to verify round-trip integrity |
+| `scripts/memory-db.ts reproject` | Re-projects every typed row into the graph |
+| `scripts/memory-db.ts rebuild` | Drops and rebuilds the graph and full-text indexes |
+| `scripts/memory-db.ts index-policy` | Shows (or with `--apply` writes) the tier of every line and which vectors would be evicted |
+| `scripts/memory-db.ts media-check` | Checks which diary media files are present or missing |
+| `scripts/memory-db.ts board list` | Every task of the board, read-only, also while the bot runs (`--json` prints the answer of `task.list`) |
+| `scripts/memory-db.ts board show <id>` | One task with its dependencies, attempts, questions, reviews, results, comments and latest events (`--json` prints the answer of `task.show`, its latest handoff included) |
+| `scripts/memory-db.ts board verify-errands` | Every errand of the `work` archive compared with its board task field by field, read-only; exit 1 on any difference (`--json` prints `{ checked, mismatches: [{ id, field }] }`, the field `missing` for an errand with no task) |
+| `scripts/memory-session.ts` | Runs her memory session once, in shadow, on a copy of the database |
+| `scripts/recall-eval.ts` | Recall against questions with known answers |
 
 ### A read-only copy
 
