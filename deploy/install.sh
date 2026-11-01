@@ -151,7 +151,7 @@ fi
 run install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$PRIVATE_DIR/prompts.local"
 run install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 "$PRIVATE_DIR/config.local"
 if [ -e "$PRIVATE_DIR/config.local.json" ]; then
-  echo "= $PRIVATE_DIR/config.local.json is the old layout: move it with node tools/config-files-move.mjs --private $PRIVATE_DIR --apply"
+  echo "= $PRIVATE_DIR/config.local.json is the old layout: move it with node scripts/config-files-move.ts --private $PRIVATE_DIR --apply"
 elif [ -e "$PRIVATE_DIR/config.local/config.json" ]; then
   echo "= $PRIVATE_DIR/config.local/config.json already exists, not overwritten"
 else

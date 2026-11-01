@@ -3,7 +3,7 @@
 # (bin/neptunia.ts) as the user neptunia-discord-interface.
 #
 # The runner reads the client token <private>/clients/%i.token (written by
-# tools/client-token.mjs, owned by this user, mode 0600), connects to the
+# scripts/client-token.ts, owned by this user, mode 0600), connects to the
 # core's socket <data>/run/core.sock as a member of the group neptunia, and
 # keeps the interface's data under <data>/interfaces/%i. It reads no .env: the
 # platform token (DISCORD_TOKEN for discord) comes from the optional

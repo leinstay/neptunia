@@ -1,4 +1,4 @@
-// Tests for the virtual-week harness of the inner life (tools/lib/inner-week.mjs, tools/inner-week.mjs):
+// Tests for the virtual-week harness of the inner life (scripts/lib/inner-week.ts, scripts/inner-week.ts):
 // the fake clock and its jumps onto the tick grid, the fixture loading and its errors, the gates
 // computed from a run (each one shown to bite on a run that breaks it), and whole weeks of the
 // shipped fixtures with the stub voice over the production scheduler and intention service. No
@@ -34,7 +34,7 @@ import {
   reportOf,
   stepsOf,
   withChannelMap,
-} from '../tools/lib/inner-week.mjs';
+} from '../scripts/lib/inner-week.ts';
 import {
   addFixturePeople,
   effectsLookup,
@@ -43,19 +43,20 @@ import {
   parseArgs,
   readFixture,
   scriptedHistory,
-} from '../tools/inner-week.mjs';
+} from '../scripts/inner-week.ts';
 import '../src/tools/impl/index.ts';
 import { call as toolCall, callBlock as toolCallBlock } from './fixtures/tool-answers.ts';
 import { createStore } from '../src/memory/store.ts';
 import { directoryEntries } from '../src/behavior/handles.ts';
-import { CliError, REFUSED_EXIT } from '../tools/lib/cli.mjs';
+import { CliError, REFUSED_EXIT } from '../scripts/lib/cli.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS } from '../src/time.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { Fixture, WeekRun } from '../scripts/lib/inner-week-fixture.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const FIXTURES = path.join(ROOT, 'tools', 'fixtures', 'inner-week');
+const FIXTURES = path.join(ROOT, 'scripts', 'fixtures', 'inner-week');
 const effectsOf = effectsLookup();
 
 /** A minimal fixture, `extra` merged over it. */
@@ -73,7 +74,7 @@ function fixture(extra = {}) {
   });
 }
 
-async function week(fx: Record<string, Untyped>, options = {}) {
+async function week(fx: Fixture, options = {}) {
   const run = await runWeek({ fixture: fx, dataDir: tempDir('nep-week-'), skills: { effectsOf }, ...options });
   return { run, gates: computeGates(run, fx, effectsOf) };
 }
@@ -205,7 +206,8 @@ test('inner-week: a fixture intention is born at the start, or at its `at`, with
   );
   // Played: the record carries the span and the id of that scripted line; the one without a span carries neither.
   const { run } = await week(fx);
-  const recordOf = (key: string) => run.intentions.find((r: Record<string, Untyped>) => r.id === run.keys[key]);
+  const recordOf = (key: string) =>
+    present(run.intentions.find((r: Record<string, Untyped>) => r.id === run.keys[key]));
   const line = run.chat.c1.find(
     (l: Record<string, Untyped>) => l.self && l.content === 'sure, I will send the recipe tomorrow'
   );
@@ -267,9 +269,9 @@ test('inner-week: the stub gate mirrors the inner gate: reads run, shadow propos
 // ---- the gates bite -------------------------------------------------------------
 
 /** A bare run record for the gate functions. */
-function bareRun(extra = {}) {
+function bareRun(extra = {}): WeekRun {
   const start = Date.parse('2026-11-02T00:00:00Z');
-  return {
+  return wrongly<WeekRun>({
     startMs: start,
     endMs: start + 2 * 24 * HOUR_MS,
     timezone: 'UTC',
@@ -285,7 +287,7 @@ function bareRun(extra = {}) {
     stoppedAtEnd: false,
     keys: {},
     ...extra,
-  };
+  });
 }
 
 const turnAt = (
@@ -758,7 +760,7 @@ test('inner-week: in live mode every writable fixture channel is the real channe
   const real = { id: '123456789012345678', name: 'dev-room' };
   const map = liveChannelMap(fx, real);
   assert.deepEqual(map, { 'c-general': real, 'c-games': real });
-  const mapped: Record<string, Untyped> = withChannelMap(fx, map);
+  const mapped: Fixture = withChannelMap(fx, map);
   assert.deepEqual(mapped.channels, [
     { id: real.id, name: real.name, writable: true },
     { id: 'c-news', name: 'announcements', writable: false },
@@ -787,7 +789,10 @@ test('inner-week: in live mode every writable fixture channel is the real channe
   // Played with the stub: the kept intentions' destination is the real channel, the wakes land in it, the unwritable one still drops as no-channel.
   const { run } = await week(mapped, { mode: 'shadow' });
   const byKey = Object.fromEntries(
-    Object.entries(run.keys).map(([key, id]) => [key, run.intentions.find((r: Record<string, Untyped>) => r.id === id)])
+    Object.entries(run.keys).map(([key, id]) => [
+      key,
+      present(run.intentions.find((r: Record<string, Untyped>) => r.id === id)),
+    ])
   );
   assert.equal(byKey['kept-quiz'].destination, real.id);
   assert.equal(byKey.unwritable.destination, 'c-news');
@@ -830,7 +835,7 @@ test('inner-week: the recurring fixture runs one daily intention through its occ
     gates.filter((g) => !g.pass),
     []
   );
-  const record = run.intentions.find((r: Record<string, Untyped>) => run.keys['evening-memes'] === r.id);
+  const record = present(run.intentions.find((r: Record<string, Untyped>) => run.keys['evening-memes'] === r.id));
   assert.deepEqual(record.every, { period: 'day', at: '20:00' });
   assert.equal(record.status, 'expired');
   assert.deepEqual(
@@ -913,7 +918,7 @@ test('inner-week: the attention fixture: the attended channel wakes her once per
     run.journal.filter((e) => e.event === 'wake' && e.wake.kind === 'attend').every((e) => e.wake.place === 'c-garden')
   );
   // The day-4 review sees the page: the listen-only place with its burst, #general's burst, #garden quiet since her last look.
-  const review = run.turns.find((turn) => turn.kind === 'review' && turn.dayNumber === 4);
+  const review = present(run.turns.find((turn) => turn.kind === 'review' && turn.dayNumber === 4));
   assert.deepEqual(
     review.places.items.map((p: Record<string, Untyped>) => [p.id, p.lines, p.people, p.writable, p.attended]),
     [
@@ -924,7 +929,7 @@ test('inner-week: the attention fixture: the attended channel wakes her once per
   );
   assert.deepEqual([review.places.total, review.places.more], [3, 0]);
   // The attention itself: set by her first review, dropped by the fourth; nothing reseeds it.
-  const record = run.intentions.find((r: Record<string, Untyped>) => r.id === run.keys.garden);
+  const record = present(run.intentions.find((r: Record<string, Untyped>) => r.id === run.keys.garden));
   assert.deepEqual([record.attend.place, record.attend.perDay, record.status], ['c-garden', 2, 'cancelled']);
   assert.equal(record.attend.today.wakes, 1, 'the day-3 wake counted on its day');
   assert.equal(run.intentions.length, 1);
@@ -1014,7 +1019,7 @@ test("inner-week: a fixture attention wakes her on the place's lines after the s
       ['2026-11-04T10:02:00.000Z', 1, 1],
     ]
   );
-  const record = run.intentions.find((r: Record<string, Untyped>) => r.id === run.keys.k);
+  const record = present(run.intentions.find((r: Record<string, Untyped>) => r.id === run.keys.k));
   assert.deepEqual(
     [record.attend.people, record.attend.perDay],
     [['u-2'], 1],
@@ -1024,7 +1029,7 @@ test("inner-week: a fixture attention wakes her on the place's lines after the s
 });
 
 test('inner-week: the feedback fixture: an intention turn whose post is refused gets exactly one feedback wake in its chain at the next tick, naming the refused call and the intention closed without delivery; the feedback turn posts and gets none; the gate bites', async () => {
-  const fx: Record<string, Untyped> = readFixture('feedback', { dir: FIXTURES });
+  const fx: Fixture = readFixture('feedback', { dir: FIXTURES });
   assert.ok(fx.stub.feedback, 'the stub answers the feedback kind');
   const { run, gates } = await week(fx);
   assert.deepEqual(
@@ -1088,7 +1093,7 @@ test('inner-week: the feedback fixture: an intention turn whose post is refused 
     gate(
       computeGates(
         run,
-        { ...fx, expect: { ...fx.expect, feedback: { ...fx.expect.feedback, ...feedback } } },
+        wrongly<Fixture>({ ...fx, expect: { ...fx.expect, feedback: { ...fx.expect.feedback, ...feedback } } }),
         effectsOf
       ),
       'feedback'
@@ -1111,7 +1116,11 @@ test('inner-week: the feedback fixture: an intention turn whose post is refused 
     ],
   };
   const bitten = gate(
-    computeGates(forged, { ...fx, expect: { ...fx.expect, feedback: { ...fx.expect.feedback, wakes: 2 } } }, effectsOf),
+    computeGates(
+      forged,
+      wrongly<Fixture>({ ...fx, expect: { ...fx.expect, feedback: { ...fx.expect.feedback, wakes: 2 } } }),
+      effectsOf
+    ),
     'feedback'
   );
   assert.equal(present(bitten).pass, false);

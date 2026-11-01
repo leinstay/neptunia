@@ -41,7 +41,7 @@ import { createLookup as createLookupOf } from '../src/web/lookup.ts';
 import { loadSkills } from '../src/tools/registry.ts';
 import { listSkills } from '../src/tools/gateway.ts';
 import { CATALOGUE } from '../src/tools/codes.ts';
-import { catalogueProblems } from '../tools/lib/labels-catalogue.mjs';
+import { catalogueProblems } from '../scripts/lib/labels-catalogue.ts';
 import { feedbackInTurnText, wakeBlockText } from '../src/behavior/wake.ts';
 import { labels as contractLabels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';

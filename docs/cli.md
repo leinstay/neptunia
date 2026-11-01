@@ -15,7 +15,7 @@
 
 ## The client
 
-The chat and `-p` are the client `cli` of kind `cli`. Its token is `<private>/clients/cli.token`, which `tools/client-token.mjs add cli --kind cli` writes, and the file must be readable by the user who runs `neptunia`. The command connects to `<data>/run/core.sock` and says `hello` as `iface: 'cli'`, and only a `cli` principal may name that namespace. The core runs its commands with the owner's rights, whatever `bot.owners` says.
+The chat and `-p` are the client `cli` of kind `cli`. Its token is `<private>/clients/cli.token`, which `scripts/client-token.ts add cli --kind cli` writes, and the file must be readable by the user who runs `neptunia`. The command connects to `<data>/run/core.sock` and says `hello` as `iface: 'cli'`, and only a `cli` principal may name that namespace. The core runs its commands with the owner's rights, whatever `bot.owners` says.
 
 ## The chat
 
@@ -50,7 +50,7 @@ The core's console (`src/interface/commands/console.ts`) runs each command with 
 | `/memory profile <user> [section]`, `affinity <user>`, `private <user>` | A member's profile, affinity and private memory. |
 | `/memory conversation <id>`, `recent`, `server`, `journal [<day>]`, `archive [<kind>]` | A conversation's newest 30 stored lines from the memory database, the live recent lines, the server notes, the journal of a day and what left hot memory. |
 | `/memory search <query>` | A search of her memory (`memory.search`). |
-| `/memory backup` | A backup of the memory database into `memoryDb.backup.dir` (default `../backups/memory`, from the data folder) through `src/memory/db/backup.ts`, then the list of the kept ones. A whole-database restore is `tools/memory-db.mjs restore` on a stopped core. |
+| `/memory backup` | A backup of the memory database into `memoryDb.backup.dir` (default `../backups/memory`, from the data folder) through `src/memory/db/backup.ts`, then the list of the kept ones. A whole-database restore is `scripts/memory-db.ts restore` on a stopped core. |
 | `/memory restore <id>` | An archived item back in memory (`memory.restore`). |
 | `/memory lore add <title> <keys> <text>`, `lore list [<query>]`, `lore show <id>`, `lore remove <id>` | The lore entries. |
 | `/memory aliases add <user> <name>`, `aliases list <user>`, `aliases remove <user> <name>` | A member's aliases. |

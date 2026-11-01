@@ -1082,7 +1082,7 @@ export function createRecall({
       hidden: found.hidden,
       totalMs: now() - started,
     });
-    // `hitIds`: the messages the search matched (tools/recall-eval.mjs scores them); the persona's tool ignores it.
+    // `hitIds`: the messages the search matched (scripts/recall-eval.ts scores them); the persona's tool ignores it.
     return {
       text: null,
       stretch: null,

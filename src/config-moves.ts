@@ -5,7 +5,7 @@
 // `llm.analyzerTimeoutMs`). A local config written with the old keys keeps its meaning
 // because `moveConfigKeys` writes each old key under its new name, and the loader (src/config.ts#readConfig) applies it to
 // the local file before that file is laid over config.json, so an old key overrides the shipped default of its new name.
-// `tools/config-migrate.mjs` writes the same moves into the file.
+// `scripts/config-migrate.ts` writes the same moves into the file.
 //
 // The moves are one ordered list. A move whose old key is absent does nothing, so applying the list twice gives the
 // same config. Where the old and the new key are both set, the new one wins and the old one is dropped and reported as

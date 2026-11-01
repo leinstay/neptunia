@@ -1,4 +1,4 @@
-// tools/config-files-move.mjs moves a deployment's local layer to the places PR 7c reads: `config.local.json` to
+// scripts/config-files-move.ts moves a deployment's local layer to the places PR 7c reads: `config.local.json` to
 // `config.local/config.json` as it is, and the flat `prompts.local/labels.json` to `config.local/labels.json`, split into
 // `model` and `owner` by the tracked `config/labels.json`. Without `--apply` it writes nothing. A file at both its old
 // and its new place is cleaned when the two agree and refused when they differ, and a refusal stops the whole run
@@ -25,7 +25,7 @@ const SPLIT_LABELS = {
 };
 
 function run(target: Layer, flags: ReadonlyArray<string>): { code: number | null; out: string; err: string } {
-  const done = spawnSync(process.execPath, ['tools/config-files-move.mjs', '--private', target.dir, ...flags], {
+  const done = spawnSync(process.execPath, ['scripts/config-files-move.ts', '--private', target.dir, ...flags], {
     cwd: ROOT,
     encoding: 'utf8',
     env: { ...process.env, NEPTUNIA_PRIVATE_DIR: '' },
@@ -149,7 +149,7 @@ test('refuses a half-moved layer whose two labels files differ, names the file, 
 test('refuses to run without --private, says so, and moves nothing', () => {
   const home = oldLayer();
   const before = snapshot(home);
-  const done = spawnSync(process.execPath, ['tools/config-files-move.mjs', '--apply'], {
+  const done = spawnSync(process.execPath, ['scripts/config-files-move.ts', '--apply'], {
     cwd: ROOT,
     encoding: 'utf8',
     env: { ...process.env, NEPTUNIA_PRIVATE_DIR: home.dir },

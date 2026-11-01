@@ -5,7 +5,7 @@
 // A builtin principal (`BoardOptions.builtins`, the core's `persona`) holds exactly its own roles, whatever
 // `clients.json` says of its name.
 // A board that is not at its schema version answers `board-unavailable` to everything. `readBoard` is the offline
-// inspection of tools/memory-db.mjs. Nothing here logs.
+// inspection of scripts/memory-db.ts. Nothing here logs.
 
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
@@ -398,7 +398,7 @@ function requireVersion(db: BoardDb): void {
 }
 
 /**
- * The board read without a principal, for inspection with the core down (tools/memory-db.mjs `board list` and
+ * The board read without a principal, for inspection with the core down (scripts/memory-db.ts `board list` and
  * `board show`): the answers of `task.list` with no filter and of `task.show`. Throws BoardError 'board-unavailable'
  * when the board is not at its version and 'not-found' for an unknown id.
  */

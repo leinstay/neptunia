@@ -4,7 +4,7 @@
 // Discord package (interfaces/discord/config.json), the two privacy switches live on under `private`, and the per-wake
 // budgets are kept as one `innerLife.wakes.*.<field>` entry each. `cutConfigKeys` takes all of them out of a local
 // layer written before the cut: the loader (src/config.ts#readConfig) applies it at each load, and
-// tools/config-migrate.mjs writes it into the file and reports each live value that differs from its constant.
+// scripts/config-migrate.ts writes it into the file and reports each live value that differs from its constant.
 
 export type CutFate = 'constant' | 'code' | 'gone' | 'cap' | 'discord' | 'rename' | 'wildcard';
 /** One key the cut took out of the settings; `value` is the constant (true for code, the off value for gone), null for a cap. */

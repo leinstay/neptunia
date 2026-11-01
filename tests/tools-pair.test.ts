@@ -1,8 +1,8 @@
-// Tests for tools/lib/pair.mjs: the trigger list, the blind order, the sheet and the tally of
-// the paired replay (tools/replay.mjs --pair, tools/replay-score.mjs).
+// Tests for scripts/lib/pair.ts: the trigger list, the blind order, the sheet and the tally of
+// the paired replay (scripts/replay.ts --pair, scripts/replay-score.ts).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTriggers, pairOrder, renderSheet, sheetPairIds, tallyScores, escapeHtml } from '../tools/lib/pair.mjs';
+import { parseTriggers, pairOrder, renderSheet, sheetPairIds, tallyScores, escapeHtml } from '../scripts/lib/pair.ts';
 
 const CH = '123456789012345678';
 const M1 = '223456789012345678';

@@ -1,18 +1,20 @@
-// Tests for tools/search-policy-eval.mjs and its pure part tools/lib/search-policy-eval.mjs: the
+// Tests for scripts/search-policy-eval.ts and its pure part scripts/lib/search-policy-eval.ts: the
 // sheet read, the decisions, the confusion matrix, the disagreement list, `--dry-run` and
 // `--limit`, with an injected fake llm and a temporary sheet (no network, no real prompts or data).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { main } from '../tools/search-policy-eval.mjs';
-import { CliError } from '../tools/lib/cli.mjs';
-import { decisionOf, parseSheet, rowChat, summarize } from '../tools/lib/search-policy-eval.mjs';
+import { main } from '../scripts/search-policy-eval.ts';
+import { CliError } from '../scripts/lib/cli.ts';
+import { decisionOf, parseSheet, rowChat, summarize } from '../scripts/lib/search-policy-eval.ts';
 import { lookupClassifierInput } from '../src/behavior/turn.ts';
 import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { Hot } from '../src/hot.ts';
+import { wrongly } from './fixtures/loose-types.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -185,9 +187,7 @@ test('search-policy-eval: three rows -> decisions, results.jsonl, the confusion 
   const { history, trigger } = rowChat({ ...ROWS[1], context: ROWS[1].context }, { now: NOW, selfName: 'Persona' });
   assert.equal(
     messages[1].content,
-    lookupClassifierInput({ config, labels, selfName: 'Persona', history, trigger } as unknown as Parameters<
-      typeof lookupClassifierInput
-    >[0]).user
+    lookupClassifierInput({ config, labels, selfName: 'Persona', history, trigger }).user
   );
   assert.match(
     messages[1].content,
@@ -268,7 +268,7 @@ test('search-policy-eval: refuses a bad sheet, a missing --out, an --out under d
         cwd: dir,
         rootDir: dir,
         now: () => NOW,
-        hot: hotFixture(),
+        hot: wrongly<Hot>(hotFixture()),
         env: {},
       })
     ),
@@ -280,7 +280,7 @@ test('search-policy-eval: refuses a bad sheet, a missing --out, an --out under d
         cwd: dir,
         rootDir: dir,
         now: () => NOW,
-        hot: hotFixture(),
+        hot: wrongly<Hot>(hotFixture()),
         env: {},
       })
     ),

@@ -12,6 +12,6 @@
     "types": ["node"],
     "skipLibCheck": true
   },
-  "include": ["src", "interfaces", "tests", "tools", "bin", "agents"],
-  "exclude": ["node_modules", "**/node_modules", ".agents", "data", "references", "prompts.local", "tools/fixtures"]
+  "include": ["src", "interfaces", "tests", "scripts", "bin", "agents"],
+  "exclude": ["node_modules", "**/node_modules", ".agents", "data", "references", "prompts.local", "scripts/fixtures"]
 }

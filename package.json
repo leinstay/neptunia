@@ -30,17 +30,17 @@
     "start": "node src/index.ts",
     "dev": "node --watch src/index.ts",
     "test": "node --test \"tests/**/*.test.{js,ts}\"",
-    "check:codes": "node tools/labels-catalogue.mjs --check",
+    "check:codes": "node scripts/labels-catalogue.ts --check",
     "lint": "eslint . --pass-on-unpruned-suppressions",
     "lint:prune": "eslint . --prune-suppressions",
-    "typecheck": "node tools/type-baseline.mjs",
-    "typecheck:update": "node tools/type-baseline.mjs --update",
+    "typecheck": "node scripts/type-baseline.ts",
+    "typecheck:update": "node scripts/type-baseline.ts --update",
     "format:check": "prettier --check",
-    "health": "node tools/code-health.mjs && node tools/code-health.mjs --check-docs",
-    "health:update": "node tools/code-health.mjs --update",
-    "prose": "node tools/prose-check.mjs",
-    "prose:update": "node tools/prose-check.mjs --update",
-    "mutation": "node tools/mutation-diff.mjs"
+    "health": "node scripts/code-health.ts && node scripts/code-health.ts --check-docs",
+    "health:update": "node scripts/code-health.ts --update",
+    "prose": "node scripts/prose-check.ts",
+    "prose:update": "node scripts/prose-check.ts --update",
+    "mutation": "node scripts/mutation-diff.ts"
   },
   "workspaces": [
     "interfaces/*"

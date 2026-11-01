@@ -1,4 +1,4 @@
-<!-- Generated from structure.json by `node tools/code-health.mjs --docs`. Do not edit by hand. -->
+<!-- Generated from structure.json by `node scripts/code-health.ts --docs`. Do not edit by hand. -->
 
 # Repository structure
 
@@ -17,14 +17,14 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `skills.local/` | local | A deployment's own skills, one folder with a SKILL.md each; a skill here replaces the tracked skill of the same name. | nothing | none |
 | `plugins/` | public | The tracked plugins: one folder per plugin with a package.json, a plugin.json, an index.ts, the skills it ships and a README, and the README that says how to write and connect one. A plugin imports only the protocol. | `node:*`, `src/protocol/**` | required |
 | `plugins.local/` | local | A deployment's own plugins, one folder per plugin with its plugin.json and index.ts; a plugin here replaces the tracked plugin of the same name. | nothing | none |
-| `config.local.json` | local | The old place of a deployment's settings, read until `tools/config-files-move.mjs` moves it into `config.local/`. | nothing | none |
+| `config.local.json` | local | The old place of a deployment's settings, read until `scripts/config-files-move.ts` moves it into `config.local/`. | nothing | none |
 | `config.local/` | local | A deployment's settings, labels and tool texts, each laid over its tracked file, and the settings of each interface it runs. | nothing | none |
 | `data/` | local | A deployment memory, state and logs. | nothing | none |
 | `config/` | public | The tracked default settings, the labels code inserts (split into model and owner) and the texts of the persona's tools. | nothing | none |
 | `package.json` | public | The root package: scripts, workspaces and development dependencies. | nothing | none |
 | `package-lock.json` | public | The locked dependency tree. | nothing | none |
 | `tsconfig.json` | public | The TypeScript compiler options used for type checking. | nothing | none |
-| `eslint.config.js` | public | The ESLint flat configuration. | `@eslint/js`, `globals`, `eslint-plugin-import-x`, `typescript-eslint`, `tools/eslint-test-rules.mjs` | none |
+| `eslint.config.js` | public | The ESLint flat configuration. | `@eslint/js`, `globals`, `eslint-plugin-import-x`, `typescript-eslint`, `scripts/eslint-test-rules.ts` | none |
 | `stryker.config.json` | public | The Stryker settings that stay the same on every mutation run. | nothing | none |
 | `eslint-suppressions.json` | public | The recorded ESLint violations that may only shrink. | nothing | none |
 | `type-baseline.json` | public | The recorded type errors that may only shrink. | nothing | none |
@@ -46,12 +46,12 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `interfaces/README.md` | public | The overview of the interface packages. | nothing | none |
 | `interfaces/discord/` | public | The Discord interface: the only code that imports discord.js, translating between the platform and the protocol. It reads the core's media classifier and video-site matcher, pure modules, and classifies Discord's embeds and media addresses itself. | `node:*`, `discord.js`, `src/media/classify.ts`, `src/media/video-sites.ts`, `src/protocol/**`, `interfaces/discord/platform-types.ts`, `interfaces/discord/values.ts` | required |
 | `interfaces/discord/setup.ts` | public | The setup of the Discord interface, which refuses until the neptunia CLI runs it. No behaviour to test. | nothing | none |
-| `tests/` | public | The node:test files, one per module. | `discord.js`, `eslint`, `node:*`, `src/**`, `interfaces/**`, `tools/**`, `bin/**`, `tests/**` | none |
-| `tests/fixtures/` | public | Fakes, harnesses and sample data the tests share. | `discord.js`, `node:*`, `src/**`, `interfaces/**`, `tools/**`, `bin/**`, `tests/**` | none |
-| `tools/` | public | Scripts for development and measurement, never run by the engine. | `node:*`, `src/**`, `interfaces/**`, `tools/**`, `typescript`, `discord.js` | none |
-| `tools/lib/` | public | What the scripts under tools share. | `node:*`, `src/**`, `interfaces/**`, `tools/**` | none |
-| `tools/fixtures/` | public | Sample data for the virtual-week harness. | nothing | none |
-| `tools/prompts/` | public | Example scenario files for the tools. | nothing | none |
+| `tests/` | public | The node:test files, one per module. | `discord.js`, `eslint`, `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `bin/**`, `tests/**` | none |
+| `tests/fixtures/` | public | Fakes, harnesses and sample data the tests share. | `discord.js`, `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `bin/**`, `tests/**` | none |
+| `scripts/` | public | Scripts for development and measurement, never run by the engine. | `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `typescript`, `discord.js`, `eslint`, `estree` | none |
+| `scripts/lib/` | public | What the scripts under `scripts/` share. | `node:*`, `src/**`, `interfaces/**`, `scripts/**` | none |
+| `scripts/fixtures/` | public | Sample data for the virtual-week harness. | nothing | none |
+| `scripts/prompts/` | public | Example scenario files for the scripts. | nothing | none |
 | `src/*.ts` | public | The small modules every part uses: settings, hot reload, logging, paths, time and text formatting. | `node:*`, `src/**` | required |
 | `src/config/` | public | Where the settings and the labels live, the join and split of the labels, the settings schema and its checks. | `node:*`, `src/config/**` | required |
 | `src/config/schema/` | public | The entries of the settings schema, one file per top-level section of `config/config.json`. | `src/config/schema.ts` | none |

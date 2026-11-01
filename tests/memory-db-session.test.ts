@@ -933,7 +933,7 @@ test('writes from the main thread go through the worker: a session write lands i
 });
 
 test('the tool: a 429 is waited out (Retry-After first) and tried again, three tries at most; other errors are thrown at once', async () => {
-  const { backoffMs, opKinds, parseSubject, withBackoff } = await import('../tools/memory-session.mjs');
+  const { backoffMs, opKinds, parseSubject, withBackoff } = await import('../scripts/memory-session.ts');
   const limited = (extra = {}) => Object.assign(new Error('slow down'), { statusCode: 429, ...extra });
   assert.equal(backoffMs(limited({ headers: new Map([['retry-after', '7']]) }), 1), 7000);
   assert.equal(backoffMs(limited({ headers: { 'retry-after': new Date(NOW + 9000).toUTCString() } }), 1, NOW), 9000);
@@ -947,11 +947,11 @@ test('the tool: a 429 is waited out (Retry-After first) and tried again, three t
   };
   let calls = 0;
   const flaky = withBackoff(
-    (async () => {
+    async () => {
       calls += 1;
       if (calls < 3) throw limited({ retryAfterMs: 500 * calls });
       return 'done';
-    }) as unknown as Parameters<typeof withBackoff>[0], // the call answers a string, not a completion object
+    }, // the call answers a string, not a completion object
     { sleep }
   );
   assert.equal(await flaky([], {}), 'done');

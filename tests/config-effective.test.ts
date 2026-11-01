@@ -1,4 +1,4 @@
-// `tools/config-effective.mjs` is the deploy proof of PR 7d. `--snapshot <file>` writes the effective config of a private
+// `scripts/config-effective.ts` is the deploy proof of PR 7d. `--snapshot <file>` writes the effective config of a private
 // layer (`--private <dir>`) and the settings objects the readers derive from it, as `{ config, settings }`, the
 // settings keyed by the reader's name (`recallSettings`, `innerSettings`, ...). `--compare <file>` derives the same from
 // the layer as it is now and prints one line per difference, `<path>: before <json>, after <json>`, ending in
@@ -18,7 +18,7 @@ type Tree = Record<string, unknown>;
 const isTree = (value: unknown): value is Tree => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 function tool(flags: Array<string>): { code: number | null; out: string; err: string } {
-  const run = spawnSync(process.execPath, ['tools/config-effective.mjs', ...flags], { cwd: ROOT, encoding: 'utf8' });
+  const run = spawnSync(process.execPath, ['scripts/config-effective.ts', ...flags], { cwd: ROOT, encoding: 'utf8' });
   return { code: run.status, out: run.stdout, err: run.stderr };
 }
 

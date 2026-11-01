@@ -1,6 +1,6 @@
 // The memory graph (spec 2026-10-24-memory-schema-v7, section 3; section 11 item 5 overrides it): a projection of the
 // typed tables into `graph_nodes`, `graph_edges` and `node_access`, and the traversal over it. The typed tables are the
-// only authority; everything here is derived and rebuildable (tools/memory-db.mjs rebuild). The rules are the
+// only authority; everything here is derived and rebuildable (scripts/memory-db.ts rebuild). The rules are the
 // manifest's (graph-manifest.ts).
 //
 // Projection

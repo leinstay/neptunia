@@ -1,6 +1,6 @@
 // Tests for src/behavior/sandbox.ts: the replay sandbox (a real moment's
 // request as a turn builds it, sampled, nothing sent), the memory as it stood
-// at the moment, the cached media a replay renders, and tools/replay.mjs's use
+// at the moment, the cached media a replay renders, and scripts/replay.ts's use
 // of the module, all against fakes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -1726,10 +1726,10 @@ test('replayMedia: the describer cache as it stood when she answered renders as 
   }
 });
 
-// ---- tools/replay.mjs ------------------------------------------------------------------------
+// ---- scripts/replay.ts ------------------------------------------------------------------------
 
-test('tools/replay.mjs: replays through src/behavior/sandbox.ts, every name it takes exported there', () => {
-  const source = fs.readFileSync(new URL('../tools/replay.mjs', import.meta.url), 'utf8');
+test('scripts/replay.ts: replays through src/behavior/sandbox.ts, every name it takes exported there', () => {
+  const source = fs.readFileSync(new URL('../scripts/replay.ts', import.meta.url), 'utf8');
   assert.ok(source.includes("path.join(src, 'behavior', 'sandbox.ts')"), 'the engine check names the sandbox');
   const match = /const \{([^}]*)\} = await load\('behavior\/sandbox\.ts'\);/.exec(source);
   assert.ok(match, 'replay loads the sandbox');

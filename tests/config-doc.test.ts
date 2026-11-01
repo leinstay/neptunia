@@ -1,4 +1,4 @@
-// tools/config-doc.mjs writes `docs/configuration.md` from the settings schema (src/config/schema.ts) to stdout. The
+// scripts/config-doc.ts writes `docs/configuration.md` from the settings schema (src/config/schema.ts) to stdout. The
 // document in the tree must be the generator's output, so a key added to the schema without a regenerated document
 // fails here, in CI as on the desk. The tests check which keys the output names, never its prose.
 import { test } from 'node:test';
@@ -10,7 +10,7 @@ import { CONFIG_SCHEMA } from '../src/config/schema.ts';
 import { ROOT } from './fixtures/private-layer.ts';
 
 function generated(): string {
-  const run = spawnSync(process.execPath, ['tools/config-doc.mjs'], { cwd: ROOT, encoding: 'utf8' });
+  const run = spawnSync(process.execPath, ['scripts/config-doc.ts'], { cwd: ROOT, encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
   return run.stdout;
 }

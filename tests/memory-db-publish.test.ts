@@ -28,7 +28,7 @@ import {
   unsettled,
 } from '../src/memory/db/publish.ts';
 import { issueContext } from '../src/memory/db/scope.ts';
-import { tableHashes } from '../tools/memory-db.mjs';
+import { tableHashes } from '../scripts/memory-db.ts';
 import { CHANNEL, buildDataDir, guildDir, writeJson, writeLines } from './fixtures/memory-db/datadir.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 

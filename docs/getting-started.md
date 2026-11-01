@@ -36,7 +36,7 @@ Copy `.env.example` to `.env` and fill in the values. The file is read once at s
 |---|---|---|
 | `DISCORD_TOKEN` | yes | The bot token from the Discord Developer Portal |
 | `OPENROUTER_CORE_KEY` | yes | The main API key for chat completions (the core and every role that `llm.keyByRole` does not map elsewhere) |
-| `OPENROUTER_SIM_KEY` | no | A second key used only by `tools/` scripts (replay, eval, memory session). Without it a tool refuses to run. The bot never spends it |
+| `OPENROUTER_SIM_KEY` | no | A second key used only by the scripts (replay, eval, memory session). Without it a script refuses to run. The bot never spends it |
 | `OPENROUTER_MANAGEMENT_KEY` | no | An OpenRouter management key. When set, the status card shows each key's last 7 and 30 days of spending from OpenRouter's own figures. The bot only reads activity with it |
 | `OPENROUTER_ERRAND_KEY` | no | The errand agents' own key (mapped via `llm.keyByRole`). The bot never sends its own requests with it |
 | `OPENROUTER_DEV_KEY` | no | The development worker's own key (mapped via `llm.keyByRole`) |
@@ -112,12 +112,12 @@ Tests run with `node --test`. No network, no Discord connection, no LLM calls ne
 
 Two tests prove facts about the engine as a whole. `tests/second-instance.test.ts` copies the tracked tree twice (`git ls-files`) into a temporary folder and starts each copy as a child process (`tests/fixtures/instance-runner.ts`). Each instance has its own `config.local/`, `prompts.local/`, data folder and socket, a scripted model and the fake interface, and one message goes through each. The test then compares the files each instance created, the named sockets and open files of each process (read from `/proc`), the rows of the two `memory.db` files and the prompt each model request carried. It fails when anything of one instance shows up in the other or in the checkout, and when a process does not end after `stop` or leaves a socket or a writer lock.
 
-`tools/fault-run.ts` counts every side effect of a run under its effect key. A key names one thing that must happen once: `send:<conversation>:<text>` for a message that reaches the interface, `react:<conversation>/<message>/<emoji>` for a reaction, `wake:<fixture>:<wake id>` for a wake a simulated week ran, `errand:<fixture>:<task>` for an errand end. The run passes when no key repeats and every expected effect happened once. It drives the real core (`startCore`) over a scripted model and the fake interface through one event id delivered at once, in sequence, after a reconnect and while the link is down, an edit and a delete of one message that reach the core while its turn waits on the model, a reaction cut off by `tools.callTimeoutMs`, and a core stopped mid-turn. It also plays the week fixtures of `tools/fixtures/inner-week/` over a fake clock, among them `hour-errand`, whose errand runs for an hour. The core's services read the wall clock, so the live-core scenarios run in real time and only the weeks use the fake clock. The scripted model follows the directive `do:<verb>:<word>` in the newest chat line or in the intention a wake says is due.
+`scripts/fault-run.ts` counts every side effect of a run under its effect key. A key names one thing that must happen once: `send:<conversation>:<text>` for a message that reaches the interface, `react:<conversation>/<message>/<emoji>` for a reaction, `wake:<fixture>:<wake id>` for a wake a simulated week ran, `errand:<fixture>:<task>` for an errand end. The run passes when no key repeats and every expected effect happened once. It drives the real core (`startCore`) over a scripted model and the fake interface through one event id delivered at once, in sequence, after a reconnect and while the link is down, an edit and a delete of one message that reach the core while its turn waits on the model, a reaction cut off by `tools.callTimeoutMs`, and a core stopped mid-turn. It also plays the week fixtures of `scripts/fixtures/inner-week/` over a fake clock, among them `hour-errand`, whose errand runs for an hour. The core's services read the wall clock, so the live-core scenarios run in real time and only the weeks use the fake clock. The scripted model follows the directive `do:<verb>:<word>` in the newest chat line or in the intention a wake says is due.
 
 ```bash
-node tools/fault-run.ts          # the long run: 10 rounds, 50 deliveries per repeated event, every week (about 30 s)
-node tools/fault-run.ts --short  # the plan of tests/fault-run.test.ts (about 3 s)
-node tools/fault-run.ts --rounds 3 --repeats 20 --weeks restart,promises
+node scripts/fault-run.ts          # the long run: 10 rounds, 50 deliveries per repeated event, every week (about 30 s)
+node scripts/fault-run.ts --short  # the plan of tests/fault-run.test.ts (about 3 s)
+node scripts/fault-run.ts --rounds 3 --repeats 20 --weeks restart,promises
 ```
 
 The table lists each scenario with its effect count, the keys that repeated and the expected keys that did not happen once. The exit code is 1 when either column holds a key.

@@ -1,8 +1,8 @@
-// Tests for tools/lib/report.mjs: the pure part of tools/journal-report.mjs and
-// tools/request-report.mjs, on fixture journal records of every kind and fixture log lines.
+// Tests for scripts/lib/report.ts: the pure part of scripts/journal-report.ts and
+// scripts/request-report.ts, on fixture journal records of every kind and fixture log lines.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { percentile, tally, limitsTable, renderDay, tallyLog, NA, LOG_OUTCOME } from '../tools/lib/report.mjs';
+import { percentile, tally, limitsTable, renderDay, tallyLog, NA, LOG_OUTCOME } from '../scripts/lib/report.ts';
 import { asRecord } from './fixtures/records.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.

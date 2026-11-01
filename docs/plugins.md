@@ -10,7 +10,7 @@ The tracked plugins are `plugins/<name>/` in the checkout. A deployment's own ar
 
 ## The client and the link
 
-A plugin is a client of the core with the kind `plugin`: an entry of the private layer's `clients.json` and a token file `clients/<name>.token` (see [Clients and principals](interfaces.md#clients-and-principals)). `/plugins enable` writes both, and `tools/client-token.mjs add <name> --kind plugin` writes them by hand. A plugin principal has no `iface` and no permissions.
+A plugin is a client of the core with the kind `plugin`: an entry of the private layer's `clients.json` and a token file `clients/<name>.token` (see [Clients and principals](interfaces.md#clients-and-principals)). `/plugins enable` writes both, and `scripts/client-token.ts add <name> --kind plugin` writes them by hand. A plugin principal has no `iface` and no permissions.
 
 The first envelope of a connection decides which link it becomes. `routeConnection` (`src/plugins/link.ts`) hands a connection whose first envelope is a `hello` under the namespace `plugin` to `openPluginLink`, and any other connection to the interface link (`openAdapterLink`, `src/interface/link.ts`). The plugin link closes, and its `hello` rejects with the reason, when the first envelope is not a `hello`, when the body is malformed, when the token stands for no one, when the token's principal is not a `plugin` principal, or when `admit` refuses it. The core's `admit` refuses a plugin that is not on with `plugin-disabled`, read at each `hello`. Every refused `hello` is logged as `link: hello refused` with its reason, and the accepted one as `link: hello` with `kind: 'plugin'`.
 

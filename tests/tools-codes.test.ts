@@ -23,7 +23,7 @@ import { fill, formatTranscript, withCalls } from '../src/format.ts';
 import { toolResultText } from '../src/tools/tool-calls.ts';
 import { refusalStatus } from '../src/tools/executors.ts';
 import { callMarksOf } from '../src/memory/journal.ts';
-import { catalogueProblems, renderCodesTable } from '../tools/lib/labels-catalogue.mjs';
+import { catalogueProblems, renderCodesTable } from '../scripts/lib/labels-catalogue.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { LabelsFile } from '../src/config/labels.ts';
@@ -167,7 +167,7 @@ test('labels: a code without its entry, an entry without its code and a value th
     catalogueProblems({
       catalogue: CATALOGUE,
       labels: shipped,
-      docs: contract.replace(renderCodesTable(CATALOGUE as unknown as Parameters<typeof renderCodesTable>[0]), ''),
+      docs: contract.replace(renderCodesTable(CATALOGUE), ''),
     })[0],
     /no generated codes table/
   );

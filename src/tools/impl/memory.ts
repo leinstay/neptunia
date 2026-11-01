@@ -430,7 +430,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep memory snapshot`: a consistent copy of `data/` for the tools (tools/replay.mjs): the store flushed, then every entry of `data/` but `snapshots/` and the vault copied to
+   * `/nep memory snapshot`: a consistent copy of `data/` for the tools (scripts/replay.ts): the store flushed, then every entry of `data/` but `snapshots/` and the vault copied to
    * `data/snapshots/<UTC time>/` while the journal holds its writes (journal.withWriterLock).
    * Owner-only (src/tools/impl/grants.ts). Nothing under `data/` is changed but the new directory.
    */

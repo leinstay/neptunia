@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { checkProse, countViolations, runCheck, isProseFile } from '../tools/prose-check.mjs';
+import { checkProse, countViolations, runCheck, isProseFile } from '../scripts/prose-check.ts';
 
 const hardLines = (text: string, rule: string) =>
   checkProse(text)
@@ -164,7 +164,7 @@ test('isProseFile: picks the root, docs, interface, tools and github documents a
     'docs/memory.md',
     'docs/sub/deep.md',
     'interfaces/discord/README.md',
-    'tools/README.md',
+    'scripts/README.md',
     '.github/PULL_REQUEST_TEMPLATE.md',
   ])
     assert.equal(isProseFile(p), true, p);
@@ -172,7 +172,7 @@ test('isProseFile: picks the root, docs, interface, tools and github documents a
     'prompts/system-prompt.md',
     'agents/dev/prompt.md',
     'tests/fixtures/x.md',
-    'tools/fixtures/x.md',
+    'scripts/fixtures/x.md',
     'src/a.js',
     'docs/diagram.png',
   ])

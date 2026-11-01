@@ -11,7 +11,7 @@ import {
   withAnswersDir,
   renderRequest,
   isAnthropicModel,
-} from '../tools/lib/answers-dir.mjs';
+} from '../scripts/lib/answers-dir.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
@@ -43,7 +43,7 @@ test('renderRequest lays out the model, the system prompt and every message verb
       },
       { role: 'assistant', content: 'ok' },
     ],
-  } as unknown as Parameters<typeof renderRequest>[0]);
+  });
   assert.equal(
     text,
     'model: anthropic/claude-x\npurpose: reply\n\n## system\n\nsys  line\n  indented\n\n## user\n\na\n[image]\nb\n\n## assistant\n\nok\n'

@@ -1,7 +1,7 @@
 // The owner's switch of a plugin, behind `/plugins` (src/interface/commands/plugins.ts). The desired state is the
 // setting `plugins.<name>.enabled` (src/plugins/settings.ts). `enable` writes the plugin's client, an entry of the
 // private layer's `clients.json` of kind `plugin` and its token file `clients/<name>.token` (mode 0600, in a folder
-// of mode 0700, the files tools/client-token.mjs writes), switches the plugin on and starts its unit; the plugin runs
+// of mode 0700, the files scripts/client-token.ts writes), switches the plugin on and starts its unit; the plugin runs
 // as `neptunia plugin run <name>` and its hello is let in only while it is on. `disable` stops the unit, takes the
 // entry and the token back (the live link closes at its next envelope) and tells the core to forget the plugin's
 // tools. `enable` refuses with `inprocess-mode` while the core runs its interface in its own process, because the

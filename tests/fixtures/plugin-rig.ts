@@ -40,7 +40,7 @@ export function installEcho(privateDir: string): void {
   cpSync(ECHO_DIR, join(target, 'echo'), { recursive: true });
 }
 
-/** The token `tools/client-token.mjs` or `/plugins enable` wrote for client `name`. */
+/** The token `scripts/client-token.ts` or `/plugins enable` wrote for client `name`. */
 export const tokenOf = (dirs: Dirs, name: string): string =>
   readFileSync(join(dirs.privateDir, 'clients', `${name}.token`), 'utf8').trim();
 

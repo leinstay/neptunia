@@ -4,7 +4,7 @@
 //   NEPTUNIA_PRIVATE_DIR  config.local/, prompts.local/ and .env (default: the checkout root)
 //   NEPTUNIA_DATA_DIR     everything the engine writes (default: <checkout root>/data)
 // Both are optional; with neither set every path is the one the engine always used. This module
-// is the single place that knows the two names: src/index.ts and the tools (tools/lib/cli.mjs)
+// is the single place that knows the two names: src/index.ts and the tools (scripts/lib/cli.ts)
 // read them through `resolvePaths`.
 
 import path from 'node:path';

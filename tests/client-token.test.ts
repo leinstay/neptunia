@@ -1,4 +1,4 @@
-// Tests for tools/client-token.mjs: `add <name> --kind <kind> [--iface <iface>]` writes a client's token file
+// Tests for scripts/client-token.ts: `add <name> --kind <kind> [--iface <iface>]` writes a client's token file
 // (`clients/<name>.token` under the private directory, mode 0600) and its entry in `clients.json`, `rotate <name>`
 // gives the client a new token, and `revoke <name>` removes the entry and the file. The tool finds the private
 // directory through NEPTUNIA_PRIVATE_DIR and never prints a token. Because the core reads `clients.json` at the moment
@@ -22,7 +22,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const quiet = { info() {}, warn() {}, error() {} };
 
 function tool(privateDir: string, args: Array<string>): { code: number | null; out: string } {
-  const run = spawnSync(process.execPath, ['tools/client-token.mjs', ...args], {
+  const run = spawnSync(process.execPath, ['scripts/client-token.ts', ...args], {
     cwd: ROOT,
     encoding: 'utf8',
     env: { ...process.env, NEPTUNIA_PRIVATE_DIR: privateDir },

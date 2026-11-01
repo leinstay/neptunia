@@ -1,4 +1,4 @@
-// The cutover's import (tools/board-import.mjs): the development history of the ledger service's `ledger.db` comes
+// The cutover's import (scripts/board-import.ts): the development history of the ledger service's `ledger.db` comes
 // onto the board in `memory.db` with the ledger's ids, on a stopped core. Every dev-lane task comes with its
 // dependencies, attempts, questions, reviews (the ledger's approvals), results, comments, events and outbox rows, and
 // every agent run with it. The errand lane stays behind: it only mirrored her errands, which the board holds already.
@@ -15,8 +15,8 @@ import { openBoard, readBoard } from '../src/board/board.ts';
 import type { BoardSettings } from '../src/board/board.ts';
 import type { BoardDb } from '../src/board/schema.ts';
 import { runTaskCommand } from '../src/board/commands.ts';
-import { tableHashes } from '../tools/memory-db.mjs';
-import { importLedger, main } from '../tools/board-import.mjs';
+import { tableHashes } from '../scripts/memory-db.ts';
+import { importLedger, main } from '../scripts/board-import.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import {
   DEV_TASKS,

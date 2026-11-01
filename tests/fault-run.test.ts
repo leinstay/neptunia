@@ -1,4 +1,4 @@
-// The fault run (tools/fault-run.ts, tools/lib/fault-run.ts): every side effect counted by its effect key, and the run
+// The fault run (scripts/fault-run.ts, scripts/lib/fault-run.ts): every side effect counted by its effect key, and the run
 // passes when no key repeats and each expected effect happened once. The ledger and the reading of a request are
 // checked on small inputs. The short run is the real one over the real core: repeated events (at once, one after
 // another, after a reconnect, while the link is down), an edit and a delete racing a turn, a reaction cut off by the call
@@ -8,8 +8,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createFakeAdapter } from '../src/interface/fake.ts';
-import { CliError } from '../tools/lib/cli.mjs';
-import { parseArgs } from '../tools/fault-run.ts';
+import { CliError } from '../scripts/lib/cli.ts';
+import { parseArgs } from '../scripts/fault-run.ts';
 import {
   LONG_PLAN,
   SHORT_PLAN,
@@ -18,7 +18,7 @@ import {
   faultRun,
   observe,
   tableOf,
-} from '../tools/lib/fault-run.ts';
+} from '../scripts/lib/fault-run.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 test('the ledger names a key that happened twice and a key that never happened', () => {

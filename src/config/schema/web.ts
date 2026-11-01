@@ -69,7 +69,7 @@ export const WEB: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'web.search.classifierMaxOutputTokens',
     'types': ['number'],
-    'reader': 'tools/search-policy-eval.mjs',
+    'reader': 'scripts/search-policy-eval.ts',
     'default': 2000,
     'text': 'Max output tokens for the search classifier the measuring tools ask (no live turn asks it)',
   },

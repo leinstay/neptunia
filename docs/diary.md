@@ -6,7 +6,7 @@ The persona keeps a diary on its own, at random times, without anyone asking. Th
 
 1. Create a channel on your server. The bot needs View Channel, Send Messages, Read Message History and Attach Files there.
 2. Set `diary.channelId` to the channel's id (`/config set diary.channelId <id>`, or in `config.local/config.json`). The key is the seed of the diary's first mirror: the memory database's schema step v15 makes the channel's place a `diary` mirror the first time it opens with the key set and the place stored.
-3. Once the mirror exists, `node tools/config-migrate.mjs --dry-run --db data/memory.db` and then `--apply --db data/memory.db` take the key out of `config.local/config.json`. Without the mirror the tool keeps the key and says so in one line.
+3. Once the mirror exists, `node scripts/config-migrate.ts --dry-run --db data/memory.db` and then `--apply --db data/memory.db` take the key out of `config.local/config.json`. Without the mirror the tool keeps the key and says so in one line.
 4. The diary runs with or without a mirror. With none, its entries stay in memory and nothing is posted. Posting starts on the next tick (every 30 seconds), and the first entry may take a few minutes, depending on when the next planned slot falls.
 
 ## Windows

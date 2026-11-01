@@ -1,7 +1,7 @@
-// Tests for tools/lib/recall-eval.mjs: the pure part of tools/recall-eval.mjs (the questions
+// Tests for scripts/lib/recall-eval.ts: the pure part of scripts/recall-eval.ts (the questions
 // file, hit@k scoring, false confident recalls, the spend stop, the candidate sample) and the
 // offline guild the local stages run against, through the real recall runner with fakes; and
-// the `--web` readiness of tools/recall-eval.mjs.
+// the `--web` readiness of scripts/recall-eval.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -27,7 +27,7 @@ import {
   renderTraceCompare,
   topExcerptLine,
   traceAgreement,
-} from '../tools/lib/recall-eval.mjs';
+} from '../scripts/lib/recall-eval.ts';
 import { createRecall } from '../src/behavior/recall-run.ts';
 import { toRecordLine } from '../src/memory/record.ts';
 import { labels } from './fixtures/labels.ts';
@@ -35,7 +35,7 @@ import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { createLookup } from '../src/web/lookup.ts';
 import { createBraveSearch } from '../src/web/brave.ts';
 import { createExaSearch } from '../src/web/exa.ts';
-import { webSearchKeys, webSearchReady } from '../tools/recall-eval.mjs';
+import { webSearchKeys, webSearchReady } from '../scripts/recall-eval.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
@@ -340,7 +340,7 @@ test('recall-eval: the local guild runs the record stage of the real recall, sur
     llm,
     record,
     now: () => NOW,
-  } as unknown as Parameters<typeof createRecall>[0]);
+  });
   const windows: Array<Untyped> = [];
   const candidate = {
     id: 'q',

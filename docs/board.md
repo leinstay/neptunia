@@ -25,9 +25,9 @@ A principal's roles come from its `boardRoles` in the private directory's `clien
 A deployment's development clients are the lead with `owner`, the thinker with `reviewer` and the dispatcher's worker with `worker`, each of kind `agent` with a token of its own:
 
 ```bash
-node tools/client-token.mjs add lead --kind agent --roles owner
-node tools/client-token.mjs add thinker --kind agent --roles reviewer
-node tools/client-token.mjs add dispatcher --kind agent --roles worker
+node scripts/client-token.ts add lead --kind agent --roles owner
+node scripts/client-token.ts add thinker --kind agent --roles reviewer
+node scripts/client-token.ts add dispatcher --kind agent --roles worker
 ```
 
 ## How the agents reach it
@@ -46,15 +46,15 @@ The status card's field `costs.development` (`src/tools/impl/status.ts`) shows t
 
 ## Backup and restore
 
-The board is part of `memory.db`, so the memory database's backup holds it (`memoryDb.backup`, `tools/memory-db.mjs backup`). `tools/memory-db.mjs restore-tables --part board --from <backup dir> --db <memory.db>` brings back every `board_*` table and the board's sequence counters from a backup and leaves her memory as it is, on a stopped core. It is refused, with nothing changed, when the board's schema version differs between the two files. `tools/memory-db.mjs board list` and `board show <id>` read the board with the core up or down.
+The board is part of `memory.db`, so the memory database's backup holds it (`memoryDb.backup`, `scripts/memory-db.ts backup`). `scripts/memory-db.ts restore-tables --part board --from <backup dir> --db <memory.db>` brings back every `board_*` table and the board's sequence counters from a backup and leaves her memory as it is, on a stopped core. It is refused, with nothing changed, when the board's schema version differs between the two files. `scripts/memory-db.ts board list` and `board show <id>` read the board with the core up or down.
 
 ## Importing a ledger
 
-`tools/board-import.mjs` brings the development history of a task ledger service's `ledger.db` onto the board, on a stopped core:
+`scripts/board-import.ts` brings the development history of a task ledger service's `ledger.db` onto the board, on a stopped core:
 
 ```bash
-node tools/board-import.mjs --from <ledger.db> --db <memory.db> --dry-run
-node tools/board-import.mjs --from <ledger.db> --db <memory.db>
+node scripts/board-import.ts --from <ledger.db> --db <memory.db> --dry-run
+node scripts/board-import.ts --from <ledger.db> --db <memory.db>
 ```
 
 It reads a ledger at schema version 3 and refuses any other version with `unknown-version`. Every `dev`-lane task comes with its id and every ledger column, at `lease_generation` 0, with its dependencies, attempts, questions, results and comments under their ids, and its approvals as `board_reviews` with their ids, decisions and scopes. Every row of `agent_runs` comes with its id. The `errand` lane stays behind with every row that hangs off it, because it only mirrored her errands, which the board holds under their own ids, and the report counts its tasks as `skipped.errandTasks`. No idempotency key comes over.

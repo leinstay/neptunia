@@ -1,4 +1,4 @@
-// A `ledger.db` as the task ledger service wrote it, for the tests of tools/board-import.mjs. The schema is the ledger's
+// A `ledger.db` as the task ledger service wrote it, for the tests of scripts/board-import.ts. The schema is the ledger's
 // own at its latest version, 3: its three migrations as the service shipped them, each recorded in `schema_version`.
 // The rows are one small history: a finished dev task with everything a task can collect (two reviews, a question and
 // its answer, three results, a comment, an ended attempt, its events and a delivered outbox row), an approved dev task

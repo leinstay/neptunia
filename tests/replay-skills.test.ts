@@ -1,4 +1,4 @@
-// Tests for the skill scenarios of tools/replay.mjs (`--skills`): the scenario loader, the
+// Tests for the skill scenarios of scripts/replay.ts (`--skills`): the scenario loader, the
 // persona's grants laid over a copy of the config, and her `<call>` taken through the real
 // resolution and the real gateway with the operation never run
 // (src/behavior/sandbox.ts#simulateCall), and multi-step scenarios played step by step with her
@@ -46,11 +46,13 @@ import {
   scenarioTrigger,
   sequenceSummary,
   skillRequestEstimate,
-} from '../tools/replay.mjs';
+} from '../scripts/replay.ts';
 import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { Scenario } from '../scripts/lib/replay-types.ts';
+import { wrongly } from './fixtures/loose-types.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -80,7 +82,7 @@ function load(items: unknown) {
 
 test('parseScenarios: the example file loads; omitted fields take their defaults', () => {
   const example = parseScenarios(
-    fs.readFileSync(new URL('../tools/prompts/skill-scenarios.example.json', import.meta.url), 'utf8')
+    fs.readFileSync(new URL('../scripts/prompts/skill-scenarios.example.json', import.meta.url), 'utf8')
   );
   assert.ok(example.length >= 3);
   for (const scenario of example) assert.ok(/^[A-Za-z0-9._-]+$/.test(scenario.id));
@@ -151,10 +153,12 @@ test('scenarioGrants: expanded as /nep access grant expands them for her; a not-
     /scenario s: grants names no skill: files.wipe/
   );
   const registryNames = [...skillRegistry().keys()];
-  assert.deepEqual(scenarioDiscovery({ id: 's', discovery: ['rule.add'] }, registryNames), ['rule.add']);
-  assert.equal(scenarioDiscovery({ id: 's', discovery: 'none' }, registryNames), 'none');
+  assert.deepEqual(scenarioDiscovery(wrongly<Scenario>({ id: 's', discovery: ['rule.add'] }), registryNames), [
+    'rule.add',
+  ]);
+  assert.equal(scenarioDiscovery(wrongly<Scenario>({ id: 's', discovery: 'none' }), registryNames), 'none');
   assert.throws(
-    () => scenarioDiscovery({ id: 's', discovery: ['files.wipe'] }, registryNames),
+    () => scenarioDiscovery(wrongly<Scenario>({ id: 's', discovery: ['files.wipe'] }), registryNames),
     /discovery names no skill/
   );
 });
@@ -376,15 +380,10 @@ test('replay --skills: the flags it takes; the invented message; a run as its JS
     selfId: SELF,
     at: NOW,
   });
-  assert.equal(asRecord(trigger).ts, NOW);
-  assert.ok(BigInt(asRecord(trigger).id) > 0n && /^\d{17,20}$/.test(asRecord(trigger).id), 'a snowflake of its moment');
+  assert.equal(trigger.ts, NOW);
+  assert.ok(BigInt(trigger.id) > 0n && /^\d{17,20}$/.test(trigger.id), 'a snowflake of its moment');
   assert.deepEqual(
-    [
-      asRecord(trigger).mentionedUserIds,
-      asRecord(trigger).replyToId,
-      asRecord(trigger).self,
-      asRecord(trigger).content,
-    ],
+    [trigger.mentionedUserIds, trigger.replyToId, trigger.self, trigger.content],
     [[SELF], null, false, 'Γεια σου']
   );
 
@@ -442,7 +441,7 @@ test('replay --skills: the flags it takes; the invented message; a run as its JS
   );
   const report = renderSkillsReport([
     {
-      scenario: { id: 's', text: 'Γεια | σου', discovery: 'inventory' },
+      scenario: wrongly<Scenario>({ id: 's', text: 'Γεια | σου', discovery: 'inventory' }),
       grantNames: [],
       summary,
       records: [called, declined],
@@ -926,7 +925,11 @@ test('replay --skills steps: plain follow-ups after a call share one slot; the n
   );
   const report = renderSkillsReport([
     {
-      scenario: { id: 'seq', steps: [{ messages: [], gapMinutes: 1, result: null }], discovery: 'inventory' },
+      scenario: wrongly<Scenario>({
+        id: 'seq',
+        steps: [{ messages: [], gapMinutes: 1, result: null }],
+        discovery: 'inventory',
+      }),
       grantNames: [],
       summary,
       records,
@@ -1212,7 +1215,7 @@ test('afterScenarioTurn: a post the call left here is her line hosting the mark;
     executed: { skill, args },
     result: { skill, status: 'ok', data: { text: '' } },
   });
-  const idByIndex = new Map([[1, asRecord(trigger).id]]);
+  const idByIndex = new Map([[1, trigger.id]]);
   const run = {
     answer,
     call: { skill: 'message.create', args: { text: 'δεύτερο' }, body: '' },
@@ -1243,13 +1246,13 @@ test('afterScenarioTurn: a post the call left here is her line hosting the mark;
     selfId: SELF,
     selfName: 'Persona',
     channel: here,
-    triggerId: asRecord(trigger).id,
+    triggerId: trigger.id,
     config: {},
   } as unknown as Parameters<typeof afterScenarioTurn>[0]);
   assert.deepEqual(trigger, before);
   const [first, mine, posted, drawn] = out.transcript;
   assert.deepEqual(first?.reactions, [{ emoji: '👍', count: 1, mine: true }]);
-  assert.deepEqual([mine?.content, mine?.replyToId, mine?.ts], ['γεια', asRecord(trigger).id, NOW + 1000]);
+  assert.deepEqual([mine?.content, mine?.replyToId, mine?.ts], ['γεια', trigger.id, NOW + 1000]);
   assert.equal(asRecord(drawn?.attachments)[0].kind, 'image');
   assert.deepEqual([posted?.content, posted?.self], ['δεύτερο', true]);
   assert.equal(out.callMarks.length, 2);
@@ -1266,7 +1269,7 @@ test('afterScenarioTurn: a post the call left here is her line hosting the mark;
     selfId: SELF,
     selfName: 'Persona',
     channel: here,
-    triggerId: asRecord(trigger).id,
+    triggerId: trigger.id,
     config: {},
   } as unknown as Parameters<typeof afterScenarioTurn>[0]);
   assert.deepEqual(
@@ -1283,7 +1286,7 @@ test('afterScenarioTurn: a post the call left here is her line hosting the mark;
     selfId: SELF,
     selfName: 'Persona',
     channel: here,
-    triggerId: asRecord(trigger).id,
+    triggerId: trigger.id,
     config: {},
   } as unknown as Parameters<typeof afterScenarioTurn>[0]);
   assert.equal(plain.transcript.length, 2);
@@ -1326,7 +1329,9 @@ test("sequenceSummary: each run's calls per step as letters, its first decline, 
     steps: [{ messages: [{ author: OWNER, text: 'α' }], gapMinutes: 1, result: null }],
     discovery: 'inventory',
   };
-  const report = renderSkillsReport([{ scenario, grantNames: ['rule.add'], summary, records }]);
+  const report = renderSkillsReport([
+    { scenario: wrongly<Scenario>(scenario), grantNames: ['rule.add'], summary, records },
+  ]);
   assert.ok(report.includes('| seq | 4 | 3 | `CCCN NCMN C` (cut short) | 4 1 - | 1/2 |'), report);
   assert.ok(report.includes('### run 2: NCMN') && report.includes('#### step 3: malformed-call'));
   assert.ok(report.includes(`> ${OWNER}: α`));
@@ -1557,12 +1562,12 @@ test("renderPairReport: per scenario the decisions of A and B side by side, the 
   const report = renderPairReport(
     [
       {
-        scenario: { id: 'seq', steps, discovery: 'inventory' },
+        scenario: wrongly<Scenario>({ id: 'seq', steps, discovery: 'inventory' }),
         grantNames: ['rule.add'],
         sides: { A: { records: a, summary: sequenceSummary(a, 3) }, B: { records: b, summary: sequenceSummary(b, 3) } },
       },
       {
-        scenario: single,
+        scenario: wrongly<Scenario>(single),
         grantNames: [],
         sides: {
           A: { records: oneA, summary: scenarioSummary(oneA) },

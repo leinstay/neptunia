@@ -253,18 +253,18 @@ The journal's `inner` records carry: wakes, turns (outcome, actions, loop, feedb
 ## Checking it before going live
 
 ```
-node tools/replay.mjs --inner <intention_due|errand_deadline|review> [--intention <id> | --review]
+node scripts/replay.ts --inner <intention_due|errand_deadline|review> [--intention <id> | --review]
 ```
 
 Builds and runs one inner turn against the live data, read only and in shadow: nothing is posted, nothing is written. Prints the request's blocks and the actions she proposed.
 
 ## Testing it over a week
 
-`tools/inner-week.mjs` plays whole virtual weeks against the production scheduler and intention service, in a temporary data directory, with a fake clock that jumps from one moment that matters to the next. A fixture (`tools/fixtures/inner-week/*.json`) scripts the week: people's messages, her own lines, intentions, errands, analyzer candidates, a restart, the kill switch.
+`scripts/inner-week.ts` plays whole virtual weeks against the production scheduler and intention service, in a temporary data directory, with a fake clock that jumps from one moment that matters to the next. A fixture (`scripts/fixtures/inner-week/*.json`) scripts the week: people's messages, her own lines, intentions, errands, analyzer candidates, a restart, the kill switch.
 
 The inner turns are answered by a stub voice (deterministic, costs nothing). The acceptance gates verify: caps, unauthorized calls, dispositions of every due item, silence, planted-text isolation, feedback correctness, and attention behaviour.
 
-`--live` runs selected days with the real voice in shadow on the simulator key, the stub on the others. Wired like `replay.mjs --inner`: her memory from a read-only copy, nothing posted. See [tools/README.md](../tools/README.md) for the full usage.
+`--live` runs selected days with the real voice in shadow on the simulator key, the stub on the others. Wired like `replay.ts --inner`: her memory from a read-only copy, nothing posted. See [scripts/README.md](../scripts/README.md) for the full usage.
 
 ## Wake runs, focus and places
 

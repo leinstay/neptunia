@@ -1,4 +1,4 @@
-// Tests for the step engine of tools/replay.mjs (`--skills`, `--pair-transport`, `--loop-triggers`): a
+// Tests for the step engine of scripts/replay.ts (`--skills`, `--pair-transport`, `--loop-triggers`): a
 // scenario run is answered as a live turn answers it -- every call of each answer through the real
 // gateway, her in-turn tools run (here by fakes), an errand.run only recorded, the turn continued step after
 // step within the loop's bounds, her speech held when a call left something to read -- and what runs.jsonl,
@@ -72,8 +72,10 @@ import {
   skillRequestEstimate,
   withCoreTools,
   withTransport,
-} from '../tools/replay.mjs';
+} from '../scripts/replay.ts';
 import { labels } from './fixtures/labels.ts';
+import { present, wrongly } from './fixtures/loose-types.ts';
+import type { Scenario } from '../scripts/lib/replay-types.ts';
 import { call, completionOf, textAnswer, toolAnswer } from './fixtures/tool-answers.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 import { asRecord } from './fixtures/records.ts';
@@ -196,7 +198,7 @@ async function loopRun(
     selfId: SELF,
     at: NOW,
   });
-  const situation = { history: [trigger], triggerId: asRecord(trigger).id, kind: 'mention', mode: 'reply' };
+  const situation = { history: [trigger], triggerId: trigger.id, kind: 'mention', mode: 'reply' };
   const registry = skillRegistry();
   const requester = requesterOfChannel(requesterOf)(trigger, channel);
   const tasks = { budget: () => ({ spent: false, key: null, code: null }) };
@@ -425,7 +427,7 @@ test('the step engine: the first request leaves the step reserve under the promp
   ]);
   const answered = await answerSkillScenario({
     view,
-    situation: { history: lines, triggerId: asRecord(trigger).id, kind: 'mention', mode: 'reply' },
+    situation: { history: lines, triggerId: present(trigger).id, kind: 'mention', mode: 'reply' },
     selfId: SELF,
     selfName: 'Persona',
     channel: here,
@@ -495,7 +497,7 @@ test('the step engine: with the production limits (50000 cap, 0.9 margin, 10000 
   ]);
   const answered = await answerSkillScenario({
     view,
-    situation: { history: lines, triggerId: asRecord(trigger).id, kind: 'mention', mode: 'reply' },
+    situation: { history: lines, triggerId: present(trigger).id, kind: 'mention', mode: 'reply' },
     selfId: SELF,
     selfName: 'Persona',
     channel: here,
@@ -638,7 +640,7 @@ test('the step engine: reads run together, a data result holds her speech, the n
   // The report: the calls in order, the held speech, the final messages, the turn's time and cost, the errand recorded.
   const report = renderSkillsReport([
     {
-      scenario: { id: 's', text: 'x', discovery: 'inventory' },
+      scenario: wrongly<Scenario>({ id: 's', text: 'x', discovery: 'inventory' }),
       grantNames: TOOLS,
       summary: scenarioSummary([record]),
       records: [record],
@@ -926,27 +928,36 @@ test('createReplayTools: web.search and web.read through the lookup and memory.s
     // The interface describes nothing: the recall scope falls back to the replay's own channel and has no listing.
     reads: { conversationInfo: () => Promise.resolve(null), conversations: () => Promise.resolve(null) },
     mediaCache,
-  } as unknown as Parameters<typeof createReplayTools>[0]);
+  });
   assert.equal(tools.recallAvailable(), true);
   const web = await tools.run('web.search', { query: 'τελικός' }, { history: [] });
   assert.equal(web.result.status, 'ok');
-  assert.ok(web.result.data.text.includes('Η Ana κέρδισε.'));
+  assert.ok(present(web.result.data).text.includes('Η Ana κέρδισε.'));
   assert.deepEqual(web.usage, { requests: 1, tokens: { prompt: 40, completion: 4 }, cost: 0.003 });
-  const page = await tools.run('web.read', { message: 'h2' }, {
-    history: [{ id: 'h1' }, { id: 'h2' }],
-  } as unknown as Parameters<typeof tools.run>[2]);
+  const page = await tools.run(
+    'web.read',
+    { message: 'h2' },
+    {
+      history: [{ id: 'h1' }, { id: 'h2' }],
+    }
+  );
   assert.equal(page.result.status, 'ok');
   assert.ok(
-    page.result.data.text.includes('Το κείμενο.') && page.result.data.text.includes('https://example.org/p'),
-    page.result.data.text
+    present(page.result.data).text.includes('Το κείμενο.') &&
+      present(page.result.data).text.includes('https://example.org/p'),
+    present(page.result.data).text
   );
   assert.equal(page.usage.requests, 0, 'a page read sends no model request');
-  const memory = await tools.run('memory.search', { question: 'τι είπε η Élodie' }, {
-    history: [{ id: 'h1' }],
-    at: NOW,
-  } as unknown as Parameters<typeof tools.run>[2]);
+  const memory = await tools.run(
+    'memory.search',
+    { question: 'τι είπε η Élodie' },
+    {
+      history: [{ id: 'h1' }],
+      at: NOW,
+    }
+  );
   assert.equal(memory.result.status, 'ok');
-  assert.ok(memory.result.data.text.includes('Élodie: ναι'));
+  assert.ok(present(memory.result.data).text.includes('Élodie: ναι'));
   assert.equal(seen.run.quotes, true);
   assert.deepEqual(seen.run.history, [{ id: 'h1' }]);
   // Private copies of the counters and of the media cache: nothing of the store's is handed in.
@@ -968,7 +979,7 @@ test("afterScenarioTurn: a loop run carries the speech that was posted and every
     selfId: SELF,
     selfName: 'Persona',
     channel: here,
-    triggerId: asRecord(trigger).id,
+    triggerId: trigger.id,
     config: toolConfig(),
   });
   const mine = carried.transcript.filter((line) => line?.authorId === SELF).map((line) => line?.content);
@@ -1055,7 +1066,6 @@ test("renderLoopTriggersReport: a table of the turns, then each turn's calls and
   const record = runRecord('p1', 0, run);
   const line = {
     id: 'p1',
-    scenario: 'p1',
     channelId: HERE,
     triggerId: '400000000000000009',
     turnId: null,
@@ -1162,7 +1172,7 @@ async function preTurn({
     at: NOW,
     store: { listUserProfiles: () => [] },
     deps: PRE_DEPS,
-  } as unknown as Parameters<typeof preTurnLookup>[0]);
+  });
   return { out, requests, ran };
 }
 
@@ -1239,7 +1249,7 @@ test('createReplayTools.prefetch: the live lanes of the trigger, run as of the m
       prefetchLanes,
       prefetchOn,
       recallSettings,
-    } as unknown as Parameters<typeof createReplayTools>[0]);
+    });
   const here = { id: HERE, name: 'γενικά' };
   const trigger = scenarioTrigger({
     text: 'θυμάσαι τη ζωγραφιά με το δάσος;',
@@ -1256,7 +1266,7 @@ test('createReplayTools.prefetch: the live lanes of the trigger, run as of the m
     mode: 'reply',
     history: [trigger],
     at: NOW - 5,
-  } as unknown as Parameters<typeof on.prefetch>[0]);
+  });
   assert.equal(found.status, 'none');
   assert.equal(runs.length, 1);
   assert.deepEqual(
@@ -1266,9 +1276,7 @@ test('createReplayTools.prefetch: the live lanes of the trigger, run as of the m
   assert.equal(runs[0].at, NOW - 5, 'as of the moment');
   assert.deepEqual(runs[0].history, [trigger]);
   assert.equal(
-    await on.prefetch({ trigger: { ...trigger, content: 'ok' }, history: [trigger], at: NOW } as unknown as Parameters<
-      typeof on.prefetch
-    >[0]),
+    await on.prefetch({ trigger: { ...trigger, content: 'ok' }, history: [trigger], at: NOW }),
     null,
     'a trivial trigger'
   );
@@ -1372,11 +1380,10 @@ async function triggerRun({ single, transport = null, answers, config = toolConf
     args,
     root: dataDir,
     liveData: path.join(dataDir, 'live'),
-    pairTriggers: [{ channelId: HERE, triggerId: asRecord(trigger).id, turnId: null }],
+    pairTriggers: [{ channelId: HERE, triggerId: trigger.id, turnId: null }],
     rng: () => 0.9,
     hot,
     store,
-    // @ts-expect-error: the scene passes a guild the input type does not name
     guild: { id: GUILD },
     guildId: GUILD,
     self: { id: SELF, name: 'Persona' },
@@ -1430,7 +1437,7 @@ test("--loop-triggers: one side, runs.jsonl with the turn's steps and the chat, 
       line.counts.held,
       line.counts.turnRequests,
     ],
-    [asRecord(trigger).id, 'text', 'reply', 2, 1, 1, 2]
+    [trigger.id, 'text', 'reply', 2, 1, 1, 2]
   );
   assert.deepEqual(line.context, [{ author: 'Élodie', text: 'Ποιος κέρδισε τον τελικό;' }]);
   assert.deepEqual(line.loop.calls, [{ step: 0, skill: 'web.search', status: 'ok', code: null }]);
@@ -1456,7 +1463,7 @@ test('--loop-triggers without --transport follows the config; a refused output f
       store: { state: { data: {} } },
       mods: { skillRegistry },
       loopDeps: {},
-    } as unknown as Parameters<typeof runTriggerLoops>[0]),
+    }),
     /not empty/
   );
 });
@@ -1574,16 +1581,20 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
     recallSettings,
     conversation: { runConversationRead, fetchSpan, recordMessages, searchHandles, pullPictures },
     log: { warn: (...a: Array<unknown>) => warnings.push(a) },
-  } as unknown as Parameters<typeof createReplayTools>[0]);
+  });
   const idByIndex = new Map([
     [1, 'a'],
     [7, 'b'],
   ]);
-  const read = await tools.run('conversation.read', { last: 30 }, {
-    history: [],
-    at: NOW,
-    idByIndex,
-  } as unknown as Parameters<typeof tools.run>[2]);
+  const read = await tools.run(
+    'conversation.read',
+    { last: 30 },
+    {
+      history: [],
+      at: NOW,
+      idByIndex,
+    }
+  );
   assert.equal(read.result.status, 'ok', JSON.stringify(read.result));
   assert.deepEqual(
     world()
@@ -1592,12 +1603,12 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
     [[{ iface: 'fake', conversationId: HERE }, { limit: 30 }]]
   );
   assert.ok(
-    read.result.data.text.includes('πρώτο') && read.result.data.text.includes('δεύτερο'),
-    read.result.data.text
+    present(read.result.data).text.includes('πρώτο') && present(read.result.data).text.includes('δεύτερο'),
+    present(read.result.data).text
   );
   assert.ok(
-    read.result.data.text.includes('#28'),
-    "handles start past the request's highest line (7) and the gap: " + read.result.data.text
+    present(read.result.data).text.includes('#28'),
+    "handles start past the request's highest line (7) and the gap: " + present(read.result.data).text
   );
   const refused = await tools.run('web.fetch-nothing', {}, {});
   assert.deepEqual(
@@ -1650,7 +1661,7 @@ test('createReplayTools: media.look looks again through the describer over the m
     discord: {},
     mediaCache: { kept: 1 },
     mediaTools: { createDescriber, runMediaLook, runMediaFind, lookPerTurn },
-  } as unknown as Parameters<typeof createReplayTools>[0]);
+  });
   const history = [
     {
       id: 'm9',
@@ -1661,29 +1672,37 @@ test('createReplayTools: media.look looks again through the describer over the m
       embeds: [],
     },
   ];
-  const first = await tools.run('media.look', { message: 'm9', question: 'τι κρατά;' }, {
-    history,
-  } as unknown as Parameters<typeof tools.run>[2]);
+  const first = await tools.run(
+    'media.look',
+    { message: 'm9', question: 'τι κρατά;' },
+    {
+      history,
+    }
+  );
   assert.equal(first.result.status, 'ok', JSON.stringify(first.result));
-  assert.ok(first.result.data.text.includes('ένα κόκκινο ποδήλατο'), first.result.data.text);
+  assert.ok(present(first.result.data).text.includes('ένα κόκκινο ποδήλατο'), present(first.result.data).text);
   assert.deepEqual(first.usage, { requests: 1, tokens: { prompt: 90, completion: 5 }, cost: 0.001 });
   assert.deepEqual(created[0], { kept: 1 }, 'the describer reads the private cache copy');
-  const gone = await tools.run('media.look', { message: 'm404', question: 'τι;' }, { history } as unknown as Parameters<
-    typeof tools.run
-  >[2]);
+  const gone = await tools.run('media.look', { message: 'm404', question: 'τι;' }, { history });
   assert.equal(gone.result.status, 'invalid');
   // PR 7d: the per-turn cap is the constant lookPerTurn() (2), so the third look is the one refused.
-  const second = await tools.run('media.look', { message: 'm9', question: 'και τώρα;' }, {
-    history,
-  } as unknown as Parameters<typeof tools.run>[2]);
+  const second = await tools.run(
+    'media.look',
+    { message: 'm9', question: 'και τώρα;' },
+    {
+      history,
+    }
+  );
   assert.equal(second.result.status, 'ok');
-  const third = await tools.run('media.look', { message: 'm9', question: 'και πάλι;' }, {
-    history,
-  } as unknown as Parameters<typeof tools.run>[2]);
+  const third = await tools.run(
+    'media.look',
+    { message: 'm9', question: 'και πάλι;' },
+    {
+      history,
+    }
+  );
   assert.deepEqual([third.result.status, third.result.code], ['failed', 'turn-cap']);
-  const find = await tools.run('media.find', { query: 'χορός' }, { history } as unknown as Parameters<
-    typeof tools.run
-  >[2]);
+  const find = await tools.run('media.find', { query: 'χορός' }, { history });
   assert.equal(find.result.status, 'ok', JSON.stringify(find.result));
 });
 
@@ -1730,11 +1749,11 @@ test('createReplayTools: media.look with a url looks at the video link through t
     discord: {},
     mediaCache: {},
     mediaTools: { createDescriber, runMediaLook, runMediaFind, lookPerTurn },
-  } as unknown as Parameters<typeof createReplayTools>[0]);
+  });
   const url = 'https://www.youtube.com/watch?v=abc123';
   const first = await tools.run('media.look', { url, question: 'τι ακούγεται;' }, { history: [] });
   assert.equal(first.result.status, 'ok', JSON.stringify(first.result));
-  assert.ok(first.result.data.text.includes('ένα τραγούδι'));
+  assert.ok(present(first.result.data).text.includes('ένα τραγούδι'));
   assert.deepEqual([seen[0].source, seen[0].url, seen[0].messageId], ['link', url, null]);
   assert.equal(first.usage.requests, 1);
   // PR 7d: the per-turn cap is the constant lookPerTurn() (2), so the third look is the one refused.

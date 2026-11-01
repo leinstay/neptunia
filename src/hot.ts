@@ -76,7 +76,7 @@ const JSON_LAYERS: ReadonlyArray<{
   },
 ]);
 
-/** Where an earlier version kept the tool texts, which the start refuses to find (tools/tools-file-move.mjs moves it). */
+/** Where an earlier version kept the tool texts, which the start refuses to find (scripts/tools-file-move.ts moves it). */
 const OLD_TOOLS_FILE = path.join(LOCAL_PROMPTS_DIRNAME, 'skills.json');
 
 /**
@@ -415,9 +415,9 @@ export function createHot({
   // The tool texts still in their old place refuse the start before anything is read: left there they would stop
   // counting without a word.
   if (fs.existsSync(path.join(privateDir, OLD_TOOLS_FILE)))
-    throw new Error(`${OLD_TOOLS_FILE} is where the tool texts were: run node tools/tools-file-move.mjs --apply`);
+    throw new Error(`${OLD_TOOLS_FILE} is where the tool texts were: run node scripts/tools-file-move.ts --apply`);
   hot.config = readConfig(rootDir, { privateDir });
-  // A layer laid out the old way loads, and says once per start that tools/config-files-move.mjs moves it.
+  // A layer laid out the old way loads, and says once per start that scripts/config-files-move.ts moves it.
   if (localFiles(privateDir).old)
     log.warn('hot: the private layer keeps config.local.json or a flat prompts.local/labels.json', {
       move: MOVE_TOOL,

@@ -1,4 +1,4 @@
-// tools/memory-db.mjs over a database whose errands board v3 moved out of the `work` archive (PR 6d):
+// scripts/memory-db.ts over a database whose errands board v3 moved out of the `work` archive (PR 6d):
 // `board verify-errands` compares every archived errand with its board task, field by field, and names the errand
 // and the field that differ; `restore-tables --part memory` brings the archive back from a backup and leaves its
 // guards on. The archive comes from fixtures/errand-archive.ts. Temporary directories only.
@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { main, tableHashes } from '../tools/memory-db.mjs';
+import { main, tableHashes } from '../scripts/memory-db.ts';
 import type { BoardDb } from '../src/board/schema.ts';
 import { ARCHIVE, archiveDataDir } from './fixtures/errand-archive.ts';
 

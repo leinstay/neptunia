@@ -1,7 +1,7 @@
 // The `neptunia` command (bin/neptunia.ts) as the owner and the units run it: the chat with no argument, one command
 // with `-p`, `doctor` with the core down, and `errand-runner`. The core runs in the test process with its interfaces as
 // units (tests/fixtures/core-units.ts); each `neptunia` is a child process over the real socket, its stdin and stdout
-// piped. The clients are the fake interface and the owner's `cli`, both written by tools/client-token.mjs. The chat is
+// piped. The clients are the fake interface and the owner's `cli`, both written by scripts/client-token.ts. The chat is
 // the `cli` interface: its one conversation is `cli:dm:owner`, of kind `dm`. A line starting with `/` is a command
 // whose answer is printed for the owner and never reaches her memory or a request. The tests assert what is printed by
 // the data they put in (an interface name, a key value), the exit codes and the memory rows, never a label's wording.

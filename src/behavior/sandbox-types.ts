@@ -278,7 +278,7 @@ export type RunSkillLoopInput = {
 };
 
 /**
- * One turn of a multi-step skill scenario (tools/replay.mjs `--skills` with `steps`) carried
+ * One turn of a multi-step skill scenario (scripts/replay.ts `--skills` with `steps`) carried
  * into the channel the next step reads, as the channel would stand after the live turn:
  * `transcript` (the step's lines, its incoming messages last) and `callMarks` (the earlier steps'
  * calls, withCalls's shape) with what the persona did in `run` (answerSkillScenario's, answered at

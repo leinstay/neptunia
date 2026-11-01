@@ -4,7 +4,7 @@
 // they are) and its error as `close_reason`; its result text is the task's `handoff` result, and every other field of
 // the errand, with the guild it belongs to, is kept in `metadata` (`{ guildId, errand }`), so the record comes back
 // exactly as the errand store (src/errands/store.ts) keeps it. MOVE_ARCHIVE_SQL is board v3's data step
-// (src/board/schema.ts); `compareArchive` is `tools/memory-db.mjs board verify-errands`. After the move `work` and
+// (src/board/schema.ts); `compareArchive` is `scripts/memory-db.ts board verify-errands`. After the move `work` and
 // `work_events` are an archive the engine neither writes nor reads. Nothing here logs.
 
 import type { Status } from './machine.ts';

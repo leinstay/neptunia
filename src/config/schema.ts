@@ -3,7 +3,7 @@
 // entry of type `map`. A segment `*` stands for any one name (`interfaces.*.enabled`) and gives no default. The
 // entries live in src/config/schema/<section>.ts, one file per top-level section. `schemaDefaults` gives the settings
 // the defaults make, which tests/config-schema.test.ts holds equal to config/config.json; src/config/check.ts checks a
-// local layer and the readers against the schema, and tools/config-doc.mjs writes docs/configuration.md from it.
+// local layer and the readers against the schema, and scripts/config-doc.ts writes docs/configuration.md from it.
 
 import { INTERFACES } from './schema/interfaces.ts';
 import { PLUGINS } from './schema/plugins.ts';

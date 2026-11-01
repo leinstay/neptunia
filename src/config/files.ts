@@ -1,6 +1,6 @@
 // Where the settings and the labels live. The checkout holds `config/config.json` and `config/labels.json`, the
 // private layer `config.local/config.json` and `config.local/labels.json`. A private layer laid out the old way, with
-// `config.local.json` and a flat `prompts.local/labels.json`, still loads until tools/config-files-move.mjs moves it,
+// `config.local.json` and a flat `prompts.local/labels.json`, still loads until scripts/config-files-move.ts moves it,
 // and a layer holding a file at both places is refused. The loader (src/config.ts, src/hot.ts), the writer of
 // `/config set` (src/tools/impl/env.ts), the console's `/config show` and `/config check` and `neptunia doctor` ask this
 // module which file to read. An interface's settings (`readInterfaceConfig`) are the core's with the package's own
@@ -19,7 +19,7 @@ export const CONFIG_FILE = 'config.json';
 /** The labels file's name in both folders. */
 export const LABELS_FILE = 'labels.json';
 /** The tool that moves a layer laid out the old way. */
-export const MOVE_TOOL = 'tools/config-files-move.mjs';
+export const MOVE_TOOL = 'scripts/config-files-move.ts';
 /** The private settings file of the old layout, under the private directory. */
 export const OLD_LOCAL_CONFIG = 'config.local.json';
 /** The flat private labels file of the old layout, under the private directory. */

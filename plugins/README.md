@@ -108,7 +108,7 @@ The import holds types only, so type stripping drops it and the package needs no
 5. A tool is closed to her until the owner opens it with `/tools grant <tool>`, which names the tool once the plugin has registered it. The skills the plugin ships appear in `/skills pending`, and an activation grants no tool.
 6. `/plugins disable <name>` stops the unit, revokes the token and drops the plugin's tools. The next enable announces them again.
 
-`tools/client-token.mjs add <name> --kind plugin` writes the client entry and token by hand, for a deployment that does not use `/plugins enable`. The core lets a plugin in only while `plugins.<name>.enabled` is `true`, whoever wrote its token.
+`scripts/client-token.ts add <name> --kind plugin` writes the client entry and token by hand, for a deployment that does not use `/plugins enable`. The core lets a plugin in only while `plugins.<name>.enabled` is `true`, whoever wrote its token.
 
 ## Testing a plugin
 

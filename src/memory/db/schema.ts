@@ -651,7 +651,7 @@ const V8 = [
 //    (semantic `projection_key` `<predicate>:<src>:<dst>[:<evidence>]`, the unit that produced it in `owner_key`, the
 //    audience it is read with) and `node_access` (one witness per node, audience and evidence). All three are derived:
 //    the manifest (graph-manifest.ts) maps the typed rows to them, graph.ts writes them in the writers' transactions,
-//    and `tools/memory-db.mjs rebuild` drops and rebuilds them. The migration writes the nodes of the rows every database
+//    and `scripts/memory-db.ts rebuild` drops and rebuilds them. The migration writes the nodes of the rows every database
 //    has from the earlier migrations (interfaces, authorities, people: nodes with no edge, the manifest's rule spelt in
 //    SQL) and, when the database holds anything else, marks the whole projection pending (`meta.graph_pending`): the next
 //    full sync pass (in the worker) or the last slice of the first import projects every unit, in slices

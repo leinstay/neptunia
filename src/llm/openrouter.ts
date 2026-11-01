@@ -7,7 +7,7 @@
 // skips the daily-request counter and is never refused by it. Its callers
 // have a budget or a trigger of their own, so none of them can burn
 // through the day's request cap of the chat: the operations tools
-// (tools/replay.mjs through src/behavior/sandbox.ts), run by hand behind
+// (scripts/replay.ts through src/behavior/sandbox.ts), run by hand behind
 // their own spend gate, never by the bot.
 // Every other request counts: the reply and every request on a model role other than `core` before it, the
 // analyzer, her memory session. The per-request token cap
