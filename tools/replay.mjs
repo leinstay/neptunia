@@ -6167,7 +6167,7 @@ function turnCounts(record) {
  * paid effect canned, an errand.run only recorded --, her turn on the step engine (src/behavior/sandbox.js#runSkillLoop).
  * `sides`: `[{ key, transport }]` -- A (native) and B (text) for the pair, one side (`--transport`, else the
  * config's) for the loop run. What a live turn runs before her reply is run once per trigger and shared by the
- * sides: with features.coreTools on the memory prefetch, else the search classifier (preTurnLookup). The pair
+ * sides: the memory prefetch. The pair
  * writes the sheet and key `--pair` writes (tools/lib/pair.mjs#renderSheet; the key's `pairs.<id>.answers` and, per
  * side, `runs`: the first request's estimated tokens, the tools' tokens, the tokens and cost reported, the latency,
  * the calls, `blocks`, the whole run record); the loop run writes `runs.jsonl` (one line per trigger: the
@@ -6184,7 +6184,6 @@ export async function runTriggerLoops({
   rng,
   hot,
   store,
-  guild,
   guildId,
   self,
   llm,
@@ -6217,7 +6216,6 @@ export async function runTriggerLoops({
     momentMode,
     momentKind,
     isSpontaneous,
-    scenarioInventory,
     situationHistory,
   } = mods;
   const registry = skillRegistry();
@@ -6296,7 +6294,7 @@ export async function runTriggerLoops({
     const requester = requesterOf(triggerLine, channel);
     const answers = {};
     const runs = {};
-    // What a live turn runs before her reply, once per side: the memory prefetch (coreTools on), else the search classifier.
+    // What a live turn runs before her reply, once per side: the memory prefetch.
     const baseConfig = structuredClone(hot.config);
     const baseHot = {
       get prompts() {
@@ -6307,60 +6305,11 @@ export async function runTriggerLoops({
       },
     };
     const shared = loopDeps.toolsFor({ hot: baseHot, channel, llm: capped });
-    const coreOn = loopDeps.coreToolsOn(baseConfig);
     let sharedInput = {};
-    let preTurn = null;
     let prefetched = null;
     try {
-      if (coreOn) {
-        prefetched = await shared.prefetch({ trigger: triggerLine, triggerKind, mode, history, at });
-        sharedInput = { coreTools: { recallAvailable: shared.recallAvailable(), prefetch: prefetched } };
-      } else {
-        const preStarted = Date.now();
-        const searchers = shared.searchers();
-        const found = await preTurnLookup({
-          config: baseConfig,
-          prompts: hot.prompts,
-          llm: searchers.client,
-          lookup: searchers.lookup,
-          recall: searchers.recall,
-          discovery: loopDeps.discoveryOf(baseConfig, registry, hot.prompts?.tools),
-          guild,
-          guildId,
-          channel,
-          selfId: self.id,
-          selfName: self.name,
-          history,
-          trigger: triggerLine,
-          triggerKind,
-          descriptions: media.descriptions,
-          videos: media.videos,
-          at,
-          store,
-          deps: loopDeps.preTurnDeps,
-        });
-        const discovery = found.skills
-          ? found.skills.inventory === true
-            ? 'inventory'
-            : Array.isArray(found.skills.names) && found.skills.names.length > 0
-              ? found.skills.names
-              : 'none'
-          : 'none';
-        const inventory = scenarioInventory({
-          config: baseConfig,
-          selfId: self.id,
-          texts: hot.prompts?.tools,
-          requester,
-          conversationId: channel.id,
-          registry,
-          discovery,
-        });
-        sharedInput = {
-          preTurn: { lookup: found.lookup, recallAvailable: found.recallAvailable },
-          ...(inventory ? { skillsInventory: inventory } : {}),
-        };
-        preTurn = { ...found.trace, skills: found.skills ?? null, usage: searchers.usage, ms: Date.now() - preStarted };
-      }
+      prefetched = await shared.prefetch({ trigger: triggerLine, triggerKind, mode, history, at });
+      sharedInput = { coreTools: { recallAvailable: shared.recallAvailable(), prefetch: prefetched } };
     } catch (err) {
       failed.push({ id, error: err instanceof CliError ? err.message : `${err?.name ?? 'Error'}` });
       continue;
@@ -6465,7 +6414,6 @@ export async function runTriggerLoops({
       }
     }
     const sharedOut = {
-      ...(preTurn ? { preTurn } : {}),
       ...(prefetched ? { prefetch: prefetchSummary(prefetched) } : {}),
     };
     if (single) {
@@ -6765,9 +6713,8 @@ async function loopDepsOf({
   return {
     IN_TURN_TOOLS,
     transportOf,
-    // Whether the pre-reply classifiers are replaced by her own tools (features.coreTools); `coreOn` is the run's reading of it (--core-tools forces it).
+    // Her own tools stand in for the pre-reply classifiers in every loop run, so `coreOn` is true whenever the loop runs.
     coreOn,
-    coreToolsOn: turnMod.coreToolsOn,
     loopSettings: turnMod.loopSettings,
     preTurnDeps,
     // The search classifier's `{{skills}}` and the names its `skills:` line may give (src/behavior/turn.js#discoveryPrompt):
@@ -6901,11 +6848,11 @@ async function runMain(args, { root, signal, rng, answers }) {
   const loopWanted = Boolean(scenarios || args.pairTransport || args.loopTriggers);
   if (loopWanted) await load('tools/impl/index.ts');
   const turnMod = loopWanted ? await load('behavior/turn.js') : null;
-  if (loopWanted && (typeof turnMod.coreToolsOn !== 'function' || typeof turnMod.loopSettings !== 'function')) {
+  if (loopWanted && typeof turnMod.loopSettings !== 'function') {
     hot.close();
-    throw new CliError('replay-cli: the engine has no step engine (coreToolsOn, loopSettings)');
+    throw new CliError('replay-cli: the engine has no step engine (loopSettings)');
   }
-  const coreOn = loopWanted && (args.coreTools || turnMod.coreToolsOn(hot.config));
+  const coreOn = loopWanted;
   const loopBounds = loopWanted ? turnMod.loopSettings(args.coreTools ? withCoreTools(hot.config) : hot.config) : null;
 
   // The spend gate: the estimate first; nothing is sent without --spend covering it.
