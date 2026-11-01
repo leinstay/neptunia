@@ -41,7 +41,7 @@ export function heldEventOf(event: unknown): Loose {
   return copy;
 }
 
-/** Whether the store's state says the core is paused (`state.data.paused`, src/memory/store.js). */
+/** Whether the store's state says the core is paused (`state.data.paused`, src/memory/store.ts). */
 export const isPausedIn = (store: unknown): boolean => looseOf(looseOf(looseOf(store).state).data).paused === true;
 
 /**

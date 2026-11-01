@@ -1,4 +1,4 @@
-// Operations: `/nep lore`: the owner's side of the server lorebook (src/memory/lore.js).
+// Operations: `/nep lore`: the owner's side of the server lorebook (src/memory/lore.ts).
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
@@ -7,7 +7,7 @@ import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
-import { LORE_LIMITS, MEMORY_LIMITS } from '../../memory/text-limits.js';
+import { LORE_LIMITS, MEMORY_LIMITS } from '../../memory/text-limits.ts';
 
 const handlers = perEnv((env) => {
   const { store, assertNotPaused, freshenIfPaused, requireGuildId } = env;

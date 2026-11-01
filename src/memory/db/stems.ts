@@ -1,6 +1,6 @@
 // Stems of the memory database's text (spec 2026-10-24-memory-store, section 8): `sources.stems` holds the keys of a
 // text's words, space-joined, so the word search (sources_fts, `stems` column) matches the inflected forms of a word.
-// The keys come from the record index's learned stemmer (src/memory/record-index.js: `learnEndings`, `stemmerOf`);
+// The keys come from the record index's learned stemmer (src/memory/record-index.ts: `learnEndings`, `stemmerOf`);
 // the endings are learned from the database's own text, never listed in code.
 //
 // The learned stemmer is kept in `meta` (key `stemmer`: the endings and the productivity of the stems that are seen
@@ -12,7 +12,7 @@
 //
 // Pure of the bot; works on an opened database (the writer connection for `fillStems`, any for `loadStemmer`).
 
-import { indexWords, learnEndings, stemmerOf } from '../record-index.js';
+import { indexWords, learnEndings, stemmerOf } from '../record-index.ts';
 import type { Db } from './types.ts';
 
 const META_KEY = 'stemmer';

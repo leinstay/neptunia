@@ -5,7 +5,7 @@
 import { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { userText } from '../../src/behavior/prompt.js';
-import { createStore } from '../../src/memory/store.js';
+import { createStore } from '../../src/memory/store.ts';
 import { dbOf, seedMirror } from './diary-mirror.ts';
 import type { MemoryService } from './diary-mirror.ts';
 import { openTestMemory } from './memory-db/service.js';

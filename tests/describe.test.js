@@ -1,4 +1,4 @@
-// Tests for src/memory/describe.js: the media describer — caching, LRU
+// Tests for src/memory/describe.ts: the media describer — caching, LRU
 // trimming, persistence, per-batch caps, the feature switch, and the
 // download-first flow: a picture is downloaded and sent to the model
 // as a data: URL, never as a bare Discord URL a provider might refuse to
@@ -11,14 +11,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createStore } from '../src/memory/store.js';
+import { createStore } from '../src/memory/store.ts';
 import {
   createDescriber,
   isStaleDescription,
   parseGifDescription,
   recacheCutoffMs,
   videoStateFromCache,
-} from '../src/memory/describe.js';
+} from '../src/memory/describe.ts';
 import { createHash } from 'node:crypto';
 import { createLlm, roleRequestOptions, TokenLimitError, DailyCapError } from '../src/llm/openrouter.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
@@ -692,7 +692,7 @@ test('describe: a refusal by the daily request cap caches no miss; the token rai
 
 const VIDEO_PROMPT = 'Watch this clip and say what happens.';
 // PR 7d: the video lengths, sizes, rates, the direct-URL sites and the processing mode are the describer's
-// constants (VIDEO_FIXED of src/memory/describe.js: a clip of at most 300 s and 14 500 000 bytes, a direct URL up to
+// constants (VIDEO_FIXED of src/memory/describe.ts: a clip of at most 300 s and 14 500 000 bytes, a direct URL up to
 // 3600 s at 10 tokens a second, a clip at 120, `agentic`), and the daily video cap is gone.
 const VIDEO_CFG = {
   provider: { order: ['pinned'], allow_fallbacks: false },

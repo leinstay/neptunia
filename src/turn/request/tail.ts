@@ -22,7 +22,7 @@ type MediaPart = { readonly attachments?: Array<{ readonly kind?: string; readon
 
 /**
  * The body of `<now>`: the present moment (formatNow), then, when `periods` holds any (the
- * journal's off periods, src/memory/journal.js#offPeriods, newest first), `labels.journal.offLead`
+ * journal's off periods, src/memory/journal.ts#offPeriods, newest first), `labels.journal.offLead`
  * and one line per period: `offPaused` or `offStopped` with `{from}` / `{to}` (the date and
  * the clock in `timezone`, as a pulled channel's header writes them) and `{length}`
  * (formatDuration). A period whose label is missing is left out; without the lead, or with no

@@ -31,7 +31,7 @@
 // never the query (it is chat content), never the key, never the URL.
 
 import { log } from '../log.js';
-import { clampText } from '../memory/clamp.js';
+import { clampText } from '../memory/clamp.ts';
 import { objOf } from '../tools/types.ts';
 import type { SearchClient, SearchFailure, SearchOptions, SearchOutcome, SearchResult } from './search-types.ts';
 

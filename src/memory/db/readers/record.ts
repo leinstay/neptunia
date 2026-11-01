@@ -1,4 +1,4 @@
-// The record's reads from the database (src/memory/record.js reads through them).
+// The record's reads from the database (src/memory/record.ts reads through them).
 // A record day file is the unit `<layer>/record/<YYYY-MM>/<YYYY-MM-DD>.jsonl` of `sources` rows (map/record.ts);
 // the lines come back rebuilt by the export, in file order. Pure functions over a read connection.
 

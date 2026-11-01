@@ -1,9 +1,9 @@
-// Tests for src/memory/lore.js: upsertLore (identity, owner protection, key
+// Tests for src/memory/lore.ts: upsertLore (identity, owner protection, key
 // normalization, eviction) and matchLore/keywordMatches (whole-word matching,
 // scoring, always entries). Pure, no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { upsertLore, matchLore, keywordMatches } from '../src/memory/lore.js';
+import { upsertLore, matchLore, keywordMatches } from '../src/memory/lore.ts';
 
 const NOW = Date.UTC(2026, 8, 21, 12, 0, 0);
 // The text limit and tolerance a clamping test relies on, set here instead of leaning on the code's fallbacks.
@@ -137,7 +137,7 @@ test('upsertLore: only a first write is clamped; a re-send of the clamped text c
   });
   assert.equal(same.upserted, 0);
   assert.equal(same.entries[0].updatedAt, new Date(NOW).toISOString());
-  // A rewrite over the limit is the caller's to refuse (src/memory/prose.js#acceptProse): stored as given.
+  // A rewrite over the limit is the caller's to refuse (src/memory/prose.ts#acceptProse): stored as given.
   const rewritten = upsertLore(clamped, [{ title: 'X', keys: ['valid'], text: 'x'.repeat(2000) }], {
     ...CLAMP,
     source: 'analyzer',

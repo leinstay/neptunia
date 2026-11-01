@@ -23,7 +23,7 @@ const MAX_FALLBACK_CHARS = 600;
 // A reaction body: a short unicode emoji, or a custom one as `:name:` / `<a:name:id>` (src/behavior/emoji.js).
 const MAX_REACTION_CHARS = 16;
 const CUSTOM_REACTION_RE = /^(?::[A-Za-z0-9_]{2,32}:|<a?:[A-Za-z0-9_]{2,32}:\d{1,25}>)$/;
-// A GIF handle (src/memory/gifs.js): `g` and digits, any case.
+// A GIF handle (src/memory/gifs.ts): `g` and digits, any case.
 const GIF_HANDLE_RE = /^g(\d{1,9})$/i;
 
 // A retired tag written out in text: whole (closed or self-closing), or a lone opening. Two kinds, the

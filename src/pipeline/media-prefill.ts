@@ -27,7 +27,7 @@ type MediaLine = Parameters<typeof collectPictures>[0] & { readonly authorId?: s
 /** What the classifiers' transcript shows of a line's media (src/format.js#formatTranscript). */
 export type CachedMedia = Pick<Parameters<typeof formatTranscript>[1], 'descriptions' | 'videos'>;
 
-/** The describer (src/memory/describe.js#createDescriber), as the prefill calls it. */
+/** The describer (src/memory/describe.ts#createDescriber), as the prefill calls it. */
 type Describer = {
   describeMany: (guildId: string, items: Array<unknown>) => Promise<unknown>;
   describeVideos?: (guildId: string, items: Array<unknown>) => Promise<unknown>;

@@ -1,7 +1,7 @@
 // The web lookup (features.webLookup, OFF unless set -- it costs money and the
 // Brave search needs a key): the persona reads a link posted in the chat, and, when
 // asked something that needs facts from outside, runs one web search. Two
-// halves, both modelled on the video describer (src/memory/describe.js), and the
+// halves, both modelled on the video describer (src/memory/describe.ts), and the
 // persona's own raw tools beside them:
 //
 // - readLinks: a normal page link (never a video-site link -- the video
@@ -54,7 +54,7 @@ import { videoSiteFor, safeLocation } from '../media/video-sites.ts';
 import { roleModel } from '../llm/roles.ts';
 import { fillPromptTemplate } from '../behavior/prompt.js';
 import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
-import { clampText, oneLine } from '../memory/clamp.js';
+import { clampText, oneLine } from '../memory/clamp.ts';
 import { log } from '../log.js';
 import { MINUTE_MS, utcDay } from '../time.js';
 import { MEDIA_CACHE_ENTRIES, hashedKey, touchKey, trimCache } from './cache.ts';
@@ -367,7 +367,7 @@ export function renderResults(
 
 /**
  * @param deps.hot Live config + prompts; read at the moment of use.
- * @param deps.store getMediaCache / markMediaCacheDirty (src/memory/store.js).
+ * @param deps.store getMediaCache / markMediaCacheDirty (src/memory/store.ts).
  * @param deps.llm From createLlm().
  * @param deps.pageFetcher From createPageFetcher() (src/web/fetch-page.ts).
  * @param deps.searches The search clients: createBraveSearch()

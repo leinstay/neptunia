@@ -49,7 +49,7 @@ import { SELF_PERSON, nativeOf, shortHash } from './ids.ts';
 import { audienceOf, contextRow, dmContext, groupContext, issueContext, scopeWhere, wellFormed } from './scope.ts';
 import { columnsOf } from './rows.ts';
 import { turnReadRows } from './service.ts';
-import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.js';
+import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.ts';
 import { asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Intention } from '../../intentions/types.ts';
 import type { Labels, Profile } from '../../turn/request/types.ts';

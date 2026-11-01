@@ -20,12 +20,12 @@
 
 import { fill } from '../format.js';
 import { log } from '../log.js';
-import { oneLine, clampText, stripUrls } from '../memory/clamp.js';
+import { oneLine, clampText, stripUrls } from '../memory/clamp.ts';
 import { MINUTE_MS, zonedDay, zonedEpoch, utcDay } from '../time.js';
 import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
 import type { Reads } from '../interface/reads.ts';
-import type { createStore } from '../memory/store.js';
+import type { createStore } from '../memory/store.ts';
 import type { ConversationRef } from '../protocol/adapter.ts';
 import { historyLines } from './lines.ts';
 import { diaryPlaces, readMirrors } from './mirror.ts';
@@ -629,7 +629,7 @@ export function renderTopicBlock(topic: unknown, labels: unknown): string {
   return [diaryWords(labels).topic, text].filter(Boolean).join('\n');
 }
 
-// A diary post's text loses its URLs through the one shared sanitizer (src/memory/clamp.js#stripUrls).
+// A diary post's text loses its URLs through the one shared sanitizer (src/memory/clamp.ts#stripUrls).
 export { stripUrls };
 
 /**

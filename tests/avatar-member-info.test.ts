@@ -1,11 +1,11 @@
-// The avatar queue (src/memory/avatar-queue.js) finds members and their pictures through the interface's `memberInfo`
+// The avatar queue (src/memory/avatar-queue.ts) finds members and their pictures through the interface's `memberInfo`
 // read: one member of the community, with the hash and the address of their avatar, or null when they are not a member.
 // A scan offers every profiled member with the answer; the queue then describes each new avatar once from the address
 // the answer carried. Fakes for the store, the model and the image download; the interface is the fake adapter.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { COMMUNITY, SELF_ID, member, rig } from './fixtures/reads-rig.ts';
-import { createAvatarQueue } from '../src/memory/avatar-queue.js';
+import { createAvatarQueue } from '../src/memory/avatar-queue.ts';
 
 type Profile = { id: string; names: Array<string>; avatar?: unknown };
 const NOW = Date.UTC(2026, 9, 15, 12, 0, 0);

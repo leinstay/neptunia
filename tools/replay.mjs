@@ -587,7 +587,7 @@ const MAX_DIARY_COUNT = 50;
 const MAX_SEED_CHARS = 200;
 /** The estimate per model request this tool sends: about what a persona answer costs on the live key. */
 const USD_PER_ANSWER = 0.15;
-/** A journal turn id (src/memory/journal.js#start). */
+/** A journal turn id (src/memory/journal.ts#start). */
 const TURN_ID = /^t-[A-Za-z0-9-]{1,80}$/;
 /** A recall run's requests at most: the classifier and the summary. */
 const RECALL_REQUESTS = 2;
@@ -616,7 +616,7 @@ function frozenCopy(value) {
  * The real store with every write refused: the methods in `reads` pass
  * through; any other method throws; `state` is a frozen copy whose
  * `markDirty` throws. Nothing is ever flushed from here.
- * @param {object} store  From src/memory/store.js#createStore.
+ * @param {object} store  From src/memory/store.ts#createStore.
  * @param {readonly string[]} reads
  */
 function readOnlyStore(store, reads) {
@@ -1314,7 +1314,7 @@ async function loadRecallMods(load) {
   const openrouter = await load('llm/openrouter.ts');
   const time = await load('time.js');
   const turn = await load('behavior/turn.js');
-  const describe = await load('memory/describe.js');
+  const describe = await load('memory/describe.ts');
   const lookup = await load('web/lookup.ts');
   const media = await load('media/classify.ts');
   const pull = await load('../interfaces/discord/index.ts');
@@ -2111,7 +2111,7 @@ export function searchAvailableOf({ hot, createLookup, searches, env = process.e
  * in-memory deep copy whose markDirty does nothing; flush, forget, wipe and
  * reload methods throw; the recall trace is a no-op. Other mutations touch
  * only this process's cache, which is never flushed.
- * @param {object} store  From src/memory/store.js#createStore.
+ * @param {object} store  From src/memory/store.ts#createStore.
  */
 export function unflushedStore(store) {
   const state = { data: structuredClone(store.state?.data ?? {}), markDirty() {} };
@@ -2150,7 +2150,7 @@ export function unflushedStore(store) {
 export async function loadDiaryMods(load) {
   return {
     ...(await load('behavior/diary.ts')),
-    ...(await load('memory/store.js')),
+    ...(await load('memory/store.ts')),
     ...(await load('llm/tokens.ts')),
     ...(await load('llm/openrouter.ts')),
     ...(await load('llm/images.ts')),
@@ -2161,7 +2161,7 @@ export async function loadDiaryMods(load) {
     ...(await load('interface/fake.ts')),
     ...(await load('interface/reads.ts')),
     ...(await load('behavior/emoji-index.ts')),
-    ...(await load('memory/describe.js')),
+    ...(await load('memory/describe.ts')),
     ...(await load('media/fetch-image.ts')),
     ...(await load('media/fetch-video.ts')),
     ...(await load('web/fetch-page.ts')),
@@ -2170,7 +2170,7 @@ export async function loadDiaryMods(load) {
     ...(await load('web/lookup.ts')),
     ...(await load('llm/parse.ts')),
     ...(await load('tools/tool-calls.ts')),
-    ...(await load('memory/clamp.js')),
+    ...(await load('memory/clamp.ts')),
     ...(await load('time.js')),
   };
 }
@@ -2642,7 +2642,7 @@ function blockNames(text) {
  * The journal of `--inner`, read functions only (`read`, `findTurn`, `timeline`) over the data
  * directory the run reads: a simulated `memory.journal.read` returns the real records, and
  * nothing can be written (no `system`, no `start`).
- * @param {object} journal  From src/memory/journal.js#createJournal.
+ * @param {object} journal  From src/memory/journal.ts#createJournal.
  */
 export function readOnlyJournal(journal) {
   return { read: journal.read, findTurn: journal.findTurn, timeline: journal.timeline };
@@ -2904,15 +2904,15 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     ...(await load('intentions/store.ts')),
     ...(await load('intentions/service.ts')),
     ...(await load('errands/store.ts')),
-    ...(await load('memory/append-store.js')),
-    ...(await load('memory/record.js')),
-    ...(await load('memory/journal.js')),
+    ...(await load('memory/append-store.ts')),
+    ...(await load('memory/record.ts')),
+    ...(await load('memory/journal.ts')),
     ...(await load('admin.js')),
     ...(await load('tools/registry.ts')),
     ...(await load('behavior/prompt.js')),
   };
   await load('tools/impl/index.ts');
-  const { createJournal } = await load('memory/journal.js');
+  const { createJournal } = await load('memory/journal.ts');
   const { grantedSkillNames } = await load('tools/discovery.ts');
   const { PROFILES: AGENT_PROFILES } = await load('agent-runner/profiles.ts');
   const { deepMerge } = await load('config.js');
@@ -6550,7 +6550,7 @@ async function loopDepsOf({
   const { createBraveSearch } = await load('web/brave.ts');
   const { createExaSearch } = await load('web/exa.ts');
   const { createRecall } = await load('behavior/recall-run.js');
-  const { createDescriber } = await load('memory/describe.js');
+  const { createDescriber } = await load('memory/describe.ts');
   const { createDiscordInterface } = await load('../interfaces/discord/index.ts');
   const {
     runWebSearch,
@@ -6608,10 +6608,10 @@ async function loopDepsOf({
     parseLookupAnswer,
     recallSettings,
   };
-  const { createAppendStore } = await load('memory/append-store.js');
-  const { createRecord } = await load('memory/record.js');
-  const { createArchive } = await load('memory/archive.js');
-  const { createVectors } = await load('memory/vectors.js');
+  const { createAppendStore } = await load('memory/append-store.ts');
+  const { createRecord } = await load('memory/record.ts');
+  const { createArchive } = await load('memory/archive.ts');
+  const { createVectors } = await load('memory/vectors.ts');
   const fns = {
     createLookup,
     createBraveSearch,
@@ -6937,7 +6937,7 @@ async function runMain(args, { root, signal, rng, answers }) {
     },
   });
 
-  const { createStore } = await load('memory/store.js');
+  const { createStore } = await load('memory/store.ts');
   const { createCalibrator } = await load('llm/tokens.ts');
   const { createLlm } = await load('llm/openrouter.ts');
   const {

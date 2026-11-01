@@ -15,7 +15,7 @@ import type { PublishOutcome } from '../src/behavior/mirror.ts';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { createAdmin } from '../src/admin.js';
 import { createFakeAdapter } from '../src/interface/fake.ts';
-import { createStore } from '../src/memory/store.js';
+import { createStore } from '../src/memory/store.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { diaryPublications, diaryRows, seedMirror } from './fixtures/diary-mirror.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';

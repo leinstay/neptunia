@@ -59,7 +59,7 @@
 import { createHash } from 'node:crypto';
 import { fitSections, requestTokenLimit, sectionCost } from '../llm/budget.ts';
 import { computeTempo, fill, formatNow, formatTranscript, renderTempo, renderTranscript } from '../format.js';
-import { RECENT_EPISODES_PER_MEMBER, recentSettings, recentView } from '../memory/recent.js';
+import { RECENT_EPISODES_PER_MEMBER, recentSettings, recentView } from '../memory/recent.ts';
 import { DEFAULT_HISTORY_POSTS, renderKindsBlock } from './diary.ts';
 import { diaryHistoryLines, diaryOf, worldText } from '../turn/request/diary.ts';
 import { gifListOf, trimLists } from '../turn/request/emoji-gifs.ts';
@@ -91,7 +91,7 @@ import { assembleUser, seenOf } from '../turn/request/tail.ts';
 import { finalTask, taskOf } from '../turn/request/task.ts';
 import { TAG_OVERHEAD, block, fillPromptTemplate, requireLabels } from '../turn/request/text.ts';
 import { wakeTexts } from '../turn/request/wake.ts';
-import { LORE_LIMITS } from '../memory/text-limits.js';
+import { LORE_LIMITS } from '../memory/text-limits.ts';
 
 // The block builders live in src/turn/request/; their importers read them from here.
 export { block, fillPromptTemplate, hasRequiredLabels } from '../turn/request/text.ts';
@@ -265,15 +265,15 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  * @param {object[]} [input.loreEntries]   The guild's stored lorebook (store.getLore), [] when memory is off.
  * @param {string|null} [input.currentChannelId]  Id of the channel this turn happens in.
  * @param {Map<string, string>} [input.descriptions]  Item id -> describer caption (see
- *   src/behavior/turn.js, src/memory/describe.js): the only way a picture reaches the persona.
+ *   src/behavior/turn.js, src/memory/describe.ts): the only way a picture reaches the persona.
  * @param {Map<string, string>} [input.neighborDescriptions]  Item id -> the caption the
  *   describer's cache already held for a picture in a neighbour's lines
- *   (src/memory/describe.js#cachedDescriptions); used for `<other_channels>` only, alongside
+ *   (src/memory/describe.ts#cachedDescriptions); used for `<other_channels>` only, alongside
  *   `descriptions`. Omitted -> a neighbour picture shows a caption only when `descriptions` has one.
  * @param {Map<string, object>} [input.videos]  Item id -> video state from the video describer
- *   (src/memory/describe.js#describeVideos), passed to formatTranscript.
+ *   (src/memory/describe.ts#describeVideos), passed to formatTranscript.
  * @param {Map<string, { question: string, text: string }>|null} [input.imageAnswers]  Picture or GIF id ->
- *   a second look on a question (src/memory/describe.js#relookImage / #rewatchGif), passed to formatTranscript.
+ *   a second look on a question (src/memory/describe.ts#relookImage / #rewatchGif), passed to formatTranscript.
  * @param {Map<string, string>} [input.reads]  Link id -> the excerpt the web lookup read from that
  *   page (src/web/lookup.ts#readLinks), passed to formatTranscript.
  * @param {{ query?: string, text?: string, sources?: object[], cached?: boolean,
@@ -362,9 +362,9 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  *   `<recent>` renders after `<self_facts>` whenever the last `memory.recentHours` (72 when
  *   unset) hold an item this turn may show: `labels.recent.header` (`{hours}`), then the items
  *   kept, oldest first (see `recentEntries`). The items are chosen by
- *   src/memory/recent.js#recentView in its order -- the lines `recentAudience` accepts, the ones
+ *   src/memory/recent.ts#recentView in its order -- the lines `recentAudience` accepts, the ones
  *   about the trigger's author, the interlocutor or a member asked about first; then up to
- *   two moments per member inside the window (src/memory/recent.js#RECENT_EPISODES_PER_MEMBER),
+ *   two moments per member inside the window (src/memory/recent.ts#RECENT_EPISODES_PER_MEMBER),
  *   those members first (none without `labels.recent.episode`) -- under `context.caps.recent` (1200
  *   when unset), ranked right after the chat and the pulled block and ahead of `<people>`; a
  *   header without an item, or items without the header, make no block. The moments
@@ -385,7 +385,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  *   (src/behavior/participation-pick.js; [] or omitted: the newest are shown), `audience` the
  *   channels this turn may show them from (the `<recent>` and neighbour rule:
  *   context.pull.sameAudience), and `channelName` a channel's live name when its stored note has
- *   none. The selection happens here (src/memory/participation.js#selectEpisodes), so the
+ *   none. The selection happens here (src/memory/participation.ts#selectEpisodes), so the
  *   block's dedup against the chat, the neighbours and the pulled channels is this builder's.
  *   Budget section `participation`, capped by `context.caps.participation` (6000 when unset),
  *   right after `recent`; one item per episode, the header first. Never in a private chat;
@@ -411,7 +411,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  *   found; one piece, fitted right after `<lookup>`). They render after `<channel_view>` and before
  *   `<chat>`. `<world>` never renders outside a diary post.
  * @param {{ kind: 'paused'|'stopped', from: number, to: number }[]|null} [input.offPeriods]  The
- *   persona's recent time away (src/memory/journal.js#offPeriods, newest first): with
+ *   persona's recent time away (src/memory/journal.ts#offPeriods, newest first): with
  *   `features.offPeriods` on (a missing key counts as on), `<now>` gains `labels.journal.offLead`
  *   and one `offPaused` / `offStopped` line per period (nowBlock). Omitted, null or empty -> none.
  * @param {{ name: string, title: string, whenToUse: string, allowed: boolean, reason: string }[]|null} [input.skillsInventory]

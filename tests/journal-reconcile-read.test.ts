@@ -1,11 +1,11 @@
-// The journal's reconciliation after a restart (src/memory/journal.js#reconcile) finds the persona's own messages through
+// The journal's reconciliation after a restart (src/memory/journal.ts#reconcile) finds the persona's own messages through
 // the interface's `history` read. `ownMessagesOf(reads, iface)` (src/behavior/own-messages.ts) is the `fetchOwnMessages`
 // it is handed: the last `count` messages of a conversation, only the persona's, each as `{ id, content, replyToId,
 // createdAt }`. `content` is the text as written in the core's grammar (`sourceText`), the form a post's intent was
 // recorded in, never the text as the chat shows it.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createJournal } from '../src/memory/journal.js';
+import { createJournal } from '../src/memory/journal.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.js';
 import { IFACE, SELF_ID, channel, rig, message } from './fixtures/reads-rig.ts';
 import { ownMessagesOf } from '../src/behavior/own-messages.ts';

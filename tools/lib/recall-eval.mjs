@@ -77,7 +77,7 @@ export function parseQuestions(value) {
  * The record's messages as they stand: per message id the newest revision of a `seen` or
  * `said` line with a channel and a time; a message whose newest line is `deleted` is gone.
  * Oldest first.
- * @param {Iterable<object>} lines  Record lines (src/memory/record.js).
+ * @param {Iterable<object>} lines  Record lines (src/memory/record.ts).
  * @returns {object[]}
  */
 export function latestLines(lines) {

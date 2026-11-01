@@ -1,13 +1,13 @@
-// Tests for the diary channel's mark in the server map: src/memory/channels.js#renderChannel
+// Tests for the diary channel's mark in the server map: src/memory/channels.ts#renderChannel
 // (`diary` option, `labels.server.diary`) and the persona's own lines counting as a writer of
-// that one channel (src/memory/update.js#touchMemory).
+// that one channel (src/memory/update.ts#touchMemory).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { renderChannel } from '../src/memory/channels.js';
-import { touchMemory } from '../src/memory/update.js';
-import { createStore } from '../src/memory/store.js';
+import { renderChannel } from '../src/memory/channels.ts';
+import { touchMemory } from '../src/memory/update.ts';
+import { createStore } from '../src/memory/store.ts';
 import { labels } from './fixtures/labels.js';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory } from './fixtures/memory-db/service.js';

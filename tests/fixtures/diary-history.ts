@@ -7,7 +7,7 @@
 // keeps them: each entry's row with its text and its messages, her lines in the record of `d1`, the picture's and the
 // voice's media rows with their attachment ids, the picture's description in the media cache, and Alice's line in the
 // record. The diary's one enabled mirror is on `d1`. Synthetic text only.
-import { createStore } from '../../src/memory/store.js';
+import { createStore } from '../../src/memory/store.ts';
 import { dbOf, seedMirror } from './diary-mirror.ts';
 import { GUILD, NOW, sceneHot } from './diary-requests.ts';
 import type { sceneLlm } from './diary-requests.ts';
@@ -329,7 +329,7 @@ export function historyRunner(
 
 /**
  * A describer that only reads what the describer's cache in memory holds (the store's media cache, by attachment id)
- * and never describes anything new, as src/memory/describe.js answers for a picture it already saw.
+ * and never describes anything new, as src/memory/describe.ts answers for a picture it already saw.
  */
 function cacheDescriber(store: HistoryMemory['store']) {
   const cached = (guildId: string, items: ReadonlyArray<{ itemId?: unknown }>) => {

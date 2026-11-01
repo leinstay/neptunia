@@ -1,14 +1,14 @@
-// Tests for src/memory/record.js: the record of every observed message, the persona's own lines
+// Tests for src/memory/record.ts: the record of every observed message, the persona's own lines
 // and her feelings, written to the memory database of a temporary directory (never the
 // deployment's data/).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { RECORD_LINKS_MAX, appendRevision, createRecord, recordLinks, toRecordLine } from '../src/memory/record.js';
-import { newestRevisions } from '../src/memory/chunks.js';
+import { RECORD_LINKS_MAX, appendRevision, createRecord, recordLinks, toRecordLine } from '../src/memory/record.ts';
+import { newestRevisions } from '../src/memory/chunks.ts';
 import { normalizeMessage } from '../interfaces/discord/index.ts';
-import { slimMessage } from '../src/memory/update.js';
+import { slimMessage } from '../src/memory/update.ts';
 import { openTestMemory, unitFile } from './fixtures/memory-db/service.js';
 
 const quiet = { info() {}, warn() {}, error() {} };

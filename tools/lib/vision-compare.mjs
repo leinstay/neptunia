@@ -1,6 +1,6 @@
 // The core of tools/vision-compare.mjs: the arguments, the media list, the pick from the media
 // cache, the tool-local hot view that swaps the vision and video models, one item described
-// through the live describer (src/memory/describe.js) with one model, the run with its USD stop,
+// through the live describer (src/memory/describe.ts) with one model, the run with its USD stop,
 // the per-model summary and the HTML sheet. Exists so a candidate media model can be judged
 // against the current one on the same pictures, GIFs and videos, by the very code path the
 // persona's senses use, before the owner switches `models.base.vision` / `models.base.video`.
@@ -9,7 +9,7 @@
 import { CliError, parseFlags } from './cli.mjs';
 import { escapeHtml } from './pair.mjs';
 import { costOf, percentile } from './recall-eval.mjs';
-import { createDescriber } from '../../src/memory/index.js';
+import { createDescriber } from '../../src/memory/index.ts';
 import { classifyAttachment } from '../../src/media/classify.ts';
 import { videoSiteFor } from '../../src/media/video-sites.ts';
 import { PURPOSE_ROLES } from '../../src/llm/roles.ts';
@@ -176,12 +176,12 @@ function lastUseOf(entry) {
   return times.length > 0 ? Math.max(...times) : -Infinity;
 }
 
-// A gif embed's per-message item id and an attachment's snowflake (src/memory/gif-recache.js).
+// A gif embed's per-message item id and an attachment's snowflake (src/memory/gif-recache.ts).
 const EMBED_ID_RE = /#e\d+$/;
 const ATTACHMENT_ID_RE = /^\d+$/;
 
 /**
- * The kind of one media cache entry (src/memory/describe.js's keys), or null for anything the
+ * The kind of one media cache entry (src/memory/describe.ts's keys), or null for anything the
  * tool does not compare: a miss, an entry without a text, a question's answer (`:q:`), a web
  * entry. `video:<item id>` other than a `video:url:` thumbnail is a watched video; an entry
  * marked `gif` a GIF; `emoji:` and `sticker:` their kinds; an attachment, a gif embed, a
@@ -299,7 +299,7 @@ export function toolHot(base, { model }) {
   };
 }
 
-/** The reason code a describer log line carries for a failure, or null (src/memory/describe.js's lines). */
+/** The reason code a describer log line carries for a failure, or null (src/memory/describe.ts's lines). */
 function failureCode(entry) {
   if (entry?.msg === 'describe: failed') return entry.reason ?? 'failed';
   if (entry?.msg === 'describe: video' && entry.state !== 'watched') return entry.reason ?? entry.state ?? 'error';

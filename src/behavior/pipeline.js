@@ -39,13 +39,13 @@ import { createSettles } from '../pipeline/settle.ts';
 /**
  * @param {object} deps
  * @param {import('../hot.js').createHot extends (...args: any) => infer R ? R : never} deps.hot
- * @param {ReturnType<import('../memory/store.js').createStore>} deps.store
+ * @param {ReturnType<import('../memory/store.ts').createStore>} deps.store
  * @param {import('../interface/reads.ts').Reads} deps.reads  The core's reads of the interface
  *   (src/interface/reads.ts): the conversation a message is in, its newest messages, a message by id,
  *   a member, and the listing of the community the route of a call reads.
  * @param {() => string} [deps.selfId]  The persona's id on the interface (`hello`).
  * @param {ReturnType<import('./turn.js').createTurnRunner>} deps.turns
- * @param {ReturnType<import('../memory/update.js').createMemoryUpdater>} deps.memory
+ * @param {ReturnType<import('../memory/update.ts').createMemoryUpdater>} deps.memory
  * @param {ReturnType<import('./mention.js').createTagHistory>} deps.tagHistory
  * @param {object} [deps.llm]  From createLlm() (src/llm/openrouter.ts), used for the address
  *   classifier: a message with no trigger, arriving while a conversation window this instance opened by
@@ -54,7 +54,7 @@ import { createSettles } from '../pipeline/settle.ts';
  * @param {() => string | null} deps.getGuildId  the single guild this instance serves, or null before it resolves
  * @param {(guildId: string) => string} [deps.getSelfName]  The persona's display name in a guild
  *   (src/core.js). Default: `bot`.
- * @param {object} [deps.describer]  From createDescriber() (src/memory/describe.js), optional: when
+ * @param {object} [deps.describer]  From createDescriber() (src/memory/describe.ts), optional: when
  *   absent, no description request is ever made from this pipeline. When present, every observed human
  *   message's first pictures (src/pipeline/media-prefill.ts) are handed to it fire-and-forget -- errors
  *   swallowed -- so the cache is already warm by the time a turn wants a caption for one of them. Only the
@@ -76,7 +76,7 @@ import { createSettles } from '../pipeline/settle.ts';
  *   From src/behavior/activity.js#createActivity, shared with the turn runner: every message of
  *   anyone but the persona in a served channel or a private chat is noted (no contents), so a
  *   turn answering a person can wait until they stop writing (pace.settleMs). Absent: nothing noted.
- * @param {{ append: Function }|null} [deps.record]  From src/memory/record.js#createRecord,
+ * @param {{ append: Function }|null} [deps.record]  From src/memory/record.ts#createRecord,
  *   optional: with features.record exactly true (read at each event), a deleted message of the
  *   served guild writes a `deleted` line (onMessageDelete) and an edited one a `seen` line with
  *   the next revision (src/pipeline/edits.ts). Absent: nothing is recorded here.

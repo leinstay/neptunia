@@ -1,14 +1,14 @@
 // A member's line right after the persona spoke in a server channel: it joins the channel's newest participation
-// episode (src/memory/participation.js#recordFollowing). createMessageHandler (src/behavior/pipeline.js) builds it once
+// episode (src/memory/participation.ts#recordFollowing). createMessageHandler (src/behavior/pipeline.js) builds it once
 // with createFollowing; handleMessage calls it for every member's line of the served guild.
 
 import { diaryConversationIds } from '../behavior/mirror.ts';
 import { log } from '../log.js';
-import { participationSettings, recordFollowing } from '../memory/index.js';
+import { participationSettings, recordFollowing } from '../memory/index.ts';
 import { MINUTE_MS } from '../time.js';
 import type { Line, PipelineConfig, PipelineTurns, Thrown } from './types.ts';
 
-/** The participation store of src/memory/store.js, as the following line writes it. */
+/** The participation store of src/memory/store.ts, as the following line writes it. */
 type ParticipationStore = {
   getParticipation?: (guildId: string) => unknown;
   setParticipation?: (guildId: string, next: unknown, options: object) => void;
@@ -30,7 +30,7 @@ export function createFollowing({ store, turns, memoryDb, now }: FollowingContex
 } {
   /**
    * A member's line in a server channel right after the persona spoke there: it joins the channel's newest
-   * participation episode (src/memory/participation.js#recordFollowing, settings read now) and the store is written
+   * participation episode (src/memory/participation.ts#recordFollowing, settings read now) and the store is written
    * only when it changed (`participation: recorded`, `following: true`). Cheap: nothing is fetched and no profile
    * read, and the store is not even read unless the persona's last post here (turns.lastPostAt) is within
    * `participation.followMinutes`. Off with features.memory or features.participation false (a

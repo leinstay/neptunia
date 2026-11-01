@@ -323,7 +323,7 @@ const entries = [
 ];
 
 test('matchEntry: the most specific entry wins over a containing folder', () => {
-  assert.equal(matchEntry(entries, 'src/memory/store.js')?.path, 'src/memory/');
+  assert.equal(matchEntry(entries, 'src/memory/store.ts')?.path, 'src/memory/');
   assert.equal(matchEntry(entries, 'src/llm/call.js')?.path, 'src/');
   assert.equal(matchEntry(entries, 'src/config.js')?.path, 'src/*.js');
 });
@@ -351,7 +351,7 @@ test('findImports: resolves relative specifiers to repository paths and bare one
     "const d = await import('./d.js');",
     "const e = await import('undici');",
   ].join('\n');
-  assert.deepEqual(findImports(src, 'src/memory/store.js'), [
+  assert.deepEqual(findImports(src, 'src/memory/store.ts'), [
     '@scope/pkg',
     'discord.js',
     'node:fs',
@@ -385,10 +385,10 @@ test('checkStructure: reports a tracked file that matches no entry and a tracked
 
 test('checkStructure: reports an import that no pattern of the entry allows', () => {
   const files = {
-    'src/memory/store.js': file("import fs from 'node:fs';\nimport x from 'discord.js';\nimport y from './y.js';"),
+    'src/memory/store.ts': file("import fs from 'node:fs';\nimport x from 'discord.js';\nimport y from './y.js';"),
     'src/memory/y.js': file(),
   };
-  assert.deepEqual(checkStructure(entries, files).imports, { 'src/memory/store.js': ['discord.js'] });
+  assert.deepEqual(checkStructure(entries, files).imports, { 'src/memory/store.ts': ['discord.js'] });
 });
 
 test('checkStructure: an import is allowed by a path pattern of the entry', () => {
@@ -412,12 +412,12 @@ test('checkStructure: an import is allowed by a path pattern of the entry', () =
 
 test('checkStructure: reports a module of a required-test entry that has no test file', () => {
   const files = {
-    'src/memory/store.js': file(),
-    'src/memory/lore.js': file(),
+    'src/memory/store.ts': file(),
+    'src/memory/lore.ts': file(),
     'src/memory/notes.md': file(),
     'tests/lore.test.js': file(),
   };
-  assert.deepEqual(checkStructure(entries, files).missingTests, ['src/memory/store.js']);
+  assert.deepEqual(checkStructure(entries, files).missingTests, ['src/memory/store.ts']);
 });
 
 test('checkStructure: a test named with a tail of the folder path counts', () => {

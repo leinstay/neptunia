@@ -37,9 +37,9 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../time.js';
-import { clampChars, oneLine } from '../memory/clamp.js';
+import { clampChars, oneLine } from '../memory/clamp.ts';
 import { isWordChar, occursAsWholeWord } from '../memory/mentions.ts';
-import { foldText as foldName } from '../memory/recent.js';
+import { foldText as foldName } from '../memory/recent.ts';
 import { externalOrigin } from './sources.ts';
 import { CODE } from '../tools/codes.ts';
 import { isFiniteNumber, isObj, listOf, objOf } from '../tools/types.ts';

@@ -35,7 +35,7 @@ import {
   searchPlan,
 } from '../src/behavior/recall.js';
 import { estimateTokens } from '../src/llm/tokens.ts';
-import { createRecord, toRecordLine } from '../src/memory/record.js';
+import { createRecord, toRecordLine } from '../src/memory/record.ts';
 import { labels } from './fixtures/labels.js';
 import fs, { readFileSync } from 'node:fs';
 import { openTestMemory } from './fixtures/memory-db/service.js';
@@ -1201,7 +1201,7 @@ test('mergeWindows: a merged window overlaps the chat when any of its parts does
 
 // ---- the archive and the recent record as sources -------------------------------------------
 
-/** An archive entry as src/memory/archive.js#archiveEntry writes it (the fields recall reads). */
+/** An archive entry as src/memory/archive.ts#archiveEntry writes it (the fields recall reads). */
 function archived(
   itemKind,
   itemId,
@@ -1418,7 +1418,7 @@ test('recall: the memory block stops at memoryTokens', () => {
   assert.equal(recallSettings({ recall: { recordDays: 0 } }).recordDays, 0, 'the record reader off');
 });
 
-/** A record line of `channelId` (src/memory/record.js#toRecordLine), `kind` seen unless said. */
+/** A record line of `channelId` (src/memory/record.ts#toRecordLine), `kind` seen unless said. */
 function rec(
   id,
   ts,

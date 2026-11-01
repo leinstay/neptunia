@@ -20,7 +20,7 @@ The persona looks at a picture again herself by calling the `media.look` tool wi
 
 Each member's Discord avatar is described by the `vision` role's model and stored in their profile as `avatar: { hash, text, describedAt }`. The avatar used is the server avatar when the member set one, otherwise the account avatar. Discord's default avatar (no upload) is recorded as `{ hash: null, default: true }`. A new version replaces the old one; no history is kept.
 
-Avatars are queued (`src/memory/avatar-queue.js`) and described one every 20 seconds (`INTERVAL_MS`). The caption is at most 200 characters (`DESCRIPTION_CHARS`). It appears in the `<people>` prompt block.
+Avatars are queued (`src/memory/avatar-queue.ts`) and described one every 20 seconds (`INTERVAL_MS`). The caption is at most 200 characters (`DESCRIPTION_CHARS`). It appears in the `<people>` prompt block.
 
 Model role: `vision`.
 
@@ -34,7 +34,7 @@ A video attached to a message, or a link to a known video site, is watched by a 
 
 The known video sites (from `media.video.sites`): YouTube, TikTok, VK, X/Twitter, Reddit, Twitch.
 
-Attachments and downloaded site videos are capped at 300 seconds and 14,500,000 bytes (`VIDEO_FIXED` in `src/memory/describe.js`). Over-size files are re-encoded to 360p at a capped bitrate; a clip still too large after re-encoding is refused. Public-URL videos from `youtube.com` and `youtu.be` up to 3,600 seconds are sent by URL to the pinned provider (the `agentic` URL processing of `VIDEO_FIXED`). Longer videos take the download route (the first 300 seconds via yt-dlp).
+Attachments and downloaded site videos are capped at 300 seconds and 14,500,000 bytes (`VIDEO_FIXED` in `src/memory/describe.ts`). Over-size files are re-encoded to 360p at a capped bitrate; a clip still too large after re-encoding is refused. Public-URL videos from `youtube.com` and `youtu.be` up to 3,600 seconds are sent by URL to the pinned provider (the `agentic` URL processing of `VIDEO_FIXED`). Longer videos take the download route (the first 300 seconds via yt-dlp).
 
 At most five new videos per turn (`VIDEOS_PER_TURN` in `src/turn/phases/request/stages.ts`). Results are cached alongside picture descriptions.
 
@@ -76,11 +76,11 @@ The persona builds a library of GIFs from the chat. Every GIF a member posts (a 
 
 A `<gifs>` block in the prompt lists the most-used GIFs ranked by recency-weighted use (at most 25, `GIFS_MAX` in `src/turn/request/emoji-gifs.ts`). Each GIF has three caption fields from the describer: a reaction label (cut at 40 characters), a visible action (cut at 70 characters, both by `gifFieldChars`) and on-screen text. The persona posts a GIF by writing its handle in a `<gif>` tag. One GIF per turn; an unknown handle does nothing.
 
-A GIF is watched as a short silent clip: the animation is converted to an mp4 of at most 15 seconds (`GIF_MAX_SECONDS` in `src/memory/describe.js`) and sent to the `video` role through `prompts/describe-gif.md`. The watched caption replaces the old single-frame description. GIFs that cannot be watched keep the one-frame description.
+A GIF is watched as a short silent clip: the animation is converted to an mp4 of at most 15 seconds (`GIF_MAX_SECONDS` in `src/memory/describe.ts`) and sent to the `video` role through `prompts/describe-gif.md`. The watched caption replaces the old single-frame description. GIFs that cannot be watched keep the one-frame description.
 
 A classifier on the `analyzer` role picks a GIF from the library to replace a short first message. The picker runs when the persona's first outgoing message is at most 160 characters (`GIF_PICK_DEFAULTS.maxChars` in `src/behavior/gif-pick.js`) and she chose no GIF herself.
 
-At first startup the engine reads the last 500 messages of every readable channel to seed the library, and the top 20 get captions right away (`BACKFILL_MESSAGES` and `BACKFILL_DESCRIBE` in `src/memory/gif-backfill.js`).
+At first startup the engine reads the last 500 messages of every readable channel to seed the library, and the top 20 get captions right away (`BACKFILL_MESSAGES` and `BACKFILL_DESCRIBE` in `src/memory/gif-backfill.ts`).
 
 Model roles: `video` (GIF watch), `analyzer` (GIF picker).
 
@@ -88,7 +88,7 @@ Model roles: `video` (GIF watch), `analyzer` (GIF picker).
 
 An `<emoji>` block lists the server's most-used custom emoji ranked by how often members use them. Uses are counted deterministically from each message. The persona writes `:name:` in a message or a reaction, and the engine turns known names into real Discord emoji markup (`<:name:id>`). Unknown names stay as plain text.
 
-At first startup the engine reads the last 500 messages of each channel to seed the ranking (`BACKFILL_MESSAGES` in `src/memory/emoji-backfill.js`).
+At first startup the engine reads the last 500 messages of each channel to seed the ranking (`BACKFILL_MESSAGES` in `src/memory/emoji-backfill.ts`).
 
 ### Stickers
 

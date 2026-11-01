@@ -23,8 +23,8 @@ import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { search, dbSettings } from '../src/memory/db/recall.ts';
 import { channelPlaceId, messageSourceId } from '../src/memory/db/ids.ts';
 import { dmScope, groupContext, groupScope } from '../src/memory/db/scope.ts';
-import { quantize } from '../src/memory/vectors.js';
-import { recordChunk } from '../src/memory/chunks.js';
+import { quantize } from '../src/memory/vectors.ts';
+import { recordChunk } from '../src/memory/chunks.ts';
 import { main, tableHashes } from '../tools/memory-db.mjs';
 import { buildDataDir, guildDir, writeJson } from './fixtures/memory-db/datadir.js';
 

@@ -26,7 +26,7 @@ import { CODE } from './tools/codes.ts';
 export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSummary } from './tools/impl/shared.ts';
 
 /**
- * `hot`, `store` — see src/hot.js, src/memory/store.js.
+ * `hot`, `store` — see src/hot.js, src/memory/store.ts.
  * `selfId` — the persona's own member id (null before the interface has said it), `getSelfName` — the name she goes
  *   by in a community, `memberNameOf` — a member's name in the member directory, `directory` — the
  *   conversations the interface reported (`isPrivate`), `connection` — `{ lastReconnectAt }`, filled from
@@ -47,19 +47,19 @@ export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSumm
  *   Absent -> `draw.create` reports it is not available and `status.show` has no image lines.
  * `imageFetcher` — from createImageFetcher() (src/media/fetch-image.ts), optional: downloads the
  *   bot's avatar as the reference of a `draw.create` picture of herself. Absent -> no reference is sent.
- * `emojiBackfill` — from createEmojiBackfill() (src/memory/emoji-backfill.js), optional: `run` (with
+ * `emojiBackfill` — from createEmojiBackfill() (src/memory/emoji-backfill.ts), optional: `run` (with
  *   `force`, awaited by `media.rescan` for emoji) and `isRunning` (a note in `media.status`).
  *   Absent -> that rescan reports it is not available; `media.status` still works.
- * `gifBackfill` — from createGifBackfill() (src/memory/gif-backfill.js), optional: `run` (with
+ * `gifBackfill` — from createGifBackfill() (src/memory/gif-backfill.ts), optional: `run` (with
  *   `force`, awaited by `media.rescan` for GIFs) and `isRunning` (a note in `media.status`).
  *   Absent -> that rescan reports it is not available; `media.status` still works.
- * `gifRecache` — from createGifRecache() (src/memory/gif-recache.js), optional: `start` (started by
+ * `gifRecache` — from createGifRecache() (src/memory/gif-recache.ts), optional: `start` (started by
  *   `media.recache` for GIFs, never awaited to the end), `startMedia` (the same for pictures),
  *   `isRunning` (a note in `media.status`) and `waitIdle` (`bot.pause` waits for a run in flight). Absent -> either recache reports it is not available.
- * `archive` — from createArchive() (src/memory/archive.js), optional: `iterate`
+ * `archive` — from createArchive() (src/memory/archive.ts), optional: `iterate`
  *   (`memory.archive.read`), `find` and `append` (`memory.restore`, with the store's `restoreArchived`).
  *   Absent -> both report the archive is not available.
- * `journal` — from createJournal() (src/memory/journal.js), optional: `system` records of pause
+ * `journal` — from createJournal() (src/memory/journal.ts), optional: `system` records of pause
  *   and resume (written while `features.journal` is exactly true), `read` for
  *   `memory.journal.read`. Absent -> no records, and that read reports it is not available.
  *   `withWriterLock` holds the journal's, the record's and the archive's writes while
@@ -70,17 +70,17 @@ export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSumm
  * `embedder` — from createEmbedder() (src/llm/embed.ts), optional: `embed()`, the one-input
  *   embedding request the owner's status card probes the `embedding` role with.
  *   Absent -> that role is shown unchecked.
- * `embedQueue` — from src/memory/embedder.js#createEmbedder, optional: `catchUp(guildId)`, the
+ * `embedQueue` — from src/memory/embedder.ts#createEmbedder, optional: `catchUp(guildId)`, the
  *   meaning index's catch-up pass `bot.resume` starts (never awaited), and `indexSummary(guildId)`,
  *   the owner card's index line. Absent -> no pass on resume and no index line.
- * `record` — from createRecord() (src/memory/record.js), optional: `dayFile`, where the owner's
+ * `record` — from createRecord() (src/memory/record.ts), optional: `dayFile`, where the owner's
  *   status card finds the record's month indexes for its memory coverage. Absent -> the
  *   record line says it is not available.
  * `metrics` — from src/tools/impl/metrics.ts#createMetrics, optional: `summary`, the owner card's speed
  *   field, and the turns of the last hour its storage line weighs. Absent -> no speed figures.
  * `lookup` — from src/web/lookup.ts#createLookup, optional: `searchEngine` and `hasSearch`, the
  *   `search:` line of the limits field. Absent -> no search line.
- * `describer` — from src/memory/describe.js#createDescriber, optional: its second look
+ * `describer` — from src/memory/describe.ts#createDescriber, optional: its second look
  *   (`relookImage`, `rewatchVideo`, `rewatchGif`, `videoCapsLeft`) behind `media.look`.
  *   Absent -> that operation reports it is not available.
  * `usage` — from src/tools/impl/usage.ts#createUsage, optional: `byRole`, today's requests per role on

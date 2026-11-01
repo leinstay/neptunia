@@ -14,9 +14,9 @@
 
 import { reasonText } from './tools/codes.ts';
 import { clipWithEllipsis, mediaLabelFor, stickerLabelFor } from './media/classify.ts';
-import { gifHandleOf } from './memory/index.js';
+import { gifHandleOf } from './memory/index.ts';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from './time.js';
-import { clampWithEllipsis, oneLine } from './memory/clamp.js';
+import { clampWithEllipsis, oneLine } from './memory/clamp.ts';
 import { isWordChar, outsideUrls } from './memory/mentions.ts';
 import { untaggedNames, withUserHandles } from './handles-text.js';
 
@@ -200,11 +200,11 @@ export function formatDuration(ms, units) {
  * ids to the excerpt the web lookup read from that page (src/web/lookup.ts);
  * it needs `transcript.linkRead`, blanked the same way to switch it off.
  * `context.imageAnswers` is an optional `Map` of picture ids to a second look
- * on a question (`{ question, text }`, src/memory/describe.js#relookImage);
+ * on a question (`{ question, text }`, src/memory/describe.ts#relookImage);
  * it needs `transcript.imageAnswered`, blanked the same way to switch it off.
- * A GIF's id may carry one too (src/memory/describe.js#rewatchGif): it
+ * A GIF's id may carry one too (src/memory/describe.ts#rewatchGif): it
  * renders `transcript.videoAnswered` and needs that key instead.
- * `context.gifHandles` is an optional `Map` from src/memory/gifs.js#gifHandleMap:
+ * `context.gifHandles` is an optional `Map` from src/memory/gifs.ts#gifHandleMap:
  * a GIF (attachment or embed) the library knows renders `transcript.gifKnown` /
  * `gifKnownNoText` with its handle; with the key in question blanked it
  * renders `gifDescribed` / `gif` instead. `context.gifFields` is an optional
@@ -336,7 +336,7 @@ function mediaTags(message, labels, context = {}) {
     const description = labels.transcript.stickerDescribed
       ? (context.descriptions?.get(`sticker:${sticker.id}`) ?? null)
       : null;
-    // `url` is null for a sticker with no picture. A slim message keeps `url` too (src/memory/update.js#slimMessage), so a
+    // `url` is null for a sticker with no picture. A slim message keeps `url` too (src/memory/update.ts#slimMessage), so a
     // memory transcript tells a picture sticker from one without exactly like a live chat transcript does.
     pushLabel(stickerLabelFor(sticker, { description }));
   }
@@ -440,7 +440,7 @@ export function reactorIdsOf(messages) {
 /**
  * What a reply line quotes of its parent: the parent's text on one line, else
  * its media tags (mediaTags) joined, cut to `maxChars` code points at a word
- * boundary with an ellipsis (src/memory/clamp.js#clampWithEllipsis; 0 =
+ * boundary with an ellipsis (src/memory/clamp.ts#clampWithEllipsis; 0 =
  * whole); '' when the parent has neither.
  */
 function replyQuote(parent, labels, context, maxChars) {
@@ -504,7 +504,7 @@ function withoutCallFields(message) {
 
 /**
  * The persona's own lines with the skill calls she made (src/behavior/turn.js keeps them, seeded
- * from src/memory/journal.js#callMarksOf at start), so a later turn sees what she called and how it
+ * from src/memory/journal.ts#callMarksOf at start), so a later turn sees what she called and how it
  * went. `marks.calls`: `{ channelId, at, skill, status, target: { messageId, channelId }, postedId,
  * posted }` each -- `channelId` the channel of the turn that made the call, `at` when its result
  * came back, `target` what it aimed at (a message and its channel; null fields when unknown; a
@@ -791,7 +791,7 @@ function numberMessageRefs(text, refs, numberOf) {
  *   a reply renders `transcript.replyToMemory` (`{author}`, `{quote}`, no `{index}`) in place
  *   of `transcript.replyTo`; it also groups by channel (see below).
  * @param {Map<string, string>} [options.descriptions]  Item id -> a describer
- *   caption (src/memory/describe.js); renders the `*Described` label forms.
+ *   caption (src/memory/describe.ts); renders the `*Described` label forms.
  * @param {Map<string, { state: 'watched'|'limit'|'error'|'pending', text?: string, reason?: string }>} [options.videos]
  *   Item id -> a video state (the video describer); renders the
  *   `videoWatched`/`videoNotWatched*`/`linkWatched`/`linkNotWatched*` forms.
@@ -800,7 +800,7 @@ function numberMessageRefs(text, refs, numberOf) {
  *   that page (src/web/lookup.ts); renders `transcript.linkRead`. Ignored when the labels have
  *   no `transcript.linkRead` key.
  * @param {Map<string, string>} [options.gifHandles]  The GIF library's handles
- *   (src/memory/gifs.js#gifHandleMap); a GIF it knows renders `transcript.gifKnown` /
+ *   (src/memory/gifs.ts#gifHandleMap); a GIF it knows renders `transcript.gifKnown` /
  *   `transcript.gifKnownNoText` with its handle, falling back to `gifDescribed` / `gif`
  *   when the labels lack that key.
  * @param {Map<string, { reaction: string, action: string, screen: string }>} [options.gifFields]
@@ -808,7 +808,7 @@ function numberMessageRefs(text, refs, numberOf) {
  *   a GIF with a handle, a caption and a non-empty reaction or on-screen text renders
  *   `transcript.gifKnownFields`, falling back to `gifKnown` when the labels lack that key.
  * @param {Map<string, { question: string, text: string }>|null} [options.imageAnswers]  Picture id -> a
- *   second look on a question (src/memory/describe.js#relookImage); renders `transcript.imageAnswered`
+ *   second look on a question (src/memory/describe.ts#relookImage); renders `transcript.imageAnswered`
  *   after the picture's tag. Ignored when the labels have no `transcript.imageAnswered` key.
  * @param {boolean} [options.seeReactions]  Default true: a message's `reactions` render as
  *   `transcript.reactions` at the end of its line. Ignored when the labels have no

@@ -17,7 +17,7 @@ import { checkEnvelope, observe } from '../src/memory/db/observe.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
 import { createMemoryDb } from '../src/memory/db/service.ts';
-import { slimMessage, toRecordLine } from '../src/memory/index.js';
+import { slimMessage, toRecordLine } from '../src/memory/index.ts';
 import { CHANNEL, GUILD, MEMBER, buildDataDir, guildDir, writeJson, writeLines } from './fixtures/memory-db/datadir.js';
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };

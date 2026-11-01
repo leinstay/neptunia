@@ -22,7 +22,7 @@ import {
   routeEntries,
   routeSettings,
 } from './route.js';
-import { MEMORY_LIMITS } from '../memory/text-limits.js';
+import { MEMORY_LIMITS } from '../memory/text-limits.ts';
 
 /**
  * The numbered `<channels>` list of one route decision for the route hook below: the stored

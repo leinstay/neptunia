@@ -1,9 +1,9 @@
 // Operations: `/nep media kind:emoji|gifs|pictures action:status|rescan|recache`: the custom emoji ranking and the GIF library, one operation per action with `kind`;
-// `kind:pictures` only with `recache` (the media recache of src/memory/gif-recache.js#startMedia, `days` optional).
+// `kind:pictures` only with `recache` (the media recache of src/memory/gif-recache.ts#startMedia, `days` optional).
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
-import { rankEmojiUsage, rankGifs, gifCaptionCounts, gifFormatCounts, RECACHE_DAYS } from '../../memory/index.js';
+import { rankEmojiUsage, rankGifs, gifCaptionCounts, gifFormatCounts, RECACHE_DAYS } from '../../memory/index.ts';
 import {
   NONE,
   backfillText,
@@ -14,8 +14,8 @@ import {
 } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
-import { GIF_HALF_LIFE_DAYS } from '../../memory/gifs.js';
-import { EMOJI_HALF_LIFE_DAYS } from '../../memory/emoji-usage.js';
+import { GIF_HALF_LIFE_DAYS } from '../../memory/gifs.ts';
+import { EMOJI_HALF_LIFE_DAYS } from '../../memory/emoji-usage.ts';
 
 /** The handler of `args.kind` among `byKindHandlers`, or an `invalid` error naming the kinds. */
 function byKind<TRun>(args: Obj, byKindHandlers: Record<string, TRun>): TRun {
@@ -62,7 +62,7 @@ const handlers = perEnv((env) => {
   /** `/nep gifs status`: how many GIFs the library holds, the top 10 (rank order,
    * `GIF_HALF_LIFE_DAYS`) as `g<n> xCOUNT — caption or name`, the history backfill stamp, and -- last, unless the
    * library is empty and no recache runs -- how the library's captions stand (watched /
-   * one-frame / failed watch / none, see src/memory/gif-recache.js#gifCaptionCounts) with a
+   * one-frame / failed watch / none, see src/memory/gif-recache.ts#gifCaptionCounts) with a
    * note while a recache runs, then the move to three-field captions (watched with fields /
    * watched in the old format, still to re-describe / unwatched, gifFormatCounts). Counts only. */
   function cmdGifsStatus(_args: Obj, context: OpContext): string {
@@ -112,7 +112,7 @@ const handlers = perEnv((env) => {
 
   /** `/nep gifs recache`: drops the one-frame GIF captions outside the library at once, then
    * re-describes up to `gifs.recachePerRun` library GIFs by watching them, in the background
-   * (src/memory/gif-recache.js). Replies at once. Writes under data/, so refused while paused. */
+   * (src/memory/gif-recache.ts). Replies at once. Writes under data/, so refused while paused. */
   function cmdGifsRecache(_args: Obj, context: OpContext): string {
     if (!gifRecache) return 'the GIF recache is not available';
     assertNotPaused();
@@ -132,7 +132,7 @@ const handlers = perEnv((env) => {
 
   /** `/nep media kind:pictures action:recache days:<n>`: re-describes, in the background, the
    * cached picture descriptions (GIFs, stickers and emoji included) last used within the last
-   * `days` (default 7, 1..60) that an older model wrote (src/memory/gif-recache.js#startMedia).
+   * `days` (default 7, 1..60) that an older model wrote (src/memory/gif-recache.ts#startMedia).
    * Replies at once with how many were picked. Writes under data/, so refused while paused. */
   function cmdPicturesRecache(args: Obj, context: OpContext): string {
     if (typeof gifRecache?.startMedia !== 'function') return PICTURES_RECACHE_SKIPS.unavailable;

@@ -37,7 +37,7 @@ import * as nodeFs from 'node:fs/promises';
 import { formatTranscript, MAX_MESSAGE_CHARS, renderTranscript, withTriggers } from '../format.js';
 import { roleRequestOptions } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
-import { clampChars, oneLine } from '../memory/clamp.js';
+import { clampChars, oneLine } from '../memory/clamp.ts';
 import { fillPromptTemplate } from './prompt.js';
 import { historyLines } from './lines.ts';
 import { log as defaultLog } from '../log.js';
@@ -546,7 +546,7 @@ export function buildCheckRequest({ prompt, labels, config, selfName, history, c
  * @param {object} deps
  * @param {{ config: object, prompts: object }} deps.hot  Read at the moment of use.
  * @param {{ state: { data: object } }} deps.store  Only `state.data.paused` is read.
- * @param {object|null} [deps.journal]  src/memory/journal.js: `answer` records written while
+ * @param {object|null} [deps.journal]  src/memory/journal.ts: `answer` records written while
  *   features.journal is exactly true; `read` at start for the reconciliation.
  * @param {{ complete: Function }|null} [deps.llm]  The analyzer's client; absent, every check is `unchecked`.
  * @param {object} deps.turns  The turn runner: `runTurn`, `triggerOf`, `lastPostAt`, `isBusy`, `isAnyBusy`.

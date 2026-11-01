@@ -1,4 +1,4 @@
-// Tests for src/memory/interests.js: applyInterestOps (add/update/seen/remove,
+// Tests for src/memory/interests.ts: applyInterestOps (add/update/seen/remove,
 // the confirmation weight/gap rule, clamping, rejection, eviction),
 // normalizeInterests (validates stored items) and the isConfirmed/isStale
 // helpers. Pure, no I/O.
@@ -12,8 +12,8 @@ import {
   isConfirmed,
   isStale,
   stripTrailingParenthetical,
-} from '../src/memory/interests.js';
-import { topByRank } from '../src/memory/ranking.js';
+} from '../src/memory/interests.ts';
+import { topByRank } from '../src/memory/ranking.ts';
 
 const NOW = Date.UTC(2026, 8, 21, 12, 0, 0); // 2026-09-21T12:00:00Z
 const HOUR = 3_600_000;

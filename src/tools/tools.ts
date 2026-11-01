@@ -14,7 +14,7 @@
 // nothing in it is parsed as a call. Each runs for her calls (the turn, with its context) and for
 // the owner's commands (src/tools/impl/search.ts, with what an operation knows). `media.look` is her own
 // second look at a picture, a GIF or a video of a message she sees: her question goes as she
-// wrote it to the describer's existing second-look path (src/memory/describe.js#relookImage,
+// wrote it to the describer's existing second-look path (src/memory/describe.ts#relookImage,
 // #rewatchGif, #rewatchVideo: the vision or video model, their daily limits and cache), and the
 // answer comes back named as that model's observation with what was asked -- no classifier picks
 // the item or words the question for her. With the vision or video role down, the look goes to the core model or
@@ -24,13 +24,13 @@
 // `<gifs>` block's do.
 
 import { fill } from '../format.js';
-import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
+import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { zonedDay } from '../time.js';
 import { RECALL_DEFAULTS, memorySearchPlan, recallSettings } from '../behavior/recall.js';
 import { collectPictures, collectVideos } from '../media/classify.ts';
 import { videoSiteFor, videoUrlCacheKey } from '../media/video-sites.ts';
-import { foldText } from '../memory/recent.js';
-import { GIF_HALF_LIFE_DAYS, rankGifs } from '../memory/gifs.js';
+import { foldText } from '../memory/recent.ts';
+import { GIF_HALF_LIFE_DAYS, rankGifs } from '../memory/gifs.ts';
 import { gifFieldChars, gifFields, gifLine } from '../behavior/prompt.js';
 import { IN_TURN_TOOLS } from './discovery.ts';
 import { CODE, FEATURE, WHAT, isCode } from './codes.ts';
@@ -998,7 +998,7 @@ export function mediaFindText(
 
 /**
  * One media.find: her `args.query` (her words) against the descriptions of the guild's GIF library
- * (src/memory/gifs.js, the describer cache), `args.n` results (default 5, at most 10). Reads only; no
+ * (src/memory/gifs.ts, the describer cache), `args.n` results (default 5, at most 10). Reads only; no
  * model request, no cap. `invalid` (`invalid-args`) without a query or one with no word in it;
  * `not_configured` without the store or while `features.gifs` is false (read now); else `ok` with
  * mediaFindText as its `data.text` -- an empty result is an ok with `find.none`. Never throws.

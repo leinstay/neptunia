@@ -1,12 +1,12 @@
-// Tests for src/memory/archive.js: the archive of every memory item that left a hot list, written to the memory
+// Tests for src/memory/archive.ts: the archive of every memory item that left a hot list, written to the memory
 // database of a temporary directory (never the deployment's data/); the entries waiting for it are JSON lines
 // through a real append store.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createAppendStore } from '../src/memory/append-store.js';
-import { archiveEntry, createArchive } from '../src/memory/archive.js';
+import { createAppendStore } from '../src/memory/append-store.ts';
+import { archiveEntry, createArchive } from '../src/memory/archive.ts';
 import { openTestMemory, unitFile } from './fixtures/memory-db/service.js';
 
 const quiet = { info() {}, warn() {}, error() {} };

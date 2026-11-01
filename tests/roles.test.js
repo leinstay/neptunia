@@ -271,6 +271,7 @@ const CONVERTED_FOLDERS = [
   'src/interface/',
   'src/llm/',
   'src/media/',
+  'src/memory/',
   'src/protocol/',
   'src/speech/',
   'src/web/',

@@ -85,7 +85,7 @@ export function pickContext(history, { contextMessages, answeredId = null }) {
 /**
  * The entries of `entries` that have a caption (src/behavior/prompt.js#gifCaption),
  * in the order given: the ones the picker lists. Pure.
- * @param {object[]} entries  The library's entries (src/memory/gifs.js#rankGifs).
+ * @param {object[]} entries  The library's entries (src/memory/gifs.ts#rankGifs).
  * @param {object|null} mediaCache  The describer cache (store.getMediaCache), read only.
  * @param {number} actionChars  `gifs.actionChars` (0 = whole caption).
  * @returns {object[]}
@@ -103,7 +103,7 @@ export function captionedEntries(entries, mediaCache, actionChars) {
  * no header, no top slice. Entries carrying the own-mark come after all the
  * unmarked ones (each group keeps the given order). Entries without a caption are left out; `[]` when
  * the labels carry no `gifs.entry`. Pure.
- * @param {object[]} entries  The library's entries (src/memory/gifs.js#rankGifs).
+ * @param {object[]} entries  The library's entries (src/memory/gifs.ts#rankGifs).
  * @param {object|null} mediaCache  The describer cache (store.getMediaCache), read only.
  * @param {object} labels
  * @param {{ now: number, ownMarkHours: number, reactionChars: number, actionChars: number }} options

@@ -16,7 +16,7 @@ import { DailyCapError } from '../src/llm/openrouter.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { createStore } from '../src/memory/store.js';
+import { createStore } from '../src/memory/store.ts';
 import { normalizeMessage, normalizeOptions, toEvent } from '../interfaces/discord/index.ts';
 import { createActivity } from '../src/behavior/activity.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -663,8 +663,8 @@ test('events: a non-triggering message is observed with direct: false', async ()
 
 // ---------------------------------------------------------------------------
 // features.mediaDescriptions: fire-and-forget describer pre-fetch from the
-// message path (src/memory/describe.js's cache), so the live memory analyzer
-// (src/memory/update.js#analyze) finds a caption already cached.
+// message path (src/memory/describe.ts's cache), so the live memory analyzer
+// (src/memory/update.ts#analyze) finds a caption already cached.
 
 // features.videoDescriptions + media.video.prefill: a posted video is watched
 // fire-and-forget, at most one per message.
@@ -7189,7 +7189,7 @@ test('onMessage: no recent own post, a bot or the diary channel never touch the 
 });
 
 // ---------------------------------------------------------------------------
-// The record (src/memory/record.js): a deleted message and an edit.
+// The record (src/memory/record.ts): a deleted message and an edit.
 
 test('events: a deleted message writes a deleted line and an edit writes revision 2', async () => {
   const appended = [];

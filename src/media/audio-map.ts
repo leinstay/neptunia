@@ -3,7 +3,7 @@
 // audio stream, a silent track or a mostly silent one; the fetcher
 // (src/media/fetch-video.ts) therefore measures the clip it sends with one
 // read-only ffmpeg `silencedetect` pass, and the describer
-// (src/memory/describe.js) adds a measured note to the video model's system
+// (src/memory/describe.ts) adds a measured note to the video model's system
 // prompt (`labels.videoAudio.none` / `labels.videoAudio.map`). This module
 // builds that ffmpeg run, reads its stderr, and turns the silences into the
 // audible stretches and the `m:ss-m:ss` list the note carries. No I/O here.

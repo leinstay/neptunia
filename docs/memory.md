@@ -40,7 +40,7 @@ readers ◀─ read connection ◀─ execution context (audience filter)
 
 There is one writer: every write goes through a worker thread (`src/memory/db/writer-worker.ts`) that owns the database and holds one transaction per write. The engine's main loop never holds a write transaction. Readers use a separate read-only connection.
 
-The module seams stay as they were before the database: `record`, `journal`, `archive`, `vectors`, the intention and errand stores keep their public functions. Underneath they read and write the database. The store (`src/memory/store.js`) keeps an in-memory cache of profiles, places, lore and other units; a dirty unit flushes as a whole value through its mapper into rows.
+The module seams stay as they were before the database: `record`, `journal`, `archive`, `vectors`, the intention and errand stores keep their public functions. Underneath they read and write the database. The store (`src/memory/store.ts`) keeps an in-memory cache of profiles, places, lore and other units; a dirty unit flushes as a whole value through its mapper into rows.
 
 ## Data model
 
@@ -189,15 +189,15 @@ Her turn writes her `said` lines with turn and operation ids, her day events, pa
 
 ### 3. The embedder
 
-The embedder (`src/memory/embedder.js`) sends new lines to the embedding model in batches. An hourly catch-up (`CATCH_UP_EVERY_MINUTES`, 60) covers the last 72 hours (`CATCH_UP_HOURS`), so a line has its vector within an hour.
+The embedder (`src/memory/embedder.ts`) sends new lines to the embedding model in batches. An hourly catch-up (`CATCH_UP_EVERY_MINUTES`, 60) covers the last 72 hours (`CATCH_UP_HOURS`), so a line has its vector within an hour.
 
 ### 4. Code-made counters
 
-`touchMemory` (`src/memory/update.js`) writes per line: first and last seen timestamps, message counts, emoji use, address counts. No model is involved.
+`touchMemory` (`src/memory/update.ts`) writes per line: first and last seen timestamps, message counts, emoji use, address counts. No model is involved.
 
 ### 5. Affinity decay
 
-Every stored attitude drifts toward zero at 0.04 per day (`RELATIONSHIP_LIMITS.decayPerDay` in `src/memory/text-limits.js`). The sweep runs hourly (`src/core.js`), but counts only the time the persona was running: a gap of more than two sweep intervals is treated as downtime, and the gap is skipped. The decay is applied to both public and private scores by `src/memory/store.js#decayAffinities`.
+Every stored attitude drifts toward zero at 0.04 per day (`RELATIONSHIP_LIMITS.decayPerDay` in `src/memory/text-limits.ts`). The sweep runs hourly (`src/core.js`), but counts only the time the persona was running: a gap of more than two sweep intervals is treated as downtime, and the gap is skipped. The decay is applied to both public and private scores by `src/memory/store.ts#decayAffinities`.
 
 ### The store, the outbox and pending writes
 
@@ -294,7 +294,7 @@ The prefetch keeps only hits that pass a relevance threshold (a rare phrase, two
 
 ## Nothing is forgotten
 
-There is no forget path, no wipe command, no way to delete memory rows through the engine. Precision falls through tiers: the context window is the most precise, then word search, then meaning search, then the journal. Rows leave hot memory through caps, but the archive (`src/memory/archive.js`) keeps a copy before anything is removed, and the record (`src/memory/record.js`) holds every line for good.
+There is no forget path, no wipe command, no way to delete memory rows through the engine. Precision falls through tiers: the context window is the most precise, then word search, then meaning search, then the journal. Rows leave hot memory through caps, but the archive (`src/memory/archive.ts`) keeps a copy before anything is removed, and the record (`src/memory/record.ts`) holds every line for good.
 
 A retired row keeps its history. `removeLore` (`/memory lore remove`) takes one lorebook entry out on the owner's word; that is the only removal.
 
@@ -373,7 +373,7 @@ The memory system reads these config groups from `config/config.json` (and `conf
 | `embed` | Embedding dimensions |
 | `memory` | The vault directory and the main channels |
 
-The other measures of memory are constants in the module that reads them: the capture's `CAPTURE_DEFAULTS` in `src/memory/db/observe.ts`, the graph walk's `DEFAULTS` in `src/memory/db/graph.ts`, `FOCUS_DEFAULTS` in `src/memory/db/focus.ts`, the embedding queue's in `src/memory/embedder.js`, and `MEMORY_LIMITS`, `RELATIONSHIP_LIMITS` and `LORE_LIMITS` in `src/memory/text-limits.js`.
+The other measures of memory are constants in the module that reads them: the capture's `CAPTURE_DEFAULTS` in `src/memory/db/observe.ts`, the graph walk's `DEFAULTS` in `src/memory/db/graph.ts`, `FOCUS_DEFAULTS` in `src/memory/db/focus.ts`, the embedding queue's in `src/memory/embedder.ts`, and `MEMORY_LIMITS`, `RELATIONSHIP_LIMITS` and `LORE_LIMITS` in `src/memory/text-limits.ts`.
 
 Two switches gate memory behaviour:
 

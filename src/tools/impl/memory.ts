@@ -16,14 +16,14 @@ import {
   turnView,
   DEFAULT_VAULT_DIR,
   SNAPSHOTS_DIR,
-} from '../../memory/index.js';
+} from '../../memory/index.ts';
 import { JOURNAL_KINDS, MEMORY_SHOW_SECTIONS } from './catalog.ts';
 import { effectiveAffinity } from '../../behavior/private.js';
 import { log } from '../../log.js';
-import { clampAtBoundary } from '../../memory/clamp.js';
+import { clampAtBoundary } from '../../memory/clamp.ts';
 import { DAY_MS, utcDay, zonedDay } from '../../time.js';
 import { formatClock } from '../../format.js';
-import { liveRecent, recentSettings } from '../../memory/recent.js';
+import { liveRecent, recentSettings } from '../../memory/recent.ts';
 import {
   JOURNAL_N_DEFAULT,
   JOURNAL_N_MAX,
@@ -53,7 +53,7 @@ import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { idText, objOf, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
-import { MEMORY_LIMITS } from '../../memory/text-limits.js';
+import { MEMORY_LIMITS } from '../../memory/text-limits.ts';
 
 /** The list sections of `memory show` (aliases, interests, details): the profile field, the config keys and the line. */
 const LIST_SECTIONS: Readonly<
@@ -182,7 +182,7 @@ const handlers = perEnv((env) => {
   }
 
   /** `hot.config.memory.mainChannelIds`, normalized to a string Set -- mirrors
-   * src/memory/update.js#mainChannelSet. */
+   * src/memory/update.ts#mainChannelSet. */
   function mainChannelIdSet() {
     return new Set((hot.config?.memory?.mainChannelIds ?? []).map(String));
   }
@@ -238,7 +238,7 @@ const handlers = perEnv((env) => {
 
   /**
    * `/nep memory server`: the stored guild-wide notes (`patterns`, `starters`, numbered
-   * in-jokes and self facts -- src/memory/store.js#getGuild) plus counts of what else this guild has
+   * in-jokes and self facts -- src/memory/store.ts#getGuild) plus counts of what else this guild has
    * stored (profiles, channel notes, lore entries) and when the guild notes were last updated.
    * `<@id>` tokens are resolved the same way `memory.show`/`memory.channel` resolve free text.
    */
@@ -262,7 +262,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep memory recent`: the guild's live recent lines (src/memory/recent.js#liveRecent over
+   * `/nep memory recent`: the guild's live recent lines (src/memory/recent.ts#liveRecent over
    * `memory.recentHours`), newest moment first, one per line: date and time in `bot.timezone`, the
    * source channel (`#name` when a channel note stores one, else its id), the weight and the text
    * with `<@id>` tokens resolved like the other memory views. Expired lines are not shown. Read
@@ -299,7 +299,7 @@ const handlers = perEnv((env) => {
 
   /**
    * `/nep memory archive [user] [kind] [n]`: the newest `n` (1..100, default 20) entries of the
-   * guild's archive (src/memory/archive.js), newest first: with a member, those scoped to them;
+   * guild's archive (src/memory/archive.ts), newest first: with a member, those scoped to them;
    * without one, the server-level ones (no member scope). `kind` narrows to one item kind. The
    * private archives are never read here. One line each: the UTC day the item left, the event,
    * the kind, the item id and its text (tokens resolved, cut to 160 characters). Read only; the
@@ -400,7 +400,7 @@ const handlers = perEnv((env) => {
 
   /**
    * `/nep memory journal [day] [kind] [n] [message]`: the last `n` (1..50, default 20) journal records of
-   * one UTC day (default today), of one kind or all, as short lines (src/memory/journal.js#journalLine).
+   * one UTC day (default today), of one kind or all, as short lines (src/memory/journal.ts#journalLine).
    * With `message` (`messageId`: an id or a message link; the persona's call gives `#N`, resolved
    * to the id by src/tools/executors.ts#resolveCall) the turn that posted that message instead,
    * whole (journal.findTurn over the message's snowflake time, shown by turnView), the other

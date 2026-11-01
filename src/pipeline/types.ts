@@ -102,7 +102,7 @@ export type PipelineHot = {
 /** The labels file (prompts/labels.json), as the pipeline hands it on. */
 export type PipelineLabels = { readonly address?: { readonly author?: string } } & object;
 
-/** The persisted state (src/memory/store.js), as far as the pipeline reads and writes it. */
+/** The persisted state (src/memory/store.ts), as far as the pipeline reads and writes it. */
 export type PipelineState = {
   data?: {
     paused?: unknown;

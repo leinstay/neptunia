@@ -16,7 +16,7 @@
 
 import { fill, formatClock, formatDate } from '../format.js';
 import { estimateTokens } from '../llm/tokens.ts';
-import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
+import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { DAY_MS } from '../time.js';
 import { DEFAULTS } from './model.ts';
 import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';

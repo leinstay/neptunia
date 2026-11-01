@@ -1,8 +1,8 @@
-// Tests for src/memory/ranking.js: rank (the weight/recency formula shared by
+// Tests for src/memory/ranking.ts: rank (the weight/recency formula shared by
 // interests and details), sortByRank and topByRank. Pure, no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rank, sortByRank, topByRank } from '../src/memory/ranking.js';
+import { rank, sortByRank, topByRank } from '../src/memory/ranking.ts';
 
 const DAY = 24 * 3_600_000;
 const NOW = Date.UTC(2026, 8, 21, 12, 0, 0); // 2026-09-21T12:00:00Z

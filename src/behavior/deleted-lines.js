@@ -1,5 +1,5 @@
 // Deleted messages in the persona's chat window. The window is the live history the interface
-// returns, so a message deleted since simply vanishes from it. The record (src/memory/record.js)
+// returns, so a message deleted since simply vanishes from it. The record (src/memory/record.ts)
 // still holds a `deleted` line for it (src/pipeline/edits.ts#onMessageDelete) and the `seen`
 // line it was first recorded with: this module reads the record over the window's span in the one
 // channel and turns each deletion the history lacks into a placeholder message at its own place,

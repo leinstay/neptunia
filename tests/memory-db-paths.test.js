@@ -1,5 +1,5 @@
 // The path allowlist of the writer switch (spec 2026-10-24-memory-authority, section 6 item 8; stage W4): every path
-// the unit mappers map or skip, the data layout of src/memory/store.js and the files of the fixture data directory are
+// the unit mappers map or skip, the data layout of src/memory/store.ts and the files of the fixture data directory are
 // in exactly one of the two lists (operational: still written as files; memory: in the database only). Synthetic paths
 // and data only; the ids are made up.
 import { test } from 'node:test';
@@ -15,7 +15,7 @@ import {
   pathClass,
 } from '../src/memory/db/paths.ts';
 import { MAPPERS, classify } from '../src/memory/db/map/index.ts';
-import { operationalJsonPath } from '../src/memory/store.js';
+import { operationalJsonPath } from '../src/memory/store.ts';
 import { GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
 
 const G = `guilds/${GUILD}`;

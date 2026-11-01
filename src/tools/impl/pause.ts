@@ -19,7 +19,7 @@ const handlers = perEnv((env) => {
    * nothing stale (or a late in-flight write) can land in data/ after the
    * owner starts editing it. Idempotent: a second call just reports the
    * state. Then the journal's `pause` record; nothing is posted to the chat (the persona learns
-   * of the pause from the journal, src/memory/journal.js#offPeriods).
+   * of the pause from the journal, src/memory/journal.ts#offPeriods).
    */
   async function cmdPause(context: OpContext): Promise<string> {
     const state = env.store.state.data;

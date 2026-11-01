@@ -1,10 +1,10 @@
-// Tests for src/memory/channels.js: pure activity classification and channel
+// Tests for src/memory/channels.ts: pure activity classification and channel
 // rendering for the <server> prompt block (see docs/prompt-contract.md,
 // "Server memory (the channel map)"). tests/fixtures/labels.js is an English
 // fixture covering every key of the prompt contract, including labels.server.*.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { channelActivity, messagesSince, renderChannel } from '../src/memory/channels.js';
+import { channelActivity, messagesSince, renderChannel } from '../src/memory/channels.ts';
 import { DAY_MS } from '../src/time.js';
 import { labels } from './fixtures/labels.js';
 
@@ -32,7 +32,7 @@ function channel(overrides = {}) {
 
 // --- channelActivity --------------------------------------------------------
 
-// PR 7d: the thresholds are constants of src/memory/channels.js, 20 messages and 7 days.
+// PR 7d: the thresholds are constants of src/memory/channels.ts, 20 messages and 7 days.
 test('channelActivity: live when today + yesterday reach the threshold, slow below it', () => {
   const rows = [
     {

@@ -13,8 +13,8 @@
 // `elsewhereSeen`) only change where the caller assigns the result and marks
 // the state dirty.
 
-import { memberIdOf as idOf } from '../memory/recent.js';
-import { mainChannelSet } from '../memory/index.js';
+import { memberIdOf as idOf } from '../memory/recent.ts';
+import { mainChannelSet } from '../memory/index.ts';
 import { DAY_MS } from '../time.js';
 import type { MessageUrlTemplate } from '../protocol/adapter.ts';
 import { portIface, portMessageUrl } from '../interface/capabilities.ts';

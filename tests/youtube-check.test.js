@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createYoutubeCheck, startYoutubeCheck } from '../src/memory/youtube-check.js';
+import { createYoutubeCheck, startYoutubeCheck } from '../src/memory/youtube-check.ts';
 
 // PR 7d: the canary is a constant of youtube-check.js, no setting.
 const CANARY = 'https://www.youtube.com/watch?v=jNQXAC9IVRw';

@@ -1,12 +1,12 @@
-// Tests for src/memory/aliases.js: applyAliasOps -- add/sighting/remove,
+// Tests for src/memory/aliases.ts: applyAliasOps -- add/sighting/remove,
 // ignoring an alias equal to a display name, clamping, rank-based eviction.
 // Pure, no I/O. Shares its confirmation/gap/rank mechanics with
-// src/memory/interests.js#applyRankedOps -- see tests/interests.test.js for
+// src/memory/interests.ts#applyRankedOps -- see tests/interests.test.js for
 // the exhaustive coverage of that shared core.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyAliasOps } from '../src/memory/aliases.js';
-import { topByRank } from '../src/memory/ranking.js';
+import { applyAliasOps } from '../src/memory/aliases.ts';
+import { topByRank } from '../src/memory/ranking.ts';
 
 const NOW = Date.UTC(2026, 8, 21, 12, 0, 0);
 const HOUR = 3_600_000;

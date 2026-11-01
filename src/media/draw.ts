@@ -15,7 +15,7 @@
 import { buildDrawPrompt } from '../behavior/prompt.js';
 import { formatNow } from '../format.js';
 import { avatarReference } from './fetch-image.ts';
-import { clampAtBoundary } from '../memory/clamp.js';
+import { clampAtBoundary } from '../memory/clamp.ts';
 import { objOf } from '../tools/types.ts';
 import type { GeneratedPicture } from '../llm/images.ts';
 

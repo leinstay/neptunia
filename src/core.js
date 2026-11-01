@@ -35,7 +35,7 @@ import {
   createDescriber,
   createAvatarQueue,
   startYoutubeCheck,
-} from './memory/index.js';
+} from './memory/index.ts';
 import { DAY_MS, utcDay } from './time.js';
 import { createCalibrator } from './llm/tokens.ts';
 import { createLlm, roleApiKey } from './llm/openrouter.ts';
@@ -112,7 +112,7 @@ import { PROFILES as AGENT_PROFILES } from './agent-runner/profiles.ts';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.js';
 import { createMessageHandler } from './behavior/pipeline.js';
 import { createLeasedAttention } from './behavior/attention.ts';
-import { RELATIONSHIP_LIMITS } from './memory/text-limits.js';
+import { RELATIONSHIP_LIMITS } from './memory/text-limits.ts';
 
 const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply', 'interject', 'initiate'];
 
@@ -357,13 +357,13 @@ async function buildCore(options, cleanups) {
     now: clock,
     log,
   });
-  // The record (src/memory/record.js): every observed message, the persona's own lines and her
+  // The record (src/memory/record.ts): every observed message, the persona's own lines and her
   // feelings, written while features.record is exactly true (read at each write).
   // A snapshot holds the record's appends with the journal's writer lock (journal.withWriterLock).
   const recordWriter = createRecord({ dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
-  // The meaning index (src/memory/vectors.js): its writers wait on the same writer lock.
+  // The meaning index (src/memory/vectors.ts): its writers wait on the same writer lock.
   const vectors = createVectors({ dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
-  // The live embedding queue (src/memory/embedder.js), set once the embedding client exists below.
+  // The live embedding queue (src/memory/embedder.ts), set once the embedding client exists below.
   let embedQueue = null;
   // The one place the meaning index hears of new record lines: every writer (edits and deletions,
   // the persona's own lines, feelings) appends through this record,
@@ -383,7 +383,7 @@ async function buildCore(options, cleanups) {
       return result;
     },
   };
-  // The archive (src/memory/archive.js): every memory item a write drops is copied here before any
+  // The archive (src/memory/archive.ts): every memory item a write drops is copied here before any
   // hot list loses it, while features.archive is exactly true (read at each write). Its own append
   // store for the pending queue (an operational file), so its counts speak for the archive alone.
   const archiveAppendStore = createAppendStore({
@@ -947,7 +947,7 @@ async function buildCore(options, cleanups) {
   // The persona's diary: its own entries on a day plan as the selfreflection wake, ticked below, each published to the
   // diary's mirrors. The diary's posts are rows of the memory database already: no backfill from the channel.
   const diary = createDiary({ hot, store, reads, turns, getGuildId, mirrors });
-  // The code-only memory of the live message path (src/memory/update.js): counters, GIF library, emoji, names.
+  // The code-only memory of the live message path (src/memory/update.ts): counters, GIF library, emoji, names.
   const memory = createMemoryUpdater({ hot, store });
   // The turn an errand's end opens, through the lease and a cooldown per conversation.
   const taskTurns = createErrandTurns({
@@ -1071,7 +1071,7 @@ async function buildCore(options, cleanups) {
   // The GIF library read from history (the interface's reads; the describer captions the top ones): once at
   // startup, again on /nep gifs rescan.
   const gifBackfill = createGifBackfill({ hot, store, reads, iface: () => identity.iface, describer, log });
-  // The GIF library re-described by watching (src/memory/gif-recache.js): only on /nep gifs recache;
+  // The GIF library re-described by watching (src/memory/gif-recache.ts): only on /nep gifs recache;
   // and the pictures an older model described, found through the record: only on /nep media
   // kind:pictures action:recache.
   const gifRecache = createGifRecache({
@@ -1271,7 +1271,7 @@ async function buildCore(options, cleanups) {
 
   /**
    * RELATIONSHIP_LIMITS.decayPerDay: every stored affinity (public and private) drifts toward zero, one
-   * step per whole day (src/memory/store.js#decayAffinities). Cheap to run hourly: it only applies
+   * step per whole day (src/memory/store.ts#decayAffinities). Cheap to run hourly: it only applies
    * full days. Skipped while paused (the owner may be editing data/).
    */
   /** How often the affinity decay sweeps. */
@@ -1633,11 +1633,11 @@ async function buildCore(options, cleanups) {
   // The spontaneous, diary and inner life ticks: the scheduler's beats, each wait a `scheduler.tick` through the door.
   scheduler.start();
   every(AFFINITY_SWEEP_MS, sweepAffinityDecay, 'affinity decay');
-  // The embedding queue flushes on its own clock (src/memory/embedder.js; a full batch sooner);
+  // The embedding queue flushes on its own clock (src/memory/embedder.ts; a full batch sooner);
   // the same tick runs its catch-up pass at the start and then on its own clock.
   every(30_000, () => embedQueue.tick(instance.guildId), 'embed.tick');
   // The avatar queue: its first tick scans the profiled members, then once a day; between
-  // requests it waits its interval (src/memory/avatar-queue.js).
+  // requests it waits its interval (src/memory/avatar-queue.ts).
   every(5_000, () => avatars.tick(), 'avatars.tick');
   // The speed samples written to data/metrics.json (at most once a minute; nothing new, no write).
   every(60_000, () => metrics.save(), 'metrics.save');
@@ -1687,7 +1687,7 @@ async function buildCore(options, cleanups) {
   await startupStep('intentions.reconcile', () => intentions.reconcile(instance.guildId), { wait: true });
 
   // The meaning index caught up with what the record took while the queue was down (the last
-  // CATCH_UP_HOURS of src/memory/embedder.js). Fire-and-forget; nothing while paused.
+  // CATCH_UP_HOURS of src/memory/embedder.ts). Fire-and-forget; nothing while paused.
   await startupStep('embed.catchUp', () => embedQueue.catchUp(instance.guildId));
 
   // Once per guild after the deploy that keyed access by operation: the stored grants re-expanded

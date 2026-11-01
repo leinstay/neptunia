@@ -7,10 +7,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRecall } from '../src/behavior/recall-run.js';
-import { createStore } from '../src/memory/store.js';
+import { createStore } from '../src/memory/store.ts';
 import { HIT_MARK } from '../src/behavior/recall.js';
 import { snapshotOf } from '../src/behavior/snapshot.ts';
-import { toRecordLine } from '../src/memory/record.js';
+import { toRecordLine } from '../src/memory/record.ts';
 import { DailyCapError } from '../src/llm/openrouter.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
@@ -1290,7 +1290,7 @@ test('recall: the searched log line carries counts only, never a text, with the 
 
 // ---- the archive and the recent record ---------------------------------------------------------
 
-/** A record line of a channel near NOW (src/memory/record.js#toRecordLine), private ones scoped to their owner. */
+/** A record line of a channel near NOW (src/memory/record.ts#toRecordLine), private ones scoped to their owner. */
 function recLine(id, ts, text, { channelId = 'c2', by = ANA_ID, owner = null } = {}) {
   const line = toRecordLine(
     { id, channelId, authorId: by, content: text, ts },
@@ -1634,7 +1634,7 @@ function rangedSource(byBase) {
   };
 }
 
-/** A row of the vector index as src/memory/vectors.js#search returns it. */
+/** A row of the vector index as src/memory/vectors.ts#search returns it. */
 function vrow(id, ts, score, { kind = 'record', channelId = 'c2', revision = 1, sourceIds = [id] } = {}) {
   return {
     meta: {

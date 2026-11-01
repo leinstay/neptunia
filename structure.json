@@ -1261,6 +1261,13 @@
       "test": "required"
     },
     {
+      "path": "src/memory/types.ts",
+      "purpose": "The types the memory modules share: untyped JSON, the settings handle, the logger and the memory database. Types and two small guards, tested through the modules that use them.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/memory/db/",
       "purpose": "The memory database: schema, the single writer, sessions, wakes and the read paths.",
       "layer": "public",

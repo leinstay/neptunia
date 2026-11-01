@@ -14,12 +14,12 @@ import {
   createAdmin,
   buildProfileSummary,
 } from '../src/admin.js';
-import { emptyAffinity, applyDelta } from '../src/memory/affinity.js';
-import { upsertLore } from '../src/memory/lore.js';
-import { createStore } from '../src/memory/store.js';
-import { MEMORY_LIMITS } from '../src/memory/text-limits.js';
-import { createAppendStore } from '../src/memory/append-store.js';
-import { createArchive } from '../src/memory/archive.js';
+import { emptyAffinity, applyDelta } from '../src/memory/affinity.ts';
+import { upsertLore } from '../src/memory/lore.ts';
+import { createStore } from '../src/memory/store.ts';
+import { MEMORY_LIMITS } from '../src/memory/text-limits.ts';
+import { createAppendStore } from '../src/memory/append-store.ts';
+import { createArchive } from '../src/memory/archive.ts';
 import { buildDrawPrompt } from '../src/behavior/prompt.js';
 import { familyOf, ImageGenError } from '../src/llm/images.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
@@ -851,7 +851,7 @@ test('runSkillOp: the full rights check -- a member granted memory.affinity.read
   assert.equal(await mayRun(admin, 'memory.affinity.read', member), true);
 });
 
-/** makeStore with the pings-off list of one guild, the way src/memory/store.js keeps it. */
+/** makeStore with the pings-off list of one guild, the way src/memory/store.ts keeps it. */
 function storeWithPings() {
   const store = makeStore();
   store.pingsOff = new Set();

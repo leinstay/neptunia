@@ -59,7 +59,7 @@ import {
   CONDITION_CHARS,
   PURPOSE_CHARS,
 } from './model.ts';
-import { clampChars, oneLine } from '../memory/clamp.js';
+import { clampChars, oneLine } from '../memory/clamp.ts';
 import { CODE } from '../tools/codes.ts';
 import { idText, isFiniteNumber } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';

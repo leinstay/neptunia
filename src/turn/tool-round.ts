@@ -18,7 +18,7 @@ import { requestTokenLimit } from '../llm/budget.ts';
 import { REPLY_REQUEST } from '../llm/openrouter.ts';
 import { estimateMessages, estimateTools } from '../llm/tokens.ts';
 import { log } from '../log.js';
-import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
+import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import type { ConversationRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import { linksOfCalls, outcomeDetail } from '../tools/executors.ts';

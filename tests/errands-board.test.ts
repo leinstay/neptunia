@@ -12,7 +12,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createErrandStore, createErrandStores } from '../src/errands/store.ts';
 import { createErrandService } from '../src/errands/service.ts';
 import { createErrandTurns, errandDoneEvent } from '../src/errands/turns.ts';
-import { createJournal } from '../src/memory/journal.js';
+import { createJournal } from '../src/memory/journal.ts';
 import { readBoard } from '../src/board/board.ts';
 import type { BoardDb } from '../src/board/schema.ts';
 import type { ErrandStore } from '../src/errands/types.ts';

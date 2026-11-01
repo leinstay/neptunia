@@ -1,4 +1,4 @@
-// Tests for src/memory/journal.js: the persona's journal records, written to the memory database
+// Tests for src/memory/journal.ts: the persona's journal records, written to the memory database
 // (a test database on a temporary directory; the lines each write sends are recorded as `{ file,
 // line }`, `file` the day file they stand for), and read back from it; no real data/.
 import { after, test } from 'node:test';
@@ -11,7 +11,7 @@ import {
   offPeriods,
   triggerLinksOf,
   toolsHashOf,
-} from '../src/memory/journal.js';
+} from '../src/memory/journal.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory, openTestMemorySync } from './fixtures/memory-db/service.js';
 
@@ -781,7 +781,7 @@ test('journal: an answer record is scoped to its channel, named by its participa
     (await journal.read('g1', { day: '2026-10-13', kind: 'answer' })).map((r) => r.messageId),
     ['m1']
   );
-  const { journalLine } = await import('../src/memory/journal.js');
+  const { journalLine } = await import('../src/memory/journal.ts');
   assert.equal(
     journalLine({ ...record, occurredAt: '2026-10-13T08:09:10.000Z' }),
     '08:09:10 answer fact replaced-deferred'
@@ -806,7 +806,7 @@ test('journal: an answer record is scoped to its channel, named by its participa
 
 async function realJournal(clock) {
   const fsp = await import('node:fs/promises');
-  const { createAppendStore } = await import('../src/memory/append-store.js');
+  const { createAppendStore } = await import('../src/memory/append-store.ts');
   const dataDir = tempDir('nep-journal-');
   const quiet = { info() {}, warn() {} };
   const mem = await openTestMemory({ dataDir });
@@ -855,7 +855,7 @@ test('journal: a .running marker left over at start writes an unclean-stop recor
 });
 
 test('journalLine: one short line per kind', async () => {
-  const { journalLine } = await import('../src/memory/journal.js');
+  const { journalLine } = await import('../src/memory/journal.ts');
   const at = '2026-10-13T08:09:10.000Z';
   assert.equal(
     journalLine({

@@ -13,13 +13,13 @@
 // `--from-cache N`: N recent entries of the guild's media cache (data/guilds/<id>/media.json,
 // read only), spread across the kinds (pickFromCache). The cache keeps descriptions, not URLs,
 // so each picked entry is found again as the live media recache finds it
-// (src/memory/gif-recache.js): an emoji from its id; a library GIF from its library entry's
+// (src/memory/gif-recache.ts): an emoji from its id; a library GIF from its library entry's
 // message; anything else from the messages the record says may hold it, read again over the
 // Discord REST API (GET only, no gateway, DISCORD_TOKEN from .env), newest first, at most
 // MAX_MESSAGE_READS messages. An entry not found again is counted and left out.
 //
 // Each item with each model: tools/lib/vision-compare.mjs#describeOne -- the live describer
-// (src/memory/describe.js: `describe` for a picture, an emoji, a sticker and a GIF, which is
+// (src/memory/describe.ts: `describe` for a picture, an emoji, a sticker and a GIF, which is
 // watched first and falls back to one frame as live; `describeVideo` with `force` for a video)
 // over a tool-local hot view whose `models.base.vision` and `models.base.video` are the model (the live
 // config is never changed), provider routing as configured (`llm.providerByModel`), an empty
@@ -104,8 +104,8 @@ async function resolveFromCache({ picked, dataDir, guildId, hot, nowMs, token })
   const { collectPictures, collectVideos } = await import('../src/media/classify.ts');
   const { emojiUrl } = await import('../interfaces/discord/collect.ts');
   const { normalizeMessage } = await import('../interfaces/discord/index.ts');
-  const { normalizeGifs } = await import('../src/memory/gifs.js');
-  const { recordFinder, snowflakeMs } = await import('../src/memory/gif-recache.js');
+  const { normalizeGifs } = await import('../src/memory/gifs.ts');
+  const { recordFinder, snowflakeMs } = await import('../src/memory/gif-recache.ts');
   const found = new Map();
   for (const p of picked) {
     if (p.kind === 'emoji')
@@ -167,7 +167,7 @@ async function resolveFromCache({ picked, dataDir, guildId, hot, nowMs, token })
       }
       // The rest from the messages the record says may hold them, newest first.
       if (wanted.size > 0) {
-        const { createRecord } = await import('../src/memory/record.js');
+        const { createRecord } = await import('../src/memory/record.ts');
         const { readOnlyMemory } = await import('./lib/memory-read.mjs');
         // Iteration only: the memory database read only.
         const memory = readOnlyMemory(dataDir);

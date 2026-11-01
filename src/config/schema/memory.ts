@@ -6,7 +6,7 @@ export const MEMORY: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'memory.vaultDir',
     'types': ['string'],
-    'reader': 'src/memory/root.js',
+    'reader': 'src/memory/root.ts',
     'default': 'vault',
     'text':
       'Directory under `data/` that an older install may have used for copies of deleted memory. Nothing in the engine writes here now; the setting tells `memory.snapshot` where to find it so the vault is skipped when copying',

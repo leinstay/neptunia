@@ -1,4 +1,4 @@
-// Tests for src/memory/clamp.js: clampText -- the boundary-aware, tolerant,
+// Tests for src/memory/clamp.ts: clampText -- the boundary-aware, tolerant,
 // token-safe replacement for a blind `.slice(0, limit)`. Pure, no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +10,7 @@ import {
   countDashes,
   oneLine,
   stripDashes,
-} from '../src/memory/clamp.js';
+} from '../src/memory/clamp.ts';
 
 // ---- non-string / empty --------------------------------------------------
 

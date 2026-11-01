@@ -18,8 +18,8 @@ import { isPlainObject } from '../../config.js';
 import { formatTranscript } from '../../format.js';
 import { requestTokenLimit, sectionCost } from '../../llm/budget.ts';
 import { cacheTtlMs } from '../../llm/openrouter.ts';
-import { gifHandleMap, normalizeGifs } from '../../memory/index.js';
-import { memberIdOf } from '../../memory/recent.js';
+import { gifHandleMap, normalizeGifs } from '../../memory/index.ts';
+import { memberIdOf } from '../../memory/recent.ts';
 import { freezePerBucket, gifFieldChars, gifFieldsMap } from './emoji-gifs.ts';
 import type { Held } from './emoji-gifs.ts';
 import { anchoredOn } from './memory.ts';
@@ -38,7 +38,7 @@ import type {
   RequestInput,
   TranscriptItem,
 } from './types.ts';
-import { RELATIONSHIP_LIMITS } from '../../memory/text-limits.js';
+import { RELATIONSHIP_LIMITS } from '../../memory/text-limits.ts';
 
 /** The live glance at the server's sidebar (src/behavior/around-store.ts), as `<people_now>` reads it. */
 export type AroundSnapshot = {

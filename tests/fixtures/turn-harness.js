@@ -8,7 +8,7 @@ import { createTurnRunner as createRealTurnRunner } from '../../src/behavior/tur
 import { userText } from '../../src/behavior/prompt.js';
 import { createFakeAdapter } from '../../src/interface/fake.ts';
 import { createDiscordInterface } from '../../interfaces/discord/index.ts';
-import { createJournal } from '../../src/memory/journal.js';
+import { createJournal } from '../../src/memory/journal.ts';
 import { createErrandStores } from '../../src/errands/store.ts';
 import { createErrandService } from '../../src/errands/service.ts';
 import { tempDir } from './tmp.js';

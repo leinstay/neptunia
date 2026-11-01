@@ -1,19 +1,19 @@
-// Tests for src/memory/store.js: the cache over the memory units (profiles, guild memory, channels, lore and the
+// Tests for src/memory/store.ts: the cache over the memory units (profiles, guild memory, channels, lore and the
 // rest, kept in the memory database) and the operational state files.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createStore, writeJsonAtomic } from '../src/memory/store.js';
-import { applyDelta } from '../src/memory/affinity.js';
-import { mergeEpisodes } from '../src/memory/episodes.js';
+import { createStore, writeJsonAtomic } from '../src/memory/store.ts';
+import { applyDelta } from '../src/memory/affinity.ts';
+import { mergeEpisodes } from '../src/memory/episodes.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { PARTICIPATION_DEFAULTS, emptyParticipation, recordOwnLine } from '../src/memory/participation.js';
+import { PARTICIPATION_DEFAULTS, emptyParticipation, recordOwnLine } from '../src/memory/participation.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory } from './fixtures/memory-db/service.js';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
-import { SELF_CHARS } from '../src/memory/text-limits.js';
+import { SELF_CHARS } from '../src/memory/text-limits.ts';
 
 function tmpDataDir() {
   return tempDir('nep-store-');
@@ -1070,7 +1070,7 @@ test('getChannel: a tally or a check stamp a hand edit broke is made safe to rea
   assert.deepEqual(writeLines(store, 'c1', 'έψιλον', 1, WRITERS_T0 + 6000).topWriters[0], { id: 'έψιλον', count: 5 });
 });
 
-// --- media cache (src/memory/describe.js's storage) --------------------------
+// --- media cache (src/memory/describe.ts's storage) --------------------------
 
 test('getMediaCache: the same live object is returned on every call, mutation-friendly', () => {
   const dir = tmpDataDir();
@@ -1258,7 +1258,7 @@ test('applyProfileOps: a first write of a prose field is clamped tolerantly to o
   store.touchUser('g1', 'u1', 'Alice', 1000);
   const profile = store.applyProfileOps('g1', 'u1', { character: '0123456789' }, { fieldChars: 5, now: 1000 });
   assert.equal(profile.character, '012345', '5 * the default tolerance 1.25, floored');
-  // A rewrite over the limit is the caller's to refuse (src/memory/prose.js#acceptProse): the store
+  // A rewrite over the limit is the caller's to refuse (src/memory/prose.ts#acceptProse): the store
   // stores what it is given and never cuts it.
   const rewritten = store.applyProfileOps('g1', 'u1', { character: '0123456789abcdef' }, { fieldChars: 5, now: 2000 });
   assert.equal(rewritten.character, '0123456789abcdef');
@@ -2222,7 +2222,7 @@ test('getUser / getPrivate: a profile written before relationshipWrittenAt exist
 const ELENI = '111111111111111111';
 const NIKOS = '222222222222222222';
 
-// --- the recent store (data/guilds/<id>/recent.json, src/memory/recent.js) ------
+// --- the recent store (data/guilds/<id>/recent.json, src/memory/recent.ts) ------
 
 const RECENT_NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 const RECENT_HOUR = 60 * 60 * 1000;
@@ -2496,7 +2496,7 @@ test('store: version files are not mistaken for channel or user ids', () =>
     check(createStore({ dataDir: dir, memoryDb }));
   }));
 
-// ---- the participation store (src/memory/participation.js) ---------------------
+// ---- the participation store (src/memory/participation.ts) ---------------------
 
 const PART_AT = Date.UTC(2026, 9, 10, 12, 0, 0);
 const PART_MIN = 60_000;
@@ -2843,7 +2843,7 @@ test('store: eviction returns the dropped items with their itemId', () => {
   );
 });
 
-// ---- the archive (src/memory/archive.js): nothing leaves a hot list without a copy ----
+// ---- the archive (src/memory/archive.ts): nothing leaves a hot list without a copy ----
 
 /** An archive stand-in: what was appended or queued; with `manual`, `append` resolves when released. */
 function fakeArchive({ manual = false, fail = false } = {}) {
@@ -3123,7 +3123,7 @@ test('store: closed items are capped and archived as replaced', async () => {
   assert.equal(store.getUser('g1', 'u1').closed[1].supersededBy, profile.interests[0].itemId);
 });
 
-// ---- the real name and the names people use (src/memory/addressed.js) ----
+// ---- the real name and the names people use (src/memory/addressed.ts) ----
 
 test('applyProfileOps: a realName is set, an equal one is a sighting, a different string changes nothing', () => {
   const store = createStore({ dataDir: tmpDataDir(), newId: counterIds() });

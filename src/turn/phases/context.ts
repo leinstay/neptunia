@@ -72,7 +72,7 @@ export type PhasePrompts = {
   [key: string]: unknown;
 } | null;
 
-/** The memory store (src/memory/store.js), as far as the phases read it. */
+/** The memory store (src/memory/store.ts), as far as the phases read it. */
 export type PhaseStore = Parameters<typeof recordEntry>[0]['store'] & {
   state: { data: { paused?: unknown; calibration?: unknown }; markDirty: () => void };
   getUser: (guildId: string, userId: string | undefined) => { names?: Array<string> } | null | undefined;
@@ -152,7 +152,7 @@ export type PhaseContext = {
   Rewatch &
   Pick<Lookup, 'startPrefetch' | 'recallAvailable' | 'turnDirectory' | 'privatePartner' | 'maybeSplit'>;
 
-/** The describer (src/memory/describe.js#createDescriber), as the preparation of a turn uses it. */
+/** The describer (src/memory/describe.ts#createDescriber), as the preparation of a turn uses it. */
 export type PhaseDescriber = {
   describeMany: (
     guildId: string,

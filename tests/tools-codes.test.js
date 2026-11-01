@@ -22,7 +22,7 @@ import { joinLabels } from '../src/config/labels.ts';
 import { fill, formatTranscript, withCalls } from '../src/format.js';
 import { toolResultText } from '../src/tools/tool-calls.ts';
 import { refusalStatus } from '../src/tools/executors.ts';
-import { callMarksOf } from '../src/memory/journal.js';
+import { callMarksOf } from '../src/memory/journal.ts';
 import { catalogueProblems, renderCodesTable } from '../tools/lib/labels-catalogue.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

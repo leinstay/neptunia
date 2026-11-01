@@ -111,7 +111,7 @@ export function mediaProxyUrl(
 
 /**
  * Rebuild a sticker's picture URL from just its id/format -- the only two
- * fields a slim message keeps for a sticker (see src/memory/update.js
+ * fields a slim message keeps for a sticker (see src/memory/update.ts
  * #slimMessage), so no stored URL is needed to look up a description-cache
  * entry. `null` for a Lottie sticker (format 3) or any
  * other non-picture format: it is never a picture, name only.

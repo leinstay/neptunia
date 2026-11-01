@@ -1,11 +1,11 @@
-// Tests for src/memory/details.js: applyDetailOps (add/seen/remove, the
+// Tests for src/memory/details.ts: applyDetailOps (add/seen/remove, the
 // confirmation weight/gap rule shared with interests, id assignment/reuse,
 // clamping, eviction) and normalizeDetails (validates stored items). Pure,
 // no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyDetailOps, normalizeDetails } from '../src/memory/details.js';
-import { isConfirmed } from '../src/memory/interests.js';
+import { applyDetailOps, normalizeDetails } from '../src/memory/details.ts';
+import { isConfirmed } from '../src/memory/interests.ts';
 
 const NOW = Date.UTC(2026, 8, 21, 12, 0, 0); // 2026-09-21T12:00:00Z
 const HOUR = 3_600_000;

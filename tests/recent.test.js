@@ -1,4 +1,4 @@
-// Tests for src/memory/recent.js: the recent store's pure logic (merge with
+// Tests for src/memory/recent.ts: the recent store's pure logic (merge with
 // expiry, dedupe, caps and remove; the live view; the purge of a member; the
 // fold) and src/memory/mentions.ts#tokenIds, plus the store's read path where a
 // rule is about "on read" versus "at the next write".
@@ -15,9 +15,9 @@ import {
   normalizeRecent,
   purgeRecentFor,
   recentView,
-} from '../src/memory/recent.js';
+} from '../src/memory/recent.ts';
 import { tokenIds } from '../src/memory/mentions.ts';
-import { createStore } from '../src/memory/store.js';
+import { createStore } from '../src/memory/store.ts';
 import { HOUR_MS } from '../src/time.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';

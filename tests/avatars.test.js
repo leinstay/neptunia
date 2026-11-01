@@ -1,14 +1,14 @@
-// Tests for src/memory/avatars.js and src/memory/avatar-queue.js: which member is due, the hash change, the default avatar
+// Tests for src/memory/avatars.ts and src/memory/avatar-queue.ts: which member is due, the hash change, the default avatar
 // without a request, the throttled queue on an injected clock, the stored field's
 // normalisation, and the store's write path for it. Fakes only: no network, no real data/.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { isAvatarDue, normalizeAvatar } from '../src/memory/avatars.js';
-import { createAvatarQueue } from '../src/memory/avatar-queue.js';
+import { isAvatarDue, normalizeAvatar } from '../src/memory/avatars.ts';
+import { createAvatarQueue } from '../src/memory/avatar-queue.ts';
 import { VISION_MAX_BYTES } from '../src/media/fetch-image.ts';
-import { createStore } from '../src/memory/store.js';
+import { createStore } from '../src/memory/store.ts';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory, unitFile } from './fixtures/memory-db/service.js';
 

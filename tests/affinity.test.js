@@ -1,4 +1,4 @@
-// Tests for src/memory/affinity.js: pure attitude scoring for
+// Tests for src/memory/affinity.ts: pure attitude scoring for
 // features.relationships (docs/prompt-contract.md, "The analyzer").
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,7 +14,7 @@ import {
   REASON_CHARS,
   deltaCapOf,
   strongestMoves,
-} from '../src/memory/affinity.js';
+} from '../src/memory/affinity.ts';
 
 // --- affinityBand: every boundary from the contract ---------------------
 

@@ -183,7 +183,7 @@ export type Interest = Claim & { readonly topic: string; readonly note?: string 
 export type Detail = Claim & { readonly text?: string };
 export type Alias = Claim & { readonly name: string };
 
-/** A remembered moment with a member (src/memory/episodes.js). */
+/** A remembered moment with a member (src/memory/episodes.ts). */
 export type Episode = {
   readonly itemId?: string;
   readonly date: string;

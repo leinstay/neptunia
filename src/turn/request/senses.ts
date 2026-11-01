@@ -5,7 +5,7 @@
 
 import { isPlainObject } from '../../config.js';
 import { fill } from '../../format.js';
-import { gifWatchBlocker } from '../../memory/index.js';
+import { gifWatchBlocker } from '../../memory/index.ts';
 import { IN_TURN_TOOLS, byFamily } from '../../tools/discovery.ts';
 import type { Base } from './head.ts';
 import type { MemoryViews } from './memory.ts';
@@ -70,7 +70,7 @@ export type SkillRow = {
  * `senses.readTool` follows the links lines, and `senses.lookTool` shows when `media.look` is granted.
  * `customEmoji` (the `<emoji>` block is possible) adds `senses.customEmoji`;
  * `gifs` (a non-empty library) adds `senses.gifs` right after it.
- * `gifWatching` (GIFs are watched now, src/memory/gif-watch.js#gifWatchBlocker)
+ * `gifWatching` (GIFs are watched now, src/memory/gif-watch.ts#gifWatchBlocker)
  * swaps `senses.gifDescribed` for `senses.gifWatched` when the labels have it.
  * Right after the files line, `senses.time` (how to read clock times, line
  * ages and gap markers), private chats included, when the label is a non-empty string.

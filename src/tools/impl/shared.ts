@@ -6,13 +6,13 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { emptyAffinity, affinityBand, roundScore } from '../../memory/index.js';
-import { topByRank } from '../../memory/ranking.js';
+import { emptyAffinity, affinityBand, roundScore } from '../../memory/index.ts';
+import { topByRank } from '../../memory/ranking.ts';
 import { fromTokens } from '../../memory/mentions.ts';
 import { MODEL_ROLES } from './catalog.ts';
 import { roleModel } from '../../llm/roles.ts';
 import { IMAGE_ROLE } from '../../llm/images.ts';
-import { oneLine } from '../../memory/clamp.js';
+import { oneLine } from '../../memory/clamp.ts';
 import { utcDay } from '../../time.js';
 import { denied, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
@@ -384,7 +384,7 @@ export function buildProfileSummary(
  * Order + cap one list-shaped section of `/nep memory show` (aliases,
  * interests, details): `order: 'recent'` sorts by `dateOf` descending, no
  * divider; the default `'rank'` order reuses the persona's own rank
- * (src/memory/ranking.js#topByRank) and inserts `DIVIDER_LINE` right after
+ * (src/memory/ranking.ts#topByRank) and inserts `DIVIDER_LINE` right after
  * `maxShown` items — the ones the persona is actually shown (see
  * docs/prompt-contract.md, "More is stored than shown, and rank
  * decays with age") — before either is capped to `limit` lines. Never throws
@@ -638,24 +638,24 @@ export function routeRoleArg(args: unknown): string | null {
 // Access and the media commands: pure functions
 // ---------------------------------------------------------------------------
 
-/** Why `/nep emoji rescan` did not run, by src/memory/emoji-backfill.js's skip reason (the
+/** Why `/nep emoji rescan` did not run, by src/memory/emoji-backfill.ts's skip reason (the
  * reasons every background job shares -- paused, no guild -- are worded by `skipText`). */
 export const EMOJI_RESCAN_SKIPS: Record<string, string> = {
   running: 'An emoji backfill is already running.',
 };
 
-/** Why `/nep gifs rescan` did not run, by src/memory/gif-backfill.js's skip reason. */
+/** Why `/nep gifs rescan` did not run, by src/memory/gif-backfill.ts's skip reason. */
 export const GIFS_RESCAN_SKIPS: Record<string, string> = {
   running: 'A GIF backfill is already running.',
 };
 
-/** Why `/nep gifs recache` did not start, by src/memory/gif-recache.js's skip reason. */
+/** Why `/nep gifs recache` did not start, by src/memory/gif-recache.ts's skip reason. */
 export const GIFS_RECACHE_SKIPS: Record<string, string> = {
   unavailable: 'the GIF recache is not available',
   'no-prompt': 'GIFs are not watched: the describe-video prompt is missing.',
 };
 
-/** Why `/nep media kind:pictures action:recache` did not start, by src/memory/gif-recache.js#startMedia's skip reason. */
+/** Why `/nep media kind:pictures action:recache` did not start, by src/memory/gif-recache.ts#startMedia's skip reason. */
 export const PICTURES_RECACHE_SKIPS: Record<string, string> = {
   unavailable: 'the media recache is not available',
   'no-prompt': 'Pictures are not described: the describe prompt is missing.',
@@ -667,7 +667,7 @@ export const PICTURES_RECACHE_SKIPS: Record<string, string> = {
 
 /** A channel's stored `topWriters` (`{ id, count }[]`) resolved to current stored names, comma
  * -separated -- an id with no stored profile (e.g. someone who left) is skipped silently, same as
- * src/memory/channels.js#renderChannel's own topWriters line. `''` when there is nothing to show. */
+ * src/memory/channels.ts#renderChannel's own topWriters line. `''` when there is nothing to show. */
 export function channelTopWritersText(topWriters: unknown, nameOf: (id: string) => string | null | undefined): string {
   return (Array.isArray(topWriters) ? topWriters : [])
     .map((writer): string | null => {

@@ -6,7 +6,7 @@
 // pass in what they know.
 
 import { fill } from '../format.js';
-import { clampWithEllipsis } from '../memory/clamp.js';
+import { clampWithEllipsis } from '../memory/clamp.ts';
 import { apiNameOf } from '../tools/definitions.ts';
 import { coversSpeech } from '../tools/tool-calls.ts';
 

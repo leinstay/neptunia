@@ -17,7 +17,7 @@
 import { createPullViews } from './pull-fetch.ts';
 import { fallbackLookupPlan } from './recall.js';
 import { createImageFetcher } from '../media/fetch-image.ts';
-import { createOffPeriodsReader } from '../memory/index.js';
+import { createOffPeriodsReader } from '../memory/index.ts';
 import { createParticipationPicker } from './participation-pick.js';
 import { createLimits } from '../llm/limits.ts';
 import { createThinkStore } from './previous-think.js';
@@ -138,7 +138,7 @@ export { fallbackLookupPlan };
  * `features.customEmoji` false (a missing key counts as on), no `:name:` is
  * turned into a custom emoji and a `<react>` with a custom one is dropped.
  *
- * `describer` (src/memory/describe.js#createDescriber) is optional: when
+ * `describer` (src/memory/describe.ts#createDescriber) is optional: when
  * absent, or `features.mediaDescriptions` is off, no description request is
  * ever made — buildRequest simply renders every un-attached picture blind
  * (and every attached one with its bare marker). A neighbour channel's
@@ -177,7 +177,7 @@ export { fallbackLookupPlan };
  * channel's lines, not this chat. A throw or an answer that is not an array
  * counts as no id (a throw logs `pull: route failed`).
  *
- * Participation (src/memory/participation.js; features.participation and features.memory,
+ * Participation (src/memory/participation.ts; features.participation and features.memory,
  * a missing key counts as on; never in a private chat or a place of her diary): every message a
  * turn sends for real in a server channel is recorded in the guild's participation store with
  * the history lines before it and the line it replies to (recordOwnParticipation). A server turn that builds a reply request (not a diary post) hands the
@@ -202,7 +202,7 @@ export { fallbackLookupPlan };
  * `activity` (src/behavior/activity.js#createActivity, fed by src/behavior/pipeline.js; optional)
  * tells when each person last wrote in each channel: a turn answering a person waits on it
  * (pace.settleMs, settleAuthor below); absent, no turn waits.
- * `journal` (src/memory/journal.js#createJournal; optional): with features.journal exactly
+ * `journal` (src/memory/journal.ts#createJournal; optional): with features.journal exactly
  * true (read at the moment of use), every attempt that passes the pause and attention rails
  * writes a `turn.start` line, and runTurn writes each attempt's `turn` record once it returns
  * (journalTurnRecord); `turn: model answered` then logs `thinkChars` instead of `think`.
@@ -212,8 +212,8 @@ export { fallbackLookupPlan };
  * and the engine's preparation (`by: 'engine'`: link reads, video watches, captions, the
  * searches; createPrepLedger says whether each result reached the request). A post's
  * `started` line carries its `intent` (the message it replies to, the first 80 characters of
- * its text) for the reconciliation after a restart (src/memory/journal.js#reconcile).
- * `record` (src/memory/record.js#createRecord; optional): with features.record exactly true
+ * its text) for the reconciliation after a restart (src/memory/journal.ts#reconcile).
+ * `record` (src/memory/record.ts#createRecord; optional): with features.record exactly true
  * (read at the moment of use), every message of the persona that reached the chat is appended
  * to it as a `said` line (recordSaid), with the turn's and the post operation's ids when the
  * journal follows the attempt.

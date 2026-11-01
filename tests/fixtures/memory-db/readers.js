@@ -1,13 +1,13 @@
 // The fixture of the database reader tests (stage W1): the synthetic data directory of datadir.js, a second guild,
 // and, in the first guild only, a few more units so every read path has something to return (a second record day with
 // every line kind, a private journal and archive, a vector month of a private layer, an archived intention), written
-// into a database through its own writers (seed.js; the vectors through src/memory/vectors.js on the service), then
+// into a database through its own writers (seed.js; the vectors through src/memory/vectors.ts on the service), then
 // opened read only. Synthetic text only; the ids are made up.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
-import { createVectors } from '../../../src/memory/vectors.js';
+import { createVectors } from '../../../src/memory/vectors.ts';
 import { openTestMemory } from './service.js';
 import { seedUnits } from './seed.js';
 import { BOARD_MIGRATIONS } from '../../../src/board/schema.ts';

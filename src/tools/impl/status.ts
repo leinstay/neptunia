@@ -32,8 +32,8 @@ import { keyHashOf, llmCountToday, resolveProvider } from '../../llm/openrouter.
 import { familyOf as imageFamilyOf, IMAGE_ROLE } from '../../llm/images.ts';
 import { SPEECH_ROLE } from '../../speech/synth.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, utcMinute } from '../../time.js';
-import { ARCHIVE_EVENTS } from '../../memory/index.js';
-import { clampChars, oneLine } from '../../memory/clamp.js';
+import { ARCHIVE_EVENTS } from '../../memory/index.ts';
+import { clampChars, oneLine } from '../../memory/clamp.ts';
 import { isOwnerCaller } from './grants.ts';
 import { MODEL_ROLES, STATUS_FIELDS, STATUS_PARTS } from './catalog.ts';
 import { CORE_ROLE, DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.ts';

@@ -4,7 +4,7 @@
 // `wakeBlockText` (src/behavior/wake.ts) calls it after the heartbeat's lines.
 
 import { fill } from '../format.js';
-import { oneLine } from '../memory/clamp.js';
+import { oneLine } from '../memory/clamp.ts';
 import { listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
 import type { SelfimprovementFacts, Shape } from './selfimprovement-view.ts';

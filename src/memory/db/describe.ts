@@ -26,7 +26,7 @@
 //   The review reads (and finds its description) through `audience_id`, not the triple.
 
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.ts';
-import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.js';
+import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.ts';
 import { shortHash } from './ids.ts';
 import { ifaceOrLegacy } from './legacy-namespace.ts';
 import { audienceOf, dmScope, groupContext, groupScope, scopeWhere } from './scope.ts';

@@ -14,9 +14,9 @@
 // never retried), `partial`, `failed`. Codes are kebab-case; no wording here: the persona reads a
 // result through `labels.tools.result`.
 
-import { clampWithEllipsis, oneLine } from '../memory/clamp.js';
+import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { channelCore, matchChannel, occursAsWholeWord } from '../memory/mentions.ts';
-import { foldText } from '../memory/recent.js';
+import { foldText } from '../memory/recent.ts';
 import { SELF_OWNED_OPS } from './impl/effects.ts';
 import { CODE, INVALID_CODES, NOT_CONFIGURED_CODES, WHAT } from './codes.ts';
 import { nestedRefusal } from './access.ts';
@@ -749,7 +749,7 @@ const ARG_RULE_KINDS: Readonly<Record<string, string>> = Object.freeze({
  * when given and not empty), so its mark can name them (`labels.tools.refusals.unknownArg`).
  * Any other code is its own kind without an argument. With `textChars` (a positive number) and
  * the operation's own message in `outcome.data.text`, that message rides along as `text`: one
- * line, cut to `textChars` with an ellipsis (src/memory/clamp.js) -- what the mark says when no
+ * line, cut to `textChars` with an ellipsis (src/memory/clamp.ts) -- what the mark says when no
  * specific label words the kind, ahead of the generic phrase of the code. Null for an `ok`
  * outcome or one without a code. Pure.
  */

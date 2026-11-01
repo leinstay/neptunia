@@ -48,7 +48,7 @@ const EXT_KIND: Record<string, string> = {
 // Media "picture" kinds: the ones collectPictures (below) lists for the
 // describer.
 const PICTURE_ATTACHMENT_KINDS = new Set(['image', 'gif', 'video']);
-// Media kinds the describer (src/memory/describe.js) can produce a caption
+// Media kinds the describer (src/memory/describe.ts) can produce a caption
 // for. 'sticker'/'emoji' are added here for the same reason a picture-format
 // sticker or a custom emoji is describable, even though neither is a platform's
 // attachment or embed kind. 'link' (a video-site embed such as YouTube) is
@@ -341,7 +341,7 @@ function answeredExtra(video: VideoState | null): LabelTag | null {
 
 /**
  * The `imageAnswered` extra of a picture that got a second look on a
- * question (`answer = { question, text }`, src/memory/describe.js#relookImage), else null.
+ * question (`answer = { question, text }`, src/memory/describe.ts#relookImage), else null.
  */
 function imageAnsweredExtra(answer: Answer | null): LabelTag | null {
   if (!answer) return null;
@@ -350,7 +350,7 @@ function imageAnsweredExtra(answer: Answer | null): LabelTag | null {
 
 /**
  * The `videoAnswered` extra of a GIF that got a second look on a question
- * (`answer = { question, text }`, src/memory/describe.js#rewatchGif: its clip
+ * (`answer = { question, text }`, src/memory/describe.ts#rewatchGif: its clip
  * watched again, as a video's), else null.
  */
 function gifAnsweredExtra(answer: Answer | null): LabelTag | null {
@@ -398,7 +398,7 @@ function extraOf(...extras: Array<LabelTag | Array<LabelTag> | null>): LabelTag 
  * src/format.js). A `link` with a video state swaps its one extra for
  * `linkWatched` / `linkNotWatchedFrame` / `linkNotWatched`. A watched video (attachment or link) whose state
  * carries `answer: { question, text }` (a second look on a question, see
- * src/memory/describe.js#rewatchVideo) appends `videoAnswered` after every
+ * src/memory/describe.ts#rewatchVideo) appends `videoAnswered` after every
  * other tag of the item. Every other kind ignores `context.video`.
  *
  * `context.read` is the excerpt of a `link` page read by the web lookup
@@ -407,7 +407,7 @@ function extraOf(...extras: Array<LabelTag | Array<LabelTag> | null>): LabelTag 
  * other kind ignores it.
  *
  * `context.gifHandle` is the library handle (`g12`, see
- * src/memory/gifs.js#gifHandleOf) of a `gif` item the persona can post
+ * src/memory/gifs.ts#gifHandleOf) of a `gif` item the persona can post
  * back: it renders `gifKnown` (`{ id, text }`) when a caption exists, else
  * `gifKnownNoText` (`{ id, name }`), in place of `gifDescribed`/`gif` (with
  * those keys blanked in prompts.local/labels.json, src/format.js
@@ -423,9 +423,9 @@ function extraOf(...extras: Array<LabelTag | Array<LabelTag> | null>): LabelTag 
  * ignores it (`gifDescribed` keeps the caption alone).
  *
  * `context.answer` is a picture's second look on a question (`{ question,
- * text }`, src/memory/describe.js#relookImage): an `image` item appends
+ * text }`, src/memory/describe.ts#relookImage): an `image` item appends
  * `imageAnswered` after its own tag. A `gif` item takes a GIF's
- * second look the same way (src/memory/describe.js#rewatchGif) and appends
+ * second look the same way (src/memory/describe.ts#rewatchGif) and appends
  * `videoAnswered` instead: its clip was watched again, as a video's. Every
  * other kind ignores it (a video's answer lives in its state, `context.video.answer`).
  */
@@ -775,7 +775,7 @@ export function collectVideos(
 
 /**
  * The video states of a turn whose video stage missed its deadline, in the
- * shape of describeVideos' `videos` (src/memory/describe.js): every state
+ * shape of describeVideos' `videos` (src/memory/describe.ts): every state
  * `known` holds (the describer's cache) is kept, and the first `maxNew`
  * candidates it lacks -- the ones the stage was watching or had yet to
  * start, as describeVideos picks them -- become `{ state: 'pending' }`, so

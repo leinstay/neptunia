@@ -3,7 +3,6 @@
     "src/behavior/recall-run.js": 2278,
     "src/behavior/recall.js": 2458,
     "src/behavior/sandbox.js": 2121,
-    "src/memory/store.js": 3303,
     "tests/admin.test.js": 3769,
     "tests/describe.test.js": 3115,
     "tests/events.test.js": 7253,
@@ -280,12 +279,12 @@
         "function-length": 697
       }
     },
-    "src/memory/append-store.js": {
+    "src/memory/append-store.ts": {
       "createAppendStore": {
-        "function-length": 344
+        "function-length": 342
       }
     },
-    "src/memory/archive.js": {
+    "src/memory/archive.ts": {
       "createArchive>iterate": {
         "complexity": 23
       }
@@ -386,18 +385,18 @@
         "complexity": 23
       }
     },
-    "src/memory/describe.js": {
-      "createDescriber": {
-        "function-length": 1299
+    "src/memory/describe.ts": {
+      "buildDescriber": {
+        "function-length": 1284
       },
-      "createDescriber>fetchVideoMedia": {
+      "buildDescriber>fetchVideoMedia": {
         "complexity": 21
       },
-      "createDescriber>watchVideo": {
+      "buildDescriber>watchVideo": {
         "complexity": 24
       }
     },
-    "src/memory/embedder.js": {
+    "src/memory/embedder.ts": {
       "createEmbedder": {
         "function-length": 486
       },
@@ -405,12 +404,12 @@
         "complexity": 21
       }
     },
-    "src/memory/gif-recache.js": {
-      "createGifRecache>workMedia>run": {
+    "src/memory/gif-recache.ts": {
+      "buildGifRecache>workMedia>run": {
         "complexity": 22
       }
     },
-    "src/memory/gifs.js": {
+    "src/memory/gifs.ts": {
       "mergeGifs": {
         "complexity": 23
       },
@@ -418,17 +417,17 @@
         "complexity": 30
       }
     },
-    "src/memory/interests.js": {
+    "src/memory/interests.ts": {
       "applyRankedOps>sight": {
         "complexity": 21
       }
     },
-    "src/memory/journal.js": {
+    "src/memory/journal.ts": {
       "callMarksOf": {
-        "complexity": 42
+        "complexity": 41
       },
       "createJournal": {
-        "function-length": 625
+        "function-length": 614
       },
       "journalLine": {
         "complexity": 22
@@ -437,20 +436,20 @@
         "complexity": 22
       },
       "turnOfMessage": {
-        "complexity": 26
+        "complexity": 25
       }
     },
-    "src/memory/lore.js": {
+    "src/memory/lore.ts": {
       "upsertLore": {
         "complexity": 28
       }
     },
-    "src/memory/recent.js": {
+    "src/memory/recent.ts": {
       "recentView": {
         "complexity": 26
       }
     },
-    "src/memory/record-index.js": {
+    "src/memory/record-index.ts": {
       "indexQuery": {
         "complexity": 25
       },
@@ -458,19 +457,14 @@
         "complexity": 21
       }
     },
-    "src/memory/record.js": {
+    "src/memory/record.ts": {
       "toRecordLine": {
         "complexity": 27
       }
     },
-    "src/memory/store.js": {
-      "createStore": {
-        "function-length": 2276
-      }
-    },
-    "src/memory/vectors.js": {
+    "src/memory/vectors.ts": {
       "createVectors": {
-        "function-length": 523
+        "function-length": 491
       },
       "createVectors>search": {
         "complexity": 35
@@ -821,7 +815,7 @@
       "src/log.js",
       "src/media/classify.ts",
       "src/media/gif-post.ts",
-      "src/memory/avatar-queue.js",
+      "src/memory/avatar-queue.ts",
       "src/memory/db/export.ts",
       "src/memory/db/graph-manifest.ts",
       "src/memory/db/map/channel.ts",
@@ -844,8 +838,8 @@
       "src/memory/db/upsert.ts",
       "src/memory/db/writer-switch.ts",
       "src/memory/db/writer-worker.ts",
-      "src/memory/index.js",
-      "src/memory/update.js",
+      "src/memory/index.ts",
+      "src/memory/update.ts",
       "src/protocol/actions.ts",
       "src/protocol/envelope.ts",
       "src/protocol/index.ts",

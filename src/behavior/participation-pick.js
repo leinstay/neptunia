@@ -1,5 +1,5 @@
 // The participation pick classifier. The persona keeps slices of other
-// channels around her own lines (src/memory/participation.js); a turn shows a
+// channels around her own lines (src/memory/participation.ts); a turn shows a
 // few of them in `<participation>`. Which few: by default the newest, but when
 // the message she answers refers to an exchange elsewhere ("did you get what I
 // said in the other channel?"), one cheap classifier call reads the chat
@@ -16,8 +16,8 @@ import { isPlainObject } from '../config.js';
 import { log } from '../log.js';
 import { formatDuration } from '../format.js';
 import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
-import { oneLine } from '../memory/clamp.js';
-import { PARTICIPATION_DEFAULTS, episodeHeadlines, participationSettings } from '../memory/index.js';
+import { oneLine } from '../memory/clamp.ts';
+import { PARTICIPATION_DEFAULTS, episodeHeadlines, participationSettings } from '../memory/index.ts';
 import { roleModel } from '../llm/roles.ts';
 import { block, fillPromptTemplate, stableThenTail } from './prompt.js';
 import { routeCandidate, routeContext } from './route.js';
@@ -83,7 +83,7 @@ function pickLate({ channelId, offered, timeoutMs, limits }) {
 }
 
 /**
- * The `<episodes>` lines: one per headline (src/memory/participation.js#episodeHeadlines
+ * The `<episodes>` lines: one per headline (src/memory/participation.ts#episodeHeadlines
  * gives them newest first; listed here oldest first, so a new episode appends a line and the
  * cached list keeps its prefix), numbered from 1 -- `n | #channel | member: line | persona:
  * line`. The member part is the first other member's name (from the episode in `state`) and
@@ -194,7 +194,7 @@ export function parseParticipationPick(raw, count) {
 /**
  * The numbered `<episodes>` list of one pick for the pick hook below: the live headlines of the
  * guild's stored episodes outside `channel` that pass `audience`
- * (src/memory/participation.js#episodeHeadlines with the live
+ * (src/memory/participation.ts#episodeHeadlines with the live
  * `participation` settings), rendered by participationEpisodeList with each
  * channel's stored note name, else the live channel's. `headlines` counts
  * the headlines before a nameless channel's are left out; `ages` are the

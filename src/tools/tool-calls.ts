@@ -8,7 +8,7 @@
 // no state. Every word comes from the labels; ids, names and statuses are protocol tokens.
 
 import { fill } from '../format.js';
-import { clampWithEllipsis } from '../memory/clamp.js';
+import { clampWithEllipsis } from '../memory/clamp.ts';
 import { CODE, reasonText } from './codes.ts';
 import { apiNameOf } from './definitions.ts';
 import type { Definition } from './definitions.ts';

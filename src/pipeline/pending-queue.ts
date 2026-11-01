@@ -16,7 +16,7 @@
 
 import { addPending, authorCalls, followUpSlot, requeuePending } from '../behavior/pending.js';
 import { log } from '../log.js';
-import { clampChars, oneLine } from '../memory/clamp.js';
+import { clampChars, oneLine } from '../memory/clamp.ts';
 import { CODE } from '../tools/codes.ts';
 import { routedFields } from './call-outcome.ts';
 import type { FollowUpWindows } from './follow-up-window.ts';

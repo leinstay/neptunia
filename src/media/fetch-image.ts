@@ -4,7 +4,7 @@
 // that do are named in the interface package). Used by src/behavior/turn.js
 // (a live vision request, and the bot's avatar as a drawing's reference),
 // src/admin.js (the avatar reference of `/nep draw`) and
-// src/memory/describe.js (the media describer), so none of them ever hands
+// src/memory/describe.ts (the media describer), so none of them ever hands
 // the provider a platform URL to fetch itself.
 //
 // A tiny in-memory LRU (~50 entries, ~10 min) avoids re-downloading the same

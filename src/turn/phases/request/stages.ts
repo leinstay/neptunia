@@ -99,7 +99,7 @@ export function startStages(
   const previewed = () => (previews.done && Array.isArray(previews.value) ? previews.value : rawHistory);
 
   // The pictures of the window get a `vision` caption, newest first, capped at
-  // MEDIA_PER_TURN; cached captions are free (see src/memory/describe.js). The caption is
+  // MEDIA_PER_TURN; cached captions are free (see src/memory/describe.ts). The caption is
   // the only way a picture reaches the persona: none goes into her request as an image. A
   // routed call's own pictures are captioned with its pulled channel instead.
   let captions: Staged['captions'] = null;
