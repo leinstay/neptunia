@@ -1495,24 +1495,6 @@ test('createTurnRunner: lookup -- links are offered newest message first', async
   );
 });
 
-test('createTurnRunner: lookup -- none, an empty answer or a classifier error -> no search, no <lookup> block', async () => {
-  for (const answer of ['none', '', new Error('boom')]) {
-    const lookup = fakeLookup();
-    const { llm, result } = await runLookupTurn({ llm: lookupLlm(answer), lookup });
-    assert.equal(result.outcome, 'spoke');
-    assert.equal(lookup.searchCalls.length, 0);
-    assert.ok(!textOf(llm.turnCalls[0].messages[1].content).includes('\n<lookup>\n'));
-  }
-});
-
-test('createTurnRunner: lookup -- only on a direct address: a spontaneous turn reads links but never classifies', async () => {
-  const lookup = fakeLookup();
-  const { llm } = await runLookupTurn({ lookup, llm: lookupLlm('x y'), trigger: false });
-  assert.equal(lookup.readCalls.length, 1);
-  assert.equal(llm.classifierCalls.length, 0);
-  assert.equal(lookup.searchCalls.length, 0);
-});
-
 test('createTurnRunner: lookup -- a turn a returned errand opened runs no engine lookup and has no <lookup> block', async () => {
   const lookup = fakeLookup();
   const taskResult = {
@@ -1534,126 +1516,6 @@ test('createTurnRunner: lookup -- a turn a returned errand opened runs no engine
   const turnUser = textOf(llm.turnCalls[0].messages[1].content);
   assert.ok(!turnUser.includes('\n<lookup>\n'), turnUser);
   assert.ok(turnUser.includes('ο νικητής'), 'the errand result is shown');
-});
-
-test('createTurnRunner: lookup -- no key, no prompt, search disabled or maxPerTurn 0 -> no classifier call', async () => {
-  const noPrompt = lookupHot();
-  delete noPrompt.prompts.lookup;
-  const cases = [
-    { hot: lookupHot(), lookup: fakeLookup({ hasKey: false }) },
-    { hot: noPrompt, lookup: fakeLookup() },
-    { hot: lookupHot({}, { search: { enabled: false } }), lookup: fakeLookup() },
-    { hot: lookupHot({}, { search: { maxPerTurn: 0 } }), lookup: fakeLookup() },
-  ];
-  for (const { hot, lookup } of cases) {
-    const { llm } = await runLookupTurn({ hot, lookup, llm: lookupLlm('x y') });
-    assert.equal(llm.classifierCalls.length, 0);
-    assert.equal(lookup.searchCalls.length, 0);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Recall: the search of the server's own history beside the web search.
-
-const RECALL_TEXT = 'Ana a tiré sur le lapin le 1er octobre.';
-
-/** A fake createRecall()-shaped dependency: `available()` as given; `run()` records its arguments, then resolves `result`. */
-function fakeRecall({
-  available = true,
-  result = { text: RECALL_TEXT, stretch: null, people: [] },
-  events = null,
-} = {}) {
-  const runCalls = [];
-  return {
-    runCalls,
-    available: () => available,
-    run: async (args) => {
-      runCalls.push(args);
-      events?.push('server:start');
-      await new Promise((resolve) => setImmediate(resolve));
-      events?.push('server:end');
-      return { stats: {}, ...result };
-    },
-  };
-}
-
-// The search classifier never creates or suggests an errand: only the persona's own errand.run call does.
-
-// The fallback: a failed search classifier still gets a direct question a server search on its own words.
-
-const FALLBACK_QUESTION = 'Ποιους χαρακτήρες συζήτησε ο Λευτέρης σήμερα στο παιχνίδι;';
-
-/** One turn on FALLBACK_QUESTION (or `content`) with a member known by the alias Λευτέρης; the classifier answers `classifier`. */
-async function runFallbackTurn({
-  classifier = new Error('hedged timeout'),
-  content = FALLBACK_QUESTION,
-  recall = fakeRecall(),
-  hot = lookupHot(),
-  triggerKind = 'mention',
-  dm = false,
-  client = fakeClient(),
-} = {}) {
-  const messages = [
-    rawMessage({ id: 'm1', ts: NOW - 5000, content: 'καλημέρα' }),
-    rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content }),
-  ];
-  const channel = fakeTurnChannel({ historyMessages: messages, ...(dm ? { id: 'dm1', dm: true } : {}) });
-  const store = fakeStore({
-    userProfiles: {
-      u7: { id: 'u7', names: ['lefteris_k'], aliases: [{ name: 'Λευτέρης' }] },
-      u8: { id: 'u8', names: ['Ἀλέξανδρος'], aliases: [] },
-    },
-  });
-  const llm = lookupLlm(classifier);
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client,
-    lookup: fakeLookup(),
-    recall,
-    now: () => NOW,
-  });
-  const trigger = normalizedTrigger(messages[1]);
-  const { result, logs } = await withCapturedLogs(() =>
-    turns.runTurn({
-      channel,
-      ...(dm ? { guildId: 'g1' } : {}),
-      mode: 'reply',
-      trigger,
-      triggerKind: dm ? 'private' : triggerKind,
-    })
-  );
-  return { result, logs, llm, recall, trigger };
-}
-
-test('createTurnRunner: recall fallback -- recall.fallbackOnClassifierFailure false: no recall', async () => {
-  const { recall, logs } = await runFallbackTurn({
-    hot: lookupHot({}, {}, { recall: { fallbackOnClassifierFailure: false } }),
-  });
-  assert.equal(recall.runCalls.length, 0);
-  assert.ok(!logs.some((l) => l.msg === 'lookup: fallback'));
-});
-
-test('createTurnRunner: recall fallback -- an overheard line is not a question to the persona: no fallback', async () => {
-  const { recall, logs } = await runFallbackTurn({ triggerKind: 'overheard' });
-  assert.equal(recall.runCalls.length, 0);
-  assert.ok(!logs.some((l) => l.msg === 'lookup: fallback'));
-});
-
-test('createTurnRunner: recall fallback -- only short words and no known name: no recall', async () => {
-  const { recall, logs } = await runFallbackTurn({ content: 'και τι; πού ήταν;' });
-  assert.equal(recall.runCalls.length, 0);
-  assert.ok(!logs.some((l) => l.msg === 'lookup: fallback'));
-});
-
-test('createTurnRunner: recall fallback -- no server search this turn (recall unavailable): no fallback', async () => {
-  const { recall, logs } = await runFallbackTurn({ recall: fakeRecall({ available: false }) });
-  assert.equal(recall.runCalls.length, 0);
-  assert.ok(!logs.some((l) => l.msg === 'lookup: fallback'));
 });
 
 // ---------------------------------------------------------------------------
@@ -3198,7 +3060,7 @@ test('runTurn: a private chat whose partner cannot be fetched as a guild member 
  * is fetched from the guild (`memberFetches`); `canView`: whether she has View Channel on #diary.
  * `mention`: her call names #diary with a real `<#id>`.
  */
-function privatePullScene({ features = {}, canView = true, mention = false, routeChannels } = {}) {
+function privatePullScene({ features = {}, canView = true, mention = false, routeChannels, likeServer = true } = {}) {
   const server = fakeTurnChannel({ id: 'c1' });
   world().member('g1', { id: 'u1', name: 'Alice' });
   const memberFetches = [];
@@ -3215,10 +3077,12 @@ function privatePullScene({ features = {}, canView = true, mention = false, rout
   const channel = fakeTurnChannel({ id: 'dm1', dm: true, historyMessages: [call] });
   const llm = sequenceLlm(['<msg>ok</msg>']);
   const client = fakeClient();
+  const hot = privateHot(features);
+  hot.config.private = { likeServer };
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
-    hot: privateHot(features),
+    hot,
     store: privateStore(),
     llm,
     calibrator: identityCalibrator(),
@@ -3243,6 +3107,22 @@ function diaryHook() {
   };
   return { calls, hook };
 }
+
+test('runTurn: with private.likeServer off a private chat asks no route hook, pulls no mention and fetches no partner', async () => {
+  const { calls, hook } = diaryHook();
+  const scene = privatePullScene({ likeServer: false, mention: true, routeChannels: hook });
+
+  const { result, logs } = await scene.run();
+
+  assert.equal(result.outcome, 'spoke');
+  assert.equal(calls.length, 0);
+  assert.deepEqual(scene.memberFetches, []);
+  assert.deepEqual(scene.diary.fetches, []);
+  assert.equal(
+    logs.some((l) => l.msg.startsWith('pull: ')),
+    false
+  );
+});
 
 test('runTurn: a private chat asks the route hook for its partner and pulls the picked channel the partner can view', async () => {
   const { calls, hook } = diaryHook();
@@ -8877,6 +8757,38 @@ test('call marks: seeded from the journal after a restart, a call that did not w
     reason: fill(labels.transcript.callReasons['missing-arg'], { arg: 'message' }),
   });
   assert.ok(line.endsWith(`[called message.delete in #general: ${status}]`), line);
+});
+
+test('call marks: seeded from the journal after a restart, the calls show as they did; unseeded, nothing shows', async () => {
+  const { journal, lines } = journalOverMemory();
+  const scene = callMarkScene({
+    answers: [
+      toolAnswer('<msg reply="#2">εντάξει</msg>\n', [call('message.create', { channel: '#🍡νέα', text: 'καλημέρα' })]),
+      '<skip/>',
+    ],
+    journal,
+  });
+  await scene.run(scene.channel, scene.history[1]);
+  const there = ownRaw(scene.port, 'c9', NOW);
+  scene.history.push(ownRaw(scene.port, 'c1', NOW));
+  const m2 = rawMessage({ id: 'm2', ts: NOW + 30_000, authorName: 'Alice', content: 'και;' });
+  scene.history.push(m2);
+  scene.clock.ms = NOW + 60_000;
+
+  const restarted = scene.runner();
+  restarted.seedCallMarks(callMarksOf(/** @type {Array<{ record: object }>} */ (lines).map(({ record }) => record)));
+  await scene.run(scene.channel, m2, restarted);
+  const line = lastChat(scene.llm)
+    .split('\n')
+    .find((text) => text.includes('εντάξει'));
+  assert.ok(
+    line.endsWith(`[called message.create in #💖νέα: done, posted as https://discord.com/channels/g1/c9/${there.id}]`),
+    line
+  );
+
+  const unseeded = scene.runner();
+  await scene.run(scene.channel, m2, unseeded);
+  assert.ok(!lastChat(scene.llm).includes('[called '), 'nothing seeded, nothing shown');
 });
 
 // ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@
     "tests/prompt.test.js": 6640,
     "tests/recall.test.js": 2442,
     "tests/store.test.js": 3230,
-    "tests/turn.test.js": 9224,
+    "tests/turn.test.js": 9136,
     "tools/lib/inner-week.mjs": 2196,
     "tools/replay.mjs": 7553
   },
