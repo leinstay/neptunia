@@ -1,0 +1,450 @@
+// The boundary tests of the core extraction (plan 2026-10-25, stage 1): six properties every later stage is measured
+// by, driven through public exports over the fake interface adapter, the real event door, the real turn runner and a
+// real memory database, with a scripted model. Some hold today and are asserted; the ones the extraction builds are
+// `test.todo` with the stage that removes the mark. No Discord client is started and no model is called.
+import { describe, test, after } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createMemoryDb } from '../src/memory/db/service.ts';
+import { lockPathOf, openMemoryDb } from '../src/memory/db/open.ts';
+import { createAdmin } from '../src/admin.ts';
+import { createEventDoor } from '../src/interface/door.ts';
+import { openAdapterLink } from '../src/interface/link.ts';
+import { createLoopback, envelope } from '../src/protocol/index.ts';
+import { createFakeAdapter, replayFixture } from '../src/interface/fake.ts';
+import { createDiary } from '../src/behavior/diary.ts';
+import { heartbeatWake } from '../src/behavior/inner.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
+import { createTurnRunner, fakeStore, hotWith, sequenceLlm } from './fixtures/turn-harness.ts';
+import { GUILD, MINUTE, START, innerRig, newHistory, replyTo, rowsOf } from './fixtures/boundary.ts';
+import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
+import { createStore } from '../src/memory/store.ts';
+
+// The fakes hold only the part of the real object that the code under test reads, so each is cast once, here.
+const fakeOf = <T>(value: object): T => value as T;
+
+const SILENT = { info() {}, warn() {}, error() {}, debug() {} };
+
+/** The rigs and services a test opened; closed when the file is done. */
+const OPEN: Array<{ close(): unknown }> = [];
+after(async () => {
+  for (const item of OPEN) await item.close();
+});
+
+/**
+ * The real turn runner over `port`, with a scripted `llm` and no Discord client.
+ */
+function runnerOver({
+  port,
+  hot,
+  llm,
+  store = fakeStore(),
+}: {
+  port: ReturnType<typeof createFakeAdapter>;
+  hot: ReturnType<typeof hotWith>;
+  llm: { complete: (messages: never, options: never) => Promise<unknown> };
+  store?: ReturnType<typeof fakeStore> | ReturnType<typeof createStore>;
+}) {
+  const calibrator = { ratio: 1, apply: (value: number) => value, observe: () => {} };
+  // The runner's declared parameters ask for more than a test passes (a describer, a fetch), and the fakes are narrower
+  // than the real client and port, so the whole argument is cast.
+  return createTurnRunner(
+    fakeOf<Parameters<typeof createTurnRunner>[0]>({
+      hot,
+      store,
+      llm,
+      calibrator,
+      now: () => START,
+      port,
+      skills: skillRegistry(),
+      journal: null,
+    })
+  );
+}
+
+async function rig(options?: Parameters<typeof innerRig>[0]) {
+  const opened = await innerRig(options);
+  OPEN.push(opened.memory);
+  return opened;
+}
+
+describe('inner turns with no interface', () => {
+  test('a heartbeat turn runs to the end on the fake interface and its run is in memory', async () => {
+    const core = await rig();
+    await core.beat();
+    await core.settle();
+    assert.equal(core.llm.calls.length, 1, 'one model request, one turn');
+    const runs = core.wakeRuns();
+    assert.deepEqual(
+      runs.map((run) => `${run.kind}:${run.status}:${run.outcome}`),
+      ['heartbeat:succeeded:skip']
+    );
+  });
+
+  // Stage 3, item "The inner life and the diary": with no interface to describe a conversation, the heartbeat runs its
+  // turn with no conversation, in the served community, the way the selfreflection wake does.
+  test('a heartbeat turn runs to the end with no interface connected and its run is in memory', async () => {
+    const core = await rig({ interface: false });
+    await core.beat();
+    await core.settle();
+    assert.equal(core.llm.calls.length, 1);
+    assert.deepEqual(
+      core.wakeRuns().map((run) => `${run.kind}:${run.status}`),
+      ['heartbeat:succeeded']
+    );
+  });
+
+  // Stage 3, same item: the diary is the `selfreflection` wake. The turn runs with no conversation and records the entry
+  // in memory before anything is published: a `diary` row with her full text. No mirror is set up and no reads of an
+  // interface are given to the scheduler, so nothing is sent anywhere, and no `diary.channelId` is set.
+  test('a selfreflection turn leaves its entry in memory with no interface connected', async () => {
+    const memory = await openTestMemory({ now: () => START });
+    OPEN.push(memory);
+    const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
+    const hot = hotWith({
+      // @ts-expect-error: hotWith has no `features` option, so the key is ignored
+      features: { diary: true },
+      config: {
+        diary: {
+          world: false,
+          kinds: { status: 1 },
+          maxPerDay: 3,
+          maxMessages: 2,
+          historyPosts: 40,
+          gistChars: 60,
+          seedSets: 1,
+          planMaxOutputTokens: 250,
+          planTimeoutMs: 15000,
+        },
+      },
+    });
+    Object.assign(hot.prompts, {
+      diary: 'Write your diary.',
+      'diary-plan': 'Plan the entry.',
+      'diary-seeds': '# place\na pier',
+      world: 'The world.',
+    });
+    const plan = JSON.stringify({ kind: 'status', brief: 'a quiet day', search: '', picture: false });
+    const llm = {
+      complete: (_messages: unknown, options: { purpose?: string }) =>
+        Promise.resolve({
+          text: options?.purpose === 'diary-plan' ? plan : '<msg>μια ήσυχη μέρα</msg>',
+          usage: {},
+          estimated: 5,
+        }),
+    };
+    const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => START });
+    const diary = createDiary({
+      hot,
+      store,
+      reads: null,
+      // @ts-expect-error: createDiary takes no `iface` dependency, so the key is ignored
+      iface: () => 'fake',
+      turns: runnerOver({ port, hot, llm, store }),
+      getGuildId: () => GUILD,
+      now: () => START,
+    });
+    await diary.force({ kind: 'status' });
+    await store.flushSettled({});
+    assert.deepEqual(
+      rowsOf(memory.memoryDb, 'SELECT kind, text FROM diary'),
+      [{ kind: 'status', text: 'μια ήσυχη μέρα' }],
+      'the entry exists in memory with its text'
+    );
+    assert.deepEqual(
+      port.calls.filter((call) => call.op === 'send'),
+      [],
+      'nothing is sent'
+    );
+  });
+});
+
+describe('one writer', () => {
+  /** The memory service over its own data directory, the writer on its thread as in production. */
+  async function service() {
+    const dataDir = tempDataDir('boundary-writer-');
+    const hot = { config: { memoryDb: { session: { mode: 'off' } } }, prompts: {} };
+    const memoryDb = createMemoryDb({ hot, dataDir, log: SILENT, now: () => START });
+    OPEN.push({ close: () => memoryDb.close() });
+    await memoryDb.tick();
+    return { memoryDb, dataDir };
+  }
+  const OWNER = 'guilds/g1/journal/2026-10-26.jsonl';
+  const line = (id: string) => ({
+    id,
+    kind: 'turn.start',
+    occurredAt: '2026-10-26T12:00:00.000Z',
+    turnId: id,
+  });
+
+  test('two callers writing at once both land, in the order they asked', async () => {
+    const { memoryDb } = await service();
+    const first = memoryDb.writeUnit({ op: 'lines', owner: OWNER, lines: [line('a1'), line('a2')] });
+    const second = memoryDb.writeUnit({ op: 'lines', owner: OWNER, lines: [line('b1')] });
+    await Promise.all([first, second]);
+    const rows = rowsOf(memoryDb, 'SELECT id FROM day WHERE owner_file = ? ORDER BY position', OWNER);
+    assert.deepEqual(
+      rows.map((row) => row.id),
+      ['a1', 'a2', 'b1']
+    );
+  });
+
+  test('a writer lock held by another live process refuses the open and leaves the file alone', async () => {
+    const dataDir = tempDataDir('boundary-writer-');
+    const dbPath = path.join(dataDir, 'memory.db');
+    fs.writeFileSync(lockPathOf(dbPath), JSON.stringify({ pid: process.ppid, startedAt: '2026-10-26T11:00:00.000Z' }));
+    assert.throws(() => openMemoryDb(dbPath), /is locked by pid/);
+    const hot = { config: { memoryDb: { session: { mode: 'off' } } }, prompts: {} };
+    const rival = createMemoryDb({ hot, dataDir, log: SILENT, now: () => START });
+    OPEN.push({ close: () => rival.close() });
+    await rival.tick();
+    assert.equal(rival.readHandle(), null, 'the service did not open the database');
+    await assert.rejects(rival.writeUnit({ op: 'lines', owner: OWNER, lines: [line('x1')] }), { code: 'DB_CLOSED' });
+    assert.match(
+      fs.readFileSync(lockPathOf(dbPath), 'utf8'),
+      new RegExp(`"pid":${process.ppid}\\b`),
+      'the holder keeps its lock'
+    );
+  });
+});
+
+describe('a duplicate wake', () => {
+  const WAKE_AT = START + 10 * MINUTE;
+  const wakeEvent = () => ({
+    kind: 'inner.wake',
+    at: WAKE_AT,
+    id: heartbeatWake(WAKE_AT).id,
+    guildId: GUILD,
+    wake: heartbeatWake(WAKE_AT),
+  });
+
+  test('delivered twice through the door it opens one inner turn', async () => {
+    const core = await rig({ innerLife: { heartbeat: { enabled: false } } });
+    const answers = [await core.door.submit(wakeEvent()), await core.door.submit(wakeEvent())];
+    await core.inner.tick();
+    await core.inner.tick();
+    await core.settle();
+    assert.deepEqual(
+      answers.map((answer) => answer.status),
+      ['ok', 'duplicate']
+    );
+    assert.equal(core.llm.calls.length, 1);
+    assert.equal(core.wakeRuns().length, 1);
+  });
+
+  test('delivered again after a restart it opens no second inner turn', async () => {
+    const core = await rig({ innerLife: { heartbeat: { enabled: false } } });
+    await core.door.submit(wakeEvent());
+    await core.inner.tick();
+    await core.settle();
+    const restarted = await core.restart();
+    const answer = await restarted.door.submit(wakeEvent());
+    await restarted.inner.tick();
+    await restarted.settle();
+    assert.equal(
+      (answer.result as { status: string }).status,
+      'duplicate',
+      'the door is new, the inner life remembers the wake'
+    );
+    assert.equal(core.llm.calls.length, 1);
+    assert.equal(core.wakeRuns().length, 1);
+  });
+});
+
+describe('a replay after a reconnect', () => {
+  const conversation = { id: 'c1', kind: 'channel', guildId: 'g1', name: 'general', topic: null, category: null };
+  const received = (id: string, text: string, redeliver: number) => ({
+    kind: 'message.received',
+    at: START,
+    id: `fake:message:${id}`,
+    conversation,
+    message: {
+      id,
+      author: { id: 'u1', name: 'Alice', self: false, bot: false },
+      content: text,
+      at: START,
+      replyToId: null,
+      replyPingUserId: null,
+      forwardedFrom: null,
+      attachments: [],
+      links: [],
+      forwarded: [],
+      stickers: [],
+      emojis: [],
+      reactions: [],
+    },
+    addressing: { mentioned: true, replyToSelf: false, mentionedUserIds: ['self-id'], mentionedConversationIds: [] },
+    origin: {
+      chatType: 'channel',
+      place: 'c1',
+      parent: null,
+      thread: null,
+      replyToAuthorId: null,
+      replyExpected: true,
+    },
+    redeliver,
+  });
+
+  test('events delivered again make one turn each and she answers each only once', async () => {
+    const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => START });
+    // @ts-expect-error: hotWith has no `features` option, so the key is ignored
+    const hot = hotWith({ features: { journal: false } });
+    const llm = sequenceLlm(['<msg>γεια</msg>']);
+    const turns = runnerOver({ port, hot, llm });
+    const history = newHistory();
+    const door = createEventDoor({
+      handlers: {
+        'message.received': (event) => {
+          const { message, at } = event as { message: { id: string; content: string }; at: number };
+          return replyTo(turns, history, { id: message.id, content: message.content, at });
+        },
+      },
+      log: SILENT,
+    });
+    const fixture = { iface: 'fake', events: [received('m1', 'καλημέρα', 2), received('m2', 'τι κάνεις', 1)] };
+    const answers = await replayFixture(fixture, door, { port });
+    assert.deepEqual(
+      answers.map((answer) => `${answer.id}:${answer.status}`),
+      [
+        'fake:message:m1:ok',
+        'fake:message:m1:duplicate',
+        'fake:message:m1:duplicate',
+        'fake:message:m2:ok',
+        'fake:message:m2:duplicate',
+      ]
+    );
+    assert.equal(llm.calls.length, 2, 'one turn for each message');
+    assert.equal(port.calls.filter((call) => call.op === 'send').length, 2, 'one answer for each message');
+  });
+});
+
+describe('an adapter that claims the owner', () => {
+  // The core authenticates each client by its token: the token stands for a principal, and only the `cli` principal
+  // reaches commands. An interface that holds its own token and says in `hello` that it is the owner's cli, naming
+  // the owner's id, gains nothing. The handler below believes the requester's id, so it would pause the persona if
+  // the command reached it: the link must refuse the command before the door.
+  test('a hello that names the owner gains no owner authority', async () => {
+    const OWNER = 'owner-1';
+    const store = Object.assign(fakeStore(), { flush: () => Promise.resolve() });
+    const hot = hotWith({ config: { bot: { timezone: 'UTC', owners: [OWNER], access: {} } } });
+    const client = { user: { id: 'self-id' }, channels: { cache: new Map() } };
+    const admin = createAdmin({ hot, store, client, getGuildId: () => GUILD });
+    const ran: Array<string> = [];
+    const door = createEventDoor({
+      handlers: {
+        'command.requested': (event) => {
+          const { name, args, requester } = event as { name: string; args: object; requester: { id: string } };
+          ran.push(name);
+          // PR 7b: the command key map is gone, so the door runs the operation by its name; the link refuses first.
+          return admin.runSkillOp('bot.pause', args, { guildId: GUILD, userId: requester.id });
+        },
+      },
+      log: SILENT,
+    });
+    const HOSTILE = { name: 'hostile', kind: 'interface' as const, iface: 'hostile', permissions: [] };
+    const ends = createLoopback();
+    const link = openAdapterLink({
+      transport: ends.core,
+      door,
+      principalOf: (token: string) => (token === 'hostile-token' ? HOSTILE : null),
+      log: SILENT,
+    });
+    const acks: Array<{ replyTo: string | null; body: { status?: string } }> = [];
+    ends.client.onEnvelope((value) => {
+      if (value.type === 'ack') acks.push(value);
+    });
+    const connect = (iface: string, token: string) =>
+      ends.client.send(
+        envelope(
+          'hello',
+          {
+            iface,
+            self: { id: 'self-id', name: 'Nova' },
+            community: null,
+            kind: 'cli',
+            owner: true,
+            ownerId: OWNER,
+            token,
+          },
+          { id: `hello:${iface}` }
+        )
+      );
+    const pause = (iface: string) => ({
+      kind: 'command.requested',
+      iface,
+      at: START,
+      id: `command:${iface}`,
+      conversation: { id: 'c1', kind: 'channel' },
+      name: 'pause',
+      args: {},
+      replyRef: 'r1',
+      requester: { id: OWNER, name: 'Owner', roles: [], owner: true },
+    });
+    connect('hostile', 'hostile-token');
+    // A link that never answers hello fails here rather than hanging the file.
+    await Promise.race([
+      link.hello,
+      new Promise((_resolve, reject) => setTimeout(() => reject(new Error('hello never answered')), 2000)),
+    ]);
+    ends.client.send(envelope('event', pause('hostile'), { id: 'command:hostile' }));
+    const deadline = Date.now() + 2000;
+    while (!acks.some((ack) => ack.replyTo === 'command:hostile') && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    const ack = acks.find((item) => item.replyTo === 'command:hostile');
+    assert.notEqual(ack?.body.status, 'ok', 'the owner-only operation was refused');
+    assert.deepEqual(ran, [], 'the command never reached the door');
+    assert.notEqual((store.state.data as { paused?: boolean }).paused, true, 'nothing was paused');
+    link.close();
+  });
+});
+
+describe('a delivery that changes no character', () => {
+  // Her text as generated: Greek, emoji, an em dash, spaces before a line break and a line break.
+  const BLOCK = 'Καλημέρα κόσμε \u2014 ώρα για καφέ \u2615\u{1F31E}  \nδεύτερη γραμμή με κενά  \nτρίτη';
+  const GENERATED = `${BLOCK}\n${BLOCK}\n${BLOCK}`;
+
+  /** One reply turn whose model answer is `<msg>` + `text`, on a fake interface with `capabilities`; the port after it. */
+  async function runDelivery(text: string, capabilities: object = {}) {
+    const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => START, capabilities });
+    // format.stripDashes is the one character swap the core makes; this test is about the delivery, so it is off.
+    const hot = hotWith({ config: { format: { stripDashes: false } } });
+    const turns = runnerOver({ port, hot, llm: sequenceLlm([`<msg>${text}</msg>`]) });
+    port.seed('c1', { authorId: 'u1', messageId: 'm1', text: 'hey' });
+    await replyTo(turns, [], { id: 'm1', content: 'hey', at: START });
+    return port;
+  }
+
+  /** The texts she handed to the interface, one per `send` call. */
+  async function deliver(text: string) {
+    const port = await runDelivery(text);
+    return port.calls.filter((call) => call.op === 'send').map((call) => (call.args[1] as { text: string }).text);
+  }
+
+  test('the fake interface stores what it is sent byte for byte', async () => {
+    const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => START });
+    const text = `${GENERATED}   \n `;
+    const sent = await port.send({ iface: 'fake', conversationId: 'c1' }, { text });
+    const fetched = await port.fetchMessages({ iface: 'fake', conversationId: 'c1' }, [sent.ref?.messageId ?? '']);
+    const [stored] = fetched.status === 'ok' ? fetched.messages : [];
+    assert.equal(stored?.text, text);
+  });
+
+  test('her turn sends the generated text to the interface unchanged', async () => {
+    assert.deepEqual(await deliver(GENERATED), [GENERATED]);
+  });
+
+  // One `send` call posts several parts when the text outgrows the interface, so counting calls says nothing.
+  // The test reads the parts the interface stored: her messages of the conversation, in the order they landed.
+  test('a text longer than the interface limit arrives as parts that join to the original', async () => {
+    const limit = 60;
+    const port = await runDelivery(GENERATED, { maxChars: limit });
+    const parts = port
+      .messagesIn('c1')
+      .filter((message) => (message as { authorId: string }).authorId === 'self-id')
+      .map((message) => (message as { text: string }).text);
+    assert.ok(parts.length > 1, 'the text needed splitting');
+    assert.ok(parts.every((part) => Array.from(part).length <= limit));
+    assert.equal(parts.join(''), GENERATED);
+  });
+});

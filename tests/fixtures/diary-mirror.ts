@@ -148,7 +148,7 @@ after(async () => {
 /**
  * Publishes the entry of a diary turn's `result` to the mirror on `conversationId` of `port`: a memory database with
  * that one enabled mirror, and the publisher of src/behavior/mirror.ts over it. Returns what `publishEntry` answered.
- * The module is imported when the first publication runs, so tests/diary-turn.test.js, whose other cases test the turn
+ * The module is imported when the first publication runs, so tests/diary-turn.test.ts, whose other cases test the turn
  * alone, loads without it.
  */
 export async function publishTo(

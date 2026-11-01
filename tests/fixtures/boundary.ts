@@ -1,4 +1,4 @@
-// The rig of tests/boundary.test.js: the inner life (src/behavior/inner.ts) over the real turn runner, the real event
+// The rig of tests/boundary.test.ts: the inner life (src/behavior/inner.ts) over the real turn runner, the real event
 // door, a real memory database and the fake interface adapter, with a scripted model. No network, no Discord client,
 // no data/. `innerRig` is one core; `rig.restart()` is the same core after a restart (a new inner life and a new door
 // over the same data directory and the same memory database).
