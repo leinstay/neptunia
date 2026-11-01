@@ -590,6 +590,12 @@ export type DrainAnswer =
   | { outcome: unknown; wakes: number; usd: number; feedback?: string }
   | null;
 
+/** Whether `wake` may run now: not held by a cap, not waiting for its retry time, and not a heartbeat wake while the heartbeat is off (a plugin's `ability.added` wake is one: its turn is a heartbeat turn). */
+function isEligible(wake: Wake, now: { held: ReadonlyArray<Wake>; at: number; settings: InnerSettings }): boolean {
+  if (now.held.includes(wake) || Number(wake.notBefore) > now.at) return false;
+  return !(wake.kind === 'heartbeat' && !now.settings.heartbeat.enabled);
+}
+
 /**
  * One inner turn for the queue's first coalesced group, when the attention is free and no cap
  * refuses; a turn held back (`busy`, `paused`) leaves the group queued with its due times.
@@ -667,13 +673,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   for (const cap of freshCaps) log.info('inner: capped', { guildId, cap, wakes: heldFresh[cap] });
   if (freshCaps.length > 0) save(life, guildId);
   // A wake of a failed turn waits for its retry time (`notBefore`).
-  // A heartbeat wake waits while the heartbeat is off (a plugin's `ability.added` wake is one): its turn is a heartbeat turn.
-  const eligible = state.queue.filter(
-    (wake) =>
-      !held.includes(wake) &&
-      !(Number(wake.notBefore) > at) &&
-      !(wake.kind === 'heartbeat' && !settings.heartbeat.enabled)
-  );
+  const eligible = state.queue.filter((wake) => isEligible(wake, { held, at, settings }));
   if (eligible.length === 0) {
     if (held.length === 0) return { deferred: 'retry' };
     // No turn is coming to carry the new holds of an intention's wake: a feedback wake in its conversation tells her.

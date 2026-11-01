@@ -558,6 +558,17 @@ function fromPort(answer: unknown): CallResult {
   };
 }
 
+/** What an in-turn tool is told about the call it answers: who asked, where, and the call's key. */
+function inTurnCallOf(deps: ExecuteDeps): InTurnCall {
+  const asked = deps.envelope?.requester ?? null;
+  const channelId = deps.opContext?.channelId;
+  return {
+    requester: asked === null ? null : { id: asked.id ?? null, roleIds: [...(asked.roleIds ?? [])] },
+    conversationId: typeof channelId === 'string' ? channelId : null,
+    idempotencyKey: deps.envelope?.idempotencyKey ?? deps.envelope?.invocationId ?? null,
+  };
+}
+
 /**
  * Runs one resolved call (`resolved`: resolveCall's) the gateway let pass; never throws (a throw is
  * `failed` with `error`). Her arguments with the command's fixed values, mapped by the command's
@@ -596,15 +607,8 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
       const mapped = resolved.dispatch ? resolved.dispatch.toOp(args) : { op: resolved.skill, args };
       if (!mapped.args || mapped.op !== resolved.skill)
         return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
-      // The call's own context, for a tool that answers on someone's behalf (a plugin's, src/plugins/registry.ts).
-      const asked = deps.envelope?.requester ?? null;
-      const context: InTurnCall = {
-        requester: asked === null ? null : { id: asked.id ?? null, roleIds: [...(asked.roleIds ?? [])] },
-        conversationId: typeof deps.opContext?.channelId === 'string' ? deps.opContext.channelId : null,
-        idempotencyKey: deps.envelope?.idempotencyKey ?? deps.envelope?.invocationId ?? null,
-      };
       const answered = objOf(
-        await withTimeout(Promise.resolve(tool(mapped.args, context)), deps.timeoutMs ?? CALL_TIMEOUT_MS)
+        await withTimeout(Promise.resolve(tool(mapped.args, inTurnCallOf(deps))), deps.timeoutMs ?? CALL_TIMEOUT_MS)
       );
       if (answered.timedOut === true)
         return {
