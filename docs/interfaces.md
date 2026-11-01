@@ -214,6 +214,8 @@ The namespace `cli` belongs to the owner's command line: a `cli` principal must 
 
 `openAdapterLink` also takes `admit`, which the core passes to refuse a `hello` of an interface whose `interfaces.<name>.enabled` is `false`, with the reason `interface-disabled`. Every refused `hello` is logged as `link: hello refused` with its reason (`token`, `iface`, `hello-invalid` or `interface-disabled`), and the link closes.
 
+A plugin is a client of the same socket with its own link. A connection whose first envelope is a `hello` under the namespace `plugin` goes to `openPluginLink` (`src/plugins/link.ts`) and not to `openAdapterLink`. The two envelope types a plugin adds, `tool.register` and `tool.call`, and their bodies are described in [Plugins](plugins.md#envelopes).
+
 ### Starting an interface
 
 An interface package exports `start(host)`, which resolves with a running interface. Both types are in `src/protocol/host.ts`. The core hands over its end of the link and what the interface reads from the core:
