@@ -1,6 +1,8 @@
 // The diary writes as it does when it is the selfreflection wake (stage 3 design, section 4): the plan request and the
 // writer request of a diary turn with no conversation are byte for byte the ones the same scene built with the turn
-// running in the diary channel (tests/fixtures/diary-requests.json, recorded from the code before the change). What the
+// running in the diary channel (tests/fixtures/diary-requests.json, recorded from the code before the change; PR 7d
+// re-recorded it with the cut's constants, which change only the recent window, the post kinds and their seed, and the
+// senses lines of described media). What the
 // channel gave, memory gives instead: the history is her two earlier entries, and `<recent>`, the current conversation
 // of `<server>` and the diary's name in `<senses>` come from the place of the diary's one enabled mirror. The diary
 // channel is still known to the interface, empty, so the history can only come from memory. With no enabled mirror the

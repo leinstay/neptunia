@@ -143,31 +143,6 @@ function parentCase() {
   return { parent, history: [parent, first, trigger], trigger };
 }
 
-test('anchors: the switch off -- the reply parent stays at the head of <chat>, no <earlier>, the same request as without the switch', () => {
-  const { history, trigger } = parentCase();
-  const state = { nextId: 20, episodes: [episode('p7', [stored('e1', NOW - 40 * MIN, { self: true, text: 'ναι' })])] };
-  const off = (features) =>
-    buildRequest(
-      input({ config: fakeConfig({ features }), history, trigger, participation: { state, audience: () => true } })
-    );
-  const request = off({ anchoredWindow: false });
-  const text = textOf(request);
-  assert.equal(blockOf(text, 'earlier'), null);
-  assert.ok(blockOf(text, 'chat').includes(`#1 [${clock(NOW - 2 * HOUR)}`), "the parent is the chat's first line");
-  assert.deepEqual(request.messages, off({ anchoredWindow: undefined }).messages, 'a missing key is off');
-  // With the switch off no stored stretch of this channel changes anything.
-  const bare = buildRequest(
-    input({
-      config: fakeConfig({ features: { anchoredWindow: false } }),
-      history,
-      trigger,
-      participation: { state: { nextId: 20, episodes: [] }, audience: () => true },
-    })
-  );
-  assert.deepEqual(request.messages, bare.messages);
-  assert.deepEqual(request.seen.parents, ['p1']);
-});
-
 test('anchors: a reply parent leaves <chat> for <earlier> with its number, the chat still names it, no gap marker from it', () => {
   const { history, trigger } = parentCase();
   const request = buildRequest(input({ history, trigger }));

@@ -25,45 +25,12 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
   { file: 'src/memory/db/map/versions.js', pattern: /`desc:(person:)?discord:/, why: 'stored legacy description ids' },
   { file: 'src/index.js', pattern: /discord/i, why: 'the entry point loads the Discord package and its token' },
   {
-    file: 'src/config/schema.ts',
-    pattern: /discord/i,
-    why: 'the settings schema names the discord keys until PR 7d moves them',
-  },
-  {
-    file: 'src/config/schema/discord.ts',
-    pattern: /discord/i,
-    why: 'the settings schema names the discord keys until PR 7d moves them',
-  },
-  {
-    file: 'src/config/schema/context.ts',
-    pattern: /discord/i,
-    why: 'the settings schema names the discord keys until PR 7d moves them',
-  },
-  {
-    file: 'src/config/schema/diary.ts',
-    pattern: /discord/i,
-    why: 'the settings schema names the discord keys until PR 7d moves them',
-  },
-  {
-    file: 'src/config/schema/features.ts',
-    pattern: /discord/i,
-    why: 'the settings schema names the discord keys until PR 7d moves them',
-  },
-  {
     file: 'src/config/schema/interfaces.ts',
     pattern: /discord/i,
-    why: 'the settings schema names the discord keys until PR 7d moves them',
+    why: 'the settings schema names the interfaces it starts',
   },
-  {
-    file: 'src/config/schema/media.ts',
-    pattern: /discord/i,
-    why: 'the settings schema names the discord keys until PR 7d moves them',
-  },
-  {
-    file: 'src/config/schema/web.ts',
-    pattern: /discord/i,
-    why: 'the settings schema names the discord keys until PR 7d moves them',
-  },
+  { file: 'src/config/cut.ts', pattern: /discord/i, why: 'the config cut moves the Discord keys to their package' },
+  { file: 'src/web/lookup.js', pattern: /discordapp\.(com|net)/, why: 'media hosts the link reader never reads' },
   {
     file: 'src/tools/impl/metrics.ts',
     pattern: /'discord search'|`?discordMs`?/,
@@ -79,11 +46,9 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
 const HELPER_ALLOWED: ReadonlyArray<Allowed> = [
   { file: 'src/llm/limits.js', pattern: /'helper-(timeout|fallback)'/, why: 'limit kinds the journal stores' },
   { file: 'src/turn/phases/request/wait.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
-  { file: 'src/behavior/planner.js', pattern: /`?helper-fallback`?/, why: 'a limit kind the journal stores' },
   { file: 'src/behavior/participation-pick.js', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/turn/act.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/turn/draw-gif.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
-  { file: 'src/turn/lookup.ts', pattern: /`?helper-fallback`?/, why: 'a limit kind the journal stores' },
   { file: 'src/behavior/missed.js', pattern: /'missed: helper failed'/, why: 'a log line name' },
   { file: 'src/config-moves.ts', pattern: /helperTimeoutMs/, why: 'the old name of a moved config key' },
 ];

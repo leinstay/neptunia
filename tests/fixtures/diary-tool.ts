@@ -7,7 +7,6 @@ import { hotWith, personaGrants } from './turn-harness.js';
 /** The settings, with the diary's daily cap `maxPerDay`. */
 export function diaryToolHot({ maxPerDay }: { maxPerDay: number }): ReturnType<typeof hotWith> {
   const hot = hotWith({
-    features: { coreTools: true, innerLife: true, diary: true },
     tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
     access: personaGrants(['message.create']),
     config: {

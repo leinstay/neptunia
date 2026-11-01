@@ -197,17 +197,18 @@ test('intentionsBlockText: cut to the budget by whole lines, the candidates head
   assert.equal(intentionsBlockText([], LABELS), '');
 });
 
-function config(features = {}) {
+function config() {
   const access = Object.fromEntries(
     ['intention.set', 'intention.list', 'lore.list'].map((name) => [
       name,
       { everyone: false, roles: [], users: [SELF] },
     ])
   );
-  return { bot: { owners: [OWNER], access }, features: { tools: true, ...features } };
+  return { bot: { owners: [OWNER], access } };
 }
 
-test('skills: with features.intentions off the intent skills are refused, never listed, never offered; on, they are hers once granted', () => {
+// PR 7d: `features.intentions` is code, so the intent skills are hers once granted; the off half went with the switch.
+test('skills: the intent skills are hers once granted', () => {
   const registry = skillRegistry();
   const audience = { conversationId: 'c1' };
   const call = (cfg) =>
@@ -219,19 +220,13 @@ test('skills: with features.intentions off the intent skills are refused, never 
       audience,
       context: { config: cfg, selfId: SELF, registry },
     });
-  assert.deepEqual(call(config()), { ok: false, code: 'feature-off', reason: 'intention.set' });
-  assert.deepEqual(call(config({ intentions: true })), { ok: true });
+  assert.deepEqual(call(config()), { ok: true });
   const listed = (cfg) =>
     listSkills({ config: cfg, selfId: SELF, texts: {}, requester: { id: OWNER }, audience, registry }).map(
       (row) => row.name
     );
-  assert.equal(
-    listed(config()).some((name) => name.startsWith('intention.')),
-    false
-  );
-  assert.equal(listed(config({ intentions: true })).filter((name) => name.startsWith('intention.')).length, 4);
-  assert.deepEqual(grantedSkillNames({ config: config(), selfId: SELF, registry }), ['lore.list']);
-  assert.deepEqual(grantedSkillNames({ config: config({ intentions: true }), selfId: SELF, registry }), [
+  assert.equal(listed(config()).filter((name) => name.startsWith('intention.')).length, 4);
+  assert.deepEqual(grantedSkillNames({ config: config(), selfId: SELF, registry }), [
     'intention.list',
     'intention.set',
     'lore.list',
@@ -244,7 +239,7 @@ test('skills: with features.intentions off the intent skills are refused, never 
       principal: { kind: 'persona' },
       requester: null,
       audience,
-      context: { config: config({ intentions: true }), selfId: SELF, registry },
+      context: { config: config(), selfId: SELF, registry },
     }).code,
     'no-requester'
   );

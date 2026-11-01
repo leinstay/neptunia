@@ -4,11 +4,8 @@
 // rule is about "on read" versus "at the next write".
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
-  RECENT_DEFAULTS,
   emptyRecent,
   episodeKey,
   foldText,
@@ -17,7 +14,6 @@ import {
   mergeRecent,
   normalizeRecent,
   purgeRecentFor,
-  recentSettings,
   recentView,
 } from '../src/memory/recent.js';
 import { tokenIds } from '../src/memory/mentions.ts';
@@ -27,7 +23,6 @@ import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 const NOW_ISO = new Date(NOW).toISOString();
 const ELENI = '111111111111111111';
@@ -418,35 +413,6 @@ test('recent: remove takes stored ids only', () => {
   const nothing = mergeRecent(before, [], { now: NOW, removeIds: 'όλα' });
   assert.equal(nothing.removed, 0);
   assert.equal(nothing.value.lines.length, 3);
-});
-
-test('recent: settings follow config.json and features.recent missing counts as on', () => {
-  // PR 7c: the shipped settings live in config/config.json.
-  const config = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
-  assert.deepEqual(
-    { ...RECENT_DEFAULTS },
-    {
-      hours: config.memory.recentHours,
-      maxStored: config.memory.maxRecentStored,
-      maxNew: config.memory.maxNewRecent,
-      chars: config.memory.recentChars,
-      shown: config.memory.recentShown,
-    }
-  );
-
-  assert.deepEqual(recentSettings({}), { ...RECENT_DEFAULTS, clampTolerance: undefined });
-  assert.deepEqual(recentSettings({ features: {} }), { ...RECENT_DEFAULTS, clampTolerance: undefined });
-  assert.equal(recentSettings({ features: { recent: false } }), null);
-  assert.deepEqual(
-    recentSettings({ features: { recent: true }, memory: { recentHours: 48, maxNewRecent: 0, clampTolerance: 1.1 } }),
-    {
-      ...RECENT_DEFAULTS,
-      hours: 48,
-      maxNew: 0,
-      clampTolerance: 1.1,
-    }
-  );
-  assert.deepEqual(recentSettings(config), { ...RECENT_DEFAULTS, clampTolerance: config.memory.clampTolerance });
 });
 
 // --- normalizeRecent -------------------------------------------------------------

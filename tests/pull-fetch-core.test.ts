@@ -710,7 +710,7 @@ test('checkPull refuses exactly the conversations isReadable refuses', async () 
     });
     const entry = snapshot.get(channel.id);
     if (entry === null) throw new Error(`${channel.id} is not listed`);
-    assert.equal(skip !== null && readableCodes.has(skip), !isReadable(entry, bot), `${channel.id}: ${skip}`);
+    assert.equal(skip !== null && readableCodes.has(skip), !isReadable(entry), `${channel.id}: ${skip}`);
   }
 });
 

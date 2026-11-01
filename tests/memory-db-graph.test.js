@@ -19,7 +19,6 @@ import {
   continuationsOf,
   graphNodeId,
   graphPending,
-  graphSettings,
   inPlace,
   projectPending,
   projectRow,
@@ -131,8 +130,6 @@ test('the manifest names only tables and columns the schema has, every projected
       'version_of',
     ]);
     for (const table of V9_TABLES) assert.ok(columns(table).size > 0, table);
-    assert.deepEqual(graphSettings({}), { maxDepth: 6, maxRows: 2000 });
-    assert.deepEqual(graphSettings({ graph: { maxDepth: 3, maxRows: 10 } }), { maxDepth: 3, maxRows: 10 });
   } finally {
     handle.close();
   }
@@ -484,11 +481,6 @@ test('truncation reports: the row cap pages with `next`, the depth cap says dept
     assert.deepEqual([shallow.truncated, shallow.reason], [true, 'depth'], 'the server holds a channel holding more');
     assert.equal(rowIds(shallow).length, 0, 'no line sits in the server itself');
     assert.deepEqual([all.truncated, all.reason], [false, null]);
-    assert.equal(
-      inPlace(db, ctx.group, places.guild, { config: { graph: { maxDepth: 1 } } }).reason,
-      'depth',
-      'graph.maxDepth from the config is the default'
-    );
   } finally {
     env.handle.close();
   }

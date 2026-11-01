@@ -1,7 +1,7 @@
 // A mirror place is not hers to write in (stage 3 design, section 9): only the diary's publisher writes there. An event
 // in a mirror place is recorded in memory and opens no turn of hers. The core's outbound port
 // (src/behavior/mirror.ts#guardMirrorPort) refuses every send to a mirror place with the code `diary-mirror`, whether
-// the send comes from an ordinary turn elsewhere, an intention's turn or a heartbeat that runs there, and her tool result
+// the send comes from an ordinary turn elsewhere or an intention's turn that runs there, and her tool result
 // names the code. The publisher, which holds the unguarded port, still publishes there. A disabled mirror row makes the
 // place ordinary again. Real turn runner, admin, message handler and memory database over the fake interface, with a
 // scripted model. Synthetic text only.
@@ -12,8 +12,6 @@ import fs from 'node:fs';
 import { guardMirrorPort, createMirrors } from '../src/behavior/mirror.ts';
 import { createMessageHandler } from '../src/behavior/pipeline.js';
 import { createTagHistory } from '../src/behavior/mention.js';
-import { heartbeatWake } from '../src/behavior/inner.ts';
-import { createSpontaneous } from '../src/behavior/spontaneous.js';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { createAdmin } from '../src/admin.js';
 import { createStore } from '../src/memory/store.js';
@@ -99,11 +97,8 @@ async function turnIn(
   }: { here: string; answers: Array<unknown>; wake?: object | null; llm?: ReturnType<typeof sequenceLlm> }
 ) {
   const hot = hotWith({
-    features: { coreTools: true, gifs: true, imageGeneration: true, speech: true, innerLife: true },
     tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
     access: personaGrants(['message.create', 'draw.create', 'voice.say']),
-    // A heartbeat that may post, not only change her intentions.
-    config: { innerLife: { heartbeat: { intentionsOnly: false } } },
   });
   Object.assign(hot.prompts, { inner: 'Nobody wrote to you; read the wake block.', draw: 'DRAW {{request}}' });
   const store = Object.assign(fakeStore(), {
@@ -259,10 +254,7 @@ function mention(conversationId: string): MessageReceived {
 function handlerOver(core: Community) {
   const asked: Array<unknown> = [];
   // The handler's live settings are an event emitter that holds the config and the prompts, as src/hot.js makes them.
-  const hot = Object.assign(
-    new EventEmitter(),
-    hotWith({ features: { memory: true }, config: { mention: TRACKED.mention, pace: TRACKED.pace } })
-  );
+  const hot = Object.assign(new EventEmitter(), hotWith({ config: { mention: TRACKED.mention, pace: TRACKED.pace } }));
   const store = createStore({ dataDir: tempDir('nep-guard-store-') });
   // A real turn runner whose turns are only counted: the handler gets everything a runner has.
   const runner = createTurnRunner({
@@ -296,11 +288,6 @@ function handlerOver(core: Community) {
         asked.push(params);
         return Promise.resolve({ outcome: 'spoke' as const });
       },
-    },
-    // The real spontaneous scheduler over the counting runner, with no post scheduled from a message.
-    spontaneous: {
-      ...createSpontaneous({ hot, store, reads: core.reads, turns: runner, getGuildId: () => GUILD }),
-      onMessage: () => false,
     },
     memory: createMemoryUpdater({ hot, store }),
     tagHistory: createTagHistory(),
@@ -387,17 +374,6 @@ test('her message and GIF in an intention turn that runs in a mirror place are r
   });
   assert.deepEqual(core.sendsTo(MIRROR), [], 'nothing reaches the interface there');
   assert.ok(namesTheCode(logs), 'the refusal names diary-mirror');
-});
-
-test('a message from a heartbeat whose current channel is a mirror place is refused diary-mirror', async () => {
-  const core = await community();
-  const logs = await turnIn(core, {
-    here: MIRROR,
-    wake: heartbeatWake(NOW - 1000),
-    answers: [toolAnswer('', [call('message.create', { channel: '#journal', text: 'καλησπέρα' })]), '<skip/>'],
-  });
-  assert.deepEqual(core.sendsTo(MIRROR), [], 'nothing reaches the interface there');
-  assert.deepEqual(calledOf(logs), ['message.create:failed/diary-mirror']);
 });
 
 // ---- the publisher, and a disabled mirror -----------------------------------------------------------------------

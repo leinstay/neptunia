@@ -153,46 +153,28 @@ test('fitSections: a limit of 0 is a limit -- optional items are dropped and a r
 
 // --- requestTokenLimit ----------------------------------------------------------
 
-test('requestTokenLimit: llm.safetyMargin counts when it is a number in (0, 1], anything else is 0.9', () => {
-  const limitAt = (llm) => requestTokenLimit({ llm: { maxRequestTokens: 2000, ...llm } });
-  for (const [name, llm, expected] of [
-    ['0.9', { safetyMargin: 0.9 }, 1800],
-    ['0', { safetyMargin: 0 }, 1800],
-    ['1.5', { safetyMargin: 1.5 }, 1800],
-    ['null', { safetyMargin: null }, 1800],
-    ['missing', {}, 1800],
-    ['a string', { safetyMargin: '0.5' }, 1800],
-    // A margin inside the range is used as it is, both ends of it included.
-    ['0.5', { safetyMargin: 0.5 }, 1000],
-    ['1', { safetyMargin: 1 }, 2000],
-  ]) {
-    assert.equal(limitAt(llm), expected, `safetyMargin ${name}`);
-  }
-});
-
+// PR 7d: `llm.safetyMargin` is the constant SAFETY_MARGIN (0.9), so every limit below is 0.9 of its cap.
 test('requestTokenLimit: a maxRequestTokens that is missing or not a positive finite number counts as 50000', () => {
-  assert.equal(requestTokenLimit({ llm: { safetyMargin: 0.9 } }), 45000, 'missing');
-  assert.equal(requestTokenLimit({ llm: { safetyMargin: 0.5 } }), 25000, 'missing, with its own margin');
-  assert.equal(requestTokenLimit({ llm: {} }), 45000, 'neither key');
+  assert.equal(requestTokenLimit({ llm: {} }), 45000, 'missing');
   assert.equal(requestTokenLimit({}), 45000, 'a partial config without llm');
   for (const maxRequestTokens of [0, -100, '2000']) {
-    assert.equal(requestTokenLimit({ llm: { maxRequestTokens, safetyMargin: 0.9 } }), 45000, String(maxRequestTokens));
+    assert.equal(requestTokenLimit({ llm: { maxRequestTokens } }), 45000, String(maxRequestTokens));
   }
 });
 
 test('requestTokenLimit: the product is floored', () => {
-  assert.equal(requestTokenLimit({ llm: { maxRequestTokens: 1001, safetyMargin: 0.9 } }), 900); // 900.9
-  assert.equal(requestTokenLimit({ llm: { maxRequestTokens: 999, safetyMargin: 0.5 } }), 499); // 499.5
+  assert.equal(requestTokenLimit({ llm: { maxRequestTokens: 1001 } }), 900); // 900.9
+  assert.equal(requestTokenLimit({ llm: { maxRequestTokens: 999 } }), 899); // 899.1
 });
 
 test('requestTokenLimit: a cap passed as the second argument replaces llm.maxRequestTokens, under the same rules', () => {
-  const config = { llm: { maxRequestTokens: 2000, safetyMargin: 0.5 } };
-  assert.equal(requestTokenLimit(config, 8000), 4000, 'the cap passed, the margin of the config');
-  assert.equal(requestTokenLimit(config, undefined), 1000, 'nothing passed: the cap of the config');
+  const config = { llm: { maxRequestTokens: 2000 } };
+  assert.equal(requestTokenLimit(config, 8000), 7200, 'the cap passed');
+  assert.equal(requestTokenLimit(config, undefined), 1800, 'nothing passed: the cap of the config');
   for (const passed of [0, -1, NaN, Infinity, null]) {
-    assert.equal(requestTokenLimit(config, passed), 25000, `a passed ${String(passed)} counts as 50000`);
+    assert.equal(requestTokenLimit(config, passed), 45000, `a passed ${String(passed)} counts as 50000`);
   }
-  assert.equal(requestTokenLimit({}, 8000), 7200, 'a partial config: the cap passed at the 0.9 margin');
+  assert.equal(requestTokenLimit({}, 8000), 7200, 'a partial config: the cap passed');
 });
 
 // --- sectionCost ----------------------------------------------------------------

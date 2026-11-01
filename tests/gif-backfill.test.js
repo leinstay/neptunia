@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { createGifBackfill } from '../src/memory/gif-backfill.js';
+import { gifOpts } from '../src/memory/gifs.js';
 import { createStore } from '../src/memory/store.js';
 import { normalizeOptions, toEvent } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
@@ -99,23 +100,10 @@ function fakeClient(rooms) {
  */
 const depsOf = (world) => ({ reads: world.reads, iface: () => IFACE });
 
-function fakeHot({ gifs = {}, features = {} } = {}) {
-  return {
-    config: {
-      bot: {},
-      features,
-      media: { embedTextChars: 200 },
-      gifs: {
-        max: 20,
-        storeMax: 300,
-        halfLifeDays: 30,
-        maxPerDay: 40,
-        backfillMessages: 500,
-        backfillDescribe: 20,
-        ...gifs,
-      },
-    },
-  };
+// PR 7d: the switch is code and the library's measures are constants (300 entries kept, 500 messages read a channel,
+// 20 GIFs described after a count).
+function fakeHot() {
+  return { config: { bot: {} } };
 }
 
 function fakeLog() {
@@ -158,6 +146,7 @@ function standardChannels() {
   ];
 }
 
+/** @returns {Record<string, number>} */
 function countsByUrl(store) {
   return Object.fromEntries(
     Object.values(store.getGifs('g1').entries).map((entry) => [
@@ -268,13 +257,21 @@ test('gif backfill run: keep handles across a rescan', async () => {
     assert.equal(entries['999'].id, staleHandle, 'an entry gone from history keeps its handle with count 0');
     assert.equal(store.getGifs('g1').nextId, nextId, 'no handle was spent');
 
-    hot.config.gifs.storeMax = 3;
-    await backfill.run('g1', { force: true });
-    assert.deepEqual(
-      countsByUrl(store),
-      { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2 },
-      'the zero-count entry is the first evicted at storeMax'
+    // PR 7d: `gifs.storeMax` is the constant 300, so 297 more GIFs, recorded as the live observer records them, fill the
+    // library past it.
+    store.recordGifs(
+      'g1',
+      Array.from({ length: 297 }, (_, n) => ({
+        id: `y${n}`,
+        ts: T0 + n,
+        channelId: 'c1',
+        attachments: [{ id: `y${n}`, kind: 'gif', url: `https://cdn.discordapp.com/y${n}.gif` }],
+      })),
+      gifOpts()
     );
+    const kept = countsByUrl(store);
+    assert.equal(Object.keys(kept).length, 300);
+    assert.equal('999' in kept, false, 'the zero-count entry is the first evicted at storeMax');
     for (const [key, id] of Object.entries(firstHandles)) assert.equal(store.getGifs('g1').entries[key].id, id);
   });
 });
@@ -282,7 +279,7 @@ test('gif backfill run: keep handles across a rescan', async () => {
 test('gif backfill run: describes the top backfillDescribe entries without a cached caption, as real requests', async () => {
   await withStore(async (store) => {
     const describer = fakeDescriber();
-    const hot = fakeHot({ gifs: { backfillDescribe: 2 } });
+    const hot = fakeHot();
     // The most used gif already has a caption (its first embed id): it is skipped, not re-described.
     store.getMediaCache('g1')['1001#e0'] = { text: 'a cat dancing', ts: T0 };
     const backfill = createGifBackfill({
@@ -339,19 +336,8 @@ test("gif backfill run: the describer gets each GIF's whole picture item, so a l
   });
 });
 
-test('gif backfill run: backfillDescribe 0 or no describer describes nothing', async () => {
+test('gif backfill run: no describer describes nothing', async () => {
   await withStore(async (store) => {
-    const describer = fakeDescriber();
-    const off = createGifBackfill({
-      ...depsOf(fakeClient(standardChannels())),
-      hot: fakeHot({ gifs: { backfillDescribe: 0 } }),
-      store,
-      describer,
-      log: fakeLog(),
-    });
-    assert.equal((await off.run('g1')).described, 0);
-    assert.equal(describer.calls.length, 0);
-
     const none = createGifBackfill({
       ...depsOf(fakeClient(standardChannels())),
       hot: fakeHot(),
@@ -362,40 +348,20 @@ test('gif backfill run: backfillDescribe 0 or no describer describes nothing', a
   });
 });
 
-test('gif backfill run: backfillMessages 0 disables it, even forced', async () => {
+// PR 7d: the messages read per channel are the constant 500, so the GIF sits in the oldest of 501.
+test('gif backfill run: backfillMessages caps the messages read per channel', async () => {
   await withStore(async (store) => {
-    const world = fakeClient(standardChannels());
-    const describer = fakeDescriber();
-    const backfill = createGifBackfill({
-      ...depsOf(world),
-      hot: fakeHot({ gifs: { backfillMessages: 0 } }),
-      store,
-      describer,
-      log: fakeLog(),
-    });
+    const rooms = [
+      fakeChannel('c1', [
+        rawMessage(0, { embeds: [tenorEmbed(TENOR_A)] }),
+        ...Array.from({ length: 500 }, (_, n) => rawMessage(n + 1, { embeds: [tenorEmbed(TENOR_B, 'Salut')] })),
+      ]),
+    ];
+    const backfill = createGifBackfill({ ...depsOf(fakeClient(rooms)), hot: fakeHot(), store, log: fakeLog() });
 
-    assert.deepEqual(await backfill.run('g1'), { ok: false, reason: 'disabled' });
-    assert.deepEqual(await backfill.run('g1', { force: true }), { ok: false, reason: 'disabled' });
-    assert.deepEqual(world.asked('history'), []);
-    assert.equal(describer.calls.length, 0);
-    assert.deepEqual(store.getGifs('g1').entries, {});
-    assert.equal(store.getGifs('g1').backfill, null);
-  });
-});
-
-test('gif backfill run: backfillMessages caps the messages read per channel (read at use)', async () => {
-  await withStore(async (store) => {
-    const backfill = createGifBackfill({
-      ...depsOf(fakeClient(standardChannels())),
-      hot: fakeHot({ gifs: { backfillMessages: 2 } }),
-      store,
-      log: fakeLog(),
-    });
-
-    // c1's newest two are the persona's and a bot's; c2 has one member message.
     const result = await backfill.run('g1');
-    assert.deepEqual(result, { ok: true, channels: 2, messages: 1, gifs: 1, described: 0 });
-    assert.deepEqual(countsByUrl(store), { [TENOR_B]: 1 });
+    assert.deepEqual(result, { ok: true, channels: 1, messages: 500, gifs: 500, described: 0 });
+    assert.deepEqual(countsByUrl(store), { [TENOR_B]: 500 });
   });
 });
 
@@ -442,19 +408,6 @@ test('gif backfill startIfNeeded: runs once when the feature is on and nothing i
     const fetches = world.asked('history').length;
     await backfill.startIfNeeded('g1');
     assert.equal(world.asked('history').length, fetches, 'stamped: never again at startup');
-  });
-});
-
-test('gif backfill startIfNeeded: features.gifs off skips it', async () => {
-  await withStore(async (store) => {
-    const log = fakeLog();
-    const world = fakeClient(standardChannels());
-    const backfill = createGifBackfill({ ...depsOf(world), hot: fakeHot({ features: { gifs: false } }), store, log });
-
-    await backfill.startIfNeeded('g1');
-    assert.deepEqual(world.asked('history'), []);
-    assert.equal(store.getGifs('g1').backfill, null);
-    assert.deepEqual(log.entries.find((e) => e.message === 'gif-backfill: skipped').fields, { reason: 'feature-off' });
   });
 });
 

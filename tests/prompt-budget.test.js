@@ -1,5 +1,5 @@
-// The token limit buildRequest (src/behavior/prompt.js) fits a request under: `llm.safetyMargin`
-// read with the validated fallback of src/llm/budget.js#requestTokenLimit (0.9); a picture in the chat
+// The token limit buildRequest (src/behavior/prompt.js) fits a request under: 0.9 of the request cap
+// (src/llm/budget.js#requestTokenLimit, SAFETY_MARGIN); a picture in the chat
 // reserves nothing (none is attached, the persona reads its caption). Then where
 // a pulled channel (`<channel_view>`) sits in that budget: capped by `context.caps.pulled`, after
 // the chat on an ordinary turn, before it on a routed one, never a reason to fail the request.
@@ -71,19 +71,8 @@ function input({ llm = {}, vision = {}, picture = false } = {}) {
   };
 }
 
-test('buildRequest: a missing or unusable llm.safetyMargin is read as 0.9, a usable one as given', () => {
-  for (const safetyMargin of [undefined, 1.5]) {
-    const { stats } = buildRequest(input({ llm: { safetyMargin } }));
-    assert.equal(stats.limit, Math.floor(50000 * 0.9) - TAG_OVERHEAD, String(safetyMargin));
-  }
-  assert.equal(buildRequest(input({ llm: { safetyMargin: 0.5 } })).stats.limit, 25000 - TAG_OVERHEAD);
-  assert.equal(buildRequest(input({ llm: { safetyMargin: 1 } })).stats.limit, 50000 - TAG_OVERHEAD);
-});
-
 test('buildRequest: a picture in the chat reserves nothing of the budget -- it is never attached, whatever tokensPerImage says', () => {
-  const withPicture = buildRequest(
-    input({ llm: { safetyMargin: 0.9 }, vision: { tokensPerImage: 1000 }, picture: true })
-  );
+  const withPicture = buildRequest(input({ vision: { tokensPerImage: 1000 }, picture: true }));
   assert.equal(withPicture.stats.limit, Math.floor(50000 * 0.9) - TAG_OVERHEAD);
   assert.ok(withPicture.messages[1].content.every((part) => part.type === 'text'));
   assert.equal('images' in withPicture.stats, false);
@@ -144,7 +133,8 @@ function pulledScene({
     config: {
       ...base.config,
       context: { ...base.config.context, caps: { ...base.config.context.caps, ...caps } },
-      llm: { maxRequestTokens, safetyMargin: 1 },
+      // PR 7d: the margin is the constant 0.9, so the cap is set to give the scene's number as the limit.
+      llm: { maxRequestTokens: Math.ceil(maxRequestTokens / 0.9) },
     },
     prompts: { ...base.prompts, reply: 'REPLY_TASK {{target}}' },
     history,

@@ -1,12 +1,13 @@
 // Tests for src/memory/avatars.js and src/memory/avatar-queue.js: which member is due, the hash change, the default avatar
-// without a request, the daily cap, the throttled queue on an injected clock, the stored field's
+// without a request, the throttled queue on an injected clock, the stored field's
 // normalisation, and the store's write path for it. Fakes only: no network, no real data/.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isAvatarDue, normalizeAvatar } from '../src/memory/avatars.js';
-import { AVATAR_DAILY, createAvatarQueue } from '../src/memory/avatar-queue.js';
+import { createAvatarQueue } from '../src/memory/avatar-queue.js';
+import { VISION_MAX_BYTES } from '../src/media/fetch-image.js';
 import { createStore } from '../src/memory/store.js';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory, unitFile } from './fixtures/memory-db/service.js';
@@ -29,12 +30,12 @@ function clock(start = NOW) {
   return now;
 }
 
-function fakeHot({ features = {}, avatars = {}, prompts = {} } = {}) {
+// PR 7d: the switch is code, the daily cap is gone and the interval (20 s), the description length (200) and the
+// download bound are constants, so the hot config holds only the keys that are still settings.
+function fakeHot({ prompts = {} } = {}) {
   return {
     config: {
-      features: { avatars: true, ...features },
-      avatars: { intervalMs: 20000, maxPerDay: 60, descriptionChars: 200, ...avatars },
-      context: { vision: { maxBytes: 1000, fetchTimeoutMs: 500 } },
+      context: { vision: { fetchTimeoutMs: 500 } },
       media: { maxOutputTokens: 300 },
       models: { base: { vision: 'v/model' } },
     },
@@ -229,16 +230,10 @@ test('offer: only a profiled member of the served guild, never a bot or the pers
   assert.equal(store.writes.length, 0, 'an offer never writes');
 });
 
-test('offer: with the switch not exactly true or the prompt missing nothing is queued', () => {
-  for (const hot of [
-    fakeHot({ features: { avatars: 'yes' } }),
-    fakeHot({ features: { avatars: undefined } }),
-    fakeHot({ prompts: { avatar: '' } }),
-  ]) {
-    const { queue } = setup({ hot });
-    assert.equal(queue.offer(GUILD, view('u1', 'h1')), 'off');
-    assert.deepEqual(queue.pending(), []);
-  }
+test('offer: with the prompt missing nothing is queued', () => {
+  const { queue } = setup({ hot: fakeHot({ prompts: { avatar: '' } }) });
+  assert.equal(queue.offer(GUILD, view('u1', 'h1')), 'off');
+  assert.deepEqual(queue.pending(), []);
 });
 
 test('offer: a store that throws never escapes into the gateway handler', () => {
@@ -263,17 +258,14 @@ test('tick: a default avatar is stored without any request or download', async (
 
 test('tick: one vision request on purpose avatar, the prompt filled, one clamped line stored', async () => {
   const long = `a fox in a red scarf ${'and more '.repeat(40)}\nsecond line`;
-  const { queue, store, llm, imageFetcher, state, log } = setup({
-    llm: fakeLlm(long),
-    hot: fakeHot({ avatars: { descriptionChars: 60 } }),
-  });
+  const { queue, store, llm, imageFetcher, log } = setup({ llm: fakeLlm(long) });
   queue.offer(GUILD, view('u1', 'h1'));
   assert.equal(await queue.tick(), 'described');
   assert.equal(imageFetcher.calls.length, 1);
-  assert.deepEqual(imageFetcher.calls[0].options, { maxBytes: 1000, timeoutMs: 500 });
+  assert.deepEqual(imageFetcher.calls[0].options, { maxBytes: VISION_MAX_BYTES, timeoutMs: 500 });
   assert.equal(llm.calls.length, 1);
   const [{ messages, options }] = llm.calls;
-  assert.equal(messages[0].content, 'Describe the avatar in at most 60 characters.');
+  assert.equal(messages[0].content, 'Describe the avatar in at most 200 characters.');
   assert.deepEqual(messages[1].content, [{ type: 'image_url', image_url: { url: DOWNLOAD.dataUrl } }]);
   assert.equal(options.model, 'v/model');
   assert.equal(options.role, 'vision');
@@ -282,11 +274,9 @@ test('tick: one vision request on purpose avatar, the prompt filled, one clamped
   const stored = store.users.get('u1').avatar;
   assert.equal(stored.hash, 'h1');
   assert.ok(stored.text.startsWith('a fox in a red scarf'));
-  assert.ok(Array.from(stored.text).length <= 60, stored.text);
+  assert.ok(Array.from(stored.text).length <= 200, stored.text);
   assert.ok(!stored.text.includes('second line'));
   assert.equal(stored.describedAt, new Date(NOW).toISOString());
-  assert.equal(state.data[AVATAR_DAILY.countKey], 1);
-  assert.ok(state.dirty > 0);
   // Counts and codes only: never the text or the url.
   const described = log.entries.find((entry) => entry.msg === 'avatars: described');
   assert.ok(described);
@@ -294,9 +284,9 @@ test('tick: one vision request on purpose avatar, the prompt filled, one clamped
   assert.ok(!JSON.stringify(log.entries).includes('cdn.example'));
 });
 
-test('tick: one request at a time, avatars.intervalMs apart on the injected clock', async () => {
+test('tick: one request at a time, 20 s apart on the injected clock', async () => {
   const now = clock();
-  const { queue, llm, hot } = setup({ profiles: { u1: {}, u2: {}, u3: {} }, now });
+  const { queue, llm } = setup({ profiles: { u1: {}, u2: {}, u3: {} }, now });
   for (const id of ['u1', 'u2', 'u3']) queue.offer(GUILD, view(id, `h-${id}`));
   assert.equal(await queue.tick(), 'described');
   assert.equal(await queue.tick(), 'wait');
@@ -305,12 +295,6 @@ test('tick: one request at a time, avatars.intervalMs apart on the injected cloc
   now.advance(1);
   assert.equal(await queue.tick(), 'described');
   assert.equal(llm.calls.length, 2);
-  // The interval is read at the moment of use: a hot change applies at the next tick.
-  assert.equal(await queue.tick(), 'wait');
-  hot.config.avatars.intervalMs = 5_000;
-  now.advance(5_000);
-  assert.equal(await queue.tick(), 'described');
-  assert.equal(llm.calls.length, 3);
 });
 
 test('tick: a second tick while a request runs does not start another', async () => {
@@ -334,40 +318,6 @@ test('tick: a second tick while a request runs does not start another', async ()
   assert.equal(llm.calls.length, 1);
 });
 
-test('tick: avatars.maxPerDay stops the requests until the UTC day turns, the queue kept', async () => {
-  const now = clock();
-  const state = fakeState({ [AVATAR_DAILY.dayKey]: '2026-10-15', [AVATAR_DAILY.countKey]: 2 });
-  const { queue, llm, log } = setup({
-    profiles: { u1: {}, u2: {} },
-    now,
-    state,
-    hot: fakeHot({ avatars: { maxPerDay: 2, intervalMs: 0 } }),
-  });
-  queue.offer(GUILD, view('u1', 'h1'));
-  queue.offer(GUILD, view('u2', null));
-  // The default avatar costs nothing and goes through even with the cap spent.
-  assert.equal(await queue.tick(), 'avatar-cap');
-  assert.equal(await queue.tick(), 'avatar-cap');
-  assert.equal(llm.calls.length, 0);
-  assert.deepEqual(queue.pending(), ['u1']);
-  assert.equal(
-    log.entries.filter((entry) => entry.msg === 'avatars: skipped' && entry.reason === 'avatar-cap').length,
-    1,
-    'logged once a day'
-  );
-  now.advance(12 * 3_600_000);
-  assert.equal(await queue.tick(), 'described');
-  assert.equal(state.data[AVATAR_DAILY.dayKey], '2026-10-16');
-  assert.equal(state.data[AVATAR_DAILY.countKey], 1);
-});
-
-test('tick: a missing or broken avatars.maxPerDay refuses (fail closed)', async () => {
-  const { queue, llm } = setup({ hot: fakeHot({ avatars: { maxPerDay: 'many' } }) });
-  queue.offer(GUILD, view('u1', 'h1'));
-  assert.equal(await queue.tick(), 'avatar-cap');
-  assert.equal(llm.calls.length, 0);
-});
-
 test('tick: with llm.maxRequestsPerDay spent nothing is downloaded or sent', async () => {
   const llm = fakeLlm();
   llm.capLeft = () => 0;
@@ -386,7 +336,6 @@ test('tick: a failed one is dropped and offered again only after the next scan, 
     now,
     members,
     llm: fakeLlm(new Error('provider down')),
-    hot: fakeHot({ avatars: { intervalMs: 0 } }),
   });
   queue.offer(GUILD, view('u1', 'h1'));
   assert.equal(await queue.tick(), 'failed');
@@ -400,6 +349,7 @@ test('tick: a failed one is dropped and offered again only after the next scan, 
   // The next scan retries the failed version (the member's avatar is h1 again by then).
   await queue.scan(GUILD);
   assert.deepEqual(queue.pending(), ['u1']);
+  now.advance(20_000);
   assert.equal(await queue.tick(), 'failed');
   assert.equal(llm.calls.length, 2);
 });
@@ -423,9 +373,7 @@ test('tick: an item whose profile went or whose avatar is current by now is drop
   assert.deepEqual(queue.pending(), []);
 });
 
-test('tick: off, paused or without a guild it does nothing', async () => {
-  const off = setup({ hot: fakeHot({ features: { avatars: false } }) });
-  assert.equal(await off.queue.tick(), 'off');
+test('tick: paused it does nothing', async () => {
   const paused = setup({ paused: true });
   paused.queue.offer(GUILD, view('u1', 'h1'));
   assert.equal(await paused.queue.tick(), 'paused');
@@ -462,7 +410,7 @@ test('scan: every profiled member whose avatar differs is queued; bots, the pers
 test('tick: scans on its first run and again a day later, never in between', async () => {
   const now = clock();
   const members = { u1: view('u1', null) };
-  const { queue, store, hot } = setup({ members, now });
+  const { queue, store } = setup({ members, now });
   await queue.tick();
   assert.equal(queue.scansStarted(), 1);
   assert.deepEqual(store.users.get('u1').avatar, { hash: null, default: true });
@@ -472,14 +420,6 @@ test('tick: scans on its first run and again a day later, never in between', asy
   now.advance(23 * 3_600_000);
   await queue.tick();
   assert.equal(queue.scansStarted(), 2);
-  // Off, no scan is started; on again later, the scan is due at once.
-  hot.config.features.avatars = false;
-  now.advance(25 * 3_600_000);
-  await queue.tick();
-  assert.equal(queue.scansStarted(), 2);
-  hot.config.features.avatars = true;
-  await queue.tick();
-  assert.equal(queue.scansStarted(), 3);
 });
 
 // A read that fails reaches the queue as no answer (src/interface/reads.ts): the member counts as gone.

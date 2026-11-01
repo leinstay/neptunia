@@ -1,6 +1,6 @@
 // Tests for the message links on the way out (src/behavior/turn.js with
 // src/memory/mentions.ts#linkMessageNumbers) and, at the end, on the way in: a transcript number `#n` in a `<msg>` is sent as the
-// jump link of that message, behind features.messageLinks. Fake discord.js-shaped objects, a fake
+// jump link of that message. Fake discord.js-shaped objects, a fake
 // LLM and store.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -68,43 +68,18 @@ function fakeStore() {
   };
 }
 
-function fakeHot(messageLinks) {
+function fakeHot() {
   return {
     config: {
-      bot: { timezone: 'UTC', dryRunChannelId: '' },
+      bot: { timezone: 'UTC' },
       context: {
         channelMessages: 100,
-        neighborMessages: 5,
-        neighborMaxAgeMinutes: 60,
-        neighborMaxChannels: 8,
-        maxMessageChars: 800,
-        gapMarkerMinutes: 20,
-        otherProfiles: 6,
         caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
-        vision: {
-          maxImages: 2,
-          tokensPerImage: 400,
-          imageSize: 512,
-          recentImages: 0,
-          recentImageMinutes: 0,
-          maxBytes: 1_500_000,
-          fetchTimeoutMs: 10_000,
-        },
-        pull: { scanMessages: 20, maxChannels: 1, sameAudience: true },
+        vision: { fetchTimeoutMs: 10_000 },
+        pull: { sameAudience: true },
       },
-      llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
+      llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      features: {
-        memory: true,
-        multiMessage: true,
-        typingSimulation: false,
-        channelPull: false,
-        channelRoute: false,
-        elsewhere: false,
-        messageLinks,
-      },
-      media: { maxPerTurn: 6, filePreviewChars: 500 },
-      gifs: { maxPerDay: 40 },
     },
     prompts: {
       'system-prompt': 'You are a regular member of this chat, not an assistant.',
@@ -116,11 +91,11 @@ function fakeHot(messageLinks) {
   };
 }
 
-async function runLinkTurn(messageLinks, responseText, { dm = false } = {}) {
+async function runLinkTurn(responseText, { dm = false } = {}) {
   const raw = rawMessage({ id: MESSAGE_ID });
   const channel = fakeTurnChannel([raw], { dm });
   const turns = createTurnRunner({
-    hot: fakeHot(messageLinks),
+    hot: fakeHot(),
     store: fakeStore(),
     llm: { complete: async () => ({ text: responseText, usage: {}, estimated: 10 }) },
     calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
@@ -136,19 +111,14 @@ async function runLinkTurn(messageLinks, responseText, { dm = false } = {}) {
 }
 
 test('runTurn: a transcript number in the text becomes its message link', async () => {
-  const { result, channel } = await runLinkTurn(true, '<msg>see #1 and #1, not #77 or x#1</msg>');
+  const { result, channel } = await runLinkTurn('<msg>see #1 and #1, not #77 or x#1</msg>');
   assert.equal(result.outcome, 'spoke');
   const url = `https://discord.com/channels/g1/c1/${MESSAGE_ID}`;
   assert.equal(channel.sent[0].content, `see ${url} and ${url}, not #77 or x#1`);
 });
 
-test('runTurn: features.messageLinks false sends the number as written', async () => {
-  const { channel } = await runLinkTurn(false, '<msg>see #1</msg>');
-  assert.equal(channel.sent[0].content, 'see #1');
-});
-
 test('runTurn: a private chat links with @me instead of the guild id', async () => {
-  const { channel } = await runLinkTurn(true, '<msg>see #1</msg>', { dm: true });
+  const { channel } = await runLinkTurn('<msg>see #1</msg>', { dm: true });
   assert.equal(channel.sent[0].content, `see https://discord.com/channels/@me/c1/${MESSAGE_ID}`);
 });
 

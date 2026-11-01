@@ -21,12 +21,11 @@ import {
   resolveProvider,
   matchRoute,
   openRouterHeaders,
-  VIDEO_TOKENS_PER_SECOND_FALLBACK,
+  VIDEO_TOKENS_PER_SECOND,
   providerLimitOf,
   errorCodeOf,
   cacheTtlFor,
   withCacheMarker,
-  profilesTtlFor,
   fullPromptTokens,
   REPLY_REQUEST,
   countLlmRequest,
@@ -40,7 +39,6 @@ function baseConfig({ model = 'test-model', ...overrides } = {}) {
     models: { base: { core: model } },
     llm: {
       baseUrl: 'https://openrouter.ai/api/v1',
-      temperature: 1,
       maxOutputTokens: 100,
       maxRequestTokens: 1000,
       maxRequestsPerDay: 300,
@@ -398,8 +396,7 @@ test('code fallbacks: the defaults the code applies when a setting is missing eq
       JSON.stringify(bare)
     );
   }
-  assert.equal(VIDEO_TOKENS_PER_SECOND_FALLBACK, shipped.media.video.tokensPerSecond);
-  const noCacheBlock = { ...baseConfig(), features: { promptCache: true } };
+  const noCacheBlock = baseConfig();
   assert.equal(
     cacheTtlFor(noCacheBlock, shipped.llm.cache.roles[0], shipped.llm.cache.models[0] + 'x'),
     shipped.llm.cache.ttl,
@@ -758,10 +755,11 @@ test('complete: a non-object options.provider (array, null, string) falls back t
   for (const body of bodies) assert.deepEqual(body.provider, configured);
 });
 
+// PR 7d: the clip rate is the constant VIDEO_TOKENS_PER_SECOND, 120 tokens a second.
 test('complete: options.videoSeconds raises the estimate by videoSeconds * media.video.tokensPerSecond', async () => {
   const llm = createLlm({
     apiKey: 'k',
-    getConfig: () => ({ ...baseConfig({ maxRequestTokens: 50000 }), media: { video: { tokensPerSecond: 300 } } }),
+    getConfig: () => ({ ...baseConfig({ maxRequestTokens: 50000 }) }),
     calibrator: fakeCalibrator(),
     state: fakeState(),
     fetchImpl: async () => okResponse('hi'),
@@ -769,7 +767,7 @@ test('complete: options.videoSeconds raises the estimate by videoSeconds * media
   const messages = [{ role: 'user', content: 'hi' }];
   const plain = await llm.complete(messages);
   const withVideo = await llm.complete(messages, { videoSeconds: 60 });
-  assert.equal(withVideo.estimated - plain.estimated, 18000);
+  assert.equal(withVideo.estimated - plain.estimated, 60 * VIDEO_TOKENS_PER_SECOND);
 });
 
 test('complete: options.videoSeconds falls back to the built-in rate when media.video is absent', async () => {
@@ -783,42 +781,43 @@ test('complete: options.videoSeconds falls back to the built-in rate when media.
   const messages = [{ role: 'user', content: 'hi' }];
   const plain = await llm.complete(messages);
   const withVideo = await llm.complete(messages, { videoSeconds: 10 });
-  assert.equal(withVideo.estimated - plain.estimated, 10 * VIDEO_TOKENS_PER_SECOND_FALLBACK);
+  assert.equal(withVideo.estimated - plain.estimated, 10 * VIDEO_TOKENS_PER_SECOND);
 });
 
 test('complete: options.videoSeconds counts against the token cap (just below passes, just above refuses)', async () => {
   const messages = [{ role: 'user', content: 'hi' }];
-  // raw text estimate: overhead 6 + ceil(2/3.5)=1 -> 7; plus 60 s * 300 = 18000 -> 18007
+  // raw text estimate: overhead 6 + ceil(2/3.5)=1 -> 7; plus 60 s * 120 = 7200 -> 7207 (PR 7d: the constant rate)
   const make = (cap) =>
     createLlm({
       apiKey: 'k',
-      getConfig: () => ({ ...baseConfig({ maxRequestTokens: cap }), media: { video: { tokensPerSecond: 300 } } }),
+      getConfig: () => ({ ...baseConfig({ maxRequestTokens: cap }) }),
       calibrator: fakeCalibrator(),
       state: fakeState(),
       fetchImpl: async () => okResponse('hi'),
     });
-  const ok = await make(18007).complete(messages, { videoSeconds: 60 });
-  assert.equal(ok.estimated, 18007);
-  await assert.rejects(make(18006).complete(messages, { videoSeconds: 60 }), (err) => err instanceof TokenLimitError);
+  const ok = await make(7207).complete(messages, { videoSeconds: 60 });
+  assert.equal(ok.estimated, 7207);
+  await assert.rejects(make(7206).complete(messages, { videoSeconds: 60 }), (err) => err instanceof TokenLimitError);
 });
 
 test('complete: the calibrator is applied to the text estimate plus the video estimate', async () => {
   const calibrator = { ...fakeCalibrator(), apply: (n) => n * 2 };
   const llm = createLlm({
     apiKey: 'k',
-    getConfig: () => ({ ...baseConfig({ maxRequestTokens: 100000 }), media: { video: { tokensPerSecond: 300 } } }),
+    getConfig: () => ({ ...baseConfig({ maxRequestTokens: 100000 }) }),
     calibrator,
     state: fakeState(),
     fetchImpl: async () => okResponse('hi'),
   });
   const result = await llm.complete([{ role: 'user', content: 'hi' }], { videoSeconds: 60 });
-  assert.equal(result.estimated, (7 + 18000) * 2);
+  // PR 7d: 60 s at the constant 120 tokens a second.
+  assert.equal(result.estimated, (7 + 7200) * 2);
 });
 
 test('complete: a non-finite or negative options.videoSeconds leaves the estimate unchanged', async () => {
   const llm = createLlm({
     apiKey: 'k',
-    getConfig: () => ({ ...baseConfig({ maxRequestTokens: 50000 }), media: { video: { tokensPerSecond: 300 } } }),
+    getConfig: () => ({ ...baseConfig({ maxRequestTokens: 50000 }) }),
     calibrator: fakeCalibrator(),
     state: fakeState(),
     fetchImpl: async () => okResponse('hi'),
@@ -834,7 +833,7 @@ test('complete: a non-finite or negative options.videoSeconds leaves the estimat
 test('complete: options.videoTokensPerSecond replaces media.video.tokensPerSecond for this one call', async () => {
   const llm = createLlm({
     apiKey: 'k',
-    getConfig: () => ({ ...baseConfig({ maxRequestTokens: 50000 }), media: { video: { tokensPerSecond: 300 } } }),
+    getConfig: () => ({ ...baseConfig({ maxRequestTokens: 50000 }) }),
     calibrator: fakeCalibrator(),
     state: fakeState(),
     fetchImpl: async () => okResponse('hi'),
@@ -846,13 +845,17 @@ test('complete: options.videoTokensPerSecond replaces media.video.tokensPerSecon
   const fractional = await llm.complete(messages, { videoSeconds: 3, videoTokensPerSecond: 0.5 });
   assert.equal(fractional.estimated - plain.estimated, 2);
   const next = await llm.complete(messages, { videoSeconds: 60 });
-  assert.equal(next.estimated - plain.estimated, 18000, 'the override never sticks to later calls');
+  assert.equal(
+    next.estimated - plain.estimated,
+    7200,
+    'the override never sticks to later calls (PR 7d: 120 a second)'
+  );
 });
 
 test('complete: a non-finite or non-positive options.videoTokensPerSecond falls back to media.video.tokensPerSecond', async () => {
   const llm = createLlm({
     apiKey: 'k',
-    getConfig: () => ({ ...baseConfig({ maxRequestTokens: 50000 }), media: { video: { tokensPerSecond: 300 } } }),
+    getConfig: () => ({ ...baseConfig({ maxRequestTokens: 50000 }) }),
     calibrator: fakeCalibrator(),
     state: fakeState(),
     fetchImpl: async () => okResponse('hi'),
@@ -861,7 +864,8 @@ test('complete: a non-finite or non-positive options.videoTokensPerSecond falls 
   const plain = await llm.complete(messages);
   for (const videoTokensPerSecond of [NaN, Infinity, -Infinity, 0, -10, '10', null, undefined, {}]) {
     const result = await llm.complete(messages, { videoSeconds: 60, videoTokensPerSecond });
-    assert.equal(result.estimated - plain.estimated, 18000, `videoTokensPerSecond=${String(videoTokensPerSecond)}`);
+    // PR 7d: the fallback is the constant 120 tokens a second.
+    assert.equal(result.estimated - plain.estimated, 7200, `videoTokensPerSecond=${String(videoTokensPerSecond)}`);
   }
 });
 
@@ -1678,7 +1682,7 @@ test('complete: options.role selects the role key; a call without a role uses th
 // --- prompt caching: the marker on the system message, the full prompt count, the usage code ---
 
 /** config.json's `llm.cache` (no `models`: the code's fallback, `['anthropic/']`, applies). */
-const CACHE = { ttl: '1h', roles: ['core'], promptIncludesCached: true };
+const CACHE = { ttl: '1h', roles: ['core'] };
 
 /** A model id of the family `llm.cache.models` admits by default. */
 const LISTED_MODEL = 'anthropic/claude-test-4';
@@ -1686,11 +1690,13 @@ const LISTED_MODEL = 'anthropic/claude-test-4';
 const UNLISTED_MODEL = 'openai/gpt-test-5';
 
 /**
- * A config with `features.promptCache` (on by default here), `llm.cache` as given and a voice
- * model of the listed family (`LISTED_MODEL`) unless `model` says otherwise.
+ * A config with `llm.cache` as given (`promptCache: false` lists no role) and a voice model of the listed family
+ * (`LISTED_MODEL`) unless `model` says otherwise.
  */
 function cachingConfig({ promptCache = true, cache = CACHE, ...llm } = {}) {
-  return { ...baseConfig({ maxRequestTokens: 50000, model: LISTED_MODEL, ...llm, cache }), features: { promptCache } };
+  // PR 7d: `features.promptCache` is code; a test's cache off is an llm.cache that lists no role.
+  const listed = promptCache ? cache : { ...cache, roles: [] };
+  return baseConfig({ maxRequestTokens: 50000, model: LISTED_MODEL, ...llm, cache: listed });
 }
 
 const SYSTEM_TEXT = 'Tu es la persona du salon : réponds brièvement, sans en faire trop.';
@@ -1731,18 +1737,10 @@ function cachingLlm(getConfig, { usage = { prompt_tokens: 42 }, calibrator = fak
   return { llm, sent, bodies: () => sent.map((s) => JSON.parse(s)) };
 }
 
-test('cacheTtlFor: no marker unless features.promptCache is exactly true', () => {
+// PR 7d: `features.promptCache` is code, so the marker follows llm.cache alone.
+test('cacheTtlFor: a marker for a listed role and model, none for a role the cache does not list', () => {
   assert.equal(cacheTtlFor(cachingConfig(), 'core', LISTED_MODEL), '1h');
-  for (const promptCache of [false, undefined, null, 'true', 1, {}]) {
-    assert.equal(
-      cacheTtlFor({ ...cachingConfig(), features: { promptCache } }, 'core', LISTED_MODEL),
-      null,
-      String(promptCache)
-    );
-  }
-  for (const config of [undefined, null, {}, { features: {} }, baseConfig({ cache: CACHE })]) {
-    assert.equal(cacheTtlFor(config, 'core', LISTED_MODEL), null, JSON.stringify(config));
-  }
+  assert.equal(cacheTtlFor(cachingConfig({ promptCache: false }), 'core', LISTED_MODEL), null);
 });
 
 test('cacheTtlFor: a role outside llm.cache.roles gets none; a non-array roles reads as core only', () => {
@@ -1817,45 +1815,13 @@ test('cacheTtlFor: an unknown ttl reads as 1h; force true and false override the
   }
 });
 
-test('fullPromptTokens: prompt_tokens as reported by default; plus cached and cache-write tokens when llm.cache.promptIncludesCached is false', () => {
+// PR 7d: `llm.cache.promptIncludesCached` is the constant true, so prompt_tokens is the count as reported.
+test('fullPromptTokens: prompt_tokens as reported, the cached and cache-write tokens inside it', () => {
   const usage = { prompt_tokens: 1200, prompt_tokens_details: { cached_tokens: 8500, cache_write_tokens: 300 } };
-  const includes = [
-    undefined,
-    {},
-    baseConfig(),
-    cachingConfig(),
-    cachingConfig({ cache: { ...CACHE, promptIncludesCached: undefined } }),
-    cachingConfig({ cache: { ...CACHE, promptIncludesCached: 'no' } }),
-  ];
-  for (const config of includes) assert.equal(fullPromptTokens(usage, config, true), 1200, JSON.stringify(config));
-  const net = cachingConfig({ cache: { ...CACHE, promptIncludesCached: false } });
-  assert.equal(fullPromptTokens(usage, net, true), 10000);
-  assert.equal(fullPromptTokens({ prompt_tokens: 1200 }, net, true), 1200, 'no details add nothing');
-  assert.equal(
-    fullPromptTokens(
-      { prompt_tokens: 1200, prompt_tokens_details: { cached_tokens: 'many', cache_write_tokens: -5 } },
-      net,
-      true
-    ),
-    1200,
-    'a detail that is not a count adds nothing'
-  );
-  assert.equal(fullPromptTokens({ prompt_tokens: 0, prompt_tokens_details: { cached_tokens: 900 } }, net, true), 900);
-});
-
-test('fullPromptTokens: an unmarked request keeps prompt_tokens as reported even under promptIncludesCached false', () => {
-  // A provider that caches on its own (no marker sent) already counts its cached tokens inside
-  // prompt_tokens: adding them back would count them twice.
-  const usage = { prompt_tokens: 20000, prompt_tokens_details: { cached_tokens: 5000, cache_write_tokens: 300 } };
-  const net = cachingConfig({ cache: { ...CACHE, promptIncludesCached: false } });
-  for (const marked of [false, undefined, null, 'true', 1]) {
-    assert.equal(fullPromptTokens(usage, net, marked), 20000, String(marked));
-  }
-  assert.equal(fullPromptTokens(usage, net, true), 25300, 'only a marked request is read by the probed route');
+  assert.equal(fullPromptTokens(usage), 1200);
 });
 
 test('fullPromptTokens: no reported prompt count gives null', () => {
-  const net = cachingConfig({ cache: { ...CACHE, promptIncludesCached: false } });
   for (const usage of [
     undefined,
     null,
@@ -1867,19 +1833,14 @@ test('fullPromptTokens: no reported prompt count gives null', () => {
     { prompt_tokens: -3 },
     { prompt_tokens: Infinity },
   ]) {
-    assert.equal(fullPromptTokens(usage, cachingConfig(), true), null, JSON.stringify(usage));
+    assert.equal(fullPromptTokens(usage), null, JSON.stringify(usage));
   }
   assert.equal(
-    fullPromptTokens({ prompt_tokens_details: { cached_tokens: 900 } }, net, true),
+    fullPromptTokens({ prompt_tokens_details: { cached_tokens: 900 } }),
     null,
     'details without a prompt count are no count'
   );
-  assert.equal(fullPromptTokens({ prompt_tokens: 0 }, net, true), null);
-  assert.equal(
-    fullPromptTokens({ prompt_tokens: 0, prompt_tokens_details: { cached_tokens: 900 } }, net, false),
-    null,
-    'unmarked: nothing is added back'
-  );
+  assert.equal(fullPromptTokens({ prompt_tokens: 0 }), null);
 });
 
 test('withCacheMarker: a string system message becomes one text part with the same text and the marker', () => {
@@ -2050,17 +2011,6 @@ function anySegment(messages) {
   return messages.some((m) => Array.isArray(m.content) && m.content.some((p) => 'cacheSegment' in p));
 }
 
-test('profilesTtlFor: 5m as it is, null or false for no marker, anything else 1h', () => {
-  assert.equal(profilesTtlFor({ llm: { cache: { profilesTtl: '5m' } } }), '5m');
-  for (const off of [null, false])
-    assert.equal(profilesTtlFor({ llm: { cache: { profilesTtl: off } } }), null, String(off));
-  for (const value of ['1h', undefined, '2h', 5, true, '']) {
-    assert.equal(profilesTtlFor({ llm: { cache: { profilesTtl: value } } }), '1h', String(value));
-  }
-  for (const config of [undefined, null, {}, { llm: {} }])
-    assert.equal(profilesTtlFor(config), '1h', JSON.stringify(config));
-});
-
 test('withCacheMarker: cacheSegment stable takes the request ttl, profiles its own, and the tag is never sent', () => {
   const messages = segmentedMessages();
   const before = structuredClone(messages);
@@ -2144,11 +2094,10 @@ test('withCacheMarker: system, stable and profiles are three of the four markers
   );
 });
 
+// PR 7d: `llm.cache.profilesTtl` is the constant 1h, so every marked reply carries the three markers.
 test('complete: a segmented reply is sent with the system, stable and profiles markers, never the tag; off or unlisted, with neither', async () => {
-  let config = cachingConfig({ cache: { ...CACHE, profilesTtl: '5m' } });
+  let config = cachingConfig();
   const { llm, sent, bodies } = cachingLlm(() => config);
-  await llm.complete(segmentedMessages(), { role: 'core' });
-  config = cachingConfig({ cache: { ...CACHE, profilesTtl: null } });
   await llm.complete(segmentedMessages(), { role: 'core' });
   config = cachingConfig({ promptCache: false });
   await llm.complete(segmentedMessages(), { role: 'core' });
@@ -2157,22 +2106,14 @@ test('complete: a segmented reply is sent with the system, stable and profiles m
   config = cachingConfig();
   await llm.complete(segmentedMessages(), { role: 'vision' });
   await llm.complete(segmentedMessages(), { role: 'core' });
-  const [on, noProfiles, off, unlisted, otherRole, defaulted] = bodies();
-  assert.deepEqual(
-    markedParts(on.messages).map((p) => p.cache_control),
-    [MARK_1H, MARK_1H, MARK_5M]
-  );
-  assert.deepEqual(
-    markedParts(noProfiles.messages).map((p) => p.cache_control),
-    [MARK_1H, MARK_1H]
-  );
+  const [on, off, unlisted, otherRole, again] = bodies();
+  for (const body of [on, again])
+    assert.deepEqual(
+      markedParts(body.messages).map((p) => p.cache_control),
+      [MARK_1H, MARK_1H, MARK_1H]
+    );
   for (const body of [off, unlisted, otherRole]) assert.deepEqual(markedParts(body.messages), []);
   for (const raw of sent) assert.equal(raw.includes('cacheSegment'), false);
-  assert.deepEqual(
-    markedParts(defaulted.messages).map((p) => p.cache_control),
-    [MARK_1H, MARK_1H, MARK_1H],
-    'a missing llm.cache.profilesTtl reads as 1h'
-  );
 });
 
 test('complete: the estimate and the token cap count every text part of the user message', async () => {
@@ -2234,12 +2175,7 @@ test("complete: with promptCache off or the role not listed the body is byte-ide
     },
   ];
   const today = (model) => JSON.stringify({ model, messages, temperature: 1, max_tokens: 100 });
-  const configs = [
-    baseConfig({ maxRequestTokens: 50000 }),
-    cachingConfig({ promptCache: false }),
-    { ...cachingConfig(), features: {} },
-    { ...cachingConfig(), features: { promptCache: 'true' } },
-  ];
+  const configs = [baseConfig({ maxRequestTokens: 50000 }), cachingConfig({ promptCache: false })];
   for (const config of configs) {
     const { llm, sent } = cachingLlm(() => config);
     for (const role of ['core', 'vision', 'analyzer', 'video', undefined]) await llm.complete(messages, { role });
@@ -2366,14 +2302,12 @@ test('complete: llm: usage carries cache read, write, none or off from the usage
   );
 });
 
+// PR 7d: `llm.cache.promptIncludesCached` is the constant true, so the count is prompt_tokens as reported.
 test('complete: the calibrator observes the full prompt count when the usage reports cached tokens', async () => {
-  // Under both readings of llm.cache.promptIncludesCached: as reported (true, the default) or
-  // net of the cache (false: the cached and written tokens are added back).
   const usage = { prompt_tokens: 600, prompt_tokens_details: { cached_tokens: 8500, cache_write_tokens: 200 } };
   const cases = [
     [CACHE, 600],
     [{ ttl: '1h', roles: ['core'] }, 600],
-    [{ ...CACHE, promptIncludesCached: false }, 9300],
   ];
   for (const [cache, counted] of cases) {
     const calibrator = fakeCalibrator();
@@ -2384,55 +2318,25 @@ test('complete: the calibrator observes the full prompt count when the usage rep
   }
   // skipCalibration still feeds nothing, and still returns the full count
   const calibrator = fakeCalibrator();
-  const { llm } = cachingLlm(() => cachingConfig({ cache: { ...CACHE, promptIncludesCached: false } }), {
-    usage,
-    calibrator,
-  });
+  const { llm } = cachingLlm(() => cachingConfig(), { usage, calibrator });
   const skipped = await llm.complete(replyMessages(), { role: 'core', skipCalibration: true });
   assert.deepEqual(calibrator.observed, []);
-  assert.equal(skipped.promptTokens, 9300);
+  assert.equal(skipped.promptTokens, 600);
   // no usage count: null
   const { llm: bare } = cachingLlm(() => cachingConfig(), { usage: {} });
   assert.equal((await bare.complete(replyMessages(), { role: 'core' })).promptTokens, null);
 });
 
-test('complete: an unmarked request reporting cached tokens feeds prompt_tokens unchanged under promptIncludesCached false', async () => {
-  // An analyzer on a provider that caches on its own: no marker sent, cached tokens already inside prompt_tokens.
-  const usage = { prompt_tokens: 20000, prompt_tokens_details: { cached_tokens: 5000, cache_write_tokens: 0 } };
-  const net = { ...CACHE, promptIncludesCached: false };
-  const cases = [
-    [cachingConfig({ cache: net }), { role: 'vision' }],
-    [cachingConfig({ cache: net, model: UNLISTED_MODEL }), { role: 'core' }],
-    [cachingConfig({ cache: net }), { role: 'core', cache: false }],
-    [cachingConfig({ cache: net, promptCache: false }), { role: 'core' }],
-  ];
-  for (const [config, options] of cases) {
-    const calibrator = fakeCalibrator();
-    const { llm, sent } = cachingLlm(() => config, { usage, calibrator });
-    const result = await llm.complete(replyMessages(), options);
-    assert.ok(!sent[0].includes('cache_control'), JSON.stringify(options));
-    assert.deepEqual(calibrator.observed, [[result.estimated, 20000]], JSON.stringify(options));
-    assert.equal(result.promptTokens, 20000);
-  }
-  // the same answer to a marked request is read as net of the cache
-  const calibrator = fakeCalibrator();
-  const { llm } = cachingLlm(() => cachingConfig({ cache: net }), { usage, calibrator });
-  const marked = await llm.complete(replyMessages(), { role: 'core' });
-  assert.deepEqual(calibrator.observed, [[marked.estimated, 25000]]);
-});
-
+// PR 7d: the count is prompt_tokens as reported (`llm.cache.promptIncludesCached` is the constant true).
 test('complete: the token-cap warning uses the same full prompt count', async () => {
-  const usage = { prompt_tokens: 800, prompt_tokens_details: { cached_tokens: 600, cache_write_tokens: 0 } };
-  const warned = async (promptIncludesCached) => {
-    const { llm } = cachingLlm(
-      () => cachingConfig({ maxRequestTokens: 1000, cache: { ...CACHE, promptIncludesCached } }),
-      { usage }
-    );
+  const warned = async (promptTokens) => {
+    const usage = { prompt_tokens: promptTokens, prompt_tokens_details: { cached_tokens: 600, cache_write_tokens: 0 } };
+    const { llm } = cachingLlm(() => cachingConfig({ maxRequestTokens: 1000 }), { usage });
     const { logs } = await withCapturedLogs(() => llm.complete(replyMessages(), { role: 'core' }));
     return logs.filter((l) => l.msg === 'llm: provider counted more prompt tokens than the cap').length;
   };
-  assert.equal(await warned(true), 0, '800 as reported is under the cap of 1000');
-  assert.equal(await warned(false), 1, '800 + 600 counted back is over it');
+  assert.equal(await warned(800), 0, '800 as reported is under the cap of 1000');
+  assert.equal(await warned(1400), 1, '1400 is over it');
 });
 
 // --- shared transport helpers (also used by src/llm/images.js) ---

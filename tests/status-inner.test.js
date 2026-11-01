@@ -1,6 +1,6 @@
 // The inner life on the owner's `/nep status` card: the `inner` field shows the inner life's status
 // (mode, switch, turns, chains, dollars, next wake, last turn, open intentions) through
-// `labels.status.inner`; it is absent with features.innerLife off, hidden from a member, and
+// `labels.status.inner`; it is hidden from a member, and
 // `field:inner` shows it alone. A fake inner life with the real status shape; no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -48,11 +48,10 @@ const STATUS = {
   lastTurn: { at: AT, outcome: 'skip' },
 };
 
-function envOf({ innerLife = true, status = STATUS, usage = null } = {}) {
+function envOf({ status = STATUS, usage = null } = {}) {
   const hot = {
     config: {
       bot: { owners: ['42'], access: { 'status.show': { everyone: false, roles: ['staff'], users: [] } } },
-      features: { innerLife },
       llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 },
     },
     prompts: { labels: { status: { inner: LABELS } } },
@@ -125,10 +124,7 @@ test('status inner: in the whole card, between costs.development and limits', as
   );
 });
 
-test('status inner: absent with features.innerLife off, hidden from a member', async () => {
-  const off = envOf({ innerLife: false });
-  assert.ok(!(await show(off.env, {}, '42')).some((f) => f.name === 'inner'));
-  assert.deepEqual(off.seen, [], 'nothing read');
+test('status inner: hidden from a member', async () => {
   const { env, seen } = envOf();
   assert.ok(!(await showMember(env, {})).some((f) => f.name === 'inner'));
   assert.ok(
@@ -237,18 +233,3 @@ test('status.show part: her call defaults to the overview, a part holds its fiel
 });
 
 // PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
-test('status.show part=features: each boolean switch of the live config, sorted, on or off', async () => {
-  const { env } = envOf();
-  env.hot.config.features = { innerLife: true, zeta: false, alpha: true, mode: 'x' };
-  const fields = (
-    await runOp(
-      'status.show',
-      { part: 'features' },
-      { env, guildId: 'g1', userId: '7', roleIds: ['staff'], actor: 'persona' }
-    )
-  ).data.fields;
-  assert.deepEqual(
-    fields.map((f) => [f.name, f.value.split('\n')]),
-    [['features', ['alpha on', 'innerLife on', 'zeta off']]]
-  );
-});

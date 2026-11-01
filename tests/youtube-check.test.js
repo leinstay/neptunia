@@ -4,17 +4,17 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createYoutubeCheck, isVideoVisionOn, startYoutubeCheck } from '../src/memory/youtube-check.js';
+import { createYoutubeCheck, startYoutubeCheck } from '../src/memory/youtube-check.js';
 
-const CANARY = 'https://www.youtube.com/watch?v=canary00001';
+// PR 7d: the canary is a constant of youtube-check.js, no setting.
+const CANARY = 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
 const API_KEY = 'AIzaSecretTestKey';
 
-function checkHot({ features = { mediaDescriptions: true }, video = {} } = {}) {
+function checkHot({ video = {} } = {}) {
   return {
     config: {
-      features,
       context: { vision: { fetchTimeoutMs: 1234 } },
-      media: { video: { canaryUrl: CANARY, ytdlpPath: 'yt-dlp-test', toolTimeoutMs: 5678, ...video } },
+      media: { video: { ytdlpPath: 'yt-dlp-test', toolTimeoutMs: 5678, ...video } },
     },
   };
 }
@@ -138,52 +138,11 @@ test('checkYoutube: a throwing fetcher gives blocked, never a rejection', async 
   assert.ok(!result.detail.includes(CANARY));
 });
 
-test('checkYoutube: no canaryUrl configured gives blocked without any probe', async () => {
-  const videoFetcher = fakeFetcher({ site: { ok: true, durationSec: 19 } });
-  const checkYoutube = createYoutubeCheck({ hot: checkHot({ video: { canaryUrl: '' } }), videoFetcher });
-  const result = await checkYoutube();
-  assert.equal(result.status, 'blocked');
-  assert.equal(videoFetcher.calls.length, 0);
-});
-
-test('checkYoutube: reads the canary URL at the moment of use', async () => {
-  const hot = checkHot();
-  const videoFetcher = fakeFetcher({ site: { ok: true, durationSec: 19 } });
-  const checkYoutube = createYoutubeCheck({ hot, videoFetcher });
-  hot.config = { ...hot.config, media: { video: { canaryUrl: 'https://youtu.be/othercanary' } } };
-  await checkYoutube();
-  assert.equal(videoFetcher.calls[0].url, 'https://youtu.be/othercanary');
-});
-
-test('isVideoVisionOn: needs mediaDescriptions true and videoDescriptions not false', () => {
-  assert.equal(isVideoVisionOn({ features: { mediaDescriptions: true } }), true);
-  assert.equal(isVideoVisionOn({ features: { mediaDescriptions: true, videoDescriptions: true } }), true);
-  assert.equal(isVideoVisionOn({ features: { mediaDescriptions: true, videoDescriptions: false } }), false);
-  assert.equal(isVideoVisionOn({ features: { mediaDescriptions: false } }), false);
-  assert.equal(isVideoVisionOn({ features: {} }), false);
-  assert.equal(isVideoVisionOn({}), false);
-});
-
-test('startYoutubeCheck: not run at all when video vision is off', () => {
-  for (const features of [{ mediaDescriptions: false }, { mediaDescriptions: true, videoDescriptions: false }, {}]) {
-    let calls = 0;
-    const logger = makeLogger();
-    const checkYoutube = async () => {
-      calls += 1;
-      return { status: 'ytdlp', detail: '' };
-    };
-    const running = startYoutubeCheck({ hot: checkHot({ features }), checkYoutube, log: logger });
-    assert.equal(running, null);
-    assert.equal(calls, 0);
-    assert.equal(logger.lines.length, 0);
-  }
-});
-
 test('startYoutubeCheck: page and blocked log a warning with the YOUTUBE_API_KEY hint', async () => {
   for (const status of ['page', 'blocked']) {
     const logger = makeLogger();
     const checkYoutube = async () => ({ status, detail: 'x', keySet: false });
-    await startYoutubeCheck({ hot: checkHot(), checkYoutube, log: logger });
+    await startYoutubeCheck({ checkYoutube, log: logger });
     assert.deepEqual(logger.lines, [
       { level: 'warn', msg: 'youtube-check: status', meta: { status, hint: 'set YOUTUBE_API_KEY' } },
     ]);
@@ -195,7 +154,7 @@ test('startYoutubeCheck: a rejecting check is logged as an error, never left unh
   const checkYoutube = async () => {
     throw new Error('boom');
   };
-  await startYoutubeCheck({ hot: checkHot(), checkYoutube, log: logger });
+  await startYoutubeCheck({ checkYoutube, log: logger });
   assert.equal(logger.lines.length, 1);
   assert.equal(logger.lines[0].level, 'error');
 });

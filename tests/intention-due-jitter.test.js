@@ -4,7 +4,7 @@
 // last seen as not yet due, never past its expiry, and the scheduler fires the shifted moment.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createIntention, dueJitterMinutes, dueList, wakeTimeOf, HEARTBEAT_ORIGIN } from '../src/intentions/model.ts';
+import { createIntention, dueList, wakeTimeOf, HEARTBEAT_ORIGIN } from '../src/intentions/model.ts';
 import { createInnerLife } from '../src/behavior/inner.ts';
 import { createEventDoor } from '../src/interface/door.js';
 import { createIntentionStores } from '../src/intentions/store.ts';
@@ -76,8 +76,6 @@ test('zero jitter disables it; a non-heartbeat intention and one without a due t
   }).intention;
   assert.equal(wakeTimeOf(own, J), due);
   assert.ok(Number.isNaN(wakeTimeOf(beat('n', null), J)));
-  assert.equal(dueJitterMinutes({}), 20);
-  assert.equal(dueJitterMinutes({ innerLife: { heartbeat: { dueJitterMinutes: 0 } } }), 0);
 });
 
 test('a positive offset never reaches expiresAt', () => {
@@ -107,23 +105,13 @@ test('the scheduler wakes a shifted heartbeat intention at its shifted time and 
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
-      features: { innerLife: true, intentions: true, journal: true },
-      mention: { oneAtATime: true },
-      intentions: {
-        expiresDays: 14,
-        recurringExpiresDays: 30,
-        maxOpen: 20,
-        maxCandidates: 5,
-        candidateExpiresHours: 48,
-        waitHours: 2,
-      },
+      // PR 7d: the switches are code and the due jitter is the constant 20 minutes (J).
+      intentions: { expiresDays: 14, recurringExpiresDays: 30, maxOpen: 20, candidateExpiresHours: 48 },
       innerLife: {
         mode: 'shadow',
         tickSeconds: 60,
-        queueMax: 20,
-        chatMessages: 30,
-        review: { enabled: false, historyDays: 14 },
-        heartbeat: { enabled: false, dueJitterMinutes: J },
+        review: { historyDays: 14 },
+        heartbeat: { enabled: false },
         caps: { perChain: 3 },
       },
     },

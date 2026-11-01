@@ -4,9 +4,6 @@
 // fixture covering every key of the prompt contract, including labels.server.*.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { channelActivity, messagesSince, renderChannel } from '../src/memory/channels.js';
 import { DAY_MS } from '../src/time.js';
 import { labels } from './fixtures/labels.js';
@@ -35,42 +32,37 @@ function channel(overrides = {}) {
 
 // --- channelActivity --------------------------------------------------------
 
+// PR 7d: the thresholds are constants of src/memory/channels.js, 20 messages and 7 days.
 test('channelActivity: live when today + yesterday reach the threshold, slow below it', () => {
-  const cfg = { liveMessagesPerDay: 20, deadAfterDays: 7 };
   const rows = [
     {
       label: 'today + yesterday together reach the threshold',
       c: channel({ days: { [TODAY_KEY]: 15, [YESTERDAY_KEY]: 5 }, lastMessageAt: NOW }),
-      cfg,
       expected: 'live',
     },
     {
       label: 'exactly at the live threshold is inclusive',
       c: channel({ days: { [TODAY_KEY]: 20 }, lastMessageAt: NOW }),
-      cfg,
       expected: 'live',
     },
     {
       label: 'one message short of the live threshold is not live',
       c: channel({ days: { [TODAY_KEY]: 19 }, lastMessageAt: NOW }),
-      cfg,
       notExpected: 'live',
     },
     {
       label: 'an empty days object never counts as live',
       c: channel({ days: {}, lastMessageAt: NOW }),
-      cfg: { liveMessagesPerDay: 1, deadAfterDays: 7 },
       expected: 'slow',
     },
     {
       label: 'recent activity below the live threshold and within deadAfterDays is "slow"',
       c: channel({ days: { [TODAY_KEY]: 2 }, lastMessageAt: NOW - DAY }),
-      cfg,
       expected: 'slow',
     },
   ];
   for (const row of rows) {
-    const activity = channelActivity(row.c, NOW, row.cfg);
+    const activity = channelActivity(row.c, NOW);
     if ('expected' in row) assert.equal(activity, row.expected, row.label);
     else assert.notEqual(activity, row.notExpected, row.label);
   }
@@ -78,41 +70,22 @@ test('channelActivity: live when today + yesterday reach the threshold, slow bel
 
 test('channelActivity: only counts today + yesterday, older days do not count toward "live"', () => {
   const c = channel({ days: { '2026-09-10': 500 }, lastMessageAt: NOW - DAY });
-  assert.notEqual(channelActivity(c, NOW, { liveMessagesPerDay: 20, deadAfterDays: 7 }), 'live');
+  assert.notEqual(channelActivity(c, NOW), 'live');
 });
 
 test('channelActivity: dead when lastMessageAt is null, regardless of days', () => {
   const c = channel({ lastMessageAt: null });
-  assert.equal(channelActivity(c, NOW, { liveMessagesPerDay: 20, deadAfterDays: 7 }), 'dead');
+  assert.equal(channelActivity(c, NOW), 'dead');
 });
 
 test('channelActivity: exactly at deadAfterDays is NOT dead yet (slow)', () => {
   const c = channel({ lastMessageAt: NOW - 7 * DAY });
-  assert.equal(channelActivity(c, NOW, { liveMessagesPerDay: 20, deadAfterDays: 7 }), 'slow');
+  assert.equal(channelActivity(c, NOW), 'slow');
 });
 
 test('channelActivity: one millisecond past deadAfterDays is dead', () => {
   const c = channel({ lastMessageAt: NOW - 7 * DAY - 1 });
-  assert.equal(channelActivity(c, NOW, { liveMessagesPerDay: 20, deadAfterDays: 7 }), 'dead');
-});
-
-test('channelActivity: a missing cfg, or a missing key, falls back to the values of config.json', () => {
-  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  // PR 7c: the tracked settings live in config/config.json.
-  const tracked = JSON.parse(fs.readFileSync(path.join(root, 'config', 'config.json'), 'utf8')).context.channelActivity;
-  const channels = [
-    channel({ lastMessageAt: NOW - (tracked.deadAfterDays + 1) * DAY }),
-    channel({ lastMessageAt: NOW - DAY }),
-    channel({ days: { [TODAY_KEY]: tracked.liveMessagesPerDay }, lastMessageAt: NOW }),
-  ];
-  for (const c of channels) {
-    assert.equal(channelActivity(c, NOW), channelActivity(c, NOW, tracked));
-    assert.equal(
-      channelActivity(c, NOW, { liveMessagesPerDay: tracked.liveMessagesPerDay }),
-      channelActivity(c, NOW, tracked)
-    );
-    assert.equal(channelActivity(c, NOW, { deadAfterDays: tracked.deadAfterDays }), channelActivity(c, NOW, tracked));
-  }
+  assert.equal(channelActivity(c, NOW), 'dead');
 });
 
 // --- renderChannel -----------------------------------------------------------

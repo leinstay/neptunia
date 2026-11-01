@@ -522,7 +522,7 @@ test('capture: a bundle grows by expansion past pageLines with truthful coverage
           opts
         ).sourceId
       );
-    const config = { capture: { pageLines: 60 } };
+    // PR 7d: a page holds the constant 60 lines (`capture.pageLines`).
     const opened = openBundle(handle, {
       anchor: anchor.sourceId,
       reason: 'own_line',
@@ -538,7 +538,6 @@ test('capture: a bundle grows by expansion past pageLines with truthful coverage
     const first = expandBundle(handle, opened.bundleId, {
       sources: lines.map((id) => ({ id, role: 'after' })),
       coverage: { state: 'complete', after: 70 },
-      config,
       ...opts,
     });
     assert.equal(first.ok, true, JSON.stringify(first));
@@ -548,7 +547,6 @@ test('capture: a bundle grows by expansion past pageLines with truthful coverage
     const second = expandBundle(handle, opened.bundleId, {
       sources: first.rest,
       coverage: { state: 'complete', after: 70 },
-      config,
       ...opts,
     });
     assert.deepEqual([second.added, second.rest.length, second.coverage.state], [10, 0, 'complete']);
@@ -641,13 +639,13 @@ test('capture: watches at 15 min, 2 h and 24 h after the anchor; due ones are li
     const scheduled = scheduleWatches(handle, anchor.bundleId, null, { log: quiet });
     assert.deepEqual([scheduled.ok, scheduled.scheduled], [true, 3]);
     assert.equal(scheduleWatches(handle, anchor.bundleId, null, { log: quiet }).scheduled, 0, 'scheduled once');
-    const due = (minutes) =>
-      dueWatches(handle, Date.parse(at(minutes)), { config: { capture: { watchSameAuthor: 5 } } });
+    // PR 7d: `capture.watchSameAuthor` is the constant 20.
+    const due = (minutes) => dueWatches(handle, Date.parse(at(minutes)), {});
     assert.deepEqual(due(10), []);
     const firstDue = due(30);
     assert.deepEqual(
       firstDue.map((w) => [w.dueAt, w.anchor, w.sameAuthorMax]),
-      [[at(15), anchor.sourceId, 5]]
+      [[at(15), anchor.sourceId, 20]]
     );
     assert.deepEqual(finishWatch(handle, firstDue[0].id, 'unavailable', opts), { ok: true, written: 1 });
     assert.deepEqual(

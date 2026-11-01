@@ -38,67 +38,23 @@ const PROMPTS = {
   labels: LABELS,
 };
 
-const SWITCHES = {
-  memory: true,
-  reactions: true,
-  multiMessage: true,
-  typingSimulation: false,
-  customEmoji: true,
-  gifs: false,
-  imageGeneration: true,
-  channelPull: false,
-  recent: true,
-  vision: true,
-  diary: true,
-};
-
 function hot() {
   return {
+    // PR 7d: the switches are code and the diary's kinds and sets are constants of src/behavior/diary.ts (`photoset`
+    // is a set of 4 to 6 pictures), so the config holds only the keys that are still settings.
     config: {
-      bot: { timezone: TZ, dryRunChannelId: '', owners: ['42'] },
+      bot: { timezone: TZ, owners: ['42'] },
       context: {
         channelMessages: 50,
-        neighborMessages: 5,
-        neighborMaxAgeMinutes: 60,
-        neighborMaxChannels: 8,
-        maxMessageChars: 800,
-        gapMarkerMinutes: 20,
-        otherProfiles: 6,
         caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
-        vision: {
-          maxImages: 2,
-          tokensPerImage: 400,
-          imageSize: 512,
-          recentImages: 0,
-          recentImageMinutes: 0,
-          maxBytes: 1_500_000,
-          fetchTimeoutMs: 7000,
-        },
-        pull: { scanMessages: 20, maxChannels: 1, sameAudience: true },
+        vision: { fetchTimeoutMs: 7000 },
+        pull: { sameAudience: true },
       },
-      llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
+      llm: { maxRequestTokens: 50000 },
       models: { base: { drawing: 'openai/image-model' } },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
-      features: { ...SWITCHES },
-      media: { maxPerTurn: 6, filePreviewChars: 500 },
-      gifs: { maxPerDay: 40 },
       image: { maxPromptChars: 1000, reference: 'avatar', referenceMaxBytes: 4_000_000 },
-      diary: {
-        channelId: 'd1',
-        world: false,
-        maxPicturesPerDay: 30,
-        maxMessages: 3,
-        historyPosts: 40,
-        gistChars: 60,
-        seedSets: 1,
-        kinds: { selfPicture: 1, tour: 1 },
-        searchKinds: [],
-        pictureKinds: ['selfPicture', 'tour'],
-        setKinds: ['tour'],
-        set: { pictures: [3, 3], minPosted: 2, seedSets: 1, maxMessageBytes: 8_000_000 },
-        planMaxOutputTokens: 250,
-        planTimeoutMs: 15000,
-      },
+      diary: { channelId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
     },
     prompts: { ...PROMPTS },
   };
@@ -274,11 +230,12 @@ test("draw parity: a diary post's single self picture", async () => {
 
 test("draw parity: a diary set's pictures, the persona in the first one only", async () => {
   const images = recordingImages();
-  const plan = { kind: 'tour', brief: 'a harbour walk', search: '', picture: true };
+  const plan = { kind: 'photoset', brief: 'a harbour walk', search: '', picture: true };
   const answer = toolAnswer('<msg>a walk</msg>', [
     call('draw.create', { text: 'me at the harbour gate', self: true }),
     call('draw.create', { text: 'boats in the harbour' }),
     call('draw.create', { text: 'a café terrace' }),
+    call('draw.create', { text: 'nets on the quay' }),
   ]);
   const turns = runner({ answer, plan, images });
   const { result } = await withCapturedLogs(() =>
@@ -293,6 +250,7 @@ test("draw parity: a diary set's pictures, the persona in the first one only", a
     },
     { prompt: `A drawing by Bot.\n\n${WHEN}\n\nScene: boats in the harbour`, reference: null, userId: null },
     { prompt: `A drawing by Bot.\n\n${WHEN}\n\nScene: a café terrace`, reference: null, userId: null },
+    { prompt: `A drawing by Bot.\n\n${WHEN}\n\nScene: nets on the quay`, reference: null, userId: null },
   ]);
 });
 

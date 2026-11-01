@@ -1,21 +1,14 @@
 // Tests for src/behavior/elsewhere.ts: the pure core of speaking in the main
 // channel about a channel the persona cannot write in -- the settle wait, the
-// ring of calls, the per-channel seen mark, the liveness rule of a noticed
-// comment, the audience comparison, the destination pick and the jump link.
-// No I/O besides reading the shipped config.json; the clock is passed in.
+// ring of calls, the per-channel seen mark, the audience comparison, the
+// destination pick and the jump link. No I/O; the clock is passed in.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   audienceCovers,
-  chooseElsewhereMode,
-  elsewhereSettings,
-  hasUnseen,
-  isSourceLive,
-  liveMemberCount,
   markPingAnswered,
   markPingSkipped,
   markSeen,
-  mayBeLive,
   messageLink,
   pickDestinationId,
   pingStatus,
@@ -25,26 +18,11 @@ import {
   settleDueAt,
   stampPings,
 } from '../src/behavior/elsewhere.ts';
-import { chooseMode } from '../src/behavior/spontaneous.js';
 
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 const SEC = 1000;
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
-
-/** A normalized message in a read-only source channel. */
-function msg(id, minutesAgo, { self = false, bot = false } = {}) {
-  return {
-    id,
-    ts: NOW - minutesAgo * MIN,
-    channelId: 'src',
-    authorId: self ? 'self-id' : `u-${id}`,
-    authorName: `Zoë${id}`,
-    self,
-    bot,
-    content: `Καλημέρα ${id}`,
-  };
-}
 
 /** An audience record: who can view one channel. */
 function audience({
@@ -72,28 +50,6 @@ function audience({
 const RING_OPTS = { cap: 20, maxAgeMs: 7 * DAY, now: NOW };
 
 // ---- settings -------------------------------------------------------------------
-
-test('elsewhereSettings: live values in milliseconds, zero kept, garbage falls back to the defaults', () => {
-  const fallback = elsewhereSettings({});
-  assert.deepEqual(
-    elsewhereSettings({ elsewhere: { settleSeconds: 10, settleMaxSeconds: 60, rememberPings: 3, pingMaxAgeDays: 2 } }),
-    { settleMs: 10 * SEC, settleMaxMs: 60 * SEC, rememberPings: 3, pingMaxAgeMs: 2 * DAY }
-  );
-  assert.deepEqual(
-    elsewhereSettings({ elsewhere: { settleSeconds: 0, settleMaxSeconds: 0, rememberPings: 0, pingMaxAgeDays: 0 } }),
-    { settleMs: 0, settleMaxMs: 0, rememberPings: 0, pingMaxAgeMs: 0 }
-  );
-  for (const bad of [-1, 'soon']) {
-    assert.deepEqual(
-      elsewhereSettings({
-        elsewhere: { settleSeconds: bad, settleMaxSeconds: bad, rememberPings: bad, pingMaxAgeDays: bad },
-      }),
-      fallback,
-      String(bad)
-    );
-  }
-  assert.equal(elsewhereSettings({ elsewhere: { rememberPings: 4.7 } }).rememberPings, 4);
-});
 
 // ---- settle -----------------------------------------------------------------------
 
@@ -357,241 +313,9 @@ test('markSeen: a missing map starts empty, a garbage mark is replaced, a non-fi
   assert.deepEqual(markSeen({ src: NOW - MIN }, 'src', Number.NaN), { src: NOW - MIN });
 });
 
-test('hasUnseen: only a last message newer than the mark is unseen', () => {
-  assert.equal(hasUnseen(NOW, NOW - MIN), true);
-  assert.equal(hasUnseen(NOW - MIN, NOW - MIN), false);
-  assert.equal(hasUnseen(NOW - 2 * MIN, NOW - MIN), false);
-  assert.equal(hasUnseen(NOW, undefined), true, 'no mark: nothing seen yet');
-  assert.equal(hasUnseen(0, undefined), false, 'an empty channel has nothing to see');
-});
-
 // ---- the liveness of a noticed comment -----------------------------------------------------
 
-const SPONTANEOUS = { liveMinMessages: 4, liveWindowMinutes: 15 };
-
-test('chooseElsewhereMode: elsewhere when liveMinMessages members wrote after the mark inside the live window', () => {
-  const messages = [msg('1', 9), msg('2', 7), msg('3', 4), msg('4', 1)];
-  assert.equal(isSourceLive(messages, NOW, NOW - 10 * MIN, SPONTANEOUS), true);
-  assert.equal(chooseElsewhereMode(messages, NOW, NOW - 10 * MIN, SPONTANEOUS), 'elsewhere');
-  assert.equal(chooseElsewhereMode(messages, NOW, undefined, SPONTANEOUS), 'elsewhere', 'no mark: everything is new');
-});
-
-test('chooseElsewhereMode: one new member message is not enough', () => {
-  const messages = [msg('1', 9), msg('2', 7), msg('3', 4), msg('4', 1)];
-  assert.equal(chooseElsewhereMode(messages, NOW, NOW - 2 * MIN, SPONTANEOUS), null);
-  assert.equal(isSourceLive(messages, NOW, NOW - 2 * MIN, SPONTANEOUS), false);
-});
-
-test('chooseElsewhereMode: messages at or before the seen mark do not count', () => {
-  const messages = [msg('1', 9), msg('2', 7), msg('3', 4), msg('4', 1)];
-  assert.equal(
-    chooseElsewhereMode(messages, NOW, NOW - 9 * MIN, SPONTANEOUS),
-    null,
-    'the marked message itself is seen'
-  );
-});
-
-test('chooseElsewhereMode: messages older than the live window do not count', () => {
-  const messages = [msg('1', 40), msg('2', 30), msg('3', 20), msg('4', 1)];
-  assert.equal(chooseElsewhereMode(messages, NOW, undefined, SPONTANEOUS), null);
-  assert.equal(
-    chooseElsewhereMode(messages, NOW, undefined, { liveMinMessages: 4, liveWindowMinutes: 60 }),
-    'elsewhere'
-  );
-});
-
-test('chooseElsewhereMode: null for bots only or nothing new', () => {
-  const one = { liveMinMessages: 1, liveWindowMinutes: 15 };
-  const bots = [
-    msg('1', 5, { bot: true }),
-    msg('2', 4, { bot: true }),
-    msg('3', 3, { self: true }),
-    msg('4', 2, { bot: true }),
-  ];
-  assert.equal(chooseElsewhereMode(bots, NOW, undefined, one), null, 'bots and the persona are not members');
-  assert.equal(
-    chooseElsewhereMode([...bots, msg('5', 6)], NOW, NOW - 6 * MIN, one),
-    null,
-    'the only member line is already seen'
-  );
-  assert.equal(
-    chooseElsewhereMode([...bots, msg('5', 1)], NOW, NOW - 6 * MIN, SPONTANEOUS),
-    null,
-    'bots do not make up the count'
-  );
-  assert.equal(chooseElsewhereMode([], NOW, undefined, one), null);
-  assert.equal(chooseElsewhereMode(undefined, NOW, undefined, one), null);
-});
-
-test('chooseElsewhereMode: a member message exactly liveWindowMinutes old still counts', () => {
-  const edge = [msg('1', 15), msg('2', 3), msg('3', 2), msg('4', 1)];
-  assert.equal(chooseElsewhereMode(edge, NOW, undefined, SPONTANEOUS), 'elsewhere');
-  const past = [{ ...msg('1', 15), ts: NOW - 15 * MIN - 1 }, msg('2', 3), msg('3', 2), msg('4', 1)];
-  assert.equal(chooseElsewhereMode(past, NOW, undefined, SPONTANEOUS), null, 'one millisecond older is outside');
-});
-
-test('chooseElsewhereMode: with liveMinMessages 0 the seen mark still needs one new member message', () => {
-  const zero = { liveMinMessages: 0, liveWindowMinutes: 15 };
-  assert.equal(isSourceLive([], NOW, undefined, zero), true, 'the count alone passes, as chooseMode interjects');
-  assert.equal(chooseElsewhereMode([], NOW, undefined, zero), null);
-  assert.equal(chooseElsewhereMode([msg('1', 2, { bot: true })], NOW, undefined, zero), null);
-  assert.equal(chooseElsewhereMode([msg('1', 2)], NOW, NOW - MIN, zero), null, 'the only member line is seen');
-  assert.equal(chooseElsewhereMode([msg('1', 2)], NOW, undefined, zero), 'elsewhere');
-  assert.equal(
-    chooseElsewhereMode([msg('1', 40)], NOW, undefined, zero),
-    'elsewhere',
-    'no count needed, so no window either'
-  );
-});
-
-test('chooseElsewhereMode: on the eavesdrop path one new member message after the mark is enough', () => {
-  const one = [msg('1', 40), msg('2', 1)];
-  assert.equal(chooseElsewhereMode(one, NOW, NOW - 2 * MIN, SPONTANEOUS, { path: 'eavesdrop' }), 'elsewhere');
-  assert.equal(chooseElsewhereMode([msg('1', 3)], NOW, undefined, SPONTANEOUS, { path: 'eavesdrop' }), 'elsewhere');
-  assert.equal(chooseElsewhereMode(one, NOW, NOW, SPONTANEOUS, { path: 'eavesdrop' }), null, 'nothing after the mark');
-  const bots = [msg('1', 2, { bot: true }), msg('2', 1, { self: true })];
-  assert.equal(
-    chooseElsewhereMode(bots, NOW, undefined, SPONTANEOUS, { path: 'eavesdrop' }),
-    null,
-    'bots and the persona are not members'
-  );
-  assert.equal(chooseElsewhereMode(undefined, NOW, undefined, SPONTANEOUS, { path: 'eavesdrop' }), null);
-});
-
-test('chooseElsewhereMode: on the tick path one new member message is not enough', () => {
-  const one = [msg('1', 40), msg('2', 1)];
-  assert.equal(chooseElsewhereMode(one, NOW, NOW - 2 * MIN, SPONTANEOUS, { path: 'tick' }), null);
-  assert.equal(chooseElsewhereMode(one, NOW, NOW - 2 * MIN, SPONTANEOUS), null, 'no path reads as the tick path');
-  assert.equal(
-    chooseElsewhereMode(one, NOW, NOW - 2 * MIN, SPONTANEOUS, { path: 'room' }),
-    null,
-    'an unknown path reads as the tick path'
-  );
-});
-
 // ---- one liveness count with the writable channels' chooser --------------------------------
-
-test('liveMemberCount: members inside the window and after the mark, the window edge included', () => {
-  const messages = [
-    msg('1', 20),
-    msg('2', 15),
-    msg('3', 9),
-    msg('4', 5, { bot: true }),
-    msg('5', 3, { self: true }),
-    msg('6', 1),
-    null,
-  ];
-  assert.equal(liveMemberCount(messages, { now: NOW, windowMinutes: 15 }), 3);
-  assert.equal(
-    liveMemberCount(messages, { now: NOW, windowMinutes: 15, sinceTs: NOW - 9 * MIN }),
-    1,
-    'the marked message itself is seen'
-  );
-  assert.equal(liveMemberCount(messages, { now: NOW, windowMinutes: 15, sinceTs: null }), 3);
-  assert.equal(
-    liveMemberCount(messages, { now: NOW, windowMinutes: 0 }),
-    0,
-    'a window of 0 holds only messages written at now'
-  );
-  assert.equal(liveMemberCount([msg('7', 0)], { now: NOW, windowMinutes: 0 }), 1);
-  assert.equal(liveMemberCount(messages, { now: NOW, windowMinutes: 'soon' }), 0, 'a garbage window counts nothing');
-  assert.equal(liveMemberCount(undefined, { now: NOW, windowMinutes: 15 }), 0);
-});
-
-test('isSourceLive: reads liveMinMessages and liveWindowMinutes as chooseMode does', () => {
-  const messages = [msg('1', 9), msg('2', 7), msg('3', 4), msg('4', 1)];
-  assert.equal(
-    isSourceLive(messages, NOW, undefined, { liveMinMessages: 4, liveWindowMinutes: 0 }),
-    false,
-    'a window of 0 is not replaced by the default'
-  );
-  assert.equal(
-    isSourceLive(messages.slice(0, 2), NOW, undefined, { liveMinMessages: 2.5, liveWindowMinutes: 15 }),
-    false,
-    '2.5 needs three'
-  );
-  assert.equal(
-    isSourceLive(messages.slice(0, 3), NOW, undefined, { liveMinMessages: 2.5, liveWindowMinutes: 15 }),
-    true
-  );
-  assert.equal(isSourceLive([], NOW, undefined, { liveMinMessages: 0, liveWindowMinutes: 15 }), true);
-});
-
-test('isSourceLive: with no seen mark it agrees with chooseMode on every live-or-not case', () => {
-  let seed = 7;
-  const rand = () => {
-    seed = (seed * 1103515245 + 12345) % 2147483648;
-    return seed / 2147483648;
-  };
-  const configs = [
-    { liveMinMessages: 4, liveWindowMinutes: 15 },
-    { liveMinMessages: 1, liveWindowMinutes: 5 },
-    { liveMinMessages: 0, liveWindowMinutes: 15 },
-    { liveMinMessages: 2.5, liveWindowMinutes: 10 },
-    { liveMinMessages: 3, liveWindowMinutes: 0 },
-  ];
-  let compared = 0;
-  for (let round = 0; round < 400; round += 1) {
-    const length = 1 + Math.floor(rand() * 8);
-    const history = Array.from({ length }, (_, i) => ({
-      ...msg(String(i), Math.floor(rand() * 30)),
-      self: rand() < 0.15,
-      bot: rand() < 0.15,
-    })).sort((a, b) => a.ts - b.ts);
-    if (history[history.length - 1].self) continue; // chooseMode never interjects on its own line
-    for (const live of configs) {
-      const cfg = { ...live, deadAfterMinutes: Infinity, initiateChance: 0 };
-      assert.equal(isSourceLive(history, NOW, undefined, live), chooseMode(history, NOW, cfg, () => 1) === 'interject');
-      compared += 1;
-    }
-  }
-  assert.ok(compared > 1000);
-});
-
-test('mayBeLive: a fresh unseen last message may be live, a quiet or seen one cannot', () => {
-  assert.equal(mayBeLive(NOW - MIN, NOW, NOW - 10 * MIN, SPONTANEOUS), true);
-  assert.equal(mayBeLive(NOW - 15 * MIN, NOW, undefined, SPONTANEOUS), true, 'the window edge is inside');
-  assert.equal(
-    mayBeLive(NOW - 20 * MIN, NOW, undefined, SPONTANEOUS),
-    false,
-    'a diary entry gone quiet past the window'
-  );
-  assert.equal(mayBeLive(NOW - MIN, NOW, NOW - MIN, SPONTANEOUS), false, 'nothing unseen');
-  assert.equal(mayBeLive(0, NOW, undefined, SPONTANEOUS), false, 'an empty channel');
-  assert.equal(
-    mayBeLive(NOW - 20 * MIN, NOW, undefined, { liveMinMessages: 0, liveWindowMinutes: 15 }),
-    true,
-    'no count needed, no window'
-  );
-});
-
-test('mayBeLive: holds whenever the tick path chooser says elsewhere', () => {
-  const configs = [
-    SPONTANEOUS,
-    { liveMinMessages: 1, liveWindowMinutes: 5 },
-    { liveMinMessages: 0, liveWindowMinutes: 15 },
-  ];
-  const marks = [undefined, NOW - 30 * MIN, NOW - 8 * MIN, NOW - 2 * MIN];
-  const lists = [
-    [msg('1', 9), msg('2', 7), msg('3', 4), msg('4', 1)],
-    [msg('1', 40), msg('2', 30), msg('3', 1, { bot: true })],
-    [msg('1', 6), msg('2', 5), msg('3', 4), msg('4', 3), msg('5', 2, { bot: true })],
-    [msg('1', 25)],
-  ];
-  let checked = 0;
-  for (const cfg of configs) {
-    for (const seenTs of marks) {
-      for (const messages of lists) {
-        const lastTs = Math.max(...messages.map((m) => m.ts));
-        if (chooseElsewhereMode(messages, NOW, seenTs, cfg) === 'elsewhere') {
-          assert.equal(mayBeLive(lastTs, NOW, seenTs, cfg), true);
-          checked += 1;
-        }
-      }
-    }
-  }
-  assert.ok(checked >= 5);
-});
 
 // ---- the audience rail (no shortcut for @everyone, role overwrites combined) -----------------
 
@@ -955,12 +679,8 @@ test('pickDestinationId: the first usable id, null when none', () => {
   );
 });
 
-test('resolveDestination: features.elsewhere off is off, a missing switch reads as on', () => {
+test('resolveDestination: the first usable memory.mainChannelIds entry', () => {
   const isUsable = (id) => id === '222';
-  assert.deepEqual(
-    resolveDestination({ features: { elsewhere: false }, memory: { mainChannelIds: ['222'] } }, isUsable),
-    { destinationId: null, reason: 'off' }
-  );
   assert.deepEqual(resolveDestination({ memory: { mainChannelIds: ['111', '222'] } }, isUsable), {
     destinationId: '222',
     reason: null,

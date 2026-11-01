@@ -638,7 +638,7 @@ export const KEPT: ReadonlyArray<string> = [
   'media.video.proxyRetryMinutes',
   'media.video.errorRetryMinutes',
   'media.video.rewatch.maxOutputTokens',
-  'media.video.rewatch.classifierMaxOutputTokens',
+  // PR 7d: `media.video.rewatch.classifierMaxOutputTokens` left KEPT: its reader, the re-watch classifier, went.
   'web.acceptLanguage',
   'web.links.readCacheHours',
   'web.links.maxOutputTokens',

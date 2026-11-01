@@ -285,12 +285,11 @@ test('memoryWrite: a session apply is written; a mode the writer does not know i
   }
 });
 
-test('turn reads: nothing without the setting, a turn id or reads', async () => {
-  const env = setup({ memoryDb: { turnReads: false } });
+// PR 7d: `memoryDb.turnReads` is code, so the case without the setting went with it.
+test('turn reads: nothing without a turn id or reads', async () => {
+  const env = setup();
   try {
     await env.service.tick();
-    env.service.recordTurnReads({ turnId: 't', reads: [{ kind: 'claim', id: 'x' }] });
-    env.hot.config.memoryDb.turnReads = true;
     env.service.recordTurnReads({ turnId: '', reads: [{ kind: 'claim', id: 'x' }] });
     env.service.recordTurnReads({ turnId: 't', reads: [] });
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -410,11 +409,12 @@ test('issued contexts: recorded while the database is open, a pure object when i
   try {
     const ctx = closed.service.issueContext({ kind: 'group' });
     assert.match(ctx.id, /^ctx:/);
-    assert.deepEqual([ctx.kind, ctx.iface, ctx.mode, ctx.audienceColumn], ['group', 'discord', 'outward', undefined]);
+    // PR 7d: every issued context reads through `audience_id`, open database or not.
+    assert.deepEqual([ctx.kind, ctx.iface, ctx.mode, ctx.audienceColumn], ['group', 'discord', 'outward', true]);
   } finally {
     await closed.done();
   }
-  const env = setup({ manual: true, memoryDb: { audienceColumn: true } });
+  const env = setup({ manual: true });
   try {
     const first = env.service.tick();
     await env.flushQueue();

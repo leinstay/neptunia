@@ -58,7 +58,6 @@ function makeService(env, { keyByRole } = {}) {
   const rootDir = tempDir('nep-errands-service-');
   const hot = {
     config: {
-      features: { journal: true },
       llm: {
         keyByRole: keyByRole ?? {
           scout: 'OPENROUTER_ERRAND_KEY',
@@ -190,10 +189,11 @@ test("errands service: without the role's key no secrets are sent (never the mai
   }
 });
 
+// PR 7d: `errands.recentLines` is the constant 6, so the channel's four lines with text all go.
 test("errands service: a task carries context.recent, the origin channel's last errands.recentLines lines as of its queuing; a dm task sends none", async () => {
   const rootDir = tempDir('nep-errands-service-');
   const hot = {
-    config: { errands: { maxOpen: 5, recentLines: 3 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } },
+    config: { errands: { maxOpen: 5 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } },
   };
   const buffer = [
     { channelId: 'c1', authorName: 'Ελένη', content: 'πρώτη' },
@@ -236,6 +236,7 @@ test("errands service: a task carries context.recent, the origin channel's last 
   await errands.idle();
   const [group, dm] = client.runs;
   assert.deepEqual(group.context.recent, [
+    { author: 'Ελένη', text: 'πρώτη' },
     { author: 'Νίκος', text: 'δεύτερη με κενά' },
     { author: 'A'.repeat(200), text: 'x'.repeat(200) },
     { author: 'Ελένη', text: 'τελευταία' },
@@ -243,11 +244,6 @@ test("errands service: a task carries context.recent, the origin channel's last 
   assert.deepEqual([group.context.scope, group.context.channel, group.context.asker], ['group', 'c1', '7']);
   assert.deepEqual(dm.context.recent, [], 'nothing of a private chat');
   assert.equal(dm.context.scope, 'dm');
-  hot.config.errands.recentLines = 0;
-  errands.submit(ask('scout'));
-  for (const fn of deferred.splice(0)) fn();
-  await errands.idle();
-  assert.deepEqual(client.runs[2].context.recent, []);
   fs.rmSync(rootDir, { recursive: true, force: true });
 });
 

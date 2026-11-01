@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.js';
+import { fillAudiences } from './fixtures/memory-db/audiences.js';
 import { applyMemoryWrite } from '../src/memory/db/session-write.js';
 import {
   claimDiff,
@@ -30,12 +31,11 @@ const prompts = {
   'memory-session': 'SESSION',
   labels,
 };
-const config = (session = {}, memory = {}) => ({
+// PR 7d: the field lengths are MEMORY_LIMITS.fieldChars (1000) and RELATIONSHIP_LIMITS.textChars (800).
+const config = (session = {}) => ({
   bot: { timezone: 'UTC' },
   models: { base: { memory: 'x/memory' } },
-  llm: { temperature: 1, keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } },
-  memory: { fieldChars: 300, ...memory },
-  relationships: { textChars: 500 },
+  llm: { keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } },
   memoryDb: { session: { mode: 'shadow', ...session } },
 });
 
@@ -95,6 +95,8 @@ function fixture() {
   link('k-move', src('s3', '2026-10-20T08:00:00.000Z', 'I moved to Thessaloniki last week'));
   version('k-cafe', 'add', 'likes café mornings', '2026-08-02T08:00:00.000Z');
   version('k-move', 'add', 'moved to Thessaloniki', '2026-10-20T08:00:00.000Z');
+  // PR 7d: the review reads through `audience_id`, so the rows written here carry it.
+  fillAudiences(db);
   return { handle, db, person, done: () => handle.close() };
 }
 
@@ -156,7 +158,7 @@ test('two calls on the memory role: the draft sees claims and evidence but not t
       order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])),
       `blocks in order: ${order}`
     );
-    assert.match(draftUser, /subject: Ada\nkind: person\nfield: character\ncap: 300 characters/);
+    assert.match(draftUser, /subject: Ada\nkind: person\nfield: character\ncap: 1000 characters/);
     assert.match(draftUser, /\[k-cafe\] interest: likes café mornings \(2026-08-01 to 2026-08-30; shown, current\)/);
     assert.match(draftUser, /\[k-chess\] detail: plays chess privately .*historical since 2026-09-15/);
     assert.doesNotMatch(draftUser, /quiet talk/, 'the old description text is not sent');
@@ -233,16 +235,16 @@ test('in shadow the draft and the final are one description_versions row of orig
 test('a final over the display cap is stored as it came, flagged, never cut', async () => {
   const env = fixture();
   try {
-    const long = 'x'.repeat(320);
+    const long = 'x'.repeat(1020);
     const llm = fakeLlm(answer('short', 'r'), answer(long, 'r'));
     const result = await reviewDescription(env.db, subjectOf(env), 'character', { ctx: ctxOf(env, { llm }) });
     assert.equal(result.final, long);
     const row = env.db.prepare("SELECT text, extra FROM description_versions WHERE origin = 'shadow'").get();
     assert.equal(row.text, long);
-    assert.equal(JSON.parse(row.extra).overCap, 320);
-    assert.equal(fieldCap(config(), 'character'), 300);
-    assert.equal(fieldCap(config(), 'relationship'), 500);
-    assert.equal(fieldCap(config(), 'patterns'), 600);
+    assert.equal(JSON.parse(row.extra).overCap, 1020);
+    assert.equal(fieldCap(config(), 'character'), 1000);
+    assert.equal(fieldCap(config(), 'relationship'), 800);
+    assert.equal(fieldCap(config(), 'patterns'), 2000);
   } finally {
     env.done();
   }

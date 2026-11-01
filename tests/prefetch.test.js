@@ -13,7 +13,6 @@ import {
   lanePlan,
   lexicalKeep,
   prefetchLanes,
-  prefetchOn,
   quotedPhrases,
   rankPrefetch,
 } from '../src/behavior/prefetch.js';
@@ -35,14 +34,6 @@ function msg(
 ) {
   return { id, channelId: 'c1', authorId, authorName, self, bot, content, ts, replyToId };
 }
-
-test('prefetchOn: only with features.coreTools exactly true; features.memoryPrefetch false or recall off closes it', () => {
-  assert.equal(prefetchOn({ features: {} }), false, 'the tool loop off: every turn as before');
-  assert.equal(prefetchOn({ features: { coreTools: 'yes' } }), false);
-  assert.equal(prefetchOn({ features: { coreTools: true } }), true, 'a missing memoryPrefetch counts as on');
-  assert.equal(prefetchOn({ features: { coreTools: true, memoryPrefetch: false } }), false);
-  assert.equal(prefetchOn({ features: { coreTools: true, recall: false } }), false);
-});
 
 test('isTrivialTrigger: empty, a command, only her name or emoji, a bare greeting; a short catchphrase is not', () => {
   const opts = { trivial: SETTINGS.trivial, selfNames: ['Zoë'] };

@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
+  GIF_STORE_MAX,
   collectGifItems,
   findGif,
   markOwnGif,
@@ -473,17 +474,9 @@ test('store.recordOwnGif: persists the stamp; an unknown key writes nothing', ()
 
 // --- the live pipeline -------------------------------------------------------
 
-function hotFor(features = {}, gifs = undefined) {
-  return {
-    config: {
-      bot: { timezone: 'UTC' },
-      features,
-      context: { gapMarkerMinutes: 20, maxMessageChars: 800 },
-      memory: { batchMessages: 4 },
-      ...(gifs ? { gifs } : {}),
-    },
-    prompts: { labels },
-  };
+// PR 7d: the GIF switch is code and the library's measures are constants of src/memory/gifs.js.
+function hotFor() {
+  return { config: { bot: { timezone: 'UTC' } }, prompts: { labels } };
 }
 
 test("observe: a member's gif joins the library with its url", async () => {
@@ -497,10 +490,8 @@ test("observe: a member's gif joins the library with its url", async () => {
   });
 });
 
-test('observe: features.gifs false, a private chat, the persona and paused never feed the library', () => {
+test('observe: a private chat, the persona and paused never feed the library', () => {
   withStore((store) => {
-    const off = createMemoryUpdater({ hot: hotFor({ gifs: false }), store });
-    off.observe('g1', msg({ links: [gifLink('m1#e0')] }));
     const on = createMemoryUpdater({ hot: hotFor(), store });
     on.observe('g1', msg({ id: 'm2', links: [gifLink('m2#e0')] }), { private: '1' });
     on.observe('g1', msg({ id: 'm3', self: true, links: [gifLink('m3#e0')] }));
@@ -510,12 +501,15 @@ test('observe: features.gifs false, a private chat, the persona and paused never
   });
 });
 
+// PR 7d: `gifs.storeMax` is the constant GIF_STORE_MAX, so one GIF more than it is observed.
 test('observe: gifs.storeMax caps the library', () => {
   withStore((store) => {
-    const updater = createMemoryUpdater({ hot: hotFor({}, { storeMax: 1, halfLifeDays: 30 }), store });
-    updater.observe('g1', msg({ id: 'm1', ts: T0, attachments: [gifAttachment('a1')] }));
-    updater.observe('g1', msg({ id: 'm2', ts: T0 + DAY, attachments: [gifAttachment('a2')] }));
-    assert.deepEqual(Object.keys(store.getGifs('g1').entries), ['a2']);
+    const updater = createMemoryUpdater({ hot: hotFor(), store });
+    updater.observe('g1', msg({ id: 'm0', ts: T0, attachments: [gifAttachment('a0')] }));
+    for (let n = 1; n <= GIF_STORE_MAX; n += 1)
+      updater.observe('g1', msg({ id: `m${n}`, ts: T0 + DAY + n, attachments: [gifAttachment(`a${n}`)] }));
+    const kept = Object.keys(store.getGifs('g1').entries);
+    assert.deepEqual([kept.length, kept.includes('a0')], [GIF_STORE_MAX, false]);
   });
 });
 
@@ -586,26 +580,14 @@ function fakeChannel({ id = 'c1', historyMessages = [], fetchFails = false } = {
   return Object.assign(channel, { fetched });
 }
 
-function fakeHot(features = {}, config = {}) {
+// PR 7d: the switches are code and the context and media measures constants, so only the settings stay.
+function fakeHot() {
   return {
     config: {
-      bot: { timezone: 'UTC', dryRunChannelId: '' },
-      context: {
-        channelMessages: 100,
-        neighborMessages: 5,
-        neighborMaxAgeMinutes: 60,
-        neighborMaxChannels: 8,
-        maxMessageChars: 800,
-        gapMarkerMinutes: 20,
-        otherProfiles: 6,
-        caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
-        vision: { maxImages: 0 },
-      },
-      llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
+      bot: { timezone: 'UTC' },
+      context: { channelMessages: 100, caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 } },
+      llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 1, betweenMessagesMs: [0, 0] },
-      features: { typingSimulation: false, ...features },
-      media: { maxPerTurn: 0, filePreviewChars: 500 },
-      ...config,
     },
     prompts: {
       'system-prompt': 'You are a regular member of this chat.',
@@ -635,21 +617,14 @@ function seedLibrary(store) {
   ]);
 }
 
-async function runGifTurn({
-  output,
-  features = {},
-  config = {},
-  channelOpts = {},
-  prepare,
-  triggerKind = 'mention',
-} = {}) {
+async function runGifTurn({ output, channelOpts = {}, prepare, triggerKind = 'mention' } = {}) {
   return withStore(async (store) => {
     seedLibrary(store);
     if (prepare) prepare(store);
     const raw = rawMessage('m1');
     const channel = fakeChannel({ historyMessages: [raw], ...channelOpts });
     const turns = createTurnRunner({
-      hot: fakeHot(features, config),
+      hot: fakeHot(),
       store,
       llm: fakeLlm(output),
       calibrator: calibrator(),
@@ -663,15 +638,13 @@ async function runGifTurn({
 }
 
 test('turn <gif>: a link handle sends the stored url after the messages, as a reply', async () => {
-  const { result, channel, state } = await runGifTurn({ output: '<msg>ha</msg><gif reply="#1">g1</gif>' });
+  const { result, channel } = await runGifTurn({ output: '<msg>ha</msg><gif reply="#1">g1</gif>' });
   assert.equal(result.outcome, 'spoke');
   assert.equal(channel.sent.length, 2);
   assert.equal(channel.sent[0].content, 'ha');
   assert.equal(channel.sent[1].content, TENOR);
   assert.equal(channel.sent[1].reply.messageReference, 'm1');
   assert.deepEqual(channel.sent[1].allowedMentions, { parse: [] });
-  assert.equal(state.gifCount, 1);
-  assert.equal(state.gifDay, '2026-09-20');
 });
 
 test('turn <gif>: a sent gif stamps ownLast and ownUses on its library entry', async () => {
@@ -714,11 +687,10 @@ test('turn <gif>: an attachment in a forwarded snapshot is found too', async () 
 });
 
 test('turn <gif>: a failed re-fetch falls back to the stored url', async () => {
-  const { channel, logs, state } = await runGifTurn({ output: '<gif>g2</gif>' });
+  const { channel, logs } = await runGifTurn({ output: '<gif>g2</gif>' });
   assert.equal(channel.sent[0].content, gifAttachment('att1').url);
   assert.ok(logs.find((l) => l.msg === 'turn: gif refetch failed'));
   assert.equal(logs.find((l) => l.msg === 'turn: gif sent').fresh, false);
-  assert.equal(state.gifCount, 1);
 });
 
 test('turn <gif>: an unknown handle is dropped and logged without a url', async () => {
@@ -735,55 +707,8 @@ test('turn <gif>: an unknown handle is dropped and logged without a url', async 
   assert.equal(alone.channel.sent.length, 0);
 });
 
-test('turn <gif>: features.gifs false ignores the tag', async () => {
-  const { result, channel, logs } = await runGifTurn({ output: '<gif>g1</gif>', features: { gifs: false } });
-  assert.equal(result.outcome, 'skip');
-  assert.equal(channel.sent.length, 0);
-  assert.equal(logs.find((l) => l.msg === 'turn: gif dropped').reason, 'off');
-});
-
-test('turn <gif>: gifs.maxPerDay spent today drops it; a new day starts over', async () => {
-  const spent = await runGifTurn({
-    output: '<gif>g1</gif>',
-    config: { gifs: { maxPerDay: 2 } },
-    prepare: (store) => Object.assign(store.state.data, { gifDay: '2026-09-20', gifCount: 2 }),
-  });
-  assert.equal(spent.result.outcome, 'skip');
-  assert.equal(spent.channel.sent.length, 0);
-  assert.equal(spent.logs.find((l) => l.msg === 'turn: gif dropped').reason, 'daily');
-
-  const yesterday = await runGifTurn({
-    output: '<gif>g1</gif>',
-    config: { gifs: { maxPerDay: 2 } },
-    prepare: (store) => Object.assign(store.state.data, { gifDay: '2026-09-19', gifCount: 2 }),
-  });
-  assert.equal(yesterday.channel.sent.length, 1);
-  assert.equal(yesterday.state.gifDay, '2026-09-20');
-  assert.equal(yesterday.state.gifCount, 1);
-});
-
-test('turn <gif>: dry-run logs the handle and url, sends nothing, counts nothing', async () => {
-  const { result, channel, logs, state } = await runGifTurn({
-    output: '<gif reply="#1">g1</gif>',
-    features: { dryRun: true },
-  });
-  assert.equal(result.dryRun, true);
-  assert.equal(channel.sent.length, 0);
-  const line = logs.find((l) => l.msg === 'dry-run: would send gif');
-  assert.equal(line.gif, 'g1');
-  assert.equal(line.url, TENOR);
-  assert.equal(line.replyTo, 'm1');
-  assert.equal(state.gifCount, undefined);
-});
-
-test('turn <gif>: a dry run stamps nothing on the library', async () => {
-  const { gifs } = await runGifTurn({ output: '<gif>g1</gif>', features: { dryRun: true } });
-  assert.equal('ownLast' in gifs.entries['m-old#e0'], false);
-  assert.equal('ownUses' in gifs.entries['m-old#e0'], false);
-});
-
-test('turn request: the library reaches the prompt as <gifs> with cached captions, gated by features.gifs', async () => {
-  async function requestText(features) {
+test('turn request: the library reaches the prompt as <gifs> with cached captions', async () => {
+  async function requestText() {
     return withStore(async (store) => {
       seedLibrary(store);
       store.getMediaCache('g1')['m-old#e0'] = { text: 'a cat dancing', ts: NOW };
@@ -797,7 +722,7 @@ test('turn request: the library reaches the prompt as <gifs> with cached caption
         },
       };
       const turns = createTurnRunner({
-        hot: fakeHot(features),
+        hot: fakeHot(),
         store,
         llm,
         calibrator: calibrator(),
@@ -810,13 +735,10 @@ test('turn request: the library reaches the prompt as <gifs> with cached caption
     });
   }
 
-  const on = await requestText({});
+  const on = await requestText();
   // Both entries tie on count and date: their order is sortByRank's, not asserted here.
   const block = /<gifs>\n([\s\S]*?)\n<\/gifs>/.exec(on)[1].split('\n');
   assert.equal(block[0], labels.gifs.header);
   assert.deepEqual(block.slice(1).sort(), ['g1 -- a cat dancing', 'g2']);
   assert.ok(on.includes(labels.senses.gifs));
-  const off = await requestText({ gifs: false });
-  assert.ok(!off.includes('<gifs>'));
-  assert.ok(!off.includes(labels.senses.gifs));
 });

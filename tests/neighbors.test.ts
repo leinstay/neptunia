@@ -8,11 +8,8 @@ import { world } from './fixtures/turn-world.ts';
 type Raw = Record<string, unknown>;
 
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
-const MIRROR_ID = '500000000000000009';
-
-function config(bot: Record<string, unknown> = {}, maxChannels = 8) {
-  return { context: { neighborMessages: 5, neighborMaxAgeMinutes: 60, neighborMaxChannels: maxChannels }, bot };
-}
+// PR 7d: the neighbours' measures are constants of src/behavior/neighbors.ts (5 messages, 60 minutes, 8 channels), so
+// fetchNeighbors takes no config.
 
 /** One message `minutesAgo` before NOW in channel `channelId`. */
 function recentMessage(id: string, channelId: string, minutesAgo: number): Raw {
@@ -57,14 +54,14 @@ test('fetchNeighbors gives a private chat no neighbours', async () => {
   const here = world().channel({ id: 'dm1', dm: true }).info;
   neighbour('talk', true, 5);
   const snapshot = await snapshotOfWorld();
-  assert.deepEqual(await fetchNeighbors(world().reads, snapshot, here, config(), NOW), []);
+  assert.deepEqual(await fetchNeighbors(world().reads, snapshot, here, NOW), []);
 });
 
 test('fetchNeighbors marks a neighbour she cannot write in as readOnly', async () => {
   const here = neighbour('here', true, 1);
   neighbour('talk', true, 5);
   neighbour('diary', false, 3);
-  const neighbours = await fetchNeighbors(world().reads, await snapshotOfWorld(), here, config(), NOW);
+  const neighbours = await fetchNeighbors(world().reads, await snapshotOfWorld(), here, NOW);
   assert.deepEqual(
     neighbours.map(({ channelId, readOnly }) => ({ channelId, readOnly })),
     [
@@ -78,27 +75,11 @@ test('fetchNeighbors marks a neighbour she cannot write in as readOnly', async (
   );
 });
 
-test('fetchNeighbors never takes the dry-run mirror as a neighbour', async () => {
-  const here = neighbour('here', true, 1);
-  neighbour(MIRROR_ID, true, 2);
-  neighbour('talk', true, 4);
-  const snapshot = await snapshotOfWorld();
-  const withMirror = await fetchNeighbors(world().reads, snapshot, here, config({ dryRunChannelId: MIRROR_ID }), NOW);
-  assert.deepEqual(
-    withMirror.map((n) => n.channelId),
-    ['talk']
-  );
-  const noMirror = await fetchNeighbors(world().reads, snapshot, here, config({ dryRunChannelId: '' }), NOW);
-  assert.deepEqual(
-    noMirror.map((n) => n.channelId),
-    [MIRROR_ID, 'talk']
-  );
-});
-
 test('fetchNeighbors judges accept before the channel cap, so a refused channel takes no slot and costs no read', async () => {
   const here = neighbour('here', true, 1);
   neighbour('staff', true, 2);
-  neighbour('talk', true, 4);
+  const others = Array.from({ length: 8 }, (_, n) => `talk${n}`);
+  others.forEach((id, n) => neighbour(id, true, 4 + n));
   neighbour('quiet', true, 90);
   const asked: Array<string> = [];
   world().tap('history', ([ref]) => {
@@ -110,18 +91,18 @@ test('fetchNeighbors judges accept before the channel cap, so a refused channel 
     judged.push(other.id);
     return other.id !== 'staff';
   };
-  const neighbours = await fetchNeighbors(world().reads, snapshot, here, config({}, 1), NOW, { accept });
+  const neighbours = await fetchNeighbors(world().reads, snapshot, here, NOW, { accept });
   assert.deepEqual(
     neighbours.map((n) => n.channelId),
-    ['talk'],
-    'the slot goes to the next accepted channel'
+    others,
+    'the slot staff would have taken goes to the next accepted channel'
   );
-  assert.deepEqual(asked, ['talk']);
-  assert.deepEqual(judged.sort(), ['staff', 'talk'], 'only active channels are judged');
-  const all = await fetchNeighbors(world().reads, snapshot, here, config({}, 1), NOW);
+  assert.deepEqual(asked.sort(), [...others].sort());
+  assert.deepEqual(judged.sort(), ['staff', ...others].sort(), 'only active channels are judged');
+  const all = await fetchNeighbors(world().reads, snapshot, here, NOW);
   assert.deepEqual(
     all.map((n) => n.channelId),
-    ['staff'],
-    'no accept: the newest readable channel'
+    ['staff', ...others.slice(0, 7)],
+    'no accept: the eight newest readable channels'
   );
 });

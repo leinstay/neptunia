@@ -82,7 +82,6 @@ export async function replyTurn({
   const llm = sequenceLlm(['<msg>γεια</msg>']);
   const turns = worldTurnRunner({
     hot: hotWith({
-      features: { participation: true },
       config: diaryChannelId === null ? {} : { diary: { channelId: diaryChannelId } },
     }),
     store,

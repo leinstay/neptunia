@@ -63,7 +63,6 @@ function fakeClient() {
 }
 
 function makeEnv({
-  features = { intentions: true },
   errandSettings = {},
   agents = {},
   intentions: settings = {},
@@ -74,15 +73,12 @@ function makeEnv({
   const hot = {
     config: {
       bot: { owners: [OWNER], access: {} },
-      features,
       errands: { maxOpen: 3, ...errandSettings },
       agents: { scout: { enabled: true, daily: { tasks: 10 } }, ...agents },
       intentions: {
         expiresDays: 14,
         maxOpen: 20,
-        maxCandidates: 5,
         candidateExpiresHours: 48,
-        waitHours: 2,
         ...settings,
       },
     },
@@ -177,18 +173,6 @@ function onlyIntention(intentions) {
   assert.equal(list.length, 1);
   return list[0];
 }
-
-test('intent: with features.intentions off every action answers feature-off', async () => {
-  const { env } = makeEnv({ features: {} });
-  for (const action of ['add', 'update', 'cancel', 'list']) {
-    const result = await runOp(
-      `intention.${{ add: 'set', update: 'update', cancel: 'cancel', list: 'list' }[action]}`,
-      { text: 'x', id: 'i1' },
-      owner(env)
-    );
-    assert.equal(result.code, 'feature-off', action);
-  }
-});
 
 test('intention.set: the answer line says the due time in bot.timezone as the intentions block writes it, never as a bare UTC figure', async () => {
   const { env, hot } = makeEnv();
@@ -386,11 +370,8 @@ test('candidates: anchored to her own lines, turn looked up, de-duplicated, capp
   const journal = {
     findTurn: async (guildId, { messageId }) => (messageId === 'm2' ? { turn: { turnId: 'T9' } } : null),
   };
-  const { env, intentions, clock } = makeEnv({
-    features: { intentions: true, journal: true },
-    intentions: { maxCandidates: 2, maxOpen: 1 },
-    journal,
-  });
+  // PR 7d: `intentions.maxCandidates` is the constant 5, so five candidates are open before the one capped.
+  const { env, intentions, clock } = makeEnv({ intentions: { maxOpen: 1 }, journal });
   const lines = [
     { id: 'm1', channelId: 'c1', self: false, content: 'θα έρθεις αύριο;', ts: T0 - 2000 },
     {
@@ -409,6 +390,14 @@ test('candidates: anchored to her own lines, turn looked up, de-duplicated, capp
       ts: T0 - 500,
       sources: { turnId: null },
     },
+    ...['θα γράψω το σχέδιο', 'θα ρωτήσω τον Νίκο', 'θα στήσω το τραπέζι'].map((content, n) => ({
+      id: `m${n + 4}`,
+      channelId: 'c1',
+      self: true,
+      content,
+      ts: T0 - 400 + n,
+      sources: { turnId: null },
+    })),
   ];
   await withCapturedLogs(async () => {
     const raw = [
@@ -435,6 +424,12 @@ test('candidates: anchored to her own lines, turn looked up, de-duplicated, capp
       'the same line again is a duplicate'
     );
     await intentions.addCandidates('g1', [{ span: 'θα σου στείλω τον σύνδεσμο', purpose: 'send the link' }], lines);
+    for (const [span, purpose] of [
+      ['θα γράψω το σχέδιο', 'write the plan'],
+      ['θα ρωτήσω τον Νίκο', 'ask Nikos'],
+      ['θα στήσω το τραπέζι', 'set the table'],
+    ])
+      await intentions.addCandidates('g1', [{ span, purpose }], lines);
     assert.equal(
       (await intentions.addCandidates('g1', [{ span: 'αργότερα', purpose: 'later' }], lines)).capped,
       1,
@@ -459,14 +454,14 @@ test('candidates: anchored to her own lines, turn looked up, de-duplicated, capp
       (await runOp('intention.cancel', { id: other.id }, hers(env, 'T10'))).data.intention.status,
       'cancelled'
     );
-    // An untouched candidate expires after candidateExpiresHours.
+    // An untouched candidate expires after candidateExpiresHours: the three still proposed and the one added now.
     await intentions.addCandidates('g1', [{ span: 'αργότερα', purpose: 'later' }], lines);
     clock.t = T0 + 48 * HOUR;
     assert.equal(
       intentions.list('g1').some((r) => r.status === 'proposed'),
       false
     );
-    assert.equal(intentions.list('g1', { closed: true }).filter((r) => r.status === 'expired').length, 1);
+    assert.equal(intentions.list('g1', { closed: true }).filter((r) => r.status === 'expired').length, 4);
   });
 });
 
@@ -493,17 +488,6 @@ test('intentions: markExpiredShown marks an expired intention once; an open one,
   assert.equal(intentions.markExpiredShown('g1', own.id).changed, false, 'once');
   assert.deepEqual(intentions.markExpiredShown('g1', 'i00000000'), { ok: false, code: 'not-found' });
   assert.equal(intentions.markExpiredShown(null, own.id).changed, false, 'the default guild is the same store');
-});
-
-test('candidates: nothing with features.intentions off', async () => {
-  const { intentions } = makeEnv({ features: {} });
-  const out = await intentions.addCandidates(
-    'g1',
-    [{ span: 'θα το κάνω', purpose: 'do it' }],
-    [{ id: 'm1', self: true, content: 'θα το κάνω', ts: T0 }]
-  );
-  assert.equal(out.added, 0);
-  assert.deepEqual(intentions.list('g1', { closed: true }), []);
 });
 
 test("private chats: her intention in a DM is the DM's own -- never in a server turn, not movable from a server channel, gone with a forget of the member", async () => {
@@ -750,17 +734,17 @@ test("intentions: a recurring wait ends per occurrence -- the errand's end retur
 
 // ---- attention: intention.set attend= ------------------------------------------------------
 
+// PR 7d: the attention defaults are the constants ATTEND_DEFAULTS (settle 90 s, 12 a day).
 test('intention.set attend=: an attention of hers with the defaults from innerLife.attention, her own numbers and people; due and every on it are refused', async () => {
-  const { env, hot, intentions } = makeEnv();
-  hot.config.innerLife = { attention: { settleSeconds: 45, perDayDefault: 6 } };
+  const { env, intentions } = makeEnv();
   const set = await runOp('intention.set', { attend: 'c-garden' }, hers(env, 'T1'));
   assert.equal(set.status, 'ok', set.code);
   const record = onlyIntention(intentions);
   assert.equal(record.purpose, 'c-garden', 'the purpose is the place when she gives none');
-  assert.deepEqual(record.attend, { place: 'c-garden', people: [], settle: 45, perDay: 6, today: null });
+  assert.deepEqual(record.attend, { place: 'c-garden', people: [], settle: 90, perDay: 12, today: null });
   assert.equal(record.dueAt, null);
   assert.match(set.data.text, /attend c-garden/);
-  assert.match(set.data.text, /settle 45s, today 0\/6/);
+  assert.match(set.data.text, /settle 90s, today 0\/12/);
   // Her own numbers and people (ids, comma or space separated; a mention unwrapped).
   const own = await runOp(
     'intention.set',

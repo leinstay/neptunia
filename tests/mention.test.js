@@ -2,7 +2,6 @@
 // whether it reacts to it at all.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import {
   detectTrigger,
   strippedLength,
@@ -15,12 +14,9 @@ import {
   parseAddressAnswer,
   followUpTriggerKind,
   isTaggedCall,
-  roomPreFilter,
 } from '../src/behavior/mention.js';
 import { ROLE_DEFAULTS, roleModel } from '../src/llm/roles.js';
 
-// PR 7c: the shipped settings live in config/config.json.
-const shipped = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
 const NAME_TRIGGERS = ['νεπτούνια'];
 
 // --- detectTrigger ----------------------------------------------------------
@@ -124,207 +120,27 @@ test('createTagHistory: tracks different users independently', () => {
 
 // --- decideMention -----------------------------------------------------------
 
-const CFG = {
-  ignoreChance: 0.12,
-  emptyMentionIgnoreChance: 0.35,
-  repeatPenalty: 0.25,
-  spamThreshold: 4,
-  spamIgnoreChance: 0.9,
-  nameTriggerChance: 0.5,
-  affinityIgnoreBonus: 0.3,
-  affinityLikeBonus: 0.08,
-};
-
 function rngReturning(value) {
   return () => value;
 }
 
 test('decideMention: neverIgnore always responds regardless of rng', () => {
-  const result = decideMention({
-    kind: 'mention',
-    textLength: 0,
-    recentCalls: 10,
-    neverIgnore: true,
-    cfg: CFG,
-    rng: rngReturning(0.999),
-  });
+  const result = decideMention({ kind: 'mention', recentCalls: 60, neverIgnore: true, rng: rngReturning(0) });
   assert.deepEqual(result, { respond: true, reason: 'never-ignore', ignoreChance: 0 });
 });
 
-test('decideMention: name trigger responds based on nameTriggerChance', () => {
-  const respond = decideMention({
-    kind: 'name',
-    textLength: 5,
-    recentCalls: 1,
-    neverIgnore: false,
-    cfg: CFG,
-    rng: rngReturning(0.4),
-  });
-  assert.equal(respond.respond, true); // 0.4 < 0.5
-  assert.equal(respond.reason, 'name');
-
-  const ignore = decideMention({
-    kind: 'name',
-    textLength: 5,
-    recentCalls: 1,
-    neverIgnore: false,
-    cfg: CFG,
-    rng: rngReturning(0.6),
-  });
-  assert.equal(ignore.respond, false); // 0.6 >= 0.5
-  assert.equal(ignore.reason, 'name-unnoticed');
-  assert.equal(ignore.ignoreChance, 0.5);
+// PR 7d: `mention.nameTriggerChance` is the constant 1, so a name is always noticed.
+test('decideMention: a name trigger is answered', () => {
+  const result = decideMention({ kind: 'name', recentCalls: 1, neverIgnore: false, rng: rngReturning(0.99) });
+  assert.deepEqual([result.respond, result.reason], [true, 'name']);
 });
 
-test('decideMention: a bare ping (mention, empty text) uses emptyMentionIgnoreChance', () => {
-  const result = decideMention({
-    kind: 'mention',
-    textLength: 0,
-    recentCalls: 1,
-    neverIgnore: false,
-    cfg: CFG,
-    rng: rngReturning(0.5),
-  });
-  assert.equal(result.ignoreChance, CFG.emptyMentionIgnoreChance);
-  assert.equal(result.reason, 'respond'); // rng 0.5 >= 0.35
-});
-
-test('decideMention: repeat calls accumulate a penalty on top of the base ignore chance', () => {
-  // kind 'reply', textLength > 0 -> base ignoreChance, recentCalls=3 adds repeatPenalty*(3-1)
-  const result = decideMention({
-    kind: 'reply',
-    textLength: 5,
-    recentCalls: 3,
-    neverIgnore: false,
-    cfg: CFG,
-    rng: rngReturning(0),
-  });
-  const expected = CFG.ignoreChance + CFG.repeatPenalty * 2;
-  assert.equal(result.ignoreChance, expected);
-  assert.equal(result.reason, 'ignored:repeat'); // rng 0 < ignoreChance -> ignored
-});
-
-test('decideMention: spam threshold overrides the ignore chance entirely (not additive)', () => {
-  const result = decideMention({
-    kind: 'reply',
-    textLength: 5,
-    recentCalls: 4,
-    neverIgnore: false,
-    cfg: CFG,
-    rng: rngReturning(0),
-  });
-  assert.equal(result.ignoreChance, CFG.spamIgnoreChance);
-  assert.equal(result.reason, 'ignored:spam'); // rng 0 < 0.9 -> ignored
-});
-
-test('decideMention: the ignore chance is clamped to 0.97 at most', () => {
-  // A high spamThreshold keeps this in the repeat-penalty branch instead of the spam branch.
-  const cfg = { ...CFG, ignoreChance: 0.9, repeatPenalty: 0.5, spamThreshold: 1000 };
-  const result = decideMention({
-    kind: 'reply',
-    textLength: 5,
-    recentCalls: 10,
-    neverIgnore: false,
-    cfg,
-    rng: rngReturning(0.98),
-  });
-  assert.equal(result.ignoreChance, 0.97);
-  assert.equal(result.respond, true); // rng 0.98 >= 0.97
-  assert.equal(result.reason, 'respond'); // a repeat call that still gets through
-});
-
-test('decideMention: the ignore chance never drops below 0', () => {
-  const cfg = { ...CFG, ignoreChance: -5 };
-  const result = decideMention({
-    kind: 'reply',
-    textLength: 5,
-    recentCalls: 1,
-    neverIgnore: false,
-    cfg,
-    rng: rngReturning(0.001),
-  });
-  assert.equal(result.ignoreChance, 0);
-  assert.equal(result.respond, true);
-});
-
-test('decideMention: plain random ignore uses the base ignoreChance for a non-empty mention/reply', () => {
-  const result = decideMention({
-    kind: 'reply',
-    textLength: 5,
-    recentCalls: 1,
-    neverIgnore: false,
-    cfg: CFG,
-    rng: rngReturning(0),
-  });
-  assert.equal(result.ignoreChance, CFG.ignoreChance);
-  assert.equal(result.reason, 'ignored:random');
-  assert.equal(result.respond, false); // rng 0 < 0.12
-});
-
-// --- decideMention: follow-ups (mention.followUpIgnoreChance) ----------------
-
-/** One decideMention call with no repeat, spam, affinity or neverIgnore in play. */
-function decideOnce(kind, cfg, roll, extra = {}) {
-  return decideMention({
-    kind,
-    textLength: 5,
-    recentCalls: 1,
-    neverIgnore: false,
-    cfg,
-    rng: rngReturning(roll),
-    ...extra,
-  });
-}
-
-test('decideMention: a followUp starts from followUpIgnoreChance, not ignoreChance', () => {
-  const ignored = decideOnce('followUp', { ...CFG, ignoreChance: 0, followUpIgnoreChance: 1 }, 0.5);
-  assert.equal(ignored.respond, false);
-  assert.equal(ignored.ignoreChance, 0.97, 'clamped like any other chance');
-  assert.equal(ignored.reason, 'ignored:follow-up');
-
-  const answered = decideOnce('followUp', { ...CFG, ignoreChance: 1, followUpIgnoreChance: 0 }, 0);
-  assert.equal(answered.respond, true);
-  assert.equal(answered.ignoreChance, 0);
-  assert.equal(answered.reason, 'respond');
-});
-
-test('decideMention: an untagged reply starts from followUpIgnoreChance; a tagged or unspecified one from ignoreChance', () => {
-  const cfg = { ...CFG, ignoreChance: 0, followUpIgnoreChance: 1 };
-  const untagged = decideOnce('reply', cfg, 0.5, { tagged: false });
-  assert.deepEqual([untagged.respond, untagged.reason], [false, 'ignored:follow-up']);
-  for (const tagged of [true, undefined]) {
-    const result = decideOnce('reply', cfg, 0.5, { tagged });
-    assert.deepEqual([result.respond, result.ignoreChance], [true, 0], `tagged ${tagged}`);
-  }
-});
-
-test('decideMention: a mention is unaffected by followUpIgnoreChance, tagged or not', () => {
-  for (const tagged of [true, false, undefined]) {
-    const result = decideOnce('mention', { ...CFG, ignoreChance: 0, followUpIgnoreChance: 1 }, 0.5, { tagged });
-    assert.deepEqual([result.respond, result.ignoreChance, result.reason], [true, 0, 'respond'], `tagged ${tagged}`);
-  }
-});
-
-test('decideMention: a missing followUpIgnoreChance counts as 0 for a followUp and an untagged reply', () => {
-  const cfg = { ...CFG, ignoreChance: 0.5 };
-  delete cfg.followUpIgnoreChance;
-  for (const [kind, tagged] of [
-    ['followUp', undefined],
-    ['reply', false],
-  ]) {
-    const result = decideOnce(kind, cfg, 0, { tagged });
-    assert.deepEqual([result.respond, result.ignoreChance], [true, 0], kind);
-  }
-});
-
-test('decideMention: the affinity adjustment applies on top of followUpIgnoreChance', () => {
-  const cfg = { ...CFG, ignoreChance: 0, followUpIgnoreChance: 0.2, affinityIgnoreBonus: 0.3, affinityLikeBonus: 0.1 };
-  const disliked = decideOnce('followUp', cfg, 0.4, { affinityScore: -100 });
-  assert.ok(Math.abs(disliked.ignoreChance - 0.5) < 1e-9, String(disliked.ignoreChance));
-  assert.equal(disliked.respond, false);
-  const liked = decideOnce('followUp', cfg, 0.15, { affinityScore: 100 });
-  assert.ok(Math.abs(liked.ignoreChance - 0.1) < 1e-9, String(liked.ignoreChance));
-  assert.equal(liked.respond, true);
+// PR 7d: the threshold (50 calls) and its ignore chance (0.9) are constants; no other ignore chance is left.
+test('decideMention: the spam threshold sets the ignore chance; under it every call is answered', () => {
+  const spam = decideMention({ kind: 'reply', recentCalls: 50, neverIgnore: false, rng: rngReturning(0) });
+  assert.deepEqual([spam.ignoreChance, spam.reason], [0.9, 'ignored:spam']); // rng 0 < 0.9 -> ignored
+  const under = decideMention({ kind: 'reply', recentCalls: 49, neverIgnore: false, rng: rngReturning(0) });
+  assert.deepEqual([under.ignoreChance, under.respond], [0, true]);
 });
 
 test('isTaggedCall: a typed tag counts, the reply ping alone does not', () => {
@@ -334,122 +150,33 @@ test('isTaggedCall: a typed tag counts, the reply ping alone does not', () => {
   assert.equal(isTaggedCall({}, 's1'), false);
 });
 
-// --- decideMention: affinityScore -------------------------------------------
-
-test('decideMention: a disliked caller (negative affinity) raises the ignore chance', () => {
-  const neutral = decideMention({
-    kind: 'reply',
-    textLength: 5,
-    recentCalls: 1,
-    neverIgnore: false,
-    cfg: CFG,
-    rng: rngReturning(0),
-  });
-  const disliked = decideMention({
-    kind: 'reply',
-    textLength: 5,
-    recentCalls: 1,
-    neverIgnore: false,
-    affinityScore: -100,
-    cfg: CFG,
-    rng: rngReturning(0),
-  });
-  assert.equal(disliked.ignoreChance, neutral.ignoreChance + CFG.affinityIgnoreBonus);
-});
-
-test('decideMention: a liked caller (positive affinity) lowers the ignore chance', () => {
-  const neutral = decideMention({
-    kind: 'reply',
-    textLength: 5,
-    recentCalls: 1,
-    neverIgnore: false,
-    cfg: CFG,
-    rng: rngReturning(0),
-  });
-  const liked = decideMention({
-    kind: 'reply',
-    textLength: 5,
-    recentCalls: 1,
-    neverIgnore: false,
-    affinityScore: 100,
-    cfg: CFG,
-    rng: rngReturning(0),
-  });
-  assert.equal(liked.ignoreChance, neutral.ignoreChance - CFG.affinityLikeBonus);
-});
-
-test('decideMention: affinityScore is ignored for neverIgnore', () => {
-  const result = decideMention({
-    kind: 'reply',
-    textLength: 5,
-    recentCalls: 1,
-    neverIgnore: true,
-    affinityScore: -100,
-    cfg: CFG,
-    rng: rngReturning(0.999),
-  });
-  assert.deepEqual(result, { respond: true, reason: 'never-ignore', ignoreChance: 0 });
-});
-
-test('decideMention: affinityScore is ignored for the "name" kind', () => {
-  const withAffinity = decideMention({
-    kind: 'name',
-    textLength: 5,
-    recentCalls: 1,
-    neverIgnore: false,
-    affinityScore: -100,
-    cfg: CFG,
-    rng: rngReturning(0.4),
-  });
-  const withoutAffinity = decideMention({
-    kind: 'name',
-    textLength: 5,
-    recentCalls: 1,
-    neverIgnore: false,
-    cfg: CFG,
-    rng: rngReturning(0.4),
-  });
-  assert.deepEqual(withAffinity, withoutAffinity);
-});
-
 // --- The address classifier: isFollowUpOpen / followUpPreFilter / parseFollowUpVerdict --
 
-const FOLLOW_UP_CFG = { followUpMinutes: 2, followUpNoStreak: 3 };
+// PR 7d: the window (15 minutes) and the streak that closes it (5) are constants of src/behavior/mention.js.
 
 test('isFollowUpOpen: false when there is no window at all', () => {
-  assert.equal(isFollowUpOpen(null, 1000, FOLLOW_UP_CFG), false);
-  assert.equal(isFollowUpOpen(undefined, 1000, FOLLOW_UP_CFG), false);
+  assert.equal(isFollowUpOpen(null, 1000), false);
+  assert.equal(isFollowUpOpen(undefined, 1000), false);
 });
 
 test('isFollowUpOpen: false once followUpMinutes has passed since the last answer', () => {
   const state = { openedAt: 1000, lastAnswerAt: 1000, noStreak: 0 };
-  assert.equal(isFollowUpOpen(state, 1000 + 2 * 60_000, FOLLOW_UP_CFG), false);
+  assert.equal(isFollowUpOpen(state, 1000 + 15 * 60_000), false);
 });
 
 test('isFollowUpOpen: false once noStreak reaches followUpNoStreak, even if still fresh', () => {
-  const state = { openedAt: 1000, lastAnswerAt: 1000, noStreak: 3 };
-  assert.equal(isFollowUpOpen(state, 1000, FOLLOW_UP_CFG), false);
+  const state = { openedAt: 1000, lastAnswerAt: 1000, noStreak: 5 };
+  assert.equal(isFollowUpOpen(state, 1000), false);
 });
 
 test('isFollowUpOpen: true just below the noStreak cap', () => {
-  const state = { openedAt: 1000, lastAnswerAt: 1000, noStreak: 2 };
-  assert.equal(isFollowUpOpen(state, 1000, FOLLOW_UP_CFG), true);
-});
-
-test('isFollowUpOpen: the code fallbacks equal the config.json window and streak', () => {
-  const windowMs = shipped.mention.followUpMinutes * 60_000;
-  const fresh = { openedAt: 0, lastAnswerAt: 0, noStreak: 0 };
-  assert.equal(isFollowUpOpen(fresh, windowMs - 1, {}), true);
-  assert.equal(isFollowUpOpen(fresh, windowMs, {}), false);
-  const streak = shipped.mention.followUpNoStreak;
-  assert.equal(isFollowUpOpen({ ...fresh, noStreak: streak - 1 }, 0, {}), true);
-  assert.equal(isFollowUpOpen({ ...fresh, noStreak: streak }, 0, {}), false);
+  const state = { openedAt: 1000, lastAnswerAt: 1000, noStreak: 4 };
+  assert.equal(isFollowUpOpen(state, 1000), true);
 });
 
 test('followUpPreFilter: a reply to another member reaches the classifier', () => {
   const normalized = { replyToId: 'm100', mentionedUserIds: [], replyPingUserId: null };
   assert.equal(followUpPreFilter(normalized, 'self1'), false);
-  assert.equal(followUpPreFilter(normalized, 'self1', { followUpClassifyReplies: true }), false);
 });
 
 test('followUpPreFilter: a reply whose only mention is the implicit reply ping reaches the classifier', () => {
@@ -460,18 +187,6 @@ test('followUpPreFilter: a reply whose only mention is the implicit reply ping r
 test('followUpPreFilter: a reply that also mentions a third member explicitly is "no" material', () => {
   const normalized = { replyToId: 'm100', mentionedUserIds: ['u2', 'u3'], replyPingUserId: 'u2' };
   assert.equal(followUpPreFilter(normalized, 'self1'), true);
-});
-
-test('followUpPreFilter: followUpClassifyReplies=false pre-filters any reply, as before', () => {
-  const cfg = { followUpClassifyReplies: false };
-  assert.equal(
-    followUpPreFilter({ replyToId: 'm100', mentionedUserIds: [], replyPingUserId: null }, 'self1', cfg),
-    true
-  );
-  assert.equal(
-    followUpPreFilter({ replyToId: 'm100', mentionedUserIds: ['u2'], replyPingUserId: 'u2' }, 'self1', cfg),
-    true
-  );
 });
 
 test('followUpPreFilter: the reply-ping exemption only applies to a reply', () => {
@@ -556,45 +271,9 @@ test('parseFollowUpVerdict: an overheard answer counts as yes', () => {
 });
 
 test('followUpTriggerKind: no starts nothing, yes a followUp turn, overheard an overheard turn', () => {
-  const cfg = { followUpOverheard: true };
-  assert.equal(followUpTriggerKind('no', cfg), null);
-  assert.equal(followUpTriggerKind('yes', cfg), 'followUp');
-  assert.equal(followUpTriggerKind('overheard', cfg), 'overheard');
-});
-
-test('followUpTriggerKind: with mention.followUpOverheard false an overheard answer starts a plain followUp turn', () => {
-  assert.equal(followUpTriggerKind('overheard', { followUpOverheard: false }), 'followUp');
-  assert.equal(followUpTriggerKind('yes', { followUpOverheard: false }), 'followUp');
-  assert.equal(followUpTriggerKind('no', { followUpOverheard: false }), null);
-});
-
-test('followUpTriggerKind: a missing config or key counts as on', () => {
+  assert.equal(followUpTriggerKind('no'), null);
+  assert.equal(followUpTriggerKind('yes'), 'followUp');
   assert.equal(followUpTriggerKind('overheard'), 'overheard');
-  assert.equal(followUpTriggerKind('overheard', undefined), 'overheard');
-  assert.equal(followUpTriggerKind('overheard', {}), 'overheard');
-  assert.equal(followUpTriggerKind('overheard', { followUpOverheard: undefined }), 'overheard');
-});
-
-test('decideMention: affinityScore is ignored inside the spam branch', () => {
-  const withAffinity = decideMention({
-    kind: 'reply',
-    textLength: 5,
-    recentCalls: 4,
-    neverIgnore: false,
-    affinityScore: -100,
-    cfg: CFG,
-    rng: rngReturning(0),
-  });
-  const withoutAffinity = decideMention({
-    kind: 'reply',
-    textLength: 5,
-    recentCalls: 4,
-    neverIgnore: false,
-    cfg: CFG,
-    rng: rngReturning(0),
-  });
-  assert.equal(withAffinity.ignoreChance, withoutAffinity.ignoreChance);
-  assert.equal(withAffinity.ignoreChance, CFG.spamIgnoreChance);
 });
 
 const OLD_KEYS = {
@@ -632,25 +311,4 @@ test('deprecatedModelKeys: none for a current config, a null old key or no confi
   );
   assert.deepEqual(deprecatedModelKeys({ llm: { classifierModel: null }, mention: {} }), []);
   assert.deepEqual(deprecatedModelKeys(undefined), []);
-});
-
-// --- Room questions: roomPreFilter ------------------------------------------
-
-test('roomPreFilter: text with no reply and no member mention passes', () => {
-  assert.equal(roomPreFilter({ content: 'ποιος έρχεται απόψε;', replyToId: null, mentionedUserIds: [] }), true);
-  assert.equal(roomPreFilter({ content: "  quelqu'un a vu le film ?  ", replyToId: null, mentionedUserIds: [] }), true);
-  // A shape without a mention list is no mention.
-  assert.equal(roomPreFilter({ content: 'καλημέρα σε όλους', replyToId: null }), true);
-});
-
-test('roomPreFilter: a reply or a member mention never passes', () => {
-  assert.equal(roomPreFilter({ content: 'ναι, σωστά', replyToId: 'm100', mentionedUserIds: [] }), false);
-  assert.equal(roomPreFilter({ content: 'έλα κι εσύ', replyToId: null, mentionedUserIds: ['u2'] }), false);
-  assert.equal(roomPreFilter({ content: 'ναι', replyToId: 'm100', mentionedUserIds: ['u2'] }), false);
-});
-
-test('roomPreFilter: a message with no text never passes', () => {
-  assert.equal(roomPreFilter({ content: '', replyToId: null, mentionedUserIds: [] }), false);
-  assert.equal(roomPreFilter({ content: '   \n ', replyToId: null, mentionedUserIds: [] }), false);
-  assert.equal(roomPreFilter({ replyToId: null, mentionedUserIds: [] }), false);
 });

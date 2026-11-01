@@ -51,7 +51,6 @@ test('a second attempt of a turn whose first attempt failed before its send carr
     },
   };
   const hot = hotWith({
-    features: { coreTools: true, journal: true },
     tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
     access: personaGrants(['message.create']),
   });

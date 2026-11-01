@@ -17,12 +17,11 @@ import {
 import { emptyAffinity, applyDelta } from '../src/memory/affinity.js';
 import { upsertLore } from '../src/memory/lore.js';
 import { createStore } from '../src/memory/store.js';
+import { MEMORY_LIMITS } from '../src/memory/text-limits.js';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { createArchive } from '../src/memory/archive.js';
-import { createSpontaneous } from '../src/behavior/spontaneous.js';
 import { buildDrawPrompt } from '../src/behavior/prompt.js';
 import { familyOf, ImageGenError } from '../src/llm/images.js';
-import { createLlm } from '../src/llm/openrouter.js';
 import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { createMetrics } from '../src/tools/impl/metrics.ts';
 import { getOp } from '../src/tools/impl/registry.ts';
@@ -578,7 +577,7 @@ test('set: accepts only an own leaf path of the live config and a value of the s
   const rootDir = makeRoot();
   const hot = makeHot(rootDir);
   hot.config.models = { ...hot.config.models, base: { ...hot.config.models.base, spare: null } };
-  hot.config.features = { dryRun: false };
+  hot.config.tools = { ...hot.config.tools, safeMode: false };
   const { admin } = makeAdmin(rootDir, { hot });
   const owner = { userId: '42' };
 
@@ -596,8 +595,8 @@ test('set: accepts only an own leaf path of the live config and a value of the s
     /llm\.maxRequestsPerDay expects a number, got a string/
   );
   await assert.rejects(
-    () => admin.run('config.set', { path: 'features.dryRun', value: '"true"' }, owner),
-    /features\.dryRun expects a boolean, got a string/
+    () => admin.run('config.set', { path: 'tools.safeMode', value: '"true"' }, owner),
+    /tools\.safeMode expects a boolean, got a string/
   );
   await assert.rejects(
     () => admin.run('config.set', { path: 'bot.owners', value: '"42"' }, owner),
@@ -606,13 +605,13 @@ test('set: accepts only an own leaf path of the live config and a value of the s
   assert.equal(fs.existsSync(localPath(rootDir)), false, 'nothing was written');
 
   await admin.run('config.set', { path: 'llm.maxRequestsPerDay', value: '250' }, owner);
-  await admin.run('config.set', { path: 'features.dryRun', value: 'true' }, owner);
+  await admin.run('config.set', { path: 'tools.safeMode', value: 'true' }, owner);
   await admin.run('config.set', { path: 'models.base.spare', value: '"x/y"' }, owner); // the current value is null: any type
   await admin.run('config.set', { path: 'models.base.core', value: '123' }, owner); // a string setting keeps the text as typed
   assert.deepEqual(readLocal(rootDir), {
     llm: { maxRequestsPerDay: 250 },
     models: { base: { core: '123', spare: 'x/y' } },
-    features: { dryRun: true },
+    tools: { safeMode: true },
   });
 });
 
@@ -628,7 +627,6 @@ function makeHotWithMedia(rootDir) {
     ...hot.config.models,
     base: { ...hot.config.models.base, vision: 'anthropic/claude-haiku-4.5' },
   };
-  hot.config.features = { mediaDescriptions: false };
   return hot;
 }
 
@@ -1083,7 +1081,6 @@ test("run: the owner's step after the migration -- revoke * everyone, then grant
 test('migrateAccess: once per guild, the old command-key grants re-expanded under the operations, with a journal record', async () => {
   const rootDir = makeRoot();
   const hot = makeHot(rootDir);
-  hot.config.features = { journal: true };
   const journal = fakeJournal();
   const store = makeStore();
   store.updateGuild = (guildId, fields) => store.guilds.set(guildId, { ...store.getGuild(guildId), ...fields });
@@ -1235,10 +1232,6 @@ test('run: memory.affinity falls back to the single served guild when context.gu
 // private.show and the private-aware memory commands
 // ---------------------------------------------------------------------------
 
-function utcToday() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function samplePrivate(overrides = {}) {
   return {
     relationship: 'trusts the persona with plans',
@@ -1273,7 +1266,6 @@ function samplePrivate(overrides = {}) {
     affinity: { score: 12, reason: 'kind in private', history: [] },
     firstSeen: '2026-09-01T00:00:00.000Z',
     lastSeen: '2026-09-20T00:00:00.000Z',
-    replies: { day: utcToday(), count: 7, noticedDay: '' },
     buffer: [
       { id: 'm1', content: 'SECRET-BUFFERED-TEXT', ts: 1 },
       { id: 'm2', content: 'another buffered line', ts: 2 },
@@ -1282,10 +1274,10 @@ function samplePrivate(overrides = {}) {
   };
 }
 
-test('run: private.show renders the private layer under the public name, with both scores and replies', async () => {
+// PR 7d: the per-person reply caps are gone with their count, so the view carries no replies line.
+test('run: private.show renders the private layer under the public name, with both scores', async () => {
   const rootDir = makeRoot();
-  const { admin, hot, store } = makeAdmin(rootDir);
-  hot.config.private = { maxPerUserPerDay: 100, maxPerOwnerPerDay: 200 };
+  const { admin, store } = makeAdmin(rootDir);
   store.profiles.set('g1:123', {
     id: '123',
     names: ['Zoé', 'old name'],
@@ -1304,35 +1296,20 @@ test('run: private.show renders the private layer under the public name, with bo
   assert.match(result, /private affinity: 12\b/);
   assert.match(result, /kind in private/);
   assert.match(result, /effective affinity: 62\b/);
-  assert.match(result, /replies today: 7 \/ 100/);
   assert.ok(!result.includes('SECRET-BUFFERED-TEXT'), 'the buffer contents are never shown');
   assert.ok(!result.includes('another buffered line'), 'the buffer contents are never shown');
   assert.ok(!result.includes('public reason'), 'the public affinity reason is not part of the private view');
 });
 
-test('run: private.show clamps the effective score and uses the owner cap for an owner', async () => {
+test('run: private.show clamps the effective score for an owner', async () => {
   const rootDir = makeRoot();
-  const { admin, hot, store } = makeAdmin(rootDir);
-  hot.config.private = { maxPerUserPerDay: 100, maxPerOwnerPerDay: 200 };
+  const { admin, store } = makeAdmin(rootDir);
   store.profiles.set('g1:42', { id: '42', names: ['Owner'], affinity: { score: 90, reason: '', history: [] } });
   store.privates.set('g1:42', samplePrivate({ affinity: { score: 30, reason: '', history: [] } }));
 
   const result = await admin.run('memory.private.read', { action: 'show', userId: '42' }, { guildId: 'g1' });
 
   assert.match(result, /effective affinity: 100\b/);
-  assert.match(result, /replies today: 7 \/ 200/);
-});
-
-test('run: private.show counts replies stored for another day as 0 today', async () => {
-  const rootDir = makeRoot();
-  const { admin, store } = makeAdmin(rootDir);
-  store.profiles.set('g1:123', { id: '123', names: ['Zoé'] });
-  store.privates.set('g1:123', samplePrivate({ replies: { day: '2000-01-01', count: 55, noticedDay: '' } }));
-
-  const result = await admin.run('memory.private.read', { action: 'show', userId: '123' }, { guildId: 'g1' });
-
-  assert.match(result, /replies today: 0\b/);
-  assert.ok(!result.includes('55'));
 });
 
 test('run: private.show needs a user and a resolved guild', async () => {
@@ -1396,25 +1373,30 @@ test('run: memory.show section:raw also prints the stored episodes (date, weight
   assert.ok(result.includes('I got you'));
 });
 
+// PR 7d: `memory.maxInterests` is the constant MEMORY_LIMITS.maxInterests, so that many fresh interests fill the shown part.
 test('run: memory.show section:raw lists every stored interest in rank order and marks the divider between shown and hidden', async () => {
   const rootDir = makeRoot();
-  const hot = makeHot(rootDir);
-  hot.config.memory = { maxInterests: 1, interestHalfLifeDays: 180 };
-  const { admin, store } = makeAdmin(rootDir, { hot });
+  const { admin, store } = makeAdmin(rootDir);
+  const fresh = Array.from({ length: MEMORY_LIMITS.maxInterests }, (_, n) => ({
+    topic: `Fresh interest ${n}`,
+    note: '',
+    weight: 1,
+    firstSeen: 'a',
+    lastSeen: '2026-09-20T00:00:00.000Z',
+  }));
   store.profiles.set('g1:123', {
     id: '123',
     interests: [
       { topic: 'Ancient favorite', note: '', weight: 10, firstSeen: 'a', lastSeen: '2021-01-01T00:00:00.000Z' },
-      { topic: 'Fresh interest', note: '', weight: 1, firstSeen: 'a', lastSeen: '2026-09-20T00:00:00.000Z' },
+      ...fresh,
     ],
   });
 
   const result = await admin.run('memory.profile.read', { userId: '123', section: 'raw' }, { guildId: 'g1' });
-
   assert.ok(result.includes('Fresh interest'), 'both stored interests are listed');
   assert.ok(result.includes('Ancient favorite'));
   const lines = result.split('\n');
-  const freshLine = lines.findIndex((l) => l.trim().startsWith('Fresh interest [weight'));
+  const freshLine = lines.findIndex((l) => /^Fresh interest \d+ \[weight/.test(l.trim()));
   const dividerLine = lines.findIndex((l) => l.includes('not shown'));
   const ancientLine = lines.findIndex((l) => l.trim().startsWith('Ancient favorite [weight'));
   assert.ok(
@@ -1485,11 +1467,10 @@ function makeRealStoreAdmin(rootDir, extra = {}) {
   return { admin, store: realStore, hot, dataDir };
 }
 
+// PR 7d: `memory.confirmAfter` is the constant MEMORY_LIMITS.confirmAfter, so the weight is the constant's.
 test('run: alias.add creates a new alias already confirmed, firstSeen == lastSeen == now', async () => {
   const rootDir = makeRoot();
-  const hot = makeHot(rootDir);
-  hot.config.memory = { confirmAfter: 3 };
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir, { hot });
+  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
     store.touchUser('g1', '123', 'Bob', Date.now());
     const before = Date.now();
@@ -1498,25 +1479,10 @@ test('run: alias.add creates a new alias already confirmed, firstSeen == lastSee
 
     const alias = store.getUser('g1', '123').aliases.find((a) => a.name === 'Ari');
     assert.ok(alias, 'the alias was stored');
-    assert.ok(alias.weight >= 3, 'confirmed at once (memory.confirmAfter is 3 in this test)');
+    assert.ok(alias.weight >= MEMORY_LIMITS.confirmAfter, 'confirmed at once');
     assert.equal(alias.firstSeen, alias.lastSeen, 'firstSeen and lastSeen land on the same instant');
     const seenMs = Date.parse(alias.lastSeen);
     assert.ok(seenMs >= before && seenMs <= after, 'that instant is "now"');
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('run: alias.add reads memory.confirmAfter and gives at least that weight', async () => {
-  const rootDir = makeRoot();
-  const hot = makeHot(rootDir);
-  hot.config.memory = { confirmAfter: 4 };
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir, { hot });
-  try {
-    store.touchUser('g1', '123', 'Bob', Date.now());
-    await admin.run('alias.add', { userId: '123', name: 'Ari' }, { guildId: 'g1' });
-    const alias = store.getUser('g1', '123').aliases.find((a) => a.name === 'Ari');
-    assert.ok(alias.weight >= 4);
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
@@ -1615,11 +1581,10 @@ test('run: alias.add/alias.remove are refused while paused', async () => {
 
 const LEARNED_DAY = (iso) => Date.parse(`${iso}T12:00:00.000Z`);
 
-test('run: learned.add stores a new item without from, confirmed at once (memory.confirmAfter 3), firstSeen == lastSeen == now', async () => {
+// PR 7d: `memory.confirmAfter` is the constant MEMORY_LIMITS.confirmAfter, so the weight is the constant's.
+test('run: learned.add stores a new item without from, confirmed at once, firstSeen == lastSeen == now', async () => {
   const rootDir = makeRoot();
-  const hot = makeHot(rootDir);
-  hot.config.memory = { confirmAfter: 3 };
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir, { hot });
+  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
     const before = Date.now();
     await admin.run('learning.add', { text: '  ο φάρος ανάβει στις εννιά  ' }, { guildId: 'g1' });
@@ -1628,7 +1593,7 @@ test('run: learned.add stores a new item without from, confirmed at once (memory
     assert.equal(learned.length, 1);
     const [item] = learned;
     assert.equal(item.text, 'ο φάρος ανάβει στις εννιά');
-    assert.equal(item.weight, 3, 'confirmed at once, and no further');
+    assert.equal(item.weight, MEMORY_LIMITS.confirmAfter, 'confirmed at once, and no further');
     assert.equal('from' in item, false);
     assert.equal(item.firstSeen, item.lastSeen, 'every sighting lands on the same instant');
     const seenMs = Date.parse(item.lastSeen);
@@ -1638,55 +1603,40 @@ test('run: learned.add stores a new item without from, confirmed at once (memory
   }
 });
 
-test('run: learned.add reads memory.confirmAfter and confirms up to exactly that weight', async () => {
-  const rootDir = makeRoot();
-  const hot = makeHot(rootDir);
-  hot.config.memory = { confirmAfter: 4 };
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir, { hot });
-  try {
-    await admin.run('learning.add', { text: 'crème brûlée' }, { guildId: 'g1' });
-    assert.equal(store.getGuild('g1').learned[0].weight, 4);
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
 test('run: learned.add confirms an existing unconfirmed item in place (same id and text)', async () => {
   const rootDir = makeRoot();
-  const hot = makeHot(rootDir);
-  hot.config.memory = { confirmAfter: 3 };
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir, { hot });
+  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
     store.applyLearnedOps('g1', { add: ['Ο Φάρος'] }, { seenAt: LEARNED_DAY('2026-09-01') });
     await admin.run('learning.add', { text: 'ο φάρος' }, { guildId: 'g1' });
     const learned = store.getGuild('g1').learned;
     assert.equal(learned.length, 1);
     assert.equal(learned[0].id, 1);
-    assert.equal(learned[0].weight, 3);
+    assert.equal(learned[0].weight, MEMORY_LIMITS.confirmAfter);
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
 
+// PR 7d: `memory.confirmAfter` and `memory.confirmGapHours` are constants (2 and 12 h), so the confirmed item is seeded
+// by two sightings a day apart and the sighting past the gap is the next call, weeks later.
 test('run: a repeat learned.add of a confirmed item is one ordinary sighting, never more', async () => {
   const rootDir = makeRoot();
-  const hot = makeHot(rootDir);
-  hot.config.memory = { confirmAfter: 3, confirmGapHours: 12 };
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir, { hot });
+  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
-    await admin.run('learning.add', { text: 'première' }, { guildId: 'g1' });
-    assert.equal(store.getGuild('g1').learned[0].weight, 3);
+    store.applyLearnedOps('g1', { add: ['première'] }, { ...MEMORY_LIMITS, seenAt: LEARNED_DAY('2026-09-01') });
+    store.applyLearnedOps('g1', { add: ['première'] }, { ...MEMORY_LIMITS, seenAt: LEARNED_DAY('2026-09-02') });
+    assert.equal(store.getGuild('g1').learned[0].weight, 2);
 
-    // Within confirmGapHours: a sighting would not bump it, so neither does the repeat.
+    // Past confirmGapHours a sighting bumps by exactly one, and so does the repeat.
     await admin.run('learning.add', { text: 'Première' }, { guildId: 'g1' });
     assert.equal(store.getGuild('g1').learned[0].weight, 3);
 
-    // With no gap required, a sighting bumps by exactly one -- and so does the repeat.
-    hot.config.memory = { confirmAfter: 3, confirmGapHours: 0 };
+    // Within confirmGapHours: a sighting would not bump it, so neither does the repeat.
     await admin.run('learning.add', { text: 'première' }, { guildId: 'g1' });
     const learned = store.getGuild('g1').learned;
     assert.equal(learned.length, 1);
-    assert.equal(learned[0].weight, 4);
+    assert.equal(learned[0].weight, 3);
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
@@ -1788,9 +1738,6 @@ test('status: the card carries the fields in order and the member variant drops 
   const archive = { stats: () => ({ pending: 3 }) };
   const client = { ws: { ping: 41.6 }, guilds: { cache: new Map() } };
   const { admin, hot, store } = makeAdmin(rootDir, { journal, archive, client });
-  hot.config.media = { video: { maxPerDay: 40 } };
-  hot.config.recall = { maxPerDay: 100 };
-  hot.config.web = { maxPerDay: 60 };
   hot.config.context = { ...hot.config.context, channelMessages: 60 };
   store.state.data.paused = true;
   store.state.data.pausedAt = '2026-10-13T08:30:00.000Z';
@@ -1811,6 +1758,7 @@ test('status: the card carries the fields in order and the member variant drops 
       'costs.errands',
       'models.development',
       'costs.development',
+      'inner',
       'limits',
       'memory',
       'speed',
@@ -1856,7 +1804,8 @@ test('status: the card carries the fields in order and the member variant drops 
     [`thinker · ${ROLE_DEFAULTS.thinker}`, `dev · ${ROLE_DEFAULTS.dev}`].join('\n'),
     'one line per development role with its own model'
   );
-  assert.match(value('limits'), /^requests \d+\/300\nvideos 0\/40\nrecall 0\/100\nlookups 0\/60\nresets 00:00 UTC$/);
+  // PR 7d: the daily caps of videos, recall and lookups are gone, so the limits field is the request rail alone.
+  assert.match(value('limits'), /^requests \d+\/300\nresets 00:00 UTC$/);
   assert.deepEqual(
     value('memory')
       .split('\n')
@@ -2051,7 +2000,8 @@ test('status: the field option renders that field alone and runs only its work',
     (await only('memory', '999')).map((f) => f.name),
     ['state', 'tasks', 'models.base', 'models.errands', 'models.development', 'limits']
   );
-  assert.equal((await only('nonsense')).length, 12);
+  // PR 7d: the inner life is code, so the whole card carries its `inner` field too.
+  assert.equal((await only('nonsense')).length, 13);
 });
 
 /** A clock the test moves by hand. */
@@ -2092,9 +2042,8 @@ test('status: the memory field shows the coverage of every kind of memory, compu
       return { messages: 200, indexed: 150, missing: 50, oldestMissing: '2026-10-12T08:00:00.000Z' };
     },
   };
-  const { admin, hot, store } = makeAdmin(rootDir, { record, archive, embedQueue, now });
-  hot.config.features = { meaningSearch: true, embedIndex: true };
-  hot.config.embed = { catchUpHours: 48 };
+  const { admin, store } = makeAdmin(rootDir, { record, archive, embedQueue, now });
+  // PR 7d: the index switches are code and `embed.catchUpHours` is the constant 72.
   store.profiles.set('g1:u1', {
     id: 'u1',
     character: 'Ήσυχη και αστεία',
@@ -2134,7 +2083,7 @@ test('status: the memory field shows the coverage of every kind of memory, compu
 
   assert.deepEqual(await memoryLines(), [
     'record: 4 messages · 2026-09-30..2026-10-14 · 27% of days have lines',
-    'index: 1234 rows · 75% of record messages indexed (last 48 h) · oldest missing 2026-10-12',
+    'index: 1234 rows · 75% of record messages indexed (last 72 h) · oldest missing 2026-10-12',
     'archive: 4 entries · evicted 2, replaced 1, backfill 1 · observed 2026-03-01..2026-10-13',
     'profiles: 3 · 67% with a portrait · 4 episodes (1.3 per profile) · 2 details · 1 aliases · 1 real names set',
     'server notes: 2 lore entries · 3 lessons · 1 self facts · 2 in-jokes',
@@ -2142,7 +2091,7 @@ test('status: the memory field shows the coverage of every kind of memory, compu
     'recent lines: 2 · 2026-10-12..2026-10-14',
     'participation fragments: 2 · 2026-10-10..2026-10-14',
   ]);
-  assert.deepEqual(coverageAsked, [['g1', 48]]);
+  assert.deepEqual(coverageAsked, [['g1', 72]]);
 
   // Within the minute the cached field is shown, whatever changed.
   store.profiles.set('g1:u4', { id: 'u4', character: 'Νέος', episodes: [], details: [], aliases: [] });
@@ -2153,17 +2102,13 @@ test('status: the memory field shows the coverage of every kind of memory, compu
   assert.equal((await memoryLines())[3].split(' · ')[0], 'profiles: 4', 'a minute later it is read again');
   assert.equal(coverageAsked.length, 2);
 
-  hot.config.features = { meaningSearch: true, embedIndex: false };
-  now.advance(61_000);
-  assert.equal((await memoryLines())[1], 'index: off', 'one index switch off');
   embedQueue.coverage = async () => ({ messages: 0, indexed: 0, missing: 0, oldestMissing: null });
-  hot.config.features = { meaningSearch: true, embedIndex: true };
   now.advance(61_000);
-  assert.equal((await memoryLines())[1], 'index: 1234 rows · - of record messages indexed (last 48 h) · none missing');
+  assert.equal((await memoryLines())[1], 'index: 1234 rows · - of record messages indexed (last 72 h) · none missing');
 });
 
 // PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
-test('status: the speed field gives the median and the mean of the last 24 h with the count, the planner only while it is on', async () => {
+test('status: the speed field gives the median and the mean of the last 24 h with the count', async () => {
   const rootDir = makeRoot();
   const now = handClock(Date.parse('2026-10-14T12:00:00.000Z'));
   const metrics = createMetrics({ dataDir: path.join(rootDir, 'data'), now });
@@ -2171,13 +2116,11 @@ test('status: the speed field gives the median and the mean of the last 24 h wit
   metrics.record('reply', 6000);
   metrics.record('reply without recall', 4000);
   metrics.record('meaning search', 120);
-  metrics.record('planner', 700);
-  const { admin, hot } = makeAdmin(rootDir, { metrics, now });
+  const { admin } = makeAdmin(rootDir, { metrics, now });
   const speedLines = async () =>
     (await admin.run('status.show', {}, { userId: '42' })).fields.find((f) => f.name === 'speed').value.split('\n');
 
-  const off = await speedLines();
-  assert.deepEqual(off, [
+  assert.deepEqual(await speedLines(), [
     'reply: median 5.0 s · mean 5.0 s (2)',
     'reply with recall: -',
     'reply without recall: median 4.0 s · mean 4.0 s (1)',
@@ -2190,15 +2133,10 @@ test('status: the speed field gives the median and the mean of the last 24 h wit
     'analyzer batch: -',
     'embedding flush: -',
   ]);
-  hot.config.features = { turnPlanner: true };
-  assert.equal(
-    (await speedLines()).find((line) => line.startsWith('planner')),
-    'planner: median 700 ms · mean 700 ms (1)'
-  );
 });
 
 // PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
-test("status: the speed field ends with today's missed-answer figures from the journal, while it is on", async () => {
+test("status: the speed field ends with today's missed-answer figures from the journal", async () => {
   const rootDir = makeRoot();
   const now = handClock(Date.parse('2026-10-14T12:00:00.000Z'));
   const asked = [];
@@ -2215,15 +2153,12 @@ test("status: the speed field ends with today's missed-answer figures from the j
       ];
     },
   };
-  const { admin, hot } = makeAdmin(rootDir, { journal, now });
+  const { admin } = makeAdmin(rootDir, { journal, now });
   const speed = async (userId = '42') =>
     (await admin.run('status.show', {}, { userId })).fields.find((f) => f.name === 'speed')?.value;
-  hot.config.features = { ...hot.config.features, journal: true };
   assert.equal(await speed(), 'not available\nmissed: 2 candidates, 1 owed, 1 recovered');
   assert.deepEqual(asked, [['g1', { day: '2026-10-14', kind: 'answer', n: Number.MAX_SAFE_INTEGER }]]);
   assert.equal(await speed('999'), undefined, 'a member has no speed field');
-  hot.config.features = { ...hot.config.features, journal: false };
-  assert.equal(await speed(), 'not available', 'no journal, no line');
 });
 
 // PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
@@ -2232,10 +2167,9 @@ test('status: the storage line flags a journal that stopped writing while turns 
   let lastWriteMs = null;
   const journal = { stats: async () => ({ lastWriteMs }), stalled: () => false };
   const metrics = createMetrics({ dataDir: path.join(rootDir, 'data') });
-  const { admin, hot } = makeAdmin(rootDir, { journal, metrics });
+  const { admin } = makeAdmin(rootDir, { journal, metrics });
   const storage = async () => (await admin.run('status.show', {}, { userId: '42' })).fields[0].value.split('\n')[1];
 
-  hot.config.features = { journal: true };
   assert.equal(await storage(), 'storage ok', 'no turn in the last hour: nothing to judge');
   metrics.record('reply', 3000);
   assert.equal(await storage(), 'storage: journal not written today while turns happen');
@@ -2246,9 +2180,6 @@ test('status: the storage line flags a journal that stopped writing while turns 
   );
   lastWriteMs = Date.now();
   assert.equal(await storage(), 'storage ok');
-  hot.config.features = { journal: false };
-  lastWriteMs = Date.now() - 2 * 3_600_000;
-  assert.equal(await storage(), 'storage ok', 'the journal switched off is not expected to write');
 });
 
 /** A fake llm client for the status probes: `complete` answers each role through `answer` (a
@@ -2315,9 +2246,6 @@ test('status: the card lists one item per line in every field, the models one li
     client,
   });
   probeConfig(hot);
-  hot.config.media = { video: { maxPerDay: 40 } };
-  hot.config.recall = { maxPerDay: 100 };
-  hot.config.web = { maxPerDay: 60 };
 
   const { fields } = await admin.run('status.show', {}, { userId: '42' });
   const lines = (name) => fields.find((f) => f.name === name).value.split('\n');
@@ -2333,6 +2261,7 @@ test('status: the card lists one item per line in every field, the models one li
       'costs.errands',
       'models.development',
       'costs.development',
+      'inner',
       'limits',
       'memory',
       'speed',
@@ -2344,7 +2273,8 @@ test('status: the card lists one item per line in every field, the models one li
   assert.deepEqual(lines('tasks'), ['emoji backfill running', 'GIF backfill running', 'archive drain: 2 pending']);
   assert.deepEqual(
     lines('limits').map((line) => line.replace(/^requests \d+/, 'requests N')),
-    ['requests N/300', 'images 2/5', 'videos 0/40', 'recall 0/100', 'lookups 0/60', 'resets 00:00 UTC']
+    // PR 7d: the daily caps are gone, so the request rail is the one limit left; the inner life is code (`inner`).
+    ['requests N/300', 'resets 00:00 UTC']
   );
   const head = (line) => line.split(' · ').slice(0, 2).join(' · ');
   for (const name of ['models.base', 'models.errands', 'models.development']) {
@@ -2390,8 +2320,7 @@ test('status: the limits field names the web search engine (one word), off when 
     },
   };
   const { admin, hot } = makeAdmin(rootDir, { lookup });
-  hot.config.features = { ...hot.config.features, webLookup: true };
-  hot.config.web = { maxPerDay: 60, search: { enabled: true } };
+  hot.config.web = { search: { enabled: true } };
   const searchLine = async () => {
     const { fields } = await admin.run('status.show', { field: 'limits' }, { userId: '42' });
     return fields[0].value.split('\n').filter((line) => line.startsWith('search'));
@@ -2404,9 +2333,6 @@ test('status: the limits field names the web search engine (one word), off when 
   assert.deepEqual(await searchLine(), ['search: off'], 'the chosen engine cannot run (no Brave key)');
   lookup.ready = true;
   hot.config.web.search.enabled = false;
-  assert.deepEqual(await searchLine(), ['search: off']);
-  hot.config.web.search.enabled = true;
-  hot.config.features.webLookup = false;
   assert.deepEqual(await searchLine(), ['search: off']);
 });
 
@@ -2704,7 +2630,7 @@ test('run: pause waits for a turn already in flight before dropping caches', asy
   assert.equal(store.dropCachesCalls, 1);
 });
 
-test('/nep pause: no timer-driven writer (spontaneous.tick, store.flush) writes memory while paused', async () => {
+test('/nep pause: no timer-driven writer (store.flush) writes memory while paused', async () => {
   const mem = await openTestMemory();
   try {
     const writes = [];
@@ -2726,22 +2652,7 @@ test('/nep pause: no timer-driven writer (spontaneous.tick, store.flush) writes 
 
     realStore.state.data.paused = true;
 
-    const spontaneous = createSpontaneous({
-      discord: DISCORD,
-      hot: { config: {} },
-      store: realStore,
-      client: { guilds: { cache: new Map() } },
-      turns: {
-        runTurn: async () => ({ outcome: 'spoke' }),
-        isBusy: () => false,
-        isAnyBusy: () => false,
-        lastPostAt: () => 0,
-      },
-      getGuildId: () => guildId,
-    });
-
-    // Mirrors index.js's periodic timers firing once, back to back.
-    await spontaneous.tick();
+    // Mirrors index.js's periodic store timer firing once.
     realStore.flush();
     await new Promise((resolve) => setImmediate(resolve));
 
@@ -3279,7 +3190,7 @@ test('run: media pictures recache starts the media run with days (default 7) and
   assert.deepEqual(gifRecache.calls[1].options, { days: 30 });
 });
 
-test('run: media pictures recache refuses days out of 1..60, a run in flight, pictures off; status and rescan have no pictures kind', async () => {
+test('run: media pictures recache refuses days out of 1..60 and a run in flight; status and rescan have no pictures kind', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { gifRecache: fakeMediaRecache() });
   for (const days of [0, 61, 2.5, '7']) {
@@ -3298,11 +3209,6 @@ test('run: media pictures recache refuses days out of 1..60, a run in flight, pi
   assert.match(
     await busy.run('media.recache', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' }),
     /already running/
-  );
-  const { admin: off } = makeAdmin(rootDir, { gifRecache: fakeMediaRecache({ ok: false, reason: 'off' }) });
-  assert.match(
-    await off.run('media.recache', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' }),
-    /features\.mediaDescriptions is off/
   );
   const { admin: bare } = makeAdmin(rootDir);
   assert.equal(
@@ -3510,7 +3416,6 @@ function makeRecentAdmin(t, lines, config = {}) {
   t.mock.method(Date, 'now', () => RECENT_NOW);
   const rootDir = makeRoot();
   const hot = makeHot(rootDir);
-  hot.config.memory = { recentHours: 72 };
   Object.assign(hot.config, config);
   const store = makeStore();
   store.recent.set('g1', { nextId: 100, lines });
@@ -3560,17 +3465,11 @@ test('run: memory.recent shows the time in the configured time zone', async (t) 
   assert.ok(text.includes('2026-10-06 01:30'), text);
 });
 
-test('run: memory.recent answers one short line with the switch off or with no live line', async (t) => {
-  const off = makeRecentAdmin(t, [recentLine(1, 1, 'a line')], { features: { recent: false } });
-  const offText = await off.admin.run('memory.recent.read', {}, { guildId: 'g1' });
-  assert.ok(!offText.includes('\n'));
-  assert.ok(!offText.includes('a line'));
-
+test('run: memory.recent answers one short line with no live line', async (t) => {
   const none = makeRecentAdmin(t, [recentLine(1, 100, 'expired line')]);
   const noneText = await none.admin.run('memory.recent.read', {}, { guildId: 'g1' });
   assert.ok(!noneText.includes('\n'));
   assert.ok(!noneText.includes('expired line'));
-  assert.notEqual(noneText, offText);
 });
 
 test('run: memory.recent works while paused, writes nothing and is open to a granted read-only access', async (t) => {
@@ -3707,7 +3606,6 @@ test('admin: pause and resume write system records and post nothing to the chat'
   const journal = fakeJournal();
   const client = sendingClient();
   const hot = makeHot(rootDir);
-  hot.config.features = { journal: true };
   hot.config.journal = {};
   const { admin } = makeAdmin(rootDir, { hot, client, journal });
 
@@ -3728,12 +3626,6 @@ test('admin: pause and resume write system records and post nothing to the chat'
 
   // A repeat pause or resume that changes nothing records nothing.
   await admin.run('bot.resume', {}, { guildId: 'g1' });
-  assert.equal(journal.calls.filter(([name]) => name === 'system').length, 2);
-
-  // With the journal off nothing is recorded, and still nothing is posted.
-  hot.config.features.journal = false;
-  await admin.run('bot.pause', {}, { guildId: 'g1' });
-  assert.equal(client.sent.length, 0);
   assert.equal(journal.calls.filter(([name]) => name === 'system').length, 2);
 });
 

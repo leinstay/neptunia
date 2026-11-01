@@ -16,7 +16,7 @@ import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { publishTo } from './fixtures/diary-mirror.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { drawPicture, drawPromptOf } from '../src/media/draw.js';
-import { ImageCapError, ImageGenError, UnsupportedImageModelError } from '../src/llm/images.js';
+import { ImageGenError, UnsupportedImageModelError } from '../src/llm/images.js';
 
 const createTurnRunner = onWorld(createRealTurnRunner);
 
@@ -41,67 +41,23 @@ const PROMPTS = {
   labels: LABELS,
 };
 
-const SWITCHES = {
-  memory: true,
-  reactions: true,
-  multiMessage: true,
-  typingSimulation: false,
-  customEmoji: true,
-  gifs: false,
-  imageGeneration: true,
-  channelPull: false,
-  recent: true,
-  vision: true,
-  diary: true,
-};
-
 function hot() {
   return {
+    // PR 7d: the switches are code, the daily caps are gone and the diary's kinds and sets are constants of
+    // src/behavior/diary.ts (`photoset` is a set of 4 to 6 pictures), so only the settings stay.
     config: {
-      bot: { timezone: TZ, dryRunChannelId: '', owners: ['42'] },
+      bot: { timezone: TZ, owners: ['42'] },
       context: {
         channelMessages: 50,
-        neighborMessages: 5,
-        neighborMaxAgeMinutes: 60,
-        neighborMaxChannels: 8,
-        maxMessageChars: 800,
-        gapMarkerMinutes: 20,
-        otherProfiles: 6,
         caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
-        vision: {
-          maxImages: 2,
-          tokensPerImage: 400,
-          imageSize: 512,
-          recentImages: 0,
-          recentImageMinutes: 0,
-          maxBytes: 1_500_000,
-          fetchTimeoutMs: 7000,
-        },
-        pull: { scanMessages: 20, maxChannels: 1, sameAudience: true },
+        vision: { fetchTimeoutMs: 7000 },
+        pull: { sameAudience: true },
       },
-      llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
+      llm: { maxRequestTokens: 50000 },
       models: { base: { drawing: 'openai/image-model' } },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
-      features: { ...SWITCHES },
-      media: { maxPerTurn: 6, filePreviewChars: 500 },
-      gifs: { maxPerDay: 40 },
       image: { maxPromptChars: 1000, reference: 'avatar', referenceMaxBytes: 4_000_000 },
-      diary: {
-        channelId: 'd1',
-        world: false,
-        maxPicturesPerDay: 30,
-        maxMessages: 3,
-        historyPosts: 40,
-        gistChars: 60,
-        seedSets: 1,
-        kinds: { selfPicture: 1, tour: 1 },
-        searchKinds: [],
-        pictureKinds: ['selfPicture', 'tour'],
-        setKinds: ['tour'],
-        set: { pictures: [3, 3], minPosted: 2, seedSets: 1, maxMessageBytes: 8_000_000 },
-        planMaxOutputTokens: 250,
-        planTimeoutMs: 15000,
-      },
+      diary: { channelId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
     },
     prompts: { ...PROMPTS },
   };
@@ -147,21 +103,14 @@ function imageFetcher() {
   return { fetchAsDataUrl: async () => ({ dataUrl: AVATAR, bytes: 6, contentType: 'image/png' }) };
 }
 
-/** The image client boundary: every generate() call's arguments, as given; the calls past `capAfter` throw the daily cap. */
-function recordingImages({ capAfter = Infinity } = {}) {
+/** The image client boundary: every generate() call's arguments, as given. */
+function recordingImages() {
   const calls = [];
   return {
     calls,
     familyOf,
-    quota: () => ({ used: 0, cap: 50, userUsed: 0, userCap: 5, spent: false, userSpent: false }),
     generate: async (args) => {
       calls.push(structuredClone(args));
-      if (calls.length > capAfter)
-        throw Object.assign(new ImageCapError('daily', 'cap'), {
-          key: 'image.maxPerDay',
-          used: capAfter,
-          cap: capAfter,
-        });
       return {
         buffer: Buffer.from('png'),
         mediaType: 'image/png',
@@ -241,20 +190,20 @@ function memberTrigger() {
   return { raw, trigger };
 }
 
-test('diary set: the avatar is fetched once; a cap ends the set like an image cap and the rest is posted', async () => {
-  const images = recordingImages({ capAfter: 2 });
+// PR 7d: the daily image cap that ended the set is gone, so the set posts every picture it drew.
+test('diary set: the avatar is fetched once and goes with the first picture; the set is posted', async () => {
+  const images = recordingImages();
   const hotValue = hot();
-  const plan = { kind: 'tour', brief: 'a harbour walk', search: '', picture: true };
+  const plan = { kind: 'photoset', brief: 'a harbour walk', search: '', picture: true };
   const answer = [
     toolAnswer('<msg>a walk</msg>', [
       call('draw.create', { text: 'me at the harbour gate', self: true }),
       call('draw.create', { text: 'boats in the harbour' }),
       call('draw.create', { text: 'a café terrace' }),
     ]),
-    '<msg>a walk, two pictures</msg>',
   ];
   const target = channel('d1', 'journal');
-  const { result, logs } = await withCapturedLogs(() =>
+  const { result } = await withCapturedLogs(() =>
     runner({ answer, plan, images, hotValue }).runTurn({
       channel: target,
       mode: 'diary',
@@ -262,23 +211,19 @@ test('diary set: the avatar is fetched once; a cap ends the set like an image ca
     })
   );
   assert.equal(result.outcome, 'spoke');
-  assert.equal(images.calls.length, 3, 'the third picture reached the client and was refused');
   assert.deepEqual(
     images.calls.map((call) => call.reference),
     [AVATAR, null, null]
   );
-  const refused = logs.find((l) => l.msg === 'turn: draw refused by a limit');
-  assert.deepEqual([refused.key, refused.asked], ['image.maxPerDay', false]);
   // Stage 3 design, section 3 item 4: the turn records the entry and sends nothing; the mirror's publication of the
   // entry posts what came out.
   assert.equal(target.sent.length, 0, 'the turn itself sends nothing');
   await publishTo(result, world().port, { now: NOW });
-  assert.equal(target.sent.at(-1).files.length, 2, 'what came out is posted (diary.set.minPosted is 2)');
+  assert.equal(target.sent.at(-1).files.length, 3, 'the three pictures are posted');
 });
-
 // PR 7b: admin.run takes the operation's name, the command key map is gone; the expectations are as they were.
-test("/nep draw: one picture for the owner; a cap makes the command fail with the image cap's words", async () => {
-  const images = recordingImages({ capAfter: 1 });
+test('/nep draw: one picture for the owner', async () => {
+  const images = recordingImages();
   const hotValue = hot();
   const admin = (value) =>
     createAdmin({
@@ -305,71 +250,51 @@ test("/nep draw: one picture for the owner; a cap makes the command fail with th
     images.calls[0].prompt,
     'A drawing by Bot.\n\nBot has silver hair and a green scarf.\n\nScene: me reading by the window'
   );
-
-  const { result: outcome } = await withCapturedLogs(async () => {
-    try {
-      return await admin(hotValue).run('draw.create', { text: 'again' }, ctx);
-    } catch (err) {
-      return err;
-    }
-  });
-  assert.match(String(outcome?.message ?? outcome?.summary ?? JSON.stringify(outcome)), /draw failed \(daily\)/);
-  assert.equal(images.calls.length, 2, 'the second call reached the client and was refused');
 });
 
-test("draw.create from a member's mention: the picture is charged to the member; a cap comes back as a result, with no notice", async () => {
+test("draw.create from a member's mention: the picture is charged to the member", async () => {
   const hotValue = hot();
   hotValue.config.bot.access = { 'draw.create': { everyone: false, roles: [], users: ['self-id'] } };
   hotValue.config.tools = { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000 };
-  for (const [capAfter, expected] of [
-    [Infinity, 'ok'],
-    [0, 'image-cap-daily'],
-  ]) {
-    const images = recordingImages({ capAfter });
-    const hotCase = structuredClone(hotValue);
-    hotCase.prompts = { ...PROMPTS };
-    const { raw, trigger } = memberTrigger();
-    const target = channel('c1', 'general', [raw]);
-    client();
-    const turns = createTurnRunner({
+  const images = recordingImages();
+  const hotCase = structuredClone(hotValue);
+  hotCase.prompts = { ...PROMPTS };
+  const { raw, trigger } = memberTrigger();
+  const target = channel('c1', 'general', [raw]);
+  client();
+  const turns = createTurnRunner({
+    hot: hotCase,
+    store: store(),
+    llm: llm(toolAnswer('', [call('draw.create', { text: 'a lighthouse at dusk' })])),
+    calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
+    images,
+    imageFetcher: imageFetcher(),
+    lookup: null,
+    rng: () => 0.5,
+    now: () => NOW,
+    skills: skillRegistry(),
+    runOp: createAdmin({
+      reads: world().reads,
+      port: world().port,
       hot: hotCase,
       store: store(),
-      llm: llm(toolAnswer('', [call('draw.create', { text: 'a lighthouse at dusk' })])),
-      calibrator: { ratio: 1, apply: (n) => n, observe: () => {} },
-      images,
-      imageFetcher: imageFetcher(),
-      lookup: null,
-      rng: () => 0.5,
-      now: () => NOW,
-      skills: skillRegistry(),
-      runOp: createAdmin({
-        reads: world().reads,
-        port: world().port,
-        hot: hotCase,
-        store: store(),
-        client: client(),
-        selfId: () => 'self-id',
-        getSelfName: () => 'Bot',
-        getGuildId: () => 'g1',
-      }).runSkillOp,
-    });
-    const { logs } = await withCapturedLogs(() =>
-      turns.runTurn({ channel: target, mode: 'reply', trigger, triggerKind: 'mention' })
-    );
-    const called = logs.find((l) => l.msg === 'skills: called' && l.skill === 'draw.create');
-    assert.ok(called, JSON.stringify(logs.filter((l) => /skill/.test(l.msg))));
-    assert.equal(called.code ?? 'ok', expected);
-    if (expected === 'ok') {
-      assert.equal(images.calls[0].userId, 'u1');
-      assert.ok(
-        target.sent.some((payload) => payload.files?.length === 1),
-        'the picture was posted'
-      );
-    } else {
-      assert.ok(images.calls.length >= 1, 'the client refused it');
-      assert.equal(target.sent.length, 0, 'no limit notice');
-    }
-  }
+      client: client(),
+      selfId: () => 'self-id',
+      getSelfName: () => 'Bot',
+      getGuildId: () => 'g1',
+    }).runSkillOp,
+  });
+  const { logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel: target, mode: 'reply', trigger, triggerKind: 'mention' })
+  );
+  const called = logs.find((l) => l.msg === 'skills: called' && l.skill === 'draw.create');
+  assert.ok(called, JSON.stringify(logs.filter((l) => /skill/.test(l.msg))));
+  assert.equal(called.code ?? 'ok', 'ok');
+  assert.equal(images.calls[0].userId, 'u1');
+  assert.ok(
+    target.sent.some((payload) => payload.files?.length === 1),
+    'the picture was posted'
+  );
 });
 
 test("draw.create operation quotes the message it replies to, in that message's channel (a link) and refuses a channel that disagrees", async () => {
@@ -521,7 +446,6 @@ test('drawPicture: the avatar is fetched once into a shared holder; a missing av
 
 test("drawPicture: a failure is the image client's own error, unwrapped", async () => {
   const errors = [
-    Object.assign(new ImageCapError('daily'), { key: 'image.maxPerDay', used: 1, cap: 1 }),
     new ImageGenError('moderation', 'refused', { statusCode: 400 }),
     new UnsupportedImageModelError('x/y'),
     new RangeError('odd'),

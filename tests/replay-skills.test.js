@@ -13,7 +13,7 @@ import path from 'node:path';
 import '../src/tools/impl/index.ts';
 import { expandPersonaGrant } from '../src/tools/impl/access.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
-import { FEATURE_SKILLS, NOT_GRANTABLE_TO_PERSONA } from '../src/tools/access.ts';
+import { NOT_GRANTABLE_TO_PERSONA } from '../src/tools/access.ts';
 import { callViewOf, requesterOf } from '../src/behavior/turn.js';
 import { fill } from '../src/format.js';
 import { createHot } from '../src/hot.js';
@@ -157,7 +157,7 @@ test('scenarioGrants: expanded as /nep access grant expands them for her; a not-
 
 test("personaGrantsConfig: her grants are exactly the given ones; people's grants and the live config untouched", () => {
   const live = {
-    features: { tools: true },
+    tools: { safeMode: false },
     bot: {
       owners: [OWNER],
       access: {
@@ -195,21 +195,17 @@ function fakeChannel({ memberRoles = [] } = {}) {
   };
 }
 
-/** The live-like config: skills on, the owner, people's `access`; her grants laid over it. */
-function scenarioConfig(grants, { access = {}, features = {} } = {}) {
-  return personaGrantsConfig(
-    { features: { tools: true, ...features }, tools: { safeMode: false }, bot: { owners: [OWNER], access } },
-    SELF,
-    grants
-  );
+/** The live-like config: safe mode off, the owner, people's `access`; her grants laid over it. */
+function scenarioConfig(grants, { access = {} } = {}) {
+  return personaGrantsConfig({ tools: { safeMode: false }, bot: { owners: [OWNER], access } }, SELF, grants);
 }
 
 /** simulateCall as the replay makes it: the call view of the turn, the requester of `author`. */
 function simulate(
   call,
-  { grants = [], author = OWNER, access, features, channel = fakeChannel(), resultText = 'RESULT', images } = {}
+  { grants = [], author = OWNER, access, channel = fakeChannel(), resultText = 'RESULT', images } = {}
 ) {
-  const config = scenarioConfig(grants, { access, features });
+  const config = scenarioConfig(grants, { access });
   const trigger = author ? { id: '1', authorId: author } : null;
   return simulateCall({
     call,
@@ -293,7 +289,8 @@ test("simulateCall: her own operations skip the requester's right but not her gr
   );
 });
 
-test('simulateCall: a call the server cannot resolve, a spent drawing budget, the full stop', () => {
+// PR 7d: drawings have no daily budget and the tools switch is code, so a drawing is answered and no stop exists.
+test('simulateCall: a call the server cannot resolve, a drawing answered canned', () => {
   const unknown = simulate({ skill: 'files.wipe', args: {} });
   assert.deepEqual(
     [unknown.verdict.stage, unknown.verdict.code, unknown.result.status],
@@ -305,19 +302,9 @@ test('simulateCall: a call the server cannot resolve, a spent drawing budget, th
   );
   assert.deepEqual([channel.verdict.stage, channel.verdict.code], ['resolve', 'invalid-args']);
   const drawing = { skill: 'draw.create', args: { text: 'un chat sur la lune' } };
-  const spent = simulate(drawing, { images: { quota: () => ({ spent: true, userSpent: false }) } });
-  assert.deepEqual(
-    [spent.verdict.stage, spent.verdict.code, spent.verdict.reason],
-    ['gateway', 'daily-cap', 'image.maxPerDay']
-  );
   const left = simulate(drawing, { images: { quota: () => ({ spent: false, userSpent: false }) } });
   assert.equal(left.verdict.ok, true, 'a paid effect is recorded and answered canned, never run');
   assert.equal(left.result.status, 'ok');
-  const off = simulate(
-    { skill: 'rule.add', args: { text: 'κανόνας' } },
-    { grants: ['rule.add'], features: { tools: false } }
-  );
-  assert.equal(off.verdict.code, 'skills-off');
 });
 
 test("scenarioInventory: the requester's catalogue as live discovery lists it: whole, the named ones, or none", () => {
@@ -325,8 +312,8 @@ test("scenarioInventory: the requester's catalogue as live discovery lists it: w
   const texts = { 'rule.add': { title: 'Add a rule', whenToUse: 'when asked' } };
   const input = { config, selfId: SELF, texts, conversationId: HERE, registry: skillRegistry() };
   const whole = scenarioInventory({ ...input, requester: { id: OWNER, roleIds: [] } });
-  // A skill behind a feature switch that is off has no row (src/tools/access.ts#FEATURE_SKILLS).
-  assert.equal(whole.length, [...skillRegistry().keys()].filter((name) => !Object.hasOwn(FEATURE_SKILLS, name)).length);
+  // PR 7d: no skill sits behind a feature switch any more, so every skill has a row.
+  assert.equal(whole.length, skillRegistry().size);
   assert.deepEqual(
     whole.find((row) => row.name === 'rule.add'),
     {
@@ -356,14 +343,6 @@ test("scenarioInventory: the requester's catalogue as live discovery lists it: w
     ]
   );
   assert.equal(scenarioInventory({ ...input, requester: null, discovery: 'none' }), null);
-  assert.equal(
-    scenarioInventory({
-      ...input,
-      config: { ...config, features: { tools: true, toolsDiscovery: false } },
-      requester: null,
-    }),
-    null
-  );
 });
 
 test('replay --skills: the flags it takes; the invented message; a run as its JSONL line, the counts and the report', () => {
@@ -457,8 +436,8 @@ test('replay --skills: the flags it takes; the invented message; a run as its JS
 const OTHER = '100000000000000009';
 const NAMES = { [OWNER]: 'Élodie', [MEMBER]: 'Zoë', [OTHER]: 'Νίκος' };
 
-/** The config of a sequence's view: what buildRequest reads, skills on, the owner, her grants laid over it. */
-function sequenceConfig(grants, features = {}, nameTriggers = []) {
+/** The config of a sequence's view: what buildRequest reads, the owner, her grants laid over it. */
+function sequenceConfig(grants, nameTriggers = []) {
   return personaGrantsConfig(
     {
       bot: { owners: [OWNER], timezone: 'UTC', access: {}, nameTriggers },
@@ -473,7 +452,6 @@ function sequenceConfig(grants, features = {}, nameTriggers = []) {
       models: { base: { core: 'x/chat' } },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
       tools: { safeMode: false },
-      features: { tools: true, ...features },
     },
     SELF,
     grants
@@ -511,7 +489,7 @@ async function playSequence(
   { grants = ['message.create', 'rule.add', 'rule.list'], history = [], nameTriggers = [] } = {}
 ) {
   const [scenario] = load([{ id: 'seq', channelId: HERE, steps: rawSteps, grants: [], result: 'SCENARIO_RESULT' }]);
-  const config = sequenceConfig(grants, {}, nameTriggers);
+  const config = sequenceConfig(grants, nameTriggers);
   const hot = {
     config,
     prompts: {
@@ -1151,8 +1129,8 @@ test('burstTurns: the live queue over a burst -- the first message starts the tu
     { id: e.id, text: 'ε', author: 'Zoë' },
   ]);
   assert.deepEqual(plan.turns[3].queued, []);
-  // features.nameTriggers off: a named line is a plain follow-up.
-  const off = burstTurns([a, b], { selfId: SELF, config: { ...config, features: { nameTriggers: false } } });
+  // PR 7d: the name switch is code; an empty bot.nameTriggers is what leaves a named line a plain follow-up.
+  const off = burstTurns([a, b], { selfId: SELF, config: { ...config, bot: { ...config.bot, nameTriggers: [] } } });
   assert.deepEqual(
     off.turns.map((t) => t.kind),
     ['followUp', 'followUp']
@@ -1351,7 +1329,7 @@ test('replay --skills --prompts: the directory is laid over a copy of prompts.lo
     fs.writeFileSync(path.join(root, rel), text);
   };
   // PR 7c: the tracked settings and labels live in config/, the labels under `model`.
-  write('config/config.json', JSON.stringify({ features: { tools: true } }));
+  write('config/config.json', JSON.stringify({ tools: { safeMode: false } }));
   write('prompts/reply.md', 'tracked reply');
   write('prompts/format.md', 'tracked format');
   write(
@@ -1444,7 +1422,7 @@ test('replay --skills --prompts: a prompts.local/ that links to the live layer i
       fs.writeFileSync(path.join(dir, rel), text);
     };
     // PR 7c: the tracked settings and labels live in config/, the labels under `model`.
-    write(root, 'config/config.json', JSON.stringify({ features: { tools: true } }));
+    write(root, 'config/config.json', JSON.stringify({ tools: { safeMode: false } }));
     write(root, 'prompts/reply.md', 'tracked reply');
     write(root, 'config/labels.json', JSON.stringify({ model: { task: { queued: 'tracked queued' } }, owner: {} }));
     const liveLabels = JSON.stringify({ task: { queued: 'live queued', queuedOthers: 'live others' } });

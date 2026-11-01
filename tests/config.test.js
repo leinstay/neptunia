@@ -6,10 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnv, applyEnv, deepMerge, readConfig, need, isPlainObject, resolveEnvRefs } from '../src/config.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { roomQuestionChance } from '../src/behavior/spontaneous.js';
-import { RECALL_DEFAULTS, recallSettings } from '../src/behavior/recall.js';
 import { paceSettings } from '../src/behavior/turn.js';
-import { SPLIT_DEFAULTS, splitSettings } from '../src/behavior/split.js';
 import { tempDir } from './fixtures/tmp.js';
 
 function tmpDir() {
@@ -235,50 +232,8 @@ test('need: throws when the value is an empty string', () => {
   }
 });
 
-test('config.json: the code fallback of spontaneous.roomQuestionChance is the shipped value', () => {
-  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config', 'config.json'), 'utf8'));
-  assert.equal(roomQuestionChance({}), shipped.spontaneous.roomQuestionChance);
-});
-
-test('config.json: the code fallbacks of the recall group are the shipped values', () => {
-  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config', 'config.json'), 'utf8'));
-  assert.deepEqual(recallSettings({}), shipped.recall);
-  assert.deepEqual({ ...RECALL_DEFAULTS }, shipped.recall);
-});
-
 test('config.json: the code fallbacks of the pace group are the shipped values', () => {
   const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
   const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config', 'config.json'), 'utf8'));
   assert.deepEqual(paceSettings({}), shipped.pace);
-});
-
-test('config.json: the pause notice fallbacks are the shipped values', async () => {
-  const { pauseNoticeMinutes } = await import('../src/behavior/limits.js');
-  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config', 'config.json'), 'utf8'));
-  assert.equal(pauseNoticeMinutes({}), shipped.mention.pauseNoticeMinutes);
-  assert.equal(
-    shipped.features.pauseNotice,
-    true,
-    'a missing features.pauseNotice counts as on, like the shipped value'
-  );
-});
-
-test('config.json: the recall budget fallbacks (forms, clusters, run limit, summary minimum) are the shipped values', () => {
-  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config', 'config.json'), 'utf8'));
-  for (const key of ['maxForms', 'maxClusters', 'timeoutMs', 'minSummaryMs']) {
-    assert.equal(recallSettings({ recall: {} })[key], shipped.recall[key], key);
-  }
-});
-
-test('config.json: the code fallbacks of the split group are the shipped values, and splitTasks ships on', () => {
-  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const shipped = JSON.parse(fs.readFileSync(path.join(root, 'config', 'config.json'), 'utf8'));
-  assert.deepEqual(splitSettings({}), shipped.split);
-  assert.deepEqual(splitSettings({ split: {} }), shipped.split);
-  assert.deepEqual({ ...SPLIT_DEFAULTS }, shipped.split);
-  assert.equal(shipped.features.splitTasks, true, 'a missing features.splitTasks counts as on, like the shipped value');
 });

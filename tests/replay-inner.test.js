@@ -53,23 +53,14 @@ test("replay --inner: an intention's wake needs --intention, the review takes no
   }
 });
 
-test('innerReplayHot: shadow forced, the switch on, no dry run, no journal, no mirror; the live config untouched', () => {
-  const live = {
-    config: {
-      features: { innerLife: false, dryRun: true, journal: true, coreTools: true },
-      bot: { dryRunChannelId: '5', timezone: 'UTC' },
-      innerLife: { mode: 'live', chatMessages: 7 },
-    },
-    prompts: {},
-  };
+// PR 7d: the switches and the dry run are gone, so the replay forces the shadow mode alone.
+test('innerReplayHot: shadow forced; the live config untouched', () => {
+  const live = { config: { bot: { timezone: 'UTC' }, innerLife: { mode: 'live', tickSeconds: 7 } }, prompts: {} };
   const config = innerReplayHot(live).config;
-  assert.deepEqual(config.features, { innerLife: true, dryRun: false, journal: false, coreTools: true });
   assert.equal(config.innerLife.mode, 'shadow');
-  assert.equal(config.innerLife.chatMessages, 7);
-  assert.equal(config.bot.dryRunChannelId, '');
+  assert.equal(config.innerLife.tickSeconds, 7);
   assert.equal(live.config.innerLife.mode, 'live');
 });
-
 test("innerReplayWake: the scheduler's wake for the intention, its budgets from the state read", () => {
   const settings = inner.innerSettings({});
   const state = { ...inner.emptyState(), turns: [{ at: NOW - 60_000, chainId: 'intention:i1', usd: 0.2 }] };

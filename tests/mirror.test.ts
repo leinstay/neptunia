@@ -180,29 +180,16 @@ test('two enabled mirrors of different places each get the entry once, also when
 
 const WALK = 'une promenade au port';
 
-/** The scene's settings with `tour` as a set kind of two or three pictures (three calls a step), drawing and speech on. */
-function setAndVoiceHot(maxMessageBytes = 1_000_000) {
+/**
+ * The scene's settings with the draw prompt. PR 7d: drawing and speech are code, and `photoset` is a set kind of the
+ * constants of src/behavior/diary.ts (at least two pictures posted, at most 8 000 000 bytes in one message).
+ */
+function setAndVoiceHot() {
   const base = sceneHot();
-  // sceneHot's sections are plain objects; the test lays its own keys over them.
-  const section = (name: string) => base.config[name] as Record<string, unknown>;
-  return {
-    config: {
-      ...base.config,
-      features: { ...section('features'), imageGeneration: true, speech: true },
-      diary: {
-        ...section('diary'),
-        kinds: { tour: 1 },
-        pictureKinds: ['tour'],
-        setKinds: ['tour'],
-        maxPicturesPerDay: 10,
-        set: { pictures: [2, 3], minPosted: 2, seedSets: 1, maxMessageBytes },
-      },
-    },
-    prompts: { ...base.prompts, draw: 'DRAW for {{name}}\n{{when}}\n{{request}}' },
-  };
+  return { config: base.config, prompts: { ...base.prompts, draw: 'DRAW for {{name}}\n{{when}}\n{{request}}' } };
 }
 
-/** A model that plans a `tour` with a picture, then writes one message with two pictures and a voice message. */
+/** A model that plans a `photoset` with a picture, then writes one message with two pictures and a voice message. */
 function setAndVoiceLlm() {
   const calls: Array<unknown> = [];
   let written = 0;
@@ -212,7 +199,7 @@ function setAndVoiceLlm() {
       calls.push(messages);
       if (options?.purpose === 'diary-plan')
         return Promise.resolve({
-          text: JSON.stringify({ kind: 'tour', brief: 'a walk', search: '', picture: true }),
+          text: JSON.stringify({ kind: 'photoset', brief: 'a walk', search: '', picture: true }),
           usage: {},
           estimated: 5,
         });
@@ -230,20 +217,19 @@ function setAndVoiceLlm() {
   };
 }
 
-/** The turn runner of an entry with two pictures and a voice, over the scene's store. */
-function setAndVoiceTurns(store: Awaited<ReturnType<typeof scene>>['store'], maxMessageBytes?: number) {
+/** The turn runner of an entry with two pictures of `pictureBytes` each and a voice, over the scene's store. */
+function setAndVoiceTurns(store: Awaited<ReturnType<typeof scene>>['store'], pictureBytes = 3) {
   return worldTurnRunner({
-    hot: setAndVoiceHot(maxMessageBytes),
+    hot: setAndVoiceHot(),
     store,
     llm: setAndVoiceLlm(),
     calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
     images: {
-      quota: () => ({ used: 0, cap: 10, userUsed: 0, userCap: 5, spent: false, userSpent: false }),
-      generate: () => Promise.resolve({ buffer: Buffer.from('png'), mediaType: 'image/png', seconds: 1, cost: 0 }),
+      generate: () =>
+        Promise.resolve({ buffer: Buffer.alloc(pictureBytes, 1), mediaType: 'image/png', seconds: 1, cost: 0 }),
     },
     // The speech client as src/speech/index.js#createSpeech answers: the voice file and what was voiced.
     speech: {
-      quota: () => ({ used: 0, cap: 10, spent: false }),
       say: ({ text }: { text: string }) =>
         Promise.resolve({
           ogg: Buffer.from('ogg'),
@@ -265,7 +251,7 @@ function setAndVoiceTurns(store: Awaited<ReturnType<typeof scene>>['store'], max
 test('an entry with two pictures and a voice reaches the mirror as the voice, the message, then the pictures', async () => {
   const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
   const turns = setAndVoiceTurns(core.store);
-  const result = await turns.runTurn({ mode: 'diary', diary: { kind: 'tour', forced: true }, guildId: GUILD });
+  const result = await turns.runTurn({ mode: 'diary', diary: { kind: 'photoset', forced: true }, guildId: GUILD });
   await core.store.flushSettled({});
   assert.deepEqual(world().port.messagesIn('d1'), [], 'the turn itself sends nothing');
   await core.mirrors.publishEntry(entryOf(result));
@@ -292,7 +278,7 @@ test('an entry with pictures and a voice queued before a restart goes out whole 
   const core = await scene({ mirrors: [{ conversationId: 'd1' }], connected: false });
   const result = await setAndVoiceTurns(core.store).runTurn({
     mode: 'diary',
-    diary: { kind: 'tour', forced: true },
+    diary: { kind: 'photoset', forced: true },
     guildId: GUILD,
   });
   await core.store.flushSettled({});
@@ -330,7 +316,7 @@ test("a publication keeps the port's attachment ids in its receipts and on the e
   const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
   const result = await setAndVoiceTurns(core.store).runTurn({
     mode: 'diary',
-    diary: { kind: 'tour', forced: true },
+    diary: { kind: 'photoset', forced: true },
     guildId: GUILD,
   });
   await core.store.flushSettled({});
@@ -377,10 +363,10 @@ test("a publication keeps the port's attachment ids in its receipts and on the e
 // attachment the port names keeps the message that carried it, in the receipts and on its media row.
 test('a picture set sent across two messages keeps every attachment id with the message that carried it', async () => {
   const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
-  // Each picture is 3 bytes: a message of 3 bytes holds one, so the two pictures need two messages.
-  const result = await setAndVoiceTurns(core.store, 3).runTurn({
+  // PR 7d: a message holds the constant 8 000 000 bytes, so two pictures of 4 100 000 bytes need two messages.
+  const result = await setAndVoiceTurns(core.store, 4_100_000).runTurn({
     mode: 'diary',
-    diary: { kind: 'tour', forced: true },
+    diary: { kind: 'photoset', forced: true },
     guildId: GUILD,
   });
   await core.store.flushSettled({});

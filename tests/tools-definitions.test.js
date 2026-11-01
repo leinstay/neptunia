@@ -1,12 +1,11 @@
 // Tests for src/tools/definitions.ts: her own table of skills over the operations: one entry per
-// operation in the registry order, the effects and features it declares, `toArgs` on generated
+// operation in the registry order, the effects it declares, `toArgs` on generated
 // samples, the quirks of the mapping, the API names and the validation of a bad table.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { listOps } from '../src/tools/impl/index.ts';
 import { OP_EFFECTS } from '../src/tools/impl/effects.ts';
-import { FEATURE_SKILLS } from '../src/tools/access.ts';
 import {
   API_NAMES,
   INTENT_PARAMS,
@@ -69,15 +68,10 @@ test('the table holds every operation, in the operations registry order', () => 
   for (const definition of SKILL_DEFINITIONS) assert.equal(definition.op, definition.name);
 });
 
-test('every definition declares its own effects, cost, feature and a body that is one of its arguments', () => {
+test('every definition declares its own effects, cost and a body that is one of its arguments', () => {
   for (const definition of SKILL_DEFINITIONS) {
     const { name } = definition;
     assert.equal(definition.effects, OP_EFFECTS[name], `${name}: effects table`);
-    assert.equal(
-      definition.feature,
-      Object.hasOwn(FEATURE_SKILLS, name) ? FEATURE_SKILLS[name] : null,
-      `${name}: feature`
-    );
     assert.ok(definition.costClass, `${name}: costClass`);
     assert.ok(
       definition.body === null || Object.hasOwn(definition.params.properties, definition.body),
@@ -228,13 +222,11 @@ test('validateDefinitions accepts the table and throws on bad input', () => {
   assert.throws(() => validateDefinitions([copy(first, { result: 'maybe' })]), /result/);
   assert.throws(() => validateDefinitions([copy(first, { params: null })]), /params/);
   assert.throws(() => validateDefinitions([copy(first, { toArgs: null })]), /toArgs/);
-  assert.throws(() => validateDefinitions([copy(first, { feature: 3 })]), /feature/);
 });
 
-test('voice.say: a paid skill of hers only behind features.speech, text required, no owner command', () => {
+test('voice.say: a paid skill of hers, text required, no owner command', () => {
   const definition = BY_NAME.get('voice.say');
   assert.equal(definition.effects, 'paid');
-  assert.equal(definition.feature, 'speech');
   assert.equal(definition.body, 'text');
   assert.deepEqual(definition.params.required, ['text']);
   assert.deepEqual(Object.keys(definition.params.properties), ['text', 'channel', 'reply']);

@@ -24,7 +24,6 @@ import { pullPictures } from '../src/behavior/pull.js';
 import {
   callViewOf,
   searchHandles,
-  coreToolsOn,
   fallbackLookupPlan,
   loopSettings,
   lookupClassifierInput,
@@ -89,8 +88,8 @@ const NOW = Date.UTC(2026, 9, 18, 12, 0, 0);
 const TOOLS = ['web.search', 'memory.search', 'errand.run'];
 const THINK = '<think>t</think>';
 
-/** The config of a scenario with her tools granted and the switch on; `loop` its bounds. */
-function toolConfig({ loop = { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 }, features = {} } = {}) {
+/** The config of a scenario with her tools granted; `loop` its bounds. */
+function toolConfig({ loop = { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } } = {}) {
   const base = withCoreTools({
     bot: { owners: [OWNER], timezone: 'UTC', access: {} },
     context: {
@@ -104,10 +103,8 @@ function toolConfig({ loop = { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep
     models: { base: { core: 'x/chat' } },
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
     tools: { safeMode: false, loop },
-    features: { tools: true, webLookup: true },
   });
-  // A test's own switches last: `coreTools: false` turns the switch off again.
-  return personaGrantsConfig({ ...base, features: { ...base.features, ...features } }, SELF, TOOLS);
+  return personaGrantsConfig(base, SELF, TOOLS);
 }
 
 /** A discord.js-like channel γενικά in a guild, nobody's roles cached. */
@@ -355,7 +352,6 @@ test('--no-cache: the trigger runs are marked like a live turn unless it is give
 
 test('the step engine: every request of a trigger run takes the live cache markers, the steps appended to the first messages included', async () => {
   const config = toolConfig();
-  config.features.promptCache = true;
   const { llm } = await loopRun(
     [
       toolAnswer(`${THINK}<msg>μισό λεπτό</msg>`, [
@@ -825,7 +821,7 @@ test('a write and a paid effect are answered canned: draw.create is recorded as 
       tool: () => {
         throw new Error('no tool runs for a drawing');
       },
-      config: toolConfig({ features: { imageGeneration: true } }),
+      config: toolConfig(),
     }
   );
   const record = runRecord('s', 0, run);
@@ -873,7 +869,7 @@ test('createReplayTools: web.search and web.read through the lookup and memory.s
       },
     };
   };
-  const config = toolConfig({ features: { recall: true } });
+  const config = toolConfig();
   const hot = { config, prompts: { labels } };
   const mediaCache = { kept: 1 };
   const linkOfMessage = (message) => (message.id === 'h2' ? 'https://example.org/p' : null);
@@ -995,7 +991,7 @@ test("pairAnswerOf: the sheet shows every posted message of a side's turn, its d
         call('message.create', { channel: '#γενικά', text: 'και ένα κείμενο' }),
       ]),
     ],
-    { tool: () => okTool('x'), config: toolConfig({ features: { imageGeneration: true } }) }
+    { tool: () => okTool('x'), config: toolConfig() }
   );
   const answerOfRun = pairAnswerOf(runRecord('p3', 0, run));
   assert.deepEqual(answerOfRun.drawings, [{ text: 'a cat' }]);
@@ -1058,7 +1054,7 @@ test("renderLoopTriggersReport: a table of the turns, then each turn's calls and
   assert.ok(report.includes('calls in order: 0:web.search ok') && report.includes('speech held (not posted):'));
 });
 
-// ---- the search classifier before her reply (features.coreTools off) ----
+// ---- the search classifier before her reply (the replay's pre-turn path) ----
 
 const PRE_DEPS = {
   lookupClassifierInput,
@@ -1078,9 +1074,9 @@ async function preTurn({
   found = { text: 'Είπε ναι.', stretch: null, people: [] },
   kind = 'mention',
   recallOn = true,
-  features = {},
+  web: webSettings = null,
 } = {}) {
-  const config = toolConfig({ features: { coreTools: false, recall: true, ...features } });
+  const config = webSettings ? { ...toolConfig(), web: webSettings } : toolConfig();
   const here = { id: HERE, name: 'γενικά' };
   const trigger = scenarioTrigger({
     text: 'Ποιος κέρδισε τον τελικό;',
@@ -1159,71 +1155,26 @@ test('preTurnLookup: none runs nothing; a failed classifier on a direct call fal
   const none = await preTurn({ answer: 'none' });
   assert.equal(none.out.lookup, null);
   assert.deepEqual([none.ran.web.length, none.ran.server.length], [0, 0]);
-  const failed = await preTurn({ answer: new Error('boom'), features: {} });
-  const fallbackOn = recallSettings(toolConfig({ features: { recall: true } }))?.fallbackOnClassifierFailure === true;
+  const failed = await preTurn({ answer: new Error('boom') });
+  const fallbackOn = recallSettings(toolConfig())?.fallbackOnClassifierFailure === true;
   assert.equal(failed.out.trace.fallback, fallbackOn);
   assert.equal(failed.ran.web.length, 0, 'never the web side');
-  const closed = await preTurn({ answer: 'web: x', recallOn: false, features: { webLookup: false } });
+  // PR 7d: the web lookup switch is code; the web search setting closes the web side.
+  const closed = await preTurn({ answer: 'web: x', recallOn: false, web: { search: { enabled: false } } });
   assert.deepEqual([closed.requests.length, closed.out.trace.asked, closed.out.lookup], [0, false, null]);
 });
 
-test('features.coreTools off: <lookup> and the recall senses line reach her request; on: the tool lines; requestBlocks names what each request held', async () => {
-  const config = toolConfig({ features: { coreTools: false, recall: true } });
-  const hot = {
-    config,
-    prompts: {
-      'system-prompt': 'SYSTEM',
-      'character-card': 'CARD',
-      format: 'FORMAT',
-      reply: 'REPLY {{author}}',
-      labels,
-    },
-  };
-  const store = {
-    getGuild: () => ({}),
-    getUser: () => null,
-    listChannels: () => [],
-    listUserProfiles: () => [],
-    getLore: () => [],
-    state: { data: {} },
-  };
-  const view = liveView({ hot, store, guildId: 'g1' });
-  const here = { id: HERE, name: 'γενικά' };
-  const trigger = scenarioTrigger({
-    text: 'Ποιος κέρδισε;',
-    authorId: OWNER,
-    authorName: 'Élodie',
-    channel: here,
-    selfId: SELF,
-    at: NOW,
-  });
-  const situation = { history: [trigger], triggerId: trigger.id, kind: 'mention', mode: 'reply' };
-  const llm = scriptedLlm([`${THINK}<msg>η Ana</msg>`]);
-  const answered = await answerSkillScenario({
-    view,
-    situation,
-    selfId: SELF,
-    selfName: 'Persona',
-    channel: here,
-    llm,
-    runs: 1,
-    at: NOW,
-    searchAvailable: true,
-    preTurn: { lookup: { query: 'τελικός', text: 'Η Ana κέρδισε.', sources: [] }, recallAvailable: true },
-  });
-  const off = requestBlocks(answered.request.user, labels);
-  assert.equal(off.lookup, true);
-  assert.ok(answered.request.user.includes('Η Ana κέρδισε.'));
-  assert.deepEqual([off.recallLine, off.tools, off.recallToolLine], [true, false, false]);
+// PR 7d: her tools are code, so the request of the classifier path (<lookup>, the recall senses line) is gone.
+test('her request holds the tool lines and no <lookup>; requestBlocks names what it held', async () => {
   const { llm: onLlm } = await loopRun([`${THINK}<msg>ok</msg>`], { tool: () => okTool('x') });
   const on = requestBlocks(userOf(onLlm.calls[0]), labels);
   assert.deepEqual([on.lookup, on.recallToolLine, on.recallLine], [false, true, false]);
 });
 
-// The automatic memory prefetch with features.coreTools on: what a live turn gets for the
+// The automatic memory prefetch: what a live turn gets for the
 // trigger, computed as of the moment and standing in every request of the loop.
 
-test('createReplayTools.prefetch: the live lanes of the trigger, run as of the moment; none with features.coreTools off or a trivial trigger', async () => {
+test('createReplayTools.prefetch: the live lanes of the trigger, run as of the moment; none for a trivial trigger', async () => {
   const { prefetchLanes, prefetchOn } = await import('../src/behavior/prefetch.js');
   const runs = [];
   const createRecall = () => ({
@@ -1264,7 +1215,7 @@ test('createReplayTools.prefetch: the live lanes of the trigger, run as of the m
     selfId: SELF,
     at: NOW,
   });
-  const on = make(toolConfig({ features: { coreTools: true, recall: true } }));
+  const on = make(toolConfig());
   const found = await on.prefetch({ trigger, triggerKind: 'mention', mode: 'reply', history: [trigger], at: NOW - 5 });
   assert.equal(found.status, 'none');
   assert.equal(runs.length, 1);
@@ -1279,8 +1230,6 @@ test('createReplayTools.prefetch: the live lanes of the trigger, run as of the m
     null,
     'a trivial trigger'
   );
-  const off = make(toolConfig({ features: { coreTools: false, recall: true } }));
-  assert.equal(await off.prefetch({ trigger, history: [trigger], at: NOW }), null);
   assert.equal(runs.length, 1);
 });
 
@@ -1354,7 +1303,7 @@ async function triggerRun({ single, transport = null, answers, config = toolConf
   const tools = { run: async () => okTool('Η Ana κέρδισε.'), prefetch: async () => null, recallAvailable: () => true };
   const loopDeps = {
     toolsFor: () => tools,
-    coreToolsOn,
+    coreToolsOn: () => true,
     loopSettings,
     IN_TURN_TOOLS,
     transportOf,
@@ -1568,7 +1517,7 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
   const store = { state: { data: {} }, listUserProfiles: () => [], getLore: () => [], getGuild: () => ({}) };
   const warnings = [];
   const channel = fakeChannel();
-  const config = toolConfig({ features: { recall: true } });
+  const config = toolConfig();
   const tools = createReplayTools({
     hot: { config, prompts: { labels: conversationLabels } },
     store,
@@ -1642,8 +1591,8 @@ test('createReplayTools: media.look looks again through the describer over the m
       ),
     };
   };
-  const config = toolConfig({ features: { vision: true, mediaDescriptions: true, imageRelook: true } });
-  const hot = { config: { ...config, media: { ...config.media, look: { maxPerTurn: 1 } } }, prompts: { labels } };
+  const config = toolConfig();
+  const hot = { config, prompts: { labels } };
   const tools = createReplayTools({
     hot,
     store,
@@ -1678,8 +1627,11 @@ test('createReplayTools: media.look looks again through the describer over the m
   assert.deepEqual(created[0], { kept: 1 }, 'the describer reads the private cache copy');
   const gone = await tools.run('media.look', { message: 'm404', question: 'τι;' }, { history });
   assert.equal(gone.result.status, 'invalid');
+  // PR 7d: the per-turn cap is the constant lookPerTurn() (2), so the third look is the one refused.
   const second = await tools.run('media.look', { message: 'm9', question: 'και τώρα;' }, { history });
-  assert.deepEqual([second.result.status, second.result.code], ['failed', 'turn-cap']);
+  assert.equal(second.result.status, 'ok');
+  const third = await tools.run('media.look', { message: 'm9', question: 'και πάλι;' }, { history });
+  assert.deepEqual([third.result.status, third.result.code], ['failed', 'turn-cap']);
   const find = await tools.run('media.find', { query: 'χορός' }, { history });
   assert.equal(find.result.status, 'ok', JSON.stringify(find.result));
 });
@@ -1703,11 +1655,11 @@ test('createReplayTools: media.look with a url looks at the video link through t
       { question, text: 'ένα τραγούδι' }
     ),
   });
-  const config = toolConfig({ features: { vision: true, mediaDescriptions: true, videoDescriptions: true } });
+  const config = toolConfig();
   const hot = {
     config: {
       ...config,
-      media: { ...config.media, video: { ...config.media?.video, sites: ['youtube.com'] }, look: { maxPerTurn: 1 } },
+      media: { ...config.media, video: { ...config.media?.video, sites: ['youtube.com'] } },
     },
     prompts: { labels },
   };
@@ -1734,8 +1686,11 @@ test('createReplayTools: media.look with a url looks at the video link through t
   assert.ok(first.result.data.text.includes('ένα τραγούδι'));
   assert.deepEqual([seen[0].source, seen[0].url, seen[0].messageId], ['link', url, null]);
   assert.equal(first.usage.requests, 1);
+  // PR 7d: the per-turn cap is the constant lookPerTurn() (2), so the third look is the one refused.
   const second = await tools.run('media.look', { url, question: 'και τώρα;' }, { history: [] });
-  assert.deepEqual([second.result.status, second.result.code], ['failed', 'turn-cap']);
+  assert.equal(second.result.status, 'ok');
+  const third = await tools.run('media.look', { url, question: 'και πάλι;' }, { history: [] });
+  assert.deepEqual([third.result.status, third.result.code], ['failed', 'turn-cap']);
 });
 
 test('loopCall: a tool that throws logs one warning with its message', async () => {

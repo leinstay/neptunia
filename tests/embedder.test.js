@@ -54,19 +54,15 @@ after(async () => {
 });
 
 /** A temp data/ with its database, the real record, a fake index and embed call, and the queue over them. */
-function scene({
-  features = { meaningSearch: true, embedIndex: true },
-  embedConfig = {},
-  embedImpl = null,
-  paused = null,
-} = {}) {
+// PR 7d: the index switches are code and the queue's measures constants of src/memory/embedder.js (a batch of 64, a
+// flush after 180 s, a queue of 2000, a catch-up every 60 minutes), so the config holds only the dimensions.
+function scene({ embedImpl = null, paused = null } = {}) {
   const mem = openTestMemorySync();
   OPENED.push(mem);
   const { dataDir, memoryDb } = mem;
   const record = createRecord({ dataDir, log: quietLog(), memoryDb });
   const config = {
-    features: { ...features },
-    embed: { dimensions: 4, batch: 64, flushSeconds: 180, queueMax: 2000, ...embedConfig },
+    embed: { dimensions: 4 },
     models: { base: { embedding: 'test/embed-model' } },
     llm: { maxRequestTokens: 50000 },
   };
@@ -144,19 +140,8 @@ function scene({
 
 const sentIds = (kit) => kit.appended.flatMap((a) => a.rows.map((row) => `${row.meta.id}:${row.meta.revision}`));
 
-test('embedder: nothing is queued or sent unless meaningSearch and embedIndex are both on', async () => {
-  for (const features of [{ meaningSearch: true, embedIndex: false }, { meaningSearch: false, embedIndex: true }, {}]) {
-    const kit = scene({ features });
-    assert.equal(await kit.write([line('m1', 0, 'γεια')]), 0);
-    await kit.embedder.flush();
-    assert.equal(kit.calls.length, 0);
-    assert.equal(kit.appended.length, 0);
-    await kit.close();
-  }
-});
-
 test('embedder: a full batch flushes at once: one request, chunks with their channel context, appended with the model', async () => {
-  const kit = scene({ embedConfig: { batch: 2 } });
+  const kit = scene();
   await kit.write([line('m1', 0, 'who brought the café?', { by: NIKOS, participants: [NIKOS] })]);
   assert.equal(kit.calls.length, 0);
   await kit.write([line('m2', 1, 'not me', { kind: 'said', by: undefined, participants: [] })]);
@@ -177,10 +162,10 @@ test('embedder: a full batch flushes at once: one request, chunks with their cha
 });
 
 test('embedder: the tick flushes once embed.flushSeconds have passed', async () => {
-  const kit = scene({ embedConfig: { flushSeconds: 60 } });
+  const kit = scene();
   await kit.write([line('m1', 0, 'a')]);
   assert.equal(kit.embedder.tick(), null);
-  kit.clock.at += 59_000;
+  kit.clock.at += 179_000;
   assert.equal(kit.embedder.tick(), null);
   kit.clock.at += 1_000;
   await kit.embedder.tick();
@@ -220,23 +205,36 @@ test('embedder: a failed request keeps the queue and the next flush sends it', a
   await kit.close();
 });
 
+/** `count` lines m1..m<count>, 0.6 s apart. */
+const many = (count) => [...Array(count).keys()].map((i) => line(`m${i + 1}`, (i + 1) / 100, `line ${i + 1}`));
+
+/**
+ * Flushes until the queue is empty: one flush sends one batch.
+ * @param {{ embedder: { stats: () => { queued: number }, flush: () => Promise<unknown> } }} kit
+ */
+async function drain(kit) {
+  while (kit.embedder.stats().queued > 0) await kit.embedder.flush();
+}
+
+// PR 7d: `embed.queueMax` is the constant 2000, so the queue is overfilled by two of 2002 lines.
 test('embedder: the queue is bounded at embed.queueMax, the oldest dropped with a warn', async () => {
-  const kit = scene({ embedConfig: { queueMax: 3 } });
-  await kit.write([1, 2, 3, 4, 5].map((n) => line(`m${n}`, n, `line ${n}`)));
-  assert.equal(kit.embedder.stats().queued, 3);
+  const kit = scene();
+  await kit.write(many(2002));
+  assert.equal(kit.embedder.stats().queued, 2000);
   assert.ok(kit.log.warns.some((w) => w.name === 'embedder: queue full' && w.fields.dropped === 2));
-  await kit.embedder.flush();
-  assert.deepEqual(
-    kit.appended[0].rows.map((row) => row.meta.id),
-    ['m3', 'm4', 'm5']
-  );
+  await drain(kit);
+  assert.deepEqual(sentIds(kit).slice(0, 2), ['m3:1', 'm4:1']);
   await kit.close();
 });
 
+// PR 7d: the index is code, so the lines before the first use are recorded without the queue.
 test('embedder: the ring is filled from the record on first use', async () => {
-  const kit = scene({ features: { meaningSearch: true, embedIndex: false } });
-  await kit.write([line('m1', 0, 'one'), line('m2', 1, 'two'), line('m3', 2, 'three', { scope: { channel: 'c2' } })]);
-  kit.hot.config.features.embedIndex = true;
+  const kit = scene();
+  await kit.recordOnly([
+    line('m1', 0, 'one'),
+    line('m2', 1, 'two'),
+    line('m3', 2, 'three', { scope: { channel: 'c2' } }),
+  ]);
   await kit.write([line('m4', 3, 'four')]);
   await kit.embedder.flush();
   assert.deepEqual(kit.calls[0].texts, ['Ελένη: one\nΕλένη: two\nΕλένη: four']);
@@ -353,20 +351,6 @@ test('embedder: coverage counts the record window, the indexed, the missing and 
   await kit.close();
 });
 
-test('embedder: switching the index on later triggers a catch-up on the next tick', async () => {
-  const kit = scene({ features: { meaningSearch: true, embedIndex: false } });
-  assert.equal(await kit.write([line('m1', 0, 'while off')]), 0);
-  kit.clock.at = T0 + 60_000;
-  await kit.embedder.tick(GUILD);
-  assert.equal(kit.embedder.stats().queued, 0, 'off: no catch-up');
-  kit.hot.config.features.embedIndex = true;
-  await kit.embedder.tick(GUILD);
-  assert.equal(kit.embedder.stats().queued, 1, 'the switch turned on: caught up');
-  await kit.embedder.flush();
-  assert.deepEqual(sentIds(kit), ['m1:1']);
-  await kit.close();
-});
-
 test('embedder: no catch-up while paused; the one run on resume queues what the pause left', async () => {
   const state = { paused: true };
   const kit = scene({ paused: () => state.paused });
@@ -382,7 +366,7 @@ test('embedder: no catch-up while paused; the one run on resume queues what the 
 });
 
 test('embedder: the periodic pass runs every embed.catchUpEveryMinutes and finds lines that bypassed the queue', async () => {
-  const kit = scene({ embedConfig: { catchUpEveryMinutes: 60 } });
+  const kit = scene();
   await kit.embedder.catchUp(GUILD);
   await kit.recordOnly([line('m1', 5, 'a line the queue never heard of')]);
   kit.clock.at = T0 + 59 * 60_000;
@@ -394,29 +378,39 @@ test('embedder: the periodic pass runs every embed.catchUpEveryMinutes and finds
   await kit.close();
 });
 
+// PR 7d: `embed.queueMax` is the constant 2000, so the pass is given 2003 lines.
 test('embedder: a pass queues at most embed.queueMax; the rest follows once the queue has drained', async () => {
-  const kit = scene({ embedConfig: { queueMax: 2, batch: 2, flushSeconds: 60 } });
-  await kit.recordOnly([1, 2, 3, 4, 5].map((n) => line(`m${n}`, n, `line ${n}`)));
+  const kit = scene();
+  await kit.recordOnly(many(2003));
   kit.clock.at = T0 + 3_600_000;
   const pass = await kit.embedder.catchUp(GUILD);
-  assert.deepEqual({ queued: pass.queued, left: pass.left }, { queued: 2, left: 3 });
+  assert.deepEqual({ queued: pass.queued, left: pass.left }, { queued: 2000, left: 3 });
   assert.ok(!kit.log.warns.some((w) => w.name === 'embedder: queue full'), 'a pass never overfills the queue');
-  await kit.embedder.flush();
+  await drain(kit);
   for (let i = 0; i < 4; i += 1) {
-    kit.clock.at += 60_000;
+    kit.clock.at += 180_000;
     await kit.embedder.tick(GUILD);
-    await kit.embedder.flush();
+    await drain(kit);
   }
-  assert.deepEqual(sentIds(kit), ['m1:1', 'm2:1', 'm3:1', 'm4:1', 'm5:1']);
+  assert.deepEqual(
+    sentIds(kit),
+    many(2003).map((l) => `${l.messageId}:1`)
+  );
   await kit.close();
 });
 
+// PR 7d: `embed.queueMax` is the constant 2000, so the queue loses the first of 2001 lines.
 test('embedder: a line the queue had and lost is warned about as a coverage gap and queued again', async () => {
-  const kit = scene({ embedConfig: { queueMax: 1 } });
-  await kit.write([line('m1', 0, 'a'), line('m2', 1, 'b')]);
+  const kit = scene();
+  await kit.write(many(2001));
   assert.ok(kit.log.warns.some((w) => w.name === 'embedder: queue full'));
-  await kit.embedder.flush();
-  assert.deepEqual(sentIds(kit), ['m2:1']);
+  await drain(kit);
+  assert.deepEqual(
+    sentIds(kit),
+    many(2001)
+      .slice(1)
+      .map((l) => `${l.messageId}:1`)
+  );
   kit.clock.at = T0 + 3_600_000;
   const pass = await kit.embedder.catchUp(GUILD);
   assert.equal(pass.lost, 1);
@@ -424,7 +418,12 @@ test('embedder: a line the queue had and lost is warned about as a coverage gap 
     kit.log.warns.some((w) => w.name === 'embedder: coverage gap' && w.fields.lost === 1 && w.fields.missing === 1)
   );
   await kit.embedder.flush();
-  assert.deepEqual(sentIds(kit), ['m2:1', 'm1:1']);
+  assert.deepEqual(sentIds(kit), [
+    ...many(2001)
+      .slice(1)
+      .map((l) => `${l.messageId}:1`),
+    'm1:1',
+  ]);
   await kit.close();
 });
 

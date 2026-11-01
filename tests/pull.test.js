@@ -4,15 +4,7 @@
 // the features.channelPull switch). No I/O: the clock is passed in.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  PULL_DEFAULTS,
-  explicitChannelIds,
-  isTooOld,
-  pullPictures,
-  pullSettings,
-  pullTargets,
-  pullWindow,
-} from '../src/behavior/pull.js';
+import { explicitChannelIds, isTooOld, pullPictures, pullTargets, pullWindow } from '../src/behavior/pull.js';
 
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 const MIN = 60_000;
@@ -71,75 +63,6 @@ function ids(messages) {
 }
 
 // ---- settings -----------------------------------------------------------------
-
-test('pullSettings: zeros and false are live values, garbage falls back, counts are floored', () => {
-  assert.deepEqual(pullSettings({}), { ...PULL_DEFAULTS });
-
-  const live = pullSettings({
-    context: {
-      pull: {
-        windowMinutes: 30,
-        minMessages: 0,
-        maxMessages: 12,
-        maxPictures: 0,
-        maxNewDescriptions: 0,
-        describeTimeoutMs: 0,
-        scanMessages: 0,
-        maxChannels: 2,
-        maxAgeDays: 30,
-        sameAudience: false,
-        seenTtlMinutes: 0,
-        keepMinutes: 0,
-        keepTurns: 0,
-      },
-    },
-  });
-  assert.deepEqual(live, {
-    windowMinutes: 30,
-    minMessages: 0,
-    maxMessages: 12,
-    maxPictures: 0,
-    maxNewDescriptions: 0,
-    describeTimeoutMs: 0,
-    scanMessages: 0,
-    maxChannels: 2,
-    maxAgeDays: 30,
-    sameAudience: false,
-    seenTtlMinutes: 0,
-    keepMinutes: 0,
-    keepTurns: 0,
-  });
-
-  const broken = pullSettings({
-    context: {
-      pull: {
-        windowMinutes: -1,
-        minMessages: 'λίγα',
-        maxMessages: 0,
-        maxPictures: null,
-        maxNewDescriptions: -2,
-        describeTimeoutMs: 'soon',
-        scanMessages: Number.NaN,
-        maxChannels: -1,
-        maxAgeDays: -3,
-        sameAudience: 'no',
-        seenTtlMinutes: -5,
-        keepMinutes: -1,
-        keepTurns: 'λίγες',
-      },
-    },
-  });
-  assert.deepEqual(broken, { ...PULL_DEFAULTS }, 'only false turns sameAudience off; every bad number falls back');
-
-  const fractional = pullSettings({
-    context: { pull: { windowMinutes: 30.5, maxMessages: 12.7, maxChannels: 1.9, maxPictures: 2.5, maxAgeDays: 1.5 } },
-  });
-  assert.equal(fractional.maxMessages, 12, 'counts are floored');
-  assert.equal(fractional.maxChannels, 1);
-  assert.equal(fractional.maxPictures, 2);
-  assert.equal(fractional.windowMinutes, 30.5, 'a duration is not a count: kept as given');
-  assert.equal(fractional.maxAgeDays, 1.5);
-});
 
 // ---- explicitChannelIds ----------------------------------------------------------
 

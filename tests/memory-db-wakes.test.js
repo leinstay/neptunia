@@ -608,15 +608,15 @@ test('skills manifest: what a definition declares, and what a next version adds 
         effects: 'write',
         refs: { channel: 'channel' },
         params: { type: 'object', properties: { file: {} } },
-        feature: 'x',
       })
     ),
+    // PR 7d: a tool definition names no feature switch any more, so none is a capability.
     {
       tools: ['message.create'],
       destinations: ['current', 'other-channel'],
       network: [],
       fileAccess: ['errand-files'],
-      capabilities: ['feature:x', 'write'],
+      capabilities: ['write'],
     }
   );
   assert.deepEqual(newCapabilities({ tools: ['a'], network: [] }, { tools: ['a', 'b'], network: ['provider'] }), [

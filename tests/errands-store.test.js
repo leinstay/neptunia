@@ -46,16 +46,8 @@ async function boardTask(store, dataDir, id) {
  */
 const statusesOf = (view) => view.events.filter((event) => event.type === 'status').map((event) => event.new);
 
-function makeStore({
-  dataDir = tempDataDir(),
-  clock = { t: T0 },
-  errands = {},
-  agents = {},
-  journal = null,
-  journalOn = true,
-} = {}) {
+function makeStore({ dataDir = tempDataDir(), clock = { t: T0 }, errands = {}, agents = {}, journal = null } = {}) {
   const config = {
-    features: { journal: journalOn },
     errands: { maxOpen: 3, ...errands },
     agents: {
       scout: { daily: { tasks: 5 }, out: '/var/lib/agent-scout/out' },
@@ -254,19 +246,13 @@ test('task store: every transition is one journal operation, counts only', async
     });
     const all = JSON.stringify(lines);
     assert.ok(!all.includes('release notes') && !all.includes('secret answer'), 'never the goal or the result');
-    // A failure closes with its code; the journal off writes nothing.
+    // A failure closes with its code.
     const failedTask = store.add(asked).errand;
     store.finish(failedTask.id, { status: 'failed', error: 'withheld-path' });
     await new Promise((r) => setImmediate(r));
     assert.equal(lines.at(-1).phase, 'failed');
     assert.equal(lines.at(-1).result.code, 'withheld-path');
   });
-  const quiet = [];
-  await withCapturedLogs(() => {
-    const { store } = makeStore({ journal: { action: async (g, r) => quiet.push(r) }, journalOn: false });
-    store.add(asked);
-  });
-  assert.deepEqual(quiet, []);
 });
 
 test("task store: a DM task journals into the requester's private layer", async () => {

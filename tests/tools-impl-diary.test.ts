@@ -12,13 +12,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createMirrors, guardMirrorPort } from '../src/behavior/mirror.ts';
 import type { PublishOutcome } from '../src/behavior/mirror.ts';
-import { DIARY_DAILY } from '../src/behavior/diary.ts';
 import { createTurnRunner } from '../src/behavior/turn.js';
 import { createAdmin } from '../src/admin.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { createStore } from '../src/memory/store.js';
 import { skillRegistry } from '../src/tools/registry.ts';
-import { countToday } from '../src/time.js';
 import { diaryPublications, diaryRows, seedMirror } from './fixtures/diary-mirror.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { openTestMemory } from './fixtures/memory-db/service.js';
@@ -259,9 +257,6 @@ test('two diary calls of an ordinary turn make one entry, published to every mir
     diaryPublications(core.memory.memoryDb).map((row) => row.status),
     ['sent', 'sent']
   );
-  // store.js is untyped JS; its state data is the object the daily counters live in.
-  const state = core.store.state.data as Record<string, unknown>;
-  assert.equal(countToday(state, DIARY_DAILY, NOW), 1, 'the entry counts once toward the day');
 });
 
 test('a diary call of an inner turn records one entry, published to every mirror once', async () => {
@@ -320,14 +315,6 @@ test('a diary call with a channel or a reply is refused invalid-args and records
   }
 });
 
-test("over diary.maxPerDay the turn's first diary call is refused cap-diary and nothing is recorded", async () => {
-  const core = await community({ postsToday: MAX_PER_DAY });
-  const { logs } = await turnOf(core, { answers: [toDiary({ text: 'ακόμη μία' }), '<skip/>'] });
-  assert.deepEqual(calledOf(logs), ['message.create:denied/cap-diary']);
-  assert.deepEqual(diaryRows(core.memory.memoryDb), []);
-  assert.deepEqual([core.texts('d1'), core.texts('d2')], [[], []]);
-});
-
 // The diary turn keeps its requests byte for byte (section 4): the tools its writer request offers, and how it answers
 // a `message.create` call with `diary`, are what the code of main gave for the same turn in the diary channel
 // (tests/fixtures/diary-tool.json, recorded under the same settings).
@@ -337,6 +324,7 @@ test('the diary turn offers the tools and answers a diary call as the diary chan
     writerTools: Array<string>;
     called: Array<string>;
   }; // this test's own fixture, written by the recording of the scene on main
+  // PR 7d: voice messages are code, so the recorded writer tools gained voice_say.
   const core = await community();
   const plan = JSON.stringify({ kind: 'status', brief: 'a quiet day', search: '', picture: false });
   const { llm, logs } = await turnOf(core, {

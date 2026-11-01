@@ -1,6 +1,6 @@
 // Tests for skills discovery (src/tools/discovery.ts) and the `skills:` line it adds to the
-// search classifier's and the planner's answers: the parsers read it and leave every other line
-// as it was, the classifiers' list of skills is static and grouped by family, the switches, and
+// search classifier's answer: the parser reads it and leaves every other line
+// as it was, the classifiers' list of skills is static and grouped by family, safe mode, and
 // the catalogue view listing owner-only skills too (they run for an owner who asks).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +10,6 @@ import {
   MAX_PROPOSED,
   byFamily,
   describeRows,
-  discoveryOn,
   exposedSkillNames,
   grantedSkillNames,
   parseSkillsLines,
@@ -23,7 +22,6 @@ import '../src/tools/impl/index.ts';
 import { loadSkills, skillNames, skillRegistry } from '../src/tools/registry.ts';
 import { listSkills } from '../src/tools/gateway.ts';
 import { parseLookupAnswer } from '../src/behavior/recall.js';
-import { buildPlannerRequest, parsePlannerAnswer, PLANNER_BLOCKS } from '../src/behavior/planner.js';
 
 const NAMES = ['message.create', 'message.edit', 'draw.create', 'memory.profile.read', 'status.show'];
 const NOW = Date.UTC(2026, 9, 14, 12, 0, 0);
@@ -61,13 +59,6 @@ function granting(names, cfg) {
     },
   };
 }
-
-test('discoveryOn: on unless features.tools or features.toolsDiscovery is false', () => {
-  assert.equal(discoveryOn({}), true);
-  assert.equal(discoveryOn({ features: { tools: true, toolsDiscovery: true } }), true);
-  assert.equal(discoveryOn({ features: { tools: false } }), false);
-  assert.equal(discoveryOn({ features: { toolsDiscovery: false } }), false);
-});
 
 test('parseSkillsLines: missing, none, inventory, named, invalid', () => {
   assert.deepEqual(parseSkillsLines([], NAMES), { state: 'missing', inventory: false, names: [] });
@@ -141,37 +132,6 @@ test('parseLookupAnswer: a skills line is read apart; the other lines read exact
   }
 });
 
-test('parsePlannerAnswer: a skills line is read, never counted unknown, the four blocks unchanged; absent is missing', () => {
-  const answer = 'channel: none\nepisodes: none\nrewatch: none\nlookup: none';
-  const without = parsePlannerAnswer(answer, { counts: { channels: 2 } });
-  const withSkills = parsePlannerAnswer(`${answer}\n**skills:** Inventory`, {
-    counts: { channels: 2 },
-    skillNames: NAMES,
-  });
-  for (const name of PLANNER_BLOCKS) assert.deepEqual(withSkills[name], without[name], name);
-  assert.equal(withSkills.unknown, 0);
-  assert.deepEqual(withSkills.skills, { state: 'inventory', inventory: true, names: [] });
-  assert.equal(without.skills.state, 'missing');
-  const named = parsePlannerAnswer('lookup: none\nskills: memory.profile.read, draw.create', { skillNames: NAMES });
-  assert.deepEqual(named.skills.names, ['memory.profile.read', 'draw.create']);
-  assert.equal(named.lookup.state, 'none');
-});
-
-test('buildPlannerRequest: {{skills}} is filled with the list given, or blanked', () => {
-  const prompt = 'Plan for {{name}}.\nSkills:\n{{skills}}';
-  const candidateBlock = '<candidate>\nAna: τι ξέρεις να κάνεις;\n</candidate>';
-  const filled = buildPlannerRequest({
-    prompt,
-    selfName: 'Zoë',
-    today: '2026-10-14',
-    skills: 'draw | a picture',
-    candidateBlock,
-  });
-  assert.equal(filled[0].content, 'Plan for Zoë.\nSkills:\ndraw | a picture');
-  const blank = buildPlannerRequest({ prompt, selfName: 'Zoë', today: '2026-10-14', candidateBlock });
-  assert.equal(blank[0].content, 'Plan for Zoë.\nSkills:\n');
-});
-
 test('skillsIndex: one static line per skill, grouped by family, the name alone without a text, the same whatever is allowed', () => {
   const owner = Object.freeze({ name: 'message.purge', ownerOnly: true });
   const registry = new Map([
@@ -234,7 +194,6 @@ test('listSkills: an owner-only skill has its row, open only for an owner who as
   assert.equal(owner.ownerOnly, true);
   const registry = new Map([...standInRegistry(), ['x.owner', owner]]);
   const config = granting(['message.edit', 'x.owner'], {
-    features: { tools: true },
     tools: { safeMode: false },
     bot: { owners: ['42'] },
   });
@@ -332,7 +291,7 @@ test('skillArgs: a skill lists its arguments, the same each time', () => {
 test("listSkills: each row carries the skill's arguments (skillArgs)", () => {
   const registry = skillRegistry();
   const rows = listSkills({
-    config: { features: {} },
+    config: {},
     selfId: 'self-1',
     texts: {},
     requester: null,
@@ -347,16 +306,14 @@ test("listSkills: each row carries the skill's arguments (skillArgs)", () => {
 
 test('grantedSkillNames: only the skills granted to her user id, sorted by name whatever the grant or registry order', () => {
   const registry = standInRegistry();
-  const config = granting(['message.react.remove', 'lore.list', 'message.edit', 'not.in.registry'], { features: {} });
+  const config = granting(['message.react.remove', 'lore.list', 'message.edit', 'not.in.registry'], {});
   assert.deepEqual(grantedSkillNames({ config, selfId: 'self-1', registry }), [
     'lore.list',
     'message.edit',
     'message.react.remove',
   ]);
   // The same grants stored in another order: the same list.
-  const reordered = granting(['message.edit', 'not.in.registry', 'lore.list', 'message.react.remove'], {
-    features: {},
-  });
+  const reordered = granting(['message.edit', 'not.in.registry', 'lore.list', 'message.react.remove'], {});
   assert.deepEqual(grantedSkillNames({ config: reordered, selfId: 'self-1', registry }), [
     'lore.list',
     'message.edit',
@@ -366,18 +323,14 @@ test('grantedSkillNames: only the skills granted to her user id, sorted by name 
   assert.ok(!grantedSkillNames({ config, selfId: 'self-1', registry }).includes('message.create'));
 });
 
-test('grantedSkillNames: a grant to everyone or a role, another user, no id, safe mode, skills off or a not-grantable skill lists nothing', () => {
+test('grantedSkillNames: a grant to everyone or a role, another user, no id, safe mode or a not-grantable skill lists nothing', () => {
   const registry = standInRegistry();
-  const people = { features: {}, bot: { access: { 'lore.list': { everyone: true, roles: ['r1'], users: ['u-9'] } } } };
+  const people = { bot: { access: { 'lore.list': { everyone: true, roles: ['r1'], users: ['u-9'] } } } };
   assert.deepEqual(grantedSkillNames({ config: people, selfId: 'self-1', registry }), []);
-  const config = granting(['lore.list', 'message.edit'], { features: {} });
+  const config = granting(['lore.list', 'message.edit'], {});
   assert.deepEqual(grantedSkillNames({ config, selfId: null, registry }), []);
   assert.deepEqual(
     grantedSkillNames({ config: { ...config, tools: { safeMode: true } }, selfId: 'self-1', registry }),
-    []
-  );
-  assert.deepEqual(
-    grantedSkillNames({ config: { ...config, features: { tools: false } }, selfId: 'self-1', registry }),
     []
   );
   const restore = loadSkills([
@@ -391,7 +344,7 @@ test('grantedSkillNames: a grant to everyone or a role, another user, no id, saf
     },
   ]);
   assert.deepEqual(
-    grantedSkillNames({ config: granting(['memory.restore'], { features: {} }), selfId: 'self-1', registry: restore }),
+    grantedSkillNames({ config: granting(['memory.restore'], {}), selfId: 'self-1', registry: restore }),
     []
   );
   assert.deepEqual(grantedSkillNames({ config, selfId: 'self-1', registry: null }), []);
@@ -401,7 +354,6 @@ test('describeRows: an exact name gives the skill in full, a family one line eac
   const registry = skillRegistry();
   const self = 'self-id';
   const config = {
-    features: { tools: true },
     bot: { access: { 'memory.search': { everyone: false, roles: [], users: [self] } } },
   };
   const texts = {
@@ -429,12 +381,12 @@ test('describeRows: an exact name gives the skill in full, a family one line eac
   assert.deepEqual(describeRows({ config, selfId: self, registry, texts, name: 'zzzzzzzzzzzzzzzz' }).closest, []);
 });
 
+// PR 7d: voice messages are code, so voice.say is carried over beside the other reply tags.
 test('exposedSkillNames: her grants and the carried-over skills, sorted, once each, whatever the turn; a grant to everyone is not hers', () => {
   const registry = skillRegistry();
   const self = 'self-id';
   const grant = { everyone: false, roles: [], users: [self] };
   const config = {
-    features: { tools: true },
     bot: {
       access: {
         'errand.run': grant,
@@ -451,40 +403,29 @@ test('exposedSkillNames: her grants and the carried-over skills, sorted, once ea
     'memory.search',
     'message.create',
     'message.react.add',
+    'voice.say',
   ]);
   assert.deepEqual(
     exposedSkillNames({ config, selfId: null, registry }),
-    ['draw.create', 'message.create', 'message.react.add'],
+    ['draw.create', 'message.create', 'message.react.add', 'voice.say'],
     'without her id nothing is granted, the carried-over ones stay'
   );
 });
 
-test('exposedSkillNames: safe mode keeps the carried-over ones, skills off none, a feature switch or the registry decides the rest', () => {
+// PR 7d: the tools and drawing switches are code, so only safe mode and the registry narrow the list.
+test('exposedSkillNames: safe mode keeps the carried-over ones, the registry decides the rest', () => {
   const registry = skillRegistry();
   const self = 'self-id';
   const config = {
-    features: { tools: true },
     bot: { access: { 'errand.run': { everyone: false, roles: [], users: [self] } } },
   };
   assert.deepEqual(exposedSkillNames({ config: { ...config, tools: { safeMode: true } }, selfId: self, registry }), [
     'draw.create',
     'message.create',
     'message.react.add',
+    'voice.say',
   ]);
-  assert.deepEqual(
-    exposedSkillNames({ config: { ...config, features: { tools: false } }, selfId: self, registry }),
-    []
-  );
   assert.deepEqual(exposedSkillNames({ config, selfId: self, registry: null }), []);
-  assert.equal(
-    exposedSkillNames({
-      config: { ...config, features: { tools: true, imageGeneration: false } },
-      selfId: self,
-      registry,
-    }).includes('draw.create'),
-    false,
-    'drawing off: no draw.create'
-  );
   const small = loadSkills([
     {
       name: 'message.create',

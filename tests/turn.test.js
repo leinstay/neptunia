@@ -9,7 +9,6 @@ import {
   resolveMentions,
   mentionDirectory,
   createTurnRunner as createRealTurnRunner,
-  parseRewatchPickDetailed,
   usableDestination,
   paceSettings,
 } from '../src/behavior/turn.js';
@@ -20,22 +19,17 @@ import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
 import { handleOf } from '../src/behavior/handles.js';
-import { ImageCapError, ImageGenError } from '../src/llm/images.js';
+import { ImageGenError } from '../src/llm/images.js';
 import { DailyCapError, TokenLimitError } from '../src/llm/openrouter.js';
-import { ROLE_DEFAULTS } from '../src/llm/roles.js';
 import { pingStatus } from '../src/behavior/elsewhere.ts';
 import { findGif } from '../src/memory/gifs.js';
 import { callMarksOf, createJournal } from '../src/memory/journal.js';
-import { createChannelRouter } from '../src/behavior/route-channel.js';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import '../src/tools/impl/index.ts';
 import { loadSkills, skillRegistry } from '../src/tools/registry.ts';
 import { createAdmin } from '../src/admin.js';
-import { createErrandStores } from '../src/errands/store.ts';
-import { createErrandService } from '../src/errands/service.ts';
 import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.js';
 import { createLocalFacts } from '../src/behavior/inner.ts';
-import { tempDir } from './fixtures/tmp.js';
 import { freshWorld, onWorld, world } from './fixtures/turn-world.ts';
 import { snapshotOf } from '../src/behavior/snapshot.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.js';
@@ -594,93 +588,6 @@ test('waitIdle: resolves only once every in-flight turn has finished', async () 
   assert.equal(idleResolved, true);
 });
 
-test('createTurnRunner: features.reactions=false drops reactions; nothing else to do means outcome "skip"', async () => {
-  const raw = rawMessage({ id: 'm1' });
-  const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlm('<react to="#1">💀</react>');
-  const store = fakeStore();
-  const hot = fakeHot({ reactions: false });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-  });
-
-  const result = await turns.runTurn({
-    channel,
-    mode: 'reply',
-    trigger: normalizedTrigger(raw),
-    triggerKind: 'mention',
-  });
-
-  assert.equal(result.outcome, 'skip');
-  assert.equal(channel.sent.length, 0);
-  assert.equal(channel.reactCalls.length, 0);
-});
-
-test('createTurnRunner: features.multiMessage=false keeps only the first <msg>', async () => {
-  const raw = rawMessage({ id: 'm1' });
-  const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlm('<msg>First</msg><msg>Second</msg>');
-  const store = fakeStore();
-  const hot = fakeHot({ multiMessage: false });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-  });
-
-  const result = await turns.runTurn({
-    channel,
-    mode: 'reply',
-    trigger: normalizedTrigger(raw),
-    triggerKind: 'mention',
-  });
-
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(channel.sent.length, 1);
-  assert.equal(channel.sent[0].content, 'First');
-});
-
-test('createTurnRunner: features.typingSimulation=false skips sendTyping and every artificial delay', async () => {
-  const raw = rawMessage({ id: 'm1' });
-  const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlm('<msg>Hello there</msg>');
-  const store = fakeStore();
-  const hot = fakeHot({ typingSimulation: false });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-  });
-
-  const started = Date.now();
-  const result = await turns.runTurn({
-    channel,
-    mode: 'reply',
-    trigger: normalizedTrigger(raw),
-    triggerKind: 'mention',
-  });
-  const elapsed = Date.now() - started;
-
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(channel.typingCalls.length, 0);
-  assert.equal(channel.sent.length, 1);
-  assert.ok(elapsed < 200, `expected no artificial delay, took ${elapsed}ms`);
-});
-
 test('createTurnRunner: features.memory=true renders <people> and <about_chat>', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
@@ -705,39 +612,6 @@ test('createTurnRunner: features.memory=true renders <people> and <about_chat>',
   const userMessage = textOf(llm.calls[0][1].content);
   assert.ok(userMessage.includes('<people>'));
   assert.ok(userMessage.includes('<about_chat>'));
-});
-
-test('createTurnRunner: features.memory=false sends no <people> or <about_chat> block', async () => {
-  const raw = rawMessage({ id: 'm1' });
-  const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlm('<msg>ok</msg>');
-  const store = fakeStore({
-    guildMemory: { patterns: 'lots of emoji' },
-    userProfiles: { u1: { id: 'u1', names: ['Alice'], character: 'friendly' } },
-  });
-  const hot = fakeHot({ memory: false });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-  });
-
-  const result = await turns.runTurn({
-    channel,
-    mode: 'reply',
-    trigger: normalizedTrigger(raw),
-    triggerKind: 'mention',
-  });
-
-  assert.equal(result.outcome, 'spoke');
-  const userMessage = textOf(llm.calls[0][1].content);
-  assert.equal(typeof userMessage, 'string');
-  assert.ok(!userMessage.includes('<people>'));
-  assert.ok(!userMessage.includes('<about_chat>'));
 });
 
 test('createTurnRunner: features.memory=true renders the <server> channel map', async () => {
@@ -777,42 +651,6 @@ test('createTurnRunner: features.memory=true renders the <server> channel map', 
   assert.ok(userMessage.includes(`# general${labels.server.currentMark}`));
 });
 
-test('createTurnRunner: features.memory=false sends no <server> block, even with channels on record', async () => {
-  const raw = rawMessage({ id: 'm1' });
-  const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
-  const llm = fakeLlm('<msg>ok</msg>');
-  const store = fakeStore({
-    channels: [
-      {
-        id: 'c1',
-        name: 'general',
-        category: null,
-        topic: null,
-        purpose: '',
-        topics: '',
-        tone: '',
-        days: {},
-        lastMessageAt: null,
-      },
-    ],
-  });
-  const hot = fakeHot({ memory: false });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-  });
-
-  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
-
-  const userMessage = textOf(llm.calls[0][1].content);
-  assert.ok(!userMessage.includes('<server>'));
-});
-
 test('createTurnRunner: features.memory=true renders <lore> from the guild lorebook', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
@@ -845,39 +683,6 @@ test('createTurnRunner: features.memory=true renders <lore> from the guild loreb
   const userMessage = textOf(llm.calls[0][1].content);
   assert.ok(userMessage.includes('<lore>'));
   assert.ok(userMessage.includes('The Great Flood'));
-});
-
-test('createTurnRunner: features.memory=false sends no <lore> block, even with lore on record', async () => {
-  const raw = rawMessage({ id: 'm1' });
-  const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
-  const llm = fakeLlm('<msg>ok</msg>');
-  const loreEntries = [
-    {
-      id: 'l1',
-      title: 'The Great Flood',
-      keys: ['never-mentioned'],
-      text: 'It flooded once.',
-      always: true,
-      source: 'analyzer',
-      weight: 3,
-    },
-  ];
-  const store = fakeStore({ loreEntries });
-  const hot = fakeHot({ memory: false });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-  });
-
-  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
-
-  const userMessage = textOf(llm.calls[0][1].content);
-  assert.ok(!userMessage.includes('<lore>'));
 });
 
 // ---------------------------------------------------------------------------
@@ -975,60 +780,6 @@ test('createTurnRunner: features.videoDescriptions on -- videos newest first, ca
     .replace('{duration}', '0:20')
     .replace('{text}', 'κάποιος χορεύει');
   assert.ok(userMessage.includes(watched));
-});
-
-test('createTurnRunner: videoDescriptions off, or mediaDescriptions off, never calls describeVideos', async () => {
-  for (const features of [
-    { mediaDescriptions: true, videoDescriptions: false },
-    { mediaDescriptions: false, videoDescriptions: true },
-  ]) {
-    const raw = videoAttachmentRaw('m1', NOW - 1000, 'va', 'clip.mp4');
-    const channel = fakeTurnChannel({ historyMessages: [raw] });
-    const hot = fakeHot(features, {}, VIDEO_TURN_CONFIG);
-    const describer = fakeVideoDescriber({ va: { state: 'watched', text: 'x' } });
-    const turns = createTurnRunner({
-      discord: DISCORD,
-      createPort: createDiscordAdapter,
-      hot,
-      store: fakeStore(),
-      llm: fakeLlm('<msg>ok</msg>'),
-      calibrator: identityCalibrator(),
-      client: fakeClient(),
-      describer,
-    });
-
-    await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
-
-    assert.equal(describer.videoCalls.length, 0);
-  }
-});
-
-test('createTurnRunner: features.mediaDescriptions off never calls the describer', async () => {
-  const raw = rawMessage({
-    id: 'm1',
-    attachments: new Map([
-      ['img1', { id: 'img1', contentType: 'image/png', name: 'pic.png', url: 'https://cdn/pic.png' }],
-    ]),
-  });
-  const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlm('<msg>ok</msg>');
-  const store = fakeStore();
-  const hot = fakeHot({ mediaDescriptions: false });
-  const describer = fakeDescriber({ img1: 'a cat' });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    describer,
-  });
-
-  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
-
-  assert.equal(describer.calls.length, 0);
 });
 
 test('createTurnRunner: features.mediaDescriptions on describes an un-attached picture and it renders imageDescribed', async () => {
@@ -1304,18 +1055,6 @@ test('runTurn: no describe request is made for a neighbour picture', async () =>
 
   const requested = describer.calls.flatMap((call) => call.items.map((item) => item.itemId));
   assert.ok(!requested.includes('np1') && !requested.includes('np2'), JSON.stringify(requested));
-});
-
-test('runTurn: features.mediaDescriptions off leaves a neighbour picture blind and never reads the cache', async () => {
-  const { channel, llm, describer, turns, trigger } = neighborPictureTurn({ mediaDescriptions: false });
-
-  await turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' });
-
-  assert.equal(describer.cachedCalls.length, 0);
-  assert.equal(describer.calls.length, 0);
-  const others = otherChannelsSent(llm);
-  assert.ok(!others.includes('a sleeping cat'), others);
-  assert.ok(others.includes(labels.transcript.image));
 });
 
 test('createTurnRunner: a text attachment is fetched lazily and rendered via filePreview', async () => {
@@ -1622,15 +1361,6 @@ test('runTurn: a member of the directory not in view is mentioned by the handle 
   assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u5'], repliedUser: true });
 });
 
-test('runTurn: features.mentionHandles off resolves @name as before and leaves a handle as text', async () => {
-  const channel = await runPingsTurn(storeWithPingsOff([]), `<msg reply="#2">@Alice @Bob ${BOB} ναι</msg>`, {
-    mentionHandles: false,
-  });
-
-  assert.equal(channel.sent[0].content, `<@u1> <@u2> ${BOB} ναι`);
-  assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u1', 'u2'], repliedUser: true });
-});
-
 /** One reply turn in c1 whose served guild's member cache holds `members` (the fallback directory of features.mentionHandles off). */
 async function runDirectoryTurn(store, answer, members) {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice' });
@@ -1677,135 +1407,6 @@ test('runTurn: a member resolved through the fallback directory with pings off i
 
   assert.equal(channel.sent[0].content, '<@u4> ναι');
   assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: [], repliedUser: true });
-});
-
-test('createTurnRunner: features.dryRun=true sends and reacts nowhere, only logs, and paces itself as if it had spoken', async () => {
-  const raw = rawMessage({ id: 'm1', authorName: 'Alice' });
-  const channel = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages: [raw] });
-  const llm = fakeLlm('<msg reply="#1">Hello there</msg><react to="#1">\u{1F389}</react>');
-  const store = fakeStore();
-  const hot = fakeHot({ dryRun: true });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-  });
-
-  const before = turns.lastPostAt('c1');
-  const { result, logs } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
-  );
-
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(result.dryRun, true);
-  assert.equal(channel.sent.length, 0);
-  assert.equal(channel.typingCalls.length, 0);
-  assert.equal(channel.reactCalls.length, 0);
-  assert.ok(turns.lastPostAt('c1') > before, 'lastPostAt must advance as if the persona had actually spoken');
-
-  const sendLine = logs.find((l) => l.msg === 'dry-run: would send');
-  const reactLine = logs.find((l) => l.msg === 'dry-run: would react');
-  assert.ok(sendLine, 'expected a "dry-run: would send" log line');
-  assert.equal(sendLine.replyTo, 'm1');
-  assert.equal(sendLine.text, 'Hello there');
-  assert.ok(reactLine, 'expected a "dry-run: would react" log line');
-  assert.equal(reactLine.to, 'm1');
-  assert.equal(reactLine.emoji, '\u{1F389}');
-});
-
-test('createTurnRunner: features.dryRun=true mirrors each action into bot.dryRunChannelId, without real mentions', async () => {
-  const raw = rawMessage({ id: 'm1', authorName: 'Alice' });
-  const channel = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages: [raw] });
-  const llm = fakeLlm('<msg reply="#1">hi @Alice</msg>');
-  const store = fakeStore();
-  const hot = fakeHot({ dryRun: true }, { dryRunChannelId: 'mirror1' });
-  const mirror = fakeTurnChannel({ id: 'mirror1', name: 'mirror' });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-  });
-
-  const result = await turns.runTurn({
-    channel,
-    mode: 'reply',
-    trigger: normalizedTrigger(raw),
-    triggerKind: 'mention',
-  });
-
-  assert.equal(result.outcome, 'spoke');
-  const mirrorSent = mirror.sent;
-  assert.equal(mirrorSent.length, 1);
-  // The mirror goes through the port, which says outright that nobody is notified (the platform call carried only `parse`).
-  assert.deepEqual(mirrorSent[0].allowedMentions, { parse: [], users: [], repliedUser: false });
-  const [, ...bodyLines] = mirrorSent[0].content.split('\n');
-  assert.equal(bodyLines.join('\n'), 'hi @Alice');
-  assert.ok(!mirrorSent[0].content.includes('<@'), 'a mirrored @name must never resolve to a real mention');
-});
-
-test('createTurnRunner: features.dryRun=true logs a handle resolved, mirrors it as written, and sends nothing', async () => {
-  const raw = rawMessage({ id: 'm1', authorName: 'Alice' });
-  const channel = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages: [raw] });
-  const mirror = fakeTurnChannel({ id: 'mirror1', name: 'mirror' });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot: fakeHot({ dryRun: true }, { dryRunChannelId: 'mirror1' }),
-    store: fakeStore(),
-    llm: fakeLlm(`<msg>hi @${handleOf('u1')}</msg>`),
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-  });
-
-  const { result, logs } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
-  );
-
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(channel.sent.length, 0);
-  assert.equal(logs.find((entry) => entry.msg === 'dry-run: would send').text, 'hi <@u1>');
-  assert.equal(mirror.sent[0].content.split('\n').slice(1).join('\n'), `hi @${handleOf('u1')}`);
-  assert.deepEqual(mirror.sent[0].allowedMentions, { parse: [], users: [], repliedUser: false }, 'nobody is notified');
-});
-
-test('createTurnRunner: features.dryRun=true with no bot.dryRunChannelId configured mirrors nothing', async () => {
-  const raw = rawMessage({ id: 'm1' });
-  const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
-  const llm = fakeLlm('<msg>hello</msg>');
-  const store = fakeStore();
-  const hot = fakeHot({ dryRun: true });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-  });
-
-  const result = await turns.runTurn({
-    channel,
-    mode: 'reply',
-    trigger: normalizedTrigger(raw),
-    triggerKind: 'mention',
-  });
-
-  assert.equal(result.outcome, 'spoke');
-  // Changed with the contract: the mirror goes through the port, so "never fetched" is "nothing sent anywhere".
-  assert.equal(
-    world().port.calls.filter((call) => call.op === 'send').length,
-    0,
-    'an empty dryRunChannelId mirrors nothing'
-  );
 });
 
 test('createTurnRunner: features.dryRun=true swallows a mirror channel failure and still finishes the turn', async () => {
@@ -1860,924 +1461,6 @@ test('createTurnRunner: features.dryRun=false sends for real even when bot.dryRu
   assert.equal(result.dryRun, undefined);
   assert.equal(channel.sent.length, 1);
   assert.equal(channel.sent[0].content, 'hello');
-});
-
-// ---------------------------------------------------------------------------
-// The re-watch on a question (features.videoRewatch).
-
-/** The pick alone, as maybeRewatch reads it. */
-const parseRewatchPick = (raw, count) => parseRewatchPickDetailed(raw, count).pick;
-
-test('parseRewatchPick: none (any case), garbage, an ordinal out of range or an empty question -> null', () => {
-  for (const raw of [
-    'none',
-    'NONE',
-    '  None  ',
-    '',
-    '1',
-    'maybe the first one',
-    '3 | what colour?',
-    '0 | what?',
-    '1 |   ',
-    ' | what?',
-    'va | what?',
-    '1.5 | what?',
-    '-1 | what?',
-    null,
-  ]) {
-    assert.equal(parseRewatchPick(raw, 2), null, String(raw));
-  }
-});
-
-test('parseRewatchPick: <n> | <question> picks that ordinal; only the first line counts; the question is cut to 300 chars', () => {
-  assert.deepEqual(parseRewatchPick('  2 |  τι χρώμα έχει;  \n1 | other', 2), {
-    n: 2,
-    question: 'τι χρώμα έχει;',
-    retry: false,
-  });
-  const long = parseRewatchPick(`1 | ${'é'.repeat(400)}`, 2);
-  assert.equal([...long.question].length, 300);
-});
-
-test('parseRewatchPick: #n and n. prefixes are tolerated', () => {
-  for (const raw of ['#2 | τι χρώμα;', '2. | τι χρώμα;', '# 2 | τι χρώμα;', '#2. | τι χρώμα;']) {
-    assert.deepEqual(parseRewatchPick(raw, 2), { n: 2, question: 'τι χρώμα;', retry: false }, raw);
-  }
-  assert.equal(parseRewatchPick('#3 | τι χρώμα;', 2), null);
-});
-
-test('parseRewatchPick: <n> | retry (any case) sets retry; anything longer is a question', () => {
-  assert.deepEqual(parseRewatchPick('1 | retry', 1), { n: 1, question: 'retry', retry: true });
-  assert.equal(parseRewatchPick('1 |  RETRY  ', 1).retry, true);
-  assert.equal(parseRewatchPick('1 | Retry', 1).retry, true);
-  assert.equal(parseRewatchPick('1 | retry it please', 1).retry, false);
-  assert.equal(parseRewatchPick('1 | retry?', 1).retry, false);
-});
-
-test('parseRewatchPickDetailed: each null answer carries its reason code; a pick carries ok', () => {
-  const cases = [
-    ['none', 'none'],
-    ['  NONE  \n1 | x', 'none'],
-    ['', 'empty'],
-    ['  \n \n', 'empty'],
-    [null, 'empty'],
-    ['maybe the first one', 'no-bar'],
-    ['1', 'no-bar'],
-    ['3 | what colour?', 'unknown-id'],
-    ['0 | what colour?', 'unknown-id'],
-    ['va | what colour?', 'unknown-id'],
-    ['1234567890123456789 | what colour?', 'unknown-id'],
-    [' | what?', 'unknown-id'],
-    ['1 |   ', 'no-question'],
-  ];
-  for (const [raw, reason] of cases) {
-    assert.deepEqual(parseRewatchPickDetailed(raw, 2), { pick: null, reason }, String(raw));
-  }
-  assert.deepEqual(parseRewatchPickDetailed('1 | τι χρώμα;', 2), {
-    pick: { n: 1, question: 'τι χρώμα;', retry: false },
-    reason: 'ok',
-  });
-  assert.deepEqual(parseRewatchPickDetailed('1 | retry', 2), {
-    pick: { n: 1, question: 'retry', retry: true },
-    reason: 'ok',
-  });
-  assert.deepEqual(parseRewatchPickDetailed('1 | x', 0), { pick: null, reason: 'unknown-id' }, 'no candidates');
-});
-
-/** fakeVideoDescriber plus rewatchVideo, answering every call with `answer`. */
-function fakeRewatchDescriber(statesById, answer = { question: 'q', text: 'κόκκινο' }) {
-  const base = fakeVideoDescriber(statesById);
-  const rewatchCalls = [];
-  return {
-    ...base,
-    rewatchCalls,
-    rewatchVideo: async (guildId, item, question) => {
-      rewatchCalls.push({ guildId, item, question });
-      return answer ? { ...answer, question } : null;
-    },
-  };
-}
-
-/** An llm fake routing the re-watch classifier (system = REWATCH_SYSTEM) apart from the turn itself. */
-const REWATCH_SYSTEM = 'Pick the video the message to {{name}} asks about; {{name}} saw them.';
-function rewatchLlm(classifierText, turnText = '<msg>ok</msg>') {
-  const classifierCalls = [];
-  const turnCalls = [];
-  return {
-    classifierCalls,
-    turnCalls,
-    complete: async (messages, options) => {
-      if (messages[0].content.startsWith('Pick the video')) {
-        classifierCalls.push({ messages, options });
-        if (classifierText instanceof Error) throw classifierText;
-        return { text: classifierText, usage: {}, estimated: 5 };
-      }
-      turnCalls.push({ messages, options });
-      return completionOf(turnText);
-    },
-  };
-}
-
-function rewatchHot(features = {}, video = {}, config = {}) {
-  const hot = fakeHot(
-    { mediaDescriptions: true, videoDescriptions: true, ...features },
-    {},
-    {
-      models: { base: { analyzer: 'x/analyzer', vision: 'x/haiku' } },
-      media: {
-        maxPerTurn: 6,
-        filePreviewChars: 500,
-        video: {
-          maxPerTurn: 1,
-          sites: ['youtube.com'],
-          ...video,
-          // The re-watch settings the tests below rely on; a test passing its own `rewatch` overrides single keys.
-          rewatch: {
-            recentMessages: 60,
-            maxCandidates: 6,
-            contextMessages: 50,
-            classifierMaxOutputTokens: 120,
-            ...video.rewatch,
-          },
-        },
-      },
-      ...config,
-    }
-  );
-  hot.config.llm.timeoutMs = 300_000;
-  hot.config.llm.analyzerTimeoutMs = 25_000;
-  hot.prompts.rewatch = REWATCH_SYSTEM;
-  return hot;
-}
-
-/** A watched video message, then the trigger asking about it. */
-function rewatchScene(triggerContent = 'τι χρώμα είναι το αυτοκίνητο;') {
-  const video = videoAttachmentRaw('m1', NOW - 5000, 'va', 'clip.mp4');
-  const trigger = rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: triggerContent });
-  return { video, trigger, channel: fakeTurnChannel({ historyMessages: [video, trigger] }) };
-}
-
-async function runRewatch({
-  hot = rewatchHot(),
-  llm = rewatchLlm('1 | τι χρώμα;'),
-  describer,
-  scene = rewatchScene(),
-  turn,
-} = {}) {
-  const d = describer ?? fakeRewatchDescriber({ va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store: fakeStore(),
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    describer: d,
-  });
-  await turns.runTurn(
-    turn ?? { channel: scene.channel, mode: 'reply', trigger: normalizedTrigger(scene.trigger), triggerKind: 'mention' }
-  );
-  return { describer: d, llm };
-}
-
-test('createTurnRunner: rewatch -- the classifier gets the watched videos and the trigger, then one second look fills videoAnswered', async () => {
-  const { describer, llm } = await runRewatch();
-
-  assert.equal(llm.classifierCalls.length, 1);
-  const { messages, options } = llm.classifierCalls[0];
-  assert.equal(
-    messages[0].content,
-    'Pick the video the message to Bot asks about; Bot saw them.',
-    "{{name}} is the persona's display name"
-  );
-  const [transcriptPart, videosPart] = textOf(messages[1].content).split('\n<media>\n');
-  assert.ok(
-    transcriptPart.startsWith('<transcript>\n') && transcriptPart.endsWith('\n</transcript>'),
-    'the transcript comes first'
-  );
-  assert.equal(
-    `<media>\n${videosPart}`,
-    '<media>\n1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά\n</media>\n<candidate>\nZoë: τι χρώμα είναι το αυτοκίνητο;\n</candidate>'
-  );
-  assert.equal(options.model, 'x/analyzer', 'the analyzer model');
-  assert.equal(options.maxOutputTokens, 120);
-  assert.equal(options.timeoutMs, 25_000, 'a helper: llm.analyzerTimeoutMs, not the reply timeout');
-  assert.equal(options.countAgainstDailyCap, true);
-  assert.equal(options.skipCalibration, true);
-  assert.equal(options.purpose, 'rewatch');
-
-  assert.equal(describer.rewatchCalls.length, 1);
-  assert.equal(describer.rewatchCalls[0].item.itemId, 'va');
-  assert.equal(describer.rewatchCalls[0].question, 'τι χρώμα;');
-  const userMessage = textOf(llm.turnCalls[0].messages[1].content);
-  const watched = fill(labels.transcript.videoWatched, {
-    name: 'clip.mp4',
-    duration: '0:20',
-    text: 'ένα αυτοκίνητο περνά',
-  });
-  const answered = fill(labels.transcript.videoAnswered, { question: 'τι χρώμα;', text: 'κόκκινο' });
-  assert.ok(userMessage.includes(`${watched} ${answered}`), 'the answer follows the watched tag');
-});
-
-test('createTurnRunner: rewatch -- the classifier model is models.base.analyzer, else its own default; the deprecated keys and a stale rewatch.model are ignored', async () => {
-  const withText = rewatchHot(
-    {},
-    { rewatch: { model: 'x/pick' } },
-    { models: { base: { analyzer: 'x/text', vision: 'x/haiku' } }, mention: { followUpModel: 'x/older' } }
-  );
-  withText.config.llm.classifierModel = 'x/old';
-  assert.equal((await runRewatch({ hot: withText })).llm.classifierCalls[0].options.model, 'x/text');
-  const withOld = rewatchHot(
-    {},
-    { rewatch: { model: 'x/pick' } },
-    { models: { base: { vision: 'x/haiku' } }, mention: { followUpModel: 'x/older' } }
-  );
-  withOld.config.llm.classifierModel = 'x/old';
-  assert.equal(
-    (await runRewatch({ hot: withOld })).llm.classifierCalls[0].options.model,
-    ROLE_DEFAULTS.analyzer,
-    'its own default: never the vision model or a deprecated key'
-  );
-  const staleMedia = rewatchHot({}, { rewatch: { model: 'x/pick' } }, { models: {} });
-  staleMedia.config.media.model = 'x/old-media';
-  const withNone = await runRewatch({ hot: staleMedia });
-  assert.equal(
-    withNone.llm.classifierCalls[0].options.model,
-    ROLE_DEFAULTS.analyzer,
-    'the deprecated media.model is no fallback'
-  );
-});
-
-test('createTurnRunner: rewatch -- the classifier answer cap is media.video.rewatch.classifierMaxOutputTokens', async () => {
-  const set = await runRewatch({ hot: rewatchHot({}, { rewatch: { classifierMaxOutputTokens: 90 } }) });
-  assert.equal(set.llm.classifierCalls[0].options.maxOutputTokens, 90);
-});
-
-test('createTurnRunner: rewatch -- none, garbage, an unknown id or a classifier error stop without a second look', async () => {
-  for (const reply of ['none', 'I think the first video', '2 | τι χρώμα;', new Error('boom')]) {
-    const { describer, llm } = await runRewatch({ llm: rewatchLlm(reply) });
-    assert.equal(llm.classifierCalls.length, 1);
-    assert.equal(describer.rewatchCalls.length, 0, String(reply));
-    assert.equal(llm.turnCalls.length, 1, 'the turn itself still runs');
-    assert.ok(!textOf(llm.turnCalls[0].messages[1].content).includes('looked again'));
-  }
-});
-
-test('createTurnRunner: rewatch -- never on a spontaneous turn (no trigger)', async () => {
-  const scene = rewatchScene();
-  const { describer, llm } = await runRewatch({ scene, turn: { channel: scene.channel, mode: 'interject' } });
-  assert.equal(describer.videoCalls.length, 1, 'videos are still watched');
-  assert.equal(llm.classifierCalls.length, 0);
-  assert.equal(describer.rewatchCalls.length, 0);
-});
-
-test('createTurnRunner: rewatch -- no watched video in the last rewatch.recentMessages messages -> no classifier call', async () => {
-  const outOfWindow = await runRewatch({ hot: rewatchHot({}, { rewatch: { recentMessages: 1 } }) });
-  assert.equal(outOfWindow.llm.classifierCalls.length, 0);
-  const notWatched = await runRewatch({
-    describer: fakeRewatchDescriber({ va: { state: 'limit', reason: 'length' } }),
-  });
-  assert.equal(notWatched.llm.classifierCalls.length, 0);
-  assert.equal(notWatched.describer.rewatchCalls.length, 0);
-});
-
-test('createTurnRunner: rewatch -- features.videoRewatch false, video vision off, or no prompts.rewatch -> no classifier call', async () => {
-  const noPrompt = rewatchHot();
-  delete noPrompt.prompts.rewatch;
-  for (const hot of [rewatchHot({ videoRewatch: false }), rewatchHot({ videoDescriptions: false }), noPrompt]) {
-    const { describer, llm } = await runRewatch({ hot });
-    assert.equal(llm.classifierCalls.length, 0);
-    assert.equal(describer.rewatchCalls.length, 0);
-  }
-});
-
-test('createTurnRunner: rewatch -- a second look that returns null leaves the video watched, without an answer', async () => {
-  const describer = fakeRewatchDescriber({ va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } }, null);
-  const { llm } = await runRewatch({ describer });
-  assert.equal(describer.rewatchCalls.length, 1);
-  const userMessage = textOf(llm.turnCalls[0].messages[1].content);
-  assert.ok(
-    userMessage.includes(
-      fill(labels.transcript.videoWatched, { name: 'clip.mp4', duration: '0:20', text: 'ένα αυτοκίνητο περνά' })
-    )
-  );
-  assert.ok(!userMessage.includes('looked again'));
-});
-
-test('createTurnRunner: rewatch -- logs rewatch: classified with counts only, never the question', async () => {
-  const { logs } = await withCapturedLogs(() => runRewatch());
-  const line = logs.find(
-    (entry) => entry.msg === 'rewatch: classified' || JSON.stringify(entry).includes('rewatch: classified')
-  );
-  assert.ok(line);
-  const all = JSON.stringify(logs);
-  assert.ok(all.includes('"picked":true'));
-  assert.ok(all.includes('"candidates":1'));
-  assert.ok(!all.includes('τι χρώμα'));
-});
-
-test('createTurnRunner: rewatch -- the ordinal maps back to the candidate, 1 for the newest', async () => {
-  const messages = [];
-  const states = {};
-  for (let i = 1; i <= 3; i += 1) {
-    messages.push(videoAttachmentRaw(`m${i}`, NOW - 100_000 + i * 1000, `v${i}`, `clip${i}.mp4`));
-    states[`v${i}`] = { state: 'watched', text: `scène ${i}` };
-  }
-  const trigger = rawMessage({ id: 'mt', ts: NOW - 1000, authorName: 'Zoë', content: 'τι χρώμα;' });
-  const scene = { trigger, channel: fakeTurnChannel({ historyMessages: [...messages, trigger] }) };
-  for (const [reply, itemId] of [
-    ['1 | τι χρώμα;', 'v3'],
-    ['#2 | τι χρώμα;', 'v2'],
-    ['3. | τι χρώμα;', 'v1'],
-  ]) {
-    const describer = fakeRewatchDescriber(states);
-    await runRewatch({ scene, llm: rewatchLlm(reply), describer });
-    assert.equal(describer.rewatchCalls.length, 1, reply);
-    assert.equal(describer.rewatchCalls[0].item.itemId, itemId, reply);
-  }
-  const describer = fakeRewatchDescriber(states);
-  const { logs } = await withCapturedLogs(() => runRewatch({ scene, llm: rewatchLlm('4 | τι χρώμα;'), describer }));
-  assert.equal(describer.rewatchCalls.length, 0, 'an ordinal past the list picks nothing');
-  assert.equal(logs.find((entry) => entry.msg === 'rewatch: classified').parse, 'unknown-id');
-});
-
-test('createTurnRunner: rewatch -- the <media> block lists at most maxCandidates watched videos, newest first', async () => {
-  const messages = [];
-  const states = {};
-  for (let i = 1; i <= 7; i += 1) {
-    messages.push(videoAttachmentRaw(`m${i}`, NOW - 100_000 + i * 1000, `v${i}`, `clip${i}.mp4`));
-    states[`v${i}`] = { state: 'watched', text: `scène ${i}` };
-  }
-  const trigger = rawMessage({ id: 'mt', ts: NOW - 1000, authorName: 'Zoë', content: 'τι χρώμα;' });
-  const scene = { trigger, channel: fakeTurnChannel({ historyMessages: [...messages, trigger] }) };
-  const run = (hot) => runRewatch({ hot, scene, llm: rewatchLlm('none'), describer: fakeRewatchDescriber(states) });
-
-  const { llm } = await run(rewatchHot());
-  const block = llm.classifierCalls[0].messages[1].content.split('<media>\n')[1].split('\n</media>')[0].split('\n');
-  assert.deepEqual(
-    block,
-    [7, 6, 5, 4, 3, 2].map((i, k) => `${k + 1} | video | clip${i}.mp4 | watched | scène ${i}`)
-  );
-
-  const capped = await run(rewatchHot({}, { rewatch: { maxCandidates: 2 } }));
-  const cappedBlock = capped.llm.classifierCalls[0].messages[1].content
-    .split('<media>\n')[1]
-    .split('\n</media>')[0]
-    .split('\n');
-  assert.deepEqual(cappedBlock, [
-    '1 | video | clip7.mp4 | watched | scène 7',
-    '2 | video | clip6.mp4 | watched | scène 6',
-  ]);
-});
-
-/**
- * fakeRewatchDescriber whose describeVideos reports `newCount` fetch attempts
- * this turn (default none: every state came from the cache) and whose
- * describeVideo answers a forced retry with `retried`.
- */
-function fakeRetryDescriber(statesById, retried = { state: 'watched', text: 'τώρα φορτώνει' }, { newCount = 0 } = {}) {
-  const base = fakeRewatchDescriber(statesById);
-  const retryCalls = [];
-  return {
-    ...base,
-    retryCalls,
-    describeVideos: async (guildId, items, options) => {
-      const { videos } = await base.describeVideos(guildId, items, options);
-      return { videos, newCount };
-    },
-    describeVideo: async (guildId, item, options) => {
-      retryCalls.push({ guildId, item, options });
-      return retried;
-    },
-  };
-}
-
-test('createTurnRunner: rewatch -- a video that did not load is offered as not loaded, with an empty account', async () => {
-  const describer = fakeRetryDescriber({ va: { state: 'error' } });
-  const { llm } = await runRewatch({ describer, llm: rewatchLlm('none') });
-  assert.equal(llm.classifierCalls.length, 1);
-  assert.ok(llm.classifierCalls[0].messages[1].content.startsWith('<transcript>\n'));
-  assert.ok(
-    llm.classifierCalls[0].messages[1].content.endsWith(
-      '\n</transcript>\n<media>\n1 | video | clip.mp4 | not loaded |\n</media>\n<candidate>\nZoë: τι χρώμα είναι το αυτοκίνητο;\n</candidate>'
-    )
-  );
-  assert.equal(describer.retryCalls.length, 0);
-});
-
-test('createTurnRunner: rewatch -- <id> | retry on a video that did not load tries it once more, forced, and the transcript shows it watched', async () => {
-  const describer = fakeRetryDescriber({ va: { state: 'error' } });
-  const { result, logs } = await withCapturedLogs(() => runRewatch({ describer, llm: rewatchLlm('1 | retry') }));
-
-  assert.equal(describer.retryCalls.length, 1);
-  assert.equal(describer.retryCalls[0].item.itemId, 'va');
-  assert.equal(describer.retryCalls[0].options.force, true);
-  assert.equal(describer.rewatchCalls.length, 0, 'the retry is the one re-watch of this turn');
-  const userMessage = textOf(result.llm.turnCalls[0].messages[1].content);
-  assert.ok(
-    userMessage.includes(
-      fill(labels.transcript.videoWatched, { name: 'clip.mp4', duration: '0:20', text: 'τώρα φορτώνει' })
-    )
-  );
-  assert.ok(!userMessage.includes('not watched'));
-  const line = logs.find((entry) => entry.msg === 'rewatch: classified');
-  assert.equal(line.picked, true);
-  assert.ok(!JSON.stringify(logs).includes('τώρα φορτώνει'));
-});
-
-test('createTurnRunner: rewatch -- a retry that fails again replaces the state with the new one', async () => {
-  const describer = fakeRetryDescriber({ va: { state: 'error' } }, { state: 'limit', reason: 'size' });
-  const { llm } = await runRewatch({ describer, llm: rewatchLlm('1 | retry') });
-  assert.equal(describer.retryCalls.length, 1);
-  const userMessage = textOf(llm.turnCalls[0].messages[1].content);
-  const reason = labels.transcript.videoReason.size;
-  assert.ok(
-    userMessage.includes(fill(labels.transcript.videoNotWatched, { name: 'clip.mp4', duration: '0:20', reason }))
-  );
-});
-
-test('createTurnRunner: rewatch -- retry on a watched video, or a question on one that did not load, does nothing', async () => {
-  const cases = [
-    { states: { va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } }, reply: '1 | retry' },
-    { states: { va: { state: 'error' } }, reply: '1 | τι χρώμα;' },
-  ];
-  for (const { states, reply } of cases) {
-    const describer = fakeRetryDescriber(states);
-    const { logs } = await withCapturedLogs(() => runRewatch({ describer, llm: rewatchLlm(reply) }));
-    assert.equal(describer.retryCalls.length, 0, reply);
-    assert.equal(describer.rewatchCalls.length, 0, reply);
-    const line = logs.find((entry) => entry.msg === 'rewatch: classified');
-    assert.equal(line.picked, false, reply);
-  }
-});
-
-test('createTurnRunner: rewatch -- maxCandidates counts watched and not-loaded videos together, newest first', async () => {
-  const messages = [];
-  const states = {};
-  for (let i = 1; i <= 4; i += 1) {
-    messages.push(videoAttachmentRaw(`m${i}`, NOW - 100_000 + i * 1000, `v${i}`, `clip${i}.mp4`));
-    states[`v${i}`] = i % 2 === 0 ? { state: 'error' } : { state: 'watched', text: `scène ${i}` };
-  }
-  const trigger = rawMessage({ id: 'mt', ts: NOW - 1000, authorName: 'Zoë', content: 'και τώρα;' });
-  const scene = { trigger, channel: fakeTurnChannel({ historyMessages: [...messages, trigger] }) };
-  const { llm } = await runRewatch({
-    hot: rewatchHot({}, { rewatch: { maxCandidates: 3 } }),
-    scene,
-    llm: rewatchLlm('none'),
-    describer: fakeRetryDescriber(states),
-  });
-  const block = llm.classifierCalls[0].messages[1].content.split('<media>\n')[1].split('\n</media>')[0].split('\n');
-  assert.deepEqual(block, [
-    '1 | video | clip4.mp4 | not loaded |',
-    '2 | video | clip3.mp4 | watched | scène 3',
-    '3 | video | clip2.mp4 | not loaded |',
-  ]);
-});
-
-test('createTurnRunner: rewatch -- a video that did not load is still offered and retried after this turn spent media.video.maxPerTurn attempts', async () => {
-  const describer = fakeRetryDescriber({ va: { state: 'error' } }, undefined, { newCount: 1 });
-  const { result, logs } = await withCapturedLogs(() => runRewatch({ describer, llm: rewatchLlm('1 | retry') }));
-  assert.ok(
-    result.llm.classifierCalls[0].messages[1].content.includes('1 | video | clip.mp4 | not loaded |'),
-    'still offered'
-  );
-  assert.equal(describer.retryCalls.length, 1);
-  assert.equal(describer.retryCalls[0].options.force, true);
-  assert.ok(!logs.some((entry) => entry.msg === 'rewatch: skipped'));
-  const line = logs.find((entry) => entry.msg === 'rewatch: classified');
-  assert.equal(line.retryAllowed, true);
-  assert.equal(line.picked, true);
-});
-
-/** A video, `fillers` chat lines (every third one the persona's own), then the trigger. */
-function rewatchContextScene(fillers) {
-  const video = videoAttachmentRaw('m0', NOW - 100_000, 'va', 'clip.mp4');
-  const between = Array.from({ length: fillers }, (_, i) =>
-    i % 3 === 1
-      ? rawMessage({
-          id: `f${i}`,
-          ts: NOW - 90_000 + i * 1000,
-          authorId: 'self-id',
-          authorName: 'Bot',
-          content: `ligne ${i}`,
-        })
-      : rawMessage({ id: `f${i}`, ts: NOW - 90_000 + i * 1000, authorName: 'Zoë', content: `ligne ${i}` })
-  );
-  const trigger = rawMessage({ id: 'mt', ts: NOW - 1000, authorName: 'Zoë', content: 'τι χρώμα έχει;' });
-  return { trigger, channel: fakeTurnChannel({ historyMessages: [video, ...between, trigger] }) };
-}
-
-/** The lines between <transcript> and </transcript>, or null when the block is absent. */
-function rewatchTranscriptLines(content) {
-  if (!content.startsWith('<transcript>\n')) return null;
-  return content.slice('<transcript>\n'.length, content.indexOf('\n</transcript>\n<media>\n')).split('\n');
-}
-
-test('createTurnRunner: rewatch -- the <transcript> block holds the last contextMessages before the trigger, the persona marked, the trigger only in <candidate>', async () => {
-  const { llm } = await runRewatch({
-    hot: rewatchHot({}, { rewatch: { contextMessages: 3 } }),
-    scene: rewatchContextScene(10),
-    llm: rewatchLlm('none'),
-  });
-  const content = llm.classifierCalls[0].messages[1].content;
-  const items = rewatchTranscriptLines(content).slice(1);
-  assert.equal(items.length, 3);
-  const self = fill(labels.self, { name: 'Bot' });
-  assert.match(items[0], /^#1 \[\d\d:\d\d\] /);
-  assert.ok(items[0].endsWith(`] ${self}: ligne 7`), "the persona's own line is marked");
-  assert.match(items[1], /^#2 \[\d\d:\d\d\] Zoë: ligne 8$/);
-  assert.match(items[2], /^#3 \[\d\d:\d\d\] Zoë: ligne 9$/);
-  assert.equal(content.split('τι χρώμα έχει;').length, 2, 'the trigger appears once');
-  assert.ok(content.endsWith('<candidate>\nZoë: τι χρώμα έχει;\n</candidate>'));
-});
-
-test('createTurnRunner: rewatch -- contextMessages 0 omits the <transcript> block', async () => {
-  const { llm } = await runRewatch({
-    hot: rewatchHot({}, { rewatch: { contextMessages: 0 } }),
-    scene: rewatchContextScene(4),
-    llm: rewatchLlm('none'),
-  });
-  const content = llm.classifierCalls[0].messages[1].content;
-  assert.ok(!content.includes('<transcript>'));
-  assert.ok(content.startsWith('<media>\n1 | video | clip.mp4 | watched |'));
-});
-
-test('createTurnRunner: rewatch -- a video that did not load renders its not-watched tag inside the <transcript> block', async () => {
-  const describer = fakeRetryDescriber({ va: { state: 'error' } });
-  const { llm } = await runRewatch({ describer, llm: rewatchLlm('none') });
-  const items = rewatchTranscriptLines(llm.classifierCalls[0].messages[1].content).slice(1);
-  assert.equal(items.length, 1, 'the video message only; the trigger stays in <candidate>');
-  const tag = fill(labels.transcript.videoNotWatched, {
-    name: 'clip.mp4',
-    duration: '0:20',
-    reason: labels.transcript.videoReason.error,
-  });
-  assert.ok(items[0].endsWith(`Alice: hey bot ${tag}`), items[0]);
-});
-
-// The second look at a picture on a question (features.imageRelook).
-
-/** A raw message carrying one attached picture. */
-function pictureRaw(id, ts, attachmentId, name, author = {}) {
-  return rawMessage({
-    id,
-    ts,
-    ...author,
-    attachments: new Map([
-      [
-        attachmentId,
-        { id: attachmentId, contentType: 'image/png', name, url: `https://cdn.discordapp.com/attachments/1/2/${name}` },
-      ],
-    ]),
-  });
-}
-
-/**
- * fakeRetryDescriber plus captions (`captions`, served by describeMany and cachedDescriptions)
- * and relookImage, answering every call with `answer`.
- */
-function fakeRelookDescriber(statesById = {}, captions = {}, answer = 'pas de chargeur, un reflet de la fenêtre') {
-  const base = fakeRetryDescriber(statesById);
-  const relookCalls = [];
-  const captionsOf = (items) =>
-    new Map(items.filter((item) => captions[item.itemId]).map((item) => [item.itemId, captions[item.itemId]]));
-  return {
-    ...base,
-    describeMany: async (guildId, items) => ({ descriptions: captionsOf(items), newCount: 0 }),
-    cachedDescriptions: (guildId, items) => captionsOf(items),
-    relookCalls,
-    relookImage: async (guildId, item, question) => {
-      relookCalls.push({ guildId, item, question });
-      return answer ? { question, text: answer } : null;
-    },
-  };
-}
-
-/** A picture by Alice, then the trigger making a claim about it. */
-function relookScene(history = [pictureRaw('m1', NOW - 5000, 'pa', 'singes.png')]) {
-  const trigger = rawMessage({
-    id: 'mt',
-    ts: NOW - 1000,
-    authorName: 'Zoë',
-    content: 'il y a un chargeur dans sa pupille',
-  });
-  return { trigger, channel: fakeTurnChannel({ historyMessages: [...history, trigger] }) };
-}
-
-async function runRelook({
-  hot = rewatchHot({}),
-  llm = rewatchLlm('1 | y a-t-il un chargeur dans la pupille ?'),
-  describer = fakeRelookDescriber({}, { pa: 'deux singes sur une branche' }),
-  scene = relookScene(),
-} = {}) {
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store: fakeStore(),
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    describer,
-    imageFetcher: fakeImageFetcher(),
-  });
-  await turns.runTurn({
-    channel: scene.channel,
-    mode: 'reply',
-    trigger: normalizedTrigger(scene.trigger),
-    triggerKind: 'mention',
-  });
-  return { describer, llm };
-}
-
-/** The lines of the `<media>` block of the first classifier call. */
-function mediaLines(llm) {
-  return llm.classifierCalls[0].messages[1].content.split('<media>\n')[1].split('\n</media>')[0].split('\n');
-}
-
-test('createTurnRunner: relook -- a claimed detail of a recent picture picks it; the request carries imageAnswered with the answer', async () => {
-  const { describer, llm } = await runRelook();
-
-  assert.equal(llm.classifierCalls.length, 1);
-  assert.deepEqual(mediaLines(llm), ['1 | picture | singes.png | described | deux singes sur une branche']);
-  assert.equal(describer.relookCalls.length, 1);
-  assert.equal(describer.relookCalls[0].guildId, 'g1');
-  assert.equal(describer.relookCalls[0].item.itemId, 'pa');
-  assert.equal(describer.relookCalls[0].question, 'y a-t-il un chargeur dans la pupille ?');
-  assert.equal(describer.rewatchCalls.length, 0);
-  const userMessage = textOf(llm.turnCalls[0].messages[1].content);
-  const tag = fill(labels.transcript.imageAnswered, {
-    question: 'y a-t-il un chargeur dans la pupille ?',
-    text: 'pas de chargeur, un reflet de la fenêtre',
-  });
-  assert.ok(
-    userMessage.includes(`${fill(labels.transcript.imageDescribed, { text: 'deux singes sur une branche' })} ${tag}`),
-    'the answer sits right after the picture tag'
-  );
-});
-
-test("createTurnRunner: relook -- the persona's own posted picture is a candidate", async () => {
-  const own = pictureRaw('m1', NOW - 5000, 'pa', 'image.png', { authorId: 'self-id', authorName: 'Bot' });
-  const { describer, llm } = await runRelook({ scene: relookScene([own]) });
-  assert.deepEqual(mediaLines(llm), ['1 | picture | image.png | described | deux singes sur une branche']);
-  assert.equal(describer.relookCalls.length, 1);
-  assert.equal(describer.relookCalls[0].item.itemId, 'pa');
-});
-
-test('createTurnRunner: relook -- with the second-look counter spent no picture is offered and the classifier is not asked', async () => {
-  const describer = fakeRelookDescriber({}, { pa: 'deux singes sur une branche' });
-  describer.videoCapsLeft = () => ({ video: 5, rewatch: 0 });
-  const { result } = await withCapturedLogs(() => runRelook({ describer }));
-  assert.equal(result.llm.classifierCalls.length, 0);
-  assert.equal(describer.relookCalls.length, 0);
-
-  // Nothing a retry could serve either: the classifier is skipped as capped.
-  delete describer.describeVideo;
-  const capped = await withCapturedLogs(() => runRelook({ describer }));
-  assert.equal(capped.result.llm.classifierCalls.length, 0);
-  assert.equal(describer.relookCalls.length, 0);
-  assert.ok(capped.logs.some((entry) => entry.msg === 'rewatch: skipped' && entry.reason === 'cap'));
-});
-
-test('createTurnRunner: relook -- imageRelook off removes the pictures; the videos keep their second look', async () => {
-  const video = videoAttachmentRaw('m1', NOW - 9000, 'va', 'clip.mp4');
-  const picture = pictureRaw('m2', NOW - 5000, 'pa', 'singes.png');
-  const states = { va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } };
-  const run = (hot) =>
-    runRelook({
-      hot,
-      scene: relookScene([video, picture]),
-      llm: rewatchLlm('1 | τι χρώμα;'),
-      describer: fakeRelookDescriber(states, { pa: 'deux singes' }),
-    });
-
-  const on = await run(rewatchHot({ imageRelook: true }));
-  assert.deepEqual(mediaLines(on.llm), [
-    '1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά',
-    '2 | picture | singes.png | described | deux singes',
-  ]);
-
-  {
-    const { describer, llm } = await run(rewatchHot({ imageRelook: false }));
-    assert.deepEqual(mediaLines(llm), ['1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά']);
-    assert.equal(describer.rewatchCalls.length, 1);
-    assert.equal(describer.rewatchCalls[0].item.itemId, 'va');
-    assert.equal(describer.relookCalls.length, 0);
-    assert.ok(
-      textOf(llm.turnCalls[0].messages[1].content).includes(
-        fill(labels.transcript.videoAnswered, { question: 'τι χρώμα;', text: 'κόκκινο' })
-      )
-    );
-  }
-});
-
-test('createTurnRunner: relook -- with video vision off the pictures are still offered', async () => {
-  const { describer, llm } = await runRelook({ hot: rewatchHot({ videoDescriptions: false }) });
-  assert.deepEqual(mediaLines(llm), ['1 | picture | singes.png | described | deux singes sur une branche']);
-  assert.equal(describer.relookCalls.length, 1);
-});
-
-test('createTurnRunner: relook -- retry never applies to a picture', async () => {
-  const describer = fakeRelookDescriber({}, { pa: 'deux singes sur une branche' });
-  const { result, logs } = await withCapturedLogs(() => runRelook({ describer, llm: rewatchLlm('1 | retry') }));
-  assert.equal(result.llm.classifierCalls.length, 1);
-  assert.equal(describer.relookCalls.length, 0);
-  assert.equal(describer.retryCalls.length, 0);
-  const line = logs.find((entry) => entry.msg === 'rewatch: classified');
-  assert.equal(line.target, 'picture');
-  assert.equal(line.kind, 'retry');
-  assert.equal(line.picked, false);
-});
-
-test('createTurnRunner: relook -- maxCandidates caps the merged list: the videos first, then the pictures, each newest first', async () => {
-  const history = [
-    pictureRaw('m1', NOW - 50_000, 'p1', 'one.png'),
-    videoAttachmentRaw('m2', NOW - 40_000, 'v1', 'clip1.mp4'),
-    pictureRaw('m3', NOW - 30_000, 'p2', 'two.png'),
-    videoAttachmentRaw('m4', NOW - 20_000, 'v2', 'clip2.mp4'),
-  ];
-  const states = { v1: { state: 'watched', text: 'scène 1' }, v2: { state: 'watched', text: 'scène 2' } };
-  const describer = fakeRelookDescriber(states, {});
-  const { llm } = await runRelook({
-    hot: rewatchHot({}, { rewatch: { maxCandidates: 3 } }),
-    scene: relookScene(history),
-    llm: rewatchLlm('3 | combien de singes ?'),
-    describer,
-  });
-  assert.deepEqual(mediaLines(llm), [
-    '1 | video | clip2.mp4 | watched | scène 2',
-    '2 | video | clip1.mp4 | watched | scène 1',
-    '3 | picture | two.png | described |',
-  ]);
-  assert.equal(describer.relookCalls.length, 1);
-  assert.equal(describer.relookCalls[0].item.itemId, 'p2');
-});
-
-// The second look at a watched GIF (features.videoRewatch): listed as a video.
-
-/** A raw message carrying one tenor gifv embed (item id `<id>#e0`, named after its site). */
-function gifEmbedRaw(id, ts) {
-  return linkRaw(
-    id,
-    ts,
-    [
-      {
-        type: 'gifv',
-        url: 'https://tenor.com/view/miroir-1',
-        provider: { name: 'Tenor' },
-        thumbnail: { url: 'https://media.tenor.com/x/still.png' },
-        video: { url: 'https://media.tenor.com/x/loop.mp4' },
-      },
-    ],
-    ''
-  );
-}
-
-/**
- * fakeRelookDescriber plus watchedGifs (the ids of `watched` with their caption; none with
- * media.gif.watch false, as the real describer's) and rewatchGif, answering with `answer`.
- */
-function fakeGifRewatchDescriber(hot, { states = {}, watched = {}, answer = 'une autre femme dans le miroir' } = {}) {
-  const base = fakeRelookDescriber(states, {});
-  const gifRewatchCalls = [];
-  return {
-    ...base,
-    watchedGifs: (guildId, items) =>
-      hot.config.media?.gif?.watch === false
-        ? new Map()
-        : new Map(
-            items
-              .filter((item) => item.kind === 'gif' && watched[item.itemId])
-              .map((item) => [item.itemId, watched[item.itemId]])
-          ),
-    gifRewatchCalls,
-    rewatchGif: async (guildId, item, question) => {
-      gifRewatchCalls.push({ guildId, item, question });
-      return answer ? { question, text: answer } : null;
-    },
-  };
-}
-
-function gifRewatchScene(history = [gifEmbedRaw('m1', NOW - 5000)]) {
-  const trigger = rawMessage({
-    id: 'mt',
-    ts: NOW - 1000,
-    authorName: 'Zoë',
-    content: 'à la fin le miroir montre une autre personne',
-  });
-  return { trigger, channel: fakeTurnChannel({ historyMessages: [...history, trigger] }) };
-}
-
-async function runGifRewatch({
-  hot = rewatchHot(),
-  llm = rewatchLlm('1 | qui est dans le miroir à la fin ?'),
-  describer,
-  scene = gifRewatchScene(),
-} = {}) {
-  const d = describer ?? fakeGifRewatchDescriber(hot, { watched: { 'm1#e0': 'une femme se regarde dans un miroir' } });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store: fakeStore(),
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    describer: d,
-    imageFetcher: fakeImageFetcher(),
-  });
-  await turns.runTurn({
-    channel: scene.channel,
-    mode: 'reply',
-    trigger: normalizedTrigger(scene.trigger),
-    triggerKind: 'mention',
-  });
-  return { describer: d, llm };
-}
-
-test('createTurnRunner: rewatch -- a watched GIF is offered as a watched video and a pick re-watches it; the answer reaches the request', async () => {
-  const { result, logs } = await withCapturedLogs(() => runGifRewatch());
-  const { describer, llm } = result;
-
-  assert.equal(llm.classifierCalls.length, 1);
-  assert.deepEqual(mediaLines(llm), ['1 | video | Tenor | watched | une femme se regarde dans un miroir']);
-  assert.equal(describer.gifRewatchCalls.length, 1);
-  assert.equal(describer.gifRewatchCalls[0].guildId, 'g1');
-  assert.equal(describer.gifRewatchCalls[0].item.itemId, 'm1#e0');
-  assert.equal(describer.gifRewatchCalls[0].question, 'qui est dans le miroir à la fin ?');
-  assert.equal(describer.rewatchCalls.length, 0);
-  assert.equal(describer.relookCalls.length, 0);
-  const line = logs.find((entry) => entry.msg === 'rewatch: classified');
-  assert.deepEqual(line.offered, { watched: 0, notLoaded: 0, gifs: 1, pictures: 0 });
-  assert.equal(line.target, 'gif');
-  assert.equal(line.picked, true);
-  assert.ok(!JSON.stringify(logs).includes('miroir'), 'never the question or the caption');
-  const tag = fill(labels.transcript.videoAnswered, {
-    question: 'qui est dans le miroir à la fin ?',
-    text: 'une autre femme dans le miroir',
-  });
-  assert.ok(
-    textOf(llm.turnCalls[0].messages[1].content).includes(tag),
-    'the answer sits in the transcript as a video answer'
-  );
-});
-
-test('createTurnRunner: rewatch -- a GIF that was not watched, GIF watching off or videoRewatch off offers no GIF', async () => {
-  const notWatched = rewatchHot();
-  const off = rewatchHot();
-  off.config.media.gif = { watch: false };
-  const cases = [
-    [notWatched, (hot) => fakeGifRewatchDescriber(hot, { watched: {} })],
-    [off, (hot) => fakeGifRewatchDescriber(hot, { watched: { 'm1#e0': 'une femme' } })],
-    [rewatchHot({ videoRewatch: false }), (hot) => fakeGifRewatchDescriber(hot, { watched: { 'm1#e0': 'une femme' } })],
-  ];
-  for (const [hot, make] of cases) {
-    const describer = make(hot);
-    const { result, logs } = await withCapturedLogs(() => runGifRewatch({ hot, describer }));
-    assert.equal(result.llm.classifierCalls.length, 0);
-    assert.equal(describer.gifRewatchCalls.length, 0);
-    assert.ok(!logs.some((entry) => entry.msg === 'rewatch: classified'));
-  }
-});
-
-test('createTurnRunner: rewatch -- a retry on a GIF does nothing; a spent GIF watch counter keeps the GIF off the list', async () => {
-  const retry = await withCapturedLogs(() => runGifRewatch({ llm: rewatchLlm('1 | retry') }));
-  assert.equal(retry.result.describer.gifRewatchCalls.length, 0);
-  assert.equal(retry.logs.find((entry) => entry.msg === 'rewatch: classified').picked, false);
-
-  const hot = rewatchHot();
-  const describer = fakeGifRewatchDescriber(hot, { watched: { 'm1#e0': 'une femme' } });
-  describer.videoCapsLeft = () => ({ video: 5, rewatch: 5, gif: 0 });
-  delete describer.describeVideo;
-  const capped = await withCapturedLogs(() => runGifRewatch({ hot, describer }));
-  assert.equal(capped.result.llm.classifierCalls.length, 0);
-  assert.equal(describer.gifRewatchCalls.length, 0);
-});
-
-test('createTurnRunner: rewatch -- a watched video and a watched GIF: the video first, a pick of the video re-watches only the video', async () => {
-  const hot = rewatchHot();
-  const describer = fakeGifRewatchDescriber(hot, {
-    states: { va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } },
-    watched: { 'm2#e0': 'une femme se regarde dans un miroir' },
-  });
-  const scene = gifRewatchScene([
-    videoAttachmentRaw('m1', NOW - 9000, 'va', 'clip.mp4'),
-    gifEmbedRaw('m2', NOW - 5000),
-  ]);
-  const { llm } = await runGifRewatch({ hot, describer, scene, llm: rewatchLlm('1 | τι χρώμα;') });
-  assert.deepEqual(mediaLines(llm), [
-    '1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά',
-    '2 | video | Tenor | watched | une femme se regarde dans un miroir',
-  ]);
-  assert.equal(describer.rewatchCalls.length, 1);
-  assert.equal(describer.rewatchCalls[0].item.itemId, 'va');
-  assert.equal(describer.gifRewatchCalls.length, 0);
-  assert.ok(
-    textOf(llm.turnCalls[0].messages[1].content).includes(
-      fill(labels.transcript.videoAnswered, { question: 'τι χρώμα;', text: 'κόκκινο' })
-    )
-  );
 });
 
 // ---------------------------------------------------------------------------
@@ -2935,74 +1618,6 @@ test('createTurnRunner: lookup -- links are offered newest message first', async
   );
 });
 
-test('createTurnRunner: lookup -- the classifier gets the transcript and the candidate; a query becomes a <lookup> block', async () => {
-  const llm = lookupLlm('champions final winner 2026');
-  const lookup = fakeLookup({ reads: { 'm1#e0': 'une recette' } });
-  await runLookupTurn({ llm, lookup });
-
-  assert.equal(llm.classifierCalls.length, 1);
-  const { messages, options } = llm.classifierCalls[0];
-  assert.equal(messages[0].content, 'Decide whether Bot needs to look something up.');
-  const user = textOf(messages[1].content);
-  assert.ok(user.startsWith('<transcript>\n'));
-  assert.ok(user.includes('[page read: une recette]'), 'the classifier transcript carries the reads');
-  assert.ok(user.endsWith('</transcript>\n<candidate>\nZoë: ποιος κέρδισε τον τελικό;\n</candidate>'), user);
-  assert.ok(!user.split('<candidate>')[0].includes('ποιος κέρδισε'), 'the trigger only in <candidate>');
-  assert.equal(options.model, 'x/text', 'the lookup is an analyzer request');
-  assert.equal(options.timeoutMs, 25_000, 'a helper: llm.analyzerTimeoutMs, not the reply timeout');
-  assert.equal(options.skipCalibration, true);
-  assert.equal(options.countAgainstDailyCap, true);
-  assert.equal(options.purpose, 'lookup');
-
-  assert.deepEqual(lookup.searchCalls, [{ guildId: 'g1', query: 'champions final winner 2026' }]);
-  const turnUser = textOf(llm.turnCalls[0].messages[1].content);
-  const block = [
-    fill(labels.lookup.header, { query: 'champions final winner 2026' }),
-    'ευρήματα',
-    fill(labels.lookup.sources, { list: 'example.com' }),
-  ].join('\n');
-  assert.ok(turnUser.includes(`<lookup>\n${block}\n</lookup>`), turnUser);
-});
-
-test('createTurnRunner: lookup -- the classifier answer cap is web.search.classifierMaxOutputTokens', async () => {
-  const set = await runLookupTurn({
-    hot: lookupHot({}, { search: { classifierMaxOutputTokens: 45 } }),
-    llm: lookupLlm('none'),
-  });
-  assert.equal(set.llm.classifierCalls[0].options.maxOutputTokens, 45);
-});
-
-test("createTurnRunner: lookup -- {{today}} in the classifier prompt is the injected clock's date in bot.timezone, {{name}} still filled", async () => {
-  const hot = lookupHot();
-  hot.prompts.lookup = 'Decide whether {{name}} needs to look something up. Today is {{today}}; {{name}} again.';
-  const llm = lookupLlm('none');
-  // 23:30 UTC on the last day of the year is already New Year's Day in Tokyo (UTC+9),
-  // the zone the answer's `when:` range is read in.
-  hot.config.bot.timezone = 'Asia/Tokyo';
-  await runLookupTurn({ hot, llm, now: () => Date.UTC(2031, 11, 31, 23, 30, 0) });
-  assert.equal(
-    llm.classifierCalls[0].messages[0].content,
-    'Decide whether Bot needs to look something up. Today is 2032-01-01; Bot again.'
-  );
-});
-
-test('createTurnRunner: lookup -- a classifier prompt without {{today}} passes through unchanged apart from {{name}}', async () => {
-  const hot = lookupHot();
-  hot.prompts.lookup = 'Decide whether {{name}} should search; keep {{other}} as it is.';
-  const llm = lookupLlm('none');
-  await runLookupTurn({ hot, llm, now: () => Date.UTC(2031, 0, 2, 3, 4, 5) });
-  assert.equal(
-    llm.classifierCalls[0].messages[0].content,
-    'Decide whether Bot should search; keep {{other}} as it is.'
-  );
-});
-
-test('createTurnRunner: lookup -- contextMessages 0 omits the <transcript> block', async () => {
-  const llm = lookupLlm('none');
-  await runLookupTurn({ llm, hot: lookupHot({}, { search: { contextMessages: 0 } }) });
-  assert.equal(llm.classifierCalls[0].messages[1].content, '<candidate>\nZoë: ποιος κέρδισε τον τελικό;\n</candidate>');
-});
-
 test('createTurnRunner: lookup -- none, an empty answer or a classifier error -> no search, no <lookup> block', async () => {
   for (const answer of ['none', '', new Error('boom')]) {
     const lookup = fakeLookup();
@@ -3011,13 +1626,6 @@ test('createTurnRunner: lookup -- none, an empty answer or a classifier error ->
     assert.equal(lookup.searchCalls.length, 0);
     assert.ok(!textOf(llm.turnCalls[0].messages[1].content).includes('\n<lookup>\n'));
   }
-});
-
-test('createTurnRunner: lookup -- a search returning null leaves no <lookup> block', async () => {
-  const lookup = fakeLookup({ searchResult: null });
-  const { llm } = await runLookupTurn({ llm: lookupLlm('x y'), lookup });
-  assert.equal(lookup.searchCalls.length, 1);
-  assert.ok(!textOf(llm.turnCalls[0].messages[1].content).includes('\n<lookup>\n'));
 });
 
 test('createTurnRunner: lookup -- only on a direct address: a spontaneous turn reads links but never classifies', async () => {
@@ -3051,16 +1659,6 @@ test('createTurnRunner: lookup -- a turn a returned errand opened runs no engine
   assert.ok(turnUser.includes('ο νικητής'), 'the errand result is shown');
 });
 
-test('createTurnRunner: lookup -- one classifier call and at most one search per turn', async () => {
-  const lookup = fakeLookup();
-  const { llm } = await runLookupTurn({ lookup, llm: lookupLlm('first query\nsecond query') });
-  assert.equal(llm.classifierCalls.length, 1);
-  assert.deepEqual(
-    lookup.searchCalls.map((c) => c.query),
-    ['first query']
-  );
-});
-
 test('createTurnRunner: lookup -- no key, no prompt, search disabled or maxPerTurn 0 -> no classifier call', async () => {
   const noPrompt = lookupHot();
   delete noPrompt.prompts.lookup;
@@ -3074,31 +1672,6 @@ test('createTurnRunner: lookup -- no key, no prompt, search disabled or maxPerTu
     const { llm } = await runLookupTurn({ hot, lookup, llm: lookupLlm('x y') });
     assert.equal(llm.classifierCalls.length, 0);
     assert.equal(lookup.searchCalls.length, 0);
-  }
-});
-
-test('createTurnRunner: lookup -- links disabled -> no readLinks, the search still runs', async () => {
-  const lookup = fakeLookup();
-  await runLookupTurn({ hot: lookupHot({}, { links: { enabled: false } }), lookup, llm: lookupLlm('x y') });
-  assert.equal(lookup.readCalls.length, 0);
-  assert.equal(lookup.searchCalls.length, 1);
-});
-
-test('createTurnRunner: lookup -- features.webLookup off -> zero lookup calls and no classifier call', async () => {
-  const lookup = fakeLookup();
-  const { llm } = await runLookupTurn({ hot: lookupHot({ webLookup: false }), lookup, llm: lookupLlm('x y') });
-  assert.equal(lookup.readCalls.length, 0);
-  assert.equal(lookup.searchCalls.length, 0);
-  assert.equal(llm.classifierCalls.length, 0);
-  assert.equal(llm.turnCalls.length, 1);
-});
-
-test('createTurnRunner: lookup -- senses.search reaches the request only when lookup.hasSearch() is true', async () => {
-  for (const hasKey of [true, false]) {
-    const { llm } = await runLookupTurn({ lookup: fakeLookup({ hasKey }) });
-    const user = textOf(llm.turnCalls[0].messages[1].content);
-    assert.equal(user.includes(labels.senses.search), hasKey);
-    assert.ok(user.includes(labels.senses.linksRead), 'reading links needs no search key');
   }
 });
 
@@ -3127,381 +1700,7 @@ function fakeRecall({
   };
 }
 
-/** One reply turn (`dm`: a private chat served for g1) with a web lookup and a recall wired. */
-async function runRecallTurn({
-  hot = lookupHot(),
-  llm,
-  lookup = fakeLookup(),
-  recall = fakeRecall(),
-  dm = false,
-  client = fakeClient(),
-} = {}) {
-  const messages = [
-    rawMessage({ id: 'm1', ts: NOW - 5000, content: 'καλημέρα' }),
-    rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος σκότωσε το κουνέλι;' }),
-  ];
-  const channel = fakeTurnChannel({ historyMessages: messages, ...(dm ? { id: 'dm1', dm: true } : {}) });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store: fakeStore(),
-    llm,
-    calibrator: identityCalibrator(),
-    client,
-    lookup,
-    recall,
-    now: () => NOW,
-  });
-  const trigger = normalizedTrigger(messages[1]);
-  const { result, logs } = await withCapturedLogs(() =>
-    turns.runTurn({
-      channel,
-      ...(dm ? { guildId: 'g1' } : {}),
-      mode: 'reply',
-      trigger,
-      triggerKind: dm ? 'private' : 'mention',
-    })
-  );
-  return { result, logs, llm, lookup, recall, channel, trigger };
-}
-
-/** The `<lookup>` block of the turn's request, or null. */
-function turnLookupOf(llm) {
-  const match = /<lookup>\n([\s\S]*?)\n<\/lookup>/.exec(textOf(llm.turnCalls[0].messages[1].content));
-  return match ? match[1] : null;
-}
-
-/** The web part fakeLookup's result renders for `query`, as before recall. */
-function webPartOf(query) {
-  return [fill(labels.lookup.header, { query }), 'ευρήματα', fill(labels.lookup.sources, { list: 'example.com' })].join(
-    '\n'
-  );
-}
-
-test("createTurnRunner: recall -- a server: answer runs recall with the trigger, the turn's chat and the parsed forms; its text sits under the server header", async () => {
-  const llm = lookupLlm('server: κουνέλι, κουνελιού');
-  const { recall, lookup, trigger, channel } = await runRecallTurn({ llm });
-  assert.equal(lookup.searchCalls.length, 0, 'no web query was asked');
-  assert.equal(recall.runCalls.length, 1);
-  const args = recall.runCalls[0];
-  // Changed with the contract: the runner is given the conversation's info and the community's id, where it was
-  // given the discord.js channel and guild (src/interface/recall-bridge.ts hands the platform objects over).
-  assert.equal(args.channel.id, channel.id);
-  assert.equal(args.guildId, 'g1');
-  assert.equal(args.selfId, 'self-id');
-  assert.equal(args.selfName, 'Bot');
-  assert.equal(args.candidate.id, trigger.id);
-  assert.deepEqual(
-    args.history.map((m) => m.id),
-    ['m1', 'm2']
-  );
-  assert.deepEqual(
-    args.context.map((m) => m.id),
-    ['m1', 'm2'],
-    "the summary's context: the lines the classifier read"
-  );
-  assert.deepEqual(args.server, { forms: ['κουνέλι', 'κουνελιού'], who: [], from: null, to: null });
-  assert.equal(turnLookupOf(llm), [labels.lookup.serverHeader, RECALL_TEXT].join('\n'));
-});
-
-test('createTurnRunner: recall -- web: and server: run both searches in parallel; the block carries the both-note, then both parts', async () => {
-  const events = [];
-  const lookup = fakeLookup();
-  const search = lookup.search;
-  lookup.search = async (...args) => {
-    events.push('web:start');
-    await new Promise((resolve) => setImmediate(resolve));
-    const found = await search(...args);
-    events.push('web:end');
-    return found;
-  };
-  const llm = lookupLlm('web: lapin chasse saison\nserver: κουνέλι');
-  const { recall } = await runRecallTurn({ llm, lookup, recall: fakeRecall({ events }) });
-  assert.equal(recall.runCalls.length, 1);
-  assert.deepEqual(
-    lookup.searchCalls.map((c) => c.query),
-    ['lapin chasse saison']
-  );
-  assert.deepEqual(events.slice(0, 2).sort(), ['server:start', 'web:start'], 'both started before either ended');
-  assert.equal(
-    turnLookupOf(llm),
-    [
-      labels.lookup.bothNote,
-      labels.lookup.webHeader,
-      webPartOf('lapin chasse saison'),
-      labels.lookup.serverHeader,
-      RECALL_TEXT,
-    ].join('\n')
-  );
-});
-
-test('createTurnRunner: recall -- a web-only or an old unlabelled answer runs no recall and renders the block exactly as before', async () => {
-  for (const answer of ['web: champions final', 'champions final']) {
-    const llm = lookupLlm(answer);
-    const { recall, lookup } = await runRecallTurn({ llm });
-    assert.equal(recall.runCalls.length, 0, answer);
-    assert.deepEqual(
-      lookup.searchCalls.map((c) => c.query),
-      ['champions final'],
-      answer
-    );
-    assert.equal(turnLookupOf(llm), webPartOf('champions final'), answer);
-  }
-});
-
-test('createTurnRunner: recall -- unavailable: a server: line is ignored and recall is never run; with no web search either, no classifier call', async () => {
-  const llm = lookupLlm('web: champions final\nserver: κουνέλι');
-  const { recall, lookup } = await runRecallTurn({ llm, recall: fakeRecall({ available: false }) });
-  assert.equal(recall.runCalls.length, 0);
-  assert.equal(lookup.searchCalls.length, 1);
-  assert.equal(turnLookupOf(llm), webPartOf('champions final'));
-
-  const none = await runRecallTurn({
-    llm: lookupLlm('server: κουνέλι'),
-    lookup: fakeLookup({ hasKey: false }),
-    recall: fakeRecall({ available: false }),
-  });
-  assert.equal(none.llm.classifierCalls.length, 0);
-  assert.equal(none.recall.runCalls.length, 0);
-});
-
-test('createTurnRunner: recall -- with the web search unable to run, the classifier still runs for the server search', async () => {
-  const cases = [
-    { hot: lookupHot({ webLookup: false }), lookup: null },
-    { hot: lookupHot(), lookup: fakeLookup({ hasKey: false }) },
-  ];
-  for (const { hot, lookup } of cases) {
-    const llm = lookupLlm('web: champions final\nserver: κουνέλι');
-    const { recall } = await runRecallTurn({ hot, llm, lookup });
-    assert.equal(llm.classifierCalls.length, 1);
-    assert.equal(recall.runCalls.length, 1);
-    assert.equal(lookup?.searchCalls.length ?? 0, 0, 'the web part the answer asked for is not run');
-    assert.equal(turnLookupOf(llm), [labels.lookup.serverHeader, RECALL_TEXT].join('\n'));
-  }
-});
-
-/** The DM partner u1 (the trigger's author) as a member of the served community g1 the interface knows. */
-function partnerClient() {
-  world().member('g1', { id: 'u1', name: 'Alice' });
-  return { client: fakeClient() };
-}
-
-test("createTurnRunner: recall -- a private chat runs recall on its partner's behalf in the served guild", async () => {
-  const { client } = partnerClient();
-  const { result, recall, channel, lookup, llm } = await runRecallTurn({
-    llm: lookupLlm('server: κουνέλι'),
-    dm: true,
-    client,
-  });
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(recall.runCalls.length, 1);
-  const args = recall.runCalls[0];
-  assert.equal(args.channel.id, channel.id);
-  assert.equal(args.guildId, 'g1');
-  assert.equal(args.partnerId, 'u1');
-  assert.deepEqual(args.server, { forms: ['κουνέλι'], who: [], from: null, to: null });
-  assert.equal(lookup.searchCalls.length, 0);
-  assert.equal(turnLookupOf(llm), [labels.lookup.serverHeader, RECALL_TEXT].join('\n'));
-});
-
-test('createTurnRunner: recall -- features.privateLikeServer off: a private chat never runs recall, its partner at hand or not', async () => {
-  const { client } = partnerClient();
-  const off = await runRecallTurn({
-    hot: lookupHot({ privateLikeServer: false }),
-    llm: lookupLlm('web: champions final\nserver: κουνέλι'),
-    dm: true,
-    client,
-  });
-  assert.equal(off.result.outcome, 'spoke');
-  assert.equal(off.recall.runCalls.length, 0);
-  assert.equal(off.lookup.searchCalls.length, 1);
-  assert.equal(turnLookupOf(off.llm), webPartOf('champions final'));
-
-  const noWeb = await runRecallTurn({
-    hot: lookupHot({ webLookup: false, privateLikeServer: false }),
-    llm: lookupLlm('server: κουνέλι'),
-    lookup: null,
-    dm: true,
-    client: partnerClient().client,
-  });
-  assert.equal(noWeb.llm.classifierCalls.length, 0, 'nothing can run: no classifier');
-  assert.equal(noWeb.recall.runCalls.length, 0);
-});
-
-test('createTurnRunner: recall -- a private chat without its partner as a guild member never runs recall', async () => {
-  const withWeb = await runRecallTurn({ llm: lookupLlm('web: champions final\nserver: κουνέλι'), dm: true });
-  assert.equal(withWeb.result.outcome, 'spoke');
-  assert.equal(withWeb.recall.runCalls.length, 0);
-  assert.equal(withWeb.lookup.searchCalls.length, 1);
-  assert.equal(turnLookupOf(withWeb.llm), webPartOf('champions final'));
-
-  const noWeb = await runRecallTurn({
-    hot: lookupHot({ webLookup: false }),
-    llm: lookupLlm('server: κουνέλι'),
-    lookup: null,
-    dm: true,
-  });
-  assert.equal(noWeb.llm.classifierCalls.length, 0, 'nothing can run: no classifier');
-  assert.equal(noWeb.recall.runCalls.length, 0);
-});
-
-test('createTurnRunner: recall -- a recall that found nothing leaves no server part', async () => {
-  const nothing = () => fakeRecall({ result: { text: null, stretch: null, people: [] } });
-  const both = await runRecallTurn({ llm: lookupLlm('web: champions final\nserver: κουνέλι'), recall: nothing() });
-  assert.equal(both.recall.runCalls.length, 1);
-  assert.equal(turnLookupOf(both.llm), webPartOf('champions final'));
-
-  const alone = await runRecallTurn({ llm: lookupLlm('server: κουνέλι'), recall: nothing() });
-  assert.equal(alone.recall.runCalls.length, 1);
-  assert.equal(turnLookupOf(alone.llm), null);
-});
-
-test('createTurnRunner: recall -- senses.recall reaches the request only on a server turn where the runner is available', async () => {
-  const sensesHas = ({ llm }) => textOf(llm.turnCalls[0].messages[1].content).includes(labels.senses.recall);
-  const throwing = {
-    ...fakeRecall(),
-    available: () => {
-      throw new Error('boom');
-    },
-  };
-  const noRun = { available: () => true };
-  const cases = [
-    { name: 'available', run: { recall: fakeRecall() }, expected: true },
-    {
-      name: 'available, no web lookup either',
-      run: { hot: lookupHot({ webLookup: false }), lookup: null, recall: fakeRecall() },
-      expected: true,
-    },
-    { name: 'unavailable', run: { recall: fakeRecall({ available: false }) }, expected: false },
-    { name: 'not wired', run: { recall: null }, expected: false },
-    { name: 'no run function', run: { recall: noRun }, expected: false },
-    { name: 'available() throws', run: { recall: throwing }, expected: false },
-    { name: 'private chat', run: { recall: fakeRecall(), dm: true }, expected: false },
-  ];
-  for (const { name, run, expected } of cases) {
-    const turn = await runRecallTurn({ llm: lookupLlm('x y'), ...run });
-    assert.equal(turn.result.outcome, 'spoke', name);
-    assert.equal(sensesHas(turn), expected, name);
-  }
-});
-
-test('createTurnRunner: recall -- a stretch from recall reaches the block under its header', async () => {
-  const stretch = {
-    channelId: 'c2',
-    channelName: 'jardin',
-    startTs: NOW - 3 * 24 * 3_600_000,
-    lines: '>> [11:00] Ana: le lapin',
-  };
-  const llm = lookupLlm('server: κουνέλι');
-  await runRecallTurn({ llm, recall: fakeRecall({ result: { text: RECALL_TEXT, stretch, people: [] } }) });
-  const heading = fill(labels.lookup.stretch, {
-    date: new Date(stretch.startTs).toISOString().slice(0, 10),
-    channel: 'jardin',
-  });
-  assert.equal(turnLookupOf(llm), [labels.lookup.serverHeader, RECALL_TEXT, heading, stretch.lines].join('\n'));
-});
-
-test('createTurnRunner: recall -- lookup: classified carries what was asked as flags and counts, never a query, a form or a name', async () => {
-  const llm = lookupLlm('web: requête secrète\nserver: λαγός, λαγού\nwho: Ἀλέξανδρος\nwhen: 2026-09-01');
-  const { logs, recall } = await runRecallTurn({ llm });
-  const line = logs.find((l) => l.msg === 'lookup: classified');
-  assert.ok(line);
-  assert.equal(line.picked, true);
-  assert.equal(line.parse, 'ok');
-  assert.equal(line.web, true);
-  assert.equal(line.server, true);
-  assert.equal(line.forms, 2);
-  assert.equal(line.who, 1);
-  assert.equal(line.ranged, true);
-  assert.equal(recall.runCalls[0].server.from, Date.UTC(2026, 8, 1), 'when: is read in the bot time zone');
-  const all = JSON.stringify(logs);
-  for (const secret of ['secrète', 'λαγ', 'λέξανδρ']) assert.ok(!all.includes(secret), secret);
-});
-
 // The search classifier never creates or suggests an errand: only the persona's own errand.run call does.
-
-/** A fake errand client (the agent runner's side): records each run, which never ends here. */
-function fakeErrandClient() {
-  const runs = [];
-  return { runs, configured: () => true, run: (task) => (runs.push(task), new Promise(() => {})), cancel: () => true };
-}
-
-/**
- * One mention by the member u1 (Alice, m2) in c1 whose search classifier answers `classifier`, over a real errand
- * service and task store (a temp data/ directory), a fake errand client and a real admin's runSkillOp; `errand.run`
- * granted to the persona and the scout agent enabled, so an errand could be queued if anything tried.
- */
-async function runErrandLaneTurn({ classifier }) {
-  const hot = lookupHot(
-    { typingSimulation: false },
-    {},
-    {
-      tools: { safeMode: false, resultMaxChars: 2000 },
-      errands: { maxOpen: 3 },
-      agents: { scout: { enabled: true, daily: { tasks: 10 } } },
-    }
-  );
-  hot.config.bot.owners = ['o9'];
-  hot.config.bot.access = personaGrants(['errand.run']);
-  const stores = createErrandStores({ dataDir: tempDir('nep-turn-agent-'), config: () => hot.config });
-  const errandClient = fakeErrandClient();
-  const errands = createErrandService({ client: errandClient, stores, hot, getGuildId: () => 'g1' });
-  const messages = [
-    rawMessage({ id: 'm1', ts: NOW - 5000, content: 'καλημέρα' }),
-    rawMessage({ id: 'm2', ts: NOW - 1000, content: 'βρες μου μουσική για διάβασμα' }),
-  ];
-  const channel = fakeTurnChannel({ historyMessages: messages });
-  const store = fakeStore();
-  const client = fakeClient();
-  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', errands });
-  const llm = lookupLlm(classifier);
-  const lookup = fakeLookup();
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client,
-    lookup,
-    errands,
-    skills: skillRegistry(),
-    runOp: admin.runSkillOp,
-    runOwnOp: admin.runOwnSkillOp,
-    now: () => NOW,
-  });
-  const { result, logs } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(messages[1]), triggerKind: 'mention' })
-  );
-  return {
-    result,
-    logs,
-    lookup,
-    errandClient,
-    tasks: errands.store('g1').recent(10),
-    request: llm.turnCalls[0].messages,
-    classified: logs.find((l) => l.msg === 'lookup: classified'),
-  };
-}
-
-test('createTurnRunner: an agent: line of the search classifier queues nothing, searches nothing and adds nothing to the request', async () => {
-  const task = 'find a calm piano track for studying, under five minutes';
-  const run = await runErrandLaneTurn({ classifier: `agent: ${task}` });
-  const plain = await runErrandLaneTurn({ classifier: 'none' });
-  assert.equal(run.result.outcome, 'spoke');
-  assert.equal(run.tasks.length, 0, 'no errand queued');
-  assert.equal(run.errandClient.runs.length, 0, 'nothing sent to a runner');
-  assert.equal(run.lookup.searchCalls.length, 0, 'the task is never a web query');
-  assert.deepEqual(run.request, plain.request, 'the request is the one a none answer gives');
-  assert.equal(run.classified.route, 'none');
-  assert.ok(
-    !run.logs.some((l) => l.msg === 'skills: called' || l.msg === 'skill: refused'),
-    'never a call in her name'
-  );
-  assert.ok(!JSON.stringify(run.logs).includes('piano'), 'the task is never logged');
-});
 
 // The fallback: a failed search classifier still gets a direct question a server search on its own words.
 
@@ -3554,56 +1753,6 @@ async function runFallbackTurn({
   return { result, logs, llm, recall, trigger };
 }
 
-test("createTurnRunner: recall fallback -- a classifier that throws still runs recall on the question's long words, a member named by a stored alias on who", async () => {
-  const hot = lookupHot({}, {}, { recall: { maxForms: 3 } });
-  const { recall, logs, llm, trigger } = await runFallbackTurn({ hot });
-  assert.equal(llm.classifierCalls.length, 1);
-  assert.equal(recall.runCalls.length, 1);
-  const args = recall.runCalls[0];
-  assert.equal(args.candidate.id, trigger.id);
-  assert.deepEqual(
-    args.history.map((m) => m.id),
-    ['m1', 'm2']
-  );
-  assert.deepEqual(args.server, {
-    forms: ['χαρακτήρες', 'συζήτησε', 'παιχνίδι'],
-    who: ['λευτέρης'],
-    from: null,
-    to: null,
-  });
-  assert.ok(
-    logs.some((l) => l.msg === 'lookup: classifier failed'),
-    'the warning stays'
-  );
-  const line = logs.find((l) => l.msg === 'lookup: fallback');
-  assert.ok(line);
-  assert.equal(line.reason, 'classifier-failed');
-  assert.equal(line.forms, 3);
-  assert.equal(line.who, 1);
-  const all = JSON.stringify(logs);
-  for (const secret of ['χαρακτήρ', 'συζήτ', 'λευτέρ', 'Λευτέρ']) assert.ok(!all.includes(secret), secret);
-  assert.equal(turnLookupOf(llm), [labels.lookup.serverHeader, RECALL_TEXT].join('\n'));
-});
-
-test('createTurnRunner: recall fallback -- an empty classifier answer runs the same recall, reason empty', async () => {
-  const { recall, logs } = await runFallbackTurn({ classifier: '  ' });
-  assert.equal(recall.runCalls.length, 1);
-  assert.deepEqual(recall.runCalls[0].server, {
-    forms: ['χαρακτήρες', 'συζήτησε', 'παιχνίδι', 'ποιους', 'σήμερα'],
-    who: ['λευτέρης'],
-    from: null,
-    to: null,
-  });
-  assert.equal(logs.find((l) => l.msg === 'lookup: fallback')?.reason, 'empty');
-});
-
-test("createTurnRunner: recall fallback -- a private chat falls back on its partner's behalf", async () => {
-  const { client } = partnerClient();
-  const { recall } = await runFallbackTurn({ dm: true, client });
-  assert.equal(recall.runCalls.length, 1);
-  assert.deepEqual(recall.runCalls[0].server.who, ['λευτέρης']);
-});
-
 test('createTurnRunner: recall fallback -- recall.fallbackOnClassifierFailure false: no recall', async () => {
   const { recall, logs } = await runFallbackTurn({
     hot: lookupHot({}, {}, { recall: { fallbackOnClassifierFailure: false } }),
@@ -3622,12 +1771,6 @@ test('createTurnRunner: recall fallback -- only short words and no known name: n
   const { recall, logs } = await runFallbackTurn({ content: 'και τι; πού ήταν;' });
   assert.equal(recall.runCalls.length, 0);
   assert.ok(!logs.some((l) => l.msg === 'lookup: fallback'));
-});
-
-test('createTurnRunner: recall fallback -- a name alone is enough: the member on who, no forms', async () => {
-  const { recall } = await runFallbackTurn({ content: 'και ο Ἀλέξανδρος;' });
-  assert.equal(recall.runCalls.length, 1);
-  assert.deepEqual(recall.runCalls[0].server, { forms: [], who: ['ἀλέξανδρος'], from: null, to: null });
 });
 
 test('createTurnRunner: recall fallback -- no server search this turn (recall unavailable): no fallback', async () => {
@@ -3851,23 +1994,6 @@ test('runTurn: an avatar that cannot be fetched is logged and the picture is dra
   assert.ok(logs.some((l) => l.msg === 'turn: avatar reference unavailable'));
   assert.equal(images.generateCalls[0].reference, null);
   assert.equal(channel.sent.length, 1);
-});
-
-test('runTurn: features.imageGeneration false takes draw.create out of her tools, and a call of it is refused feature-off', async () => {
-  const { result, channel, images, llm } = await runDrawTurn({
-    answers: [toolAnswer('<msg>hi</msg>', [call('draw.create', { text: 'a cat' })]), '<msg>ok</msg>'],
-    hot: drawHot({ imageGeneration: false }),
-  });
-
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(images.generateCalls.length, 0);
-  assert.deepEqual(
-    channel.sent.map((sent) => sent.content),
-    ['ok'],
-    "the first answer's speech was held, the refusal came back to her"
-  );
-  assert.ok(!llm.options[0].tools.some((tool) => tool.function.name === 'draw_create'));
-  assert.ok(!userTextOf(llm.calls[0]).includes(labels.senses.draw));
 });
 
 test('runTurn: a channel without Attach Files offers no drawing and a call of it never generates', async () => {
@@ -4123,17 +2249,6 @@ test('runTurn: a failing typing indicator does not stop the message', async () =
   assert.equal(channel.sent.length, 1);
 });
 
-test('runTurn: a dry-run private turn is mirrored without a channel name, never as "#null"', async () => {
-  const mirror = fakeTurnChannel({ id: 'mirror1', name: 'mirror' });
-  const hot = privateHot({ dryRun: true });
-  hot.config.bot.dryRunChannelId = 'mirror1';
-  const { channel } = await runPrivateTurn({ hot });
-  const mirrored = mirror.sent;
-  assert.equal(channel.sent.length, 0);
-  assert.equal(mirrored.length, 1);
-  assert.ok(!mirrored[0].content.split('\n')[0].includes('#null'), mirrored[0].content);
-});
-
 test('runTurn: a private turn may draw (no Attach Files check in a DM), counted for the DM partner', async () => {
   const { result, channel, images } = await runPrivateTurn({
     answers: [toolAnswer('<msg>sure</msg>', [call('draw.create', { text: 'a cat' })])],
@@ -4265,10 +2380,6 @@ test('runTurn: a daily request cap or a token cap refusal returns outcome refuse
   }
 });
 
-function imageCap(reason, key, used, cap) {
-  return Object.assign(new ImageCapError(reason), { key, used, cap });
-}
-
 // The server's custom emoji (features.customEmoji, src/behavior/emoji-index.ts).
 function fakeEmojiIndex() {
   const emojis = [
@@ -4356,33 +2467,6 @@ test('createTurnRunner: an unknown custom emoji reaction is dropped, a unicode o
   assert.deepEqual(channel.reactCalls, [{ id: 'm1', emoji: '🔥' }]);
 });
 
-test('createTurnRunner: features.customEmoji=false leaves :name: as text and drops a custom reaction', async () => {
-  const raw = rawMessage({ id: 'm1' });
-  const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlm('<msg>ok :dance:</msg><react to="#1">:pepe_cry:</react>');
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot: fakeHot({ customEmoji: false }),
-    store: fakeStore(),
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    emoji: fakeEmojiIndex(),
-  });
-
-  const result = await turns.runTurn({
-    channel,
-    mode: 'reply',
-    trigger: normalizedTrigger(raw),
-    triggerKind: 'mention',
-  });
-
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(channel.sent[0].content, 'ok :dance:');
-  assert.equal(channel.reactCalls.length, 0);
-});
-
 test('createTurnRunner: only a custom reaction the index does not know means outcome "skip"', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
@@ -4442,15 +2526,6 @@ test('createTurnRunner: the persona turn is requested as role core, purpose repl
     'the carried-over skills, nothing granted'
   );
   assert.equal('cache' in llm.optionCalls[0], false, 'the cache policy decides: the reply is the request it marks');
-});
-
-test('createTurnRunner: the rewatch classifier and the lookup are requested as analyzer, the turn as core', async () => {
-  const rewatch = await runRewatch();
-  assert.equal(rewatch.llm.classifierCalls[0].options.role, 'analyzer');
-  assert.equal(rewatch.llm.turnCalls[0].options.role, 'core');
-  const lookup = await runLookupTurn();
-  assert.equal(lookup.llm.classifierCalls[0].options.role, 'analyzer');
-  assert.equal(lookup.llm.turnCalls[0].options.role, 'core');
 });
 
 /** A store with one link GIF `g1` in the library (no other GIF state). */
@@ -4573,57 +2648,6 @@ test('runTurn: an overheard turn draws unasked: a plain post, no member charged,
   assert.equal(channel.sent.length, 1);
   assert.equal(channel.sent[0].files.length, 1);
   assert.equal(channel.sent[0].reply, undefined);
-});
-
-test('runTurn: an overheard turn runs neither the re-watch nor the search classifier; a mention in the same scene runs both', async () => {
-  for (const [triggerKind, expected] of [
-    ['mention', { rewatch: 1, lookup: 1 }],
-    ['overheard', { rewatch: 0, lookup: 0 }],
-  ]) {
-    const hot = rewatchHot(
-      { webLookup: true },
-      {},
-      {
-        web: {
-          maxPerDay: 60,
-          links: { enabled: true, maxPerTurn: 2 },
-          search: { enabled: true, maxPerTurn: 1, contextMessages: 50 },
-        },
-      }
-    );
-    hot.prompts.lookup = LOOKUP_SYSTEM;
-    const classifierCalls = { rewatch: 0, lookup: 0 };
-    const llm = {
-      complete: async (messages) => {
-        const system = messages[0].content;
-        if (system.startsWith('Pick the video')) classifierCalls.rewatch += 1;
-        else if (system.startsWith('Decide whether')) classifierCalls.lookup += 1;
-        else return { text: '<msg>ok</msg>', usage: {}, estimated: 10 };
-        return { text: 'none', usage: {}, estimated: 5 };
-      },
-    };
-    const scene = rewatchScene();
-    const lookup = fakeLookup();
-    const turns = createTurnRunner({
-      discord: DISCORD,
-      createPort: createDiscordAdapter,
-      hot,
-      store: fakeStore(),
-      llm,
-      calibrator: identityCalibrator(),
-      client: fakeClient(),
-      describer: fakeRewatchDescriber({ va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } }),
-      lookup,
-      imageFetcher: fakeImageFetcher(),
-    });
-    const { result } = await withCapturedLogs(() =>
-      turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: normalizedTrigger(scene.trigger), triggerKind })
-    );
-
-    assert.equal(result.outcome, 'spoke', triggerKind);
-    assert.deepEqual(classifierCalls, expected, triggerKind);
-    assert.equal(lookup.searchCalls.length, 0, triggerKind);
-  }
 });
 
 // --- another channel pulled into a turn (<channel_view>): the inputs ----------------------------
@@ -4979,28 +3003,6 @@ test('runTurn: a spontaneous turn pulls a channel mentioned in its history', asy
     [[DIARY, 'mention']]
   );
   assert.equal(seen[0].describeCalls, 0, 'no caption was asked before the chooser chose');
-});
-
-test('runTurn: features.channelPull off pulls nothing for a mention and builds the request as without the channel', async () => {
-  const off = pullScene({ features: { channelPull: false, mentionHandles: false } });
-  const { logs } = await withCapturedLogs(() =>
-    off.turns.runTurn({ channel: off.channel, mode: 'reply', trigger: off.trigger, triggerKind: 'mention' })
-  );
-
-  assert.equal(off.other.fetches.length, 0, 'the mentioned channel is never fetched');
-  assert.equal(channelViewOf(off.llm), null);
-  assert.equal(
-    logs.some((l) => l.msg.startsWith('pull: ')),
-    false
-  );
-
-  // The same scene with no mention at all: byte for byte the same request (handles off: a real
-  // channel mention carries its handle, which is the mention's own rendering, not a pull).
-  const plain = pullScene({ features: { channelPull: false, mentionHandles: false }, mention: false });
-  await withCapturedLogs(() =>
-    plain.turns.runTurn({ channel: plain.channel, mode: 'reply', trigger: plain.trigger, triggerKind: 'mention' })
-  );
-  assert.deepEqual(off.llm.calls[0], plain.llm.calls[0]);
 });
 
 test('runTurn: with nothing to pull the request is the one built without the pull machinery', async () => {
@@ -5487,22 +3489,6 @@ test('runTurn: a private chat pulls an explicitly mentioned channel only when it
   assert.deepEqual([skipped?.source, skipped?.reason, skipped?.pullReason], [DIARY, 'audience', 'mention']);
 });
 
-test('runTurn: features.privateLikeServer off -- a private chat asks no route hook, pulls no mention and fetches no partner', async () => {
-  const { calls, hook } = diaryHook();
-  const scene = privatePullScene({ features: { privateLikeServer: false }, mention: true, routeChannels: hook });
-
-  const { result, logs } = await scene.run();
-
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(calls.length, 0);
-  assert.deepEqual(scene.memberFetches, []);
-  assert.deepEqual(scene.diary.fetches, []);
-  assert.equal(
-    logs.some((l) => l.msg.startsWith('pull: ')),
-    false
-  );
-});
-
 test('runTurn: a private chat whose partner left the guild pulls nothing and logs the failed fetch', async () => {
   const { calls, hook } = diaryHook();
   const scene = privatePullScene({ mention: true, routeChannels: hook });
@@ -5666,19 +3652,6 @@ test("runTurn: a pulled channel shows the ring's earlier unanswered call with it
   );
 });
 
-test("runTurn: on a routed turn the search classifier reads the source channel's lines", async () => {
-  const llm = lookupLlm('none');
-  const scene = routedScene({ hot: lookupHot(), llm, lookup: fakeLookup() });
-
-  await withCapturedLogs(() => scene.turns.runTurn(scene.params));
-
-  assert.equal(llm.classifierCalls.length, 1);
-  const user = llm.classifierCalls[0].messages[1].content;
-  assert.ok(user.includes('σήμερα έβαψα τον τοίχο μπλε'), user);
-  assert.ok(!user.includes('καλημέρα σε όλους'), "the destination's chat is not the call's context");
-  assert.ok(user.includes('<candidate>\nAlice: @Bot τι λες για τον τοίχο;'), user);
-});
-
 test("runTurn: a routed call's pictures are captioned through the pull, never as the chat's attached pictures", async () => {
   const photo = {
     id: 'cp1',
@@ -5709,17 +3682,6 @@ test("runTurn: a routed call's pictures are captioned through the pull, never as
     'no image part is ever sent'
   );
   assert.ok(channelViewOf(scene.llm).includes('caption of cp1'));
-});
-
-test('runTurn: a focus line reaches the task', async () => {
-  const { turns, channel, llm } = pullScene({ mention: false });
-  const focus = normalizedTrigger(
-    lineIn('c1', { id: 'm1', authorId: 'u2', authorName: 'Bob', ts: NOW - 5 * MINUTE, content: 'είδες το #diary;' })
-  );
-
-  await withCapturedLogs(() => turns.runTurn({ channel, mode: 'interject', focus }));
-
-  assert.ok(userText(llm).includes(fill(labels.room.focus, { author: 'Bob', target: '#1' })));
 });
 
 test('runTurn: a read-only neighbour is marked in the server map', async () => {
@@ -5816,33 +3778,6 @@ test('usableDestination: the first usable main channel, never the excepted one; 
     { channel: null, reason: 'no-destination' },
     'a private chat has none'
   );
-});
-
-test("runTurn: on a routed turn the re-watch classifier is not asked about the destination's videos", async () => {
-  // #general holds a watched clip and one that did not load; the call in #diary asks to try again.
-  const chat = () => [
-    videoAttachmentRaw('m1', NOW - 10 * MINUTE, 'va', 'clip.mp4'),
-    videoAttachmentRaw('m2', NOW - 8 * MINUTE, 'vb', 'other.mp4'),
-  ];
-  const scene = (llm, describer) => routedScene({ hot: rewatchHot(), llm, describer, chat: chat() });
-  const states = { va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' }, vb: { state: 'error' } };
-
-  const llm = rewatchLlm('1 | retry');
-  const describer = fakeRetryDescriber(states);
-  const routed = scene(llm, describer);
-  const { result, logs } = await withCapturedLogs(() => routed.turns.runTurn(routed.params));
-
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(llm.classifierCalls.length, 0, 'no re-watch classifier request');
-  assert.equal(describer.retryCalls.length + describer.rewatchCalls.length, 0, 'nothing watched again');
-  const skipped = logs.find((l) => l.msg === 'rewatch: skipped');
-  assert.deepEqual([skipped.channel, skipped.reason], ['c1', 'routed']);
-
-  // The same call without its source (an ordinary turn here) is offered the videos.
-  const controlLlm = rewatchLlm('1 | retry');
-  const control = scene(controlLlm, fakeRetryDescriber(states));
-  await withCapturedLogs(() => control.turns.runTurn({ ...control.params, source: null }));
-  assert.equal(controlLlm.classifierCalls.length, 1);
 });
 
 test("runTurn: on a routed turn the route hook reads the source channel's lines", async () => {
@@ -6421,21 +4356,6 @@ test('runTurn: @name of a pulled author resolves by the stored nickname', async 
   assert.deepEqual(post.allowedMentions.users, ['u3']);
 });
 
-test('runTurn: in dry-run the stored nickname of a pulled author resolves the same way', async () => {
-  const scene = pullScene({
-    features: { typingSimulation: false, dryRun: true, mentionHandles: false },
-    store: nicknameStore(),
-    llm: fakeLlm('<msg>@Éloïse de Vaux ωραίο μπλε</msg>'),
-  });
-
-  const { logs } = await withCapturedLogs(() =>
-    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
-  );
-
-  assert.equal(scene.channel.sent.length, 0);
-  assert.equal(logs.find((l) => l.msg === 'dry-run: would send').text, '<@u3> ωραίο μπλε');
-});
-
 test('runTurn: the stored name of a member the request did not show resolves through the fallback directory', async () => {
   const store = nicknameStore({ u9: { id: 'u9', names: ['Ταξιάρχης Μέγας'], character: 'ήσυχος' } });
   const scene = pullScene({
@@ -6658,24 +4578,6 @@ test('runTurn: the seen mark follows the request sent: set on a skip, never for 
   assert.equal(dropped.turns.spokeAfterSeeing(DIARY, 'd1'), false);
 });
 
-test('runTurn: a dry-run routed turn acts nowhere, yet marks what it saw', async () => {
-  const answer = '<react to="#2">🎉</react><react to="#1">👍</react><msg reply="#4">ναι, μπλε</msg>';
-  const scene = routedScene({
-    hot: fakeHot({ dryRun: true }, { dryRunChannelId: 'mirror1' }),
-    llm: fakeLlm(answer),
-  });
-
-  const { result } = await withCapturedLogs(() => scene.turns.runTurn(scene.params));
-
-  assert.deepEqual([result.outcome, result.dryRun], ['spoke', true]);
-  assert.deepEqual(
-    [scene.other.reactCalls, scene.channel.reactCalls, scene.channel.sent, scene.other.sent],
-    [[], [], [], []]
-  );
-  assert.deepEqual(scene.store.state.data.elsewhereSeen, { [DIARY]: NOW - 2 * MINUTE }, 'dry-run included');
-  assert.equal(scene.turns.spokeAfterSeeing(DIARY, 'd3'), true);
-});
-
 test('runTurn: a routed turn that only reacts on its call counts as spoke', async () => {
   const scene = routedScene({ features: { typingSimulation: false }, llm: fakeLlm('<react to="#4">👍</react>') });
 
@@ -6707,10 +4609,11 @@ test('runTurn: a turn whose output never reached the chat reports delivered fals
   assert.deepEqual([failed.result.outcome, failed.result.delivered], ['spoke', false]);
   assert.ok(failed.logs.some((l) => l.msg === 'turn: reaction failed'));
 
-  // A picture an image cap refused: it comes back to her as a result, and a turn that posted nothing delivered nothing.
+  // A picture moderation refused: it comes back to her as a result, and a turn that posted nothing delivered nothing.
+  // PR 7d: drawings have no daily caps, so a moderation refusal stands in for the refused picture.
   const capped = routedScene({
     hot: drawHot(),
-    images: fakeImages({ error: imageCap('userDaily', 'image.maxPerUserPerDay', 3, 3) }),
+    images: fakeImages({ error: new ImageGenError('moderation', 'image refused by moderation (HTTP 400)') }),
     llm: sequenceLlm([toolAnswer('', [call('draw.create', { reply: '#1', text: 'a blue wall' })]), '<skip/>']),
   });
   const refused = await withCapturedLogs(() => capped.turns.runTurn(capped.params));
@@ -7406,55 +5309,6 @@ test('runTurn: a reaction stamps no lastPostAt, in a dry run or for real', async
   assert.equal(live.lastPostAt('c1'), 0);
 });
 
-test('runTurn: the search classifier is not asked when no web slot is left today', async () => {
-  for (const [left, asked] of [
-    [0, 0],
-    [3, 1],
-  ]) {
-    const llm = lookupLlm('champions final winner 2026');
-    const lookup = { ...fakeLookup(), webCapLeft: () => left };
-    const { logs } = await withCapturedLogs(() => runLookupTurn({ llm, lookup }));
-    assert.equal(llm.classifierCalls.length, asked, String(left));
-    assert.equal(lookup.searchCalls.length, asked, String(left));
-    assert.equal(
-      logs.some((entry) => entry.msg === 'lookup: skipped' && entry.reason === 'cap'),
-      !asked,
-      String(left)
-    );
-  }
-});
-
-test('runTurn: the re-watch classifier is not asked when no video slot is left; with only re-watches spent, failed videos alone are offered', async () => {
-  const spent = fakeRewatchDescriber({ va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } });
-  spent.videoCapsLeft = () => ({ video: 0, rewatch: 5 });
-  const capped = await withCapturedLogs(() => runRewatch({ describer: spent }));
-  assert.equal(capped.result.llm.classifierCalls.length, 0);
-  assert.ok(capped.logs.some((entry) => entry.msg === 'rewatch: skipped' && entry.reason === 'cap'));
-
-  const noQuestions = fakeRewatchDescriber({ va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } });
-  noQuestions.videoCapsLeft = () => ({ video: 5, rewatch: 0 });
-  const quiet = await withCapturedLogs(() => runRewatch({ describer: noQuestions }));
-  assert.equal(quiet.result.llm.classifierCalls.length, 0, 'no retry possible, no question allowed');
-
-  const retry = fakeRewatchDescriber({
-    va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' },
-    vb: { state: 'error', reason: 'fetch' },
-  });
-  retry.describeVideo = async () => null;
-  retry.videoCapsLeft = () => ({ video: 5, rewatch: 0 });
-  const scene = rewatchScene();
-  const broken = videoAttachmentRaw('m0', NOW - 9000, 'vb', 'broken.mp4');
-  scene.channel = fakeTurnChannel({ historyMessages: [broken, scene.video, scene.trigger] });
-  const offered = await withCapturedLogs(() => runRewatch({ describer: retry, scene, llm: rewatchLlm('none') }));
-  const [call] = offered.result.llm.classifierCalls;
-  const videos = textOf(call.messages[1].content).split('<media>\n')[1].split('\n</media>')[0];
-  assert.deepEqual(
-    videos.split('\n').map((line) => line.split(' | ')[2]),
-    ['broken.mp4'],
-    'only the video that did not load'
-  );
-});
-
 // ---------------------------------------------------------------------------
 // Pace: the helpers before the reply request run together, under one deadline (pace.*).
 
@@ -7960,114 +5814,6 @@ test('runTurn: a search the classifier asks for moves the deadline to pace.prepa
   const timings = logs.find((l) => l.msg === 'turn: timings');
   assert.deepEqual(timings.late, []);
   assert.equal(timings.stages.lookup, 500);
-});
-
-/**
- * A mention whose search classifier answers `classifierText` only once `verdict` (a deferred)
- * settles, under the test pace (prepareMs 1000, prepareSearchMs 3000) on a fake clock (`clock.t`).
- */
-function slowClassifierScene(classifierText, verdict) {
-  const clock = { t: NOW };
-  const lookup = fakeLookup();
-  const base = lookupLlm(classifierText);
-  const llm = {
-    ...base,
-    complete: async (messages, options) => {
-      if (messages[0].content.startsWith('Decide whether')) await verdict.promise;
-      return base.complete(messages, options);
-    },
-  };
-  const hot = lookupHot();
-  hot.config.pace = { ...TEST_PACE };
-  const timers = fakeSchedule();
-  const trigger = rawMessage({ id: 'm1', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος κέρδισε τον τελικό;' });
-  const channel = fakeTurnChannel({ historyMessages: [trigger] });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store: fakeStore(),
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    lookup,
-    now: () => clock.t,
-    schedule: timers.schedule,
-  });
-  const params = { channel, mode: 'reply', trigger: normalizedTrigger(trigger), triggerKind: 'mention' };
-  return { clock, base, timers, turns, params };
-}
-
-/** Run the scene's turn up to the base deadline firing at pace.prepareMs; returns the running turn and the timer left. */
-async function pastBaseDeadline(scene) {
-  const running = withCapturedLogs(() => scene.turns.runTurn(scene.params));
-  await settleUntil(() => scene.timers.live().length > 0);
-  const [first] = scene.timers.live();
-  assert.equal(first.ms, TEST_PACE.prepareMs);
-  scene.clock.t = NOW + TEST_PACE.prepareMs;
-  scene.timers.fire(first);
-  await settleUntil();
-  assert.equal(scene.base.turnCalls.length, 0, 'no request while the classifier is still out');
-  const live = scene.timers.live();
-  assert.equal(live.length, 1, 'one deadline at a time');
-  assert.equal(
-    live[0].ms,
-    TEST_PACE.prepareSearchMs - TEST_PACE.prepareMs,
-    'held at most until pace.prepareSearchMs from the turn start'
-  );
-  return { running, first, held: live[0] };
-}
-
-test('runTurn: a search classifier slower than pace.prepareMs holds the deadline; its search lands in the request', async () => {
-  const verdict = deferred();
-  const scene = slowClassifierScene('champions final winner 2026', verdict);
-  const { running, first } = await pastBaseDeadline(scene);
-  scene.clock.t = NOW + 1500;
-  verdict.resolve();
-  const { result, logs } = await running;
-
-  assert.equal(result.outcome, 'spoke');
-  assert.ok(textOf(scene.base.turnCalls[0].messages[1].content).includes('ευρήματα'), 'the search arrived in time');
-  assert.deepEqual(logs.find((l) => l.msg === 'turn: timings').late, []);
-  assert.ok(!logs.some((l) => l.msg === 'turn: stage late' && l.stage === 'lookup'));
-  assert.ok(
-    scene.timers.timers.every((timer) => !timer.fired || timer === first),
-    'only the base deadline fired'
-  );
-});
-
-test('runTurn: a slow search classifier answering no search lets the request go out at its verdict', async () => {
-  const verdict = deferred();
-  const scene = slowClassifierScene('none', verdict);
-  const { running, held } = await pastBaseDeadline(scene);
-  scene.clock.t = NOW + 1500;
-  verdict.resolve();
-  const { result, logs } = await running;
-
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(held.fired, false, 'not kept until pace.prepareSearchMs');
-  assert.equal(held.cancelled, true);
-  const timings = logs.find((l) => l.msg === 'turn: timings');
-  assert.equal(timings.prepareMs, 1500, 'the request is built when the verdict arrives');
-  assert.deepEqual(timings.late, []);
-  assert.ok(!textOf(scene.base.turnCalls[0].messages[1].content).includes('ευρήματα'));
-});
-
-test('runTurn: a search classifier slower than pace.prepareSearchMs is left out at pace.prepareSearchMs', async () => {
-  const verdict = deferred();
-  const scene = slowClassifierScene('champions final winner 2026', verdict);
-  const { running, held } = await pastBaseDeadline(scene);
-  scene.clock.t = NOW + TEST_PACE.prepareSearchMs;
-  scene.timers.fire(held);
-  const { result, logs } = await running;
-
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(scene.base.turnCalls.length, 1);
-  assert.ok(!textOf(scene.base.turnCalls[0].messages[1].content).includes('ευρήματα'), 'went out without the search');
-  const timings = logs.find((l) => l.msg === 'turn: timings');
-  assert.equal(timings.prepareMs, TEST_PACE.prepareSearchMs);
-  assert.deepEqual(timings.late, ['lookup']);
-  verdict.resolve();
 });
 
 const WATCHED_TEXT = 'ένα ποτάμι κάτω από τη γέφυρα';
@@ -9039,11 +6785,6 @@ test('runTurn: an older labels file without labels.task.part never starts a chai
   );
 });
 
-test('runTurn: features.splitTasks false asks no splitter', async () => {
-  const { llm } = await runSplitTurn({ hot: splitHot({ features: { splitTasks: false } }) });
-  assert.equal(llm.calls.split.length, 0);
-});
-
 test('runTurn: the chain holds the one attention to its end and notifies idle once', async () => {
   const other = fakeTurnChannel({ id: 'c9' });
   let idle = 0;
@@ -9121,22 +6862,6 @@ test('runTurn: a pause ends the chain before its next part', async () => {
   );
   assert.equal(result.outcome, 'spoke');
   assert.equal(turns.isAnyBusy(), false);
-});
-
-test('runTurn: a dry run mirrors each part with its number in the header', async () => {
-  const mirror = fakeTurnChannel({ id: 'mirror1', name: 'mirror' });
-  const hot = splitHot({ features: { dryRun: true } });
-  hot.config.bot.dryRunChannelId = 'mirror1';
-  const { result } = await runSplitTurn({
-    hot,
-    llm: splitLlm({ talk: '<msg>ok</msg>' }),
-  });
-  const mirrored = mirror.sent;
-  assert.deepEqual(result, { outcome: 'spoke', mode: 'reply', dryRun: true });
-  assert.deepEqual(
-    mirrored.map((payload) => /· part (\d)\/(\d)/.exec(payload.content)?.slice(1).join('/')),
-    ['1/3', '2/3', '3/3']
-  );
 });
 
 test("runTurn: the parts not started yet are the author's waiting items; a message folded into one reaches its request", async () => {
@@ -9535,20 +7260,6 @@ test('runTurn: no pick with the daily GIF cap spent, a switch off, no prompt or 
     store: pickStore({ library: { gifs: { nextId: 1, entries: {} }, mediaCache: {} } }),
   });
   assert.equal(empty.picks.length, 0, 'no captioned GIF');
-});
-
-test('runTurn: a dry run asks the picker and logs the GIF it would post, posting nothing', async () => {
-  const { channel, picks, logs, store } = await runPickTurn({ pick: 'g50', features: { dryRun: true } });
-  assert.equal(picks.length, 1);
-  assert.equal(channel.sent.length, 0);
-  assert.equal(
-    logs.some((entry) => entry.msg === 'dry-run: would send'),
-    false,
-    'no text'
-  );
-  const gif = logs.find((entry) => entry.msg === 'dry-run: would send gif');
-  assert.deepEqual([gif.gif, gif.replyTo], ['g50', 'm1']);
-  assert.deepEqual([store.ownGifs, store.state.data.gifCount], [[], undefined], 'nothing counted or stamped');
 });
 
 /** Four chat lines: the trigger (m1) is followed by two later lines from someone else. */
@@ -10884,36 +8595,6 @@ test('turn: limits lists a preview cut', async () => {
   );
 });
 
-test("turn: limits lists the search classifier's fallback with its reason", async () => {
-  const raw = rawMessage({ id: 'm1', content: 'ποιος σκότωσε το κουνέλι;' });
-  const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const { journal, lines } = journalOverMemory();
-  const hot = lookupHot({ journal: true, typingSimulation: false });
-  const recall = fakeRecall();
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store: fakeStore(),
-    llm: lookupLlm(''),
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    lookup: fakeLookup(),
-    recall,
-    journal,
-    now: () => NOW,
-  });
-
-  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
-
-  assert.deepEqual(recall.runCalls[0].server.forms, ['σκότωσε', 'κουνέλι', 'ποιος']);
-  const turn = lines.find(({ record }) => record.kind === 'turn').record;
-  assert.deepEqual(
-    turn.limits.filter((limit) => limit.kind === 'helper-fallback'),
-    [{ kind: 'helper-fallback', where: 'lookup', lost: null, detail: 'empty' }]
-  );
-});
-
 test('turn: a journalled turn dumps its request and raw answer', async () => {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
   const answer = '<think>σκέψη</think><msg reply="#1">γεια</msg>';
@@ -10964,247 +8645,7 @@ test('turn: a journalled turn dumps its request and raw answer', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// The turn planner (features.turnPlanner): one request for the route, the participation pick,
-// the re-watch and the search classifier.
-
-const PLANNER_SYSTEM = 'Plan the turn for {{name}} on {{today}}.';
-const ROUTE_SYSTEM = 'Route the call to {{name}}.';
-const PICK_SYSTEM = 'Pick episodes for {{name}}.';
-
-/** The number of the line of the `<tag>` block of `text` that includes `needle`, or `none`. */
-function listNumber(text, tag, needle) {
-  const body = text.split(`<${tag}>\n`)[1]?.split(`\n</${tag}>`)[0] ?? '';
-  const line = body.split('\n').find((entry) => entry.includes(needle));
-  return line ? line.split(' | ')[0] : 'none';
-}
-
-/** The planner's answer for the scene below: #diary, the #journal episode, a second look at the video, both searches. */
-function fullPlan(user) {
-  return [
-    `channel: ${listNumber(user, 'channels', '#diary')}`,
-    `episodes: ${listNumber(user, 'episodes', '#journal')}`,
-    'rewatch: 1 question: τι χρώμα;',
-    'web: χρώμα αυτοκινήτου',
-    'server: αυτοκίνητο',
-  ].join('\n');
-}
-
-/**
- * An llm telling the helpers apart by their system prompt. The planner answers `planner(user)`
- * (a throw fails the call); the four old classifiers answer the same decisions as fullPlan in
- * their own grammar; anything else is the reply.
- */
-function plannerLlm(planner = fullPlan) {
-  const calls = { planner: [], route: [], pick: [], rewatch: [], lookup: [], turn: [] };
-  const kindOf = (system) =>
-    system.startsWith('Plan the turn')
-      ? 'planner'
-      : system.startsWith('Route the call')
-        ? 'route'
-        : system.startsWith('Pick episodes')
-          ? 'pick'
-          : system.startsWith('Pick the video')
-            ? 'rewatch'
-            : system.startsWith('Decide whether')
-              ? 'lookup'
-              : 'turn';
-  const answers = {
-    planner: (user) => planner(user),
-    route: (user) => listNumber(user, 'channels', '#diary'),
-    pick: (user) => listNumber(user, 'episodes', '#journal'),
-    rewatch: () => '1 | τι χρώμα;',
-    lookup: () => 'web: χρώμα αυτοκινήτου\nserver: αυτοκίνητο',
-    turn: () => '<msg>ok</msg>',
-  };
-  return {
-    calls,
-    helperCalls: () =>
-      calls.planner.length + calls.route.length + calls.pick.length + calls.rewatch.length + calls.lookup.length,
-    complete: async (messages, options) => {
-      const kind = kindOf(messages[0].content);
-      calls[kind].push({ messages, options });
-      return { text: answers[kind](textOf(messages[1].content)), usage: {}, estimated: 5 };
-    },
-  };
-}
-
-/**
- * One mention in #general asking about the watched video posted before it, with #diary routable,
- * two stored episodes elsewhere (#journal older, #jardin newer; one shown), a web search and the
- * server search wired, and the real route hook (createChannelRouter) injected.
- */
-async function runPlannerTurn({ turnPlanner = true, llm = plannerLlm(), journal = null, skills = null } = {}) {
-  const hot = rewatchHot(
-    { webLookup: true, turnPlanner, typingSimulation: false, journal: Boolean(journal) },
-    {},
-    {
-      web: {
-        maxPerDay: 60,
-        links: { enabled: true, maxPerTurn: 2 },
-        search: { enabled: true, maxPerTurn: 1, contextMessages: 50, classifierMaxOutputTokens: 333 },
-      },
-      participation: { shown: 1 },
-      models: { base: { vision: 'x/haiku', analyzer: 'x/reason' } },
-    }
-  );
-  Object.assign(hot.prompts, {
-    planner: PLANNER_SYSTEM,
-    lookup: LOOKUP_SYSTEM,
-    'route-channel': ROUTE_SYSTEM,
-    'participation-pick': PICK_SYSTEM,
-  });
-  const video = videoAttachmentRaw('m1', NOW - 5000, 'va', 'clip.mp4');
-  const triggerRaw = rawMessage({
-    id: 'm2',
-    ts: NOW - 1000,
-    authorName: 'Zoë',
-    content: 'τι χρώμα είναι το αυτοκίνητο στο βίντεο;',
-  });
-  const channel = participationChannel([video, triggerRaw]);
-  const other = addChannel(channel, { id: DIARY, name: 'diary', messages: diaryLines() });
-  const store = participationStore(
-    {
-      episodes: [storedEpisode('p1', 'c2', 120, 'στο ράφι είναι'), storedEpisode('p2', 'c3', 30, 'ωραία λουλούδια')],
-      nextId: 3,
-    },
-    fakeStore({
-      channels: [
-        { id: DIARY, name: 'diary', purpose: 'a diary', lastMessageAt: NOW - HOUR },
-        { id: 'c2', name: 'journal', purpose: 'a reading log' },
-      ],
-    })
-  );
-  const describer = fakeRewatchDescriber({ va: { state: 'watched', text: 'ένα αυτοκίνητο περνά' } });
-  const lookup = fakeLookup();
-  const recall = fakeRecall();
-  const routeChannels = createChannelRouter({ discord: DISCORD, hot, store, llm, now: () => NOW });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    describer,
-    lookup,
-    recall,
-    routeChannels,
-    journal,
-    imageFetcher: fakeImageFetcher(),
-    now: () => NOW,
-    ...(skills ? { skills } : {}),
-  });
-  const { result, logs } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(triggerRaw), triggerKind: 'mention' })
-  );
-  const reply = llm.calls.turn.length > 0 ? textOf(llm.calls.turn.at(-1).messages[1].content) : '';
-  return { result, logs, llm, other, describer, lookup, recall, reply };
-}
-
-test('turn planner: one request instead of four, and each consumer gets what the old classifier gave for the same decision', async () => {
-  const on = await runPlannerTurn();
-  assert.equal(on.result.outcome, 'spoke');
-  assert.equal(on.llm.calls.planner.length, 1, 'one planner request');
-  assert.equal(on.llm.helperCalls(), 1, 'none of the four old classifiers is asked');
-  assert.equal(on.llm.calls.turn.length, 1);
-  const { messages, options } = on.llm.calls.planner[0];
-  assert.equal(options.role, 'analyzer');
-  assert.equal(options.purpose, 'planner');
-  assert.equal(options.model, 'x/reason');
-  assert.equal(options.maxOutputTokens, 333);
-  assert.equal(messages[0].content, 'Plan the turn for Bot on 2026-09-20.');
-  const user = textOf(messages[1].content);
-  const at = ['<channels>\n', '<episodes>\n', '<media>\n', '<transcript>\n', '<candidate>\n'].map((tag) =>
-    user.indexOf(tag)
-  );
-  assert.ok(
-    at.every((index) => index >= 0),
-    user
-  );
-  assert.deepEqual(
-    [...at].sort((a, b) => a - b),
-    at,
-    'the blocks in the prompt order'
-  );
-  assert.ok(user.includes('<media>\n1 | video | clip.mp4 | watched | ένα αυτοκίνητο περνά\n</media>'), user);
-
-  // The same decisions through the four old classifiers.
-  const off = await runPlannerTurn({ turnPlanner: false });
-  assert.deepEqual(
-    ['route', 'pick', 'rewatch', 'lookup', 'planner'].map((kind) => off.llm.calls[kind].length),
-    [1, 1, 1, 1, 0]
-  );
-  for (const run of [on, off]) {
-    assert.equal(run.other.fetches.length, 1, 'the routed channel is pulled');
-    assert.deepEqual(
-      run.describer.rewatchCalls.map((call) => [call.item.itemId, call.question]),
-      [['va', 'τι χρώμα;']]
-    );
-    assert.deepEqual(
-      run.lookup.searchCalls.map((call) => call.query),
-      ['χρώμα αυτοκινήτου']
-    );
-    assert.deepEqual(
-      run.recall.runCalls.map((call) => call.server.forms),
-      [['αυτοκίνητο']]
-    );
-    assert.ok(
-      run.reply.includes('στο ράφι είναι') && !run.reply.includes('ωραία λουλούδια'),
-      'the picked #journal episode is shown'
-    );
-  }
-  assert.equal(on.reply, off.reply, 'the reply request is the same either way');
-  const classified = on.logs.find((l) => l.msg === 'planner: classified');
-  assert.deepEqual(classified.states, { channel: 'ok', episodes: 'ok', rewatch: 'ok', lookup: 'ok' });
-  assert.ok(!JSON.stringify(classified).includes('χρώμα'), 'codes and counts only');
-});
-
-test("turn planner: a failed call runs the search fallback on the question's words, every other block keeps its default", async () => {
-  const { journal, lines } = journalOverMemory();
-  const run = await runPlannerTurn({
-    journal,
-    llm: plannerLlm(() => {
-      throw new Error('hedged timeout');
-    }),
-  });
-  assert.equal(run.result.outcome, 'spoke');
-  assert.equal(run.llm.helperCalls(), 1, 'the old classifiers are never asked instead');
-  assert.equal(run.other.fetches.length, 0, 'no channel pulled');
-  assert.equal(run.describer.rewatchCalls.length, 0, 'no second look');
-  assert.equal(run.lookup.searchCalls.length, 0, 'the fallback never searches the web');
-  assert.equal(run.recall.runCalls.length, 1);
-  assert.ok(run.recall.runCalls[0].server.forms.includes('αυτοκίνητο'));
-  assert.ok(
-    run.reply.includes('ωραία λουλούδια') && !run.reply.includes('στο ράφι είναι'),
-    'the newest episode is shown'
-  );
-  assert.equal(run.logs.find((l) => l.msg === 'planner: failed')?.reason, 'classifier-failed');
-  assert.equal(run.logs.find((l) => l.msg === 'lookup: fallback')?.reason, 'classifier-failed');
-  const turn = lines.find(({ record }) => record.kind === 'turn').record;
-  assert.deepEqual(
-    turn.limits.filter((limit) => limit.kind === 'helper-fallback').map((limit) => [limit.where, limit.detail]),
-    ['channel', 'episodes', 'rewatch', 'lookup'].map((block) => [`planner:${block}`, 'classifier-failed'])
-  );
-});
-
-test('turn planner: an invalid or missing block takes its default, a valid one still counts', async () => {
-  const run = await runPlannerTurn({
-    llm: plannerLlm((user) => `channel: 9\nepisodes: ${listNumber(user, 'episodes', '#journal')}\nlookup: maybe`),
-  });
-  assert.equal(run.result.outcome, 'spoke');
-  assert.equal(run.other.fetches.length, 0, 'an id outside the list pulls nothing');
-  assert.equal(run.describer.rewatchCalls.length, 0, 'a missing re-watch block looks at nothing');
-  assert.ok(run.reply.includes('στο ράφι είναι'), 'the valid episodes block is used');
-  assert.equal(run.lookup.searchCalls.length, 0);
-  assert.equal(run.recall.runCalls.length, 1, 'an invalid lookup block takes the search fallback');
-  assert.equal(run.logs.find((l) => l.msg === 'lookup: fallback')?.reason, 'invalid');
-  const classified = run.logs.find((l) => l.msg === 'planner: classified');
-  assert.deepEqual(classified.states, { channel: 'invalid', episodes: 'ok', rewatch: 'missing', lookup: 'invalid' });
-});
-
-// ---------------------------------------------------------------------------
-// Skills discovery: the search classifier's or the planner's `skills:` line.
+// Skills discovery: the skills a turn offers her and the catalogue.
 
 const SKILL_TEXTS = {
   'message.create': { title: 'Στείλε', whenToUse: 'σε άλλη συζήτηση', whenNotToUse: 'όχι εδώ' },
@@ -11289,41 +8730,6 @@ function blockBody(text, tag) {
   return match ? match[1] : null;
 }
 
-test('skills discovery: the classifier reads the registry; an inventory answer shows what she may use now, grouped by family', async () => {
-  const { journal, lines } = journalOverMemory();
-  const run = await runDiscoveryTurn({ answer: 'none\nskills: inventory', allowed: ['message.edit'], journal });
-  assert.equal(run.result.outcome, 'spoke');
-
-  // The classifier's {{skills}}: one static line per skill, owner-only ones included, no access.
-  const system = run.llm.classifierCalls[0].messages[0].content;
-  assert.ok(system.includes('\nmessage.create | σε άλλη συζήτηση\nmessage.edit | ένα δικό σου μήνυμα\n'), system);
-  assert.ok(system.includes('\nx.owner') && !system.includes('allowed'));
-
-  // The catalogue: in the tail, only the skills open to her here; never in the stable part.
-  const [stable] = run.reply;
-  assert.equal(stable.cacheSegment, 'stable');
-  assert.ok(!stable.text.includes('<skills>\n'));
-  const rows = blockBody(run.reply.at(-1).text, 'skills').split('\n');
-  const line = (name, access) =>
-    fill(labels.tools.line, {
-      name,
-      title: SKILL_TEXTS[name]?.title ?? '',
-      whenToUse: SKILL_TEXTS[name]?.whenToUse ?? '',
-      access,
-    });
-  assert.deepEqual(rows, [
-    line('message.create', labels.tools.access['carried-over']),
-    line('message.edit', labels.tools.access.allowed),
-    'message.react.add',
-  ]);
-
-  const shown = run.logs.find((l) => l.msg === 'skills: inventory');
-  assert.deepEqual([shown.listed, shown.allowed], [discoveryRegistry().size, 3]);
-  assert.ok(!run.logs.some((l) => l.msg === 'skills: proposed'));
-  const turn = lines.find(({ record }) => record.kind === 'turn').record;
-  assert.equal('skillsProposed' in turn, false, 'an inventory proposes nothing');
-});
-
 test("skills discovery: a grant moves only the catalogue; the stable part never changes with it, and her tools are the request's field", async () => {
   const closed = await runDiscoveryTurn({ answer: 'skills: inventory' });
   const granted = await runDiscoveryTurn({ answer: 'skills: inventory', allowed: ['message.edit', 'message.delete'] });
@@ -11332,41 +8738,6 @@ test("skills discovery: a grant moves only the catalogue; the stable part never 
   const names = (run) => run.llm.turnCalls[0].options.tools.map((tool) => tool.function.name);
   assert.deepEqual(names(closed), ['message_create', 'message_react_add']);
   assert.deepEqual(names(granted), ['message_create', 'message_delete', 'message_edit', 'message_react_add']);
-});
-
-test('skills discovery: named skills are logged and journaled with the gateway verdict; <skills> shows the allowed ones and names the others', async () => {
-  const { journal, lines } = journalOverMemory();
-  const run = await runDiscoveryTurn({
-    answer: 'none\nskills: message.edit, message.delete, x.owner, draw',
-    allowed: ['message.edit'],
-    journal,
-  });
-  assert.equal(run.result.outcome, 'spoke');
-  const line = fill(labels.tools.line, {
-    name: 'message.edit',
-    title: SKILL_TEXTS['message.edit'].title,
-    whenToUse: SKILL_TEXTS['message.edit'].whenToUse,
-    access: labels.tools.access.allowed,
-  });
-  assert.deepEqual(blockBody(run.reply.at(-1).text, 'skills').split('\n'), [
-    line,
-    fill(labels.tools.proposedOff, { names: 'message.delete, x.owner' }),
-  ]);
-  assert.ok(!run.reply[0].text.includes('message.edit'), 'never in the stable part');
-  const proposed = run.logs.find((l) => l.msg === 'skills: proposed');
-  assert.equal(proposed.count, 3, 'a name outside the registry is no proposal');
-  assert.deepEqual(proposed.proposals, [
-    { name: 'message.edit', allowed: true, reason: 'allowed' },
-    { name: 'message.delete', allowed: false, reason: 'not-allowed' },
-    { name: 'x.owner', allowed: false, reason: 'not-allowed' },
-  ]);
-  assert.ok(!JSON.stringify(proposed).includes('μπορείς'), 'names and codes only');
-  const turn = lines.find(({ record }) => record.kind === 'turn').record;
-  assert.deepEqual(turn.skillsProposed, [
-    { name: 'message.edit', allowed: true },
-    { name: 'message.delete', allowed: false },
-    { name: 'x.owner', allowed: false },
-  ]);
 });
 
 test('skills discovery: every turn carries the skills granted to her as tools, with no question and no proposal; the catalogue stays off', async () => {
@@ -11380,33 +8751,6 @@ test('skills discovery: every turn carries the skills granted to her as tools, w
   assert.ok(!run.text.includes('<skills>\n'), 'the detailed rows stay off without a question or a proposal');
   const off = await runDiscoveryTurn({ answer: 'none', allowed: ['message.edit'], features: { tools: false } });
   assert.equal(off.llm.turnCalls[0].options.tools, undefined, 'skills off: no tools at all');
-});
-
-test('skills discovery: features.toolsDiscovery or features.tools false -- no list for the classifier, no catalogue', async () => {
-  for (const features of [{ toolsDiscovery: false }, { tools: false }]) {
-    const run = await runDiscoveryTurn({ answer: 'skills: inventory', features });
-    const where = JSON.stringify(features);
-    assert.equal(
-      run.llm.classifierCalls[0].messages[0].content,
-      'Decide whether Bot needs to look something up.\n',
-      where
-    );
-    assert.ok(!run.text.includes('<skills>\n'), where);
-    assert.ok(!run.logs.some((l) => l.msg === 'skills: inventory' || l.msg === 'skills: proposed'), where);
-  }
-});
-
-test("skills discovery: with the turn planner its skills line stands in for the search classifier's", async () => {
-  const run = await runPlannerTurn({
-    llm: plannerLlm((user) => `${fullPlan(user)}\nskills: inventory`),
-    skills: discoveryRegistry(),
-  });
-  assert.equal(run.result.outcome, 'spoke');
-  assert.equal(run.llm.calls.lookup.length, 0);
-  assert.ok(run.reply.includes('<skills>\nmessage.create\n'), run.reply);
-  assert.equal(run.logs.filter((l) => l.msg === 'skills: inventory').length, 1);
-  const quiet = await runPlannerTurn();
-  assert.ok(!quiet.reply.includes('<skills>\n'), 'no skills line, no catalogue');
 });
 
 // ---------------------------------------------------------------------------
@@ -11466,17 +8810,6 @@ test("createTurnRunner: the lines a turn posted name its trigger in the next tur
     text.includes('Bot (you) (turn triggered by #1): έρχομαι'),
     'every line of one turn carries the same trigger'
   );
-});
-
-test('createTurnRunner: features.triggerMarkers=false renders her lines exactly as before', async () => {
-  const { history, channel, llm, turns } = triggerTurnScene({ triggerMarkers: false });
-  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[0]), triggerKind: 'mention' });
-  history.push(selfRaw('sent-1', NOW - 20_000, 'ναι'));
-  const from = llm.calls.length;
-  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' });
-  const [text] = chatTexts(llm, from);
-  assert.ok(text.includes('Bot (you): ναι'), text);
-  assert.ok(!text.includes('triggered'), text);
 });
 
 test('createTurnRunner: a line posted by a spontaneous turn carries no trigger', async () => {
@@ -11610,30 +8943,6 @@ test('skills gateway: her reply needs no grant and no skill in the registry -- a
     logs.some((entry) => entry.msg === 'skill: refused'),
     false
   );
-});
-
-test('skills gateway: features.tools off silences the whole reply', async () => {
-  const { result, channel, logs } = await gatewayTurn({
-    answer: '<msg>ένα</msg><msg>δύο</msg><react to="#1">\u{1F389}</react>',
-    features: { tools: false },
-  });
-  assert.deepEqual([result.outcome, result.delivered], ['spoke', false]);
-  assert.deepEqual([channel.sent, channel.reactCalls, channel.typingCalls], [[], [], []]);
-  const refused = logs.filter((entry) => entry.msg === 'skill: refused');
-  assert.ok(refused.length > 0 && refused.every((entry) => entry.code === 'skills-off'));
-  assert.ok(
-    refused.some((entry) => entry.skill === 'message.create') &&
-      refused.some((entry) => entry.skill === 'message.react.add')
-  );
-
-  // A picture its publication may not have is never generated.
-  const drawn = await runDrawTurn({
-    answers: [toolAnswer('', [call('draw.create', { reply: '#1', text: 'a cat' })])],
-    hot: drawHot({ tools: false }),
-  });
-  assert.equal(drawn.images.generateCalls.length, 0);
-  assert.deepEqual(drawn.channel.sent, []);
-  assert.ok(drawn.logs.some((entry) => entry.msg === 'skill: refused' && entry.code === 'skills-off'));
 });
 
 test('skills gateway: a send the port answers unknown is journaled unknown, never retried and never counted as posted', async () => {
@@ -12215,17 +9524,6 @@ test('skill call: draw.create elsewhere generates once and the operation posts i
   assert.ok(capped.logs.some((entry) => entry.msg === 'skill: refused' && entry.code === 'daily-cap'));
 });
 
-test('skill call: a dry run only logs the call', async () => {
-  const run = await callTurn({
-    answers: [toolAnswer('<msg>ναι</msg>', [call('message.create', { channel: '#νέα', text: 'γεια' })])],
-    allowed: ['message.create'],
-    features: { dryRun: true },
-  });
-  assert.deepEqual(effectsOf(run.port), [], 'nothing went through the port');
-  assert.equal(run.llm.calls.length, 1);
-  assert.ok(run.logs.some((entry) => entry.msg === 'dry-run: would call' && entry.skill === 'message.create'));
-});
-
 test('skill call: a call that did not work comes back as a result with its reason, her speech is held, the corrected call goes through and the journal keeps both', async () => {
   const { journal, lines } = journalOverMemory();
   const run = await callTurn({
@@ -12477,54 +9775,6 @@ test('call marks: seeded from the journal after a restart, a call that did not w
     reason: fill(labels.transcript.callReasons['missing-arg'], { arg: 'message' }),
   });
   assert.ok(line.endsWith(`[called message.delete in #general: ${status}]`), line);
-});
-
-test('call marks: seeded from the journal after a restart, the calls show as they did; with features.callMarkers off nothing shows', async () => {
-  const { journal, lines } = journalOverMemory();
-  const scene = callMarkScene({
-    answers: [
-      toolAnswer('<msg reply="#2">εντάξει</msg>\n', [call('message.create', { channel: '#🍡νέα', text: 'καλημέρα' })]),
-      '<skip/>',
-    ],
-    features: { journal: true },
-    journal,
-  });
-  await scene.run(scene.channel, scene.history[1]);
-  const there = ownRaw(scene.port, 'c9', NOW);
-  scene.history.push(ownRaw(scene.port, 'c1', NOW));
-  const m2 = rawMessage({ id: 'm2', ts: NOW + 30_000, authorName: 'Alice', content: 'και;' });
-  scene.history.push(m2);
-  scene.clock.ms = NOW + 60_000;
-
-  const restarted = scene.runner();
-  restarted.seedCallMarks(callMarksOf(lines.map(({ record }) => record)));
-  await scene.run(scene.channel, m2, restarted);
-  const line = lastChat(scene.llm)
-    .split('\n')
-    .find((text) => text.includes('εντάξει'));
-  assert.ok(
-    line.endsWith(`[called message.create in #💖νέα: done, posted as https://discord.com/channels/g1/c9/${there.id}]`),
-    line
-  );
-
-  const unseeded = scene.runner();
-  await scene.run(scene.channel, m2, unseeded);
-  assert.ok(!lastChat(scene.llm).includes('[called '), 'nothing seeded, nothing shown');
-
-  const off = callMarkScene({
-    answers: [
-      toolAnswer('<msg reply="#2">εντάξει</msg>\n', [call('message.create', { channel: '#🍡νέα', text: 'καλημέρα' })]),
-      '<skip/>',
-    ],
-    features: { callMarkers: false },
-  });
-  await off.run(off.channel, off.history[1]);
-  off.history.push(ownRaw(off.port, 'c1', NOW));
-  off.clock.ms = NOW + 60_000;
-  const m3 = rawMessage({ id: 'm3', ts: NOW + 30_000, authorName: 'Alice', content: 'και;' });
-  off.history.push(m3);
-  await off.run(off.channel, m3);
-  assert.ok(!lastChat(off.llm).includes('[called '), lastChat(off.llm));
 });
 
 // ---------------------------------------------------------------------------

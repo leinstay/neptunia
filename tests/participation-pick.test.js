@@ -34,7 +34,7 @@ const GUILD = 'g1';
 /** The shipped config with the participation settings pinned and `overrides` merged one level deep. */
 function config(overrides = {}) {
   const base = structuredClone(SHIPPED_CONFIG);
-  base.participation = { ...base.participation, contextMessages: 6, maxOutputTokens: 60, hours: 72 };
+  base.participation = { ...base.participation, maxOutputTokens: 60 };
   for (const [key, value] of Object.entries(overrides)) base[key] = { ...base[key], ...value };
   return base;
 }
@@ -93,14 +93,14 @@ function line(
 
 // ---- settings and the switch ----------------------------------------------------------
 
-test('participationPickSettings: a missing group falls back, a missing switch counts as on, false turns it off', () => {
+// PR 7d: the switch is code and `participation.contextMessages` the constant 6; the two numbers left are read.
+test('participationPickSettings: a missing group falls back, an unusable number takes the default', () => {
   assert.deepEqual(participationPickSettings({}), { ...PARTICIPATION_PICK_DEFAULTS });
-  assert.deepEqual(participationPickSettings({ participation: { contextMessages: 3.8, maxOutputTokens: 0 } }), {
-    contextMessages: 3,
+  assert.deepEqual(participationPickSettings({ participation: { maxOutputTokens: 0, pickTimeoutMs: 250.9 } }), {
+    contextMessages: PARTICIPATION_PICK_DEFAULTS.contextMessages,
     maxOutputTokens: PARTICIPATION_PICK_DEFAULTS.maxOutputTokens,
-    pickTimeoutMs: PARTICIPATION_PICK_DEFAULTS.pickTimeoutMs,
+    pickTimeoutMs: 250,
   });
-  assert.equal(participationPickSettings({ features: { participation: false } }), null);
 });
 
 test('participationPickSettings: pickTimeoutMs is read from the group, floored; null lifts it; unusable takes the fallback', () => {
@@ -229,7 +229,6 @@ function fakeLlm(answer) {
 
 function pickerScene({
   answer = '2',
-  features = {},
   prompt = 'You are {{name}}.',
   state = participationState(),
   audience = () => true,
@@ -238,7 +237,7 @@ function pickerScene({
   pickTimeoutMs = 1500,
 } = {}) {
   const hot = {
-    config: config({ features, llm: { analyzerTimeoutMs: 4321 }, participation: { pickTimeoutMs } }),
+    config: config({ llm: { analyzerTimeoutMs: 4321 }, participation: { pickTimeoutMs } }),
     prompts: { 'participation-pick': prompt, labels },
   };
   const store = {
@@ -405,11 +404,13 @@ test('createParticipationPicker: an answer inside the limit is taken and the tim
   assert.equal(open.llm.calls[0].options.signal, undefined, 'no abort signal');
 });
 
+// PR 7d: `participation.contextMessages` is the constant 6, so five older lines come before the two the scene has.
 test('createParticipationPicker: the transcript holds the last contextMessages lines before the candidate', async () => {
   const { llm, args } = pickerScene();
-  args.history = [line('m0', { content: 'παλιό' }), ...args.history];
+  const older = ['ένα', 'δύο', 'τρία', 'τέσσερα', 'πέντε'].map((content, n) => line(`o${n}`, { content }));
+  args.history = [line('m0', { content: 'παλιό' }), ...older, ...args.history];
   const hot = {
-    config: config({ participation: { contextMessages: 1 } }),
+    config: config(),
     prompts: { 'participation-pick': 'p', labels },
   };
   const narrow = createParticipationPicker({
@@ -420,7 +421,7 @@ test('createParticipationPicker: the transcript holds the last contextMessages l
   });
   await withCapturedLogs(() => narrow(args));
   const user = userText(llm.calls.at(-1).messages[1].content);
-  assert.ok(user.includes('δεύτερο') && !user.includes('πρώτο') && !user.includes('παλιό'));
+  assert.ok(user.includes('δεύτερο') && user.includes('δύο') && !user.includes('ένα') && !user.includes('παλιό'));
 });
 
 test('createParticipationPicker: none, garbage and unknown numbers pick nothing', async () => {
@@ -450,10 +451,7 @@ test('createParticipationPicker: the audience and the current channel decide wha
   assert.equal(logs.filter((l) => l.msg.startsWith('participation:')).length, 0, 'no headline: no call and no log');
 });
 
-test('createParticipationPicker: the switch off or no store asks nothing', async () => {
-  const off = pickerScene({ features: { participation: false } });
-  assert.deepEqual(await off.picker(off.args), []);
-  assert.equal(off.llm.calls.length, 0);
+test('createParticipationPicker: no store asks nothing', async () => {
   const llm = fakeLlm('1');
   const bare = createParticipationPicker({
     hot: { config: config(), prompts: { 'participation-pick': 'p', labels } },

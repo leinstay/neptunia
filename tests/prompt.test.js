@@ -48,33 +48,16 @@ function fakePrompts(overrides = {}) {
   };
 }
 
+// PR 7d: the switches are code and the context, lore and memory measures constants, so only the settings stay.
 function fakeConfig(overrides = {}) {
   return {
     bot: { timezone: 'Europe/Moscow' },
     context: {
-      gapMarkerMinutes: 20,
-      maxMessageChars: 800,
       caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, server: 2500, lore: 1500 },
-      vision: { tokensPerImage: 400 },
-      // The settings the behaviour tests below rely on, pinned here once instead of
-      // leaning on the code fallbacks (one test compares those with config.json).
-      tempo: { liveMessages10min: 4, deadSilenceMinutes: 45 },
-      askedAboutEpisodes: 3,
       ...overrides.context,
     },
-    features: {
-      relationships: true,
-      episodes: true,
-      lore: true,
-      recent: true,
-      videoDescriptions: true,
-      videoRewatch: true,
-      imageGeneration: true,
-      ...overrides.features,
-    },
-    llm: { maxRequestTokens: 50000, safetyMargin: 0.9, ...overrides.llm },
-    lore: { scanMessages: 30, maxMatches: 8, ...overrides.lore },
-    memory: { recentHours: 72, ...overrides.memory },
+    llm: { maxRequestTokens: 50000, ...overrides.llm },
+    ...(overrides.memory ? { memory: overrides.memory } : {}),
   };
 }
 
@@ -518,7 +501,7 @@ test('buildRequest: blocks appear in the documented order', () => {
       neighbors: [{ channelName: 'general', messages: [makeMessage(9, NOW - 5 * MIN)] }],
       channels: [{ id: 'c1', name: 'general', lastMessageAt: NOW, days: {} }],
       currentChannelId: 'c1',
-      drawQuota: { spent: false, userSpent: false },
+      drawOn: true,
     })
   );
   const user = contentText(request.messages[1].content);
@@ -690,7 +673,7 @@ test('buildRequest: the tail ends with <now>, <senses>, <tempo> and <task>, afte
     segmentScene({
       lookup: { query: 'q', text: 'found it', sources: [] },
       config: fakeConfig({ features: { webLookup: true } }),
-      drawQuota: { spent: false, userSpent: false },
+      drawOn: true,
     })
   );
   const tags = blockTags(contentText(request.messages[1].content));
@@ -969,7 +952,7 @@ function cacheScene({ triggerFields, config: configOverrides = {}, ...overrides 
     customEmoji: EMOJI_INDEX,
     mediaCache: { 'emoji:9': { text: 'a surprised cat face', ts: 1 }, 'emoji:2': { text: 'a dancing bean', ts: 1 } },
     channels: [{ id: 'c1', name: 'κουζίνα', lastMessageAt: NOW - MIN, days: {} }],
-    drawQuota: { spent: false, userSpent: false },
+    drawOn: true,
     recallAvailable: true,
     searchAvailable: true,
     elsewhereDestination: { name: 'général' },
@@ -1089,8 +1072,6 @@ test('buildRequest: the stable part is byte-identical across the turns of a day,
       channels: [{ id: 'c2', name: 'κήπος', lastMessageAt: NOW - MIN, days: {} }],
       currentChannelId: 'c2',
     },
-    'the member quota spent': { drawQuota: { spent: false, userSpent: true } },
-    'the daily quota spent': { drawQuota: { spent: true, userSpent: true } },
     'no server search left': { recallAvailable: false },
     'no emoji in the chat': { triggerFields: { content: 'γεια', emojis: [] } },
     'the emoji ranking moved': {
@@ -1391,23 +1372,6 @@ test('buildRequest: idByIndex still covers messages later trimmed out of the ren
 });
 
 // --- tempo thresholds come from config, not hardcoded in the renderer -------
-
-test('buildRequest: config.context.tempo reaches the tempo verdict rendered in <tempo>', () => {
-  // 1 message 5 minutes ago: below the base config's live threshold (4) and well
-  // under its dead silence (45 min), so it renders as "slow" there but as "live"
-  // once config lowers liveMessages10min to 1.
-  const history = [makeMessage(1, NOW - 5 * MIN)];
-
-  const baseRequest = buildRequest(baseInput({ history, trigger: null }));
-  const baseUser = contentText(baseRequest.messages[1].content);
-  assert.ok(baseUser.includes(labels.tempo.verdictSlow));
-  assert.ok(!baseUser.includes(labels.tempo.verdictLive));
-
-  const config = fakeConfig({ context: { tempo: { liveMessages10min: 1, deadSilenceMinutes: 45 } } });
-  const tunedRequest = buildRequest(baseInput({ history, trigger: null, config }));
-  const tunedUser = contentText(tunedRequest.messages[1].content);
-  assert.ok(tunedUser.includes(labels.tempo.verdictLive));
-});
 
 // --- <server>: the channel map -----------------------------------------------
 
@@ -1844,22 +1808,6 @@ test('renderProfile: opts.handle follows the name on the heading; none without i
   assert.equal(renderProfile(profile, labels, { handle: null }).split('\n')[0], '## Carl');
 });
 
-test('buildRequest: with features.mentionHandles off the headings carry no handle', () => {
-  const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
-  const interlocutor = { id: 'author-1', names: ['Alice'], character: 'talkative' };
-  const request = buildRequest(
-    baseInput({
-      config: fakeConfig({ features: { mentionHandles: false } }),
-      history: [trigger],
-      trigger,
-      triggerKind: 'mention',
-      interlocutor,
-    })
-  );
-  assert.ok(contentText(request.messages[1].content).includes('<people>\n## Alice\n'));
-  assert.equal(request.handles, null);
-});
-
 test('renderProfile: the interlocutor heading is bare: the mark describes the request and lives in <people_now>', () => {
   const profile = {
     id: 'p1',
@@ -2247,21 +2195,6 @@ test('renderProfile: an unconfirmed detail renders with unsureMark, details neve
   assert.ok(!text.includes(`Plays guitar${labels.profile.unsureMark}`));
 });
 
-test('buildRequest: features.relationships=false hides the attitude entirely', () => {
-  const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
-  const interlocutor = {
-    id: 'author-1',
-    names: ['Alice'],
-    affinity: { score: 40, reason: 'fun to talk to', history: [] },
-  };
-  const config = fakeConfig({ features: { relationships: false } });
-  const request = buildRequest(
-    baseInput({ config, history: [trigger], trigger, triggerKind: 'mention', interlocutor })
-  );
-  const user = contentText(request.messages[1].content);
-  assert.ok(!user.includes('attitude:'));
-});
-
 // --- <senses> ------------------------------------------------------------
 
 /** The `<senses>` bodies of a request: the stable part's (`stable`) and the tail's (`turn`), '' when absent. */
@@ -2281,7 +2214,7 @@ function sensesOf(request) {
 }
 
 test('buildRequest: the stable <senses> lines lead the stable part, the per-turn ones sit right after <now>', () => {
-  const request = buildRequest(baseInput({ drawQuota: { spent: false, userSpent: false } }));
+  const request = buildRequest(baseInput({ drawOn: true }));
   const [stable, tail] = request.messages[1].content;
   assert.equal(stable.cacheSegment, 'stable');
   assert.ok(stable.text.startsWith('<senses>\n'), stable.text);
@@ -2291,20 +2224,6 @@ test('buildRequest: the stable <senses> lines lead the stable part, the per-turn
   assert.ok(nowIdx !== -1 && sensesIdx > nowIdx);
   assert.ok(sensesIdx < tail.text.indexOf('</now>') + 20); // right after, not somewhere far down
   assert.equal(sensesHalves(request).turn, labels.senses.draw);
-});
-
-test('buildRequest: mediaDescriptions off -> the blind forms, never a first-hand imageSee line', () => {
-  const config = fakeConfig({ features: { mediaDescriptions: false } });
-  const request = buildRequest(baseInput({ config }));
-  const senses = sensesOf(request);
-  assert.ok(!senses.includes(labels.senses.imageSee));
-  assert.ok(senses.includes(labels.senses.imageBlind));
-  assert.ok(!senses.includes(labels.senses.imageDescribed));
-  assert.ok(senses.includes(labels.senses.gifBlind));
-  assert.ok(senses.includes(labels.senses.videoBlind));
-  assert.ok(senses.includes(labels.senses.voice));
-  assert.ok(senses.includes(labels.senses.links));
-  assert.ok(senses.includes(labels.senses.files));
 });
 
 test('buildRequest: mediaDescriptions on -> described forms replace the blind ones', () => {
@@ -2358,16 +2277,6 @@ test('buildRequest: GIFs not watched -> senses.gifDescribed', () => {
   }
 });
 
-test('buildRequest: mediaDescriptions off -> senses.gifBlind even with GIF watching configured', () => {
-  const lines = gifSenses({
-    features: { mediaDescriptions: false },
-    prompts: { 'describe-video': 'V', 'describe-gif': 'G' },
-  });
-  assert.ok(lines.includes(labels.senses.gifBlind));
-  assert.ok(!lines.includes(labels.senses.gifWatched));
-  assert.ok(!lines.includes(labels.senses.gifDescribed));
-});
-
 test('buildRequest: an older labels.json without senses.gifWatched keeps senses.gifDescribed while GIFs are watched', () => {
   const { gifWatched, ...olderSenses } = labels.senses;
   assert.ok(gifWatched);
@@ -2387,24 +2296,6 @@ test('buildRequest: mediaDescriptions and videoDescriptions on -> videoWatch and
   assert.ok(!senses.split('\n').includes(labels.senses.links));
 });
 
-test('buildRequest: videoDescriptions false -> the still-frame video line and the plain links line', () => {
-  const config = fakeConfig({ features: { mediaDescriptions: true, videoDescriptions: false } });
-  const senses = sensesOf(buildRequest(baseInput({ config })));
-  assert.ok(senses.includes(labels.senses.videoDescribed));
-  assert.ok(senses.split('\n').includes(labels.senses.links));
-  assert.ok(!senses.includes(labels.senses.videoWatch));
-  assert.ok(!senses.includes(labels.senses.linksWatch));
-});
-
-test('buildRequest: mediaDescriptions off -> no video watching even with videoDescriptions on', () => {
-  const config = fakeConfig({ features: { mediaDescriptions: false, videoDescriptions: true } });
-  const senses = sensesOf(buildRequest(baseInput({ config })));
-  assert.ok(senses.includes(labels.senses.videoBlind));
-  assert.ok(senses.split('\n').includes(labels.senses.links));
-  assert.ok(!senses.includes(labels.senses.videoWatch));
-  assert.ok(!senses.includes(labels.senses.linksWatch));
-});
-
 test('buildRequest: an older labels set without videoWatch/linksWatch falls back to videoDescribed/links', () => {
   const oldLabels = { ...labels, senses: { ...labels.senses, videoWatch: undefined, linksWatch: undefined } };
   const config = fakeConfig({ features: { mediaDescriptions: true } });
@@ -2421,16 +2312,6 @@ test('buildRequest: <senses> is omitted entirely when labels has no senses secti
 });
 
 // --- <senses>: stickers/Lottie -----------------------------------------------
-
-test('buildRequest: mediaDescriptions off -> stickerBlind + lottie, never a first-hand stickerSee line', () => {
-  const config = fakeConfig({ features: { mediaDescriptions: false } });
-  const request = buildRequest(baseInput({ config }));
-  const senses = sensesOf(request);
-  assert.ok(!senses.includes(labels.senses.stickerSee));
-  assert.ok(senses.includes(labels.senses.stickerBlind));
-  assert.ok(!senses.includes(labels.senses.stickerDescribed));
-  assert.ok(senses.includes(labels.senses.lottie));
-});
 
 test('buildRequest: mediaDescriptions on -> stickerDescribed replaces stickerBlind, lottie still shown', () => {
   const config = fakeConfig({ features: { mediaDescriptions: true } });
@@ -2498,13 +2379,6 @@ test('buildRequest: an "always" lore entry appears even without a textual match'
     baseInput({ history, loreEntries: [loreEntry({ always: true, keys: ['never-said'] })] })
   );
   assert.ok(contentText(request.messages[1].content).includes('<lore>'));
-});
-
-test('buildRequest: features.lore=false never renders <lore>, even with a match', () => {
-  const history = [makeMessage(1, NOW - MIN, { content: 'the flood happened' })];
-  const config = fakeConfig({ features: { lore: false } });
-  const request = buildRequest(baseInput({ history, config, loreEntries: [loreEntry()] }));
-  assert.ok(!contentText(request.messages[1].content).includes('<lore>'));
 });
 
 test('buildRequest: <lore> is omitted when labels.lore.entry is missing (older labels.json)', () => {
@@ -3035,16 +2909,6 @@ test('people: an asked-about member renders up to askedAboutEpisodes episodes, h
 
   const two = askedAboutScene({ context: { askedAboutEpisodes: 2 } }).people;
   assert.ok(two.includes('ε5') && two.includes('ε4') && !two.includes('ε3'));
-});
-
-test('people: askedAboutEpisodes 0 renders none', () => {
-  for (const askedAboutEpisodes of [0, -1, 1.5, '3']) {
-    const { people } = askedAboutScene({ context: { askedAboutEpisodes } });
-    assert.ok(people.includes('## Zoé') && people.includes('character: rêveuse'), 'the profile itself stays');
-    assert.ok(!people.includes(labels.profile.episodes) && !people.includes('στιγμή'), String(askedAboutEpisodes));
-  }
-  const off = askedAboutScene({ config: fakeConfig({ features: { episodes: false } }) }).people;
-  assert.ok(off.includes('## Zoé') && !off.includes('στιγμή'), 'features.episodes false renders none either');
 });
 
 test('people: a compact participant still renders no episodes', () => {
@@ -3669,17 +3533,6 @@ test('buildRequest: links disabled -> no linksRead; search disabled -> no search
   assert.ok(!noSearch.includes(labels.senses.search));
 });
 
-test('buildRequest: webLookup off or missing -> no linksRead and no search line, even with a key', () => {
-  for (const features of [{ webLookup: false }, {}]) {
-    const config = fakeConfig({ features });
-    config.web = { links: { enabled: true }, search: { enabled: true } };
-    const senses = sensesOf(buildRequest(baseInput({ config, searchAvailable: true }))).split('\n');
-    assert.ok(senses.includes(labels.senses.links));
-    assert.ok(!senses.includes(labels.senses.linksRead));
-    assert.ok(!senses.includes(labels.senses.search));
-  }
-});
-
 test('buildRequest: an older labels set without linksRead/search keeps only the links line', () => {
   const older = { ...labels, senses: { ...labels.senses, linksRead: undefined, search: undefined } };
   const withLabels = sensesOf(
@@ -3704,7 +3557,7 @@ test('buildRequest: recallAvailable true -> the recall line leads the per-turn s
       config: webConfig({ mediaDescriptions: true }),
       searchAvailable: true,
       recallAvailable: true,
-      drawQuota: { spent: false, userSpent: false },
+      drawOn: true,
     })
   );
   const { stable, turn } = sensesHalves(request);
@@ -3914,50 +3767,16 @@ test('buildDrawPrompt: includes the rendered appearance for a self picture', () 
   assert.ok(text.endsWith('waving at the café'));
 });
 
-const DRAW_OPEN = { spent: false, userSpent: false };
-
-test('renderSenses: draw line shows when the feature is on', () => {
-  const config = fakeConfig({ features: { imageGeneration: true } });
-  const { stable, turn } = sensesHalves(buildRequest(baseInput({ config, drawQuota: DRAW_OPEN })));
-  const senses = [...stable.split('\n'), ...turn.split('\n')];
+test('renderSenses: draw line shows when she can draw', () => {
+  const { stable, turn } = sensesHalves(buildRequest(baseInput({ drawOn: true })));
   assert.ok(turn.split('\n').includes(labels.senses.draw), 'the draw line is a per-turn line, in the tail');
   assert.ok(!stable.includes(labels.senses.draw));
   assert.ok(stable.split('\n').includes(labels.senses.files));
-  assert.ok(!senses.includes(labels.senses.drawSpent));
-  assert.ok(!senses.includes(labels.senses.drawSpentUser));
 });
 
-test('renderSenses: draw line is absent when features.imageGeneration is false', () => {
-  const senses = sensesOf(
-    buildRequest(
-      baseInput({
-        config: fakeConfig({ features: { imageGeneration: false } }),
-        drawQuota: { spent: true, userSpent: true },
-      })
-    )
-  );
-  for (const line of [labels.senses.draw, labels.senses.drawSpent, labels.senses.drawSpentUser])
-    assert.ok(!senses.includes(line));
-});
-
-test('renderSenses: draw line is absent without a drawQuota (no image client wired)', () => {
-  const senses = sensesOf(buildRequest(baseInput()));
-  for (const line of [labels.senses.draw, labels.senses.drawSpent, labels.senses.drawSpentUser])
-    assert.ok(!senses.includes(line));
-});
-
-test('renderSenses: shows drawSpent when the daily quota is spent', () => {
-  const senses = sensesOf(buildRequest(baseInput({ drawQuota: { spent: true, userSpent: true } }))).split('\n');
-  assert.ok(senses.includes(labels.senses.drawSpent));
-  assert.ok(!senses.includes(labels.senses.draw));
-  assert.ok(!senses.includes(labels.senses.drawSpentUser));
-});
-
-test("renderSenses: shows drawSpentUser when the member's quota is spent", () => {
-  const senses = sensesOf(buildRequest(baseInput({ drawQuota: { spent: false, userSpent: true } }))).split('\n');
-  assert.ok(senses.includes(labels.senses.drawSpentUser));
-  assert.ok(!senses.includes(labels.senses.draw));
-  assert.ok(!senses.includes(labels.senses.drawSpent));
+// PR 7d: the daily picture quota is gone, so the input says only whether she can draw (`drawOn`).
+test('renderSenses: draw line is absent without drawOn (no image client wired)', () => {
+  assert.ok(!sensesOf(buildRequest(baseInput())).includes(labels.senses.draw));
 });
 
 test('renderSenses: an older labels set without senses.draw shows no draw line', () => {
@@ -3967,16 +3786,14 @@ test('renderSenses: an older labels set without senses.draw shows no draw line',
     senses: {
       ...labels.senses,
       draw: undefined,
-      drawSpent: undefined,
-      drawSpentUser: undefined,
       time: undefined,
       channels: undefined,
       elsewhere: undefined,
     },
   };
-  const senses = sensesOf(
-    buildRequest(baseInput({ prompts: fakePrompts({ labels: older }), drawQuota: DRAW_OPEN }))
-  ).split('\n');
+  const senses = sensesOf(buildRequest(baseInput({ prompts: fakePrompts({ labels: older }), drawOn: true }))).split(
+    '\n'
+  );
   assert.equal(senses[senses.length - 1], labels.senses.files);
 });
 
@@ -4469,27 +4286,6 @@ test('buildRequest: mode elsewhere uses prompts.elsewhere with channel and desti
     })
   );
   assert.equal(bodyOf(userText(request), 'task'), 'ELSEWHERE_TASK Nept read journal-de-zoé and may speak in général');
-});
-
-test('buildRequest: a focus line appends labels.room.focus with its index', () => {
-  const history = [
-    destMessage(1, NOW - 3 * MIN),
-    destMessage(2, NOW - 2 * MIN, { authorName: 'Léa', content: 'qui vient ce soir ?' }),
-    destMessage(3, NOW - MIN),
-  ];
-  const task = (overrides) =>
-    bodyOf(userText(buildRequest(baseInput({ history, mode: 'interject', ...overrides }))), 'task');
-  assert.equal(
-    task({ focus: history[1] }),
-    ['INTERJECT_TASK for Nept', fill(labels.room.focus, { author: 'Léa', target: '#2' })].join('\n\n')
-  );
-  assert.equal(
-    task({ focus: destMessage(99, NOW - 90 * MIN) }),
-    'INTERJECT_TASK for Nept',
-    'a focus outside the chat adds nothing'
-  );
-  const { room, ...noRoom } = labels;
-  assert.equal(task({ focus: history[1], prompts: fakePrompts({ labels: noRoom }) }), 'INTERJECT_TASK for Nept');
 });
 
 test('buildRequest: a part of a split message appends labels.task.part with the part and the other parts', () => {
@@ -5855,84 +5651,6 @@ test('attitudes: a block over context.caps.attitudes is dropped whole', () => {
 });
 
 // --- code fallbacks equal config.json --------------------------------------------
-
-test('buildRequest: the code fallbacks for missing settings equal the values in config.json', () => {
-  const shipped = JSON.parse(readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
-  const base = {
-    bot: { timezone: 'Europe/Moscow' },
-    context: { gapMarkerMinutes: 20, maxMessageChars: 800, caps: {}, vision: {} },
-    llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
-  };
-  // The same config with every setting the scenes below depend on written out from config.json.
-  const written = {
-    ...base,
-    context: {
-      ...base.context,
-      tempo: shipped.context.tempo,
-      neighborMessageChars: shipped.context.neighborMessageChars,
-      askedAboutEpisodes: shipped.context.askedAboutEpisodes,
-      attitudes: shipped.context.attitudes,
-      caps: { attitudes: shipped.context.caps.attitudes },
-      vision: { ...base.context.vision, tokensPerImage: shipped.context.vision.tokensPerImage },
-    },
-    lore: shipped.lore,
-    memory: { maxLearned: shipped.memory.maxLearned, learnedHalfLifeDays: shipped.memory.learnedHalfLifeDays },
-  };
-
-  const lines = (count, spacing) =>
-    Array.from({ length: count }, (_, i) => makeMessage(i + 1, NOW - (count - i) * spacing));
-  const zoe = { id: 'z1', names: ['Zoé'], character: 'rêveuse', episodes: askedEpisodes() };
-  const asker = makeMessage(1, NOW - MIN, { authorName: 'Ana', content: 'τι έκανε η Zoé χθες;' });
-  const floodHistory = [makeMessage(1, NOW - MIN, { content: 'the flood again' })];
-  const members = (count, name) =>
-    Array.from({ length: count }, (_, i) => scored(`a${i}`, name(i), (i % 2 ? -1 : 1) * (10 + i)));
-  const scenes = {
-    'neighbour message length': {
-      neighbors: [{ channelName: 'general', messages: [makeMessage(9, NOW - 5 * MIN, { content: 'λ'.repeat(400) })] }],
-    },
-    'below the live threshold': { history: lines(shipped.context.tempo.liveMessages10min - 1, MIN) },
-    'at the live threshold': { history: lines(shipped.context.tempo.liveMessages10min, MIN) },
-    'just under the dead silence': { history: lines(1, (shipped.context.tempo.deadSilenceMinutes - 1) * MIN) },
-    'at the dead silence': { history: lines(1, shipped.context.tempo.deadSilenceMinutes * MIN) },
-    'asked-about episodes': { history: [asker], trigger: asker, triggerKind: 'mention', candidateProfiles: [zoe] },
-    'learned count': {
-      guildMemory: {
-        learned: Array.from({ length: shipped.memory.maxLearned + 5 }, (_, i) =>
-          learnedItem(`m${i}`, `fact ${i}`, 2, `2026-09-${String((i % 28) + 1).padStart(2, '0')}T00:00:00.000Z`)
-        ),
-      },
-    },
-    'learned decay': {
-      guildMemory: {
-        learned: [
-          learnedItem('old', 'ancient heavy fact', 3, '2020-01-01T00:00:00.000Z'),
-          learnedItem('new', 'recent light fact', 1, '2026-09-01T00:00:00.000Z'),
-        ],
-      },
-    },
-    'lore matches': {
-      history: floodHistory,
-      loreEntries: Array.from({ length: shipped.lore.maxMatches + 3 }, (_, i) =>
-        loreEntry({ id: `l${i}`, title: `Flood ${i}`, text: `story ${i}` })
-      ),
-    },
-    'attitudes count': { candidateProfiles: members(shipped.context.attitudes + 3, (i) => `Mélo${i}`) },
-    'attitudes cap': {
-      candidateProfiles: members(shipped.context.attitudes, (i) => `Mélo${i} ${'λόγος '.repeat(26)}`),
-    },
-    'picture cost': {
-      history: [makeMessage(1, NOW - MIN, { attachments: [{ id: 'i1', kind: 'image', url: 'img1' }] })],
-      trigger: makeMessage(1, NOW - MIN, { attachments: [{ id: 'i1', kind: 'image', url: 'img1' }] }),
-      triggerKind: 'mention',
-    },
-  };
-  for (const [name, scene] of Object.entries(scenes)) {
-    const bare = buildRequest(baseInput({ ...scene, config: base }));
-    const explicit = buildRequest(baseInput({ ...scene, config: written }));
-    assert.deepEqual(bare.messages, explicit.messages, name);
-    assert.deepEqual(bare.stats, explicit.stats, name);
-  }
-});
 
 test('buildRequest: segments lists each text part with its length and a short hash, never content', () => {
   const first = buildRequest(segmentScene({ now: NOW, messageCount: 41 }));

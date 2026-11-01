@@ -2,15 +2,13 @@
 // affinity view and the public + private profile merge.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { privateGate, privateRepliesToday, effectiveAffinity, mergeProfiles } from '../src/behavior/private.js';
+import { privateGate, effectiveAffinity, mergeProfiles } from '../src/behavior/private.js';
 
 const TODAY = '2026-09-29';
 
-function config({ privateMessages = true, minAffinity = 5, maxPerUserPerDay = 100, maxPerOwnerPerDay = 200 } = {}) {
-  return {
-    features: { privateMessages },
-    private: { minAffinity, maxPerUserPerDay, maxPerOwnerPerDay },
-  };
+// PR 7d: the switch is `private.enabled` (it was `features.privateMessages`) and the daily reply caps are gone.
+function config({ enabled = true, minAffinity = 5 } = {}) {
+  return { private: { enabled, minAffinity } };
 }
 
 function profile(score = 10) {
@@ -31,51 +29,30 @@ function gate(overrides = {}) {
 
 // --- privateGate ---------------------------------------------------------------
 
-test("privateGate: membership, the owner cap and today's replies decide the verdict", () => {
-  const owner = { isOwner: true };
+// PR 7d: the verdict no longer carries a cap; the rows of the owner cap and of today's replies went with it.
+test('privateGate: membership and the attitude decide the verdict, owners skipping the attitude', () => {
   const rows = [
-    ['a known member above the threshold passes, with the member cap', {}, { ok: true, cap: 100 }],
+    ['a known member above the threshold passes', {}, { ok: true }],
     ['a non-member is refused', { isMember: false }, { ok: false, reason: 'not-member' }],
-    [
-      'owners skip the affinity check and get the owner cap',
-      { ...owner, profile: profile(-80) },
-      { ok: true, cap: 200 },
-    ],
-    [
-      'the owner cap is checked for owners: 150 of 200 passes',
-      { ...owner, replies: { day: TODAY, count: 150 } },
-      { ok: true, cap: 200 },
-    ],
-    [
-      'the owner cap is checked for owners: 200 of 200 is refused',
-      { ...owner, replies: { day: TODAY, count: 200 } },
-      { ok: false, reason: 'cap', cap: 200, used: 200 },
-    ],
-    [
-      'replies from another day count as 0 (day rollover)',
-      { replies: { day: '2026-09-28', count: 100 } },
-      { ok: true, cap: 100 },
-    ],
-    ['missing replies count as 0', { replies: undefined }, { ok: true, cap: 100 }],
-    ['a malformed count counts as 0', { replies: { day: TODAY, count: 'many' } }, { ok: true, cap: 100 }],
+    ['owners skip the affinity check', { isOwner: true, profile: profile(-80) }, { ok: true }],
   ];
   for (const [label, overrides, expected] of rows) {
     assert.deepEqual(gate(overrides), expected, label);
   }
 });
 
-test('privateGate: off unless features.privateMessages is exactly true', () => {
-  assert.deepEqual(gate({ config: config({ privateMessages: false }) }), { ok: false, reason: 'off' });
-  const missing = { private: config().private, features: {} };
+test('privateGate: off unless private.enabled is exactly true', () => {
+  assert.deepEqual(gate({ config: config({ enabled: false }) }), { ok: false, reason: 'off' });
+  const missing = { private: { minAffinity: 5 } };
   assert.deepEqual(gate({ config: missing }), { ok: false, reason: 'off' });
-  assert.deepEqual(gate({ config: { ...config(), features: { privateMessages: 'yes' } } }), {
+  assert.deepEqual(gate({ config: { private: { ...config().private, enabled: 'yes' } } }), {
     ok: false,
     reason: 'off',
   });
 });
 
 test('privateGate: off wins over every other reason', () => {
-  const result = gate({ config: config({ privateMessages: false }), isMember: false, profile: null });
+  const result = gate({ config: config({ enabled: false }), isMember: false, profile: null });
   assert.deepEqual(result, { ok: false, reason: 'off' });
 });
 
@@ -87,12 +64,14 @@ test('privateGate: a member without a stored profile is unknown', () => {
 test('privateGate: a score below private.minAffinity is refused, the threshold itself passes', () => {
   assert.deepEqual(gate({ profile: profile(4) }), { ok: false, reason: 'affinity' });
   assert.deepEqual(gate({ profile: profile(4.99) }), { ok: false, reason: 'affinity' });
-  assert.deepEqual(gate({ profile: profile(5) }), { ok: true, cap: 100 });
+  // PR 7d: a passing verdict carries no cap.
+  assert.deepEqual(gate({ profile: profile(5) }), { ok: true });
 });
 
 test('privateGate: a profile without an affinity counts as score 0', () => {
   assert.deepEqual(gate({ profile: { id: 'u1' } }), { ok: false, reason: 'affinity' });
-  assert.deepEqual(gate({ profile: { id: 'u1' }, config: config({ minAffinity: 0 }) }), { ok: true, cap: 100 });
+  // PR 7d: a passing verdict carries no cap.
+  assert.deepEqual(gate({ profile: { id: 'u1' }, config: config({ minAffinity: 0 }) }), { ok: true });
 });
 
 test('privateGate: owners still need membership and a profile', () => {
@@ -100,16 +79,11 @@ test('privateGate: owners still need membership and a profile', () => {
   assert.deepEqual(gate({ isOwner: true, profile: null }), { ok: false, reason: 'unknown' });
 });
 
-test('privateGate: the cap boundary -- one below passes, at the cap is refused with the numbers', () => {
-  assert.deepEqual(gate({ replies: { day: TODAY, count: 99 } }), { ok: true, cap: 100 });
-  assert.deepEqual(gate({ replies: { day: TODAY, count: 100 } }), { ok: false, reason: 'cap', cap: 100, used: 100 });
-  assert.deepEqual(gate({ replies: { day: TODAY, count: 150 } }), { ok: false, reason: 'cap', cap: 100, used: 150 });
-});
-
-test('privateGate: missing private.* numbers fail closed', () => {
-  const bare = { features: { privateMessages: true } };
+// PR 7d: with the caps gone only the threshold can fail closed; an owner passes it.
+test('privateGate: a missing private.minAffinity fails closed', () => {
+  const bare = { private: { enabled: true } };
   assert.deepEqual(gate({ config: bare }), { ok: false, reason: 'affinity' });
-  assert.deepEqual(gate({ config: bare, isOwner: true }), { ok: false, reason: 'cap', cap: 0, used: 0 });
+  assert.deepEqual(gate({ config: bare, isOwner: true }), { ok: true });
 });
 
 // --- effectiveAffinity ----------------------------------------------------------
@@ -319,38 +293,7 @@ test('mergeProfiles: tolerates missing lists on either side', () => {
   assert.deepEqual(merged.affinity, { score: 0, reason: '', history: [] });
 });
 
-test('privateRepliesToday: the owner or member cap, a missing cap as 0, another day as no replies', () => {
-  assert.deepEqual(
-    privateRepliesToday({ config: config(), isOwner: false, replies: { day: TODAY, count: 7 }, today: TODAY }),
-    { used: 7, cap: 100 }
-  );
-  assert.deepEqual(
-    privateRepliesToday({ config: config(), isOwner: true, replies: { day: TODAY, count: 7 }, today: TODAY }),
-    { used: 7, cap: 200 }
-  );
-  assert.deepEqual(
-    privateRepliesToday({ config: config(), isOwner: false, replies: { day: '2026-09-28', count: 7 }, today: TODAY }),
-    { used: 0, cap: 100 }
-  );
-  assert.deepEqual(privateRepliesToday({ config: {}, isOwner: false, replies: null, today: TODAY }), {
-    used: 0,
-    cap: 0,
-  });
-});
-
-test('privateRepliesToday: a stored count that is not a finite number >= 0 reads as 0, and the replies are never written', () => {
-  for (const bad of [-3, NaN, Infinity, '150', null, {}]) {
-    const replies = { day: TODAY, count: bad };
-    assert.deepEqual(
-      privateRepliesToday({ config: config(), isOwner: false, replies, today: TODAY }),
-      { used: 0, cap: 100 },
-      String(bad)
-    );
-  }
-  const stale = { day: '2026-09-28', count: 7, noticedDay: '2026-09-28' };
-  privateRepliesToday({ config: config(), isOwner: false, replies: stale, today: TODAY });
-  assert.deepEqual(stale, { day: '2026-09-28', count: 7, noticedDay: '2026-09-28' }, 'a read never rolls the day over');
-});
+// PR 7d: privateRepliesToday went with the per-person daily caps, and its two tests with it.
 
 // PR 7d: the per-person daily caps are gone. The switch lives at `private.enabled`; `features.privateMessages` and the
 // stale caps are what a local layer not yet cut still holds.

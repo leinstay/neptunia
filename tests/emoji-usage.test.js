@@ -6,7 +6,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-import { countEmojiUses, mergeEmojiUsage, normalizeEmojiUsage, rankEmojiUsage } from '../src/memory/emoji-usage.js';
+import {
+  EMOJI_STORE_MAX,
+  countEmojiUses,
+  mergeEmojiUsage,
+  normalizeEmojiUsage,
+  rankEmojiUsage,
+} from '../src/memory/emoji-usage.js';
 import { createStore } from '../src/memory/store.js';
 import { createMemoryUpdater } from '../src/memory/update.js';
 import { openTestMemory } from './fixtures/memory-db/service.js';
@@ -166,19 +172,13 @@ test('store.recordEmojiUsage: persists counts; updateGuild never overwrites them
 
 // --- the live observer --------------------------------------------------------
 
-function hotFor(context) {
-  return {
-    config: {
-      bot: { timezone: 'UTC' },
-      context: { gapMarkerMinutes: 20, maxMessageChars: 800, ...context },
-      memory: { fieldChars: 400 },
-    },
-  };
+function hotFor() {
+  return { config: { bot: { timezone: 'UTC' } } };
 }
 
 test("observe: a member's message adds its emoji to guild.emojiUsage; her own adds nothing", async () => {
   await withStore(async (store) => {
-    const updater = createMemoryUpdater({ hot: hotFor({}), store });
+    const updater = createMemoryUpdater({ hot: hotFor(), store });
     updater.observe('g1', msg({ id: 'a', ts: T0, emojis: [{ id: '10', name: 'kappa' }] }));
     updater.observe('g1', msg({ id: 'b', ts: T0 + 1, self: true, emojis: [{ id: '10', name: 'kappa' }] }));
     updater.observe(
@@ -199,11 +199,14 @@ test("observe: a member's message adds its emoji to guild.emojiUsage; her own ad
   });
 });
 
+// PR 7d: `context.customEmoji.storeMax` is the constant EMOJI_STORE_MAX, so one emoji more than it is observed.
 test('observe: context.customEmoji.storeMax caps the stored entries', async () => {
   await withStore(async (store) => {
-    const updater = createMemoryUpdater({ hot: hotFor({ customEmoji: { storeMax: 1, halfLifeDays: 30 } }), store });
-    updater.observe('g1', msg({ id: 'a', ts: T0, emojis: [{ id: '1', name: 'alpha' }] }));
-    updater.observe('g1', msg({ id: 'b', ts: T0 + DAY, emojis: [{ id: '2', name: 'beta' }] }));
-    assert.deepEqual(Object.keys(store.getGuild('g1').emojiUsage), ['2']);
+    const updater = createMemoryUpdater({ hot: hotFor(), store });
+    updater.observe('g1', msg({ id: 'a', ts: T0, emojis: [{ id: '0', name: 'alpha' }] }));
+    for (let n = 1; n <= EMOJI_STORE_MAX; n += 1)
+      updater.observe('g1', msg({ id: `m${n}`, ts: T0 + DAY + n, emojis: [{ id: String(n), name: `e${n}` }] }));
+    const kept = Object.keys(store.getGuild('g1').emojiUsage);
+    assert.deepEqual([kept.length, kept.includes('0')], [EMOJI_STORE_MAX, false]);
   });
 });

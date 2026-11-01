@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.js';
+import { fillEnvAudiences } from './fixtures/memory-db/audiences.js';
 import { applyMemoryWrite } from '../src/memory/db/session-write.js';
 import {
   CODES,
@@ -61,8 +62,7 @@ const prompts = {
 const baseConfig = (session = {}, extra = {}) => ({
   bot: { timezone: 'UTC' },
   models: { base: { memory: 'x/memory' } },
-  llm: { temperature: 1, keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } },
-  relationships: { maxDeltaPerUpdate: 5 },
+  llm: { keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } },
   memoryDb: { session: { mode: 'shadow', minMessages: 1, ...session } },
   ...extra,
 });
@@ -184,6 +184,7 @@ function ctxOf(
   env,
   { llm, config = baseConfig(), promptSet = prompts, envVars = { OPENROUTER_MEMORY_KEY: 'k' }, write } = {}
 ) {
+  fillEnvAudiences(env); // PR 7d: the session reads through `audience_id`, so the fixture's rows carry it.
   return {
     db: env.db,
     write: write ?? (async (update) => applyMemoryWrite(env.handle, update)),
@@ -872,13 +873,10 @@ test('apply: claims with versions and sources, episodes, attitude, decisions; di
     const event = env.db.prepare('SELECT delta, applied, score FROM affinity_events').get();
     assert.deepEqual(
       [event.delta, event.applied, event.score],
-      [40, 5, 10],
+      [40, 15, 20], // PR 7d: the cap is the constant RELATIONSHIP_LIMITS.maxDeltaPerUpdate, 15.
       'the step is capped by relationships.maxDeltaPerUpdate'
     );
-    assert.equal(
-      env.db.prepare('SELECT affinity, affinity_reason FROM people WHERE id = ?').get(personOf(ADA)).affinity,
-      10
-    );
+    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personOf(ADA)).affinity, 20);
     const actions = env.db
       .prepare('SELECT action FROM decisions ORDER BY id')
       .all()
