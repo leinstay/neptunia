@@ -5,6 +5,9 @@
 // deliver it and resolves with the core's ack status, and `adapter` is the fake adapter whose stored messages are what
 // the persona posted and whose seeded conversations, members and messages the core reads.
 //
+// `options.adapter` is a fake adapter the caller keeps: the interface serves it instead of making its own, so the chat
+// it holds outlives a restart of the core (a test starts the interface again over the same adapter).
+//
 // `options.self` and `options.community` are what `hello` tells the core about the persona and the community it serves.
 // `options.reads` limits the reads the fake offers (their wire names; all when absent).
 //
@@ -42,6 +45,7 @@ export type FakeInterface = RunningInterface & {
 export async function start(
   host: InterfaceHost,
   options: {
+    adapter?: ReturnType<typeof createFakeAdapter>;
     selfId?: string;
     self?: Named;
     community?: Named | null;
@@ -49,10 +53,12 @@ export async function start(
   } = {}
 ): Promise<FakeInterface> {
   const selfId = options.self?.id ?? options.selfId;
-  const adapter = createFakeAdapter({
-    ...(selfId === undefined ? {} : { selfId }),
-    ...(options.reads === undefined ? {} : { reads: options.reads }),
-  });
+  const adapter =
+    options.adapter ??
+    createFakeAdapter({
+      ...(selfId === undefined ? {} : { selfId }),
+      ...(options.reads === undefined ? {} : { reads: options.reads }),
+    });
   // The persona is `self` when given, else the account of `selfId` (the fake's own default) under a name the fake picks.
   const self = options.self ?? { id: options.selfId ?? 'self', name: 'Fake' };
   const community = options.community === undefined ? DEFAULT_COMMUNITY : options.community;

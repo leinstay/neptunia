@@ -1,0 +1,22 @@
+{
+  "name": "hour-errand",
+  "description": "She hands an errand off at ten and it runs for an hour of the fake clock. Its end at eleven is counted once, and the wake it opens for her runs once.",
+  "start": "2026-11-02",
+  "days": 2,
+  "timezone": "UTC",
+  "seed": 17,
+  "channels": [{ "id": "c-general", "name": "general" }],
+  "history": { "selfHours": [10, 16], "channel": "c-general" },
+  "stub": { "review": [[]] },
+  "intentions": [
+    {
+      "key": "release-date",
+      "purpose": "look up the release date of the expansion",
+      "channel": "c-general",
+      "due": "1 10:00",
+      "stub": { "intention_due": [[{ "skill": "errand.run", "args": { "id": "$intention", "agent": "scout", "goal": "find the release date", "wait": "2h" } }]] }
+    }
+  ],
+  "events": [{ "kind": "errand_end", "at": "1 11:00", "task": "task-1", "state": "done", "usd": 0.2 }],
+  "expect": { "journal": { "errand-cost": 1 } }
+}
