@@ -4,7 +4,7 @@
     "src/behavior/recall.ts": 2375,
     "src/behavior/sandbox.ts": 2063,
     "tests/admin.test.ts": 3698,
-    "tests/describe.test.ts": 3081,
+    "tests/describe.test.ts": 3098,
     "tests/events.test.js": 7253,
     "tests/format.test.js": 2020,
     "tests/inner.test.js": 2437,
