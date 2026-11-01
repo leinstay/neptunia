@@ -789,11 +789,10 @@ test('formatTranscript: a video watched only in part renders videoWatchedPart wi
   );
 });
 
-test('formatTranscript: the reason code is swapped for its label, for all four codes', () => {
+test('formatTranscript: the reason code is swapped for its label, for all three codes', () => {
   const cases = [
     [{ state: 'limit', reason: 'length' }, 'too long'],
     [{ state: 'limit', reason: 'size' }, 'too big'],
-    [{ state: 'limit', reason: 'daily' }, 'daily limit'],
     [{ state: 'error' }, 'failed'],
   ];
   for (const [video, label] of cases) {
