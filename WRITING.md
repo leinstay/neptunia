@@ -140,7 +140,7 @@ Use
 
 ## 6. Prompts and labels
 
-Applies to `prompts/` and `prompts/labels.json`.
+Applies to `prompts/` and `config/labels.json`.
 
 - `docs/prompt-contract.md` binds to the letter: file names, placeholders, keys, tags and schemas stay exactly as written, and a change on one side changes the other in the same pull request.
 - A model mirrors the tone of its prompt. Write in a living voice, concrete and specific, as to a colleague who has to act on it; no officialese.

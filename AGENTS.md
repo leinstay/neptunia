@@ -17,18 +17,18 @@ For the coding agents that work on this repository: where things are, how to run
 | `interfaces/<name>/` | One package per chat platform with its own `node_modules`. Only an interface imports a platform SDK. |
 | `agents/<name>/` | The errand and development agents: a `profile.json` and a `prompt.md` each. |
 | `prompts/` | The tracked prompt files the model reads. A deployment overrides them from `prompts.local/`. |
-| `config.json` | The tracked settings. A deployment overrides them from `config.local.json`. |
+| `config/` | The tracked settings and labels. A deployment overrides them from `config.local/`. |
 | `docs/` | How the engine works, one topic per file, indexed in `docs/README.md`. |
-| `tools/` | Scripts for development and measurement, never run by the engine. |
+| `scripts/` | Scripts for development and measurement, never run by the engine. |
 | `tests/` | `node:test` files, one per module. |
 | `bin/`, `deploy/` | Entry points and the systemd units. |
-| `prompts.local/`, `config.local.json`, `data/`, `.env` | The local layer: a deployment's character, settings, memory and keys. Never committed. |
+| `prompts.local/`, `config.local/`, `data/`, `.env` | The local layer: a deployment's character, settings, memory and keys. Never committed. |
 
 ## Commands
 
 ```bash
 npm install
-node --test --test-reporter=dot tests/<module>.test.js   # the tests of the module you changed
+node --test --test-reporter=dot tests/<module>.test.ts   # the tests of the module you changed
 npm test                                                  # the whole suite, once before a pull request
 npm run check:codes                                       # the result codes against labels and docs
 ```
@@ -37,18 +37,18 @@ Set `TMPDIR` to a scratch folder before running tests.
 
 Every run you start in the background has a time budget, and you check on it every five minutes: one test file 2 minutes, the whole suite 6, a lint or type check 2, a CI run 5 from the moment it starts. Past its budget a run is not waited for: stop it, find out why it is slow, and fix that before anything else. A check that takes longer than it used to is a bug of the check.
 
-Before a push, run the fast checks over the whole tree: `node tools/code-health.mjs`, `node tools/prose-check.mjs` and `npm run check:codes`. A count that shrank is recorded in the same change with `npm run health:update`, because CI refuses an unrecorded shrink as well as a growth. The whole-tree lint and the type check run in CI only. Lint each file you edit, and after you change a type that other modules import, lint those modules too: the lint suppressions count errors per file and rule, and one error past a count reports every error of that rule in the file.
+Before a push, run the fast checks over the whole tree: `node scripts/code-health.ts`, `node scripts/prose-check.ts` and `npm run check:codes`. A count that shrank is recorded in the same change with `npm run health:update`, because CI refuses an unrecorded shrink as well as a growth. The whole-tree lint and the type check run in CI only. Lint each file you edit, and after you change a type that other modules import, lint those modules too: the lint suppressions count errors per file and rule, and one error past a count reports every error of that rule in the file.
 
-Never start the engine (`src/index.js`) from a checkout whose `.env` belongs to a running deployment: that starts a second instance of the persona.
+Never start the engine (`src/index.ts`) from a checkout whose `.env` belongs to a running deployment: that starts a second instance of the persona.
 
 ## Project rules
 
-- The engine is character-neutral. Who the persona is lives in the local layer, never in `src/`, tracked `prompts/` or `config.json`. A pull request that adds character-specific logic is declined.
-- No model-facing text in `src/`. Everything the model reads lives in `prompts/` and `prompts/labels.json`, under the contract in `docs/prompt-contract.md`. A change on one side of the contract changes the other in the same pull request.
+- The engine is character-neutral. Who the persona is lives in the local layer, never in `src/`, tracked `prompts/` or `config/`. A pull request that adds character-specific logic is declined.
+- No model-facing text in `src/`. Everything the model reads lives in `prompts/` and `config/labels.json`, under the contract in `docs/prompt-contract.md`. A change on one side of the contract changes the other in the same pull request.
 - The model's output is data. Only the tags of the output contract are acted on, and nothing rewrites the persona's words after generation.
 - Code lists, the persona decides. No helper model decides whether something is due, what she wants, or what she should remember.
 - Memory has one writer. Every change to the memory database goes through it; interfaces never open the database.
-- Settings are read at the moment of use (`hot.config`, `hot.prompts`), never cached in a long-lived variable. A new behaviour gets its setting in `config.json` and a row in `docs/configuration.md`.
+- Settings are read at the moment of use (`hot.config`, `hot.prompts`), never cached in a long-lived variable. A new behaviour gets its setting in `config/config.json` and a row in `docs/configuration.md`.
 - Logs carry counts and names, never message contents.
 - The rails stay on: the per-request token cap and the per-day request cap in `llm.*`.
 - Interfaces at the edge: decisions are pure functions with injected `rng` and `now`; the platform SDK and `fetch` stay in the interfaces and the few edge modules.
@@ -95,7 +95,7 @@ The defaults, for documentation, comments, commit messages, pull request text an
 
 Tests are written by agents, so the quality lives in the method, not in a reviewer's eye: a test is written before the code and fails first, it tests behaviour through the public exports, and a test nobody can name a bug for is deleted.
 
-- One test file per module, `tests/<module>.test.js`, using `node:test` and `node:assert/strict`. A test name says what happens and when: `refuses an expired token when the lease has lapsed`.
+- One test file per module, `tests/<module>.test.ts`, using `node:test` and `node:assert/strict`. A test name says what happens and when: `refuses an expired token when the lease has lapsed`.
 - Write the test before the code, run it, and see it fail for the right reason. A test that is green before the code exists checks nothing.
 - Test behaviour through the module's public exports. No import of a private function, no reaching into internals.
 - One scenario per test, fixed inputs, an assertion on the concrete result. Every module gets its boundary case, its empty input and its error path.
@@ -119,9 +119,9 @@ Tests are written by agents, so the quality lives in the method, not in a review
 | `.agents/docs/` | The deployment's documents: `plans/`, `specs/`, `reports/`, `notes/`, `references/`, each file `<YYYY-MM-DD>-<topic>.md`; living documents without a date. |
 | `.agents/scratch/<YYYY-MM-DD>-<task>/` | Intermediate files of one task; deleted once the result is in a document. |
 | `.agents/tmp/` | `TMPDIR` for test runs and other throwaway files. |
-| `.agents/tools/` | Scripts of this deployment that the public `tools/` cannot hold. |
+| `.agents/tools/` | Scripts of this deployment that the public `scripts/` cannot hold. |
 
-Nothing from `.agents/` goes into a pull request. A script used a second time stops being scratch: it moves to `tools/` when it is generic and holds nothing private, otherwise to `.agents/tools/`.
+Nothing from `.agents/` goes into a pull request. A script used a second time stops being scratch: it moves to `scripts/` when it is generic and holds nothing private, otherwise to `.agents/tools/`.
 
 ## Protected
 
