@@ -10,8 +10,8 @@ import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { createErrandStore } from '../src/errands/store.ts';
 import { usageTap, createUsage } from '../src/tools/impl/usage.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { tempDir } from './fixtures/tmp.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 const DISCORD = createDiscordInterface().capabilities;
 const NOW = Date.parse('2026-10-18T12:00:00Z');

@@ -27,8 +27,8 @@ import {
 import type { Client, Dirs, Exit, Llm, Settings } from './fixtures/core-units.ts';
 import { connectAgent } from './fixtures/agent-client.ts';
 import type { AgentAnswer } from './fixtures/agent-client.ts';
-import { call, toolAnswer } from './fixtures/tool-answers.js';
-import { tempDir } from './fixtures/tmp.js';
+import { call, toolAnswer } from './fixtures/tool-answers.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 const T0 = Date.parse('2026-10-31T12:00:00Z');
 const MINUTE = 60000;

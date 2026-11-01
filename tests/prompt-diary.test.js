@@ -12,7 +12,7 @@ import {
   worldText,
 } from '../src/behavior/prompt.ts';
 import { fill } from '../src/format.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);
 const MIN = 60_000;

@@ -23,7 +23,7 @@ import {
   renewLease,
   wakeOf,
 } from '../src/memory/db/wake-queue.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const T = Date.parse('2026-10-31T12:00:00.000Z');
 const MINUTE = 60_000;

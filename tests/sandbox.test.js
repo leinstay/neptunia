@@ -25,10 +25,10 @@ const {
   hiddenLater,
   replayMedia,
 } = sandbox;
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { labels } from './fixtures/labels.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { labels } from './fixtures/labels.ts';
 import '../src/tools/impl/index.ts';
-import { call, completionOf, textAnswer, toolAnswer } from './fixtures/tool-answers.js';
+import { call, completionOf, textAnswer, toolAnswer } from './fixtures/tool-answers.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
 const SELF_ID = '900000000000000001';

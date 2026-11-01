@@ -1,5 +1,5 @@
 // Fills a memory database from a data directory written the way the memory units are laid out (a fixture written
-// by datadir.js, readers.js or a test): every memory unit under `guilds/` goes in through the database's own writers
+// by datadir.ts, readers.ts or a test): every memory unit under `guilds/` goes in through the database's own writers
 // (src/memory/db/unit-write.ts), as the engine writes it, JSON units whole (op `value`), JSONL units line by line (op
 // `lines`), a month of vectors from its three files (op `vectors`). The operational files (src/memory/db/paths.ts)
 // and the request dumps stay files: nothing reads them from the database; participation.json and media.json are both,
@@ -7,6 +7,8 @@
 // finished at the end, as the writers' projection job does. Synthetic fixtures only.
 import fs from 'node:fs';
 import path from 'node:path';
+import type { FileFormat, MapperKind } from '../../../src/memory/db/map/index.ts';
+import type { Db, MemoryHandle } from '../../../src/memory/db/types.ts';
 import { classify } from '../../../src/memory/db/map/index.ts';
 import { applyUnitWrite } from '../../../src/memory/db/unit-write.ts';
 import { currentUnitPath, isOperational } from '../../../src/memory/db/paths.ts';
@@ -21,8 +23,8 @@ const SENT = /^guilds\/[^/]+\/(?:participation|media)\.json$/;
 const LATE_KINDS = new Set(['archive', 'participation', 'vectors']);
 
 /** Every file under `dir`, relative with forward slashes, in name order. */
-function walk(dir, rel = '', out = []) {
-  let entries = [];
+function walk(dir: string, rel = '', out: Array<string> = []): Array<string> {
+  let entries: Array<fs.Dirent> = [];
   try {
     entries = fs.readdirSync(path.join(dir, rel), { withFileTypes: true });
   } catch {
@@ -36,25 +38,28 @@ function walk(dir, rel = '', out = []) {
   return out;
 }
 
-/** The memory units of a data directory: [{ owner, kind, format, files }] (a month of vectors is one unit). */
-export function unitsOf(dataDir) {
-  const units = new Map();
+/** A memory unit of a data directory: the owner path, the kind and format of its files, and the files. */
+export type Unit = { owner: string; kind: MapperKind; format: FileFormat; files: Array<string> };
+
+/** The memory units of a data directory (a month of vectors is one unit). */
+export function unitsOf(dataDir: string): Array<Unit> {
+  const units = new Map<string, Unit>();
   for (const rel of walk(dataDir)) {
     if (!rel.startsWith('guilds/') || (isOperational(rel) && !SENT.test(rel))) continue;
     // A data directory of an older release names the errand units `tasks.json` and `tasks.jsonl`: they are the current units.
     const info = classify(currentUnitPath(rel));
-    if (!info || info.skipped || info.guildId === undefined) continue;
+    if (!info || 'skipped' in info || info.guildId === undefined) continue;
     if (info.kind === 'requests' || info.format === 'text') continue;
     if (info.format === 'jsonl' && !LINE_KINDS.has(info.kind)) continue;
     const owner = `guilds/${info.guildId}/${info.unit}`;
     if (!units.has(owner)) units.set(owner, { owner, kind: info.kind, format: info.format, files: [] });
-    units.get(owner).files.push(rel);
+    units.get(owner)?.files.push(rel);
   }
   return [...units.values()].sort((a, b) => Number(LATE_KINDS.has(a.kind)) - Number(LATE_KINDS.has(b.kind)) || (a.owner < b.owner ? -1 : 1));
 }
 
 /** One month of vectors from its files: `{ manifest, meta, i8 }` of its manifest's generation. */
-function vectorMonth(dataDir, owner) {
+function vectorMonth(dataDir: string, owner: string) {
   const dir = path.join(dataDir, owner);
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
   const meta = fs.readFileSync(path.join(dir, `${manifest.gen}.jsonl`), 'utf8').slice(0, manifest.metaBytes);
@@ -63,17 +68,17 @@ function vectorMonth(dataDir, owner) {
 }
 
 /** One unit as the writers take it: a month of vectors whole, a JSONL unit's lines, a JSON unit's value. */
-function updateOf(dataDir, unit) {
+function updateOf(dataDir: string, unit: Unit) {
   if (unit.format === 'vectors') return { op: 'vectors', owner: unit.owner, value: vectorMonth(dataDir, unit.owner) };
   if (unit.format === 'jsonl') {
-    const lines = fs.readFileSync(path.join(dataDir, unit.files[0]), 'utf8').split('\n').filter((line) => line.trim()).map((line) => JSON.parse(line));
+    const lines = fs.readFileSync(path.join(dataDir, unit.files[0]), 'utf8').split('\n').filter((line) => line.trim()).map((line) => JSON.parse(line) as unknown);
     return { op: 'lines', owner: unit.owner, lines };
   }
   return { op: 'value', owner: unit.owner, value: JSON.parse(fs.readFileSync(path.join(dataDir, unit.files[0]), 'utf8')) };
 }
 
 /** Every memory unit of `dataDir` as the update a service's `writeUnit` takes (`{ op, owner, value | lines }`), in order. */
-export function unitUpdates(dataDir) {
+export function unitUpdates(dataDir: string): Array<Record<string, unknown>> {
   return unitsOf(dataDir).map((unit) => updateOf(dataDir, unit));
 }
 
@@ -81,23 +86,25 @@ export function unitUpdates(dataDir) {
  * Writes every memory unit of `dataDir` into the opened database `handle` (the writer, openMemoryDb). Returns
  * `{ units, errors }`: the units written and the ones a writer refused (each one's code in `codes`). `now` stamps the
  * writes (epoch ms, or a clock).
- * @param {{ db: object, transaction: Function }} handle
- * @param {string} dataDir
- * @param {{ now?: number|(() => number) }} [options]
  */
-export function seedUnits(handle, dataDir, { now: clock = Date.parse('2026-10-24T00:00:00.000Z') } = {}) {
+export function seedUnits(
+  handle: MemoryHandle,
+  dataDir: string,
+  { now: clock = Date.parse('2026-10-24T00:00:00.000Z') }: { now?: number | (() => number) } = {},
+): { units: number; errors: number; codes: Array<string> } {
   const now = typeof clock === 'function' ? clock() : clock;
   let written = 0;
-  const codes = [];
+  const codes: Array<string> = [];
   for (const unit of unitsOf(dataDir)) {
     try {
       applyUnitWrite(handle, { kind: 'unit', ...updateOf(dataDir, unit), now });
       written += 1;
     } catch (error) {
-      codes.push(error?.code ?? error?.name ?? 'ERROR');
+      const failure = error as { code?: string; name?: string } | null;
+      codes.push(failure?.code ?? failure?.name ?? 'ERROR');
     }
   }
-  fillStems(handle.db);
+  fillStems(handle.db as Db);
   projectPending(handle, { at: new Date(now).toISOString() });
   return { units: written, errors: codes.length, codes };
 }

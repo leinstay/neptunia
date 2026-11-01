@@ -1,4 +1,4 @@
-// The decision table of the persona's tools (tests/fixtures/tool-decisions.mjs): what the gateway answers for every tool
+// The decision table of the persona's tools (tests/fixtures/tool-decisions.ts): what the gateway answers for every tool
 // in every context, regenerated from the code and compared with the table committed from the code before the tools moved
 // to src/tools/. The comparison goes through TOOL_ALIASES, the one list of strings the renames changed (the tool
 // `skills.describe`, the ten tools of the errands and intentions, and the config keys named in a refusal's detail),
@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { toolDecisions } from './fixtures/tool-decisions.mjs';
+import { toolDecisions } from './fixtures/tool-decisions.ts';
 
 type Table = Awaited<ReturnType<typeof toolDecisions>>;
 

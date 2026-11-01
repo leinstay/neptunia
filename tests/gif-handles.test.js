@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { gifHandleMap, gifHandleOf, matchGifKey, mergeGifs } from '../src/memory/gifs.ts';
 import { mediaLabelFor } from '../src/media/classify.ts';
 import { formatTranscript } from '../src/format.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 
 const T0 = Date.UTC(2026, 8, 1);
 const TENOR = 'https://tenor.com/view/cat-dance-123';

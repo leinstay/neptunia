@@ -23,7 +23,7 @@ import {
 import '../src/tools/impl/index.ts';
 import { parseOutput } from '../src/llm/parse.ts';
 import { answerOf } from '../src/behavior/turn.ts';
-import { call as toolCall } from './fixtures/tool-answers.js';
+import { call as toolCall } from './fixtures/tool-answers.ts';
 import * as inner from '../src/behavior/inner.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 

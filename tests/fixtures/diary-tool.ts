@@ -2,7 +2,7 @@
 // inner turn and a diary turn read. `diary-tool.json` beside this file holds what the code of main gave for the diary
 // turn under these settings, run in the diary channel `d1`: the tools its writer request offered, and how it answered
 // a `message.create` call with `diary` there (`writerHasTools`, `writerTools`, `called`). Synthetic text only.
-import { hotWith, personaGrants } from './turn-harness.js';
+import { hotWith, personaGrants } from './turn-harness.ts';
 
 /** The settings, with the diary's daily cap `maxPerDay`. */
 export function diaryToolHot({ maxPerDay }: { maxPerDay: number }): ReturnType<typeof hotWith> {

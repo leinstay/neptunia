@@ -23,10 +23,10 @@ import { createMemoryUpdater } from '../src/memory/update.ts';
 import { parseOutput } from '../src/llm/parse.ts';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
 import { userText } from '../src/behavior/prompt.ts';
-import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { labels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { onWorld, world } from './fixtures/turn-world.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const createTurnRunner = onWorld(createRealTurnRunner);
 

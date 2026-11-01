@@ -16,7 +16,7 @@ import {
   voiceOccupants,
 } from '../src/behavior/around.ts';
 import { fill } from '../src/format.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 
 const CHANNELS = { v1: 'Σαλόνι', v2: 'Café', v3: 'Zéro' };
 const channelNameOf = (id) => CHANNELS[id] ?? null;

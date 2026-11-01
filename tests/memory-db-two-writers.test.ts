@@ -15,9 +15,9 @@ import { applyDiaryUpdate } from '../src/memory/db/diary-media.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { createStore } from '../src/memory/store.ts';
 import { relationshipStaleOf, strongestMoves } from '../src/memory/affinity.ts';
-import { seedUnits } from './fixtures/memory-db/seed.js';
-import { CHANNEL, GUILD, MEMBER, seen, writeJson, writeLines } from './fixtures/memory-db/datadir.js';
-import { tempDir } from './fixtures/tmp.js';
+import { seedUnits } from './fixtures/memory-db/seed.ts';
+import { CHANNEL, GUILD, MEMBER, seen, writeJson, writeLines } from './fixtures/memory-db/datadir.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 type Row = Record<string, unknown>;
 type Statement = {

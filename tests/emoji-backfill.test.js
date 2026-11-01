@@ -8,8 +8,8 @@ import fs from 'node:fs';
 
 import { createEmojiBackfill } from '../src/memory/emoji-backfill.ts';
 import { createStore } from '../src/memory/store.ts';
-import { tempDir } from './fixtures/tmp.js';
-import { openTestMemory } from './fixtures/memory-db/service.js';
+import { tempDir } from './fixtures/tmp.ts';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { IFACE, SELF_ID, channel, message, rig } from './fixtures/reads-rig.ts';
 
 const T0 = Date.UTC(2026, 8, 1);

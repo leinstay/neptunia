@@ -17,8 +17,8 @@ import { notOk } from '../src/protocol/actions.ts';
 import type { Content } from '../src/protocol/actions.ts';
 import { GUILD, NOW, sceneHot, sceneLlm, sceneRunner } from './fixtures/diary-requests.ts';
 import { dbOf, diaryPublications, diaryRows, entryOf, seedMirror } from './fixtures/diary-mirror.ts';
-import { openTestMemory } from './fixtures/memory-db/service.js';
-import { call, toolAnswer } from './fixtures/tool-answers.js';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
+import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
 import { worldTurnRunner } from './fixtures/world-runner.ts';
 

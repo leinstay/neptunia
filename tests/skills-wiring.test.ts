@@ -12,7 +12,7 @@ import type { SkillsUpdate } from '../src/memory/db/skills.ts';
 import { wireSkills } from '../src/skills/wiring.ts';
 import type { SkillsWiringDeps } from '../src/skills/wiring.ts';
 import { skillText, SKILLS_T0 } from './fixtures/skills-rig.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const SELF = 'bot-1';
 const LABELS = { skills: { index: 'Skills you can read:', line: '- {name}: {description}' } };

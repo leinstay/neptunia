@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import * as participation from '../src/memory/db/map/participation.ts';
 import * as recent from '../src/memory/db/map/recent.ts';
 import * as diary from '../src/memory/db/map/diary.ts';
-import { assertRoundTrip, roundTrip } from './fixtures/memory-db/roundtrip.js';
+import { assertRoundTrip, roundTrip } from './fixtures/memory-db/roundtrip.ts';
 
 const message = (id, extra = {}) => ({
   id,

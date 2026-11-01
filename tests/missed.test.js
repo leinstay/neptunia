@@ -24,8 +24,8 @@ import {
   sweepDueAt,
   sweepPlan,
 } from '../src/behavior/missed.ts';
-import { labels } from './fixtures/labels.js';
-import { tempDir } from './fixtures/tmp.js';
+import { labels } from './fixtures/labels.ts';
+import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
 // The conversations are held by a fake interface named `fake`.

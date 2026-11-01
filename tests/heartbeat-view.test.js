@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.ts';
 import { wakeBlockText } from '../src/behavior/wake.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../src/time.ts';
 
 const NOW = Date.parse('2026-10-20T12:00:00Z');

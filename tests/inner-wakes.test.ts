@@ -14,8 +14,8 @@ import { createEventDoor } from '../src/interface/door.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
 import { leaseOf, wakeOf } from '../src/memory/db/wake-queue.ts';
-import { openTestMemory } from './fixtures/memory-db/service.js';
-import { tempDir } from './fixtures/tmp.js';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
+import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
 useIface('fake');

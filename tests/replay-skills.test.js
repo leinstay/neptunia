@@ -18,7 +18,7 @@ import { callViewOf, requesterOf } from '../src/behavior/turn.ts';
 import { fill } from '../src/format.ts';
 import { createHot } from '../src/hot.ts';
 import { deepMerge } from '../src/config.ts';
-import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
+import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import {
   afterScenarioTurn,
   answerSkillScenario,
@@ -47,8 +47,8 @@ import {
   sequenceSummary,
   skillRequestEstimate,
 } from '../tools/replay.mjs';
-import { labels } from './fixtures/labels.js';
-import { tempDir } from './fixtures/tmp.js';
+import { labels } from './fixtures/labels.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 const OWNER = '100000000000000042';
 const MEMBER = '100000000000000007';

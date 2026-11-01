@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createOutbox } from '../src/protocol/outbox.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const event = (id: string): Record<string, unknown> => ({ kind: 'reaction.changed', iface: 'fake', at: 1, id });
 const idsOf = (entries: ReadonlyArray<{ seq: number; event: Record<string, unknown> }>): Array<string> =>

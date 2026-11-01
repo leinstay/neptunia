@@ -45,13 +45,13 @@ import {
   scriptedHistory,
 } from '../tools/inner-week.mjs';
 import '../src/tools/impl/index.ts';
-import { call as toolCall } from './fixtures/tool-answers.js';
-import { callBlock as toolCallBlock } from './fixtures/tool-answers.js';
+import { call as toolCall } from './fixtures/tool-answers.ts';
+import { callBlock as toolCallBlock } from './fixtures/tool-answers.ts';
 import { createStore } from '../src/memory/store.ts';
 import { directoryEntries } from '../src/behavior/handles.ts';
 import { CliError, REFUSED_EXIT } from '../tools/lib/cli.mjs';
 import { DAY_MS, HOUR_MS, MINUTE_MS } from '../src/time.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURES = path.join(ROOT, 'tools', 'fixtures', 'inner-week');

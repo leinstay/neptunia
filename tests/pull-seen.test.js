@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { buildRequest, userText as contentText } from '../src/behavior/prompt.ts';
 import { createPullViews } from '../src/behavior/pull-fetch.ts';
 import { fill, formatDuration } from '../src/format.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);
 const MIN = 60_000;

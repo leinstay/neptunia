@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { avatarReference, createImageFetcher } from '../src/media/fetch-image.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 const PNG_BYTES = Buffer.from('fake-png-bytes');
 

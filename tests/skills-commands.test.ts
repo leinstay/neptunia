@@ -10,7 +10,7 @@ import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
 import type { SkillsPort } from '../src/skills/port.ts';
 import { SKILLS_T0, skillText, skillsRig } from './fixtures/skills-rig.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const LOOK = skillText('look-it-up', 'I check the web first', ['web.search'], 'First body.', 't0000001f');
 const LOOK2 = skillText('look-it-up', 'I check the web twice', ['web.search', 'web.read'], 'Second body.');

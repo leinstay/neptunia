@@ -14,7 +14,7 @@ import {
   stepVerdict,
   thinkMissing,
 } from '../src/behavior/tool-step.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 
 const registry = buildSkills({ table: SKILL_DEFINITIONS });
 const definitionOf = (name) => registry.get(name);

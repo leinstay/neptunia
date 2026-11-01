@@ -19,8 +19,8 @@ import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { grantedToPersona } from '../src/tools/access.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { tempDir } from './fixtures/tmp.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 const NOW = Date.parse('2026-10-31T10:00:00.000Z');
 const SELF_ID = '900';

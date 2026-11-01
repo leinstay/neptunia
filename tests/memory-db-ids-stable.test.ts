@@ -10,8 +10,8 @@ import { join } from 'node:path';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
 import { observe } from '../src/memory/db/observe.ts';
-import { seedUnits } from './fixtures/memory-db/seed.js';
-import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
+import { seedUnits } from './fixtures/memory-db/seed.ts';
+import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
 
 type Row = Record<string, unknown>;
 type Handle = ReturnType<typeof openMemoryDb>;

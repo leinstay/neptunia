@@ -11,7 +11,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ROOT, layer } from './fixtures/private-layer.ts';
 import type { Layer } from './fixtures/private-layer.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 type Tree = Record<string, unknown>;
 

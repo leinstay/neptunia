@@ -8,7 +8,7 @@ import path from 'node:path';
 import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
 import { BOARD_MIGRATIONS, BOARD_TABLES, boardVersion } from '../src/board/schema.ts';
 import type { BoardDb } from '../src/board/schema.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 // open.js types its connection as `object`; it is node:sqlite's DatabaseSync, which has every method BoardDb names.
 const dbOf = (handle: { db: object }): BoardDb => handle.db as BoardDb;

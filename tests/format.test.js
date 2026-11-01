@@ -1,5 +1,5 @@
 // Tests for src/format.ts: pure transcript/time formatting. Every
-// word comes from `labels` (tests/fixtures/labels.js is an English fixture
+// word comes from `labels` (tests/fixtures/labels.ts is an English fixture
 // covering the full prompt-contract key list); a second, non-English labels
 // object proves nothing in the code is language-bound.
 import { test } from 'node:test';
@@ -19,7 +19,7 @@ import {
   withTriggers,
   withCalls,
 } from '../src/format.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 
 const TZ = 'Europe/Moscow'; // fixed UTC+3, no DST -- safe for exact arithmetic in tests
 const MIN = 60_000;

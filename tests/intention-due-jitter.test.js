@@ -10,7 +10,7 @@ import { createEventDoor } from '../src/interface/door.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { HOUR_MS, MINUTE_MS } from '../src/time.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
 // The conversation she wakes in is held by a fake interface named `fake`.

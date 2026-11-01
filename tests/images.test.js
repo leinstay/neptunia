@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createImageGen, familyOf, ImageGenError, UnsupportedImageModelError } from '../src/llm/images.ts';
 import { NotByokError } from '../src/llm/openrouter.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 const NOW = Date.parse('2026-09-28T12:00:00Z');
 

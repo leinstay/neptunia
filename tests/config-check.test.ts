@@ -17,7 +17,7 @@ import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { folders, runCli, startUnitsCore, withRig } from './fixtures/core-units.ts';
 import { ROOT } from './fixtures/private-layer.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const T0 = Date.parse('2026-10-31T12:00:00Z');
 

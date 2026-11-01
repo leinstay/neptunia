@@ -9,7 +9,7 @@ import { main, tableHashes } from '../tools/memory-db.mjs';
 import { openBoard } from '../src/board/board.ts';
 import type { BoardSettings, TaskRecord, TaskView } from '../src/board/board.ts';
 import type { BoardDb } from '../src/board/schema.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const NOW = Date.parse('2026-10-31T10:00:00.000Z');
 const SETTINGS: BoardSettings = {

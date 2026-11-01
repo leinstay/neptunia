@@ -12,8 +12,8 @@ import {
   triggerLinksOf,
   toolsHashOf,
 } from '../src/memory/journal.ts';
-import { tempDir } from './fixtures/tmp.js';
-import { openTestMemory, openTestMemorySync } from './fixtures/memory-db/service.js';
+import { tempDir } from './fixtures/tmp.ts';
+import { openTestMemory, openTestMemorySync } from './fixtures/memory-db/service.ts';
 
 const DATA = path.join('fake-root', 'data');
 const DAY_D = Date.UTC(2026, 9, 13, 23, 59, 50);

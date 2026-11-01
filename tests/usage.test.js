@@ -21,7 +21,7 @@ import {
   KEEP_DAYS,
 } from '../src/tools/impl/usage.ts';
 import { createLlm, keyHashOf } from '../src/llm/openrouter.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const HOUR = 3_600_000;
 

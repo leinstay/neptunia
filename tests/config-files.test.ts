@@ -14,9 +14,9 @@ import { createHot as createHotUntyped } from '../src/hot.ts';
 import * as files from '../src/config/files.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { ROOT } from './fixtures/private-layer.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 type Tree = Record<string, unknown>;
 

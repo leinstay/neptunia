@@ -16,7 +16,7 @@ import { createEventDoor } from '../src/interface/door.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createLoopback } from '../src/protocol/index.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const quiet = { info() {}, warn() {}, error() {} };

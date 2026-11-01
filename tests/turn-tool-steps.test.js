@@ -2,12 +2,12 @@
 // in segments, her speech out after them only when every call worked and none gave her something to read, held
 // otherwise; one more request when something is left to read, append-only, one result for every call; bounds with
 // the final request reserved. Over a real admin and the fake interface adapter; the model is scripted with native
-// tool calls (tests/fixtures/tool-answers.js); no network, no data/.
+// tool calls (tests/fixtures/tool-answers.ts); no network, no data/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fill } from '../src/format.ts';
-import { labels } from './fixtures/labels.js';
-import { call, badCall, toolAnswer, textAnswer } from './fixtures/tool-answers.js';
+import { labels } from './fixtures/labels.ts';
+import { call, badCall, toolAnswer, textAnswer } from './fixtures/tool-answers.ts';
 import {
   NOW,
   rawMessage,
@@ -22,7 +22,7 @@ import {
   WEB_CONFIG,
   hotWith,
   requestText,
-} from './fixtures/turn-harness.js';
+} from './fixtures/turn-harness.ts';
 
 const texts = (run) => run.sends.map((send) => send.text);
 const called = (run) =>
@@ -90,7 +90,7 @@ test('duplicate call ids: the second keeps a made-up unique id, and both get the
 
 test('draw failure with held speech: nothing is posted in step 1, step 2 sees the result and the held notice, its speech goes out', async () => {
   const { ImageGenError } = await import('../src/llm/images.ts');
-  const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.js');
+  const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.ts');
   const run = await drawTurn({
     answers: [
       toolAnswer('<think>x</think><msg>ορίστε</msg>', [call('draw.create', { text: 'ένας φάρος' }, { id: 'd1' })]),
@@ -108,7 +108,7 @@ test('draw failure with held speech: nothing is posted in step 1, step 2 sees th
 });
 
 test('all-quiet completion: draw.create ok with no speech is one request, the picture is posted and the turn ends', async () => {
-  const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.js');
+  const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.ts');
   const images = fakeImages();
   const run = await drawTurn({
     answers: [toolAnswer('<think>x</think>', [call('draw.create', { text: 'ένας φάρος' })]), '<msg>ποτέ</msg>'],
@@ -121,7 +121,7 @@ test('all-quiet completion: draw.create ok with no speech is one request, the pi
 });
 
 test('a picture and its announcement in one answer: the picture result covers the speech, the speech goes out after the picture', async () => {
-  const { drawTurn } = await import('./fixtures/turn-draws.js');
+  const { drawTurn } = await import('./fixtures/turn-draws.ts');
   const run = await drawTurn({
     answers: [toolAnswer('<think>x</think><msg>ορίστε</msg>', [call('draw.create', { text: 'ένας φάρος' })])],
   });
@@ -132,7 +132,7 @@ test('a picture and its announcement in one answer: the picture result covers th
 
 test('dependent diary announcement: a failed picture and a post to the diary channel in one batch both run in order, the post goes through, the speech is held and step 2 sees both', async () => {
   const { ImageGenError } = await import('../src/llm/images.ts');
-  const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.js');
+  const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.ts');
   const jardin = {
     id: 'c2',
     name: 'jardin',
@@ -435,7 +435,7 @@ test('journal dumps: the reply request is dumped as the base dump, each later re
 });
 
 test('carried over: draw.create in the current conversation runs on a spontaneous turn with nobody asking, as the old tag did; in another channel it is refused no-requester', async () => {
-  const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.js');
+  const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.ts');
   const here = await drawTurn({
     spontaneous: 'initiate',
     allowed: [],

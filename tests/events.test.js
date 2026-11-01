@@ -14,12 +14,12 @@ import { MessageReferenceType, PermissionFlagsBits } from 'discord.js';
 import { deepMerge } from '../src/config.ts';
 import { DailyCapError } from '../src/llm/openrouter.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
-import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { labels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { createStore } from '../src/memory/store.ts';
 import { normalizeMessage, normalizeOptions, toEvent } from '../interfaces/discord/index.ts';
 import { createActivity } from '../src/behavior/activity.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 import {
   freshWorld,
   onWorldIface,

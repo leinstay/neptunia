@@ -8,9 +8,9 @@ import { EventEmitter } from 'node:events';
 import { createHot } from '../src/hot.ts';
 import { composePreamble } from '../src/errands/preambles.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 // The Discord interface's capabilities object, as src/index.ts injects it.
 const DISCORD = createDiscordInterface().capabilities;

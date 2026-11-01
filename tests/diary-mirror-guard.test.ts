@@ -20,10 +20,10 @@ import type { MessageReceived } from '../src/protocol/events.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { dbOf, entryOf, seedMirror } from './fixtures/diary-mirror.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { labels } from './fixtures/labels.js';
-import { openTestMemory } from './fixtures/memory-db/service.js';
-import { call, toolAnswer } from './fixtures/tool-answers.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { labels } from './fixtures/labels.ts';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
+import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import {
   DISCORD,
   contentText,
@@ -32,9 +32,9 @@ import {
   personaGrants,
   rawMessage,
   sequenceLlm,
-} from './fixtures/turn-harness.js';
+} from './fixtures/turn-harness.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 import '../src/tools/impl/index.ts';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');

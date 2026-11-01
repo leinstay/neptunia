@@ -27,14 +27,14 @@ import {
   gistOf,
   createDiary,
 } from '../src/behavior/diary.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { fill, localHour } from '../src/format.ts';
 import { MINUTE_MS, HOUR_MS } from '../src/time.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 import { createStore } from '../src/memory/store.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
-import { tempDir } from './fixtures/tmp.js';
-import { openTestMemory, openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
+import { tempDir } from './fixtures/tmp.ts';
+import { openTestMemory, openTestMemorySync, unitFile } from './fixtures/memory-db/service.ts';
 import { seedMirror } from './fixtures/diary-mirror.ts';
 
 // The diary channel is held by a fake interface named `fake`.

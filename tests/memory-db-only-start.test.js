@@ -21,8 +21,8 @@ import { createVectors } from '../src/memory/vectors.ts';
 import { createEmbedder } from '../src/memory/embedder.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
 import { createErrandStores } from '../src/errands/store.ts';
-import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
-import { seedUnits } from './fixtures/memory-db/seed.js';
+import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
+import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { BOARD_MIGRATIONS } from '../src/board/schema.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');

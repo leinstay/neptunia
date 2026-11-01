@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadPrincipals, principalOfToken } from '../src/interface/principals.ts';
 import type { Principal } from '../src/interface/principals.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const BOOT: Principal = { name: 'boot', kind: 'interface', iface: 'fake', permissions: [] };
 const BOOT_TOKEN = 'b'.repeat(64);

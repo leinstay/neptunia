@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildRequest, userText as contentText } from '../src/behavior/prompt.ts';
 import { fill, formatClock } from '../src/format.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 
 const NOW = Date.UTC(2026, 9, 10, 12, 0, 0);
 const MIN = 60_000;

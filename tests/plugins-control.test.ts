@@ -10,7 +10,7 @@ import type { PluginControl } from '../src/plugins/control.ts';
 import { loadPrincipals, principalOfToken } from '../src/interface/principals.ts';
 import { ECHO_DIR, recordingUnits } from './fixtures/plugin-rig.ts';
 import type { UnitLog } from './fixtures/plugin-rig.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 type Rig = {
   control: PluginControl;

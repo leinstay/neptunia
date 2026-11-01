@@ -11,7 +11,7 @@ import {
   pickContext,
   renderGifLibrary,
 } from '../src/behavior/gif-pick.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 
 const NOW = Date.UTC(2026, 9, 6, 12, 0, 0);
 const HOUR = 3_600_000;

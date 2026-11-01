@@ -14,14 +14,14 @@ import { memorySearchText, runMemorySearch } from '../src/tools/tools.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { search, window, quotesOf, dbSettings } from '../src/memory/db/recall.ts';
 import { fillStems, loadStemmer, stemsOf } from '../src/memory/db/stems.ts';
-import { seedUnits } from './fixtures/memory-db/seed.js';
+import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
-import { fillEnvAudiences } from './fixtures/memory-db/audiences.js';
+import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import { channelPlaceId, dmPlaceId, messageSourceId, personId } from '../src/memory/db/ids.ts';
 import { dmContext, dmScope, groupContext, groupScope, internalContext } from '../src/memory/db/scope.ts';
 import { quantize } from '../src/memory/vectors.ts';
-import { labels } from './fixtures/labels.js';
-import { buildDataDir, guildDir, MEMBER, CHANNEL } from './fixtures/memory-db/datadir.js';
+import { labels } from './fixtures/labels.ts';
+import { buildDataDir, guildDir, MEMBER, CHANNEL } from './fixtures/memory-db/datadir.ts';
 
 const DAY = 86400000;
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');

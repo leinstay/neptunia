@@ -5,8 +5,8 @@ import path from 'node:path';
 
 import { createMetrics, metricsTap, SPEED_METRICS } from '../src/tools/impl/metrics.ts';
 import { log, onLog } from '../src/log.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { tempDir } from './fixtures/tmp.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;

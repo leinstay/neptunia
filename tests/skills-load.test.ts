@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadSkills } from '../src/skills/load.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const skillText = (name: string, description: string, tools = '[]'): string =>
   `---\nname: ${name}\ndescription: ${description}\ntools: ${tools}\n---\nWhen it applies, and the steps.\n`;

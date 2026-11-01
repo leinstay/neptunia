@@ -12,9 +12,9 @@ import { openBoard } from '../src/board/board.ts';
 import type { Board, BoardSettings } from '../src/board/board.ts';
 import { BOARD_MIGRATIONS } from '../src/board/schema.ts';
 import type { BoardDb } from '../src/board/schema.ts';
-import { seedUnits } from './fixtures/memory-db/seed.js';
-import { buildDataDir } from './fixtures/memory-db/datadir.js';
-import { tempDir } from './fixtures/tmp.js';
+import { seedUnits } from './fixtures/memory-db/seed.ts';
+import { buildDataDir } from './fixtures/memory-db/datadir.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 const NOW = Date.parse('2026-10-31T10:00:00.000Z');
 const SETTINGS: BoardSettings = {

@@ -11,7 +11,7 @@ import { startCore } from '../../src/core.ts';
 import { start } from '../../src/interface/fake-interface.ts';
 import { openMemoryDb } from '../../src/memory/db/open.ts';
 import type { ConversationInfo, MessageEvent } from '../../src/protocol/adapter.ts';
-import { withCapturedLogs } from './capture-logs.js';
+import { withCapturedLogs } from './capture-logs.ts';
 
 type Running = Awaited<ReturnType<typeof start>>;
 export type Fake = Running['adapter'];
@@ -155,7 +155,7 @@ export async function withFakeCore<T>(
       await core.stop();
     }
   }).finally(() => rmSync(root, { recursive: true, force: true }));
-  return { result: captured.result, logs: captured.logs as Array<Row> };
+  return { result: captured.result, logs: captured.logs };
 }
 
 /** A server channel as the fake reports it: readable, writable, public, quiet. */

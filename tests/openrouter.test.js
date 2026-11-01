@@ -30,7 +30,7 @@ import {
   REPLY_REQUEST,
   countLlmRequest,
 } from '../src/llm/openrouter.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { createLimits } from '../src/llm/limits.ts';
 
 /** `model` is the voice model (`models.base.core`), the one a request without a model goes out on. */

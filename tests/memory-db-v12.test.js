@@ -7,9 +7,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
-import { seedUnits } from './fixtures/memory-db/seed.js';
+import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { channelPlaceId } from '../src/memory/db/ids.ts';
-import { CHANNEL, buildDataDir } from './fixtures/memory-db/datadir.js';
+import { CHANNEL, buildDataDir } from './fixtures/memory-db/datadir.ts';
 
 const NOW = Date.parse('2026-11-03T12:00:00.000Z');
 const tmpRoot = () => fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-v12-'));

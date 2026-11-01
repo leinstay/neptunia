@@ -15,7 +15,7 @@ import {
 } from '../src/memory/emoji-usage.ts';
 import { createStore } from '../src/memory/store.ts';
 import { createMemoryUpdater } from '../src/memory/update.ts';
-import { openTestMemory } from './fixtures/memory-db/service.js';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 8, 1);

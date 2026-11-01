@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { memoryHealth } from '../src/health/memory.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const NOW = Date.parse('2026-10-31T12:00:00Z');
 const DAY = 24 * 60 * 60 * 1000;

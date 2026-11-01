@@ -11,9 +11,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
-import { seedUnits } from './fixtures/memory-db/seed.js';
+import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { backupName, backupSettings, configHash, restoreDatabase } from '../src/memory/db/backup.ts';
-import { buildDataDir } from './fixtures/memory-db/datadir.js';
+import { buildDataDir } from './fixtures/memory-db/datadir.ts';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;

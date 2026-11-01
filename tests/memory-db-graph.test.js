@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
 import { V9_TABLES } from '../src/memory/db/schema.ts';
-import { seedUnits } from './fixtures/memory-db/seed.js';
+import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { OBSERVATION_VERSION, observe } from '../src/memory/db/observe.ts';
 import { applyMemoryWrite, newestClaimVersion } from '../src/memory/db/session-write.ts';
@@ -30,7 +30,7 @@ import {
 } from '../src/memory/db/graph.ts';
 import { dmContext, groupContext, groupScope, internalContext } from '../src/memory/db/scope.ts';
 import { main, tableHashes } from '../tools/memory-db.mjs';
-import { buildDataDir } from './fixtures/memory-db/datadir.js';
+import { buildDataDir } from './fixtures/memory-db/datadir.ts';
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');

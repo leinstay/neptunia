@@ -17,9 +17,9 @@ import { createFakeAdapter } from '../src/interface/fake.ts';
 import { RESULT_STATUSES, executeCall, outcomeDetail, refusalStatus, resolveCall } from '../src/tools/executors.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { checkSkill } from '../src/tools/gateway.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 import { freshWorld, seedExisting, syncStub, useIface, useSelf, world } from './fixtures/turn-world.ts';
 
 // The conversations are held by a fake interface named `fake`, where the persona is `self-1`.

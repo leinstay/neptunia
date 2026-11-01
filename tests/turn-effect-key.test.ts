@@ -11,8 +11,8 @@ import { createTurnRunner } from '../src/behavior/turn.ts';
 import { createAdmin } from '../src/admin.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { call, toolAnswer } from './fixtures/tool-answers.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import {
   DISCORD,
   fakeStore,
@@ -21,7 +21,7 @@ import {
   personaGrants,
   rawMessage,
   sequenceLlm,
-} from './fixtures/turn-harness.js';
+} from './fixtures/turn-harness.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
 import '../src/tools/impl/index.ts';
 

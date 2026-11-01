@@ -17,7 +17,7 @@ import type { BoardDb } from '../src/board/schema.ts';
 import { runTaskCommand } from '../src/board/commands.ts';
 import { tableHashes } from '../tools/memory-db.mjs';
 import { importLedger, main } from '../tools/board-import.mjs';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 import {
   DEV_TASKS,
   DONE_TASK,

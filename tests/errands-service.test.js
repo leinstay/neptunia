@@ -17,9 +17,9 @@ import { createErrandStores } from '../src/errands/store.ts';
 import { createErrandService, RUNNER_RECHECK_MS } from '../src/errands/service.ts';
 import { createErrandClient } from '../src/errands/client.ts';
 import { encodeLine } from '../src/agent-runner/protocol.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { tempDir } from './fixtures/tmp.js';
-import { openTestMemorySync } from './fixtures/memory-db/service.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { tempDir } from './fixtures/tmp.ts';
+import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 
 /** The memory database of each data directory used here, opened once; closed when the file is done. */
 const MEMORY = new Map();

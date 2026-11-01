@@ -8,9 +8,9 @@ import path from 'node:path';
 import { renderChannel } from '../src/memory/channels.ts';
 import { touchMemory } from '../src/memory/update.ts';
 import { createStore } from '../src/memory/store.ts';
-import { labels } from './fixtures/labels.js';
-import { tempDir } from './fixtures/tmp.js';
-import { openTestMemory } from './fixtures/memory-db/service.js';
+import { labels } from './fixtures/labels.ts';
+import { tempDir } from './fixtures/tmp.ts';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { seedMirror } from './fixtures/diary-mirror.ts';
 import { diaryConversationIds } from '../src/behavior/mirror.ts';
 

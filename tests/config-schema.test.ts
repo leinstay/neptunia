@@ -46,7 +46,7 @@ import { attentionSettings, heartbeatLimits, intentionSettings } from '../src/in
 import { agentSettings } from '../src/agent-runner/profiles.ts';
 import { CUT, CUT_GROUPS, KEPT, PRODUCTION_LAYER } from './fixtures/config-cut.ts';
 import type { CutGroup } from './fixtures/config-cut.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 /** The number of config keys Hermes has (hermes_cli/config_defaults.py), the bound plan section 4.5 sets. */
 const HERMES_KEYS = 1010;

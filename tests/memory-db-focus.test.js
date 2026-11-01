@@ -24,7 +24,7 @@ import {
 } from '../src/memory/db/focus.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { tableHashes } from '../tools/memory-db.mjs';
-import { buildDataDir } from './fixtures/memory-db/datadir.js';
+import { buildDataDir } from './fixtures/memory-db/datadir.ts';
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
 const DAY = 86_400_000;

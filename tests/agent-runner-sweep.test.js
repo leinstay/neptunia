@@ -7,8 +7,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { sweepOutputs, startSweeper, keepHoursOf, DEFAULT_KEEP_FILES_HOURS } from '../src/agent-runner/sweep.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { tempDir } from './fixtures/tmp.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 const HOUR = 60 * 60 * 1000;
 const NOW = Date.parse('2026-10-17T12:00:00Z');

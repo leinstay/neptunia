@@ -26,8 +26,8 @@ import { buildSkills } from '../src/tools/registry.ts';
 import { normalizeCalls } from '../src/tools/tool-calls.ts';
 import '../src/tools/impl/index.ts';
 import { toolCallsOf } from '../src/llm/openrouter.ts';
-import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.js';
-import { tempDir } from './fixtures/tmp.js';
+import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
+import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 import {
   dbOf,

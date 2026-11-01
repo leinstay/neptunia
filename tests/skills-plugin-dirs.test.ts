@@ -7,7 +7,7 @@ import path from 'node:path';
 import { loadSkills } from '../src/skills/load.ts';
 import { skillText } from './fixtures/skills-rig.ts';
 import { ECHO_DIR } from './fixtures/plugin-rig.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 function write(dir: string, name: string, description: string): void {
   fs.mkdirSync(path.join(dir, name), { recursive: true });

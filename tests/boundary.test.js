@@ -16,9 +16,9 @@ import { createFakeAdapter, replayFixture } from '../src/interface/fake.ts';
 import { createDiary } from '../src/behavior/diary.ts';
 import { heartbeatWake } from '../src/behavior/inner.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
-import { createTurnRunner, fakeStore, hotWith, sequenceLlm } from './fixtures/turn-harness.js';
-import { GUILD, MINUTE, START, innerRig, newHistory, replyTo, rowsOf } from './fixtures/boundary.js';
-import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.js';
+import { createTurnRunner, fakeStore, hotWith, sequenceLlm } from './fixtures/turn-harness.ts';
+import { GUILD, MINUTE, START, innerRig, newHistory, replyTo, rowsOf } from './fixtures/boundary.ts';
+import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
 import { createStore } from '../src/memory/store.ts';
 
 const SILENT = { info() {}, warn() {}, error() {}, debug() {} };

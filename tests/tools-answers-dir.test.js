@@ -278,7 +278,7 @@ test('an answer whose tool-calls.json holds a data call drives two steps of a re
       'character-card': 'CARD',
       format: 'FORMAT',
       reply: 'REPLY {{author}}',
-      labels: (await import('./fixtures/labels.js')).labels,
+      labels: (await import('./fixtures/labels.ts')).labels,
     },
   };
   const store = {

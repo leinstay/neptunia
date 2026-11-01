@@ -15,9 +15,9 @@ import {
 import { between, typingMs } from '../src/behavior/random.ts';
 import { fillPromptTemplate, userText as textOf } from '../src/behavior/prompt.ts';
 import { fill, formatClock, formatDate, formatDuration } from '../src/format.ts';
-import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
+import { labels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import { handleOf } from '../src/behavior/handles.ts';
 import { ImageGenError } from '../src/llm/images.ts';
 import { DailyCapError, TokenLimitError } from '../src/llm/openrouter.ts';
@@ -32,7 +32,7 @@ import { createDiscordAdapter, createDiscordInterface } from '../interfaces/disc
 import { createLocalFacts } from '../src/behavior/inner.ts';
 import { freshWorld, onWorld, world } from './fixtures/turn-world.ts';
 import { snapshotOf } from '../src/behavior/snapshot.ts';
-import { openTestMemorySync } from './fixtures/memory-db/service.js';
+import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 
 /** What she did through a port: its calls but the reads a turn makes of it. */
 function effectsOf(port) {

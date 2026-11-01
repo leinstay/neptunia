@@ -10,8 +10,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
-import { unitUpdates } from './fixtures/memory-db/seed.js';
+import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
+import { unitUpdates } from './fixtures/memory-db/seed.ts';
 
 const tmpRoot = () => fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-worker-'));
 const REAL_WORKER = pathToFileURL(path.resolve('src/memory/db/writer-worker.ts')).href;

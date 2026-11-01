@@ -20,8 +20,8 @@ import { createOpencodeRunner } from '../src/agent-runner/opencode.ts';
 import { SERVER, SCOUT, SCOUT_TOOLS_DIR } from '../src/agent-runner/profiles.ts';
 import { WEB_SEARCH_MODEL_ENV } from '../src/web/web-search.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { tempDir } from './fixtures/tmp.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 /** A tmp dir with a prompt file; returns { outDir, promptFile, cleanup }. */
 async function workspace() {

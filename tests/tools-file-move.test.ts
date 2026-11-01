@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHot } from '../src/hot.ts';
 import { layer, moveTool } from './fixtures/private-layer.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 type Hot = { prompts: { tools: Record<string, Record<string, string>> }; close: () => void };
 

@@ -6,7 +6,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createJournal } from '../src/memory/journal.ts';
-import { openTestMemorySync } from './fixtures/memory-db/service.js';
+import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { IFACE, SELF_ID, channel, rig, message } from './fixtures/reads-rig.ts';
 import { ownMessagesOf } from '../src/behavior/own-messages.ts';
 

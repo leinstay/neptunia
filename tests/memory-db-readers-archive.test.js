@@ -3,8 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createArchive } from '../src/memory/archive.ts';
-import { GUILD, GUILD_2, MEMBER, all, readerEnv } from './fixtures/memory-db/readers.js';
-import { HOT_ITEM } from './fixtures/memory-db/datadir.js';
+import { GUILD, GUILD_2, MEMBER, all, readerEnv } from './fixtures/memory-db/readers.ts';
+import { HOT_ITEM } from './fixtures/memory-db/datadir.ts';
 
 test('archive db reader: iterate answers every guild, layer, range, kind and scope from the database', async () => {
   const env = await readerEnv();

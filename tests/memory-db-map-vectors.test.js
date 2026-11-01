@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as mapper from '../src/memory/db/map/vectors.ts';
-import { roundTrip } from './fixtures/memory-db/roundtrip.js';
+import { roundTrip } from './fixtures/memory-db/roundtrip.ts';
 
 const DIR = 'vectors/2026-10';
 const DIMS = 4;

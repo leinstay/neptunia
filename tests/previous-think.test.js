@@ -7,7 +7,7 @@ import { createThinkStore, inertThink, placeKey } from '../src/behavior/previous
 import { buildRequest, userText as contentText } from '../src/behavior/prompt.ts';
 import { callArgsText } from '../src/tools/call-args.ts';
 import { formatTranscript, withCalls } from '../src/format.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 
 const MIN = 60_000;
 const T0 = Date.UTC(2026, 9, 20, 12, 0, 0);

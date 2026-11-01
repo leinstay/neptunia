@@ -11,9 +11,9 @@ import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.t
 import { createAdmin } from '../src/admin.ts';
 import { familyOf } from '../src/llm/images.ts';
 import { onWorld, world } from './fixtures/turn-world.ts';
-import { labels as baseLabels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
+import { labels as baseLabels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 
 const createTurnRunner = onWorld(createRealTurnRunner);
 

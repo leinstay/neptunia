@@ -34,7 +34,7 @@ import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntention } from '../src/intentions/model.ts';
 import { localHour } from '../src/format.ts';
 import { HOUR_MS, MINUTE_MS, DAY_MS, zonedEpoch } from '../src/time.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 import { seeded, wakeMemory } from './fixtures/inner-rig.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 

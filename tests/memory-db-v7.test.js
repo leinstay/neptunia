@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
 import { SCOPED_TABLES } from '../src/memory/db/schema.ts';
-import { seedUnits } from './fixtures/memory-db/seed.js';
+import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { insertTurnReads } from '../src/memory/db/service.ts';
@@ -24,7 +24,7 @@ import {
 import { applyDiaryUpdate } from '../src/memory/db/diary-media.ts';
 import { canonicalKey, dmPlaceId, linkId, newPersonId, nodeId, personId, resolveAlias } from '../src/memory/db/ids.ts';
 import { main } from '../tools/memory-db.mjs';
-import { GUILD, MEMBER, buildDataDir, guildDir, seen, writeJson, writeLines } from './fixtures/memory-db/datadir.js';
+import { GUILD, MEMBER, buildDataDir, guildDir, seen, writeJson, writeLines } from './fixtures/memory-db/datadir.ts';
 
 const PROPOSED = '100000000000000007';
 const STRANGER = '100000000000000008';

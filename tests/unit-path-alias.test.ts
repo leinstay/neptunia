@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { currentUnitPath } from '../src/memory/db/paths.ts';
 import { dbOf } from './fixtures/memory-db/v13-errands.ts';
-import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.js';
+import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
 
 const ERRAND = {
   id: 't0000000a',

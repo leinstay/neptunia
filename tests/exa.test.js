@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createExaSearch, parseExaText } from '../src/web/exa.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 const KEY = 'exa-test-key-xyz';
 const ENDPOINT = 'https://mcp.exa.ai/mcp';

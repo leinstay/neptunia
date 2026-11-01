@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import * as channel from '../src/memory/db/map/channel.ts';
 import * as guild from '../src/memory/db/map/guild.ts';
 import * as lore from '../src/memory/db/map/lore.ts';
-import { assertRoundTrip, generated, plain, roundTrip } from './fixtures/memory-db/roundtrip.js';
+import { assertRoundTrip, generated, plain, roundTrip } from './fixtures/memory-db/roundtrip.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { reproject } from '../src/memory/db/graph.ts';

@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { localPath, madeLocalPath } from './fixtures/config-local.js';
+import { localPath, madeLocalPath } from './fixtures/config-local.ts';
 import path from 'node:path';
 
 import {
@@ -26,12 +26,12 @@ import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import { createMetrics } from '../src/tools/impl/metrics.ts';
 import { getOp } from '../src/tools/impl/registry.ts';
 import { splitPath } from '../src/tools/impl/shared.ts';
-import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { labels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 import { world } from './fixtures/turn-world.ts';
-import { openTestMemory } from './fixtures/memory-db/service.js';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
 
 // The Discord interface's capabilities object, as src/index.js injects it.
 const DISCORD = createDiscordInterface().capabilities;

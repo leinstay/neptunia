@@ -12,9 +12,9 @@ import { HIT_MARK } from '../src/behavior/recall.ts';
 import { snapshotOf } from '../src/behavior/snapshot.ts';
 import { toRecordLine } from '../src/memory/record.ts';
 import { DailyCapError } from '../src/llm/openrouter.ts';
-import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { tempDir } from './fixtures/tmp.js';
+import { labels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { tempDir } from './fixtures/tmp.ts';
 import { channel as channelInfo, privateChannel } from './fixtures/reads-rig.ts';
 import { eventOfLine, line, neutralMembers, neutralSearch, rawHit, snowflakeAt } from './fixtures/recall-lines.ts';
 

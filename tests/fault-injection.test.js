@@ -28,11 +28,11 @@ import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { createAdmin } from '../src/admin.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, zonedEpoch } from '../src/time.ts';
-import { labels } from './fixtures/labels.js';
-import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { tempDir } from './fixtures/tmp.js';
-import { openTestMemorySync } from './fixtures/memory-db/service.js';
+import { labels } from './fixtures/labels.ts';
+import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { tempDir } from './fixtures/tmp.ts';
+import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { wakeOf } from '../src/memory/db/wake-queue.ts';
 
 /** The memory database of each data directory used here (a restart opens the same one); closed when the file is done. */

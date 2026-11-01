@@ -12,7 +12,7 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { applyDiaryUpdate, createDiaryMedia } from '../src/memory/db/diary-media.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const AT = '2026-10-27T12:00:00.000Z';
 const PLACE = 'fake:channel:d1';

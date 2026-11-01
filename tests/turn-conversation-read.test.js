@@ -12,9 +12,9 @@ import '../src/tools/impl/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { createAdmin } from '../src/admin.ts';
 import { fill } from '../src/format.ts';
-import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
+import { labels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 
 // The conversations are held by a fake interface named `fake`.
 useIface('fake');

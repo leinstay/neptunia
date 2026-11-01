@@ -9,7 +9,7 @@ import { RECORD_LINKS_MAX, appendRevision, createRecord, recordLinks, toRecordLi
 import { newestRevisions } from '../src/memory/chunks.ts';
 import { normalizeMessage } from '../interfaces/discord/index.ts';
 import { slimMessage } from '../src/memory/update.ts';
-import { openTestMemory, unitFile } from './fixtures/memory-db/service.js';
+import { openTestMemory, unitFile } from './fixtures/memory-db/service.ts';
 
 const quiet = { info() {}, warn() {}, error() {} };
 const T1 = Date.UTC(2026, 9, 11, 11, 55, 51, 568);

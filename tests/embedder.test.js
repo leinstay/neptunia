@@ -5,7 +5,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRecord } from '../src/memory/record.ts';
 import { createEmbedder } from '../src/memory/embedder.ts';
-import { openTestMemorySync } from './fixtures/memory-db/service.js';
+import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 
 const GUILD = '600000000000000001';
 const ELENI = '411111111111111111';
