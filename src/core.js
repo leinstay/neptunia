@@ -693,6 +693,7 @@ async function buildCore(options, cleanups) {
     connected: (name) => pluginRegistry.connected(name),
     toolsOf: (name) => pluginRegistry.tools(name),
     units: options.units ?? systemdUnits(),
+    unitsMode: () => asUnits,
     // A disabled plugin has no tool, no announcement and no link left.
     onDisabled: (name) => {
       pluginRegistry.forget(name);

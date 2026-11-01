@@ -4,7 +4,8 @@
 // of mode 0700, the files tools/client-token.mjs writes), switches the plugin on and starts its unit; the plugin runs
 // as `neptunia plugin run <name>` and its hello is let in only while it is on. `disable` stops the unit, takes the
 // entry and the token back (the live link closes at its next envelope) and tells the core to forget the plugin's
-// tools. `setup` reports which environment keys the manifest lists are set in the unit's environment file
+// tools. `enable` refuses with `inprocess-mode` while the core runs its interface in its own process, because the
+// `clients.json` it writes would end that interface's boot token. `setup` reports which environment keys the manifest lists are set in the unit's environment file
 // `clients/<name>.env`, never their values. The folders are read at each call.
 
 import { execFile } from 'node:child_process';
@@ -40,7 +41,8 @@ export type PluginView = {
   tools: Array<string>;
 };
 export type SetupView = { name: string; env: Array<{ key: string; state: 'set' | 'missing' }> };
-export type Change = { ok: true; changed: boolean } | { ok: false; code: 'unknown-plugin' | 'unit-failed' };
+export type Change =
+  { ok: true; changed: boolean } | { ok: false; code: 'unknown-plugin' | 'unit-failed' | 'inprocess-mode' };
 export type PluginControl = {
   list(): Array<PluginView>;
   problems(): Array<PluginProblem>;
@@ -126,6 +128,8 @@ export function createPluginControl(options: {
   connected: (name: string) => boolean;
   toolsOf: (name: string) => Array<string>;
   units: PluginUnits;
+  /** Whether the core runs its interfaces as units; default true. Enabling a plugin writes `clients.json`, which ends an in-process interface's boot token. */
+  unitsMode?: () => boolean;
   onDisabled?: (name: string) => void;
 }): PluginControl {
   const { privateDir, units } = options;
@@ -145,6 +149,7 @@ export function createPluginControl(options: {
     problems: () => loadPlugins(options.folders()).problems,
     async enable(name) {
       if (find(name) === undefined) return { ok: false, code: 'unknown-plugin' };
+      if (options.unitsMode?.() === false) return { ok: false, code: 'inprocess-mode' };
       const changed = !options.isEnabled(name);
       ensureClient(privateDir, name);
       options.setEnabled(name, true);

@@ -131,6 +131,8 @@ export type Skill = Readonly<{
   op: string | null;
   kind: 'read' | 'write';
   ownerOnly: boolean;
+  /** Open to every member (a plugin tool's `rights.member`); an operation's own is on the operation. */
+  member?: boolean;
   argsSchema: Schema;
   effects: EffectClass;
   sharedState: boolean;

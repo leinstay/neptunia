@@ -94,6 +94,7 @@ function skillOf(plugin: string, tool: ToolDeclaration): Skill {
     op: null,
     kind: tool.rights.kind,
     ownerOnly: tool.rights.ownerOnly === true,
+    member: tool.rights.member === true,
     argsSchema: schema,
     effects: tool.effect,
     sharedState: tool.effect !== 'read',

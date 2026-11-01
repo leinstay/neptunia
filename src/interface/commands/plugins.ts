@@ -40,8 +40,11 @@ export async function pluginsCommand(
     case 'plugins.disable': {
       const enabling = name === 'plugins.enable';
       const done = await (enabling ? control.enable(plugin) : control.disable(plugin));
-      if (!done.ok)
-        return done.code === 'unknown-plugin' ? noPlugin(name, plugin) : failed(name, plugin, 'its unit did not start');
+      if (!done.ok) {
+        if (done.code === 'unknown-plugin') return noPlugin(name, plugin);
+        const why = done.code === 'inprocess-mode' ? 'plugins need interfaces.mode: units' : 'its unit did not start';
+        return failed(name, plugin, why);
+      }
       const state = enabling ? 'on' : 'off';
       return { text: done.changed ? `${plugin} is ${state}` : `${plugin} was already ${state}`, status: 'ok' };
     }

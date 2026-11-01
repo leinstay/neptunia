@@ -83,9 +83,11 @@ function noRequesterRefusal(skill: Skill): Refusal | null {
 const isSelfOwned = (op: string | null): boolean => op !== null && SELF_OWNED_OPS.includes(op);
 
 /** The rights of a plugin's tool (src/plugins/registry.ts: a dispatch and no operation) as an operation's, so a requester's grant and an owner-only tool are checked the same way. */
-function pluginOpOf(skill: Skill): { name: string; rights: { kind: 'read' | 'write'; ownerOnly: boolean } } | null {
+function pluginOpOf(
+  skill: Skill
+): { name: string; rights: { kind: 'read' | 'write'; ownerOnly: boolean; member: boolean } } | null {
   if (skill.dispatch === undefined || skill.opBacked === true) return null;
-  return { name: skill.name, rights: { kind: skill.kind, ownerOnly: skill.ownerOnly } };
+  return { name: skill.name, rights: { kind: skill.kind, ownerOnly: skill.ownerOnly, member: skill.member === true } };
 }
 
 /**
