@@ -1310,13 +1310,13 @@ async function loadRecallMods(load) {
   const recall = await load('behavior/recall.js');
   const runner = await load('behavior/recall-run.js');
   const prompt = await load('behavior/prompt.js');
-  const roles = await load('llm/roles.js');
-  const openrouter = await load('llm/openrouter.js');
+  const roles = await load('llm/roles.ts');
+  const openrouter = await load('llm/openrouter.ts');
   const time = await load('time.js');
   const turn = await load('behavior/turn.js');
   const describe = await load('memory/describe.js');
-  const lookup = await load('web/lookup.js');
-  const media = await load('media/classify.js');
+  const lookup = await load('web/lookup.ts');
+  const media = await load('media/classify.ts');
   const pull = await load('../interfaces/discord/index.ts');
   const mods = {
     parseLookupAnswer: recall.parseLookupAnswer,
@@ -2151,24 +2151,24 @@ export async function loadDiaryMods(load) {
   return {
     ...(await load('behavior/diary.ts')),
     ...(await load('memory/store.js')),
-    ...(await load('llm/tokens.js')),
-    ...(await load('llm/openrouter.js')),
-    ...(await load('llm/images.js')),
+    ...(await load('llm/tokens.ts')),
+    ...(await load('llm/openrouter.ts')),
+    ...(await load('llm/images.ts')),
     ...(await load('behavior/turn.js')),
     ...(await load('behavior/route-channel.js')),
     ...(await load('behavior/recall-run.js')),
     ...(await load('../interfaces/discord/index.ts')),
-    ...(await load('interface/fake.js')),
+    ...(await load('interface/fake.ts')),
     ...(await load('interface/reads.ts')),
     ...(await load('behavior/emoji-index.ts')),
     ...(await load('memory/describe.js')),
-    ...(await load('media/fetch-image.js')),
-    ...(await load('media/fetch-video.js')),
-    ...(await load('web/fetch-page.js')),
-    ...(await load('web/brave.js')),
-    ...(await load('web/exa.js')),
-    ...(await load('web/lookup.js')),
-    ...(await load('llm/parse.js')),
+    ...(await load('media/fetch-image.ts')),
+    ...(await load('media/fetch-video.ts')),
+    ...(await load('web/fetch-page.ts')),
+    ...(await load('web/brave.ts')),
+    ...(await load('web/exa.ts')),
+    ...(await load('web/lookup.ts')),
+    ...(await load('llm/parse.ts')),
     ...(await load('tools/tool-calls.ts')),
     ...(await load('memory/clamp.js')),
     ...(await load('time.js')),
@@ -2914,7 +2914,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
   await load('tools/impl/index.ts');
   const { createJournal } = await load('memory/journal.js');
   const { grantedSkillNames } = await load('tools/discovery.ts');
-  const { PROFILES: AGENT_PROFILES } = await load('agent-runner/profiles.js');
+  const { PROFILES: AGENT_PROFILES } = await load('agent-runner/profiles.ts');
   const { deepMerge } = await load('config.js');
   const {
     createStore,
@@ -6546,9 +6546,9 @@ async function loopDepsOf({
   coreOn,
   log = null,
 }) {
-  const { createLookup } = await load('web/lookup.js');
-  const { createBraveSearch } = await load('web/brave.js');
-  const { createExaSearch } = await load('web/exa.js');
+  const { createLookup } = await load('web/lookup.ts');
+  const { createBraveSearch } = await load('web/brave.ts');
+  const { createExaSearch } = await load('web/exa.ts');
   const { createRecall } = await load('behavior/recall-run.js');
   const { createDescriber } = await load('memory/describe.js');
   const { createDiscordInterface } = await load('../interfaces/discord/index.ts');
@@ -6566,8 +6566,8 @@ async function loopDepsOf({
   const mediaTools =
     typeof runMediaLook === 'function' ? { createDescriber, runMediaLook, runMediaFind, lookPerTurn } : null;
   // web.read (absent from an older engine: its calls fail as an unknown tool's).
-  const { createPageFetcher = null } = await load('web/fetch-page.js').catch(() => ({}));
-  const { collectReadableLinks = null } = await load('media/classify.js').catch(() => ({}));
+  const { createPageFetcher = null } = await load('web/fetch-page.ts').catch(() => ({}));
+  const { collectReadableLinks = null } = await load('media/classify.ts').catch(() => ({}));
   const pageFetcher = typeof createPageFetcher === 'function' ? createPageFetcher() : null;
   const linkOfMessage = (message) =>
     (typeof collectReadableLinks === 'function' ? collectReadableLinks(message)[0]?.url : null) ??
@@ -6596,8 +6596,8 @@ async function loopDepsOf({
   const { fillPromptTemplate } = await load('behavior/prompt.js');
   const { parseLookupAnswer, recallSettings } = await load('behavior/recall.js');
   const { zonedDay } = await load('time.js');
-  const { roleModel } = await load('llm/roles.js');
-  const { roleRequestOptions } = await load('llm/openrouter.js');
+  const { roleModel } = await load('llm/roles.ts');
+  const { roleRequestOptions } = await load('llm/openrouter.ts');
   const preTurnDeps = {
     lookupClassifierInput: turnMod.lookupClassifierInput,
     fallbackLookupPlan: turnMod.fallbackLookupPlan,
@@ -6645,7 +6645,7 @@ async function loopDepsOf({
   };
   let embed = null;
   if (openrouterKey) {
-    const { createEmbedder } = await load('llm/embed.js');
+    const { createEmbedder } = await load('llm/embed.ts');
     const embedder = createEmbedder({ apiKey: openrouterKey, env: {}, state: { data: {}, markDirty() {} } });
     embed = (texts, options = {}) =>
       embedder.embed(texts, { ...options, origin: 'replay', countAgainstDailyCap: false });
@@ -6758,10 +6758,10 @@ async function runMain(args, { root, signal, rng, answers }) {
   // With an answers directory every llm client built from src/llm/openrouter.ts answers Anthropic models from files.
   let load = loadModule;
   if (answers) {
-    const { roleModel } = await loadModule('llm/roles.js');
+    const { roleModel } = await loadModule('llm/roles.ts');
     load = async (rel) => {
       const mod = await loadModule(rel);
-      return rel === 'llm/openrouter.js'
+      return rel === 'llm/openrouter.ts'
         ? {
             ...mod,
             createLlm: withAnswersDir(mod.createLlm, answers, (config, purpose) => roleModel(config, 'core', purpose)),
@@ -6930,16 +6930,16 @@ async function runMain(args, { root, signal, rng, answers }) {
   const openrouterKey = keyNeeded ? simKey('replay-cli') : process.env.OPENROUTER_SIM_KEY || undefined;
   const searchAvailable = searchAvailableOf({
     hot,
-    createLookup: (await load('web/lookup.js')).createLookup,
+    createLookup: (await load('web/lookup.ts')).createLookup,
     searches: {
-      brave: (await load('web/brave.js')).createBraveSearch(),
-      exa: (await load('web/exa.js')).createExaSearch(),
+      brave: (await load('web/brave.ts')).createBraveSearch(),
+      exa: (await load('web/exa.ts')).createExaSearch(),
     },
   });
 
   const { createStore } = await load('memory/store.js');
-  const { createCalibrator } = await load('llm/tokens.js');
-  const { createLlm } = await load('llm/openrouter.js');
+  const { createCalibrator } = await load('llm/tokens.ts');
+  const { createLlm } = await load('llm/openrouter.ts');
   const {
     SANDBOX_STORE_READS,
     liveView,
@@ -6969,8 +6969,8 @@ async function runMain(args, { root, signal, rng, answers }) {
     ? {
         ...(await load('behavior/split.js')),
         ...(await load('behavior/prompt.js')),
-        ...(await load('llm/roles.js')),
-        ...(await load('llm/openrouter.js')),
+        ...(await load('llm/roles.ts')),
+        ...(await load('llm/openrouter.ts')),
       }
     : null;
   const recallMods = args.recall ? await loadRecallMods(load) : null;
@@ -6981,7 +6981,7 @@ async function runMain(args, { root, signal, rng, answers }) {
     const { skillRegistry } = await load('tools/registry.ts');
     const { expandPersonaGrant } = await load('tools/impl/access.ts');
     const { requesterOf, callViewOf } = await load('behavior/turn.js');
-    const { createImageGen } = await load('llm/images.js');
+    const { createImageGen } = await load('llm/images.ts');
     const { grantedSkillNames } = await load('tools/discovery.ts');
     // The errands' budget (every scenario: an errand.run is checked as live) and the handles of an errand's files.
     const { createErrandStore, parseFileHandle } = await load('errands/store.ts');
