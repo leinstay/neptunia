@@ -19,7 +19,7 @@ import { createHot } from './hot.js';
 import { log, onLog } from './log.js';
 import { createMetrics, metricsTap } from './tools/impl/metrics.ts';
 import { createUsage, usageTap } from './tools/impl/usage.ts';
-import { createMemoryDb } from './memory/db/service.js';
+import { createMemoryDb } from './memory/db/service.ts';
 import {
   createStore,
   createAppendStore,
@@ -86,7 +86,7 @@ import { createConsole } from './interface/commands/console.ts';
 import { holdIfPaused, resumeHeld } from './behavior/core-pause.ts';
 import { configuredInterfaces, drainMs, interfaceEnabled } from './interface/mode.ts';
 import { loadPrincipals, principalOfToken } from './interface/principals.ts';
-import { claimCore } from './memory/db/open.js';
+import { claimCore } from './memory/db/open.ts';
 import { readLocalConfig, setPath, writeLocalConfig } from './tools/impl/shared.ts';
 import { createIngestRecord, createRowsByMessage, observingWith } from './memory/db/ingest.ts';
 import { coreSocketPath, listenSocket } from './interface/socket.ts';
@@ -293,8 +293,8 @@ async function buildCore(options, cleanups) {
   const usage = createUsage({ dataDir, log });
   const untapUsage = onLog(usageTap(usage));
   cleanups.push(untapUsage);
-  // The memory database (src/memory/db/service.js): the memory. Created before the memory modules, which read and write
-  // it (src/memory/db/readers/, src/memory/db/unit-write.js); opened at the start (the first tick, awaited below).
+  // The memory database (src/memory/db/service.ts): the memory. Created before the memory modules, which read and write
+  // it (src/memory/db/readers/, src/memory/db/unit-write.ts); opened at the start (the first tick, awaited below).
   // diaryMediaDeps is read at each tick: the interface port and the image fetcher exist by then (defined below).
   // `embed` and `selfName` (the re-embed job, recall.db.reembed) are the embedding client and her name, defined below.
   // Her memory session is the memory writer: it runs on the chat client (role `memory`, its own key from `env`), and a
@@ -1031,7 +1031,7 @@ async function buildCore(options, cleanups) {
   // The wake that tells her a plugin added a tool goes into the inner life's queue (src/plugins/announce.ts).
   raiseWake = (wake) => inner.enqueue(getGuildId() ?? '', wake);
   /**
-   * A memory session run that failed (src/memory/db/service.js, once per failing scope),
+   * A memory session run that failed (src/memory/db/service.ts, once per failing scope),
    * told the same way: a `memoryFailed` fact with the code and the lines waiting; a private conversation's only in that
    * private chat (its DM channel, when the client knows it). Never throws.
    */

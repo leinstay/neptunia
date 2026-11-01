@@ -523,7 +523,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  *   `memoryReads` lists what the request carried from memory, `{ kind, id, block, ord }` each once, in the memory's own identity
  *   (an item's `itemId`, a channel id, a lore entry's id, a message id; see `noteItems`): the profile items shown,
  *   the channels, guild notes and lore kept, the lines and moments of `<recent>`, the `<participation>` episodes and
- *   what the prefetch offered. The per-turn record (src/memory/db/service.js) writes it; no text depends on it.
+ *   what the prefetch offered. The per-turn record (src/memory/db/service.ts) writes it; no text depends on it.
  *   `seen` (seenOf) names what of the chat window went in: the kept lines' ids, the reply
  *   parents among them and the messages whose text attachments were previewed -- for the
  *   journal's turn record.

@@ -18,7 +18,7 @@
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { BOARD_MIGRATIONS, boardVersion } from '../src/board/schema.ts';
 
 /** @typedef {import('../src/board/schema.ts').BoardDb} BoardDb */

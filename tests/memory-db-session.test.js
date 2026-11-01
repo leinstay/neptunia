@@ -1,10 +1,10 @@
-// Her memory session (src/memory/db/session.js, session-write.js): the request, the answer's checks, the id mapping, shadow
+// Her memory session (src/memory/db/session.ts, session-write.js): the request, the answer's checks, the id mapping, shadow
 // and apply writes, the refusals. A fake llm and synthetic Greek and accented Latin text only; nothing leaves the process.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.js';
-import { applyMemoryWrite } from '../src/memory/db/session-write.js';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import {
   CODES,
   batchOf,
@@ -21,13 +21,13 @@ import {
   sessionStatus,
   sweep,
   validateAnswer,
-} from '../src/memory/db/session.js';
+} from '../src/memory/db/session.ts';
 import * as memoryIds from '../src/memory/db/ids.ts';
 import { groupContext, whereFor } from '../src/memory/db/scope.ts';
 import { roleApiKey, STRICT_KEY_ROLES } from '../src/llm/openrouter.js';
 import { estimateMessages } from '../src/llm/tokens.js';
 import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, roleConfigKeys, roleModel } from '../src/llm/roles.js';
-import { createMemoryDb } from '../src/memory/db/service.js';
+import { createMemoryDb } from '../src/memory/db/service.ts';
 import { labels } from './fixtures/labels.js';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';

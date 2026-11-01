@@ -1,13 +1,13 @@
-// Round trips of src/memory/db/map/channel.js, guild.js and lore.js: the server map, the guild file and the lorebook <-> rows.
+// Round trips of src/memory/db/map/channel.ts, guild.js and lore.js: the server map, the guild file and the lorebook <-> rows.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as channel from '../src/memory/db/map/channel.js';
-import * as guild from '../src/memory/db/map/guild.js';
-import * as lore from '../src/memory/db/map/lore.js';
+import * as channel from '../src/memory/db/map/channel.ts';
+import * as guild from '../src/memory/db/map/guild.ts';
+import * as lore from '../src/memory/db/map/lore.ts';
 import { assertRoundTrip, generated, plain, roundTrip } from './fixtures/memory-db/roundtrip.js';
-import { openMemoryDb } from '../src/memory/db/open.js';
-import { insertRows } from '../src/memory/db/rows.js';
-import { reproject } from '../src/memory/db/graph.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { insertRows } from '../src/memory/db/rows.ts';
+import { reproject } from '../src/memory/db/graph.ts';
 import { tableHashes } from '../tools/memory-db.mjs';
 
 const GUILD = '300000000000000001';

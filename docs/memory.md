@@ -38,13 +38,13 @@ her memory session ──────────▶ validated plan ─▶ sessi
 readers ◀─ read connection ◀─ execution context (audience filter)
 ```
 
-There is one writer: every write goes through a worker thread (`src/memory/db/writer-worker.js`) that owns the database and holds one transaction per write. The engine's main loop never holds a write transaction. Readers use a separate read-only connection.
+There is one writer: every write goes through a worker thread (`src/memory/db/writer-worker.ts`) that owns the database and holds one transaction per write. The engine's main loop never holds a write transaction. Readers use a separate read-only connection.
 
 The module seams stay as they were before the database: `record`, `journal`, `archive`, `vectors`, the intention and errand stores keep their public functions. Underneath they read and write the database. The store (`src/memory/store.js`) keeps an in-memory cache of profiles, places, lore and other units; a dirty unit flushes as a whole value through its mapper into rows.
 
 ## Data model
 
-Schema version 22 (`src/memory/db/schema.js`; migrations appended, never edited). The task board keeps its own tables in the same file with a version of its own (see [The task board's tables](#the-task-boards-tables)). Version 14 renames the errand units (`guilds/<g>/tasks.json` and `tasks.jsonl` become `errands.json` and `errands.jsonl`) in every table that stores a unit path, and renames the errand fields of the open intention records. `currentUnitPath` in `src/memory/db/paths.js` maps the old unit names on the way in, so a write that waited in `memory-pending/` across the upgrade lands in the current unit. Version 22 adds `skill_uses` and the `source` column of `skill_versions`, and deletes every row of `skill_evaluations`, `skill_versions` and `skills`, which only the engine's old tool registry had written.
+Schema version 22 (`src/memory/db/schema.ts`; migrations appended, never edited). The task board keeps its own tables in the same file with a version of its own (see [The task board's tables](#the-task-boards-tables)). Version 14 renames the errand units (`guilds/<g>/tasks.json` and `tasks.jsonl` become `errands.json` and `errands.jsonl`) in every table that stores a unit path, and renames the errand fields of the open intention records. `currentUnitPath` in `src/memory/db/paths.ts` maps the old unit names on the way in, so a write that waited in `memory-pending/` across the upgrade lands in the current unit. Version 22 adds `skill_uses` and the `source` column of `skill_versions`, and deletes every row of `skill_evaluations`, `skill_versions` and `skills`, which only the engine's old tool registry had written.
 
 Version 17 is a data step: it sets back what the unit sync wrote over her memory session's changes (`src/memory/db/session-repair.ts`). A claim takes the text and the last-seen time of her newest version, and the truth of a retire, and becomes hers. Her newest review becomes the current version of its description again, and a person she moved takes the reason of her newest move. Each repair applies only when her version is newer than the file's last change of the row: the claim's first or last seen time, the newest legacy description version, or the file's newest attitude move. The step asks no model and sends nothing, and one `decisions` row (`migration:v17:session_rows_repaired`) counts what it set back.
 
@@ -135,7 +135,7 @@ Version 20 rebuilds `deliveries` with three more states and a `receipt` column (
 
 The task board (`src/board/`) keeps eleven tables in `memory.db`, `board_tasks` through `board_agent_runs`, and its own version table, `board_schema_version` (`src/board/schema.ts`). Board version 2 gives `board_tasks` the columns `lease_generation`, `blocked_reason` and `unblocks` after the ledger's, the status `blocked`, the result kind `handoff` and the review decisions `accept` and `changes`. A task of version 1 starts at generation 0. `openMemoryDb` runs the board's migrations after the memory's, in a transaction of their own. When a board migration fails, the memory stays migrated, open and writable, the handle's `board.ok` is false, and every board operation answers `board-unavailable`. A read-only open migrates neither part. No graph projection, recall, export or sync reads the board's tables, and no foreign key joins them to her memory. How the board is used, restored and filled from a ledger's history is in [The task board](board.md).
 
-Board version 3 is a data step (`MOVE_ARCHIVE_SQL` in `src/board/archive.ts`). Every `work` row of kind errand becomes a task of lane `errand` with the same id, and every `work_events` line of it a `status` event in line order, `queued` mapped to `approved` and `running` to `in_progress`. From then on the errands live on the board (see [Errands](errands.md#where-errands-are-kept)). `work` and `work_events` stay in the file as an archive that no code writes or reads. The unit writer (`src/memory/db/unit-write.js`) accepts a write of an errand unit, `errands.json` or `errands.jsonl`, writes nothing and returns its count as `skipped`, and the memory service logs `memory db: errand unit skipped` with that count. An action line of an errand in her journal references its task: the `day` row's `work_id` holds the errand's id (`src/memory/db/map/journal.js`).
+Board version 3 is a data step (`MOVE_ARCHIVE_SQL` in `src/board/archive.ts`). Every `work` row of kind errand becomes a task of lane `errand` with the same id, and every `work_events` line of it a `status` event in line order, `queued` mapped to `approved` and `running` to `in_progress`. From then on the errands live on the board (see [Errands](errands.md#where-errands-are-kept)). `work` and `work_events` stay in the file as an archive that no code writes or reads. The unit writer (`src/memory/db/unit-write.ts`) accepts a write of an errand unit, `errands.json` or `errands.jsonl`, writes nothing and returns its count as `skipped`, and the memory service logs `memory db: errand unit skipped` with that count. An action line of an errand in her journal references its task: the `day` row's `work_id` holds the errand's id (`src/memory/db/map/journal.ts`).
 
 ### Structural
 
@@ -201,7 +201,7 @@ Every stored attitude drifts toward zero at 0.04 per day (`RELATIONSHIP_LIMITS.d
 
 ### The store, the outbox and pending writes
 
-The store keeps an in-memory cache of profiles, places, lore and other memory units. A dirty unit flushes as a whole value through its mapper to the database. The outbox (`src/memory/db/unit-outbox.js`) queues units for the writer: a newer value of the same unit replaces the one waiting; lines of a JSONL unit are appended in order. A failed write stays in the outbox and is retried at the next flush.
+The store keeps an in-memory cache of profiles, places, lore and other memory units. A dirty unit flushes as a whole value through its mapper to the database. The outbox (`src/memory/db/unit-outbox.ts`) queues units for the writer: a newer value of the same unit replaces the one waiting; lines of a JSONL unit are appended in order. A failed write stays in the outbox and is retried at the next flush.
 
 At shutdown, a unit the writer still cannot take goes to `data/memory-pending/` as a JSON file. At the next start, each pending file is replayed through the writer before anything reads the database. A replay that fails keeps its file and the database does not open (`PENDING_REPLAY`).
 
@@ -209,7 +209,7 @@ Observations that arrive before the database opens wait in a bounded queue (5000
 
 ### Her session's rows and the store's files
 
-Two writers change the rows of a member's profile: the store's flush of the cached file (`users/<id>.json`, `private/<id>.json`) and her memory session (`src/memory/db/session-write.js`). Every row a file's mapper wrote carries the file's path as `owner_file`. A row her session adds has no `owner_file`, and a claim she confirms, revises or retires loses its `owner_file` in the same transaction, so it becomes hers. A unit write never updates, retires or re-owns a row without an `owner_file`, and it skips the file's copy of such a row (`src/memory/db/upsert.js`).
+Two writers change the rows of a member's profile: the store's flush of the cached file (`users/<id>.json`, `private/<id>.json`) and her memory session (`src/memory/db/session-write.ts`). Every row a file's mapper wrote carries the file's path as `owner_file`. A row her session adds has no `owner_file`, and a claim she confirms, revises or retires loses its `owner_file` in the same transaction, so it becomes hers. A unit write never updates, retires or re-owns a row without an `owner_file`, and it skips the file's copy of such a row (`src/memory/db/upsert.ts`).
 
 The profile the store reads (`export.js#unitRows`) holds the file's rows and, in the file's scope, the rows her session wrote about the person (`src/memory/db/session-rows.ts`): the claims she shows (truth `current` or `disputed`), her episodes and her attitude moves. The public profile takes the group of the person's interface, the private layer the DM with the person. Her claims and episodes follow the file's in the order she made them, and her moves join the file's history by time, each with its event id as the `itemId`. A description shows the version its `current_version` names.
 
@@ -228,7 +228,7 @@ The session runs on its own model role (`memory`) and its own key (configured th
 Controlled by the `memoryDb.session` config block. A scope (the public channels of an interface together, or one DM conversation) sweeps when:
 
 - at least `minMessages` (default 5) settled lines sit after its cursor
-- ten minutes have passed since the newest of those lines (a constant, `DEFAULTS.settleMinutes` in `src/memory/db/session.js`)
+- ten minutes have passed since the newest of those lines (a constant, `DEFAULTS.settleMinutes` in `src/memory/db/session.ts`)
 - `everyMinutes` (default 60) have passed since the last sweep of this scope, or the scope has `maxMessages` (default 200) waiting lines
 
 One sweep at a time. At most `sweepsPerScopePerDay` (default 24) sweeps of one scope per UTC day.
@@ -275,7 +275,7 @@ Recall is the search behind the persona's `memory.search` tool and the automatic
 
 | Stream | How it works |
 |---|---|
-| Words | The plan's forms as stems (learned from the database's own text by `src/memory/db/stems.js`, the same stemmer that stamped `sources.stems`) through `sources_fts`. A one-word form is a word match; a longer form is a phrase match. Ranked by BM25 |
+| Words | The plan's forms as stems (learned from the database's own text by `src/memory/db/stems.ts`, the same stemmer that stamped `sources.stems`) through `sources_fts`. A one-word form is a word match; a longer form is a phrase match. Ranked by BM25 |
 | Trigrams | A form the word stream finds nothing for, searched as a substring through `sources_tri`. Catches typos and stems the learned endings did not cover |
 | Meaning | The stored vectors within the context's scope. A plain scan with cosine similarity on the int8 rows (the question's embedding is the caller's). Candidates limited to 40 (`RECALL_DEFAULTS.db.candidates` in `src/behavior/recall.js`) |
 | People | The lines of the members the plan's name forms point at |
@@ -300,7 +300,7 @@ A retired row keeps its history. `removeLore` (`/memory lore remove`) takes one 
 
 ## What stays as files
 
-Operational state that the process writes stays on disk as JSON files. The exact list is `OPERATIONAL_PATTERNS` in `src/memory/db/paths.js`:
+Operational state that the process writes stays on disk as JSON files. The exact list is `OPERATIONAL_PATTERNS` in `src/memory/db/paths.ts`:
 
 - `state.json`, `usage.json`, `metrics.json` (top-level and per-guild)
 - Per-guild: `inner.json`, `missed.json`, `participation.json`, `gifs.json` (the GIF library), `media.json` (the vision cache)
@@ -318,7 +318,7 @@ Everything else (profiles, places, channels, lore, the record's day files, the j
 
 ## The derived graph
 
-The graph (`graph_nodes`, `graph_edges`, `node_access`) is entirely derived from the typed tables. The manifest (`src/memory/db/graph-manifest.js`) names every node kind and every edge predicate, and says which typed table and columns each comes from. Every write transaction projects the affected rows into the graph at the same time.
+The graph (`graph_nodes`, `graph_edges`, `node_access`) is entirely derived from the typed tables. The manifest (`src/memory/db/graph-manifest.ts`) names every node kind and every edge predicate, and says which typed table and columns each comes from. Every write transaction projects the affected rows into the graph at the same time.
 
 The graph is rebuildable: `tools/memory-db.mjs rebuild` drops and rebuilds it from the typed tables. An edge retired because its source row no longer produces it is history the typed tables do not hold; a rebuild does not bring it back.
 
@@ -373,7 +373,7 @@ The memory system reads these config groups from `config/config.json` (and `conf
 | `embed` | Embedding dimensions |
 | `memory` | The vault directory and the main channels |
 
-The other measures of memory are constants in the module that reads them: the capture's `CAPTURE_DEFAULTS` in `src/memory/db/observe.js`, the graph walk's `DEFAULTS` in `src/memory/db/graph.js`, `FOCUS_DEFAULTS` in `src/memory/db/focus.js`, the embedding queue's in `src/memory/embedder.js`, and `MEMORY_LIMITS`, `RELATIONSHIP_LIMITS` and `LORE_LIMITS` in `src/memory/text-limits.js`.
+The other measures of memory are constants in the module that reads them: the capture's `CAPTURE_DEFAULTS` in `src/memory/db/observe.ts`, the graph walk's `DEFAULTS` in `src/memory/db/graph.ts`, `FOCUS_DEFAULTS` in `src/memory/db/focus.ts`, the embedding queue's in `src/memory/embedder.js`, and `MEMORY_LIMITS`, `RELATIONSHIP_LIMITS` and `LORE_LIMITS` in `src/memory/text-limits.js`.
 
 Two switches gate memory behaviour:
 
@@ -392,7 +392,7 @@ Two switches gate memory behaviour:
 
 ## Appendix: who may read each table
 
-Every table of the memory database (`data/memory.db`, schema `src/memory/db/schema.js`) is in one of four classes.
+Every table of the memory database (`data/memory.db`, schema `src/memory/db/schema.ts`) is in one of four classes.
 A read of the persona's memory always names a context (a group of an interface, one DM conversation, or internal);
 the class says how a row's visibility in that context is decided.
 
@@ -444,7 +444,7 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `turn_reads` | internal-only | which rows each request carried, in which context and by which reader |
 | `execution_contexts` | internal-only | the contexts the core issued for turns, sessions and wakes |
 | `relationship_daily` | internal-only | how often she and each person addressed each other, per day and audience (counts only, recounted from `sources`) |
-| `focus_members` | internal-only | her current close and exploring sets; only the focus code and her internal wakes read it (`src/memory/db/focus.js`) |
+| `focus_members` | internal-only | her current close and exploring sets; only the focus code and her internal wakes read it (`src/memory/db/focus.ts`) |
 | `focus_events` | internal-only | every change of those sets, every challenge and its end (append-only) |
 | `focus_overrides` | internal-only | the owner's pins and exclusions |
 | `wake_runs` | internal-only | one row per inner wake run: its kind, state, the ids and versions its view showed, the envelope's policy version and the outcome |

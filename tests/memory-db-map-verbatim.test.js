@@ -1,9 +1,9 @@
 // verbatim.js and requests.js (operational rows), and the registry of index.js.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as verbatim from '../src/memory/db/map/verbatim.js';
-import * as requests from '../src/memory/db/map/requests.js';
-import { MAPPERS, classify, kindOfPath } from '../src/memory/db/map/index.js';
+import * as verbatim from '../src/memory/db/map/verbatim.ts';
+import * as requests from '../src/memory/db/map/requests.ts';
+import { MAPPERS, classify, kindOfPath } from '../src/memory/db/map/index.ts';
 import { assertRoundTrip, roundTrip } from './fixtures/memory-db/roundtrip.js';
 
 test('a whole file is one operational row whose kind says which file it is', () => {

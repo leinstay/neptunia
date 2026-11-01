@@ -1,4 +1,4 @@
-// The memory database service (src/memory/db/service.js): the open and the writer lock, the shutdown, the per-turn
+// The memory database service (src/memory/db/service.ts): the open and the writer lock, the shutdown, the per-turn
 // record, the session writes and the status line. Synthetic data directories only; the clock and the loop are injected.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -6,9 +6,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { createMemoryDb, turnReadRows } from '../src/memory/db/service.js';
+import { createMemoryDb, turnReadRows } from '../src/memory/db/service.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { memoryDbStatusLine } from '../src/tools/impl/status.ts';
 import { CHANNEL, GUILD, HOT_ITEM, MEMBER, buildDataDir, guildDir } from './fixtures/memory-db/datadir.js';
 

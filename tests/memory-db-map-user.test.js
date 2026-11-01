@@ -1,8 +1,8 @@
-// Round trips of src/memory/db/map/user.js and private.js: a member's public profile and private layer <-> rows.
+// Round trips of src/memory/db/map/user.ts and private.js: a member's public profile and private layer <-> rows.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as user from '../src/memory/db/map/user.js';
-import * as privateLayer from '../src/memory/db/map/private.js';
+import * as user from '../src/memory/db/map/user.ts';
+import * as privateLayer from '../src/memory/db/map/private.ts';
 import { assertRoundTrip, generated, plain, roundTrip } from './fixtures/memory-db/roundtrip.js';
 
 const ID = '100000000000000001';

@@ -215,7 +215,7 @@ function numberAtLeast(value, fallback, min) {
 /**
  * The `recall` settings: RECALL_DEFAULTS (production values of the config cut of 2026-10-31) with the keys the live
  * config holds read from it: `timeoutMs` and `maxOutputTokens` (whole numbers of at least 1), `memoryTokens` and
- * `recordDays` (at least 0), and the index policy of `db` (src/memory/db/index-policy.js, schema v11: `vectorDays`
+ * `recordDays` (at least 0), and the index policy of `db` (src/memory/db/index-policy.ts, schema v11: `vectorDays`
  * and `touchDays` at least 1, `vectorEviction` and `reembed` on only when exactly `true`). `prefetch`:
  * `recall.prefetch` read by prefetchSettingsOf (the automatic memory prefetch, src/behavior/prefetch.js).
  * @param {object} config  The live config.
@@ -266,7 +266,7 @@ export function recallSettings(config) {
       candidates: d.db.candidates,
       wordPool: d.db.wordPool,
       minMeaning: d.db.minMeaning,
-      // The index policy (src/memory/db/index-policy.js, schema v11): read there from the live config, normalised here alike.
+      // The index policy (src/memory/db/index-policy.ts, schema v11): read there from the live config, normalised here alike.
       vectorDays: intAtLeast(r.db?.vectorDays, d.db.vectorDays, 1),
       touchDays: intAtLeast(r.db?.touchDays, d.db.touchDays, 1),
       vectorEviction: r.db?.vectorEviction === true,

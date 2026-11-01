@@ -1,11 +1,11 @@
-// The observation envelope and foreign capture (schema v8, src/memory/db/observe.js), and the promotion of an account
+// The observation envelope and foreign capture (schema v8, src/memory/db/observe.ts), and the promotion of an account
 // or participant through her session's `people:add`. Fixtures for three interfaces nobody wires yet: Twitter (her post,
 // replies, a mention of her; a stranger's quote tweet stays out unless the caller passes it), an imageboard (thread
 // tokens, a post-number-only board, display names, a site-wide id, a reset token) and Telegram (a DM and a group).
 // Synthetic text only; the ids and handles are made up.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import {
   OBSERVATION_VERSION,
   captureSettings,
@@ -16,10 +16,10 @@ import {
   observe,
   openBundle,
   scheduleWatches,
-} from '../src/memory/db/observe.js';
+} from '../src/memory/db/observe.ts';
 import { audienceWhere, dmContext, groupContext, groupScope } from '../src/memory/db/scope.ts';
-import { applyMemoryWrite } from '../src/memory/db/session-write.js';
-import { batchOf, buildSessionRequest, scopesOf, validateAnswer } from '../src/memory/db/session.js';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
+import { batchOf, buildSessionRequest, scopesOf, validateAnswer } from '../src/memory/db/session.ts';
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');

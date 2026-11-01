@@ -7,9 +7,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openMemoryDb } from '../src/memory/db/open.js';
-import { observationOf } from '../src/memory/db/observe-event.js';
-import { observe } from '../src/memory/db/observe.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { observationOf } from '../src/memory/db/observe-event.ts';
+import { observe } from '../src/memory/db/observe.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
 import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
 

@@ -57,7 +57,7 @@
 // hold, unless the record covers the range and its decay margin. The summary
 // reads the cue as an estimate (`<time_cue>`).
 // The persona's own search (`quotes`), its window reads (`window`) and the memory prefetch read the memory database
-// (src/memory/db/recall.js): the stretches scope-checked by the read context. While the database is not open they find
+// (src/memory/db/recall.ts): the stretches scope-checked by the read context. While the database is not open they find
 // nothing (`not-configured`, or a prefetch of the stored memory alone). The server part of a turn's lookup (a run
 // without `quotes`) searches the server's history and asks the summary, as above.
 // Logs carry counts, ids and codes only: never a form, a name or a message.
@@ -103,7 +103,7 @@ import {
 import { fitExcerpts, focusHits, lanePlan, lexicalKeep, rankPrefetch } from './prefetch.js';
 import { indexWords } from '../memory/record-index.js';
 import { CODE } from '../tools/codes.ts';
-import { dbSettings, quotesOf, search as dbSearch, window as dbWindow } from '../memory/db/recall.js';
+import { dbSettings, quotesOf, search as dbSearch, window as dbWindow } from '../memory/db/recall.ts';
 import { channelPlaceId, nativeAuthorityOf, personId } from '../memory/db/ids.ts';
 import { issueContext } from '../memory/db/scope.ts';
 import { LEGACY_IFACE } from '../memory/db/legacy-namespace.ts';
@@ -380,7 +380,7 @@ function summaryFailure(err) {
  * @param {{ search: Function }|null} [deps.vectors]  From createVectors (src/memory/vectors.js): only
  *   `search` is used. Without it (or `deps.embed`) no run searches by meaning.
  * @param {((texts: string[], opts: object) => Promise<Float32Array[]>)|null} [deps.embed]  src/llm/embed.js's `embed`: one call per run that searches by meaning.
- * @param {{ database: () => (object|null) }|null} [deps.memoryDb]  src/memory/db/service.js: the open memory database
+ * @param {{ database: () => (object|null) }|null} [deps.memoryDb]  src/memory/db/service.ts: the open memory database
  *   (the persona's own search, her window reads and the prefetch).
  * @param {string} [deps.iface]  The interface the persona's ids belong to (`hello.iface`); the legacy namespace without one.
  * @param {() => number} [deps.now]
@@ -1044,7 +1044,7 @@ export function createRecall({
 
   /**
    * The persona's own search over the memory database (`quotes`): the question embedded once when
-   * the meaning search is on (a failure leaves words only, `degraded`), then src/memory/db/recall.js#search inside the
+   * the meaning search is on (a failure leaves words only, `degraded`), then src/memory/db/recall.ts#search inside the
    * turn's read context, the turn's own chat left out. Resolves the same result a `quotes` run does, plus `hidden`.
    */
   async function runDbQuotes({
@@ -1146,7 +1146,7 @@ export function createRecall({
 
   /**
    * A window read of the persona's own `memory.search` (`anchor`, `move`, `messages`, `minutes`): the lines of the
-   * anchor's place up or down in time order, inside the turn's read context (src/memory/db/recall.js#window). The
+   * anchor's place up or down in time order, inside the turn's read context (src/memory/db/recall.ts#window). The
    * `anchor` is a message id (a `#N` the executor already resolved). Resolves `{ quotes, outcome, stopped }`; `outcome`
    * `not-configured` while the database is not open, `unknown-anchor` for an anchor the turn cannot open or that does
    * not exist, `error` for a throw. Counts no daily run: it reads the local database only. `asker` is the user id of
@@ -1771,7 +1771,7 @@ export function createRecall({
    * `decorate` (optional; the turn's call marks, src/behavior/turn.js#linkCalls) takes each
    * window's messages once they are read and gives the ones rendered, so the persona's lines
    * there show what she called like her chat lines do. `memoryContext` (optional) is the turn's
-   * execution context (src/memory/db/service.js#issueContext): the database reads use it when it
+   * execution context (src/memory/db/service.ts#issueContext): the database reads use it when it
    * fits the read (see dbReader), so the reads of one turn carry one context id.
    */
   async function run({
@@ -1953,7 +1953,7 @@ export function createRecall({
    * The automatic memory prefetch of a turn (src/behavior/prefetch.js, decided by the caller): no model request but one embedding, no
    * message search, no daily recall run counted. Each lane (`lanes`, prefetchLanes') goes through
    * the local searches, all at once:
-   * - the memory database (src/memory/db/recall.js#search, while it is open): words, letters,
+   * - the memory database (src/memory/db/recall.ts#search, while it is open): words, letters,
    *   meaning (features.meaningSearch exactly true and the embedding client given: one embedding
    *   request for every lane's text, purpose `recall-query`) and people fused, the stretches built
    *   around the hits, `ceil(recall.prefetch.candidates / 4)` of them; a word hit is relevant by

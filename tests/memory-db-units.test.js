@@ -10,10 +10,10 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createMemoryDb } from '../src/memory/db/service.js';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { createMemoryDb } from '../src/memory/db/service.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
-import { isOperational } from '../src/memory/db/paths.js';
+import { isOperational } from '../src/memory/db/paths.ts';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { createRecord } from '../src/memory/record.js';
 import { createJournal } from '../src/memory/journal.js';
@@ -23,8 +23,8 @@ import { createIntentionStore } from '../src/intentions/store.ts';
 import { createErrandStore } from '../src/errands/store.ts';
 import { touchMemory } from '../src/memory/update.js';
 import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
-import { createUnitOutbox } from '../src/memory/db/unit-outbox.js';
-import { unitValue } from '../src/memory/db/readers/common.js';
+import { createUnitOutbox } from '../src/memory/db/unit-outbox.ts';
+import { unitValue } from '../src/memory/db/readers/common.ts';
 import { BOARD_MIGRATIONS } from '../src/board/schema.ts';
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
@@ -99,7 +99,7 @@ function prepared({ archived = false } = {}) {
   return { root, data };
 }
 
-/** The memory files of a data directory (every file but the database's own and the operational allowlist, src/memory/db/paths.js), relative. */
+/** The memory files of a data directory (every file but the database's own and the operational allowlist, src/memory/db/paths.ts), relative. */
 function memoryFiles(data, rel = '', out = []) {
   for (const entry of fs.readdirSync(path.join(data, rel), { withFileTypes: true })) {
     const child = rel ? `${rel}/${entry.name}` : entry.name;

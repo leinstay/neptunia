@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createVectors } from '../src/memory/vectors.js';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { GUILD, GUILD_2, MEMBER, readerEnv } from './fixtures/memory-db/readers.js';
 
 const QUERIES = [

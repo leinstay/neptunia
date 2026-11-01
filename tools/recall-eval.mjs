@@ -23,7 +23,7 @@
 // classifier (prompts.lookup, purpose `lookup`) reads the channel's last lines and the question
 // as a new message of `askerId` in `channelId`, now; its server part goes to the real recall
 // runner (src/behavior/recall-run.js#createRecall `run`) as the persona's own memory.search does
-// (`quotes`: the stretches of src/memory/db/recall.js, no summary request, so no `confident`
+// (`quotes`: the stretches of src/memory/db/recall.ts, no summary request, so no `confident`
 // answer), wired as src/index.js wires it: the memory database read only, the stored memory, the
 // archive and the embedding client. A failed or empty classifier answer takes the live fallback
 // (recall.fallbackOnClassifierFailure: the question's own words, fallbackLookupPlan), as for a

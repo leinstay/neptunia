@@ -32,7 +32,7 @@ One function (`src/behavior/heartbeat-view.ts`) reads the stores with no model. 
 
 **Places.** Where others wrote in the last six hours, the busiest first, at most six places. Each place lists its name, line count, who wrote, and the last two lines as previews (author, time, up to 140 characters, a marker for links or media). The three counts are `placesHours`, `placesShown` and `placeLines` of `INNER_DEFAULTS.heartbeat` in `src/behavior/inner/settings.ts`. Every quoted line carries a `#N` handle she can use in `message.create reply=`, `media.look` and reactions.
 
-**People.** Up to eight members (`INNER_DEFAULTS.heartbeat.people`), taken from the memory database's focus set: the close members first, then the exploring ones with a share of 0.15 of the slots (`FOCUS_DEFAULTS.exploringShare` in `src/memory/db/focus.js`, rounded, at least one when there are any). While the database is closed the members are ranked by affinity instead. Each comes with when and where she last talked with them, their newest line within `heartbeat.historyDays` (default 14) days (time, place, a preview, a handle), their top 3 interests, and where they wrote lately.
+**People.** Up to eight members (`INNER_DEFAULTS.heartbeat.people`), taken from the memory database's focus set: the close members first, then the exploring ones with a share of 0.15 of the slots (`FOCUS_DEFAULTS.exploringShare` in `src/memory/db/focus.ts`, rounded, at least one when there are any). While the database is closed the members are ranked by affinity instead. Each comes with when and where she last talked with them, their newest line within `heartbeat.historyDays` (default 14) days (time, place, a preview, a handle), their top 3 interests, and where they wrote lately.
 
 **Her life.** What she did in the last day: her posts (place and preview), executed calls of her inner turns, her errands with their goal, her diary posts. Her open intentions and attentions, and the latest ten closed intentions (`INNER_DEFAULTS.heartbeat.closedShown`) of any state, newest first, each with its outcome or reason, the rest counted.
 
@@ -268,5 +268,5 @@ The inner turns are answered by a stub voice (deterministic, costs nothing). The
 
 ## Wake runs, focus and places
 
-Each inner turn is recorded as a wake run in the memory database with its actions. Once per UTC day the focus job (`src/memory/db/focus.js`) recomputes the focus set, the close and exploring people scored by affinity, reciprocity, recency and other factors, and the heartbeat's people view reads it. Addressed server turns carry no `<places>` block: `ADDRESSED_PLACES` in `src/turn/inputs.ts` is `false`, and the code that builds the block stays.
+Each inner turn is recorded as a wake run in the memory database with its actions. Once per UTC day the focus job (`src/memory/db/focus.ts`) recomputes the focus set, the close and exploring people scored by affinity, reciprocity, recency and other factors, and the heartbeat's people view reads it. Addressed server turns carry no `<places>` block: `ADDRESSED_PLACES` in `src/turn/inputs.ts` is `false`, and the code that builds the block stays.
 

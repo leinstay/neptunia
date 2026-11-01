@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.js';
+import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
 import { tempDir } from './fixtures/tmp.js';
 
 type Db = {

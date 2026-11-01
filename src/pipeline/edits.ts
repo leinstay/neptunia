@@ -25,7 +25,7 @@ type MediaPart = { readonly attachments?: Array<MediaItem>; readonly links?: Arr
 /** A normalized line (src/behavior/line-of.js#lineOf), as the edit handlers read it. */
 type Line = MediaPart & { readonly id: string; readonly channelId: string; readonly forwarded?: Array<MediaPart> };
 
-/** What the memory database answered an observation (src/memory/db/service.js#observe). */
+/** What the memory database answered an observation (src/memory/db/service.ts#observe). */
 export type Observed = { ok?: boolean; code?: unknown; revision?: unknown } | null;
 
 /** The live config, as far as the edit handlers read it. */

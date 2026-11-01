@@ -8,7 +8,7 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
-import { backupSettings, backupsIn } from '../memory/db/backup.js';
+import { backupSettings, backupsIn } from '../memory/db/backup.ts';
 
 export type HealthStatus = 'ok' | 'warn' | 'fail';
 

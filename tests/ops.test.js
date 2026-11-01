@@ -14,7 +14,7 @@ import { createDiscordInterface } from '../interfaces/discord/index.js';
 import { tempDir } from './fixtures/tmp.js';
 import { createErrandStore } from '../src/errands/store.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { openBoard } from '../src/board/board.ts';
 
 // The Discord interface's capabilities object, as src/index.js injects it.

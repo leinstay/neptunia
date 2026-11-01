@@ -9,9 +9,9 @@
 import { log as defaultLog } from '../log.js';
 import { checkInvariants, isOpen } from './model.ts';
 import { CODE } from '../tools/codes.ts';
-import { createReadSeam } from '../memory/db/readers/common.js';
-import { intentionsArchiveLines, intentionsValue } from '../memory/db/readers/intentions.js';
-import { createUnitOutbox } from '../memory/db/unit-outbox.js';
+import { createReadSeam } from '../memory/db/readers/common.ts';
+import { intentionsArchiveLines, intentionsValue } from '../memory/db/readers/intentions.ts';
+import { createUnitOutbox } from '../memory/db/unit-outbox.ts';
 import { errorCode, idText } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { FlushCounts, Logger } from '../errands/types.ts';
@@ -22,9 +22,9 @@ export const KEEP_CLOSED = 50;
 
 /**
  * `memoryDb` (the memory database service): the list is loaded from the database and `archived` reads it there
- * (src/memory/db/readers/intentions.js; a failed read throws, with a code). Each change hands the whole list
+ * (src/memory/db/readers/intentions.ts; a failed read throws, with a code). Each change hands the whole list
  * (`intentions.json`, op `value`) and the records it moved out (`intentions-archive.jsonl`, op `lines`) to an outbox
- * (src/memory/db/unit-outbox.js) that sends them through the database's writer. The list in memory stays the truth
+ * (src/memory/db/unit-outbox.ts) that sends them through the database's writer. The list in memory stays the truth
  * meanwhile, so `add` and `update` answer at once; a write that failed waits in the outbox and goes again at the
  * next change or `flush`, and `flush({ final: true })` (the shutdown) keeps what still fails in `memory-pending/`,
  * replayed by the service at its next start. Without a `memoryDb` (tests, a tool) nothing is read or written:

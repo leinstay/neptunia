@@ -1,11 +1,11 @@
-// Tests for src/memory/db/open.js and schema.js: migrations, the writer lock, read-only mode and the FTS triggers,
+// Tests for src/memory/db/open.ts and schema.js: migrations, the writer lock, read-only mode and the FTS triggers,
 // over temporary files (never the deployment's data/).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { MIGRATIONS, lockPathOf, openMemoryDb, schemaVersion } from '../src/memory/db/open.js';
-import { V1_TABLES } from '../src/memory/db/schema.js';
+import { MIGRATIONS, lockPathOf, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
+import { V1_TABLES } from '../src/memory/db/schema.ts';
 import { tempDir } from './fixtures/tmp.js';
 
 const names = (db, type = 'table') =>

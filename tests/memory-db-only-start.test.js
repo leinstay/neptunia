@@ -1,5 +1,5 @@
 // The engine's memory starts from the memory database alone: a data directory that holds only `memory.db` and the
-// operational files (src/memory/db/paths.js), every memory file gone, wired the way src/index.js wires its memory
+// operational files (src/memory/db/paths.ts), every memory file gone, wired the way src/index.js wires its memory
 // (the database service on its writer, the store, the record, the archive with its pending queue, the journal, the
 // meaning index and its queue, the intention and task stores). Everything the fixture held is read back from the
 // database, a day of writes goes into it, and after the shutdown no memory file was written and a fresh start reads the
@@ -9,9 +9,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createMemoryDb } from '../src/memory/db/service.js';
-import { openMemoryDb } from '../src/memory/db/open.js';
-import { isMemoryPath, isOperational } from '../src/memory/db/paths.js';
+import { createMemoryDb } from '../src/memory/db/service.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { isMemoryPath, isOperational } from '../src/memory/db/paths.ts';
 import { createAppendStore } from '../src/memory/append-store.js';
 import { createStore } from '../src/memory/store.js';
 import { createRecord, toRecordLine } from '../src/memory/record.js';

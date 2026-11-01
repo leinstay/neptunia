@@ -1,6 +1,6 @@
 // The record: what the app observed, kept for good. Hot memory forgets by design (caps,
 // eviction); the record does not, so nothing the persona lived through is lost to eviction.
-// One line per observation in the memory database (src/memory/db/service.js), in the unit of its
+// One line per observation in the memory database (src/memory/db/service.ts), in the unit of its
 // day, `guilds/<guildId>/record/<YYYY-MM>/<YYYY-MM-DD>.jsonl` (`dayFile`, relative to the data
 // directory: the unit's name, no file), by the UTC day of the line's `occurredAt`; a private
 // chat's lines go under `private/<userId>/record/` instead and never into the guild record. Kinds:
@@ -18,7 +18,7 @@
 // it, in its day's unit (`memoryDb.writeUnit`, op `lines`), which refuses a line whose message
 // revision (or deletion) the month already holds and adopts a line the live observation wrote
 // first; the promise resolves once the writer committed and rejects with the writer's code. Every
-// read is answered from the database (src/memory/db/readers/record.js); a closed database is an
+// read is answered from the database (src/memory/db/readers/record.ts); a closed database is an
 // error with a code (`DB_CLOSED`), never an empty answer.
 //
 // Logs carry counts and ids of guilds, never a line's contents.
@@ -28,8 +28,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.js';
 import { clampChars, clampWithEllipsis, oneLine } from './clamp.js';
 import { memoryRootOf } from './root.js';
-import { createReadSeam } from './db/readers/common.js';
-import { recordDays, recordLines, recordMonths, recordNewestRevision, recordStats } from './db/readers/record.js';
+import { createReadSeam } from './db/readers/common.ts';
+import { recordDays, recordLines, recordMonths, recordNewestRevision, recordStats } from './db/readers/record.ts';
 
 /** The schema version every line carries. */
 export const RECORD_VERSION = 1;
@@ -291,8 +291,8 @@ function parse(line) {
  * @param {(() => Promise<void>)|null} [options.writerGate]  awaited before every append: the
  *   journal's `waitUnlocked`, so its writer lock (src/memory/journal.js#withWriterLock) holds the
  *   record's appends too
- * @param {object|null} options.memoryDb  the memory database service (src/memory/db/service.js): every
- *   read is answered from it (src/memory/db/readers/record.js) and `append` writes it (`writeUnit`); a
+ * @param {object|null} options.memoryDb  the memory database service (src/memory/db/service.ts): every
+ *   read is answered from it (src/memory/db/readers/record.ts) and `append` writes it (`writeUnit`); a
  *   failed read or write rejects with a code
  * @returns {{
  *   append(guildId: string, lines: object[], opts?: { privateUserId?: string|null }): Promise<{ written: number, duplicates: number }>,

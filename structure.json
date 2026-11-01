@@ -479,7 +479,7 @@
       "path": "src/health/",
       "purpose": "The three parts of the owner's `/health`: the server, the core and the memory, each judged by a pure function over a probe or the memory database.",
       "layer": "public",
-      "imports": ["node:*", "src/health/**", "src/memory/db/backup.js"],
+      "imports": ["node:*", "src/health/**", "src/memory/db/backup.ts"],
       "test": "required"
     },
     {

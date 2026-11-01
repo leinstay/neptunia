@@ -1,10 +1,10 @@
-// Tests for schema v16 of the memory database (src/memory/db/schema.js): the `ingest` table holds one row per event
+// Tests for schema v16 of the memory database (src/memory/db/schema.ts): the `ingest` table holds one row per event
 // the core committed, scoped by the principal that sent it, and `ingest_cursor` the watermark acknowledged to each
 // principal. An event id and a seq are each unique within a principal, so a redelivered event can never be taken
 // twice, while two principals may use the same id and the same seq. The database is in memory.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 
 type Db = { prepare(sql: string): { run(...args: Array<unknown>): unknown; get(...args: Array<unknown>): unknown } };
 

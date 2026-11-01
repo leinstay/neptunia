@@ -6,12 +6,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.js';
-import { SCOPED_TABLES } from '../src/memory/db/schema.js';
+import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
+import { SCOPED_TABLES } from '../src/memory/db/schema.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
-import { insertRows } from '../src/memory/db/rows.js';
-import { applyMemoryWrite } from '../src/memory/db/session-write.js';
-import { insertTurnReads } from '../src/memory/db/service.js';
+import { insertRows } from '../src/memory/db/rows.ts';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
+import { insertTurnReads } from '../src/memory/db/service.ts';
 import {
   AUD_INTERNAL,
   audienceOf,
@@ -21,7 +21,7 @@ import {
   issueContext,
   wellFormed,
 } from '../src/memory/db/scope.ts';
-import { applyDiaryUpdate } from '../src/memory/db/diary-media.js';
+import { applyDiaryUpdate } from '../src/memory/db/diary-media.ts';
 import { canonicalKey, dmPlaceId, linkId, newPersonId, nodeId, personId, resolveAlias } from '../src/memory/db/ids.ts';
 import { main } from '../tools/memory-db.mjs';
 import { GUILD, MEMBER, buildDataDir, guildDir, seen, writeJson, writeLines } from './fixtures/memory-db/datadir.js';

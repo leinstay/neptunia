@@ -1,18 +1,18 @@
-// The description review (src/memory/db/describe.js): two calls on the memory role, the draft written without the old
+// The description review (src/memory/db/describe.ts): two calls on the memory role, the draft written without the old
 // text, the check against it and a claim-level diff, the result stored as a shadow version and never made current.
 // A fake llm and synthetic text only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { fillAudiences } from './fixtures/memory-db/audiences.js';
-import { applyMemoryWrite } from '../src/memory/db/session-write.js';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import {
   claimDiff,
   fieldCap,
   parseDescriptionAnswer,
   reviewDescription,
   showsClaim,
-} from '../src/memory/db/describe.js';
+} from '../src/memory/db/describe.ts';
 import { messageSourceId, personId, shortHash } from '../src/memory/db/ids.ts';
 import { dmContext } from '../src/memory/db/scope.ts';
 import { labels } from './fixtures/labels.js';

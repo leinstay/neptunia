@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.js';
+import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
 import { main, tableHashes } from '../tools/memory-db.mjs';
 import { openBoard } from '../src/board/board.ts';
 import type { BoardSettings, TaskRecord, TaskView } from '../src/board/board.ts';

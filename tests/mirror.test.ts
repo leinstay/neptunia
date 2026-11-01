@@ -1,7 +1,7 @@
 // The diary's mirrors (src/behavior/mirror.ts, stage 3 design, section 5): a recorded entry is published once to every
 // enabled mirror, each publication a `publications` row keyed `diary:<entry id>:<place id>`, queued while the interface
 // is down and sent when it connects, `failed` with the port's code when the port refuses, never sent twice. And
-// `preparePublication` (src/memory/db/publish.js) takes an enabled `diary` mirror of a place as the owner's grant.
+// `preparePublication` (src/memory/db/publish.ts) takes an enabled `diary` mirror of a place as the owner's grant.
 // Every entry comes from a real diary turn over a real store and memory database, on the fake interface, with a
 // scripted model. Synthetic text only.
 import { test, after } from 'node:test';
@@ -9,9 +9,9 @@ import assert from 'node:assert/strict';
 import { createMirrors } from '../src/behavior/mirror.ts';
 import { createDiary } from '../src/behavior/diary.ts';
 import { createStore } from '../src/memory/store.js';
-import { openMemoryDb } from '../src/memory/db/open.js';
-import { insertRows } from '../src/memory/db/rows.js';
-import { contentHash, preparePublication } from '../src/memory/db/publish.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { insertRows } from '../src/memory/db/rows.ts';
+import { contentHash, preparePublication } from '../src/memory/db/publish.ts';
 import { issueContext } from '../src/memory/db/scope.ts';
 import { notOk } from '../src/protocol/actions.js';
 import type { Content } from '../src/protocol/actions.js';

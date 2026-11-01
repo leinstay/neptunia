@@ -9,7 +9,7 @@
 // import reads the guild files there too.
 
 import path from 'node:path';
-import { openMemoryDb } from '../../memory/db/open.js';
+import { openMemoryDb } from '../../memory/db/open.ts';
 import { applyWakeQueueWrite, listWakes } from '../../memory/db/wake-queue.ts';
 import type { DeliveryInput, Handle, StoredWake, TurnMark, WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
 import { errorCode, objOf } from '../../tools/types.ts';

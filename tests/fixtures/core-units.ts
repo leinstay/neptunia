@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startCore } from '../../src/core.js';
 import { onLog } from '../../src/log.js';
-import { openMemoryDb } from '../../src/memory/db/open.js';
+import { openMemoryDb } from '../../src/memory/db/open.ts';
 import { ANSWER, channelInfo, lineEvent } from './core-over-fake.ts';
 import { withCapturedLogs } from './capture-logs.js';
 import type { MessageEvent } from '../../src/protocol/adapter.ts';

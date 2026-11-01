@@ -1,4 +1,4 @@
-// The memory database's writer thread (src/memory/db/writer-worker.js through src/memory/db/service.js): its writes
+// The memory database's writer thread (src/memory/db/writer-worker.ts through src/memory/db/service.ts): its writes
 // equal the in-thread ones, the main thread reads through its own read-only connection, a crashed worker is restarted
 // at the next tick, and shutdown waits for a write under way (bounded) before it terminates the worker. Synthetic data
 // only.
@@ -8,13 +8,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createMemoryDb } from '../src/memory/db/service.js';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { createMemoryDb } from '../src/memory/db/service.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
 import { unitUpdates } from './fixtures/memory-db/seed.js';
 
 const tmpRoot = () => fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-worker-'));
-const REAL_WORKER = pathToFileURL(path.resolve('src/memory/db/writer-worker.js')).href;
+const REAL_WORKER = pathToFileURL(path.resolve('src/memory/db/writer-worker.ts')).href;
 
 function logs() {
   const out = [];

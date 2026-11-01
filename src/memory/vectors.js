@@ -2,7 +2,7 @@
 // item, kept so recall can match meaning and not only words. Storage only: nothing here talks
 // to a model; a caller hands in vectors and gets rows back.
 //
-// The index lives in the memory database (src/memory/db/service.js), one unit per month of a row's
+// The index lives in the memory database (src/memory/db/service.ts), one unit per month of a row's
 // `occurredAt`, `guilds/<g>/vectors/<YYYY-MM>` (a private chat's rows under
 // `private/<userId>/vectors/` instead, never in the guild index), holding what the three files of a
 // month held: the manifest `{ v, gen, rows, bytes, metaBytes, model, dims, checksum }`, the int8 rows
@@ -19,7 +19,7 @@
 // `append` sends the month's new rows (the new manifest, the jsonl lines and their int8 bytes, the checksum
 // continued from the stored manifest) and `rewrite` / `replace` the month's next generation whole, through
 // `memoryDb.writeUnit` (op `vectors`): the `vectors` rows and the month's `operational` row as map/vectors.js maps
-// them. A vector the index policy evicted (src/memory/db/index-policy.js) is left out of a month as it is read.
+// them. A vector the index policy evicted (src/memory/db/index-policy.ts) is left out of a month as it is read.
 //
 // Logs carry counts, months and guild ids, never a row's contents.
 
@@ -28,8 +28,8 @@ import { log as defaultLog } from '../log.js';
 import { isoOf } from './record.js';
 import { chunkKey } from './chunks.js';
 import { memoryRootOf } from './root.js';
-import { createReadSeam } from './db/readers/common.js';
-import { storedManifest, vectorMonthFiles, vectorMonthState, vectorMonthsAt } from './db/readers/vectors.js';
+import { createReadSeam } from './db/readers/common.ts';
+import { storedManifest, vectorMonthFiles, vectorMonthState, vectorMonthsAt } from './db/readers/vectors.ts';
 
 const MONTH_RE = /^\d{4}-\d{2}$/;
 const GEN_FILE_RE = /^(\d+)\.(i8|jsonl)$/;
@@ -139,8 +139,8 @@ function validManifest(value) {
  *   `replace` (the journal's `waitUnlocked`), so its writer lock holds them
  * @param {number} [options.maxCacheBytes=268435456]  loaded months kept in memory (int8 data plus
  *   their jsonl bytes), least recently used evicted first
- * @param {object|null} options.memoryDb  the memory database service (src/memory/db/service.js): `search`, `stats`
- *   and `has` read the months from it (src/memory/db/readers/vectors.js; an evicted vector is left out; a failed
+ * @param {object|null} options.memoryDb  the memory database service (src/memory/db/service.ts): `search`, `stats`
+ *   and `has` read the months from it (src/memory/db/readers/vectors.ts; an evicted vector is left out; a failed
  *   read rejects with a code), and the writers write it (see the head of this file), rejecting with the writer's
  *   code when it fails.
  * @returns {{

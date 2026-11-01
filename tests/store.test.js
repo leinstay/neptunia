@@ -11,8 +11,8 @@ import { withCapturedLogs } from './fixtures/capture-logs.js';
 import { PARTICIPATION_DEFAULTS, emptyParticipation, recordOwnLine } from '../src/memory/participation.js';
 import { tempDir } from './fixtures/tmp.js';
 import { openTestMemory } from './fixtures/memory-db/service.js';
-import { createMemoryDb } from '../src/memory/db/service.js';
-import { unitValue } from '../src/memory/db/readers/common.js';
+import { createMemoryDb } from '../src/memory/db/service.ts';
+import { unitValue } from '../src/memory/db/readers/common.ts';
 import { SELF_CHARS } from '../src/memory/text-limits.js';
 
 function tmpDataDir() {

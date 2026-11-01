@@ -1,7 +1,7 @@
-// Round trips of src/memory/db/map/journal.js: one journal line of any kind <-> its rows, through the real schema.
+// Round trips of src/memory/db/map/journal.ts: one journal line of any kind <-> its rows, through the real schema.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as mapper from '../src/memory/db/map/journal.js';
+import * as mapper from '../src/memory/db/map/journal.ts';
 import { assertRoundTrip, generated, plain, roundTrip } from './fixtures/memory-db/roundtrip.js';
 
 const REL = 'journal/2026-10-20.jsonl';

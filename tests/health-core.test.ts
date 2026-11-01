@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { coreHealth } from '../src/health/core.ts';
 import { tempDir } from './fixtures/tmp.js';
 

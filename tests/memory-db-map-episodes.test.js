@@ -1,9 +1,9 @@
 // Round trips of participation.js, recent.js and diary.js through the real schema.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as participation from '../src/memory/db/map/participation.js';
-import * as recent from '../src/memory/db/map/recent.js';
-import * as diary from '../src/memory/db/map/diary.js';
+import * as participation from '../src/memory/db/map/participation.ts';
+import * as recent from '../src/memory/db/map/recent.ts';
+import * as diary from '../src/memory/db/map/diary.ts';
 import { assertRoundTrip, roundTrip } from './fixtures/memory-db/roundtrip.js';
 
 const message = (id, extra = {}) => ({

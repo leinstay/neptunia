@@ -8,13 +8,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.js';
-import { V9_TABLES } from '../src/memory/db/schema.js';
+import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
+import { V9_TABLES } from '../src/memory/db/schema.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
-import { insertRows } from '../src/memory/db/rows.js';
-import { OBSERVATION_VERSION, observe } from '../src/memory/db/observe.js';
-import { applyMemoryWrite, newestClaimVersion } from '../src/memory/db/session-write.js';
-import { DEFERRED, NODE_KINDS, PREDICATES, UNIT_OF, UNIT_ORDER } from '../src/memory/db/graph-manifest.js';
+import { insertRows } from '../src/memory/db/rows.ts';
+import { OBSERVATION_VERSION, observe } from '../src/memory/db/observe.ts';
+import { applyMemoryWrite, newestClaimVersion } from '../src/memory/db/session-write.ts';
+import { DEFERRED, NODE_KINDS, PREDICATES, UNIT_OF, UNIT_ORDER } from '../src/memory/db/graph-manifest.ts';
 import {
   continuationsOf,
   graphNodeId,
@@ -27,7 +27,7 @@ import {
   reproject,
   saidBy,
   walk,
-} from '../src/memory/db/graph.js';
+} from '../src/memory/db/graph.ts';
 import { dmContext, groupContext, groupScope, internalContext } from '../src/memory/db/scope.ts';
 import { main, tableHashes } from '../tools/memory-db.mjs';
 import { buildDataDir } from './fixtures/memory-db/datadir.js';

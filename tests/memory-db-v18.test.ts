@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.js';
+import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
 import { recoverWakes, wakeOf } from '../src/memory/db/wake-queue.ts';
 import { emptyState, reviewWake, wakeOfDue } from '../src/behavior/inner.ts';
 import { openTestMemory } from './fixtures/memory-db/service.js';

@@ -1,11 +1,11 @@
-// The board's schema in the memory database (src/board/schema.ts and the board's step of src/memory/db/open.js):
+// The board's schema in the memory database (src/board/schema.ts and the board's step of src/memory/db/open.ts):
 // board v1 creates its tables beside her memory with a version table of its own, its migrations run after the
 // memory's in a transaction of their own, and a failing board migration leaves her memory open and writable. Temporary
 // files only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.js';
+import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
 import { BOARD_MIGRATIONS, BOARD_TABLES, boardVersion } from '../src/board/schema.ts';
 import type { BoardDb } from '../src/board/schema.ts';
 import { tempDir } from './fixtures/tmp.js';

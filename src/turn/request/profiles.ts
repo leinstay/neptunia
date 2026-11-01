@@ -1,7 +1,7 @@
 // One member as the request shows them: the durable profile of `<people>` (names, aliases, avatar, interests,
 // details, the relationship and the remembered moments, with the unsure, stale and replaced-claim marks), the
 // `<attitudes>` list, and what is current about a member for their `<people_now>` entry. The people blocks
-// (src/turn/request/people.ts) and the memory session (src/memory/db/session.js, through renderProfile) call them.
+// (src/turn/request/people.ts) and the memory session (src/memory/db/session.ts, through renderProfile) call them.
 
 import { fill } from '../../format.js';
 import {

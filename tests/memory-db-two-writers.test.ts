@@ -1,5 +1,5 @@
 // The memory database has two writers of one member's profile (spec 2026-10-31-memory-two-writers): her memory
-// session (src/memory/db/session-write.js) and the unit sync of the store's cached file (src/memory/db/upsert.js). Each
+// session (src/memory/db/session-write.ts) and the unit sync of the store's cached file (src/memory/db/upsert.ts). Each
 // test runs a session write, then a unit flush of the same file through the store, then reads the profile back the
 // way her turns read it (`store.getUser`, export.js#exportOne). What the session wrote must survive the flush and be
 // in the profile. Two suspects of the same shape close the file: the diary's fetched text and an observation's update
@@ -8,11 +8,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createMemoryDb } from '../src/memory/db/service.js';
-import { openMemoryDb } from '../src/memory/db/open.js';
-import { exportOne } from '../src/memory/db/export.js';
-import { applyDiaryUpdate } from '../src/memory/db/diary-media.js';
-import { observe } from '../src/memory/db/observe.js';
+import { createMemoryDb } from '../src/memory/db/service.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { exportOne } from '../src/memory/db/export.ts';
+import { applyDiaryUpdate } from '../src/memory/db/diary-media.ts';
+import { observe } from '../src/memory/db/observe.ts';
 import { createStore } from '../src/memory/store.js';
 import { relationshipStaleOf, strongestMoves } from '../src/memory/affinity.js';
 import { seedUnits } from './fixtures/memory-db/seed.js';

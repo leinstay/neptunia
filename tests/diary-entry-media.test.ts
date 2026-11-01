@@ -1,5 +1,5 @@
 // Her diary in memory is the truth of what she posted (the owner, 2026-10-27): an entry is a post of N messages with
-// their attachments, and memory holds it whole. The diary media job (src/memory/db/diary-media.js) reads an entry's
+// their attachments, and memory holds it whole. The diary media job (src/memory/db/diary-media.ts) reads an entry's
 // messages through the interface, keeps each attachment's id on the entry's media row (`native_ref.attachmentId`) with
 // the description memory already holds for that attachment (the `media` row of kind `attachment` and the same id),
 // fills an entry's missing text, and completes an older media row that holds only `{ url, messageId }`, once. A fake
@@ -8,9 +8,9 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { openMemoryDb } from '../src/memory/db/open.js';
-import { insertRows } from '../src/memory/db/rows.js';
-import { applyDiaryUpdate, createDiaryMedia } from '../src/memory/db/diary-media.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { insertRows } from '../src/memory/db/rows.ts';
+import { applyDiaryUpdate, createDiaryMedia } from '../src/memory/db/diary-media.ts';
 import { createFakeAdapter } from '../src/interface/fake.js';
 import { tempDir } from './fixtures/tmp.js';
 

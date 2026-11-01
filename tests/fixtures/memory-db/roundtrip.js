@@ -3,8 +3,8 @@
 // the input (key order aside).
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
-import { openMemoryDb } from '../../../src/memory/db/open.js';
-import { insertRows, readRows } from '../../../src/memory/db/rows.js';
+import { openMemoryDb } from '../../../src/memory/db/open.ts';
+import { insertRows, readRows } from '../../../src/memory/db/rows.ts';
 
 let shared = null;
 

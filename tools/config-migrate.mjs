@@ -37,7 +37,7 @@ import { LOCAL_CONFIG_DIR, localConfigPath, trackedConfigPath } from '../src/con
 import { CUT_KEYS, cutConfigKeys } from '../src/config/cut.ts';
 import { agentSettings } from '../src/agent-runner/profiles.js';
 import { grantedToPersona } from '../src/tools/access.ts';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { CliError, parseFlags, privateDirOf, runCli } from './lib/cli.mjs';
 
 const USAGE =

@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLeasedAttention } from '../src/behavior/attention.ts';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { applyWakeQueueWrite, leaseOf } from '../src/memory/db/wake-queue.ts';
 
 const T = Date.parse('2026-10-31T12:00:00.000Z');

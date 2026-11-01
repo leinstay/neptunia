@@ -11,7 +11,7 @@
 //        files holding the same rows and the same index hash the same whatever their page layout). The round-trip
 //        contract: a `VACUUM INTO` copy hashes like its source. Opens the database read-only.
 //   node tools/memory-db.mjs reproject --db <file>
-//        Projects every typed row into the graph again (src/memory/db/graph.js#reproject; idempotent), and finishes a
+//        Projects every typed row into the graph again (src/memory/db/graph.ts#reproject; idempotent), and finishes a
 //        projection the v9 migration left pending.
 //   node tools/memory-db.mjs rebuild --db <file>
 //        The rebuildability contract: drops the derived rows (the graph projection and its `node_access`) and builds
@@ -19,7 +19,7 @@
 //        before and after. An edge the graph had retired because its row no longer produces it is history the typed
 //        tables do not hold: a rebuild does not bring it back (it says how many such edges there were).
 //   node tools/memory-db.mjs index-policy --db <file> [--apply] [--days <n>]
-//        The index policy (src/memory/db/index-policy.js): the tier of every stored line and the vectors outside the
+//        The index policy (src/memory/db/index-policy.ts): the tier of every stored line and the vectors outside the
 //        owner's classes (older than --days, default `recall.db.vectorDays` 90, and not cited, pinned, touched or
 //        consolidated). Without --apply it prints what it would evict and changes nothing (read-only); with --apply it
 //        writes the tiers and evicts (the vector rows stay, only their bytes go).
@@ -29,7 +29,7 @@
 //   node tools/memory-db.mjs backup --db <file> --to <dir> [--data <dir>]
 //        `VACUUM INTO <dir>/memory.db`, a copy of `media/diary/` (from --data, default the database's directory) and
 //        `<dir>/manifest.json`: every file with its size and SHA-256, the schema version, the engine commit and the row
-//        count of every table (src/memory/db/backup.js; the bot's own daily backup, `memoryDb.backup`, also names the
+//        count of every table (src/memory/db/backup.ts; the bot's own daily backup, `memoryDb.backup`, also names the
 //        config's hash). The directory must be new or empty. Opens the database read-only.
 //   node tools/memory-db.mjs restore --from <dir> --db <file> [--data <dir>]
 //        Checks every file of the backup against its manifest, then restores the database to --db (which must not
@@ -67,11 +67,11 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { createHash } from 'node:crypto';
-import { openMemoryDb } from '../src/memory/db/open.js';
-import { rebuildGraph, reproject, projectPending } from '../src/memory/db/graph.js';
-import { checkMedia, classify as classifyIndex } from '../src/memory/db/index-policy.js';
-import { backupDatabase, checkBackup, restoreDatabase, tablesOf } from '../src/memory/db/backup.js';
-import { createMemoryDb, engineCommit } from '../src/memory/db/service.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { rebuildGraph, reproject, projectPending } from '../src/memory/db/graph.ts';
+import { checkMedia, classify as classifyIndex } from '../src/memory/db/index-policy.ts';
+import { backupDatabase, checkBackup, restoreDatabase, tablesOf } from '../src/memory/db/backup.ts';
+import { createMemoryDb, engineCommit } from '../src/memory/db/service.ts';
 import { readBoard } from '../src/board/board.ts';
 import { compareArchive } from '../src/board/archive.ts';
 import { BoardError } from '../src/board/machine.ts';

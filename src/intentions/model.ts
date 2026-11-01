@@ -1153,7 +1153,7 @@ export function candidatesFromAnswer(
 }
 
 /**
- * Whether `record` concerns member `userId` (src/memory/db/session.js, the intentions her memory session shows): it is
+ * Whether `record` concerns member `userId` (src/memory/db/session.ts, the intentions her memory session shows): it is
  * meant for them (`destination`), an attention names them (`attend.people`), it came from a
  * conversation with them (`provenance.participants`),
  * or its words -- the purpose, the quoted span, the completion condition, the chain, an errand's

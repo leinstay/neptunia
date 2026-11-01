@@ -1,8 +1,8 @@
 // Round trips of archive.js (claim versions) and versions.js (description versions) through the real schema.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as archive from '../src/memory/db/map/archive.js';
-import * as versions from '../src/memory/db/map/versions.js';
+import * as archive from '../src/memory/db/map/archive.ts';
+import * as versions from '../src/memory/db/map/versions.ts';
 import { assertRoundTrip, roundTrip } from './fixtures/memory-db/roundtrip.js';
 
 const REL = 'archive/2026-10.jsonl';

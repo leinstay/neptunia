@@ -79,7 +79,7 @@
 // runs. Logs carry ids, codes and counts, never text.
 //
 // Each inner turn is also a wake run in the memory database
-// (src/memory/db/wakes.js, through the service's writer): started before the turn runs (its id the in-flight turn id,
+// (src/memory/db/wakes.ts, through the service's writer): started before the turn runs (its id the in-flight turn id,
 // its inputs the ids and versions its view showed, the envelope's policy version), each action recorded once by its
 // number, ended `succeeded` or `failed` with the outcome. The journal and the state file are unchanged by it.
 //
@@ -192,7 +192,7 @@ export type InnerLifeOptions = {
   /** The sources of the selfimprovement wake's facts that are not the journal (src/behavior/selfimprovement-view.ts). */
   selfimprovement?: SelfimprovementSources;
   /**
-   * The memory database (src/memory/db/service.js): the wake queue is kept in it through its writer, and with
+   * The memory database (src/memory/db/service.ts): the wake queue is kept in it through its writer, and with
    * `memoryDb.wakeRuns` on each inner turn is recorded as a wake run with its actions. Without one the queue lives in
    * an in-memory database per data directory.
    */

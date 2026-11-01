@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openMemoryDb } from '../../../src/memory/db/open.js';
+import { openMemoryDb } from '../../../src/memory/db/open.ts';
 import { createVectors } from '../../../src/memory/vectors.js';
 import { openTestMemory } from './service.js';
 import { seedUnits } from './seed.js';

@@ -12,11 +12,11 @@ import { ChannelType } from 'discord.js';
 import { toEvent } from '../interfaces/discord/collect.js';
 import { lineOf as normalizedOf } from '../src/behavior/line-of.js';
 import { validateEvent } from '../src/protocol/index.js';
-import { observationOf } from '../src/memory/db/observe-event.js';
-import { checkEnvelope, observe } from '../src/memory/db/observe.js';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { observationOf } from '../src/memory/db/observe-event.ts';
+import { checkEnvelope, observe } from '../src/memory/db/observe.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
-import { createMemoryDb } from '../src/memory/db/service.js';
+import { createMemoryDb } from '../src/memory/db/service.ts';
 import { slimMessage, toRecordLine } from '../src/memory/index.js';
 import { CHANNEL, GUILD, MEMBER, buildDataDir, guildDir, writeJson, writeLines } from './fixtures/memory-db/datadir.js';
 

@@ -50,7 +50,7 @@ The core's console (`src/interface/commands/console.ts`) runs each command with 
 | `/memory profile <user> [section]`, `affinity <user>`, `private <user>` | A member's profile, affinity and private memory. |
 | `/memory conversation <id>`, `recent`, `server`, `journal [<day>]`, `archive [<kind>]` | A conversation's newest 30 stored lines from the memory database, the live recent lines, the server notes, the journal of a day and what left hot memory. |
 | `/memory search <query>` | A search of her memory (`memory.search`). |
-| `/memory backup` | A backup of the memory database into `memoryDb.backup.dir` (default `../backups/memory`, from the data folder) through `src/memory/db/backup.js`, then the list of the kept ones. A whole-database restore is `tools/memory-db.mjs restore` on a stopped core. |
+| `/memory backup` | A backup of the memory database into `memoryDb.backup.dir` (default `../backups/memory`, from the data folder) through `src/memory/db/backup.ts`, then the list of the kept ones. A whole-database restore is `tools/memory-db.mjs restore` on a stopped core. |
 | `/memory restore <id>` | An archived item back in memory (`memory.restore`). |
 | `/memory lore add <title> <keys> <text>`, `lore list [<query>]`, `lore show <id>`, `lore remove <id>` | The lore entries. |
 | `/memory aliases add <user> <name>`, `aliases list <user>`, `aliases remove <user> <name>` | A member's aliases. |

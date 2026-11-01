@@ -1,8 +1,8 @@
 // Round trips of media.js (attachment descriptions) and gifs.js (gifs and their counts) through the real schema.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as media from '../src/memory/db/map/media.js';
-import * as gifs from '../src/memory/db/map/gifs.js';
+import * as media from '../src/memory/db/map/media.ts';
+import * as gifs from '../src/memory/db/map/gifs.ts';
 import { assertRoundTrip } from './fixtures/memory-db/roundtrip.js';
 
 test('media: each key is an attachment row with its description', () => {

@@ -8,10 +8,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.js';
-import { V10_TABLES } from '../src/memory/db/schema.js';
+import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
+import { V10_TABLES } from '../src/memory/db/schema.ts';
 import { seedUnits } from './fixtures/memory-db/seed.js';
-import { insertRows } from '../src/memory/db/rows.js';
+import { insertRows } from '../src/memory/db/rows.ts';
 import {
   contentHash,
   deriveAllMirrorPublications,
@@ -26,7 +26,7 @@ import {
   reconcile,
   revokeGrant,
   unsettled,
-} from '../src/memory/db/publish.js';
+} from '../src/memory/db/publish.ts';
 import { issueContext } from '../src/memory/db/scope.ts';
 import { tableHashes } from '../tools/memory-db.mjs';
 import { CHANNEL, buildDataDir, guildDir, writeJson, writeLines } from './fixtures/memory-db/datadir.js';

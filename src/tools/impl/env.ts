@@ -261,7 +261,7 @@ function buildEnv({
     llm,
     embedder,
     embedQueue,
-    // /nep status: the memory database's state line (src/memory/db/service.js#status).
+    // /nep status: the memory database's state line (src/memory/db/service.ts#status).
     memoryDb,
     record,
     metrics,

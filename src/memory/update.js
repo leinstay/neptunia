@@ -1,7 +1,7 @@
 // The code-only memory of the live message path: every guild message the persona sees moves the counters of its
 // author's profile and of its channel's map entry (`touchMemory`), feeds the GIF library, the custom emoji ranking
 // and the names members are called by (`recordAddressing`). No model is asked here: what she remembers of a
-// conversation is written by her memory session over the memory database (src/memory/db/session.js), which reads
+// conversation is written by her memory session over the memory database (src/memory/db/session.ts), which reads
 // the observed lines from the database. `slimMessage` is the one shape a normalized message is kept in by the
 // record (src/memory/record.js#toRecordLine) and by the late-embed fold of src/behavior/pipeline.js.
 

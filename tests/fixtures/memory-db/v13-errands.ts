@@ -3,7 +3,7 @@
 // `intentions.json` and its archive as `intentions` rows. The rows are inserted by hand, because the writers of the
 // current code write the new unit names. Used by the tests of schema v14 and of the errand boundary. Synthetic data
 // only.
-import { MIGRATIONS, openMemoryDb } from '../../../src/memory/db/open.js';
+import { MIGRATIONS, openMemoryDb } from '../../../src/memory/db/open.ts';
 
 export type Row = Record<string, unknown>;
 type Statement = {

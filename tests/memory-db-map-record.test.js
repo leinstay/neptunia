@@ -1,7 +1,7 @@
-// Round trips of src/memory/db/map/record.js: one record line <-> one `sources` row, through the real schema.
+// Round trips of src/memory/db/map/record.ts: one record line <-> one `sources` row, through the real schema.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as mapper from '../src/memory/db/map/record.js';
+import * as mapper from '../src/memory/db/map/record.ts';
 import { assertRoundTrip, generated, plain, roundTrip } from './fixtures/memory-db/roundtrip.js';
 
 const REL = 'record/2026-10/2026-10-20.jsonl';

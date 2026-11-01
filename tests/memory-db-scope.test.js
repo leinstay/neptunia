@@ -2,7 +2,7 @@
 // the SQL filter (checked against the same matrix over a real table), narrowest, and the deterministic ids.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import {
   SCOPE_INTERNAL,
   SCOPE_NONE,

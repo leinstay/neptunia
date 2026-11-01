@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startCore } from '../../src/core.js';
 import { start } from '../../src/interface/fake-interface.ts';
-import { openMemoryDb } from '../../src/memory/db/open.js';
+import { openMemoryDb } from '../../src/memory/db/open.ts';
 import type { ConversationInfo, MessageEvent } from '../../src/protocol/adapter.ts';
 import { withCapturedLogs } from './capture-logs.js';
 

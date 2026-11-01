@@ -7,8 +7,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openMemoryDb, schemaVersion, MIGRATIONS } from '../src/memory/db/open.js';
-import { V11_TABLES } from '../src/memory/db/schema.js';
+import { openMemoryDb, schemaVersion, MIGRATIONS } from '../src/memory/db/open.ts';
+import { V11_TABLES } from '../src/memory/db/schema.ts';
 import {
   actionKey,
   applyWakeWrite,
@@ -17,9 +17,9 @@ import {
   recordAction,
   startRun,
   wakeRunOf,
-} from '../src/memory/db/wakes.js';
-import { applyMemoryWrite } from '../src/memory/db/session-write.js';
-import { createMemoryDb } from '../src/memory/db/service.js';
+} from '../src/memory/db/wakes.ts';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
+import { createMemoryDb } from '../src/memory/db/service.ts';
 import { createInnerLife } from '../src/behavior/inner.ts';
 import { createEventDoor } from '../src/interface/door.js';
 import { WAKE_POLICY_VERSION } from '../src/tools/access.ts';

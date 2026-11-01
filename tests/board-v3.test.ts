@@ -5,7 +5,7 @@
 // Temporary files only, a fixed clock.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openMemoryDb } from '../src/memory/db/open.js';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { tableHashes } from '../tools/memory-db.mjs';
 import { readBoard } from '../src/board/board.ts';
 import { boardVersion } from '../src/board/schema.ts';

@@ -10,7 +10,7 @@
 // come from one place: src/errands/costs.ts#agentCosts over the store's spend records, one per errand of the last
 // KEEP_DAYS days (read from the board at load, then kept with every transition).
 // Every change of an errand is one write of the whole errand through the memory database's writer (op `errand` of
-// src/memory/db/unit-write.js), handed to an outbox (src/memory/db/unit-outbox.js) keyed by the errand: a newer write
+// src/memory/db/unit-write.ts), handed to an outbox (src/memory/db/unit-outbox.ts) keyed by the errand: a newer write
 // of the same errand replaces the one waiting, a failed write goes again at the next change or `flush`, and
 // `flush({ final: true })` (the shutdown) keeps what still fails in `memory-pending/`; a write that waits behind an earlier
 // write of the same errand goes as soon as that one settles. The end of an errand (`finish`,
@@ -40,8 +40,8 @@ import { log as defaultLog } from '../log.js';
 import { DAY_MS } from '../time.js';
 import { agentCosts, costRecord, KEEP_DAYS } from './costs.ts';
 import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.js';
-import { createReadSeam } from '../memory/db/readers/common.js';
-import { createUnitOutbox } from '../memory/db/unit-outbox.js';
+import { createReadSeam } from '../memory/db/readers/common.ts';
+import { createUnitOutbox } from '../memory/db/unit-outbox.ts';
 import { errandsOf, pendingEnds as boardEnds } from '../board/errands.ts';
 import { agentSettings, profileOf } from '../agent-runner/profiles.js';
 import { CODE } from '../tools/codes.ts';
@@ -136,7 +136,7 @@ type StoreOptions = {
   memoryDb?: Untyped;
 };
 
-/** The memory database service's writes the store makes (src/memory/db/service.js). */
+/** The memory database service's writes the store makes (src/memory/db/service.ts). */
 type MemoryWrites = {
   writeUnit: (update: Record<string, unknown>) => Promise<unknown>;
   keepPending: ((update: Record<string, unknown>) => unknown) | null;

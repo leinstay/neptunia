@@ -18,7 +18,7 @@ type ParticipationStore = {
 export type FollowingContext = {
   store: ParticipationStore | null | undefined;
   turns: PipelineTurns;
-  /** The memory database (src/memory/db/service.js), read for the places of her diary. */
+  /** The memory database (src/memory/db/service.ts), read for the places of her diary. */
   memoryDb: Parameters<typeof diaryConversationIds>[0];
   now: () => number;
 };
