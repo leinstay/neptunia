@@ -1,0 +1,153 @@
+// Tests for the message links on the way out (src/behavior/turn.ts with
+// src/memory/mentions.ts#linkMessageNumbers) and, at the end, on the way in: a transcript number `#n` in a `<msg>` is sent as the
+// jump link of that message. Fake discord.js-shaped objects, a fake
+// LLM and store.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { labels } from './fixtures/labels.ts';
+import { world } from './fixtures/turn-world.ts';
+import { createTurnRunner } from './fixtures/turn-runner.ts';
+
+const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
+const MESSAGE_ID = '900000000000000001';
+
+function rawMessage({ id, content = 'γεια' }: { id: string; content?: string }) {
+  return {
+    id,
+    channelId: 'c1',
+    author: { id: 'u1', bot: false, globalName: 'Alice', username: 'Alice' },
+    member: { displayName: 'Alice' },
+    cleanContent: content,
+    createdTimestamp: NOW - 1000,
+    reference: null,
+    attachments: new Map(),
+    stickers: new Map(),
+  };
+}
+
+function normalizedTrigger(raw: ReturnType<typeof rawMessage>) {
+  return {
+    id: raw.id,
+    channelId: raw.channelId,
+    authorId: raw.author.id,
+    authorName: raw.author.globalName,
+    self: false,
+    bot: false,
+    content: raw.cleanContent,
+    ts: raw.createdTimestamp,
+    replyToId: null,
+    attachments: [],
+    stickers: [],
+  };
+}
+
+function fakeTurnChannel(historyMessages: Array<Record<string, unknown>>, { dm = false }: { dm?: boolean } = {}) {
+  return world().channel({
+    id: 'c1',
+    name: 'chat',
+    guildId: 'g1',
+    dm,
+    historyMessages,
+    permissions: { attach: false },
+  });
+}
+
+function fakeStore() {
+  return {
+    getGuild: () => ({}),
+    getUser: () => null,
+    getPrivate: () => null,
+    listChannels: () => [],
+    listUserProfiles: () => [],
+    getLore: () => [],
+    getMediaCache: () => ({}),
+    state: { data: {}, markDirty() {} },
+  };
+}
+
+function fakeHot() {
+  return {
+    config: {
+      bot: { timezone: 'UTC' },
+      context: {
+        channelMessages: 100,
+        caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
+        vision: { fetchTimeoutMs: 10_000 },
+        pull: { sameAudience: true },
+      },
+      llm: { maxRequestTokens: 50000 },
+      typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
+    },
+    prompts: {
+      'system-prompt': 'You are a regular member of this chat, not an assistant.',
+      'character-card': 'You are friendly and terse.',
+      format: 'Use <msg> and <react> tags.',
+      reply: 'Someone called you: {{author}}.',
+      labels,
+    },
+  };
+}
+
+async function runLinkTurn(responseText: string, { dm = false }: { dm?: boolean } = {}) {
+  const raw = rawMessage({ id: MESSAGE_ID });
+  const channel = fakeTurnChannel([raw], { dm });
+  const turns = createTurnRunner({
+    hot: fakeHot(),
+    store: fakeStore(),
+    llm: { complete: async () => ({ text: responseText, usage: {}, estimated: 10 }) },
+    calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
+  });
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+    guildId: 'g1',
+  });
+  return { result, channel };
+}
+
+test('runTurn: a transcript number in the text becomes its message link', async () => {
+  const { result, channel } = await runLinkTurn('<msg>see #1 and #1, not #77 or x#1</msg>');
+  assert.equal(result.outcome, 'spoke');
+  const url = `https://discord.com/channels/g1/c1/${MESSAGE_ID}`;
+  assert.equal(channel.sent[0].content, `see ${url} and ${url}, not #77 or x#1`);
+});
+
+test('runTurn: a private chat links with @me instead of the guild id', async () => {
+  const { channel } = await runLinkTurn('<msg>see #1</msg>', { dm: true });
+  assert.equal(channel.sent[0].content, `see https://discord.com/channels/@me/c1/${MESSAGE_ID}`);
+});
+
+// The other direction: a link in a message of the window to another message of the window reads as that message's
+// number in the request, through the reference the Discord package put on the message.
+test('runTurn: a message link in the window reads as the #n of the message it names', async () => {
+  const first = rawMessage({ id: MESSAGE_ID, content: 'γεια' });
+  const second = {
+    ...rawMessage({ id: '900000000000000002', content: `see https://discord.com/channels/1/2/${MESSAGE_ID} please` }),
+    createdTimestamp: NOW - 500,
+  };
+  const channel = fakeTurnChannel([first, second]);
+  const requests: Array<string> = [];
+  const turns = createTurnRunner({
+    hot: fakeHot(),
+    store: fakeStore(),
+    llm: {
+      complete: (messages: unknown) => {
+        requests.push(JSON.stringify(messages));
+        return Promise.resolve({ text: '<skip/>', usage: {}, estimated: 10 });
+      },
+    },
+    calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
+  });
+  await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(second),
+    triggerKind: 'mention',
+    guildId: 'g1',
+  });
+  assert.equal(requests.length, 1);
+  assert.ok(requests[0]?.includes('see #1 please'), 'the link is the number of the first line');
+  assert.equal(requests[0]?.includes('discord.com/channels'), false, 'the address is not in the request');
+});
