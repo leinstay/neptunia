@@ -1,6 +1,6 @@
 # Style guide
 
-Conventions for the engine's code, kept short so people and agents actually read them. The tooling files (`tsconfig.json`, `eslint.config.js`, `.prettierrc`) have the last word when they and this page disagree.
+Conventions for the engine's code, kept short so people and agents actually read them. The tooling files (`tsconfig.json`, `eslint.config.ts`, `.prettierrc`) have the last word when they and this page disagree.
 
 Write English in code, comments, documentation, commit messages and test data. Test data that has to be non-Latin is Greek or accented Latin.
 
@@ -13,7 +13,7 @@ Write English in code, comments, documentation, commit messages and test data. T
 import { openDoor } from './door.ts';
 ```
 
-- `tsc --noEmit` checks types with `strict`, `erasableSyntaxOnly`, `allowImportingTsExtensions`, `allowJs` and `checkJs`. A leftover `.js` file is checked through its JSDoc.
+- `tsc --noEmit` checks types with `strict`, `erasableSyntaxOnly` and `allowImportingTsExtensions`, with `allowJs` off. The tree holds no JavaScript, and CI refuses a tracked `.js`, `.mjs` or `.cjs` file.
 - ESLint 9 (flat config) runs typescript-eslint `recommended-type-checked` plus the rules named below.
 - Prettier formats with single quotes, semicolons, a 2-space indent, 120 columns and trailing commas where ES5 allows them.
 - The code-health check allows a file of up to 2,000 lines, a function of up to 300, nesting of 6 and cyclomatic complexity of 20. A file that is already over a limit may only shrink.
