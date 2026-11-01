@@ -412,7 +412,7 @@ export function createDiaryMedia({
   setTimer = setTimeout,
   fetchImpl = fetch,
 }: {
-  db: () => Db | null;
+  db: () => unknown;
   apply: (update: Row) => unknown;
   port: () => unknown;
   imageFetcher: () => unknown;
@@ -513,7 +513,7 @@ export function createDiaryMedia({
           media.push({
             id: `media:diary:${base}-${n}`,
             path: rel.split(path.sep).join('/'),
-            ...platformOf(db(), message, attachment),
+            ...platformOf(db() as Db | null, message, attachment),
             sha1: createHash('sha1').update(got.buffer).digest('hex'),
             bytes: got.buffer.byteLength,
             mime,
@@ -540,7 +540,7 @@ export function createDiaryMedia({
         media.push({
           id: `media:diary:${base}-${n}`,
           path: rel.split(path.sep).join('/'),
-          ...platformOf(db(), message, attachment),
+          ...platformOf(db() as Db | null, message, attachment),
           sha1: createHash('sha1').update(buffer).digest('hex'),
           bytes: buffer.byteLength,
           mime,
@@ -553,7 +553,7 @@ export function createDiaryMedia({
 
   async function runOnce(): Promise<{ done: number; failed: number }> {
     const counts = { done: 0, failed: 0 };
-    const database = db();
+    const database = db() as Db | null;
     const adapter = port() as DiaryPort | null;
     const fetcher = imageFetcher() as ImageFetcher | null;
     const given = settings();
@@ -598,7 +598,7 @@ export function createDiaryMedia({
     /** Rows still waiting that this start has not tried: a cheap check before `run()`. */
     hasWork(): boolean {
       try {
-        const database = db();
+        const database = db() as Db | null;
         return database != null && pendingDiaryRows(database).some((row) => !attempted.has(row.id));
       } catch {
         return false;

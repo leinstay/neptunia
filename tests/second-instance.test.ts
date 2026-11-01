@@ -15,7 +15,7 @@ import { lstatSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { lockPathOf, openMemoryDb } from '../src/memory/db/open.js';
+import { lockPathOf, openMemoryDb } from '../src/memory/db/open.ts';
 import { channelInfo, lineEvent } from './fixtures/core-over-fake.ts';
 import type { InstanceCommand, InstanceReady, InstanceReply } from './fixtures/instance-protocol.ts';
 

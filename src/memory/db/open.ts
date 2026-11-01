@@ -118,7 +118,8 @@ function aliveLeaseOf(dbPath: string): ReturnType<typeof leaseOf> {
 }
 
 /** The version the database is at (0 for a new file). */
-export function schemaVersion(db: Db): number {
+export function schemaVersion(dbGiven: unknown): number {
+  const db = dbGiven as Db;
   const table = db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'").get();
   if (!table) return 0;
   return Number(db.prepare('SELECT MAX(version) AS v FROM schema_version').get()?.v ?? 0);
@@ -131,10 +132,11 @@ export function schemaVersion(db: Db): number {
  * is finished by the first open that has it.
  */
 export function migrate(
-  db: Db,
+  dbGiven: unknown,
   migrations: ReadonlyArray<Migration> = MIGRATIONS,
   context: MigrationContext = {}
 ): void {
+  const db = dbGiven as Db;
   inTransaction(db, () => {
     db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');
     let version = schemaVersion(db);
@@ -154,7 +156,8 @@ export function migrate(
 }
 
 /** BEGIN IMMEDIATE .. COMMIT; a throw rolls back and rethrows. */
-export function inTransaction<TResult>(db: Db, fn: () => TResult): TResult {
+export function inTransaction<TResult>(dbGiven: unknown, fn: () => TResult): TResult {
+  const db = dbGiven as Db;
   db.exec('BEGIN IMMEDIATE');
   try {
     const result = fn();
