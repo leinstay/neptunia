@@ -61,5 +61,6 @@ test('the committed table holds a row per tool of the registry and a verdict per
   );
   assert.deepEqual(gaps, []);
   // Two more since the board tools board.propose and board.status (PR 6c).
-  assert.equal(committed.tools.length, 69);
+  // PR 7e: two more, skill.read and skill.disable (the committed table gained their rows).
+  assert.equal(committed.tools.length, 71);
 });
