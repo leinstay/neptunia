@@ -731,7 +731,7 @@ export async function connectDiscord({
       self: self.id,
     });
     return { client, guild, guildId, self };
-  } catch (err: Untyped) {
+  } catch (err) {
     await client.destroy().catch(() => {});
     throw err;
   }
@@ -1144,7 +1144,7 @@ async function runRecall({
       }
     );
     classifierRaw = completion?.text ?? null;
-  } catch (err: Untyped) {
+  } catch (err) {
     classifierError = signal?.aborted ? 'stopped' : railReason(err);
   }
   const classifierMs = Date.now() - startedAt;
@@ -1797,7 +1797,7 @@ export async function loadDiaryMods(load: Untyped): Promise<Untyped> {
     ...(await load('web/exa.ts')),
     ...(await load('web/lookup.ts')),
     ...(await load('llm/parse.ts')),
-    ...(await load('scripts/tool-calls.ts')),
+    ...(await load('tools/tool-calls.ts')),
     ...(await load('memory/clamp.ts')),
     ...(await load('time.ts')),
   };
@@ -2556,12 +2556,12 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     ...(await load('memory/record.ts')),
     ...(await load('memory/journal.ts')),
     ...(await load('admin.ts')),
-    ...(await load('scripts/registry.ts')),
+    ...(await load('tools/registry.ts')),
     ...(await load('behavior/prompt.ts')),
   };
-  await load('scripts/impl/index.ts');
+  await load('tools/impl/index.ts');
   const { createJournal } = await load('memory/journal.ts');
-  const { grantedSkillNames } = await load('scripts/discovery.ts');
+  const { grantedSkillNames } = await load('tools/discovery.ts');
   const { PROFILES: AGENT_PROFILES } = await load('agent-runner/profiles.ts');
   const { deepMerge } = await load('config.ts');
   const {
@@ -6372,7 +6372,7 @@ async function loopDepsOf({
     runMediaFind = null,
     lookPerTurn = null,
     IN_TURN_TOOLS,
-  } = await load('scripts/tools.ts');
+  } = await load('tools/tools.ts');
   // media.look and media.find (absent from an older engine: refused honestly).
   const mediaTools =
     typeof runMediaLook === 'function' ? { createDescriber, runMediaLook, runMediaFind, lookPerTurn } : null;
@@ -6384,7 +6384,7 @@ async function loopDepsOf({
     (typeof collectReadableLinks === 'function' ? collectReadableLinks(message)[0]?.url : null) ??
     (typeof firstLinkIn === 'function' ? firstLinkIn(message?.content) : null);
   // conversation.read (absent from an older engine: its calls fail as an unknown tool's).
-  const conversationMod = await load('scripts/conversation-read.ts').catch(() => null);
+  const conversationMod = await load('tools/conversation-read.ts').catch(() => null);
   const { pullPictures = null } = await load('behavior/pull.ts').catch(() => ({}));
   const conversation =
     conversationMod &&
@@ -6399,8 +6399,8 @@ async function loopDepsOf({
           pullPictures,
         }
       : null;
-  const { transportOf } = await load('scripts/tool-calls.ts');
-  const { skillsIndex } = await load('scripts/discovery.ts');
+  const { transportOf } = await load('tools/tool-calls.ts');
+  const { skillsIndex } = await load('tools/discovery.ts');
   // The automatic memory prefetch a live turn with the tool loop runs (absent from an older engine: none).
   const { prefetchLanes = null, prefetchOn = null } = await load('behavior/prefetch.ts').catch(() => ({}));
   // The search classifier's path before her reply with features.coreTools off (preTurnLookup).
@@ -6552,7 +6552,7 @@ export async function main(
     const out = await runMain(args, { root, signal, rng, answers });
     code = out.code;
     return { ...out, result: { ...out.result, answersDir: { dir: answers.dir, requests: answers.count() } } };
-  } catch (err: Untyped) {
+  } catch (err) {
     code = err instanceof CliError ? err.exitCode : 1;
     throw err;
   } finally {
@@ -6613,7 +6613,7 @@ async function runMain(args: Untyped, { root, signal, rng, answers }: Rec) {
   // --loop-triggers); its bounds are read now for the estimate. (The operations register first, as for the skills
   // below: src/tools/impl/index.ts.)
   const loopWanted = Boolean(scenarios || args.pairTransport || args.loopTriggers);
-  if (loopWanted) await load('scripts/impl/index.ts');
+  if (loopWanted) await load('tools/impl/index.ts');
   const turnMod = loopWanted ? await load('behavior/turn.ts') : null;
   if (loopWanted && typeof turnMod.loopSettings !== 'function') {
     hot.close();
@@ -6787,12 +6787,12 @@ async function runMain(args: Untyped, { root, signal, rng, answers }: Rec) {
   // --skills: the operations register themselves and the command tree the skills derive from (src/tools/impl/index.ts).
   let skillMods = null;
   if (loopWanted) {
-    await load('scripts/impl/index.ts');
-    const { skillRegistry } = await load('scripts/registry.ts');
-    const { expandPersonaGrant } = await load('scripts/impl/access.ts');
+    await load('tools/impl/index.ts');
+    const { skillRegistry } = await load('tools/registry.ts');
+    const { expandPersonaGrant } = await load('tools/impl/access.ts');
     const { requesterOf, callViewOf } = await load('behavior/turn.ts');
     const { createImageGen } = await load('llm/images.ts');
-    const { grantedSkillNames } = await load('scripts/discovery.ts');
+    const { grantedSkillNames } = await load('tools/discovery.ts');
     // The errands' budget (every scenario: an errand.run is checked as live) and the handles of an errand's files.
     const { createErrandStore, parseFileHandle } = await load('errands/store.ts');
     skillMods = {

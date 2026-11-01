@@ -1,4 +1,4 @@
-// Tests for src/web/exa.ts: the MCP scripts/call request (endpoint, body,
+// Tests for src/web/exa.ts: the MCP tools/call request (endpoint, body,
 // headers, count clamp, the key as a bearer header only when given), both
 // answer transports (an event stream and plain JSON), both documented forms of
 // the tool's text (JSON and formatted lines), the shape recorded from the live
@@ -88,7 +88,7 @@ async function run(exa: Record<string, Untyped>, query: Untyped, options: Record
   return withCapturedLogs(() => exa.search(query, options));
 }
 
-test('search: request shape -- endpoint, JSON-RPC scripts/call body, headers, no key header when keyless', async () => {
+test('search: request shape -- endpoint, JSON-RPC tools/call body, headers, no key header when keyless', async () => {
   const { calls, fetchImpl } = fakeFetch(sseAnswer(JSON_TEXT));
   const exa = createExaSearch({ fetchImpl });
   await run(exa, '  caf\u00e9 & co  ', { timeoutMs: 5000 });
@@ -101,7 +101,7 @@ test('search: request shape -- endpoint, JSON-RPC scripts/call body, headers, no
   });
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.jsonrpc, '2.0');
-  assert.equal(body.method, 'scripts/call');
+  assert.equal(body.method, 'tools/call');
   assert.equal(typeof body.id, 'number');
   assert.deepEqual(body.params, { name: 'web_search_exa', arguments: { query: 'caf\u00e9 & co', numResults: 5 } });
   assert.ok(calls[0].options.signal);

@@ -56,9 +56,9 @@ import {
 import { createEventDoor } from '../../src/interface/door.ts';
 import { createIntentionStores } from '../../src/intentions/store.ts';
 import { createIntentionService } from '../../src/intentions/service.ts';
-import { dueList, parseEvery, parseWhen, isAttend, isOpen, OCCURRENCE_CODES } from '../../src/intentions/model.ts';
+import { dueList, parseEvery, parseWhen, isAttend, isOpen } from '../../src/intentions/model.ts';
 import { lineSourcesOf } from '../../src/intentions/sources.ts';
-import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../src/time.ts';
+import { DAY_MS, HOUR_MS, zonedDay, zonedEpoch } from '../../src/time.ts';
 import { parseOutput } from '../../src/llm/parse.ts';
 import { answerOf } from '../../src/behavior/turn.ts';
 import { weekReads } from './platform-objects.ts';

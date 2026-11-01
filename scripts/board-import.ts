@@ -21,7 +21,6 @@ import { pathToFileURL } from 'node:url';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { BOARD_MIGRATIONS, boardVersion } from '../src/board/schema.ts';
 import type { BoardDb } from '../src/board/schema.ts';
-import type { Untyped } from '../src/tools/types.ts';
 
 type Row = Record<string, unknown>;
 type Io = { out(line: string): void; err(line: string): void };
@@ -113,7 +112,7 @@ function openLedger(file: string): DatabaseSync {
       );
     }
     return ledger;
-  } catch (error: Untyped) {
+  } catch (error) {
     ledger.close();
     throw error;
   }
@@ -200,7 +199,7 @@ function openTarget(file: string, dryRun: boolean) {
     handle = dryRun
       ? openMemoryDb(file, { readOnly: true })
       : openMemoryDb(file, { migrations: [], boardMigrations: [] });
-  } catch (error: Untyped) {
+  } catch (error) {
     throw new Refusal('board-unavailable', error instanceof Error ? error.message : String(error));
   }
   // node:sqlite's DatabaseSync, which open.js types as `object`, has every method BoardDb names.
@@ -250,7 +249,7 @@ export function importLedger({
       present: planned.present,
       skipped: { errandTasks: planned.errandTasks },
     };
-  } catch (error: Untyped) {
+  } catch (error) {
     if (error instanceof Refusal) return { ok: false, code: error.code, message: error.message };
     throw error;
   } finally {

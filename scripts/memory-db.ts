@@ -599,7 +599,7 @@ function runBoard(io: Io, options: Record<string, unknown>): number {
     if (options.json) io.out(JSON.stringify(view));
     else printTask(io, view);
     return 0;
-  } catch (error: Untyped) {
+  } catch (error) {
     // An unknown id or a board at another version is an answer, not a usage error.
     if (error instanceof BoardError && (error.code === 'not-found' || error.code === 'board-unavailable')) {
       io.err(`memory-db: ${error.message}`);

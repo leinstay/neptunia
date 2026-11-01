@@ -20,7 +20,6 @@ import { fileURLToPath } from 'node:url';
 import { CliError, parseFlags, runCli } from './lib/cli.ts';
 import { CONFIG_DIR, LABELS_FILE, LOCAL_CONFIG_DIR, OLD_LOCAL_CONFIG, OLD_LOCAL_LABELS } from '../src/config/files.ts';
 import { splitLabels } from '../src/config/labels.ts';
-import type { Untyped } from '../src/tools/types.ts';
 
 const USAGE = 'usage: node scripts/config-files-move.ts --private <dir> [--apply]';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -56,7 +55,7 @@ function readJson(file: string): Obj | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch (err: Untyped) {
+  } catch (err) {
     throw new CliError(
       `${file} is not valid JSON (${err instanceof Error ? err.message : String(err)}); nothing was changed`
     );

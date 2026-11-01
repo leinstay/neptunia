@@ -301,7 +301,7 @@ async function connectDiscord({ token, guildId }: Rec) {
       member = null;
     }
     return { client, guild, self: { id: String(me.id), name: member?.displayName ?? me.username ?? null } };
-  } catch (err: Untyped) {
+  } catch (err) {
     await client.destroy().catch(() => {});
     throw err;
   }
@@ -820,7 +820,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
           }),
         }
       );
-    } catch (err: Untyped) {
+    } catch (err) {
       return fallback(railReason(err, 'classifier-failed'));
     }
     if (!String(completion?.text ?? '').trim()) return fallback('empty');

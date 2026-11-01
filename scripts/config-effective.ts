@@ -196,7 +196,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process
   try {
     const { text, code } = run(process.argv.slice(2));
     stdoutWrite(text, () => process.exit(code));
-  } catch (err: Untyped) {
+  } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`${message}\n`, () => process.exit(err instanceof CliError ? 2 : 1));
   }

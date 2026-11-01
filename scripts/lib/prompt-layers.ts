@@ -137,7 +137,7 @@ export function promptLayersHot(
     }
     settleLabels(dir, mergeJson);
     return { hot: createHot({ rootDir: dir }), dir };
-  } catch (err: Untyped) {
+  } catch (err) {
     fs.rmSync(dir, { recursive: true, force: true });
     throw err;
   }

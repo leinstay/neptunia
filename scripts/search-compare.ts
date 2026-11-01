@@ -230,7 +230,7 @@ export async function main(
             });
             timing.cost += costOf(completion?.usage);
             return completion;
-          } catch (err: Untyped) {
+          } catch (err) {
             timing.llmError = err;
             throw err;
           } finally {

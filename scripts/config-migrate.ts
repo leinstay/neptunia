@@ -138,7 +138,7 @@ function compared(
   let old: unknown;
   try {
     old = JSON.parse(fs.readFileSync(path.resolve(oldFile), 'utf8'));
-  } catch (err: Untyped) {
+  } catch (err) {
     throw new CliError(`${oldFile} cannot be read as JSON (${err instanceof Error ? err.message : String(err)})`);
   }
   const current: unknown = JSON.parse(fs.readFileSync(trackedConfigPath(ROOT_DIR), 'utf8'));
@@ -233,7 +233,7 @@ function migrate(argv: Array<string>): string {
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(text);
-  } catch (err: Untyped) {
+  } catch (err) {
     throw new CliError(
       `${file} is not valid JSON (${err instanceof Error ? err.message : String(err)}); nothing was changed`
     );

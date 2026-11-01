@@ -300,7 +300,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   } else {
     try {
       process.exitCode = main(base);
-    } catch (err: Untyped) {
+    } catch (err) {
       console.error(`mutation: ${err instanceof Error ? err.message : String(err)}`);
       process.exitCode = 2;
     }

@@ -417,7 +417,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
         if (client) await Promise.resolve(client.destroy()).catch(() => {});
       },
     };
-  } catch (err: Untyped) {
+  } catch (err) {
     liveHot.close?.();
     if (client) await Promise.resolve(client.destroy()).catch(() => {});
     throw err;

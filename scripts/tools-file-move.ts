@@ -61,7 +61,7 @@ function readJson(file: string): Obj | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (err: Untyped) {
+  } catch (err) {
     throw new CliError(
       `${file} is not valid JSON (${err instanceof Error ? err.message : String(err)}); nothing was changed`
     );
