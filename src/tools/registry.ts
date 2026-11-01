@@ -173,6 +173,19 @@ export function buildSkills({
 
 let loaded: SkillMap | null = null;
 
+/** Where the skills of the registered plugins come from (src/plugins/registry.ts), null while no core wired one. */
+let extra: (() => SkillMap) | null = null;
+let merged: { base: SkillMap; more: SkillMap; both: SkillMap } | null = null;
+
+/**
+ * Lays the tools of the plugins over the registry: `skillRegistry()` answers the table's skills and then these, read at
+ * each call. The core sets it at start and clears it when it stops; `null` clears it.
+ */
+export function setExtraSkills(provider: (() => SkillMap) | null): void {
+  extra = provider;
+  merged = null;
+}
+
 /**
  * Every skill against the live ops registry (buildSkills, the registered operations), loaded once on first use
  * (src/index.js calls this at start so a bad definition fails there). A load that throws is
@@ -180,7 +193,12 @@ let loaded: SkillMap | null = null;
  */
 export function skillRegistry(): SkillMap {
   loaded ??= buildSkills({ registered: true });
-  return loaded;
+  const more = extra?.() ?? null;
+  if (more === null || more.size === 0) return loaded;
+  // A plugin's tool never shadows a core tool of the same name. One merged map per pair of inputs, so a caller comparing registries by identity sees a stable one.
+  if (merged === null || merged.base !== loaded || merged.more !== more)
+    merged = { base: loaded, more, both: new Map([...more, ...loaded]) };
+  return merged.both;
 }
 
 /**
@@ -213,9 +231,9 @@ function textOf(texts: unknown, name: string, key: string): string {
 export function describeSkill(skill: Skill, texts?: unknown): DescribedSkill {
   return {
     ...skill,
-    title: textOf(texts, skill.name, 'title'),
-    whenToUse: textOf(texts, skill.name, 'whenToUse'),
-    whenNotToUse: textOf(texts, skill.name, 'whenNotToUse'),
+    title: textOf(texts, skill.name, 'title') || (skill.wording?.title ?? ''),
+    whenToUse: textOf(texts, skill.name, 'whenToUse') || (skill.wording?.whenToUse ?? ''),
+    whenNotToUse: textOf(texts, skill.name, 'whenNotToUse') || (skill.wording?.whenNotToUse ?? ''),
   };
 }
 

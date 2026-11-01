@@ -44,6 +44,8 @@ export type Wake = {
   privateChat: boolean;
   /** `errand_deadline`: the errand she waits for. */
   errandId?: string;
+  /** `heartbeat` with the reason `ability.added`: the names of the tools a plugin just registered (src/plugins/announce.ts). */
+  tools?: Array<string>;
   /** `attend`: the place and its lines. */
   attend?: AttendInfo;
   /** `feedback`: the current channel of the turn it reports. */

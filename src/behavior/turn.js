@@ -323,6 +323,8 @@ export function createTurnRunner({
   attention = new Set(),
   // Which model roles are down (src/llm/role-health.ts), shared with the admin: her tool roles route on it.
   roleHealth = null,
+  // The registered tools of the plugins and the call to one (src/plugins/registry.ts); null: none.
+  plugins = null,
 }) {
   /** @type {import('../interface/reads.ts').Reads} */
   const ifaceReads = readsDep;
@@ -570,6 +572,7 @@ export function createTurnRunner({
     turnContextOf,
     linkCalls,
     drawTool,
+    plugins,
   });
   const { classifierContext } = createRewatch({ hot });
   const { startPrefetch, recallAvailable, turnDirectory, privatePartner, maybeSplit } = createLookup({

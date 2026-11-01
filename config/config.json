@@ -3,6 +3,9 @@
     "mode": "inprocess",
     "drainMs": 10000
   },
+  "plugins": {
+    "callDeadlineMs": 30000
+  },
   "bot": {
     "timezone": "UTC",
     "owners": [],

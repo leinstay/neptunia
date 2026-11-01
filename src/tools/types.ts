@@ -142,6 +142,8 @@ export type Skill = Readonly<{
   result?: 'effect' | 'job' | 'data';
   opBacked?: true;
   dispatch?: Dispatch;
+  /** The words of a tool a plugin declares (src/plugins/registry.ts); the owner's tool texts win over them. */
+  wording?: Readonly<{ title: string; whenToUse: string; whenNotToUse: string }>;
 }>;
 
 /** The skills by name. */

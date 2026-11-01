@@ -596,7 +596,16 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
       const mapped = resolved.dispatch ? resolved.dispatch.toOp(args) : { op: resolved.skill, args };
       if (!mapped.args || mapped.op !== resolved.skill)
         return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
-      const answered = objOf(await withTimeout(Promise.resolve(tool(mapped.args)), deps.timeoutMs ?? CALL_TIMEOUT_MS));
+      // The call's own context, for a tool that answers on someone's behalf (a plugin's, src/plugins/registry.ts).
+      const asked = deps.envelope?.requester ?? null;
+      const context: InTurnCall = {
+        requester: asked === null ? null : { id: asked.id ?? null, roleIds: [...(asked.roleIds ?? [])] },
+        conversationId: typeof deps.opContext?.channelId === 'string' ? deps.opContext.channelId : null,
+        idempotencyKey: deps.envelope?.idempotencyKey ?? deps.envelope?.invocationId ?? null,
+      };
+      const answered = objOf(
+        await withTimeout(Promise.resolve(tool(mapped.args, context)), deps.timeoutMs ?? CALL_TIMEOUT_MS)
+      );
       if (answered.timedOut === true)
         return {
           status: 'unknown',
@@ -828,12 +837,19 @@ export type CallEnvelope = {
   sourceMessageIds?: ReadonlyArray<unknown>;
 };
 
+/** What an in-turn tool is told about the call it answers: who asked, where, and the call's key. */
+export type InTurnCall = {
+  requester: { id: string | null; roleIds: Array<string> } | null;
+  conversationId: string | null;
+  idempotencyKey: string | null;
+};
+
 /** How an operation is run for a call: its name, the arguments and the context of the call. */
 export type RunOperation = (op: string, args: Obj, context: Obj) => unknown;
 
 /** What `executeCall` needs from the turn. */
 export type ExecuteDeps = {
-  inTurn?: Record<string, (args: Obj) => unknown>;
+  inTurn?: Record<string, (args: Obj, call?: InTurnCall) => unknown>;
   renderText?: (text: string) => string | { text?: unknown; userIds?: unknown };
   envelope?: CallEnvelope;
   runOp?: RunOperation;
