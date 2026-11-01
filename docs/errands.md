@@ -159,4 +159,4 @@ The status card (`/status full`) shows errand agents' models in `models.errands`
 2. If it needs a new model role, add it to `src/llm/roles.ts` and to `models.errands` in `config/config.json`.
 3. For a worker: fill in the profile's `enabled`, `cost`, `limits`, `daily`, `socket` and `out`, add a systemd unit like `deploy/neptunia-agent-scout.service`, and the agent's name in `TASK_AGENTS` (`src/tools/impl/catalog.ts`) and who may ask for it in `src/tools/impl/errand.ts`.
 4. If no existing shell class fits, that is a code change in `src/agent-runner/profiles.ts`.
-5. Run `tests/agent-runner-profiles.test.js`.
+5. Run `tests/agent-runner-profiles.test.ts`.
