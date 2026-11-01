@@ -39,7 +39,6 @@ export type Gathered = {
   pendingMedia: { videoIds: Array<string>; captions: boolean };
   imageAnswers: Map<string, unknown> | null;
   reads: Map<string, unknown> | undefined;
-  lookupResult: Record<string, unknown> | null;
   prefetchResult: unknown;
   neighbors: Array<Neighbor>;
   neighborsHidden: number;
@@ -73,11 +72,10 @@ export async function gatherRequest(
   const { beforeBar } = setup;
   const { previewed, captions, captionCandidates, videoStage, videoCandidates } = staged;
   const { slot: second2, videosSoFar } = second;
-  const { linksStage, slot: lookupSlot } = looked;
+  const { linksStage } = looked;
   const { neighborsStage, pulledStage, timings } = waited;
   const { prefetchStage } = staged;
   const rewatchStage = second2.rewatch;
-  const lookupStage = lookupSlot.lookup;
   // The history the request is built from: with its file previews once they are ready.
   let history = previewed();
   // Messages deleted inside the window: the record's `deleted` lines over its span in this one
@@ -140,7 +138,6 @@ export async function gatherRequest(
       ? (rewatchStage.value?.imageAnswers ?? null)
       : null;
   const reads = linksStage?.done ? linksStage.value : undefined;
-  const lookupResult = lookupStage?.done ? (lookupStage.value ?? null) : null;
   // A prefetch still out at the deadline: the request says so (`timeout`) instead of waiting.
   const prefetchResult = prefetching
     ? prefetchStage?.done
@@ -149,17 +146,15 @@ export async function gatherRequest(
     : null;
   prep.take('prefetch', prefetchResult !== null);
   // What the turn has in front of it from outside, for where her lines came from (noteSeen):
-  // someone's message she answers, the retrieved memory, pages read, a lookup, an errand's result.
+  // someone's message she answers, the retrieved memory, pages read, an errand's result.
   if (trigger && String(trigger.authorId ?? '') !== String(selfId)) noteSeen(draft, trigger.content);
   noteSeen(draft, excerptsOf(prefetchResult));
   noteSeen(draft, reads, { read: true });
-  noteSeen(draft, lookupResult, { read: true });
   noteSeen(draft, taskResult?.result, { read: true });
   // The journal: which preparation steps reached the request (the rest close as not delivered).
   prep.take('captions', Boolean(captions?.done), { hold: Boolean(captions) });
   prep.take('videos', Boolean(videoStage?.done), { hold: Boolean(videoStage) });
   prep.take('links', Boolean(linksStage?.done));
-  prep.take('lookup', Boolean(lookupStage?.done));
   const neighborsFound = neighborsStage?.done ? neighborsStage.value : null;
   const neighbors = Array.isArray(neighborsFound?.neighbors) ? neighborsFound.neighbors : [];
   const neighborsHidden = neighborsFound?.hidden ?? 0;
@@ -208,7 +203,6 @@ export async function gatherRequest(
     pendingMedia,
     imageAnswers,
     reads,
-    lookupResult,
     prefetchResult,
     neighbors,
     neighborsHidden,

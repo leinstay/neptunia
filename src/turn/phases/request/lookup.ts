@@ -4,7 +4,6 @@
 
 import { log } from '../../../log.js';
 import { linkHosts, journalled } from '../../journal.ts';
-import type { LookupInput } from '../../lookup.ts';
 import { readableLinkCandidates } from '../../media.ts';
 import type { PhaseContext } from '../context.ts';
 import type { Opened } from '../preflight.ts';
@@ -12,13 +11,10 @@ import type { Planned } from './searches.ts';
 import type { Setup } from './setup.ts';
 import type { Staged, Tracked } from './stages.ts';
 
-/** What the lookup step made: the link reads' stage, the search classifier's chain and its stage once started. */
+/** What the lookup step made: the link reads' stage and the cache-only read of the same links. */
 export type Looked = {
   linksStage: Tracked<Map<string, unknown> | undefined> | null;
   cachedLinkReads: () => Map<string, unknown> | undefined;
-  lookupChain: Promise<void> | null;
-  // Set once the chain starts the search classifier; read when the request is built.
-  slot: { lookup: Tracked<LookupInput> | null };
 };
 
 /** The new links read per turn. Production value, config cut of 2026-10-31. */
@@ -79,13 +75,8 @@ export function startLookup(ctx: PhaseContext, opened: Opened, setup: Setup, pla
       }
     });
   }
-  // The search classifier's transcript needs the file previews; the captions, video states and
-  // page reads it shows are what this turn has at its start (captionsSoFar, videosSoFar, the
-  // reads once done). A routed call is read in its source (routedPull), with its captions.
-  const slot: Looked['slot'] = { lookup: null };
-  const lookupChain: Promise<void> | null = null;
-  // `serverOn` (above): the lookup stage runs the server search and `<senses>` says it exists.
+  // Her own tools search during her reply: a turn someone asked for runs no search classifier first.
   if (asked && !answersTask && (webSearchOn || serverOn))
     log.info('lookup: skipped', { channel: channel.id, reason: 'core-tools' });
-  return { linksStage, cachedLinkReads, lookupChain, slot };
+  return { linksStage, cachedLinkReads };
 }

@@ -14,7 +14,6 @@ import { replyOptionsOf } from '../../calls.ts';
 import type { Diary } from '../../diary.ts';
 import type { Draft } from '../../draft.ts';
 import { withReplyParents } from '../../history.ts';
-import type { Inputs } from '../../inputs.ts';
 import type { Lookup } from '../../lookup.ts';
 import { paceSettings } from '../../settings.ts';
 import type { PaceSettings } from '../../settings.ts';
@@ -37,9 +36,6 @@ export function beforeBarOf(bar: Deadline): BeforeBar {
         ]);
 }
 
-/** The skills line of the search classifier, once one answered (skills discovery). */
-export type SkillsAnswer = { value: Parameters<Inputs['discoverSkills']>[0]['answer'] | null };
-
 /** What the setup made: the attempt's settings, its bar, the history and the work started beside it. */
 export type Setup = {
   ended: null;
@@ -58,7 +54,6 @@ export type Setup = {
   replyOptions: () => ReturnType<typeof replyOptionsOf>;
   asked: boolean;
   answersTask: boolean;
-  skillsAnswer: SkillsAnswer;
   snapshot: Snapshot | null;
   rawHistory: Array<HistoryLine>;
   historyMs: number;
@@ -133,8 +128,6 @@ export async function setupRequest(
   // <lookup> block stands beside the result. Her own recall call still runs.
   const answersTask = triggerKind === 'errand';
   // She calls her own tools in the turn, so no search classifier runs before her reply.
-  // Skills discovery: the `skills:` line of the search classifier (parseSkillsLines).
-  const skillsAnswer: SkillsAnswer = { value: null };
 
   // A private chat's partner as a guild member (private.likeServer), fetched beside
   // the history; null on a server turn, with the switch off or when the fetch fails.
@@ -239,7 +232,6 @@ export async function setupRequest(
     replyOptions,
     asked,
     answersTask,
-    skillsAnswer,
     snapshot,
     rawHistory,
     historyMs,

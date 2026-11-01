@@ -50,7 +50,7 @@ export async function waitForPreparation(
   const { finalMode, pulledPending, pullStartedAt } = pulled;
   const { deadline, stages, track, previews, captions, videoStage, splitStage, hasParts, prefetchStage } = staged;
   const { rewatchChain } = second;
-  const { linksStage, lookupChain } = looked;
+  const { linksStage } = looked;
   // A private chat has no neighbouring channels. A neighbour passes the audience rail the
   // pulls pass (audienceAllows, context.pull.sameAudience): everyone who can read this channel
   // can read it. One refused takes no slot, costs no fetch, and never reaches `<server>`
@@ -104,7 +104,6 @@ export async function waitForPreparation(
         videoStage?.settled,
         rewatchChain,
         linksStage?.settled,
-        lookupChain,
         neighborsStage?.settled,
         pulledStage?.settled,
         participationStage?.settled,

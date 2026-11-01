@@ -1,5 +1,5 @@
 // What a turn reads around its request: the port references of a conversation and a message, the gateway's check of
-// one effect of her reply, the memory context of an attempt's reads, skills discovery for a classifier, the stable
+// one effect of her reply, the memory context of an attempt's reads, the stable
 // freezes per guild, and the request's `errands`, `<intentions>` and `<places>` inputs. createTurnRunner
 // (src/behavior/turn.js) builds it once per runner with createInputs; the attempt and the other topic modules call its
 // functions.
@@ -15,11 +15,8 @@ import { intentionSettings } from '../intentions/model.ts';
 import { log } from '../log.js';
 import { channelPlaceId, personId } from '../memory/db/ids.ts';
 import type { ConversationRef, MessageRef } from '../protocol/adapter.ts';
-import { proposalVerdicts, proposedRows } from '../tools/discovery.ts';
-import type { SkillsLines } from '../tools/discovery.ts';
-import { checkReplyEffect, listSkills } from '../tools/gateway.ts';
-import type { SkillMap } from '../tools/types.ts';
-import { PERSONA, defaultSkills, requesterOf } from './calls.ts';
+import { checkReplyEffect } from '../tools/gateway.ts';
+import { PERSONA } from './calls.ts';
 import { inCommunity } from './routing.ts';
 
 /** Whether an addressed turn's request carries `<places>`. Production value, config cut of 2026-10-31: off. */
@@ -62,11 +59,8 @@ type PlacesView = ((guildId: string, options: { sort: string; page: number; page
 
 /** What createInputs reads: the dependencies of the runner. */
 export type InputsContext = {
-  hot: { readonly config: unknown; readonly prompts: { tools?: unknown } | null | undefined };
   store: { getUser?: (guildId: string, userId: string) => { names?: Array<string | null> } | null | undefined } | null;
   iface: InputsPort;
-  skills: SkillMap | null;
-  selfIdOf: () => string;
   memoryContext: ((spec: MemorySpec) => unknown) | null;
   errands: InputsErrands;
   intentions: InputsIntentions;
@@ -78,7 +72,6 @@ type InputsDraft = {
   memoryContext?: unknown;
   privateUserId?: string | null;
   requesterGroups?: Array<string>;
-  skillsProposed?: Array<{ name: string; allowed: boolean }>;
 };
 
 /** The gateway's verdict on one effect of her reply. */
@@ -102,13 +95,6 @@ export type Inputs = {
   conversationOf: (channel: { id: string }) => ConversationRef;
   messageOf: (channel: { id: string }, messageId: string) => MessageRef;
   checkEffect: (skill: string, args: unknown, at: { channel: { id: string } }) => EffectVerdict;
-  discoverSkills: (args: {
-    config: unknown;
-    channel: { id: string };
-    trigger: { authorId?: string | null } | null | undefined;
-    answer: Pick<SkillsLines, 'inventory' | 'names'> | null | undefined;
-    draft: InputsDraft | null | undefined;
-  }) => Array<object> | null;
   errandsInputFor: (
     args: InputArgs & { taskResult: ErrandRecord | null | undefined }
   ) => { list: string; result: string } | null;
@@ -117,7 +103,7 @@ export type Inputs = {
 };
 
 export function createInputs(ctx: InputsContext): Inputs {
-  const { hot, store, iface, skills, selfIdOf, memoryContext, errands, intentions, places } = ctx;
+  const { store, iface, memoryContext, errands, intentions, places } = ctx;
 
   /**
    * The one execution context of an attempt's memory reads (`memoryContext`): issued the first time a read needs it
@@ -187,49 +173,6 @@ export function createInputs(ctx: InputsContext): Inputs {
     if (!verdict.ok)
       log.info('skill: refused', { skill, code: verdict.code, reason: verdict.reason, channel: channel.id });
     return verdict;
-  }
-
-  /**
-   * What a classifier's `skills:` line (`answer`: parseSkillsLines' result, null when it gave
-   * none) does on a turn someone asked for, with discovery on (read by the caller now). The
-   * catalogue of this requester (`trigger`'s author) in `channel` (src/tools/gateway.ts#listSkills,
-   * the state read now) decides both: on `inventory` its rows are returned for the request's
-   * `<skills>` (logged `skills: inventory` with counts); on named skills (at most four) each name
-   * with the gateway's verdict is logged `skills: proposed` and noted in the draft's
-   * `skillsProposed` (`{ name, allowed }`) for the journal's turn record, and their catalogue rows
-   * are returned marked `proposed` (`<skills>` then shows the allowed ones and names the others).
-   * Null otherwise. Names and codes only, never a message.
-   */
-  function discoverSkills({
-    config,
-    channel,
-    trigger,
-    answer,
-    draft,
-  }: Parameters<Inputs['discoverSkills']>[0]): Array<object> | null {
-    if (!answer) return null;
-    const named: ReadonlyArray<string> = Array.isArray(answer.names) ? answer.names : [];
-    if (answer.inventory !== true && named.length === 0) return null;
-    const rows = listSkills({
-      config,
-      selfId: selfIdOf() || null,
-      texts: hot.prompts?.tools,
-      requester: requesterOf(trigger, draft?.requesterGroups ?? []),
-      audience: { conversationId: String(channel.id) },
-      registry: skills ?? defaultSkills(),
-    });
-    if (answer.inventory === true) {
-      log.info('skills: inventory', {
-        channel: channel.id,
-        listed: rows.length,
-        allowed: rows.filter((row) => row.allowed).length,
-      });
-      return rows;
-    }
-    const proposals = proposalVerdicts(named, rows);
-    log.info('skills: proposed', { channel: channel.id, count: proposals.length, proposals });
-    if (draft) draft.skillsProposed = proposals.map(({ name, allowed }) => ({ name, allowed }));
-    return proposedRows(proposals, rows);
   }
 
   /**
@@ -344,7 +287,6 @@ export function createInputs(ctx: InputsContext): Inputs {
     conversationOf,
     messageOf,
     checkEffect,
-    discoverSkills,
     errandsInputFor,
     intentionsInputFor,
     placesInputFor,

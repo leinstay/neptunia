@@ -369,7 +369,6 @@ export type JournalDraft = {
   usage?: JournalUsage | null;
   dropped?: Record<string, number> | null;
   limits?: { list?: () => Array<unknown> } | null;
-  skillsProposed?: unknown;
   format?: unknown;
   steps?: unknown;
 };
@@ -404,10 +403,6 @@ export function journalTurnRecord(
     usage: draft.usage ?? null,
     budget: { dropped: draft.dropped ?? {} },
     limits: typeof draft.limits?.list === 'function' ? draft.limits.list() : [],
-    // The skills a classifier named for this turn, each with the gateway's verdict (shadow, phase 0).
-    ...(Array.isArray(draft.skillsProposed) && draft.skillsProposed.length > 0
-      ? { skillsProposed: draft.skillsProposed }
-      : {}),
     // The native-tools step engine's counts and step number; absent while no turn noted them.
     ...(draft.format && typeof draft.format === 'object' ? { format: formatCountsOf(draft.format) } : {}),
     ...(draft.steps !== undefined && draft.steps !== null ? { steps: draft.steps } : {}),

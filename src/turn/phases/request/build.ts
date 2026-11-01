@@ -70,9 +70,9 @@ export function buildTurnRequest(
   const { finalMode } = pulled;
   const { participationShown, participationStage, participationAudienceOf } = waited;
   const { history, neighbors, descriptions, neighborDescriptions, videos, imageAnswers, reads } = gathered;
-  const { lookupResult, prefetchResult, drawOn, diaryPrep, pulled: pulledList, readOnlyIds } = gathered;
+  const { prefetchResult, drawOn, diaryPrep, pulled: pulledList, readOnlyIds } = gathered;
   const { destination, recent, prompts } = gathered;
-  const { factsText, tasks, guildMemory, taggedCall, offPeriods, skillsInventory } = told;
+  const { factsText, tasks, guildMemory, taggedCall, offPeriods } = told;
   const pulled2 = pulledList;
   // Her tools, the same for every turn kind and pinned for this one (a grant removed meanwhile is still caught at each call):
   // the skills granted to her and the carried-over ones, as native tool definitions (or `<tools>` text). A diary post
@@ -133,7 +133,6 @@ export function buildTurnRequest(
     videos: videos ?? null,
     imageAnswers,
     reads: reads ?? null,
-    lookup: lookupResult ?? null,
     // `<retrieved>`: the automatic memory prefetch of this trigger (null: none ran).
     prefetch: prefetchResult,
     searchAvailable: typeof lookup?.hasSearch === 'function' && lookup.hasSearch() === true,
@@ -193,7 +192,6 @@ export function buildTurnRequest(
       ? { posts: diaryPrep.posts, plan: diaryPrep.plan, found: diaryPrep.found, seeds: diaryPrep.seeds ?? '' }
       : null,
     offPeriods,
-    skillsInventory,
     // Her tools this turn: the in-turn ones for `<senses>`, the text transport's `<tools>` body, and what the native
     // transport's `tools` field costs the request (the room the sections share).
     toolsGranted: draft.toolNames,

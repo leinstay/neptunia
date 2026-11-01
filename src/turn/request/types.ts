@@ -285,7 +285,7 @@ export type RequestInput = {
   readonly videos?: Map<string, { state: 'watched' | 'limit' | 'error' | 'pending'; text?: string; reason?: string }>;
   readonly imageAnswers?: Map<string, { question: string; text: string }> | null;
   readonly reads?: Map<string, string>;
-  readonly lookup: Lookup | null;
+  readonly lookup?: Lookup | null;
   readonly prefetch?: Prefetch | null;
   readonly searchAvailable?: unknown;
   readonly recallAvailable?: unknown;

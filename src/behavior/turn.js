@@ -346,11 +346,10 @@ export function createTurnRunner({
     conversationOf,
     messageOf,
     checkEffect,
-    discoverSkills,
     errandsInputFor,
     intentionsInputFor,
     placesInputFor,
-  } = createInputs({ hot, store, iface, skills, selfIdOf, memoryContext, errands, intentions, places });
+  } = createInputs({ store, iface, memoryContext, errands, intentions, places });
 
   const { facts, setFactsSource } = createFacts({ clock });
   // The channels known to be private chats (a deferred call names only its channel).
@@ -624,7 +623,6 @@ export function createTurnRunner({
     recentInput,
     turnContextOf,
     stableFreezeOf,
-    discoverSkills,
     errandsInputFor,
     intentionsInputFor,
     placesInputFor,
