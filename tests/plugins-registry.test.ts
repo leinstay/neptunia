@@ -193,3 +193,36 @@ test('forget drops every tool of a plugin, so a disabled plugin has no tool left
   assert.equal(registry.skills().size, 0);
   assert.deepEqual(await registry.call('echo.say', {}, CONTEXT), { status: 'invalid', code: 'unknown-skill' });
 });
+
+function memberRegistry(member: boolean) {
+  const tool = { ...echoTool(), name: 'echo.set', effect: 'write', rights: { kind: 'write', member } };
+  const registry = createPluginRegistry({
+    manifests: () => [{ ...echoManifest(), tools: [tool] as never }],
+    log: quiet,
+  });
+  registry.register('echo', [tool]);
+  return registry;
+}
+
+const setCall = (registry: ReturnType<typeof memberRegistry>) =>
+  checkSkill({
+    skill: 'echo.set',
+    args: { text: 'hi' },
+    principal: { kind: 'persona' },
+    requester: { id: 'u1', roleIds: [] },
+    audience: { conversationId: 'c1' },
+    context: {
+      config: { bot: { access: { 'echo.set': { users: ['self-id'] } } } },
+      selfId: 'self-id',
+      registry: registry.skills(),
+    },
+  });
+
+test('a write tool declared open to members runs for a requester with no grant of their own', () => {
+  assert.deepEqual(setCall(memberRegistry(true)), { ok: true });
+});
+
+test('a write tool not declared open to members is refused for a requester with no grant of their own', () => {
+  const result = setCall(memberRegistry(false));
+  assert.equal(result.ok ? '' : result.code, 'requester-denied');
+});

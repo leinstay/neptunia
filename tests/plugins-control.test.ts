@@ -21,13 +21,13 @@ type Rig = {
   connected: Set<string>;
 };
 
-function rig(options: { failStart?: boolean } = {}): Rig {
+function rig(options: { failStart?: boolean; inProcess?: boolean } = {}): Rig {
   const root = tempDir('nep-control-');
   const privateDir = path.join(root, 'private');
   const trackedDir = path.join(root, 'plugins');
   fs.mkdirSync(privateDir);
   fs.cpSync(ECHO_DIR, path.join(trackedDir, 'echo'), { recursive: true });
-  const units = recordingUnits(options);
+  const units = recordingUnits({ failStart: options.failStart === true });
   const enabled = new Set<string>();
   const disabled: Array<string> = [];
   const connected = new Set<string>();
@@ -39,6 +39,7 @@ function rig(options: { failStart?: boolean } = {}): Rig {
     connected: (name) => connected.has(name),
     toolsOf: (name) => (connected.has(name) ? ['echo.say'] : []),
     units,
+    unitsMode: () => options.inProcess !== true,
     onDisabled: (name) => disabled.push(name),
   });
   return { control, privateDir, units, enabled, disabled, connected };
@@ -135,4 +136,12 @@ test('setup names each env key the manifest lists as missing, then as set once t
   fs.writeFileSync(path.join(privateDir, 'clients', 'echo.env'), 'ECHO_PREFIX=\n');
   assert.deepEqual(control.setup('echo')?.env, [{ key: 'ECHO_PREFIX', state: 'missing' }]);
   assert.equal(control.setup('nope'), null);
+});
+
+test('enable refuses while the core runs its interface in process, and writes nothing and starts nothing', async () => {
+  const { control, privateDir, units, enabled } = rig({ inProcess: true });
+  assert.deepEqual(await control.enable('echo'), { ok: false, code: 'inprocess-mode' });
+  assert.equal(enabled.size, 0);
+  assert.deepEqual(units.started, []);
+  assert.equal(loadPrincipals(privateDir), null);
 });

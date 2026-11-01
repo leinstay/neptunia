@@ -118,3 +118,10 @@ test('setup of an unknown plugin and any command without a control answer failed
     status: 'failed',
   });
 });
+
+test('a refused enable in process mode names the setting that fixes it', async () => {
+  const refused = await pluginsCommand(control({ change: { ok: false, code: 'inprocess-mode' } }), 'plugins.enable', {
+    name: 'echo',
+  });
+  assert.deepEqual(refused, { text: '/plugins enable echo: plugins need interfaces.mode: units', status: 'failed' });
+});
