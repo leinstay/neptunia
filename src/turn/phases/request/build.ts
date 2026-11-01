@@ -133,6 +133,8 @@ export function buildTurnRequest(
     videos: videos ?? null,
     imageAnswers,
     reads: reads ?? null,
+    // `<lookup>` stays in the request layout, but no turn fills it: she searches through her own tools.
+    lookup: null,
     // `<retrieved>`: the automatic memory prefetch of this trigger (null: none ran).
     prefetch: prefetchResult,
     searchAvailable: typeof lookup?.hasSearch === 'function' && lookup.hasSearch() === true,
@@ -191,6 +193,8 @@ export function buildTurnRequest(
       ? { posts: diaryPrep.posts, plan: diaryPrep.plan, found: diaryPrep.found, seeds: diaryPrep.seeds ?? '' }
       : null,
     offPeriods,
+    // The skills catalogue text is never filled by a turn: her tools are the native definitions below.
+    skillsInventory: null,
     // Her tools this turn: the in-turn ones for `<senses>`, the text transport's `<tools>` body, and what the native
     // transport's `tools` field costs the request (the room the sections share).
     toolsGranted: draft.toolNames,

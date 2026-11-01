@@ -30,7 +30,7 @@ export async function deletedLinesOf({
   selfId = null,
   selfName = '',
   nameOf = null,
-  max = DELETED_LINES_MAX_DEFAULT,
+  max = DELETED_LINES_MAX,
   clock = Date.now,
 }) {
   const started = clock();
