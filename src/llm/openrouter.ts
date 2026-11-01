@@ -685,11 +685,11 @@ export function toolCallsOf(calls: unknown): Array<ParsedToolCall> {
  * @param ttl From `cacheTtlFor`.
  * @param profilesTtl From `profilesTtlFor`; omitted -> no profiles marker.
  */
-export function withCacheMarker(
-  messages: Array<ChatMessage>,
+export function withCacheMarker<M extends ChatMessage>(
+  messages: Array<M>,
   ttl: CacheTtl | null,
   profilesTtl: CacheTtl | null = null
-): Array<ChatMessage> {
+): Array<M> {
   if (!Array.isArray(messages)) return messages;
   const marker = cacheMarkerFor(ttl);
   const segmentMarkers: Record<string, ReturnType<typeof cacheMarkerFor>> = {
@@ -733,7 +733,8 @@ export function withCacheMarker(
   // (a longer one must not follow a shorter one, and a turn's steps follow each other within minutes).
   const tail =
     marker && messages.length > 2 && kept < MAX_CACHE_MARKERS ? tailMarked(sent, { type: 'ephemeral' }) : sent;
-  return tail.some((message, index) => message !== messages[index]) ? tail : messages;
+  // The messages come back as the caller's own shape, with the markers laid in the parts of their content.
+  return tail.some((message, index) => message !== messages[index]) ? (tail as Array<M>) : messages;
 }
 
 /**
@@ -1113,7 +1114,7 @@ export type CompleteResult = {
   provider?: unknown;
   promptTokens?: number | null;
   annotations?: Array<unknown>;
-  toolCalls?: ReturnType<typeof toolCallsOf>;
+  toolCalls?: Array<unknown>;
 };
 
 /** The JSON body of one chat completion, as `complete` builds it. */
