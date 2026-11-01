@@ -19,6 +19,7 @@ import {
   usesFollowUpTask,
 } from '../src/behavior/prompt.js';
 import { estimateTokens } from '../src/llm/tokens.js';
+import { SAFETY_MARGIN } from '../src/llm/budget.js';
 import { createFedAround as createAroundStore } from './fixtures/around-feed.ts';
 import { fill, formatClock, formatDate, formatDuration } from '../src/format.js';
 import { zonedDay } from '../src/time.js';
@@ -58,8 +59,13 @@ function fakeConfig(overrides = {}) {
     },
     llm: { maxRequestTokens: 50000, ...overrides.llm },
     ...(overrides.memory ? { memory: overrides.memory } : {}),
+    ...(overrides.private ? { private: overrides.private } : {}),
   };
 }
+
+// PR 7d: llm.safetyMargin is the constant 0.9 (SAFETY_MARGIN of src/llm/budget.js), so a request limit of exactly
+// `tokens` needs a maxRequestTokens of tokens / 0.9.
+const exactly = (tokens) => Math.ceil(tokens / SAFETY_MARGIN);
 
 function makeMessage(id, ts, overrides = {}) {
   return {
@@ -167,17 +173,18 @@ test('buildRequest: system message is system-prompt + character-card + rules + f
   assert.equal(request.messages[0].content, 'SYSTEM_TEXT for Nept\n\nCARD_TEXT\n\nRULES_TEXT\n\nFORMAT_TEXT');
 });
 
-test('buildRequest: a reply in <chat> quotes its parent cut to context.replyQuoteChars', () => {
+test('buildRequest: a reply in <chat> quotes its parent cut at a word to 80 characters', () => {
+  // PR 7d: context.replyQuoteChars is the constant 80 (the production value).
+  const parent = 'je préfère les penalties '.repeat(5).trim();
   const history = [
-    makeMessage('1', NOW - 2 * MIN, { self: true, content: 'je préfère les penalties' }),
+    makeMessage('1', NOW - 2 * MIN, { self: true, content: parent }),
     makeMessage('2', NOW - MIN, { replyToId: '1', content: 'ah bon' }),
   ];
-  const request = buildRequest(baseInput({ history, config: fakeConfig({ context: { replyQuoteChars: 14 } }) }));
+  const request = buildRequest(baseInput({ history }));
   const text = contentText(request.messages[1].content);
+  const quote = `${'je préfère les penalties '.repeat(3)}je…`;
   assert.ok(
-    text.includes(
-      `User2: ah bon ${fill(labels.transcript.replyTo, { index: 1, author: 'Nept (you)', quote: 'je préfère…' })}`
-    ),
+    text.includes(`User2: ah bon ${fill(labels.transcript.replyTo, { index: 1, author: 'Nept (you)', quote })}`),
     text
   );
 });
@@ -837,11 +844,6 @@ test('buildRequest: the cached interlocutor profile is byte-identical across pre
   const cat = withAvatar({}, { hash: 'h2', text: 'a sleeping cat', describedAt: '2026-10-15T10:00:00.000Z' });
   assert.equal(cat, shownAvatar.replace(fox.text, 'a sleeping cat'), 'a new avatar changes that line alone');
   assert.ok(withAvatar({}, { hash: null, default: true }).includes(`\n${labels.profile.avatarDefault}\n`));
-  // Switched off, a stored avatar shows nothing and the cached profile is as before.
-  assert.equal(
-    profilesPart(buildRequest(segmentScene({ interlocutor: { ...interlocutor, avatar: fox }, around: glance() }))),
-    cached
-  );
 });
 
 test('renderProfile: the avatar line under features.avatars, full and compact; an avatar alone is nothing learned', () => {
@@ -877,8 +879,9 @@ test('renderProfile: the avatar line under features.avatars, full and compact; a
 test('buildRequest: a profile is the same all day long: the stale and replaced-claim marks change only with the day', () => {
   const DAY = 24 * HOUR;
   const dayStart = Math.floor(NOW / DAY) * DAY;
-  // Stale after 30 days: last seen 30 days before the start of the day, plus an hour.
-  const lastSeen = new Date(dayStart - 30 * DAY + HOUR).toISOString();
+  // PR 7d: memory.interestStaleDays is the constant 90. Stale after 90 days: last seen 90 days before the start of the
+  // day, plus an hour.
+  const lastSeen = new Date(dayStart - 90 * DAY + HOUR).toISOString();
   // A replaced claim rides on its successor for 7 days from the successor's recording.
   const recordedAt = new Date(dayStart - 7 * DAY + HOUR).toISOString();
   const interlocutor = {
@@ -904,7 +907,6 @@ test('buildRequest: a profile is the same all day long: the stale and replaced-c
   const at = (now) =>
     buildRequest(
       baseInput({
-        config: fakeConfig({ memory: { interestStaleDays: 30 } }),
         now,
         history: [trigger],
         trigger,
@@ -940,7 +942,7 @@ function cacheScene({ triggerFields, config: configOverrides = {}, ...overrides 
   return segmentScene({
     config: fakeConfig({
       memory: { interestStaleDays: 30, confirmAfter: 2 },
-      features: { webLookup: true, mediaDescriptions: true, privateMessages: true, ...configOverrides.features },
+      private: { enabled: true },
       context: { customEmoji: { max: 2 } },
     }),
     triggerFields: { content: 'ωραίο :pog:', emojis: [{ id: '9', name: 'pog' }], ...triggerFields },
@@ -994,7 +996,6 @@ test('buildRequest: the senses lines are the ones of one block, only moved; <emo
     S.imageDescribed,
     S.gifDescribed,
     S.videoWatch,
-    S.videoRewatch,
     S.stickerDescribed,
     S.lottie,
     S.customEmoji,
@@ -1002,8 +1003,6 @@ test('buildRequest: the senses lines are the ones of one block, only moved; <emo
     S.voice,
     S.linksWatch,
     S.linksRead,
-    S.search,
-    S.recall,
     S.draw,
     S.files,
     S.time,
@@ -1012,7 +1011,7 @@ test('buildRequest: the senses lines are the ones of one block, only moved; <emo
     fill(S.diary, { channel: 'ημερολόγιο' }),
     S.privateAware,
   ];
-  const perTurn = new Set([S.recall, S.draw]);
+  const perTurn = new Set([S.draw]);
   const body = (blocks, tag) => blocks.find((b) => b.tag === tag).body.split('\n');
   assert.deepEqual(
     body(stableBlocks, 'senses'),
@@ -1198,13 +1197,13 @@ test('hasRequiredLabels: an object with transcript passes; anything else fails',
   }
 });
 
-test('buildRequest: a neighbour message is cut at context.neighborMessageChars', () => {
+test('buildRequest: a neighbour message is cut at 300 characters', () => {
+  // PR 7d: context.neighborMessageChars is the constant 300 (the production value).
   const long = 'λ'.repeat(400);
   const neighbors = [{ channelName: 'general', messages: [makeMessage(9, NOW - 5 * MIN, { content: long })] }];
-  const config = fakeConfig({ context: { neighborMessageChars: 20 } });
-  const user = contentText(buildRequest(baseInput({ config, neighbors })).messages[1].content);
+  const user = contentText(buildRequest(baseInput({ neighbors })).messages[1].content);
   const cut = user.split('<other_channels>\n')[1].split('\n</other_channels>')[0];
-  assert.ok(cut.includes('λ'.repeat(20)) && !cut.includes('λ'.repeat(21)), cut);
+  assert.ok(cut.includes('λ'.repeat(300)) && !cut.includes('λ'.repeat(301)), cut);
 });
 
 /** The `<other_channels>` body of a request built from `overrides`. */
@@ -1270,7 +1269,7 @@ test('buildRequest: under a tiny token budget, neighbours and other profiles are
       // 340 was tight enough before the <senses> block grew a few lines
       // (stickers/lottie, part of the always-kept "fixed" section) so the
       // budget needs a little more headroom to still leave room for chat.
-      config: fakeConfig({ llm: { maxRequestTokens: 400, safetyMargin: 1 } }),
+      config: fakeConfig({ llm: { maxRequestTokens: exactly(400) } }),
     })
   );
 
@@ -1281,14 +1280,14 @@ test('buildRequest: under a tiny token budget, neighbours and other profiles are
   assert.ok(user.includes('message number 10'));
 });
 
-test('buildRequest: total token usage never exceeds maxRequestTokens * safetyMargin', () => {
+test('buildRequest: total token usage never exceeds maxRequestTokens * the safety margin', () => {
   const history = [];
   for (let i = 1; i <= 30; i += 1) {
     history.push(makeMessage(i, NOW - (31 - i) * MIN, { content: 'word '.repeat(20) }));
   }
-  const config = fakeConfig({ llm: { maxRequestTokens: 500, safetyMargin: 0.8 } });
+  const config = fakeConfig({ llm: { maxRequestTokens: 500 } });
   const request = buildRequest(baseInput({ history, config }));
-  const cap = config.llm.maxRequestTokens * config.llm.safetyMargin;
+  const cap = config.llm.maxRequestTokens * SAFETY_MARGIN;
   assert.ok(request.stats.used <= cap, `used ${request.stats.used} must be <= cap ${cap}`);
 });
 
@@ -1343,9 +1342,7 @@ test('prompt: returns the ids of the kept window, the parents and the previewed 
   const history = [makeMessage('p0', NOW - 40 * MIN, { replyParent: true, content: 'word '.repeat(20) })];
   for (let i = 1; i <= 10; i += 1)
     history.push(makeMessage(`n${i}`, NOW - (11 - i) * MIN, { content: 'word '.repeat(20) }));
-  const tight = buildRequest(
-    baseInput({ history, config: fakeConfig({ llm: { maxRequestTokens: 400, safetyMargin: 1 } }) })
-  );
+  const tight = buildRequest(baseInput({ history, config: fakeConfig({ llm: { maxRequestTokens: exactly(400) } }) }));
   assert.ok(tight.stats.chat.dropped > 0, 'the chat is trimmed');
   assert.equal(tight.seen.messageIds.length, tight.stats.chat.kept);
   assert.deepEqual(
@@ -1363,7 +1360,7 @@ test('buildRequest: idByIndex still covers messages later trimmed out of the ren
   }
   // 340 was tight enough before <senses> gained the channels line (part of
   // the always-kept "fixed" section); 400 still trims the chat.
-  const config = fakeConfig({ llm: { maxRequestTokens: 400, safetyMargin: 1 } });
+  const config = fakeConfig({ llm: { maxRequestTokens: exactly(400) } });
   const request = buildRequest(baseInput({ history, config }));
   assert.ok(request.stats.chat.dropped > 0, 'the chat is trimmed');
   // idByIndex is built from the FULL transcript, before trimming.
@@ -1492,7 +1489,7 @@ test('buildRequest: under a tiny server cap, the map is trimmed but <chat> still
     fakeChannel('c2', { name: 'random', purpose: 'y'.repeat(200), lastMessageAt: NOW - MIN }),
   ];
   const neighbors = [{ channelId: 'c2', channelName: 'random', messages: [makeMessage(20, NOW - MIN)] }];
-  const config = fakeConfig({ llm: { maxRequestTokens: 360, safetyMargin: 1 } });
+  const config = fakeConfig({ llm: { maxRequestTokens: exactly(360) } });
   const request = buildRequest(baseInput({ history, channels, neighbors, currentChannelId: 'c1', config }));
 
   assert.equal(request.stats.server.kept, 0);
@@ -2226,26 +2223,20 @@ test('buildRequest: the stable <senses> lines lead the stable part, the per-turn
   assert.equal(sensesHalves(request).turn, labels.senses.draw);
 });
 
-test('buildRequest: mediaDescriptions on -> described forms replace the blind ones', () => {
-  // videoDescriptions off pins the still-frame video line (with it on, the
-  // video line becomes videoWatch -- see the video-watching tests below).
-  const config = fakeConfig({ features: { mediaDescriptions: true, videoDescriptions: false } });
-  const request = buildRequest(baseInput({ config }));
-  const senses = sensesOf(request);
+test('buildRequest: the senses carry the described forms of pictures, GIFs and videos', () => {
+  // PR 7d: the descriptions are code, so there are no blind forms and the video line is videoWatch.
+  const senses = sensesOf(buildRequest(baseInput()));
   assert.ok(senses.includes(labels.senses.imageDescribed));
   assert.ok(senses.includes(labels.senses.gifDescribed));
-  assert.ok(senses.includes(labels.senses.videoDescribed));
-  assert.ok(!senses.includes(labels.senses.imageBlind));
-  assert.ok(!senses.includes(labels.senses.gifBlind));
-  assert.ok(!senses.includes(labels.senses.videoBlind));
+  assert.ok(senses.includes(labels.senses.videoWatch));
+  assert.ok(!senses.includes(labels.senses.videoDescribed));
 });
 
 // --- <senses>: GIF watching -------------------------------------------------------
 
 /** The GIF line of a request's <senses> block under `config` and `prompts` overrides. */
-function gifSenses({ features = {}, media, prompts = {}, labelsOverride } = {}) {
-  const config = fakeConfig({ features: { mediaDescriptions: true, ...features } });
-  config.media = media ?? { gif: { watch: true } };
+function gifSenses({ prompts = {}, labelsOverride } = {}) {
+  const config = fakeConfig();
   const promptSet = fakePrompts({ ...(labelsOverride ? { labels: labelsOverride } : {}), ...prompts });
   return sensesOf(buildRequest(baseInput({ config, prompts: promptSet }))).split('\n');
 }
@@ -2259,17 +2250,11 @@ test('buildRequest: GIFs watched (video vision on, a watch prompt) -> senses.gif
     const lines = gifSenses({ prompts });
     assert.ok(lines.includes(labels.senses.gifWatched), JSON.stringify(Object.keys(prompts)));
     assert.ok(!lines.includes(labels.senses.gifDescribed));
-    assert.ok(!lines.includes(labels.senses.gifBlind));
   }
 });
 
 test('buildRequest: GIFs not watched -> senses.gifDescribed', () => {
-  const states = [
-    { prompts: {} },
-    { prompts: { 'describe-video': '' } },
-    { prompts: { 'describe-video': 'V' }, media: { gif: { watch: false } } },
-    { prompts: { 'describe-video': 'V' }, features: { videoDescriptions: false } },
-  ];
+  const states = [{ prompts: {} }, { prompts: { 'describe-video': '' } }];
   for (const state of states) {
     const lines = gifSenses(state);
     assert.ok(lines.includes(labels.senses.gifDescribed), JSON.stringify(state));
@@ -2286,20 +2271,17 @@ test('buildRequest: an older labels.json without senses.gifWatched keeps senses.
 
 // --- <senses>: video watching ---------------------------------------------------
 
-test('buildRequest: mediaDescriptions and videoDescriptions on -> videoWatch and linksWatch', () => {
-  const config = fakeConfig({ features: { mediaDescriptions: true } });
-  const senses = sensesOf(buildRequest(baseInput({ config })));
+test('buildRequest: the senses carry videoWatch and linksWatch', () => {
+  const senses = sensesOf(buildRequest(baseInput()));
   assert.ok(senses.includes(labels.senses.videoWatch));
   assert.ok(senses.includes(labels.senses.linksWatch));
   assert.ok(!senses.includes(labels.senses.videoDescribed));
-  assert.ok(!senses.includes(labels.senses.videoBlind));
   assert.ok(!senses.split('\n').includes(labels.senses.links));
 });
 
 test('buildRequest: an older labels set without videoWatch/linksWatch falls back to videoDescribed/links', () => {
   const oldLabels = { ...labels, senses: { ...labels.senses, videoWatch: undefined, linksWatch: undefined } };
-  const config = fakeConfig({ features: { mediaDescriptions: true } });
-  const senses = sensesOf(buildRequest(baseInput({ config, prompts: fakePrompts({ labels: oldLabels }) })));
+  const senses = sensesOf(buildRequest(baseInput({ prompts: fakePrompts({ labels: oldLabels }) })));
   assert.ok(senses.includes(labels.senses.videoDescribed));
   assert.ok(senses.split('\n').includes(labels.senses.links));
 });
@@ -2313,21 +2295,19 @@ test('buildRequest: <senses> is omitted entirely when labels has no senses secti
 
 // --- <senses>: stickers/Lottie -----------------------------------------------
 
-test('buildRequest: mediaDescriptions on -> stickerDescribed replaces stickerBlind, lottie still shown', () => {
-  const config = fakeConfig({ features: { mediaDescriptions: true } });
-  const request = buildRequest(baseInput({ config }));
+test('buildRequest: the senses carry stickerDescribed and lottie', () => {
+  const request = buildRequest(baseInput());
   const senses = sensesOf(request);
   assert.ok(senses.includes(labels.senses.stickerDescribed));
-  assert.ok(!senses.includes(labels.senses.stickerBlind));
   assert.ok(senses.includes(labels.senses.lottie));
 });
 
 test('buildRequest: an older labels.json with no sticker senses keys omits them (and lottie) without breaking the rest', () => {
-  const oldLabels = { ...labels, senses: { ...labels.senses, stickerDescribed: undefined, stickerBlind: undefined } };
+  const oldLabels = { ...labels, senses: { ...labels.senses, stickerDescribed: undefined } };
   const request = buildRequest(baseInput({ prompts: fakePrompts({ labels: oldLabels }) }));
   const senses = sensesOf(request);
   assert.ok(!senses.includes(labels.senses.lottie));
-  assert.ok(senses.includes(labels.senses.imageBlind));
+  assert.ok(senses.includes(labels.senses.imageDescribed));
 });
 
 // --- <lore> ------------------------------------------------------------------
@@ -3055,7 +3035,7 @@ test('people: near the request limit an asked-about member keeps her place and l
   const ahead = loose.used - peopleSide(loose);
   // A limit leaving <people> exactly `room` tokens (safetyMargin 1, no picture, 60 for the tags).
   const tight = (room, askedAboutEpisodes) =>
-    scene({ maxRequestTokens: ahead + room + 60, safetyMargin: 1 }, askedAboutEpisodes);
+    scene({ maxRequestTokens: exactly(ahead + room + 60) }, askedAboutEpisodes);
 
   const rest = renderProfile({ id: 'z1', names: ['Zoé'], character: 'rêveuse' }, labels, {
     relationships: true,
@@ -3937,20 +3917,20 @@ test('buildRequest: privateChat keeps other profiles public-only', () => {
 });
 
 test('buildRequest: <senses> carries senses.privateChat in a private chat, never senses.privateAware', () => {
-  for (const privateMessages of [true, false, undefined]) {
-    const config = fakeConfig({ features: { privateMessages } });
+  for (const enabled of [true, false, undefined]) {
+    const config = fakeConfig({ private: { enabled } });
     const senses = sensesOf(buildRequest(privateScene({ config })));
     assert.ok(senses.includes(labels.senses.privateChat));
     assert.ok(!senses.includes(labels.senses.privateAware));
   }
 });
 
-test('buildRequest: <senses> carries senses.privateAware outside a private chat only when features.privateMessages is true', () => {
-  const on = sensesOf(buildRequest(baseInput({ config: fakeConfig({ features: { privateMessages: true } }) })));
+test('buildRequest: <senses> carries senses.privateAware outside a private chat only when private.enabled is true', () => {
+  const on = sensesOf(buildRequest(baseInput({ config: fakeConfig({ private: { enabled: true } }) })));
   assert.ok(on.includes(labels.senses.privateAware));
   assert.ok(!on.includes(labels.senses.privateChat));
-  for (const privateMessages of [false, undefined, 'yes']) {
-    const senses = sensesOf(buildRequest(baseInput({ config: fakeConfig({ features: { privateMessages } }) })));
+  for (const enabled of [false, undefined, 'yes']) {
+    const senses = sensesOf(buildRequest(baseInput({ config: fakeConfig({ private: { enabled } }) })));
     assert.ok(!senses.includes(labels.senses.privateAware));
     assert.ok(!senses.includes(labels.senses.privateChat));
   }
@@ -4477,7 +4457,7 @@ test('buildRequest: senses carry the channels line on server turns and the elsew
 
   const withDestination = lines({
     elsewhereDestination: { name: 'général' },
-    config: fakeConfig({ features: { privateMessages: true } }),
+    config: fakeConfig({ private: { enabled: true } }),
   });
   const at = withDestination.indexOf(labels.senses.channels);
   assert.deepEqual(withDestination.slice(at, at + 3), [
@@ -4878,7 +4858,7 @@ test('prompt: the recent section is trimmed after chat and before people', () =>
   const { stats } = loose;
   assert.ok(stats.people.used > 0 && stats.recent.used > 0 && stats.chat.used > 0);
   // A limit with room for everything but <people> (safetyMargin 1, no picture, 60 for the tags).
-  const tight = (room) => scene({ maxRequestTokens: room + 60, safetyMargin: 1 });
+  const tight = (room) => scene({ maxRequestTokens: exactly(room + 60) });
 
   const noPeople = tight(stats.used - peopleSide(stats));
   assert.equal(recentOf(noPeople), recentOf(loose), 'the recent block outranks <people>');
@@ -5081,7 +5061,7 @@ test('recent view: at a binding request limit <recent> never takes the room <peo
   const ahead = loose.request.stats.used - firstRecent - peopleSide(loose.request.stats);
   // A limit leaving `room` after the sections ahead of <people> (safetyMargin 1, no picture, 60 for the tags).
   const tight = (room) =>
-    askedZoeScene({ episodes, llm: { maxRequestTokens: ahead + firstRecent + room + 60, safetyMargin: 1 } });
+    askedZoeScene({ episodes, llm: { maxRequestTokens: exactly(ahead + firstRecent + room + 60) } });
   const shortTwo = entry('ζ1 στιγμή') + entry('ζ2 στιγμή');
   assert.ok(
     entry(long(4)) > shortTwo && entry(long(4)) <= shortTwo + itemCost(zoeWith(1), zoe),
@@ -5147,7 +5127,7 @@ test('recent view: the room <recent> frees never costs a member asked about thei
     'precondition: Maxime fits the freed room, not with Léa'
   );
 
-  const request = scene({ maxRequestTokens: ahead + loose.recent.used + room + 60, safetyMargin: 1 });
+  const request = scene({ maxRequestTokens: exactly(ahead + loose.recent.used + room + 60) });
   assert.equal(request.stats.recent.used, loose.recent.used - freed, 'the room <recent> freed');
   assert.equal(
     bodyOf(userText(request), 'people'),
@@ -5264,7 +5244,7 @@ test("recent view: an interlocutor's moment her own block does not show comes ba
   const loose = bigScene({}).stats;
   const without = loose.used - loose.interlocutor.used + cost(RECENT_HEADER) + cost(lightText);
   assert.ok(loose.interlocutor.used > without - loose.fixed.used, 'her block costs more than all the rest');
-  const dropped = bigScene({ maxRequestTokens: without + 60, safetyMargin: 1 });
+  const dropped = bigScene({ maxRequestTokens: exactly(without + 60) });
   assert.equal(dropped.stats.interlocutor.kept, 0);
   assert.equal(recentOf(dropped), [RECENT_HEADER, lightText].join('\n'));
   assert.equal(dropped.recent.repeated, 0);
@@ -5454,8 +5434,7 @@ test('prompt: near the request limit the recent block is cut, never a token-limi
   const lines = [1, 2, 3].map((id) => recentLine(id, { at: NOW - id * HOUR, text: `η σημείωση ${id} για όσα έγιναν` }));
   const loose = buildRequest(recentScene({ lines })).stats;
   const ahead = loose.used - loose.recent.used;
-  const tight = (room) =>
-    buildRequest(recentScene({ lines, llm: { maxRequestTokens: ahead + room + 60, safetyMargin: 1 } }));
+  const tight = (room) => buildRequest(recentScene({ lines, llm: { maxRequestTokens: exactly(ahead + room + 60) } }));
 
   const fewer = tight(loose.recent.used - 1);
   assert.equal(fewer.recent.lines, 2);
@@ -5630,11 +5609,11 @@ test('attitudes: a private chat gets the block from the public profiles, its par
 });
 
 test('attitudes: a tight budget drops the block whole, after the chat and the people', () => {
-  const roomy = buildRequest(attitudesScene({ attitudes: 6, llm: { safetyMargin: 1 } }));
+  const roomy = buildRequest(attitudesScene({ attitudes: 6 }));
   assert.ok(roomy.stats.attitudes.used > 0);
   // Room for everything but the block's last token (the tags take 60): the block goes, nothing ahead of it is cut.
   const tight = buildRequest(
-    attitudesScene({ attitudes: 6, llm: { maxRequestTokens: roomy.stats.used - 1 + 60, safetyMargin: 1 } })
+    attitudesScene({ attitudes: 6, llm: { maxRequestTokens: exactly(roomy.stats.used - 1 + 60) } })
   );
   assert.equal(attitudesOf(tight), null);
   assert.deepEqual([tight.stats.attitudes.kept, tight.stats.attitudes.dropped], [0, 1]);
@@ -6675,7 +6654,7 @@ test('buildRequest: people_now -- context.around.maxTokens caps the people in vo
   const whole = buildRequest(aroundScene());
   const tight = fakeConfig({
     memory: { interestStaleDays: 30, confirmAfter: 2 },
-    llm: { maxRequestTokens: whole.stats.fixed.used + 100, safetyMargin: 1 },
+    llm: { maxRequestTokens: exactly(whole.stats.fixed.used + 100) },
   });
   const squeezed = buildRequest(aroundScene({ config: tight }));
   assert.equal(fieldsOf(rowOf(squeezed, 'Alice'))[F.activity], 'playing Chess', 'the interlocutor entry survives');
@@ -6696,7 +6675,7 @@ test('buildRequest: people_now -- the people in voice are the lowest priority: t
     })
   );
   assert.equal(whole.stats.chat.dropped, 0);
-  const config = fakeConfig({ llm: { maxRequestTokens: whole.stats.used + 60 + 5, safetyMargin: 1 } });
+  const config = fakeConfig({ llm: { maxRequestTokens: exactly(whole.stats.used + 60 + 5) } });
   const withVoice = buildRequest(segmentScene({ history: messages, config, around: aroundInput() }));
   assert.equal(withVoice.stats.chat.dropped, 0, 'no chat line gives way to the people in voice');
   assert.ok(withVoice.stats.around.dropped > 0, 'the people in voice give way');
