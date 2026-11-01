@@ -290,7 +290,7 @@
         "complexity": 23
       }
     },
-    "src/memory/db/describe.js": {
+    "src/memory/db/describe.ts": {
       "gatherReview": {
         "complexity": 27
       },
@@ -298,12 +298,12 @@
         "complexity": 24
       }
     },
-    "src/memory/db/diary-media.js": {
+    "src/memory/db/diary-media.ts": {
       "createDiaryMedia>handleRow": {
         "complexity": 30
       }
     },
-    "src/memory/db/focus.js": {
+    "src/memory/db/focus.ts": {
       "decideFocus": {
         "complexity": 59
       },
@@ -311,17 +311,17 @@
         "complexity": 23
       }
     },
-    "src/memory/db/index-policy.js": {
+    "src/memory/db/index-policy.ts": {
       "classify": {
-        "complexity": 25
+        "complexity": 24
       }
     },
-    "src/memory/db/observe-event.js": {
+    "src/memory/db/observe-event.ts": {
       "observationOf": {
         "complexity": 29
       }
     },
-    "src/memory/db/observe.js": {
+    "src/memory/db/observe.ts": {
       "checkEnvelope": {
         "complexity": 104
       },
@@ -335,7 +335,7 @@
         "complexity": 41
       }
     },
-    "src/memory/db/recall.js": {
+    "src/memory/db/recall.ts": {
       "search": {
         "complexity": 23
       },
@@ -343,14 +343,14 @@
         "complexity": 23
       }
     },
-    "src/memory/db/rows.js": {
+    "src/memory/db/rows.ts": {
       "deriveRow": {
         "complexity": 43
       }
     },
-    "src/memory/db/service.js": {
+    "src/memory/db/service.ts": {
       "createMemoryDb": {
-        "function-length": 1109
+        "function-length": 1095
       },
       "createMemoryDb>sessionJob": {
         "complexity": 30
@@ -359,7 +359,7 @@
         "complexity": 23
       }
     },
-    "src/memory/db/session-write.js": {
+    "src/memory/db/session-write.ts": {
       "applyClaim": {
         "complexity": 21
       },
@@ -367,7 +367,7 @@
         "complexity": 45
       }
     },
-    "src/memory/db/session.js": {
+    "src/memory/db/session.ts": {
       "buildSessionRequest": {
         "complexity": 36
       },
@@ -381,7 +381,7 @@
         "complexity": 53
       }
     },
-    "src/memory/db/unit-write.js": {
+    "src/memory/db/unit-write.ts": {
       "writeLines": {
         "complexity": 23
       }
@@ -827,28 +827,28 @@
       "src/media/classify.js",
       "src/media/gif-post.js",
       "src/memory/avatar-queue.js",
-      "src/memory/db/export.js",
-      "src/memory/db/graph-manifest.js",
-      "src/memory/db/map/channel.js",
-      "src/memory/db/map/common.js",
-      "src/memory/db/map/errands.js",
-      "src/memory/db/map/index.js",
-      "src/memory/db/map/intentions.js",
-      "src/memory/db/map/lists.js",
-      "src/memory/db/map/requests.js",
-      "src/memory/db/map/scope-parts.js",
-      "src/memory/db/map/scope-string.js",
-      "src/memory/db/map/versions.js",
-      "src/memory/db/readers/common.js",
-      "src/memory/db/rows.js",
-      "src/memory/db/schema.js",
-      "src/memory/db/session-write.js",
-      "src/memory/db/stems.js",
-      "src/memory/db/unit-outbox.js",
-      "src/memory/db/unit-write.js",
-      "src/memory/db/upsert.js",
-      "src/memory/db/writer-switch.js",
-      "src/memory/db/writer-worker.js",
+      "src/memory/db/export.ts",
+      "src/memory/db/graph-manifest.ts",
+      "src/memory/db/map/channel.ts",
+      "src/memory/db/map/common.ts",
+      "src/memory/db/map/errands.ts",
+      "src/memory/db/map/index.ts",
+      "src/memory/db/map/intentions.ts",
+      "src/memory/db/map/lists.ts",
+      "src/memory/db/map/requests.ts",
+      "src/memory/db/map/scope-parts.ts",
+      "src/memory/db/map/scope-string.ts",
+      "src/memory/db/map/versions.ts",
+      "src/memory/db/readers/common.ts",
+      "src/memory/db/rows.ts",
+      "src/memory/db/schema.ts",
+      "src/memory/db/session-write.ts",
+      "src/memory/db/stems.ts",
+      "src/memory/db/unit-outbox.ts",
+      "src/memory/db/unit-write.ts",
+      "src/memory/db/upsert.ts",
+      "src/memory/db/writer-switch.ts",
+      "src/memory/db/writer-worker.ts",
       "src/memory/index.js",
       "src/memory/update.js",
       "src/protocol/actions.js",

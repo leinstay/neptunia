@@ -69,7 +69,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/board/fields.ts` | public | The checks of a board operation's arguments and the auto-triage settings. Tested through the board tests. | `node:*`, `src/board/**` | none |
 | `src/board/text.ts` | public | The plain text of a board answer, as the ledger's command line printed it. Tested through the board commands tests. | `node:*`, `src/board/**` | none |
 | `src/board/writer.ts` | public | The board's writes as writes of the memory writer, and the core's board port over them. Tested through the core board socket tests. | `node:*`, `src/board/**` | none |
-| `src/health/` | public | The three parts of the owner's `/health`: the server, the core and the memory, each judged by a pure function over a probe or the memory database. | `node:*`, `src/health/**`, `src/memory/db/backup.js` | required |
+| `src/health/` | public | The three parts of the owner's `/health`: the server, the core and the memory, each judged by a pure function over a probe or the memory database. | `node:*`, `src/health/**`, `src/memory/db/backup.ts` | required |
 | `src/behavior/` | public | What a turn does: the pipeline, triggers, prefetch, prompt assembly, recall, the inner turn and the heartbeat. | `node:*`, `src/**` | required |
 | `src/behavior/inner/types.ts` | public | The shapes the inner life modules share. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |
 | `src/behavior/inner/settings.ts` | public | The inner life's settings: the wake kinds, the `innerLife` defaults and `innerSettings`. Tested through the inner life tests. | `node:*`, `src/**` | none |
