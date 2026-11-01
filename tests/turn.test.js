@@ -368,28 +368,10 @@ function identityCalibrator() {
   return { ratio: 1, apply: (n) => n, observe: () => {} };
 }
 
-// The switches that count as on when their key is missing, set here so no test leans on that fallback.
-const SWITCHES_ON = {
-  memory: true,
-  reactions: true,
-  multiMessage: true,
-  typingSimulation: true,
-  customEmoji: true,
-  gifs: true,
-  imageGeneration: true,
-  channelPull: true,
-  elsewhere: true,
-  recent: true,
-  videoRewatch: true,
-  imageRelook: true,
-  videoDescriptions: true,
-  privateLikeServer: true,
-};
-
 function fakeHot(featureOverrides = {}, botOverrides = {}, configOverrides = {}) {
   return {
     config: {
-      bot: { timezone: 'UTC', dryRunChannelId: '', ...botOverrides },
+      bot: { timezone: 'UTC', ...botOverrides },
       context: {
         channelMessages: 100,
         neighborMessages: 5,
@@ -404,7 +386,7 @@ function fakeHot(featureOverrides = {}, botOverrides = {}, configOverrides = {})
       },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      features: { ...SWITCHES_ON, ...featureOverrides },
+      features: { ...featureOverrides },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
       ...configOverrides,
@@ -749,7 +731,7 @@ test('createTurnRunner: features.videoDescriptions on -- videos newest first, ca
   const newer = rawMessage({ id: 'm2', ts: NOW - 1000, content: 'look https://www.youtube.com/watch?v=abc' });
   const channel = fakeTurnChannel({ historyMessages: [older, newer] });
   const llm = fakeLlm('<msg>ok</msg>');
-  const hot = fakeHot({ mediaDescriptions: true, videoDescriptions: true }, {}, VIDEO_TURN_CONFIG);
+  const hot = fakeHot({}, {}, VIDEO_TURN_CONFIG);
   const describer = fakeVideoDescriber({ va: { state: 'watched', text: 'κάποιος χορεύει' } });
   const turns = createTurnRunner({
     discord: DISCORD,
@@ -773,7 +755,8 @@ test('createTurnRunner: features.videoDescriptions on -- videos newest first, ca
     'the newest message first; the typed video link is found because fetchHistory got media.video.sites'
   );
   assert.equal(items[1].itemId, 'va');
-  assert.deepEqual(options, { maxNew: 1 }, 'every describer request counts: no daily-cap option is passed');
+  // PR 7d: media.video.maxPerTurn is the constant VIDEOS_PER_TURN (5, the production value).
+  assert.deepEqual(options, { maxNew: 5 }, 'every describer request counts: no daily-cap option is passed');
   const userMessage = textOf(llm.calls[0][1].content);
   const watched = labels.transcript.videoWatched
     .replace('{name}', 'older.mp4')
@@ -792,7 +775,7 @@ test('createTurnRunner: features.mediaDescriptions on describes an un-attached p
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<msg>ok</msg>');
   const store = fakeStore();
-  const hot = fakeHot({ mediaDescriptions: true });
+  const hot = fakeHot({});
   const describer = fakeDescriber({ img1: 'a grey cat' });
   const turns = createTurnRunner({
     discord: DISCORD,
@@ -870,7 +853,7 @@ function userText(llm) {
 }
 
 test("createTurnRunner: the trigger's picture is captioned by the describer and never sent as an image_url part", async () => {
-  const { channel, llm, describer, turns, trigger } = pictureTurn({ features: { mediaDescriptions: true } });
+  const { channel, llm, describer, turns, trigger } = pictureTurn({ features: {} });
 
   await turns.runTurn({ channel, mode: 'reply', trigger, triggerKind: 'mention' });
 
@@ -893,7 +876,7 @@ test("createTurnRunner: the trigger's picture is captioned by the describer and 
 
 test('createTurnRunner: captions go newest message first, media.maxPerTurn still caps new captions', async () => {
   const { channel, llm, describer, turns, trigger } = pictureTurn({
-    features: { mediaDescriptions: true },
+    features: {},
     media: { maxPerTurn: 1, filePreviewChars: 500 },
     newer: true,
   });
@@ -906,10 +889,11 @@ test('createTurnRunner: captions go newest message first, media.maxPerTurn still
     ['o1', 'i1'],
     'the newest picture first'
   );
-  assert.equal(describer.calls[0].options.maxNew, 1);
+  // PR 7d: media.maxPerTurn is the constant MEDIA_PER_TURN (6, the production value), so both pictures are captioned.
+  assert.equal(describer.calls[0].options.maxNew, 6);
   const text = userText(llm);
   assert.ok(text.includes(labels.transcript.imageDescribed.replace('{text}', 'a red fox')));
-  assert.ok(!text.includes('a grey cat'), 'the one new caption of this turn went to the newest picture');
+  assert.ok(text.includes(labels.transcript.imageDescribed.replace('{text}', 'a grey cat')));
 });
 
 test('createTurnRunner: features.mediaDescriptions on describes a picture-format sticker via the same describer/cache path', async () => {
@@ -920,7 +904,7 @@ test('createTurnRunner: features.mediaDescriptions on describes a picture-format
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<msg>ok</msg>');
   const store = fakeStore();
-  const hot = fakeHot({ mediaDescriptions: true });
+  const hot = fakeHot({});
   const describer = fakeDescriber({ 'sticker:s1': 'a frog gives a thumbs up' });
   const turns = createTurnRunner({
     discord: DISCORD,
@@ -950,7 +934,7 @@ test('createTurnRunner: features.mediaDescriptions on describes a custom emoji i
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<msg>ok</msg>');
   const store = fakeStore();
-  const hot = fakeHot({ mediaDescriptions: true });
+  const hot = fakeHot({});
   const describer = fakeDescriber({ 'emoji:111': 'a surprised cat face' });
   const turns = createTurnRunner({
     discord: DISCORD,
@@ -1240,11 +1224,6 @@ test('createTurnRunner: a video in the trigger renders by its tag, nothing is do
   assert.ok(textOf(parts).includes('[video: clip.mp4, 0:34]'), 'the video renders by its tag');
 });
 
-// ---------------------------------------------------------------------------
-// features.dryRun -- the persona thinks and decides for real, but never
-// touches the target channel; instead it logs, and optionally mirrors, what
-// it would have done.
-
 /** fakeStore whose guild keeps `pingsOff`, the members who turned the persona's notifications off. */
 function storeWithPingsOff(pingsOff) {
   const store = fakeStore();
@@ -1359,108 +1338,6 @@ test('runTurn: a member of the directory not in view is mentioned by the handle 
   );
   assert.equal(channel.sent[0].content, '<@u5> @Τάκης ναι', 'the alias written as a name stays text');
   assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u5'], repliedUser: true });
-});
-
-/** One reply turn in c1 whose served guild's member cache holds `members` (the fallback directory of features.mentionHandles off). */
-async function runDirectoryTurn(store, answer, members) {
-  const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice' });
-  const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
-  for (const member of members)
-    world().member(channel.guildId, { ...member, name: member.displayName, bot: member.user.bot });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot: fakeHot({ mentionHandles: false }),
-    store,
-    llm: fakeLlm(answer),
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-  });
-  const result = await turns.runTurn({
-    channel,
-    mode: 'reply',
-    trigger: normalizedTrigger(raw),
-    triggerKind: 'mention',
-  });
-  assert.equal(result.outcome, 'spoke');
-  return channel;
-}
-
-test("runTurn: @name of a member nowhere in the request resolves through the guild's member cache and stored profiles", async () => {
-  const store = storeWithPingsOff([]);
-  store.listUserProfiles = () => [{ id: 'u5', names: ['Ταξιάρχης'], aliases: [] }];
-  const members = [
-    cachedMember('u4', { username: 'zoe', globalName: 'Zoé' }),
-    cachedMember('b1', { username: 'HelperBot', bot: true }),
-    cachedMember('self-id', { username: 'Bot' }),
-  ];
-  const channel = await runDirectoryTurn(store, '<msg>@zoé @Ταξιάρχης @HelperBot @Bot ναι</msg>', members);
-
-  assert.equal(channel.sent[0].content, '<@u4> <@u5> @HelperBot @Bot ναι');
-  assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u4', 'u5'], repliedUser: true });
-});
-
-test('runTurn: a member resolved through the fallback directory with pings off is mentioned without a ping', async () => {
-  const channel = await runDirectoryTurn(storeWithPingsOff(['u4']), '<msg>@Zoé ναι</msg>', [
-    cachedMember('u4', { username: 'zoe', globalName: 'Zoé' }),
-  ]);
-
-  assert.equal(channel.sent[0].content, '<@u4> ναι');
-  assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: [], repliedUser: true });
-});
-
-test('createTurnRunner: features.dryRun=true swallows a mirror channel failure and still finishes the turn', async () => {
-  const raw = rawMessage({ id: 'm1' });
-  const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
-  const llm = fakeLlm('<msg>hello</msg>');
-  const store = fakeStore();
-  const hot = fakeHot({ dryRun: true }, { dryRunChannelId: 'mirror1' });
-  world().port.failNext('send', { status: 'failed', error: { code: 'http-403', retryable: false } });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-  });
-
-  const { result } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
-  );
-
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(channel.sent.length, 0);
-});
-
-test('createTurnRunner: features.dryRun=false sends for real even when bot.dryRunChannelId is set', async () => {
-  const raw = rawMessage({ id: 'm1' });
-  const channel = fakeTurnChannel({ id: 'c1', historyMessages: [raw] });
-  const llm = fakeLlm('<msg>hello</msg>');
-  const store = fakeStore();
-  const hot = fakeHot({ dryRun: false }, { dryRunChannelId: 'mirror1' });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-  });
-
-  const result = await turns.runTurn({
-    channel,
-    mode: 'reply',
-    trigger: normalizedTrigger(raw),
-    triggerKind: 'mention',
-  });
-
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(result.dryRun, undefined);
-  assert.equal(channel.sent.length, 1);
-  assert.equal(channel.sent[0].content, 'hello');
 });
 
 // ---------------------------------------------------------------------------
@@ -1786,16 +1663,10 @@ test('createTurnRunner: recall fallback -- no server search this turn (recall un
 const DRAW_IMAGE_CFG = { maxPromptChars: 800, reference: 'avatar', referenceMaxBytes: 4_000_000 };
 
 /** A fake createImageGen()-shaped dependency (see src/llm/images.js). */
-function fakeImages({
-  error = null,
-  mediaType = 'image/png',
-  quota = { used: 0, cap: 5, userUsed: 0, userCap: 3, spent: false, userSpent: false },
-} = {}) {
+function fakeImages({ error = null, mediaType = 'image/png' } = {}) {
   const generateCalls = [];
-  const quotaCalls = [];
   return {
     generateCalls,
-    quotaCalls,
     generate: async (args) => {
       generateCalls.push(args);
       if (error) throw error;
@@ -1807,10 +1678,6 @@ function fakeImages({
         model: 'fake/model',
         seconds: 1.5,
       };
-    },
-    quota: (args) => {
-      quotaCalls.push(args);
-      return quota;
     },
   };
 }
@@ -1835,7 +1702,7 @@ function sequenceLlm(answers) {
 }
 
 function drawHot(features = {}, image = {}, bot = {}) {
-  const hot = fakeHot({ typingSimulation: false, ...features }, bot, { image: { ...DRAW_IMAGE_CFG, ...image } });
+  const hot = fakeHot({ ...features }, bot, { image: { ...DRAW_IMAGE_CFG, ...image } });
   hot.prompts.draw = 'Drawing for {{name}}.\n\n{{appearance}}\n\n{{request}}';
   hot.prompts.appearance = '{{name}} wears a green scarf.';
   hot.prompts.reply = 'Someone called you: {{author}}, they {{trigger}}.';
@@ -2012,14 +1879,7 @@ test('runTurn: a channel without Attach Files offers no drawing and a call of it
   assert.equal(llm.calls.length, 2, 'the refusal came back to her');
 });
 
-test('runTurn: a draw.create alone with the feature off, or without an image client, posts nothing', async () => {
-  const off = await runDrawTurn({
-    answers: [toolAnswer('', [call('draw.create', { text: 'a cat' })]), '<skip/>'],
-    hot: drawHot({ imageGeneration: false }),
-  });
-  assert.equal(off.channel.sent.length, 0);
-  assert.equal(off.result.delivered, false);
-
+test('runTurn: a draw.create alone without an image client posts nothing', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const turns = createTurnRunner({
@@ -2039,7 +1899,7 @@ test('runTurn: a draw.create alone with the feature off, or without an image cli
 });
 
 test('runTurn: a draw.create alone is a spoken turn', async () => {
-  const { result, channel, llm, images, logs } = await runDrawTurn({
+  const { result, channel, llm, logs } = await runDrawTurn({
     answers: [toolAnswer('', [call('draw.create', { text: 'a cat' })])],
   });
 
@@ -2047,11 +1907,8 @@ test('runTurn: a draw.create alone is a spoken turn', async () => {
   assert.equal(channel.sent.length, 1);
   assert.equal(channel.sent[0].content, undefined);
   assert.equal(channel.sent[0].files.length, 1);
-  assert.equal(channel.typingCalls.length, 0);
-  assert.ok(
-    images.quotaCalls.every((call) => call.userId === 'u1'),
-    'the quota is read for the member who asked'
-  );
+  // PR 7d: features.typingSimulation is code, so the typing lease of the tool loop shows while the picture is drawn.
+  assert.equal(channel.typingCalls.length, 1);
   assert.ok(userTextOf(llm.calls[0]).includes(labels.senses.draw), 'the draw sense reaches the request');
   assert.ok(
     llm.options[0].tools.some((tool) => tool.function.name === 'draw_create'),
@@ -2294,7 +2151,8 @@ test('runTurn: a guild turn never carries the private prompt or the private sens
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<skip/>');
-  const hot = fakeHot({ privateMessages: true });
+  // PR 7d: features.privateMessages is the key private.enabled.
+  const hot = fakeHot({}, {}, { private: { enabled: true } });
   hot.prompts.private = 'PRIVATE_TASK';
   const turns = createTurnRunner({
     discord: DISCORD,
@@ -2522,7 +2380,8 @@ test('createTurnRunner: the persona turn is requested as role core, purpose repl
   assert.equal(llm.optionCalls[0].toolChoice, 'auto');
   assert.deepEqual(
     llm.optionCalls[0].tools.map((tool) => tool.function.name),
-    ['draw_create', 'message_create', 'message_react_add'],
+    // PR 7d: features.speech is code, so voice.say is carried over beside the others.
+    ['draw_create', 'message_create', 'message_react_add', 'voice_say'],
     'the carried-over skills, nothing granted'
   );
   assert.equal('cache' in llm.optionCalls[0], false, 'the cache policy decides: the reply is the request it marks');
@@ -2635,14 +2494,13 @@ test('runTurn: an overheard turn posts its GIF plain', async () => {
   }
 });
 
-test('runTurn: an overheard turn draws unasked: a plain post, no member charged, the quota read without a member', async () => {
+test('runTurn: an overheard turn draws unasked: a plain post charged to no member', async () => {
   const { result, channel, images } = await runDrawTurn({
     answers: [toolAnswer('', [call('draw.create', { reply: '#1', text: 'a cat' })])],
     triggerKind: 'overheard',
   });
 
   assert.equal(result.outcome, 'spoke');
-  assert.deepEqual(images.quotaCalls[0], { userId: null }, 'the senses read the quota for no member');
   assert.equal(images.generateCalls.length, 1);
   assert.equal(images.generateCalls[0].userId, null);
   assert.equal(channel.sent.length, 1);
@@ -2838,14 +2696,17 @@ test('runTurn: an explicit channel mention in the last scanMessages pulls that c
   assert.equal(other.fetches.length, 1, 'one page of the pulled channel');
 
   // A mention older than the scanned span pulls nothing.
-  const filler = lineIn('c1', {
-    id: 'm5',
-    authorId: 'u2',
-    authorName: 'Bob',
-    ts: NOW - 4 * MINUTE,
-    content: 'τέλος πάντων',
-  });
-  const older = pullScene({ context: { pull: { scanMessages: 1 } }, between: [filler] });
+  // PR 7d: context.pull.scanMessages is the constant 20, so twenty lines after the mention push it out of the span.
+  const filler = Array.from({ length: 20 }, (_, n) =>
+    lineIn('c1', {
+      id: `f${n}`,
+      authorId: 'u2',
+      authorName: 'Bob',
+      ts: NOW - 4 * MINUTE + n,
+      content: 'τέλος πάντων',
+    })
+  );
+  const older = pullScene({ between: filler });
   await withCapturedLogs(() =>
     older.turns.runTurn({ channel: older.channel, mode: 'reply', trigger: older.trigger, triggerKind: 'mention' })
   );
@@ -2901,7 +2762,8 @@ test("runTurn: a pulled channel stays for the same author's next turns within th
   assert.equal(kept.other.fetches.length, 2);
 
   // keepTurns: the pull is kept for that many turns after the one that pulled it.
-  const limited = pullScene({ mention: false, context: { pull: { keepTurns: 2 } } });
+  // PR 7d: context.pull.keepTurns is the constant 3, so the fourth follow-up finds the pull gone.
+  const limited = pullScene({ mention: false });
   await withCapturedLogs(() =>
     limited.turns.runTurn({
       channel: limited.channel,
@@ -2910,7 +2772,7 @@ test("runTurn: a pulled channel stays for the same author's next turns within th
       triggerKind: 'mention',
     })
   );
-  for (const id of ['m10', 'm11', 'm12'])
+  for (const id of ['m10', 'm11', 'm12', 'm13'])
     await withCapturedLogs(() =>
       limited.turns.runTurn({
         channel: limited.channel,
@@ -2919,29 +2781,7 @@ test("runTurn: a pulled channel stays for the same author's next turns within th
         triggerKind: 'followUp',
       })
     );
-  assert.equal(limited.other.fetches.length, 3, 'the pulling turn and two kept ones');
-
-  // keepMinutes 0 and keepTurns 0 keep nothing.
-  for (const pull of [{ keepMinutes: 0 }, { keepTurns: 0 }]) {
-    const off = pullScene({ mention: false, context: { pull } });
-    await withCapturedLogs(() =>
-      off.turns.runTurn({
-        channel: off.channel,
-        mode: 'reply',
-        trigger: { ...off.trigger, mentionedChannelIds: [DIARY] },
-        triggerKind: 'mention',
-      })
-    );
-    await withCapturedLogs(() =>
-      off.turns.runTurn({
-        channel: off.channel,
-        mode: 'reply',
-        trigger: { ...off.trigger, id: 'm10' },
-        triggerKind: 'followUp',
-      })
-    );
-    assert.equal(off.other.fetches.length, 1, JSON.stringify(pull));
-  }
+  assert.equal(limited.other.fetches.length, 4, 'the pulling turn and three kept ones');
 });
 
 test("runTurn: the router's pick in a later turn replaces the kept channel", async () => {
@@ -2980,7 +2820,7 @@ test("runTurn: the router's pick in a later turn replaces the kept channel", asy
 
 test('runTurn: a spontaneous turn pulls a channel mentioned in its history', async () => {
   const describer = pullDescriber();
-  const { turns, channel, llm } = pullScene({ features: { mediaDescriptions: true }, describer });
+  const { turns, channel, llm } = pullScene({ features: {}, describer });
   const seen = [];
 
   const { result } = await withCapturedLogs(() =>
@@ -3005,20 +2845,16 @@ test('runTurn: a spontaneous turn pulls a channel mentioned in its history', asy
   assert.equal(seen[0].describeCalls, 0, 'no caption was asked before the chooser chose');
 });
 
-test('runTurn: with nothing to pull the request is the one built without the pull machinery', async () => {
+test('runTurn: with nothing to pull the request carries no pulled channel and logs no pull', async () => {
   const hook = [];
   const none = pullScene({ mention: false, routeChannels: async (args) => (hook.push(args), []) });
-  const off = pullScene({ mention: false, features: { channelPull: false } });
 
   const { logs } = await withCapturedLogs(() =>
     none.turns.runTurn({ channel: none.channel, mode: 'reply', trigger: none.trigger, triggerKind: 'mention' })
   );
-  await withCapturedLogs(() =>
-    off.turns.runTurn({ channel: off.channel, mode: 'reply', trigger: off.trigger, triggerKind: 'mention' })
-  );
 
   assert.equal(hook.length, 1, 'the hook was asked');
-  assert.deepEqual(none.llm.calls[0], off.llm.calls[0]);
+  assert.equal(channelViewOf(none.llm), null);
   assert.equal(
     logs.some((l) => l.msg.startsWith('pull: ')),
     false
@@ -3031,10 +2867,9 @@ test('runTurn: with nothing to pull the request is the one built without the pul
   );
 });
 
-test('runTurn: route hook ids are pulled after explicit mentions', async () => {
+test('runTurn: an explicit mention takes the one pulled place and the route hook is not asked', async () => {
   const hookCalls = [];
   const scene = pullScene({
-    context: { pull: { maxChannels: 2 } },
     routeChannels: async (args) => {
       hookCalls.push(args);
       return [NOTES, DIARY];
@@ -3058,32 +2893,31 @@ test('runTurn: route hook ids are pulled after explicit mentions', async () => {
     scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
   );
 
-  assert.equal(hookCalls.length, 1);
-  assert.deepEqual(
-    hookCalls[0].history.map((m) => m.id),
-    ['m1', 'm9']
-  );
+  // PR 7d: context.pull.maxChannels is the constant 1 (the production value): the explicit mention fills the one
+  // place, so the hook is never asked and its pick is left out.
+  assert.equal(hookCalls.length, 0);
   const view = channelViewOf(scene.llm);
-  assert.ok(view.indexOf('channel #diary') < view.indexOf('channel #notes'), view);
-  assert.ok(view.includes('σημειώσεις για αύριο'));
+  assert.ok(view.includes('channel #diary'), view);
+  assert.ok(!view.includes('channel #notes'), view);
 });
 
 test('runTurn: an earlier route pick fetches the page before the oldest line shown last time, else the newest page', async () => {
   const answers = [[DIARY], [{ id: DIARY, direction: 'earlier' }]];
-  // The fake interface answers `before` as a platform does, so there is an earlier line to find: the first page holds
-  // the lines of the hour before the newest one (minMessages 0), the second starts before the oldest of them (the old
-  // fixture answered every page alike).
-  const earlier = lineIn(DIARY, {
-    id: 'd0',
-    authorId: 'u3',
-    authorName: 'Éloïse',
-    ts: NOW - 4 * HOUR,
-    content: 'πριν',
-  });
+  // The fake interface answers `before` as a platform does, so there is an earlier line to find. PR 7d: the first page
+  // holds the hour before the newest line, widened to the constant minimum of five lines (pull.minMessages), so four
+  // older lines make the sixth line of the channel the one the second page has to reach.
+  const older = [1, 2, 3, 4].map((n) =>
+    lineIn(DIARY, {
+      id: `e${n}`,
+      authorId: 'u3',
+      authorName: 'Éloïse',
+      ts: NOW - (9 - n) * HOUR,
+      content: `πριν ${n}`,
+    })
+  );
   const scene = pullScene({
     mention: false,
-    context: { pull: { minMessages: 0, scanMessages: 20, maxChannels: 1, sameAudience: true } },
-    diary: { messages: [earlier, ...diaryLines()] },
+    diary: { messages: [...older, ...diaryLines()] },
     routeChannels: async () => answers.shift() ?? [],
   });
 
@@ -3105,7 +2939,7 @@ test('runTurn: an earlier route pick fetches the page before the oldest line sho
   const pages = scene.other.fetches.filter((arg) => arg && typeof arg === 'object');
   assert.equal(pages.length, 2);
   assert.equal('before' in pages[0], false, 'the first view is the newest page');
-  assert.equal(pages[1].before, 'd1', 'the second starts before the oldest line the first one showed');
+  assert.equal(pages[1].before, 'e2', 'the second starts before the oldest line the first one showed');
   const pulls = logs.filter((l) => l.msg === 'pull: channel');
   assert.deepEqual(
     pulls.map((l) => [l.direction, l.beforeId]),
@@ -3124,21 +2958,18 @@ test('runTurn: an earlier route pick fetches the page before the oldest line sho
   assert.equal(alone.logs.find((l) => l.msg === 'pull: channel').pullDirection, 'earlier-no-previous');
 });
 
-test('runTurn: the route hook is not asked once the mentions fill every slot, nor while features.channelPull is off', async () => {
-  for (const features of [{}, { channelPull: false }]) {
-    let asked = 0;
-    const scene = pullScene({
-      features,
-      routeChannels: async () => {
-        asked += 1;
-        return [];
-      },
-    });
-    await withCapturedLogs(() =>
-      scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
-    );
-    assert.equal(asked, 0, JSON.stringify(features));
-  }
+test('runTurn: the route hook is not asked once the mentions fill every slot', async () => {
+  let asked = 0;
+  const scene = pullScene({
+    routeChannels: async () => {
+      asked += 1;
+      return [];
+    },
+  });
+  await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
+  assert.equal(asked, 0);
 });
 
 test('runTurn: context.pull.maxChannels caps the pulled channels, the newest mention first', async () => {
@@ -3184,18 +3015,6 @@ test('runTurn: a pulled channel is left out of the neighbours', async () => {
 
   assert.ok(channelViewOf(pulled.llm)?.includes('σήμερα έβαψα τον τοίχο μπλε'));
   assert.equal(userText(pulled.llm).includes('# diary'), false, 'not shown again among the neighbours');
-
-  // Not pulled, the same channel is an ordinary neighbour.
-  const neighbour = pullScene({ diary, features: { channelPull: false } });
-  await withCapturedLogs(() =>
-    neighbour.turns.runTurn({
-      channel: neighbour.channel,
-      mode: 'reply',
-      trigger: neighbour.trigger,
-      triggerKind: 'mention',
-    })
-  );
-  assert.ok(otherChannelsSent(neighbour.llm).includes('# diary'));
 });
 
 test('runTurn: a noticed turn passes the pulled source to chooseMode', async () => {
@@ -3270,7 +3089,7 @@ test('runTurn: a routed turn whose source cannot be pulled ends in error, a noti
 test('runTurn: fresh captions for a pulled channel are asked only once the turn is certain to run', async () => {
   // A chooser that says not-now: nothing is asked, the cache alone was read.
   const quiet = pullDescriber();
-  const notNow = pullScene({ features: { mediaDescriptions: true }, describer: quiet });
+  const notNow = pullScene({ features: {}, describer: quiet });
   const { result } = await withCapturedLogs(() =>
     notNow.turns.runTurn({ channel: notNow.channel, mode: 'auto', chooseMode: () => null })
   );
@@ -3280,7 +3099,7 @@ test('runTurn: fresh captions for a pulled channel are asked only once the turn 
   // A chooser that picks a mode: the caption is asked after it chose, and reaches the block.
   const events = [];
   const chosen = pullDescriber(events);
-  const live = pullScene({ features: { mediaDescriptions: true }, describer: chosen });
+  const live = pullScene({ features: {}, describer: chosen });
   await withCapturedLogs(() =>
     live.turns.runTurn({
       channel: live.channel,
@@ -3300,7 +3119,7 @@ test('runTurn: fresh captions for a pulled channel are asked only once the turn 
 
   // No chooser at all: asked with the fetch, once.
   const direct = pullDescriber();
-  const reply = pullScene({ features: { mediaDescriptions: true }, describer: direct });
+  const reply = pullScene({ features: {}, describer: direct });
   await withCapturedLogs(() =>
     reply.turns.runTurn({ channel: reply.channel, mode: 'reply', trigger: reply.trigger, triggerKind: 'mention' })
   );
@@ -3308,7 +3127,7 @@ test('runTurn: fresh captions for a pulled channel are asked only once the turn 
   assert.ok(channelViewOf(reply.llm).includes('caption of dp1'));
 });
 
-test('runTurn: a failed, refused or throwing pull never fails the turn', async () => {
+test('runTurn: a failed or throwing pull never fails the turn', async () => {
   const failing = pullScene({ diary: { fetchFails: true } });
   const failed = await withCapturedLogs(() =>
     failing.turns.runTurn({ channel: failing.channel, mode: 'reply', trigger: failing.trigger, triggerKind: 'mention' })
@@ -3316,18 +3135,6 @@ test('runTurn: a failed, refused or throwing pull never fails the turn', async (
   assert.equal(failed.result.outcome, 'spoke');
   assert.equal(channelViewOf(failing.llm), null);
   assert.ok(failed.logs.some((l) => l.msg === 'pull: skipped' && l.source === DIARY && l.reason === 'fetch-failed'));
-
-  const denied = pullScene({ bot: { dryRunChannelId: DIARY } });
-  const refused = await withCapturedLogs(() =>
-    denied.turns.runTurn({ channel: denied.channel, mode: 'reply', trigger: denied.trigger, triggerKind: 'mention' })
-  );
-  assert.equal(refused.result.outcome, 'spoke');
-  assert.equal(denied.other.fetches.length, 0, 'a refused channel is never fetched');
-  const skipped = refused.logs.find((l) => l.msg === 'pull: skipped');
-  assert.deepEqual(
-    [skipped.channel, skipped.source, skipped.reason, skipped.pullReason],
-    ['c1', DIARY, 'dry-run-channel', 'mention']
-  );
 
   const throwing = pullScene({
     mention: false,
@@ -3620,15 +3427,24 @@ test("runTurn: a pulled channel shows the ring's earlier unanswered call with it
     ts: NOW - 5 * HOUR,
     content: '@Bot είσαι εδώ;',
   });
-  const diary = { messages: [earlier, ...diaryLines()] };
-  const context = { pull: { minMessages: 1 } };
+  // PR 7d: pull.minMessages is the constant 5, so five newer lines are what keep the old call out of the window.
+  const newer = [2, 3, 4, 5].map((n) =>
+    lineIn(DIARY, {
+      id: `d${n + 1}`,
+      authorId: 'u3',
+      authorName: 'Éloïse',
+      ts: NOW - 3 * HOUR + n * MINUTE,
+      content: `και πάλι ${n}`,
+    })
+  );
+  const diary = { messages: [earlier, ...diaryLines(), ...newer] };
   const earlierHeader = labels.pull.earlierPings.split('{date}')[0];
 
   const store = fakeStore();
   store.state.data.elsewherePings = [
     { messageId: 'd0', channelId: DIARY, ts: NOW - 5 * HOUR, answeredAt: null, skippedAt: null },
   ];
-  const ringed = pullScene({ store, context, diary });
+  const ringed = pullScene({ store, diary });
   await withCapturedLogs(() =>
     ringed.turns.runTurn({ channel: ringed.channel, mode: 'reply', trigger: ringed.trigger, triggerKind: 'mention' })
   );
@@ -3638,7 +3454,7 @@ test("runTurn: a pulled channel shows the ring's earlier unanswered call with it
   assert.ok(view.includes(labels.pull.pingUnanswered), view);
 
   // Without the ring entry the old line is outside the window and nothing is marked.
-  const plain = pullScene({ context, diary });
+  const plain = pullScene({ diary });
   await withCapturedLogs(() =>
     plain.turns.runTurn({ channel: plain.channel, mode: 'reply', trigger: plain.trigger, triggerKind: 'mention' })
   );
@@ -3661,7 +3477,7 @@ test("runTurn: a routed call's pictures are captioned through the pull, never as
   };
   const describer = pullDescriber();
   const scene = routedScene({
-    features: { mediaDescriptions: true },
+    features: {},
     describer,
     callAttachments: new Map([['cp1', photo]]),
   });
@@ -3688,7 +3504,7 @@ test('runTurn: a read-only neighbour is marked in the server map', async () => {
   const store = fakeStore({ channels: [{ id: DIARY, name: 'diary', lastMessageAt: NOW - 10 * MINUTE, days: {} }] });
   for (const readOnly of [true, false]) {
     const scene = pullScene({
-      features: { channelPull: false },
+      features: {},
       diary: { messages: diaryLines(10 * MINUTE), readOnly },
       store,
     });
@@ -3702,21 +3518,12 @@ test('runTurn: a read-only neighbour is marked in the server map', async () => {
 });
 
 test('runTurn: senses name the main channel where calls from read-only channels are answered', async () => {
-  for (const [features, expected] of [
-    [{}, true],
-    [{ elsewhere: false }, false],
-  ]) {
-    const scene = pullScene({ mention: false, features, config: { memory: { mainChannelIds: ['c1'] } } });
-    registerTextChannel(scene.channel);
-    await withCapturedLogs(() =>
-      scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
-    );
-    assert.equal(
-      userText(scene.llm).includes(fill(labels.senses.elsewhere, { destination: 'general' })),
-      expected,
-      JSON.stringify(features)
-    );
-  }
+  const scene = pullScene({ mention: false, config: { memory: { mainChannelIds: ['c1'] } } });
+  registerTextChannel(scene.channel);
+  await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
+  assert.ok(userText(scene.llm).includes(fill(labels.senses.elsewhere, { destination: 'general' })));
 });
 
 test('runTurn: senses name only a usable main channel, the first one in list order', async () => {
@@ -3756,7 +3563,7 @@ test('runTurn: senses name only a usable main channel, the first one in list ord
   }
 });
 
-test('usableDestination: the first usable main channel, never the excepted one; off and none carry their codes', () => {
+test('usableDestination: the first usable main channel, never the excepted one; none carries its code', () => {
   const general = registerTextChannel(fakeTurnChannel());
   const hall = addChannel(general, { id: 'c6', name: 'hall' });
   const config = { bot: {}, features: {}, memory: { mainChannelIds: ['c1', 'c6'] } };
@@ -3765,10 +3572,6 @@ test('usableDestination: the first usable main channel, never the excepted one; 
 
   assert.deepEqual(usableDestination(listing, config), { channel: general.info, reason: null });
   assert.deepEqual(usableDestination(listing, config, { exceptId: 'c1' }), { channel: hall.info, reason: null });
-  assert.deepEqual(usableDestination(listing, { ...config, features: { elsewhere: false } }), {
-    channel: null,
-    reason: 'off',
-  });
   assert.deepEqual(usableDestination(listing, { ...config, memory: { mainChannelIds: [] } }), {
     channel: null,
     reason: 'no-destination',
@@ -3780,7 +3583,8 @@ test('usableDestination: the first usable main channel, never the excepted one; 
   );
 });
 
-test("runTurn: on a routed turn the route hook reads the source channel's lines", async () => {
+test('runTurn: on a routed turn the source channel takes the one pulled place and the route hook is not asked', async () => {
+  // PR 7d: context.pull.maxChannels is the constant 1, so the source channel fills the place the hook would pick for.
   const hookCalls = [];
   const scene = routedScene({
     routeChannels: async (args) => {
@@ -3788,29 +3592,19 @@ test("runTurn: on a routed turn the route hook reads the source channel's lines"
       return [];
     },
   });
-  scene.hot.config.context.pull = { maxChannels: 2 };
 
   const { result } = await withCapturedLogs(() => scene.turns.runTurn(scene.params));
 
   assert.equal(result.outcome, 'spoke');
-  assert.equal(hookCalls.length, 1);
-  assert.equal(hookCalls[0].channel.id, scene.channel.id, 'asked for the destination');
-  assert.deepEqual(
-    hookCalls[0].history.map((m) => m.id),
-    ['d1', 'd2', 'd3'],
-    "the call's channel, not the destination's chat"
-  );
+  assert.equal(hookCalls.length, 0);
+  assert.ok(channelViewOf(scene.llm)?.includes('channel #diary'), 'the source channel is the one pulled');
 });
 
 test('runTurn: a pull that throws never fails an ordinary turn; a routed one ends in error, a noticed one in not-now', async () => {
   // A corrupt media cache throws inside fetchPull; an unreadable ring throws before any fetch.
   // `perChannel`: the failure is caught for its channel alone (the log names it and why it was pulled).
   const scenes = [
-    [
-      'fetchPull throws',
-      (options) => ({ ...options, features: { mediaDescriptions: true }, describer: throwingCacheDescriber() }),
-      true,
-    ],
+    ['fetchPull throws', (options) => ({ ...options, features: {}, describer: throwingCacheDescriber() }), true],
     ['the pull itself throws', (options) => ({ ...options, store: unreadableRingStore() }), false],
   ];
   const failedLine = (logs, pullReason, perChannel) =>
@@ -3866,16 +3660,9 @@ test('runTurn: a pull that throws never fails an ordinary turn; a routed one end
   }
 });
 
-test('runTurn: a pulled channel whose fetch throws costs only that channel', async () => {
-  // #diary has a picture and the cache read throws for it; #notes has none and is pulled.
-  const newer = lineIn('c1', {
-    id: 'm5',
-    authorId: 'u2',
-    authorName: 'Bob',
-    ts: NOW - 4 * MINUTE,
-    content: 'και το #notes',
-    raw: `και το <#${NOTES}>`,
-  });
+test('runTurn: a pulled channel whose fetch throws costs the turn only that channel', async () => {
+  // #diary has a picture and the cache read throws for it. PR 7d: context.pull.maxChannels is the constant 1, so the
+  // one place cannot be shared with a second channel and this test no longer pulls #notes beside it.
   const describer = {
     ...pullDescriber(),
     cachedDescriptions: (guildId, items) => {
@@ -3883,33 +3670,14 @@ test('runTurn: a pulled channel whose fetch throws costs only that channel', asy
       return new Map();
     },
   };
-  const scene = pullScene({
-    features: { mediaDescriptions: true },
-    describer,
-    context: { pull: { maxChannels: 2 } },
-    between: [newer],
-  });
-  addChannel(scene.channel, {
-    id: NOTES,
-    name: 'notes',
-    messages: [
-      lineIn(NOTES, {
-        id: 'n1',
-        authorId: 'u4',
-        authorName: 'Zoë',
-        ts: NOW - 2 * HOUR,
-        content: 'σημειώσεις για αύριο',
-      }),
-    ],
-  });
+  const scene = pullScene({ features: {}, describer });
 
   const { result, logs } = await withCapturedLogs(() =>
     scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
   );
 
   assert.equal(result.outcome, 'spoke');
-  const view = channelViewOf(scene.llm);
-  assert.ok(view.includes('σημειώσεις για αύριο') && !view.includes('σήμερα έβαψα τον τοίχο μπλε'), view);
+  assert.equal(channelViewOf(scene.llm), null);
   const failed = logs.find((l) => l.msg === 'pull: failed');
   assert.deepEqual([failed.channel, failed.source, failed.pullReason], ['c1', DIARY, 'mention']);
 });
@@ -3928,7 +3696,7 @@ test('runTurn: fresh captions that fail after a chooser leave the cached ones', 
       return new Map([['dp1', 'cached caption of dp1']]);
     },
   };
-  const scene = pullScene({ features: { mediaDescriptions: true }, describer, diary: { messages } });
+  const scene = pullScene({ features: {}, describer, diary: { messages } });
 
   const { result, logs } = await withCapturedLogs(() =>
     scene.turns.runTurn({ channel: scene.channel, mode: 'auto', chooseMode: () => 'interject' })
@@ -3942,52 +3710,6 @@ test('runTurn: fresh captions that fail after a chooser leave the cached ones', 
   assert.equal(callsFor(describer, 'dp2').length, 0, 'no fresh caption was asked');
 });
 
-test('runTurn: a pull candidate whose check throws is left out, and a routed turn keeps its source', async () => {
-  const named = lineIn('c1', {
-    id: 'm1',
-    authorId: 'u2',
-    authorName: 'Bob',
-    ts: NOW - 5 * MINUTE,
-    content: 'και το #notes',
-    raw: `και το <#${NOTES}>`,
-  });
-  const scene = routedScene({ chat: [named] });
-  scene.hot.config.context.pull = { maxChannels: 2 };
-  const notes = addChannel(scene.channel, {
-    id: NOTES,
-    name: 'notes',
-    messages: [
-      lineIn(NOTES, {
-        id: 'n1',
-        authorId: 'u4',
-        authorName: 'Zoë',
-        ts: NOW - 2 * HOUR,
-        content: 'σημειώσεις για αύριο',
-      }),
-    ],
-  });
-  // A listing entry the check cannot read (a group list that is no list) makes the check throw.
-  notes.update({ audience: { ...EVERYONE_AUDIENCE, groups: 5 } });
-
-  const { result, logs } = await withCapturedLogs(() => scene.turns.runTurn(scene.params));
-
-  assert.equal(result.outcome, 'spoke');
-  const view = channelViewOf(scene.llm);
-  assert.ok(view.includes('@Bot τι λες για τον τοίχο;') && !view.includes('σημειώσεις για αύριο'), view);
-  assert.equal(notes.fetches.length, 0);
-  const failed = logs.find((l) => l.msg === 'pull: failed');
-  assert.deepEqual([failed.channel, failed.source, failed.pullReason], ['c1', NOTES, 'mention']);
-  assert.equal(
-    logs.some((l) => l.msg === 'pull: skipped' && l.source === NOTES),
-    false,
-    'logged once, as a failure'
-  );
-  assert.equal(
-    logs.some((l) => l.msg === 'turn: source unavailable'),
-    false
-  );
-});
-
 test('runTurn: without labels.pull.header only the source is pulled, with cached captions only', async () => {
   const { pull, ...unlabelled } = labels;
   assert.ok(pull.header, 'the fixture has the label the live layer lacks here');
@@ -3996,7 +3718,7 @@ test('runTurn: without labels.pull.header only the source is pulled, with cached
   let asked = 0;
   const describer = pullDescriber();
   const mention = pullScene({
-    features: { mediaDescriptions: true },
+    features: {},
     context: { pull: { maxChannels: 2 } },
     describer,
     routeChannels: async () => {
@@ -4019,7 +3741,7 @@ test('runTurn: without labels.pull.header only the source is pulled, with cached
 
   // A routed turn: its source is pulled, no fresh caption is asked.
   const routedDescriber = pullDescriber();
-  const routed = routedScene({ features: { mediaDescriptions: true }, describer: routedDescriber });
+  const routed = routedScene({ features: {}, describer: routedDescriber });
   routed.hot.prompts.labels = unlabelled;
   const call = await withCapturedLogs(() => routed.turns.runTurn(routed.params));
   assert.equal(call.result.outcome, 'spoke');
@@ -4028,7 +3750,7 @@ test('runTurn: without labels.pull.header only the source is pulled, with cached
 
   // A noticed turn whose chooser picks a mode: no fresh caption after it either.
   const noticedDescriber = pullDescriber();
-  const noticed = pullScene({ mention: false, features: { mediaDescriptions: true }, describer: noticedDescriber });
+  const noticed = pullScene({ mention: false, features: {}, describer: noticedDescriber });
   noticed.hot.prompts.labels = unlabelled;
   const comment = await withCapturedLogs(() =>
     noticed.turns.runTurn({
@@ -4073,7 +3795,7 @@ function linked(text, messageId) {
 
 test('runTurn: a reaction to a pulled line reacts in the source channel, one to a chat line stays here', async () => {
   const scene = pullScene({
-    features: { typingSimulation: false },
+    features: {},
     llm: fakeLlm('<react to="#3">🎉</react><react to="#2">👍</react>'),
   });
 
@@ -4092,7 +3814,7 @@ test('runTurn: a reaction to a pulled line reacts in the source channel, one to 
 
 test('runTurn: a reaction to a pulled line is dropped where the bot cannot react', async () => {
   const scene = pullScene({
-    features: { typingSimulation: false },
+    features: {},
     llm: fakeLlm('<react to="#3">🎉</react><react to="#2">👍</react>'),
   });
   scene.other.permit({ react: false });
@@ -4114,7 +3836,7 @@ test('runTurn: a reaction to a pulled line is dropped where the bot cannot react
 
 test('runTurn: a reply to a pulled line posts plain here with one jump link to that line', async () => {
   const scene = pullScene({
-    features: { typingSimulation: false },
+    features: {},
     llm: fakeLlm('<msg reply="#3">ωραίο μπλε</msg><msg reply="#3">πολύ ωραίο</msg><msg reply="#2">ναι, το είδα</msg>'),
   });
 
@@ -4145,7 +3867,7 @@ test('runTurn: a reply to a pulled line posts plain here with one jump link to t
 
 test('runTurn: a routed turn posts in the destination with the link to the call on its first message', async () => {
   const scene = routedScene({
-    features: { typingSimulation: false },
+    features: {},
     llm: fakeLlm('<msg>καλημέρα</msg><msg reply="#4">ναι, μπλε</msg><msg reply="#2">κι αυτό ωραίο</msg>'),
   });
 
@@ -4176,7 +3898,7 @@ test('runTurn: a routed turn posts in the destination with the link to the call 
 test('runTurn: a noticed turn links its first message to the newest line of its source shown', async () => {
   const scene = pullScene({
     mention: false,
-    features: { typingSimulation: false },
+    features: {},
     llm: fakeLlm('<msg>τι ωραίο χρώμα</msg>'),
   });
 
@@ -4196,22 +3918,9 @@ test('runTurn: a noticed turn links its first message to the newest line of its 
   );
 });
 
-test('runTurn: @name of a pulled author resolves to a mention', async () => {
-  const scene = routedScene({
-    features: { typingSimulation: false, mentionHandles: false },
-    llm: fakeLlm('<msg>@Éloïse ωραίος τοίχος</msg>'),
-  });
-
-  await withCapturedLogs(() => scene.turns.runTurn(scene.params));
-
-  const [post] = scene.channel.sent;
-  assert.equal(post.content, linked('<@u3> ωραίος τοίχος', 'd3'));
-  assert.deepEqual(post.allowedMentions.users, ['u3']);
-});
-
 test('runTurn: the author of a pulled line is mentioned by the handle on their line', async () => {
   const scene = routedScene({
-    features: { typingSimulation: false },
+    features: {},
     llm: fakeLlm(`<msg>@${handleOf('u3')} ωραίος τοίχος @Éloïse</msg>`),
   });
 
@@ -4244,7 +3953,7 @@ test('runTurn: a GIF answering a pulled line posts plain with its jump link', as
 
 test('runTurn: a GIF alone answering a routed call links the call; after a message it carries none', async () => {
   const alone = routedScene({
-    features: { typingSimulation: false },
+    features: {},
     store: gifStore(),
     llm: fakeLlm('<gif>g1</gif>'),
   });
@@ -4255,7 +3964,7 @@ test('runTurn: a GIF alone answering a routed call links the call; after a messa
   );
 
   const after = routedScene({
-    features: { typingSimulation: false },
+    features: {},
     store: gifStore(),
     llm: fakeLlm('<msg>κοίτα</msg><gif>g1</gif>'),
   });
@@ -4270,7 +3979,7 @@ test('runTurn: a GIF alone answering a routed call links the call; after a messa
 
 test('runTurn: a follow-up reply to a pulled line posts plain with its jump link', async () => {
   const scene = pullScene({
-    features: { typingSimulation: false },
+    features: {},
     llm: fakeLlm('<msg reply="#3">ωραίο μπλε</msg><msg reply="#2">ναι</msg>'),
   });
 
@@ -4293,34 +4002,10 @@ test('runTurn: a follow-up reply to a pulled line posts plain with its jump link
   );
 });
 
-test('runTurn: a chat author wins @name over a pulled author with the same display name', async () => {
-  const namesake = lineIn(DIARY, {
-    id: 'd5',
-    authorId: 'u7',
-    authorName: 'Bob',
-    ts: NOW - 3 * HOUR + 2 * MINUTE,
-    content: 'κι εγώ',
-  });
-  const scene = pullScene({
-    features: { typingSimulation: false, mentionHandles: false },
-    diary: { messages: [...diaryLines(), namesake] },
-    llm: fakeLlm('<msg>@Bob ναι</msg>'),
-  });
-
-  await withCapturedLogs(() =>
-    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
-  );
-
-  assert.ok(channelViewOf(scene.llm).includes('κι εγώ'), 'the namesake is shown');
-  const [post] = scene.channel.sent;
-  assert.equal(post.content, '<@u2> ναι');
-  assert.deepEqual(post.allowedMentions.users, ['u2']);
-});
-
 test('runTurn: @name of an author whose pulled block the budget dropped stays text', async () => {
   const caps = { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, pulled: 1 };
   const scene = pullScene({
-    features: { typingSimulation: false, mentionHandles: false },
+    features: {},
     context: { caps },
     llm: fakeLlm('<msg>@Éloïse γεια</msg>'),
   });
@@ -4335,88 +4020,12 @@ test('runTurn: @name of an author whose pulled block the budget dropped stays te
   assert.deepEqual(post.allowedMentions.users, []);
 });
 
-/** A store remembering the diary's author by a nickname of several words (her pulled lines carry her global name). */
-function nicknameStore(extra = {}) {
-  return fakeStore({ userProfiles: { u3: { id: 'u3', names: ['Éloïse de Vaux', 'Éloïse'] }, ...extra } });
-}
-
-test('runTurn: @name of a pulled author resolves by the stored nickname', async () => {
-  const scene = pullScene({
-    features: { typingSimulation: false, mentionHandles: false },
-    store: nicknameStore(),
-    llm: fakeLlm('<msg>@Éloïse de Vaux ωραίο μπλε</msg>'),
-  });
-
-  await withCapturedLogs(() =>
-    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
-  );
-
-  const [post] = scene.channel.sent;
-  assert.equal(post.content, '<@u3> ωραίο μπλε', 'the longer stored name wins over the display name it starts with');
-  assert.deepEqual(post.allowedMentions.users, ['u3']);
-});
-
-test('runTurn: the stored name of a member the request did not show resolves through the fallback directory', async () => {
-  const store = nicknameStore({ u9: { id: 'u9', names: ['Ταξιάρχης Μέγας'], character: 'ήσυχος' } });
-  const scene = pullScene({
-    features: { typingSimulation: false, mentionHandles: false },
-    store,
-    llm: fakeLlm('<msg>@Ταξιάρχης Μέγας γεια</msg>'),
-  });
-
-  await withCapturedLogs(() =>
-    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
-  );
-
-  const [post] = scene.channel.sent;
-  assert.equal(post.content, '<@u9> γεια');
-  assert.deepEqual(post.allowedMentions.users, ['u9']);
-});
-
-test('runTurn: the stored nickname of an author whose pulled block the budget dropped resolves through the fallback directory', async () => {
-  // Her profile holds names only, so `<people>` has nothing to show of her either.
-  const caps = { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, pulled: 1 };
-  const scene = pullScene({
-    features: { typingSimulation: false, mentionHandles: false },
-    context: { caps },
-    store: nicknameStore(),
-    llm: fakeLlm('<msg>@Éloïse de Vaux γεια</msg>'),
-  });
-
-  await withCapturedLogs(() =>
-    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
-  );
-
-  assert.equal(channelViewOf(scene.llm), null, 'the block was cut');
-  const [post] = scene.channel.sent;
-  assert.equal(post.content, '<@u3> γεια');
-  assert.deepEqual(post.allowedMentions.users, ['u3']);
-});
-
-test('runTurn: @name resolves by a stored name of a member <people> shows', async () => {
-  // Bob speaks in the chat under his display name; the persona remembers him by another one.
-  const store = fakeStore({ userProfiles: { u2: { id: 'u2', names: ['Bob', 'Roberto Sáenz'], character: 'ήρεμος' } } });
-  const scene = pullScene({
-    features: { typingSimulation: false, mentionHandles: false },
-    store,
-    llm: fakeLlm('<msg>@Roberto Sáenz ναι</msg>'),
-  });
-
-  await withCapturedLogs(() =>
-    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
-  );
-
-  const [post] = scene.channel.sent;
-  assert.equal(post.content, '<@u2> ναι');
-  assert.deepEqual(post.allowedMentions.users, ['u2']);
-});
-
 test('runTurn: a noticed turn whose source block the budget dropped posts no link', async () => {
   const caps = { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, pulled: 1 };
   const scene = pullScene({
     mention: false,
     context: { caps },
-    features: { typingSimulation: false },
+    features: {},
     llm: fakeLlm('<msg>τι ωραίο χρώμα</msg>'),
   });
 
@@ -4439,44 +4048,40 @@ test('runTurn: a noticed turn whose source block the budget dropped posts no lin
 });
 
 test('runTurn: a reaction on a pulled line whose channel is gone is dropped as not-found', async () => {
-  for (const dryRun of [false, true]) {
-    let other = null;
-    const calls = [];
-    // The pulled channel leaves the community while the model answers.
-    const llm = {
-      calls,
-      complete: async (messages) => {
-        calls.push(messages);
-        other.leave();
-        return { text: '<react to="#3">🎉</react>', usage: {}, estimated: 10 };
-      },
-    };
-    const scene = pullScene({ features: { typingSimulation: false, dryRun }, llm });
-    other = scene.other;
+  let other = null;
+  const calls = [];
+  // The pulled channel leaves the community while the model answers.
+  const llm = {
+    calls,
+    complete: async (messages) => {
+      calls.push(messages);
+      other.leave();
+      return { text: '<react to="#3">🎉</react>', usage: {}, estimated: 10 };
+    },
+  };
+  const scene = pullScene({ llm });
+  other = scene.other;
 
-    const { result, logs } = await withCapturedLogs(() =>
-      scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
-    );
+  const { result, logs } = await withCapturedLogs(() =>
+    scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
+  );
 
-    assert.equal(result.outcome, 'spoke', `dryRun ${dryRun}`);
-    assert.ok(channelViewOf(scene.llm), 'the channel was shown');
-    assert.deepEqual([scene.other.reactCalls, scene.channel.reactCalls], [[], []], `dryRun ${dryRun}`);
-    const dropped = logs.filter((l) => l.msg === 'turn: reaction dropped');
-    assert.deepEqual(
-      dropped.map((l) => [l.channel, l.source, l.reason]),
-      [['c1', DIARY, 'not-found']],
-      `dryRun ${dryRun}`
-    );
-    assert.equal(
-      logs.some((l) => l.msg === 'dry-run: would react' || l.msg === 'turn: reaction failed'),
-      false,
-      `dryRun ${dryRun}`
-    );
-  }
+  assert.equal(result.outcome, 'spoke');
+  assert.ok(channelViewOf(scene.llm), 'the channel was shown');
+  assert.deepEqual([scene.other.reactCalls, scene.channel.reactCalls], [[], []]);
+  const dropped = logs.filter((l) => l.msg === 'turn: reaction dropped');
+  assert.deepEqual(
+    dropped.map((l) => [l.channel, l.source, l.reason]),
+    [['c1', DIARY, 'not-found']]
+  );
+  assert.equal(
+    logs.some((l) => l.msg === 'turn: reaction failed'),
+    false
+  );
 });
 
 test('runTurn: labels.elsewhere.link is read at the moment of use; without it the link follows a newline', async () => {
-  const scene = routedScene({ features: { typingSimulation: false }, llm: fakeLlm('<msg>ναι</msg>') });
+  const scene = routedScene({ features: {}, llm: fakeLlm('<msg>ναι</msg>') });
   const run = () => withCapturedLogs(() => scene.turns.runTurn(scene.params));
 
   await run();
@@ -4502,7 +4107,7 @@ function assertSplitIntact(/** @type {string[]} */ posts) {
 
 test('runTurn: a post over the Discord limit keeps its link and arrives whole as several messages', async () => {
   const long = `${'a'.repeat(1990)}${' :dance:'.repeat(5)}`;
-  const scene = routedScene({ features: { typingSimulation: false }, llm: fakeLlm(`<msg>${long}</msg>`) });
+  const scene = routedScene({ features: {}, llm: fakeLlm(`<msg>${long}</msg>`) });
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -4526,7 +4131,7 @@ test('runTurn: a post over the Discord limit keeps its link and arrives whole as
 });
 
 test('runTurn: a pulled channel gets its seen mark and its spokeSaw ids', async () => {
-  const scene = routedScene({ features: { typingSimulation: false } });
+  const scene = routedScene({ features: {} });
 
   const { result } = await withCapturedLogs(() => scene.turns.runTurn(scene.params));
 
@@ -4538,7 +4143,7 @@ test('runTurn: a pulled channel gets its seen mark and its spokeSaw ids', async 
 });
 
 test('runTurn: a pulled channel the bot can write in gets a seen mark but no spokeSaw ids', async () => {
-  const scene = pullScene({ features: { typingSimulation: false } });
+  const scene = pullScene({ features: {} });
 
   await withCapturedLogs(() =>
     scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
@@ -4579,7 +4184,7 @@ test('runTurn: the seen mark follows the request sent: set on a skip, never for 
 });
 
 test('runTurn: a routed turn that only reacts on its call counts as spoke', async () => {
-  const scene = routedScene({ features: { typingSimulation: false }, llm: fakeLlm('<react to="#4">👍</react>') });
+  const scene = routedScene({ features: {}, llm: fakeLlm('<react to="#4">👍</react>') });
 
   const { result } = await withCapturedLogs(() => scene.turns.runTurn(scene.params));
 
@@ -4718,7 +4323,7 @@ test('runTurn: a turn that showed calls of a read-only channel stamps them: answ
   );
 });
 
-test('runTurn: a turn that chose silence stamps the calls it showed skipped; a rehearsal, a dropped block or a writable channel stamps none', async () => {
+test('runTurn: a turn that chose silence stamps the calls it showed skipped; a dropped block or a writable channel stamps none', async () => {
   const silent = pullScene(ringedDiary({ llm: fakeLlm('<skip/>') }));
   const skip = await withCapturedLogs(() =>
     silent.turns.runTurn({ channel: silent.channel, mode: 'reply', trigger: silent.trigger, triggerKind: 'mention' })
@@ -4736,8 +4341,6 @@ test('runTurn: a turn that chose silence stamps the calls it showed skipped; a r
 
   const caps = { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, pulled: 1 };
   const cases = [
-    // A rehearsal reached nobody: nothing answered, nothing let pass.
-    ['dry run', ringedDiary({ features: { dryRun: true }, llm: fakeLlm('<msg reply="#3">ναι</msg>') }), 'spoke'],
     ['the block cut by the budget', ringedDiary({ context: { caps } }), 'spoke'],
     ['a skip whose block was cut', ringedDiary({ context: { caps }, llm: fakeLlm('<skip/>') }), 'skip'],
     // A call written where the bot can write is answered there, not by being shown here.
@@ -4784,7 +4387,7 @@ test('runTurn: a routed turn stamps the other calls it showed and leaves its own
     ['a reply to its own call', '<msg reply="#5">ναι</msg>', 'spoke', { e1: 'skipped', d3: 'unanswered' }],
     ['silence', '<skip/>', 'skip', { e1: 'skipped', d3: 'unanswered' }],
   ]) {
-    const scene = routedScene({ features: { typingSimulation: false }, before: [earlier], llm: fakeLlm(answer) });
+    const scene = routedScene({ features: {}, before: [earlier], llm: fakeLlm(answer) });
     scene.store.state.data.elsewherePings = [
       ringEntry(earlier),
       ringEntry({ id: 'd3', createdTimestamp: NOW - 2 * MINUTE }),
@@ -5037,8 +4640,8 @@ test('turn: with no live line <recent> still shows the moments of the last hours
   assert.equal(staffOnly.text, quiet.text, 'a line only #staff can read neither switches the moments on nor off');
 });
 
-test('turn: features.recent false, memory off or a store without the recent store read nothing and change nothing', async () => {
-  const run = async ({ store, features = {} }) => {
+test('turn: a store without the recent store reads nothing; an empty or a broken one never breaks a turn', async () => {
+  const run = async ({ store }) => {
     const raw = rawMessage({ id: 'm1' });
     const channel = fakeTurnChannel({ historyMessages: [raw] });
     audienceGuild(channel);
@@ -5046,7 +4649,7 @@ test('turn: features.recent false, memory off or a store without the recent stor
     const turns = createTurnRunner({
       discord: DISCORD,
       createPort: createDiscordAdapter,
-      hot: fakeHot(features),
+      hot: fakeHot(),
       store,
       llm,
       calibrator: identityCalibrator(),
@@ -5061,21 +4664,6 @@ test('turn: features.recent false, memory off or a store without the recent stor
   const before = await run({ store: fakeStore() });
   assert.equal(before.result.outcome, 'skip', 'a store without getRecent never breaks a turn');
   assert.ok(!userTextOf(before.sent).includes('<recent>'));
-
-  for (const [label, features] of [
-    ['recent off', { recent: false }],
-    ['memory off', { memory: false }],
-  ]) {
-    const store = recentStore(threeRooms());
-    const { result, logs, sent } = await run({ store, features });
-    assert.equal(result.outcome, 'skip', label);
-    assert.equal(store.recentReads, 0, label);
-    assert.ok(!userTextOf(sent).includes('<recent>'), label);
-    assert.deepEqual(recentShownLogs(logs), [], label);
-  }
-  const offBefore = await run({ store: fakeStore(), features: { recent: false } });
-  const off = await run({ store: recentStore(threeRooms()), features: { recent: false } });
-  assert.deepEqual(off.sent, offBefore.sent, 'the request is the one built without the store');
 
   const empty = await run({ store: recentStore([]) });
   assert.deepEqual(empty.sent, before.sent, 'an empty store and no moment in the window: the request as before');
@@ -5154,12 +4742,12 @@ test('runTurn: a neighbour whose audience the channel does not cover is left out
 
 // --- I-7: destinations, send failures, dry-run, caps -------
 
-test('usableDestination: the dry-run mirror or a channel the bot cannot read is never the destination', () => {
+test('usableDestination: a channel the bot cannot read is never the destination', () => {
   const general = registerTextChannel(fakeTurnChannel());
   const hall = addChannel(general, { id: 'c6', name: 'hall' });
-  const config = { bot: { dryRunChannelId: 'c1' }, features: {}, memory: { mainChannelIds: ['c1', 'c6'] } };
+  const config = { features: {}, memory: { mainChannelIds: ['c6'] } };
   const listing = () => snapshotOf('g1', { conversations: [general.info, hall.info], groups: [] });
-  assert.equal(usableDestination(listing(), config).channel.id, hall.id, 'the mirror is passed over');
+  assert.equal(usableDestination(listing(), config).channel.id, hall.id, 'a readable main channel is used');
   hall.permit({ read: false });
   assert.deepEqual(
     usableDestination(listing(), config),
@@ -5178,7 +4766,7 @@ async function followUpTurn({ features = {}, answer = '<msg>ένα</msg><msg>δ�
     historyMessages: [rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Bob' }), raw],
   });
   const store = fakeStore();
-  const hot = fakeHot({ typingSimulation: false, ...features });
+  const hot = fakeHot({ ...features });
   const llm = typeof answer === 'function' ? { complete: answer } : fakeLlm(answer);
   const turns = createTurnRunner({
     discord: DISCORD,
@@ -5222,7 +4810,7 @@ test('runTurn: a message that fails to send ends the turn partial with a sendFai
   });
   world().failSends((text) => text === 'δύο');
   const store = fakeStore();
-  const hot = fakeHot({ typingSimulation: false });
+  const hot = fakeHot({});
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -5264,38 +4852,20 @@ test('runTurn: a first message that fails to send ends spoke with nothing delive
 
 test('runTurn: a post that grew past 2000 characters once its mentions expanded arrives whole, never split inside a mention', async () => {
   const { channel } = await followUpTurn({
-    features: { mentionHandles: false },
-    answer: `<msg>${'α'.repeat(1990)} @Bob @Bob @Bob @Bob</msg>`,
+    answer: `<msg>${'α'.repeat(1990)} ${BOB} ${BOB} ${BOB} ${BOB}</msg>`,
   });
   const posts = postedTexts(channel);
   assertSplitIntact(posts);
   assert.equal(posts.join('').split('<@u2>').length - 1, 4, 'all four mentions arrive');
 });
 
-test('runTurn: a reaction stamps no lastPostAt, in a dry run or for real', async () => {
+test('runTurn: a reaction stamps no lastPostAt', async () => {
   const raw = rawMessage({ id: 'm1', authorName: 'Élodie' });
-  const channel = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages: [raw] });
-  const hot = fakeHot({ dryRun: true });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store: fakeStore(),
-    llm: fakeLlm('<react to="#1">👍</react>'),
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    now: () => NOW,
-  });
-  await withCapturedLogs(() =>
-    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
-  );
-  assert.equal(turns.lastPostAt('c1'), 0);
-
   const real = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages: [raw] });
   const live = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
-    hot: fakeHot({ typingSimulation: false }),
+    hot: fakeHot(),
     store: fakeStore(),
     llm: fakeLlm('<react to="#1">👍</react>'),
     calibrator: identityCalibrator(),
@@ -5354,11 +4924,10 @@ const TEST_PACE = {
   prepareSearchMs: 3000,
   dropAfterMs: 0,
   replyHedgeMs: 0,
-  typingWhilePreparing: false,
 };
 
 function paceHot(features = {}, pace = {}) {
-  const hot = lookupHot({ mediaDescriptions: true, ...features });
+  const hot = lookupHot({ ...features });
   hot.config.pace = { ...TEST_PACE, ...pace };
   return hot;
 }
@@ -5425,7 +4994,6 @@ const READ_SHOWN = fill(labels.transcript.linkRead, { text: 'une recette' });
 test('paceSettings: 0, a negative value or a non-number turns a limit off; a missing key keeps a positive limit', () => {
   const missing = paceSettings({});
   assert.ok(missing.prepareMs > 0 && missing.prepareSearchMs > 0 && missing.prepareMediaMs > 0);
-  assert.equal(missing.typingWhilePreparing, false, 'the early indicator is opt-in');
   for (const off of [0, -5, '6000', null, Number.NaN, Infinity]) {
     const pace = paceSettings({ pace: { prepareMs: off, prepareSearchMs: off, prepareMediaMs: off } });
     assert.equal(pace.prepareMs, null, String(off));
@@ -5446,8 +5014,6 @@ test('paceSettings: 0, a negative value or a non-number turns a limit off; a mis
         prepareMediaMs: 8000,
         dropAfterMs: 9000,
         replyHedgeMs: 4000,
-        typingWhilePreparing: false,
-        unpromptedWaits: false,
         settleMs: 3000,
         settleMaxMs: 9000,
       },
@@ -5458,8 +5024,6 @@ test('paceSettings: 0, a negative value or a non-number turns a limit off; a mis
       prepareMediaMs: 8000,
       dropAfterMs: 9000,
       replyHedgeMs: 4000,
-      typingWhilePreparing: false,
-      unpromptedWaits: false,
       settleMs: 3000,
       settleMaxMs: 9000,
     }
@@ -5475,8 +5039,6 @@ const SETTLE_PACE = {
   prepareMediaMs: 0,
   dropAfterMs: 0,
   replyHedgeMs: 0,
-  typingWhilePreparing: false,
-  unpromptedWaits: true,
   settleMaxMs: 15000,
 };
 
@@ -5691,25 +5253,18 @@ test('runTurn: pace.prepareMs 0 waits for every helper, however slow', async () 
   assert.deepEqual(logs.find((l) => l.msg === 'turn: timings').late, []);
 });
 
-test('paceSettings: unpromptedWaits is on unless it is exactly false', () => {
-  assert.equal(paceSettings({ pace: { unpromptedWaits: false } }).unpromptedWaits, false);
-  for (const on of [true, undefined, null, 0, 'false']) {
-    assert.equal(paceSettings({ pace: { unpromptedWaits: on } }).unpromptedWaits, true, String(on));
-  }
-});
-
-// A turn nobody waits for (pace.unpromptedWaits): a spontaneous one and an overheard line.
+// A turn nobody waits for: a spontaneous one and an overheard line.
 const UNHURRIED_TURNS = [
   ['an initiate turn', (scene) => ({ channel: scene.channel, mode: 'initiate' })],
   ['an overheard line', (scene) => ({ ...scene.params, triggerKind: 'overheard' })],
 ];
 
 for (const [name, paramsOf] of UNHURRIED_TURNS) {
-  test(`runTurn: ${name} with pace.unpromptedWaits on has no deadline and no bar -- it waits for a slow helper`, async () => {
+  test(`runTurn: ${name} has no deadline and no bar -- it waits for a slow helper`, async () => {
     const caption = deferred();
     const scene = paceScene({
       caption,
-      hot: paceHot({}, { prepareMs: 1000, prepareSearchMs: 3000, dropAfterMs: 5000, unpromptedWaits: true }),
+      hot: paceHot({}, { prepareMs: 1000, prepareSearchMs: 3000, dropAfterMs: 5000 }),
     });
 
     const running = withCapturedLogs(() => scene.turns.runTurn(paramsOf(scene)));
@@ -5728,9 +5283,9 @@ for (const [name, paramsOf] of UNHURRIED_TURNS) {
   });
 }
 
-test('runTurn: a mention with pace.unpromptedWaits on still cuts a slow helper at pace.prepareMs', async () => {
+test('runTurn: a mention still cuts a slow helper at pace.prepareMs', async () => {
   const caption = deferred();
-  const scene = paceScene({ caption, hot: paceHot({}, { prepareMs: 1000, dropAfterMs: 0, unpromptedWaits: true }) });
+  const scene = paceScene({ caption, hot: paceHot({}, { prepareMs: 1000, dropAfterMs: 0 }) });
 
   const running = withCapturedLogs(() => scene.turns.runTurn(scene.params));
   await settleUntil(() => scene.describer.calls > 0 && scene.timers.live().length > 0);
@@ -5743,77 +5298,6 @@ test('runTurn: a mention with pace.unpromptedWaits on still cuts a slow helper a
   assert.ok(!userText(scene.llm).includes('a grey cat'), 'the late caption is absent');
   assert.deepEqual(logs.find((l) => l.msg === 'turn: timings').late, ['captions']);
   caption.resolve();
-});
-
-test('runTurn: with pace.unpromptedWaits false an initiate turn cuts a slow helper at pace.prepareMs, like a mention', async () => {
-  const caption = deferred();
-  const scene = paceScene({ caption, hot: paceHot({}, { prepareMs: 1000, dropAfterMs: 0, unpromptedWaits: false }) });
-
-  const running = withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'initiate' }));
-  await settleUntil(() => scene.describer.calls > 0 && scene.timers.live().length > 0);
-  const [deadline] = scene.timers.live();
-  assert.equal(deadline.ms, 1000);
-  scene.timers.fire(deadline);
-  const { result, logs } = await running;
-
-  assert.equal(result.outcome, 'spoke');
-  assert.ok(!userText(scene.llm).includes('a grey cat'), 'the late caption is absent');
-  const timings = logs.find((l) => l.msg === 'turn: timings');
-  assert.deepEqual([timings.mode, timings.triggerKind, timings.late], ['initiate', null, ['captions']]);
-  caption.resolve();
-});
-
-test('runTurn: a search the classifier asks for moves the deadline to pace.prepareSearchMs, counted from the turn start', async () => {
-  let t = NOW;
-  const search = deferred();
-  const lookup = fakeLookup();
-  const searchOnce = lookup.search;
-  lookup.search = async (guildId, query) => {
-    await search.promise;
-    return searchOnce(guildId, query);
-  };
-  const base = lookupLlm('champions final winner 2026');
-  const llm = {
-    ...base,
-    complete: async (messages, options) => {
-      if (messages[0].content.startsWith('Decide whether')) t = NOW + 500;
-      return base.complete(messages, options);
-    },
-  };
-  const hot = lookupHot();
-  hot.config.pace = { ...TEST_PACE };
-  const timers = fakeSchedule();
-  const trigger = rawMessage({ id: 'm1', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος κέρδισε τον τελικό;' });
-  const channel = fakeTurnChannel({ historyMessages: [trigger] });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store: fakeStore(),
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    lookup,
-    now: () => t,
-    schedule: timers.schedule,
-  });
-
-  const running = withCapturedLogs(() =>
-    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(trigger), triggerKind: 'mention' })
-  );
-  await settleUntil(() => timers.timers.length > 1);
-  const [first, second] = timers.timers;
-  assert.equal(first.ms, TEST_PACE.prepareMs);
-  assert.equal(first.cancelled, true, 'the first deadline is replaced');
-  assert.equal(second.ms, TEST_PACE.prepareSearchMs - 500, 'the longer limit, less the time already spent');
-  assert.equal(second.cancelled, false);
-  search.resolve();
-  const { logs } = await running;
-
-  assert.ok(textOf(base.turnCalls[0].messages[1].content).includes('<lookup>'), 'the search arrived in time');
-  const timings = logs.find((l) => l.msg === 'turn: timings');
-  assert.deepEqual(timings.late, []);
-  assert.equal(timings.stages.lookup, 500);
 });
 
 const WATCHED_TEXT = 'ένα ποτάμι κάτω από τη γέφυρα';
@@ -5834,7 +5318,7 @@ function videoPaceScene({
   lookup = undefined,
   content = 'το βλέπεις;',
 } = {}) {
-  const turnHot = hot ?? fakeHot({ mediaDescriptions: true, videoDescriptions: true }, {}, VIDEO_TURN_CONFIG);
+  const turnHot = hot ?? fakeHot({}, {}, VIDEO_TURN_CONFIG);
   turnHot.config.pace = { ...TEST_PACE, ...pace };
   const older =
     where === 'trigger'
@@ -5955,7 +5439,7 @@ test('runTurn: a video whose watch misses the deadline renders not watched, stil
 
 test('runTurn: a late video stage keeps the states the cache holds; only the video still loading is pending', async () => {
   const watch = deferred();
-  const hot = fakeHot({ mediaDescriptions: true, videoDescriptions: true }, {}, VIDEO_TURN_CONFIG);
+  const hot = fakeHot({}, {}, VIDEO_TURN_CONFIG);
   hot.config.pace = { ...TEST_PACE, prepareMs: 1000, prepareMediaMs: 5000 };
   // An older line with a video watched on an earlier turn (served from the cache), and the call with a new one.
   const older = videoAttachmentRaw('m1', NOW - 9000, 'vo', 'old.mp4');
@@ -6039,54 +5523,6 @@ test('runTurn: a video only on an older line keeps pace.prepareMs; one on the li
   assert.deepEqual(repliedLogs.find((l) => l.msg === 'turn: timings').late, []);
 });
 
-test('runTurn: a search and a video on the trigger both extend the deadline -- the larger limit wins', async () => {
-  for (const [searchMs, expected] of [
-    [3000, [1000, 5000]],
-    [8000, [1000, 5000, 7500]],
-  ]) {
-    let t = NOW;
-    const search = deferred();
-    const lookup = fakeLookup();
-    const searchOnce = lookup.search;
-    let searched = 0;
-    lookup.search = async (guildId, query) => {
-      searched += 1;
-      await search.promise;
-      return searchOnce(guildId, query);
-    };
-    const base = lookupLlm('champions final winner 2026');
-    const llm = {
-      ...base,
-      complete: async (messages, options) => {
-        if (messages[0].content.startsWith('Decide whether')) t = NOW + 500;
-        return base.complete(messages, options);
-      },
-    };
-    const hot = lookupHot({ mediaDescriptions: true, videoDescriptions: true });
-    const scene = videoPaceScene({
-      pace: { prepareMs: 1000, prepareSearchMs: searchMs, prepareMediaMs: 5000 },
-      hot,
-      llm,
-      lookup,
-      clock: () => t,
-      content: 'ποιος κέρδισε τον τελικό;',
-    });
-
-    const running = withCapturedLogs(() => scene.turns.runTurn(scene.params));
-    await settleUntil(() => searched > 0);
-    assert.deepEqual(
-      scene.timers.timers.map((timer) => timer.ms),
-      expected,
-      `prepareSearchMs ${searchMs}`
-    );
-    assert.equal(scene.timers.live().length, 1, 'one deadline at a time');
-    assert.equal(scene.timers.live()[0].ms, expected.at(-1));
-    search.resolve();
-    const { logs } = await running;
-    assert.deepEqual(logs.find((l) => l.msg === 'turn: timings').late, []);
-  }
-});
-
 test('runTurn: turn: timings carries every stage, null for one that did not run', async () => {
   let t = NOW;
   const caption = deferred();
@@ -6145,85 +5581,6 @@ test('runTurn: turn: timings carries every stage, null for one that did not run'
   assert.ok(logs.some((l) => l.msg === 'turn: model answered' && 'secondsToAnswer' in l));
 });
 
-/** An llm fake that notes how many typing indicators the channel had when the reply request came. */
-function typingAtTalk(channel) {
-  const base = fakeLlm('<msg>ok</msg>');
-  const seen = [];
-  return {
-    ...base,
-    seen,
-    complete: async (messages, options) => {
-      seen.push(channel.typingCalls.length);
-      return base.complete(messages, options);
-    },
-  };
-}
-
-test('runTurn: a direct call shows the typing indicator while it prepares and refreshes it', async () => {
-  const caption = deferred();
-  const hot = paceHot({}, { typingWhilePreparing: true });
-  const scene = paceScene({ caption, hot });
-  const llm = typingAtTalk(scene.channel);
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store: fakeStore(),
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    describer: scene.describer,
-    lookup: scene.lookup,
-    now: () => NOW,
-    schedule: scene.timers.schedule,
-  });
-
-  const running = withCapturedLogs(() => turns.runTurn(scene.params));
-  await settleUntil(() => scene.describer.calls > 0 && scene.channel.typingCalls.length > 0);
-  assert.equal(scene.channel.typingCalls.length, 1, 'sent once as the turn starts preparing');
-  const refresh = scene.timers.live().find((timer) => timer.ms !== TEST_PACE.prepareMs);
-  assert.ok(refresh, 'a refresh is scheduled');
-  scene.timers.fire(refresh);
-  await settleUntil(() => scene.channel.typingCalls.length > 1);
-  assert.equal(scene.channel.typingCalls.length, 2, 'refreshed while preparing');
-  caption.resolve();
-  const { result } = await running;
-
-  assert.equal(result.outcome, 'spoke');
-  assert.deepEqual(llm.seen, [2]);
-  assert.deepEqual(scene.timers.live(), [], 'nothing is refreshed once the preparation is over');
-});
-
-test('runTurn: no typing indicator while preparing an unprompted turn, nor in a dry run', async () => {
-  const hot = paceHot({}, { typingWhilePreparing: true });
-  const spontaneous = paceScene({ hot });
-  const llm = typingAtTalk(spontaneous.channel);
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store: fakeStore(),
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    describer: spontaneous.describer,
-    lookup: spontaneous.lookup,
-    now: () => NOW,
-    schedule: spontaneous.timers.schedule,
-  });
-  await withCapturedLogs(() => turns.runTurn({ channel: spontaneous.channel, mode: 'interject' }));
-  assert.deepEqual(llm.seen, [0]);
-  assert.ok(
-    spontaneous.timers.timers.every((timer) => timer.ms === TEST_PACE.prepareMs),
-    'no refresh is scheduled'
-  );
-
-  const dry = paceScene({ hot: paceHot({ dryRun: true }, { typingWhilePreparing: true }) });
-  const { result } = await withCapturedLogs(() => dry.turns.runTurn(dry.params));
-  assert.equal(result.dryRun, true);
-  assert.equal(dry.channel.typingCalls.length, 0);
-});
-
 // The drop bar (pace.dropAfterMs): the answer must be in hand by then, or the turn is dropped unposted.
 
 const BAR_MS = 5000;
@@ -6269,7 +5626,7 @@ test('runTurn: an answer in hand just before pace.dropAfterMs is posted, the rep
 test('runTurn: a talk request still out at pace.dropAfterMs is aborted; nothing is posted, the turn ends in error and the queue drains', async () => {
   const answer = deferred();
   const llm = barLlm(() => answer.promise);
-  const hot = paceHot({}, { dropAfterMs: BAR_MS, typingWhilePreparing: true });
+  const hot = paceHot({}, { dropAfterMs: BAR_MS });
   const scene = paceScene({ hot, llm, clock: () => NOW });
   let idle = 0;
   scene.turns.setOnIdle(() => {
@@ -6280,10 +5637,6 @@ test('runTurn: a talk request still out at pace.dropAfterMs is aborted; nothing 
   await settleUntil(() => llm.optionCalls.length > 0);
   const bar = scene.timers.live().find((timer) => timer.ms === BAR_MS);
   assert.ok(bar, 'the bar is set from the turn start');
-  assert.ok(
-    scene.timers.live().some((timer) => timer.ms !== BAR_MS),
-    'the typing indicator is refreshed through the reply request'
-  );
   scene.timers.fire(bar);
   const { result, logs } = await running;
   await settleUntil(() => idle > 0);
@@ -6296,7 +5649,7 @@ test('runTurn: a talk request still out at pace.dropAfterMs is aborted; nothing 
     [dropped.channel, dropped.mode, dropped.triggerKind, dropped.reason, typeof dropped.seconds],
     ['c1', 'reply', 'mention', 'too-slow', 'number']
   );
-  assert.deepEqual(scene.timers.live(), [], 'the typing indicator is no longer refreshed');
+  assert.deepEqual(scene.timers.live(), [], 'no timer is left running');
   assert.equal(idle, 1, 'the pending queue drains as after any finished turn');
   assert.equal(scene.turns.isAnyBusy(), false);
 
@@ -6388,10 +5741,10 @@ test('runTurn: pace.replyHedgeMs 0, or not below the time left to the bar, sends
   }
 });
 
-test('runTurn: an initiate turn with pace.unpromptedWaits on has no bar, so its reply request is never hedged', async () => {
+test('runTurn: an initiate turn has no bar, so its reply request is never hedged', async () => {
   const llm = barLlm(async () => ({ text: '<msg>ok</msg>', usage: {}, estimated: 10 }));
   const scene = paceScene({
-    hot: paceHot({}, { dropAfterMs: BAR_MS, replyHedgeMs: 500, unpromptedWaits: true }),
+    hot: paceHot({}, { dropAfterMs: BAR_MS, replyHedgeMs: 500 }),
     llm,
     clock: () => NOW,
   });
@@ -6425,40 +5778,13 @@ test('runTurn: pace.dropAfterMs 0 sets no bar -- a slow answer is still posted, 
   );
 });
 
-test('runTurn: a private chat message shows the typing indicator while its turn prepares', async () => {
-  const hot = privateHot({ typingSimulation: true });
-  hot.config.pace = { ...TEST_PACE, typingWhilePreparing: true };
-  const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', content: 'hey' });
-  const channel = fakeTurnChannel({ id: 'dm1', dm: true, historyMessages: [raw] });
-  const llm = typingAtTalk(channel);
-  const timers = fakeSchedule();
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store: privateStore(),
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    images: fakeImages(),
-    now: () => NOW,
-    schedule: timers.schedule,
-  });
-
-  const { result } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, guildId: 'g1', mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'private' })
-  );
-
-  assert.equal(result.outcome, 'spoke');
-  assert.deepEqual(llm.seen, [1], 'typing before the reply request');
-});
-
 // ---------------------------------------------------------------------------
 // A message that holds several requests: the splitter (prompts/split.md) and the chain of parts.
 
 const SPLIT_SYSTEM = 'Split this call to {{name}} into at most {{maxTasks}} parts.';
-const SPLIT_TEXT = 'ποιος είναι ο Νίκος; κοίτα το κανάλι της Ελένης, και πες μου αν το μιμίδιο είναι αστείο.';
-const SPLIT_PARTS = ['ποιος είναι ο Νίκος', 'κοίτα το κανάλι της Ελένης', 'το μιμίδιο είναι αστείο;'];
+const SPLIT_TEXT = 'ποιος είναι ο Νίκος ακριβώς; κοίτα το κανάλι της Ελένης, και πες μου αν το μιμίδιο είναι αστείο.';
+// PR 7d: split.minPartChars is the constant 20, so every part is at least that long.
+const SPLIT_PARTS = ['ποιος είναι ο Νίκος ακριβώς', 'κοίτα το κανάλι της Ελένης', 'το μιμίδιο είναι αστείο;'];
 const PARTS_ANSWER = SPLIT_PARTS.map((part) => `- ${part}`).join('\n');
 
 /**
@@ -6491,7 +5817,7 @@ function splitHot({ features = {}, split = {}, labels: ownLabels } = {}) {
     {},
     {
       split: { minChars: 20, minPartChars: 0, maxTasks: 4, contextMessages: 2, maxOutputTokens: 50, ...split },
-      pace: { prepareMs: 5000, prepareSearchMs: 5000, dropAfterMs: 60000, typingWhilePreparing: false },
+      pace: { prepareMs: 5000, prepareSearchMs: 5000, dropAfterMs: 60000 },
     }
   );
   hot.prompts.split = SPLIT_SYSTEM;
@@ -6596,11 +5922,6 @@ test('runTurn: a `one` verdict leaves the turn exactly as without the splitter',
     before.llm.calls.talk.map((call) => call.messages),
     'the same talk request'
   );
-  assert.deepEqual(
-    after.llm.calls.lookup.map((call) => call.messages),
-    before.llm.calls.lookup.map((call) => call.messages),
-    'the search classifier asked once, the same way'
-  );
   assert.deepEqual(after.channel.sent, before.channel.sent);
   assert.deepEqual(after.result, before.result);
   const verdict = after.logs.find((line) => line.msg === 'split: verdict');
@@ -6676,13 +5997,6 @@ test('runTurn: parts in time become one turn per part, in order, each helper jud
   const { llm, logs, result, channel } = await runSplitTurn();
 
   assert.equal(llm.calls.talk.length, 3);
-  // The search classifier: every part asks it with its own text (the whole message's may have started first).
-  const candidates = llm.calls.lookup.map(candidateOf);
-  assert.deepEqual(
-    candidates.filter((text) => text !== SPLIT_TEXT),
-    SPLIT_PARTS
-  );
-  assert.ok(candidates.filter((text) => text === SPLIT_TEXT).length <= 1);
   // The persona's request names the part it answers now and the others.
   assert.deepEqual(
     llm.calls.talk.map((call) => taskOf(call).endsWith(partLabel(llm.calls.talk.indexOf(call) + 1))),
@@ -6740,13 +6054,14 @@ test("runTurn: a chain where no part spoke gives the first skip, else the first 
   assert.equal(failing.result.outcome, 'error');
 });
 
-test('runTurn: split.maxTasks cuts the parts', async () => {
+test('runTurn: the splitter cuts the parts at its four tasks', async () => {
+  // PR 7d: split.maxTasks is the constant 4 (the production value).
+  const kept = [...SPLIT_PARTS, 'και κάτι ακόμα πιο μεγάλο'];
   const { llm } = await runSplitTurn({
-    hot: splitHot({ split: { maxTasks: 2 } }),
-    llm: splitLlm({ split: `${PARTS_ANSWER}\n- και κάτι ακόμα` }),
+    llm: splitLlm({ split: `${PARTS_ANSWER}\n- ${kept[3]}\n- και ένα τελευταίο ακόμα θέμα` }),
   });
-  assert.equal(llm.calls.talk.length, 2);
-  assert.ok(taskOf(llm.calls.talk[0]).endsWith(partLabel(1, SPLIT_PARTS.slice(0, 2))));
+  assert.equal(llm.calls.talk.length, 4);
+  assert.ok(taskOf(llm.calls.talk[0]).endsWith(partLabel(1, kept)));
 });
 
 test('runTurn: an overheard line or an unprompted turn never asks the splitter', async () => {
@@ -7020,7 +6335,8 @@ test("runTurn: another member's waiting call is named under labels.task.queuedOt
 
 const GIF_PICK_PROMPT = 'Pick a GIF for what {{name}} wrote.';
 const PICK_LIBRARY_SIZE = 50;
-const PICK_SETTINGS = { maxChars: 20, contextMessages: 2, maxOutputTokens: 17 };
+// PR 7d: gifs.pick.maxChars (160), contextMessages (4) and graceMs (1000) are constants of the picker.
+const PICK_SETTINGS = { maxOutputTokens: 17 };
 
 /**
  * A library of PICK_LIBRARY_SIZE link GIFs, every one captioned: g1 the most used, g50 used
@@ -7078,12 +6394,12 @@ function pickHistory() {
 }
 
 /** A hot config for the picker: its prompt and its own gifs values. */
-function pickHot({ features = {}, prompts = {}, pickSettings = PICK_SETTINGS, maxPerDay = 40, typing = null } = {}) {
+function pickHot({ features = {}, prompts = {}, pickSettings = PICK_SETTINGS, typing = null } = {}) {
   const hot = fakeHot(
-    { typingSimulation: typing !== null, ...features },
+    { ...features },
     {},
     {
-      gifs: { maxPerDay, reactionChars: 40, actionChars: 70, ownMarkHours: 24, halfLifeDays: 30, pick: pickSettings },
+      gifs: { pick: pickSettings },
       models: { base: { analyzer: 'cheap/classifier' } },
       ...(typing ? { typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], ...typing } } : {}),
     }
@@ -7114,7 +6430,6 @@ async function runPickTurn({
   const hot = pickHot({ ...hotOptions, typing });
   // With `journaled`, a journal in memory: `limits` are the turn record's.
   const recorded = journaled ? journalOverMemory() : null;
-  if (recorded) hot.config.features.journal = true;
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -7179,7 +6494,6 @@ test('runTurn: a short reply is shown with the whole captioned library; a picked
   assert.deepEqual(sent(), ['https://tenor.com/view/gif-50'], 'the GIF, no text');
   assert.equal(channel.sent[0].reply.messageReference, 'm1', 'replying where the first message would have');
   assert.deepEqual(store.ownGifs, [{ guildId: 'g1', key: 'k50', ts: NOW }]);
-  assert.equal(store.state.data.gifCount, 1, 'counted against gifs.maxPerDay');
   const picked = logs.find((entry) => entry.msg === 'gifs: picked');
   assert.deepEqual([picked.channel, picked.handle, picked.library], ['c1', true, PICK_LIBRARY_SIZE]);
   assert.equal(
@@ -7219,40 +6533,19 @@ test('runTurn: a failed pick request logs gifs: pick failed and posts the text',
 });
 
 test('runTurn: no pick for a reply over maxChars or a turn posting its own GIF', async () => {
-  const long = await runPickTurn({ reply: '<msg>ναι, φυσικά, έλα απόψε</msg>', pick: 'g1' });
+  const text = 'α'.repeat(161);
+  const long = await runPickTurn({ reply: `<msg>${text}</msg>`, pick: 'g1' });
   assert.equal(long.picks.length, 0, 'over maxChars');
-  assert.deepEqual(long.sent(), ['ναι, φυσικά, έλα απόψε']);
-  const wider = await runPickTurn({
-    reply: '<msg>ναι, φυσικά, έλα απόψε</msg>',
-    pick: 'g1',
-    pickSettings: { ...PICK_SETTINGS, maxChars: 30 },
-  });
-  assert.equal(wider.picks.length, 1, 'maxChars read now');
+  assert.deepEqual(long.sent(), [text]);
+  const fits = await runPickTurn({ reply: `<msg>${'α'.repeat(160)}</msg>`, pick: 'g1' });
+  assert.equal(fits.picks.length, 1, 'exactly maxChars is still picked for');
 
   const own = await runPickTurn({ reply: '<msg>χα</msg><gif>g2</gif>', pick: 'g1' });
   assert.equal(own.picks.length, 0, 'the turn posts a GIF already');
   assert.deepEqual(own.sent(), ['χα', 'https://tenor.com/view/gif-2']);
 });
 
-test('runTurn: no pick with the daily GIF cap spent, a switch off, no prompt or no captioned GIF', async () => {
-  const spent = await runPickTurn({
-    pick: 'g1',
-    store: pickStore({ data: { gifDay: '2026-09-20', gifCount: 3 } }),
-    maxPerDay: 3,
-  });
-  assert.equal(spent.picks.length, 0, 'gifs.maxPerDay spent');
-  assert.deepEqual(spent.sent(), ['ναι, φυσικά, έλα']);
-  const room = await runPickTurn({
-    pick: 'g1',
-    store: pickStore({ data: { gifDay: '2026-09-20', gifCount: 2 } }),
-    maxPerDay: 3,
-  });
-  assert.equal(room.picks.length, 1, 'one GIF left today');
-
-  const off = await runPickTurn({ pick: 'g1', features: { gifPicker: false } });
-  assert.equal(off.picks.length, 0, 'features.gifPicker false');
-  const gifsOff = await runPickTurn({ pick: 'g1', features: { gifs: false } });
-  assert.equal(gifsOff.picks.length, 0, 'features.gifs false');
+test('runTurn: no pick without the prompt or without a captioned GIF', async () => {
   const noPrompt = await runPickTurn({ pick: 'g1', prompts: { 'gif-pick': null } });
   assert.equal(noPrompt.picks.length, 0, 'no prompts/gif-pick.md');
   const empty = await runPickTurn({
@@ -7262,13 +6555,15 @@ test('runTurn: no pick with the daily GIF cap spent, a switch off, no prompt or 
   assert.equal(empty.picks.length, 0, 'no captioned GIF');
 });
 
-/** Four chat lines: the trigger (m1) is followed by two later lines from someone else. */
+/** Six chat lines: the trigger (m1) is followed by four later lines from someone else, the picker's whole context. */
 function laterLinesHistory() {
   return [
-    rawMessage({ id: 'm0', ts: NOW - 9000, content: 'καλημέρα' }),
-    rawMessage({ id: 'm1', ts: NOW - 7000, content: 'θα έρθεις απόψε;' }),
-    rawMessage({ id: 'm2', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoé', content: 'κι εγώ ρωτάω' }),
-    rawMessage({ id: 'm3', ts: NOW - 3000, authorId: 'u2', authorName: 'Zoé', content: 'λοιπόν;' }),
+    rawMessage({ id: 'm0', ts: NOW - 11000, content: 'καλημέρα' }),
+    rawMessage({ id: 'm1', ts: NOW - 9000, content: 'θα έρθεις απόψε;' }),
+    rawMessage({ id: 'm2', ts: NOW - 7000, authorId: 'u2', authorName: 'Zoé', content: 'κι εγώ ρωτάω' }),
+    rawMessage({ id: 'm3', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoé', content: 'λοιπόν;' }),
+    rawMessage({ id: 'm4', ts: NOW - 3000, authorId: 'u2', authorName: 'Zoé', content: 'ε;' }),
+    rawMessage({ id: 'm5', ts: NOW - 1000, authorId: 'u2', authorName: 'Zoé', content: 'ναι;' }),
   ];
 }
 
@@ -7279,8 +6574,8 @@ test("runTurn: the picker's context brings in an older answered trigger, first, 
   const [, context, reply] = textOf(picks[0].messages[1].content).split('\n\n');
   assert.match(
     context,
-    /^<context>\n[^#\n]*\n#1 [^\n]*Alice: θα έρθεις απόψε;\n#2 [^\n]*κι εγώ ρωτάω\n#3 [^\n]*λοιπόν;\n<\/context>$/,
-    'the answered line with its author, then the last two lines'
+    /^<context>\n[^#\n]*\n#1 [^\n]*Alice: θα έρθεις απόψε;\n#2 [^\n]*κι εγώ ρωτάω\n#3 [^\n]*λοιπόν;\n#4 [^\n]*ε;\n#5 [^\n]*ναι;\n<\/context>$/,
+    'the answered line with its author, then the last four lines'
   );
   const marker = fill(labels.transcript.replyTo, { index: 1, author: 'Alice', quote: 'θα έρθεις απόψε;' });
   assert.equal(reply, `<reply>\n${marker} ναι, φυσικά\n</reply>`);
@@ -7290,13 +6585,17 @@ test('runTurn: the picker names the line the first message replies to, when it i
   const raws = laterLinesHistory();
   const { picks } = await runPickTurn({ raws, reply: '<msg reply="#3">χα, ναι</msg>' });
   const [, context, reply] = textOf(picks[0].messages[1].content).split('\n\n');
-  assert.match(context, /^<context>\n[^#\n]*\n#1 [^\n]*κι εγώ ρωτάω\n#2 [^\n]*λοιπόν;\n<\/context>$/);
+  assert.match(
+    context,
+    /^<context>\n[^#\n]*\n#1 [^\n]*κι εγώ ρωτάω\n#2 [^\n]*λοιπόν;\n#3 [^\n]*ε;\n#4 [^\n]*ναι;\n<\/context>$/
+  );
   const marker = fill(labels.transcript.replyTo, { index: 1, author: 'Zoé', quote: 'κι εγώ ρωτάω' });
   assert.equal(reply, `<reply>\n${marker} χα, ναι\n</reply>`);
 });
 
 test('runTurn: with several messages a picked GIF replaces the first one only; the rest follow in order', async () => {
-  const reply = '<msg reply="#2">χα</msg><msg>και κάτι ακόμα πιο μακρύ από είκοσι</msg><msg>τέλος</msg>';
+  const longer = 'και κάτι ακόμα πιο μακρύ ' + 'α'.repeat(160);
+  const reply = `<msg reply="#2">χα</msg><msg>${longer}</msg><msg>τέλος</msg>`;
   const { picks, sent, channel, store } = await runPickTurn({ reply, pick: 'g50' });
   assert.equal(picks.length, 1, 'only the first message counts toward gifs.pick.maxChars');
   assert.equal(
@@ -7304,18 +6603,12 @@ test('runTurn: with several messages a picked GIF replaces the first one only; t
     true,
     'the picker sees the message it would replace'
   );
-  assert.deepEqual(sent(), ['https://tenor.com/view/gif-50', 'και κάτι ακόμα πιο μακρύ από είκοσι', 'τέλος']);
+  assert.deepEqual(sent(), ['https://tenor.com/view/gif-50', longer, 'τέλος']);
   assert.equal(channel.sent[0].reply.messageReference, 'm1', 'the GIF replies where the first message would have');
   assert.deepEqual(
     store.ownGifs.map((own) => own.key),
     ['k50']
   );
-
-  const dry = await runPickTurn({ reply, pick: 'g50', features: { dryRun: true } });
-  const order = dry.logs
-    .filter((entry) => entry.msg === 'dry-run: would send gif' || entry.msg === 'dry-run: would send')
-    .map((entry) => entry.gif ?? entry.text);
-  assert.deepEqual(order, ['g50', 'και κάτι ακόμα πιο μακρύ από είκοσι', 'τέλος'], 'a dry run mirrors the same order');
 });
 
 test('runTurn: a picked GIF that fails to send leaves the first message to be posted as written, then the rest', async () => {
@@ -7331,9 +6624,10 @@ test('runTurn: a picked GIF that fails to send leaves the first message to be po
 });
 
 test('runTurn: gifs.pick.maxChars gates the first message only', async () => {
-  const long = await runPickTurn({ reply: '<msg>και κάτι ακόμα πιο μακρύ από είκοσι</msg><msg>χα</msg>', pick: 'g1' });
+  const first = 'και κάτι ακόμα πιο μακρύ ' + 'α'.repeat(160);
+  const long = await runPickTurn({ reply: `<msg>${first}</msg><msg>χα</msg>`, pick: 'g1' });
   assert.equal(long.picks.length, 0, 'a long first message is never replaced');
-  assert.deepEqual(long.sent(), ['και κάτι ακόμα πιο μακρύ από είκοσι', 'χα']);
+  assert.deepEqual(long.sent(), [first, 'χα']);
 });
 
 test("runTurn: the picker runs alongside the first message's typing time", async () => {
@@ -7346,7 +6640,6 @@ test("runTurn: the picker runs alongside the first message's typing time", async
     reply: '<msg>ναι</msg>',
     pick,
     typing: { msPerChar: [0, 0], minMs: 150, maxMs: 150 },
-    pickSettings: { ...PICK_SETTINGS, graceMs: null },
   });
   assert.deepEqual(sent(), ['ναι']);
   assert.ok(askedAt !== null && askedAt <= sendTimes[0], 'the picker is asked before the send');
@@ -7355,22 +6648,22 @@ test("runTurn: the picker runs alongside the first message's typing time", async
 });
 
 test("runTurn: a picker still out when the first message's typing ends is left behind: the text goes, logged and journaled", async () => {
+  // PR 7d: gifs.pick.graceMs is the constant 1000, so the picker has that long beyond the typing before it is left behind.
   const typing = { msPerChar: [0, 0], minMs: 60, maxMs: 60 };
-  const slow = () => new Promise((resolve) => setTimeout(() => resolve('g50'), 400));
+  const slow = () => new Promise((resolve) => setTimeout(() => resolve('g50'), 1400));
   const late = await runPickTurn({
     reply: '<msg>ναι</msg>',
     pick: slow,
     typing,
-    pickSettings: { ...PICK_SETTINGS, graceMs: 0 },
     journaled: true,
   });
   assert.deepEqual(late.sent(), ['ναι'], 'the text as written, no GIF');
   assert.ok(
-    late.sendTimes[0] - late.startedAt < 300,
+    late.sendTimes[0] - late.startedAt < 1300,
     `not held for the picker (${late.sendTimes[0] - late.startedAt} ms)`
   );
   const entry = late.logs.find((log) => log.msg === 'gifs: pick late');
-  assert.deepEqual([entry?.channel, entry?.graceMs], ['c1', 0]);
+  assert.deepEqual([entry?.channel, entry?.graceMs], ['c1', 1000]);
   assert.deepEqual(late.store.ownGifs, [], 'nothing posted or stamped');
   assert.ok(
     late.limits.some((limit) => limit.kind === 'helper-timeout' && limit.where === 'gif-pick'),
@@ -7379,9 +6672,8 @@ test("runTurn: a picker still out when the first message's typing ends is left b
 
   const graced = await runPickTurn({
     reply: '<msg>ναι</msg>',
-    pick: slow,
+    pick: () => new Promise((resolve) => setTimeout(() => resolve('g50'), 400)),
     typing,
-    pickSettings: { ...PICK_SETTINGS, graceMs: 1000 },
   });
   assert.deepEqual(
     graced.sent(),
@@ -7392,33 +6684,13 @@ test("runTurn: a picker still out when the first message's typing ends is left b
     graced.logs.some((log) => log.msg === 'gifs: pick late'),
     false
   );
-
-  const waits = await runPickTurn({
-    reply: '<msg>ναι</msg>',
-    pick: slow,
-    typing,
-    pickSettings: { ...PICK_SETTINGS, graceMs: null },
-  });
-  assert.deepEqual(waits.sent(), ['https://tenor.com/view/gif-50'], 'null waits for the answer');
-
-  const untyped = await runPickTurn({
-    reply: '<msg>ναι</msg>',
-    pick: slow,
-    pickSettings: { ...PICK_SETTINGS, graceMs: 0 },
-  });
-  assert.deepEqual(
-    untyped.sent(),
-    ['https://tenor.com/view/gif-50'],
-    'without the typing imitation the answer is waited for, as before'
-  );
 });
 
-test('runTurn: a picker that answered during the typing is used with a grace of 0', async () => {
+test('runTurn: a picker that answered during the typing is used', async () => {
   const quick = await runPickTurn({
     reply: '<msg>ναι</msg>',
     pick: 'g50',
     typing: { msPerChar: [0, 0], minMs: 60, maxMs: 60 },
-    pickSettings: { ...PICK_SETTINGS, graceMs: 0 },
   });
   assert.deepEqual(quick.sent(), ['https://tenor.com/view/gif-50']);
   assert.equal(
@@ -7431,7 +6703,7 @@ test('runTurn: a picker that answered during the typing is used with a grace of 
  * Two picker turns on ONE runner at `times` (ms), the library changed between them by `between`
  * (a GIF post of the persona, a use that reranks); the picks' user parts.
  */
-async function twoPickTurns({ times, between, promptCache = true }) {
+async function twoPickTurns({ times, between }) {
   const library = pickLibrary();
   const store = pickStore({ library });
   const llm = pickLlm({ reply: '<msg reply="#2">ναι, φυσικά, έλα</msg>', pick: 'none' });
@@ -7439,7 +6711,7 @@ async function twoPickTurns({ times, between, promptCache = true }) {
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
-    hot: pickHot({ features: { promptCache } }),
+    hot: pickHot(),
     store,
     llm,
     calibrator: identityCalibrator(),
@@ -7465,7 +6737,7 @@ async function twoPickTurns({ times, between, promptCache = true }) {
 /** The persona posted g40 at `at`, and it was used enough to lead the ranking. */
 const postG40 = (at) => (gifs) => Object.assign(gifs.entries.k40, { ownLast: at, ownUses: 1, count: 500, last: at });
 
-test("runTurn: with the prompt cache on, the picker's cached library is byte-identical within one cache bucket; her post and its age go to the tail", async () => {
+test("runTurn: the picker's cached library is byte-identical within one cache bucket; her post and its age go to the tail", async () => {
   const first = NOW + 60_000;
   const second = NOW + 7 * 60_000;
   const [a, b] = await twoPickTurns({ times: [first, second], between: postG40(first + 1000) });
@@ -7485,17 +6757,10 @@ test("runTurn: with the prompt cache on, the picker's cached library is byte-ide
   );
 });
 
-test("runTurn: the picker's library follows the library at the next cache bucket, or at once with the prompt cache off", async () => {
+test("runTurn: the picker's library follows the library at the next cache bucket", async () => {
   const first = NOW + 60_000;
   const [, nextBucket] = await twoPickTurns({ times: [first, NOW + 61 * 60_000], between: postG40(first + 1000) });
   assert.ok(nextBucket[0].text.startsWith('<gifs>\ng40 -- λεζάντα 40\n'), 'reranked at the bucket edge');
-  const [, off] = await twoPickTurns({
-    times: [first, NOW + 2 * 60_000],
-    between: postG40(first + 1000),
-    promptCache: false,
-  });
-  assert.ok(off[0].text.startsWith('<gifs>\ng40 -- λεζάντα 40\n'), 'rendered live without the cache');
-  assert.equal(off[0].text.includes('(you'), false, 'never marked in the library');
 });
 
 // ---------------------------------------------------------------------------
@@ -7520,11 +6785,9 @@ function replyParentChannel(historyMessages, stored = []) {
   return channel;
 }
 
-/** The video-stage hot config with the reply-parent settings set by the test. */
-function replyParentHot({ fetchReplyParents = true, replyParentsFor = 3, replyParentsMax = 4 } = {}) {
-  const hot = fakeHot({ mediaDescriptions: true, videoDescriptions: true }, {}, VIDEO_TURN_CONFIG);
-  Object.assign(hot.config.context, { fetchReplyParents, replyParentsFor, replyParentsMax });
-  return hot;
+/** The video-stage hot config. */
+function replyParentHot() {
+  return fakeHot({}, {}, VIDEO_TURN_CONFIG);
 }
 
 const OLD_PARENT_TS = NOW - 2 * 60 * 60 * 1000;
@@ -7612,33 +6875,23 @@ test('createTurnRunner: a chain of two outside the window -- the parent and its 
   assert.ok(!userMessage.includes(labels.transcript.replyToOld));
 });
 
-test('createTurnRunner: context.replyParentsMax caps the fetched parents, context.replyParentsFor picks the window lines asked about', async () => {
-  const stored = ['pa', 'pb', 'pc'].map((id, i) =>
+test('createTurnRunner: the parents fetched for a window are capped at four, the newest lines first', async () => {
+  // PR 7d: context.replyParentsMax is the constant 4 (the production value).
+  const stored = ['pa', 'pb', 'pc', 'pd', 'pe'].map((id, i) =>
     rawMessage({ id, authorId: 'u2', authorName: 'Bob', ts: OLD_PARENT_TS + i })
   );
-  const historyMessages = [
-    rawReplyTo('pa', { id: 'm1', ts: NOW - 3000 }),
-    rawReplyTo('pb', { id: 'm2', ts: NOW - 2000 }),
-    rawReplyTo('pc', { id: 'm3', ts: NOW - 1000 }),
-  ];
-  const capped = await runReplyParentTurn({
-    hot: replyParentHot({ replyParentsMax: 2 }),
+  const historyMessages = stored.map((parent, i) =>
+    rawReplyTo(parent.id, { id: `m${i + 1}`, ts: NOW - (5 - i) * 1000 })
+  );
+  const { channel } = await runReplyParentTurn({
     historyMessages,
     stored,
-    trigger: { ...normalizedTrigger(historyMessages[2]), replyToId: 'pc' },
+    trigger: { ...normalizedTrigger(historyMessages[4]), replyToId: 'pe' },
   });
-  assert.deepEqual(capped.channel.fetchedIds, ['pc', 'pb']);
-
-  const lastOne = await runReplyParentTurn({
-    hot: replyParentHot({ replyParentsFor: 1 }),
-    historyMessages,
-    stored,
-    trigger: { ...normalizedTrigger(historyMessages[2]), replyToId: 'pc' },
-  });
-  assert.deepEqual(lastOne.channel.fetchedIds, ['pc']);
+  assert.deepEqual(channel.fetchedIds, ['pe', 'pd', 'pc', 'pb']);
 });
 
-test('createTurnRunner: features.anchoredWindow asks the parents of every window line and shows them in <earlier>, not <chat>', async () => {
+test('createTurnRunner: the window asks the parents of every line and shows them in <earlier>, not <chat>', async () => {
   const stored = ['pa', 'pb', 'pc'].map((id, i) =>
     rawMessage({ id, authorId: 'u2', authorName: 'Bob', ts: OLD_PARENT_TS + i, content: `γονέας ${id}` })
   );
@@ -7647,19 +6900,14 @@ test('createTurnRunner: features.anchoredWindow asks the parents of every window
     rawReplyTo('pb', { id: 'm2', ts: NOW - 2000 }),
     rawReplyTo('pc', { id: 'm3', ts: NOW - 1000 }),
   ];
-  const hot = replyParentHot({ replyParentsFor: 1 });
-  hot.config.features.anchoredWindow = true;
+  const hot = replyParentHot();
   const { channel, userMessage } = await runReplyParentTurn({
     hot,
     historyMessages,
     stored,
     trigger: { ...normalizedTrigger(historyMessages[2]), replyToId: 'pc' },
   });
-  assert.deepEqual(
-    channel.fetchedIds,
-    ['pc', 'pb', 'pa'],
-    'every window line, newest first, despite replyParentsFor 1'
-  );
+  assert.deepEqual(channel.fetchedIds, ['pc', 'pb', 'pa'], 'every window line, newest first');
   const block = (tag) => userMessage.slice(userMessage.indexOf(`<${tag}>`), userMessage.indexOf(`</${tag}>`));
   assert.ok(
     ['pa', 'pb', 'pc'].every((id) => block('earlier').includes(`γονέας ${id}`)),
@@ -7686,20 +6934,6 @@ test('createTurnRunner: a deleted reply parent is skipped and logged, the turn s
     missing.map((entry) => [entry.channel, entry.messageId]),
     [['c1', 'gone']]
   );
-  assert.ok(userMessage.includes(labels.transcript.replyToOld));
-});
-
-test('createTurnRunner: context.fetchReplyParents off -- no parent is fetched, the reply reads as one to an older message', async () => {
-  const parent = rawMessage({ id: 'p1', authorId: 'u2', authorName: 'Bob', ts: OLD_PARENT_TS });
-  const triggerRaw = rawReplyTo('p1', { id: 'm2', ts: NOW - 1000 });
-  const { channel, userMessage } = await runReplyParentTurn({
-    hot: replyParentHot({ fetchReplyParents: false }),
-    historyMessages: [triggerRaw],
-    stored: [parent],
-    trigger: { ...normalizedTrigger(triggerRaw), replyToId: 'p1' },
-  });
-
-  assert.deepEqual(channel.fetchedIds, []);
   assert.ok(userMessage.includes(labels.transcript.replyToOld));
 });
 
@@ -7768,12 +7002,7 @@ function participationChannel(historyMessages) {
   return channel;
 }
 
-async function runParticipationTurn({
-  answers,
-  store = participationStore(),
-  hot = fakeHot({ typingSimulation: false }),
-  history,
-} = {}) {
+async function runParticipationTurn({ answers, store = participationStore(), hot = fakeHot({}), history } = {}) {
   const raws = history ?? [
     rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Bob', ts: NOW - 5000, content: 'πρώτη γραμμή' }),
     rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000, content: 'θυμάσαι το βιβλίο;' }),
@@ -7824,35 +7053,25 @@ test('runTurn: each message sent is recorded as participation with the history l
 });
 
 test('runTurn: a reply to a line older than the lines before it records that line as the parent', async () => {
-  const hot = fakeHot({ typingSimulation: false }, {}, { participation: { linesBefore: 1 } });
+  // PR 7d: participation.linesBefore is the constant 3, so the parent m0 lies outside the three lines before the reply.
   const raws = [
     rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Bob', ts: NOW - 9000, content: 'η αρχή' }),
-    rawMessage({ id: 'mx', authorId: 'u3', authorName: 'Cleo', ts: NOW - 5000, content: 'κάτι άλλο' }),
+    rawMessage({ id: 'mx', authorId: 'u3', authorName: 'Cleo', ts: NOW - 6000, content: 'κάτι άλλο' }),
+    rawMessage({ id: 'my', authorId: 'u3', authorName: 'Cleo', ts: NOW - 5000, content: 'κι άλλο' }),
+    rawMessage({ id: 'mz', authorId: 'u3', authorName: 'Cleo', ts: NOW - 4000, content: 'και κάτι ακόμα' }),
     rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000, content: 'θυμάσαι;' }),
   ];
-  const { store } = await runParticipationTurn({ hot, history: raws, answers: ['<msg reply="#1">ναι, αυτό</msg>'] });
+  const { store } = await runParticipationTurn({ history: raws, answers: ['<msg reply="#1">ναι, αυτό</msg>'] });
   const [episode] = store.current().episodes;
   assert.deepEqual(
     episode.messages.map((m) => m.id),
-    ['m0', 'm1', 'sent-1'],
-    'm1 is the one line before, m0 the parent; mx is left out'
+    ['m0', 'my', 'mz', 'm1', 'sent-1'],
+    'the three lines before, the parent m0 ahead of them; mx is left out'
   );
   assert.equal(episode.messages.find((m) => m.id === 'sent-1').replyTo, 'm0');
 });
 
-test('runTurn: a dry run, the switch off and a private chat record nothing', async () => {
-  const dry = await runParticipationTurn({
-    hot: fakeHot({ typingSimulation: false, dryRun: true }),
-    answers: ['<msg>ναι</msg>'],
-  });
-  assert.equal(dry.result.outcome, 'spoke');
-  assert.equal(dry.store.writes.length, 0);
-  const off = await runParticipationTurn({
-    hot: fakeHot({ typingSimulation: false, participation: false }),
-    answers: ['<msg>ναι</msg>'],
-  });
-  assert.equal(off.channel.sent.length, 1);
-  assert.equal(off.store.writes.length, 0);
+test('runTurn: a private chat records no participation and shows no block', async () => {
   const store = participationStore({ episodes: [], nextId: 1 }, privateStore());
   const dm = await runPrivateTurn({ store });
   assert.equal(dm.channel.sent.length, 1);
@@ -7865,7 +7084,8 @@ test('runTurn: the pick classifier runs beside the turn and its pick reaches the
     episodes: [storedEpisode('p1', 'c2', 120, 'στο ράφι είναι'), storedEpisode('p2', 'c3', 30, 'ωραία λουλούδια')],
     nextId: 3,
   });
-  const hot = fakeHot({ typingSimulation: false }, {}, { participation: { shown: 1 } });
+  // PR 7d: participation.shown is the constant 4, so both stored episodes are shown whatever the pick says.
+  const hot = fakeHot();
   hot.prompts['participation-pick'] = 'Pick for {{name}}.';
   const { llm, logs, result } = await runParticipationTurn({ hot, store, answers: ['1', '<msg>ναι</msg>'] });
   assert.equal(result.outcome, 'spoke');
@@ -7882,10 +7102,10 @@ test('runTurn: the pick classifier runs beside the turn and its pick reaches the
     user.includes('<participation>') && user.includes('#journal (a reading log):') && user.includes('στο ράφι είναι'),
     'the picked older episode is shown'
   );
-  assert.ok(!user.includes('ωραία λουλούδια'), 'shown: 1 leaves the newest out for the pick');
+  assert.ok(user.includes('ωραία λουλούδια'), 'both episodes fit the four shown');
   assert.ok(user.includes(labels.senses.participation));
   const answered = logs.find((l) => l.msg === 'turn: model answered');
-  assert.equal(answered.budget.participation.shown, 1);
+  assert.equal(answered.budget.participation.shown, 2);
   const timings = logs.find((l) => l.msg === 'turn: timings');
   assert.equal(typeof timings.stages.participation, 'number');
 });
@@ -7895,11 +7115,12 @@ test('runTurn: without the pick prompt the newest episodes are shown and the cla
     episodes: [storedEpisode('p1', 'c2', 120, 'στο ράφι είναι'), storedEpisode('p2', 'c3', 30, 'ωραία λουλούδια')],
     nextId: 3,
   });
-  const hot = fakeHot({ typingSimulation: false }, {}, { participation: { shown: 1 } });
-  const { llm, logs } = await runParticipationTurn({ hot, store, answers: ['<msg>ναι</msg>'] });
+  const { llm, logs } = await runParticipationTurn({ store, answers: ['<msg>ναι</msg>'] });
   assert.equal(llm.calls.length, 1, 'only the reply request');
   const user = textOf(llm.calls[0][1].content);
-  assert.ok(user.includes('ωραία λουλούδια') && !user.includes('στο ράφι είναι'));
+  // PR 7d: participation.shown is the constant 4, so both episodes are shown, the newest first.
+  assert.ok(user.includes('ωραία λουλούδια') && user.includes('στο ράφι είναι'));
+  assert.ok(user.indexOf('ωραία λουλούδια') < user.indexOf('στο ράφι είναι'));
   assert.equal(logs.find((l) => l.msg === 'participation: skipped')?.reason, 'no-prompt');
 });
 
@@ -7973,12 +7194,8 @@ test('turn: the memory rows the request carried go to the memoryReads hook with 
     names: ['Alice'],
     details: [{ id: 1, text: 'lives in Lyon', weight: 2, itemId: 'de-1' }],
   };
-  const run = async ({ journal = true, memoryReads }) => {
-    const hot = fakeHot(
-      { journal, typingSimulation: false },
-      {},
-      { llm: { maxRequestTokens: 50000, safetyMargin: 0.9, maxOutputTokens: 700 } }
-    );
+  const run = async ({ memoryReads }) => {
+    const hot = fakeHot({}, {}, { llm: { maxRequestTokens: 50000, safetyMargin: 0.9, maxOutputTokens: 700 } });
     const { journal: journalOver } = journalOverMemory();
     const turns = createTurnRunner({
       discord: DISCORD,
@@ -8007,7 +7224,7 @@ test('turn: the memory rows the request carried go to the memoryReads hook with 
   assert.ok(calls[0].guildId);
   assert.ok(calls[0].reads.some((read) => read.kind === 'claim' && read.id === 'de-1'));
 
-  // A hook that throws never fails the turn; no hook, or no journal turn id, records nothing.
+  // A hook that throws never fails the turn; no hook records nothing.
   const throwing = await run({
     memoryReads: () => {
       throw new Error('boom');
@@ -8015,9 +7232,6 @@ test('turn: the memory rows the request carried go to the memoryReads hook with 
   });
   assert.equal(throwing.outcome, 'spoke');
   assert.equal((await run({ memoryReads: null })).outcome, 'spoke');
-  const quiet = [];
-  await run({ journal: false, memoryReads: (args) => quiet.push(args) });
-  assert.deepEqual(quiet, []);
 });
 
 test('turn: one execution context per turn; its id goes with the memory rows the request carried', async () => {
@@ -8132,18 +7346,10 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
     assert.equal(turn.budget.dropped[limit.where], limit.lost);
   }
 
-  // The switch off (read at the moment of use): nothing more is written.
-  hot.config.features.journal = false;
-  const written = lines.length;
-  const off = await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
-  assert.equal(off.outcome, 'spoke');
-  assert.equal(lines.length, written);
-  assert.equal('turnId' in off, false);
-
   // A budget that drops chat lines: the drop is named in budget.dropped and in limits.
-  hot.config.features.journal = true;
   // 500 for the request itself, and what her carried-over tools cost beside it (about 800 with the provider's tool preamble).
-  hot.config.llm = { maxRequestTokens: 1300, safetyMargin: 1, maxOutputTokens: 4000 };
+  // PR 7d: voice.say is carried over too (features.speech is code), so the cap is 200 tokens above the earlier 1300.
+  hot.config.llm = { maxRequestTokens: 1500, safetyMargin: 1, maxOutputTokens: 4000 };
   const crowded = [];
   for (let i = 0; i < 12; i += 1)
     crowded.push(rawMessage({ id: `k${i}`, authorId: 'u2', ts: NOW - 60_000 + i * 1000, content: 'λέξη '.repeat(30) }));
@@ -8195,15 +7401,15 @@ test('turn: an explicit skip and an empty answer both end in silence, journaled 
   }
 });
 
-test('turn: logs thinkChars not think when the journal is on', async () => {
+test('turn: logs thinkChars not think when a journal is wired, think when none is', async () => {
   const raw = rawMessage({ id: 'm1' });
   const answer = '<think>Ζωή μιλά</think><msg>γεια</msg>';
-  const run = async (features, journal) => {
+  const run = async (journal) => {
     const channel = fakeTurnChannel({ historyMessages: [raw] });
     const turns = createTurnRunner({
       discord: DISCORD,
       createPort: createDiscordAdapter,
-      hot: fakeHot({ typingSimulation: false, ...features }),
+      hot: fakeHot(),
       store: fakeStore(),
       llm: fakeLlm(answer),
       calibrator: identityCalibrator(),
@@ -8216,11 +7422,12 @@ test('turn: logs thinkChars not think when the journal is on', async () => {
     return logs.find((l) => l.msg === 'turn: model answered');
   };
 
-  const on = await run({ journal: true }, journalOverMemory().journal);
+  const on = await run(journalOverMemory().journal);
   assert.equal(on.thinkChars, 8);
   assert.equal('think' in on, false);
 
-  const off = await run({ journal: false }, journalOverMemory().journal);
+  // PR 7d: features.journal is code, so the journal is there when the core wires one and absent otherwise.
+  const off = await run(null);
   assert.equal(off.think, 'Ζωή μιλά');
   assert.equal('thinkChars' in off, false);
 });
@@ -8241,7 +7448,7 @@ test('turn: a post writes started then succeeded with the messageId and the turn
     linesAtSend.push(lines.map(({ record }) => `${record.kind}:${record.name ?? ''}:${record.phase ?? ''}`));
   });
   const llm = fakeLlm('<msg reply="#2">γεια σου Αλίκη</msg><react to="#1">\u{1F389}</react>');
-  const hot = fakeHot({ journal: true, typingSimulation: false });
+  const hot = fakeHot({});
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -8288,40 +7495,6 @@ test('turn: a post writes started then succeeded with the messageId and the turn
   assert.deepEqual(turn.posted, [{ opId: started.opId, messageId: 'sent-1', replyTo: 'm1' }]);
   assert.deepEqual(turn.reactions, [{ opId: reacts[0].opId, to: 'm0', emoji: '\u{1F389}' }]);
   assert.deepEqual([...turn.actions].sort(), [started.opId, reacts[0].opId].sort());
-
-  // A dry run: started and succeeded with dryRun, no messageId, nothing sent.
-  const dry = journalOverMemory();
-  const dryChannel = fakeTurnChannel({ historyMessages: [earlier, raw] });
-  const dryTurns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot: fakeHot({ journal: true, typingSimulation: false, dryRun: true }),
-    store: fakeStore(),
-    llm: fakeLlm('<msg reply="#2">γεια σου Αλίκη</msg><react to="#1">\u{1F389}</react>'),
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    journal: dry.journal,
-  });
-  const { result: dryResult } = await withCapturedLogs(() =>
-    dryTurns.runTurn({ channel: dryChannel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' })
-  );
-  assert.equal(dryResult.dryRun, true);
-  assert.equal(dryChannel.sent.length, 0);
-  for (const name of ['post', 'react']) {
-    const phases = actionsNamed(dry.lines, name);
-    assert.deepEqual(
-      phases.map((r) => r.phase),
-      ['started', 'succeeded'],
-      name
-    );
-    assert.ok(
-      phases.every((r) => r.dryRun === true),
-      name
-    );
-    assert.equal('messageId' in (phases[1].result ?? {}), false, name);
-  }
-  const dryTurn = dry.lines.map(({ record }) => record).find((record) => record.kind === 'turn');
-  assert.equal(dryTurn.actions.length, 2);
 });
 
 test('turn: a send the interface answers unknown writes unknown, a refused one failed', async () => {
@@ -8334,7 +7507,7 @@ test('turn: a send the interface answers unknown writes unknown, a refused one f
     const turns = createTurnRunner({
       discord: DISCORD,
       createPort: createDiscordAdapter,
-      hot: fakeHot({ journal: true, typingSimulation: false }),
+      hot: fakeHot({}),
       store: fakeStore(),
       llm: fakeLlm('<msg reply="#1">Ζωή</msg>'),
       calibrator: identityCalibrator(),
@@ -8368,9 +7541,9 @@ test('turn: a send the interface answers unknown writes unknown, a refused one f
   assert.deepEqual(failed[1].result, { code: 'http-403' });
 });
 
-test('turn: an engine preparation step writes action records with by engine', async () => {
-  const hot = lookupHot({ journal: true, typingSimulation: false });
-  const llm = lookupLlm('champions final winner 2026');
+test('turn: the link reading step writes action records with by engine', async () => {
+  const hot = lookupHot();
+  const llm = lookupLlm('none');
   const lookup = fakeLookup({ reads: { 'm1#e0': 'une recette, trois œufs' } });
   const messages = [
     linkRaw('m1', NOW - 5000, [PAGE_EMBED]),
@@ -8412,17 +7585,8 @@ test('turn: an engine preparation step writes action records with by engine', as
     delivered: true,
   });
 
-  const searches = actionsNamed(lines, 'lookup');
-  assert.deepEqual(
-    searches.map((r) => r.phase),
-    ['started', 'succeeded']
-  );
-  assert.equal(searches[0].by, 'engine');
-  assert.deepEqual(searches[0].input, { query: 'champions final winner 2026' });
-  assert.deepEqual(searches[1].result, { results: 1, delivered: true });
-
   const turn = lines.map(({ record }) => record).find((record) => record.kind === 'turn');
-  for (const opId of [reads[0].opId, searches[0].opId]) assert.ok(turn.actions.includes(opId));
+  assert.ok(turn.actions.includes(reads[0].opId));
   // Every operation is closed.
   const opened = lines.filter(({ record }) => record.phase === 'started').map(({ record }) => record.opId);
   const closed = new Set(
@@ -8434,7 +7598,7 @@ test('turn: an engine preparation step writes action records with by engine', as
 });
 
 test('turn: pulled lines appear in seen.pulled', async () => {
-  const scene = pullScene({ features: { journal: true, typingSimulation: false } });
+  const scene = pullScene({ features: {} });
   const { journal, lines } = journalOverMemory();
   const turns = createTurnRunner({
     discord: DISCORD,
@@ -8476,7 +7640,7 @@ test('turn: a successful post writes a said line', async () => {
     },
   };
   const { journal, lines } = journalOverMemory();
-  const hot = fakeHot({ journal: true, record: true, typingSimulation: false });
+  const hot = fakeHot();
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -8512,30 +7676,20 @@ test('turn: a successful post writes a said line', async () => {
   assert.deepEqual(said.scope, { channel: 'c1' });
   assert.equal(said.turnId, result.turnId);
   assert.equal(said.opId, succeeded.opId);
-
-  // features.record off (read at use): nothing is appended.
-  hot.config.features.record = false;
-  await turns.runTurn({
-    channel: fakeTurnChannel({ historyMessages: [earlier, raw] }),
-    mode: 'reply',
-    trigger: normalizedTrigger(raw),
-    triggerKind: 'mention',
-  });
-  assert.equal(appended.length, 1);
 });
 
 test('turn: a post that grew past 2000 characters is posted whole and the journal lists no message-cut', async () => {
-  // A member with a long id: every @name the model wrote grows into a <@id> token when posted.
+  // A member with a long id: every @handle the model wrote grows into a <@id> token when posted.
   const bobId = '123456789012345678';
   const earlier = rawMessage({ id: 'm0', authorId: bobId, authorName: 'Bob', ts: NOW - 5000, content: 'καλημέρα' });
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [earlier, raw] });
-  const answer = `<msg>${'α'.repeat(1400)}${' @Bob'.repeat(100)}</msg>`;
+  const answer = `<msg>${'α'.repeat(1400)}${` @${handleOf(bobId)}`.repeat(100)}</msg>`;
   const { journal, lines } = journalOverMemory();
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
-    hot: fakeHot({ journal: true, typingSimulation: false, mentionHandles: false }),
+    hot: fakeHot(),
     store: fakeStore(),
     llm: fakeLlm(answer),
     calibrator: identityCalibrator(),
@@ -8569,10 +7723,11 @@ test('turn: limits lists a preview cut', async () => {
   const fetchImpl = async (url) => ({
     ok: true,
     headers: { get: () => null },
-    text: async () => (url.endsWith('notes.txt') ? 'é'.repeat(800) : 'ένα'),
+    // PR 7d: media.filePreviewChars is the constant 10000, so the long file is cut at that many characters.
+    text: async () => (url.endsWith('notes.txt') ? 'é'.repeat(12000) : 'ένα'),
   });
   const { journal, lines } = journalOverMemory();
-  const hot = fakeHot({ journal: true, typingSimulation: false });
+  const hot = fakeHot();
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -8588,17 +7743,16 @@ test('turn: limits lists a preview cut', async () => {
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
 
   const turn = lines.find(({ record }) => record.kind === 'turn').record;
-  assert.equal(hot.config.media.filePreviewChars, 500);
   assert.deepEqual(
     turn.limits.filter((limit) => limit.kind === 'preview-cut'),
-    [{ kind: 'preview-cut', where: 'm1', lost: 300, detail: 't1' }]
+    [{ kind: 'preview-cut', where: 'm1', lost: 2000, detail: 't1' }]
   );
 });
 
 test('turn: a journalled turn dumps its request and raw answer', async () => {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
   const answer = '<think>σκέψη</think><msg reply="#1">γεια</msg>';
-  const run = async (features, failing = false) => {
+  const run = async (failing = false) => {
     const dumps = [];
     const { journal } = journalOverMemory();
     journal.dumpRequest = async (guildId, dump) => {
@@ -8609,7 +7763,7 @@ test('turn: a journalled turn dumps its request and raw answer', async () => {
     const turns = createTurnRunner({
       discord: DISCORD,
       createPort: createDiscordAdapter,
-      hot: fakeHot({ typingSimulation: false, ...features }),
+      hot: fakeHot(),
       store: fakeStore(),
       llm,
       calibrator: identityCalibrator(),
@@ -8626,7 +7780,7 @@ test('turn: a journalled turn dumps its request and raw answer', async () => {
     return { dumps, llm, result };
   };
 
-  const on = await run({ journal: true });
+  const on = await run();
   assert.equal(on.result.outcome, 'spoke');
   assert.equal(on.dumps.length, 1);
   const { dump } = on.dumps[0];
@@ -8637,11 +7791,8 @@ test('turn: a journalled turn dumps its request and raw answer', async () => {
   assert.equal(dump.request.messages, on.llm.calls[0], 'the exact message list the client was given');
 
   // A failing write is logged and never breaks the turn.
-  const failing = await run({ journal: true }, true);
+  const failing = await run(true);
   assert.equal(failing.result.outcome, 'spoke');
-
-  // The journal switched off: no dump.
-  assert.equal((await run({ journal: false })).dumps.length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -8697,7 +7848,7 @@ function personaGrants(names) {
 
 /** A mention asking what the persona can do; the search classifier answers `answer`. */
 async function runDiscoveryTurn({ answer, features = {}, journal = null, allowed = [] } = {}) {
-  const hot = lookupHot({ typingSimulation: false, journal: Boolean(journal), ...features });
+  const hot = lookupHot({ ...features });
   hot.prompts.lookup = 'Decide whether {{name}} needs to look something up.\n{{skills}}';
   hot.prompts.tools = SKILL_TEXTS;
   hot.config.bot = { ...hot.config.bot, access: personaGrants(allowed) };
@@ -8724,23 +7875,16 @@ async function runDiscoveryTurn({ answer, features = {}, journal = null, allowed
   return { result, logs, llm, reply, text: textOf(reply) };
 }
 
-/** The body of the `<tag>` block of `text`, or null. */
-function blockBody(text, tag) {
-  const match = new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(text);
-  return match ? match[1] : null;
-}
-
-test("skills discovery: a grant moves only the catalogue; the stable part never changes with it, and her tools are the request's field", async () => {
+test("skills discovery: a grant moves only her tools; the stable part never changes with it, and her tools are the request's field", async () => {
   const closed = await runDiscoveryTurn({ answer: 'skills: inventory' });
   const granted = await runDiscoveryTurn({ answer: 'skills: inventory', allowed: ['message.edit', 'message.delete'] });
   assert.equal(granted.reply[0].text, closed.reply[0].text, 'the stable part is byte-identical');
-  assert.notEqual(blockBody(granted.reply.at(-1).text, 'skills'), blockBody(closed.reply.at(-1).text, 'skills'));
   const names = (run) => run.llm.turnCalls[0].options.tools.map((tool) => tool.function.name);
   assert.deepEqual(names(closed), ['message_create', 'message_react_add']);
   assert.deepEqual(names(granted), ['message_create', 'message_delete', 'message_edit', 'message_react_add']);
 });
 
-test('skills discovery: every turn carries the skills granted to her as tools, with no question and no proposal; the catalogue stays off', async () => {
+test('skills discovery: every turn carries the skills granted to her as tools, with no question and no proposal', async () => {
   const run = await runDiscoveryTurn({ answer: 'none', allowed: ['message.edit', 'lore.list', 'message.delete'] });
   assert.equal(run.result.outcome, 'spoke');
   const [sent] = run.llm.turnCalls;
@@ -8749,8 +7893,6 @@ test('skills discovery: every turn carries the skills granted to her as tools, w
     ['lore_list', 'message_create', 'message_delete', 'message_edit', 'message_react_add']
   );
   assert.ok(!run.text.includes('<skills>\n'), 'the detailed rows stay off without a question or a proposal');
-  const off = await runDiscoveryTurn({ answer: 'none', allowed: ['message.edit'], features: { tools: false } });
-  assert.equal(off.llm.turnCalls[0].options.tools, undefined, 'skills off: no tools at all');
 });
 
 // ---------------------------------------------------------------------------
@@ -8772,7 +7914,7 @@ function triggerTurnScene(features = {}) {
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
-    hot: fakeHot({ typingSimulation: false, ...features }),
+    hot: fakeHot({ ...features }),
     store: fakeStore(),
     llm,
     calibrator: identityCalibrator(),
@@ -8833,31 +7975,6 @@ test("createTurnRunner: links seeded at start (the journal's rebuild) survive a 
   const [text] = chatTexts(llm);
   assert.ok(text.includes('Bot (you) (turn triggered by an older message): πρωί'), text);
   assert.ok(text.includes('Bot (you) (turn triggered by #2): ναι'), text);
-});
-
-test("createTurnRunner: a helper's transcript names the trigger of her lines too", async () => {
-  const llm = lookupLlm('none');
-  const history = [
-    linkRaw('m1', NOW - 9000, [PAGE_EMBED]),
-    selfRaw('sent-1', NOW - 5000, 'ναι'),
-    rawMessage({ id: 'm2', ts: NOW - 1000, authorName: 'Zoë', content: 'ποιος κέρδισε τον τελικό;' }),
-  ];
-  const channel = fakeTurnChannel({ historyMessages: history });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot: lookupHot(),
-    store: fakeStore(),
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    lookup: fakeLookup(),
-  });
-  turns.seedTriggerLinks([['sent-1', 'm1']]);
-  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[2]), triggerKind: 'mention' });
-  assert.equal(llm.classifierCalls.length, 1);
-  const user = textOf(llm.classifierCalls[0].messages[1].content);
-  assert.ok(user.includes('Bot (you) (turn triggered by #1): ναι'), user);
 });
 
 // ---------------------------------------------------------------------------
@@ -8953,7 +8070,7 @@ test('skills gateway: a send the port answers unknown is journaled unknown, neve
   const record = { append: async (...args) => said.push(args) };
   const { result, logs } = await gatewayTurn({
     answer: '<msg>ένα</msg><msg>δύο</msg>',
-    features: { journal: true, record: true, typingSimulation: false },
+    features: {},
     port,
     journal,
     record,
@@ -9455,15 +8572,7 @@ test('skill call: a turn answering several people runs no write', async () => {
   assert.ok(run.logs.some((entry) => entry.msg === 'skill: refused' && entry.reason === 'mixed-requesters'));
 });
 
-test('skill call: features.tools off does nothing at all; safe mode lets only the carried-over reply through', async () => {
-  const off = await callTurn({
-    answers: [toolAnswer('<msg>γεια</msg>', [call('message.create', { channel: '#νέα', text: 'γεια' })])],
-    allowed: ['message.create'],
-    features: { tools: false },
-  });
-  assert.deepEqual(effectsOf(off.port), [], 'nothing went through the port');
-  assert.equal(off.llm.calls.length, 1, 'no request after the full stop');
-  assert.equal(off.llm.options[0].tools, undefined, 'and no tools');
+test('skill call: safe mode lets only the carried-over reply through', async () => {
   const safe = await callTurn({
     answers: [
       toolAnswer('<msg>γεια</msg>', [call('message.create', { channel: '#νέα', text: 'γεια' })]),
@@ -9480,7 +8589,8 @@ test('skill call: features.tools off does nothing at all; safe mode lets only th
   assert.ok(safe.logs.some((entry) => entry.msg === 'skill: refused' && entry.code === 'safe-mode'));
   assert.deepEqual(
     safe.llm.options[0].tools.map((tool) => tool.function.name),
-    ['draw_create', 'message_create', 'message_react_add'],
+    // PR 7d: features.speech is code, so voice.say is carried over beside the others.
+    ['draw_create', 'message_create', 'message_react_add', 'voice_say'],
     'safe mode exposes the carried-over ones alone'
   );
 });
@@ -9500,7 +8610,6 @@ test('skill call: draw.create elsewhere generates once and the operation posts i
     failNext: ['send', { status: 'unknown', error: { code: 'timeout', retryable: false } }],
   });
   assert.equal(images.generateCalls.length, 1);
-  assert.ok(images.quotaCalls.length > 0, 'the budget was checked before the generation');
   assert.deepEqual(skillPhases(lines), ['proposed', 'started', 'unknown']);
   assert.equal(run.port.calls.filter((call) => call.op === 'send').length, 2, 'the picture once, then her answer here');
   assert.ok(followUpTool(run.llm, 1).startsWith(labels.tools.result.unknown.split(':')[0]), followUpTool(run.llm, 1));
@@ -9515,13 +8624,6 @@ test('skill call: draw.create elsewhere generates once and the operation posts i
     [['c9', 1]]
   );
   assert.equal(delivered.llm.calls.length, 1, 'a picture that went out needs no reading');
-  const capped = await callTurn({
-    answers: [toolAnswer('', [call('draw.create', { channel: '#νέα', text: 'x' })]), '<skip/>'],
-    allowed: ['draw.create'],
-    images: withFamily(fakeImages({ quota: { spent: true, userSpent: false } })),
-  });
-  assert.deepEqual(capped.sends, []);
-  assert.ok(capped.logs.some((entry) => entry.msg === 'skill: refused' && entry.code === 'daily-cap'));
 });
 
 test('skill call: a call that did not work comes back as a result with its reason, her speech is held, the corrected call goes through and the journal keeps both', async () => {
@@ -9756,7 +8858,7 @@ test('call marks: seeded from the journal after a restart, a call that did not w
   const scene = callMarkScene({
     answers: [toolAnswer('<msg>μια στιγμή</msg>', [call('message.delete')]), '<msg>μια στιγμή</msg>'],
     allowed: ['message.delete'],
-    features: { journal: true },
+    features: {},
     journal,
   });
   await scene.run(scene.channel, scene.history[1]);
@@ -9794,7 +8896,7 @@ function endHookScene(answer = '<msg reply="#1">ναι</msg>') {
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
-    hot: fakeHot({ typingSimulation: false }),
+    hot: fakeHot({}),
     store,
     llm,
     calibrator: identityCalibrator(),
@@ -9818,18 +8920,8 @@ test("createTurnRunner: the end hook hears every turn's outcome, its trigger and
   assert.equal(ends.length, 1);
   const [end] = ends;
   assert.deepEqual(
-    [
-      end.guildId,
-      end.channelId,
-      end.privateChat,
-      end.routed,
-      end.mode,
-      end.triggerKind,
-      end.outcome,
-      end.reason,
-      end.dryRun,
-    ],
-    ['g1', 'c1', false, false, 'reply', 'mention', 'spoke', null, false]
+    [end.guildId, end.channelId, end.privateChat, end.routed, end.mode, end.triggerKind, end.outcome, end.reason],
+    ['g1', 'c1', false, false, 'reply', 'mention', 'spoke', null]
   );
   assert.deepEqual([end.trigger.id, end.trigger.authorId, end.trigger.ts], ['m99', 'u2', NOW - 30_000]);
   assert.deepEqual(end.replyTargets, ['m98']);
@@ -9966,7 +9058,7 @@ function cutScene(answers) {
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
-    hot: fakeHot({ journal: true, typingSimulation: false }),
+    hot: fakeHot({}),
     store: fakeStore(),
     llm: sequenceLlm(answers),
     calibrator: identityCalibrator(),
@@ -10076,12 +9168,11 @@ test('createTurnRunner: a message the record holds as deleted appears in the win
   const first = rawMessage({ id: 'm1', ts: NOW - 9000, content: 'πρώτο' });
   const last = rawMessage({ id: 'm3', ts: NOW - 1000, content: 'τελευταίο' });
   const iso = (ts) => new Date(ts).toISOString();
-  const lines = [
-    { kind: 'seen', messageId: 'd1', occurredAt: iso(NOW - 6000), by: 'u2', scope: { channel: 'c1' } },
-    { kind: 'deleted', messageId: 'd1', occurredAt: iso(NOW - 500), participants: ['u2'], scope: { channel: 'c1' } },
-    { kind: 'seen', messageId: 'd2', occurredAt: iso(NOW - 4000), by: 'u2', scope: { channel: 'c1' } },
-    { kind: 'deleted', messageId: 'd2', occurredAt: iso(NOW - 400), participants: ['u2'], scope: { channel: 'c1' } },
-  ];
+  // PR 7d: context.deletedLinesMax is the constant 10, so twelve deleted messages show ten placeholders.
+  const lines = Array.from({ length: 12 }, (_, n) => [
+    { kind: 'seen', messageId: `d${n}`, occurredAt: iso(NOW - 6000 + n * 100), by: 'u2', scope: { channel: 'c1' } },
+    { kind: 'deleted', messageId: `d${n}`, occurredAt: iso(NOW - 500), participants: ['u2'], scope: { channel: 'c1' } },
+  ]).flat();
   const queries = [];
   const record = {
     async *iterate(guildId, query) {
@@ -10090,44 +9181,34 @@ test('createTurnRunner: a message the record holds as deleted appears in the win
     },
     append: async () => ({ written: 1 }),
   };
-  const run = async (deletedLinesMax) => {
-    const hot = fakeHot({ record: true });
-    hot.config.context.deletedLinesMax = deletedLinesMax;
-    const channel = fakeTurnChannel({ historyMessages: [first, last] });
-    const llm = fakeLlm('<msg>ok</msg>');
-    const turns = createTurnRunner({
-      discord: DISCORD,
-      createPort: createDiscordAdapter,
-      hot,
-      store: fakeStore(),
-      llm,
-      calibrator: identityCalibrator(),
-      client: fakeClient(),
-      record,
-    });
-    const { result, logs } = await withCapturedLogs(() =>
-      turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(last), triggerKind: 'mention' })
-    );
-    return { result, logs, userMessage: textOf(llm.calls[0]?.[1].content) };
-  };
-  const both = await run(10);
+  const hot = fakeHot();
+  const channel = fakeTurnChannel({ historyMessages: [first, last] });
+  const llm = fakeLlm('<msg>ok</msg>');
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    record,
+  });
+  const { logs } = await withCapturedLogs(() =>
+    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(last), triggerKind: 'mention' })
+  );
+  const text = textOf(llm.calls[0]?.[1].content);
   assert.equal(queries[0].channelIds.length, 1, 'one channel');
   assert.ok(queries[0].from, "the read starts at the window's oldest line");
-  const text = both.userMessage;
   const at = (needle) => text.indexOf(needle);
   assert.ok(
     at('πρώτο') < at(`${labels.transcript.deleted}`) && at(labels.transcript.deleted) < at('τελευταίο'),
     'the placeholders sit between the lines'
   );
-  assert.equal(text.split(labels.transcript.deleted).length - 1, 2);
-  assert.ok(
-    /#3 \[[^\]]+\] [^\n]*: message deleted/.test(text) || /#\d \[[^\]]+\] [^\n]*: message deleted/.test(text),
-    'numbered like a line'
-  );
-  const timings = both.logs.find((entry) => entry.msg === 'turn: timings');
+  assert.equal(text.split(labels.transcript.deleted).length - 1, 10, 'the newest ten only');
+  assert.ok(/#\d+ \[[^\]]+\] [^\n]*: message deleted/.test(text), 'numbered like a line');
+  const timings = logs.find((entry) => entry.msg === 'turn: timings');
   assert.equal(typeof timings.stages.record, 'number');
-  const capped = await run(1);
-  assert.equal(capped.userMessage.split(labels.transcript.deleted).length - 1, 1, 'the newest one only');
 });
 
 // PR 7d: the daily caps of plan section 4.5 are gone. A state written before the cut may hold the day's count and a
