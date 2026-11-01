@@ -2305,21 +2305,21 @@
       "count": 1
     }
   },
-  "tests/exa.test.js": {
+  "tests/exa.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 12
+      "count": 10
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 4
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 17
+      "count": 15
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 5
+      "count": 4
     },
     "@typescript-eslint/require-await": {
       "count": 2
@@ -2354,32 +2354,32 @@
       "count": 1
     }
   },
-  "tests/fetch-image.test.js": {
+  "tests/fetch-image.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 4
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 3
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/require-await": {
       "count": 8
     }
   },
-  "tests/fetch-page.test.js": {
+  "tests/fetch-page.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 34
+      "count": 31
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 6
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 43
+      "count": 40
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 9
@@ -2511,20 +2511,17 @@
       "count": 1
     }
   },
-  "tests/gif-handles.test.js": {
+  "tests/gif-handles.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 2
     }
   },
-  "tests/gif-pick.test.js": {
+  "tests/gif-pick.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 3
@@ -2550,46 +2547,41 @@
       "count": 4
     }
   },
-  "tests/gifs.test.js": {
+  "tests/gifs.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 11
+      "count": 9
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 32
+      "count": 26
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 27
+      "count": 15
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 106
+      "count": 95
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 6
+      "count": 5
     },
     "@typescript-eslint/require-await": {
       "count": 4
     }
   },
-  "tests/guild.test.js": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 5
-    }
-  },
-  "tests/heartbeat-intents.test.js": {
+  "tests/heartbeat-intents.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 1
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 8
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 24
+      "count": 16
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 40
+      "count": 19
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 9
+      "count": 5
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -2598,41 +2590,41 @@
       "count": 1
     }
   },
-  "tests/heartbeat-view.test.js": {
+  "tests/heartbeat-view.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 4
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 18
+      "count": 15
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 4
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 17
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 5
+      "count": 3
     },
     "@typescript-eslint/require-await": {
       "count": 3
     }
   },
-  "tests/hot.test.js": {
+  "tests/hot.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 9
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 13
+      "count": 12
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 42
+      "count": 26
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 74
+      "count": 48
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 16
+      "count": 11
     }
   },
   "tests/images.test.js": {
@@ -2678,21 +2670,21 @@
       "count": 2
     }
   },
-  "tests/inner-week.test.js": {
+  "tests/inner-week.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 23
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 26
+      "count": 22
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 30
+      "count": 29
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 221
+      "count": 145
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 28
+      "count": 25
     }
   },
   "tests/inner.test.js": {
@@ -2721,17 +2713,11 @@
       "count": 3
     }
   },
-  "tests/intention-due-jitter.test.js": {
+  "tests/intention-due-jitter.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 2
     },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-return": {
       "count": 1
     },
     "@typescript-eslint/require-await": {
@@ -2741,20 +2727,12 @@
       "count": 1
     }
   },
-  "tests/intentions-block.test.js": {
+  "tests/intentions-model.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
-    }
-  },
-  "tests/intentions-model.test.js": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 3
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 2
@@ -2786,7 +2764,7 @@
       "count": 3
     }
   },
-  "tests/interests.test.js": {
+  "tests/interests.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 13
     },
@@ -2797,10 +2775,10 @@
       "count": 2
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 4
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 10
+      "count": 9
     }
   },
   "tests/interface-contract.test.js": {
@@ -2829,31 +2807,25 @@
       "count": 2
     }
   },
-  "tests/interface-door.test.js": {
+  "tests/interface-door.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 6
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 3
     }
   },
-  "tests/interface-fake-replay.test.js": {
+  "tests/interface-fake-replay.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
+      "count": 1
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "tests/interface-typing.test.js": {
+  "tests/interface-typing.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 3
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 1
@@ -2865,21 +2837,21 @@
       "count": 1
     }
   },
-  "tests/journal-turn.test.js": {
+  "tests/journal-turn.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 8
+      "count": 6
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 29
+      "count": 10
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 12
+      "count": 5
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 44
+      "count": 21
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 5
+      "count": 3
     },
     "@typescript-eslint/require-await": {
       "count": 2
@@ -2908,7 +2880,7 @@
       "count": 3
     }
   },
-  "tests/limits.test.js": {
+  "tests/limits.test.ts": {
     "@typescript-eslint/require-await": {
       "count": 1
     }
@@ -2933,12 +2905,9 @@
       "count": 7
     }
   },
-  "tests/lore.test.js": {
+  "tests/lore.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 2
@@ -2947,21 +2916,18 @@
       "count": 1
     }
   },
-  "tests/media-draw.test.js": {
+  "tests/media-draw.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 17
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 3
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 14
+      "count": 7
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 6
+      "count": 1
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -2970,63 +2936,57 @@
       "count": 6
     }
   },
-  "tests/media-find.test.js": {
+  "tests/media-find.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 1
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 3
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 2
     }
   },
-  "tests/media.test.js": {
+  "tests/media.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 5
+      "count": 3
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "tests/memory-db-audience.test.js": {
+  "tests/memory-db-audience.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 12
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 14
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 5
+      "count": 4
     }
   },
-  "tests/memory-db-backup-schedule.test.js": {
+  "tests/memory-db-backup-schedule.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 6
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 10
+      "count": 7
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 5
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 23
+      "count": 18
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 2
     }
   },
-  "tests/memory-db-backup.test.js": {
+  "tests/memory-db-backup.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -3034,30 +2994,30 @@
       "count": 4
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 5
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 12
+      "count": 8
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
     }
   },
-  "tests/memory-db-describe.test.js": {
+  "tests/memory-db-describe.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 21
+      "count": 20
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 18
+      "count": 13
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 68
+      "count": 20
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 104
+      "count": 48
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 11
+      "count": 7
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -3072,21 +3032,21 @@
       "count": 1
     }
   },
-  "tests/memory-db-diary-media.test.js": {
+  "tests/memory-db-diary-media.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 10
+      "count": 8
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 22
+      "count": 17
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 16
+      "count": 8
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 77
+      "count": 22
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 10
+      "count": 8
     },
     "@typescript-eslint/require-await": {
       "count": 8
@@ -3126,21 +3086,21 @@
       "count": 16
     }
   },
-  "tests/memory-db-index-policy.test.js": {
+  "tests/memory-db-index-policy.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 7
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 20
+      "count": 14
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 81
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 87
+      "count": 18
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 7
+      "count": 3
     },
     "@typescript-eslint/require-await": {
       "count": 2
@@ -3149,52 +3109,34 @@
       "count": 3
     }
   },
-  "tests/memory-db-map-archive.test.js": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 8
-    },
+  "tests/memory-db-map-archive.test.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 28
+      "count": 1
     },
     "tests/assertion-in-test": {
       "count": 1
     }
   },
-  "tests/memory-db-map-episodes.test.js": {
+  "tests/memory-db-map-episodes.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 9
-    },
-    "@typescript-eslint/no-unsafe-call": {
       "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 34
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
+      "count": 3
     },
     "tests/assertion-in-test": {
       "count": 2
     }
   },
-  "tests/memory-db-map-journal.test.js": {
+  "tests/memory-db-map-journal.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 8
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 13
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 56
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
@@ -3203,100 +3145,82 @@
       "count": 1
     }
   },
-  "tests/memory-db-map-media.test.js": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 18
-    },
+  "tests/memory-db-map-media.test.ts": {
     "tests/assertion-in-test": {
       "count": 2
     }
   },
-  "tests/memory-db-map-place.test.js": {
+  "tests/memory-db-map-place.test.ts": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 6
+    },
+    "tests/assertion-in-test": {
+      "count": 3
+    }
+  },
+  "tests/memory-db-map-record.test.ts": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 6
+    },
+    "tests/assertion-in-test": {
+      "count": 1
+    }
+  },
+  "tests/memory-db-map-user.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 6
     },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 13
-    },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 29
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 85
+      "count": 23
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 8
-    },
-    "tests/assertion-in-test": {
-      "count": 3
-    }
-  },
-  "tests/memory-db-map-record.test.js": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 14
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 44
-    },
-    "tests/assertion-in-test": {
-      "count": 1
-    }
-  },
-  "tests/memory-db-map-user.test.js": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 8
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 15
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 12
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 71
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 7
+      "count": 2
     },
     "tests/assertion-in-test": {
       "count": 2
     }
   },
-  "tests/memory-db-map-vectors.test.js": {
+  "tests/memory-db-map-vectors.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 3
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 30
+      "count": 19
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 9
+      "count": 8
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 43
+      "count": 26
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 3
+      "count": 2
     }
   },
-  "tests/memory-db-map-verbatim.test.js": {
+  "tests/memory-db-map-verbatim.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 4
+      "count": 3
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 18
+      "count": 11
     },
     "no-compare-neg-zero": {
       "count": 1
@@ -3308,15 +3232,9 @@
       "count": 1
     }
   },
-  "tests/memory-db-map-work.test.js": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 10
-    },
+  "tests/memory-db-map-work.test.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 31
+      "count": 1
     },
     "tests/assertion-in-test": {
       "count": 1
