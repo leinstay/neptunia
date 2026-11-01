@@ -68,6 +68,8 @@ export const OP_EFFECTS: Readonly<Record<string, EffectClass>> = Object.freeze({
   'errand.resolve': 'write',
   'board.propose': 'write',
   'board.status': 'read',
+  'skill.read': 'read',
+  'skill.disable': 'write',
   'web.search': 'read',
   'web.read': 'read',
   'media.look': 'read',
@@ -106,4 +108,7 @@ export const SELF_OWNED_OPS: ReadonlyArray<string> = Object.freeze([
   'intention.update',
   'intention.cancel',
   'intention.list',
+  // Her skills are her own too (src/tools/impl/skill.ts).
+  'skill.read',
+  'skill.disable',
 ]);

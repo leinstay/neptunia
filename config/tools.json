@@ -323,17 +323,38 @@
   },
   "board.propose": {
     "title": "Propose a change to your code",
-    "whenToUse": "Something in how you work keeps going wrong, or an ability is missing, and only a code change would fix it. Files a proposal on the task board. The owner decides whether it gets built. board.status shows where it stands.",
+    "whenToUse": "Something in how you work keeps going wrong, an ability is missing, or a chain of calls you keep repeating deserves a skill, and only a change would fix it. Files a proposal on the task board. The owner decides whether it gets built. board.status shows where it stands.",
     "whenNotToUse": "Not for a one-off slip or for an errand.",
     "args": {
       "title": "The change, in a few words.",
-      "evidence": "What went wrong, where and how often. The reviewer reads only this.",
-      "acceptance": "How to tell the change works."
+      "evidence": "What went wrong or repeated, where and how often. The reviewer reads only this.",
+      "acceptance": "How to tell the change works.",
+      "kind": "skill: a procedure over your tools, written as a SKILL.md. fix: a change to the code. Leave it out for any other proposal; then the next four are not asked.",
+      "examples": "With a kind: the turns or cases that show it. At least one.",
+      "counterexamples": "With a kind: cases that look alike and must not count.",
+      "benefit": "With a kind: what gets better, in a sentence.",
+      "evaluation": "With a kind: a case that shows the change works."
     }
   },
   "board.status": {
     "title": "Check your proposals",
     "whenToUse": "Your proposals with their state, the questions put to you and the reviews."
+  },
+  "skill.read": {
+    "title": "Read a skill",
+    "whenToUse": "The whole text of one skill from your skills list: when it applies, the steps, the way out. Read it before you follow it.",
+    "whenNotToUse": "Not for a skill you do not see listed.",
+    "args": {
+      "name": "The skill's name as listed."
+    }
+  },
+  "skill.disable": {
+    "title": "Turn a skill off",
+    "whenToUse": "A skill keeps steering you wrong. It leaves your list until the owner turns it back on.",
+    "whenNotToUse": "Not for a skill you merely did not need this time.",
+    "args": {
+      "name": "The skill's name as listed."
+    }
   },
   "errand.cancel": {
     "title": "Cancel an errand",
