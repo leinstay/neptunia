@@ -35,7 +35,7 @@ export type HeadSections = {
 
 /**
  * The fixed part (the system prompt, the task, the clock, the senses, the tempo and every block never cut), the
- * interlocutor, `<lookup>` as the first candidate that fits, the prefetch, a diary post's find, the skills catalogue,
+ * interlocutor, `<lookup>` as the first candidate that fits, the prefetch, a diary post's find, the tool catalogue,
  * `<about_chat>`, `<self_facts>`, `<lore>` and `<server>`, then the chat.
  */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
@@ -53,13 +53,14 @@ export function headSections(
   const { config, now, history, trigger, channels, currentChannelId, lookup, tempoText } = given;
   const { labels, privateChat, nameOf, timezone, frozen, loreOn, system, nowText, chatItems } = given;
   const { directoryText, channelDirectoryText, fittedTask, senses, toolsText, inventoryText } = given;
+  const { skillIndexText } = given;
   const { planText, seedsText, diaryIntro, foundText, peopleNowFixed, interlocutorShown } = given;
   const { errandsText, intentionsText, wakeText, placesText, previousThinkText } = given;
   const { caps, cost, limit, offeredNeighbors, pulledChannelIds, readOnlyIds } = given;
   const fixedSection: Section = {
     name: 'fixed',
     required: true,
-    // Her tools in text (the text transport), the channel and people directories, a diary post's plan, its seeds, its `<diary>` intro, the
+    // Her tools in text (the text transport), the index of her skills, the channel and people directories, a diary post's plan, its seeds, its `<diary>` intro, the
     // interlocutor's `<people_now>` entry, her errands' blocks and her intentions are never cut.
     items: [
       system,
@@ -69,6 +70,7 @@ export function headSections(
       tempoText,
       ...[
         toolsText,
+        skillIndexText,
         channelDirectoryText,
         directoryText,
         planText,
@@ -137,8 +139,8 @@ export function headSections(
       : []),
     // A diary post's search result: one piece, bounded by web.search.summaryChars.
     { name: 'found', items: [foundText].filter(Boolean) },
-    // The skills catalogue, asked for: one piece, ahead of the chat like what was looked up.
-    { name: 'skills', items: [inventoryText].filter(Boolean) },
+    // The tool catalogue, asked for: one piece, ahead of the chat like what was looked up.
+    { name: 'tool_catalogue', items: [inventoryText].filter(Boolean) },
     {
       name: 'aboutChat',
       cap: caps.aboutChat,

@@ -62,7 +62,8 @@ export function nowBlock(now: number, timezone: string, labels: Labels, periods:
  * segments (see docs/prompt-contract.md, "Cache segments"): the stable part
  * (`cacheSegment: 'stable'`), what changes least first: the stable
  * `<senses>` lines, `<tools>` (`tools`: her tools described in text, the text
- * transport only, changing only with a grant or a skill text), `<self_facts>`, `<about_chat>`,
+ * transport only, changing only with a grant or a tool text), `<skills>` (`skillIndex`: the index of her active
+ * skills, changing only when one is activated or disabled), `<self_facts>`, `<about_chat>`,
  * `<gifs>`, `<channel_directory>` (`channelDirectory`: the channels with their handles, changing
  * only when a channel is added, removed or renamed), `<directory>` (`directory`: the people
  * directory, changing only with a member's names or aliases); the profiles
@@ -70,7 +71,7 @@ export function nowBlock(now: number, timezone: string, labels: Labels, periods:
  * the tail (no segment) with everything that changes from turn to turn -- a
  * second `<people>` with the other members first, `<emoji>` among it, its
  * ranking moves with use several times a day, `<gifs_recent>` (the listed GIFs
- * the persona posted lately, with their ages), `<skills>` (the catalogue, on
+ * the persona posted lately, with their ages), `<tool_catalogue>` (the catalogue, on
  * a question about what the persona can do) and `<people_now>` (what is current about each
  * person: status, voice, activity, attitude) right before `<chat>` -- `<now>`, the per-turn
  * `<senses>` lines, `<tempo>` and `<task>` last. `senses` is
@@ -91,6 +92,7 @@ export function assembleUser({
   labels,
   senses,
   tools = '',
+  skillIndex = '',
   channelDirectory = '',
   directory = '',
   kept,
@@ -109,6 +111,7 @@ export function assembleUser({
   labels: Labels;
   senses: Senses;
   tools?: string;
+  skillIndex?: string;
   channelDirectory?: string;
   directory?: string;
   kept: Record<string, Array<string>>;
@@ -126,6 +129,8 @@ export function assembleUser({
     block('senses', senses.stable),
     // Her tools described in text (the text transport only; the native transport sends none): changes only when a grant or a skill text does.
     block('tools', tools),
+    // The index of her active skills, one line each: changes only when a skill is activated, disabled or granted a tool.
+    block('skills', skillIndex),
     block('self_facts', kept.self.join('\n')),
     block('about_chat', kept.aboutChat.join('\n')),
     // Held per cache bucket; which of them the persona posted lately is in the tail (`<gifs_recent>`).
@@ -167,8 +172,8 @@ export function assembleUser({
     block('lookup', (kept.lookup ?? []).join('\n')),
     // What the automatic memory prefetch found for this trigger: per turn, next to the chat.
     block('retrieved', (kept.prefetch ?? []).join('\n')),
-    // The persona's skills with her access here, when she was asked what she can do.
-    block('skills', (kept.skills ?? []).join('\n')),
+    // The catalogue of her tools with her access here, when she was asked what she can do.
+    block('tool_catalogue', (kept.tool_catalogue ?? []).join('\n')),
     // Her errands under way or newly finished, then the one whose end opened this turn: per turn (ages move).
     block('errands', errands?.list ?? ''),
     block('errand_result', errands?.result ?? ''),

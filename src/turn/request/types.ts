@@ -306,6 +306,8 @@ export type RequestInput = {
   readonly diary?: DiaryInput | null;
   readonly offPeriods?: unknown;
   readonly skillsInventory?: Array<SkillRow | null> | null;
+  /** The body of the `<skills>` block, the index of her active skills; empty or null sends no block. */
+  readonly skillIndex?: string | null;
   readonly toolsGranted?: unknown;
   readonly toolsBlock?: unknown;
   readonly toolsTokens?: unknown;
