@@ -2584,6 +2584,13 @@ function fakePrivateStore({
     state: { data: {} },
     getUser: (guildId, userId) => profiles[userId] ?? null,
     getPrivate: (guildId, userId) => privates[userId] ?? null,
+    // PR 7d: memory is code, so the real turn reads these of the store.
+    getGuild: () => ({}),
+    listChannels: () => [],
+    listUserProfiles: () => [],
+    countUsers: () => Object.keys(profiles).length,
+    getLore: () => [],
+    getMediaCache: () => ({}),
   };
 }
 
@@ -6085,8 +6092,8 @@ test('pause notice: a private message the gate refuses gets nothing', async () =
 // own turn, in arrival order; a call about something still waiting is folded into it.
 
 const LIVE_T0 = Date.UTC(2026, 9, 5, 12, 0, 0);
-const LIVE_SPLIT = 'ποιος είναι ο Νίκος; κοίτα το κανάλι της Ελένης, και πες μου αν το μιμίδιο είναι αστείο.';
-const LIVE_PARTS = ['ποιος είναι ο Νίκος', 'κοίτα το κανάλι της Ελένης', 'το μιμίδιο είναι αστείο;'];
+const LIVE_SPLIT = 'ποιος είναι ο Νίκος ακριβώς; κοίτα το κανάλι της Ελένης, και πες μου αν το μιμίδιο είναι αστείο.';
+const LIVE_PARTS = ['ποιος είναι ο Νίκος ακριβώς', 'κοίτα το κανάλι της Ελένης', 'το μιμίδιο είναι αστείο;'];
 const LIVE_NAMES = { u1: 'Alice', u2: 'Léa' };
 
 /**
@@ -6144,17 +6151,12 @@ function liveScene({
   const config = baseConfig(
     deepMerge(
       {
-        features: {
-          typingSimulation: false,
-          memory: false,
-          privateMessages: true,
-          imageGeneration: false,
-          mediaDescriptions: false,
-          channelPull: false,
-          recent: false,
-        },
-        split: { minChars: 20, minPartChars: 0, maxTasks: 4, contextMessages: 2, maxOutputTokens: 50 },
-        mention: { ignoreChance: 0, repeatPenalty: 0, spamThreshold: 50, maxPending: 6, pendingMinutes: 10 },
+        // PR 7d: the switches are code, features.privateMessages is private.enabled, and the split measures are constants.
+        private: { enabled: true },
+        // The typing imitation is code too: no pause, so the turns of a chain follow each other at once.
+        typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
+        split: { maxOutputTokens: 50 },
+        mention: { maxPending: 6, pendingMinutes: 10 },
       },
       overrides
     )
