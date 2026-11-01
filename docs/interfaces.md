@@ -72,7 +72,7 @@ The addressing record:
 | `mentionedUserIds` | Every member the message mentions |
 | `mentionedConversationIds` | Every conversation the message mentions |
 
-A `message.received` event may carry an `origin` record. When the adapter sends none, `originOf` (origin.js) derives one from the event's fields.
+A `message.received` event may carry an `origin` record. When the adapter sends none, `originOf` (origin.ts) derives one from the event's fields.
 
 | Field | What |
 |---|---|
@@ -308,7 +308,7 @@ The Discord adapter lives in `interfaces/discord/` as the npm workspace package 
 ### What it maps
 
 - A Discord channel, DM or thread becomes a `conversation` (id = the channel id, `iface = 'discord'`).
-- A discord.js `messageCreate` becomes a `message.received` event through `collect.js#toEvent`. An `messageUpdate` becomes an edit event, a `messageDelete` a deletion event.
+- A discord.js `messageCreate` becomes a `message.received` event through `collect.ts#toEvent`. An `messageUpdate` becomes an edit event, a `messageDelete` a deletion event.
 - Reactions become `reaction.changed` events.
 - A member or user update becomes `membership.changed` with the avatar hash and url from `members.ts#memberView`. A message's author carries the same pair as `author.avatar`.
 - A channel or thread that is created, edited or deleted becomes `conversation.changed`. At connect every readable channel and cached thread is announced as `updated`.

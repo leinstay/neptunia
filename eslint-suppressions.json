@@ -1,10 +1,10 @@
 {
-  "interfaces/discord/around.js": {
+  "interfaces/discord/around.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     }
   },
-  "interfaces/discord/audience-warm.js": {
+  "interfaces/discord/audience-warm.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -21,7 +21,7 @@
       "count": 3
     }
   },
-  "interfaces/discord/collect.js": {
+  "interfaces/discord/collect.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 28
     },
@@ -38,12 +38,12 @@
       "count": 18
     }
   },
-  "interfaces/discord/guild.js": {
+  "interfaces/discord/guild.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 2
     }
   },
-  "interfaces/discord/port.js": {
+  "interfaces/discord/port.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 10
     },
@@ -63,7 +63,7 @@
       "count": 1
     }
   },
-  "interfaces/discord/pull-fetch.js": {
+  "interfaces/discord/pull-fetch.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -77,7 +77,7 @@
       "count": 11
     }
   },
-  "interfaces/discord/search.js": {
+  "interfaces/discord/search.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -105,7 +105,7 @@
       "count": 2
     }
   },
-  "src/agent-runner/opencode.js": {
+  "src/agent-runner/opencode.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 17
     },
@@ -125,7 +125,7 @@
       "count": 1
     }
   },
-  "src/agent-runner/policy.js": {
+  "src/agent-runner/policy.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 6
     },
@@ -142,7 +142,7 @@
       "count": 1
     }
   },
-  "src/agent-runner/profiles.js": {
+  "src/agent-runner/profiles.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 31
     },
@@ -159,7 +159,7 @@
       "count": 6
     }
   },
-  "src/agent-runner/protocol.js": {
+  "src/agent-runner/protocol.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 12
     },
@@ -176,7 +176,7 @@
       "count": 1
     }
   },
-  "src/agent-runner/server.js": {
+  "src/agent-runner/server.ts": {
     "@typescript-eslint/no-floating-promises": {
       "count": 1
     },
@@ -202,7 +202,7 @@
       "count": 1
     }
   },
-  "src/agent-runner/sweep.js": {
+  "src/agent-runner/sweep.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 4
     },
@@ -846,7 +846,7 @@
       "count": 4
     }
   },
-  "src/interface/door.js": {
+  "src/interface/door.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 4
     },
@@ -857,7 +857,7 @@
       "count": 3
     }
   },
-  "src/interface/fake.js": {
+  "src/interface/fake.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 7
     },
@@ -877,12 +877,12 @@
       "count": 7
     }
   },
-  "src/interface/typing.js": {
+  "src/interface/typing.ts": {
     "@typescript-eslint/no-unsafe-call": {
       "count": 1
     }
   },
-  "src/llm/budget.js": {
+  "src/llm/budget.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
@@ -893,7 +893,7 @@
       "count": 1
     }
   },
-  "src/llm/embed.js": {
+  "src/llm/embed.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 4
     },
@@ -910,7 +910,7 @@
       "count": 2
     }
   },
-  "src/llm/images.js": {
+  "src/llm/images.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 5
     },
@@ -924,12 +924,12 @@
       "count": 1
     }
   },
-  "src/llm/limits.js": {
+  "src/llm/limits.ts": {
     "@typescript-eslint/no-unsafe-return": {
       "count": 2
     }
   },
-  "src/llm/openrouter.js": {
+  "src/llm/openrouter.ts": {
     "@typescript-eslint/no-floating-promises": {
       "count": 1
     },
@@ -955,7 +955,7 @@
       "count": 1
     }
   },
-  "src/llm/parse.js": {
+  "src/llm/parse.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 2
     },
@@ -975,7 +975,7 @@
       "count": 5
     }
   },
-  "src/llm/roles.js": {
+  "src/llm/roles.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 3
     },
@@ -989,12 +989,12 @@
       "count": 1
     }
   },
-  "src/llm/tokens.js": {
+  "src/llm/tokens.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 3
     }
   },
-  "src/llm/tool-text.js": {
+  "src/llm/tool-text.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 6
     },
@@ -1025,7 +1025,7 @@
       "count": 14
     }
   },
-  "src/media/audio-map.js": {
+  "src/media/audio-map.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 1
     },
@@ -1036,7 +1036,7 @@
       "count": 2
     }
   },
-  "src/media/classify.js": {
+  "src/media/classify.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 8
     },
@@ -1053,7 +1053,7 @@
       "count": 14
     }
   },
-  "src/media/draw.js": {
+  "src/media/draw.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 3
     },
@@ -1067,7 +1067,7 @@
       "count": 4
     }
   },
-  "src/media/fetch-image.js": {
+  "src/media/fetch-image.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 3
     },
@@ -1084,7 +1084,7 @@
       "count": 2
     }
   },
-  "src/media/fetch-video.js": {
+  "src/media/fetch-video.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 38
     },
@@ -1101,7 +1101,7 @@
       "count": 6
     }
   },
-  "src/media/video-sites.js": {
+  "src/media/video-sites.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -1760,7 +1760,7 @@
       "count": 2
     }
   },
-  "src/protocol/actions.js": {
+  "src/protocol/actions.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 6
     },
@@ -1774,7 +1774,7 @@
       "count": 2
     }
   },
-  "src/protocol/envelope.js": {
+  "src/protocol/envelope.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -1782,7 +1782,7 @@
       "count": 2
     }
   },
-  "src/protocol/origin.js": {
+  "src/protocol/origin.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
@@ -1790,7 +1790,7 @@
       "count": 4
     }
   },
-  "src/protocol/validate.js": {
+  "src/protocol/validate.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 8
     },
@@ -1804,7 +1804,7 @@
       "count": 90
     }
   },
-  "src/speech/convert.js": {
+  "src/speech/convert.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 4
     },
@@ -1815,7 +1815,7 @@
       "count": 10
     }
   },
-  "src/speech/index.js": {
+  "src/speech/index.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 3
     },
@@ -1826,7 +1826,7 @@
       "count": 1
     }
   },
-  "src/speech/prepare.js": {
+  "src/speech/prepare.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
@@ -1834,7 +1834,7 @@
       "count": 2
     }
   },
-  "src/speech/synth.js": {
+  "src/speech/synth.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -2253,7 +2253,7 @@
       "count": 2
     }
   },
-  "src/web/brave.js": {
+  "src/web/brave.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 9
     },
@@ -2264,7 +2264,7 @@
       "count": 9
     }
   },
-  "src/web/exa.js": {
+  "src/web/exa.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 5
     },
@@ -2284,7 +2284,7 @@
       "count": 1
     }
   },
-  "src/web/fetch-page.js": {
+  "src/web/fetch-page.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 13
     },
@@ -2304,7 +2304,7 @@
       "count": 3
     }
   },
-  "src/web/lookup.js": {
+  "src/web/lookup.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 31
     },
@@ -2324,7 +2324,7 @@
       "count": 1
     }
   },
-  "src/web/readable.js": {
+  "src/web/readable.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 12
     },
@@ -2344,7 +2344,7 @@
       "count": 1
     }
   },
-  "src/web/web-search.js": {
+  "src/web/web-search.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 3
     },

@@ -1885,7 +1885,7 @@ async function fetchWindow({ guild, channel, self, anchorId, limit, config, fetc
   // fetched like src/index.js warms them at startup (interfaces/discord/audience-warm.ts).
   try {
     const warm = await import(
-      pathToFileURL(path.join(process.cwd(), 'interfaces', 'discord', 'audience-warm.js')).href
+      pathToFileURL(path.join(process.cwd(), 'interfaces', 'discord', 'audience-warm.ts')).href
     );
     const overwriteIds = warm.overwriteMemberIds(guild.channels.cache.values(), (id) => guild.members.cache.has(id));
     const warmed = await warm.fetchMembers(overwriteIds, (id) => guild.members.fetch(id));
@@ -6729,7 +6729,7 @@ export async function main(argv, { root = process.cwd(), signal, rng = Math.rand
   const args = { ...parseArgs(flags), answersAll: all, diaryOwnHistory: own };
   if (args.answersDir === null) return runMain(args, { root, signal, rng, answers: null });
   // `--answers-dir`: Anthropic models are answered through files (tools/lib/answers-dir.mjs); `done` ends the run.
-  const { estimateMessages } = await import(pathToFileURL(path.join(root, 'src', 'llm', 'tokens.js')).href);
+  const { estimateMessages } = await import(pathToFileURL(path.join(root, 'src', 'llm', 'tokens.ts')).href);
   const answers = createAnswersDir({
     dir: path.resolve(root, args.answersDir),
     timeoutMin: args.answersTimeoutMin,
