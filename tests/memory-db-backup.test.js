@@ -8,10 +8,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { openMemoryDb, schemaVersion, MIGRATIONS } from '../src/memory/db/open.ts';
-import { seedUnits } from './fixtures/memory-db/seed.js';
+import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { startRun } from '../src/memory/db/wakes.ts';
 import { backupDatabase, main, restoreDatabase, tableHashes } from '../tools/memory-db.mjs';
-import { buildDataDir } from './fixtures/memory-db/datadir.js';
+import { buildDataDir } from './fixtures/memory-db/datadir.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };

@@ -2,35 +2,34 @@
 // door, a real memory database and the fake interface adapter, with a scripted model. No network, no Discord client,
 // no data/. `innerRig` is one core; `rig.restart()` is the same core after a restart (a new inner life and a new door
 // over the same data directory and the same memory database).
+import type { Wake } from '../../src/behavior/inner/types.ts';
 import { createInnerLife } from '../../src/behavior/inner.ts';
 import { createEventDoor } from '../../src/interface/door.ts';
 import { createFakeAdapter } from '../../src/interface/fake.ts';
 import { skillRegistry } from '../../src/tools/registry.ts';
-import { createTurnRunner, fakeChannel, fakeStore, hotWith, rawMessage, sequenceLlm } from './turn-harness.js';
+import { createTurnRunner, fakeChannel, fakeStore, hotWith, rawMessage, sequenceLlm } from './turn-harness.ts';
 import { freshWorld, world } from './turn-world.ts';
-import { tempDir } from './tmp.js';
-import { openTestMemory } from './memory-db/service.js';
+import { tempDir } from './tmp.ts';
+import { openTestMemory } from './memory-db/service.ts';
 
 /** The rig's first clock reading. */
 export const START = Date.parse('2026-10-26T12:00:00Z');
 export const GUILD = 'g1';
 export const MINUTE = 60_000;
 
-/**
- * What a restarted core keeps.
- * @typedef {object} Share
- * @property {string} dataDir
- * @property {Awaited<ReturnType<typeof openTestMemory>>} memory
- * @property {{ t: number }} clock
- * @property {ReturnType<typeof createFakeAdapter>} port
- * @property {ReturnType<typeof sequenceLlm>} llm
- */
+/** What a restarted core keeps. */
+type Share = {
+  dataDir: string;
+  memory: Awaited<ReturnType<typeof openTestMemory>>;
+  clock: { t: number };
+  port: ReturnType<typeof createFakeAdapter>;
+  llm: ReturnType<typeof sequenceLlm>;
+};
 
 const SILENT = { info() {}, warn() {}, error() {}, debug() {} };
 
 /** The record as the inner life reads it: she spoke in c1 an hour ago, which is where a heartbeat turn runs. */
-/** @param {{ t: number }} clock */
-function spokeInC1(clock) {
+function spokeInC1(clock: { t: number }) {
   return {
     *iterate() {
       yield { kind: 'said', occurredAt: new Date(clock.t - 60 * MINUTE).toISOString(), scope: { channel: 'c1' } };
@@ -38,13 +37,31 @@ function spokeInC1(clock) {
   };
 }
 
+/** One core of the rig: its clock, its parts and the helpers a test drives them with. */
+export type Rig = Share & {
+  inner: ReturnType<typeof createInnerLife>;
+  door: ReturnType<typeof createEventDoor>;
+  /** The wake runs the memory database holds, oldest first. */
+  wakeRuns(): Array<Record<string, string>>;
+  /** Lets the writes of the last turn land (the run is recorded through promises). */
+  settle(): Promise<void>;
+  /** The same core after a restart: a new inner life and door over the same data directory and memory. */
+  restart(extra?: object): Promise<Rig>;
+  /** Draws the heartbeat's moment, moves the clock past it and ticks: the heartbeat turn runs. */
+  beat(): ReturnType<ReturnType<typeof createInnerLife>['tick']>;
+};
+
 /**
  * One core on the fake interface. `answers` are the scripted model's answers (the last one repeats); `interface: false`
  * leaves no client at all, so no conversation can be fetched and nothing is connected; `share` is what a restarted core
  * keeps; `innerLife` overrides the `innerLife` settings.
- * @param {{ answers?: Array<string|object>, interface?: boolean, share?: Share|null, innerLife?: object }} [options]
  */
-export async function innerRig({ answers = ['<skip/>'], interface: connected = true, share = null, innerLife = {} } = {}) {
+export async function innerRig({
+  answers = ['<skip/>'],
+  interface: connected = true,
+  share = null,
+  innerLife = {},
+}: { answers?: Array<string | object>; interface?: boolean; share?: Share | null; innerLife?: object } = {}): Promise<Rig> {
   const clock = share?.clock ?? { t: START };
   const dataDir = share?.dataDir ?? tempDir('nep-boundary-');
   const memory = share?.memory ?? (await openTestMemory({ config: { memoryDb: { wakeRuns: true } }, now: () => clock.t }));
@@ -56,7 +73,6 @@ export async function innerRig({ answers = ['<skip/>'], interface: connected = t
     fakeChannel([rawMessage({ id: 'm1', ts: clock.t - 5 * MINUTE, content: 'καλημέρα' })]);
   }
   const hot = hotWith({
-    features: { innerLife: true, intentions: false, journal: false, coreTools: true },
     tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
     config: {
       mention: { oneAtATime: true },
@@ -74,10 +90,8 @@ export async function innerRig({ answers = ['<skip/>'], interface: connected = t
     },
   });
   Object.assign(hot.prompts, { inner: 'Nobody wrote to you; read the wake block.' });
-  const calibrator = { ratio: 1, apply: (/** @type {number} */ value) => value, observe: () => {} };
-  // The runner's declared parameters are wider than what a test needs (a describer, a fetch), and the fakes are narrower
-  // than the real client and port, so the whole argument is cast.
-  const turns = createTurnRunner(/** @type {never} */ ({
+  const calibrator = { ratio: 1, apply: (value: number) => value, observe: () => {} };
+  const turns = createTurnRunner({
     hot,
     store: fakeStore(),
     llm,
@@ -86,9 +100,8 @@ export async function innerRig({ answers = ['<skip/>'], interface: connected = t
     port,
     skills: skillRegistry(),
     journal: null,
-  }));
-  /** @type {{ onWake: (event: object) => unknown }} */
-  const wake = { onWake: () => ({ status: 'invalid' }) };
+  });
+  const wake: { onWake: (event: Wake) => unknown } = { onWake: () => ({ status: 'invalid' }) };
   const door = createEventDoor({ handlers: { 'inner.wake': (event) => wake.onWake(event) }, log: SILENT });
   const inner = createInnerLife({
     hot,
@@ -101,14 +114,14 @@ export async function innerRig({ answers = ['<skip/>'], interface: connected = t
     submit: (event) => door.submit(event),
     store: { state: { data: {} } },
     getGuildId: () => GUILD,
-    meter: { run: async (/** @type {() => unknown} */ fn) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
+    meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
     memoryDb: memory.memoryDb,
     rng: () => 0.5,
     now: () => clock.t,
     log: SILENT,
   });
   wake.onWake = inner.onWake;
-  const rig = {
+  const rig: Rig = {
     clock,
     dataDir,
     memory,
@@ -125,7 +138,7 @@ export async function innerRig({ answers = ['<skip/>'], interface: connected = t
       for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setImmediate(resolve));
     },
     /** The same core after a restart: a new inner life and door over the same data directory and memory. */
-    restart: (extra = {}) => innerRig({ answers, interface: connected, innerLife, ...extra, share: { dataDir, memory, clock, port, llm } }),
+    restart: (extra: object = {}): ReturnType<typeof innerRig> => innerRig({ answers, interface: connected, innerLife, ...extra, share: { dataDir, memory, clock, port, llm } }),
     /** Draws the heartbeat's moment, moves the clock past it and ticks: the heartbeat turn runs. */
     async beat() {
       await inner.tick();
@@ -136,36 +149,31 @@ export async function innerRig({ answers = ['<skip/>'], interface: connected = t
   return rig;
 }
 
-/** @typedef {Array<ReturnType<typeof rawMessage>>} History */
+type History = Array<ReturnType<typeof rawMessage>>;
 
 /** An empty channel history for `replyTo`. */
-export function newHistory() {
-  /** @type {History} */
-  const history = [];
+export function newHistory(): History {
+  const history: History = [];
   return history;
 }
 
-/**
- * Every row `sql` selects from the memory database's read connection.
- * @param {{ readHandle(): unknown }} memoryDb
- * @param {string} sql
- * @param {...string} params
- * @returns {Array<Record<string, string>>}
- */
-export function rowsOf(memoryDb, sql, ...params) {
-  const handle = /** @type {{ db: { prepare(sql: string): { all(...params: string[]): Array<Record<string, string>> } } }|null} */ (
-    memoryDb.readHandle()
-  );
+/** Every row `sql` selects from the memory database's read connection. */
+export function rowsOf(memoryDb: { readHandle(): unknown }, sql: string, ...params: Array<string>): Array<Record<string, string>> {
+  const handle = memoryDb.readHandle() as {
+    db: { prepare(sql: string): { all(...params: Array<string>): Array<Record<string, string>> } };
+  } | null;
   return handle ? handle.db.prepare(sql).all(...params).map((row) => ({ ...row })) : [];
 }
 
 /**
  * One reply turn to a message `text` by Alice (u1) in c1 on `turns`, the way the door's handler of `message.received` runs it.
- * @param {{ runTurn(params: object): Promise<unknown> }} turns
- * @param {History} history  The channel's lines so far; the new one is added.
- * @param {{ id: string, content: string, at: number }} message
+ * `history` holds the channel's lines so far; the new one is added.
  */
-export function replyTo(turns, history, message) {
+export function replyTo(
+  turns: { runTurn(params: object): Promise<unknown> },
+  history: History,
+  message: { id: string; content: string; at: number }
+): Promise<unknown> {
   const raw = rawMessage({ id: message.id, ts: message.at, content: message.content });
   history.push(raw);
   const trigger = {

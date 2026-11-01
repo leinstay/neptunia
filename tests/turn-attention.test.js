@@ -10,8 +10,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
-import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { labels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { onWorld, world } from './fixtures/turn-world.ts';
 
 const createTurnRunner = onWorld(createRealTurnRunner);

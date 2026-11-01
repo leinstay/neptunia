@@ -9,10 +9,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const created = new Set();
+const created = new Set<string>();
 let hooked = false;
 
-function removeAll() {
+function removeAll(): void {
   for (const dir of created) {
     try {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -25,11 +25,10 @@ function removeAll() {
 
 /**
  * Creates a fresh empty directory under the system temp dir (read at call time, so TMPDIR is
- * honoured) and registers it for removal when the process exits.
- * @param {string} prefix  The directory name's prefix, e.g. 'nep-store-'.
- * @returns {string} The absolute path of the new directory.
+ * honoured) and registers it for removal when the process exits. `prefix` is the directory
+ * name's prefix, e.g. 'nep-store-'. Returns the absolute path of the new directory.
  */
-export function tempDir(prefix) {
+export function tempDir(prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   created.add(dir);
   if (!hooked) {

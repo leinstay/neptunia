@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createErrandClient } from '../src/errands/client.ts';
 import { encodeLine, MAX_PREAMBLE_CHARS } from '../src/agent-runner/protocol.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 
 function socketPath() {

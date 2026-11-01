@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as user from '../src/memory/db/map/user.ts';
 import * as privateLayer from '../src/memory/db/map/private.ts';
-import { assertRoundTrip, generated, plain, roundTrip } from './fixtures/memory-db/roundtrip.js';
+import { assertRoundTrip, generated, plain, roundTrip } from './fixtures/memory-db/roundtrip.ts';
 
 const ID = '100000000000000001';
 const REL = `users/${ID}.json`;

@@ -11,7 +11,7 @@ import { createStore } from '../../src/memory/store.ts';
 import { dbOf, seedMirror } from './diary-mirror.ts';
 import { GUILD, NOW, sceneHot } from './diary-requests.ts';
 import type { sceneLlm } from './diary-requests.ts';
-import { openTestMemory } from './memory-db/service.js';
+import { openTestMemory } from './memory-db/service.ts';
 import { world } from './turn-world.ts';
 import { worldTurnRunner } from './world-runner.ts';
 import type { createFakeAdapter } from '../../src/interface/fake.ts';

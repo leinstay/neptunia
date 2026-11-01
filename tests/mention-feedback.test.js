@@ -9,9 +9,9 @@ import { memberNameMap, untaggedNames, withUserHandles } from '../src/behavior/h
 import { formatTranscript } from '../src/format.ts';
 import { toolResultText } from '../src/tools/tool-calls.ts';
 import { untaggedNote } from '../src/behavior/turn.ts';
-import { labels as fixtureLabels } from './fixtures/labels.js';
-import { call, toolAnswer } from './fixtures/tool-answers.js';
-import { appended, contentText, coreTurn } from './fixtures/turn-harness.js';
+import { labels as fixtureLabels } from './fixtures/labels.ts';
+import { call, toolAnswer } from './fixtures/tool-answers.ts';
+import { appended, contentText, coreTurn } from './fixtures/turn-harness.ts';
 
 const labels = { ...fixtureLabels, transcript: { ...fixtureLabels.transcript, author: '{name} ({handle})' } };
 const YOB = '100000000000000001';

@@ -5,9 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnv, applyEnv, deepMerge, readConfig, need, isPlainObject, resolveEnvRefs } from '../src/config.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { paceSettings } from '../src/behavior/turn.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 function tmpDir() {
   return tempDir('nep-');

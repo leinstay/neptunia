@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { MIGRATIONS } from '../src/memory/db/open.ts';
 import { exportOne } from '../src/memory/db/export.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 import {
   dbOf,
   dumpTables,

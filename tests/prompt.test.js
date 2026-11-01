@@ -1,6 +1,6 @@
 // Tests for src/behavior/prompt.ts: buildRequest, the one-shot LLM request
 // assembler. Uses fake prompts/config/labels only -- never reads prompts/ or
-// data/. tests/fixtures/labels.js is an English fixture covering every key of
+// data/. tests/fixtures/labels.ts is an English fixture covering every key of
 // the prompt contract.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,7 +22,7 @@ import { SAFETY_MARGIN } from '../src/llm/budget.ts';
 import { createFedAround as createAroundStore } from './fixtures/around-feed.ts';
 import { fill, formatClock, formatDate, formatDuration } from '../src/format.ts';
 import { zonedDay } from '../src/time.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 import { tokenIds } from '../src/memory/mentions.ts';
 import { handleOf } from '../src/behavior/handles.ts';
 

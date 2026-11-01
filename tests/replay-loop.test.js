@@ -32,7 +32,7 @@ import {
 import { transportOf } from '../src/tools/tool-calls.ts';
 import { createErrandStore } from '../src/errands/store.ts';
 import { createImageGen } from '../src/llm/images.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 import { fill } from '../src/format.ts';
 import { fillPromptTemplate } from '../src/behavior/prompt.ts';
 import { parseLookupAnswer, recallSettings } from '../src/behavior/recall.ts';
@@ -73,8 +73,8 @@ import {
   withCoreTools,
   withTransport,
 } from '../tools/replay.mjs';
-import { labels } from './fixtures/labels.js';
-import { call, completionOf, textAnswer, toolAnswer } from './fixtures/tool-answers.js';
+import { labels } from './fixtures/labels.ts';
+import { call, completionOf, textAnswer, toolAnswer } from './fixtures/tool-answers.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
 // The conversation of the tools' history read is held by a fake interface named `fake`.
@@ -729,7 +729,7 @@ test('the step engine: once the time budget is spent the next request is her las
 });
 
 test('the step engine: unreadable and unknown calls get a refusal she reads; arguments read in another type are counted; a missing <think> is counted', async () => {
-  const { badCall } = await import('./fixtures/tool-answers.js');
+  const { badCall } = await import('./fixtures/tool-answers.ts');
   const { run, llm } = await loopRun(
     [
       toolAnswer('no think here', [

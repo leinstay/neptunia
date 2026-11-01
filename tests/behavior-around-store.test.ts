@@ -7,7 +7,7 @@ import { createAroundStore } from '../src/behavior/around-store.ts';
 import { liveFields } from '../src/behavior/around.ts';
 import { validateEvent } from '../src/protocol/index.ts';
 import { presenceEvent, presenceSnapshotEvent, voiceEvent } from '../interfaces/discord/around.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 
 type Flags = { muted?: boolean; deafened?: boolean; streaming?: boolean; camera?: boolean };
 

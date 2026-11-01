@@ -11,10 +11,10 @@ import '../src/tools/impl/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { familyOf } from '../src/llm/images.ts';
 import { onWorld, world } from './fixtures/turn-world.ts';
-import { labels as baseLabels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { labels as baseLabels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { publishTo } from './fixtures/diary-mirror.ts';
-import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
+import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import { drawPicture, drawPromptOf } from '../src/media/draw.ts';
 import { ImageGenError, UnsupportedImageModelError } from '../src/llm/images.ts';
 

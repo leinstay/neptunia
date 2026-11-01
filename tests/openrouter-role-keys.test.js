@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { createLlm, keyHashOf, roleApiKey, roleKeyGroups } from '../src/llm/openrouter.ts';
 import { createEmbedder } from '../src/llm/embed.ts';
 import { OPENCODE_ROLES } from '../src/llm/roles.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 

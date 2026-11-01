@@ -19,7 +19,7 @@ import {
 import { runRecord } from '../tools/replay.mjs';
 import { sheetPairIds } from '../tools/lib/pair.mjs';
 import { CliError } from '../tools/lib/cli.mjs';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const CHANNEL = '123456789012345678';
 const TRIGGER = (n) => `22345678901234567${n}`;

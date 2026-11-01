@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHot } from '../src/hot.ts';
 import { layer, moveTool } from './fixtures/private-layer.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const LABELS = 'prompts.local/labels.json';
 const TEXTS_OLD = 'prompts.local/skills.json';

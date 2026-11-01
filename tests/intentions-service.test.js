@@ -18,11 +18,11 @@ import { createErrandTurns, errandDoneEvent } from '../src/errands/turns.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
-import { tempDir } from './fixtures/tmp.js';
-import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
+import { tempDir } from './fixtures/tmp.ts';
+import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.ts';
 
 /** The memory database of each data directory used here, opened once; closed when the file is done. */
 const MEMORY = new Map();

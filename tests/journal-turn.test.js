@@ -14,7 +14,7 @@ import { createJournal, turnOfMessage, turnView } from '../src/memory/journal.ts
 import { executeCall, resolveCall } from '../src/tools/executors.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { journalTurnRecord } from '../src/behavior/turn.ts';
-import { openTestMemorySync } from './fixtures/memory-db/service.js';
+import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 
 const OWNER = '42';
 const SELF = 'self-1';

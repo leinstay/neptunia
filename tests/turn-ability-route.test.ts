@@ -12,10 +12,10 @@ import { createRoleHealth } from '../src/llm/role-health.ts';
 import { ImageGenError } from '../src/llm/images.ts';
 import { createDescriber } from '../src/memory/describe.ts';
 import { fill } from '../src/format.ts';
-import { labels } from './fixtures/labels.js';
-import { call, toolAnswer } from './fixtures/tool-answers.js';
-import { NOW, coreTurn, fakeStore } from './fixtures/turn-harness.js';
-import { DRAW_PROMPTS, fakeImages } from './fixtures/turn-draws.js';
+import { labels } from './fixtures/labels.ts';
+import { call, toolAnswer } from './fixtures/tool-answers.ts';
+import { NOW, coreTurn, fakeStore } from './fixtures/turn-harness.ts';
+import { DRAW_PROMPTS, fakeImages } from './fixtures/turn-draws.ts';
 
 const ABILITY_WORDS = {
   imagesIn: 'A:imagesIn',

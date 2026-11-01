@@ -6,7 +6,7 @@
 import type { Wake } from '../../src/behavior/inner/types.ts';
 import { wakeOf } from '../../src/memory/db/wake-queue.ts';
 import type { StoredWake } from '../../src/memory/db/wake-queue.ts';
-import { openTestMemorySync } from './memory-db/service.js';
+import { openTestMemorySync } from './memory-db/service.ts';
 
 /** The node:sqlite shape of the service's read connection while the database is open. */
 type Read = { db: { prepare(sql: string): { all(...params: Array<string>): Array<unknown> } } };

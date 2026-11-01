@@ -12,7 +12,7 @@ import { main as scoreMain } from '../tools/replay-score.mjs';
 import { CliError } from '../tools/lib/cli.mjs';
 import { parseBlindScores, parseQueries, seededShuffle, tallySearchScores } from '../tools/lib/search-compare.mjs';
 import { NotByokError } from '../src/llm/openrouter.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const NOW = Date.UTC(2026, 9, 17, 12, 0, 0);
 const ROWS = [

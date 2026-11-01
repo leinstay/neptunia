@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadPlugins } from '../src/plugins/folders.ts';
 import { ECHO_DIR, echoManifest } from './fixtures/plugin-rig.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 function folders(): { trackedDir: string; localDir: string } {
   const root = tempDir('nep-plugins-');

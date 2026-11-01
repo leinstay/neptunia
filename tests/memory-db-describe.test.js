@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { fillAudiences } from './fixtures/memory-db/audiences.js';
+import { fillAudiences } from './fixtures/memory-db/audiences.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import {
   claimDiff,
@@ -15,7 +15,7 @@ import {
 } from '../src/memory/db/describe.ts';
 import { messageSourceId, personId, shortHash } from '../src/memory/db/ids.ts';
 import { dmContext } from '../src/memory/db/scope.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const ADA = 'u-ada';

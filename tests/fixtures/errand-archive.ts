@@ -8,7 +8,7 @@ import { openMemoryDb } from '../../src/memory/db/open.ts';
 import { applyUnitWrite } from '../../src/memory/db/unit-write.ts';
 import { BOARD_MIGRATIONS } from '../../src/board/schema.ts';
 import type { ErrandRecord, ErrandState } from '../../src/errands/types.ts';
-import { tempDir } from './tmp.js';
+import { tempDir } from './tmp.ts';
 
 export const GUILD = 'g1';
 export const T0 = Date.parse('2026-10-30T10:00:00.000Z');

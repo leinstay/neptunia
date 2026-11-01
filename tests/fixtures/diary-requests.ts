@@ -9,8 +9,8 @@
 // inputs from. Synthetic text only.
 import { createStore } from '../../src/memory/store.ts';
 import { dbOf, seedMirror, seedPlace } from './diary-mirror.ts';
-import { labels } from './labels.js';
-import { openTestMemory } from './memory-db/service.js';
+import { labels } from './labels.ts';
+import { openTestMemory } from './memory-db/service.ts';
 import { useIface, useSelf, world } from './turn-world.ts';
 import { worldTurnRunner } from './world-runner.ts';
 import '../../src/tools/impl/index.ts';

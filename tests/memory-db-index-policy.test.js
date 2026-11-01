@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
-import { seedUnits } from './fixtures/memory-db/seed.js';
+import { seedUnits } from './fixtures/memory-db/seed.ts';
 import {
   checkMedia,
   classify,
@@ -26,7 +26,7 @@ import { dmScope, groupContext, groupScope } from '../src/memory/db/scope.ts';
 import { quantize } from '../src/memory/vectors.ts';
 import { recordChunk } from '../src/memory/chunks.ts';
 import { main, tableHashes } from '../tools/memory-db.mjs';
-import { buildDataDir, guildDir, writeJson } from './fixtures/memory-db/datadir.js';
+import { buildDataDir, guildDir, writeJson } from './fixtures/memory-db/datadir.ts';
 
 const DAY = 86_400_000;
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');

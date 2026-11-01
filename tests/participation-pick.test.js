@@ -19,8 +19,8 @@ import {
 import { userText } from '../src/behavior/prompt.ts';
 import { snapshotOf } from '../src/behavior/snapshot.ts';
 import { DailyCapError } from '../src/llm/openrouter.ts';
-import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { labels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // PR 7c: the shipped settings live in config/config.json.

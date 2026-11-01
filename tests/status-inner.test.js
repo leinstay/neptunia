@@ -9,7 +9,7 @@ import { runOp } from '../src/tools/impl/index.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { innerLines } from '../src/tools/impl/status.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const DISCORD = createDiscordInterface().capabilities;
 const AT = Date.parse('2026-10-19T12:30:00Z');

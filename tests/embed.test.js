@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createEmbedder, normalizeVector, EMBED_ROLE } from '../src/llm/embed.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import { DailyCapError, NotByokError, TokenLimitError, llmCountToday } from '../src/llm/openrouter.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 const DAY = Date.UTC(2026, 9, 14, 12);
 

@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { fillEnvAudiences } from './fixtures/memory-db/audiences.js';
+import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import {
   CODES,
@@ -28,9 +28,9 @@ import { roleApiKey, STRICT_KEY_ROLES } from '../src/llm/openrouter.ts';
 import { estimateMessages } from '../src/llm/tokens.ts';
 import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, roleConfigKeys, roleModel } from '../src/llm/roles.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
-import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
+import { labels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
 import fs from 'node:fs';
 
 // The ids of the Discord namespace the fixtures of this file write.
@@ -957,7 +957,7 @@ test('the people block renders a stored profile the way her turns do, from the d
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
-  const { seedUnits } = await import('./fixtures/memory-db/seed.js');
+  const { seedUnits } = await import('./fixtures/memory-db/seed.ts');
   const handle = openMemoryDb(path.join(root, 'memory.db'));
   try {
     assert.equal(seedUnits(handle, data).errors, 0);

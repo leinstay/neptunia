@@ -2,7 +2,7 @@
 // `work` archive held them, writes nothing to the archive or to an errand unit, ends an errand in one writer
 // transaction (the board move, the outbox row to `persona`, the closing journal line, all or none), keeps an end it
 // committed pending until its `errand.done` is marked delivered, and her journal lines of an errand reference its task.
-// The memory service is the real one on the calling thread (fixtures/memory-db/service.js), the journal the real one
+// The memory service is the real one on the calling thread (fixtures/memory-db/service.ts), the journal the real one
 // over it, the clock fixed. A failure inside the end's transaction is injected with a SQLite trigger on the database
 // file. Temporary data directories only.
 import { after, test } from 'node:test';
@@ -17,7 +17,7 @@ import { readBoard } from '../src/board/board.ts';
 import type { BoardDb } from '../src/board/schema.ts';
 import type { ErrandStore } from '../src/errands/types.ts';
 import { tableHashes } from '../tools/memory-db.mjs';
-import { openTestMemorySync, tempDataDir } from './fixtures/memory-db/service.js';
+import { openTestMemorySync, tempDataDir } from './fixtures/memory-db/service.ts';
 import { ARCHIVE, GUILD, T0, archiveDataDir, archived } from './fixtures/errand-archive.ts';
 import { channel, rig } from './fixtures/reads-rig.ts';
 

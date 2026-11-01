@@ -14,7 +14,7 @@ import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 import { NOT_GRANTABLE_TO_PERSONA } from '../src/tools/access.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 import {
   REPO,
   isRecord,

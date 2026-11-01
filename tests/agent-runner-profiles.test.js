@@ -55,7 +55,7 @@ import {
 } from '../src/agent-runner/policy.ts';
 import { DEVELOPMENT_ROLES, OPENCODE_ROLES, ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import { resolvePaths } from '../src/paths.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** This checkout's data directory as the policy resolves it (NEPTUNIA_DATA_DIR, else <root>/data). */

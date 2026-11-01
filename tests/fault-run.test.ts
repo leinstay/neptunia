@@ -19,7 +19,7 @@ import {
   observe,
   tableOf,
 } from '../tools/lib/fault-run.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 test('the ledger names a key that happened twice and a key that never happened', () => {
   const ledger = createLedger();

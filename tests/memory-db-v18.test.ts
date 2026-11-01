@@ -11,8 +11,8 @@ import path from 'node:path';
 import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
 import { recoverWakes, wakeOf } from '../src/memory/db/wake-queue.ts';
 import { emptyState, reviewWake, wakeOfDue } from '../src/behavior/inner.ts';
-import { openTestMemory } from './fixtures/memory-db/service.js';
-import { tempDir } from './fixtures/tmp.js';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 type Statement = { get(...params: Array<unknown>): Record<string, unknown> | undefined };
 type Db = { prepare(sql: string): Statement };

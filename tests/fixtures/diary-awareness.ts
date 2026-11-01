@@ -8,8 +8,8 @@ import { userText } from '../../src/behavior/prompt.ts';
 import { createStore } from '../../src/memory/store.ts';
 import { dbOf, seedMirror } from './diary-mirror.ts';
 import type { MemoryService } from './diary-mirror.ts';
-import { openTestMemory } from './memory-db/service.js';
-import { hotWith, rawMessage, sequenceLlm } from './turn-harness.js';
+import { openTestMemory } from './memory-db/service.ts';
+import { hotWith, rawMessage, sequenceLlm } from './turn-harness.ts';
 import { freshWorld, world } from './turn-world.ts';
 import { worldTurnRunner } from './world-runner.ts';
 

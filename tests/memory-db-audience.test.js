@@ -34,7 +34,7 @@ import { search, window } from '../src/memory/db/recall.ts';
 import { fillStems } from '../src/memory/db/stems.ts';
 import { batchOf, buildSessionRequest, scopesOf } from '../src/memory/db/session.ts';
 import { gatherReview } from '../src/memory/db/describe.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const ALICE = personId('discord', 'u-alice');

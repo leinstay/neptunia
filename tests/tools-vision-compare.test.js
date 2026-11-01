@@ -14,7 +14,7 @@ import {
   toolHot,
 } from '../tools/lib/vision-compare.mjs';
 import { CliError } from '../tools/lib/cli.mjs';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 const PNG = `data:image/png;base64,${Buffer.from('picture').toString('base64')}`;
 const MP4 = `data:video/mp4;base64,${Buffer.from('clip').toString('base64')}`;

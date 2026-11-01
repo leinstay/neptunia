@@ -11,9 +11,9 @@ import { listOps, runOp } from '../src/tools/impl/index.ts';
 import { legacyGrantOps } from '../src/config-moves.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 import { createErrandStore } from '../src/errands/store.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { openBoard } from '../src/board/board.ts';
 

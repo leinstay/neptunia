@@ -22,11 +22,11 @@ import {
 import { createHash } from 'node:crypto';
 import { createLlm, roleRequestOptions, TokenLimitError, DailyCapError } from '../src/llm/openrouter.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { tempDir } from './fixtures/tmp.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { tempDir } from './fixtures/tmp.ts';
 import { MEDIA_CACHE_ENTRIES } from '../src/web/cache.ts';
 
-// One directory under the system temp dir per run, removed when the process exits (tests/fixtures/tmp.js);
+// One directory under the system temp dir per run, removed when the process exits (tests/fixtures/tmp.ts);
 // every call gets its own empty subdirectory of it, so a run leaves nothing behind.
 let tmpRoot = null;
 let tmpDirCount = 0;

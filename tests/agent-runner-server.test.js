@@ -12,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRunnerServer } from '../src/agent-runner/server.ts';
 import { encodeLine } from '../src/agent-runner/protocol.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 function socketPath() {
   return path.join(os.tmpdir(), `agent-sock-${process.pid}-${Math.random().toString(36).slice(2)}.sock`);

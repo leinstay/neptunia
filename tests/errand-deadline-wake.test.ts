@@ -11,7 +11,7 @@ import { createInnerLife, deadlineWakes } from '../src/behavior/inner.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
 useIface('fake');

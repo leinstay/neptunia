@@ -14,7 +14,7 @@ import type { Board, BoardSettings, EventRow, Handoff, TaskRecord } from '../src
 import { createTaskCommands } from '../src/board/commands.ts';
 import type { TaskAnswer } from '../src/board/commands.ts';
 import type { BoardDb } from '../src/board/schema.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const NOW = Date.parse('2026-10-31T10:00:00.000Z');
 const MINUTE = 60000;

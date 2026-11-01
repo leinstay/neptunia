@@ -11,7 +11,7 @@ import {
   postLimitNotice,
   postPauseNotice,
 } from '../src/behavior/limits.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 
 const labels = { limits: { notice: 'limit hit: {limit} {used}/{cap}', paused: 'on a break (back soon) [*]' } };

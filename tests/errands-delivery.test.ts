@@ -2,13 +2,13 @@
 // door takes her `errand.done` as soon as the end's own write committed, often before that write's promise settled in
 // the store's outbox, and the mark must still land then, not only at the core's stop: a core that crashes after the
 // delivery and starts again must find the end delivered, or it opens a second result turn. The memory service is the
-// real one on the calling thread (fixtures/memory-db/service.js); a gate holds the store's writes after they commit, so
+// real one on the calling thread (fixtures/memory-db/service.ts); a gate holds the store's writes after they commit, so
 // the end is on the board while its write still counts as under way. No flush runs between the mark and the restart.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createErrandStore } from '../src/errands/store.ts';
 import type { ErrandStore } from '../src/errands/types.ts';
-import { openTestMemorySync, tempDataDir } from './fixtures/memory-db/service.js';
+import { openTestMemorySync, tempDataDir } from './fixtures/memory-db/service.ts';
 import { GUILD, T0 } from './fixtures/errand-archive.ts';
 
 const NOW = T0 + 60 * 60 * 1000;

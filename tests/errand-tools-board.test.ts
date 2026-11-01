@@ -16,10 +16,10 @@ import type { BoardDb } from '../src/board/schema.ts';
 import type { Obj } from '../src/tools/types.ts';
 import type { ErrandClient, ErrandService, ErrandStores, RunOutcome } from '../src/errands/types.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { openTestMemorySync } from './fixtures/memory-db/service.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { writeArchive } from './fixtures/errand-archive.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const OWNER = '42';
 const MEMBER = '7';

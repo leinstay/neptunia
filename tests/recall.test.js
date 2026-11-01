@@ -36,9 +36,9 @@ import {
 } from '../src/behavior/recall.ts';
 import { estimateTokens } from '../src/llm/tokens.ts';
 import { createRecord, toRecordLine } from '../src/memory/record.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 import fs, { readFileSync } from 'node:fs';
-import { openTestMemory } from './fixtures/memory-db/service.js';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
 
 const SHIPPED_CONFIG = JSON.parse(readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
 

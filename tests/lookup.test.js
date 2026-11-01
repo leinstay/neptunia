@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLookup, normalizeQuery, cleanQuery } from '../src/web/lookup.ts';
 import { DailyCapError, roleRequestOptions, TokenLimitError } from '../src/llm/openrouter.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
 const HOUR = 60 * 60_000;

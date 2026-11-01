@@ -14,7 +14,7 @@ import type { Capabilities } from '../src/protocol/adapter.ts';
 import type { Envelope, Transport } from '../src/protocol/wire.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { channelInfo, lineEvent } from './fixtures/core-over-fake.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 type Log = {
   info(msg: string, meta?: unknown): void;

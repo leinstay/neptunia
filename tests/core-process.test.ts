@@ -19,7 +19,7 @@ import { onLog } from '../src/log.ts';
 import { lockPathOf, openMemoryDb } from '../src/memory/db/open.ts';
 import { applyWakeQueueWrite } from '../src/memory/db/wake-queue.ts';
 import { ANSWER, COMMUNITY, SELF, channelInfo, lineEvent } from './fixtures/core-over-fake.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 type Row = Record<string, unknown>;
 type Db = { prepare(sql: string): { all(...args: Array<unknown>): Array<Row> } };

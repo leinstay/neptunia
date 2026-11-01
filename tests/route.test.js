@@ -16,8 +16,8 @@ import {
 import { userText } from '../src/behavior/prompt.ts';
 import { createChannelRouter } from '../src/behavior/route-channel.ts';
 import { DailyCapError } from '../src/llm/openrouter.ts';
-import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { labels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { takeSnapshot } from '../src/behavior/snapshot.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 

@@ -36,7 +36,7 @@ import { executeCall } from '../src/tools/executors.ts';
 import { postingConversation } from '../src/tools/impl/shared.ts';
 import { schemaError } from '../src/tools/schema.ts';
 import { checkReplyEffect, checkSkill, listSkills } from '../src/tools/gateway.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 // The Discord interface's capabilities object, as src/index.ts injects it.
 const DISCORD = createDiscordInterface().capabilities;

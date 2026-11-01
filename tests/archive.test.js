@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createAppendStore } from '../src/memory/append-store.ts';
 import { archiveEntry, createArchive } from '../src/memory/archive.ts';
-import { openTestMemory, unitFile } from './fixtures/memory-db/service.js';
+import { openTestMemory, unitFile } from './fixtures/memory-db/service.ts';
 
 const quiet = { info() {}, warn() {}, error() {} };
 const OCT = Date.UTC(2026, 9, 13, 9, 0, 0);

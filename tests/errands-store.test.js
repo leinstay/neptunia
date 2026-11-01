@@ -9,9 +9,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createErrandStore, fileHandle, parseFileHandle } from '../src/errands/store.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { tempDir } from './fixtures/tmp.js';
-import { openTestMemorySync } from './fixtures/memory-db/service.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { tempDir } from './fixtures/tmp.ts';
+import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { readBoard } from '../src/board/board.ts';
 
 const DAY = 24 * 60 * 60 * 1000;

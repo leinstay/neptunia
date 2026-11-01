@@ -2,7 +2,7 @@
 // context, generated from the code itself (the registry, `checkSkill`, `checkReplyEffect`, `rightsRefusal` and
 // `wakeEnvelopeRefusal`). tests/fixtures/tool-decisions.json is this table as the code on `main` produced it before
 // the tools moved to src/tools/; tests/tool-decisions.test.ts regenerates it and compares the two, so the move and
-// the renames cannot change a single answer. `node tests/fixtures/tool-decisions.mjs --write` rewrites the JSON.
+// the renames cannot change a single answer. `node tests/fixtures/tool-decisions.ts --write` rewrites the JSON.
 //
 // The modules are found where they are: each name lists the places it has lived, newest first, and the first file
 // that exists is imported. A verdict is `ok` or `<code>:<detail>`. Every config the table builds sets both spellings
@@ -25,11 +25,7 @@ const LOCATIONS = {
   opsRegistry: ['src/tools/impl/registry.ts', 'src/tools/impl/registry.js', 'src/ops/registry.js'],
 };
 
-/**
- * @param {keyof typeof LOCATIONS} name
- * @returns {Promise<unknown>}
- */
-async function load(name) {
+async function load(name: keyof typeof LOCATIONS): Promise<unknown> {
   const found = LOCATIONS[name].find((candidate) => fs.existsSync(path.join(ROOT, candidate)));
   if (found === undefined) throw new Error(`no module found for ${name}`);
   return import(pathToFileURL(path.join(ROOT, found)).href);
@@ -44,34 +40,62 @@ const NOW = 1_000_000_000_000;
 const MINUTE = 60_000;
 const WAKE_KINDS = ['intention_due', 'review', 'errand_deadline', 'attend', 'feedback', 'heartbeat'];
 
-/**
- * @typedef {{ type?: string, enum?: unknown[], anyOf?: Schema[], minLength?: number, minimum?: number,
- *   maximum?: number, minItems?: number, items?: Schema, required?: string[], properties?: Record<string, Schema> }} Schema
- * @typedef {{ name: string, op: string|null, effects: string, costClass: string, feature?: string|null,
- *   result?: string|null, ownerOnly: boolean, argsSchema: Schema }} Tool
- * @typedef {{ ok: true } | { ok: false, code: string, reason: string }} Answer
- * @typedef {{ reason: string, detail: string }} Refusal
- * @typedef {Record<string, unknown>} Settings
- * @typedef {{ skillRegistry: () => Map<string, Tool> }} RegistryModule
- * @typedef {{ checkSkill: (call: object) => Answer, checkReplyEffect: (effect: object) => Answer }} GatewayModule
- * @typedef {{ rightsRefusal: (op: object, caller: object) => string|null }} RightsModule
- * @typedef {{ getOp: (name: string) => object|null }} OpsRegistryModule
- * @typedef {{ wakeEnvelopeRefusal: (call: object) => Refusal|null, grantedToPersona: (config: object, selfId: string, name: string) => boolean,
- *   CARRIED_OVER: readonly string[], NOT_GRANTABLE_TO_PERSONA: readonly string[],
- *   NESTED_CAPABILITIES: Record<string, readonly string[]> }} AccessModule
- * @typedef {{ tool: string, effect: string, costClass: string, feature: string|null, result: string|null,
- *   ownerOnly: boolean, grantedByDefault: boolean, carriedOver: boolean, grantableToPersona: boolean,
- *   nested: string[], reply: Record<string, string>, rights: Record<string, string>,
- *   envelope: Record<string, string>, verdicts: Record<string, string> }} ToolRow
- * @typedef {{ contexts: Record<string, string>, tools: ToolRow[] }} DecisionTable
- */
+type Schema = {
+  type?: string;
+  enum?: Array<unknown>;
+  anyOf?: Array<Schema>;
+  minLength?: number;
+  minimum?: number;
+  maximum?: number;
+  minItems?: number;
+  items?: Schema;
+  required?: Array<string>;
+  properties?: Record<string, Schema>;
+};
+type Tool = {
+  name: string;
+  op: string | null;
+  effects: string;
+  costClass: string;
+  feature?: string | null;
+  result?: string | null;
+  ownerOnly: boolean;
+  argsSchema: Schema;
+};
+type Answer = { ok: true } | { ok: false; code: string; reason: string };
+type Refusal = { reason: string; detail: string };
+type Settings = Record<string, unknown>;
+type RegistryModule = { skillRegistry: () => Map<string, Tool> };
+type GatewayModule = { checkSkill: (call: object) => Answer; checkReplyEffect: (effect: object) => Answer };
+type RightsModule = { rightsRefusal: (op: object, caller: object) => string | null };
+type OpsRegistryModule = { getOp: (name: string) => object | null };
+type AccessModule = {
+  wakeEnvelopeRefusal: (call: object) => Refusal | null;
+  grantedToPersona: (config: object, selfId: string, name: string) => boolean;
+  CARRIED_OVER: ReadonlyArray<string>;
+  NOT_GRANTABLE_TO_PERSONA: ReadonlyArray<string>;
+  NESTED_CAPABILITIES: Record<string, ReadonlyArray<string>>;
+};
+type ToolRow = {
+  tool: string;
+  effect: string;
+  costClass: string;
+  feature: string | null;
+  result: string | null;
+  ownerOnly: boolean;
+  grantedByDefault: boolean;
+  carriedOver: boolean;
+  grantableToPersona: boolean;
+  nested: Array<string>;
+  reply: Record<string, string>;
+  rights: Record<string, string>;
+  envelope: Record<string, string>;
+  verdicts: Record<string, string>;
+};
+export type DecisionTable = { contexts: Record<string, string>; tools: Array<ToolRow> };
 
-/**
- * A value a schema accepts, the smallest one that is valid.
- * @param {Schema} schema
- * @returns {unknown}
- */
-function sample(schema) {
+/** A value a schema accepts, the smallest one that is valid. */
+function sample(schema: Schema): unknown {
   if (Array.isArray(schema.enum)) return schema.enum[0];
   const first = schema.anyOf?.[0];
   if (first !== undefined) return sample(first);
@@ -97,51 +121,40 @@ function sample(schema) {
   }
 }
 
-/** @param {Answer} answer */
-const verdictOf = (answer) => (answer.ok ? 'ok' : `${answer.code}:${answer.reason}`);
-/** @param {Refusal|null} answer */
-const refusalOf = (answer) => (answer === null ? 'ok' : `${answer.reason}:${answer.detail}`);
-/**
- * @template T
- * @param {T} value
- * @returns {T}
- */
-const clone = (value) => structuredClone(value);
+const verdictOf = (answer: Answer): string => (answer.ok ? 'ok' : `${answer.code}:${answer.reason}`);
+const refusalOf = (answer: Refusal | null): string => (answer === null ? 'ok' : `${answer.reason}:${answer.detail}`);
+const clone = <T>(value: T): T => structuredClone(value);
 
-/** @returns {Promise<DecisionTable>} */
-export async function toolDecisions() {
+export async function toolDecisions(): Promise<DecisionTable> {
   await load('opsIndex');
-  const { skillRegistry } = /** @type {RegistryModule} */ (await load('registry'));
-  const { checkSkill, checkReplyEffect } = /** @type {GatewayModule} */ (await load('gateway'));
-  const { rightsRefusal } = /** @type {RightsModule} */ (await load('rights'));
-  const { getOp } = /** @type {OpsRegistryModule} */ (await load('opsRegistry'));
-  const access = /** @type {AccessModule} */ (await load('access'));
+  const { skillRegistry } = (await load('registry')) as RegistryModule;
+  const { checkSkill, checkReplyEffect } = (await load('gateway')) as GatewayModule;
+  const { rightsRefusal } = (await load('rights')) as RightsModule;
+  const { getOp } = (await load('opsRegistry')) as OpsRegistryModule;
+  const access = (await load('access')) as AccessModule;
   const registry = skillRegistry();
   const names = [...registry.keys()];
   // PR 7c: the shipped settings live in config/config.json.
   const shippedText = fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8');
-  /** @type {unknown} */
-  const parsed = JSON.parse(shippedText);
-  const shipped = /** @type {{ bot: Settings } & Settings} */ (parsed);
+  const shipped = JSON.parse(shippedText) as { bot: Settings } & Settings;
 
-  /** @type {string[]} */
-  const featureKeys = [...new Set([...registry.values()].flatMap((skill) => (skill.feature ? [skill.feature] : [])))];
-  /** @type {Record<string, boolean>} */
-  const featuresOn = Object.fromEntries([...featureKeys, 'skills', 'tools'].map((key) => [key, true]));
-  const grants = (/** @type {boolean} */ everyone) =>
+  const featureKeys: Array<string> = [...new Set([...registry.values()].flatMap((skill) => (skill.feature ? [skill.feature] : [])))];
+  const featuresOn: Record<string, boolean> = Object.fromEntries([...featureKeys, 'skills', 'tools'].map((key) => [key, true]));
+  const grants = (everyone: boolean) =>
     Object.fromEntries(names.map((name) => [name, { everyone, roles: [], users: [SELF] }]));
-  const envelopeOf = (/** @type {string} */ kind) => {
+  const envelopeOf = (kind: string) => {
     const index = WAKE_KINDS.indexOf(kind);
     if (index % 3 === 0) return { tools: ['memory.*', 'message.create'], maxActs: null, maxTasks: null };
     if (index % 3 === 1) return { tools: '*', maxActs: 0, maxTasks: null };
     return { tools: '*', maxActs: null, maxTasks: 0 };
   };
-  /**
-   * The config of a context: everything on, every tool granted to her, the owner listed.
-   * @param {{ everyone?: boolean, granted?: boolean, safeMode?: boolean, featuresState?: Record<string, boolean> }} [options]
-   * @returns {Settings}
-   */
-  const configOf = ({ everyone = false, granted = true, safeMode = false, featuresState = featuresOn } = {}) => ({
+  /** The config of a context: everything on, every tool granted to her, the owner listed. */
+  const configOf = ({
+    everyone = false,
+    granted = true,
+    safeMode = false,
+    featuresState = featuresOn,
+  }: { everyone?: boolean; granted?: boolean; safeMode?: boolean; featuresState?: Record<string, boolean> } = {}): Settings => ({
     features: { ...featuresState },
     skills: { safeMode, destructiveCooldownMinutes: 10 },
     tools: { safeMode, destructiveCooldownMinutes: 10 },
@@ -160,11 +173,14 @@ export async function toolDecisions() {
     none: {},
   };
 
-  /**
-   * @type {Array<{ name: string, about: string, config: object, requester: object|null, there?: boolean,
-   *   context?: object }>}
-   */
-  const contexts = [
+  const contexts: Array<{
+    name: string;
+    about: string;
+    config: object;
+    requester: object | null;
+    there?: boolean;
+    context?: object;
+  }> = [
     {
       name: 'owner-here',
       about: 'Every tool granted to her, the owner asked, in this conversation',
@@ -295,15 +311,13 @@ export async function toolDecisions() {
     },
   ];
 
-  /** @type {Record<string, string>} */
-  const about = Object.fromEntries(contexts.map((entry) => [entry.name, entry.about]));
+  const about: Record<string, string> = Object.fromEntries(contexts.map((entry) => [entry.name, entry.about]));
   const rows = names.map((name) => {
     const skill = registry.get(name);
     if (skill === undefined) throw new Error(`no tool ${name}`);
-    const args = /** @type {Record<string, unknown>} */ (sample(skill.argsSchema));
+    const args = sample(skill.argsSchema) as Record<string, unknown>;
     const hasChannel = Object.hasOwn(skill.argsSchema.properties ?? {}, 'channel');
-    /** @type {Record<string, string>} */
-    const verdicts = {};
+    const verdicts: Record<string, string> = {};
     for (const entry of contexts) {
       verdicts[entry.name] = verdictOf(
         checkSkill({
@@ -338,7 +352,7 @@ export async function toolDecisions() {
       ),
     };
     const op = skill.op === null ? null : getOp(skill.op);
-    const rightsFor = (/** @type {string} */ userId, /** @type {Settings} */ cfg) =>
+    const rightsFor = (userId: string, cfg: Settings) =>
       op === null ? 'no-operation' : (rightsRefusal(op, { userId, roleIds: [], config: cfg }) ?? 'ok');
     const rights = {
       owner: rightsFor(OWNER, config),

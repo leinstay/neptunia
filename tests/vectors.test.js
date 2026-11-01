@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createVectors, dequantize, quantize } from '../src/memory/vectors.ts';
 import { classify } from '../src/memory/db/map/index.ts';
 import { filesOfUnit } from '../src/memory/db/export.ts';
-import { openTestMemory } from './fixtures/memory-db/service.js';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
 
 const quiet = { info() {}, warn() {}, error() {} };
 const OCT = Date.UTC(2026, 9, 13, 9, 0, 0);

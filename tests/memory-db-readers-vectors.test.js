@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createVectors } from '../src/memory/vectors.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { GUILD, GUILD_2, MEMBER, readerEnv } from './fixtures/memory-db/readers.js';
+import { GUILD, GUILD_2, MEMBER, readerEnv } from './fixtures/memory-db/readers.ts';
 
 const QUERIES = [
   [0.3, 0.1, 0.2, 0.5],

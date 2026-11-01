@@ -11,8 +11,8 @@ import path from 'node:path';
 import { createAdmin } from '../src/admin.ts';
 import { readConfig } from '../src/config.ts';
 import { grantedToPersona } from '../src/tools/access.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { tempDir } from './fixtures/tmp.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 type Settings = Record<string, unknown>;
 const SELF = 'self-1';

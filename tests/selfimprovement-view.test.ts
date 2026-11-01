@@ -21,7 +21,7 @@ import {
 } from '../src/behavior/selfimprovement-view.ts';
 import type { Chain, SkillUseRow } from '../src/behavior/selfimprovement-view.ts';
 import { utcDay } from '../src/time.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;

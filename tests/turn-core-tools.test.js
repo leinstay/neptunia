@@ -8,9 +8,9 @@ import fs from 'node:fs';
 import { loopSettings } from '../src/behavior/turn.ts';
 import { userText } from '../src/behavior/prompt.ts';
 import { fill } from '../src/format.ts';
-import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { call, toolAnswer } from './fixtures/tool-answers.js';
+import { labels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import {
   AGENTS,
   NOW,
@@ -21,8 +21,8 @@ import {
   hotWith,
   journalOverMemory,
   requestText,
-} from './fixtures/turn-harness.js';
-import { DRAW_CONFIG, DRAW_PROMPTS, drawTurn, fakeImages } from './fixtures/turn-draws.js';
+} from './fixtures/turn-harness.ts';
+import { DRAW_CONFIG, DRAW_PROMPTS, drawTurn, fakeImages } from './fixtures/turn-draws.ts';
 
 /** The content of the tool message of call `n` (0-based) in request `i`: what she read of that call. */
 function toolContent(llm, i, n = 0) {

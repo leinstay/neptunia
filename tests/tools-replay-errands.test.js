@@ -11,7 +11,7 @@ import path from 'node:path';
 import '../src/tools/impl/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { callViewOf, requesterOf } from '../src/behavior/turn.ts';
-import { call, toolAnswer } from './fixtures/tool-answers.js';
+import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import {
   answerSkillScenario,
   liveView,
@@ -33,8 +33,8 @@ import {
   scenarioTaskId,
   skillRequestEstimate,
 } from '../tools/replay.mjs';
-import { labels } from './fixtures/labels.js';
-import { tempDir } from './fixtures/tmp.js';
+import { labels } from './fixtures/labels.ts';
+import { tempDir } from './fixtures/tmp.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
 import { readOnlyMemory } from '../tools/lib/memory-read.mjs';

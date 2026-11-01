@@ -23,8 +23,8 @@ import { createMemoryDb } from '../src/memory/db/service.ts';
 import { createInnerLife } from '../src/behavior/inner.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { WAKE_POLICY_VERSION } from '../src/tools/access.ts';
-import { buildDataDir } from './fixtures/memory-db/datadir.js';
-import { tempDir } from './fixtures/tmp.js';
+import { buildDataDir } from './fixtures/memory-db/datadir.ts';
+import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
 // The conversation she wakes in is held by a fake interface named `fake`.

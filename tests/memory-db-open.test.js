@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { MIGRATIONS, lockPathOf, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
 import { V1_TABLES } from '../src/memory/db/schema.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const names = (db, type = 'table') =>
   db

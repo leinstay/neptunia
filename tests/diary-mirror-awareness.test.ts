@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { GUILD, replyTurn, serverBlock } from './fixtures/diary-awareness.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 
 const RECORDED_FILE = new URL('./fixtures/diary-mirror-awareness.json', import.meta.url);
 

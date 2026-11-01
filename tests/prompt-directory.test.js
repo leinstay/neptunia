@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { buildRequest, userText } from '../src/behavior/prompt.ts';
 import { assignHandles, handleOf } from '../src/behavior/handles.ts';
 import { estimateTokens } from '../src/llm/tokens.ts';
-import { labels as fixtureLabels } from './fixtures/labels.js';
+import { labels as fixtureLabels } from './fixtures/labels.ts';
 
 const NOW = Date.UTC(2026, 9, 15, 10, 0, 0);
 const MIN = 60_000;

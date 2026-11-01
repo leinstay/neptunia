@@ -12,8 +12,8 @@ import { writeFileSync } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import path from 'node:path';
 import { createVideoFetcher, proxyReachable } from '../src/media/fetch-video.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { tempDir } from './fixtures/tmp.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 const OPTS = {
   maxSeconds: 60,

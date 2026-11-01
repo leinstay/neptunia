@@ -3,7 +3,7 @@
 // state files. Synthetic text only (Greek or accented Latin for non-ASCII); the ids are made up.
 import fs from 'node:fs';
 import path from 'node:path';
-import { generated } from './roundtrip.js';
+import { generated } from './roundtrip.ts';
 
 export const GUILD = '300000000000000001';
 export const MEMBER = '100000000000000001';
@@ -11,48 +11,50 @@ export const CHANNEL = '200000000000000001';
 export const HOT_ITEM = 'details[].itemId#1';
 
 /** The generated fixtures repeat one literal itemId in a list; a data directory needs them apart. */
-function withUniqueItemIds(value) {
-  const out = JSON.parse(JSON.stringify(value));
+function withUniqueItemIds(value: unknown): Record<string, unknown> {
+  const out = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
   for (const list of Object.values(out)) {
-    if (Array.isArray(list)) list.forEach((item, index) => { if (item && typeof item.itemId === 'string') item.itemId = `${item.itemId}#${index}`; });
+    if (Array.isArray(list)) list.forEach((item: { itemId?: unknown } | null, index) => { if (item && typeof item.itemId === 'string') item.itemId = `${item.itemId}#${index}`; });
   }
   return out;
 }
 
-export const guildDir = (root) => path.join(root, 'guilds', GUILD);
+export const guildDir = (root: string): string => path.join(root, 'guilds', GUILD);
 
-export function writeJson(file, value) {
+export function writeJson(file: string, value: unknown): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(value, null, 2));
 }
 
-export function writeLines(file, lines) {
+export function writeLines(file: string, lines: ReadonlyArray<unknown>): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, lines.map((line) => `${JSON.stringify(line)}\n`).join(''));
 }
 
-export const envelope = (kind, extra = {}) => ({
+type Fields = Record<string, unknown>;
+
+export const envelope = (kind: string, extra: Fields = {}): Fields => ({
   v: 1, id: `j-${kind}`, kind, occurredAt: '2026-10-20T10:00:00.000Z', recordedAt: '2026-10-20T10:00:01.000Z', guildId: GUILD,
   scope: { channel: CHANNEL }, participants: [MEMBER], sourceMessageIds: ['400000000000000001'], origin: 'live', ...extra,
 });
 
-export const seen = (messageId, revision, text, extra = {}) => ({
+export const seen = (messageId: string, revision: number, text: string, extra: Fields = {}): Fields => ({
   v: 1, id: `r-${messageId}-${revision}`, kind: 'seen', messageId, revision, occurredAt: '2026-10-20T09:00:00.000Z',
   recordedAt: '2026-10-20T09:00:01.000Z', guildId: GUILD, scope: { channel: CHANNEL }, by: MEMBER, replyTo: null, text,
   media: [], mentions: [], direct: false, participants: [MEMBER], sourceMessageIds: [messageId], origin: 'live', ...extra,
 });
 
-export const turnLine = (extra = {}) => envelope('turn', {
+export const turnLine = (extra: Fields = {}): Fields => envelope('turn', {
   id: 'j-turn', turnId: 'turn-1', attemptId: 1, mode: 'reply', outcome: 'spoke', reason: null,
   posted: [{ messageId: '400000000000000009', replyTo: '400000000000000001', opId: 'op-1' }], think: 'Καλημέρα. A café thought.', ...extra,
 });
 
-export const dump = () => ({
+export const dump = (): Fields => ({
   v: 1, turnId: 'turn-1', attemptId: 1, step: 1, recordedAt: '2026-10-20T10:00:00.000Z', system: 'rules',
   parts: [{ type: 'text', text: 'hi' }], raw: '<think>she waits</think>Hello', usage: { prompt: 1, cached: 0, completion: 2 },
 });
 
-export const archiveLine = (id, itemId, extra = {}) => ({
+export const archiveLine = (id: string, itemId: string, extra: Fields = {}): Fields => ({
   v: 1, id, kind: 'archive', event: 'expired', itemKind: 'detail', itemId, revisionId: `rv-${id}`,
   scope: { user: MEMBER }, participants: [MEMBER], observedAt: { date: '2026-10-01', precision: 'day' }, lastSeen: null,
   text: { text: 'café at noon' }, weight: 0.5, origin: 'live', by: 'archive', occurredAt: '2026-10-01T00:00:00.000Z',
@@ -60,7 +62,7 @@ export const archiveLine = (id, itemId, extra = {}) => ({
 });
 
 const DIMS = 4;
-export function vectorMonth() {
+export function vectorMonth(): { manifest: Fields; meta: string; i8: Buffer } {
   const lines = [0, 1].map((row) => ({
     row, kind: 'record', id: `40000000000000000${row + 1}`, revision: 1, occurredAt: '2026-10-20T09:00:00.000Z', channelId: CHANNEL,
     by: MEMBER, participants: [MEMBER], sourceIds: [`40000000000000000${row + 1}`], scale: 0.01, norm: 0.99,
@@ -72,7 +74,7 @@ export function vectorMonth() {
 }
 
 /** Builds the directory under `root` (which must exist). Returns the guild directory. */
-export function buildDataDir(root) {
+export function buildDataDir(root: string): string {
   const g = guildDir(root);
   fs.mkdirSync(g, { recursive: true });
   writeJson(path.join(root, 'state.json'), { not: 'memory' });
@@ -141,7 +143,7 @@ export function buildDataDir(root) {
 export const GUILD_2 = '300000000000000002';
 
 /** Every file under `from`, as [relative path, Buffer]. */
-function filesUnder(from, rel = '', out = []) {
+function filesUnder(from: string, rel = '', out: Array<[string, Buffer]> = []): Array<[string, Buffer]> {
   for (const entry of fs.readdirSync(path.join(from, rel), { withFileTypes: true })) {
     const child = rel ? `${rel}/${entry.name}` : entry.name;
     if (entry.isDirectory()) filesUnder(from, child, out);
@@ -155,10 +157,10 @@ function filesUnder(from, rel = '', out = []) {
  * unique in Discord (guild, channel, message) and the ones the engine makes unique (items, turns, journal lines) are
  * its own. `buildDataDir` must have run on `root`. Returns the second guild's directory.
  */
-export function buildSecondGuild(root) {
+export function buildSecondGuild(root: string): string {
   const from = guildDir(root);
   const to = path.join(root, 'guilds', GUILD_2);
-  const rename = (text) => text
+  const rename = (text: string): string => text
     .replaceAll(GUILD, GUILD_2)
     .replaceAll(CHANNEL, '200000000000000002')
     .replaceAll('200000000000000099', '200000000000000098')
@@ -166,7 +168,7 @@ export function buildSecondGuild(root) {
     .replaceAll('500000000000000001', '510000000000000001')
     .replaceAll('1555006398444736533', '1555006398444736534')
     .replaceAll('itemId#', 'itemId.g2#')
-    .replace(/"(turn-1|j-[a-z-]+|ar-\d|rv-ar-\d|p-1|ep-1|rc-1|d-1|i1|t1|t-1|b-1)(-s1)?"/g, (match, id, step) => `"${id}.g2${step ?? ''}"`)
+    .replace(/"(turn-1|j-[a-z-]+|ar-\d|rv-ar-\d|p-1|ep-1|rc-1|d-1|i1|t1|t-1|b-1)(-s1)?"/g, (_match: string, id: string, step?: string) => `"${id}.g2${step ?? ''}"`)
     .replaceAll('turn-1-s1', 'turn-1.g2-s1');
   for (const [rel, data] of filesUnder(from)) {
     const target = path.join(to, rename(rel));

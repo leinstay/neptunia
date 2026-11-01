@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fetchAfter, fetchAround, fetchBefore, searchMembers, searchMessages } from '../interfaces/discord/index.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 /** A guild whose REST client records each GET and answers with `answer(route, query)`. */
 function fakeGuild(answer) {

@@ -10,8 +10,8 @@ import { createLocalFacts } from '../src/behavior/inner.ts';
 import { DailyCapError } from '../src/llm/openrouter.ts';
 import { fill, formatClock, formatDate } from '../src/format.ts';
 import { userText } from '../src/behavior/prompt.ts';
-import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { labels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { freshWorld, onWorld, world } from './fixtures/turn-world.ts';
 
 const createTurnRunner = onWorld(createRealTurnRunner);

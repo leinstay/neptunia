@@ -34,7 +34,7 @@ import { collectPictures, collectVideos } from '../src/media/classify.ts';
 import { audienceCovers } from '../src/behavior/elsewhere.ts';
 import { emptyGifs, mergeGifs } from '../src/memory/gifs.ts';
 import { formatTranscript } from '../src/format.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 import { validateEvent } from '../src/protocol/index.ts';
 
 function flagsWith(names) {

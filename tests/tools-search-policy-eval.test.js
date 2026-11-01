@@ -9,8 +9,8 @@ import { main } from '../tools/search-policy-eval.mjs';
 import { CliError } from '../tools/lib/cli.mjs';
 import { decisionOf, parseSheet, rowChat, summarize } from '../tools/lib/search-policy-eval.mjs';
 import { lookupClassifierInput } from '../src/behavior/turn.ts';
-import { labels } from './fixtures/labels.js';
-import { tempDir } from './fixtures/tmp.js';
+import { labels } from './fixtures/labels.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 const NOW = Date.UTC(2026, 9, 17, 12, 0, 0);
 const ROWS = [

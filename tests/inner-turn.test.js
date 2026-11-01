@@ -32,20 +32,20 @@ import {
 import { feedbackFacts } from '../src/behavior/inner.ts';
 import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.ts';
 import { wakeLanes } from '../src/behavior/prefetch.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 import { fill, formatClock, formatDate } from '../src/format.ts';
 import { CHANNEL_HANDLE_PREFIX, HANDLE_DIGITS, handleOf } from '../src/behavior/handles.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { call, completionOf, toolAnswer } from './fixtures/tool-answers.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import { createErrandStores } from '../src/errands/store.ts';
 import { createErrandService } from '../src/errands/service.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 import { onWorld, useIface, world } from './fixtures/turn-world.ts';
 
 // The conversation is held by a fake interface named `fake`.
 useIface('fake');
 const createTurnRunner = onWorld(createRealTurnRunner);
-import { openTestMemorySync } from './fixtures/memory-db/service.js';
+import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 
 /** The test memory databases opened here; closed when the file is done. */
 const OPENED_MEMORY = [];

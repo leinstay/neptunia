@@ -10,7 +10,7 @@ import { openBoard } from '../src/board/board.ts';
 import type { BoardSettings } from '../src/board/board.ts';
 import { startReaper } from '../src/board/reaper.ts';
 import type { BoardDb } from '../src/board/schema.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const SETTINGS: BoardSettings = {
   leaseTtlMinutes: 30,

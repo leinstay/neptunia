@@ -8,7 +8,7 @@ import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { schemaError } from '../src/tools/schema.ts';
 import { toolCallsOf } from '../src/llm/openrouter.ts';
 import { coerceArgs, coversSpeech, normalizeCalls, toolResultText } from '../src/tools/tool-calls.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 
 const registry = buildSkills({ table: SKILL_DEFINITIONS });
 const native = (calls) =>

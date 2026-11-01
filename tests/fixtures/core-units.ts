@@ -20,7 +20,7 @@ import { startCore } from '../../src/core.ts';
 import { onLog } from '../../src/log.ts';
 import { openMemoryDb } from '../../src/memory/db/open.ts';
 import { ANSWER, channelInfo, lineEvent } from './core-over-fake.ts';
-import { withCapturedLogs } from './capture-logs.js';
+import { withCapturedLogs } from './capture-logs.ts';
 import type { MessageEvent } from '../../src/protocol/adapter.ts';
 
 export { ANSWER };

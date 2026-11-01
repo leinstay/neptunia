@@ -1,20 +1,21 @@
-// The fixture of the database reader tests (stage W1): the synthetic data directory of datadir.js, a second guild,
+// The fixture of the database reader tests (stage W1): the synthetic data directory of datadir.ts, a second guild,
 // and, in the first guild only, a few more units so every read path has something to return (a second record day with
 // every line kind, a private journal and archive, a vector month of a private layer, an archived intention), written
-// into a database through its own writers (seed.js; the vectors through src/memory/vectors.ts on the service), then
+// into a database through its own writers (seed.ts; the vectors through src/memory/vectors.ts on the service), then
 // opened read only. Synthetic text only; the ids are made up.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { Log, MemoryHandle } from '../../../src/memory/db/types.ts';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
 import { createVectors } from '../../../src/memory/vectors.ts';
-import { openTestMemory } from './service.js';
-import { seedUnits } from './seed.js';
+import { openTestMemory } from './service.ts';
+import { seedUnits } from './seed.ts';
 import { BOARD_MIGRATIONS } from '../../../src/board/schema.ts';
-import { CHANNEL, GUILD, MEMBER, buildDataDir, buildSecondGuild, envelope, guildDir, seen, writeJson, writeLines } from './datadir.js';
+import { CHANNEL, GUILD, MEMBER, buildDataDir, buildSecondGuild, envelope, guildDir, seen, writeJson, writeLines } from './datadir.ts';
 
 export { CHANNEL, GUILD, MEMBER };
-export { GUILD_2 } from './datadir.js';
+export { GUILD_2 } from './datadir.ts';
 /** A third member, named by a few lines. */
 export const HIDDEN = '100000000000000003';
 export const OTHER = '100000000000000002';
@@ -23,7 +24,7 @@ export const CHANNEL_B = '200000000000000005';
 const silent = { info() {}, debug() {}, warn() {}, error() {} };
 
 /** The extra files, written before the database is filled. */
-function addExtra(data) {
+function addExtra(data: string): void {
   const g = guildDir(data);
   writeLines(path.join(g, 'record', '2026-10', '2026-10-21.jsonl'), [
     seen('400000000000000011', 1, 'Χαίρετε, a second day', { occurredAt: '2026-10-21T08:00:00.000Z', recordedAt: '2026-10-21T08:00:01.000Z' }),
@@ -81,9 +82,9 @@ function addExtra(data) {
 }
 
 /** Vector months written by the engine itself: a private layer's, and a second guild month. */
-async function addVectors(data, memoryDb) {
+async function addVectors(data: string, memoryDb: Parameters<typeof createVectors>[0]['memoryDb']): Promise<void> {
   const vectors = createVectors({ dataDir: data, log: silent, memoryDb });
-  const row = (id, occurredAt, vector, extra = {}) => ({ meta: { kind: 'record', id, revision: 1, occurredAt, channelId: CHANNEL, by: MEMBER, participants: [MEMBER], sourceIds: [id], ...extra }, vector });
+  const row = (id: string, occurredAt: string, vector: Array<number>, extra: Record<string, unknown> = {}) => ({ meta: { kind: 'record', id, revision: 1, occurredAt, channelId: CHANNEL, by: MEMBER, participants: [MEMBER], sourceIds: [id], ...extra }, vector });
   await vectors.append(GUILD, [row('400000000000000005', '2026-10-20T09:00:00.000Z', [0.5, -0.2, 0.1, 0.9])], { privateUserId: MEMBER, model: 'test/embedder' });
   await vectors.append(GUILD, [
     row('400000000000000021', '2026-09-10T09:00:00.000Z', [0.1, 0.2, 0.3, 0.4]),
@@ -97,7 +98,19 @@ async function addVectors(data, memoryDb) {
  * over `handle`), `closedDb` (nothing open), `log` (warns collected in `warns`), `done()`. `archived`: the fixture
  * seeded at board v2, so its errands reach the board through board v3's move.
  */
-export async function readerEnv({ archived = false } = {}) {
+export type ReaderEnv = {
+  root: string;
+  data: string;
+  dbFile: string;
+  handle: MemoryHandle;
+  warns: Array<Record<string, unknown>>;
+  log: Log;
+  memoryDb: { readHandle: () => MemoryHandle | null; database: () => object | null };
+  closedDb: { readHandle: () => null; database: () => null };
+  done: () => void;
+};
+
+export async function readerEnv({ archived = false }: { archived?: boolean } = {}): Promise<ReaderEnv> {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-readers-'));
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
@@ -122,8 +135,8 @@ export async function readerEnv({ archived = false } = {}) {
     await writer.close();
   }
   const handle = openMemoryDb(dbFile, { readOnly: true });
-  const warns = [];
-  const log = { info() {}, debug() {}, error() {}, warn: (message, fields) => warns.push({ message, ...fields }) };
+  const warns: Array<Record<string, unknown>> = [];
+  const log = { info() {}, debug() {}, error() {}, warn: (message: string, fields?: object) => warns.push({ message, ...fields }) };
   return {
     root, data, dbFile, handle, warns, log,
     memoryDb: { readHandle: () => handle, database: () => handle.db },
@@ -133,8 +146,8 @@ export async function readerEnv({ archived = false } = {}) {
 }
 
 /** Every value of an async iterable. */
-export async function all(iterable) {
-  const out = [];
+export async function all<T>(iterable: AsyncIterable<T>): Promise<Array<T>> {
+  const out: Array<T> = [];
   for await (const value of iterable) out.push(value);
   return out;
 }

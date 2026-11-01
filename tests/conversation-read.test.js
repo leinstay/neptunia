@@ -13,7 +13,7 @@ import {
   runConversationRead,
   sinceMoment,
 } from '../src/tools/conversation-read.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 const HOUR = 3_600_000;

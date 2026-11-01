@@ -33,8 +33,8 @@ import {
 } from '../tools/lib/diary-day.mjs';
 import { REFUSED_EXIT } from '../tools/lib/cli.mjs';
 import { promptLayersHot } from '../tools/lib/prompt-layers.mjs';
-import { tempDir } from './fixtures/tmp.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { tempDir } from './fixtures/tmp.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 const quietHot = createHot; // never watched: createHot watches only on .watch()
 

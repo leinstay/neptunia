@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { fetchReplyParents } from '../src/behavior/reply-parents.ts';
 import { historyLines } from '../src/behavior/lines.ts';
 import type { Line } from '../src/behavior/lines.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { refTo, world } from './fixtures/turn-world.ts';
 
 type Raw = Record<string, unknown>;

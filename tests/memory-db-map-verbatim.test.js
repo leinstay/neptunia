@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import * as verbatim from '../src/memory/db/map/verbatim.ts';
 import * as requests from '../src/memory/db/map/requests.ts';
 import { MAPPERS, classify, kindOfPath } from '../src/memory/db/map/index.ts';
-import { assertRoundTrip, roundTrip } from './fixtures/memory-db/roundtrip.js';
+import { assertRoundTrip, roundTrip } from './fixtures/memory-db/roundtrip.ts';
 
 test('a whole file is one operational row whose kind says which file it is', () => {
   const cases = [

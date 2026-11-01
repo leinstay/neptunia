@@ -12,7 +12,7 @@ import {
 } from '../src/behavior/reactor-store.ts';
 import { formatTranscript, reactorIdsOf } from '../src/format.ts';
 import { buildRequest } from '../src/behavior/prompt.ts';
-import { labels as fixtureLabels } from './fixtures/labels.js';
+import { labels as fixtureLabels } from './fixtures/labels.ts';
 
 const SELF = '100';
 const GUILD = '900';

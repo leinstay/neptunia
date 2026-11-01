@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as mapper from '../src/memory/db/map/record.ts';
-import { assertRoundTrip, generated, plain, roundTrip } from './fixtures/memory-db/roundtrip.js';
+import { assertRoundTrip, generated, plain, roundTrip } from './fixtures/memory-db/roundtrip.ts';
 
 const REL = 'record/2026-10/2026-10-20.jsonl';
 const PRIVATE_REL = 'private/100000000000000001/record/2026-10/2026-10-20.jsonl';

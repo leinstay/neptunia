@@ -25,7 +25,7 @@ import { withCacheMarker } from '../src/llm/openrouter.ts';
 import { linkChannels } from '../src/memory/mentions.ts';
 import { resolveCall } from '../src/tools/executors.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
-import { labels as fixtureLabels } from './fixtures/labels.js';
+import { labels as fixtureLabels } from './fixtures/labels.ts';
 
 // Two ids whose four-digit hashes collide (the fixture of tests/handles.test.js).
 const OLDER = '400000000000807738';

@@ -10,12 +10,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
 import { V8_TABLES } from '../src/memory/db/schema.ts';
-import { seedUnits } from './fixtures/memory-db/seed.js';
+import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { mergePeople } from '../src/memory/db/session-write.ts';
 import { externalTargetKey, messageSourceId, survivorOf } from '../src/memory/db/ids.ts';
 import { groupScope } from '../src/memory/db/scope.ts';
-import { buildDataDir, guildDir, seen, writeLines } from './fixtures/memory-db/datadir.js';
+import { buildDataDir, guildDir, seen, writeLines } from './fixtures/memory-db/datadir.ts';
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
 const count = (db, sql, ...params) => db.prepare(sql).get(...params).n;

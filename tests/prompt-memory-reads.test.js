@@ -1,9 +1,9 @@
 // The memory-read collector of src/behavior/prompt.ts#buildRequest (`memoryReads`): what a request carried from
-// memory, in the memory's own identity. Synthetic prompts, config and labels only (tests/fixtures/labels.js).
+// memory, in the memory's own identity. Synthetic prompts, config and labels only (tests/fixtures/labels.ts).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildRequest, userText as contentText } from '../src/behavior/prompt.ts';
-import { labels } from './fixtures/labels.js';
+import { labels } from './fixtures/labels.ts';
 
 const NOW = Date.UTC(2026, 9, 10, 12, 0, 0);
 const MIN = 60_000;

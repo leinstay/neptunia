@@ -9,8 +9,8 @@ import { isAvatarDue, normalizeAvatar } from '../src/memory/avatars.ts';
 import { createAvatarQueue } from '../src/memory/avatar-queue.ts';
 import { VISION_MAX_BYTES } from '../src/media/fetch-image.ts';
 import { createStore } from '../src/memory/store.ts';
-import { tempDir } from './fixtures/tmp.js';
-import { openTestMemory, unitFile } from './fixtures/memory-db/service.js';
+import { tempDir } from './fixtures/tmp.ts';
+import { openTestMemory, unitFile } from './fixtures/memory-db/service.ts';
 
 const NOW = Date.UTC(2026, 9, 15, 12, 0, 0);
 const GUILD = 'g1';

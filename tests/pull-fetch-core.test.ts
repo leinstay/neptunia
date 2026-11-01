@@ -13,7 +13,7 @@ import type { PulledChannel } from '../src/behavior/pull-fetch.ts';
 import { historyLines } from '../src/behavior/lines.ts';
 import type { Line } from '../src/behavior/lines.ts';
 import { isReadable, takeSnapshot } from '../src/behavior/snapshot.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { refTo, useSelf, world } from './fixtures/turn-world.ts';
 import type { Raw } from './fixtures/turn-world.ts';
 

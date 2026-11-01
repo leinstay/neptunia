@@ -8,7 +8,7 @@ import type { SkillsHandle } from '../../src/memory/db/skills.ts';
 import { loadSkills } from '../../src/skills/load.ts';
 import { createSkillsPort } from '../../src/skills/port.ts';
 import type { SkillsPort } from '../../src/skills/port.ts';
-import { tempDir } from './tmp.js';
+import { tempDir } from './tmp.ts';
 
 export const SKILLS_T0 = Date.parse('2026-11-01T09:00:00Z');
 

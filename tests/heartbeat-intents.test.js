@@ -16,10 +16,10 @@ import { createIntentionStores } from '../src/intentions/store.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.ts';
 import { wakeBlockText } from '../src/behavior/wake.ts';
-import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { call, completionOf, toolAnswer, textAnswer } from './fixtures/tool-answers.js';
-import { tempDir } from './fixtures/tmp.js';
+import { labels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { call, completionOf, toolAnswer, textAnswer } from './fixtures/tool-answers.ts';
+import { tempDir } from './fixtures/tmp.ts';
 import { onWorld, useIface, world } from './fixtures/turn-world.ts';
 
 // The conversation is held by a fake interface named `fake`.

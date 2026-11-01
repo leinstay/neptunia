@@ -12,7 +12,7 @@ import {
   newAbilities,
 } from '../src/plugins/announce.ts';
 import type { AnnounceStore } from '../src/plugins/announce.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const AT = Date.parse('2026-11-01T09:00:00Z');
 

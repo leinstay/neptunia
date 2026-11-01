@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPageFetcher, isForbiddenAddress } from '../src/web/fetch-page.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 const OPTS = { maxBytes: 10_000, timeoutMs: 5_000 };
 const PUBLIC_V4 = '93.184.216.34';

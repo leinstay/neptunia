@@ -9,11 +9,11 @@ import { createHash } from 'node:crypto';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { channelPlaceId } from '../src/memory/db/ids.ts';
-import { seedUnits } from './fixtures/memory-db/seed.js';
+import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { createDiaryMedia, applyDiaryUpdate, DEFAULT_AUDIO_MAX_BYTES, GAP_MS } from '../src/memory/db/diary-media.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createDiscordAdapter } from '../interfaces/discord/port.ts';
-import { buildDataDir, guildDir, writeJson } from './fixtures/memory-db/datadir.js';
+import { buildDataDir, guildDir, writeJson } from './fixtures/memory-db/datadir.ts';
 
 const CHANNEL = '700000000000000001';
 const png = (tag) => Buffer.from(`png-${tag}`);

@@ -12,7 +12,7 @@ import { startCore } from '../src/core.ts';
 import { start } from '../src/interface/fake-interface.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { channelInfo, deliver } from './fixtures/core-over-fake.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 type Running = Awaited<ReturnType<typeof start>>;
 type Row = Record<string, unknown>;

@@ -1,14 +1,14 @@
 // The mirrors of the diary in a test: a place and a `mirrors` row (schema v15) seeded into a memory database, the
 // publications and diary rows read back, and `publishTo`, which publishes the entry a diary turn recorded to one mirror
 // on a fake interface, the way src/behavior/mirror.ts does it after the turn. The rows are seeded on the service's
-// connection, which is the writer when the service runs on the calling thread (tests/fixtures/memory-db/service.js).
+// connection, which is the writer when the service runs on the calling thread (tests/fixtures/memory-db/service.ts).
 // Synthetic data only.
 import assert from 'node:assert/strict';
 import { after } from 'node:test';
 import { channelPlaceId } from '../../src/memory/db/ids.ts';
 import { insertRows } from '../../src/memory/db/rows.ts';
 import type { createFakeAdapter } from '../../src/interface/fake.ts';
-import { openTestMemory } from './memory-db/service.js';
+import { openTestMemory } from './memory-db/service.ts';
 
 /**
  * The entry a diary turn recorded (`result.diary.entry`), as src/behavior/mirror.ts#publishEntry takes it: its `diary`

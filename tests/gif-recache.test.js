@@ -23,7 +23,7 @@ import {
 } from '../src/memory/gif-recache.ts';
 import { createStore } from '../src/memory/store.ts';
 import { normalizeOptions, toEvent } from '../interfaces/discord/index.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 import { IFACE, channel, rig } from './fixtures/reads-rig.ts';
 
 const T0 = Date.UTC(2026, 8, 1);

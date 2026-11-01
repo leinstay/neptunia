@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as media from '../src/memory/db/map/media.ts';
 import * as gifs from '../src/memory/db/map/gifs.ts';
-import { assertRoundTrip } from './fixtures/memory-db/roundtrip.js';
+import { assertRoundTrip } from './fixtures/memory-db/roundtrip.ts';
 
 test('media: each key is an attachment row with its description', () => {
   const file = {

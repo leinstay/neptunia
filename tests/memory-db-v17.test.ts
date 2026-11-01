@@ -9,9 +9,9 @@ import path from 'node:path';
 import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
 import { exportOne } from '../src/memory/db/export.ts';
 import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
-import { seedUnits } from './fixtures/memory-db/seed.js';
-import { GUILD, MEMBER, seen, writeJson, writeLines } from './fixtures/memory-db/datadir.js';
-import { tempDir } from './fixtures/tmp.js';
+import { seedUnits } from './fixtures/memory-db/seed.ts';
+import { GUILD, MEMBER, seen, writeJson, writeLines } from './fixtures/memory-db/datadir.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 type Row = Record<string, unknown>;
 type Statement = {

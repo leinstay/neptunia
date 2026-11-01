@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as archive from '../src/memory/db/map/archive.ts';
 import * as versions from '../src/memory/db/map/versions.ts';
-import { assertRoundTrip, roundTrip } from './fixtures/memory-db/roundtrip.js';
+import { assertRoundTrip, roundTrip } from './fixtures/memory-db/roundtrip.ts';
 
 const REL = 'archive/2026-10.jsonl';
 const entry = (extra = {}) => ({

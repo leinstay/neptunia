@@ -30,8 +30,8 @@ import {
 } from '../tools/lib/recall-eval.mjs';
 import { createRecall } from '../src/behavior/recall-run.ts';
 import { toRecordLine } from '../src/memory/record.ts';
-import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { labels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { createLookup } from '../src/web/lookup.ts';
 import { createBraveSearch } from '../src/web/brave.ts';
 import { createExaSearch } from '../src/web/exa.ts';

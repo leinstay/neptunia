@@ -28,10 +28,10 @@ import { runOpPrechecked } from '../src/tools/impl/index.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { utcDay } from '../src/time.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { SKILLS_T0, skillText, skillsRig } from './fixtures/skills-rig.ts';
 import type { SkillsRig } from './fixtures/skills-rig.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const NOW = SKILLS_T0;
 const HOUR = 3_600_000;

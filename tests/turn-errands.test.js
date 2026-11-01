@@ -13,8 +13,8 @@ import { errandsBlockText, errandResultText } from '../src/errands/blocks.ts';
 import { createErrandTurns, errandDoneEvent } from '../src/errands/turns.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { validateEvent } from '../src/protocol/index.ts';
-import { labels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { labels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { onWorld, useIface, world } from './fixtures/turn-world.ts';
 
 // The conversations are held by a fake interface named `fake`.

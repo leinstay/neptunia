@@ -14,9 +14,9 @@ import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { grantedToPersona } from '../src/tools/access.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import type { SkillsPort } from '../src/skills/port.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { skillText, skillsRig } from './fixtures/skills-rig.ts';
-import { tempDir } from './fixtures/tmp.js';
+import { tempDir } from './fixtures/tmp.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const SELF_ID = '900';

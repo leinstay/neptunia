@@ -3,15 +3,18 @@
 // import of `path` from the repository root) so it can run over another checkout's src/. Fakes only: no
 // network, no data/, no prompts.local/.
 
+import type { ConversationInfo } from '../../src/protocol/adapter.ts';
+import type { MessageEvent } from '../../src/pipeline/edits.ts';
+import type { Untyped } from '../../src/tools/types.ts';
 import { createFakeAdapter } from '../../src/interface/fake.ts';
 import { createReads } from '../../src/interface/reads.ts';
-import { labels } from './labels.js';
-import { completionOf } from './tool-answers.js';
+import { labels } from './labels.ts';
+import { completionOf } from './tool-answers.ts';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 
 /** The conversation #general (c1) as the fake interface reports it: everything allowed, public. */
-function generalInfo(iface) {
+function generalInfo(iface: string): ConversationInfo {
   return {
     id: 'c1',
     kind: 'channel',
@@ -31,7 +34,9 @@ function generalInfo(iface) {
 }
 
 /** A member's `message.received` event in #general (c1), as an interface delivers it. */
-function messageEvent(iface, { id, authorId = 'u1', authorName = 'Alice', ts = NOW - 1000, content = 'hey bot' }) {
+type Line = { id: string; authorId?: string; authorName?: string; ts?: number; content?: string };
+
+function messageEvent(iface: string, { id, authorId = 'u1', authorName = 'Alice', ts = NOW - 1000, content = 'hey bot' }: Line): MessageEvent {
   return {
     kind: 'message.received',
     iface,
@@ -59,7 +64,7 @@ function messageEvent(iface, { id, authorId = 'u1', authorName = 'Alice', ts = N
   };
 }
 
-function normalizedTrigger({ id, authorId = 'u1', authorName = 'Alice', ts = NOW - 1000, content = 'hey bot' }) {
+function normalizedTrigger({ id, authorId = 'u1', authorName = 'Alice', ts = NOW - 1000, content = 'hey bot' }: Line) {
   return { id, channelId: 'c1', authorId, authorName, self: false, bot: false, content, ts, replyToId: null, attachments: [], stickers: [] };
 }
 
@@ -78,8 +83,8 @@ function fakeStore() {
 }
 
 /** The live config and prompts of a scene: features.coreTools as `coreTools` (absent when undefined). */
-function sceneHot({ coreTools, access = {} } = {}) {
-  const features = {
+function sceneHot({ coreTools, access = {} }: { coreTools?: boolean; access?: object } = {}) {
+  const features: Record<string, boolean> = {
     memory: true, reactions: true, multiMessage: true, typingSimulation: false, customEmoji: true, gifs: true,
     imageGeneration: true, channelPull: true, elsewhere: true, recent: true, videoRewatch: true, imageRelook: true,
     videoDescriptions: true, privateLikeServer: true,
@@ -118,12 +123,12 @@ function sceneHot({ coreTools, access = {} } = {}) {
 }
 
 /** An LLM fake: the search classifier (its system prompt starts with "Decide whether") answers `classifier`, the turn `answers` in order. */
-function sceneLlm({ classifier = 'none', answers = ['<msg>ok</msg>'] } = {}) {
-  const requests = [];
+function sceneLlm({ classifier = 'none', answers = ['<msg>ok</msg>'] }: { classifier?: string; answers?: Array<unknown> } = {}) {
+  const requests: Array<Array<{ content: string }>> = [];
   let turn = 0;
   return {
     requests,
-    complete: async (messages) => {
+    complete: async (messages: Array<{ content: string }>) => {
       requests.push(messages);
       if (messages[0].content.startsWith('Decide whether')) return { text: classifier, usage: {}, estimated: 5 };
       const answer = answers[Math.min(turn, answers.length - 1)];
@@ -136,7 +141,7 @@ function sceneLlm({ classifier = 'none', answers = ['<msg>ok</msg>'] } = {}) {
 function fakeLookup() {
   return {
     readLinks: async () => ({ reads: new Map(), newCount: 0 }),
-    search: async (guildId, query) => ({ query, text: 'ευρήματα', sources: [{ title: 'Un', url: 'https://www.example.com/1', site: 'example.com' }] }),
+    search: async (_guildId: string, query: string) => ({ query, text: 'ευρήματα', sources: [{ title: 'Un', url: 'https://www.example.com/1', site: 'example.com' }] }),
     hasSearch: () => true,
   };
 }
@@ -150,7 +155,16 @@ function fakeRecall() {
  * `access` the grants (a map name -> { everyone, roles, users }), `images` an optional image
  * client for a `draw.create` call. Returns the requests sent and the turn's result.
  */
-export async function singleScene(load, { content = 'γεια', classifier = 'none', answers, access = {}, images = null } = {}) {
+export async function singleScene(
+  load: (path: string) => Promise<Untyped>,
+  {
+    content = 'γεια',
+    classifier = 'none',
+    answers,
+    access = {},
+    images = null,
+  }: { content?: string; classifier?: string; answers?: Array<unknown>; access?: object; images?: unknown } = {}
+): Promise<{ requests: Array<Array<{ content: string }>>; result: unknown }> {
   const { createTurnRunner } = await load('src/behavior/turn.ts');
   await load('src/tools/impl/index.ts');
   const { skillRegistry } = await load('src/tools/registry.ts');
@@ -171,13 +185,13 @@ export async function singleScene(load, { content = 'γεια', classifier = 'no
   const llm = sceneLlm({ classifier, answers });
   const admin = createAdmin({ discord, hot, store, client, getGuildId: () => 'g1', reads, port });
   const turns = createTurnRunner({
-    hot, store, llm, calibrator: { ratio: 1, apply: (n) => n, observe: () => {} }, port, reads, selfId: () => 'self-id', getSelfName: () => 'Bot',
-    memberOf: () => null, membersOf: () => [], conversationName: (id) => (id === 'c1' ? 'general' : null),
+    hot, store, llm, calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} }, port, reads, selfId: () => 'self-id', getSelfName: () => 'Bot',
+    memberOf: () => null, membersOf: () => [], conversationName: (id: string) => (id === 'c1' ? 'general' : null),
     lookup: fakeLookup(), recall: fakeRecall(), images, imageFetcher: { fetchAsDataUrl: async () => ({ dataUrl: 'data:image/png;base64,AAAA', bytes: 3, contentType: 'image/png' }) },
     skills: skillRegistry(), runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp, now: () => NOW,
   });
   const { result } = await turns
     .runTurn({ conversation: { iface: port.iface, conversationId: 'c1' }, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' })
-    .then((result) => ({ result }));
-  return { requests: JSON.parse(JSON.stringify(llm.requests)), result };
+    .then((result: unknown) => ({ result }));
+  return { requests: JSON.parse(JSON.stringify(llm.requests)) as Array<Array<{ content: string }>>, result };
 }

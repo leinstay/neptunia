@@ -19,9 +19,9 @@ import {
 import { tokenIds } from '../src/memory/mentions.ts';
 import { createStore } from '../src/memory/store.ts';
 import { HOUR_MS } from '../src/time.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { tempDir } from './fixtures/tmp.js';
-import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.js';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { tempDir } from './fixtures/tmp.ts';
+import { openTestMemorySync, unitFile } from './fixtures/memory-db/service.ts';
 
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 const NOW_ISO = new Date(NOW).toISOString();

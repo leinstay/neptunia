@@ -50,9 +50,9 @@ import { listSkills } from '../src/tools/gateway.ts';
 import { CATALOGUE } from '../src/tools/codes.ts';
 import { catalogueProblems } from '../tools/lib/labels-catalogue.mjs';
 import { feedbackInTurnText, wakeBlockText } from '../src/behavior/wake.ts';
-import { labels as contractLabels } from './fixtures/labels.js';
-import { withCapturedLogs } from './fixtures/capture-logs.js';
-import { tempDir } from './fixtures/tmp.js';
+import { labels as contractLabels } from './fixtures/labels.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 // The conversations of the turns, the pipeline and the classifiers are held by a fake interface named `fake`, the
 // persona being `SELF_ID`; the recall runner keeps reading the platform's own objects through the recall bridge.

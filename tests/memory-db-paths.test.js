@@ -16,7 +16,7 @@ import {
 } from '../src/memory/db/paths.ts';
 import { MAPPERS, classify } from '../src/memory/db/map/index.ts';
 import { operationalJsonPath } from '../src/memory/store.ts';
-import { GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.js';
+import { GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
 
 const G = `guilds/${GUILD}`;
 const L = `${G}/private/${MEMBER}`;
