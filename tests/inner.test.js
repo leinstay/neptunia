@@ -42,6 +42,7 @@ useIface('fake');
 const NOW = Date.parse('2026-10-19T12:00:00Z');
 const SILENT = { info() {}, warn() {}, error() {} };
 const GUILD = 'g1';
+const recordOf = (/** @type {{ intention: unknown }} */ set) => /** @type {{ id: string }} */ (set.intention);
 
 function intention(
   id,
@@ -896,14 +897,9 @@ test('inner: a dropped wake of a recurring intention (no channel, overflow, stal
   assert.equal(record.dueAt, first + 12 * HOUR_MS);
   // The queue full: the overflowing wake is handled, its intention advanced.
   run.turns.busy = true;
-  const held = /** @type {{ id: string }} */ (
-    service.set(GUILD, { purpose: 'held', dueAt: first, channelId: 'c1', scope: 'group' }).intention
-  );
-  const fillers = /** @type {Array<{ id: string }>} */ (
-    [...Array(19).keys()].map(
-      (n) =>
-        service.set(GUILD, { purpose: `filler ${n}`, dueAt: first, channelId: `c-q${n}`, scope: 'group' }).intention
-    )
+  const held = recordOf(service.set(GUILD, { purpose: 'held', dueAt: first, channelId: 'c1', scope: 'group' }));
+  const fillers = [...Array(19).keys()].map((n) =>
+    recordOf(service.set(GUILD, { purpose: `filler ${n}`, dueAt: first, channelId: `c-q${n}`, scope: 'group' }))
   );
   await run.inner.tick();
   assert.deepEqual(
@@ -983,11 +979,8 @@ test('inner: a review tells her once which intentions of hers expired untouched 
   // Six of hers with no due time, set a day ago, expiring one after another; one alive; a candidate that expires too.
   clock.t = NOW - DAY_MS;
   const purposes = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth'];
-  const [a, ...rest] = /** @type {Array<{ id: string }>} */ (
-    purposes.map(
-      (purpose, k) =>
-        service.set(GUILD, { purpose, expiresAt: NOW - (6 - k) * HOUR_MS, channelId: 'c1', scope: 'group' }).intention
-    )
+  const [a, ...rest] = purposes.map((purpose, k) =>
+    recordOf(service.set(GUILD, { purpose, expiresAt: NOW - (6 - k) * HOUR_MS, channelId: 'c1', scope: 'group' }))
   );
   service.set(GUILD, { purpose: 'alive', channelId: 'c1', scope: 'group' });
   const candidate = createIntention({
