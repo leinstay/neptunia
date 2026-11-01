@@ -802,7 +802,6 @@ export function sandboxRequestInput({
     // Absent (SANDBOX_OMITS) but with her tool loop (`coreTools`) or the pre-turn searches: whether the server search runs.
     recallAvailable: coreTools ? coreTools.recallAvailable === true : preTurn ? preTurn.recallAvailable === true : null,
     drawOn: false,
-    focus: null,
     // Absent but on a burst's turn with calls still waiting (`queued`).
     tasks,
     recentAudience: null,

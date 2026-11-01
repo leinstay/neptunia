@@ -420,23 +420,6 @@ test('answerReply: a ratio under 1 lets a capped section keep more', async () =>
   assert.ok(atLow.length > atOne.length, `${atLow.length} > ${atOne.length}`);
 });
 
-test('answerReply: the feature switches trim the answer as in a real turn', async () => {
-  const view = liveView({ hot: fakeHot({ reactions: false, multiMessage: false }), store: fakeStore(), guildId: 'g1' });
-  const llm = fakeLlm('<msg>one</msg><msg>two</msg><react to="#1">👍</react>');
-  const result = await answerReply({
-    view,
-    situation: twoLines(),
-    selfId: SELF_ID,
-    selfName: 'Zoë',
-    channel: CHANNEL,
-    llm,
-    samples: 1,
-    at: NOW,
-  });
-  assert.deepEqual(result.answers[0].messages, [{ text: 'one', replyTo: null }]);
-  assert.deepEqual(result.answers[0].reactions, []);
-});
-
 test('answerReply: reports usage through onUsage; the result carries no token count of its own', async () => {
   const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
   const llm = fakeLlm('<msg>a</msg>', { usage: { total_tokens: 120 }, estimated: 100 });
@@ -531,21 +514,7 @@ test("answerReply: the server's custom emoji and GIF library render as in a live
   assert.ok(result.request.user.includes(labels.senses.customEmoji));
   assert.ok(result.request.user.includes(labels.senses.gifs));
 
-  // The switches drop them as in a live turn; nothing handed in, nothing rendered.
-  const off = liveView({ hot: fakeHot({ customEmoji: false, gifs: false }), store: fakeStore(), guildId: 'g1' });
-  const without = await answerReply({
-    view: off,
-    situation: twoLines(),
-    selfId: SELF_ID,
-    selfName: 'Zoë',
-    channel: CHANNEL,
-    llm: fakeLlm('<msg>ok</msg>'),
-    samples: 1,
-    at: NOW,
-    customEmoji: EMOJI,
-    gifs: GIF_LIBRARY,
-    mediaCache: MEDIA_CACHE,
-  });
+  // Nothing handed in, nothing rendered.
   const bare = await answerReply({
     view,
     situation: twoLines(),
@@ -556,13 +525,11 @@ test("answerReply: the server's custom emoji and GIF library render as in a live
     samples: 1,
     at: NOW,
   });
-  for (const { request } of [without, bare]) {
-    assert.ok(!request.user.includes('<emoji>'));
-    assert.ok(!request.user.includes('<gifs>'));
-  }
+  assert.ok(!bare.request.user.includes('<emoji>'));
+  assert.ok(!bare.request.user.includes('<gifs>'));
 });
 
-test('answerReply: a GIF alone is an action, not silence; switched off or unknown, nothing is left to do', async () => {
+test('answerReply: a GIF alone is an action, not silence; with no library or an unknown handle, nothing is left to do', async () => {
   const answer = async (text, { features = {}, gifs = GIF_LIBRARY } = {}) => {
     const view = liveView({ hot: fakeHot(features), store: fakeStore(), guildId: 'g1' });
     const result = await answerReply({
@@ -585,7 +552,6 @@ test('answerReply: a GIF alone is an action, not silence; switched off or unknow
   for (const [text, options] of [
     ['<gif>g9</gif>', {}],
     ['<gif>g1</gif>', { gifs: null }],
-    ['<gif>g1</gif>', { features: { gifs: false } }],
   ]) {
     const dropped = await answer(text, options);
     assert.equal(dropped.skip, true, `${text} ${JSON.stringify(options)}`);
@@ -835,18 +801,12 @@ test('answerReply: no other channel is pulled in and no call is routed', async (
   assert.equal(input.source, null);
 });
 
-test('answerReply: the destination of a read-only call and the search flag reach <senses>', async () => {
+test('answerReply: the destination of a read-only call reaches <senses>', async () => {
   const destination = fill(labels.senses.elsewhere, { destination: 'general' });
-  const withBoth = await replay(storedMoment(), {
-    hot: kindHot({ webLookup: true }),
-    elsewhereDestination: { name: 'general' },
-    searchAvailable: true,
-  });
-  assert.ok(withBoth.request.user.includes(destination));
-  assert.ok(withBoth.request.user.includes(labels.senses.search));
-  const without = await replay(storedMoment(), { hot: kindHot({ webLookup: true }) });
+  const withDestination = await replay(storedMoment(), { elsewhereDestination: { name: 'general' } });
+  assert.ok(withDestination.request.user.includes(destination));
+  const without = await replay(storedMoment());
   assert.ok(!without.request.user.includes(destination));
-  assert.ok(!without.request.user.includes(labels.senses.search));
 });
 
 test('answerReply: the sandbox never runs the server search, so <senses> never offers it', async () => {
@@ -862,14 +822,15 @@ test('answerReply: the sandbox never runs the server search, so <senses> never o
     recallAvailable: true,
   });
   assert.equal(input.recallAvailable, null);
-  const result = await replay(storedMoment(), { hot: kindHot({ webLookup: true }), searchAvailable: true });
-  assert.ok(result.request.user.includes(labels.senses.search));
-  assert.ok(!result.request.user.includes(labels.senses.recall));
+  const result = await replay(storedMoment(), { searchAvailable: true });
+  // No tool is granted in a plain replay, so neither of her search lines is offered.
+  assert.ok(!result.request.user.includes(labels.senses.searchTool));
+  assert.ok(!result.request.user.includes(labels.senses.recallTool));
 });
 
-test('answerReply: with the prompt cache on, samples 1 and 2 carry the same marked user part', async () => {
+test('answerReply: samples 1 and 2 carry the same marked user part', async () => {
   const cachedHot = () => {
-    const hot = fakeHot({ promptCache: true });
+    const hot = fakeHot();
     hot.config.models.base.core = 'anthropic/claude-test';
     return hot;
   };
@@ -905,20 +866,6 @@ test('answerReply: with the prompt cache on, samples 1 and 2 carry the same mark
     at: NOW,
   });
   assert.equal(typeof single.calls[0].messages[1].content, 'string');
-  const off = fakeLlm('<msg>ok</msg>');
-  const offHot = cachedHot();
-  offHot.config.features.promptCache = false;
-  await answerReply({
-    view: liveView({ hot: offHot, store: fakeStore(), guildId: 'g1' }),
-    situation: twoLines(),
-    selfId: SELF_ID,
-    selfName: 'Zoë',
-    channel: CHANNEL,
-    llm: off,
-    samples: 2,
-    at: NOW,
-  });
-  assert.ok(off.calls.every((call) => typeof call.messages[1].content === 'string'));
 });
 
 test("answerReply: every sample is sent as the replay's", async () => {
@@ -988,14 +935,8 @@ test("answerReply: the channel's recent lines inside the window render as <recen
   // The window is measured at the turn's time, not at today's.
   assert.ok((await ask(recentStore(lines), {}, NOW - 70 * HOUR)).includes('RECENT_OLD the market moved'));
 
-  // No block: the switch off, memory off, a store without a recent store.
-  for (const without of [
-    await ask(recentStore(lines), { recent: false }),
-    await ask(recentStore(lines), { memory: false }),
-    await ask(fakeStore()),
-  ]) {
-    assert.ok(!without.includes('<recent>'));
-  }
+  // No block: a store without a recent store.
+  assert.ok(!(await ask(fakeStore())).includes('<recent>'));
 });
 
 test('answerReply: a recent store that cannot be read costs the block, never the answer', async () => {
@@ -1055,7 +996,9 @@ test('sandboxRequestInput: names every input buildRequest reads; what it leaves 
     for (const key of passed) assert.notEqual(input[key], undefined, `${key} is named`);
     for (const [key, reason] of Object.entries(SANDBOX_OMITS)) {
       assert.ok(typeof reason === 'string' && reason.trim(), `${key} says why`);
-      const absent = input[key] === null || (Array.isArray(input[key]) && input[key].length === 0);
+      // PR 7d: drawQuota became the boolean drawOn, absent as false.
+      const absent =
+        input[key] === null || input[key] === false || (Array.isArray(input[key]) && input[key].length === 0);
       assert.ok(absent, `${key} is left out`);
     }
   }
@@ -1102,10 +1045,6 @@ test('sandboxToolset: her granted and carried-over skills as native definitions,
   assert.equal(text.transport, 'text');
   assert.equal(typeof text.block, 'string');
   assert.equal(text.tokens, 0);
-  assert.deepEqual(
-    sandbox.sandboxToolset({ view: grantedView(['rule.add'], { features: { tools: false } }), selfId: SELF_ID }).names,
-    []
-  );
 });
 
 test('sandboxRequestInput: a skill scenario passes its inventory and her tools set; everything else SANDBOX_OMITS leaves out stays out', () => {
@@ -1136,7 +1075,9 @@ test('sandboxRequestInput: a skill scenario passes its inventory and her tools s
   assert.deepEqual(new Set([...passed, ...Object.keys(SKILL_SCENARIO_OMITS)]), wanted);
   for (const key of passed) assert.notEqual(input[key], undefined, `${key} is named`);
   for (const key of Object.keys(SKILL_SCENARIO_OMITS)) {
-    const absent = input[key] === null || (Array.isArray(input[key]) && input[key].length === 0);
+    // PR 7d: drawQuota became the boolean drawOn, absent as false.
+    const absent =
+      input[key] === null || input[key] === false || (Array.isArray(input[key]) && input[key].length === 0);
     assert.ok(absent, `${key} is left out`);
   }
   // An empty catalogue is no block, as in any other sandbox turn; no tools set, no tools.
@@ -1937,24 +1878,6 @@ test("answerReply: the replay shows the live turn's <directory> and author handl
     { text: `${zoe} ${alice} @Alice ${unknown}`, replyTo: null, mentions: [ZOE_ID, ALICE], unknownHandles: 1 },
     { text: 'ναι', replyTo: null },
   ]);
-});
-
-test('answerReply: features.mentionHandles off -- no directory, no handles, nothing resolved', async () => {
-  const view = handlesView({ mentionHandles: false });
-  const llm = fakeLlm(`<msg>@${handleOf(ZOE_ID)}</msg>`);
-  const result = await answerReply({
-    view,
-    situation: twoLines(),
-    selfId: SELF_ID,
-    selfName: 'Zoë',
-    channel: CHANNEL,
-    llm,
-    samples: 1,
-    at: NOW,
-  });
-  assert.equal(result.request.user.includes('<directory>'), false);
-  assert.ok(result.request.user.includes('Alice: what do you think about chess?'));
-  assert.deepEqual(result.answers[0].messages, [{ text: `@${handleOf(ZOE_ID)}`, replyTo: null }]);
 });
 
 test('answerSkillScenario: a message.create text is resolved like a <msg> (callMentions); the answers carry their mentions', async () => {

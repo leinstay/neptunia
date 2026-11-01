@@ -354,7 +354,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' })
  * @param {Set<string>|string[]} [input.readOnlyIds]  Channels the bot can read but not write in:
  *   their `<server>` entries (never the current channel's) carry `labels.server.readOnly`, as do
  *   pulled channels whose record says `readOnly`. A private chat ignores `pulled`, `source`,
- *   `focus`, `elsewhereDestination` and `readOnlyIds`; with none of them given the request is
+ *   `elsewhereDestination` and `readOnlyIds`; with none of them given the request is
  *   the one built before pulled channels existed, save `senses.channels` on a server turn.
  * @param {object[]} [input.recentLines]  The guild's recent lines (store.getRecent(guildId).lines;
  *   an empty array for a store that holds none). With it an array, `features.recent` on (a
