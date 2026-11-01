@@ -421,7 +421,7 @@
     },
     {
       "path": "src/plugins/settings.ts",
-      "purpose": "The readers of `plugins.<name>.enabled` and `plugins.callDeadlineMs`. Tested by tests/plugins-settings.test.ts.",
+      "purpose": "The readers of `plugins.<name>.enabled` and `plugins.callDeadlineMs`.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
