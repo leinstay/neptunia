@@ -79,6 +79,20 @@ function ensureStandIn(dir: string): void {
 
 const off = (): BackendResult => ({ ok: false, text: '', exitCode: null, error: 'subharness-off' });
 
+/** The environment of the child: its PATH (a refusing `sudo` first unless the mode is `sudo`) and the key OpenCode gets. */
+function envOf(deps: RunDeps, mode: AgentMode, keyValue: string | null): Record<string, string> {
+  const host = deps.hostEnv ?? process.env;
+  const env: Record<string, string> = {};
+  if (mode === 'sudo') {
+    if (host.PATH !== undefined) env.PATH = host.PATH;
+  } else {
+    ensureStandIn(deps.denyDir);
+    env.PATH = host.PATH === undefined || host.PATH === '' ? deps.denyDir : `${deps.denyDir}:${host.PATH}`;
+  }
+  if (keyValue !== null) env.OPENROUTER_API_KEY = keyValue;
+  return env;
+}
+
 /** Runs one agent through the backend the owner chose, in the mode the owner gave it. Resolves with `subharness-off` while off. */
 export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendResult> {
   let store;
@@ -91,26 +105,19 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
     });
     return off();
   }
-  const { backend: name, key } = store.subharness;
+  const { backend: name, key, models } = store.subharness;
   if (name === null) return off();
   if (name === 'opencode' && (key === null || !hasExtraKey(store, key))) return off();
   const mode = modeOf(store.subharness.modes, run.agent);
-  const host = deps.hostEnv ?? process.env;
-  const env: Record<string, string> = {};
-  if (mode === 'sudo') {
-    if (host.PATH !== undefined) env.PATH = host.PATH;
-  } else {
-    ensureStandIn(deps.denyDir);
-    env.PATH = host.PATH === undefined || host.PATH === '' ? deps.denyDir : `${deps.denyDir}:${host.PATH}`;
-  }
-  if (name === 'opencode' && key !== null) env.OPENROUTER_API_KEY = store.extra[key] ?? '';
+  const keyValue = name === 'opencode' && key !== null ? (store.extra[key] ?? '') : null;
+  const env = envOf(deps, mode, keyValue);
   if (mode === 'full' || mode === 'sudo') log.info('subharness: run without a sandbox', { agent: run.agent, mode });
   const options: BackendRunOptions = {
     cwd: run.cwd,
     timeoutMs: run.timeoutMs,
     sandbox: sandboxOfMode(mode),
     env,
-    ...(Object.hasOwn(store.subharness.models, run.agent) ? { model: store.subharness.models[run.agent] } : {}),
+    ...(Object.hasOwn(models, run.agent) ? { model: models[run.agent] } : {}),
     ...(run.search === undefined ? {} : { search: run.search }),
     ...(run.images === undefined ? {} : { images: run.images }),
     ...(run.signal === undefined ? {} : { signal: run.signal }),
