@@ -15,6 +15,7 @@ import { CARRIED_OVER, NOT_GRANTABLE_TO_PERSONA, grantedToPersona, safeModeOn } 
 import { describeSkill, skillNames } from './registry.ts';
 import { CODE } from './codes.ts';
 import { objOf } from './types.ts';
+import { roleOn } from '../llm/roles.ts';
 import type { DescribedSkill, Skill } from './types.ts';
 
 /** The skills that run inside the persona's turn and come back in it (src/tools/tools.ts). */
@@ -68,6 +69,14 @@ export function grantedSkillNames({
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
+/** Whether the skill needs a model role that is off: drawing, speech, or both vision and video for `media.look`. */
+function servedByOffRole(config: unknown, name: string): boolean {
+  if (name === 'draw.create') return !roleOn(config, 'drawing');
+  if (name === 'voice.say') return !roleOn(config, 'speech');
+  if (name === 'media.look') return !roleOn(config, 'vision') && !roleOn(config, 'video');
+  return false;
+}
+
 /**
  * The names of the skills one turn carries as her tools, the same list for every turn kind: the
  * skills granted to her (grantedSkillNames) and the carried-over ones (CARRIED_OVER: a post, a
@@ -90,7 +99,9 @@ export function exposedSkillNames({
   const names = safeModeOn(config)
     ? [...CARRIED_OVER]
     : [...grantedSkillNames({ config, selfId, registry }), ...CARRIED_OVER];
-  return [...new Set(names)].filter((name) => registry.has(name)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return [...new Set(names)]
+    .filter((name) => registry.has(name) && !servedByOffRole(config, name))
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 /** No `skills:` line at all: what an answer without one means (none). */

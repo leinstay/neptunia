@@ -5,14 +5,14 @@ import type { SchemaEntry } from '../schema.ts';
 export const MODELS: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'models.base.core',
-    'types': ['string', 'boolean', 'null'],
+    'types': ['string', 'boolean'],
     'reader': 'src/llm/openrouter.ts',
     'default': 'anthropic/claude-opus-4.6',
     'text': "The persona's model. Purposes: `reply`, `memory-voice`",
   },
   {
     'key': 'models.base.memory',
-    'types': ['string', 'boolean', 'null'],
+    'types': ['string', 'boolean'],
     'reader': 'src/llm/roles.ts',
     'default': 'anthropic/claude-opus-4.6',
     'text':
@@ -20,7 +20,7 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
   },
   {
     'key': 'models.base.analyzer',
-    'types': ['string', 'boolean', 'null'],
+    'types': ['string', 'boolean'],
     'reader': 'src/behavior/mention.ts',
     'default': 'openai/gpt-6.1-sol',
     'text':
@@ -30,19 +30,19 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
     'key': 'models.base.vision',
     'types': ['string', 'boolean', 'null'],
     'reader': 'src/behavior/mention.ts',
-    'default': 'google/gemini-3.8-flash',
-    'text': 'Describes pictures (describe, relook, avatar)',
+    'default': null,
+    'text': 'Describes pictures (describe, relook, avatar). Off while null',
   },
   {
     'key': 'models.base.video',
     'types': ['string', 'boolean', 'null'],
     'reader': 'src/behavior/mention.ts',
-    'default': 'google/gemini-3.8-flash',
-    'text': 'Watches video, looks again on questions',
+    'default': null,
+    'text': 'Watches video and GIFs, looks again on questions. Off while null',
   },
   {
     'key': 'models.base.embedding',
-    'types': ['string', 'boolean', 'null'],
+    'types': ['string', 'boolean'],
     'reader': 'src/llm/embed.ts',
     'default': 'openai/text-embedding-3-large',
     'text': 'Turns text into vectors for meaning search. `embed.dimensions` sets the width',
@@ -51,15 +51,15 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
     'key': 'models.base.speech',
     'types': ['string', 'boolean', 'null'],
     'reader': 'src/speech/synth.ts',
-    'default': 'elevenlabs/eleven-v4',
-    'text': 'Speaks her text aloud through the speech endpoint. Named on the status card, never probed',
+    'default': null,
+    'text': 'Speaks her text aloud through the speech endpoint. Named on the status card, never probed. Off while null',
   },
   {
     'key': 'models.base.drawing',
     'types': ['string', 'boolean', 'null'],
     'reader': 'src/llm/images.ts',
-    'default': 'openai/gpt-image-2.5-flare',
-    'text': 'Generates pictures through the Images API. Only `openai/*` and `google/*` families',
+    'default': null,
+    'text': 'Generates pictures through the Images API. Only `openai/*` and `google/*` families. Off while null',
   },
   {
     'key': 'models.byPurpose',

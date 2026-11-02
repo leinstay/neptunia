@@ -98,7 +98,11 @@ test("roleModel: an unset role takes its own default, never another role's model
     assert.equal(roleModel(config, role), ROLE_DEFAULTS[role], role);
   }
   assert.equal(roleModel({ models: { base: { analyzer: null, video: '' } } }, 'analyzer'), ROLE_DEFAULTS.analyzer);
-  assert.equal(roleModel({ models: { base: { analyzer: null, video: '' } } }, 'video'), ROLE_DEFAULTS.video);
+  assert.equal(
+    roleModel({ models: { base: { analyzer: null, video: '' } } }, 'video'),
+    undefined,
+    'an empty video is off'
+  );
   assert.equal(roleModel(undefined, 'core'), ROLE_DEFAULTS.core);
   assert.equal(
     roleModel({ models: { base: { core: { nested: 'x/no' } } } }, 'core'),
@@ -187,8 +191,12 @@ test("roles: the built-in defaults equal config.json's three groups, and every r
     roleModel({}, 'core'),
     "unset: the built-in default of the memory role is the core's default"
   );
-  const { memory, ...base } = shipped.models.base;
-  assert.deepEqual({ ...base, ...shipped.models.errands, ...shipped.models.development }, { ...ROLE_DEFAULTS });
+  const { memory, vision, video, speech, drawing, ...base } = shipped.models.base;
+  assert.deepEqual([vision, video, speech, drawing], [null, null, null, null], 'the optional roles ship off');
+  const mandatoryAndAgents = Object.fromEntries(
+    Object.entries(ROLE_DEFAULTS).filter(([role]) => !['vision', 'video', 'speech', 'drawing'].includes(role))
+  );
+  assert.deepEqual({ ...base, ...shipped.models.errands, ...shipped.models.development }, mandatoryAndAgents);
   assert.deepEqual(shipped.models.byPurpose, {});
   assert.deepEqual(Object.keys(ROLE_DEFAULTS).sort(), [...ROLES].sort());
   assert.deepEqual([...ROLES], [...CORE_ROLES, 'drawing', ...ERRAND_ROLES, ...DEVELOPMENT_ROLES]);
@@ -250,15 +258,18 @@ test('readConfig: config.local.json is merged over config.json key by key', () =
   const config = loadWith({ models: { base: { vision: 'x/v' } } });
   assert.equal(roleModel(config, 'vision'), 'x/v');
   assert.equal(roleModel(config, 'core'), ROLE_DEFAULTS.core);
-  assert.equal(roleModel(loadWith(undefined), 'vision'), ROLE_DEFAULTS.vision);
+  assert.equal(roleModel(loadWith(undefined), 'vision'), undefined, 'the tracked vision is null, so off');
 });
 
 // ---- every purpose resolves --------------------------------------------------
 
 test("purposes: under config.json every purpose resolves to its role's default model", () => {
   const config = loadWith(undefined);
-  for (const [purpose, role] of Object.entries(PURPOSE_ROLES))
-    assert.equal(roleModel(config, role, purpose), ROLE_DEFAULTS[role], purpose);
+  for (const [purpose, role] of Object.entries(PURPOSE_ROLES)) {
+    // The tracked optional roles are off, so their purposes resolve to no model (tests/llm-roles.test.ts).
+    const off = ['vision', 'video', 'speech', 'drawing'].includes(role);
+    assert.equal(roleModel(config, role, purpose), off ? undefined : ROLE_DEFAULTS[role], purpose);
+  }
 });
 
 // ---- the call sites ----------------------------------------------------------

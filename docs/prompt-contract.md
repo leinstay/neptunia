@@ -263,6 +263,12 @@ model when `models.abilities` declares the role's ability for it, or does not ha
 (`src/tools/gateway.ts#abilityRoute`). The first such result of a turn carries one route line after its text: one phrase
 per tool role that is down, in the order vision, video, drawing, speech, through `tools.route.fallback` or
 `tools.route.unavailable`, joined by `tools.route.separator`. No later result of the turn carries it.
+An optional role with a `null` model (`models.base.<role>`, `src/llm/roles.ts#offRoles`) is off: its tool is not in the
+request's tools (`draw.create` without `drawing`, `voice.say` without `speech`, `media.look` without both `vision` and
+`video`), a picture or sticker needs `vision`, a GIF or video needs `video`, and an item whose role is off is not
+described. For each such ability whose media the shown messages hold, the per-turn half of `<senses>` carries once the
+words of `tools.result.reasons.ability-unavailable` with `{ability}` = `tools.result.params.ability` and `{why}` =
+`tools.result.params.why.no-model`.
 
 Her speech goes out after the calls, and only when every call worked and none returned something to read (an `effect`
 or an accepted errand, `job`, in `src/tools/definitions.ts`'s `result`; a `data` result never covers speech). Otherwise
@@ -610,6 +616,8 @@ server.lastMessage                       {when}: humanised age of the channel's 
 server.topWriters                        {names}: current names of the members who write there most
 server.diary                             shown on every place of her diary (its enabled mirrors) in the `<server>` map. The persona's diary
 server.readOnly                          shown on a channel the bot can read and react in but not write in; never shown on the current channel. Appears in the `<server>` map entry and as a line after a pulled channel's header
+senses.abilitiesOff                              shown in the stable half of `<senses>` right after the files line while an optional model role (`vision`, `video`, `drawing`, `speech`) is off: {abilities} = the `tools.result.params.ability` words of the off roles' abilities, in the order vision, video, drawing, speech, joined by `senses.abilitiesOffSeparator`. A missing or empty key renders nothing
+senses.abilitiesOffSeparator                              joins the {abilities} words of `senses.abilitiesOff` (`, ` when missing)
 senses.time                              shown in every `<senses>` block right after the files line, private chats included: message times are in the timezone of `<now>`, older lines carry their age, a gap marker is only the silence between two adjacent lines, and how long ago something happened comes from its own lines, never from a gap marker or `<tempo>`. No placeholders; a missing or empty key renders nothing
 senses.channels                          shown on every server turn: which channels this request shows (the chat, `<other_channels>`, `<channel_view>`); never claim to have looked at a channel not shown
 senses.elsewhere                         {destination}: shown when `memory.mainChannelIds` has a usable channel; says a call from a read-only channel is answered in {destination} with a link

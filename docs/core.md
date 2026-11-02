@@ -86,7 +86,9 @@ Every LLM request goes out on a named role, and each role has its own model. The
 | `models.errands` | `scout`, `server` | The errand agents, run asynchronously through a separate runner |
 | `models.development` | `thinker`, `dev` | Development agents (outside the engine, working on the repository) |
 
-A role never borrows another role's model. An unset role uses its own default (the same value `config/config.json` ships). `models.byPurpose` can pin a single purpose to a model of its own regardless of its role.
+`core`, `memory`, `analyzer` and `embedding` are mandatory: `config/config.json` ships a model for each, and the settings check refuses a `null` for one. `vision`, `video`, `drawing` and `speech` are optional and ship as `null`, which turns the role off (see [Optional roles that are off](media.md#optional-roles-that-are-off)). `roleOn` and `offRoles` in `src/llm/roles.ts` answer which are on.
+
+A role never borrows another role's model. A mandatory role whose key is unset uses its own default, as does an optional role whose key is absent from the config (a `null`, `false` or empty string is off, not unset). `models.byPurpose` can pin a single purpose to a model of its own regardless of its role.
 
 ### Keys
 

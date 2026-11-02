@@ -71,6 +71,12 @@ export const OPENCODE_ROLES = Object.freeze([...ERRAND_ROLES, ...DEVELOPMENT_ROL
 /** The model roles, in display order (`/nep model`, the status card). */
 export const ROLES = Object.freeze([...BASE_ROLES, ...OPENCODE_ROLES]);
 
+/** The base roles that are always on: without them there is no persona. A null model for one is refused by the settings check. */
+export const MANDATORY_ROLES = Object.freeze(['core', 'memory', 'analyzer', 'embedding'] as const);
+
+/** The base roles an owner may leave off, in the order of the tool roles. Off while `models.base.<role>` is null, false or empty. */
+export const OPTIONAL_ROLES = Object.freeze(['vision', 'video', 'drawing', 'speech'] as const);
+
 /** Each model role's model while its key is unset: config.json's values. */
 export const ROLE_DEFAULTS: Readonly<Record<string, string>> = Object.freeze({
   core: 'anthropic/claude-opus-4.6',
@@ -182,6 +188,7 @@ export function isRole(role: unknown): boolean {
  * @param config The whole live config, read at the moment of use.
  */
 export function roleModel(config: unknown, role: string, purpose?: string): string | undefined {
+  if (OPTIONAL_ROLES.includes(role as (typeof OPTIONAL_ROLES)[number]) && !roleOn(config, role)) return undefined;
   const models = objOf(config).models;
   const byPurpose = objOf(models).byPurpose;
   if (typeof purpose === 'string' && isObj(byPurpose) && Object.hasOwn(byPurpose, purpose)) {
@@ -194,4 +201,23 @@ export function roleModel(config: unknown, role: string, purpose?: string): stri
   const map = isObj(models) && Object.hasOwn(models, group) && isObj(groupMap) ? groupMap : undefined;
   const own = map && Object.hasOwn(map, role) ? map[role] : undefined;
   return typeof own === 'string' && own ? own : role === MEMORY_ROLE ? MEMORY_ROLE_DEFAULT : ROLE_DEFAULTS[role];
+}
+
+/**
+ * Whether `role` is on. A mandatory role is always on. An optional role is on when `models.base.<role>` is a
+ * non-empty string, and off when it is null, false or empty. An absent key is on with the role's built-in default, so
+ * a config that names no models keeps working. Any other name is on.
+ * @param config The whole live config, read at the moment of use.
+ */
+export function roleOn(config: unknown, role: string): boolean {
+  if (!OPTIONAL_ROLES.includes(role as (typeof OPTIONAL_ROLES)[number])) return true;
+  const base = objOf(objOf(config).models).base;
+  if (!isObj(base) || !Object.hasOwn(base, role)) return true;
+  const own = base[role];
+  return typeof own === 'string' && own !== '';
+}
+
+/** The optional roles that are off, in the order of OPTIONAL_ROLES. */
+export function offRoles(config: unknown): Array<string> {
+  return OPTIONAL_ROLES.filter((role) => !roleOn(config, role));
 }

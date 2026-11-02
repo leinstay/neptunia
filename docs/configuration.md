@@ -126,16 +126,18 @@ Three groups, the same three the status card shows (`/status full`). Each role i
 
 ### `models.base`
 
+`core`, `memory`, `analyzer` and `embedding` are mandatory and refuse a `null`. `vision`, `video`, `drawing` and `speech` ship as `null`, which turns the role off; a model id turns it on. See [Media](media.md#optional-roles-that-are-off).
+
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `models.base.core` | string, boolean, null | `"anthropic/claude-opus-4.6"` | The persona's model. Purposes: `reply`, `memory-voice` | `src/llm/openrouter.ts` |
-| `models.base.memory` | string, boolean, null | `"anthropic/claude-opus-4.6"` | Her memory session and description review model. Same default as `core`, not a copy. Its key is `llm.keyByRole.memory` and never falls back | `src/llm/roles.ts` |
-| `models.base.analyzer` | string, boolean, null | `"openai/gpt-6.1-sol"` | Picks options (address, room, route, split, gif-pick, missed, etc.), plans searches and turns sources into notes. Pin one purpose to another model with `byPurpose` | `src/behavior/mention.ts` |
-| `models.base.vision` | string, boolean, null | `"google/gemini-3.8-flash"` | Describes pictures (describe, relook, avatar) | `src/behavior/mention.ts` |
-| `models.base.video` | string, boolean, null | `"google/gemini-3.8-flash"` | Watches video, looks again on questions | `src/behavior/mention.ts` |
-| `models.base.embedding` | string, boolean, null | `"openai/text-embedding-3-large"` | Turns text into vectors for meaning search. `embed.dimensions` sets the width | `src/llm/embed.ts` |
-| `models.base.speech` | string, boolean, null | `"elevenlabs/eleven-v4"` | Speaks her text aloud through the speech endpoint. Named on the status card, never probed | `src/speech/synth.ts` |
-| `models.base.drawing` | string, boolean, null | `"openai/gpt-image-2.5-flare"` | Generates pictures through the Images API. Only `openai/*` and `google/*` families | `src/llm/images.ts` |
+| `models.base.core` | string, boolean | `"anthropic/claude-opus-4.6"` | The persona's model. Purposes: `reply`, `memory-voice` | `src/llm/openrouter.ts` |
+| `models.base.memory` | string, boolean | `"anthropic/claude-opus-4.6"` | Her memory session and description review model. Same default as `core`, not a copy. Its key is `llm.keyByRole.memory` and never falls back | `src/llm/roles.ts` |
+| `models.base.analyzer` | string, boolean | `"openai/gpt-6.1-sol"` | Picks options (address, room, route, split, gif-pick, missed, etc.), plans searches and turns sources into notes. Pin one purpose to another model with `byPurpose` | `src/behavior/mention.ts` |
+| `models.base.vision` | string, boolean, null | `null` | Describes pictures (describe, relook, avatar). Off while null | `src/behavior/mention.ts` |
+| `models.base.video` | string, boolean, null | `null` | Watches video and GIFs, looks again on questions. Off while null | `src/behavior/mention.ts` |
+| `models.base.embedding` | string, boolean | `"openai/text-embedding-3-large"` | Turns text into vectors for meaning search. `embed.dimensions` sets the width | `src/llm/embed.ts` |
+| `models.base.speech` | string, boolean, null | `null` | Speaks her text aloud through the speech endpoint. Named on the status card, never probed. Off while null | `src/speech/synth.ts` |
+| `models.base.drawing` | string, boolean, null | `null` | Generates pictures through the Images API. Only `openai/*` and `google/*` families. Off while null | `src/llm/images.ts` |
 
 A role set to `false` has no model. Its tool calls (`media.look` for `vision` and `video`, `draw.create` for `drawing`, `voice.say` for `speech`) go to the core model when the core declares the role's ability in `models.abilities`, and answer `ability-unavailable` otherwise. `/status` lists the role as failing and `neptunia doctor` warns about it. `null` or a missing key is the role's default model. The same route applies while a role is failing globally (see [Media](media.md#when-a-model-role-is-down)).
 

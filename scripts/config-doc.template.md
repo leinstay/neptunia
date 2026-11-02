@@ -112,6 +112,8 @@ Three groups, the same three the status card shows (`/status full`). Each role i
 
 ### `models.base`
 
+`core`, `memory`, `analyzer` and `embedding` are mandatory and refuse a `null`. `vision`, `video`, `drawing` and `speech` ship as `null`, which turns the role off; a model id turns it on. See [Media](media.md#optional-roles-that-are-off).
+
 <!-- settings: models.base -->
 
 A role set to `false` has no model. Its tool calls (`media.look` for `vision` and `video`, `draw.create` for `drawing`, `voice.say` for `speech`) go to the core model when the core declares the role's ability in `models.abilities`, and answer `ability-unavailable` otherwise. `/status` lists the role as failing and `neptunia doctor` warns about it. `null` or a missing key is the role's default model. The same route applies while a role is failing globally (see [Media](media.md#when-a-model-role-is-down)).

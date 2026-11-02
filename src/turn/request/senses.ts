@@ -6,6 +6,8 @@
 import { isPlainObject } from '../../config.ts';
 import { fill } from '../../format.ts';
 import { gifWatchBlocker } from '../../memory/index.ts';
+import { ROLE_ABILITY, offRoles } from '../../llm/roles.ts';
+import { collectPictures, collectVideos } from '../../media/classify.ts';
 import { IN_TURN_TOOLS, byFamily } from '../../tools/discovery.ts';
 import type { Base } from './head.ts';
 import type { MemoryViews } from './memory.ts';
@@ -13,6 +15,9 @@ import type { Cost, Fit, Labels, RequestConfig, RequestInput } from './types.ts'
 
 /** The two halves of `<senses>`: the lines that read only the config, and the lines of this turn. */
 export type Senses = { stable: string; turn: string };
+
+/** The labels the `<senses>` lines read. */
+type SensesLabels = Pick<Labels, 'senses' | 'tools'>;
 
 /** What renderSenses needs to know about the turn beyond the config. */
 export type SensesOptions = {
@@ -27,6 +32,8 @@ export type SensesOptions = {
   diaryChannel?: string | null;
   participation?: boolean;
   toolsGranted?: Array<string>;
+  /** The messages the request shows: the media of an off role among them is told once (mediaOffLines). */
+  window?: ReadonlyArray<object>;
 };
 
 /** One argument of a skill (src/tools/discovery.ts#skillArgs). */
@@ -50,6 +57,68 @@ export type SkillRow = {
   readonly args?: Array<SkillArg | null>;
 };
 
+/** The abilities whose media the window may hold, with the role each needs. */
+const MEDIA_ABILITIES = [
+  { ability: 'imagesIn', role: 'vision' },
+  { ability: 'videoIn', role: 'video' },
+] as const;
+
+/** The value at `path` below `value`, undefined at the first step that is not an object. */
+function at(value: unknown, ...path: Array<string>): unknown {
+  let here = value;
+  for (const key of path) {
+    if (here === null || typeof here !== 'object') return undefined;
+    here = Reflect.get(here, key);
+  }
+  return here;
+}
+
+/** The lines of `reasons['ability-unavailable']` for each off role whose media the window holds, vision first. */
+function mediaOffLines(config: RequestConfig, labels: SensesLabels, window: ReadonlyArray<object>): Array<string> {
+  const off = offRoles(config);
+  if (off.length === 0 || window.length === 0) return [];
+  const template = at(labels.tools, 'result', 'reasons', 'ability-unavailable');
+  const why = at(labels.tools, 'result', 'params', 'why', 'no-model');
+  if (typeof template !== 'string' || typeof why !== 'string') return [];
+  const held = new Set<string>();
+  const sites = config.media?.video?.sites;
+  for (const message of window) {
+    for (const item of collectPictures(message)) {
+      held.add(item.kind === 'gif' || item.kind === 'video' ? 'video' : 'vision');
+    }
+    if (collectVideos(message, { videoSites: sites ?? [] }).length > 0) held.add('video');
+  }
+  const lines: Array<string> = [];
+  for (const { ability, role } of MEDIA_ABILITIES) {
+    const word = at(labels.tools, 'result', 'params', 'ability', ability);
+    if (off.includes(role) && held.has(role) && typeof word === 'string') {
+      lines.push(fill(template, { ability: word, why }));
+    }
+  }
+  return lines;
+}
+
+/**
+ * The one line naming the abilities of the optional roles that are off (`labels.senses.abilitiesOff`, `{abilities}`
+ * filled with `labels.tools.result.params.ability` words in the order vision, video, drawing, speech, joined by
+ * `labels.senses.abilitiesOffSeparator`, ', ' without it). Undefined while every role is on or the label is missing.
+ */
+function abilitiesOffLine(config: RequestConfig, labels: SensesLabels): string | undefined {
+  const template = labels.senses?.abilitiesOff;
+  if (typeof template !== 'string' || !template) return undefined;
+  const off = offRoles(config);
+  if (off.length === 0) return undefined;
+  const wordOf = (ability: string): string => {
+    const word = at(labels.tools, 'result', 'params', 'ability', ability);
+    return typeof word === 'string' && word ? word : ability;
+  };
+  const separator = labels.senses?.abilitiesOffSeparator;
+  const abilities = off
+    .map((role) => wordOf(String(Reflect.get(ROLE_ABILITY, role))))
+    .join(typeof separator === 'string' ? separator : ', ');
+  return fill(template, { abilities });
+}
+
 /**
  * Render the `<senses>` lines from `labels.senses`: which lines are true
  * under the live config (see docs/prompt-contract.md, "`<senses>`"), in two
@@ -72,7 +141,7 @@ export type SkillRow = {
  * `gifs` (a non-empty library) adds `senses.gifs` right after it.
  * `gifWatching` (GIFs are watched now, src/memory/gif-watch.ts#gifWatchBlocker)
  * swaps `senses.gifDescribed` for `senses.gifWatched` when the labels have it.
- * Right after the files line, `senses.time` (how to read clock times, line
+ * Right after the files line, `senses.abilitiesOff` while an optional model role is off (abilitiesOffLine), then `senses.time` (how to read clock times, line
  * ages and gap markers), private chats included, when the label is a non-empty string.
  * Outside a private chat, after it: `senses.channels` (the
  * persona sees only the channels this request shows), then, with
@@ -85,7 +154,7 @@ export type SkillRow = {
 // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/prompt.js in stage 5d, a pure move
 export function renderSenses(
   config: RequestConfig,
-  labels: Labels,
+  labels: SensesLabels,
   {
     searchAvailable = false,
     recallAvailable = false,
@@ -98,6 +167,7 @@ export function renderSenses(
     diaryChannel = null,
     participation = false,
     toolsGranted = [],
+    window = [],
   }: SensesOptions = {}
 ): Senses {
   const senses = labels.senses;
@@ -149,6 +219,9 @@ export function renderSenses(
   // shows nothing. Per turn: Attach Files is the conversation's.
   if (drawOn === true && senses.draw) turnLines.push(senses.draw);
   lines.push(senses.files);
+  lines.push(abilitiesOffLine(config, labels));
+  // The media of an off role in the window: the words of the ability-unavailable answer, per turn.
+  turnLines.push(...mediaOffLines(config, labels, window));
   // How to read clock times, line ages and gap markers; private chats too.
   if (typeof senses.time === 'string' && senses.time) lines.push(senses.time);
   // Which channels the persona sees, and where it answers a call from one it
@@ -308,6 +381,7 @@ export function sensesOf(given: RequestInput & Base & MemoryViews): SensesOf {
         (given.toolsGranted as Array<string>).filter((name) => IN_TURN_TOOLS.includes(name))
       : [],
     drawOn: given.drawOn,
+    window: given.history,
     privateChat,
     customEmoji: customEmoji.length > 0,
     gifs: gifsOn,
