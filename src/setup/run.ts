@@ -1,8 +1,8 @@
-// `neptunia setup`: the install of one user, in five steps that each run on their own and again, like the sections of
+// `neptunia setup`: the install of one user, in six steps that each run on their own and again, like the sections of
 // the setup of Hermes (hermes_cli/setup.py) with a summary at the end (hermes_cli/setup_summary.py). Every step checks
 // first whether its work is done (`already`), so a rerun after a failure resumes where it stopped. A step that fails
-// stops the run, the steps after it are `skipped`, and no chat opens. Nothing here prompts: after the last step the
-// owner's chat opens on `keys core add`, and the chat takes over.
+// stops the run, the steps after it are `skipped`, and no chat opens. Only the self-development step asks a question;
+// after the last step the owner's chat opens on `keys core add`, and the chat takes over.
 //
 //   folders    the private folder with `config.local`, `prompts.local`, `clients`, and the data folder, all mode 0700
 //   keys-file  an empty `keys.json` at mode 0600; one that exists keeps its content and is made 0600
@@ -10,6 +10,8 @@
 //              units too when `selfdev.checkout` names a checkout other than this one
 //   linger     `loginctl enable-linger` for the user, so the user units run without a login (user units only)
 //   core       `enable --now neptunia-core.service`, the one unit setup starts
+//   selfdev    the repository her pull requests go to, checked through her gh login (src/setup/selfdev.ts); skipped
+//              while `selfdev.checkout` is unset or no terminal asks. A `refused` step stops nothing
 //
 // With `--system` the units are system units that run as the installing user, put in place with `sudo install`, and
 // every systemctl call goes through `sudo`. The units start the node `nodeOf` finds: `--node <path>`, else the one this
@@ -21,14 +23,16 @@ import path from 'node:path';
 import { readConfig } from '../config.ts';
 import { selfdevSettings } from '../selfdev/settings.ts';
 import { emptyKeys, writeKeys } from '../keys/file.ts';
+import type { GhRunner } from '../selfdev/repository.ts';
 import { installUnits, systemctlOf, unitDirOf, whyFailed } from './install.ts';
 import type { RunResult, UnitTarget } from './install.ts';
+import { selfdevStep } from './selfdev.ts';
 import { SELFDEV_UNIT_FILES, UNIT_FILES } from './units.ts';
 
 export type { RunResult };
 
 /** The steps, in the order they run. */
-export const SETUP_STEPS = ['folders', 'keys-file', 'units', 'linger', 'core'] as const;
+export const SETUP_STEPS = ['folders', 'keys-file', 'units', 'linger', 'core', 'selfdev'] as const;
 export type SetupStep = (typeof SETUP_STEPS)[number];
 
 /** Who and where `setup` installs; `only` runs one step. */
@@ -41,10 +45,14 @@ export type SetupDeps = {
   openChat(firstLine: string): Promise<void>;
   /** Called once with the report, before the chat opens or when the run ends without it. */
   report?(report: SetupReport): void;
+  /** Asks the owner at the terminal; absent when no terminal is there, and the self-development step is skipped. */
+  ask?: (question: string, offered: string | null) => Promise<string>;
+  /** gh under her own gh home, for the self-development step's push-right check. */
+  gh?: GhRunner;
 };
 
 /** What one step came to. */
-export type StepState = 'done' | 'already' | 'failed' | 'skipped';
+export type StepState = 'done' | 'already' | 'failed' | 'skipped' | 'refused';
 export type SetupReport = {
   ok: boolean;
   steps: Array<{ step: SetupStep; state: StepState; detail: string }>;
@@ -195,6 +203,13 @@ async function coreStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome
   return started.code === 0 ? done('the core is enabled and running') : failed(`enable --now: ${whyFailed(started)}`);
 }
 
+async function selfdevSetupStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
+  const { ask, gh } = deps;
+  if (ask === undefined || gh === undefined) return { state: 'skipped', detail: 'not at a terminal' };
+  const outcome = await selfdevStep(options, { run: (command, args) => deps.run(command, args), ask, gh });
+  return { state: outcome.state, detail: outcome.detail };
+}
+
 /** Runs the steps (one with `only`), the chat last after a full run. Resolves with the report; never rejects for a failed step. */
 export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<SetupReport> {
   const steps: SetupReport['steps'] = [];
@@ -210,7 +225,8 @@ export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<
       else if (step === 'keys-file') outcome = keysFileStep(options);
       else if (step === 'units') outcome = await unitsStep(options, deps);
       else if (step === 'linger') outcome = await lingerStep(options, deps);
-      else outcome = await coreStep(options, deps);
+      else if (step === 'core') outcome = await coreStep(options, deps);
+      else outcome = await selfdevSetupStep(options, deps);
     } catch (err) {
       outcome = failed((err as NodeJS.ErrnoException).code ?? 'the step could not run');
     }

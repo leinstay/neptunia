@@ -1,17 +1,20 @@
 // She codes herself (docs/selfdev.md): her fix proposals on the task board become pull requests, and a merge reaches
-// her wake. `createSelfdev` is three steps over injected edges, run one after the other by whoever owns the beat
-// (bin/selfdev.ts). `intake` triages her `fix` proposals to the dev role and approves their plan, which is safe at risk
+// her wake. `createSelfdev` is three steps over injected edges, run one after the other by `beat` (bin/selfdev.ts) once
+// the push-right check (src/selfdev/repository.ts) says her gh login may push to `selfdev.repository`. `intake` triages her `fix` proposals to the dev role and approves their plan, which is safe at risk
 // `low` because nothing lands without a merge. `work` takes each approved fix, makes a worktree from the base branch,
 // lets one dev run patch it, commits what it left, runs the tests of the touched modules itself and only then pushes and
 // opens the pull request as a draft. `observe` looks at each open pull request: with every check green it marks the
 // request ready for the owner (`selfdev.mode` `approve`) or merges it (`auto`), and a merge by the owner closes the
-// task. A branch is deleted right after its merge in both modes.
+// task. A branch is deleted right after its merge in both modes. Branches are pushed to and deleted from
+// `https://github.com/<selfdev.repository>.git`, and every `gh pr` call names that repository with `--repo`, so a
+// deployment that named its fork never touches the checkout's `origin`.
 // The board is called as the builtin principal `selfdev`. Git, gh, the test runner and the dev run are injected, one
 // command at a time and never through a shell. The journal carries ids, counts and codes, never a diff or a message.
 
 import { fillPromptTemplate } from '../turn/request/text.ts';
 import type { Handoff, HandoffTest, TaskRecord } from '../board/board.ts';
 import type { BoardCaller } from '../tools/impl/board.ts';
+import type { RepositoryCheck } from './repository.ts';
 import type { SelfdevSettings } from './settings.ts';
 
 export type ExecResult = { code: number; stdout: string; stderr: string };
@@ -43,8 +46,10 @@ export type SelfdevDeps = {
   run: SubharnessRun;
   /** the model-facing text lives in prompts/, never in src/ */
   brief(task: FixBrief): string;
-  /** hot: read at each use; the beat reads the mode and the base, never the checkout setup renders it over */
-  settings(): Pick<SelfdevSettings, 'mode' | 'base'>;
+  /** hot: read at each use; the beat reads the mode, the base and the repository, never the checkout setup renders it over */
+  settings(): Pick<SelfdevSettings, 'mode' | 'base' | 'repository'>;
+  /** the push-right check of the beat: bin/selfdev.ts passes checkRepository over its gh runner and the labels */
+  check(): Promise<RepositoryCheck>;
   /** `boardSettings(config).autoTriage` */
   triage(): { role: string; budget: number; steps: number; estimate: number };
   journal(line: Record<string, unknown>): void;
@@ -68,6 +73,12 @@ export type Observation = {
   pr: number;
   action: 'merged-by-owner' | 'merged-auto' | 'waiting-ci' | 'waiting-owner' | 'closed';
 };
+export type BeatReport = {
+  check: RepositoryCheck;
+  taken: Array<string>;
+  reports: Array<AttemptReport>;
+  seen: Array<Observation>;
+};
 export type Selfdev = {
   /** Her fix proposals in `proposed`, triaged to dev at risk `low` with the plan approved. Returns the task ids. */
   intake(): Promise<Array<string>>;
@@ -75,6 +86,11 @@ export type Selfdev = {
   work(): Promise<Array<AttemptReport>>;
   /** Looks at every task in `needs_validation` with a pull request of this service. */
   observe(): Promise<Array<Observation>>;
+  /**
+   * The check first; on `ok` intake, work and observe once each. Otherwise nothing runs, and the journal says
+   * `paused` with the check's code. A check that throws pauses with `failed`.
+   */
+  beat(): Promise<BeatReport>;
 };
 
 /** The name her tasks are filed under (src/tools/impl/board.ts). */
@@ -186,7 +202,25 @@ function pullRequestOf(stdout: string): PullRequest | null {
   };
 }
 
+/** The push URL of `owner/name`. */
+const remoteOf = (repository: string): string => `https://github.com/${repository}.git`;
+
+/** Thrown where a git or gh call needs `selfdev.repository` and it is unset; the beat checks first, so only a direct
+ * call of a step meets it. */
+class RepositoryUnset extends Error {
+  code = 'repository-unset';
+}
+
 export function createSelfdev(deps: SelfdevDeps): Selfdev {
+  /** `selfdev.repository` at the moment of use. */
+  const repository = (): string => {
+    const named = deps.settings().repository;
+    if (named === null) throw new RepositoryUnset('selfdev.repository is unset');
+    return named;
+  };
+  /** `gh pr <sub> --repo <repository> ...args` in `cwd`. */
+  const pr = async (sub: string, args: ReadonlyArray<string>, cwd: string) =>
+    await deps.gh('gh', ['pr', sub, '--repo', repository(), ...args], { cwd });
   const viewOf = async (id: string) => await Promise.resolve(deps.board.call('selfdev', 'task.show', { id }));
   const journal = (line: Record<string, unknown>): void => deps.journal({ kind: 'selfdev', ...line });
 
@@ -303,13 +337,13 @@ export function createSelfdev(deps: SelfdevDeps): Selfdev {
     if (proof !== null && !proof.green)
       return await stopped(id, 'failed', `tests-failed: ${proof.test.command}`, branch);
 
-    const pushed = await deps.git('git', ['push', '-u', 'origin', branch], { cwd: tree });
+    const pushed = await deps.git('git', ['push', '-u', remoteOf(repository()), branch], { cwd: tree });
     if (pushed.code !== 0) return await stopped(id, 'failed', `push-failed: ${firstLine(pushed.stderr)}`, branch);
     const body = bodyOf(task, changed, proof?.test ?? null, uncovered);
-    const opened = await deps.gh(
-      'gh',
-      ['pr', 'create', '--draft', '--base', base, '--head', branch, '--title', task.title, '--body', body],
-      { cwd: tree }
+    const opened = await pr(
+      'create',
+      ['--draft', '--base', base, '--head', branch, '--title', task.title, '--body', body],
+      tree
     );
     const url = firstLine(opened.stdout);
     const number = Number(url.split('/').at(-1));
@@ -375,10 +409,10 @@ export function createSelfdev(deps: SelfdevDeps): Selfdev {
 
   /** One look at one pull request; null when gh could not answer, which the next look tries again. */
   async function lookAt(task: TaskRecord, number: number): Promise<Observation | null> {
-    const viewed = await deps.gh(
-      'gh',
-      ['pr', 'view', String(number), '--json', 'number,state,title,files,statusCheckRollup,headRefName'],
-      { cwd: deps.repoDir }
+    const viewed = await pr(
+      'view',
+      [String(number), '--json', 'number,state,title,files,statusCheckRollup,headRefName'],
+      deps.repoDir
     );
     const pull = viewed.code === 0 ? pullRequestOf(viewed.stdout) : null;
     if (pull === null || pull.branch !== `self/${task.id}`) {
@@ -416,9 +450,7 @@ export function createSelfdev(deps: SelfdevDeps): Selfdev {
     // The rule is written down before the merge, so a look that finds the pull request merged after a crash still
     // knows who decided.
     await remember(task.id, { autoMerge: true });
-    const merged = await deps.gh('gh', ['pr', 'merge', String(number), '--squash', '--delete-branch'], {
-      cwd: deps.repoDir,
-    });
+    const merged = await pr('merge', [String(number), '--squash', '--delete-branch'], deps.repoDir);
     if (merged.code !== 0) {
       await remember(task.id, { autoMerge: null });
       journal({ event: 'merge-failed', taskId: task.id, pr: number, code: 'gh-failed' });
@@ -431,7 +463,7 @@ export function createSelfdev(deps: SelfdevDeps): Selfdev {
   /** CI is green in `approve` mode: the draft becomes a request to the owner, once. */
   async function readyForOwner(task: TaskRecord, number: number): Promise<void> {
     if (task.metadata?.ready === true) return;
-    const done = await deps.gh('gh', ['pr', 'ready', String(number)], { cwd: deps.repoDir });
+    const done = await pr('ready', [String(number)], deps.repoDir);
     if (done.code !== 0) {
       journal({ event: 'ready-failed', taskId: task.id, pr: number, code: 'gh-failed' });
       return;
@@ -442,7 +474,9 @@ export function createSelfdev(deps: SelfdevDeps): Selfdev {
 
   /** The branch is not needed once its pull request ended; a failure is journaled and the next look does not retry. */
   async function dropBranch(task: TaskRecord, number: number): Promise<void> {
-    const done = await deps.git('git', ['push', 'origin', '--delete', `self/${task.id}`], { cwd: deps.repoDir });
+    const done = await deps.git('git', ['push', remoteOf(repository()), '--delete', `self/${task.id}`], {
+      cwd: deps.repoDir,
+    });
     if (done.code !== 0) journal({ event: 'branch-delete-failed', taskId: task.id, pr: number, code: 'git-failed' });
   }
 
@@ -454,7 +488,19 @@ export function createSelfdev(deps: SelfdevDeps): Selfdev {
     journal({ event: 'merged', taskId: task.id, pr: number, decidedBy: by, files: pull.files.length });
   }
 
-  return { intake, work, observe };
+  async function beat(): Promise<BeatReport> {
+    const check = await deps.check().catch((): RepositoryCheck => ({ code: 'failed', line: 'failed' }));
+    if (check.code !== 'ok') {
+      journal({ event: 'paused', code: check.code });
+      return { check, taken: [], reports: [], seen: [] };
+    }
+    const taken = await intake();
+    const reports = await work();
+    const seen = await observe();
+    return { check, taken, reports, seen };
+  }
+
+  return { intake, work, observe, beat };
 }
 
 /** The brief's fields from a task as the board holds it. */

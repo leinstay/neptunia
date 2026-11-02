@@ -462,7 +462,7 @@
     },
     {
       "path": "src/selfdev/",
-      "purpose": "Her self-development: the steps that turn her fix proposals into pull requests (intake, work, observe), the settings, and the merged fixes her wake shows. Git, gh, the test runner and the dev run are injected.",
+      "purpose": "Her self-development: the steps that turn her fix proposals into pull requests (intake, work, observe), the settings, the push-right check of the repository her pull requests go to, and the merged fixes her wake shows. Git, gh, the test runner and the dev run are injected.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
@@ -490,7 +490,7 @@
     },
     {
       "path": "src/setup/",
-      "purpose": "`neptunia setup`: the unit templates rendered for the installing user, the five steps and the writing of the units.",
+      "purpose": "`neptunia setup`: the unit templates rendered for the installing user, the six steps, the writing of the units and the question for her self-development repository.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"

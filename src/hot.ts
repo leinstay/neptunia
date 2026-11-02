@@ -277,6 +277,11 @@ function computeLabels(rootDir: string, privateDir: string) {
   return { value: deepMerge(base, flat), source: 'merged' };
 }
 
+/** The labels of the two layers as `hot.prompts.labels` holds them, read once, for a command that runs without a core. */
+export function readLabels(rootDir: string, privateDir: string): Record<string, unknown> {
+  return computeLabels(rootDir, privateDir).value as Record<string, unknown>;
+}
+
 /**
  * The `*.md` files directly under `dir` (prompts.local/preambles/) as `{ <base name>: text }`,
  * `{}` when the folder is absent. An empty or whitespace-only file loads as '' right away (no

@@ -323,7 +323,8 @@
   "selfdev": {
     "mode": "approve",
     "base": "main",
-    "checkout": null
+    "checkout": null,
+    "repository": null
   },
   "diary": {
     "channelId": "",

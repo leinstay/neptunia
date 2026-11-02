@@ -971,6 +971,15 @@
         "tokensLine": "core tokens today · {prompt} prompt ({cached} cached) · {completion} completion",
         "sleptLine": "slept through {count} wakes since the start"
       }
+    },
+    "selfdev": {
+      "check": {
+        "gh-missing": "Self-development needs the GitHub CLI, and there is no gh on her PATH. Install gh and run setup again.",
+        "gh-logged-out": "gh is not logged in under her own gh home, subharness/gh in the private folder. Run gh auth login with GH_CONFIG_DIR set to that folder, then run setup again.",
+        "no-push": "Her gh login cannot push to {repository}. Fork it, name the fork in selfdev.repository and run setup again.",
+        "repository-unset": "selfdev.repository names no repository as owner/name, so her pull requests have nowhere to go. Run setup to name one.",
+        "failed": "gh gave no usable answer about {repository}. Check the name and that GitHub is reachable, then try again."
+      }
     }
   }
 }

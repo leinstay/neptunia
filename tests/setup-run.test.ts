@@ -81,7 +81,8 @@ function rig(overrides: Partial<SetupOptions> = {}): Rig {
 
 test('the steps run in a fixed order: folders, keys file, units, linger, core', () => {
   // Bug: the core is started before its units exist, or the units are written before the folders they point at.
-  assert.deepEqual([...SETUP_STEPS], ['folders', 'keys-file', 'units', 'linger', 'core']);
+  // Changed: SETUP_STEPS gains the self-development step after the core (spec 2026-11-02, PR 5 "Forks").
+  assert.deepEqual([...SETUP_STEPS], ['folders', 'keys-file', 'units', 'linger', 'core', 'selfdev']);
 });
 
 test('a fresh user setup creates the private folders at 0700 whatever the umask', async () => {
@@ -187,9 +188,10 @@ test('the report lists every step done and the commands that come next, in the o
   // Bug: setup ends without saying what to type next, so the owner does not know the install is only half done.
   const { options, deps } = rig();
   const report = await runSetup(options, deps);
+  // Changed: the self-development step is skipped in this rig (no selfdev.checkout, no ask), every other step is done.
   assert.deepEqual(
     report.steps.map((step) => [step.step, step.state]),
-    SETUP_STEPS.map((step) => [step, 'done'])
+    SETUP_STEPS.map((step) => [step, step === 'selfdev' ? 'skipped' : 'done'])
   );
   assert.deepEqual(report.next, [
     'keys core add',
@@ -229,6 +231,8 @@ test('a rerun after a failure resumes: earlier steps are already done and the co
       ['units', 'already'],
       ['linger', 'already'],
       ['core', 'done'],
+      // Changed: SETUP_STEPS gains selfdev, skipped in this rig (no selfdev.checkout, no ask).
+      ['selfdev', 'skipped'],
     ]
   );
   assert.deepEqual(chat, ['/keys core add']);
@@ -259,6 +263,8 @@ test('a single step runs alone and leaves the others skipped, with no command an
       ['units', 'skipped'],
       ['linger', 'skipped'],
       ['core', 'skipped'],
+      // Changed: SETUP_STEPS gains selfdev, skipped here because it was not asked for.
+      ['selfdev', 'skipped'],
     ]
   );
   assert.equal(fs.existsSync(keysPath(options.privateDir)), false);
@@ -434,4 +440,25 @@ test('setup writes no selfdev unit when selfdev.checkout is the deployed checkou
   withSelfdev(options.privateDir, { checkout: options.rootDir });
   await runSetup({ ...options, only: 'units' }, deps);
   for (const name of SELFDEV_UNIT_FILES) assert.equal(fs.existsSync(path.join(unitDir, name)), false, name);
+});
+
+// The self-development step (spec 2026-11-02, PR 5 "Forks"): last, after the core, and optional, so a refusal of it
+// leaves the install whole.
+
+test('a refused self-development step leaves the run ok, stores no repository and still opens the chat', async () => {
+  // Catches: an optional step without gh fails the install, so the owner never reaches the chat that sets her keys.
+  const { options, deps, chat } = rig();
+  withSelfdev(options.privateDir, { checkout: path.join(path.dirname(options.privateDir), 'dev-checkout') });
+  const report = await runSetup(options, {
+    ...deps,
+    ask: () => Promise.resolve('example/engine'),
+    gh: () => Promise.resolve({ found: false }),
+  });
+  assert.equal(report.ok, true);
+  assert.equal(report.steps.find((step) => step.step === 'selfdev')?.state, 'refused');
+  assert.deepEqual(chat, ['/keys core add']);
+  const local = JSON.parse(fs.readFileSync(path.join(options.privateDir, 'config.local', 'config.json'), 'utf8')) as {
+    selfdev: Record<string, unknown>;
+  };
+  assert.equal('repository' in local.selfdev || 'mode' in local.selfdev, false);
 });

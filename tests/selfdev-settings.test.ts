@@ -35,3 +35,16 @@ test('a selfdev checkout that is empty, relative or not a string is none', () =>
   for (const checkout of ['', 'dev-checkout', 42, true])
     assert.equal(selfdevSettings({ selfdev: { checkout } }).checkout, null, JSON.stringify(checkout));
 });
+
+test('the repository her pull requests go to is none when unset, and owner/name when set', () => {
+  // Catches: an unset setting reads as some default repository, so her pull requests go upstream without anyone naming it.
+  assert.equal(selfdevSettings({}).repository, null);
+  assert.equal(selfdevSettings({ selfdev: { repository: 'fork-owner/engine' } }).repository, 'fork-owner/engine');
+  assert.equal(selfdevSettings({ selfdev: { repository: 'a.b/c_d-e' } }).repository, 'a.b/c_d-e');
+});
+
+test('a repository that is not owner/name is none', () => {
+  // Catches: a URL or a path is passed to gh as --repo and every pull request of the beat fails.
+  for (const repository of ['', 'engine', 'a/b/c', '/engine', 'owner/', 'https://github.com/a/b', 'a b/c', 42, null])
+    assert.equal(selfdevSettings({ selfdev: { repository } }).repository, null, JSON.stringify(repository));
+});

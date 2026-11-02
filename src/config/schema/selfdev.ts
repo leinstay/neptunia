@@ -26,4 +26,12 @@ export const SELFDEV: ReadonlyArray<SchemaEntry> = [
     'text':
       'The absolute path of the dev checkout that `neptunia setup` renders `neptunia-selfdev.service` and its timer over, so the beat works there. Setup renders no selfdev units while it is unset, relative or the deployed checkout itself',
   },
+  {
+    'key': 'selfdev.repository',
+    'types': ['string', 'null'],
+    'reader': 'src/selfdev/settings.ts',
+    'default': null,
+    'text':
+      'The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when her gh login can push there. While it is unset every selfdev beat pauses',
+  },
 ];

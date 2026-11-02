@@ -415,7 +415,7 @@ still search deeper with `memory.search`.
 
 ## Labels
 
-The keys of `config/labels.json`, each at its path under its section (`model.transcript.gap` is read as `transcript.gap`); `{x}` is filled by code. The keys under `status.costs` and `status.inner` sit in `owner`, every other key in `model`.
+The keys of `config/labels.json`, each at its path under its section (`model.transcript.gap` is read as `transcript.gap`); `{x}` is filled by code. The keys under `status.costs`, `status.inner` and `selfdev.check` sit in `owner`, every other key in `model`.
 
 ```
 locale                                   BCP-47 tag for dates
@@ -689,6 +689,7 @@ task.continueInnerOpen                   {list}: the open-intentions line of the
 journal.offLead                          lead line before the persona's recent downtime periods in `<now>`
 journal.offPaused                        {from} {to} {length}: one period when the owner paused the persona
 journal.offStopped                       {from} {to} {length}: one period when the service was off
+selfdev.check.*                          `gh-missing` | `gh-logged-out` | `no-push` | `repository-unset` | `failed`: the line of the push-right check of `selfdev.repository` (src/selfdev/repository.ts#checkRepository), {repository} the name checked; shown in `neptunia setup` and by `neptunia selfdev run`, read by the owner, never sent to a model. A missing label shows the bare code
 skills.index                             the first line of the `<skills>` index
 skills.line                              {name} {description}: one skill of the `<skills>` index; {description} is the skill's own line from its `SKILL.md`
 tools.line                              {name} {title} {whenToUse} {access} {args}: one tool in the `<tool_catalogue>` list. {access} is one of tools.access.*; {args} is tools.args.list, or empty when the skill takes no arguments
