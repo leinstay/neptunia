@@ -4,6 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createEventDoor, eventIdOf } from '../src/interface/door.ts';
+import type { EventHandlerContext, From, IngestRow } from '../src/interface/door.ts';
+import type { AuthenticatedSender } from '../src/interface/principals.ts';
 import { envelope } from '../src/protocol/index.ts';
 import type { ErrandDone, ReactionChanged } from '../src/protocol/events.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -208,4 +210,104 @@ test('door: two removals of the same emoji at different times both pass; the sam
     assert.equal((await door.submit(build(2000))).status, 'duplicate');
   }
   assert.deepEqual(got, ['remove', 'remove', 'all', 'all', 'emoji', 'emoji']);
+});
+
+test('direct submissions without authenticated metadata remain ordinary even with an owner principal name', async () => {
+  // Catches promoting an internal submission or an ingestion principal name into authenticated provenance.
+  const contexts: Array<EventHandlerContext> = [];
+  const committed: Array<IngestRow> = [];
+  const door = createEventDoor({
+    handlers: { 'reaction.changed': (_event: ReactionChanged, context: EventHandlerContext) => contexts.push(context) },
+    ingest: {
+      seen: () => false,
+      commit: (row) => {
+        committed.push(row);
+        return Promise.resolve();
+      },
+    },
+    log: quiet(),
+  });
+  assert.equal((await door.submit(reaction('direct'))).status, 'ok');
+  assert.equal((await door.submit(reaction('named'), { principal: 'owner', seq: 4 })).status, 'ok');
+  assert.deepEqual(contexts, [
+    { ingest: null, authenticated: null },
+    {
+      ingest: { principal: 'owner', seq: 4, eventId: 'named', kind: 'reaction.changed', conversation: 'c1' },
+      authenticated: null,
+    },
+  ]);
+  assert.deepEqual(committed, [
+    { principal: 'owner', seq: 4, eventId: 'named', kind: 'reaction.changed', conversation: 'c1' },
+  ]);
+});
+
+for (const entry of ['receive', 'submit'] as const) {
+  test(`${entry} preserves trusted sender metadata beside the original ingestion row`, async () => {
+    // Catches sender metadata dropped by envelope reconstruction or handler dispatch.
+    const contexts: Array<EventHandlerContext> = [];
+    const committed: Array<IngestRow> = [];
+    const authenticated: AuthenticatedSender = { name: 'verified-owner', kind: 'cli' };
+    const from: From = { principal: authenticated.name, seq: 7, authenticated };
+    const door = createEventDoor({
+      handlers: {
+        'reaction.changed': (_event: ReactionChanged, context: EventHandlerContext) => contexts.push(context),
+      },
+      ingest: {
+        seen: () => false,
+        commit: (row) => {
+          committed.push(row);
+          return Promise.resolve();
+        },
+      },
+      log: quiet(),
+    });
+    const event = reaction(`trusted-${entry}`);
+    if (entry === 'receive') {
+      const input = Object.assign(envelope('event', event, { id: event.id }), { seq: 7 });
+      assert.deepEqual(await door.receive(input, from), {
+        v: 1,
+        id: `ack:${event.id}`,
+        type: 'ack',
+        replyTo: event.id,
+        body: { status: 'ok' },
+      });
+    } else assert.equal((await door.submit(event, from)).status, 'ok');
+    const ingest = {
+      principal: authenticated.name,
+      seq: 7,
+      eventId: event.id,
+      kind: 'reaction.changed',
+      conversation: 'c1',
+    };
+    assert.deepEqual(contexts, [{ ingest, authenticated }]);
+    assert.deepEqual(committed, [ingest]);
+  });
+}
+
+test('a mismatched authenticated sender is invalid before handling or committing ingestion', async () => {
+  // Catches an inconsistent trusted carrier entering the core under a different ingestion identity.
+  let calls = 0;
+  const committed: Array<IngestRow> = [];
+  const door = createEventDoor({
+    handlers: {
+      'reaction.changed': () => {
+        calls += 1;
+      },
+    },
+    ingest: {
+      seen: () => false,
+      commit: (row) => {
+        committed.push(row);
+        return Promise.resolve();
+      },
+    },
+    log: quiet(),
+  });
+  const from: From = { principal: 'ordinary', authenticated: { name: 'owner', kind: 'cli' } };
+  const result = await door.submit(reaction('mismatched'), from);
+  assert.equal(result.status, 'invalid');
+  assert.equal(result.reason, 'sender:mismatch');
+  assert.equal(calls, 0);
+  assert.deepEqual(committed, []);
+  assert.equal(door.seen('mismatched'), false);
 });

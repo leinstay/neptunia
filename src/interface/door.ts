@@ -24,6 +24,7 @@
 import { log as defaultLog } from '../log.ts';
 import { ackOf, validateEnvelope, validateEvent } from '../protocol/index.ts';
 import { objOf } from '../tools/types.ts';
+import type { AuthenticatedSender } from './principals.ts';
 
 /** The ids kept by default. */
 export const DEFAULT_CAPACITY = 10_000;
@@ -69,7 +70,17 @@ export type IngestRow = {
 };
 
 /** Who an event came from: the principal's name and the `seq` of its envelope (null for an un-numbered one). */
-export type From = { principal: string | null; seq?: number | null };
+export type From = {
+  principal: string | null;
+  seq?: number | null;
+  authenticated?: AuthenticatedSender;
+};
+
+/** The ingestion identity and verified sender supplied to an event handler. */
+export type EventHandlerContext = {
+  ingest: IngestRow | null;
+  authenticated: AuthenticatedSender | null;
+};
 
 /**
  * The id an event is deduplicated by: its own, else one derived from what makes it that event
@@ -95,7 +106,7 @@ export function createEventDoor({
   log = defaultLog,
   ingest = null,
 }: {
-  handlers: Record<string, (event: never, context: { ingest: IngestRow | null }) => unknown>;
+  handlers: Record<string, (event: never, context: EventHandlerContext) => unknown>;
   capacity?: number;
   log?: { info(message: string, meta?: unknown): void; warn(message: string, meta?: unknown): void };
   ingest?: { seen(principal: string, eventId: string): boolean; commit(row: IngestRow): Promise<unknown> } | null;
@@ -136,6 +147,9 @@ export function createEventDoor({
       log.warn('interface: invalid event', { kind: checked.kind, reason: 'id:required' });
       return { status: 'invalid', id: null, reason: 'id:required' };
     }
+    if (from.authenticated && from.authenticated.name !== from.principal) {
+      return { status: 'invalid', id, reason: 'sender:mismatch' };
+    }
     // An id is one event of one sender: two principals may use the same id.
     const key = typeof from?.principal === 'string' ? `${from.principal}\u0000${id}` : id;
     const row = rowOf(checked, id, from);
@@ -154,7 +168,10 @@ export function createEventDoor({
       let result: unknown;
       try {
         // A handler takes the event type of its kind, which the door cannot name: it is called with the event as it is.
-        result = await Reflect.apply(handler, undefined, [event, { ingest: row }]);
+        result = await Reflect.apply(handler, undefined, [
+          event,
+          { ingest: row, authenticated: from.authenticated ?? null },
+        ]);
       } catch (err) {
         log.warn('interface: event handler failed', { kind: checked.kind, error: err });
         return { status: 'failed', id, reason: 'handler-threw' };
@@ -187,7 +204,11 @@ export function createEventDoor({
       return ackOf(typeof value?.id === 'string' && value.id !== '' ? value.id : 'unknown', 'invalid', verdict.reason);
     if (value.type === 'hello' || value.type === 'ping') return ackOf(value, 'ok');
     if (value.type !== 'event') return ackOf(value, 'invalid', 'type:not-inbound');
-    const answer = await submit(value.body, { principal: from?.principal ?? null, seq: value.seq ?? null });
+    const answer = await submit(value.body, {
+      principal: from?.principal ?? null,
+      seq: value.seq ?? null,
+      authenticated: from.authenticated,
+    });
     return ackOf(value, answer.status, answer.reason);
   }
 

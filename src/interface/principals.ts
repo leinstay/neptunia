@@ -27,6 +27,9 @@ export type Principal = {
   permissions: ReadonlyArray<string>;
 };
 
+/** The verified identity carried separately from an event's wire fields. */
+export type AuthenticatedSender = Readonly<Pick<Principal, 'name' | 'kind'>>;
+
 /** One entry of `clients.json`: the principal and the file its token is in. */
 export type ClientEntry = Principal & { tokenFile: string };
 

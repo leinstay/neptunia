@@ -15,6 +15,8 @@ import type { Envelope, Transport } from '../src/protocol/wire.ts';
 import type { Principal } from '../src/interface/principals.ts';
 import { openAdapterLink } from '../src/interface/link.ts';
 import { createEventDoor } from '../src/interface/door.ts';
+import type { EventHandlerContext, IngestRow } from '../src/interface/door.ts';
+import { createCommandIntake } from '../src/interface/neptunia-cli.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 
 type Log = {
@@ -115,8 +117,12 @@ const bodyOf = (value: Envelope): Record<string, unknown> => value.body as Recor
  * The core end with a door whose handlers record what started and, for the ids in `held`, wait until released. The
  * interface end is the loopback's client, driven by hand: `received` is every envelope the core sent it.
  */
-function core(held: ReadonlyArray<string> = []) {
+function core(held: ReadonlyArray<string> = [], options: { principalOf?: typeof principalOf; intake?: boolean } = {}) {
   const started: Array<string> = [];
+  const contexts: Array<EventHandlerContext> = [];
+  const events: Array<object> = [];
+  const committed: Array<IngestRow> = [];
+  let commandChecks = 0;
   const gates = new Map<string, () => void>();
   const hold = (id: string): Promise<void> | undefined =>
     held.includes(id) ? new Promise<void>((resolve) => gates.set(id, resolve)) : undefined;
@@ -129,14 +135,39 @@ function core(held: ReadonlyArray<string> = []) {
       'command.requested': (event: { id: string }) => {
         started.push(event.id);
       },
-      'message.received': (event: { id: string }) => {
+      'message.received': (event: { id: string }, context: EventHandlerContext) => {
+        contexts.push(context);
+        events.push(event);
         started.push(event.id);
       },
     },
     log: quiet,
+    ingest: {
+      seen: () => false,
+      commit: (row) => {
+        committed.push(row);
+        return Promise.resolve();
+      },
+    },
   });
   const { core: coreEnd, client } = createLoopback();
-  const link = openAdapterLink({ transport: coreEnd, door, principalOf, log: quiet });
+  const intake = options.intake
+    ? createCommandIntake({
+        door,
+        ready: () => Promise.resolve(),
+        desk: () => {
+          commandChecks += 1;
+          return null;
+        },
+        log: quiet,
+      })
+    : null;
+  const link: ReturnType<typeof openAdapterLink> = openAdapterLink({
+    transport: coreEnd,
+    door: intake?.doorOf(() => link) ?? door,
+    principalOf: options.principalOf ?? principalOf,
+    log: quiet,
+  });
   const received: Array<Envelope> = [];
   const closed: Array<string> = [];
   client.onEnvelope((value) => received.push(value));
@@ -145,6 +176,10 @@ function core(held: ReadonlyArray<string> = []) {
     link,
     client,
     started,
+    contexts,
+    events,
+    committed,
+    commandChecks: () => commandChecks,
     received,
     closed,
     release: (id: string): void => gates.get(id)?.(),
@@ -382,4 +417,122 @@ test("an agent principal's message event is refused and never reaches the door",
   assert.equal((await answered(rig, 'm1')).status, 'invalid');
   assert.deepEqual(rig.started, []);
   rig.link.close();
+});
+
+function ordinaryMessage(id: string, iface = 'cli'): Record<string, unknown> {
+  return {
+    kind: 'message.received',
+    iface,
+    at: 1,
+    id,
+    conversation: { id: `${iface}:dm:owner`, kind: 'dm' },
+    message: {
+      id,
+      author: { id: 'owner', name: 'Owner', self: false, bot: false },
+      content: 'an ordinary message',
+      at: 1,
+      replyToId: null,
+      replyPingUserId: null,
+      forwardedFrom: null,
+      attachments: [],
+      links: [],
+      forwarded: [],
+      stickers: [],
+      emojis: [],
+      reactions: [],
+    },
+    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+  };
+}
+
+test('an authenticated CLI message reaches the handler with verified sender, ingestion principal and sequence', async () => {
+  // Catches sender provenance lost between token validation, envelope receipt and core-shaped handler dispatch.
+  const rig = core();
+  try {
+    rig.hello('owner-token', { iface: 'cli' });
+    await within(rig.link.hello);
+    rig.client.send(numbered(ordinaryMessage('cli-message'), 1));
+    assert.deepEqual(await answered(rig, 'cli-message'), { status: 'ok', ackedSeq: 1 });
+    assert.deepEqual(rig.contexts[0]?.authenticated, { name: OWNER.name, kind: 'cli' });
+    assert.deepEqual(rig.contexts[0]?.ingest, {
+      principal: OWNER.name,
+      seq: 1,
+      eventId: 'cli-message',
+      kind: 'message.received',
+      conversation: 'cli:dm:owner',
+    });
+    assert.deepEqual(rig.committed, [rig.contexts[0]?.ingest]);
+    assert.equal('authenticated' in (rig.events[0] ?? {}), false, 'trusted sender stays outside the wire event');
+  } finally {
+    rig.link.close();
+  }
+});
+
+test('an interface named owner with command permission cannot claim CLI provenance in its event', async () => {
+  // Catches privilege inferred from a name, command permission or untrusted event fields.
+  const ownerNamedInterface: Principal = { ...FAKE, name: OWNER.name, permissions: ['commands'] };
+  const rig = core([], { principalOf: () => ownerNamedInterface });
+  try {
+    rig.hello('synthetic-interface-token');
+    await within(rig.link.hello);
+    const event = {
+      ...ordinaryMessage('spoofed-message', 'fake'),
+      internal: true,
+      authenticated: { name: OWNER.name, kind: 'cli' },
+      principal: OWNER.name,
+    };
+    rig.client.send(numbered(event, 1));
+    const answer = await answered(rig, 'spoofed-message');
+    if (answer.status === 'ok')
+      assert.deepEqual(rig.contexts[0]?.authenticated, { name: OWNER.name, kind: 'interface' });
+    else {
+      assert.equal(answer.status, 'invalid');
+      assert.deepEqual(rig.contexts, []);
+    }
+  } finally {
+    rig.link.close();
+  }
+});
+
+test('revoking a CLI token closes its link before another event can forward stale sender metadata', async () => {
+  // Catches reusing the hello principal after per-envelope token validation has failed.
+  let active = true;
+  const rig = core([], { principalOf: (token) => (active && token === 'owner-token' ? OWNER : null) });
+  try {
+    rig.hello('owner-token', { iface: 'cli' });
+    await within(rig.link.hello);
+    rig.client.send(numbered(ordinaryMessage('before-revocation'), 1));
+    assert.equal((await answered(rig, 'before-revocation')).status, 'ok');
+    const closed = new Promise<void>((resolve) => rig.client.onClose(() => resolve()));
+    active = false;
+    rig.client.send(numbered(ordinaryMessage('after-revocation'), 2));
+    await within(closed);
+    assert.deepEqual(rig.started, ['before-revocation']);
+    assert.deepEqual(
+      rig.contexts.map((context) => context.authenticated),
+      [{ name: OWNER.name, kind: 'cli' }]
+    );
+    assert.deepEqual(
+      rig.committed.map((row) => row.eventId),
+      ['before-revocation']
+    );
+  } finally {
+    rig.link.close();
+  }
+});
+
+test('command intake preserves authenticated sender metadata for an ordinary CLI message', async () => {
+  // Catches the intake wrapper dropping provenance or diverting ordinary messages into command handling.
+  const rig = core([], { intake: true });
+  try {
+    rig.hello('owner-token', { iface: 'cli' });
+    await within(rig.link.hello);
+    rig.client.send(numbered(ordinaryMessage('through-intake'), 1));
+    assert.equal((await answered(rig, 'through-intake')).status, 'ok');
+    assert.deepEqual(rig.started, ['through-intake']);
+    assert.deepEqual(rig.contexts[0]?.authenticated, { name: OWNER.name, kind: 'cli' });
+    assert.equal(rig.commandChecks(), 0);
+  } finally {
+    rig.link.close();
+  }
 });
