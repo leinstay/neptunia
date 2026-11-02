@@ -3,14 +3,13 @@
 // (default `selfdev`, whose token is `NEPTUNIA_TASK_TOKEN` or `<private>/clients/selfdev.token`; the board reads the
 // name `selfdev` as its builtin principal), then runs `intake`, `work` and `observe` once and prints their counts. This
 // file holds the edges the service takes as arguments: git and gh as child processes with no shell, the test runner
-// with a minimal environment, and the dev run over `createBackend` (sandbox `workspace-write`). The settings are read
+// with a minimal environment, and the dev run over the subharness seam (src/subharness/run.ts, the mode of `dev`). The settings are read
 // from the config at each use, the brief from `prompts/selfdev.md` (or its local copy). Exit 0 when the beat ran, 1
 // when the board could not be reached.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { backendOf, createBackend } from '../src/agent-runner/backend.ts';
 import { boardSettings } from '../src/board/board.ts';
 import { readConfig, ROOT_DIR } from '../src/config.ts';
 import { createHot } from '../src/hot.ts';
@@ -19,6 +18,7 @@ import { resolvePaths } from '../src/paths.ts';
 import { briefFrom, createSelfdev } from '../src/selfdev/service.ts';
 import type { Exec, SubharnessRun } from '../src/selfdev/service.ts';
 import { selfdevSettings } from '../src/selfdev/settings.ts';
+import { defaultDenyDir, runAgent } from '../src/subharness/run.ts';
 import { openBoardCaller } from './neptunia-task.ts';
 
 /** How long one dev run may take before its process group is killed (ms). */
@@ -50,15 +50,13 @@ const testEnv = (): NodeJS.ProcessEnv =>
     TEST_ENV_NAMES.flatMap((name) => (process.env[name] === undefined ? [] : [[name, process.env[name]]]))
   );
 
-/** The dev run: the backend of `agents.dev` working in the worktree, allowed to write there. */
+/** The dev run: the subharness's backend, in the mode of `dev`, working in the worktree. */
 function subharness(where: { rootDir: string; privateDir: string }): SubharnessRun {
   return async ({ brief, cwd }) => {
-    const config = readConfig(where.rootDir, { privateDir: where.privateDir });
-    const done = await createBackend(backendOf('dev', config)).run(brief, {
-      cwd,
-      timeoutMs: RUN_TIMEOUT_MS,
-      sandbox: 'workspace-write',
-    });
+    const done = await runAgent(
+      { agent: 'dev', brief, cwd, timeoutMs: RUN_TIMEOUT_MS },
+      { privateDir: where.privateDir, denyDir: defaultDenyDir() }
+    );
     return { ok: done.ok, text: done.text, ...(done.error === undefined ? {} : { error: done.error }) };
   };
 }
