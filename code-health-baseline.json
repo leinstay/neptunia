@@ -87,7 +87,7 @@
     },
     "scripts/memory-session.ts": {
       "main": {
-        "complexity": 35
+        "complexity": 33
       },
       "runCompare": {
         "complexity": 21
@@ -487,7 +487,7 @@
     },
     "src/memory/db/service.ts": {
       "createMemoryDb": {
-        "function-length": 1095
+        "function-length": 1088
       },
       "createMemoryDb>sessionJob": {
         "complexity": 30

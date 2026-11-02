@@ -1335,6 +1335,7 @@
       "imports": [
         "node:*",
         "src/keys/**",
+        "src/agent-runner/profiles.ts",
         "src/llm/key-failover.ts",
         "src/llm/openrouter.ts",
         "src/llm/roles.ts",

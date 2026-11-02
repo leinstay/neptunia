@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { applyModeToUnit } from '../src/setup/install.ts';
+import { applyModeToUnit, deferModeToUnit, installUnits } from '../src/setup/install.ts';
 import type { RunResult, UnitTarget } from '../src/setup/install.ts';
 import { setAgentMode } from '../src/subharness/control.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
@@ -65,4 +65,34 @@ test('an installed unit is rendered again for the new mode, the manager reloads 
     'systemctl --user daemon-reload',
     'systemctl --user try-restart neptunia-agent-scout.service',
   ]);
+});
+
+test('the units take the backend from keys.json, so the core may write the home of the backend that is on', async () => {
+  // Catches: the renderer gets no backend from setup and the core unit never names ~/.claude, whatever the owner enabled.
+  const { target, run, unitDir, privateDir } = rig();
+  writeKeysFile(privateDir, { subharness: { backend: 'claude', key: null, modes: {} } });
+  const done = await installUnits(target, run, ['neptunia-core.service']);
+  assert.equal(done.ok, true);
+  const text = fs.readFileSync(path.join(unitDir, 'neptunia-core.service'), 'utf8');
+  const writable = text
+    .split('\n')
+    .filter((line) => line.startsWith('ReadWritePaths='))
+    .flatMap((line) => line.slice('ReadWritePaths='.length).split(/\s+/))
+    .map((one) => one.replace(/^-/, ''));
+  assert.ok(writable.includes(path.join(target.home, '.claude')));
+});
+
+// `subharness mode` inside the core (spec 2026-11-02, follow-up 8): the core runs under NoNewPrivileges, so it never
+// tries sudo; it stores the mode and answers that `neptunia setup units` puts it into the unit.
+
+test('inside the core a mode change names neptunia setup units for an agent with a unit, and runs nothing', () => {
+  // Catches: the core answers a stored mode as if its unit were updated, so the owner never re-renders it.
+  for (const agent of ['scout', 'server', 'watcher'])
+    assert.ok(deferModeToUnit(agent)?.includes('neptunia setup units'), agent);
+});
+
+test('inside the core an agent with no unit, or no agent, gets no unit line', () => {
+  // Catches: dev, which runs in no unit of its own, is told to re-render a unit that does not exist.
+  assert.equal(deferModeToUnit('dev'), null);
+  assert.equal(deferModeToUnit('nobody'), null);
 });

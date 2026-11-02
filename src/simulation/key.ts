@@ -5,7 +5,7 @@
 // result as the subharness, a state that is read at each use. Nothing here prints a key value.
 
 import type { SubharnessResult } from '../subharness/control.ts';
-import { hasExtraKey, readKeys, writeKeys } from '../subharness/keys-file.ts';
+import { hasExtraKey, readKeys, writeKeys } from '../keys/file.ts';
 
 /** The simulation as keys.json holds it: whether it is on, and the name of its key. */
 export function simulationStatus(privateDir: string): { on: boolean; key: string | null } {

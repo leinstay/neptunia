@@ -43,8 +43,8 @@ export type SelfdevDeps = {
   run: SubharnessRun;
   /** the model-facing text lives in prompts/, never in src/ */
   brief(task: FixBrief): string;
-  /** hot: read at each use */
-  settings(): SelfdevSettings;
+  /** hot: read at each use; the beat reads the mode and the base, never the checkout setup renders it over */
+  settings(): Pick<SelfdevSettings, 'mode' | 'base'>;
   /** `boardSettings(config).autoTriage` */
   triage(): { role: string; budget: number; steps: number; estimate: number };
   journal(line: Record<string, unknown>): void;

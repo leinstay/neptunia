@@ -6,9 +6,14 @@
 // The sandbox of an agent unit follows the agent's mode (src/subharness/control.ts). `read` and `write` keep every
 // directive of the template. `full` drops the mount sandbox (`ProtectSystem`, `ProtectHome` and the bind and write
 // paths), and `sudo` drops in addition what would stop `sudo` (`NoNewPrivileges` and the capability bounding set).
+//
+// The core and the watcher start the subharness backend's binary (the core's enable check, the watcher's run), so their
+// templates put `~/.local/bin` on `PATH`, and the backend's home (`~/.codex` or `~/.claude`) joins the `ReadWritePaths=`
+// of the two while that backend is on.
 
 import path from 'node:path';
 import { UNIT_SCOPE_ENV } from '../agent-runner/profiles.ts';
+import type { BackendName } from '../agent-runner/profiles.ts';
 import type { AgentMode, SubharnessAgent } from '../subharness/control.ts';
 
 /** The templates `setup` renders, by file name. The bot unit and the plugin template are not among them. */
@@ -20,6 +25,18 @@ export const UNIT_FILES: ReadonlyArray<string> = [
   'neptunia-watcher.service',
   'neptunia-watcher.timer',
 ];
+
+/**
+ * The selfdev beat's units: rendered over the dev checkout `selfdev.checkout` names, never over the deployed one, so
+ * they are a list of their own (src/setup/run.ts).
+ */
+export const SELFDEV_UNIT_FILES: ReadonlyArray<string> = ['neptunia-selfdev.service', 'neptunia-selfdev.timer'];
+
+/** The `ExecStart=` of the units that start the subharness backend's binary: the core and the watcher. */
+const BACKEND_HOST = /^ExecStart=\S+ (src\/index\.ts|bin\/neptunia\.ts watcher run)$/m;
+
+/** The home folder of each backend the core and the watcher write; OpenCode keeps no login there. */
+const BACKEND_HOMES: Readonly<Partial<Record<BackendName, string>>> = { codex: '.codex', claude: '.claude' };
 
 /** The agent whose mode shapes a unit, by the unit's file name. */
 export const UNIT_AGENTS: Readonly<Record<string, SubharnessAgent>> = {
@@ -40,6 +57,8 @@ export type UnitVars = {
   node: string;
   /** the mode of the agent the unit runs; absent keeps the template's own sandbox */
   mode?: AgentMode;
+  /** the subharness backend of keys.json; its home (`~/.codex`, `~/.claude`) is writable for the core and the watcher */
+  backend?: BackendName | null;
 };
 
 /** The directives of the mount sandbox: gone in the modes `full` and `sudo`. */
@@ -93,6 +112,8 @@ type LineRules = {
   dropped: ReadonlySet<string>;
   keepsHome: boolean;
   isInterface: boolean;
+  /** the backend's home added to the unit's `ReadWritePaths=`, null when the unit has none to add */
+  backendHome: string | null;
 };
 
 /** The lines `line` becomes: none when it is dropped, two for `User=` of a system unit. */
@@ -104,6 +125,7 @@ function linesOf(line: string, rules: LineRules): Array<string> {
   if (key === 'User') return scope === 'system' ? [`User=${vars.user}`, `Group=${vars.group}`] : [];
   if (scope === 'user' && line === 'WantedBy=multi-user.target') return ['WantedBy=default.target'];
   if (scope === 'user' && rules.isInterface && key === 'InaccessiblePaths') return [];
+  if (rules.backendHome !== null && key === 'ReadWritePaths') return [`${line} -${rules.backendHome}`];
   if (rules.keepsHome && key === 'BindReadOnlyPaths') {
     const bound = line.slice('BindReadOnlyPaths='.length).split(/\s+/).filter(Boolean);
     return [`BindReadOnlyPaths=${[...bound, ...visibleHomePaths(vars, bound)].join(' ')}`];
@@ -124,12 +146,17 @@ export function renderUnit(template: string, scope: 'user' | 'system', vars: Uni
   const dropped = new Set<string>();
   if (mode === 'full' || mode === 'sudo') for (const key of MOUNT_SANDBOX) dropped.add(key);
   if (mode === 'sudo') for (const key of STOPS_SUDO) dropped.add(key);
+  // The core keeps `ProtectSystem=strict` with a `ReadWritePaths=` line, and the backend's home joins that line; a unit
+  // with no mount sandbox (the watcher, or any unit in `full`) can write the home already.
+  const homeName = vars.backend == null ? undefined : BACKEND_HOMES[vars.backend];
+  const backendHome = homeName !== undefined && BACKEND_HOST.test(text) ? path.join(vars.home, homeName) : null;
   const rules: LineRules = {
     scope,
     vars,
     dropped,
     keepsHome: !dropped.has('ProtectHome') && /^ProtectHome=tmpfs$/m.test(text),
     isInterface: /^ExecStart=.*\binterface run\b/m.test(text),
+    backendHome,
   };
   return text
     .split('\n')

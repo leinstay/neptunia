@@ -32,12 +32,17 @@ A merged task carries `metadata.landed` (title, paths, pull request number and w
 
 The outbox row of a merged task, addressed to `persona:self`, is read as `landedFor` (`src/selfdev/landed.ts`) in two wakes, the `selfimprovement` wake and the heartbeat. Each shows the pull request's title and its paths through `labels.wake.landed` ([Prompt contract](prompt-contract.md)), never the diff, and marks the row delivered with `ackLanded` once its turn committed. Whichever wake comes first tells her, and a wake that did not commit tells her again. A landed fix does not also appear as a plain outbox row.
 
+## The beat as a unit
+
+`neptunia setup` renders `deploy/neptunia-selfdev.service` and `deploy/neptunia-selfdev.timer` when `selfdev.checkout` holds the absolute path of a checkout other than the deployed one ([Setup](setup.md#the-steps)). The service runs one beat with that checkout as its working directory and the deployment's private and data folders, and the timer starts it every hour. The owner enables the timer with `systemctl enable --now neptunia-selfdev.timer` (`--user` for a user unit). On a deployment without the setting no selfdev unit exists.
+
 ## Settings
 
 | Key | Default | Meaning |
 |---|---|---|
 | `selfdev.mode` | `approve` | `approve` or `auto`, as above |
 | `selfdev.base` | `main` | The branch worktrees start from and pull requests target |
+| `selfdev.checkout` | `null` | The dev checkout `neptunia setup` renders the selfdev units over; unset, no units |
 
 The full list is in [Configuration](configuration.md#selfdev).
 

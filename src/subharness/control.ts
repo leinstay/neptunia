@@ -1,5 +1,5 @@
 // The owner's switch of the subharness: which backend the agents run on, with which key, and the mode of each agent.
-// Everything is stored in keys.json (src/subharness/keys-file.ts) and read again at each use, so a change needs no
+// Everything is stored in keys.json (src/keys/file.ts) and read again at each use, so a change needs no
 // restart. The shape follows the approval mode of Hermes (hermes_cli/approval_mode.py): a tuple of modes, a frozen
 // result with `ok`, `changed` and a message, no argument inspects, and the one write of each change is in this file.
 // Enabling checks the backend first and stores nothing when the check fails. No result, log line or status text
@@ -9,7 +9,7 @@ import type { BackendResult } from '../agent-runner/backend.ts';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { log } from '../log.ts';
-import { hasExtraKey, readKeys, writeKeys } from './keys-file.ts';
+import { hasExtraKey, readKeys, writeKeys } from '../keys/file.ts';
 import { checkModel } from './models.ts';
 
 /** What an agent may do, from the narrowest: see run.ts#sandboxOfMode for the sandbox each maps to. */

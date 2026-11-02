@@ -114,6 +114,7 @@ import { mirrorPlaces, readMirrors } from './mirrors.ts';
 import { noteSkipped } from '../../board/errands.ts';
 import type { Config, Db, Log, MemoryHandle, Row } from './types.ts';
 import type { SessionContext } from './session.ts';
+import type { KeyRing } from '../../keys/ring.ts';
 import { dbOf, asText, isFiniteNumber } from './types.ts';
 import type { Context } from './scope.ts';
 
@@ -530,6 +531,8 @@ export type MemoryDbOptions = {
   selfName?: () => string | null | undefined;
   sessionLlm?: () => SessionContext['llm'] | null;
   sessionEnv?: () => Row | null;
+  /** The core's key ring while `keys.json` exists, else null: the memory key comes from it (see `memoryKeyState`). */
+  sessionKeys?: () => KeyRing | null;
   onSessionFailure?: ((failure: Row) => void) | null;
   sessionLookMs?: number;
   onBackupFailure?: ((failure: Row) => void) | null;
@@ -552,6 +555,7 @@ export function createMemoryDb({
   selfName = () => '',
   sessionLlm = () => null,
   sessionEnv = () => null,
+  sessionKeys = () => null,
   onSessionFailure = null,
   sessionLookMs = 60_000,
   onBackupFailure = null,
@@ -1282,18 +1286,10 @@ export function createMemoryDb({
     const config = hot.config;
     const env = sessionEnv?.() ?? null;
     const llm = sessionLlm?.() ?? null;
-    if (!llm || !handle || refusalOf(config, env, hot.prompts)) return;
+    const ring = sessionKeys();
+    if (!llm || !handle || refusalOf(config, env, hot.prompts, ring)) return;
     const db = dbOf(handle);
-    const ctx = {
-      db,
-      write: memoryWrite,
-      llm,
-      hot,
-      env,
-      now,
-      log,
-      selfName: selfName() ?? '',
-    };
+    const ctx = { db, write: memoryWrite, llm, hot, env, ring, now, log, selfName: selfName() ?? '' };
     const due = dueScopes(db, config, at);
     if (due.length > 0) {
       const result = await sweep(ctx, { scopes: new Set(due.map((scope) => scope.key)) });
@@ -1310,7 +1306,7 @@ export function createMemoryDb({
       });
     }
     // The reviews: at most `reviewsPerDay` a UTC day, accepted or failed.
-    if (closing || !handle || reviewRefusal(config, env, hot.prompts)) return;
+    if (closing || !handle || reviewRefusal(config, env, hot.prompts, ring)) return;
     const day = utcDay(at);
     if (sessionState.reviewFailDay !== day) {
       sessionState.reviewFailDay = day;

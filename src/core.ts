@@ -42,6 +42,7 @@ import { createCalibrator } from './llm/tokens.ts';
 import { createLlm, roleApiKey } from './llm/openrouter.ts';
 import { createKeyFailover } from './llm/key-failover.ts';
 import { MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, roleModel } from './llm/roles.ts';
+import { statusCardKeys } from './keys/card-keys.ts';
 import { createKeysCommands } from './keys/commands.ts';
 import { importKeys } from './keys/import.ts';
 import { createKeyRing } from './keys/ring.ts';
@@ -126,7 +127,7 @@ import { createMessageHandler } from './behavior/pipeline.ts';
 import { createLeasedAttention } from './behavior/attention.ts';
 import { RELATIONSHIP_LIMITS } from './memory/text-limits.ts';
 import { createBackend } from './agent-runner/backend.ts';
-import { applyModeToUnit, installedTarget, spawnRun } from './setup/install.ts';
+import { deferModeToUnit } from './setup/install.ts';
 import { REPLY_CHECK_MS } from './subharness/control.ts';
 import { objOf } from './tools/types.ts';
 import type { Untyped } from './tools/types.ts';
@@ -264,12 +265,6 @@ async function buildCore(
   const braveApiKey = env.BRAVE_SEARCH_API_KEY || null;
   // Optional: the `exa` engine runs keyless; with a key it is sent as a bearer header. Never logged.
   const exaApiKey = env.EXA_API_KEY || null;
-  // Optional: the simulator key, used only for one read-only GET of its limit on the owner's status
-  // card, never for a model request. Never logged.
-  const simApiKey = env.OPENROUTER_SIM_KEY || null;
-  // Optional: the management key, used only for the read-only activity GETs of the owner's status
-  // card (each key's spend over the last 30 days), never for a model request. Never logged.
-  const managementApiKey = env.OPENROUTER_MANAGEMENT_KEY || null;
 
   const hot = createHot({ rootDir: paths.rootDir, privateDir: paths.privateDir }).watch();
   cleanups.push(() => hot.close());
@@ -353,6 +348,7 @@ async function buildCore(
     selfName: () => getSelfName(getGuildId()),
     sessionLlm: () => llm,
     sessionEnv: () => env,
+    sessionKeys: ringNow,
     onSessionFailure: (failure: Untyped) => tellSessionFailure(failure),
   };
   const memoryDb = createMemoryDb(memoryDbOptions);
@@ -1270,10 +1266,9 @@ async function buildCore(
     describer,
     // /nep status: the costs field's per-role lines.
     usage,
-    // /nep status: the simulator key's limit line (one GET, nothing else).
-    simKey: simApiKey,
-    // /nep status: each key's activity for its last 7 and 30 days (GETs only, nothing else).
-    managementKey: managementApiKey,
+    // /nep status: the simulator key's limit line (one GET) and each key's activity for its last 7 and 30 days (GETs
+    // only), with the two keys read from keys.json, else .env, at the moment of the card. Never logged.
+    cardKeys: () => statusCardKeys(paths.privateDir, env),
     // /nep memory snapshot: the data directory it copies.
     dataDir,
   });
@@ -1361,7 +1356,7 @@ async function buildCore(
           const base = objOf(objOf(hot.config).llm).baseUrl;
           return typeof base === 'string' ? base : undefined;
         },
-        applyMode: (agent) => applyModeToUnit(installedTarget(paths), spawnRun, agent),
+        applyMode: (agent) => Promise.resolve(deferModeToUnit(agent)),
       },
     }),
     interfaces: interfaceLinks,

@@ -1,5 +1,6 @@
-// Writing the rendered units: the part of `neptunia setup` that touches the unit folder and systemd, shared by the
-// `units` step (src/setup/run.ts) and by `subharness mode`, which re-renders the one unit whose mode changed. A user
+// Writing the rendered units: the part of `neptunia setup` that touches the unit folder and systemd, used by the `units`
+// step (src/setup/run.ts); `applyModeToUnit` re-renders the one unit whose mode changed. Inside the core a mode change
+// renders nothing (`deferModeToUnit`): the core runs under `NoNewPrivileges` and cannot `sudo`. A user
 // unit is written straight into `~/.config/systemd/user`. A system unit is rendered into a folder of its own and put in
 // place with `sudo install`, so nothing writes to `/etc/systemd/system` without sudo. Every command goes through the
 // injected `run`, so no test touches systemd.
@@ -8,9 +9,9 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { readKeys } from '../subharness/keys-file.ts';
+import { readKeys } from '../keys/file.ts';
 import { modeOf } from '../subharness/control.ts';
-import { UNIT_AGENTS, renderUnit } from './units.ts';
+import { SELFDEV_UNIT_FILES, UNIT_AGENTS, renderUnit } from './units.ts';
 import type { UnitVars } from './units.ts';
 
 /** What a command gave back. */
@@ -30,6 +31,8 @@ export type UnitTarget = {
   xdgConfigHome?: string;
   /** the unit folder, instead of the default of the scope */
   unitDir?: string;
+  /** the dev checkout the selfdev units run in (`selfdev.checkout`); the other units run in `rootDir` */
+  selfdevCheckout?: string | null;
 };
 
 /** The unit folder of the scope: `/etc/systemd/system`, or the user manager's folder under the config home. */
@@ -40,34 +43,18 @@ export function unitDirOf(target: UnitTarget): string {
   return path.join(config, 'systemd', 'user');
 }
 
-/**
- * The target of the running core's own install: the user units when `neptunia-core.service` is in the user manager's
- * folder, else the system units. The user is the one the core runs as.
- */
-export function installedTarget(paths: { rootDir: string; privateDir: string; dataDir: string }): UnitTarget {
-  const info = os.userInfo();
-  const base = {
-    user: info.username,
-    group: String(info.gid),
-    home: os.homedir(),
-    node: process.execPath,
-    ...(process.env.XDG_CONFIG_HOME ? { xdgConfigHome: process.env.XDG_CONFIG_HOME } : {}),
-    ...paths,
-  };
-  const inUserFolder = fs.existsSync(path.join(unitDirOf({ ...base, system: false }), 'neptunia-core.service'));
-  return { ...base, system: !inUserFolder && fs.existsSync('/etc/systemd/system/neptunia-core.service') };
-}
-
 /** The `systemctl` command line of the scope, behind `sudo` for the system. */
 export function systemctlOf(target: UnitTarget, ...args: Array<string>): [string, Array<string>] {
   return target.system ? ['sudo', ['systemctl', ...args]] : ['systemctl', ['--user', ...args]];
 }
 
-/** The text of one unit as the scope and the owner's modes want it. */
+/** The text of one unit as the scope, the owner's modes and the subharness backend of keys.json want it. */
 export function unitText(target: UnitTarget, template: string, file: string): string {
   const agent = UNIT_AGENTS[file];
-  const vars: UnitVars = { ...target };
-  if (agent !== undefined) vars.mode = modeOf(readKeys(target.privateDir).subharness.modes, agent);
+  const { subharness } = readKeys(target.privateDir);
+  const vars: UnitVars = { ...target, backend: subharness.backend };
+  if (agent !== undefined) vars.mode = modeOf(subharness.modes, agent);
+  if (SELFDEV_UNIT_FILES.includes(file) && target.selfdevCheckout) vars.rootDir = target.selfdevCheckout;
   return renderUnit(template, target.system ? 'system' : 'user', vars);
 }
 
@@ -126,6 +113,16 @@ export async function installUnits(
 /** The unit file of an agent, or null for an agent with no unit of its own (dev). */
 export function unitOfAgent(agent: string): string | null {
   return Object.entries(UNIT_AGENTS).find(([, name]) => name === agent)?.[0] ?? null;
+}
+
+/**
+ * The line the core answers after a mode change, with no command run: the agent's unit takes the mode when the owner
+ * runs `neptunia setup units`. The core runs under `NoNewPrivileges`, so it never tries the `sudo` a system unit needs.
+ * Null for an agent with no unit (dev) or no agent at all.
+ */
+export function deferModeToUnit(agent: string): string | null {
+  const file = unitOfAgent(agent);
+  return file === null ? null : `${file} takes the mode when you run "neptunia setup units" in a shell`;
 }
 
 /**

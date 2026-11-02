@@ -23,3 +23,15 @@ test('the base branch defaults to main and follows the setting', () => {
   assert.equal(selfdevSettings({ selfdev: { base: 'trunk' } }).base, 'trunk');
   assert.equal(selfdevSettings({ selfdev: { base: '' } }).base, 'main');
 });
+
+test('the selfdev checkout is none when unset, and the absolute path the setting names when set', () => {
+  // Catches: setup renders the selfdev units on every deployment, or drops the path the owner gave.
+  assert.equal(selfdevSettings({}).checkout, null);
+  assert.equal(selfdevSettings({ selfdev: { checkout: '/srv/dev-checkout' } }).checkout, '/srv/dev-checkout');
+});
+
+test('a selfdev checkout that is empty, relative or not a string is none', () => {
+  // Catches: a relative path becomes WorkingDirectory, which systemd refuses, and setup writes a unit that never starts.
+  for (const checkout of ['', 'dev-checkout', 42, true])
+    assert.equal(selfdevSettings({ selfdev: { checkout } }).checkout, null, JSON.stringify(checkout));
+});

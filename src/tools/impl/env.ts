@@ -22,6 +22,7 @@ import type { RoleHealth } from '../../llm/role-health.ts';
 import type { BoardCaller } from './board.ts';
 import type { SkillsAccess } from '../../skills/port.ts';
 import type { ReportReader } from '../../watcher/read.ts';
+import type { CardKeys } from '../../keys/card-keys.ts';
 
 /** What `createOpsEnv` is given: the persona's subsystems, the reads of the interface and the clock. */
 export type OpsDeps = {
@@ -49,6 +50,11 @@ export type OpsDeps = {
   skills?: SkillsAccess | null;
   /** The watcher's reports (src/watcher/read.ts) that `watcher.read` answers; null when the core has none. */
   watcher?: ReportReader | null;
+  /**
+   * The status card's two keys read at the moment of the card (src/keys/card-keys.ts); when given, it stands in for
+   * `simKey` and `managementKey`.
+   */
+  cardKeys?: (() => CardKeys) | null;
   [subsystem: string]: Untyped;
 };
 
@@ -91,6 +97,7 @@ function buildEnv({
   usage = null,
   simKey = null,
   managementKey = null,
+  cardKeys = null,
   port = null,
   errands = null,
   fetchImpl = null,
@@ -277,9 +284,13 @@ function buildEnv({
     describer,
     usage,
     // The simulator key, read only by the status card's one GET of its limit; never logged.
-    simKey,
+    get simKey(): string | null {
+      return cardKeys ? cardKeys().simKey : (simKey as string | null);
+    },
     // The management key, read only by the status card's activity GETs; never logged.
-    managementKey,
+    get managementKey(): string | null {
+      return cardKeys ? cardKeys().managementKey : (managementKey as string | null);
+    },
     port,
     // The persona's errands (src/errands/service.ts): `/nep task`.
     errands,

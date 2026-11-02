@@ -1,4 +1,5 @@
-// The owner's key commands of the chat: `keys core|extra add|remove|list`, `keys bind|unbind|check` and `model set`.
+// The owner's key commands of the chat: `keys core|extra add|remove|list`, `keys core grant`, `keys bind|unbind|check`
+// and `model set`.
 // The console (src/interface/commands/console.ts) routes them here. A key value is never an argument: every add asks
 // for it through the dialog the link gives (a secret prompt, src/interface/commands/dialogs.ts), so the value reaches
 // neither the typed line, the chat's history file nor a refusal. A key is checked before it is saved (the first core
@@ -201,6 +202,25 @@ export function createKeysCommands(deps: KeysDeps): {
     };
   }
 
+  /** `keys core grant <name> <usd> <day>` sets the grant of a stored core key, `<name> none` clears it; no value is asked. */
+  function grantCore(name: string, args: Record<string, unknown>): Answer {
+    const key = text(args.name);
+    const usd = text(args.usd).trim();
+    if (usd.toLowerCase() === 'none') {
+      store.setGrant(key, null);
+      return { text: `${key} has no grant.`, status: 'ok' };
+    }
+    const grant = usd === '' ? Number.NaN : Number(usd);
+    if (!Number.isFinite(grant) || grant < 0)
+      return invalid(name, 'the grant is a number of dollars from 0 up, or none');
+    const day = text(args.day).trim();
+    const resetDay = /^\d{1,2}$/.test(day) ? Number(day) : Number.NaN;
+    if (!(resetDay >= 1 && resetDay <= 31))
+      return invalid(name, 'give the day of the month (1 to 31) the grant resets');
+    store.setGrant(key, { grant, resetDay });
+    return { text: `${key} has a grant of $${grant}, given again on day ${resetDay}.`, status: 'ok' };
+  }
+
   function listCore(): Answer {
     const rows = store.list().core;
     if (rows.length === 0) return { text: 'No core key. Add one with /keys core add <name>.', status: 'ok' };
@@ -290,6 +310,8 @@ export function createKeysCommands(deps: KeysDeps): {
         return removeCore(name, args);
       case 'keys.core.list':
         return listCore();
+      case 'keys.core.grant':
+        return grantCore(name, args);
       case 'keys.extra.add':
         return addExtra(name, args, dialog);
       case 'keys.extra.remove':

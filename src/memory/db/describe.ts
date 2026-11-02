@@ -34,6 +34,7 @@ import { CODES, DESCRIPTION_FIELDS, memoryKeyState, sessionSettings, stamp, syst
 import { block } from '../../behavior/prompt.ts';
 import { asText } from './types.ts';
 import type { Config, Db, Row } from './types.ts';
+import type { KeyRing } from '../../keys/ring.ts';
 import type { Context, Scope } from './scope.ts';
 import type { Completion, SessionContext } from './session.ts';
 
@@ -318,10 +319,11 @@ export function parseDescriptionAnswer(text: unknown): { description: string; re
 export function reviewRefusal(
   config: Config | null | undefined,
   env: Row | null | undefined,
-  prompts: Row | null | undefined
+  prompts: Row | null | undefined,
+  ring?: KeyRing | null
 ): string | null {
   if (sessionSettings(config).mode === 'off') return CODES.OFF;
-  if (!memoryKeyState(config, env).ok) return CODES.NOT_CONFIGURED;
+  if (!memoryKeyState(config, env, ring).ok) return CODES.NOT_CONFIGURED;
   if (!present(prompts?.[DRAFT_PURPOSE]) || !present(prompts?.[CHECK_PURPOSE])) return CODES.NO_PROMPT;
   return null;
 }
@@ -358,7 +360,7 @@ export async function reviewDescription(
   const prompts = ctx.hot.prompts;
   const log = ctx.log ?? {};
   const now = ctx.now ?? Date.now;
-  const refused = reviewRefusal(config, ctx.env, prompts);
+  const refused = reviewRefusal(config, ctx.env, prompts, ctx.ring);
   if (refused) return { status: refused === CODES.OFF ? 'off' : 'refused', code: refused };
   if (!DESCRIPTION_FIELDS.includes(field) || !subject?.id || !['person', 'place', 'self'].includes(subject.kind))
     return { status: 'refused', code: 'bad_subject' };

@@ -6,20 +6,24 @@
 //
 //   folders    the private folder with `config.local`, `prompts.local`, `clients`, and the data folder, all mode 0700
 //   keys-file  an empty `keys.json` at mode 0600; one that exists keeps its content and is made 0600
-//   units      the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ
+//   units      the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ; the selfdev
+//              units too when `selfdev.checkout` names a checkout other than this one
 //   linger     `loginctl enable-linger` for the user, so the user units run without a login (user units only)
 //   core       `enable --now neptunia-core.service`, the one unit setup starts
 //
 // With `--system` the units are system units that run as the installing user, put in place with `sudo install`, and
-// every systemctl call goes through `sudo`. The commands run through the injected `deps.run`, so nothing in the
+// every systemctl call goes through `sudo`. The units start the node `nodeOf` finds: `--node <path>`, else the one this
+// command was started with, unresolved, so a link such as `/opt/node` survives a node upgrade. The commands run through the injected `deps.run`, so nothing in the
 // tests reaches systemd; the chat is the injected `deps.openChat`.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { emptyKeys, writeKeys } from '../subharness/keys-file.ts';
+import { readConfig } from '../config.ts';
+import { selfdevSettings } from '../selfdev/settings.ts';
+import { emptyKeys, writeKeys } from '../keys/file.ts';
 import { installUnits, systemctlOf, unitDirOf, whyFailed } from './install.ts';
 import type { RunResult, UnitTarget } from './install.ts';
-import { UNIT_FILES } from './units.ts';
+import { SELFDEV_UNIT_FILES, UNIT_FILES } from './units.ts';
 
 export type { RunResult };
 
@@ -64,13 +68,21 @@ const FIRST_LINE = '/keys core add';
 /** The usage error of the command line: nothing has been touched when it is raised. */
 export class SetupUsageError extends Error {}
 
-/** `setup [--system] [step]` as options, or a SetupUsageError. */
-export function parseSetupArgs(argv: ReadonlyArray<string>): { system: boolean; only?: SetupStep } {
+/** `setup [--system] [--node <path>] [step]` as options, or a SetupUsageError. */
+export function parseSetupArgs(argv: ReadonlyArray<string>): { system: boolean; only?: SetupStep; node?: string } {
   let system = false;
   let only: SetupStep | undefined;
-  for (const word of argv) {
+  let node: string | undefined;
+  for (let at = 0; at < argv.length; at += 1) {
+    const word = argv[at] ?? '';
     if (word === '--system') system = true;
-    else if (word.startsWith('-')) throw new SetupUsageError(`setup has no option ${word}`);
+    else if (word === '--node') {
+      const given = argv[at + 1];
+      if (given === undefined || !path.isAbsolute(given))
+        throw new SetupUsageError('--node takes the absolute path of the node binary');
+      node = given;
+      at += 1;
+    } else if (word.startsWith('-')) throw new SetupUsageError(`setup has no option ${word}`);
     else {
       const step = SETUP_STEPS.find((known) => known === word);
       if (step === undefined) throw new SetupUsageError(`${word} is no step; use ${SETUP_STEPS.join(', ')}`);
@@ -78,7 +90,28 @@ export function parseSetupArgs(argv: ReadonlyArray<string>): { system: boolean; 
       only = step;
     }
   }
-  return only === undefined ? { system } : { system, only };
+  return { system, ...(only === undefined ? {} : { only }), ...(node === undefined ? {} : { node }) };
+}
+
+/**
+ * The node path the units name: `given` (`--node`) first; else `argv0` when it is absolute; else the first
+ * `<dir>/<argv0>` on `pathEnv` that exists, never resolved through a link; else `execPath`.
+ */
+export function nodeOf(input: {
+  given?: string;
+  argv0: string;
+  execPath: string;
+  pathEnv: string | undefined;
+}): string {
+  if (input.given !== undefined) return input.given;
+  if (path.isAbsolute(input.argv0)) return input.argv0;
+  if (!input.argv0.includes('/'))
+    for (const dir of (input.pathEnv ?? '').split(':')) {
+      if (!path.isAbsolute(dir)) continue;
+      const candidate = path.join(dir, input.argv0);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  return input.execPath;
 }
 
 type Outcome = { state: StepState; detail: string };
@@ -120,13 +153,29 @@ function keysFileStep(options: SetupOptions): Outcome {
   return done('keys.json kept, its mode set to 0600');
 }
 
+/**
+ * The dev checkout the selfdev units run in, or why there are none: `selfdev.checkout` unset, or naming this checkout,
+ * where a beat would edit and push the code that is running.
+ */
+function selfdevCheckoutOf(options: SetupOptions): { checkout: string } | { why: string } {
+  const { checkout } = selfdevSettings(readConfig(options.rootDir, { privateDir: options.privateDir }));
+  if (checkout === null) return { why: 'no selfdev units: selfdev.checkout is unset' };
+  if (path.resolve(checkout) === path.resolve(options.rootDir))
+    return { why: 'no selfdev units: selfdev.checkout is the deployed checkout, and the beat works on a dev checkout' };
+  return { checkout };
+}
+
 async function unitsStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
-  const result = await installUnits(options, (command, args) => deps.run(command, args), UNIT_FILES);
+  const selfdev = selfdevCheckoutOf(options);
+  const files = 'checkout' in selfdev ? [...UNIT_FILES, ...SELFDEV_UNIT_FILES] : UNIT_FILES;
+  const target = 'checkout' in selfdev ? { ...options, selfdevCheckout: selfdev.checkout } : options;
+  const result = await installUnits(target, (command, args) => deps.run(command, args), files);
   if (!result.ok) return failed(result.reason);
   const where = unitDirOf(options);
+  const note = 'why' in selfdev ? `; ${selfdev.why}` : '';
   return result.written.length === 0
-    ? already(`${UNIT_FILES.length} units are in ${where}`)
-    : done(`${result.written.length} units written to ${where}`);
+    ? already(`${files.length} units are in ${where}${note}`)
+    : done(`${result.written.length} units written to ${where}${note}`);
 }
 
 async function lingerStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {

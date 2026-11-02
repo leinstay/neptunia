@@ -11,6 +11,7 @@ import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { createCommandDesk } from '../src/interface/neptunia-cli.ts';
 import type { CommandEvent } from '../src/interface/neptunia-cli.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
+import { deferModeToUnit } from '../src/setup/install.ts';
 import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
@@ -246,4 +247,14 @@ test('/help from the owner chat lists /subharness and /simulation', async () => 
       lines.some((line) => line.startsWith(`/${name} `)),
       name
     );
+});
+
+test('inside the core a mode change is stored and the answer names neptunia setup units', async () => {
+  // Catches: the core wires the mode to a sudo re-render that NoNewPrivileges refuses, and the owner reads a failure.
+  const { dir, deps } = rig();
+  const inCore: EnableDeps = { ...deps, applyMode: (agent) => Promise.resolve(deferModeToUnit(agent)) };
+  const answer = await subharnessCommand(inCore, 'subharness.mode', { agent: 'server', mode: 'sudo' });
+  assert.equal(answer.status, 'ok');
+  assert.equal(readKeysFile(dir).subharness.modes.server, 'sudo');
+  assert.ok(answer.text.includes('neptunia setup units'));
 });

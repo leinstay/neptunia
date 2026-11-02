@@ -1,11 +1,11 @@
-// src/subharness/keys-file.ts: the synchronous read and write of keys.json that the subharness, the simulation and setup
+// src/keys/file.ts: the synchronous read and write of keys.json that the subharness, the simulation and setup
 // share. A missing file is the empty store, a damaged one is refused without quoting its content, a write is mode 600
 // and keeps the sections it was given.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { emptyKeys, hasExtraKey, readKeys, writeKeys } from '../src/subharness/keys-file.ts';
+import { emptyKeys, hasExtraKey, readKeys, writeKeys } from '../src/keys/file.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 test('a folder with no keys.json reads as the empty store', () => {

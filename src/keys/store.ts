@@ -69,6 +69,8 @@ export type KeyStore = {
   /** `from` is the `.env` variable the key came from (the import), so spend recorded under it counts for the key. */
   addCore(input: { name: string; value: string; grant?: number; resetDay?: number; from?: string }): void;
   removeCore(name: string): { left: number };
+  /** Sets (an object) or clears (null) the grant and reset day of a core key; the value is untouched. */
+  setGrant(name: string, grant: { grant: number; resetDay: number } | null): void;
   addExtra(input: { name: string; value: string; from?: string }): void;
   removeExtra(name: string): void;
   /** Binds a base role to an extra key. */
@@ -230,6 +232,15 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
       delete content.variables[name];
       write(content);
       return { left: content.core.length };
+    },
+    setGrant(name, grant) {
+      const content = read();
+      const row = content.core.find((one) => one.name === name);
+      if (row === undefined) throw new KeysError('unknown-key');
+      if (grant !== null && (!isGrant(grant.grant) || !isResetDay(grant.resetDay))) throw new KeysError('bad-grant');
+      row.grant = grant?.grant ?? null;
+      row.resetDay = grant?.resetDay ?? null;
+      write(content);
     },
     addExtra({ name, value, from }) {
       const content = read();

@@ -1425,9 +1425,9 @@ The config keys that can appear as `{limit}`: `llm.maxRequestsPerDay` and `llm.m
 The memory database's session (`src/memory/db/session.ts`, `memoryDb.session.mode` `shadow` or `apply`) and the
 description review (`src/memory/db/describe.ts`). Prompts: `prompts/memory-session.md`, `prompts/description-draft.md`,
 `prompts/description-check.md`. They are neutral engine text; the persona comes in through her card, rules and the
-memory blocks, as in her turns. The requests go out on the role `memory` (`models.memory`, its own key
-`llm.keyByRole.memory`, no fallback to another key), purposes `memory-session`, `description-draft` and
-`description-check`. Provider reasoning is never sent: she thinks in `<think>`, then answers.
+memory blocks, as in her turns. The requests go out on the role `memory` (`models.memory`; the key the key ring
+routes `memory` to while `keys.json` exists, else `llm.keyByRole.memory`, no fallback to another key), purposes
+`memory-session`, `description-draft` and `description-check`. Provider reasoning is never sent: she thinks in `<think>`, then answers.
 
 ### Purposes and roles
 
