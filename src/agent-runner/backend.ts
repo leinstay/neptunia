@@ -1,11 +1,11 @@
 // The backends an agent runs on: `codex exec`, `claude -p` or OpenCode, behind one interface. A CLI backend is one
 // child process per run: the brief on stdin, a minimal environment (PATH, HOME, TMPDIR and the locale variables, plus
 // what the caller adds; nothing of the bot's own environment), its own process group so that a timeout kills what the
-// child spawned too. `backendOf` picks the backend of an agent: `agents.<name>.backend` of the config, else the
-// `backend` of its profile.json, else `errands.backend`. `createAgentEngine` gives the runner server (bin/neptunia.ts)
-// its task engine: OpenCode through createOpencodeRunner as ever, the CLI backends through a runner that works a
-// task's brief in a fresh directory and delivers the files it leaves there. The log line of a run carries the
-// backend, the exit code, the duration and the tokens, never the brief or the text.
+// child spawned too. Which backend an agent runs on is the owner's switch, the subharness (src/subharness/): every
+// agent run goes through `runAgent` (src/subharness/run.ts), which reads the switch and the agent's mode at the moment
+// of the run. `createAgentEngine` gives the runner server (bin/neptunia.ts) its task engine: a runner that works a
+// task's brief in a fresh directory through that seam and delivers the files the agent leaves there. The log line of a
+// run carries the backend, the exit code, the duration and the tokens, never the brief or the text.
 
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -15,11 +15,10 @@ import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { log } from '../log.ts';
 import { errorFields } from '../error-fields.ts';
-import { objOf, scalarText } from '../tools/types.ts';
+import { scalarText } from '../tools/types.ts';
 import {
   DEFAULT_OPENCODE_PATH,
   collectFiles,
-  createOpencodeRunner,
   deliverableFiles,
   killTree,
   readPromptFile,
@@ -27,15 +26,15 @@ import {
 } from './opencode.ts';
 import type { RunnerDeps, Runner } from './opencode.ts';
 import { redactorFor, scopeOf } from './policy.ts';
-import { BACKEND_NAMES, profileBackend } from './profiles.ts';
+import { BACKEND_NAMES } from './profiles.ts';
 import type { BackendName } from './profiles.ts';
 import type { RunnerTask, TaskResult } from './protocol.ts';
+import { runAgent } from '../subharness/run.ts';
+import type { RunDeps } from '../subharness/run.ts';
 
 export { BACKEND_NAMES };
 export type { BackendName };
 
-/** The backend of an agent whose profile and config name none: `errands.backend` of config/config.json. */
-const DEFAULT_BACKEND: BackendName = 'codex';
 /** The environment variables a child inherits when the parent has them. */
 const INHERITED_ENV = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE'] as const;
 /** The grace between SIGTERM and SIGKILL when a timeout stops the child (ms). */
@@ -53,8 +52,10 @@ export type BackendRunOptions = {
   env?: Record<string, string>;
   /** codex: adds `--search` */
   search?: boolean;
-  /** codex: `-s <sandbox>`, `read-only` unless told otherwise */
-  sandbox?: 'read-only' | 'workspace-write' | 'danger-full-access';
+  /** codex: `-s <sandbox>`, `read-only` unless told otherwise; `none` runs without a sandbox (the modes full and sudo) */
+  sandbox?: 'read-only' | 'workspace-write' | 'danger-full-access' | 'none';
+  /** the model flag of the backend (`-m`, `--model`); absent runs the backend's own default */
+  model?: string;
   /** codex: one `-i <path>` each */
   images?: ReadonlyArray<string>;
   /** aborting it kills the process group and answers `cancelled` */
@@ -62,7 +63,7 @@ export type BackendRunOptions = {
 };
 
 /** Why a run did not start or was stopped by us. */
-export type BackendError = 'backend-missing' | 'empty-brief' | 'timeout' | 'spawn' | 'cancelled';
+export type BackendError = 'backend-missing' | 'empty-brief' | 'timeout' | 'spawn' | 'cancelled' | 'subharness-off';
 
 /** What a run gives back. */
 export type BackendResult = {
@@ -114,16 +115,30 @@ const RECIPES: Readonly<Record<BackendName, Recipe>> = {
     args: (options, outFile) => [
       'exec',
       '--skip-git-repo-check',
-      '-s',
-      options.sandbox ?? 'read-only',
+      ...(options.sandbox === 'none'
+        ? ['--dangerously-bypass-approvals-and-sandbox']
+        : ['-s', options.sandbox ?? 'read-only']),
       '-o',
       outFile ?? '',
+      ...(options.model === undefined ? [] : ['-m', options.model]),
       ...(options.images ?? []).flatMap((image) => ['-i', image]),
       ...(options.search === true ? ['--search'] : []),
     ],
   },
-  claude: { binary: 'claude', stdin: true, outFile: false, tail: false, args: () => ['-p'] },
-  opencode: { binary: DEFAULT_OPENCODE_PATH, stdin: false, outFile: false, tail: false, args: () => ['run'] },
+  claude: {
+    binary: 'claude',
+    stdin: true,
+    outFile: false,
+    tail: false,
+    args: (options) => ['-p', ...(options.model === undefined ? [] : ['--model', options.model])],
+  },
+  opencode: {
+    binary: DEFAULT_OPENCODE_PATH,
+    stdin: false,
+    outFile: false,
+    tail: false,
+    args: (options) => ['run', ...(options.model === undefined ? [] : ['-m', options.model])],
+  },
 };
 
 /** The environment of a child: the inherited variables the parent has, then `extra`. Nothing else. */
@@ -326,47 +341,21 @@ export function createBackend(name: BackendName, deps: BackendDeps = {}): Backen
   return { name, run };
 }
 
-/** The config's `value` when it is a backend name, undefined when absent, a thrown error for anything else. */
-function namedBackend(value: unknown, where: string): BackendName | undefined {
-  if (value === undefined) return undefined;
-  const found = BACKEND_NAMES.find((known) => known === value);
-  if (found === undefined) throw new Error(`${where} must be one of ${BACKEND_NAMES.join(', ')}`);
-  return found;
-}
-
-/**
- * The backend of agent `agent`: `agents.<agent>.backend` of `config`, else the `backend` of its profile.json, else
- * `errands.backend`, else `codex`. Throws on a name that is no backend, so a typo never reaches a spawn.
- */
-export function backendOf(agent: string, config: unknown): BackendName {
-  const section = objOf(config);
-  const own = objOf(objOf(section.agents)[agent]);
-  const errands = objOf(section.errands);
-  return (
-    namedBackend(own.backend, `agents.${agent}.backend`) ??
-    profileBackend(agent) ??
-    namedBackend(errands.backend, 'errands.backend') ??
-    DEFAULT_BACKEND
-  );
-}
-
-/** What `createAgentEngine` takes: the OpenCode runner's deps, and the binary of a CLI backend. */
-export type EngineDeps = RunnerDeps & { backend: BackendName; binary?: string };
+/** What `createAgentEngine` takes: the runner's deps, and the subharness seam every run goes through. */
+export type EngineDeps = RunnerDeps & { subharness: RunDeps };
 
 /** The seconds a task may run when neither it nor the profile says. */
 const FALLBACK_SECONDS = 300;
 
 /**
- * The task engine of a runner: OpenCode through createOpencodeRunner, or a CLI backend that works the task's brief
- * (the profile's prompt, the preamble, the goal and context) in `<outDir>/<id>/` and delivers the files left there.
- * The agent runs in the profile's sandbox (`workspace-write` unless the profile says `read-only`) and with `--search`
- * when the profile asks.
- * A CLI backend brings its own login: a task's `secrets` are not passed on.
+ * The task engine of a runner: it works the task's brief (the profile's prompt, the preamble, the goal and context)
+ * in `<outDir>/<id>/` through `runAgent` (src/subharness/run.ts) and delivers the files left there. The agent runs as
+ * the agent named like the profile, in the mode the owner set for it, and with `--search` when the profile asks. While
+ * the subharness is off the task fails with `subharness-off`. A backend brings its own login: a task's `secrets` are
+ * not passed on.
  */
-export function createAgentEngine({ backend, binary, ...deps }: EngineDeps): Runner {
-  if (backend === 'opencode') return createOpencodeRunner({ ...deps, opencodePath: binary ?? deps.opencodePath });
+export function createAgentEngine({ subharness, ...deps }: EngineDeps): Runner {
   const { profile, outDir } = deps;
-  const cli = createBackend(backend, { binary, spawnImpl: deps.spawnImpl, now: deps.now });
   const checkPrompt = (): string => readPromptFile(profile.promptFiles);
 
   async function run(task: Omit<RunnerTask, 'onProgress'> & { onProgress?: RunnerTask['onProgress'] }) {
@@ -395,13 +384,10 @@ export function createAgentEngine({ backend, binary, ...deps }: EngineDeps): Run
     const seconds = Number(task.limits?.seconds);
     const cap = Number.isFinite(seconds) && seconds > 0 ? seconds : (profile.defaultLimits.seconds ?? FALLBACK_SECONDS);
     const startedAt = (deps.now ?? Date.now)();
-    const outcome = await cli.run(brief, {
-      cwd: dir,
-      timeoutMs: cap * 1000,
-      sandbox: profile.sandbox,
-      search: profile.search,
-      signal: task.signal,
-    });
+    const outcome = await runAgent(
+      { agent: profile.name, brief, cwd: dir, timeoutMs: cap * 1000, search: profile.search, signal: task.signal },
+      subharness
+    );
     const usage = {
       input: 0,
       output: outcome.tokens ?? 0,

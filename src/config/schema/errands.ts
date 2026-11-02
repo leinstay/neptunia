@@ -4,13 +4,6 @@ import type { SchemaEntry } from '../schema.ts';
 
 export const ERRANDS: ReadonlyArray<SchemaEntry> = [
   {
-    'key': 'errands.backend',
-    'types': ['string'],
-    'reader': 'src/agent-runner/backend.ts',
-    'default': 'codex',
-    'text': 'Backend of an agent that names none: codex, claude or opencode',
-  },
-  {
     'key': 'errands.opencodePath',
     'types': ['string'],
     'reader': 'bin/neptunia.ts',

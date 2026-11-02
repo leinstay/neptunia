@@ -260,7 +260,7 @@
     },
     {
       "path": "deploy/",
-      "purpose": "The systemd units and the install script.",
+      "purpose": "The systemd unit templates that `neptunia setup` renders, and the description of what it does.",
       "layer": "public",
       "imports": [],
       "test": "none"
@@ -426,8 +426,10 @@
         "src/plugins/**",
         "src/protocol/**",
         "src/selfdev/**",
+        "src/setup/**",
         "src/skills/**",
         "src/speech/**",
+        "src/subharness/**",
         "src/tools/**",
         "src/watcher/**",
         "src/web/**",
@@ -446,7 +448,7 @@
     },
     {
       "path": "src/agent-runner/",
-      "purpose": "The process that works errands: the socket server, the profiles, the backends (codex, claude, OpenCode) and the sweep.",
+      "purpose": "The process that works errands: the socket server, the profiles, the backends (codex, claude, OpenCode) and the sweep. Each run goes through the subharness.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
@@ -468,6 +470,27 @@
     {
       "path": "src/watcher/",
       "purpose": "The daily watcher: the brief, the report check and writer, the task filer, the reader of the reports and the run that joins them. The agent backend is injected.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/subharness/",
+      "purpose": "The subharness: the owner's switch of the agent backend and the mode of each agent over keys.json, the one seam every agent run goes through, and the rows that say what is off.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/simulation/",
+      "purpose": "The simulation's switch and its one key reader, which the paid scripts call.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/setup/",
+      "purpose": "`neptunia setup`: the unit templates rendered for the installing user, the five steps and the writing of the units.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
