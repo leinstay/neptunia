@@ -6,12 +6,14 @@
 
 import {
   agentModels,
+  agentPaths,
   disableSubharness,
   enableSubharness,
   setAgentMode,
   setAgentModel,
   statusText,
   subharnessView,
+  useBackend,
 } from '../../subharness/control.ts';
 import { answerEnable, startEnable } from '../../subharness/enable-dialog.ts';
 import type { EnableDeps, SubharnessAgent, SubharnessResult } from '../../subharness/control.ts';
@@ -46,7 +48,7 @@ function typedOf(name: string, args: Readonly<Record<string, unknown>>): string 
   const words = ['/' + name.replaceAll('.', ' ')];
   for (const [key, value] of Object.entries(args))
     if (key !== 'dialogId' && key !== 'answer' && typeof value === 'string' && value !== '')
-      words.push(key === 'key' ? `--key ${value}` : value);
+      words.push(key === 'key' || key === 'effort' ? `--${key} ${value}` : value);
   return words.join(' ');
 }
 
@@ -62,6 +64,21 @@ function answerOf(name: string, args: Readonly<Record<string, unknown>>, result:
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 
+/** `subharness.model`: an agent's model, and its effort when given, after one reply from it. */
+async function agentModel(
+  deps: EnableDeps,
+  name: string,
+  args: Readonly<Record<string, unknown>>
+): Promise<SubharnessAnswer> {
+  const effort = text(args.effort);
+  try {
+    const result = await setAgentModel(deps, text(args.agent), text(args.model), effort === '' ? undefined : effort);
+    return answerOf(name, args, result);
+  } catch {
+    return failed(name, args, 'the check cannot run here: this core has no backend runner');
+  }
+}
+
 /**
  * Runs `subharness.<sub>`. `deps` is null while the core has no subharness to give: every command then answers `failed`.
  * A mode change also puts the mode into the agent's unit when `deps.applyMode` is there.
@@ -75,7 +92,10 @@ export async function subharnessCommand(
   const privateDir = deps.privateDir;
   switch (name) {
     case 'subharness.status':
-      return { text: statusText(await subharnessView(privateDir), agentModels(privateDir)), status: 'ok' };
+      return {
+        text: statusText(await subharnessView(privateDir), agentModels(privateDir), agentPaths(privateDir)),
+        status: 'ok',
+      };
     case 'subharness.enable': {
       const key = text(args.key);
       try {
@@ -91,13 +111,10 @@ export async function subharnessCommand(
         return failed(name, args, 'the check cannot run here: this core has no backend runner');
       }
     }
-    case 'subharness.model': {
-      try {
-        return answerOf(name, args, await setAgentModel(deps, text(args.agent), text(args.model)));
-      } catch {
-        return failed(name, args, 'the check cannot run here: this core has no backend runner');
-      }
-    }
+    case 'subharness.model':
+      return agentModel(deps, name, args);
+    case 'subharness.use':
+      return answerOf(name, args, await useBackend(privateDir, text(args.agent), text(args.backend)));
     case 'subharness.disable':
       return answerOf(name, args, await disableSubharness(privateDir, text(args.backend)));
     case 'subharness.mode': {

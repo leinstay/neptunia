@@ -5,12 +5,34 @@
 
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { log } from '../log.ts';
+import type { EffortLevel } from '../llm/roles.ts';
 import type { EnableDeps, SubharnessResult } from './control.ts';
 
-/** The names the CLIs accept now. Free text stays allowed beside them. */
+/**
+ * The names the CLIs accept (2026-11-02): the GPT ids a ChatGPT account serves to `codex exec -m`, and for `claude
+ * --model` its three aliases and the current Claude ids. Free text stays allowed beside them.
+ */
 export const FIXED_MODELS: Readonly<Record<'codex' | 'claude', ReadonlyArray<string>>> = {
-  codex: ['gpt-5.5', 'gpt-5.5-codex', 'gpt-5.5-mini'],
-  claude: ['opus', 'sonnet', 'haiku'],
+  codex: [
+    'gpt-6.1-sol',
+    'gpt-6-astra',
+    'gpt-6.1-terra',
+    'gpt-6-sol',
+    'gpt-6-luna',
+    'gpt-5.6-sol',
+    'gpt-5.6-terra',
+    'gpt-5.6-luna',
+  ],
+  claude: [
+    'opus',
+    'sonnet',
+    'haiku',
+    'claude-fable-5-1',
+    'claude-opus-5-5',
+    'claude-sonnet-5-5',
+    'claude-haiku-5-5',
+    'claude-opus-4-6',
+  ],
 };
 
 const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
@@ -47,15 +69,16 @@ export async function listModels(
 
 const refused = (code: string, message: string): SubharnessResult => ({ ok: false, code, changed: false, message });
 
-/** One reply from `model` under `backend`: null when it answered, else the refusal. */
+/** One reply from `model` at `effort` under `backend`: null when it answered, else the refusal. */
 export async function checkModel(
   deps: EnableDeps,
   backend: BackendName,
   keyValue: string,
-  model: string
+  model: string,
+  effort?: EffortLevel
 ): Promise<SubharnessResult | null> {
   if (backend !== 'opencode') {
-    const outcome = await deps.runBackend(backend, CHECK_BRIEF, model);
+    const outcome = await deps.runBackend(backend, CHECK_BRIEF, model, effort);
     if (outcome.ok && outcome.text.trim() !== '') return null;
     if (outcome.error === 'not-installed') return refused('not-installed', `${backend} is not installed`);
     if (outcome.error === 'backend-missing')
@@ -68,7 +91,12 @@ export async function checkModel(
     const response = await deps.fetch(endpoint(deps, '/chat/completions'), {
       method: 'POST',
       headers: { Authorization: `Bearer ${keyValue}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages: [{ role: 'user', content: CHECK_BRIEF }], max_tokens: 8 }),
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: CHECK_BRIEF }],
+        max_tokens: 8,
+        ...(effort === undefined ? {} : { reasoning: { effort } }),
+      }),
       signal: AbortSignal.timeout(REQUEST_MS),
     });
     status = response.status;

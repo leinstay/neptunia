@@ -11,6 +11,8 @@ import type { BackendResult } from '../agent-runner/backend.ts';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { log } from '../log.ts';
+import { EFFORT_LEVELS, isEffortLevel } from '../llm/roles.ts';
+import type { EffortLevel } from '../llm/roles.ts';
 import { hasExtraKey, readKeys, writeKeys } from '../keys/file.ts';
 import { checkModel } from './models.ts';
 import { subharnessPlace } from './place.ts';
@@ -22,6 +24,9 @@ export type AgentMode = (typeof AGENT_MODES)[number];
 /** The agents that have a mode: the two errand agents, the development agents and the watcher. */
 export const SUBHARNESS_AGENTS = ['scout', 'server', 'dev', 'watcher'] as const;
 export type SubharnessAgent = (typeof SUBHARNESS_AGENTS)[number];
+
+/** The model roles that have no subharness path: their requests run on the direct path alone. */
+export const DIRECT_ONLY_ROLES = ['analyzer', 'embedding', 'vision', 'video', 'speech', 'drawing'] as const;
 
 /** The mode of an agent the owner has not set. Nobody starts without a sandbox. */
 export const DEFAULT_MODES: Readonly<Record<SubharnessAgent, AgentMode>> = {
@@ -59,8 +64,10 @@ export type SubharnessView = {
 /** What `enableSubharness` takes. */
 export type EnableDeps = {
   privateDir: string;
-  /** One minimal run of codex or claude; resolves, never rejects. */
-  runBackend(name: 'codex' | 'claude', brief: string, model?: string): Promise<BackendResult>;
+  /** One minimal run of codex or claude, `effort` passed as BackendRunOptions.effort; resolves, never rejects. */
+  runBackend(name: 'codex' | 'claude', brief: string, model?: string, effort?: EffortLevel): Promise<BackendResult>;
+  /** The `--help` output of the installed binary; absent means it cannot be read. */
+  helpOf?(name: BackendName): Promise<string>;
   fetch: typeof fetch;
   baseUrl?: string;
   /**
@@ -219,22 +226,79 @@ export async function enableSubharness(
   return 'ok' in checked ? checked : commitEnable(deps.privateDir, checked, models);
 }
 
-/** Sets the model of one agent after one reply from it. The subharness must be on; the key of opencode is the stored one. */
-export async function setAgentModel(deps: EnableDeps, agent: string, model: string): Promise<SubharnessResult> {
-  if (!isAgent(agent)) return refused('unknown-agent', `${agent} is no agent; use ${SUBHARNESS_AGENTS.join(', ')}`);
+/** The refusal of a name that is no agent: its own code for a model role that runs on the direct path alone. */
+function notAnAgent(name: string): SubharnessResult {
+  if (DIRECT_ONLY_ROLES.some((role) => role === name))
+    return refused('no-subharness-path', `${name} has no subharness path; its requests run on the direct path alone`);
+  return refused('unknown-agent', `${name} is no agent; use ${SUBHARNESS_AGENTS.join(', ')}`);
+}
+
+/** Names the backend `agent` runs through. The backend must be connected; a refusal writes nothing. */
+export function useBackend(privateDir: string, agent: string, backend: string): Promise<SubharnessResult> {
+  if (!isAgent(agent)) return Promise.resolve(notAnAgent(agent));
+  const name = BACKEND_NAMES.find((known) => known === backend);
+  if (name === undefined)
+    return Promise.resolve(refused('unknown-backend', `${backend} is no backend; use ${BACKEND_NAMES.join(', ')}`));
+  const store = readKeys(privateDir);
+  if (!store.subharness.backends.includes(name))
+    return Promise.resolve(
+      refused('backend-not-connected', `${name} is not connected: subharness enable ${name}; nothing was changed`)
+    );
+  if (store.subharness.uses[agent] === name)
+    return Promise.resolve(done(`${agent} runs through ${name} already`, false));
+  writeKeys(privateDir, {
+    ...store,
+    subharness: { ...store.subharness, uses: { ...store.subharness.uses, [agent]: name } },
+  });
+  return Promise.resolve(done(`${agent} runs through ${name} from its next run`));
+}
+
+/** Whether `backend` takes the effort flag: claude only when its `--help` lists `--effort`. */
+async function takesEffort(deps: EnableDeps, backend: BackendName): Promise<boolean> {
+  if (backend !== 'claude') return true;
+  if (deps.helpOf === undefined) return false;
+  try {
+    return (await deps.helpOf(backend)).includes('--effort');
+  } catch {
+    // a help that cannot be read is a claude whose flags are unknown
+    return false;
+  }
+}
+
+/**
+ * Sets the model of one agent, and its effort when one is given, after one reply from that model at that effort
+ * through the backend the agent runs through. Without an effort the stored one stays. The key of opencode is the
+ * stored one.
+ */
+export async function setAgentModel(
+  deps: EnableDeps,
+  agent: string,
+  model: string,
+  effort?: string
+): Promise<SubharnessResult> {
+  if (!isAgent(agent)) return notAnAgent(agent);
+  if (effort !== undefined && !isEffortLevel(effort))
+    return refused('unknown-effort', `${effort} is no effort; use ${EFFORT_LEVELS.join(', ')}`);
   const store = readKeys(deps.privateDir);
   const { key } = store.subharness;
   const backend = backendOfAgent(store.subharness, agent);
   if (backend === null) return refused('subharness-off', `no backend is connected for ${agent}: subharness enable`);
+  if (effort !== undefined && !(await takesEffort(deps, backend)))
+    return refused('effort-unsupported', `this ${backend} takes no --effort; nothing was changed`);
   const value = key === null ? '' : (store.extra[key] ?? '');
-  const failed = await checkModel(deps, backend, value, model);
+  const failed = await checkModel(deps, backend, value, model, effort);
   if (failed !== null) return { ...failed, message: `${failed.message}; nothing was changed` };
   const fresh = readKeys(deps.privateDir);
   writeKeys(deps.privateDir, {
     ...fresh,
-    subharness: { ...fresh.subharness, models: { ...fresh.subharness.models, [agent]: model } },
+    subharness: {
+      ...fresh.subharness,
+      models: { ...fresh.subharness.models, [agent]: model },
+      efforts: effort === undefined ? fresh.subharness.efforts : { ...fresh.subharness.efforts, [agent]: effort },
+    },
   });
-  return done(`${agent} runs on ${model} from its next run`);
+  const at = effort === undefined ? '' : ` at ${effort} effort`;
+  return done(`${agent} runs on ${model}${at} from its next run`);
 }
 
 /**
@@ -304,14 +368,45 @@ function backendLine(view: SubharnessView, name: BackendName): string {
   return `  ${name}${key}: ${held}`;
 }
 
-/** The status the owner reads: every connected backend with its key's name, every agent with its mode. No key value. */
-export function statusText(view: SubharnessView, models: Readonly<Record<string, string>> = {}): string {
+/** The path of one agent: the backend it runs through (null when none is connected for it), its model and its effort. */
+export type AgentPath = {
+  agent: SubharnessAgent;
+  backend: BackendName | null;
+  model: string | null;
+  effort: EffortLevel | null;
+};
+
+/** Each agent's path as keys.json holds it now. */
+export function agentPaths(privateDir: string): Array<AgentPath> {
+  const stored = readKeys(privateDir).subharness;
+  return SUBHARNESS_AGENTS.map((agent) => ({
+    agent,
+    backend: backendOfAgent(stored, agent),
+    model: stored.models[agent] ?? null,
+    effort: stored.efforts[agent] ?? null,
+  }));
+}
+
+/**
+ * The status the owner reads: every connected backend with its key's name, every agent with its mode, and with
+ * `paths` its backend, model and effort. No key value.
+ */
+export function statusText(
+  view: SubharnessView,
+  models: Readonly<Record<string, string>> = {},
+  paths?: ReadonlyArray<AgentPath>
+): string {
   const head =
     view.backends.length === 0
       ? ['subharness: off (every agent task is refused until: subharness enable codex|claude|opencode)']
       : ['subharness:', ...view.backends.map((name) => backendLine(view, name))];
-  const rows = SUBHARNESS_AGENTS.map(
-    (agent) => `  ${agent}  ${view.modes[agent]}${Object.hasOwn(models, agent) ? `  model ${models[agent]}` : ''}`
-  );
+  const rows = SUBHARNESS_AGENTS.map((agent) => {
+    const path = paths?.find((one) => one.agent === agent);
+    if (path === undefined)
+      return `  ${agent}  ${view.modes[agent]}${Object.hasOwn(models, agent) ? `  model ${models[agent]}` : ''}`;
+    const model = path.model ?? 'default';
+    const effort = path.effort ?? 'default';
+    return `  ${agent}  ${view.modes[agent]}  ${path.backend ?? 'none'}  model ${model}  effort ${effort}`;
+  });
   return [...head, 'modes:', ...rows].join('\n');
 }

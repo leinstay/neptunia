@@ -36,6 +36,7 @@ import type { ConsoleSubharness } from './subharness.ts';
 import { pluginsCommand } from './plugins.ts';
 import { skillsCommand } from './skills.ts';
 import { simulationCommand, subharnessCommand, subharnessDeps } from './subharness.ts';
+import { SUBHARNESS_AGENTS } from '../../subharness/control.ts';
 import { callMethod, listOf, objOf } from '../../tools/types.ts';
 import type { Counters, DaysSum, RoleRow } from '../../tools/impl/usage.ts';
 
@@ -205,6 +206,29 @@ const LOCAL_CONFIG_READS: Record<string, ((privateDir: string) => Answer) | unde
 function typed(name: string, args: Readonly<Record<string, unknown>>): string {
   const values = Object.values(args).filter((value) => value !== undefined && value !== '');
   return ['/' + name.replaceAll('.', ' '), ...values.map(String)].join(' ');
+}
+
+/**
+ * The answer of a `model set` that neither the key commands nor the `model.set` operation take, or null. An agent's
+ * model and effort live in its subharness, checked with one reply there. `--provider` and `--effort` are checked on the
+ * role's key, so they need the key commands of `keys.json`.
+ */
+function modelSetElsewhere(deps: ConsoleDeps, args: Record<string, unknown>): Promise<Answer> | null {
+  const typedLine = `/model set ${text(args.role)}`;
+  const refuse = (why: string): Promise<Answer> => Promise.resolve({ text: `${typedLine}: ${why}`, status: 'invalid' });
+  if (SUBHARNESS_AGENTS.some((agent) => agent === args.role)) {
+    if (text(args.provider) !== '') return refuse('an agent takes no --provider');
+    if (text(args.model) === '') return refuse('name the model: /model set <agent> <model>');
+    const given = {
+      agent: args.role,
+      model: args.model,
+      ...(args.effort === undefined ? {} : { effort: args.effort }),
+    };
+    return subharnessCommand(subharnessDeps(deps), 'subharness.model', given);
+  }
+  const hasFlags = text(args.provider) !== '' || text(args.effort) !== '';
+  if (hasFlags && deps.keys?.enabled() !== true) return refuse('--provider and --effort need the keys of keys.json');
+  return null;
 }
 
 export function createConsole(deps: ConsoleDeps): {
@@ -490,6 +514,8 @@ export function createConsole(deps: ConsoleDeps): {
   // command is answered above.
   return {
     run: (name, args, requester, dialog = null) => {
+      const routed = name === 'model.set' ? modelSetElsewhere(deps, args) : null;
+      if (routed !== null) return routed;
       const keys = deps.keys;
       if (keys != null && (name.startsWith(KEYS_PREFIX) || (name === 'model.set' && keys.enabled())))
         return keys.run(name, args, dialog);

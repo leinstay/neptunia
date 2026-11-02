@@ -399,7 +399,7 @@
         "function-length": 618
       },
       "createLlm>complete": {
-        "complexity": 45
+        "complexity": 44
       }
     },
     "src/llm/parse.ts": {

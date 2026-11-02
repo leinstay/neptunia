@@ -49,6 +49,9 @@ const ROUTE_CHOICES: ReadonlyArray<string> = ['any', ...ROUTE_ROLES];
 /** The roles a key can be bound to or checked for: the base model roles, her memory session included. */
 const KEY_ROLES: ReadonlyArray<string> = [...BASE_ROLES, MEMORY_ROLE];
 
+/** The roles `/model set` names: the model roles, her memory session and the watcher, whose model is its subharness's. */
+const MODEL_SET_CHOICES: ReadonlyArray<string> = [...MODEL_SET_ROLES, MEMORY_ROLE, 'watcher'];
+
 /** A yes or no argument. */
 const FLAGS: ReadonlyArray<string> = ['true', 'false'];
 
@@ -189,12 +192,21 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'model',
-    help: 'the model of every model role: show, set <role> <model>',
+    help: 'the model of every model role: show, set <role> [model] [--provider <slug>] [--effort <level>]',
     args: [],
     defaultSubcommand: 'show',
     subcommands: [
       sub('show', 'the model of every model role'),
-      sub('set', 'set the model of one role', [arg('role', true, MODEL_SET_ROLES), arg('model')]),
+      sub(
+        'set',
+        'set the model of one role after one reply from it, with a provider or an effort; an agent runs it through its subharness',
+        [
+          arg('role', true, MODEL_SET_CHOICES),
+          arg('model', false),
+          flagArg('provider', false),
+          flagArg('effort', false),
+        ]
+      ),
     ],
   },
   {
@@ -340,11 +352,14 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'subharness',
-    help: 'the backends the agents run on and the mode of each: status, enable <codex|claude|opencode> [--key <key>], disable <backend>, mode <agent> [mode], model <agent> <model>',
+    help: 'the backends the agents run on and the mode of each: status, enable <codex|claude|opencode> [--key <key>], disable <backend>, use <agent> <backend>, mode <agent> [mode], model <agent> <model> [--effort <level>]',
     args: [],
     defaultSubcommand: 'status',
     subcommands: [
-      sub('status', 'the connected backends, the key of opencode by name and the mode of every agent'),
+      sub(
+        'status',
+        'the connected backends, the key of opencode by name, and the mode, backend, model and effort of every agent'
+      ),
       sub('enable', 'connect one backend after a check; opencode needs --key, the name of an extra key', [
         arg('backend', true, BACKEND_NAMES),
         flagArg('key', false),
@@ -352,9 +367,14 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('disable', 'disconnect one backend; with none left every agent task is refused', [
         arg('backend', true, BACKEND_NAMES),
       ]),
-      sub('model', 'set the model of an agent after one reply from it: model <agent> <model>', [
+      sub('use', 'name the connected backend an agent runs through: use <agent> <backend>', [
+        arg('agent'),
+        arg('backend', true, BACKEND_NAMES),
+      ]),
+      sub('model', 'set the model and effort of an agent after one reply from it: model <agent> <model>', [
         arg('agent', true, SUBHARNESS_AGENTS),
         arg('model'),
+        flagArg('effort', false),
       ]),
       sub('mode', "show or set an agent's mode: read, write, full or sudo", [
         arg('agent', true, SUBHARNESS_AGENTS),

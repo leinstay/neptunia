@@ -7,9 +7,11 @@
 // names keys by name and last four characters and never holds a value; a refusal names the store's code, never the word
 // that was refused.
 
-import { roleGroup } from '../llm/roles.ts';
+import { matchRoute } from '../llm/openrouter.ts';
+import { EFFORT_LEVELS, REASONING_ROLES, isEffortLevel, roleGroup } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { checkKey, checkRole } from './check.ts';
+import { listRoleModels } from './models.ts';
 import type { ImportReport } from './import.ts';
 import type { CheckResult } from './check.ts';
 import type { KeyRing } from './ring.ts';
@@ -40,8 +42,14 @@ export type PauseControl = {
   reason(): string | null;
 };
 
-/** One command's answer: the status is `ok`, `invalid` (the line or a name is refused) or `failed` (a check or a save did not go through). */
-export type Answer = { text: string; status: string };
+/**
+ * One command's answer: the status is `ok`, `invalid` (the line or a name is refused) or `failed` (a check or a save did
+ * not go through), and the code of a refusal that has one.
+ */
+export type Answer = { text: string; status: string; code?: string };
+
+/** A provider slug of OpenRouter, as `/route set` takes it (src/tools/impl/route.ts). */
+const PROVIDER_SLUG = /^[a-z0-9-]+$/;
 
 export type KeysDeps = {
   store: KeyStore;
@@ -60,6 +68,12 @@ export type KeysDeps = {
    * there is nothing to move. Called before the first add, so a legacy deployment keeps its keys.
    */
   importLegacy?: () => ImportReport | null;
+  /** The live `llm.providerByModel`. */
+  routes?(): Readonly<Record<string, unknown>>;
+  /** Writes one `llm.providerByModel` entry in the local config. */
+  saveRoute?(key: string, value: Record<string, unknown>): Promise<void>;
+  /** Writes one setting by its dotted path in the local config. */
+  saveSetting?(path: string, value: unknown): Promise<void>;
 };
 
 /** What a legacy import moved, by name: the answer of the command that triggered it starts with it. */
@@ -75,7 +89,11 @@ const text = (value: unknown): string => (typeof value === 'string' ? value : ''
 /** The command as the owner typed it, without its arguments: a name or a word of the line may be a pasted key. */
 const typed = (name: string): string => `/${name.replaceAll('.', ' ')}`;
 
-const invalid = (name: string, why: string): Answer => ({ text: `${typed(name)}: ${why}`, status: 'invalid' });
+const invalid = (name: string, why: string, code?: string): Answer => ({
+  text: `${typed(name)}: ${why}`,
+  status: 'invalid',
+  ...(code === undefined ? {} : { code }),
+});
 const failed = (name: string, why: string): Answer => ({ text: `${typed(name)}: ${why}`, status: 'failed' });
 
 /** A value read from the dialog: a paste often carries a trailing newline or space. */
@@ -92,6 +110,54 @@ function checkLine(result: CheckResult): string {
   return result.ok
     ? `${head}: answered, ${byok}, ${money(result.cost)}`
     : `${head}: failed${result.status === null ? '' : ` (HTTP ${result.status})`}: ${result.error ?? 'no reason given'}`;
+}
+
+/** The `--provider` and `--effort` of one model set, by name. */
+type ModelFlags = { role: string; provider: string; effort: string };
+
+/** Why the `--provider` and `--effort` of a model set are refused before anything is sent, or null. */
+function flagsProblem(deps: KeysDeps, name: string, flags: ModelFlags): Answer | null {
+  const { role, provider, effort } = flags;
+  if (provider !== '' && !PROVIDER_SLUG.test(provider))
+    return invalid(name, 'a provider is one slug of lowercase letters, digits and dashes', 'bad-provider');
+  if (effort !== '' && !isEffortLevel(effort))
+    return invalid(name, `the effort is one of ${EFFORT_LEVELS.join(', ')}`, 'unknown-effort');
+  // The core is not among them: its thinking is her own `<think>`, never provider reasoning (owner, 2026-10-19).
+  if (effort !== '' && !REASONING_ROLES.includes(role))
+    return invalid(name, `the ${role} role takes no effort; ${REASONING_ROLES.join(', ')} do`, 'effort-unsupported');
+  if (provider !== '' && deps.saveRoute === undefined) return failed(name, 'provider routes cannot be written here');
+  if (effort !== '' && deps.saveSetting === undefined) return failed(name, 'the effort cannot be written here');
+  return null;
+}
+
+/** The model to set: the typed one, else the answer to a question offering the role's models from `/models`. */
+async function modelToSet(
+  deps: KeysDeps,
+  input: { args: Record<string, unknown>; role: string; value: string; dialog: Dialog | null }
+): Promise<string> {
+  const typedModel = text(input.args.model);
+  if (typedModel !== '' || input.dialog === null) return typedModel;
+  const choices = await listRoleModels({ fetch: deps.fetch, baseUrl: deps.baseUrl(), value: input.value }, input.role);
+  const question = `Model for the ${input.role} role (one of the list, or any other OpenRouter id):`;
+  return pasted(await input.dialog.ask(question, choices.length === 0 ? {} : { choices }));
+}
+
+/** Writes the route and the effort of a model that answered its check; the lines that say what was written. */
+async function saveFlags(deps: KeysDeps, flags: ModelFlags & { model: string }): Promise<Array<string>> {
+  const { role, model, provider, effort } = flags;
+  const lines: Array<string> = [];
+  if (provider !== '' && deps.saveRoute !== undefined) {
+    // A provider change keeps the BYOK mark of the route that applies now, so the role never moves to credit unseen.
+    const isByok = matchRoute(model, deps.routes?.() ?? {}, role)?.value.byok === true;
+    const route = { only: [provider], allow_fallbacks: false, ...(isByok ? { byok: true } : {}) };
+    await deps.saveRoute(`${model}@${role}`, route);
+    lines.push(`It goes out through ${provider} alone${isByok ? ', billed as BYOK' : ''}.`);
+  }
+  if (isEffortLevel(effort) && deps.saveSetting !== undefined) {
+    await deps.saveSetting(`llm.reasoningByRole.${role}`, { effort });
+    lines.push(`Its requests ask for ${effort} reasoning effort.`);
+  }
+  return lines;
 }
 
 export function createKeysCommands(deps: KeysDeps): {
@@ -277,18 +343,27 @@ export function createKeysCommands(deps: KeysDeps): {
     return { text: checkLine(result), status: result.ok ? 'ok' : 'failed' };
   }
 
-  async function setModel(name: string, args: Record<string, unknown>): Promise<Answer> {
+  async function setModel(name: string, args: Record<string, unknown>, dialog: Dialog | null): Promise<Answer> {
     const role = text(args.role);
-    const model = text(args.model);
+    const provider = text(args.provider);
+    const effort = text(args.effort);
     const group = roleGroup(role);
-    if (group === undefined || model === '') return invalid(name, 'a role and a model are needed');
+    if (group === undefined) return invalid(name, 'a role and a model are needed');
+    const problem = flagsProblem(deps, name, { role, provider, effort });
+    if (problem !== null) return problem;
     if (group !== 'base' || UNCHECKED_ROLES.includes(role)) {
+      const model = text(args.model);
+      if (model === '') return invalid(name, 'a role and a model are needed');
+      if (provider !== '') return invalid(name, `the ${role} role takes no provider route`);
       await deps.saveModel(role, model);
       return { text: `The ${role} model is ${model}. Its id is not checked here.`, status: 'ok' };
     }
     const route = ring.route(role);
     if (route === null)
       return failed(name, `the ${role} role has no key: add a core key or bind the role to an extra key`);
+    const model = await modelToSet(deps, { args, role, value: route.value, dialog });
+    if (model === '' || /\s/.test(model)) return invalid(name, 'a role and a model are needed');
+    const routing = provider === '' ? undefined : { only: [provider], allow_fallbacks: false };
     const result = await checkRole({
       fetch: deps.fetch,
       baseUrl: deps.baseUrl(),
@@ -296,10 +371,13 @@ export function createKeysCommands(deps: KeysDeps): {
       model,
       keyName: route.name,
       value: route.value,
+      ...(routing === undefined ? {} : { provider: routing }),
+      ...(isEffortLevel(effort) ? { reasoning: { effort } } : {}),
     });
     if (!result.ok) return failed(name, `${checkLine(result)}\nThe model is not saved.`);
     await deps.saveModel(role, model);
-    return { text: `${checkLine(result)}\nThe ${role} model is saved.`, status: 'ok' };
+    const saved = await saveFlags(deps, { role, model, provider, effort });
+    return { text: [checkLine(result), `The ${role} model is saved.`, ...saved].join('\n'), status: 'ok' };
   }
 
   async function dispatch(name: string, args: Record<string, unknown>, dialog: Dialog | null): Promise<Answer> {
@@ -334,7 +412,7 @@ export function createKeysCommands(deps: KeysDeps): {
         return checkOne(name, role);
       }
       case 'model.set':
-        return setModel(name, args);
+        return setModel(name, args, dialog);
       default:
         return invalid(name, 'no such command; type /help');
     }
