@@ -1,17 +1,24 @@
-// `neptunia setup`: the install of one user, in six steps that each run on their own and again, like the sections of
+// `neptunia setup`: the install of one user, in nine steps that each run on their own and again, like the sections of
 // the setup of Hermes (hermes_cli/setup.py) with a summary at the end (hermes_cli/setup_summary.py). Every step checks
 // first whether its work is done (`already`), so a rerun after a failure resumes where it stopped. A step that fails
-// stops the run, the steps after it are `skipped`, and no chat opens. Only the self-development step asks a question;
-// after the last step the owner's chat opens on `keys core add`, and the chat takes over.
+// stops the run, the steps after it are `skipped`, and no chat opens. The four steps that ask come before `units`, so
+// the units bind the backends just connected and the watcher's timer takes the hour just given; each is `skipped` with
+// no terminal. After the last step the owner's chat opens on `keys core add`, and the chat takes over.
 //
-//   folders    the private folder with `config.local`, `prompts.local`, `clients`, and the data folder, all mode 0700
-//   keys-file  an empty `keys.json` at mode 0600; one that exists keeps its content and is made 0600
-//   units      the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ; the selfimprovement
-//              units too when `selfimprovement.checkout` names a checkout other than this one
-//   linger     `loginctl enable-linger` for the user, so the user units run without a login (user units only)
-//   core       `enable --now neptunia-core.service`, the one unit setup starts
-//   selfimprovement    the repository her pull requests go to, checked through her gh login (src/setup/selfimprovement.ts); skipped
-//              while `selfimprovement.checkout` is unset or no terminal asks. A `refused` step stops nothing
+//   folders          the private folder with `config.local`, `prompts.local`, `clients`, and the data folder, mode 0700
+//   keys-file        an empty `keys.json` at mode 0600; one that exists keeps its content and is made 0600
+//   subharness       the backends her agents run through, installed and connected (src/setup/subharness.ts)
+//   selfimprovement  the repository her pull requests go to, checked through her gh login
+//                    (src/setup/selfimprovement.ts); skipped while `selfimprovement.checkout` is unset
+//   mechanics        heartbeat, selfreflection and selfimprovement on or off, and `selfimprovement.at`
+//                    (src/setup/mechanics.ts)
+//   watcher          the watcher on or off, `watcher.at`, its backend and its model (src/setup/watcher.ts)
+//   units            the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ; the
+//                    selfimprovement units too when `selfimprovement.checkout` names a checkout other than this one
+//   linger           `loginctl enable-linger` for the user, so the user units run without a login (user units only)
+//   core             `enable --now neptunia-core.service`, the one unit setup starts
+//
+// A `refused` step stops nothing.
 //
 // With `--system` the units are system units that run as the installing user, put in place with `sudo install`, and
 // every systemctl call goes through `sudo`. The units start the node `nodeOf` finds: `--node <path>`, else the one this
@@ -26,13 +33,28 @@ import { emptyKeys, writeKeys } from '../keys/file.ts';
 import type { GhRunner } from '../selfimprovement/repository.ts';
 import { installUnits, systemctlOf, unitDirOf, whyFailed } from './install.ts';
 import type { RunResult, UnitTarget } from './install.ts';
+import { mechanicsStep } from './mechanics.ts';
 import { selfimprovementStep } from './selfimprovement.ts';
+import { subharnessStep } from './subharness.ts';
+import type { SubharnessStepDeps } from './subharness.ts';
+import { watcherStep } from './watcher.ts';
+import type { InstallRun } from '../subharness/install.ts';
 import { SELFIMPROVEMENT_UNIT_FILES, UNIT_FILES } from './units.ts';
 
 export type { RunResult };
 
 /** The steps, in the order they run. */
-export const SETUP_STEPS = ['folders', 'keys-file', 'units', 'linger', 'core', 'selfimprovement'] as const;
+export const SETUP_STEPS = [
+  'folders',
+  'keys-file',
+  'subharness',
+  'selfimprovement',
+  'mechanics',
+  'watcher',
+  'units',
+  'linger',
+  'core',
+] as const;
 export type SetupStep = (typeof SETUP_STEPS)[number];
 
 /** Who and where `setup` installs; `only` runs one step. */
@@ -45,10 +67,20 @@ export type SetupDeps = {
   openChat(firstLine: string): Promise<void>;
   /** Called once with the report, before the chat opens or when the run ends without it. */
   report?(report: SetupReport): void;
-  /** Asks the owner at the terminal; absent when no terminal is there, and the self-development step is skipped. */
+  /** Asks the owner at the terminal; absent when no terminal is there, and the steps that ask are skipped. */
   ask?: (question: string, offered: string | null) => Promise<string>;
-  /** gh under her own gh home, for the self-development step's push-right check. */
+  /** gh under her own gh home, for the push-right check of the self-development and mechanics steps. */
   gh?: GhRunner;
+  /** npm for the subharness step's install (src/subharness/install.ts); without it that step is skipped. */
+  install?: InstallRun;
+  /** One reply of codex or claude, the subharness step's check; without it that step is skipped. */
+  runBackend?: SubharnessStepDeps['runBackend'];
+  /** The `/auth/key` check of opencode's key; without it the subharness step is skipped. */
+  fetch?: typeof fetch;
+  /** The environment npm is started with; `process.env` by default. */
+  hostEnv?: Readonly<Record<string, string | undefined>>;
+  /** The endpoint of opencode's key check. */
+  baseUrl?: string;
 };
 
 /** What one step came to. */
@@ -206,11 +238,54 @@ async function coreStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome
   return started.code === 0 ? done('the core is enabled and running') : failed(`enable --now: ${whyFailed(started)}`);
 }
 
+const NOT_AT_TERMINAL: Outcome = { state: 'skipped', detail: 'not at a terminal' };
+
 async function selfimprovementSetupStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
   const { ask, gh } = deps;
-  if (ask === undefined || gh === undefined) return { state: 'skipped', detail: 'not at a terminal' };
+  if (ask === undefined || gh === undefined) return NOT_AT_TERMINAL;
   const outcome = await selfimprovementStep(options, { run: (command, args) => deps.run(command, args), ask, gh });
   return { state: outcome.state, detail: outcome.detail };
+}
+
+async function subharnessSetupStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
+  const { ask, install, runBackend, fetch } = deps;
+  if (ask === undefined || install === undefined || runBackend === undefined || fetch === undefined)
+    return NOT_AT_TERMINAL;
+  const outcome = await subharnessStep(options, {
+    ask,
+    install,
+    runBackend,
+    fetch,
+    hostEnv: deps.hostEnv ?? process.env,
+    ...(deps.baseUrl === undefined ? {} : { baseUrl: deps.baseUrl }),
+  });
+  return { state: outcome.state, detail: outcome.detail };
+}
+
+/** One step's work. */
+async function stepOutcome(step: SetupStep, options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
+  switch (step) {
+    case 'folders':
+      return foldersStep(options);
+    case 'keys-file':
+      return keysFileStep(options);
+    case 'subharness':
+      return subharnessSetupStep(options, deps);
+    case 'selfimprovement':
+      return selfimprovementSetupStep(options, deps);
+    case 'mechanics':
+      return deps.ask === undefined || deps.gh === undefined
+        ? NOT_AT_TERMINAL
+        : mechanicsStep(options, { ask: deps.ask, gh: deps.gh });
+    case 'watcher':
+      return deps.ask === undefined ? NOT_AT_TERMINAL : watcherStep(options, { ask: deps.ask });
+    case 'units':
+      return unitsStep(options, deps);
+    case 'linger':
+      return lingerStep(options, deps);
+    case 'core':
+      return coreStep(options, deps);
+  }
 }
 
 /** Runs the steps (one with `only`), the chat last after a full run. Resolves with the report; never rejects for a failed step. */
@@ -224,12 +299,7 @@ export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<
     }
     let outcome: Outcome;
     try {
-      if (step === 'folders') outcome = foldersStep(options);
-      else if (step === 'keys-file') outcome = keysFileStep(options);
-      else if (step === 'units') outcome = await unitsStep(options, deps);
-      else if (step === 'linger') outcome = await lingerStep(options, deps);
-      else if (step === 'core') outcome = await coreStep(options, deps);
-      else outcome = await selfimprovementSetupStep(options, deps);
+      outcome = await stepOutcome(step, options, deps);
     } catch (err) {
       outcome = failed((err as NodeJS.ErrnoException).code ?? 'the step could not run');
     }
