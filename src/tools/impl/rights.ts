@@ -58,7 +58,6 @@ export const PERSONA_GOVERNED_CONFIG: ReadonlyArray<string> = Object.freeze([
   'wakes',
   'heartbeat',
   'selfimprovement',
-  'innerLife',
 ]);
 
 /**

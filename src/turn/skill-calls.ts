@@ -551,8 +551,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     if (inner.hold && OWN_MESSAGE_SKILLS.includes(skill) && isLast(args?.message) && inner.hold.holdsIn(where))
       return { refusal: { code: CODE.HELD_MESSAGE, reason: 'held' } };
     if (typeof inner.mayAct === 'function' && !inner.mayAct())
-      // The reason keeps the section's old name: her call result carries it, and her requests stay as they were.
-      return { refusal: { code: CODE.INNER_STOPPED, reason: 'innerLife' } };
+      return { refusal: { code: CODE.INNER_STOPPED, reason: 'wakes' } };
     const isPublic =
       POSTING_SKILLS.includes(String(skill)) && (inCommunity(channel) || typeof args?.channel === 'string');
     return { public: isPublic };
