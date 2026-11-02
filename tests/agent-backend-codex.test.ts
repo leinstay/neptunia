@@ -32,6 +32,19 @@ test('reads a token count with several comma groups as one number', async () => 
   }
 });
 
+test('reads the token count from stderr, where the real codex prints it on the line after the label', async () => {
+  // Bug: only stdout was read, so the real run (banner and tokens on stderr) reported no tokens and the spend went uncounted.
+  const { dir, cleanup } = scratch();
+  try {
+    const env = { FAKE_TOKENS_ON: 'stderr', FAKE_TOKENS: '2,083', FAKE_FINAL: 'ok' };
+    const result = await codex().run('x', { cwd: dir, timeoutMs: 20_000, env });
+    assert.equal(result.text, 'ok');
+    assert.equal(result.tokens, 2083);
+  } finally {
+    cleanup();
+  }
+});
+
 test('sends the brief to the child whole and starts it in the given cwd with exec, the git check off and a -o file', async () => {
   // Bug: a brief with quotes and newlines mangled by a shell, or run in the bot's own directory.
   const { dir, cleanup } = scratch();

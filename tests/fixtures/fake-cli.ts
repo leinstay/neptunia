@@ -9,6 +9,7 @@
 //              grandchild's pid is written to FAKE_PID_FILE)
 //   FAKE_FINAL the final message in mode ok
 //   FAKE_TOKENS the number printed after `tokens used` (default 17,065)
+//   FAKE_TOKENS_ON  stderr: the banner and the `tokens used` block go to stderr, as the real codex prints them
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 
@@ -44,7 +45,13 @@ if (mode === 'hang') {
   if (mode === 'silent') process.exit(0);
   if (codex) {
     if (outFile) fs.writeFileSync(outFile, final);
-    process.stdout.write(`Reading additional input from stdin...\nOpenAI Codex v0.164.0\n--------\nuser\n${stdin}\ncodex\n${final}\ntokens used\n${process.env.FAKE_TOKENS ?? '17,065'}\n${final}\n`);
+    const block = `tokens used\n${process.env.FAKE_TOKENS ?? '17,065'}\n`;
+    if (process.env.FAKE_TOKENS_ON === 'stderr') {
+      process.stderr.write(`OpenAI Codex v0.164.0\n--------\nuser\n${stdin}\ncodex\n${final}\n${block}`);
+      process.stdout.write(`${final}\n`);
+    } else {
+      process.stdout.write(`Reading additional input from stdin...\nOpenAI Codex v0.164.0\n--------\nuser\n${stdin}\ncodex\n${final}\n${block}${final}\n`);
+    }
   } else {
     process.stdout.write(`${final}\n`);
   }
