@@ -16,7 +16,7 @@ By default everything sits in the checkout: `config/` and `prompts/` (tracked), 
 
 | Variable | Default | What lives there |
 |---|---|---|
-| `NEPTUNIA_PRIVATE_DIR` | the checkout | `.env`, `config.local/`, `prompts.local/`, `clients.json`, `clients/`, `cli/` (the chat's picture and history, see [The neptunia command](cli.md)) |
+| `NEPTUNIA_PRIVATE_DIR` | the checkout | `.env`, `keys.json` (the model keys, see [Keys](keys.md)), `config.local/`, `prompts.local/`, `clients.json`, `clients/`, `cli/` (the chat's picture and history, see [The neptunia command](cli.md)) |
 | `NEPTUNIA_DATA_DIR` | `data/` in the checkout | everything the bot writes: `guilds/`, `state.json`, `usage.json`, `metrics.json`, caches |
 
 Set them in the process environment (for example `Environment=` in the systemd unit), not in `.env`: the bot reads `.env` from the private directory, so it needs to know that directory first. A relative path is resolved against the checkout. An edit to a file in `config.local/` or `prompts.local/` inside the private directory still reloads live. The tools read the same two variables; `--data` overrides the data path. At start the bot logs the three resolved directories (`index: paths`). `deploy/neptunia-bot.service` shows the recommended layout.

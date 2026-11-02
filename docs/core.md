@@ -92,6 +92,8 @@ A role never borrows another role's model. A mandatory role whose key is unset u
 
 ### Keys
 
+A deployment with a `keys.json` takes its keys from the key store and the paragraphs below describe the older path, which still serves while the file is absent (see [Keys](keys.md)).
+
 `OPENROUTER_CORE_KEY` is the main key. `llm.keyByRole` maps individual roles to their own key (a different environment variable name) or to a list of names, the first being the primary. The errand and development roles never go out on the main key.
 
 A role with two or more keys is on one of them at a time, kept in memory by `src/llm/key-failover.ts`. The core has such a list without any setting when `OPENROUTER_CORE_BACKUP_KEY` is set: `OPENROUTER_CORE_KEY`, then the backup. A request that gets HTTP 402, or 429 whose body names credits or balance, moves the role to the next key and is sent again at once on it, one time. After the last key the role goes back to the first. When every key of the list failed within a minute, the request fails with the code `keys-exhausted` and `src/llm/role-health.ts` marks the role down until 00:00 UTC. Other 429 answers and every other status leave the key alone. A role with one key behaves as it always did. The `llm: key switched` log line carries the role, the two variable names and the status, never a key. A request that goes out in the hedge path (`llm.hedge`) does not fail over.

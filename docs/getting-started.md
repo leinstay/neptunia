@@ -35,7 +35,7 @@ Copy `.env.example` to `.env` and fill in the values. The file is read once at s
 | Variable | Required | What it does |
 |---|---|---|
 | `DISCORD_TOKEN` | yes | The bot token from the Discord Developer Portal |
-| `OPENROUTER_CORE_KEY` | yes | The main API key for chat completions (the core and every role that `llm.keyByRole` does not map elsewhere) |
+| `OPENROUTER_CORE_KEY` | yes, unless the private folder has a `keys.json` | The main API key for chat completions (the core and every role that `llm.keyByRole` does not map elsewhere). With a `keys.json` the keys are set from the chat instead (see [Keys](keys.md)) |
 | `OPENROUTER_CORE_BACKUP_KEY` | no | The core's second key. When it is set and `llm.keyByRole` does not name the core, a budget error on the main key moves the core to this key (see [The core](core.md#keys)) |
 | `OPENROUTER_SIM_KEY` | no | A second key used only by the scripts (replay, eval, memory session). Without it a script refuses to run. The bot never spends it |
 | `OPENROUTER_MANAGEMENT_KEY` | no | An OpenRouter management key. When set, the status card shows each key's last 7 and 30 days of spending from OpenRouter's own figures. The bot only reads activity with it |
