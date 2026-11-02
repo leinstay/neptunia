@@ -303,7 +303,7 @@ function traversalFixture() {
   return { handle, db, ids, accounts, places, ctx };
 }
 
-function rowIds(result: ReturnType<typeof walk>): Array<string> {
+function rowIds(result: { rows: ReadonlyArray<{ rowId: unknown }> }): Array<string> {
   return result.rows.map((row) => {
     assert.ok(typeof row.rowId === 'string', 'a fixture graph row has a text id');
     return row.rowId;
