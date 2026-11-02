@@ -162,8 +162,10 @@ function linesOf(line: string, rules: LineRules): Array<string> {
  * with their paths mapped too.
  */
 export function renderUnit(template: string, scope: 'user' | 'system', vars: UnitVars): string {
-  let text = template;
-  for (const [from, to] of pathMap(vars)) text = text.replaceAll(from, () => to);
+  const paths = pathMap(vars).sort(([left], [right]) => right.length - left.length);
+  const pattern = new RegExp(paths.map(([from]) => from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g');
+  // Match only template paths so an inserted path keeps its literal value.
+  const text = template.replace(pattern, (from: string) => paths.find(([source]) => source === from)?.[1] ?? from);
   const mode = vars.mode ?? 'write';
   const dropped = new Set<string>();
   if (mode === 'full' || mode === 'sudo') for (const key of MOUNT_SANDBOX) dropped.add(key);

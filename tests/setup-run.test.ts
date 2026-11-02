@@ -451,6 +451,20 @@ test('setup writes the selfimprovement service and timer over the checkout selfi
   assert.deepEqual(unitValues(core, 'WorkingDirectory'), [options.rootDir]);
 });
 
+test('setup schedules the selfimprovement executor every six hours UTC without downtime catch-up', async () => {
+  // Catches an hourly executor default or persistence that starts missed work after downtime.
+  const { options, deps, unitDir } = rig({ only: 'units' });
+  const checkout = path.join(path.dirname(options.privateDir), 'dev-checkout');
+  withSelfimprovement(options.privateDir, { checkout });
+  const report = await runSetup(options, deps);
+  assert.equal(report.ok, true);
+  const timer = fs.readFileSync(path.join(unitDir, 'neptunia-selfimprovement.timer'), 'utf8');
+  assert.deepEqual(unitValues(timer, 'OnCalendar'), ['*-*-* 00,06,12,18:00:00 UTC']);
+  assert.equal(unitValues(timer, 'Persistent').includes('true'), false);
+  const service = fs.readFileSync(path.join(unitDir, 'neptunia-selfimprovement.service'), 'utf8');
+  assert.deepEqual(unitValues(service, 'Type'), ['oneshot']);
+});
+
 test('setup writes no selfimprovement unit when selfimprovement.checkout is the deployed checkout itself', async () => {
   // Catches: a checkout setting copied from the deployment makes the beat edit and push the code that is running.
   const { options, deps, unitDir } = rig();
