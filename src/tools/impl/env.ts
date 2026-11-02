@@ -21,6 +21,7 @@ import type { Reads } from '../../interface/reads.ts';
 import type { RoleHealth } from '../../llm/role-health.ts';
 import type { BoardCaller } from './board.ts';
 import type { SkillsAccess } from '../../skills/port.ts';
+import type { ReportReader } from '../../watcher/read.ts';
 
 /** What `createOpsEnv` is given: the persona's subsystems, the reads of the interface and the clock. */
 export type OpsDeps = {
@@ -46,6 +47,8 @@ export type OpsDeps = {
   board?: BoardCaller | null;
   /** Her skills (src/skills/port.ts) that `skill.read` and `skill.disable` use; null when the core has none. */
   skills?: SkillsAccess | null;
+  /** The watcher's reports (src/watcher/read.ts) that `watcher.read` answers; null when the core has none. */
+  watcher?: ReportReader | null;
   [subsystem: string]: Untyped;
 };
 
@@ -96,6 +99,7 @@ function buildEnv({
   mirrors = null,
   board = null,
   skills = null,
+  watcher = null,
   now = Date.now,
   // The data directory src/index.ts resolved (src/paths.ts); `<hot.rootDir>/data` when not given.
   dataDir = hot?.rootDir ? path.join(hot.rootDir as string, 'data') : null,
@@ -291,6 +295,8 @@ function buildEnv({
     board,
     // Her skills (src/tools/impl/skill.ts): `skill.read` and `skill.disable`.
     skills,
+    // The watcher's reports (src/tools/impl/watcher.ts): `watcher.read`.
+    watcher,
     now,
     dataDir,
     connection,

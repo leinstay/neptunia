@@ -348,6 +348,14 @@
       "name": "The skill's name as listed."
     }
   },
+  "watcher.read": {
+    "title": "Read the watcher's report",
+    "whenToUse": "The daily report of the watcher, an agent that looks over you, the project and the server once a day: the latest, or one day's. Read it when the owner asks what it found, or when you want to know.",
+    "whenNotToUse": "Not for your own memory or your own skills.",
+    "args": {
+      "day": "YYYY-MM-DD. Leave it out for the latest report."
+    }
+  },
   "skill.disable": {
     "title": "Turn a skill off",
     "whenToUse": "A skill keeps steering you wrong. It leaves your list until the owner turns it back on.",

@@ -3109,6 +3109,61 @@
    }
   },
   {
+   "tool": "watcher.read",
+   "effect": "read",
+   "costClass": "free",
+   "feature": null,
+   "result": "data",
+   "ownerOnly": false,
+   "grantedByDefault": false,
+   "carriedOver": false,
+   "grantableToPersona": true,
+   "nested": [],
+   "reply": {
+    "on": "unknown-skill:watcher.read",
+    "off": "unknown-skill:watcher.read"
+   },
+   "rights": {
+    "owner": "ok",
+    "member": "not-granted",
+    "member-granted": "ok",
+    "member-commands-off": "not-granted"
+   },
+   "envelope": {
+    "intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
+    "review": "ok",
+    "errand_deadline": "ok",
+    "attend": "not-allowed:innerLife.wakes.attend.tools",
+    "feedback": "ok",
+    "heartbeat": "ok"
+   },
+   "verdicts": {
+    "owner-here": "ok",
+    "member-here": "requester-denied:not-granted",
+    "member-granted-here": "ok",
+    "owner-there": "ok",
+    "member-there": "requester-denied:not-granted",
+    "ungranted-owner-here": "not-allowed:watcher.read",
+    "shipped-owner-here": "not-allowed:watcher.read",
+    "no-requester": "requester-denied:not-granted",
+    "own-initiative": "ok",
+    "wake-intention_due": "not-allowed:innerLife.wakes.intention_due.tools",
+    "wake-review": "ok",
+    "wake-errand_deadline": "ok",
+    "wake-attend": "not-allowed:innerLife.wakes.attend.tools",
+    "wake-feedback": "ok",
+    "wake-heartbeat": "ok",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
+    "features-off": "ok",
+    "mixed-requesters": "ok",
+    "cooldown": "ok",
+    "budget-spent": "ok",
+    "budget-unknown": "ok",
+    "unknown-principal": "unknown-principal:member"
+   }
+  },
+  {
    "tool": "intention.set",
    "effect": "write",
    "costClass": "free",

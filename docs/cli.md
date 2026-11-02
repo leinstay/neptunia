@@ -12,6 +12,7 @@
 | `neptunia plugin run <name>` | Runs one plugin, as `deploy/neptunia-plugin@.service` does (see [Plugins](plugins.md)). It loads `plugins.local/<name>/index.ts` of the private layer before `plugins/<name>/index.ts`, reads the token from the unit's credential or `clients/<name>.token`, keeps the plugin's state in `<data>/plugins/<name>` and opens the link again with backoff when it drops. |
 | `neptunia service install\|start\|stop\|restart\|status [<unit> ...]` | Installs the units with `deploy/install.sh`, or runs `systemctl` on the named units, by default `neptunia-core.service` and the two errand units. |
 | `neptunia task <command> [options]` | The task board's command line, a client of the core (see [The task board](#the-task-board)). |
+| `neptunia watcher run` | One run of the daily watcher, as `deploy/neptunia-watcher.service` does (see [The watcher](watcher.md)). |
 
 ## The client
 
@@ -23,11 +24,11 @@ The chat and `-p` are the client `cli` of kind `cli`. Its token is `<private>/cl
 
 Every line typed is a message to the persona. It goes to the core as a `message.received` event in the direct conversation `cli:dm:owner` of kind `dm`, between the owner and her, and she remembers it as any direct chat. The private-chat gate lets it through whatever `private.enabled` and `bot.owners` say. Her reply comes back as a send action and is printed once. A line typed before the link is up waits in the input until it is. The chat answers the core's reads of the conversation and of its history from the lines of the session, so a turn sees what was said since the chat opened.
 
-A line that starts with `/` is a command. The chat parses it by the command table (`src/interface/commands/table.ts`) and prints the reason when the table refuses it. A parsed command goes to the core as a `command.requested` event, and its answer is printed for the owner alone: neither the command nor its answer reaches her memory or a request. `/clear`, `/doctor` and `/logs` run in the chat itself, and `/doctor live` asks the core only for the probes. In a terminal the command history is kept in `<private>/cli/history`. The end of the input (Ctrl-D) ends the chat with exit 0 once the answers of the commands still running have arrived.
+A line that starts with `/` is a command. The chat parses it by the command table (`src/interface/commands/table.ts`) and prints the reason when the table refuses it. A parsed command goes to the core as a `command.requested` event, and its answer is printed for the owner alone: neither the command nor its answer reaches her memory or a request. `/clear`, `/doctor`, `/logs` and `/report` run in the chat itself, and `/doctor live` asks the core only for the probes. In a terminal the command history is kept in `<private>/cli/history`. The end of the input (Ctrl-D) ends the chat with exit 0 once the answers of the commands still running have arrived.
 
 ## Commands
 
-A line is the command, then its subcommand when it has one, then its arguments in order, split on spaces. The last argument takes the rest of the line, so `/rules add never answer before noon` adds one rule, and `/memory lore add Tower tower,spire The tower has seven floors` is the title `Tower`, the keys `tower,spire` and the text. A command with subcommands runs the first one listed below when the line names none, except `/memory`, which needs one. The table refuses an unknown command, an unknown subcommand, a missing argument, a `/health` part other than `server`, `core` or `memory`, and a `/usage` window other than `7d` or `30d`.
+A line is the command, then its subcommand when it has one, then its arguments in order, split on spaces. The last argument takes the rest of the line, so `/rules add never answer before noon` adds one rule, and `/memory lore add Tower tower,spire The tower has seven floors` is the title `Tower`, the keys `tower,spire` and the text. A command with subcommands runs the first one listed below when the line names none, except `/memory`, which needs one. The table refuses an unknown command, an unknown subcommand, a missing argument, a `/health` part other than `server`, `core` or `memory`, a `/usage` window other than `7d` or `30d`, and a `/report` date that is not a real date written `YYYY-MM-DD`.
 
 The core's console (`src/interface/commands/console.ts`) runs each command with the owner's rights, whatever `bot.owners` says. A command that maps onto an operation runs it through `runOp`. A refused answer starts with the command as it was typed, so it names the id, the tool or the setting it refused.
 
@@ -38,6 +39,7 @@ The core's console (`src/interface/commands/console.ts`) runs each command with 
 | `/doctor`, `/doctor live` | The checks of `neptunia doctor`, run by the chat, each with its status. `live` adds the check `providers`: the core probes the model of every role as the status card does. |
 | `/health [server\|core\|memory]` | The health of one part, or of all three. See [Health](#health). |
 | `/logs [errors] [since <value>] [follow]` | Runs `journalctl -u neptunia-core.service --no-pager` from `PATH` and prints its lines. `errors` adds `-p err`, `since` adds `--since <value>`, and `follow` follows the journal, in the chat only. |
+| `/report [<date>]` | The watcher's latest report, or the report of a date written `YYYY-MM-DD`, read from the watcher folder and rendered for the terminal: headings, lists, tables, code, bold and italic. A day with no report answers one line. See [The watcher](watcher.md). |
 | `/usage [7d\|30d]` | The requests, tokens and dollars of `usage.json` over the window, today without one: by model group (`base`, `errands`, `development`, `memory`) with each role by its name, then by interface, then each key's limit and spend. The key limits come from the status card's GETs. |
 | `/errands`, `/errands show <id>`, `/errands cancel <id>` | The latest errands, one errand, or the cancel of an open one (`errand.list`, `errand.status`, `errand.cancel`). |
 | `/intentions`, `/intentions show <id>`, `/intentions cancel <id>` | The open intentions, one of them, or its cancel (`intention.list`, `intention.cancel`). |
@@ -90,7 +92,7 @@ The memory part (`src/health/memory.ts`) looks back seven days. It names every p
 
 ## One command
 
-`neptunia -p "/status"` sends one command the way the chat does and prints its answer on stdout with nothing else, so a script or an agent reads it. It exits 0 when the command ran and 1 otherwise: a line the table refuses, with the reason on stderr, an operation's `denied`, `invalid` or `failed`, a `/health` part that fails, a `/doctor` with a failed check, or no `journalctl` for `/logs`. When no core listens it exits 1 at once, except for `/doctor`, `/logs` and `/clear`, which need no core. A usage error of `neptunia` itself exits 2. The log lines of the chat and of `-p` go to stderr.
+`neptunia -p "/status"` sends one command the way the chat does and prints its answer on stdout with nothing else, so a script or an agent reads it. It exits 0 when the command ran and 1 otherwise: a line the table refuses, with the reason on stderr, an operation's `denied`, `invalid` or `failed`, a `/health` part that fails, a `/doctor` with a failed check, no `journalctl` for `/logs`, or no report for `/report`. When no core listens it exits 1 at once, except for `/doctor`, `/logs`, `/report` and `/clear`, which need no core. A usage error of `neptunia` itself exits 2. The log lines of the chat and of `-p` go to stderr.
 
 ## Pause
 

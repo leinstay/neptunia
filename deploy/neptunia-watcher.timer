@@ -1,0 +1,13 @@
+# systemd timer for neptunia-watcher.service: once a day at 00:00 UTC, the server clock. A run missed while the
+# machine was off starts at the next boot; the watcher writes one report per UTC day and a day that has one is skipped.
+
+[Unit]
+Description=neptunia watcher, daily at 00:00 UTC
+
+[Timer]
+OnCalendar=*-*-* 00:00:00 UTC
+Persistent=true
+Unit=neptunia-watcher.service
+
+[Install]
+WantedBy=timers.target

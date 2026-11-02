@@ -427,6 +427,7 @@
         "src/skills/**",
         "src/speech/**",
         "src/tools/**",
+        "src/watcher/**",
         "src/web/**",
         "src/interface/directory.ts",
         "src/interface/door.ts",
@@ -451,6 +452,13 @@
     {
       "path": "src/skills/",
       "purpose": "Her skills: the SKILL.md format and loader, the index of the active ones, the use rows of a turn, the port over the registry in the memory database, its client over the memory writer and the agents' commands.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/watcher/",
+      "purpose": "The daily watcher: the brief, the report check and writer, the task filer, the reader of the reports and the run that joins them. The agent backend is injected.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"

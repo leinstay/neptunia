@@ -272,6 +272,12 @@ Settings for her `SKILL.md` skills. See [Skills](skills.md).
 
 <!-- settings: skills -->
 
+## `watcher`
+
+Settings for the daily watcher. See [The watcher](watcher.md).
+
+<!-- settings: watcher -->
+
 ## `diary`
 
 Settings for the diary. See [Diary](diary.md).

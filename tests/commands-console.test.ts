@@ -37,6 +37,7 @@ const TABLE = [
   'doctor',
   'health',
   'logs',
+  'report',
   'usage',
   'errands',
   'intentions',

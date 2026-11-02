@@ -102,6 +102,7 @@ import { createIntentionService } from './intentions/service.ts';
 import { skillRegistry, missingDefinitions, setExtraSkills } from './tools/registry.ts';
 import { grantedSkillNames } from './tools/discovery.ts';
 import { wireSkills } from './skills/wiring.ts';
+import { createReportReader, reportsDirOf, watcherDir } from './watcher/read.ts';
 import { ABILITY_ADDED, abilityWake, fileAnnounceStore, forgetAbilities, newAbilities } from './plugins/announce.ts';
 import { createPluginControl, systemdUnits } from './plugins/control.ts';
 import { loadPlugins } from './plugins/folders.ts';
@@ -1166,6 +1167,8 @@ async function buildCore(
     board,
     // Her skill tools (src/tools/impl/skill.ts): `skill.read` and `skill.disable`.
     skills: skillsWiring.access,
+    // Her tool `watcher.read` (src/tools/impl/watcher.ts): the reports folder follows `watcher.dir` at each read.
+    watcher: createReportReader(() => reportsDirOf(paths.rootDir, watcherDir(hot.config))),
     roleHealth,
     // The operations' `env.reads`: the conversation they post in, a message's event.
     reads,

@@ -191,8 +191,12 @@ test('a watcher reads the board and is refused a comment', () => {
       codeOf(() => board.call('eyes', 'task.comment', { id: task.id, text: 'seen' })),
       'forbidden'
     );
+    // The watcher role files a task (docs/board.md) and does nothing else: no triage, no approval.
+    const filed = board.call('eyes', 'task.add', { title: 'mine' });
+    assert.equal(filed.requester, 'eyes');
+    assert.equal(filed.status, 'proposed');
     assert.equal(
-      codeOf(() => board.call('eyes', 'task.add', { title: 'mine' })),
+      codeOf(() => board.call('eyes', 'task.add', { title: 'auto', auto: true })),
       'forbidden'
     );
   } finally {

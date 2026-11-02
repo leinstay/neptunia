@@ -451,7 +451,7 @@ export class Board {
   /**
    * One operation in one BEGIN IMMEDIATE transaction, the idempotency key honoured for 24 hours. Throws BoardError:
    * 'board-unavailable' first when the board is not at its version, then 'forbidden' for a principal with no board
-   * role (a watcher may only read), before any argument is checked.
+   * role (a watcher may read and file a task with `task.add`, and nothing else), before any argument is checked.
    */
   call<TOp extends BoardOp>(
     principal: string,
@@ -466,8 +466,8 @@ export class Board {
     const handler: Handler | undefined = OPS[op];
     if (handler === undefined) throw invalid(`unknown op ${String(op)}`);
     const isMutation = !READ_OPS.has(op);
-    if (isMutation && ![...own].some((role) => role !== 'watcher')) {
-      throw new BoardError('forbidden', `${principal} may only read the board`);
+    if (isMutation && op !== 'task.add' && ![...own].some((role) => role !== 'watcher')) {
+      throw new BoardError('forbidden', `${principal} may only read the board and file a task`);
     }
     if (args === null || typeof args !== 'object' || Array.isArray(args)) throw invalid('args must be an object');
     this.context = { grants, settings: this.settingsOf() };

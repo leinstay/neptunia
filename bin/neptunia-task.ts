@@ -9,6 +9,9 @@
 // client says hello under the agents' namespace `agent`, so its token must stand for an `agent` principal of
 // clients.json, and the board's roles of that client decide what it may do.
 //
+// `openBoardCaller` gives the watcher run (`neptunia watcher run`) the same link as a `BoardCaller`, so its filer calls
+// the board as the client of the token. The board decides what that client may do.
+//
 // Exit codes: 0 when the core answers `ok`; 1 for any other answer, with `<status>: <text>` on stderr, and when no
 // token is set or no core listens, with `unavailable: ...`; 2 for a usage error (an unknown command, a missing id, a
 // missing required flag), found before connecting.
@@ -20,6 +23,7 @@ import { answerText } from '../src/board/text.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
 import { resolvePaths } from '../src/paths.ts';
 import { ROOT_DIR } from '../src/config.ts';
+import type { BoardCaller } from '../src/tools/impl/board.ts';
 import type { Adapter, Capabilities } from '../src/protocol/adapter.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
 import type { CommandResult, Logger } from '../src/protocol/serve.ts';
@@ -666,4 +670,33 @@ export async function runTask(argv: ReadonlyArray<string>, env: NodeJS.ProcessEn
   } finally {
     link.close();
   }
+}
+
+/**
+ * The board over the core's socket as the client of `env`'s token (`NEPTUNIA_TASK_TOKEN`, else the token file of
+ * `NEPTUNIA_TASK_CLIENT`), or the reason it cannot be reached. A refusal of the board rejects the call with
+ * `<status>: <text>`.
+ */
+export async function openBoardCaller(
+  env: NodeJS.ProcessEnv = process.env
+): Promise<{ board: BoardCaller; close(): void } | string> {
+  const where = resolvePaths({ rootDir: ROOT_DIR });
+  const held = tokenOf(env, where.privateDir);
+  if (typeof held === 'string') return held;
+  const socketPath = coreSocketPath(where.dataDir);
+  let link: { ask: Ask; close(): void };
+  try {
+    link = await connect(socketPath, held.name, held.token);
+  } catch (error) {
+    return `no core listens at ${socketPath} (${(error as NodeJS.ErrnoException).code ?? 'error'})`;
+  }
+  const board: BoardCaller = {
+    // The answer is the JSON of the board's own result for the op, which the caller's generic type names.
+    call: (async (_principal: string, op: string, args: Readonly<Record<string, unknown>> = {}) => {
+      const answer = await link.ask({ name: op, args: { ...args, json: true } });
+      if (answer.status !== 'ok') throw new Error(`${answer.status}: ${answer.text}`);
+      return JSON.parse(answer.text) as unknown;
+    }) as BoardCaller['call'],
+  };
+  return { board, close: () => link.close() };
 }

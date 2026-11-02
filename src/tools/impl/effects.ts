@@ -70,6 +70,7 @@ export const OP_EFFECTS: Readonly<Record<string, EffectClass>> = Object.freeze({
   'board.status': 'read',
   'skill.read': 'read',
   'skill.disable': 'write',
+  'watcher.read': 'read',
   'web.search': 'read',
   'web.read': 'read',
   'media.look': 'read',
