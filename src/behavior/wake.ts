@@ -25,6 +25,8 @@ import type { HeartbeatFacts } from './heartbeat-view.ts';
 import { selfimprovementLines, selfimprovementReason } from './selfimprovement-text.ts';
 import type { SelfimprovementFacts } from './selfimprovement-view.ts';
 import type { ChainBudget, PlacesPage } from './inner/types.ts';
+import type { TurnsBudget } from './turn-budget.ts';
+import { utcDay } from '../time.ts';
 
 /** `value` as text (String over a value of any type). */
 const asText = (value: unknown): string => String(value);
@@ -633,7 +635,7 @@ export type WakeBlockInput = {
   timezone?: string;
   channels?: ReadonlyArray<string>;
   places?: PlacesPage | null;
-  budgets?: { chain?: ChainBudget & { resetAt?: number } };
+  budgets?: { chain?: ChainBudget & { resetAt?: number }; turns?: TurnsBudget };
   heartbeat?: HeartbeatFacts | null;
   selfimprovement?: SelfimprovementFacts | null;
   facts?: ReadonlyArray<unknown>;
@@ -648,6 +650,27 @@ function abilityLines(item: Obj, l: Obj): Array<string> {
     .join(', ');
   const line = part(l, 'abilityAdded', { tools });
   return line ? [line] : [];
+}
+
+/** The budgets part of the wake: the `labels.wake.budgets` lead, then one line per budget (`chain`, then `turns`). [] without a line. */
+function budgetLines(budgets: NonNullable<WakeBlockInput['budgets']>, l: Obj, when: When): Array<string> {
+  const budget = objOf(l.budget);
+  const lines: Array<string> = WAKE_BUDGETS.map((key) => {
+    const entry = budgets[key];
+    const template = budget[key];
+    if (!entry || typeof template !== 'string' || !template) return '';
+    return fill(template, { left: String(entry.left), cap: String(entry.cap), reset: when(entry.resetAt) });
+  }).filter(Boolean);
+  const turns = budgets.turns;
+  if (turns) {
+    const line = part(budget, 'turns', {
+      until: utcDay(turns.until),
+      spent: String(turns.spent),
+      possible: turns.possible === null ? '?' : String(turns.possible),
+    });
+    if (line) lines.push(line);
+  }
+  return lines.length > 0 && typeof l.budgets === 'string' && l.budgets ? [l.budgets, ...lines] : lines;
 }
 
 /**
@@ -776,17 +799,6 @@ export function wakeBlockText(
     lines.push(...heartbeatLines(wake.heartbeat, l.heartbeat, when, placesBlock, { handleBase, onRefs }));
   else lines.push(...placesBlock);
   lines.push(...selfimprovementLines(wake.selfimprovement, l.selfimprovement, when, selfimprovementReason(wake.items)));
-  const budgets = wake.budgets ?? {};
-  const budget = objOf(l.budget);
-  const budgetLines = WAKE_BUDGETS.map((key) => {
-    const entry = budgets[key];
-    const template = budget[key];
-    if (!entry || typeof template !== 'string' || !template) return '';
-    return fill(template, { left: String(entry.left), cap: String(entry.cap), reset: when(entry.resetAt) });
-  }).filter(Boolean);
-  if (budgetLines.length > 0) {
-    if (typeof l.budgets === 'string' && l.budgets) lines.push(l.budgets);
-    lines.push(...budgetLines);
-  }
+  lines.push(...budgetLines(wake.budgets ?? {}, l, when));
   return lines.join('\n');
 }
