@@ -87,7 +87,15 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
       'memory': 'OPENROUTER_MEMORY_KEY',
     },
     'text':
-      'Maps a role name to the NAME of a `.env` variable holding an OpenRouter key. Read at every request. A role not in the map falls back to `OPENROUTER_CORE_KEY`. The `memory` role is the exception: with `OPENROUTER_MEMORY_KEY` unset, the session is not configured and no request goes out on any other key',
+      'Maps a role name to the NAME of a `.env` variable holding an OpenRouter key, or to a list of names. The first name of a list is the primary key. When a request gets HTTP 402, or 429 with a body naming credits or balance, the role moves to the next name and the request is repeated once on it; after the last name it goes back to the first. When every key failed within a minute the request fails with `keys-exhausted` and the role counts as down until 00:00 UTC. Read at every request. A role not in the map falls back to `OPENROUTER_CORE_KEY`; the `core` role then uses `OPENROUTER_CORE_BACKUP_KEY` as its second key when that variable is set. A name that is not an `OPENROUTER_` variable or is unset is left out. The `memory` role is the exception: with `OPENROUTER_MEMORY_KEY` unset, the session is not configured and no request goes out on any other key',
+  },
+  {
+    'key': 'llm.keys',
+    'types': ['map'],
+    'reader': 'src/core.ts',
+    'default': {},
+    'text':
+      'The grant of each key, by the NAME of its `.env` variable: `{ "grant": USD, "resetDay": 1 to 31 }`. The balance of a key is its grant minus the cost of the requests that went out on it since the last reset (00:00 UTC on `resetDay`, the last day of a shorter month), summed from `data/usage.json`; no call to the provider. The balances of the core keys set the turns line of her wake view. A key without an entry counts 0 and is named on the status card as unconfigured',
   },
   {
     'key': 'llm.cache.ttl',

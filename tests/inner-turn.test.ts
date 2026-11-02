@@ -711,6 +711,28 @@ test('wakeBlockText: the wake, the moment and the budgets as facts; none without
   );
 });
 
+test('wakeBlockText: one turns line after the chain line, with the Sunday, the turns so far and the possible count', () => {
+  const turnsLabels = {
+    ...labels,
+    wake: { ...labels.wake, budget: { ...labels.wake.budget, turns: 'until {until}: {spent} turns of {possible}' } },
+  };
+  const turns = { until: Date.parse('2026-11-08T00:00:00Z'), spent: 37, possible: 200 };
+  const lines = wakeBlockText({ ...WAKE, budgets: { ...WAKE.budgets, turns } }, turnsLabels).split('\n');
+  assert.ok(lines.includes('until 2026-11-08: 37 turns of 200'), lines.join('|'));
+  assert.ok(lines.indexOf('until 2026-11-08: 37 turns of 200') > lines.indexOf('chain 3/3'), 'after the chain line');
+  // Bug caught: an unknown possible count printed as null or NaN, which she would read as a number.
+  const unknown = wakeBlockText(
+    { ...WAKE, budgets: { ...WAKE.budgets, turns: { ...turns, possible: null } } },
+    turnsLabels
+  );
+  assert.ok(unknown.includes('until 2026-11-08: 37 turns of ?'), unknown);
+});
+
+test('wakeBlockText: a turns figure without its label adds nothing', () => {
+  const turns = { until: Date.parse('2026-11-08T00:00:00Z'), spent: 1, possible: 2 };
+  assert.equal(wakeBlockText({ ...WAKE, budgets: { ...WAKE.budgets, turns } }, labels), wakeBlockText(WAKE, labels));
+});
+
 test('wakeBlockText: an attend wake names the place, the lines and the people; the places page follows with its total and the rest; placesBlockText stands alone', () => {
   const attend = {
     kind: 'attend',

@@ -41,6 +41,7 @@ import { EMBED_ROLE } from '../../llm/embed.ts';
 import { missedCounts, missedStatusLine } from '../../behavior/missed.ts';
 import { SPEED_METRICS } from './metrics.ts';
 import { activitySums, agentCostsLines, keyCostsLines, roleCostsLines, readAccount, readActivity } from './usage.ts';
+import { withKeyLines } from './key-lines.ts';
 import { PROFILES } from '../../agent-runner/profiles.ts';
 import { fill } from '../../format.ts';
 import { log } from '../../log.ts';
@@ -684,7 +685,7 @@ const handlers = perEnv((env) => {
       windows: windowsOf({ except: taken }),
       roleKeys,
     });
-    return lines.length > 0 ? lines.join('\n') : '-';
+    return lines.length > 0 ? withKeyLines(lines, { llm, usage, hot, config: cfg, now: clock() }) : '-';
   }
 
   /** The owner's `costs.base` field (src/tools/impl/usage.ts#roleCostsLines): today's requests

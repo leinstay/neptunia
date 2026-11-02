@@ -332,7 +332,7 @@
         "complexity": 43
       },
       "wakeBlockText": {
-        "complexity": 70
+        "complexity": 67
       }
     },
     "src/errands/blocks.ts": {

@@ -20,6 +20,7 @@ import { MINUTE_MS, DAY_MS, utcDay, utcMinute } from '../../time.ts';
 import { fill } from '../../format.ts';
 import { log as defaultLog } from '../../log.ts';
 import { IMAGE_ROLE } from '../../llm/images.ts';
+import { MAIN_KEY_NAME } from '../../llm/openrouter.ts';
 import { isObj, objOf } from '../types.ts';
 import type { Obj, Untyped } from '../types.ts';
 
@@ -52,6 +53,8 @@ export type UsageEntry = {
   role?: string | null;
   /** The interface of the turn the request belongs to; none adds no interface row. */
   iface?: string | null;
+  /** The name of the `.env` variable of the key the request went out on; none adds no key row. */
+  key?: string | null;
   promptTokens?: unknown;
   cachedTokens?: unknown;
   completionTokens?: unknown;
@@ -63,6 +66,8 @@ export type Usage = {
   record(entry?: UsageEntry): void;
   byRole(): Array<RoleRow>;
   sumDays(days: number, filter?: { only?: ReadonlyArray<string>; except?: ReadonlyArray<string> }): DaysSum;
+  /** The dollars the requests on the key `name` cost from the UTC day `sinceDay` (`YYYY-MM-DD`) through today. */
+  keyCost(name: string, sinceDay: string): number;
   save(opts?: { force?: boolean }): Promise<boolean>;
 };
 
@@ -144,6 +149,7 @@ export function createUsage({
   const file = path.join(dataDir, USAGE_FILE);
   const days: Record<string, Record<string, Counters>> = {}; // day -> role -> counters
   const ifaces: Record<string, Record<string, Counters>> = {}; // day -> interface -> counters
+  const keyed: Record<string, Record<string, Counters>> = {}; // day -> key variable name -> counters
   let dirty = false;
   let lastSaveAt = -Infinity;
   let chain: Promise<void> = Promise.resolve();
@@ -153,7 +159,7 @@ export function createUsage({
     const nowMs = now();
     const today = utcDay(nowMs);
     const first = utcDay(nowMs - (KEEP_DAYS - 1) * DAY_MS);
-    for (const kept of [days, ifaces])
+    for (const kept of [days, ifaces, keyed])
       for (const day of Object.keys(kept)) if (!DAY_KEY.test(day) || day < first || day > today) delete kept[day];
   }
 
@@ -184,10 +190,20 @@ export function createUsage({
     // A file written before the interface rows has none: the days load as they are.
     const byIface = objOf(parsed).interfaces;
     if (isObj(byIface)) readDays(byIface, ifaces);
+    const byKey = objOf(parsed).keys;
+    if (isObj(byKey)) readDays(byKey, keyed);
     prune();
   }
 
-  function record({ role, iface, promptTokens, cachedTokens, completionTokens, cost }: UsageEntry = {}): void {
+  function record({
+    role,
+    iface,
+    key: keyName,
+    promptTokens,
+    cachedTokens,
+    completionTokens,
+    cost,
+  }: UsageEntry = {}): void {
     const day = utcDay(now());
     const add = (row: Counters): void => {
       row.requests += 1;
@@ -199,6 +215,7 @@ export function createUsage({
     const key = typeof role === 'string' && role ? role : NO_ROLE;
     add(((days[day] ??= {})[key] ??= cleanRow(null)));
     if (typeof iface === 'string' && iface) add(((ifaces[day] ??= {})[iface] ??= cleanRow(null)));
+    if (typeof keyName === 'string' && keyName) add(((keyed[day] ??= {})[keyName] ??= cleanRow(null)));
     prune();
     dirty = true;
   }
@@ -206,6 +223,14 @@ export function createUsage({
   function byRole(): Array<RoleRow> {
     const today = days[utcDay(now())] ?? {};
     return sortRows(Object.entries(today).map(([role, row]) => ({ role, ...row })));
+  }
+
+  function keyCost(name: string, sinceDay: string): number {
+    const today = utcDay(now());
+    let sum = 0;
+    for (const [day, rows] of Object.entries(keyed))
+      if (day >= sinceDay && day <= today && Object.hasOwn(rows, name)) sum += amountOr0(rows[name]?.cost);
+    return sum;
   }
 
   /** The interface rows of the days from `start` to `today`, by cost, then requests, then name. */
@@ -255,10 +280,13 @@ export function createUsage({
 
   async function write(): Promise<void> {
     prune();
-    // The interface rows go in only when a request named an interface, so a file without them stays as it was.
-    const text = JSON.stringify(
-      Object.keys(ifaces).length > 0 ? { v: VERSION, days, interfaces: ifaces } : { v: VERSION, days }
-    );
+    // The interface and key rows go in only when a request named one, so a file without them stays as it was.
+    const text = JSON.stringify({
+      v: VERSION,
+      days,
+      ...(Object.keys(ifaces).length > 0 ? { interfaces: ifaces } : {}),
+      ...(Object.keys(keyed).length > 0 ? { keys: keyed } : {}),
+    });
     const tmp = `${file}.tmp`;
     await fs.promises.mkdir(dataDir, { recursive: true });
     await fs.promises.writeFile(tmp, text);
@@ -287,7 +315,7 @@ export function createUsage({
   }
 
   load();
-  return { record, byRole, sumDays, save };
+  return { record, byRole, sumDays, keyCost, save };
 }
 
 /**
@@ -315,6 +343,7 @@ export function usageTap(usage: Pick<Usage, 'record'>): (entry: unknown) => void
     usage.record({
       role: typeof entry.role === 'string' ? entry.role : null,
       iface: typeof entry.iface === 'string' ? entry.iface : null,
+      key: typeof entry.key === 'string' ? entry.key : MAIN_KEY_NAME,
       promptTokens: entry.promptTokens,
       cachedTokens: entry.cachedTokens,
       completionTokens: entry.completionTokens,
@@ -409,6 +438,12 @@ function line(template: unknown, values: Obj): string | null {
 function costsLabels(labels: unknown): Untyped {
   const costs = objOf(objOf(labels).status).costs;
   return isObj(costs) ? (costs as Untyped) : null;
+}
+
+/** `labels.status.costs` as a plain record of words, or null when the labels hold none. */
+function costsWords(labels: unknown): Obj | null {
+  const costs = objOf(objOf(labels).status).costs;
+  return isObj(costs) ? costs : null;
 }
 
 /** Why an account read failed, through `labels.reasons`. */
@@ -644,6 +679,32 @@ export function keyCostsLines({
     );
   }
   return lines.filter((text): text is string => Boolean(text));
+}
+
+/**
+ * The lines that say which key each role with a key list runs on (`llm.keyStates()`, names only): `labels.status.costs.keyState`
+ * (`{role}`, `{key}`, `{since}`), `{since}` being `keySince` (`{when}`, `when` formats the switch time) once the role has
+ * switched and empty before. [] without the `keyState` label or without a state. Pure.
+ */
+export function keyStateLines({
+  states,
+  labels,
+  when,
+}: {
+  states: ReadonlyArray<{ role: string; key: string; switchedAt: number | null }>;
+  labels: unknown;
+  when: (ms: number) => string;
+}): Array<string> {
+  const L = costsWords(labels);
+  if (!L) return [];
+  const lines = states.map((state) =>
+    line(L.keyState, {
+      role: state.role,
+      key: state.key,
+      since: state.switchedAt === null ? '' : (line(L.keySince, { when: when(state.switchedAt) }) ?? ''),
+    })
+  );
+  return lines.filter((text): text is string => text !== null);
 }
 
 /**

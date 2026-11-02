@@ -12,6 +12,7 @@ import {
   usageTap,
   agentCostsLines,
   keyCostsLines,
+  keyStateLines,
   roleCostsLines,
   readAccount,
   readActivity,
@@ -893,4 +894,22 @@ test('agentCostsLines: an agent with a last wave gets its context line right aft
     'thinker: today 2r 1.50 | last7 2r 1.50 | last30 2r 1.50',
     'est.',
   ]);
+});
+
+test('keyStateLines: one line per role with the key it is on and, once it switched, when; none without the lead label', () => {
+  const labels = {
+    status: { costs: { keyState: '{role} on {key}{since}', keySince: ', switched {when}' } },
+  };
+  const states = [
+    { role: 'core', key: 'OPENROUTER_CORE_BACKUP_KEY', switchedAt: 1_000 },
+    { role: 'vision', key: 'OPENROUTER_V1', switchedAt: null },
+  ];
+  const when = (ms: number) => `t${ms}`;
+  assert.deepEqual(keyStateLines({ states, labels, when }), [
+    'core on OPENROUTER_CORE_BACKUP_KEY, switched t1000',
+    // Bug caught: a role that never switched shown with a switch time of 1970.
+    'vision on OPENROUTER_V1',
+  ]);
+  assert.deepEqual(keyStateLines({ states, labels: {}, when }), []);
+  assert.deepEqual(keyStateLines({ states: [], labels, when }), []);
 });

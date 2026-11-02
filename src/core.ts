@@ -39,7 +39,7 @@ import {
 import { DAY_MS, utcDay } from './time.ts';
 import { createCalibrator } from './llm/tokens.ts';
 import { createLlm, roleApiKey } from './llm/openrouter.ts';
-import { createRoleHealth, reportingLlm, roleKeyCheck } from './llm/role-health.ts';
+import { createRoleHealth, reportingCoreKeys, reportingLlm, roleKeyCheck } from './llm/role-health.ts';
 import { createEmbedder } from './llm/embed.ts';
 import { createImageGen } from './llm/images.ts';
 import { createSpeech } from './speech/index.ts';
@@ -55,6 +55,8 @@ import { createChannelRouter } from './behavior/route-channel.ts';
 import { createRecall } from './behavior/recall-run.ts';
 import { createSpontaneous } from './behavior/spontaneous.ts';
 import { createInnerLife, innerSettings } from './behavior/inner.ts';
+import { createTurnsBudget } from './behavior/turn-budget.ts';
+import { coreKeyBalances } from './llm/key-grants.ts';
 import { createDiary } from './behavior/diary.ts';
 import { createMirrors, guardMirrorPort } from './behavior/mirror.ts';
 import { createImageFetcher } from './media/fetch-image.ts';
@@ -444,14 +446,18 @@ async function buildCore(
   // `env` (the .env loaded once above): the keys `llm.keyByRole` names per role, looked up per request.
   // createLlm (src/llm/openrouter.js) declares `complete` as `Function`, which no caller's declared call accepts, so
   // the core hands the client on typed as the call the modules below make.
+  // The core's own failure `keys-exhausted` (every key of its list out of credit) is told to the tracker.
   const llm = (options.llm ??
-    createLlm({
-      apiKey: openrouterKey,
-      env,
-      getConfig: () => hot.config,
-      calibrator,
-      state: store.state,
-    })) as ChatClient;
+    reportingCoreKeys(
+      createLlm({
+        apiKey: openrouterKey,
+        env,
+        getConfig: () => hot.config,
+        calibrator,
+        state: store.state,
+      }),
+      roleHealth
+    )) as ChatClient;
   // Embeddings (role embedding) on the same daily request count as the chat client.
   const embedder = options.embedder ?? createEmbedder({ apiKey: openrouterKey, env, state: store.state });
   // The meaning index kept current: record lines queued above, flushed on the tick below.
@@ -1024,6 +1030,13 @@ async function buildCore(
     // People's turns first: an inner turn waits while a direct ping is queued.
     peopleWaiting: () => onMessage.pendingCount() > 0,
     submit: (event) => door.submit(event),
+    // The wake's turns line (src/behavior/turn-budget.ts): the core keys' balances against the week's core requests.
+    turnsBudget: createTurnsBudget({
+      usage,
+      // What is left of each key of the core's list: its `llm.keys` grant minus what the usage records say went out on it.
+      keyBalances: () => coreKeyBalances({ llm, usage, config: hot.config, now: clock() }),
+      now: clock,
+    }),
     // Each inner turn as a wake run in the memory database.
     memoryDb,
     // A live wake turn's posts go out through the guarded port once the wake completed (src/behavior/inner/deliveries.ts).

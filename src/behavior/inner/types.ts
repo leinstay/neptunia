@@ -12,6 +12,7 @@ import type { WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
 import type { HeartbeatFacts } from '../heartbeat-view.ts';
 import type { OutboxRow, ProposalEntry, SelfimprovementFacts, SkillUseRow } from '../selfimprovement-view.ts';
 import type { WakeBlockInput } from '../wake.ts';
+import type { TurnsBudget } from '../turn-budget.ts';
 import type { WAKE_KINDS } from './settings.ts';
 import type { WakeBackend } from './wake-store.ts';
 
@@ -303,7 +304,7 @@ export type WakeInfo = {
   timezone: string;
   channels: Array<string>;
   places?: PlacesPage | null;
-  budgets: { chain: ChainBudget };
+  budgets: { chain: ChainBudget; turns?: TurnsBudget };
   chainId: string;
   heartbeat?: HeartbeatFacts;
   selfimprovement?: SelfimprovementFacts;
@@ -418,6 +419,8 @@ export type InnerContext = {
   costs: CostMeter;
   heartbeatSources: HeartbeatSources;
   selfimprovementSources: SelfimprovementSources;
+  /** The figures of the wake's turns line (src/behavior/turn-budget.ts), read at wake time; null: no line. */
+  turnsBudget: (() => Promise<TurnsBudget | null>) | null;
   memoryDb: InnerMemoryDb | null;
   /** The port a completed wake's deliveries go out through; without one a wake turn holds nothing. */
   port: InnerPort | null;

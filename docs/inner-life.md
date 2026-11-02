@@ -130,7 +130,7 @@ If the process dies inside the turn, its wakes stay `running`. The next start ta
 
 The same voice, memory prefetch and tools as any turn, with nobody's message in front of her. The request carries:
 
-- `<wake>`: why she is awake, with each wake's intention, the current channel and why it was chosen, her budget lines, and the places page.
+- `<wake>`: why she is awake, with each wake's intention, the current channel and why it was chosen, her budget lines (the turns left on this thread and the week's core turns against what the core keys' credit allows, [The core](core.md#keys)), and the places page.
 - The last 30 messages of the conversation (`INNER_DEFAULTS.chatMessages`).
 - `<retrieved>`: the prefetch, searched with the purposes of the wake's intentions.
 - Her `<intentions>` and `<errands>`.

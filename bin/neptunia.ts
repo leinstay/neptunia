@@ -744,7 +744,9 @@ function checkEnvKeys(where: { rootDir: string; privateDir: string }): Check {
   try {
     const config = readConfig(where.rootDir, { privateDir: where.privateDir }) as Settings;
     const byRole = isObject(config.llm) && isObject(config.llm.keyByRole) ? config.llm.keyByRole : {};
-    wanted = Object.values(byRole).filter((name): name is string => typeof name === 'string' && name !== '');
+    wanted = Object.values(byRole)
+      .flat()
+      .filter((name): name is string => typeof name === 'string' && name !== '');
   } catch {
     // A config that does not read is the config check's to report.
   }
@@ -776,8 +778,9 @@ function checkRoles(where: { rootDir: string; privateDir: string }): Check {
   }
   const byRole = isObject(config.llm) && isObject(config.llm.keyByRole) ? config.llm.keyByRole : {};
   const noKey = STRICT_KEY_ROLES.filter((role) => {
-    const name = byRole[role];
-    return typeof name !== 'string' || !ROLE_KEY_NAME.test(name) || !names.has(name);
+    const entry = byRole[role];
+    const listed = Array.isArray(entry) ? entry : [entry];
+    return !listed.some((name) => typeof name === 'string' && ROLE_KEY_NAME.test(name) && names.has(name));
   });
   const problems = [
     ...rolesOff(config).map((role) => `${role} has no model`),
