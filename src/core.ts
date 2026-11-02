@@ -1030,12 +1030,11 @@ async function buildCore(
     // People's turns first: an inner turn waits while a direct ping is queued.
     peopleWaiting: () => onMessage.pendingCount() > 0,
     submit: (event) => door.submit(event),
-    // The wake's turns line (src/behavior/turn-budget.ts): the core's keys' credit against the week's turns.
+    // The wake's turns line (src/behavior/turn-budget.ts): the core keys' balances against the week's core requests.
     turnsBudget: createTurnsBudget({
-      journal,
-      guildId: getGuildId,
+      usage,
       // What is left of each key of the core's list: its `llm.keys` grant minus what the usage records say went out on it.
-      keyBudgets: () => Promise.resolve(coreKeyBalances({ llm, usage, config: hot.config, now: clock() })),
+      keyBalances: () => coreKeyBalances({ llm, usage, config: hot.config, now: clock() }),
       now: clock,
     }),
     // Each inner turn as a wake run in the memory database.

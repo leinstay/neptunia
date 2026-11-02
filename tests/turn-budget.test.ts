@@ -2,7 +2,11 @@
 // the credit of the core's keys is spread over four weeks, and a turn costs the median of the last seven days.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTurnsBudget, medianCost, turnsBudget, utcWeekOf } from '../src/behavior/turn-budget.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createTurnsBudget, meanCost, turnsBudget, utcWeekOf } from '../src/behavior/turn-budget.ts';
+import { createUsage } from '../src/tools/impl/usage.ts';
 
 const WEDNESDAY = Date.parse('2026-11-04T15:30:00Z');
 
@@ -15,68 +19,59 @@ test('utcWeekOf: the week runs Monday to Sunday UTC, and a Sunday evening is sti
   assert.equal(new Date(utcWeekOf(Date.parse('2026-11-09T00:00:00Z')).start).toISOString(), '2026-11-09T00:00:00.000Z');
 });
 
-test('medianCost: the middle of an odd list, the mean of the two middle of an even one, null without a cost', () => {
-  assert.equal(medianCost([0.3, 0.1, 0.2]), 0.2);
-  assert.equal(medianCost([0.4, 0.1, 0.2, 0.3]), 0.25);
-  assert.equal(medianCost([]), null);
-  // Bug caught: free or broken turns (0, NaN) dragging the median to nothing and the possible count to infinity.
-  assert.equal(medianCost([0, Number.NaN, 0.5]), 0.5);
+test('meanCost: the total over the requests, null without a request or without a cost', () => {
+  assert.equal(meanCost(3, 12), 0.25);
+  assert.equal(meanCost(3, 0), null);
+  // Bug caught: a free day (cost 0) reading as a zero-cost turn, which makes the possible count infinite.
+  assert.equal(meanCost(0, 5), null);
+  assert.equal(meanCost(Number.NaN, 5), null);
 });
 
-test('turnsBudget: a quarter of the summed balances over the median cost, floored, with the turns of the week so far', () => {
-  const got = turnsBudget({ now: WEDNESDAY, balances: [100, 60], costs: [0.1, 0.2, 0.4], spent: 37 });
+test('turnsBudget: a quarter of the summed balances over the mean request cost, floored, with the turns of the week so far', () => {
+  const got = turnsBudget({ now: WEDNESDAY, balances: [100, 60], cost: 0.2, spent: 37 });
   // (100 + 60) / 4 = 40 USD for the week, 40 / 0.2 = 200 turns.
   assert.deepEqual(got, { until: Date.parse('2026-11-08T00:00:00Z'), spent: 37, possible: 200 });
 });
 
 test('turnsBudget: a key with no limit reported counts 0 and the line still renders', () => {
-  const got = turnsBudget({ now: WEDNESDAY, balances: [null, 8], costs: [0.25], spent: 0 });
-  assert.equal(got.possible, 8);
-  assert.equal(turnsBudget({ now: WEDNESDAY, balances: [null], costs: [0.25], spent: 2 }).possible, 0);
+  assert.equal(turnsBudget({ now: WEDNESDAY, balances: [null, 8], cost: 0.25, spent: 0 }).possible, 8);
+  assert.equal(turnsBudget({ now: WEDNESDAY, balances: [null], cost: 0.25, spent: 2 }).possible, 0);
 });
 
-test('turnsBudget: no cost history leaves the possible count unknown', () => {
-  assert.equal(turnsBudget({ now: WEDNESDAY, balances: [100], costs: [], spent: 5 }).possible, null);
+test('turnsBudget: no cost leaves the possible count unknown', () => {
+  assert.equal(turnsBudget({ now: WEDNESDAY, balances: [100], cost: null, spent: 5 }).possible, null);
 });
 
-test('createTurnsBudget: counts the turn records since Monday, takes the inner costs of seven days, reads the keys at every call', async () => {
-  const records: Record<string, Array<unknown>> = {
-    'turn:2026-11-01': [{ occurredAt: '2026-11-01T10:00:00Z' }], // Sunday of the week before: not spent
-    'turn:2026-11-02': [{ occurredAt: '2026-11-02T00:00:01Z' }, { occurredAt: '2026-11-02T12:00:00Z' }],
-    'turn:2026-11-04': [{ occurredAt: '2026-11-04T09:00:00Z' }],
-    'inner:2026-10-29': [{ event: 'turn', occurredAt: '2026-10-29T18:00:00Z', cost: { usd: 0.3 } }],
-    'inner:2026-10-28': [{ event: 'turn', occurredAt: '2026-10-28T08:00:00Z', cost: { usd: 9 } }], // older than seven days
-    'inner:2026-11-03': [
-      { event: 'turn', occurredAt: '2026-11-03T08:00:00Z', cost: { usd: 0.1 } },
-      { event: 'other', occurredAt: '2026-11-03T08:30:00Z', cost: { usd: 5 } },
-    ],
-  };
+test('createTurnsBudget: the week counts the core requests since Monday, the cost is the mean of seven days, other roles do not count', async () => {
+  const dir = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), 'turns-'));
+  const clock = { at: Date.parse('2026-10-29T12:00:00Z') }; // Thursday of the week before
+  const usage = createUsage({ dataDir: dir, now: () => clock.at });
+  for (let i = 0; i < 10; i += 1) usage.record({ role: 'core', cost: 0.5 });
+  clock.at = Date.parse('2026-11-03T12:00:00Z'); // Tuesday
+  for (let i = 0; i < 10; i += 1) usage.record({ role: 'core', cost: 0.1 });
+  usage.record({ role: 'analyzer', cost: 50 });
+  clock.at = WEDNESDAY;
+  usage.record({ role: 'core', cost: 0.1 });
   let balance = 40;
   const source = createTurnsBudget({
-    journal: { read: (_guild, { day, kind }) => Promise.resolve(records[`${kind}:${day}`] ?? []) },
-    guildId: () => 'g1',
-    keyBudgets: () => Promise.resolve([{ left: balance }, { left: null }]),
-    now: () => WEDNESDAY,
+    usage,
+    keyBalances: () => [{ left: balance }, { left: null }],
+    now: () => clock.at,
   });
-  // Bug caught: last week's Sunday counted as spent, or a record of another event feeding the median.
-  assert.deepEqual(await source(), { until: Date.parse('2026-11-08T00:00:00Z'), spent: 3, possible: 50 });
+  // Bug caught: last week's requests counted as spent, or the analyzer's spend inflating the cost of a turn.
+  // Seven days back from Wednesday reach Thursday: 10 * 0.5 + 11 * 0.1 = 6.1 over 21 requests.
+  const got = await source();
+  assert.equal(got.spent, 11);
+  assert.equal(got.possible, Math.floor(40 / 4 / (6.1 / 21)));
   balance = 80;
-  assert.equal((await source())?.possible, 100, 'the balance is read again at each wake, the journal is cached');
+  assert.equal((await source()).possible, Math.floor(80 / 4 / (6.1 / 21)), 'the balance is read at each call');
 });
 
-test('createTurnsBudget: no guild gives no line; a journal that fails leaves the possible count unknown', async () => {
-  const none = createTurnsBudget({
-    journal: null,
-    guildId: () => null,
-    keyBudgets: () => Promise.resolve([]),
+test('createTurnsBudget: no core request in seven days leaves the possible count unknown', async () => {
+  const usage = createUsage({
+    dataDir: fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), 'turns-')),
     now: () => WEDNESDAY,
   });
-  assert.equal(await none(), null);
-  const broken = createTurnsBudget({
-    journal: { read: () => Promise.reject(new Error('disk')) },
-    guildId: () => 'g1',
-    keyBudgets: () => Promise.resolve([{ left: 10 }]),
-    now: () => WEDNESDAY,
-  });
-  assert.deepEqual(await broken(), { until: Date.parse('2026-11-08T00:00:00Z'), spent: 0, possible: null });
+  const source = createTurnsBudget({ usage, keyBalances: () => [{ left: 10 }], now: () => WEDNESDAY });
+  assert.deepEqual(await source(), { until: Date.parse('2026-11-08T00:00:00Z'), spent: 0, possible: null });
 });
