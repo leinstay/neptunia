@@ -44,7 +44,9 @@ export function rightsRefusal(
 /**
  * The config keys that govern authorization or the persona's own controls: who is an owner and
  * who may do what (`bot.owners`, `bot.access`), her tools' settings, safe mode included (`tools.*`, and the name it
- * had before, `skills.*`, which a local file may still carry), and her inner life's mode and caps (`innerLife.*`).
+ * had before, `skills.*`, which a local file may still carry), the wakes' mode, caps and limits (`wakes.*`, and the
+ * old name `innerLife.*`, which src/config-moves.ts reads as `wakes.*`, `heartbeat.*` and `selfimprovement.*`), and the
+ * heartbeat's and the selfimprovement wake's own limits (`heartbeat.*`, `selfimprovement.*`).
  * The one list behind the non-delegable rule: she never changes her effective authority, directly or indirectly
  * (src/tools/impl/config.ts, src/tools/impl/access.ts).
  */
@@ -53,7 +55,9 @@ export const PERSONA_GOVERNED_CONFIG: ReadonlyArray<string> = Object.freeze([
   'bot.access',
   'tools',
   'skills',
-  'innerLife',
+  'wakes',
+  'heartbeat',
+  'selfimprovement',
 ]);
 
 /**

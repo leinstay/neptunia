@@ -163,13 +163,13 @@ function hotOf(mode: 'live' | 'shadow', heartbeat: boolean) {
     tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
     access: personaGrants(['lore.list', 'message.create', 'message.edit', 'message.react.add']),
     config: {
-      innerLife: {
+      wakes: {
         mode,
         tickSeconds: 60,
         review: { historyDays: 14 },
-        heartbeat: heartbeat ? { enabled: true, everyMinutes: 60, jitterMinutes: 0 } : { enabled: false },
         caps: { perChain: 3 },
       },
+      heartbeat: heartbeat ? { enabled: true, everyMinutes: 60, jitterMinutes: 0 } : { enabled: false },
     },
   });
   Object.assign(hot.config.context, { turnLeaseMs: LEASE_MS });

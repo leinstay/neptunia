@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SETUP_STEPS, SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/run.ts';
 import type { RunResult, SetupDeps, SetupOptions } from '../src/setup/run.ts';
-import { SELFDEV_UNIT_FILES, UNIT_FILES } from '../src/setup/units.ts';
+import { SELFIMPROVEMENT_UNIT_FILES, UNIT_FILES } from '../src/setup/units.ts';
 import { keysPath, readKeysFile } from './fixtures/keys-file.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
@@ -82,7 +82,7 @@ function rig(overrides: Partial<SetupOptions> = {}): Rig {
 test('the steps run in a fixed order: folders, keys file, units, linger, core', () => {
   // Bug: the core is started before its units exist, or the units are written before the folders they point at.
   // Changed: SETUP_STEPS gains the self-development step after the core (spec 2026-11-02, PR 5 "Forks").
-  assert.deepEqual([...SETUP_STEPS], ['folders', 'keys-file', 'units', 'linger', 'core', 'selfdev']);
+  assert.deepEqual([...SETUP_STEPS], ['folders', 'keys-file', 'units', 'linger', 'core', 'selfimprovement']);
 });
 
 test('a fresh user setup creates the private folders at 0700 whatever the umask', async () => {
@@ -188,10 +188,10 @@ test('the report lists every step done and the commands that come next, in the o
   // Bug: setup ends without saying what to type next, so the owner does not know the install is only half done.
   const { options, deps } = rig();
   const report = await runSetup(options, deps);
-  // Changed: the self-development step is skipped in this rig (no selfdev.checkout, no ask), every other step is done.
+  // Changed: the self-development step is skipped in this rig (no selfimprovement.checkout, no ask), every other step is done.
   assert.deepEqual(
     report.steps.map((step) => [step.step, step.state]),
-    SETUP_STEPS.map((step) => [step, step === 'selfdev' ? 'skipped' : 'done'])
+    SETUP_STEPS.map((step) => [step, step === 'selfimprovement' ? 'skipped' : 'done'])
   );
   assert.deepEqual(report.next, [
     'keys core add',
@@ -231,8 +231,8 @@ test('a rerun after a failure resumes: earlier steps are already done and the co
       ['units', 'already'],
       ['linger', 'already'],
       ['core', 'done'],
-      // Changed: SETUP_STEPS gains selfdev, skipped in this rig (no selfdev.checkout, no ask).
-      ['selfdev', 'skipped'],
+      // Changed: SETUP_STEPS gains selfimprovement, skipped in this rig (no selfimprovement.checkout, no ask).
+      ['selfimprovement', 'skipped'],
     ]
   );
   assert.deepEqual(chat, ['/keys core add']);
@@ -263,8 +263,8 @@ test('a single step runs alone and leaves the others skipped, with no command an
       ['units', 'skipped'],
       ['linger', 'skipped'],
       ['core', 'skipped'],
-      // Changed: SETUP_STEPS gains selfdev, skipped here because it was not asked for.
-      ['selfdev', 'skipped'],
+      // Changed: SETUP_STEPS gains selfimprovement, skipped here because it was not asked for.
+      ['selfimprovement', 'skipped'],
     ]
   );
   assert.equal(fs.existsSync(keysPath(options.privateDir)), false);
@@ -393,13 +393,13 @@ test('nodeOf falls back to execPath when argv0 is bare and not on PATH, or PATH 
   );
 });
 
-// The selfdev units (spec 2026-11-02, follow-up 7): setup renders neptunia-selfdev.service and its timer only when
-// `selfdev.checkout` names a dev checkout, so the beat never runs on the deployed checkout.
+// The selfimprovement units (spec 2026-11-02, follow-up 7): setup renders neptunia-selfimprovement.service and its timer only when
+// `selfimprovement.checkout` names a dev checkout, so the beat never runs on the deployed checkout.
 
-/** Writes `selfdev` into the private layer's config.local/config.json before setup runs. */
-function withSelfdev(privateDir: string, selfdev: Record<string, unknown>): void {
+/** Writes `selfimprovement` into the private layer's config.local/config.json before setup runs. */
+function withSelfimprovement(privateDir: string, selfimprovement: Record<string, unknown>): void {
   fs.mkdirSync(path.join(privateDir, 'config.local'), { recursive: true });
-  fs.writeFileSync(path.join(privateDir, 'config.local', 'config.json'), JSON.stringify({ selfdev }));
+  fs.writeFileSync(path.join(privateDir, 'config.local', 'config.json'), JSON.stringify({ selfimprovement }));
 }
 
 const unitValues = (text: string, key: string): Array<string> =>
@@ -408,38 +408,41 @@ const unitValues = (text: string, key: string): Array<string> =>
     .filter((line) => line.startsWith(`${key}=`))
     .map((line) => line.slice(key.length + 1));
 
-test('setup writes no selfdev unit while selfdev.checkout is unset', async () => {
+test('setup writes no selfimprovement unit while selfimprovement.checkout is unset', async () => {
   // Catches: the beat is installed on every deployment and works on the deployed checkout itself.
   const { options, deps, unitDir } = rig();
   await runSetup({ ...options, only: 'units' }, deps);
-  for (const name of SELFDEV_UNIT_FILES) assert.equal(fs.existsSync(path.join(unitDir, name)), false, name);
+  for (const name of SELFIMPROVEMENT_UNIT_FILES) assert.equal(fs.existsSync(path.join(unitDir, name)), false, name);
 });
 
-test('setup writes the selfdev service and timer over the checkout selfdev.checkout names', async () => {
-  // Catches: the selfdev service runs in the deployed checkout, or the timer starts a unit of another name.
+test('setup writes the selfimprovement service and timer over the checkout selfimprovement.checkout names', async () => {
+  // Catches: the selfimprovement service runs in the deployed checkout, or the timer starts a unit of another name.
   const { options, deps, unitDir } = rig();
   const checkout = path.join(path.dirname(options.privateDir), 'dev-checkout');
-  withSelfdev(options.privateDir, { checkout });
+  withSelfimprovement(options.privateDir, { checkout });
   const report = await runSetup({ ...options, only: 'units' }, deps);
   assert.equal(report.ok, true);
-  assert.deepEqual([...SELFDEV_UNIT_FILES].sort(), ['neptunia-selfdev.service', 'neptunia-selfdev.timer']);
-  const service = fs.readFileSync(path.join(unitDir, 'neptunia-selfdev.service'), 'utf8');
+  assert.deepEqual([...SELFIMPROVEMENT_UNIT_FILES].sort(), [
+    'neptunia-selfimprovement.service',
+    'neptunia-selfimprovement.timer',
+  ]);
+  const service = fs.readFileSync(path.join(unitDir, 'neptunia-selfimprovement.service'), 'utf8');
   assert.deepEqual(unitValues(service, 'WorkingDirectory'), [checkout]);
-  assert.match(unitValues(service, 'ExecStart')[0] ?? '', /^\S+ bin\/neptunia\.ts selfdev run$/);
+  assert.match(unitValues(service, 'ExecStart')[0] ?? '', /^\S+ bin\/neptunia\.ts selfimprovement run$/);
   assert.ok(unitValues(service, 'Environment').includes(`NEPTUNIA_PRIVATE_DIR=${options.privateDir}`));
   assert.equal(service.includes('/opt/neptunia'), false);
-  const timer = fs.readFileSync(path.join(unitDir, 'neptunia-selfdev.timer'), 'utf8');
-  assert.deepEqual(unitValues(timer, 'Unit'), ['neptunia-selfdev.service']);
+  const timer = fs.readFileSync(path.join(unitDir, 'neptunia-selfimprovement.timer'), 'utf8');
+  assert.deepEqual(unitValues(timer, 'Unit'), ['neptunia-selfimprovement.service']);
   const core = fs.readFileSync(path.join(unitDir, 'neptunia-core.service'), 'utf8');
   assert.deepEqual(unitValues(core, 'WorkingDirectory'), [options.rootDir]);
 });
 
-test('setup writes no selfdev unit when selfdev.checkout is the deployed checkout itself', async () => {
+test('setup writes no selfimprovement unit when selfimprovement.checkout is the deployed checkout itself', async () => {
   // Catches: a checkout setting copied from the deployment makes the beat edit and push the code that is running.
   const { options, deps, unitDir } = rig();
-  withSelfdev(options.privateDir, { checkout: options.rootDir });
+  withSelfimprovement(options.privateDir, { checkout: options.rootDir });
   await runSetup({ ...options, only: 'units' }, deps);
-  for (const name of SELFDEV_UNIT_FILES) assert.equal(fs.existsSync(path.join(unitDir, name)), false, name);
+  for (const name of SELFIMPROVEMENT_UNIT_FILES) assert.equal(fs.existsSync(path.join(unitDir, name)), false, name);
 });
 
 // The self-development step (spec 2026-11-02, PR 5 "Forks"): last, after the core, and optional, so a refusal of it
@@ -448,17 +451,17 @@ test('setup writes no selfdev unit when selfdev.checkout is the deployed checkou
 test('a refused self-development step leaves the run ok, stores no repository and still opens the chat', async () => {
   // Catches: an optional step without gh fails the install, so the owner never reaches the chat that sets her keys.
   const { options, deps, chat } = rig();
-  withSelfdev(options.privateDir, { checkout: path.join(path.dirname(options.privateDir), 'dev-checkout') });
+  withSelfimprovement(options.privateDir, { checkout: path.join(path.dirname(options.privateDir), 'dev-checkout') });
   const report = await runSetup(options, {
     ...deps,
     ask: () => Promise.resolve('example/engine'),
     gh: () => Promise.resolve({ found: false }),
   });
   assert.equal(report.ok, true);
-  assert.equal(report.steps.find((step) => step.step === 'selfdev')?.state, 'refused');
+  assert.equal(report.steps.find((step) => step.step === 'selfimprovement')?.state, 'refused');
   assert.deepEqual(chat, ['/keys core add']);
   const local = JSON.parse(fs.readFileSync(path.join(options.privateDir, 'config.local', 'config.json'), 'utf8')) as {
-    selfdev: Record<string, unknown>;
+    selfimprovement: Record<string, unknown>;
   };
-  assert.equal('repository' in local.selfdev || 'mode' in local.selfdev, false);
+  assert.equal('repository' in local.selfimprovement || 'mode' in local.selfimprovement, false);
 });

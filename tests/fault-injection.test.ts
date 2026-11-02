@@ -309,13 +309,13 @@ const personaGrants = (names: Array<string>) =>
 
 function hotWith({
   features = {},
-  innerLife = {},
+  wakes = {},
   timezone = 'UTC',
   grants = [],
   config = {},
 }: {
   features?: Record<string, Untyped>;
-  innerLife?: Record<string, Untyped>;
+  wakes?: Record<string, Untyped>;
   timezone?: string;
   grants?: Array<Untyped>;
   config?: Record<string, Untyped>;
@@ -354,7 +354,7 @@ function hotWith({
         vision: false,
         callMarkers: true,
         coreTools: true,
-        innerLife: true,
+        wakes: true,
         intentions: true,
         ...features,
       },
@@ -368,16 +368,16 @@ function hotWith({
         callTimeoutMs: 120000,
         loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 },
       },
-      innerLife: {
+      wakes: {
         mode: 'live',
         tickSeconds: 60,
         queueMax: 20,
         chatMessages: 30,
         review: { enabled: false, historyDays: 14 },
-        heartbeat: { enabled: false },
         caps: { perChain: 3 },
-        ...innerLife,
+        ...wakes,
       },
+      heartbeat: { enabled: false },
       errands: { maxOpen: 3, resultMaxChars: 1000, resultCooldownSeconds: 60, resultRetrySeconds: 30 },
       agents: { scout: { enabled: true, daily: { tasks: 10 } } },
       ...config,
@@ -1055,7 +1055,7 @@ test('row 5: a terminal call fails on the last loop step -- a callFailed fact sh
   const records = [intentionRecord('i1')];
   const hot = hotWith({
     grants: ['lore.list', 'message.create'],
-    innerLife: { loop: { maxSteps: 1, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 } },
+    wakes: { loop: { maxSteps: 1, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 } },
   });
   const inner = boot(chat, { dataDir, records, hot });
   chat.script = [toolAnswer('', [call('lore.list')]), '<msg>καλημέρα</msg>'];
@@ -1096,7 +1096,7 @@ test('row 6: the feedback turn itself fails -- its facts stay untold, the wake i
   const records = [intentionRecord('i1')];
   const hot = hotWith({
     grants: ['lore.list', 'message.create'],
-    innerLife: { loop: { maxSteps: 1, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 } },
+    wakes: { loop: { maxSteps: 1, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 } },
   });
   const run = boot(chat, { dataDir, records, hot });
   chat.script = [toolAnswer('', [call('lore.list')]), '<msg>καλημέρα</msg>', providerLimit()];
@@ -1137,7 +1137,7 @@ test('row 7: a chain at its cap holds a wake through a local midnight and a relo
     intentionRecord('i1', { chainId: 'k', channelId: 'c1', dueAt: NOW0 - 2 * MINUTE_MS }),
     intentionRecord('i2', { chainId: 'k', channelId: 'c2', purpose: 'follow up later' }),
   ];
-  const hot = hotWith({ timezone: 'Europe/Athens', innerLife: { caps: { perChain: 1 } } });
+  const hot = hotWith({ timezone: 'Europe/Athens', wakes: { caps: { perChain: 1 } } });
   const first = boot(chat, { dataDir, records, hot });
   await first.tick(); // i1 runs: the chain is at its cap
   assert.equal(chat.llm.calls.length, 1);
@@ -1212,7 +1212,7 @@ test("row 8: the day's review rides with a wake whose channel is unwritable -- t
   const records = [
     intentionRecord('i2', { channelId: 'c2', dueAt: NOW0 + 3 * HOUR_MS, purpose: 'post in the locked channel' }),
   ];
-  const hot = hotWith({ innerLife: { review: { enabled: true, historyDays: 14, expiredMax: 5 } } });
+  const hot = hotWith({ wakes: { review: { enabled: true, historyDays: 14, expiredMax: 5 } } });
   const run = boot(chat, { dataDir, records, hot, unwritable: ['c2'], record });
   await run.tick(); // the review is drawn for the evening
   const review = run.state().review;

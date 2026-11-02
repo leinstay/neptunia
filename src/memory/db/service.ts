@@ -33,7 +33,7 @@
 //   - schema v11 (wakes.ts, index-policy.ts):
 //       the wake runs: `recordWake(update)` is the inner life's one way to write its wake runs (src/behavior/
 //       inner.ts), through the writer; at each open the runs a dead process left `running` longer than the inner
-//       turn's time budget (`innerLife.loop.timeBudgetMs`) become `interrupted`.
+//       turn's time budget (`wakes.loop.timeBudgetMs`) become `interrupted`.
 //       the skills registry (skills.ts, schema v22): its writes are `{ kind: 'skills', op, ... }` through the writer.
 //       `recall.db.vectorEviction`: once per UTC day, at a tick, the index policy classifies every line and evicts
 //       the vectors outside the owner's classes, through the writer; the sources a turn's request carried
@@ -48,7 +48,7 @@
 //     store's cache, the module stores, participation, the diary, the vectors) through the writer; resolves once the
 //     worker committed, rejects with a code (`DB_CLOSED` while the database is not open). Each tick also finishes the
 //     graph projection and the stems a migration left (one slice a tick). The opener's migration context is the live
-//     `diary.channelId`'s place (the seed of schema v12's and v15's data steps); a diary write's destination is the
+//     `selfreflection.channelId`'s place (the seed of schema v12's and v15's data steps); a diary write's destination is the
 //     place of the diary's first enabled mirror. The durable intent of a write that failed (spec
 //     2026-10-24-memory-authority, section 6 item 3): `keepPending(update)` (at shutdown, from unit-outbox.ts#keep)
 //     writes it to `data/memory-pending/<sha1 of the owner>.json` (`{ owner, op, value | lines, at }`; the lines of one
@@ -123,7 +123,7 @@ export const PENDING_DIR = 'memory-pending';
 
 const DEFAULT_FILE = 'memory.db';
 const DEFAULT_CLOSE_TIMEOUT_MS = 10_000;
-/** The inner turn's time budget when `innerLife.loop.timeBudgetMs` is not set (config.json's value). */
+/** The inner turn's time budget when `wakes.loop.timeBudgetMs` is not set (config.json's value). */
 const DEFAULT_TURN_BUDGET_MS = 180_000;
 /** The least time between two runs of the re-embed job. */
 const REEMBED_EVERY_MS = 60_000;
@@ -373,7 +373,7 @@ function startWorker({
 
 /** What a migration needs from the opener (open.ts#migrate): the diary channel as a place, and the data directory. */
 function openContextOf(config: Config, dataDir: string): { diaryPlaceId: string | null; dataDir: string } {
-  const channel = config?.diary?.channelId;
+  const channel = config?.selfreflection?.channelId;
   return {
     diaryPlaceId: typeof channel === 'string' && channel ? channelPlaceId(LEGACY_IFACE, channel) : null,
     dataDir,
@@ -792,7 +792,7 @@ export function createMemoryDb({
 
   /** What each open does once (schema v11): stale wake runs interrupted. */
   function startupJobs() {
-    const budget = hot.config?.innerLife?.loop?.timeBudgetMs;
+    const budget = hot.config?.wakes?.loop?.timeBudgetMs;
     write({
       kind: 'wake',
       op: 'interrupt',

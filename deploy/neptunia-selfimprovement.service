@@ -1,0 +1,31 @@
+# systemd unit for one beat of her self-development (src/selfimprovement/, docs/selfimprovement.md): `neptunia selfimprovement run` takes her
+# fix proposals off the board, works each in a worktree under <data>/selfimprovement/, runs the tests and opens the pull request.
+#
+# The beat works on a dev checkout, never on the deployed one: `neptunia setup` renders this unit and its timer only
+# when `selfimprovement.checkout` names another checkout, and the WorkingDirectory below becomes that path. The private and
+# data folders stay the deployment's, so the beat reaches the core's board through its socket as the client `selfimprovement`
+# (token `<private>/clients/selfimprovement.token`, made once with scripts/client-token.ts).
+#
+# `neptunia setup` renders this service and neptunia-selfimprovement.timer for the installing user (deploy/README.md) and does
+# not start them: `systemctl enable --now neptunia-selfimprovement.timer` (`--user` for a user unit).
+# Run now: systemctl start neptunia-selfimprovement.service
+# Logs:    journalctl -u neptunia-selfimprovement
+
+[Unit]
+Description=neptunia selfimprovement (one beat)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=neptunia
+WorkingDirectory=/opt/neptunia/app
+ExecStart=/opt/node/bin/node bin/neptunia.ts selfimprovement run
+Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc
+Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
+# git, gh and the agent backend's binary are found by name: the user's own tools and node's folder go on the PATH.
+Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
+# A dev run may take an hour (bin/selfimprovement.ts), and the tests after it take their time.
+TimeoutStartSec=infinity
+NoNewPrivileges=yes
+PrivateTmp=yes

@@ -210,7 +210,7 @@ function fakeHot({ diary = {}, prompts = {} }: { diary?: Untyped; prompts?: Unty
       llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
       image: { maxPromptChars: 1000 },
-      diary: { channelId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000, ...diary },
+      selfreflection: { channelId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000, ...diary },
     },
     prompts: {
       'system-prompt': 'SYSTEM for {{name}}',
@@ -645,8 +645,8 @@ test('diary turn: a voice message is kept in the post: its id among messageIds a
   assert.deepEqual({ text: voice.text, durationSec: voice.durationSec }, { text: voiced, durationSec: 2.5 });
 });
 
-// PR 7d: `diary.gistChars` is the constant DEFAULT_GIST_CHARS of src/behavior/diary.ts, 200.
-test('diary turn: the gist is cut to diary.gistChars', async () => {
+// PR 7d: `selfreflection.gistChars` is the constant DEFAULT_GIST_CHARS of src/behavior/diary.ts, 200.
+test('diary turn: the gist is cut to selfreflection.gistChars', async () => {
   const long = 'mot '.repeat(100).trim();
   const llm = fakeLlm({ kind: 'status', brief: 'x', search: '', picture: false }, `<msg>${long}</msg>`);
   const store = fakeStore();
@@ -732,7 +732,7 @@ test('diary turn: a post of a picture alone is a spoken turn', async () => {
   assert.equal(store.appended[0].post.gist, '');
 });
 
-// ---- set posts (diary.setKinds): several pictures, generated before anything is sent ----------
+// ---- set posts (selfreflection.setKinds): several pictures, generated before anything is sent ----------
 
 /** An image client that answers each generate call by the next step: a byte count, or an error to throw. */
 function fakeSetImages(steps: Untyped, events: Array<string> = []) {
@@ -921,7 +921,7 @@ test('diary set: an adapter that allows twelve files per message gets the same s
   );
 });
 
-test('diary set: calls past diary.set.pictures[1] in one answer are loop-cap results; the speech waits and step 2 posts what was staged', async () => {
+test('diary set: calls past selfreflection.set.pictures[1] in one answer are loop-cap results; the speech waits and step 2 posts what was staged', async () => {
   const images = fakeSetImages([]);
   const channel = diaryChannel();
   const llm = fakeLlm(TOUR_PLAN, [withDraws('<msg>x</msg>', 8), '<msg>y</msg>']);
@@ -991,7 +991,7 @@ test('diary set: one failure in a set holds the speech and the staged pictures; 
   assert.equal(store.appended[0].post.pictures, 5);
 });
 
-test('diary set: fewer than diary.set.minPosted pictures staged posts nothing and is refused set-short', async () => {
+test('diary set: fewer than selfreflection.set.minPosted pictures staged posts nothing and is refused set-short', async () => {
   const images = fakeSetImages([10, new ImageGenError('error'), new ImageGenError('error')]);
   const store = fakeStore();
   const channel = diaryChannel();
@@ -1079,7 +1079,7 @@ test('diary: a single-picture kind stages one picture; a second call is a loop-c
   assert.equal(loose(result).diary.pictures, 1);
 });
 
-test('diary set: the compose request carries diary.set.seedSets seeds for a set kind, none for another kind', async () => {
+test('diary set: the compose request carries selfreflection.set.seedSets seeds for a set kind, none for another kind', async () => {
   const seedLines = (text: string) =>
     (/<seeds>\n([\s\S]*?)\n<\/seeds>/.exec(text)?.[1] ?? '').split('\n').filter((line) => line.startsWith('- '));
   const llm = fakeLlm(TOUR_PLAN, withDraws('<msg>x</msg>', 3));
@@ -1089,8 +1089,8 @@ test('diary set: the compose request carries diary.set.seedSets seeds for a set 
     diary: {},
   });
   // PR 7d: the plan's seed sets (2) and a set's (6) are constants of src/behavior/diary.ts.
-  assert.equal(seedLines(userOf(llm.calls[0])).length, 2, 'the plan request keeps diary.seedSets');
-  assert.equal(seedLines(userOf(llm.calls[1])).length, 6, 'the compose request takes diary.set.seedSets');
+  assert.equal(seedLines(userOf(llm.calls[0])).length, 2, 'the plan request keeps selfreflection.seedSets');
+  assert.equal(seedLines(userOf(llm.calls[1])).length, 6, 'the compose request takes selfreflection.set.seedSets');
 
   const text = fakeLlm({ kind: 'status', brief: 'x', search: '', picture: false }, '<msg>x</msg>');
   await runner({ llm: text }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} });

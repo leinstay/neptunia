@@ -185,7 +185,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * @param {{ wake: import('./inner/types.ts').TurnWake, shadow: boolean, mayAct?: () => boolean, currentChannel?: string|null }|null} [params.inner]  An inner turn (src/behavior/inner.ts,
    *   docs/inner-life.md), with `mode: 'inner'` and no trigger: nobody's message is fabricated; its
    *   request carries `<wake>` (src/behavior/wake.ts over `wake`) and the task `prompts.inner`, its
-   *   history is the last `innerLife.chatMessages` lines of `channel`, its prefetch searches the
+   *   history is the last `wakes.chatMessages` lines of `channel`, its prefetch searches the
    *   purposes of the intentions it woke for, no planner runs. What she writes in tags (a `<msg>`,
    *   a `<gif>`, a `<react to>`) is lowered into the calls they stand for, in the current channel
    *   (`currentChannel`: an id, or null for none, then a post is refused `destination-required`;
@@ -197,7 +197,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   `skip` with `reason: 'nothing-to-do'`; after a post that left nothing to show while an intention she woke for is
    *   still untouched, the steps make one open follow-up request (runSteps: the open line in its note,
    *   once per turn). The last step still runs one terminal action call of hers (a post, an
-   *   intention change). The steps of an inner turn run under `innerLife.loop`
+   *   intention change). The steps of an inner turn run under `wakes.loop`
    *   (loopSettings with `inner`), not `tools.loop`. The result carries `inner: { actions, intentIds, loop,
    *   openFollowUp?, turnId }` (`openFollowUp: true` when that
    *   step was made; `shadow: true` in shadow mode). A
@@ -244,15 +244,15 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   `topic` is the owner's topic for the planner and the plan, `forced` also appends
    *   prompts.forced to the task), then composed with `prompts.diary` as
    *   the task and the `<world>`, `<diary>`, `<plan>` and `<found>` blocks. Its speech keeps only
-   *   `<msg>` (every reply attribute dropped, links removed, at most `diary.maxMessages` (3), a
+   *   `<msg>` (every reply attribute dropped, links removed, at most `selfreflection.maxMessages` (3), a
    *   message left empty not posted) and `<skip/>`; no reaction, no GIF, no GIF pick. It runs on the
-   *   step engine with `diary.loop`: only her `draw.create` calls run (any other is refused
-   *   `diary-draw-only`; at most `diary.set.pictures[1]` in a step), each picture staged as it is
+   *   step engine with `selfreflection.loop`: only her `draw.create` calls run (any other is refused
+   *   `diary-draw-only`; at most `selfreflection.set.pictures[1]` in a step), each picture staged as it is
    *   generated and counted against the day's diary pictures then; a picture while the post may
    *   carry none is refused `daily-cap` (diaryPictureGate). A failed picture holds the post's speech
    *   with the staged pictures until her next step. Nothing is sent: her speech is held (holdSpeech), a `voice.say`
    *   keeps its file (diary-turn.ts#diaryVoiceTool), and the entry is recorded (diary-turn.ts#recordEntry; a set kind
-   *   with fewer than `diary.set.minPosted` pictures staged is not: `turn: set short`, `{ outcome: 'refused', reason:
+   *   with fewer than `selfreflection.set.minPosted` pictures staged is not: `turn: set short`, `{ outcome: 'refused', reason:
    *   'set-short' }`). Its outcome carries `diary: { kind, picture, search, messages, pictures }` and the entry
    *   (`diary.entry`) the mirrors publish (src/behavior/mirror.ts).
    *
@@ -272,7 +272,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   the GIF or a diary post's pictures posted; a send that fails stops the
    *   posting and the turn still ends `spoke` with what reached the chat); `limit` on `outcome:
    *   'refused'` (a request or token cap; a diary picture gate with `reason: 'pictures'`; a diary
-   *   set short of `diary.set.minPosted` pictures has `reason: 'set-short'` and no `limit`), for
+   *   set short of `selfreflection.set.minPosted` pictures has `reason: 'set-short'` and no `limit`), for
    *   the caller's limit notice. An answer of hers cut off at its output cap before any complete
    *   action (cutOffOf; the skill follow-up's too, when nothing of the turn reached the chat)
    *   ends `error` with `reason: 'cut-off'`, nothing of it posted. With the journal on (createTurnRunner's `journal`), a turn that

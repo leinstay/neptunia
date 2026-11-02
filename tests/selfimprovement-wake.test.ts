@@ -9,9 +9,9 @@ import { proposalsOf } from '../src/behavior/selfimprovement-view.ts';
 import { landedLines } from '../src/behavior/selfimprovement-text.ts';
 import { BoardError, authorize } from '../src/board/machine.ts';
 import type { Condition, Role } from '../src/board/machine.ts';
-import { ackLanded, landedFor } from '../src/selfdev/landed.ts';
-import type { Landed } from '../src/selfdev/landed.ts';
-import { landTaskDirectly, selfdevWorld } from './fixtures/selfdev-rig.ts';
+import { ackLanded, landedFor } from '../src/selfimprovement/landed.ts';
+import type { Landed } from '../src/selfimprovement/landed.ts';
+import { landTaskDirectly, selfimprovementWorld } from './fixtures/selfimprovement-rig.ts';
 import type { InnerContext } from '../src/behavior/inner/types.ts';
 
 const ONE: Landed = {
@@ -71,7 +71,7 @@ test('a heartbeat whose acknowledgement fails logs it and does not throw', async
 });
 
 test('acknowledging a landed row leaves the older outbox rows she was not shown', async (t) => {
-  const world = selfdevWorld(t);
+  const world = selfimprovementWorld(t);
   // An older done row that is not a landed fix, then the landed one.
   landTaskDirectly(world, null);
   landTaskDirectly(world, { title: 'Fix', files: ['src/a.ts'], pr: 3, decidedBy: 'auto' });

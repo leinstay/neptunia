@@ -1,21 +1,21 @@
-// She codes herself (docs/selfdev.md): her fix proposals on the task board become pull requests, and a merge reaches
-// her wake. `createSelfdev` is three steps over injected edges, run one after the other by `beat` (bin/selfdev.ts) once
-// the push-right check (src/selfdev/repository.ts) says her gh login may push to `selfdev.repository`. `intake` triages her `fix` proposals to the dev role and approves their plan, which is safe at risk
+// She codes herself (docs/selfimprovement.md): her fix proposals on the task board become pull requests, and a merge reaches
+// her wake. `createSelfimprovement` is three steps over injected edges, run one after the other by `beat` (bin/selfimprovement.ts) once
+// the push-right check (src/selfimprovement/repository.ts) says her gh login may push to `selfimprovement.repository`. `intake` triages her `fix` proposals to the dev role and approves their plan, which is safe at risk
 // `low` because nothing lands without a merge. `work` takes each approved fix, makes a worktree from the base branch,
 // lets one dev run patch it, commits what it left, runs the tests of the touched modules itself and only then pushes and
 // opens the pull request as a draft. `observe` looks at each open pull request: with every check green it marks the
-// request ready for the owner (`selfdev.mode` `approve`) or merges it (`auto`), and a merge by the owner closes the
+// request ready for the owner (`selfimprovement.mode` `approve`) or merges it (`auto`), and a merge by the owner closes the
 // task. A branch is deleted right after its merge in both modes. Branches are pushed to and deleted from
-// `https://github.com/<selfdev.repository>.git`, and every `gh pr` call names that repository with `--repo`, so a
+// `https://github.com/<selfimprovement.repository>.git`, and every `gh pr` call names that repository with `--repo`, so a
 // deployment that named its fork never touches the checkout's `origin`.
-// The board is called as the builtin principal `selfdev`. Git, gh, the test runner and the dev run are injected, one
+// The board is called as the builtin principal `selfimprovement`. Git, gh, the test runner and the dev run are injected, one
 // command at a time and never through a shell. The journal carries ids, counts and codes, never a diff or a message.
 
 import { fillPromptTemplate } from '../turn/request/text.ts';
 import type { Handoff, HandoffTest, TaskRecord } from '../board/board.ts';
 import type { BoardCaller } from '../tools/impl/board.ts';
 import type { RepositoryCheck } from './repository.ts';
-import type { SelfdevSettings } from './settings.ts';
+import type { SelfimprovementSettings } from './settings.ts';
 
 export type ExecResult = { code: number; stdout: string; stderr: string };
 /** One command, never a shell. The engine passes it three ways: git, gh and the test runner. */
@@ -37,8 +37,8 @@ export type FixBrief = {
   benefit: string;
   evaluation: string;
 };
-export type SelfdevDeps = {
-  /** called as the builtin principal `selfdev` (roles reviewer, worker) */
+export type SelfimprovementDeps = {
+  /** called as the builtin principal `selfimprovement` (roles reviewer, worker) */
   board: BoardCaller;
   git: Exec;
   gh: Exec;
@@ -47,8 +47,8 @@ export type SelfdevDeps = {
   /** the model-facing text lives in prompts/, never in src/ */
   brief(task: FixBrief): string;
   /** hot: read at each use; the beat reads the mode, the base and the repository, never the checkout setup renders it over */
-  settings(): Pick<SelfdevSettings, 'mode' | 'base' | 'repository'>;
-  /** the push-right check of the beat: bin/selfdev.ts passes checkRepository over its gh runner and the labels */
+  settings(): Pick<SelfimprovementSettings, 'mode' | 'base' | 'repository'>;
+  /** the push-right check of the beat: bin/selfimprovement.ts passes checkRepository over its gh runner and the labels */
   check(): Promise<RepositoryCheck>;
   /** `boardSettings(config).autoTriage` */
   triage(): { role: string; budget: number; steps: number; estimate: number };
@@ -79,7 +79,7 @@ export type BeatReport = {
   reports: Array<AttemptReport>;
   seen: Array<Observation>;
 };
-export type Selfdev = {
+export type Selfimprovement = {
   /** Her fix proposals in `proposed`, triaged to dev at risk `low` with the plan approved. Returns the task ids. */
   intake(): Promise<Array<string>>;
   /** Works every approved fix task of hers, one after the other. */
@@ -98,10 +98,10 @@ const SELF = 'persona:self';
 /** The lease of a claimed task, and how often a run renews it (minutes). */
 const LEASE_MINUTES = 90;
 const RENEW_MINUTES = 20;
-/** The refusal tag of the brief (prompts/selfdev.md, docs/prompt-contract.md). */
+/** The refusal tag of the brief (prompts/selfimprovement.md, docs/prompt-contract.md). */
 const REFUSED = /^REFUSED:[ \t]*(.*)$/;
 
-/** The text of prompts/selfdev.md with the fix's fields in their `{{placeholders}}` (docs/prompt-contract.md). */
+/** The text of prompts/selfimprovement.md with the fix's fields in their `{{placeholders}}` (docs/prompt-contract.md). */
 export function briefFrom(template: string, task: FixBrief): string {
   const list = (items: ReadonlyArray<string>): string => items.map((one) => `- ${one}`).join('\n');
   return fillPromptTemplate(template, {
@@ -205,43 +205,48 @@ function pullRequestOf(stdout: string): PullRequest | null {
 /** The push URL of `owner/name`. */
 const remoteOf = (repository: string): string => `https://github.com/${repository}.git`;
 
-/** Thrown where a git or gh call needs `selfdev.repository` and it is unset; the beat checks first, so only a direct
+/** Thrown where a git or gh call needs `selfimprovement.repository` and it is unset; the beat checks first, so only a direct
  * call of a step meets it. */
 class RepositoryUnset extends Error {
   code = 'repository-unset';
 }
 
-export function createSelfdev(deps: SelfdevDeps): Selfdev {
-  /** `selfdev.repository` at the moment of use. */
+export function createSelfimprovement(deps: SelfimprovementDeps): Selfimprovement {
+  /** `selfimprovement.repository` at the moment of use. */
   const repository = (): string => {
     const named = deps.settings().repository;
-    if (named === null) throw new RepositoryUnset('selfdev.repository is unset');
+    if (named === null) throw new RepositoryUnset('selfimprovement.repository is unset');
     return named;
   };
   /** `gh pr <sub> --repo <repository> ...args` in `cwd`. */
   const pr = async (sub: string, args: ReadonlyArray<string>, cwd: string) =>
     await deps.gh('gh', ['pr', sub, '--repo', repository(), ...args], { cwd });
-  const viewOf = async (id: string) => await Promise.resolve(deps.board.call('selfdev', 'task.show', { id }));
-  const journal = (line: Record<string, unknown>): void => deps.journal({ kind: 'selfdev', ...line });
+  const viewOf = async (id: string) => await Promise.resolve(deps.board.call('selfimprovement', 'task.show', { id }));
+  const journal = (line: Record<string, unknown>): void => deps.journal({ kind: 'selfimprovement', ...line });
 
   /** Merges `metadata` into the task, at its current revision. */
   async function remember(id: string, metadata: Record<string, unknown>): Promise<void> {
     const { task } = await viewOf(id);
-    await Promise.resolve(deps.board.call('selfdev', 'task.update', { id, revision: task.revision, metadata }));
+    await Promise.resolve(deps.board.call('selfimprovement', 'task.update', { id, revision: task.revision, metadata }));
   }
 
   /** The task failed or was refused: closed `failed` with the reason, which reaches her outbox. */
   async function close(id: string, status: 'failed' | 'cancelled', reason: string): Promise<void> {
     const { task } = await viewOf(id);
     await Promise.resolve(
-      deps.board.call('selfdev', 'task.transition', { id, status, close_reason: reason, revision: task.revision })
+      deps.board.call('selfimprovement', 'task.transition', {
+        id,
+        status,
+        close_reason: reason,
+        revision: task.revision,
+      })
     );
   }
 
   const fixesIn = async (status: string): Promise<Array<TaskRecord>> =>
-    (await Promise.resolve(deps.board.call('selfdev', 'task.list', { requester: SELF, status, lane: 'dev' }))).filter(
-      (task) => task.metadata?.kind === 'fix'
-    );
+    (
+      await Promise.resolve(deps.board.call('selfimprovement', 'task.list', { requester: SELF, status, lane: 'dev' }))
+    ).filter((task) => task.metadata?.kind === 'fix');
 
   async function intake(): Promise<Array<string>> {
     const taken: Array<string> = [];
@@ -249,7 +254,7 @@ export function createSelfdev(deps: SelfdevDeps): Selfdev {
       const { role, budget, steps, estimate } = deps.triage();
       try {
         await Promise.resolve(
-          deps.board.call('selfdev', 'task.transition', {
+          deps.board.call('selfimprovement', 'task.transition', {
             id: task.id,
             status: 'triaged',
             revision: task.revision,
@@ -257,7 +262,7 @@ export function createSelfdev(deps: SelfdevDeps): Selfdev {
           })
         );
         await Promise.resolve(
-          deps.board.call('selfdev', 'task.approve', { id: task.id, scope: 'plan', note: 'selfdev' })
+          deps.board.call('selfimprovement', 'task.approve', { id: task.id, scope: 'plan', note: 'selfimprovement' })
         );
         taken.push(task.id);
         journal({ event: 'intake', taskId: task.id });
@@ -271,7 +276,7 @@ export function createSelfdev(deps: SelfdevDeps): Selfdev {
   async function work(): Promise<Array<AttemptReport>> {
     const reports: Array<AttemptReport> = [];
     const approved = await Promise.resolve(
-      deps.board.call('selfdev', 'task.list', { requester: SELF, status: 'approved', lane: 'dev', ready: true })
+      deps.board.call('selfimprovement', 'task.list', { requester: SELF, status: 'approved', lane: 'dev', ready: true })
     );
     for (const task of approved) {
       if (task.metadata?.kind !== 'fix') continue;
@@ -291,11 +296,13 @@ export function createSelfdev(deps: SelfdevDeps): Selfdev {
 
   /** One fix, from the claim to the submitted pull request. */
   async function attempt(id: string): Promise<AttemptReport> {
-    const claimed = await Promise.resolve(deps.board.call('selfdev', 'task.claim', { id, ttl_minutes: LEASE_MINUTES }));
+    const claimed = await Promise.resolve(
+      deps.board.call('selfimprovement', 'task.claim', { id, ttl_minutes: LEASE_MINUTES })
+    );
     const generation = claimed.lease_generation;
     const renew = setInterval(() => {
       void Promise.resolve(
-        deps.board.call('selfdev', 'task.heartbeat', { id, generation, ttl_minutes: LEASE_MINUTES })
+        deps.board.call('selfimprovement', 'task.heartbeat', { id, generation, ttl_minutes: LEASE_MINUTES })
       ).catch(() => undefined);
     }, RENEW_MINUTES * 60_000);
     renew.unref();
@@ -351,7 +358,9 @@ export function createSelfdev(deps: SelfdevDeps): Selfdev {
     if (!Number.isInteger(number)) return await stopped(id, 'failed', 'gh-failed: no pull request url', branch);
 
     await remember(id, { pr: { number, url, branch } });
-    await Promise.resolve(deps.board.call('selfdev', 'task.result', { id, generation, kind: 'pr', uri: url, body }));
+    await Promise.resolve(
+      deps.board.call('selfimprovement', 'task.result', { id, generation, kind: 'pr', uri: url, body })
+    );
     const handoff: Handoff = {
       result: `Pull request ${url}`,
       evidence: changed,
@@ -359,7 +368,7 @@ export function createSelfdev(deps: SelfdevDeps): Selfdev {
       tests: proof === null ? [] : [proof.test],
       open_issues: uncovered.length === 0 ? [] : [`No test covers: ${uncovered.join(', ')}`],
     };
-    await Promise.resolve(deps.board.call('selfdev', 'task.submit', { id, generation, handoff }));
+    await Promise.resolve(deps.board.call('selfimprovement', 'task.submit', { id, generation, handoff }));
     return { taskId: id, outcome: 'submitted', branch, pr: number, reason: null };
   }
 
@@ -393,7 +402,7 @@ export function createSelfdev(deps: SelfdevDeps): Selfdev {
 
   async function observe(): Promise<Array<Observation>> {
     const seen: Array<Observation> = [];
-    const open = await Promise.resolve(deps.board.call('selfdev', 'task.list', { status: 'needs_validation' }));
+    const open = await Promise.resolve(deps.board.call('selfimprovement', 'task.list', { status: 'needs_validation' }));
     for (const task of open) {
       const pr = isRecord(task.metadata?.pr) ? task.metadata.pr : null;
       const number = typeof pr?.number === 'number' ? pr.number : null;
@@ -484,7 +493,7 @@ export function createSelfdev(deps: SelfdevDeps): Selfdev {
   async function land(task: TaskRecord, number: number, pull: PullRequest, by: 'owner' | 'auto'): Promise<void> {
     const landed = { title: pull.title, files: pull.files, pr: number, decidedBy: by };
     await remember(task.id, { ...(by === 'auto' ? { ci: 'green' } : {}), landed, merged: { pr: number, by } });
-    await Promise.resolve(deps.board.call('selfdev', 'task.review', { id: task.id, decision: 'accept' }));
+    await Promise.resolve(deps.board.call('selfimprovement', 'task.review', { id: task.id, decision: 'accept' }));
     journal({ event: 'merged', taskId: task.id, pr: number, decidedBy: by, files: pull.files.length });
   }
 

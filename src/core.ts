@@ -112,7 +112,7 @@ import { createIntentionStores } from './intentions/store.ts';
 import { createIntentionService } from './intentions/service.ts';
 import { skillRegistry, missingDefinitions, setExtraSkills } from './tools/registry.ts';
 import { grantedSkillNames } from './tools/discovery.ts';
-import { ackLanded, landedFor } from './selfdev/landed.ts';
+import { ackLanded, landedFor } from './selfimprovement/landed.ts';
 import { wireSkills } from './skills/wiring.ts';
 import { createReportReader, reportsDirOf, watcherDir } from './watcher/read.ts';
 import { ABILITY_ADDED, abilityWake, fileAnnounceStore, forgetAbilities, newAbilities } from './plugins/announce.ts';
@@ -1019,7 +1019,7 @@ async function buildCore(
     );
   }
   const placesOf = (guildId: string) => placeListings.get(String(guildId)) ?? [];
-  // The persona's inner life (features.innerLife, off by default; docs/inner-life.md): a scheduler
+  // The persona's inner life (features.wakes, off by default; docs/inner-life.md): a scheduler
   // that lists what is due for her (her intentions, waits past their deadline, one daily review, the lines of the places she attends),
   // hands each as an `inner.wake` event through the door, and runs an inner turn when the one
   // attention is free and no cap refuses. Its tick is a beat of the scheduler below; a no-op with the switch off.
@@ -1069,7 +1069,7 @@ async function buildCore(
       agents: () => Object.keys(AGENT_PROFILES),
       selfId: () => identity.selfId,
       focusPeople: () => memoryDb.focusPeople({ iface: identity.iface }),
-      // The fixes of her own code that merged (src/selfdev/landed.ts), told once.
+      // The fixes of her own code that merged (src/selfimprovement/landed.ts), told once.
       landed: async () => (await landedFor(board)).landed,
       ackLanded: (seqs) => ackLanded(board, seqs),
     },
@@ -1582,7 +1582,7 @@ async function buildCore(
       if (ids.length > 0) log.info('board: leases expired', { count: ids.length, tasks: ids });
     },
   });
-  // The inner life's tick, every innerLife.tickSeconds (read before each wait).
+  // The inner life's tick, every wakes.tickSeconds (read before each wait).
   scheduler.add({
     name: 'inner.tick',
     everyMs: () => innerSettings(hot.config).tickSeconds * 1000,

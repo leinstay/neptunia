@@ -4,7 +4,7 @@
 // write there, the lines and distinct people since her last look there (counted from the record by
 // the inner life, src/behavior/inner.ts#places), and whether she attends it; filtered by name
 // (`filter`), sorted (`sort`: `recent`, the default, `name`, `lines`), one page of
-// `innerLife.attention.pageSize` at a time (`page`). The total and how many more are always said.
+// `wakes.attention.pageSize` at a time (`page`). The total and how many more are always said.
 // A read; grantable to her and to people. Answers are operator lines (addresses, names, counts).
 
 import { defineOp, perEnv, invalid } from './registry.ts';

@@ -1,11 +1,11 @@
-// What a merge shows in her wake (src/selfdev/landed.ts): the title and the paths, once, in whichever of the
+// What a merge shows in her wake (src/selfimprovement/landed.ts): the title and the paths, once, in whichever of the
 // selfimprovement and heartbeat wakes comes first. The board is real, the closing of the task is done through the
 // board alone.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ackLanded, landedFor } from '../src/selfdev/landed.ts';
+import { ackLanded, landedFor } from '../src/selfimprovement/landed.ts';
 import { buildSelfimprovementFacts, proposalsOf } from '../src/behavior/selfimprovement-view.ts';
-import { SELFDEV_T0, landTaskDirectly, selfdevWorld } from './fixtures/selfdev-rig.ts';
+import { SELFIMPROVEMENT_T0, landTaskDirectly, selfimprovementWorld } from './fixtures/selfimprovement-rig.ts';
 
 const LANDED = {
   title: 'Raise the web.read timeout',
@@ -15,7 +15,7 @@ const LANDED = {
 } as const;
 
 test('a merged fix reaches her as its title and its paths, and nothing else', async (t) => {
-  const world = selfdevWorld(t);
+  const world = selfimprovementWorld(t);
   const id = landTaskDirectly(world, { ...LANDED, files: [...LANDED.files] });
   const { landed, seqs } = await landedFor(world.caller);
   assert.equal(landed.length, 1);
@@ -30,7 +30,7 @@ test('a merged fix reaches her as its title and its paths, and nothing else', as
 });
 
 test('the event is shown until a wake commits, then never again, whichever wake takes it', async (t) => {
-  const world = selfdevWorld(t);
+  const world = selfimprovementWorld(t);
   landTaskDirectly(world, { ...LANDED, files: [...LANDED.files] });
   const heartbeat = await landedFor(world.caller);
   // A wake that did not commit shows it again.
@@ -43,19 +43,19 @@ test('the event is shown until a wake commits, then never again, whichever wake 
 });
 
 test('a finished skill task is not a landed change', async (t) => {
-  const world = selfdevWorld(t);
+  const world = selfimprovementWorld(t);
   landTaskDirectly(world, null);
   assert.deepEqual((await landedFor(world.caller)).landed, []);
 });
 
 test('the selfimprovement facts carry the landed change once, outside the plain outbox list', async (t) => {
-  const world = selfdevWorld(t);
+  const world = selfimprovementWorld(t);
   landTaskDirectly(world, { ...LANDED, files: [...LANDED.files] });
   const view = await proposalsOf(world.caller);
   const { landed, seqs } = await landedFor(world.caller);
   const facts = await buildSelfimprovementFacts({
     guildId: 'g1',
-    now: SELFDEV_T0,
+    now: SELFIMPROVEMENT_T0,
     since: null,
     journal: null,
     granted: [],

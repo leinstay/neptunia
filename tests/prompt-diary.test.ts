@@ -56,7 +56,7 @@ function fakeConfig(overrides: { context?: object; features?: object; llm?: obje
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9, ...overrides.llm },
     lore: { scanMessages: 30, maxMatches: 8 },
     memory: { recentHours: 72 },
-    diary: { historyPosts: 150, ...overrides.diary },
+    selfreflection: { historyPosts: 150, ...overrides.diary },
   };
 }
 
@@ -119,12 +119,12 @@ test('buildRequest: the world block appears in diary mode with diary.world on on
   const off = userText(
     buildRequest(baseInput({ mode: 'diary', config: fakeConfig({ diary: { world: false } }), diary: {} }))
   );
-  assert.ok(!off.includes('<world>'), 'diary.world false');
+  assert.ok(!off.includes('<world>'), 'selfreflection.world false');
 
-  const missing: { diary: { historyPosts: number; world?: unknown } } = fakeConfig();
-  delete missing.diary.world;
+  const missing: { selfreflection: { historyPosts: number; world?: unknown } } = fakeConfig();
+  delete missing.selfreflection.world;
   const unset = userText(buildRequest(baseInput({ mode: 'diary', config: missing, diary: {} })));
-  assert.ok(!unset.includes('<world>'), 'a missing diary.world counts as off');
+  assert.ok(!unset.includes('<world>'), 'a missing selfreflection.world counts as off');
 
   const truthy = userText(
     buildRequest(baseInput({ mode: 'diary', config: fakeConfig({ diary: { world: 'yes' } }), diary: {} }))

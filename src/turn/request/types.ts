@@ -112,7 +112,7 @@ export type RequestConfig = {
   readonly lore?: { readonly scanMessages?: number; readonly maxMatches?: number };
   readonly tools?: { readonly loop?: { readonly stepReserveTokens?: number } };
   readonly web?: { readonly links?: { readonly enabled?: unknown }; readonly search?: { readonly enabled?: unknown } };
-  readonly diary?: { readonly world?: unknown; readonly historyPosts?: number };
+  readonly selfreflection?: { readonly world?: unknown; readonly historyPosts?: number };
   readonly media?: { readonly video?: { readonly sites?: ReadonlyArray<string> } };
   readonly models?: { readonly base?: Record<string, unknown> };
 };

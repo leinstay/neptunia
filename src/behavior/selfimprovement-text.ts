@@ -7,7 +7,7 @@ import { fill } from '../format.ts';
 import { oneLine } from '../memory/clamp.ts';
 import { listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
-import type { Landed } from '../selfdev/landed.ts';
+import type { Landed } from '../selfimprovement/landed.ts';
 import type { SelfimprovementFacts, Shape } from './selfimprovement-view.ts';
 
 /** How the `<wake>` words a moment. */

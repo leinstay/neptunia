@@ -5,7 +5,7 @@
   "days": 3,
   "timezone": "UTC",
   "seed": 67,
-  "innerLife": { "heartbeat": { "enabled": true, "everyMinutes": 20, "jitterMinutes": 0 } },
+  "wakes": { "heartbeat": { "enabled": true, "everyMinutes": 20, "jitterMinutes": 0 } },
   "channels": [
     { "id": "c-general", "name": "general" },
     { "id": "c-games", "name": "games" }

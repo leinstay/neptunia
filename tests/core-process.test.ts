@@ -59,7 +59,7 @@ const BASE_CONFIG: Settings = {
     elsewhere: false,
     speech: false,
     pauseNotice: false,
-    innerLife: false,
+    wakes: false,
   },
 };
 
@@ -307,14 +307,14 @@ test('a core started with no interface runs a heartbeat turn and records the wak
   const now = (): number => T0 + (Date.now() - realStart) * 60;
   await withRig(
     {
-      features: { innerLife: true, intentions: false },
+      features: { wakes: true, intentions: false },
       memoryDb: { wakeRuns: true },
-      innerLife: {
+      wakes: {
         mode: 'shadow',
         tickSeconds: 1,
         review: { enabled: false },
-        heartbeat: { enabled: true, everyMinutes: 1, jitterMinutes: 0 },
       },
+      heartbeat: { enabled: true, everyMinutes: 1, jitterMinutes: 0 },
     },
     async ({ dirs, llm, cores }) => {
       cores.push(await startUnitsCore(dirs, llm, now));
@@ -457,8 +457,9 @@ test('a start goes ahead when the core:alive lease of another holder expired', a
 test('a core stopped cleanly lets the next start in at once', async () => {
   await withRig(
     {
-      features: { innerLife: true, intentions: false },
-      innerLife: { mode: 'shadow', tickSeconds: 1, review: { enabled: false }, heartbeat: { enabled: false } },
+      features: { wakes: true, intentions: false },
+      wakes: { mode: 'shadow', tickSeconds: 1, review: { enabled: false } },
+      heartbeat: { enabled: false },
     },
     async ({ dirs, llm, cores }) => {
       const first = await startUnitsCore(dirs, llm, () => T0);
@@ -634,13 +635,13 @@ test('a core with no memoryDb setting records its heartbeat as a wake run and ru
   const now = (): number => T0 + (Date.now() - realStart) * 60;
   await withRig(
     {
-      features: { innerLife: true, intentions: false },
-      innerLife: {
+      features: { wakes: true, intentions: false },
+      wakes: {
         mode: 'shadow',
         tickSeconds: 1,
         review: { enabled: false },
-        heartbeat: { enabled: true, everyMinutes: 1, jitterMinutes: 0 },
       },
+      heartbeat: { enabled: true, everyMinutes: 1, jitterMinutes: 0 },
     },
     async ({ dirs, llm, cores }) => {
       cores.push(await startUnitsCore(dirs, llm, now));

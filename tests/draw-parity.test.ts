@@ -61,7 +61,7 @@ function hot() {
       models: { base: { drawing: 'openai/image-model' } },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
       image: { maxPromptChars: 1000, reference: 'avatar', referenceMaxBytes: 4_000_000 },
-      diary: { channelId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
+      selfreflection: { channelId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
     },
     prompts: { ...PROMPTS },
   };

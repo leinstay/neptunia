@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { readKeys } from '../keys/file.ts';
 import { modeOf } from '../subharness/control.ts';
-import { SELFDEV_UNIT_FILES, UNIT_AGENTS, renderUnit } from './units.ts';
+import { SELFIMPROVEMENT_UNIT_FILES, UNIT_AGENTS, renderUnit } from './units.ts';
 import type { UnitVars } from './units.ts';
 
 /** What a command gave back. */
@@ -31,8 +31,8 @@ export type UnitTarget = {
   xdgConfigHome?: string;
   /** the unit folder, instead of the default of the scope */
   unitDir?: string;
-  /** the dev checkout the selfdev units run in (`selfdev.checkout`); the other units run in `rootDir` */
-  selfdevCheckout?: string | null;
+  /** the dev checkout the selfimprovement units run in (`selfimprovement.checkout`); the other units run in `rootDir` */
+  selfimprovementCheckout?: string | null;
 };
 
 /** The unit folder of the scope: `/etc/systemd/system`, or the user manager's folder under the config home. */
@@ -54,7 +54,8 @@ export function unitText(target: UnitTarget, template: string, file: string): st
   const { subharness } = readKeys(target.privateDir);
   const vars: UnitVars = { ...target, backend: subharness.backend };
   if (agent !== undefined) vars.mode = modeOf(subharness.modes, agent);
-  if (SELFDEV_UNIT_FILES.includes(file) && target.selfdevCheckout) vars.rootDir = target.selfdevCheckout;
+  if (SELFIMPROVEMENT_UNIT_FILES.includes(file) && target.selfimprovementCheckout)
+    vars.rootDir = target.selfimprovementCheckout;
   return renderUnit(template, target.system ? 'system' : 'user', vars);
 }
 

@@ -381,7 +381,7 @@ test('withoutPictureKinds: drops the picture kinds, keeps the others with their 
   assert.deepEqual(kinds, { selfPicture: 2, status: 1, meme: 3, news: 0 }, 'the input is not changed');
 });
 
-test('withoutPictureKinds: the default picture kinds when diary.pictureKinds is not a list', () => {
+test('withoutPictureKinds: the default picture kinds when selfreflection.pictureKinds is not a list', () => {
   const kinds = { selfPicture: 1, picture: 1, meme: 1, status: 2 };
   assert.deepEqual(withoutPictureKinds(kinds, undefined), { status: 2 });
   assert.deepEqual(DEFAULT_PICTURE_KINDS, ['selfPicture', 'picture', 'meme', 'photoset', 'randomSet']);
@@ -794,7 +794,7 @@ function diaryHarness({
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
-      diary: { windows: [{ from: 18, to: 1, posts: [1, 1] }], quietDayChance: 0, ...diary },
+      selfreflection: { windows: [{ from: 18, to: 1, posts: [1, 1] }], quietDayChance: 0, ...diary },
     },
     prompts: { labels },
   };

@@ -263,7 +263,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * The lines of `channel` a turn reads under `config` (src/behavior/lines.ts#historyLines over the interface's
    * `history`): with the reactor store (`reactors`), features.reactionNames and features.seeReactions on (a
    * missing key counts as on), the persona's lines carry who reacted to them, the missing reactors
-   * read within `context.reactions.fetchTimeoutMs`. An inner turn reads a bounded recent slice (innerLife.chatMessages).
+   * read within `context.reactions.fetchTimeoutMs`. An inner turn reads a bounded recent slice (wakes.chatMessages).
    * Throws when the interface cannot read the history.
    */
   function readHistory(
@@ -372,7 +372,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * (src/behavior/tool-step.js#roomLeft): the previous messages, her answer, one result for every call, and a note
    * (the speech held, the lines that came in meanwhile numbered past every number in use, the messages that did not go
    * out, the last-step notice, an inner turn's open intentions, what the parser did with her answer). The first user
-   * message is never rebuilt. `tools.loop.maxSteps` (an inner turn's: `innerLife.loop`) counts those requests and the
+   * message is never rebuilt. `tools.loop.maxSteps` (an inner turn's: `wakes.loop`) counts those requests and the
    * last of them is always the final one, which cannot call: its calls get a `loop-cap` result that only the journal
    * keeps, and its speech is held unless it has no calls (an inner turn's one terminal call, if it went through,
    * lets it go out). The same goes for a request the time budget (`timeBudgetMs`, from the first call) or the room
@@ -425,7 +425,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       diary && (draft.staged?.length ?? 0) > 0
         ? { pictures: (draft.staged ?? []).map(({ picture, self, text }) => ({ ...picture, self, text })) }
         : null;
-    // The most one call may run: an inner turn's own (innerLife.loop.callTimeoutMs), else tools.callTimeoutMs (read now).
+    // The most one call may run: an inner turn's own (wakes.loop.callTimeoutMs), else tools.callTimeoutMs (read now).
     // loopSettings gives an inner turn its own callTimeoutMs.
     const callTimeoutCap = (inner ? settings.callTimeoutMs : (hot.config.tools?.callTimeoutMs ?? 120000)) as number;
     const tools = transport === 'native' && draft.tools.length > 0 ? { tools: draft.tools, toolChoice: 'auto' } : {};
@@ -861,10 +861,10 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     }> {
       let acted: ActOutcome | HeldSpeech | null = null;
       const set = stagedSet();
-      // A set kind with fewer pictures staged than `diary.set.minPosted` is not posted at all, not even its messages.
+      // A set kind with fewer pictures staged than `selfreflection.set.minPosted` is not posted at all, not even its messages.
       if (diary && draft.diary?.set) {
         const staged = draft.staged?.length ?? 0;
-        const minPosted = setSettings(hot.config.diary).minPosted;
+        const minPosted = setSettings(hot.config.selfreflection).minPosted;
         if (staged < minPosted) {
           log.info('turn: set short', { channel: channel.id, pictures: staged, wanted: minPosted });
           draft.setShort = staged;

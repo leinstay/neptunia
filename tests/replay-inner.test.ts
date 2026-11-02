@@ -59,11 +59,11 @@ test("replay --inner: an intention's wake needs --intention, the review takes no
 
 // PR 7d: the switches and the dry run are gone, so the replay forces the shadow mode alone.
 test('innerReplayHot: shadow forced; the live config untouched', () => {
-  const live = { config: { bot: { timezone: 'UTC' }, innerLife: { mode: 'live', tickSeconds: 7 } }, prompts: {} };
+  const live = { config: { bot: { timezone: 'UTC' }, wakes: { mode: 'live', tickSeconds: 7 } }, prompts: {} };
   const config = innerReplayHot(live).config;
-  assert.equal(config.innerLife.mode, 'shadow');
-  assert.equal(config.innerLife.tickSeconds, 7);
-  assert.equal(live.config.innerLife.mode, 'live');
+  assert.equal(config.wakes.mode, 'shadow');
+  assert.equal(config.wakes.tickSeconds, 7);
+  assert.equal(live.config.wakes.mode, 'live');
 });
 test("innerReplayWake: the scheduler's wake for the intention, its budgets from the state read", () => {
   const settings = inner.innerSettings({});
@@ -171,7 +171,7 @@ function heartbeatFixture({ stopped = false } = {}) {
     nameOf: () => null,
   };
   const hot = {
-    config: { bot: { timezone: 'UTC' }, features: { innerLife: true }, innerLife: { mode: 'shadow' } },
+    config: { bot: { timezone: 'UTC' }, features: { wakes: true }, wakes: { mode: 'shadow' } },
     prompts: {},
   };
   return { dataDir, tmpRoot, stateFile, kept, deps, hot };

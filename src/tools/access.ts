@@ -11,7 +11,8 @@
 // a picture is `draw.create` -- the operations the owner's `/nep message` and `/nep draw` run. One switch, read by the caller from the live config:
 // `tools.safeMode` true lets only the carried-over tags pass.
 // Wake envelopes (schema v11 stage, spec 2026-10-24-memory-schema-v7, sections 6 and 11): an inner turn's call is
-// also checked against the envelope of its wake kind, `innerLife.wakes.<kind>` (`tools`: `"*"` or a list of skill
+// also checked against the envelope of its wake kind, `wakes.kinds.<kind>`, and for the heartbeat and the
+// selfimprovement wake the same keys of their own sections, `heartbeat.tools` and `selfimprovement.tools` (`tools`: `"*"` or a list of skill
 // names, `family.*` naming a family; `maxActs`: the most calls that change something per turn; `maxTasks`: the most
 // errands per turn; `inputTokens`: the input budget the envelope declares). The default of every kind is `"*"` with no
 // caps, today's behaviour. The check runs at the resolved call (skillAccess, through the gateway) and again where a
@@ -70,6 +71,9 @@ export const NESTED_CAPABILITIES: Readonly<Record<string, ReadonlyArray<string>>
 });
 
 const EFFECTS_OF = new Map(SKILL_DEFINITIONS.map((definition) => [definition.name, definition.effects]));
+/** The wake kinds whose limits are keys of their own section (`heartbeat.tools`), not of `wakes.kinds.<kind>`. */
+const OWN_LIMITS: ReadonlyArray<string> = ['heartbeat', 'selfimprovement'];
+const own = (kind: unknown): boolean => typeof kind === 'string' && OWN_LIMITS.includes(kind);
 const capOf = (value: unknown): number | null =>
   typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
 
@@ -85,12 +89,17 @@ export type WakeEnvelope = {
 export type WakeAction = { skill?: string; status?: string };
 
 /**
- * The envelope of wake kind `kind` (`innerLife.wakes.<kind>`, read now): `{ tools, maxActs, maxTasks, inputTokens }`,
+ * The envelope of wake kind `kind` (`wakes.kinds.<kind>`, or the kind's own section for `heartbeat` and
+ * `selfimprovement`, read now): `{ tools, maxActs, maxTasks, inputTokens }`,
  * `tools` `'*'` or a list of names; a missing or malformed value is today's behaviour (`'*'`, no cap).
  */
 export function wakeEnvelope(config: unknown, kind: unknown): WakeEnvelope {
-  const wakes = objOf(objOf(config).innerLife).wakes;
-  const given: Obj = isObj(wakes) && typeof kind === 'string' ? objOf(wakes[kind]) : {};
+  const kinds = objOf(objOf(config).wakes).kinds;
+  const given: Obj = own(kind)
+    ? objOf(objOf(config)[String(kind)])
+    : isObj(kinds) && typeof kind === 'string'
+      ? objOf(kinds[kind])
+      : {};
   const tools = Array.isArray(given.tools)
     ? given.tools.filter((name): name is string => typeof name === 'string' && name !== '')
     : '*';
@@ -116,7 +125,8 @@ const counted = (action: WakeAction | null | undefined): boolean =>
 
 /**
  * Null when the wake envelope of `wakeKind` lets `skill` run now, else `{ allowed: false, reason: 'not-allowed', detail }`
- * (`detail`: `innerLife.wakes.<kind>.tools|maxActs|maxTasks`). No wake kind (not an inner turn): null. `actions` are
+ * (`detail`: the refusing setting, `wakes.kinds.<kind>.tools`, `maxActs` or `maxTasks`, or `<kind>.<field>` for a kind
+ * of OWN_LIMITS). No wake kind (not an inner turn): null. `actions` are
  * the turn's calls so far (`{ skill, status }`): a call that changes something counts against `maxActs`, an errand
  * (`errand.run`) against `maxTasks`. With `nested` true only the allowlist is checked (the call itself was counted).
  */
@@ -138,7 +148,7 @@ export function wakeEnvelopeRefusal({
   const deny = (key: string): SkillVerdict => ({
     allowed: false,
     reason: CODE.NOT_ALLOWED,
-    detail: `innerLife.wakes.${wakeKind}.${key}`,
+    detail: own(wakeKind) ? `${wakeKind}.${key}` : `wakes.kinds.${wakeKind}.${key}`,
   });
   if (!envelopeAllows(envelope, skill)) return deny('tools');
   if (nested) return null;

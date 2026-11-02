@@ -29,7 +29,7 @@ export type AttendInput = {
   today?: { day: string; wakes: number } | null;
 };
 
-/** The `innerLife.attention` numbers an attention is born with. */
+/** The `wakes.attention` numbers an attention is born with. */
 export type AttentionSettings = { settleSeconds: number; perDayDefault: number };
 
 /** The numbers of the `intentions` config section. */

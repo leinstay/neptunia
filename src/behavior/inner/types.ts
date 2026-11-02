@@ -9,7 +9,7 @@ import type { Reads } from '../../interface/reads.ts';
 import type { Adapter, ConversationInfo, ConversationRef } from '../../protocol/adapter.ts';
 import type { SendHold } from '../../tools/send-hold.ts';
 import type { WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
-import type { Landed } from '../../selfdev/landed.ts';
+import type { Landed } from '../../selfimprovement/landed.ts';
 import type { HeartbeatFacts } from '../heartbeat-view.ts';
 import type { OutboxRow, ProposalEntry, SelfimprovementFacts, SkillUseRow } from '../selfimprovement-view.ts';
 import type { WakeBlockInput } from '../wake.ts';
@@ -152,7 +152,7 @@ export type InnerState = {
   inflight: Inflight | null;
 };
 
-/** The `innerLife` section with every number checked (innerSettings). */
+/** The `wakes` section with every number checked (innerSettings). */
 export type InnerSettings = {
   mode: 'live' | 'shadow';
   tickSeconds: number;
@@ -176,6 +176,8 @@ export type InnerSettings = {
     maxRecurring: number;
   };
   caps: { perChain: number };
+  /** `selfimprovement.enabled`: false only when the config says so; the wake then never falls due. */
+  selfimprovement: { enabled: boolean };
   wakes: { selfimprovement: { everyDays: number; failuresPerShape: number } };
   attention: {
     settleSeconds: number;
@@ -279,7 +281,7 @@ export type HeartbeatSources = {
   agents?(): unknown;
   selfId?(): unknown;
   focusPeople?(guildId: string): unknown;
-  /** The fixes that merged and were not told to her yet (src/selfdev/landed.ts). */
+  /** The fixes that merged and were not told to her yet (src/selfimprovement/landed.ts). */
   landed?(): Promise<ReadonlyArray<Landed>>;
   /** Marks the rows of these landed fixes delivered. */
   ackLanded?(seqs: ReadonlyArray<number>): Promise<void>;
@@ -295,7 +297,7 @@ export type SelfimprovementSources = {
   proposals?(): Promise<{ entries: Array<ProposalEntry>; outbox: Array<OutboxRow> }>;
   /** Marks the outbox rows with these numbers delivered. */
   ackOutbox?(seqs: ReadonlyArray<number>): Promise<void>;
-  /** The fixes that merged and were not told to her yet (src/selfdev/landed.ts). */
+  /** The fixes that merged and were not told to her yet (src/selfimprovement/landed.ts). */
   landed?(): Promise<ReadonlyArray<Landed>>;
 };
 

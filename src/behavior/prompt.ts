@@ -32,7 +32,7 @@
 //   6b. the members the persona feels most strongly about that the request
 //       does not describe (`<attitudes>`, one piece: names and bands)
 //   6c. a diary post only (mode `diary`): the persona's world (`<world>`, one piece, under
-//       `diary.world`), then its past diary posts (`<diary>`, the oldest lines cut first);
+//       `selfreflection.world`), then its past diary posts (`<diary>`, the oldest lines cut first);
 //       the post's `<plan>` and a set post's `<seeds>` are never cut, and what its search found (`<found>`) ranks
 //       right after `<lookup>`
 //   7. neighbouring channels
@@ -395,9 +395,9 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   `{channel}`. Omitted or null -> no line. `input.diaryChannelIds` (ids) are its places, marked in `<server>`.
  * @param [input.diary]  A diary post's own input, read only with `mode:
  *   'diary'` (whose task text is `prompts.diary`): `<world>` (prompts/world.md, `{{name}}` filled,
- *   only with `diary.world === true`, see `worldText`; one piece, fitted right after `<attitudes>`),
+ *   only with `selfreflection.world === true`, see `worldText`; one piece, fitted right after `<attitudes>`),
  *   `<diary>` (the past posts through src/behavior/diary.ts#renderDiaryBlock, the newest
- *   `diary.historyPosts` (150 when unset) oldest first, fitted after `<world>` and losing its
+ *   `selfreflection.historyPosts` (150 when unset) oldest first, fitted after `<world>` and losing its
  *   oldest lines first), `<plan>` (`labels.diary.plan`, then the plan as one JSON line with `kind`,
  *   `brief`, `picture` and, with an owner's topic, `topic`; never cut), `<seeds>` (`seeds`, a set
  *   post's seed combinations already rendered; right after `<plan>`, never cut; absent when
@@ -717,10 +717,10 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
  * one), `<about_chat>`, `<recent>` (the lines `recentAudience` accepts and the
  * members' moments of the last `memory.recentHours`, oldest first; needs
  * `labels.recent.header` and `line`), `<lore>` (the entries the diary
- * channel's lines match), `<world>` (`worldText`, under `diary.world`),
+ * channel's lines match), `<world>` (`worldText`, under `selfreflection.world`),
  * `<diary>` (the past posts, as in the post request), `<kinds>`
  * (src/behavior/diary.ts#renderKindsBlock over `kinds`, the use counted among
- * the newest `diary.historyPosts`) and `<seeds>` (`seedsText`, already
+ * the newest `selfreflection.historyPosts`) and `<seeds>` (`seedsText`, already
  * rendered by src/behavior/diary.ts#renderSeedsBlock), then `<topic>`
  * (`topicText`, the owner's topic already rendered by
  * src/behavior/diary.ts#renderTopicBlock; absent without one). Under the

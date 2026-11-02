@@ -1,5 +1,5 @@
 // What a merged fix shows in her wake: the pull request's title and its paths, once. The facts are the undelivered rows
-// of her outbox (`persona:self`, kind `done`) whose task carries `metadata.landed`, which src/selfdev/service.ts writes
+// of her outbox (`persona:self`, kind `done`) whose task carries `metadata.landed`, which src/selfimprovement/service.ts writes
 // when the pull request merges. Both wakes that show them (the selfimprovement wake and the heartbeat) read with
 // `landedFor` and acknowledge with `ackLanded` once the wake committed, so whichever comes first tells her and the
 // other does not. Read as `persona`; the diff and the evidence text never leave the board.

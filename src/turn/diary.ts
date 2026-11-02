@@ -35,7 +35,7 @@ import type { JournalNotes } from './journal-notes.ts';
 import type { Participation } from './participation.ts';
 import { snapshotOfDraft } from './routing.ts';
 
-/** The `diary` section of the live config, as the first step reads it. */
+/** The `selfreflection` section of the live config, as the first step reads it. */
 type DiarySection = {
   kinds?: Record<string, number>;
   pictureKinds?: unknown;
@@ -46,8 +46,8 @@ type DiarySection = {
   planMaxOutputTokens?: number;
 };
 
-/** The live config of a diary post: the `diary` section; the settings functions read their own sections. */
-export type DiaryConfig = Parameters<typeof pictureGate>[0]['config'] & { diary?: DiarySection | null };
+/** The live config of a diary post: the `selfreflection` section; the settings functions read their own sections. */
+export type DiaryConfig = Parameters<typeof pictureGate>[0]['config'] & { selfreflection?: DiarySection | null };
 
 /** The prompt files and labels the plan request reads (hot.prompts). */
 type DiaryPrompts = Record<string, unknown> & { labels?: unknown };
@@ -131,17 +131,17 @@ export function createDiary(ctx: DiaryContext): Diary {
    * A diary post's first step (mode `diary`), before its request is built:
    * the post history (store.getDiary), whether it may carry a picture (the
    * image client and Attach Files here), then the plan request (src/behavior/prompt.ts#buildDiaryPlanRequest:
-   * prompts/diary-plan.md on the classifier model, `diary.planMaxOutputTokens`
-   * (300), `diary.planTimeoutMs` (20000), usage purpose `diary-plan`; when
+   * prompts/diary-plan.md on the classifier model, `selfreflection.planMaxOutputTokens`
+   * (300), `selfreflection.planTimeoutMs` (20000), usage purpose `diary-plan`; when
    * `llm.hedge` hedges `analyzer`, the hedged call is limited by
-   * `diary.planTimeoutMs` rather than `llm.hedge.timeoutMs`) with
+   * `selfreflection.planTimeoutMs` rather than `llm.hedge.timeoutMs`) with
    * `<seeds>` drawn from prompts/diary-seeds.md (SEED_SETS) and,
    * with an owner's topic (`params.topic`, src/behavior/diary.ts#diaryTopic),
    * a `<topic>` block after them; the topic also rides on the plan as its
    * `topic` field (the `<plan>` block of the post). The answer goes through parseJsonObject and src/behavior/diary.ts#validatePlan
    * (a weighted random kind when it is missing, broken or names no weighted
-   * kind; `diary.searchKinds`, `diary.pictureKinds`). While the post may not
-   * carry a picture, the kinds in `diary.pictureKinds` are dropped before the
+   * kind; `selfreflection.searchKinds`, `selfreflection.pictureKinds`). While the post may not
+   * carry a picture, the kinds in `selfreflection.pictureKinds` are dropped before the
    * plan request and validatePlan (src/behavior/diary.ts#withoutPictureKinds),
    * so neither the planner nor the random fallback picks one, and the
    * `diary: planned` line carries `picturesOff: true`. A forced kind
@@ -151,8 +151,8 @@ export function createDiary(ctx: DiaryContext): Diary {
    * cache): its text is `found`; a failure or nothing
    * found logs `diary: search failed` and the post goes without it. A request
    * or token cap on the plan request throws (the turn is refused); any other
-   * failure of it falls back. A planned kind in `diary.setKinds` (a set post) also draws
-   * `diary.set.seedSets` (6) seed combinations for the compose request (`seeds`, the rendered
+   * failure of it falls back. A planned kind in `selfreflection.setKinds` (a set post) also draws
+   * `selfreflection.set.seedSets` (6) seed combinations for the compose request (`seeds`, the rendered
    * `<seeds>` body; '' for any other kind). Settings come from `config`, the turn's live config.
    */
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
@@ -169,7 +169,7 @@ export function createDiary(ctx: DiaryContext): Diary {
   }: Parameters<Diary['prepareDiary']>[0]): Promise<DiaryPrepared> {
     const prompts = hot.prompts;
     const labels = prompts?.labels;
-    const diaryCfg = config.diary ?? {};
+    const diaryCfg = config.selfreflection ?? {};
     const stored = typeof store.getDiary === 'function' ? store.getDiary(guildId) : null;
     const posts = Array.isArray(stored?.posts) ? stored.posts : [];
     const forcedKind = typeof params?.kind === 'string' && params.kind ? params.kind : null;
@@ -283,7 +283,7 @@ export function createDiary(ctx: DiaryContext): Diary {
         log.warn('diary: search failed', { channel: channel.id, reason: 'error', error: err });
       }
     }
-    // A set post (diary.setKinds): its compose request gets diary.set.seedSets seed combinations.
+    // A set post (selfreflection.setKinds): its compose request gets selfreflection.set.seedSets seed combinations.
     const seeds = isSetKind(plan.kind, DEFAULT_SET_KINDS)
       ? renderSeedsBlock(
           pickSeeds(parseSeedFamilies(prompts?.['diary-seeds']), setSettings(diaryCfg).seedSets, rng),

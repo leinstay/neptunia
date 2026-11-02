@@ -1,5 +1,5 @@
 // The `selfimprovement` wake (PR 7e): once a week on the heartbeat's clock, and with a cause when one chain shape fails
-// `innerLife.wakes.selfimprovement.failuresPerShape` times in a UTC day, at most one such cause a day. Its turn carries
+// `selfimprovement.failuresPerShape` times in a UTC day, at most one such cause a day. Its turn carries
 // the facts of src/behavior/selfimprovement-view.ts, and her answer is `board.propose`. The clock is
 // `state.selfimprovement = { lastAt, raisedAt }`: `lastAt` moves when a wake's completion committed (and the outbox rows
 // it showed are marked delivered), `raisedAt` when a failure cause raised a wake. The tick (src/behavior/inner.ts) asks
@@ -66,8 +66,9 @@ function journalOf(
 }
 
 /**
- * The wakes this tick owes: nothing on the first tick (it only starts the weekly count), the weekly wake when the
- * heartbeat moment has come, else the wake of a failure cause found in the day's chains. Never throws.
+ * The wakes this tick owes: nothing while `selfimprovement.enabled` is false, nothing on the first tick (it only starts
+ * the weekly count), the weekly wake when the heartbeat moment has come, else the wake of a failure cause found in the
+ * day's chains. Never throws.
  */
 export async function selfimprovementDue(
   life: InnerContext,
@@ -75,8 +76,9 @@ export async function selfimprovementDue(
   settings: InnerSettings,
   at: number
 ): Promise<Array<Wake>> {
-  const state = stateOf(life, guildId);
+  if (!settings.selfimprovement.enabled) return [];
   const { everyDays, failuresPerShape } = settings.wakes.selfimprovement;
+  const state = stateOf(life, guildId);
   if (state.selfimprovement === null) {
     state.selfimprovement = { lastAt: at, raisedAt: null };
     save(life, guildId);

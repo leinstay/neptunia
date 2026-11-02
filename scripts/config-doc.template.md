@@ -58,6 +58,14 @@ The persona's skills are tools in the settings. `src/config-moves.ts` holds the 
 | `agents.opencodePath`, `toolResultChars`, `keepFilesHours`, `recentLines`, `maxOpen`, `resultMaxChars`, `unreadShown`, `resultRetrySeconds`, `resultCooldownSeconds` | the same names under `errands.*` |
 | `agents.<name>.search.provider` | `agents.<name>.searchProvider` |
 | `llm.helperTimeoutMs` | `llm.analyzerTimeoutMs` |
+| `innerLife.heartbeat.*` | the same names under `heartbeat.*` |
+| `diary.*` | the same names under `selfreflection.*` |
+| `selfdev.*` | the same names under `selfimprovement.*` |
+| `innerLife.wakes.selfimprovement.*` | the same names under `selfimprovement.*` |
+| `innerLife.wakes.heartbeat.*` | the same names under `heartbeat.*` |
+| `innerLife.wakes.<kind>.*` of the other wake kinds | `wakes.kinds.<kind>.*` |
+| every other key of `innerLife.*` | the same name under `wakes.*` |
+| `features.innerLife` | `features.wakes` |
 
 Seven keys have no reader any more and are dropped: the grants `bot.access."memory.refresh.channel"`, `"memory.refresh.server"` and `"memory.refresh.user"`, `agents.maxDownloadBytes`, `agents.thinker.contextLimit` and `contextHard`, and `agents.ledger.socket`. A section a dropped key leaves empty goes with it. The load log line counts them as `dropped` beside `moved` and `shadowed`.
 
@@ -76,7 +84,7 @@ Two hard rails that must stay on:
 
 ## The config cut
 
-The settings hold the keys someone would change, the timeouts, budgets, retention and recovery limits, the privacy switches and the two rails. `src/config/cut.ts` lists every key the cut of 2026-10-31 took out and what it became: a named constant in the module that reads it, with the value production ran with; code that always runs, for a switch that was on (the `features.*` switches and the rollouts of `memoryDb`); nothing, for a switch that was off and the code it reached (`features.dryRun`, `features.spontaneous`, `features.eavesdrop`, `features.turnPlanner`, `pace.typingWhilePreparing`, `bot.dryRunChannelId`, `spontaneous.*`); and nothing, for a daily cap, whose counter went with it. `features.privateMessages` and `features.privateLikeServer` are `private.enabled` and `private.likeServer`, and the per-wake budgets are one `innerLife.wakes.*.<field>` entry each.
+The settings hold the keys someone would change, the timeouts, budgets, retention and recovery limits, the privacy switches and the two rails. `src/config/cut.ts` lists every key the cut of 2026-10-31 took out and what it became: a named constant in the module that reads it, with the value production ran with; code that always runs, for a switch that was on (the `features.*` switches and the rollouts of `memoryDb`); nothing, for a switch that was off and the code it reached (`features.dryRun`, `features.spontaneous`, `features.eavesdrop`, `features.turnPlanner`, `pace.typingWhilePreparing`, `bot.dryRunChannelId`, `spontaneous.*`); and nothing, for a daily cap, whose counter went with it. `features.privateMessages` and `features.privateLikeServer` are `private.enabled` and `private.likeServer`, and the per-wake budgets are one `wakes.kinds.*.<field>` entry each.
 
 `src/config.ts` takes the cut keys out of the private settings file at each load, after the moves, and logs one warning line with the counts. `node scripts/config-migrate.ts --dry-run` prints `<key> dropped (<becomes>)` for each, `<key> differs: live <json>, constant <json>` for a live value apart from the constant that replaced it, `<from> -> <to>` for the two privacy switches, and `<key> -> config.local/interfaces/discord.json` for a key of the Discord package. `--apply` writes the file and merges the Discord keys under what `config.local/interfaces/discord.json` already holds.
 
@@ -280,17 +288,17 @@ Settings for the daily watcher. See [The watcher](watcher.md).
 
 <!-- settings: watcher -->
 
-## `selfdev`
+## `selfimprovement`
 
-Settings for the fixes she files against her own code. See [Self-development](selfdev.md).
+Settings for the `selfimprovement` wake, which looks back at her own work ([Inner life](inner-life.md#the-selfimprovement-wake)), and for the beat that works the fixes she files against her own code ([Self-development](selfimprovement.md)). `enabled` switches both.
 
-<!-- settings: selfdev -->
+<!-- settings: selfimprovement -->
 
-## `diary`
+## `selfreflection`
 
-Settings for the diary. See [Diary](diary.md).
+Settings for the diary, which this mechanic writes. `enabled` switches the scheduled posts. See [Diary](diary.md).
 
-<!-- settings: diary -->
+<!-- settings: selfreflection -->
 
 Default windows:
 
@@ -353,11 +361,17 @@ Settings for the persona's intentions. See [Inner life](inner-life.md).
 
 <!-- settings: intentions -->
 
-## `innerLife`
+## `wakes`
 
-Settings for the persona's inner life. See [Inner life](inner-life.md).
+Settings for the wake engine every wake kind shares: the scheduler's tick, the mode, the caps, the tool loop and the retries of an inner turn, and the limits of each wake kind under `wakes.kinds`. The heartbeat and the selfimprovement wake keep their own limits in their sections. See [Inner life](inner-life.md).
 
-<!-- settings: innerLife -->
+<!-- settings: wakes -->
+
+## `heartbeat`
+
+Settings for the heartbeat, the wake with no outside reason. See [Inner life](inner-life.md#the-heartbeat).
+
+<!-- settings: heartbeat -->
 
 ## `appendStore`
 

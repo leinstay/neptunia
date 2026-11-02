@@ -6,7 +6,7 @@
 
 import path from 'node:path';
 import { proposalsOf, ackOutbox } from '../behavior/selfimprovement-view.ts';
-import { landedFor } from '../selfdev/landed.ts';
+import { landedFor } from '../selfimprovement/landed.ts';
 import type { SelfimprovementSources } from '../behavior/inner/types.ts';
 import { SKILL_USE_KINDS, listSkills, useCountsBySkill } from '../memory/db/skills.ts';
 import type { SkillUse, SkillsUpdate, UseCounts } from '../memory/db/skills.ts';

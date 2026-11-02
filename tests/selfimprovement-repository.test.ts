@@ -1,5 +1,5 @@
-// The push-right check of her self-development (src/selfdev/repository.ts): gh present, logged in under her own gh
-// home, and allowed to push to `selfdev.repository`. The gh runner is a fake that answers from a table and records
+// The push-right check of her self-development (src/selfimprovement/repository.ts): gh present, logged in under her own gh
+// home, and allowed to push to `selfimprovement.repository`. The gh runner is a fake that answers from a table and records
 // what it was asked; nothing reaches GitHub. Each test names the bug it catches.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,19 +11,19 @@ import {
   ghConfigDir,
   ghEnv,
   repositoryOfRemote,
-} from '../src/selfdev/repository.ts';
-import type { GhAnswer, GhRunner } from '../src/selfdev/repository.ts';
+} from '../src/selfimprovement/repository.ts';
+import type { GhAnswer, GhRunner } from '../src/selfimprovement/repository.ts';
 import { labelsFileOf } from '../src/config/labels.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
 
 const LABELS = {
-  selfdev: {
+  selfimprovement: {
     check: {
       'gh-missing': 'gh is not on PATH',
       'gh-logged-out': 'gh is not logged in',
       'no-push': 'no push right on {repository}: fork it and name the fork',
-      'repository-unset': 'selfdev.repository is unset',
+      'repository-unset': 'selfimprovement.repository is unset',
       failed: 'gh could not answer',
     },
   },
@@ -123,7 +123,7 @@ test('an api answer that is not JSON is failed', async () => {
 test('every failure code has a one-line label in the shipped owner labels', () => {
   // Catches: a refusal shows an empty line or the bare code because its label was never added.
   const file = labelsFileOf(JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'labels.json'), 'utf8')));
-  const check = (file.owner.selfdev as { check?: Record<string, unknown> } | undefined)?.check ?? {};
+  const check = (file.owner.selfimprovement as { check?: Record<string, unknown> } | undefined)?.check ?? {};
   assert.deepEqual([...REPOSITORY_FAILURES].sort(), [
     'failed',
     'gh-logged-out',

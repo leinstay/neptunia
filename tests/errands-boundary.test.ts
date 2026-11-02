@@ -450,17 +450,17 @@ async function tick(dataDir: string) {
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
-      features: { innerLife: true, intentions: true, journal: false },
+      features: { wakes: true, intentions: true, journal: false },
       mention: { oneAtATime: true },
-      innerLife: {
+      wakes: {
         mode: 'shadow',
         tickSeconds: 60,
         queueMax: 20,
         chatMessages: 30,
         review: { enabled: false, historyDays: 14 },
-        heartbeat: { enabled: false },
         caps: { perChain: 3 },
       },
+      heartbeat: { enabled: false },
     },
   };
   inner = createInnerLife({

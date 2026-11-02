@@ -190,22 +190,23 @@ export function fakeClient(
 // PR 7d: the switches are code and the queue (20), the chat slice (30) and the review switch (on) are constants, so
 // the config holds only the keys that are still settings.
 export function hotWith({
-  innerLife = {},
+  wakes = {},
+  heartbeat = { enabled: false },
   timezone = 'UTC',
-}: { innerLife?: Record<string, unknown>; timezone?: string } = {}): {
-  config: { bot: { timezone: string }; innerLife: Record<string, unknown> };
+}: { wakes?: Record<string, unknown>; heartbeat?: Record<string, unknown>; timezone?: string } = {}): {
+  config: { bot: { timezone: string }; wakes: Record<string, unknown>; heartbeat: Record<string, unknown> };
 } {
   return {
     config: {
       bot: { timezone },
-      innerLife: {
+      wakes: {
         mode: 'shadow',
         tickSeconds: 60,
         review: { historyDays: 14 },
-        heartbeat: { enabled: false },
         caps: { perChain: 3 },
-        ...innerLife,
+        ...wakes,
       },
+      heartbeat,
     },
   };
 }

@@ -19,7 +19,7 @@
 // Stub mode (the default) spends nothing: nothing leaves the process, no data directory is read.
 //
 // `--live`: the fixture's week again, the inner turns of `--days` (1-based) answered by the real
-// turn runner in shadow (`innerLife.mode` forced to `shadow`: her reads run on the simulation key,
+// turn runner in shadow (`wakes.mode` forced to `shadow`: her reads run on the simulation key,
 // every other call is only proposed), the other days by the stub. Wired as `replay.ts --inner`:
 // Discord over REST, GET only (`--channel` is the real channel every fixture conversation is played
 // in; its sends refused), her memory an unflushed copy of `--data` (default the deployment's data

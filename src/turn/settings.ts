@@ -1,5 +1,5 @@
 // The settings a turn reads from the live config at the moment of use: the pace of its preparation (`pace`), the
-// bounds of its tool loop (`tools.loop`, `innerLife.loop`, `diary.loop`), whether her own tools replace the
+// bounds of its tool loop (`tools.loop`, `wakes.loop`, `selfreflection.loop`), whether her own tools replace the
 // classifiers, and how much of a skill result a follow-up request carries. src/behavior/turn.ts reads them per turn;
 // the tests and scripts/replay.ts read them through its re-exports.
 
@@ -75,7 +75,7 @@ export function paceSettings(config: unknown): PaceSettings {
 
 /** tools.loop's values when a key is missing (config.json's). */
 const LOOP_FALLBACK = Object.freeze({ maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4, stepReserveTokens: 6000 });
-/** `diary.loop`'s values when a key is missing (config.json's). */
+/** `selfreflection.loop`'s values when a key is missing (config.json's). */
 const DIARY_LOOP_FALLBACK = Object.freeze({ maxSteps: 2, timeBudgetMs: 600000 });
 /** The least time one call of the tool loop gets, whatever is left of its budget. */
 export const LOOP_MIN_CALL_MS = 2000;
@@ -133,26 +133,26 @@ const isWholeStep = (value: unknown): value is number =>
  * her last (a positive number); `maxCallsPerStep`, the most calls of one answer that run (a
  * whole number of at least 1; the rest are dropped and logged). A missing or unusable value
  * takes config.json's. An inner turn (`inner`: mode `inner`, docs/inner-life.md) has its own
- * bounds, `innerLife.loop` (src/behavior/inner.ts#innerSettings; nobody waits for it, so its
+ * bounds, `wakes.loop` (src/behavior/inner.ts#innerSettings; nobody waits for it, so its
  * budget is generous): the same three, plus `callTimeoutMs`, the most one call of hers may run. A diary
- * post (`diary`) has `diary.loop`, and its calls per step are `diary.set.pictures[1]`.
+ * post (`diary`) has `selfreflection.loop`, and its calls per step are `selfreflection.set.pictures[1]`.
  * `tools.loop` never
- * reaches an inner turn, `innerLife.loop` never an ordinary one. Pure.
+ * reaches an inner turn, `wakes.loop` never an ordinary one. Pure.
  */
 export function loopSettings(
   config: unknown,
   { inner = false, diary = false }: { inner?: boolean; diary?: boolean } = {}
 ): LoopSettings {
   if (inner) return { ...innerSettings(config).loop };
-  // A diary post (`diary.loop`): two requests at most, a long budget (a picture takes its time); a step takes
-  // as many calls as a set has pictures at most (`diary.set.pictures[1]`).
+  // A diary post (`selfreflection.loop`): two requests at most, a long budget (a picture takes its time); a step takes
+  // as many calls as a set has pictures at most (`selfreflection.set.pictures[1]`, a constant of the config cut).
   const root = objOf(config);
   if (diary) {
-    const raw = objOf(objOf(root.diary).loop);
+    const raw = objOf(objOf(root.selfreflection).loop);
     return {
       maxSteps: isWholeStep(raw.maxSteps) ? raw.maxSteps : DIARY_LOOP_FALLBACK.maxSteps,
       timeBudgetMs: isPositive(raw.timeBudgetMs) ? raw.timeBudgetMs : DIARY_LOOP_FALLBACK.timeBudgetMs,
-      maxCallsPerStep: setSettings(root.diary).pictures[1],
+      maxCallsPerStep: setSettings(root.selfreflection).pictures[1],
     };
   }
   const loop = objOf(objOf(root.tools).loop);

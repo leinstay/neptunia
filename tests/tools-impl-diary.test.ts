@@ -2,7 +2,7 @@
 // writes in her diary in place of a channel, from any turn but the diary turn, with everything `message.create` carries
 // (text, a GIF, a file, a media repost). Every such call of one turn goes into that turn's one entry, recorded in memory
 // before anything is sent; when the turn ends, the diary's mirrors publish the entry once each. The turn's first diary
-// call counts toward `diary.maxPerDay` and is refused `cap-diary` over it; `channel` or `reply` beside `diary` is
+// call counts toward `selfreflection.maxPerDay` and is refused `cap-diary` over it; `channel` or `reply` beside `diary` is
 // `invalid-args`. Real turn runner, admin, store and memory database over the fake interface, with two enabled mirrors
 // and a scripted model. Synthetic text only.
 import { test, after } from 'node:test';

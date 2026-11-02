@@ -2,7 +2,8 @@
 // changed is a named constant in the module that reads it, a completed rollout flag is code that always runs, a flag
 // that was off went with the code it switched, and a daily cap went with its counter. The Discord keys belong to the
 // Discord package (interfaces/discord/config.json), the two privacy switches live on under `private`, and the per-wake
-// budgets are kept as one `innerLife.wakes.*.<field>` entry each. `cutConfigKeys` takes all of them out of a local
+// budgets are kept as one `wakes.kinds.*.<field>` entry each (the heartbeat's and the selfimprovement wake's are keys
+// of their own sections, `heartbeat.tools` and `selfimprovement.tools`). `cutConfigKeys` takes all of them out of a local
 // layer written before the cut: the loader (src/config.ts#readConfig) applies it at each load, and
 // scripts/config-migrate.ts writes it into the file and reports each live value that differs from its constant.
 
@@ -299,31 +300,31 @@ const CONSTANTS: Readonly<Record<string, unknown>> = {
   'image.aspectRatio': 'auto',
   'image.openai.background': 'auto',
   'tools.markTextMaxChars': 200,
-  'diary.hungerBoost': 0.5,
-  'diary.quietCarry': 0.25,
-  'diary.minGapMinutes': 90,
-  'diary.slotGraceMinutes': 30,
-  'diary.maxMessages': 3,
-  'diary.historyPosts': 150,
-  'diary.gistChars': 200,
-  'diary.seedSets': 2,
-  'diary.kinds.selfPicture': 3,
-  'diary.kinds.picture': 2,
-  'diary.kinds.meme': 1,
-  'diary.kinds.thought': 2,
-  'diary.kinds.people': 2,
-  'diary.kinds.news': 2,
-  'diary.kinds.facts': 1,
-  'diary.kinds.status': 3,
-  'diary.kinds.photoset': 1,
-  'diary.kinds.randomSet': 1,
-  'diary.searchKinds': ['news', 'facts'],
-  'diary.pictureKinds': ['selfPicture', 'picture', 'meme', 'photoset', 'randomSet'],
-  'diary.setKinds': ['photoset', 'randomSet'],
-  'diary.set.pictures': [4, 6],
-  'diary.set.minPosted': 2,
-  'diary.set.seedSets': 6,
-  'diary.set.maxMessageBytes': 8000000,
+  'selfreflection.hungerBoost': 0.5,
+  'selfreflection.quietCarry': 0.25,
+  'selfreflection.minGapMinutes': 90,
+  'selfreflection.slotGraceMinutes': 30,
+  'selfreflection.maxMessages': 3,
+  'selfreflection.historyPosts': 150,
+  'selfreflection.gistChars': 200,
+  'selfreflection.seedSets': 2,
+  'selfreflection.kinds.selfPicture': 3,
+  'selfreflection.kinds.picture': 2,
+  'selfreflection.kinds.meme': 1,
+  'selfreflection.kinds.thought': 2,
+  'selfreflection.kinds.people': 2,
+  'selfreflection.kinds.news': 2,
+  'selfreflection.kinds.facts': 1,
+  'selfreflection.kinds.status': 3,
+  'selfreflection.kinds.photoset': 1,
+  'selfreflection.kinds.randomSet': 1,
+  'selfreflection.searchKinds': ['news', 'facts'],
+  'selfreflection.pictureKinds': ['selfPicture', 'picture', 'meme', 'photoset', 'randomSet'],
+  'selfreflection.setKinds': ['photoset', 'randomSet'],
+  'selfreflection.set.pictures': [4, 6],
+  'selfreflection.set.minPosted': 2,
+  'selfreflection.set.seedSets': 6,
+  'selfreflection.set.maxMessageBytes': 8000000,
   'avatars.intervalMs': 20000,
   'avatars.descriptionChars': 200,
   'gifs.max': 25,
@@ -344,24 +345,24 @@ const CONSTANTS: Readonly<Record<string, unknown>> = {
   'intentions.maxCandidates': 5,
   'intentions.waitHours': 2,
   'intentions.expiryNoticeDays': 2,
-  'innerLife.queueMax': 20,
-  'innerLife.chatMessages': 30,
-  'innerLife.review.enabled': true,
-  'innerLife.review.expiredMax': 5,
-  'innerLife.heartbeat.people': 8,
-  'innerLife.heartbeat.filteredShown': 10,
-  'innerLife.heartbeat.closedShown': 10,
-  'innerLife.heartbeat.placesHours': 6,
-  'innerLife.heartbeat.placesShown': 6,
-  'innerLife.heartbeat.placeLines': 2,
-  'innerLife.heartbeat.intentionsOnly': true,
-  'innerLife.heartbeat.maxOpen': 3,
-  'innerLife.heartbeat.maxRecurring': 1,
-  'innerLife.heartbeat.dueJitterMinutes': 20,
-  'innerLife.attention.settleSeconds': 90,
-  'innerLife.attention.pageSize': 12,
-  'innerLife.attention.placesInWake': 8,
-  'innerLife.attention.lookbackHours': 24,
+  'wakes.queueMax': 20,
+  'wakes.chatMessages': 30,
+  'wakes.review.enabled': true,
+  'wakes.review.expiredMax': 5,
+  'heartbeat.people': 8,
+  'heartbeat.filteredShown': 10,
+  'heartbeat.closedShown': 10,
+  'heartbeat.placesHours': 6,
+  'heartbeat.placesShown': 6,
+  'heartbeat.placeLines': 2,
+  'heartbeat.intentionsOnly': true,
+  'heartbeat.maxOpen': 3,
+  'heartbeat.maxRecurring': 1,
+  'heartbeat.dueJitterMinutes': 20,
+  'wakes.attention.settleSeconds': 90,
+  'wakes.attention.pageSize': 12,
+  'wakes.attention.placesInWake': 8,
+  'wakes.attention.lookbackHours': 24,
   'appendStore.fsyncMs': 500,
   'journal.thinkChars': 4000,
   'journal.offWindowHours': 24,
@@ -430,13 +431,13 @@ const CODE: Readonly<Record<string, unknown>> = {
   'features.around': true,
   'features.avatars': true,
   'features.intentions': true,
-  'features.innerLife': true,
+  'features.wakes': true,
   'memoryDb.turnReads': true,
   'memoryDb.audienceColumn': true,
   'memoryDb.diaryMedia': true,
   'memoryDb.focus.enabled': true,
   'memoryDb.wakeRuns': true,
-  'innerLife.heartbeat.focusSource': 'db',
+  'heartbeat.focusSource': 'db',
 };
 
 /** The switches and knobs that went with their code, with the value production ran with. */
@@ -488,13 +489,13 @@ const CAPS: ReadonlyArray<string> = [
   'image.maxPerDay',
   'image.maxPerUserPerDay',
   'speech.maxPerDay',
-  'diary.maxPerDay',
-  'diary.maxPicturesPerDay',
+  'selfreflection.maxPerDay',
+  'selfreflection.maxPicturesPerDay',
   'avatars.maxPerDay',
   'gifs.maxPerDay',
   'private.maxPerUserPerDay',
   'private.maxPerOwnerPerDay',
-  'innerLife.attention.perDayDefault',
+  'wakes.attention.perDayDefault',
 ];
 
 /** The keys of the Discord package, by the dotted path they keep in its settings. */
@@ -511,8 +512,8 @@ const RENAMES: ReadonlyArray<[string, string]> = [
   ['features.privateLikeServer', 'private.likeServer'],
 ];
 
-/** The per-wake budgets: each kind's field is now one `innerLife.wakes.*.<field>` entry. */
-const WAKE_KINDS = ['intention_due', 'review', 'errand_deadline', 'attend', 'feedback', 'heartbeat'];
+/** The per-wake budgets: each kind's field is now one `wakes.kinds.*.<field>` entry; the heartbeat's are `heartbeat.*`. */
+const WAKE_KINDS = ['intention_due', 'review', 'errand_deadline', 'attend', 'feedback'];
 const WAKE_FIELDS = ['tools', 'maxActs', 'maxTasks', 'inputTokens'];
 
 export const CUT_KEYS: ReadonlyArray<CutKey> = [
@@ -529,10 +530,10 @@ export const CUT_KEYS: ReadonlyArray<CutKey> = [
   ...RENAMES.map(([key, to]) => ({ key, becomes: 'rename' as const, value: null, to })),
   ...WAKE_KINDS.flatMap((kind) =>
     WAKE_FIELDS.map((field) => ({
-      key: `innerLife.wakes.${kind}.${field}`,
+      key: `wakes.kinds.${kind}.${field}`,
       becomes: 'wildcard' as const,
       value: null,
-      to: `innerLife.wakes.*.${field}`,
+      to: `wakes.kinds.*.${field}`,
     }))
   ),
 ];

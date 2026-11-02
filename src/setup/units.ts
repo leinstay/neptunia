@@ -29,10 +29,13 @@ export const UNIT_FILES: ReadonlyArray<string> = [
 ];
 
 /**
- * The selfdev beat's units: rendered over the dev checkout `selfdev.checkout` names, never over the deployed one, so
+ * The selfimprovement beat's units: rendered over the dev checkout `selfimprovement.checkout` names, never over the deployed one, so
  * they are a list of their own (src/setup/run.ts).
  */
-export const SELFDEV_UNIT_FILES: ReadonlyArray<string> = ['neptunia-selfdev.service', 'neptunia-selfdev.timer'];
+export const SELFIMPROVEMENT_UNIT_FILES: ReadonlyArray<string> = [
+  'neptunia-selfimprovement.service',
+  'neptunia-selfimprovement.timer',
+];
 
 /** The `ExecStart=` of an agent unit: the errand runner. */
 const AGENT_RUNNER = /^ExecStart=\S+ bin\/neptunia\.ts errand-runner\b/m;

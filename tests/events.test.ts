@@ -7058,7 +7058,7 @@ test('onMessage: no recent own post, a bot or the diary channel never touch the 
     makeHandler({
       store: diary,
       turns: { ...fakeTurns(), lastPostAt: () => ownAt },
-      config: baseConfig({ diary: { channelId: 'c1' } }),
+      config: baseConfig({ selfreflection: { channelId: 'c1' } }),
     })(line())
   );
   assert.equal(diary.writes.length, 0);

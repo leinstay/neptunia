@@ -6,12 +6,12 @@
 //
 //   folders    the private folder with `config.local`, `prompts.local`, `clients`, and the data folder, all mode 0700
 //   keys-file  an empty `keys.json` at mode 0600; one that exists keeps its content and is made 0600
-//   units      the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ; the selfdev
-//              units too when `selfdev.checkout` names a checkout other than this one
+//   units      the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ; the selfimprovement
+//              units too when `selfimprovement.checkout` names a checkout other than this one
 //   linger     `loginctl enable-linger` for the user, so the user units run without a login (user units only)
 //   core       `enable --now neptunia-core.service`, the one unit setup starts
-//   selfdev    the repository her pull requests go to, checked through her gh login (src/setup/selfdev.ts); skipped
-//              while `selfdev.checkout` is unset or no terminal asks. A `refused` step stops nothing
+//   selfimprovement    the repository her pull requests go to, checked through her gh login (src/setup/selfimprovement.ts); skipped
+//              while `selfimprovement.checkout` is unset or no terminal asks. A `refused` step stops nothing
 //
 // With `--system` the units are system units that run as the installing user, put in place with `sudo install`, and
 // every systemctl call goes through `sudo`. The units start the node `nodeOf` finds: `--node <path>`, else the one this
@@ -21,18 +21,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readConfig } from '../config.ts';
-import { selfdevSettings } from '../selfdev/settings.ts';
+import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { emptyKeys, writeKeys } from '../keys/file.ts';
-import type { GhRunner } from '../selfdev/repository.ts';
+import type { GhRunner } from '../selfimprovement/repository.ts';
 import { installUnits, systemctlOf, unitDirOf, whyFailed } from './install.ts';
 import type { RunResult, UnitTarget } from './install.ts';
-import { selfdevStep } from './selfdev.ts';
-import { SELFDEV_UNIT_FILES, UNIT_FILES } from './units.ts';
+import { selfimprovementStep } from './selfimprovement.ts';
+import { SELFIMPROVEMENT_UNIT_FILES, UNIT_FILES } from './units.ts';
 
 export type { RunResult };
 
 /** The steps, in the order they run. */
-export const SETUP_STEPS = ['folders', 'keys-file', 'units', 'linger', 'core', 'selfdev'] as const;
+export const SETUP_STEPS = ['folders', 'keys-file', 'units', 'linger', 'core', 'selfimprovement'] as const;
 export type SetupStep = (typeof SETUP_STEPS)[number];
 
 /** Who and where `setup` installs; `only` runs one step. */
@@ -162,25 +162,28 @@ function keysFileStep(options: SetupOptions): Outcome {
 }
 
 /**
- * The dev checkout the selfdev units run in, or why there are none: `selfdev.checkout` unset, or naming this checkout,
+ * The dev checkout the selfimprovement units run in, or why there are none: `selfimprovement.checkout` unset, or naming this checkout,
  * where a beat would edit and push the code that is running.
  */
-function selfdevCheckoutOf(options: SetupOptions): { checkout: string } | { why: string } {
-  const { checkout } = selfdevSettings(readConfig(options.rootDir, { privateDir: options.privateDir }));
-  if (checkout === null) return { why: 'no selfdev units: selfdev.checkout is unset' };
+function selfimprovementCheckoutOf(options: SetupOptions): { checkout: string } | { why: string } {
+  const { checkout } = selfimprovementSettings(readConfig(options.rootDir, { privateDir: options.privateDir }));
+  if (checkout === null) return { why: 'no selfimprovement units: selfimprovement.checkout is unset' };
   if (path.resolve(checkout) === path.resolve(options.rootDir))
-    return { why: 'no selfdev units: selfdev.checkout is the deployed checkout, and the beat works on a dev checkout' };
+    return {
+      why: 'no selfimprovement units: selfimprovement.checkout is the deployed checkout, and the beat works on a dev checkout',
+    };
   return { checkout };
 }
 
 async function unitsStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
-  const selfdev = selfdevCheckoutOf(options);
-  const files = 'checkout' in selfdev ? [...UNIT_FILES, ...SELFDEV_UNIT_FILES] : UNIT_FILES;
-  const target = 'checkout' in selfdev ? { ...options, selfdevCheckout: selfdev.checkout } : options;
+  const selfimprovement = selfimprovementCheckoutOf(options);
+  const files = 'checkout' in selfimprovement ? [...UNIT_FILES, ...SELFIMPROVEMENT_UNIT_FILES] : UNIT_FILES;
+  const target =
+    'checkout' in selfimprovement ? { ...options, selfimprovementCheckout: selfimprovement.checkout } : options;
   const result = await installUnits(target, (command, args) => deps.run(command, args), files);
   if (!result.ok) return failed(result.reason);
   const where = unitDirOf(options);
-  const note = 'why' in selfdev ? `; ${selfdev.why}` : '';
+  const note = 'why' in selfimprovement ? `; ${selfimprovement.why}` : '';
   return result.written.length === 0
     ? already(`${files.length} units are in ${where}${note}`)
     : done(`${result.written.length} units written to ${where}${note}`);
@@ -203,10 +206,10 @@ async function coreStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome
   return started.code === 0 ? done('the core is enabled and running') : failed(`enable --now: ${whyFailed(started)}`);
 }
 
-async function selfdevSetupStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
+async function selfimprovementSetupStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
   const { ask, gh } = deps;
   if (ask === undefined || gh === undefined) return { state: 'skipped', detail: 'not at a terminal' };
-  const outcome = await selfdevStep(options, { run: (command, args) => deps.run(command, args), ask, gh });
+  const outcome = await selfimprovementStep(options, { run: (command, args) => deps.run(command, args), ask, gh });
   return { state: outcome.state, detail: outcome.detail };
 }
 
@@ -226,7 +229,7 @@ export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<
       else if (step === 'units') outcome = await unitsStep(options, deps);
       else if (step === 'linger') outcome = await lingerStep(options, deps);
       else if (step === 'core') outcome = await coreStep(options, deps);
-      else outcome = await selfdevSetupStep(options, deps);
+      else outcome = await selfimprovementSetupStep(options, deps);
     } catch (err) {
       outcome = failed((err as NodeJS.ErrnoException).code ?? 'the step could not run');
     }

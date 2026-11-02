@@ -76,7 +76,7 @@ test('hands the Discord keys to the Discord package and keeps their values', () 
 });
 
 test('keeps the per-wake budgets a layer sets', () => {
-  const given = { innerLife: { wakes: { heartbeat: { maxActs: 2 }, attend: { tools: ['web.search'] } } } };
+  const given = { heartbeat: { maxActs: 2 }, wakes: { kinds: { attend: { tools: ['web.search'] } } } };
   assert.deepEqual(cutConfigKeys(given).config, given);
 });
 

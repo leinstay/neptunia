@@ -10,7 +10,7 @@ export function diaryToolHot({ maxPerDay }: { maxPerDay: number }): ReturnType<t
     tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
     access: personaGrants(['message.create']),
     config: {
-      diary: {
+      selfreflection: {
         maxPerDay,
         maxMessages: 3,
         world: false,

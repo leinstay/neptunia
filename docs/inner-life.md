@@ -1,6 +1,6 @@
 # Inner life
 
-The persona can wake on her own, without anyone writing to her. A scheduler checks every `innerLife.tickSeconds` (default 60) seconds whether something of hers is due. When it is, the engine sends an `inner.wake` event through the event door, and the turn runner gives her a turn with nobody's message in front of her: her tools, her memory, and a `<wake>` block that says why she is awake.
+The persona can wake on her own, without anyone writing to her. A scheduler checks every `wakes.tickSeconds` (default 60) seconds whether something of hers is due. When it is, the engine sends an `inner.wake` event through the event door, and the turn runner gives her a turn with nobody's message in front of her: her tools, her memory, and a `<wake>` block that says why she is awake.
 
 No model decides when she wakes. The scheduler lists what is due; she decides what to do with it.
 
@@ -14,13 +14,13 @@ A recurring intention (`every`: `day`, `week`, or an interval like `12h`, `3d`) 
 
 ### The daily review
 
-Once a day, at a random moment inside the hours she usually speaks in. The engine counts her own lines per hour of `bot.timezone` from the last `innerLife.review.historyDays` (default 14) days, draws an hour weighted by those counts (every hour equal when she has no lines), then a minute inside it. The moment is drawn at the first tick of each local day, never in an hour already past, and kept in the state so a restart preserves it. A day that ends before its review ran is journalled as missed.
+Once a day, at a random moment inside the hours she usually speaks in. The engine counts her own lines per hour of `bot.timezone` from the last `wakes.review.historyDays` (default 14) days, draws an hour weighted by those counts (every hour equal when she has no lines), then a minute inside it. The moment is drawn at the first tick of each local day, never in an hour already past, and kept in the state so a restart preserves it. A day that ends before its review ran is journalled as missed.
 
 The review's `<wake>` also tells her which of her intentions expired untouched since she was last told (never a candidate): the newest five (`INNER_DEFAULTS.review.expiredMax` in `src/behavior/inner/settings.ts`), the rest counted and told next time. Each listed intention is marked as shown only after that review turn completed, so a held or failed review lists them again.
 
 ### The heartbeat
 
-A wake with no outside reason. It runs on its own timer: `innerLife.heartbeat.everyMinutes` (default 180) moved by up to `jitterMinutes` (default 60) either way, around the clock. The moment is kept in the state and drawn again after each run.
+A wake with no outside reason. It runs on its own timer: `heartbeat.everyMinutes` (default 180) moved by up to `jitterMinutes` (default 60) either way, around the clock. The moment is kept in the state and drawn again after each run.
 
 The heartbeat is never coalesced with another wake and goes before others in the queue. A running turn holds it to the next tick. Its chain is its own, so no chain cap of another kind touches it.
 
@@ -60,17 +60,17 @@ With the switch `false`, the heartbeat can act freely; the origin and caps below
 
 ### The selfimprovement wake
 
-A wake for looking back at her own work. It falls due on the first heartbeat moment that comes at least `innerLife.wakes.selfimprovement.everyDays` (default 7) days after the last such wake, and early when one chain shape fails `innerLife.wakes.selfimprovement.failuresPerShape` (default 3) times in one UTC day, at most once a day. With the heartbeat off the weekly wake never falls due. The first tick of a state with no clock only starts the count.
+A wake for looking back at her own work. It falls due on the first heartbeat moment that comes at least `selfimprovement.everyDays` (default 7) days after the last such wake, and early when one chain shape fails `selfimprovement.failuresPerShape` (default 3) times in one UTC day, at most once a day. While `selfimprovement.enabled` is `false` it never falls due, and with the heartbeat off the weekly wake never does. The first tick of a state with no clock only starts the count.
 
-The state keeps `selfimprovement: { lastAt, raisedAt }`. `raisedAt` is when a failure cause last raised a wake. `lastAt` is the time of the last wake whose turn did not end in an error, set once that turn's completion committed (`src/behavior/inner/selfimprovement.ts`). The wake has no place, goes alone like the heartbeat (after a heartbeat that shares its moment) and runs in a channel she spoke in lately, or in the stand-in when there is none. `innerLife.mode` governs it like every other wake.
+The state keeps `selfimprovement: { lastAt, raisedAt }`. `raisedAt` is when a failure cause last raised a wake. `lastAt` is the time of the last wake whose turn did not end in an error, set once that turn's completion committed (`src/behavior/inner/selfimprovement.ts`). The wake has no place, goes alone like the heartbeat (after a heartbeat that shares its moment) and runs in a channel she spoke in lately, or in the stand-in when there is none. `wakes.mode` governs it like every other wake.
 
 Her `<wake>` carries the facts of `src/behavior/selfimprovement-view.ts`, read from the journal and the board with no model. A chain is the tool calls of one turn in order. The chains of the last 14 days are grouped by the ordered tool names with each call's argument names, and the five most frequent shapes come with their counts, failures, retries, costs, the turn of the newest chain and up to five turn ids. Beside them stand the tools she holds and called in none of those chains, her skills with their use counts, her proposals with their state, and what the board holds for her since the last such wake: the questions put to her, the reviews (a rejection included, a plan approval left out) and the outbox rows addressed to `persona:self`. The facts carry tool names, argument names, codes, counts, ids, costs and the board's own titles and notes, and no line of chat.
 
-Once the completion committed, the outbox rows the view showed are marked delivered, so each question and rejection reaches her once. A wake that never committed shows them again. Her answer is `board.propose` with a `kind` of `skill` or `fix` ([Skills](skills.md#how-a-skill-is-made)). A `fix` that reaches a merge comes back as a landed change in this wake or the next heartbeat, whichever comes first ([Self-development](selfdev.md#what-reaches-her-wake)).
+Once the completion committed, the outbox rows the view showed are marked delivered, so each question and rejection reaches her once. A wake that never committed shows them again. Her answer is `board.propose` with a `kind` of `skill` or `fix` ([Skills](skills.md#how-a-skill-is-made)). A `fix` that reaches a merge comes back as a landed change in this wake or the next heartbeat, whichever comes first ([Self-development](selfimprovement.md#what-reaches-her-wake)).
 
 ### A new tool from a plugin
 
-When a plugin registers a tool it was not announced for, the core queues one `heartbeat` wake with the reason `ability.added` and the tool names ([Plugins](plugins.md#how-she-learns-of-a-tool)). It has no place and no intention, goes through the queue like the heartbeat, and its `<wake>` adds `labels.wake.abilityAdded` with the names. While `innerLife.heartbeat.enabled` is `false` it waits in the queue.
+When a plugin registers a tool it was not announced for, the core queues one `heartbeat` wake with the reason `ability.added` and the tool names ([Plugins](plugins.md#how-she-learns-of-a-tool)). It has no place and no intention, goes through the queue like the heartbeat, and its `<wake>` adds `labels.wake.abilityAdded` with the names. While `heartbeat.enabled` is `false` it waits in the queue.
 
 ### Her attention
 
@@ -106,7 +106,7 @@ An addressed turn records facts the same way: `sendFailed` when a `<msg>` did no
 
 Facts that remain after a turn queue one `feedback` wake in the turn's chain. A feedback wake is never held by a cap, never coalesced with another wake, and its turn does not count against the chain. A feedback turn's own facts queue no second wake.
 
-An untold fact is kept `innerLife.factsKeepDays` (default 7) days. A told one is kept a day, then removed. The same facts go into her memory episode of that turn.
+An untold fact is kept `wakes.factsKeepDays` (default 7) days. A told one is kept a day, then removed. The same facts go into her memory episode of that turn.
 
 ### A turn cut off by a restart
 
@@ -138,13 +138,13 @@ The same voice, memory prefetch and tools as any turn, with nobody's message in 
 
 Her `<msg>`, `<gif>` and `<react>` act in the current channel. Without a current channel these tags are refused; `message.create` with a channel argument is the way to post elsewhere or when there is no current channel. `<react>` needs a `to="#N"` target. She may also call her tools (`web.search`, `web.read`, `memory.search`, `intention.*`, `errand.run`, and the rest) or end silent (`<skip/>`).
 
-The tool loop runs under `innerLife.loop`: at most `maxSteps` (default 4) further requests, `timeBudgetMs` (default 180000) from the first call, `maxCallsPerStep` (default 4) calls per answer, each call at most `callTimeoutMs` (default 60000). On her last step, one terminal action call still runs (the first `message.create`, `intention.set`, `intention.update` or `intention.cancel`); reads and other calls on the last step get a `loop-cap` result.
+The tool loop runs under `wakes.loop`: at most `maxSteps` (default 4) further requests, `timeBudgetMs` (default 180000) from the first call, `maxCallsPerStep` (default 4) calls per answer, each call at most `callTimeoutMs` (default 60000). On her last step, one terminal action call still runs (the first `message.create`, `intention.set`, `intention.update` or `intention.cancel`); reads and other calls on the last step get a `loop-cap` result.
 
 When a step's `message.create` went through and one of the wake's intentions has not been named by any `intention.*` call, the loop makes one more step listing them.
 
 ## Shadow and live modes
 
-**Shadow mode** (`innerLife.mode: "shadow"`, the default): reads run normally (`web.search`, `web.read`, `memory.search`, `intention.list`); every other call is proposed and never executed. Journalled with `shadow: true`, nothing marked seen. A stretch of shadow shows what she would have done.
+**Shadow mode** (`wakes.mode: "shadow"`, the default): reads run normally (`web.search`, `web.read`, `memory.search`, `intention.list`); every other call is proposed and never executed. Journalled with `shadow: true`, nothing marked seen. A stretch of shadow shows what she would have done.
 
 **Live mode** (`"live"`): calls go through the gateway and take effect. The kill switch is checked before each action.
 
@@ -232,13 +232,13 @@ A feedback wake is never held, never joined to another wake, and does not count 
 
 When an inner turn ends in error because the provider refused the request or timed out, the engine does not drop the wakes. It puts them back in the queue after a delay.
 
-Three error codes are retried: `provider-limit`, `provider-error` and `timeout`. Any other error gives a one-off intention one more try, then drops it. Delays come from `innerLife.retry.delaysMinutes` (default `[1, 5, 15, 60]`): the first failure waits 1 minute, the second 5, and so on. Retries continue as long as the first failure is younger than `innerLife.retry.maxHours` (default 6) hours. After that the wakes are dropped with the code `provider` and she is told at her next turn.
+Three error codes are retried: `provider-limit`, `provider-error` and `timeout`. Any other error gives a one-off intention one more try, then drops it. Delays come from `wakes.retry.delaysMinutes` (default `[1, 5, 15, 60]`): the first failure waits 1 minute, the second 5, and so on. Retries continue as long as the first failure is younger than `wakes.retry.maxHours` (default 6) hours. After that the wakes are dropped with the code `provider` and she is told at her next turn.
 
 On a retried run that succeeds, each wake in `<wake>` carries a line noting how many minutes late it is and why. A failed attempt does not count against the daily caps.
 
 ## What she found goes to her memory
 
-What she reads on her own in an inner turn joins the memory analyzer's path. When an inner turn ends and at least one read returned something, or the turn has something to answer for (a call, a call that failed, text outside a call, a loop cut), the turn hands an episode to the analyzer: lines of hers, in the first person. One line with her thinking, her executed calls, proposed or refused ones, and what did not go through. One line per read in `innerLife.memory.tools` (by default `web.search`, `web.read`, `memory.search`, `errand.status`, `errand.list`), at most `innerLife.memory.maxFindings`, with the query, the result cut to `innerLife.memory.resultChars`, and links as sources.
+What she reads on her own in an inner turn joins the memory analyzer's path. When an inner turn ends and at least one read returned something, or the turn has something to answer for (a call, a call that failed, text outside a call, a loop cut), the turn hands an episode to the analyzer: lines of hers, in the first person. One line with her thinking, her executed calls, proposed or refused ones, and what did not go through. One line per read in `wakes.memory.tools` (by default `web.search`, `web.read`, `memory.search`, `errand.status`, `errand.list`), at most `wakes.memory.maxFindings`, with the query, the result cut to `wakes.memory.resultChars`, and links as sources.
 
 Each line is marked with provenance `inner`. Where it belongs decides where it goes: a server inner turn buffers it with the server's lines; one in a private chat buffers it in that member's private layer only. The record keeps chat only, so these lines never reach it.
 

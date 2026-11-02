@@ -773,7 +773,7 @@ test("intentions: a recurring wait ends per occurrence -- the errand's end retur
 // ---- attention: intention.set attend= ------------------------------------------------------
 
 // PR 7d: the attention defaults are the constants ATTEND_DEFAULTS (settle 90 s, 12 a day).
-test('intention.set attend=: an attention of hers with the defaults from innerLife.attention, her own numbers and people; due and every on it are refused', async () => {
+test('intention.set attend=: an attention of hers with the defaults from wakes.attention, her own numbers and people; due and every on it are refused', async () => {
   const { env, intentions } = makeEnv();
   const set = await runOp('intention.set', { attend: 'c-garden' }, hers(env, 'T1'));
   assert.equal(set.status, 'ok', set.code);

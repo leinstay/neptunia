@@ -19,7 +19,7 @@ import type { Db, Row } from './types.ts';
 
 /** How near in time a message with no turn must be to an entry's message to join it. */
 const JOIN_MS = 2 * 60 * 1000;
-/** The characters of a new entry's gist (`diary.gistChars`' default). */
+/** The characters of a new entry's gist (`selfreflection.gistChars`' default). */
 const GIST_CHARS = 200;
 
 /** One message of hers in the place: its id, time, newest text and turn. */

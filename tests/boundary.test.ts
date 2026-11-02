@@ -106,7 +106,7 @@ describe('inner turns with no interface', () => {
       // @ts-expect-error: hotWith has no `features` option, so the key is ignored
       features: { diary: true },
       config: {
-        diary: {
+        selfreflection: {
           world: false,
           kinds: { status: 1 },
           maxPerDay: 3,
@@ -220,7 +220,7 @@ describe('a duplicate wake', () => {
   });
 
   test('delivered twice through the door it opens one inner turn', async () => {
-    const core = await rig({ innerLife: { heartbeat: { enabled: false } } });
+    const core = await rig({ heartbeat: { enabled: false } });
     const answers = [await core.door.submit(wakeEvent()), await core.door.submit(wakeEvent())];
     await core.inner.tick();
     await core.inner.tick();
@@ -234,7 +234,7 @@ describe('a duplicate wake', () => {
   });
 
   test('delivered again after a restart it opens no second inner turn', async () => {
-    const core = await rig({ innerLife: { heartbeat: { enabled: false } } });
+    const core = await rig({ heartbeat: { enabled: false } });
     await core.door.submit(wakeEvent());
     await core.inner.tick();
     await core.settle();

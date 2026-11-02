@@ -1,10 +1,18 @@
-// The settings schema of `diary` (src/config/schema.ts): one entry per key, in the order of config/config.json.
+// The settings schema of `selfreflection` (src/config/schema.ts): one entry per key, in the order of config/config.json.
 
 import type { SchemaEntry } from '../schema.ts';
 
-export const DIARY: ReadonlyArray<SchemaEntry> = [
+export const SELFREFLECTION: ReadonlyArray<SchemaEntry> = [
   {
-    'key': 'diary.channelId',
+    'key': 'selfreflection.enabled',
+    'types': ['boolean'],
+    'reader': 'src/behavior/diary.ts',
+    'default': true,
+    'text':
+      'Whether her diary posts on its day plan. Off, the scheduler plans and posts nothing; a forced post still runs',
+  },
+  {
+    'key': 'selfreflection.channelId',
     'types': ['string'],
     'reader': 'src/memory/db/service.ts',
     'default': '',
@@ -12,14 +20,14 @@ export const DIARY: ReadonlyArray<SchemaEntry> = [
       "The seed of the diary's first mirror: schema v15 makes this channel's place a `diary` mirror, and `scripts/config-migrate.ts --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it",
   },
   {
-    'key': 'diary.world',
+    'key': 'selfreflection.world',
     'types': ['boolean'],
     'reader': 'src/behavior/prompt.ts',
     'default': false,
     'text': 'Include `prompts/world.md` as a `<world>` block in diary requests',
   },
   {
-    'key': 'diary.windows',
+    'key': 'selfreflection.windows',
     'types': ['array'],
     'reader': 'src/behavior/diary.ts',
     'default': [
@@ -31,42 +39,42 @@ export const DIARY: ReadonlyArray<SchemaEntry> = [
     'text': 'Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]`',
   },
   {
-    'key': 'diary.quietDayChance',
+    'key': 'selfreflection.quietDayChance',
     'types': ['number'],
     'reader': 'src/behavior/diary.ts',
     'default': 0.3,
     'text': 'Chance of no posts for the whole day',
   },
   {
-    'key': 'diary.forceWaitMs',
+    'key': 'selfreflection.forceWaitMs',
     'types': ['number'],
     'reader': 'src/behavior/diary.ts',
     'default': 120000,
     'text': 'Milliseconds a forced post waits for a running turn',
   },
   {
-    'key': 'diary.loop.maxSteps',
+    'key': 'selfreflection.loop.maxSteps',
     'types': ['number'],
     'reader': 'src/turn/settings.ts',
     'default': 2,
     'text': 'Further requests one diary post makes',
   },
   {
-    'key': 'diary.loop.timeBudgetMs',
+    'key': 'selfreflection.loop.timeBudgetMs',
     'types': ['number'],
     'reader': 'src/turn/settings.ts',
     'default': 600000,
     'text': 'How long calls and follow-ups may run',
   },
   {
-    'key': 'diary.planMaxOutputTokens',
+    'key': 'selfreflection.planMaxOutputTokens',
     'types': ['number'],
     'reader': 'src/turn/diary.ts',
     'default': 2000,
     'text': 'Max output tokens for the plan request',
   },
   {
-    'key': 'diary.planTimeoutMs',
+    'key': 'selfreflection.planTimeoutMs',
     'types': ['number'],
     'reader': 'src/turn/diary.ts',
     'default': 60000,

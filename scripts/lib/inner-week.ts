@@ -4,7 +4,7 @@
 // clock that jumps from one moment that matters to the next (an event of the fixture, a due time,
 // a wait deadline, an expiry, the day's review, a local midnight, the end of a people's turn, a
 // cap's reset) instead of ticking every second. Every jump
-// lands on the scheduler's tick grid (`innerLife.tickSeconds` from the start of the week), so the
+// lands on the scheduler's tick grid (`wakes.tickSeconds` from the start of the week), so the
 // scheduler sees what it would see live, at most one tick late.
 //
 // The fixture (scripts/fixtures/inner-week/*.json, `parseFixture`) scripts the week: the people's
@@ -205,9 +205,11 @@ export function fixtureConfig(
   mention: { oneAtATime: boolean };
   intentions: Untyped;
   agents: Untyped;
-  innerLife: Untyped;
+  wakes: Untyped;
+  heartbeat: Untyped;
 } {
-  const life = fixture.innerLife ?? {};
+  // A fixture writes the heartbeat under `wakes`; the engine reads it as `heartbeat`.
+  const { heartbeat, ...life } = fixture.wakes ?? {};
   return {
     bot: { timezone: fixture.timezone },
     private: { enabled: false },
@@ -221,14 +223,14 @@ export function fixtureConfig(
       ...(fixture.intentionsConfig ?? {}),
     },
     agents: fixture.agents ?? {},
-    innerLife: {
+    wakes: {
       ...life,
       mode,
       review: { enabled: true, historyDays: 14, ...(life.review ?? {}) },
       caps: { perChain: 3, ...(life.caps ?? {}) },
-      // The heartbeat is off in a fixture unless it asks for it: the shipped weeks predate it and count their wakes.
-      heartbeat: { enabled: false, ...(life.heartbeat ?? {}) },
     },
+    // The heartbeat is off in a fixture unless it asks for it: the shipped weeks predate it and count their wakes.
+    heartbeat: { enabled: false, ...(heartbeat ?? {}) },
   };
 }
 

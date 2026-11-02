@@ -77,7 +77,7 @@ const READERS: Array<[string, (config: Record<string, Untyped>) => unknown]> = [
   ['attentionSettings', (config) => attentionSettings(config)],
   ['loopSettings inner', (config) => loopSettings(config, { inner: true })],
   ['audioMapSettings', (config) => audioMapSettings(treeOf(treeOf(treeOf(config).media).video).audioMap)],
-  ['setSettings', (config) => setSettings(treeOf(config).diary)],
+  ['setSettings', (config) => setSettings(treeOf(config).selfreflection)],
   ['gifPickSettings', (config) => gifPickSettings(config)],
   ['loopSettings diary', (config) => loopSettings(config, { diary: true })],
   ['hedgeSettings', (config) => hedgeSettings(config)],

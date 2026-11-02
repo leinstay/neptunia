@@ -59,10 +59,10 @@
 // (or `--snapshot`) read only: `--intention <id>` names the intention of an `intention_due` or
 // `errand_deadline` wake (required for those), `--review` (or the kind `review`) the day's
 // review, in the channel she was last active in (the review's stored channels, else her own
-// lines of the last `innerLife.review.historyDays` in the record). Its `<wake>` carries what is
+// lines of the last `wakes.review.historyDays` in the record). Its `<wake>` carries what is
 // left of her caps as data/guilds/<id>/inner.json has them now. The real turn runner over
 // Discord REST (GET only, every write refused), an in-memory port and an unflushed copy of the
-// memory store; `innerLife.mode` forced to `shadow`, so her reads run (on the simulator key)
+// memory store; `wakes.mode` forced to `shadow`, so her reads run (on the simulator key)
 // and every other call is only proposed; the journal is not written (a journal read, `memory.journal.read`, answers from the journal of the data read, read only); intentions read
 // only (an expiry sweep writes nothing). Prints the request's blocks (`--show-request`: the
 // whole request), her answers, her proposed and executed actions, the cost.
@@ -320,7 +320,7 @@
 // and kept in the report): the same config, date and seed give the same slots (scripts/lib/diary-day.ts#planDiaryDay).
 // The turns draw from a second stream of the same seed. Then, slot by slot in order, the clock of the turn runner and
 // the image client set to the slot (and running on from there), the diary's own checks as the tick makes them (the
-// day's posts under `diary.maxPerDay`, else `skip` with reason `cap`), and `runTurn({ guildId, mode: 'diary', diary: {
+// day's posts under `selfreflection.maxPerDay`, else `skip` with reason `cap`), and `runTurn({ guildId, mode: 'diary', diary: {
 // kind: null, forced: false } })` of the real turn runner with no conversation: the plan request, its search, the
 // compose request, the pictures generated, and the entry recorded, which the slot reports as what its publication would
 // send. A post a slot made is kept in the in-memory diary and counters, so the next slot sees it as the live diary
@@ -578,7 +578,7 @@ function memoryFor(dataDir: string) {
   if (!memories.has(dataDir)) memories.set(dataDir, readOnlyMemory(dataDir).memoryDb);
   return memories.get(dataDir);
 }
-/** An inner turn's requests at most: her answer and up to four tool-loop steps (innerLife.loop.maxSteps' default). */
+/** An inner turn's requests at most: her answer and up to four tool-loop steps (wakes.loop.maxSteps' default). */
 const INNER_REQUESTS = 5;
 /** A diary brief's requests: the plan (classifier model) and the compose (voice model). */
 const DIARY_REQUESTS_PER_BRIEF = 2;
@@ -2174,7 +2174,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
 // ---- an inner turn (--inner) ----------------------------------------------------
 
 /**
- * `hot` as an `--inner` turn sees it: `innerLife.mode` forced to `shadow` (her reads run, nothing else
+ * `hot` as an `--inner` turn sees it: `wakes.mode` forced to `shadow` (her reads run, nothing else
  * does). Every other value as the config read has it; the live config untouched. The journal stays
  * off because the runner is given none (`journal: null`).
  */
@@ -2183,7 +2183,7 @@ export function innerReplayHot(hot: Untyped): Rec {
     get(target, prop) {
       if (prop === 'config') {
         const config = target.config ?? {};
-        return { ...config, innerLife: { ...(config.innerLife ?? {}), mode: 'shadow' } };
+        return { ...config, wakes: { ...(config.wakes ?? {}), mode: 'shadow' } };
       }
       const value = Reflect.get(target, prop, target);
       return typeof value === 'function' ? value.bind(target) : value;
@@ -2701,7 +2701,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     if (args.inner === 'heartbeat') {
       // The scheduler builds it: the heartbeat view over the stores as they are, in the conversation it picks.
       if (!settings.heartbeat.enabled)
-        log.warn('replay-cli: innerLife.heartbeat.enabled is off; the live scheduler would not wake her', {});
+        log.warn('replay-cli: heartbeat.enabled is off; the live scheduler would not wake her', {});
       // A pause of hers would hold the live drain; a preview is wanted anyway (the copy of the store is not written).
       if (state.data.paused)
         log.warn('replay-cli: she is paused; the live scheduler would hold the heartbeat, the preview runs it', {});
@@ -3009,7 +3009,7 @@ export function diaryDayGate(
   const timezone = config?.bot?.timezone || 'UTC';
   const date = args.date ?? localDayKey(nowMs, timezone);
   const seed = args.seed ?? randomBytes(6).toString('hex');
-  const day = planDiaryDay({ diaryCfg: config?.diary, timezone, date, seed, planDay, zonedEpoch });
+  const day = planDiaryDay({ diaryCfg: config?.selfreflection, timezone, date, seed, planDay, zonedEpoch });
   const estimate = diaryDayEstimate({
     slots: day.slots.length,
     draw: args.draw,

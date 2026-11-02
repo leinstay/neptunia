@@ -320,13 +320,21 @@
   "watcher": {
     "dir": ".agents/watcher"
   },
-  "selfdev": {
+  "selfimprovement": {
+    "enabled": true,
     "mode": "approve",
     "base": "main",
     "checkout": null,
-    "repository": null
+    "repository": null,
+    "everyDays": 7,
+    "failuresPerShape": 3,
+    "tools": "*",
+    "maxActs": null,
+    "maxTasks": null,
+    "inputTokens": null
   },
-  "diary": {
+  "selfreflection": {
+    "enabled": true,
     "channelId": "",
     "world": false,
     "windows": [
@@ -397,27 +405,14 @@
     "maxOpen": 20,
     "candidateExpiresHours": 48
   },
-  "innerLife": {
+  "wakes": {
     "mode": "shadow",
     "tickSeconds": 60,
     "review": {
       "historyDays": 14
     },
-    "heartbeat": {
-      "enabled": true,
-      "everyMinutes": 180,
-      "jitterMinutes": 60,
-      "historyDays": 14,
-      "maxTokens": 2500
-    },
     "caps": {
       "perChain": 3
-    },
-    "wakes": {
-      "selfimprovement": {
-        "everyDays": 7,
-        "failuresPerShape": 3
-      }
     },
     "loop": {
       "maxSteps": 4,
@@ -430,6 +425,17 @@
       "maxHours": 6
     },
     "factsKeepDays": 7
+  },
+  "heartbeat": {
+    "enabled": true,
+    "everyMinutes": 180,
+    "jitterMinutes": 60,
+    "historyDays": 14,
+    "maxTokens": 2500,
+    "tools": "*",
+    "maxActs": null,
+    "maxTasks": null,
+    "inputTokens": null
   },
   "appendStore": {
     "retryMax": 1000

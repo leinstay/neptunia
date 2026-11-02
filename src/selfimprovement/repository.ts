@@ -1,8 +1,8 @@
-// The repository her pull requests go to (docs/selfdev.md#the-repository): `selfdev.repository`, and the check that
+// The repository her pull requests go to (docs/selfimprovement.md#the-repository): `selfimprovement.repository`, and the check that
 // her gh login may push there. gh runs under her own config home, `<private>/subharness/gh`, so her pull requests are
-// never the installing user's. `checkRepository` runs before every beat (src/selfdev/service.ts) and in the
-// self-development step of `neptunia setup` (src/setup/selfdev.ts). Its answer is a code and a line from
-// `labels.selfdev.check`; nothing gh printed reaches the line, the journal or the owner.
+// never the installing user's. `checkRepository` runs before every beat (src/selfimprovement/service.ts) and in the
+// self-development step of `neptunia setup` (src/setup/selfimprovement.ts). Its answer is a code and a line from
+// `labels.selfimprovement.check`; nothing gh printed reaches the line, the journal or the owner.
 
 import { execFile } from 'node:child_process';
 import path from 'node:path';
@@ -16,7 +16,7 @@ export type GhRunner = (args: ReadonlyArray<string>) => Promise<GhAnswer>;
 
 export type RepositoryFailure = 'gh-missing' | 'gh-logged-out' | 'no-push' | 'repository-unset' | 'failed';
 export type RepositoryCheck = { code: 'ok'; repository: string } | { code: RepositoryFailure; line: string };
-/** The failure codes, each with a label `labels.selfdev.check.<code>` in the `owner` section of config/labels.json. */
+/** The failure codes, each with a label `labels.selfimprovement.check.<code>` in the `owner` section of config/labels.json. */
 export const REPOSITORY_FAILURES: ReadonlyArray<RepositoryFailure> = [
   'gh-missing',
   'gh-logged-out',
@@ -64,9 +64,9 @@ export function repositoryOfRemote(url: string): string | null {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
-/** `labels.selfdev.check.<code>` with `{repository}` filled; the bare code when the label is missing. */
+/** `labels.selfimprovement.check.<code>` with `{repository}` filled; the bare code when the label is missing. */
 function lineOf(labels: Readonly<Record<string, unknown>>, code: RepositoryFailure, repository: string): string {
-  const section = isRecord(labels.selfdev) ? labels.selfdev : {};
+  const section = isRecord(labels.selfimprovement) ? labels.selfimprovement : {};
   const check = isRecord(section.check) ? section.check : {};
   const label = check[code];
   return typeof label === 'string' && label !== '' ? fill(label, { repository }) : code;

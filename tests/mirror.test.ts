@@ -359,7 +359,7 @@ test("a publication keeps the port's attachment ids in its receipts and on the e
   assert.deepEqual([...rows].sort(), named, "the entry's media rows carry the ids");
 });
 
-// A post whose pictures do not fit one message goes out as several messages of files (diary.set.maxMessageBytes): each
+// A post whose pictures do not fit one message goes out as several messages of files (selfreflection.set.maxMessageBytes): each
 // attachment the port names keeps the message that carried it, in the receipts and on its media row.
 test('a picture set sent across two messages keeps every attachment id with the message that carried it', async () => {
   const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
