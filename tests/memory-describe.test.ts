@@ -106,7 +106,7 @@ test('describeMany: a GIF with video on is described', async () => {
 test('describeVideos: a video with video off is not fetched, not sent, and not watched', async () => {
   const off = rig({ ...ON, video: null });
   const { videos } = await off.describer.describeVideos('g1', [clip], { maxNew: 5 });
-  assert.equal(loose(videos.get('v1')).state === 'watched', false);
+  assert.equal(videos.has('v1'), false);
   assert.equal(off.llm.calls.length, 0);
   assert.equal(off.videoFetcher.calls.length, 0);
 });

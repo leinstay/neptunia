@@ -71,16 +71,17 @@ test('three malformed answers in a row put the role down, a success between them
   assert.equal(health.down(CONFIG, 'vision')?.reason, 'malformed');
 });
 
-test('a role switched off in the config or without its key is down with no retry time; a null model is its default', () => {
+test('a role switched off in the config or without its key is down with no retry time; a null model is off', () => {
   const { health } = tracker((role) => role !== 'speech');
   const config = { models: { base: { core: 'x/core', vision: false, video: null, speech: 'x/voice' } } };
   assert.deepEqual(health.down(config, 'vision'), { role: 'vision', reason: 'no-model', retryAt: null });
   assert.deepEqual(health.down(config, 'speech'), { role: 'speech', reason: 'no-key', retryAt: null });
-  assert.equal(health.down(config, 'video'), null, 'null reads as the role default, as roleModel has it');
+  assert.deepEqual(health.down(config, 'video'), { role: 'video', reason: 'no-model', retryAt: null }, 'null is off');
   assert.deepEqual(
     health.failing(config).map((row) => [row.role, row.reason]),
     [
       ['vision', 'no-model'],
+      ['video', 'no-model'],
       ['speech', 'no-key'],
     ],
     'in the display order of the base roles'

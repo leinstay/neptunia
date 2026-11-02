@@ -423,7 +423,7 @@ test('describe: the picture model is models.base.vision; the deprecated media.mo
   };
   assert.equal(await run({ models: { base: { vision: 'x/vision' } } }), 'x/vision');
   const stale = {
-    models: { base: { vision: null } },
+    models: { base: {} },
     media: { model: 'x/old-media', maxOutputTokens: 120 },
   };
   assert.equal(
@@ -818,7 +818,7 @@ test('describeVideo: the video model is models.base.video; the deprecated media.
   assert.equal(fresh.llm.calls[0].options.model, 'x/new-video');
 
   const withOld: Untyped = videoHot({ video: { model: 'x/old-video' } });
-  withOld.config.models = { base: { video: null, vision: 'x/vision' } };
+  withOld.config.models = { base: { vision: 'x/vision' } };
   const old = videoDescriber({ hot: withOld });
   await old.describer.describeVideo('g1', videoAttachment());
   assert.equal(
