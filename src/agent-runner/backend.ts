@@ -3,7 +3,8 @@
 // what the caller adds; nothing of the bot's own environment), its own process group so that a timeout kills what the
 // child spawned too. Which backend an agent runs on is the owner's switch, the subharness (src/subharness/): every
 // agent run goes through `runAgent` (src/subharness/run.ts), which reads the switch and the agent's mode at the moment
-// of the run. `createAgentEngine` gives the runner server (bin/neptunia.ts) its task engine: a runner that works a
+// of the run, and runs the backend installed in the private layer (`createInstalledBackend`, src/subharness/place.ts),
+// never a CLI found on PATH. `createAgentEngine` gives the runner server (bin/neptunia.ts) its task engine: a runner that works a
 // task's brief in a fresh directory through that seam and delivers the files the agent leaves there. The log line of a
 // run carries the backend, the exit code, the duration and the tokens, never the brief or the text.
 
@@ -31,6 +32,7 @@ import type { BackendName } from './profiles.ts';
 import type { RunnerTask, TaskResult } from './protocol.ts';
 import { runAgent } from '../subharness/run.ts';
 import type { RunDeps } from '../subharness/run.ts';
+import { isInstalled, subharnessPlace } from '../subharness/place.ts';
 
 export { BACKEND_NAMES };
 export type { BackendName };
@@ -63,7 +65,8 @@ export type BackendRunOptions = {
 };
 
 /** Why a run did not start or was stopped by us. */
-export type BackendError = 'backend-missing' | 'empty-brief' | 'timeout' | 'spawn' | 'cancelled' | 'subharness-off';
+export type BackendError =
+  'backend-missing' | 'empty-brief' | 'timeout' | 'spawn' | 'cancelled' | 'subharness-off' | 'not-installed';
 
 /** What a run gives back. */
 export type BackendResult = {
@@ -339,6 +342,30 @@ export function createBackend(name: BackendName, deps: BackendDeps = {}): Backen
   }
 
   return { name, run };
+}
+
+/**
+ * The backend `name` as installed in `<privateDir>/subharness/<name>/` (src/subharness/place.ts): each run starts the
+ * binary there with the place's home laid over `options.env`, so a caller's `CODEX_HOME` never points it elsewhere.
+ * While the binary is not there the run resolves `not-installed` and spawns nothing; PATH is never searched.
+ */
+export function createInstalledBackend(
+  name: BackendName,
+  privateDir: string,
+  deps: Omit<BackendDeps, 'binary'> = {}
+): Backend {
+  const place = subharnessPlace(privateDir, name);
+  const backend = createBackend(name, { ...deps, binary: place.binary });
+  return {
+    name,
+    run(brief, options) {
+      if (!isInstalled(privateDir, name)) {
+        log.info('agent-runner: backend not installed', { backend: name });
+        return Promise.resolve({ ok: false, text: '', exitCode: null, error: 'not-installed' });
+      }
+      return backend.run(brief, { ...options, env: { ...options.env, ...place.env } });
+    },
+  };
 }
 
 /** What `createAgentEngine` takes: the runner's deps, and the subharness seam every run goes through. */

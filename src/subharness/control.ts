@@ -2,8 +2,8 @@
 // Everything is stored in keys.json (src/keys/file.ts) and read again at each use, so a change needs no
 // restart. The shape follows the approval mode of Hermes (hermes_cli/approval_mode.py): a tuple of modes, a frozen
 // result with `ok`, `changed` and a message, no argument inspects, and the one write of each change is in this file.
-// Enabling checks the backend first and stores nothing when the check fails. No result, log line or status text
-// carries a key value, only a key's name.
+// Enabling checks the backend installed in the private layer (src/subharness/place.ts) first and stores nothing when
+// the check fails. No result, log line or status text carries a key value, only a key's name.
 
 import type { BackendResult } from '../agent-runner/backend.ts';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
@@ -11,6 +11,7 @@ import type { BackendName } from '../agent-runner/profiles.ts';
 import { log } from '../log.ts';
 import { hasExtraKey, readKeys, writeKeys } from '../keys/file.ts';
 import { checkModel } from './models.ts';
+import { subharnessPlace } from './place.ts';
 
 /** What an agent may do, from the narrowest: see run.ts#sandboxOfMode for the sandbox each maps to. */
 export const AGENT_MODES = ['read', 'write', 'full', 'sudo'] as const;
@@ -62,6 +63,12 @@ export type EnableDeps = {
   runBackend(name: 'codex' | 'claude', brief: string, model?: string): Promise<BackendResult>;
   fetch: typeof fetch;
   baseUrl?: string;
+  /**
+   * Whether a backend is in its folder of the private layer (src/subharness/place.ts#isInstalled); the core passes it,
+   * and opencode, whose check runs no binary, is refused `not-installed` when it answers false. codex and claude learn
+   * it from `runBackend`.
+   */
+  isInstalled?(name: BackendName): boolean;
   /**
    * True in the core: `/subharness enable` then asks which model each agent runs on (src/subharness/enable-dialog.ts)
    * before it stores anything. Absent, enable stores the backend alone and the agents run on its default model.
@@ -117,10 +124,18 @@ async function checkKey(deps: EnableDeps, value: string): Promise<SubharnessResu
   return refused('key-rejected', `the provider refused that key (HTTP ${status}); nothing was changed`);
 }
 
+/** The refusal of a backend that is not in its folder of the private layer (src/subharness/place.ts). */
+const notInstalled = (privateDir: string, name: BackendName): SubharnessResult =>
+  refused(
+    'not-installed',
+    `${name} is not installed in ${subharnessPlace(privateDir, name).dir}: run neptunia setup subharness ${name}; nothing was changed`
+  );
+
 /** The reply check of codex or claude: the binary runs and answers one brief. */
 async function checkReply(deps: EnableDeps, name: 'codex' | 'claude'): Promise<SubharnessResult | null> {
   const outcome = await deps.runBackend(name, CHECK_BRIEF);
   if (outcome.ok && outcome.text.trim() !== '') return null;
+  if (outcome.error === 'not-installed') return notInstalled(deps.privateDir, name);
   if (outcome.error === 'backend-missing')
     return refused('binary-missing', `${name} is not on the PATH of the core; nothing was changed`);
   log.warn('subharness: reply check failed', {
@@ -162,6 +177,7 @@ export async function checkEnable(
   const now = store.subharness;
   if (now.backend === name && now.key === (key ?? null)) return done(`the subharness is on ${name} already`, false);
   const keyValue = key === undefined ? '' : (store.extra[key] ?? '');
+  if (name === 'opencode' && deps.isInstalled?.(name) === false) return notInstalled(deps.privateDir, name);
   const failed = name === 'opencode' ? await checkKey(deps, keyValue) : await checkReply(deps, name);
   return failed ?? { name, key: key ?? null, keyValue };
 }
