@@ -117,8 +117,8 @@ export function allowed(value: unknown, ctx: unknown): boolean {
   const row = value as Partial3 | null | undefined;
   const kind = row?.scope_kind;
   if (kind === 'none') return true;
-  if (ctx.groups === true) return kind === 'group' && filled(row?.scope_iface);
-  if (kind === 'group') return row?.scope_iface === ctx.iface;
+  if (ctx.groups === true) return kind === 'group' && isGroupInterface(row?.scope_iface);
+  if (kind === 'group') return isGroupInterface(row?.scope_iface);
   if (kind === 'dm') return ctx.kind === 'dm' && row?.scope_iface === ctx.iface && row?.scope_dm === ctx.person;
   return false;
 }
@@ -131,14 +131,9 @@ export function whereFor(ctx: unknown, alias = ''): { sql: string; params: Array
   check(ctx);
   if (ctx.internal === true) return { sql: '1 = 1', params: [] };
   const p = alias ? `${alias}.` : '';
-  if (ctx.groups === true)
-    return {
-      sql: `(${p}scope_kind = 'none' OR (${p}scope_kind = 'group' AND ${p}scope_iface IS NOT NULL AND ${p}scope_iface <> ''))`,
-      params: [],
-    };
-  let sql = `(${p}scope_kind = 'none' OR (${p}scope_kind = 'group' AND ${p}scope_iface = ?)`;
-  const params: Array<string> = [ctx.iface ?? ''];
-  if (ctx.kind === 'dm') {
+  let sql = `(${p}scope_kind = 'none' OR (${p}scope_kind = 'group' AND ${p}scope_iface IS NOT NULL AND ${p}scope_iface <> '' AND instr(${p}scope_iface, char(0)) = 0)`;
+  const params: Array<string> = [];
+  if (ctx.groups !== true && ctx.kind === 'dm') {
     sql += ` OR (${p}scope_kind = 'dm' AND ${p}scope_iface = ? AND ${p}scope_dm = ?)`;
     params.push(ctx.iface ?? '', ctx.person ?? '');
   }
@@ -149,22 +144,23 @@ export function whereFor(ctx: unknown, alias = ''): { sql: string; params: Array
 function meetScopes(result: Scope, next: Scope): Scope {
   if (result.scope_kind === 'none') return next;
   const sameIface = result.scope_iface === next.scope_iface;
-  if (result.scope_kind === 'group' && next.scope_kind === 'group') return sameIface ? result : { ...SCOPE_INTERNAL };
-  if (result.scope_kind === 'group') return sameIface ? next : { ...SCOPE_INTERNAL };
-  if (next.scope_kind === 'group') return sameIface ? result : { ...SCOPE_INTERNAL };
+  if (result.scope_kind === 'group' && next.scope_kind === 'group') return result;
+  if (result.scope_kind === 'group') return next;
+  if (next.scope_kind === 'group') return result;
   return sameIface && result.scope_dm === next.scope_dm ? result : { ...SCOPE_INTERNAL };
 }
 
 /**
  * The narrowest scope of the sources a derived row came from. `none` sources do not narrow. Group is narrower than
- * none, a DM narrower than a group of its interface; two different DMs, or sources of different interfaces that
- * cannot both be shown anywhere, give `internal`.
+ * none, a DM narrower than any group. Different DMs and malformed evidence give `internal`.
+ * Groups retain the first source interface as provenance because every valid group has the same visibility.
  */
 export function narrowest(scopes: unknown): Scope {
   let result: Scope = { ...SCOPE_NONE };
   for (const scope of (Array.isArray(scopes) ? scopes : []) as Array<Partial3 | null | undefined>) {
     const kind = scope?.scope_kind;
-    if (!scope || kind === 'none' || kind === undefined || kind === null) continue;
+    if (!scope || !wellFormed(scope)) return { ...SCOPE_INTERNAL };
+    if (kind === 'none') continue;
     if (kind !== 'group' && kind !== 'dm') return { ...SCOPE_INTERNAL };
     result = meetScopes(result, {
       scope_kind: kind,
@@ -185,6 +181,8 @@ export const groupAudienceId = (iface: unknown): string => `${GROUP_PREFIX}${Str
 export const dmAudienceId = (placeId: unknown): string => `aud:dm:${String(placeId)}`;
 
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
+// SQLite text length stops at NUL, so both readers reject that malformed identifier.
+const isGroupInterface = (value: unknown): value is string => filled(value) && !value.includes('\0');
 
 /**
  * The one resolver: a scope (its three columns) and its audience id, `{ scope_kind, scope_iface, scope_dm, audience_id }`.
@@ -208,7 +206,7 @@ export function audienceOf(
     audience_id: AUD_INTERNAL,
   };
   if (kind === 'none') out.audience_id = AUD_NONE;
-  else if (kind === 'group' && filled(iface)) out.audience_id = groupAudienceId(iface);
+  else if (kind === 'group' && isGroupInterface(iface)) out.audience_id = groupAudienceId(iface);
   else if (kind === 'dm' && filled(iface) && (filled(dm) || filled(dmPlace))) {
     const place = filled(dmPlace) ? dmPlace : dmPlaceOfPerson(dm, iface);
     if (place) out.audience_id = dmAudienceId(place);
@@ -232,7 +230,7 @@ export function audienceParts(id: unknown, lookup: unknown = null): AudiencePart
   const value = typeof id === 'string' ? id : '';
   if (value === AUD_NONE) return { id: value, kind: 'none', iface: null, place_id: null };
   if (value === AUD_INTERNAL) return { id: value, kind: 'internal', iface: null, place_id: null };
-  if (value.startsWith('aud:group:') && value.length > 'aud:group:'.length)
+  if (value.startsWith(GROUP_PREFIX) && isGroupInterface(value.slice(GROUP_PREFIX.length)))
     return { id: value, kind: 'group', iface: value.slice('aud:group:'.length), place_id: null };
   if (value.startsWith('aud:dm:') && value.length > 'aud:dm:'.length) {
     const place = value.slice('aud:dm:'.length);
@@ -262,49 +260,40 @@ export function scopeOfAudience(id: unknown, lookup: unknown = null): Scope {
   return partner ? dmScope(partner.person, partner.iface) : { ...SCOPE_INTERNAL };
 }
 
-/**
- * The audience ids a context may read (null: every one, the internal context). Throws without a valid context, and for
- * the groups context, whose groups no list names (`allowedAudience` and `audienceWhere` read it).
- */
-export function audiencesOf(ctx: unknown): Array<string> | null {
-  check(ctx);
-  if (ctx.internal === true) return null;
-  if (ctx.groups === true)
-    throw new Error('memory db: the groups context has no audience list; read it with audienceWhere');
-  const ids = [AUD_NONE, groupAudienceId(ctx.iface ?? '')];
-  if (ctx.kind === 'dm') {
-    const place = filled(ctx.place) ? ctx.place : dmPlaceOfPerson(ctx.person, ctx.iface ?? '');
-    if (place) ids.push(dmAudienceId(place));
-  }
-  return ids;
+/** The exact private audience of a DM context, absent in group and groups-only contexts. */
+function privateAudience(ctx: Context): string | null {
+  if (ctx.groups === true || ctx.kind !== 'dm') return null;
+  const place = filled(ctx.place) ? ctx.place : dmPlaceOfPerson(ctx.person, ctx.iface ?? '');
+  return place ? dmAudienceId(place) : null;
 }
 
 /** `allowed` on `audience_id`: whether a row may be shown in a context. Throws without a valid context. */
 export function allowedAudience(row: unknown, ctx: unknown): boolean {
-  if ((ctx as Context | null | undefined)?.groups === true) {
-    const id = (row as Row | null | undefined)?.audience_id;
-    return (
-      id === AUD_NONE || (typeof id === 'string' && id.startsWith(GROUP_PREFIX) && id.length > GROUP_PREFIX.length)
-    );
-  }
-  const ids = audiencesOf(ctx);
-  return ids === null || ids.includes((row as Row | null | undefined)?.audience_id as string);
+  check(ctx);
+  if (ctx.internal === true) return true;
+  const id = (row as Row | null | undefined)?.audience_id;
+  if (
+    id === AUD_NONE ||
+    (typeof id === 'string' && id.startsWith(GROUP_PREFIX) && isGroupInterface(id.slice(GROUP_PREFIX.length)))
+  )
+    return true;
+  const dm = privateAudience(ctx);
+  return dm !== null && id === dm;
 }
 
-/**
- * The twin of `whereFor` on `audience_id`: `<alias>.audience_id IN ('aud:none', 'aud:group:<iface>'[, 'aud:dm:<place>'])`
- * as a fragment and its parameters. Throws without a valid context.
- */
+/** All valid group audiences, source-free rows and the context's exact DM audience, as SQL and parameters. */
 export function audienceWhere(ctx: unknown, alias = ''): { sql: string; params: Array<string> } {
+  check(ctx);
+  if (ctx.internal === true) return { sql: '1 = 1', params: [] };
   const p = alias ? `${alias}.` : '';
-  if ((ctx as Context | null | undefined)?.groups === true)
-    return {
-      sql: `(${p}audience_id = ? OR (substr(${p}audience_id, 1, ${GROUP_PREFIX.length}) = ? AND length(${p}audience_id) > ${GROUP_PREFIX.length}))`,
-      params: [AUD_NONE, GROUP_PREFIX],
-    };
-  const ids = audiencesOf(ctx);
-  if (ids === null) return { sql: '1 = 1', params: [] };
-  return { sql: `${p}audience_id IN (${ids.map(() => '?').join(', ')})`, params: ids };
+  let sql = `(${p}audience_id = ? OR (substr(${p}audience_id, 1, ${GROUP_PREFIX.length}) = ? AND length(${p}audience_id) > ${GROUP_PREFIX.length} AND instr(${p}audience_id, char(0)) = 0)`;
+  const params = [AUD_NONE, GROUP_PREFIX];
+  const dm = privateAudience(ctx);
+  if (dm !== null) {
+    sql += ` OR ${p}audience_id = ?`;
+    params.push(dm);
+  }
+  return { sql: `${sql})`, params };
 }
 
 /** The read filter of a context: on `audience_id` when the context says so (`audienceColumn`), else the triple. */
@@ -315,24 +304,33 @@ export const scopeWhere = (ctx: unknown, alias = ''): { sql: string; params: Arr
 export const canRead = (row: unknown, ctx: unknown): boolean =>
   (ctx as Context | null | undefined)?.audienceColumn === true ? allowedAudience(row, ctx) : allowed(row, ctx);
 
+/** Resolve evidence while retaining an object's known interface only when its identifier and metadata agree. */
+function audienceEvidence(entry: string | AudienceParts, lookup: unknown): AudienceParts | null {
+  const parsed = audienceParts(typeof entry === 'string' ? entry : entry?.id, lookup);
+  const next = typeof entry === 'string' ? parsed : entry;
+  if (!parsed || !next || next.kind !== parsed.kind || next.place_id !== parsed.place_id) return null;
+  if (next.kind === 'group' && next.iface !== parsed.iface) return null;
+  if (next.kind === 'dm' && (!filled(next.iface) || (parsed.iface !== null && next.iface !== parsed.iface)))
+    return null;
+  return next;
+}
+
 /**
  * `narrowest` on audiences: the meet of the audiences a derived row came from. none and X = X; internal and X = internal;
- * group(I) and group(I) = group(I); group(I) and dm(I, P) = dm(I, P); dm(P) and dm(P) = dm(P); different DM places, or
- * different interfaces, give internal; an unknown id is internal. Entries are ids or `audienceParts` objects.
+ * groups retain their first identifier, any group and a DM yield that DM, and equal DM places stay private.
+ * Different DM places and unknown ids give internal. Entries are ids or `audienceParts` objects.
  */
 export function narrowestAudience(audiences: unknown, lookup: unknown = null): string {
   let result: AudienceParts = { id: AUD_NONE, kind: 'none', iface: null, place_id: null };
   for (const entry of (Array.isArray(audiences) ? audiences : []) as Array<string | AudienceParts>) {
-    const next = typeof entry === 'string' ? audienceParts(entry, lookup) : entry;
-    if (!next || !next.kind) return AUD_INTERNAL;
+    const next = audienceEvidence(entry, lookup);
+    if (!next) return AUD_INTERNAL;
     if (next.kind === 'none') continue;
     if (next.kind === 'internal') return AUD_INTERNAL;
-    if (next.kind === 'dm' && !next.iface) return AUD_INTERNAL;
     if (result.kind === 'none') {
       result = next;
       continue;
     }
-    if (result.iface !== next.iface) return AUD_INTERNAL;
     if (result.kind === 'group' && next.kind === 'dm') result = next;
     else if (result.kind === 'dm' && next.kind === 'dm' && result.place_id !== next.place_id) return AUD_INTERNAL;
   }
@@ -342,7 +340,7 @@ export function narrowestAudience(audiences: unknown, lookup: unknown = null): s
 // ---------- execution contexts ----------
 
 /** The policy version contexts are issued under (the read rule of spec section 2; a change of the rule bumps it). */
-export const CONTEXT_POLICY_VERSION = 1;
+export const CONTEXT_POLICY_VERSION = 2;
 
 /**
  * A context the core issues for one turn, session or wake: a read context (as `groupContext` / `dmContext` /

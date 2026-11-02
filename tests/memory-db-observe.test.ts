@@ -465,7 +465,8 @@ test("telegram: a DM is its own audience, a group is the interface's, an unknown
       visible({ ...dmContext('person:telegram:555', 'telegram', dm.placeId) }).sort(),
       [dm.sourceId, group.sourceId].sort()
     );
-    assert.deepEqual(visible(groupContext('discord')), [], 'another interface sees none of it');
+    // Policy 2 admits group evidence across interfaces while keeping DM and internal evidence private.
+    assert.deepEqual(visible(groupContext('discord')), [group.sourceId]);
     // The place declared a DM stays one: a later envelope that says otherwise is refused, and writes nothing.
     const before = sizes(db);
     assert.deepEqual(

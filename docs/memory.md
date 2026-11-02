@@ -159,17 +159,17 @@ Every content row carries an `audience_id`. A read always names an execution con
 | Audience | Who sees it |
 |---|---|
 | `none` | A row with no source (an unprompted line, a self fact). Visible everywhere |
-| `group(<interface>)` | Visible in any group context of that interface, and in any DM context of that interface |
+| `group(<interface>)` | Visible in every group and ordinary DM context, across interfaces |
 | `dm(<DM place>)` | Visible only in that DM conversation and in the internal context |
 | `internal` | Never shown in an outward context. Used for derived rows whose inputs come from incompatible audiences |
 
-**Contexts a read may name:**
+A group context reads source-free rows and every valid group audience. A DM context also reads its exact `aud:dm:<place>` audience. The groups-only context reads source-free and group rows. A trusted internal context reads everything. An interface name such as `cli` grants no internal access.
 
-- Group context of interface X: reads `none` and `group(X)` rows.
-- DM context with a place: reads `none`, `group(X)` and `dm(this place)` rows.
-- Internal context (her sessions, the owner's CLI): reads everything.
+`src/memory/db/scope.ts` implements this rule in `allowed`, `whereFor`, `allowedAudience` and `audienceWhere`. Compatibility groups require a nonempty interface. Normalized groups require a nonempty `aud:group:` suffix. Both reject literal NUL characters and preserve encoded text such as `%00`. The identifiers retain source provenance. Compatibility DM matching requires both interface and partner, while normalized DM matching requires the exact conversation place. A partner triple cannot distinguish two explicit DM places with that same partner.
 
-**The narrowest-wins rule:** a derived row (a claim revised with evidence from both a group and a DM) takes the narrowest audience of its inputs. Group plus DM of the same interface becomes that DM. Two different DMs or two different interfaces become `internal`. Unknown or malformed provenance becomes `internal`, never `none`.
+A derived row takes the intersection of its inputs' visibility through `narrowest` or `narrowestAudience`. Groups from different interfaces remain group-visible and retain the first group identifier as their stored representative. Any group combined with a DM becomes that DM. Different DM places, internal evidence and malformed provenance produce internal memory. Source-free evidence does not narrow visibility. Session claims, episodes and affinity events use this rule through `src/memory/db/session-write.ts`. Stored internal rows retain their existing audience.
+
+`issueContext` records policy version `2` for newly issued contexts. Existing context rows retain their recorded version. This eligibility rule has no configuration switch and leaves recall ranking and candidate limits unchanged.
 
 ## Writing memory
 
@@ -337,7 +337,7 @@ The graph (`graph_nodes`, `graph_edges`, `node_access`) is entirely derived from
 
 The graph is rebuildable: `scripts/memory-db.ts rebuild` drops and rebuilds it from the typed tables. An edge retired because its source row no longer produces it is history the typed tables do not hold; a rebuild does not bring it back.
 
-Each edge carries the audience of the row it came from. `node_access` holds one witness per (node, audience, evidence): a node with its own audience (a source, a claim) witnesses itself; every live edge witnesses both of its ends. A graph walk follows only edges the context may read.
+Each edge carries the audience of the row it came from. `node_access` holds one witness per (node, audience, evidence): a node with its own audience (a source, a claim) witnesses itself; every live edge witnesses both of its ends. `src/memory/db/graph.ts` applies `audienceWhere` independently to each edge and to node witnesses. A graph walk follows only readable edges and reaches only nodes with a readable witness. A visible node does not expose its private edges.
 
 ## Operations
 
@@ -412,10 +412,9 @@ A read of the persona's memory always names a context (a group of an interface, 
 the class says how a row's visibility in that context is decided.
 
 - **audience-scoped**: the row carries its own audience (`audience_id`, and the scope columns `scope_kind`,
-  `scope_iface`, `scope_dm` that it replaces). A group context of interface I reads `aud:none` and `aud:group:I`; a DM
-  context also reads `aud:dm:<its DM place>`; only the internal context reads `aud:internal`. The groups context of the
-  diary's entry (`groupsContext` in `src/memory/db/scope.ts`) reads `aud:none` and the groups of every interface, no DM
-  and nothing internal.
+  `scope_iface`, `scope_dm` that it replaces). Group and DM contexts read `aud:none` and every valid `aud:group:<interface>`.
+  A DM context also reads `aud:dm:<its DM place>`. Only the trusted internal context reads `aud:internal`. The groups
+  context of the diary's entry (`groupsContext` in `src/memory/db/scope.ts`) reads source-free and group rows.
 - **inherits from &lt;parent&gt;**: the row has no audience of its own and is read only through its parent row, with
   the parent's audience.
 - **internal-only**: never shown in an outward context (a group or a DM); the persona's own bookkeeping.

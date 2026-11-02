@@ -303,16 +303,22 @@ function traversalFixture() {
   return { handle, db, ids, accounts, places, ctx };
 }
 
-const rowIds = (result: Record<string, Untyped>) => result.rows.map((row: Record<string, Untyped>) => row.rowId);
+function rowIds(result: { rows: ReadonlyArray<{ rowId: unknown }> }): Array<string> {
+  return result.rows.map((row) => {
+    assert.ok(typeof row.rowId === 'string', 'a fixture graph row has a text id');
+    return row.rowId;
+  });
+}
 
-test("everything a person said anywhere: accounts verified at the line's time; the private link and the other interface stay out of a group", () => {
+test('everything a person said across interfaces keeps private links out of a group', () => {
   const env = traversalFixture();
   const { db, ids, ctx } = env;
   try {
     const group = saidBy(wrongly(db), ctx.group, 'person:alice');
     assert.deepEqual(
       rowIds(group),
-      [ids.main, ids.inThread, ids.reply],
+      // Policy 2 includes group evidence from every interface while retaining private link checks.
+      [ids.main, ids.inThread, ids.telegram, ids.reply],
       'her main account from the link on; the line before the link is not hers yet'
     );
     assert.equal(group.truncated, false);
@@ -321,7 +327,7 @@ test("everything a person said anywhere: accounts verified at the line's time; t
       !rowIds(group).includes(ids.alt) && !rowIds(group).includes(ids.replyToReply),
       'the alt is linked on DM evidence: invisible in a group'
     );
-    assert.ok(!rowIds(group).includes(ids.telegram), 'the Telegram account is another interface');
+    assert.ok(rowIds(group).includes(ids.telegram), 'group evidence remains eligible across interfaces');
     // The private link's existence does not show either: not from the alt, not from the person.
     const fromAlt = walk(wrongly(db), ctx.group, {
       from: graphNodeId('account', env.accounts.alt),
@@ -337,22 +343,31 @@ test("everything a person said anywhere: accounts verified at the line's time; t
       predicates: ['account_of'],
       direction: 'in',
     });
-    assert.deepEqual(toPerson.rows.map((row) => row.rowId).sort(), ['person:alice', env.accounts.main].sort());
+    assert.deepEqual(
+      toPerson.rows.map((row) => row.rowId).sort(),
+      ['person:alice', env.accounts.main, env.accounts.tg].sort()
+    );
     assert.equal(
       walk(wrongly(db), ctx.group, { from: graphNodeId('place', env.places.dm) }).rows.length,
       0,
       'the DM place is not even a start in a group'
     );
 
-    // The DM sees the private link (and the group lines); Telegram sees only its own; internal sees all.
+    // Policy 2 lets the DM and both group contexts see all group lines. Only the DM sees its private link.
     assert.deepEqual(rowIds(saidBy(wrongly(db), ctx.dm, 'person:alice')), [
       ids.main,
       ids.inThread,
       ids.alt,
+      ids.telegram,
       ids.reply,
       ids.replyToReply,
     ]);
-    assert.deepEqual(rowIds(saidBy(wrongly(db), ctx.telegram, 'person:alice')), [ids.telegram]);
+    assert.deepEqual(rowIds(saidBy(wrongly(db), ctx.telegram, 'person:alice')), [
+      ids.main,
+      ids.inThread,
+      ids.telegram,
+      ids.reply,
+    ]);
     assert.deepEqual(rowIds(saidBy(wrongly(db), ctx.internal, 'person:alice')), [
       ids.main,
       ids.inThread,
@@ -377,11 +392,8 @@ test("what happened in a place: the lines of the place and of every place inside
       rowIds(server).sort(),
       [ids.early, ids.main, ids.inThread, ids.alt, ids.her, ids.reply, ids.replyToReply, ids.cycleA, ids.cycleB].sort()
     );
-    assert.equal(
-      inPlace(wrongly(db), ctx.telegram, places.guild).rows.length,
-      0,
-      'a Discord server is not seen from Telegram'
-    );
+    // Policy 2 makes a group place eligible from any interface.
+    assert.deepEqual(rowIds(inPlace(wrongly(db), ctx.telegram, places.guild)).sort(), rowIds(server).sort());
     assert.deepEqual(rowIds(inPlace(wrongly(db), ctx.dm, places.dm)).sort(), [ids.evidence, ids.privateReply].sort());
     assert.equal(inPlace(wrongly(db), ctx.group, places.dm).rows.length, 0);
   } finally {
@@ -547,13 +559,14 @@ test('re-projection after an edit, a link revocation and a retirement: stale edg
     );
     assert.deepEqual(
       rowIds(saidBy(wrongly(db), ctx.group, 'person:alice')),
-      [],
-      'her main account was her only public one'
+      // Policy 2 retains the other interface's public account after the main link is revoked.
+      [ids.telegram],
+      'the remaining public account keeps its group evidence visible'
     );
     assert.deepEqual(
       rowIds(saidBy(wrongly(db), ctx.dm, 'person:alice')),
-      [ids.alt, ids.replyToReply],
-      'the alt is still hers'
+      [ids.alt, ids.telegram, ids.replyToReply],
+      'the private alt and public foreign account are still hers'
     );
 
     // A retirement: the reply leaves; its edges retire with it, its witness goes, the walks lose it.
@@ -623,6 +636,24 @@ test('re-projection after an edit, a link revocation and a retirement: stale edg
 });
 
 // ---------- version-level evidence and compare-and-set ----------
+
+test('internal traversal opens a retired source without an audience witness while a group cannot', () => {
+  // Catches restricting trusted internal traversal to nodes that still have outward audience witnesses.
+  const env = traversalFixture();
+  const { db, ids, ctx } = env;
+  const node = graphNodeId('source', ids.early);
+  try {
+    handleTx(env, () => {
+      db.prepare('UPDATE sources SET retired_at = ? WHERE id = ?').run(at(70), ids.early);
+      projectRow(wrongly(db), 'sources', { id: ids.early }, { at: at(70) });
+    });
+    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM node_access WHERE node_id = ?', node), 0);
+    assert.deepEqual(rowIds(walk(wrongly(db), ctx.internal, { from: node, maxDepth: 0 })), [ids.early]);
+    assert.deepEqual(rowIds(walk(wrongly(db), ctx.group, { from: node, maxDepth: 0 })), []);
+  } finally {
+    env.handle.close();
+  }
+});
 
 test('claim edits: every new version keeps its sources; a stale base is refused and recorded; a current one or none goes through', () => {
   const handle = openMemoryDb(':memory:');

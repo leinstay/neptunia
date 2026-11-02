@@ -66,6 +66,7 @@ function fixture() {
       native,
       at,
       text,
+      iface = 'discord',
       place = MAIN,
       author = ALICE,
       kind = 'seen',
@@ -77,6 +78,7 @@ function fixture() {
       native: string | number;
       at: number;
       text: string;
+      iface?: string;
       place?: string;
       author?: string;
       kind?: string;
@@ -86,17 +88,18 @@ function fixture() {
       extra?: string | null;
     }) {
       rowid += 1;
-      const id = messageSourceId('discord', native, revision, kind);
+      const id = messageSourceId(iface, native, revision, kind);
       db.prepare(
         `INSERT INTO sources (id, kind, iface, native_id, revision, place_id, author_account, reply_to, occurred_at, recorded_at, text, direct,
-        scope_kind, scope_iface, scope_dm, extra) VALUES (?, ?, 'discord', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
+        scope_kind, scope_iface, scope_dm, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
       ).run(
         id,
         kind,
+        iface,
         String(native),
         revision,
         place,
-        `discord:${author}`,
+        `${iface}:${author}`,
         replyTo,
         new Date(at).toISOString(),
         new Date(at).toISOString(),
@@ -1525,6 +1528,56 @@ test('recall.prefetch reads the database without throwing, and the asker it is g
     const found = await s.recaller.prefetch({ ...s.args, asker: BOB, lanes: [{ kind: 'trigger', text: 'το σπιτι' }] });
     assert.notEqual(found?.status, 'unavailable', 'the database prefetch ran');
     assert.deepEqual(warned, []);
+  } finally {
+    env.done();
+  }
+});
+
+test('recall finds another interface group before a candidate cap without exposing closer private matches', () => {
+  // Catches filtering foreign groups or filling the candidate budget with inaccessible private evidence.
+  const env = fixture();
+  try {
+    for (let i = 0; i < 6; i++)
+      env.say({
+        native: `private-cross-${i}`,
+        at: NOW - i * 60_000,
+        text: 'σπιτι σπιτι σπιτι δασκαλου',
+        place: dmPlaceId('discord', BOB),
+        scope: dmScope(personId('discord', BOB), 'discord'),
+      });
+    env.say({
+      native: 'foreign-group',
+      iface: 'other',
+      at: NOW - 5 * DAY,
+      text: 'ενα σπιτι',
+      place: channelPlaceId('other', 'foreign'),
+      scope: groupScope('other'),
+    });
+    env.stem();
+    fillEnvAudiences(env);
+    const settings = { ...dbSettings({})!, gateShare: 0, candidates: 2, wordPool: 2 };
+    for (const ctx of [groupContext('discord'), dmContext(personId('discord', ALICE), 'discord')]) {
+      const found = search(env.db, {
+        ctx: { ...ctx, audienceColumn: true },
+        plan: plan(['σπιτι']),
+        now: NOW,
+        settings,
+      });
+      assert.deepEqual(ids(found), ['foreign-group']);
+      assert.equal(found.hidden, false, "another person's private matches do not produce a hint");
+    }
+    env.vector('foreign-group', [0.8, 0.6, 0, 0], { scope: groupScope('other') });
+    for (let i = 0; i < 6; i++)
+      env.vector(`private-cross-${i}`, [1, 0, 0, 0], { scope: dmScope(personId('discord', BOB), 'discord') });
+    fillEnvAudiences(env);
+    const meaning = search(env.db, {
+      ctx: { ...groupContext('discord'), audienceColumn: true },
+      plan: plan(['ανυπαρκτο']),
+      now: NOW,
+      settings: { ...settings, minMeaning: 0 },
+      vector: [1, 0, 0, 0],
+    });
+    assert.deepEqual(ids(meaning), ['foreign-group']);
   } finally {
     env.done();
   }

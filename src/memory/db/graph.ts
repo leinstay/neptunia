@@ -25,7 +25,7 @@
 // reply to a retired line) still reaches it: the node is known in that edge's audience, and a reader of its typed row
 // sees that the row is retired.
 //
-// Traversal (a context is required, as for every memory read; scope.ts#audiencesOf gives its audiences)
+// Traversal (a context is required, as for every memory read; scope.ts#audienceWhere filters its audiences)
 //   walk(db, ctx, { from, predicates, direction, maxDepth, maxRows, after })   a recursive CTE over the live edges whose
 //       audience the context may read, to nodes the context may see (a witness in `node_access`), the audience checked
 //       inside the recursion, cycles cut by the path, breadth first in a fixed order (depth, node, path). Returns
@@ -39,7 +39,7 @@
 import { createHash } from 'node:crypto';
 import { log as engineLog } from '../../log.ts';
 import { canonicalKey } from './ids.ts';
-import { AUD_INTERNAL, audienceParts, audiencesOf, dmAudienceId, groupAudienceId } from './scope.ts';
+import { AUD_INTERNAL, audienceParts, audienceWhere, dmAudienceId, groupAudienceId } from './scope.ts';
 import { NODE_KINDS, RELATION_EDGES, UNIT_OF, UNIT_ORDER } from './graph-manifest.ts';
 import { dbOf, transactionOf, asText, isWholeNumber } from './types.ts';
 import type { Connection, Db, Log, Row } from './types.ts';
@@ -928,21 +928,21 @@ export type WalkResult = {
   next: number | null;
 };
 
-/** The audience filter of a context: `{ sql(alias), node(expr), params }` (the internal context reads everything). */
+/** The audience filter of a context: `{ edge(alias), node(expr), edgeParams, nodeParams }` (the internal context reads everything). */
 function filterOf(ctx: Context): {
   edge: (alias: string) => string;
   node: (expr: string) => string;
   edgeParams: Array<string>;
   nodeParams: Array<string>;
 } {
-  const ids = audiencesOf(ctx);
-  if (ids === null) return { edge: () => '1 = 1', node: () => '1 = 1', edgeParams: [], nodeParams: [] };
-  const marks = ids.map(() => '?').join(', ');
+  const edge = audienceWhere(ctx);
+  if (ctx.internal === true) return { edge: () => '1 = 1', node: () => '1 = 1', edgeParams: [], nodeParams: [] };
+  const node = audienceWhere(ctx, 'a');
   return {
-    edge: (alias) => `${alias}.audience_id IN (${marks})`,
-    node: (expr) => `EXISTS (SELECT 1 FROM node_access a WHERE a.node_id = ${expr} AND a.audience_id IN (${marks}))`,
-    edgeParams: ids,
-    nodeParams: ids,
+    edge: (alias) => audienceWhere(ctx, alias).sql,
+    node: (expr) => `EXISTS (SELECT 1 FROM node_access a WHERE a.node_id = ${expr} AND ${node.sql})`,
+    edgeParams: edge.params,
+    nodeParams: node.params,
   };
 }
 
