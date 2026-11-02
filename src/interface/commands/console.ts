@@ -210,12 +210,24 @@ function typed(name: string, args: Readonly<Record<string, unknown>>): string {
 
 /**
  * The answer of a `model set` that neither the key commands nor the `model.set` operation take, or null. An agent's
- * model and effort live in its subharness, checked with one reply there. `--provider` and `--effort` are checked on the
- * role's key, so they need the key commands of `keys.json`.
+ * model and effort live in its subharness, checked with one reply there, and so does the memory writer's with `--via`.
+ * `--provider` and `--effort` are checked on the role's key, so they need the key commands of `keys.json`.
  */
 function modelSetElsewhere(deps: ConsoleDeps, args: Record<string, unknown>): Promise<Answer> | null {
   const typedLine = `/model set ${text(args.role)}`;
   const refuse = (why: string): Promise<Answer> => Promise.resolve({ text: `${typedLine}: ${why}`, status: 'invalid' });
+  if (text(args.via) !== '') {
+    if (args.role !== 'memory')
+      return refuse('only memory takes --via; an agent names its backend with /subharness use');
+    if (text(args.provider) !== '') return refuse('a memory writer through a subharness takes no --provider');
+    if (text(args.model) === '') return refuse('name the model: /model set memory --via <backend> <model>');
+    const given = {
+      backend: args.via,
+      model: args.model,
+      ...(args.effort === undefined ? {} : { effort: args.effort }),
+    };
+    return subharnessCommand(subharnessDeps(deps), 'subharness.memory', given);
+  }
   if (SUBHARNESS_AGENTS.some((agent) => agent === args.role)) {
     if (text(args.provider) !== '') return refuse('an agent takes no --provider');
     if (text(args.model) === '') return refuse('name the model: /model set <agent> <model>');

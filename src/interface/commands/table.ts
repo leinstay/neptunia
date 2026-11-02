@@ -192,19 +192,20 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'model',
-    help: 'the model of every model role: show, set <role> [model] [--provider <slug>] [--effort <level>]',
+    help: 'the model of every model role: show, set <role> [model] [--provider <slug>] [--effort <level>] [--via <backend>]',
     args: [],
     defaultSubcommand: 'show',
     subcommands: [
       sub('show', 'the model of every model role'),
       sub(
         'set',
-        'set the model of one role after one reply from it, with a provider or an effort; an agent runs it through its subharness',
+        'set the model of one role after one reply from it, with a provider or an effort; an agent runs it through its subharness, and memory with --via',
         [
           arg('role', true, MODEL_SET_CHOICES),
           arg('model', false),
           flagArg('provider', false),
           flagArg('effort', false),
+          flagArg('via', false),
         ]
       ),
     ],

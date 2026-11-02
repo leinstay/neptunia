@@ -8,7 +8,7 @@
 // that was refused.
 
 import { matchRoute } from '../llm/openrouter.ts';
-import { EFFORT_LEVELS, REASONING_ROLES, isEffortLevel, roleGroup } from '../llm/roles.ts';
+import { EFFORT_LEVELS, MEMORY_ROLE, REASONING_ROLES, isEffortLevel, roleGroup } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { checkKey, checkRole } from './check.ts';
 import { listRoleModels } from './models.ts';
@@ -74,6 +74,8 @@ export type KeysDeps = {
   saveRoute?(key: string, value: Record<string, unknown>): Promise<void>;
   /** Writes one setting by its dotted path in the local config. */
   saveSetting?(path: string, value: unknown): Promise<void>;
+  /** Returns `role` to its direct path: called after a direct model of `memory` is checked and saved. */
+  directPath?(role: string): void;
 };
 
 /** What a legacy import moved, by name: the answer of the command that triggered it starts with it. */
@@ -376,6 +378,7 @@ export function createKeysCommands(deps: KeysDeps): {
     });
     if (!result.ok) return failed(name, `${checkLine(result)}\nThe model is not saved.`);
     await deps.saveModel(role, model);
+    if (role === MEMORY_ROLE) deps.directPath?.(role);
     const saved = await saveFlags(deps, { role, model, provider, effort });
     return { text: [checkLine(result), `The ${role} model is saved.`, ...saved].join('\n'), status: 'ok' };
   }

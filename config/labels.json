@@ -296,7 +296,7 @@
         "off": "session: off",
         "notConfigured": "session: no key",
         "refused": "session: refused ({code})",
-        "line": "session · {mode} · {sweeps} today · {cap} per scope · last run {outcome} at {at}",
+        "line": "session · {mode} · {path} · {sweeps} today · {cap} per scope · last run {outcome} at {at}",
         "pending": "session · {n} batches waiting for another try · {tries} of {limit} tries"
       }
     },

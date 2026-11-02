@@ -44,6 +44,8 @@ import { concernsMember, isOpen } from '../../intentions/model.ts';
 import { ROLE_KEY_NAME } from '../../llm/openrouter.ts';
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.ts';
 import { estimateMessages } from '../../llm/tokens.ts';
+import { memoryPathText } from '../../subharness/memory-path.ts';
+import type { MemoryPath } from '../../subharness/memory-path.ts';
 import { exportOne } from './export.ts';
 import { SELF_PERSON, nativeOf, shortHash } from './ids.ts';
 import { audienceOf, contextRow, dmContext, groupContext, issueContext, scopeWhere, wellFormed } from './scope.ts';
@@ -1329,6 +1331,8 @@ export type SessionStatus = {
   retryLimit: number;
   last: { outcome: unknown; at: unknown } | null;
   pending: Array<PendingBatch>;
+  /** The writer's path in words (src/subharness/memory-path.ts#memoryPathText): `direct` or `via <backend> <model>`. */
+  path: string;
 };
 
 export function sessionStatus({
@@ -1337,12 +1341,15 @@ export function sessionStatus({
   env,
   prompts,
   now = Date.now(),
+  path = { kind: 'direct' },
 }: {
   db: Db;
   config: Config;
   env: Row | null | undefined;
   prompts: Row | null | undefined;
   now?: number;
+  /** The writer's path; absent is the direct path. */
+  path?: MemoryPath;
 }): SessionStatus {
   const { mode, sweepsPerScopePerDay, retryLimit } = sessionSettings(config);
   const code = refusalOf(config, env, prompts);
@@ -1378,6 +1385,7 @@ export function sessionStatus({
     retryLimit,
     last,
     pending,
+    path: memoryPathText(path),
   };
 }
 
@@ -1928,6 +1936,7 @@ export function memorySessionStatusLine(
   if (status.state === 'refused') return fill(set.refused ?? '', { code: status.code });
   const line = fill(set.line ?? '', {
     mode: status.mode,
+    path: status.path,
     sweeps: status.sweepsToday ?? 0,
     cap: status.sweepsPerDay,
     outcome: status.last?.outcome ?? '-',

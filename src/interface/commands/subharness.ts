@@ -16,6 +16,7 @@ import {
   useBackend,
 } from '../../subharness/control.ts';
 import { answerEnable, startEnable } from '../../subharness/enable-dialog.ts';
+import { memoryPath, memoryPathText, setMemoryPath } from '../../subharness/memory-path.ts';
 import type { EnableDeps, SubharnessAgent, SubharnessResult } from '../../subharness/control.ts';
 import { disableSimulation, enableSimulation, simulationStatus } from '../../simulation/key.ts';
 
@@ -79,6 +80,48 @@ async function agentModel(
   }
 }
 
+/** `subharness.enable`: the check, and in the core the dialog of the agents' models, before the backend is stored. */
+async function enable(
+  deps: EnableDeps,
+  name: string,
+  args: Readonly<Record<string, unknown>>
+): Promise<SubharnessAnswer> {
+  const key = text(args.key);
+  try {
+    if (!deps.asksModels)
+      return answerOf(name, args, await enableSubharness(deps, text(args.backend), key === '' ? undefined : key));
+    const given = text(args.dialogId);
+    const next =
+      given === ''
+        ? await startEnable(deps, text(args.backend), key === '' ? undefined : key)
+        : await answerEnable(deps, given, text(args.answer));
+    return 'dialogId' in next ? next : answerOf(name, args, next);
+  } catch {
+    return failed(name, args, 'the check cannot run here: this core has no backend runner');
+  }
+}
+
+/** `subharness.status`: the backends, every agent's line, and last her memory writer's path. */
+async function statusOf(privateDir: string): Promise<string> {
+  const agents = statusText(await subharnessView(privateDir), agentModels(privateDir), agentPaths(privateDir));
+  return `${agents}\n  memory  ${memoryPathText(memoryPath(privateDir))}`;
+}
+
+/** `subharness.memory`: the memory writer's path through a backend, after one reply on its model and effort. */
+async function memoryWriterPath(
+  deps: EnableDeps,
+  name: string,
+  args: Readonly<Record<string, unknown>>
+): Promise<SubharnessAnswer> {
+  const effort = text(args.effort);
+  try {
+    const result = await setMemoryPath(deps, text(args.backend), text(args.model), effort === '' ? undefined : effort);
+    return answerOf(name, args, result);
+  } catch {
+    return failed(name, args, 'the check cannot run here: this core has no backend runner');
+  }
+}
+
 /**
  * Runs `subharness.<sub>`. `deps` is null while the core has no subharness to give: every command then answers `failed`.
  * A mode change also puts the mode into the agent's unit when `deps.applyMode` is there.
@@ -92,25 +135,11 @@ export async function subharnessCommand(
   const privateDir = deps.privateDir;
   switch (name) {
     case 'subharness.status':
-      return {
-        text: statusText(await subharnessView(privateDir), agentModels(privateDir), agentPaths(privateDir)),
-        status: 'ok',
-      };
-    case 'subharness.enable': {
-      const key = text(args.key);
-      try {
-        if (!deps.asksModels)
-          return answerOf(name, args, await enableSubharness(deps, text(args.backend), key === '' ? undefined : key));
-        const given = text(args.dialogId);
-        const next =
-          given === ''
-            ? await startEnable(deps, text(args.backend), key === '' ? undefined : key)
-            : await answerEnable(deps, given, text(args.answer));
-        return 'dialogId' in next ? next : answerOf(name, args, next);
-      } catch {
-        return failed(name, args, 'the check cannot run here: this core has no backend runner');
-      }
-    }
+      return { text: await statusOf(privateDir), status: 'ok' };
+    case 'subharness.memory':
+      return memoryWriterPath(deps, name, args);
+    case 'subharness.enable':
+      return enable(deps, name, args);
     case 'subharness.model':
       return agentModel(deps, name, args);
     case 'subharness.use':
