@@ -88,7 +88,7 @@
       "mode": "off",
       "maxMessages": 200,
       "minMessages": 5,
-      "minLines": 10,
+      "minLines": 0,
       "batchLines": 30,
       "maxWaitHours": 24,
       "sweepsPerScopePerDay": 24,

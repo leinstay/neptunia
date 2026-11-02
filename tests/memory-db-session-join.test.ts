@@ -80,11 +80,12 @@ const cursorOf = (env: Fixture): unknown =>
 
 // ---------- the join rule ----------
 
-test('settings: minLines 10, batchLines 30, maxWaitHours 24 by default; a wrong value falls back to the default', () => {
+test('settings: no waiting, batchLines 30, maxWaitHours 24 by default; a wrong value falls back to the default', () => {
+  // minLines defaults to 0 on the owner's word of 2026-11-02: a short session is written at once, never held a day.
   const given = sessionSettings({});
-  assert.deepEqual([given.minLines, given.batchLines, given.maxWaitHours], [10, 30, 24]);
+  assert.deepEqual([given.minLines, given.batchLines, given.maxWaitHours], [0, 30, 24]);
   const bad = sessionSettings({ memoryDb: { session: { minLines: -3, batchLines: 'x', maxWaitHours: 0 } } });
-  assert.deepEqual([bad.minLines, bad.batchLines, bad.maxWaitHours], [10, 30, 24]);
+  assert.deepEqual([bad.minLines, bad.batchLines, bad.maxWaitHours], [0, 30, 24]);
   assert.equal(sessionSettings({ memoryDb: { session: { minLines: 0 } } }).minLines, 0, '0 switches waiting off');
 });
 

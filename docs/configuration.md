@@ -221,7 +221,7 @@ Her memory session: she reads new chat lines of one scope and says what she keep
 | `memoryDb.session.mode` | string | `"off"` | `off`: nothing runs. `shadow`: proposed changes are recorded as decisions, nothing applied. `apply`: changes are written to the database | `src/memory/db/describe.ts` |
 | `memoryDb.session.maxMessages` | number | `200` | Lines in one request | `src/memory/db/session.ts` |
 | `memoryDb.session.minMessages` | number | `5` | A scope with fewer new lines waits | `src/memory/db/session.ts` |
-| `memoryDb.session.minLines` | number | `10` | A settled session of this many lines or fewer waits and joins the next batch of its scope. `0` writes every session at once | `src/memory/db/session.ts` |
+| `memoryDb.session.minLines` | number | `0` | A settled session of this many lines or fewer waits and joins the next batch of its scope. `0` writes every session at once | `src/memory/db/session.ts` |
 | `memoryDb.session.batchLines` | number | `30` | Joined lines at which a scope with waiting sessions is written | `src/memory/db/session.ts` |
 | `memoryDb.session.maxWaitHours` | number | `24` | Age of the oldest waiting line at which its scope is written, whatever the size | `src/memory/db/session.ts` |
 | `memoryDb.session.sweepsPerScopePerDay` | number | `24` | Sweeps that reach one scope per UTC day | `src/memory/db/session.ts` |

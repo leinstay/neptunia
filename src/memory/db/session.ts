@@ -107,7 +107,7 @@ const DEFAULTS = Object.freeze({
   everyMinutes: 60,
   reviewsPerDay: 6,
   settleMinutes: 10,
-  minLines: 10,
+  minLines: 0,
   batchLines: 30,
   maxWaitHours: 24,
   since: null,

@@ -86,7 +86,7 @@ export const MEMORY_DB: ReadonlyArray<SchemaEntry> = [
     'key': 'memoryDb.session.minLines',
     'types': ['number'],
     'reader': 'src/memory/db/session.ts',
-    'default': 10,
+    'default': 0,
     'text':
       'A settled session of this many lines or fewer waits and joins the next batch of its scope. `0` writes every session at once',
   },
