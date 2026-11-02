@@ -364,6 +364,7 @@ Settings for the channel route classifier.
 |---|---|---|---|---|
 | `memory.vaultDir` | string | `"vault"` | Directory under `data/` that an older install may have used for copies of deleted memory. Nothing in the engine writes here now; the setting tells `memory.snapshot` where to find it so the vault is skipped when copying | `src/memory/root.ts` |
 | `memory.mainChannelIds` | array | `[]` | Channels where people talk to each other; used for character/style portraits and as the destination for calls from read-only channels. Empty means every channel counts | `src/behavior/elsewhere.ts` |
+| `memory.probeMinutes` | number | `30` | Minutes between two probes of the memory writer's path, one minimal request on the memory key or one one-word reply through the subharness. The probe also runs at core start and right after a refused writer run. A failed probe pauses her with the reason `memory-down`, and the next passing one resumes her. A value that is no positive number counts as 30 | `src/subharness/memory-probe.ts` |
 
 ## `media`
 

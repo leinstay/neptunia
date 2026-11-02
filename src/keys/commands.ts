@@ -8,7 +8,7 @@
 // that was refused.
 
 import { matchRoute } from '../llm/openrouter.ts';
-import { EFFORT_LEVELS, REASONING_ROLES, isEffortLevel, roleGroup } from '../llm/roles.ts';
+import { EFFORT_LEVELS, MEMORY_ROLE, REASONING_ROLES, isEffortLevel, roleGroup } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { checkKey, checkRole } from './check.ts';
 import { listRoleModels } from './models.ts';
@@ -35,12 +35,51 @@ export type Dialog = {
   ): Promise<string>;
 };
 
-/** The core's pause with a reason. `reason()` is null while she runs. */
+/**
+ * The core's pause with a reason. `reason()` is null while she runs, `owner` for a pause the owner gave. `resume` with
+ * a reason lifts the pause only while it is that reason.
+ */
 export type PauseControl = {
   pause(reason: string): Promise<void>;
-  resume(): Promise<void>;
+  resume(reason?: string): Promise<void>;
   reason(): string | null;
 };
+
+/** What `reasonedPause` runs on: the owner's `bot.pause` and `bot.resume` and the state file they write. */
+export type ReasonedPauseDeps = {
+  run(op: 'bot.pause' | 'bot.resume', args: Record<string, unknown>): Promise<unknown>;
+  store: { state: { data: Record<string, unknown>; markDirty(): void }; flush(): void };
+};
+
+/**
+ * The core's pause over the owner's operations: `pause(reason)` pauses her and stores the reason, and does nothing
+ * while she is paused already, so no reason replaces another or the owner's. `resume(reason)` asks `bot.resume` to lift
+ * only a pause of that reason. A pause the owner gives over one of these becomes his (src/tools/impl/pause.ts).
+ */
+export function reasonedPause(deps: ReasonedPauseDeps): PauseControl {
+  const state = () => deps.store.state;
+  const reason = (): string | null => {
+    const { data } = state();
+    if (data.paused !== true) return null;
+    return typeof data.pausedReason === 'string' ? data.pausedReason : 'owner';
+  };
+  return {
+    async pause(why) {
+      if (state().data.paused === true) return;
+      await deps.run('bot.pause', {});
+      state().data.pausedReason = why;
+      state().markDirty();
+      deps.store.flush();
+    },
+    async resume(why) {
+      await deps.run('bot.resume', why === undefined ? {} : { reason: why });
+      const now = reason();
+      if (now !== null && (why === undefined || now === why))
+        throw new Error('she is still paused: run /resume and read its answer');
+    },
+    reason,
+  };
+}
 
 /**
  * One command's answer: the status is `ok`, `invalid` (the line or a name is refused) or `failed` (a check or a save did
@@ -74,6 +113,8 @@ export type KeysDeps = {
   saveRoute?(key: string, value: Record<string, unknown>): Promise<void>;
   /** Writes one setting by its dotted path in the local config. */
   saveSetting?(path: string, value: unknown): Promise<void>;
+  /** Returns `role` to its direct path: called after a direct model of `memory` is checked and saved. */
+  directPath?(role: string): void;
 };
 
 /** What a legacy import moved, by name: the answer of the command that triggered it starts with it. */
@@ -168,7 +209,7 @@ export function createKeysCommands(deps: KeysDeps): {
   /** Lifts the pause the last removal set, and only that one. */
   async function resumeIfNoKey(): Promise<boolean> {
     if (deps.pause.reason() !== NO_CORE_KEY) return false;
-    await deps.pause.resume();
+    await deps.pause.resume(NO_CORE_KEY);
     return true;
   }
 
@@ -376,6 +417,7 @@ export function createKeysCommands(deps: KeysDeps): {
     });
     if (!result.ok) return failed(name, `${checkLine(result)}\nThe model is not saved.`);
     await deps.saveModel(role, model);
+    if (role === MEMORY_ROLE) deps.directPath?.(role);
     const saved = await saveFlags(deps, { role, model, provider, effort });
     return { text: [checkLine(result), `The ${role} model is saved.`, ...saved].join('\n'), status: 'ok' };
   }

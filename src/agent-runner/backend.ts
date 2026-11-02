@@ -34,6 +34,7 @@ import type { RunnerTask, TaskResult } from './protocol.ts';
 import { runAgent } from '../subharness/run.ts';
 import type { RunDeps } from '../subharness/run.ts';
 import { isInstalled, subharnessPlace } from '../subharness/place.ts';
+import type { ChildOutcome, ChildRun } from '../subharness/memory-writer.ts';
 
 export { BACKEND_NAMES };
 export type { BackendName };
@@ -160,7 +161,7 @@ const RECIPES: Readonly<Record<BackendName, Recipe>> = {
 };
 
 /** The environment of a child: the inherited variables the parent has, then `extra`. Nothing else. */
-function childEnvOf(extra: Record<string, string> | undefined): Record<string, string> {
+export function childEnvOf(extra: Record<string, string> | undefined): Record<string, string> {
   const env: Record<string, string> = {};
   for (const name of INHERITED_ENV) {
     const value = process.env[name];
@@ -185,7 +186,7 @@ function findBinary(binary: string): boolean {
 }
 
 /** The number after the last `tokens used` label of codex's output, on the same line or the next, commas dropped. */
-function tokensOf(output: string): number | undefined {
+export function tokensOf(output: string): number | undefined {
   const found = [...output.matchAll(/tokens used:?\s+([\d,]+)/g)].pop();
   if (!found) return undefined;
   const tokens = Number(found[1].replaceAll(',', ''));
@@ -207,13 +208,15 @@ function runChild({
   args,
   stdin,
   options,
+  env,
   spawnImpl,
   tail,
 }: {
   binary: string;
   args: Array<string>;
   stdin: string | undefined;
-  options: BackendRunOptions;
+  options: Pick<BackendRunOptions, 'cwd' | 'timeoutMs' | 'signal'>;
+  env: Record<string, string>;
   spawnImpl: typeof spawn;
   tail: boolean;
 }): Promise<Outcome> {
@@ -222,7 +225,7 @@ function runChild({
     try {
       child = spawnImpl(binary, args, {
         cwd: options.cwd,
-        env: childEnvOf(options.env),
+        env,
         detached: true,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -297,6 +300,30 @@ function errorOf(outcome: Outcome): BackendError | undefined {
 }
 
 /**
+ * The child runner of the memory writer (src/subharness/memory-writer.ts): one run with exactly `run.env`, its own
+ * process group, the group killed when `run.timeoutMs` passes. Resolves, never rejects; `error` says why the child did
+ * not run to its own end (`timeout`, `backend-missing`, `spawn`).
+ */
+export async function runChildProcess(run: ChildRun): Promise<ChildOutcome> {
+  const outcome = await runChild({
+    binary: run.binary,
+    args: run.args,
+    stdin: run.stdin,
+    options: { cwd: run.cwd, timeoutMs: run.timeoutMs },
+    env: run.env,
+    spawnImpl: spawn,
+    tail: true,
+  });
+  const error = errorOf(outcome);
+  return {
+    exitCode: outcome.exitCode,
+    stdout: outcome.stdout,
+    stderr: outcome.stderr,
+    ...(error === undefined ? {} : { error }),
+  };
+}
+
+/**
  * The backend `name`. Throws for a name outside BACKEND_NAMES.
  * @param deps.binary The command: a path, or a name looked up on PATH.
  */
@@ -325,6 +352,7 @@ export function createBackend(name: BackendName, deps: BackendDeps = {}): Backen
           args: recipe.stdin ? args : [...args, brief],
           stdin: recipe.stdin ? brief : undefined,
           options,
+          env: childEnvOf(options.env),
           spawnImpl,
           tail: recipe.tail,
         });

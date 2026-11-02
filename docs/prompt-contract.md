@@ -415,13 +415,14 @@ still search deeper with `memory.search`.
 
 ## Labels
 
-The keys of `config/labels.json`, each at its path under its section (`model.transcript.gap` is read as `transcript.gap`); `{x}` is filled by code. The keys under `status.costs`, `status.inner` and `selfimprovement.check` sit in `owner`, every other key in `model`.
+The keys of `config/labels.json`, each at its path under its section (`model.transcript.gap` is read as `transcript.gap`); `{x}` is filled by code. The keys under `status.costs`, `status.inner`, `status.memorySession` and `selfimprovement.check` sit in `owner`, every other key in `model`.
 
 ```
 locale                                   BCP-47 tag for dates
 status.inner.attentionLine               {open} {listed} {run} {spoken} {skipped} {waiting}: her attention today on the owner's `inner` field (attentions open; attend wakes listed, run, spoken, skipped, waiting on a cap); read by the owner, never sent to a model
 status.inner.tokensLine                  {prompt} {cached} {completion}: the core role's tokens of the day on the owner's `inner` field; left out without a usage row
 status.inner.sleptLine                   {count}: the wakes that slept since the start (they fell due while the core was down or paused, and never ran) on the owner's `inner` field; left out at 0
+status.memorySession.*                   the memory session's line on the owner's status card (src/memory/db/session.ts#memorySessionStatusLine): `off`, `notConfigured`, `refused` ({code}), `line` ({mode} {path} {sweeps} {cap} {outcome} {at}, where {path} is `direct` or `via <backend> <model>` with its effort) and `pending` ({n} {tries} {limit}); read by the owner, never sent to a model
 status.probe                             the user message of the model probe on the owner's status card; must make any model answer one short word. The embedding role is probed with a one-input embedding request of this text instead of a chat completion; when no embedding client is wired the embed line says it was not checked
 status.costs.*                           the costs fields of the owner's status card, `keys.base` (src/tools/impl/usage.ts#keyCostsLines), `costs.base` (#roleCostsLines), and `costs.errands` and `costs.development` (#agentCostsLines); read by the owner, never sent to a model. A missing key leaves its line out. The costs are OpenRouter's reported ones (the upstream cost when the answer carries it): a BYOK request is billed by the provider and shows at OpenRouter's list price
 status.costs.keyLead | simKeyLead        the {lead} of the main key's and of the simulator key's (OPENROUTER_SIM_KEY) lines; each key's limit line is followed by its own usage line

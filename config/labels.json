@@ -291,13 +291,6 @@
       "memoryDb": {
         "unavailable": "db: on, not open",
         "ok": "db · {rows} rows · {files} files"
-      },
-      "memorySession": {
-        "off": "session: off",
-        "notConfigured": "session: no key",
-        "refused": "session: refused ({code})",
-        "line": "session · {mode} · {sweeps} today · {cap} per scope · last run {outcome} at {at}",
-        "pending": "session · {n} batches waiting for another try · {tries} of {limit} tries"
       }
     },
     "draw": {
@@ -971,6 +964,13 @@
         "attentionLine": "attention · {open} open · attend wakes today {listed} listed · {run} run · {spoken} spoken · {skipped} skipped · {waiting} waiting",
         "tokensLine": "core tokens today · {prompt} prompt ({cached} cached) · {completion} completion",
         "sleptLine": "slept through {count} wakes since the start"
+      },
+      "memorySession": {
+        "off": "session: off",
+        "notConfigured": "session: no key",
+        "refused": "session: refused ({code})",
+        "line": "session · {mode} · {path} · {sweeps} today · {cap} per scope · last run {outcome} at {at}",
+        "pending": "session · {n} batches waiting for another try · {tries} of {limit} tries"
       }
     },
     "selfimprovement": {

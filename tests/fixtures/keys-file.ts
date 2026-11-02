@@ -27,6 +27,8 @@ export type KeysFile = {
     efforts?: Record<string, string>;
     /** the backend each agent runs through */
     uses?: Record<string, Backend>;
+    /** the memory writer's subharness path; absent or null is the direct path */
+    memory?: { backend: string; model: string; effort: string | null } | null;
   };
   simulation: { key: string | null };
 };
