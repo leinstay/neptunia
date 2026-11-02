@@ -51,13 +51,13 @@ function rig(options: { result?: BackendResult; status?: number; throws?: boolea
       ran.push({ name, brief });
       return Promise.resolve(options.result ?? REPLY);
     },
-    fetch: ((url: string | URL | Request, init?: RequestInit) => {
+    fetch: (url: string | URL | Request, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
       const href = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
       fetched.push({ url: href, auth: headers.get('authorization') ?? '' });
       if (options.throws === true) return Promise.reject(new Error(`connect failed for ${SECRET}`));
       return Promise.resolve(new Response('{}', { status: options.status ?? 200 }));
-    }) as typeof fetch,
+    },
   };
   return { deps, dir, ran, fetched };
 }

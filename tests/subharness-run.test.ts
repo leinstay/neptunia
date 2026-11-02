@@ -189,7 +189,7 @@ test('a run in full or sudo writes one log line naming the agent and the mode, a
   });
   const lines = logs.filter((line) => line.mode !== undefined);
   assert.deepEqual(
-    lines.map((line) => [line.agent, line.mode]),
+    lines.map((line): [unknown, unknown] => [line.agent, line.mode]),
     [
       ['dev', 'sudo'],
       ['scout', 'full'],
@@ -204,7 +204,7 @@ test('the line is written even when the run fails', async () => {
   await setAgentMode(privateDir, 'dev', 'sudo');
   const failing: RunDeps = {
     ...deps,
-    backendFactory: (name) => ({ name, run: () => Promise.reject(new Error('boom')) }) as unknown as Backend,
+    backendFactory: (name) => ({ name, run: () => Promise.reject(new Error('boom')) }),
   };
   const { logs } = await withCapturedLogs(async () => {
     await runAgent(request('dev'), failing).catch(() => undefined);

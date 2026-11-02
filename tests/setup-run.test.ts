@@ -272,7 +272,7 @@ test('--system writes every unit through sudo install and never writes the unit 
   const unitDir = path.join(base, 'etc-systemd');
   const { options, deps, calls } = rig({ system: true, unitDir });
   const installed = new Map<string, string>();
-  const inner = deps.run;
+  const inner: SetupDeps['run'] = (command, args) => deps.run(command, args);
   const run: SetupDeps['run'] = (command, args) => {
     if (command === 'sudo' && args[0] === 'install') {
       const [source, target] = [args[args.length - 2] ?? '', args[args.length - 1] ?? ''];

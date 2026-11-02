@@ -94,7 +94,7 @@ function rig() {
   const deps: EnableDeps = {
     privateDir: dir,
     runBackend: () => Promise.resolve({ ok: true, text: 'ok', exitCode: 0 }),
-    fetch: (() => Promise.resolve(new Response('{}', { status: 200 }))) as typeof fetch,
+    fetch: () => Promise.resolve(new Response('{}', { status: 200 })),
   };
   return { dir, deps };
 }
@@ -169,7 +169,10 @@ function consoleOver(dir: string, subharness: ConsoleDeps['subharness']) {
 test('the console runs the subharness and simulation commands over its private dir', async () => {
   // Bug: the console falls through to "no such command" for the new names, so the chat cannot change a mode.
   const { dir, deps } = rig();
-  const desk = consoleOver(dir, { runBackend: deps.runBackend, fetch: deps.fetch });
+  const desk = consoleOver(dir, {
+    runBackend: (name, brief) => deps.runBackend(name, brief),
+    fetch: (url, init) => deps.fetch(url, init),
+  });
   assert.equal((await desk.run('subharness.mode', { agent: 'dev', mode: 'full' }, { id: 'owner' })).status, 'ok');
   assert.equal(readKeysFile(dir).subharness.modes.dev, 'full');
   assert.equal((await desk.run('simulation.enable', { key: 'sim' }, { id: 'owner' })).status, 'ok');
