@@ -75,6 +75,14 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'text': 'Per-model provider routing. See the resolution order below',
   },
   {
+    'key': 'llm.reasoningByRole',
+    'types': ['map'],
+    'reader': 'src/llm/roles.ts',
+    'default': {},
+    'text':
+      'The reasoning effort of a role by role name, `{ "effort": "low" }`, `medium` or `high`, sent as `reasoning` on each request of the role that has no reasoning of its own. Read for `memory`, `analyzer`, `vision` and `video`, never for the core. `/model set <role> <model> --effort <level>` writes it',
+  },
+  {
     'key': 'llm.keyByRole',
     'types': ['map'],
     'reader': 'src/core.ts',

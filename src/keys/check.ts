@@ -4,6 +4,7 @@
 // back has it replaced with `***`, and the provider's words are cut. Called by src/keys/commands.ts.
 
 import { apiUrl, openRouterHeaders } from '../llm/openrouter.ts';
+import type { EffortLevel } from '../llm/roles.ts';
 
 export type CheckResult = {
   ok: boolean;
@@ -93,6 +94,10 @@ export async function checkRole(input: {
   keyName: string;
   value: string;
   timeoutMs?: number;
+  /** OpenRouter's provider routing, sent as the body's `provider` */
+  provider?: Record<string, unknown>;
+  /** the reasoning effort, sent as the body's `reasoning` */
+  reasoning?: { effort: EffortLevel };
 }): Promise<CheckResult> {
   const { role, model, keyName, value } = input;
   const failed = (status: number | null, error: string): CheckResult => ({
@@ -111,9 +116,12 @@ export async function checkRole(input: {
     method: 'POST',
     value,
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-    body: embedding
-      ? { model, input: 'ok' }
-      : { model, messages: [{ role: 'user', content: 'Reply with ok.' }], max_tokens: 8 },
+    body: {
+      model,
+      ...(embedding ? { input: 'ok' } : { messages: [{ role: 'user', content: 'Reply with ok.' }], max_tokens: 8 }),
+      ...(input.provider === undefined ? {} : { provider: input.provider }),
+      ...(input.reasoning === undefined || embedding ? {} : { reasoning: input.reasoning }),
+    },
   });
   if (typeof answer === 'string') return failed(null, answer);
   const body = jsonOf(answer.text);

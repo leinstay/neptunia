@@ -3,8 +3,10 @@
 // `npm install --prefix` puts the binary of `claude` and `codex` under `node_modules/.bin/`, and `opencode` is one
 // executable under `bin/`. The home goes to every run (src/agent-runner/backend.ts, `createInstalledBackend`) and to
 // the login the owner types (`neptunia setup subharness`), as the variable each CLI reads its home from. The paths are
-// computed; `isInstalled` is the one look at the disk.
+// computed; `isInstalled` is the one look at the disk, and `helpOfInstalled` the one run of the binary outside an agent
+// run, which reads its `--help` so the effort flag is offered only to a binary that takes it.
 
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { BackendName } from '../agent-runner/profiles.ts';
@@ -94,4 +96,23 @@ export function loginCommand(privateDir: string, backend: BackendName, help?: st
   const assignments = Object.entries(env).map(([name, value]) => `${name}=${shellWord(value)}`);
   const text = [...assignments, shellWord(place.binary), ...args.map(shellWord)].join(' ');
   return { command: place.binary, args: [...args], env, text };
+}
+
+/** How long `--help` may take (ms). */
+const HELP_MS = 10_000;
+
+/** The `--help` output of the installed binary of `backend`, run with its home; rejects when it cannot run. */
+export function helpOfInstalled(privateDir: string, backend: BackendName): Promise<string> {
+  const place = subharnessPlace(privateDir, backend);
+  return new Promise((resolve, reject) => {
+    execFile(
+      place.binary,
+      ['--help'],
+      { timeout: HELP_MS, encoding: 'utf8', env: { PATH: process.env.PATH ?? '', ...place.env } },
+      (error, stdout) => {
+        if (error === null) resolve(stdout);
+        else reject(new Error(`${backend} --help did not run`));
+      }
+    );
+  });
 }

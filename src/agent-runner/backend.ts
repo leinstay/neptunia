@@ -15,6 +15,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { log } from '../log.ts';
+import type { EffortLevel } from '../llm/roles.ts';
 import { errorFields } from '../error-fields.ts';
 import { scalarText } from '../tools/types.ts';
 import {
@@ -58,6 +59,11 @@ export type BackendRunOptions = {
   sandbox?: 'read-only' | 'workspace-write' | 'danger-full-access' | 'none';
   /** the model flag of the backend (`-m`, `--model`); absent runs the backend's own default */
   model?: string;
+  /**
+   * the reasoning effort: codex `-c model_reasoning_effort=<level>`, claude `--effort <level>`, opencode the model
+   * variant `--variant <level>`; absent runs the model's own default
+   */
+  effort?: EffortLevel;
   /** codex: one `-i <path>` each */
   images?: ReadonlyArray<string>;
   /** aborting it kills the process group and answers `cancelled` */
@@ -124,6 +130,7 @@ const RECIPES: Readonly<Record<BackendName, Recipe>> = {
       '-o',
       outFile ?? '',
       ...(options.model === undefined ? [] : ['-m', options.model]),
+      ...(options.effort === undefined ? [] : ['-c', `model_reasoning_effort=${options.effort}`]),
       ...(options.images ?? []).flatMap((image) => ['-i', image]),
       ...(options.search === true ? ['--search'] : []),
     ],
@@ -133,14 +140,22 @@ const RECIPES: Readonly<Record<BackendName, Recipe>> = {
     stdin: true,
     outFile: false,
     tail: false,
-    args: (options) => ['-p', ...(options.model === undefined ? [] : ['--model', options.model])],
+    args: (options) => [
+      '-p',
+      ...(options.model === undefined ? [] : ['--model', options.model]),
+      ...(options.effort === undefined ? [] : ['--effort', options.effort]),
+    ],
   },
   opencode: {
     binary: DEFAULT_OPENCODE_PATH,
     stdin: false,
     outFile: false,
     tail: false,
-    args: (options) => ['run', ...(options.model === undefined ? [] : ['-m', options.model])],
+    args: (options) => [
+      'run',
+      ...(options.model === undefined ? [] : ['-m', options.model]),
+      ...(options.effort === undefined ? [] : ['--variant', options.effort]),
+    ],
   },
 };
 

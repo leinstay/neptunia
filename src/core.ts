@@ -99,6 +99,7 @@ import { configuredInterfaces, drainMs, interfaceEnabled } from './interface/mod
 import { loadPrincipals, principalOfToken } from './interface/principals.ts';
 import { claimCore } from './memory/db/open.ts';
 import { readLocalConfig, setPath, writeLocalConfig } from './tools/impl/shared.ts';
+import { moveConfigKeys } from './config-moves.ts';
 import { createIngestRecord, createRowsByMessage, observingWith } from './memory/db/ingest.ts';
 import { coreSocketPath, listenSocket } from './interface/socket.ts';
 import { MAX_FRAME_BYTES, connectSocket } from './protocol/wire.ts';
@@ -128,7 +129,7 @@ import { createMessageHandler } from './behavior/pipeline.ts';
 import { createLeasedAttention } from './behavior/attention.ts';
 import { RELATIONSHIP_LIMITS } from './memory/text-limits.ts';
 import { createInstalledBackend } from './agent-runner/backend.ts';
-import { isInstalled } from './subharness/place.ts';
+import { helpOfInstalled, isInstalled } from './subharness/place.ts';
 import { deferModeToUnit } from './setup/install.ts';
 import { REPLY_CHECK_MS } from './subharness/control.ts';
 import { objOf } from './tools/types.ts';
@@ -590,6 +591,12 @@ async function buildCore(
     if (ifaces.length > 1)
       fail(`index: clients.json names interfaces of ${ifaces.length} namespaces; the core serves one.`);
     identity.iface = ifaces[0] ?? '';
+  }
+  // One setting of the private settings file, its keys of an old name settled first (src/config-moves.ts), then reloaded.
+  function writeLocalSetting(parts: ReadonlyArray<string>, value: unknown): void {
+    const file = localConfigPath(paths.privateDir);
+    writeLocalConfig(file, setPath(moveConfigKeys(readLocalConfig(file)).config, parts, value));
+    settings.reloadConfig();
   }
   // The owner's switch of each interface (interfaces.<name>.enabled), written to the private settings file and reloaded,
   // as the owner commands write it (src/tools/impl/env.ts#editLocalConfig).
@@ -1304,6 +1311,17 @@ async function buildCore(
     saveModel: async (role, model) => {
       await ownerOp('model.set', { role, id: model });
     },
+    // `/model set --provider` and `--effort` write the local config directly: the route key holds dots and `@`, and
+    // `llm.reasoningByRole.<role>` is absent until its first write, so neither fits `config.set`.
+    routes: () => objOf(objOf(hot.config).llm).providerByModel as Readonly<Record<string, unknown>>,
+    saveRoute: (key, value) => {
+      writeLocalSetting(['llm', 'providerByModel', key], value);
+      return Promise.resolve();
+    },
+    saveSetting: (dotted, value) => {
+      writeLocalSetting(dotted.split('.'), value);
+      return Promise.resolve();
+    },
     pause: {
       async pause(reason) {
         const wasPaused = store.state.data.paused === true;
@@ -1350,13 +1368,15 @@ async function buildCore(
       subharness: {
         asksModels: true,
         isInstalled: (backend) => isInstalled(paths.privateDir, backend),
-        runBackend: (backend, brief, model) =>
+        runBackend: (backend, brief, model, effort) =>
           createInstalledBackend(backend, paths.privateDir).run(brief, {
             cwd: os.tmpdir(),
             timeoutMs: REPLY_CHECK_MS,
             sandbox: 'read-only',
             ...(model === undefined ? {} : { model }),
+            ...(effort === undefined ? {} : { effort }),
           }),
+        helpOf: (backend) => helpOfInstalled(paths.privateDir, backend),
         fetch,
         get baseUrl() {
           const base = objOf(objOf(hot.config).llm).baseUrl;

@@ -23,6 +23,8 @@ export type KeysFile = {
     key: string | null;
     modes: Record<string, string>;
     models?: Record<string, string>;
+    /** the effort each agent runs at */
+    efforts?: Record<string, string>;
     /** the backend each agent runs through */
     uses?: Record<string, Backend>;
   };
