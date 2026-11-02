@@ -76,8 +76,16 @@ type ShellClass = {
   path: ReadonlyArray<string>;
 };
 
-/** The keys every profile.json carries. */
+/** The backends an agent can run on: `codex exec`, `claude -p` or OpenCode (src/agent-runner/backend.ts). */
+export const BACKEND_NAMES = ['codex', 'claude', 'opencode'] as const;
+
+/** One of BACKEND_NAMES. */
+export type BackendName = (typeof BACKEND_NAMES)[number];
+
+/** The keys every profile.json carries, and `backend`, which it may carry. */
 type CommonDefinition = {
+  /** the backend this agent runs on; absent means `errands.backend` */
+  backend?: BackendName;
   id: string;
   role: string;
   prompt: string | null;
@@ -99,6 +107,8 @@ export type WorkerDefinition = Readonly<
     socket: string;
     out: string;
     env: ReadonlyArray<string>;
+    /** true: the codex backend runs the agent with live web search */
+    search?: boolean;
   }
 >;
 
@@ -158,6 +168,7 @@ export type Profile = {
   defaultSearchProvider: string | null;
   defaultSocket: string;
   defaultOut: string;
+  search: boolean;
   buildConfig: (options?: BuildConfigOptions) => OpenCodeConfig;
 };
 
@@ -846,6 +857,9 @@ function permissionFor(
 /** The keys every profile carries, whatever its kind. */
 const COMMON_KEYS = Object.freeze(['id', 'kind', 'role', 'prompt', 'override', 'description']);
 
+/** The keys a profile may carry and need not: `backend` for every kind, `search` for a worker. */
+const OPTIONAL_KEYS = Object.freeze({ common: Object.freeze(['backend']), worker: Object.freeze(['search']) });
+
 /** The keys only a worker carries (a consultation naming one is refused as an unknown key). */
 const WORKER_KEYS = Object.freeze([
   'tools',
@@ -1064,6 +1078,19 @@ function checkAbsolute(agent: string, key: string, value: unknown): void {
     throw new AgentProfileError(agent, key, 'must be an absolute path');
 }
 
+/** The optional keys a profile of `kind` may carry. */
+function optionalKeysOf(kind: string): ReadonlyArray<string> {
+  return kind === 'worker' ? [...OPTIONAL_KEYS.common, ...OPTIONAL_KEYS.worker] : OPTIONAL_KEYS.common;
+}
+
+/** Checks the optional keys when present: `backend` is one of BACKEND_NAMES, `search` true or false. */
+function checkOptional(agent: string, raw: Record<string, unknown>): void {
+  if (Object.hasOwn(raw, 'backend') && !isOneOf(BACKEND_NAMES, raw.backend))
+    throw new AgentProfileError(agent, 'backend', `must be one of ${BACKEND_NAMES.join(', ')}`);
+  if (Object.hasOwn(raw, 'search') && typeof raw.search !== 'boolean')
+    throw new AgentProfileError(agent, 'search', 'must be true or false');
+}
+
 /**
  * Validates the parsed `profile.json` of the agent in folder `agent`: every key of its kind
  * present, no other key, each value of the right form; for a worker the shell class one this
@@ -1079,8 +1106,9 @@ function validateProfile(agent: string, raw: unknown) {
   const worker = raw.kind === 'worker';
   const development = raw.kind === 'development';
   const keys = KEYS_BY_KIND[raw.kind];
+  const allowed = [...keys, ...optionalKeysOf(raw.kind)];
   for (const key of Object.keys(raw)) {
-    if (!keys.includes(key))
+    if (!allowed.includes(key))
       throw new AgentProfileError(
         agent,
         key,
@@ -1093,6 +1121,7 @@ function validateProfile(agent: string, raw: unknown) {
     if (!Object.hasOwn(raw, key)) throw new AgentProfileError(agent, key, 'missing');
   }
 
+  checkOptional(agent, raw);
   if (raw.id !== agent) throw new AgentProfileError(agent, 'id', 'must be the folder name');
   if (!ID_PATTERN.test(agent)) throw new AgentProfileError(agent, 'id', 'must be lowercase letters, digits and dashes');
   const roles = development ? DEVELOPMENT_ROLES : OPENCODE_ROLES;
@@ -1218,6 +1247,8 @@ function makeProfile(
     // Where the runner listens and writes its files when `agents.<profile>.socket` / `.out` are unset.
     defaultSocket: definition.socket,
     defaultOut: definition.out,
+    // Whether the codex backend runs it with live web search (`codex exec --search`).
+    search: definition.search === true,
     /**
      * The OpenCode config (V1 shape) for one task, to pass as
      * OPENCODE_CONFIG_CONTENT. `providerModel` is `provider/model`; `cost`
@@ -1349,6 +1380,12 @@ export function agentSettings(name: unknown, config: unknown): AgentSettings | n
     out[key] = unusablePath || !Object.hasOwn(override, key) ? profile[key] : overlaid(profile[key], value);
   }
   return out as AgentSettings;
+}
+
+/** The `backend` the tracked profile of `name` names, or undefined (no profile, or none named). */
+export function profileBackend(name: unknown): BackendName | undefined {
+  const profile = typeof name === 'string' && Object.hasOwn(DEFINITIONS, name) ? DEFINITIONS[name] : undefined;
+  return BACKEND_NAMES.find((known) => known === profile?.backend);
 }
 
 /** The profiles of this engine's `agents/` folder, by name, loaded once at import. */

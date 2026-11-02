@@ -11,6 +11,7 @@
   "limits": { "steps": 25, "seconds": 300 },
   "daily": { "tasks": 40 },
   "searchProvider": "exa",
+  "search": true,
   "socket": "/run/neptunia-agent-scout/sock",
   "out": "/var/lib/neptunia-agent-scout/out",
   "env": ["OPENROUTER_ERRAND_KEY", "OPENCODE_WEBSEARCH_KEY", "PROXY_URL"],

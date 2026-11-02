@@ -379,6 +379,13 @@
       "test": "none"
     },
     {
+      "path": "src/agent-runner/backend.ts",
+      "purpose": "The agent backends: `codex exec`, `claude -p` and OpenCode behind one interface, the choice between them, and the task engine of a runner. Tested by `tests/agent-backend-*.test.ts`, one file per concern.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/error-fields.ts",
       "purpose": "Reads the fields the engine looks at on a thrown value, `name`, `code` and `statusCode` among them, without a check at every use. Tested through the clients that read it.",
       "layer": "public",
@@ -436,7 +443,7 @@
     },
     {
       "path": "src/agent-runner/",
-      "purpose": "The process that works errands: the socket server, the profiles, the OpenCode driver and the sweep.",
+      "purpose": "The process that works errands: the socket server, the profiles, the backends (codex, claude, OpenCode) and the sweep.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"

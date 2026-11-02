@@ -70,7 +70,8 @@ import readline from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { createRunnerServer } from '../src/agent-runner/server.ts';
-import { DEFAULT_OPENCODE_PATH, createOpencodeRunner } from '../src/agent-runner/opencode.ts';
+import { DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.ts';
+import { backendOf, createAgentEngine } from '../src/agent-runner/backend.ts';
 import { agentSettings, profileOf } from '../src/agent-runner/profiles.ts';
 import type { RunnerTask } from '../src/agent-runner/protocol.ts';
 import { startSweeper } from '../src/agent-runner/sweep.ts';
@@ -915,7 +916,9 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
     }
     return config;
   };
-  const engine = createOpencodeRunner({
+  const backend = backendOf(name, config);
+  const engine = createAgentEngine({
+    backend,
     profile,
     outDir,
     env: process.env,
@@ -947,7 +950,7 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
     liveIds(): Array<string>;
   };
   await server.start();
-  log.info('agent-runner: ready', { profile: name, socket: socketPath, out: outDir, opencode: opencodePath });
+  log.info('agent-runner: ready', { profile: name, socket: socketPath, out: outDir, backend, opencode: opencodePath });
   const sweeper = startSweeper({
     profile: name,
     outDir,
