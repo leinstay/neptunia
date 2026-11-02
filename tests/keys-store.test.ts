@@ -142,3 +142,59 @@ test('a folder with no keys.json lists nothing and holds no key', () => {
   assert.equal(store.valueOf('core-1'), null);
   assert.equal(fs.existsSync(file), false, 'reading creates no file');
 });
+
+// `setGrant` (spec 2026-11-02, follow-up 4): the grant of a stored core key changes without its value being typed again.
+
+test('setting a grant on a core key keeps its value and its place in the list', () => {
+  // Catches: the grant is set by removing and re-adding the key, which moves it off the primary place or loses the value.
+  const { store } = setup();
+  store.addCore({ name: 'core-1', value: SECRET });
+  store.addCore({ name: 'core-2', value: SECRET_2 });
+  store.setGrant('core-1', { grant: 150, resetDay: 9 });
+  assert.deepEqual(store.list().core, [
+    { name: 'core-1', last4: 'WXYZ', grant: 150, resetDay: 9 },
+    { name: 'core-2', last4: 'ABCD', grant: null, resetDay: null },
+  ]);
+  assert.equal(store.valueOf('core-1'), SECRET);
+});
+
+test('a null grant clears the grant and the reset day together', () => {
+  // Catches: clearing leaves the reset day behind, and the week line counts a grant of zero dollars.
+  const { store } = setup();
+  store.addCore({ name: 'core-1', value: SECRET, grant: 200, resetDay: 22 });
+  store.setGrant('core-1', null);
+  assert.deepEqual(store.list().core[0], { name: 'core-1', last4: 'WXYZ', grant: null, resetDay: null });
+});
+
+test('a grant for an extra key or an unknown name is unknown-key, and a reset day of 32 is bad-grant; nothing is written', () => {
+  // Catches: a grant lands on an extra key the failover never uses, or a day no month has is saved.
+  const { store, file } = setup();
+  store.addCore({ name: 'core-1', value: SECRET, grant: 200, resetDay: 22 });
+  store.addExtra({ name: 'sim', value: SECRET_3 });
+  const before = fs.readFileSync(file, 'utf8');
+  const codeOf = (fn: () => void): string | null => {
+    try {
+      fn();
+      return null;
+    } catch (err) {
+      return err instanceof KeysError ? err.code : 'other';
+    }
+  };
+  assert.equal(
+    codeOf(() => store.setGrant('sim', { grant: 10, resetDay: 1 })),
+    'unknown-key'
+  );
+  assert.equal(
+    codeOf(() => store.setGrant('core-9', { grant: 10, resetDay: 1 })),
+    'unknown-key'
+  );
+  assert.equal(
+    codeOf(() => store.setGrant('core-1', { grant: 10, resetDay: 32 })),
+    'bad-grant'
+  );
+  assert.equal(
+    codeOf(() => store.setGrant('core-1', { grant: -1, resetDay: 1 })),
+    'bad-grant'
+  );
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});

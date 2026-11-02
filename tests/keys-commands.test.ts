@@ -306,3 +306,63 @@ test('the table parses the keys commands to the names and arguments the commands
   for (const line of ['/keys', '/keys bind drawing', '/keys check', '/keys core add'])
     assert.equal(refused(line), true, `${line} is refused with a reason`);
 });
+
+// `keys core grant <name> <usd> <day>` and `keys core grant <name> none` (spec 2026-11-02, follow-up 4): the grant of a
+// stored core key changes with no value asked for and none shown.
+
+/** A dialog that fails the test when it is asked anything. */
+const silentDialog = {
+  ask: (question: string): Promise<string> => Promise.reject(new Error(`asked: ${question}`)),
+};
+
+test('the table parses keys core grant with a day, and with none', () => {
+  // Catches: the line falls through to "no subcommand" and the owner cannot change a grant from the chat.
+  const parsed = (line: string) => {
+    const result = parseCommandLine(line);
+    return result.ok ? { name: result.name, args: result.args } : result.reason;
+  };
+  assert.deepEqual(parsed('/keys core grant core-1 200 22'), {
+    name: 'keys.core.grant',
+    args: { name: 'core-1', usd: '200', day: '22' },
+  });
+  assert.deepEqual(parsed('/keys core grant core-1 none'), {
+    name: 'keys.core.grant',
+    args: { name: 'core-1', usd: 'none' },
+  });
+});
+
+test('keys core grant sets the grant and reset day of a stored key without asking for its value', async () => {
+  // Catches: the command asks for the key again, or saves the grant under the wrong key.
+  const { keys, store } = rig();
+  store.addCore({ name: 'core-1', value: SECRET });
+  const answer = await keys.run('keys.core.grant', { name: 'core-1', usd: '200', day: '22' }, silentDialog);
+  assert.equal(answer.status, 'ok');
+  assert.deepEqual(store.list().core[0], { name: 'core-1', last4: 'WXYZ', grant: 200, resetDay: 22 });
+  assert.equal(answer.text.includes('SECRETVALUE'), false);
+});
+
+test('keys core grant with none clears the grant', async () => {
+  // Catches: "none" is read as a number, fails, and an old grant can never be taken off a key.
+  const { keys, store } = rig();
+  store.addCore({ name: 'core-1', value: SECRET, grant: 200, resetDay: 22 });
+  const answer = await keys.run('keys.core.grant', { name: 'core-1', usd: 'none' }, silentDialog);
+  assert.equal(answer.status, 'ok');
+  assert.deepEqual(store.list().core[0], { name: 'core-1', last4: 'WXYZ', grant: null, resetDay: null });
+});
+
+test('keys core grant refuses a missing day, a bad amount and an unknown key, and changes nothing', async () => {
+  // Catches: a grant without a reset day is saved, and the week line divides by a day that does not exist.
+  const { keys, store } = rig();
+  store.addCore({ name: 'core-1', value: SECRET, grant: 200, resetDay: 22 });
+  for (const args of [
+    { name: 'core-1', usd: '150' },
+    { name: 'core-1', usd: 'lots', day: '3' },
+    { name: 'core-1', usd: '150', day: '0' },
+    { name: 'core-9', usd: '150', day: '3' },
+  ]) {
+    const answer = await keys.run('keys.core.grant', args, silentDialog);
+    assert.equal(answer.status, 'invalid', JSON.stringify(args));
+    assert.equal(answer.text.includes('SECRETVALUE'), false);
+  }
+  assert.deepEqual(store.list().core[0], { name: 'core-1', last4: 'WXYZ', grant: 200, resetDay: 22 });
+});

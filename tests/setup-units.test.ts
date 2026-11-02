@@ -186,3 +186,45 @@ test('the core unit of a user install does not name the bot unit it conflicts wi
   // Bug: Conflicts=neptunia-bot.service in a unit set that has no such unit makes systemd warn on every start.
   assert.deepEqual(valuesOf(renderUnit(template('neptunia-core.service'), 'user', VARS), 'Conflicts'), []);
 });
+
+// The core and the watcher find the subharness backend (spec 2026-11-02, follow-up 6): their units carry the PATH of
+// the installing user's own tools and may write the backend's home, so the enable check and the watcher's run reach
+// the binary and its login.
+
+const CORE_AND_WATCHER = ['neptunia-core.service', 'neptunia-watcher.service'];
+
+/** The folders of the unit's `Environment=PATH=` line. */
+const pathDirsOf = (text: string): Array<string> =>
+  (valuesOf(text, 'Environment').find((one) => one.startsWith('PATH=')) ?? '').slice(5).split(':').filter(Boolean);
+
+/** The folders the unit's `ReadWritePaths=` lines name, a leading `-` taken off. */
+const writableOf = (text: string): Array<string> =>
+  valuesOf(text, 'ReadWritePaths')
+    .flatMap((one) => one.split(/\s+/))
+    .map((one) => one.replace(/^-/, ''));
+
+for (const scope of ['user', 'system'] as const) {
+  test(`${scope} core and watcher units put the user's ~/.local/bin and the node's folder on PATH`, () => {
+    // Catches: codex installed under ~/.local/bin is not found by the core's enable check or the watcher's run.
+    for (const name of CORE_AND_WATCHER) {
+      const dirs = pathDirsOf(renderUnit(template(name), scope, { ...VARS, backend: 'codex' }));
+      assert.ok(dirs.includes(`${VARS.home}/.local/bin`), name);
+      assert.ok(dirs.includes(path.dirname(VARS.node)), name);
+      assert.ok(dirs.includes('/usr/bin'), name);
+    }
+  });
+}
+
+test('the core may write the home of the backend that is on: ~/.codex for codex, ~/.claude for claude, none for none', () => {
+  // Catches: ProtectSystem=strict leaves the backend's home read-only and every run fails writing its session, or a
+  // deployment without the subharness gets a ReadWritePaths of a folder that does not exist and the unit fails.
+  const core = (backend: 'codex' | 'claude' | null): string =>
+    renderUnit(template('neptunia-core.service'), 'user', { ...VARS, backend });
+  assert.ok(writableOf(core('codex')).includes(`${VARS.home}/.codex`));
+  assert.ok(writableOf(core('claude')).includes(`${VARS.home}/.claude`));
+  assert.equal(writableOf(core('claude')).includes(`${VARS.home}/.codex`), false);
+  for (const name of CORE_AND_WATCHER) {
+    const text = renderUnit(template(name), 'user', { ...VARS, backend: null });
+    assert.equal(text.includes('/.codex') || text.includes('/.claude'), false, name);
+  }
+});

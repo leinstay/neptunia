@@ -57,6 +57,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
+import { CHECK_PURPOSE, DRAFT_PURPOSE, reviewRefusal } from '../src/memory/db/describe.ts';
+import { createKeyRing } from '../src/keys/ring.ts';
+import type { KeyRing } from '../src/keys/ring.ts';
+import { createKeyStore } from '../src/keys/store.ts';
+import { createKeyFailover } from '../src/llm/key-failover.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 test('the memory role: its own model key, its own key variable, no other key stands in', async () => {
   assert.deepEqual(roleConfigKeys(MEMORY_ROLE), ['models', 'base', 'memory']);
@@ -1982,4 +1988,73 @@ test('a batch whose request would pass the request cap is cut to its first lines
   } finally {
     env.done();
   }
+});
+
+// The memory key from the key store (spec 2026-11-02, follow-up 1): once keys.json exists, the memory session goes out
+// on the key `memory` is bound to, else the core list, like every other role; `llm.keyByRole.memory` and `.env` only
+// count on a deployment without the store.
+
+/** A key ring over a fresh keys.json in a temp folder, with `fill` run on its store first. */
+function ringWith(fill: (store: ReturnType<typeof createKeyStore>) => void): KeyRing {
+  const store = createKeyStore({ privateDir: tempDir('memory-ring-') });
+  fill(store);
+  return createKeyRing({ store, failover: createKeyFailover({ now: () => NOW }) });
+}
+
+const reviewPrompts = { ...prompts, [DRAFT_PURPOSE]: 'DRAFT', [CHECK_PURPOSE]: 'CHECK' };
+
+test('with a key store and no memory variable in .env, the memory session runs on the core key in use', () => {
+  // Catches: the session stays not_configured after the deploy because it still looks for llm.keyByRole.memory in .env.
+  const ring = ringWith((store) => store.addCore({ name: 'core-1', value: 'v-core-0001' }));
+  const config = baseConfig({}, { llm: {} });
+  assert.deepEqual(memoryKeyState(config, {}, ring), { ok: true, name: 'core-1' });
+  assert.equal(refusalOf(config, {}, prompts, ring), null);
+});
+
+test('with a key store the memory role bound to an extra key is named by that key', () => {
+  // Catches: a binding of the memory role is ignored and the state names a core key it does not go out on.
+  const ring = ringWith((store) => {
+    store.addCore({ name: 'core-1', value: 'v-core-0001' });
+    store.addExtra({ name: 'mem-own', value: 'v-mem-0002' });
+    store.bind('memory', 'mem-own');
+  });
+  assert.deepEqual(memoryKeyState(baseConfig(), {}, ring), { ok: true, name: 'mem-own' });
+});
+
+test('with an empty key store the session refuses even when .env still holds the memory variable', () => {
+  // Catches: the old .env variable keeps the session alive on a deployment whose store has no key at all.
+  const ring = ringWith(() => undefined);
+  const env = { OPENROUTER_MEMORY_KEY: 'v-env-0003' };
+  assert.deepEqual(memoryKeyState(baseConfig(), env, ring), { ok: false, name: null });
+  assert.equal(refusalOf(baseConfig(), env, prompts, ring), CODES.NOT_CONFIGURED);
+});
+
+test('the description review follows the key store the same way as the sweep', () => {
+  // Catches: the sweep runs on the store while the review still refuses not_configured for want of a .env variable.
+  const empty = ringWith(() => undefined);
+  const full = ringWith((store) => store.addCore({ name: 'core-1', value: 'v-core-0001' }));
+  const config = baseConfig({}, { llm: {} });
+  assert.equal(reviewRefusal(config, {}, reviewPrompts, full), null);
+  assert.equal(reviewRefusal(baseConfig(), { OPENROUTER_MEMORY_KEY: 'v' }, reviewPrompts, empty), CODES.NOT_CONFIGURED);
+});
+
+// scripts/memory-session.ts (spec 2026-11-02, follow-up 9): the tool hands the simulation's key to the session under a
+// slot name the key check of src/llm/role-keys.ts accepts, so a sweep of the tool is not refused not_configured.
+
+test('the memory-session tool names its key slot so that the session finds the simulation key', async () => {
+  // Catches: the slot MEMORY_SESSION_KEY fails the ^OPENROUTER_ check, and every sweep of the tool is refused not_configured.
+  const { sessionKeyWiring } = await import('../scripts/memory-session.ts');
+  const { config, env } = sessionKeyWiring(baseConfig({}, { llm: { maxRequestTokens: 50000 } }), 'v-sim-0005');
+  const state = memoryKeyState(config, env);
+  assert.equal(state.ok, true);
+  assert.equal(env[state.name ?? ''], 'v-sim-0005');
+  assert.equal(refusalOf(config, env, prompts), null);
+  assert.equal((config.llm as { maxRequestTokens?: number }).maxRequestTokens, 50000, 'the live llm settings stay');
+});
+
+test('the memory-session tool with a blank simulation key still refuses not_configured', async () => {
+  // Catches: the wiring fills the slot with a placeholder, and a sweep goes out with no key at all.
+  const { sessionKeyWiring } = await import('../scripts/memory-session.ts');
+  const { config, env } = sessionKeyWiring(baseConfig(), '');
+  assert.equal(refusalOf(config, env, prompts), CODES.NOT_CONFIGURED);
 });

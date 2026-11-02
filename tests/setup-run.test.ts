@@ -7,9 +7,9 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { SETUP_STEPS, SetupUsageError, parseSetupArgs, runSetup } from '../src/setup/run.ts';
+import { SETUP_STEPS, SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/run.ts';
 import type { RunResult, SetupDeps, SetupOptions } from '../src/setup/run.ts';
-import { UNIT_FILES } from '../src/setup/units.ts';
+import { SELFDEV_UNIT_FILES, UNIT_FILES } from '../src/setup/units.ts';
 import { keysPath, readKeysFile } from './fixtures/keys-file.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
@@ -325,4 +325,113 @@ test('neptunia setup with an unknown option exits 2 and creates nothing', () => 
   });
   assert.equal(run.status, 2);
   assert.deepEqual(fs.readdirSync(dir), []);
+});
+
+// The node path the units name (spec 2026-11-02, follow-up 6): the node setup was started with, as typed or found on
+// PATH and never resolved through a link, so a symlinked /opt/node stays a link; `--node <path>` overrides it.
+
+test('parseSetupArgs takes --node with an absolute path, beside --system and a step', () => {
+  // Catches: --node is refused as an unknown option, so a deployment cannot name its node by hand.
+  assert.deepEqual(parseSetupArgs(['--node', '/opt/node/bin/node']), { system: false, node: '/opt/node/bin/node' });
+  assert.deepEqual(parseSetupArgs(['--system', '--node', '/usr/bin/node', 'units']), {
+    system: true,
+    only: 'units',
+    node: '/usr/bin/node',
+  });
+});
+
+test('parseSetupArgs refuses --node with no value or with a relative path', () => {
+  // Catches: a relative node path lands in ExecStart, which systemd refuses, or --node swallows the step name.
+  for (const bad of [['--node'], ['--node', 'bin/node'], ['--node', '--system']])
+    assert.throws(() => parseSetupArgs(bad), SetupUsageError, bad.join(' '));
+});
+
+test('nodeOf finds a bare node on PATH and keeps the link folder, not its target', () => {
+  // Catches: process.execPath resolves /opt/node to /opt/node-v26.1, and the next node upgrade leaves the units on the old one.
+  const base = tempDir('nep-node-');
+  const real = path.join(base, 'node-v26.1', 'bin');
+  fs.mkdirSync(real, { recursive: true });
+  fs.writeFileSync(path.join(real, 'node'), '', { mode: 0o755 });
+  fs.symlinkSync(path.join(base, 'node-v26.1'), path.join(base, 'node'));
+  const linked = path.join(base, 'node', 'bin');
+  const found = nodeOf({
+    argv0: 'node',
+    execPath: path.join(real, 'node'),
+    pathEnv: [path.join(base, 'empty'), linked, '/usr/bin'].join(':'),
+  });
+  assert.equal(found, path.join(linked, 'node'));
+});
+
+test('nodeOf takes --node over everything, and an absolute argv0 as it is', () => {
+  // Catches: the override is ignored when node is also on PATH, or an absolute argv0 is resolved.
+  assert.equal(
+    nodeOf({ given: '/srv/node/bin/node', argv0: '/opt/node/bin/node', execPath: '/x/node', pathEnv: '/usr/bin' }),
+    '/srv/node/bin/node'
+  );
+  assert.equal(
+    nodeOf({ argv0: '/opt/node/bin/node', execPath: '/opt/node-v26.1/bin/node', pathEnv: '' }),
+    '/opt/node/bin/node'
+  );
+});
+
+test('nodeOf falls back to execPath when argv0 is bare and not on PATH, or PATH is unset', () => {
+  // Catches: ExecStart becomes the bare word node, which systemd does not look up.
+  const empty = tempDir('nep-node-');
+  assert.equal(
+    nodeOf({ argv0: 'node', execPath: '/opt/node-v26.1/bin/node', pathEnv: empty }),
+    '/opt/node-v26.1/bin/node'
+  );
+  assert.equal(
+    nodeOf({ argv0: 'node', execPath: '/opt/node-v26.1/bin/node', pathEnv: undefined }),
+    '/opt/node-v26.1/bin/node'
+  );
+});
+
+// The selfdev units (spec 2026-11-02, follow-up 7): setup renders neptunia-selfdev.service and its timer only when
+// `selfdev.checkout` names a dev checkout, so the beat never runs on the deployed checkout.
+
+/** Writes `selfdev` into the private layer's config.local/config.json before setup runs. */
+function withSelfdev(privateDir: string, selfdev: Record<string, unknown>): void {
+  fs.mkdirSync(path.join(privateDir, 'config.local'), { recursive: true });
+  fs.writeFileSync(path.join(privateDir, 'config.local', 'config.json'), JSON.stringify({ selfdev }));
+}
+
+const unitValues = (text: string, key: string): Array<string> =>
+  text
+    .split('\n')
+    .filter((line) => line.startsWith(`${key}=`))
+    .map((line) => line.slice(key.length + 1));
+
+test('setup writes no selfdev unit while selfdev.checkout is unset', async () => {
+  // Catches: the beat is installed on every deployment and works on the deployed checkout itself.
+  const { options, deps, unitDir } = rig();
+  await runSetup({ ...options, only: 'units' }, deps);
+  for (const name of SELFDEV_UNIT_FILES) assert.equal(fs.existsSync(path.join(unitDir, name)), false, name);
+});
+
+test('setup writes the selfdev service and timer over the checkout selfdev.checkout names', async () => {
+  // Catches: the selfdev service runs in the deployed checkout, or the timer starts a unit of another name.
+  const { options, deps, unitDir } = rig();
+  const checkout = path.join(path.dirname(options.privateDir), 'dev-checkout');
+  withSelfdev(options.privateDir, { checkout });
+  const report = await runSetup({ ...options, only: 'units' }, deps);
+  assert.equal(report.ok, true);
+  assert.deepEqual([...SELFDEV_UNIT_FILES].sort(), ['neptunia-selfdev.service', 'neptunia-selfdev.timer']);
+  const service = fs.readFileSync(path.join(unitDir, 'neptunia-selfdev.service'), 'utf8');
+  assert.deepEqual(unitValues(service, 'WorkingDirectory'), [checkout]);
+  assert.match(unitValues(service, 'ExecStart')[0] ?? '', /^\S+ bin\/neptunia\.ts selfdev run$/);
+  assert.ok(unitValues(service, 'Environment').includes(`NEPTUNIA_PRIVATE_DIR=${options.privateDir}`));
+  assert.equal(service.includes('/opt/neptunia'), false);
+  const timer = fs.readFileSync(path.join(unitDir, 'neptunia-selfdev.timer'), 'utf8');
+  assert.deepEqual(unitValues(timer, 'Unit'), ['neptunia-selfdev.service']);
+  const core = fs.readFileSync(path.join(unitDir, 'neptunia-core.service'), 'utf8');
+  assert.deepEqual(unitValues(core, 'WorkingDirectory'), [options.rootDir]);
+});
+
+test('setup writes no selfdev unit when selfdev.checkout is the deployed checkout itself', async () => {
+  // Catches: a checkout setting copied from the deployment makes the beat edit and push the code that is running.
+  const { options, deps, unitDir } = rig();
+  withSelfdev(options.privateDir, { checkout: options.rootDir });
+  await runSetup({ ...options, only: 'units' }, deps);
+  for (const name of SELFDEV_UNIT_FILES) assert.equal(fs.existsSync(path.join(unitDir, name)), false, name);
 });
