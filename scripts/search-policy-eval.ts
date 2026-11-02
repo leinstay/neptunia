@@ -36,7 +36,7 @@
 // llm.maxRequestsPerDay, no calibration, no prompt-cache marker, the daily counters a throwaway
 // copy; at most `--concurrency` (default 4) at once; no row is started once the summed cost has
 // passed `--max-usd` (default 1). The key: the variable `--key` names (read from the private
-// .env), else OPENROUTER_SIM_KEY (scripts/lib/cli.ts#simKey). Nothing under data/ is read or
+// .env), else the simulation key (scripts/lib/cli.ts#simKey). Nothing under data/ is read or
 // written; `--out` may not point there.
 //
 // Output in `--out`: `results.jsonl` (per row `{ id, source, tier, decision, query, forms, who,

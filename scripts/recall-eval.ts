@@ -59,7 +59,7 @@
 // upstream cost per completion, else its `cost`; embeddings are not priced.
 //
 // Rails: concurrency 1; `--limit N` questions; no question is asked once the summed cost has
-// passed `--max-usd` (default 3); the model and embedding clients spend OPENROUTER_SIM_KEY
+// passed `--max-usd` (default 3); the model and embedding clients spend the simulation key
 // (scripts/lib/cli.ts#simKey), every request `origin: 'recall-eval'`, never counted against
 // llm.maxRequestsPerDay, no calibration, no prompt-cache marker; the daily counters (the
 // requests, recall.maxPerDay) are throwaway copies, fresh per question. Nothing under
@@ -673,7 +673,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
     `recall-eval: ${asking} question(s); ${dry ? 'dry: no model request' : `up to ${asking * (REQUESTS_PER_QUESTION + (useWeb ? 1 : 0))} model request(s)${useWeb ? ` and ${asking} web search(es)` : ''}${meaningOn ? ` and ${asking} embedding(s)` : ''}, none asked once the cost passes ${maxUsd} USD`}\n`
   );
 
-  // The keys (OPENROUTER_SIM_KEY, DISCORD_TOKEN, the search engine's) only when something is sent.
+  // The keys (the simulation key from the store, DISCORD_TOKEN, the search engine's) only when something is sent.
   if (!dry || useDiscord) loadDotEnv(privateDirOf(ROOT));
   let webParts: Untyped = null;
   if (useWeb) {

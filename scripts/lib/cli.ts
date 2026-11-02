@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePaths } from '../../src/paths.ts';
+import { simulationKey } from '../../src/simulation/key.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 
 /** An object read by key whose values are not typed yet. */
@@ -21,20 +22,28 @@ export class CliError extends Error {
   }
 }
 
-/**
- * The OpenRouter key a tool spends: `OPENROUTER_SIM_KEY`, else a CliError. A tool never spends
- * the bot's own key. The value is never printed.
- */
 /** The text of a value flag, or undefined when it was not given (a value flag is never `true`). */
 export function flagText(flags: Flags, name: string): string | undefined {
   const value: unknown = flags[name];
   return typeof value === 'string' ? value : undefined;
 }
 
-export function simKey(tool: Untyped, env = process.env): string {
-  const value = env.OPENROUTER_SIM_KEY;
-  if (typeof value === 'string' && value.trim() !== '') return value;
-  throw new CliError(`${tool}: OPENROUTER_SIM_KEY is not set (.env)`);
+/** The checkout this file belongs to. */
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+/**
+ * The OpenRouter key a tool spends: the simulation's key of `<private dir>/keys.json` (src/simulation/key.ts), the
+ * private dir being `NEPTUNIA_PRIVATE_DIR` of `env`. While the simulation is off, or its key has left the store, the
+ * tool stops with a CliError of one line that names it. A tool never spends a core key. The value is never printed.
+ */
+export function simKey(tool: Untyped, env: Record<string, string | undefined> = process.env): string {
+  try {
+    return simulationKey(privateDirOf(ROOT, env));
+  } catch (err) {
+    throw new CliError(
+      `${tool}: ${err instanceof Error ? err.message.split('\n')[0] : 'the simulation key cannot be read'}`
+    );
+  }
 }
 
 /** Exit code of a run refused by the spend gate. */
