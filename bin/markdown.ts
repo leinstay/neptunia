@@ -101,6 +101,20 @@ const NUMBERED = /^(\s*)(\d+[.)])\s+(.*)$/;
 const RULE = /^\s*([-*_])(\s*\1){2,}\s*$/;
 const QUOTE = /^\s*>\s?(.*)$/;
 
+/** One line that is no table row and no code: a heading, a rule, a list item, a quote or a paragraph line. */
+function blockLine(line: string, options: Options): string {
+  const heading = HEADING.exec(line);
+  if (heading !== null) return wrap(BOLD, inline(heading[1] ?? '', options), options.color);
+  if (RULE.test(line)) return '─'.repeat(40);
+  const bullet = BULLET.exec(line);
+  if (bullet !== null) return `${bullet[1] ?? ''}• ${inline(bullet[2] ?? '', options)}`;
+  const numbered = NUMBERED.exec(line);
+  if (numbered !== null) return `${numbered[1] ?? ''}${numbered[2] ?? ''} ${inline(numbered[3] ?? '', options)}`;
+  const quote = QUOTE.exec(line);
+  if (quote !== null) return `│ ${inline(quote[1] ?? '', options)}`;
+  return inline(line, options);
+}
+
 /** The markdown `text` for a terminal: see the head of this file. The result has no trailing newline. */
 export function renderMarkdown(text: string, options: Options): string {
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
@@ -128,22 +142,7 @@ export function renderMarkdown(text: string, options: Options): string {
       i = end - 1;
       continue;
     }
-    const heading = HEADING.exec(line);
-    if (heading !== null) {
-      out.push(wrap(BOLD, inline(heading[1] ?? '', options), options.color));
-    } else if (RULE.test(line)) {
-      out.push('─'.repeat(40));
-    } else if (BULLET.test(line)) {
-      const [, indent = '', body = ''] = BULLET.exec(line) ?? [];
-      out.push(`${indent}• ${inline(body, options)}`);
-    } else if (NUMBERED.test(line)) {
-      const [, indent = '', number = '', body = ''] = NUMBERED.exec(line) ?? [];
-      out.push(`${indent}${number} ${inline(body, options)}`);
-    } else if (QUOTE.test(line)) {
-      out.push(`│ ${inline(QUOTE.exec(line)?.[1] ?? '', options)}`);
-    } else {
-      out.push(inline(line, options));
-    }
+    out.push(blockLine(line, options));
   }
   return out.join('\n').replace(/\n+$/, '');
 }
