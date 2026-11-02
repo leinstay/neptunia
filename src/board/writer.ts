@@ -19,12 +19,14 @@ import type { BoardDb } from './schema.ts';
 
 /**
  * The principals the core itself calls the board as: her tools run as `persona`, which may file and read only; her
- * errand store as `core`, which runs the errand lane; the self-development service (src/selfdev/) as `selfdev`, which
+ * errand store as `core`, which runs the errand lane; the self-development service (src/selfimprovement/) as `selfimprovement`, which
  * triages and reviews her fix proposals and works them as the holder, and never owns anything.
  */
 export const CORE_BUILTINS: BoardBuiltins = Object.freeze({
   persona: Object.freeze(['persona'] as const),
   core: Object.freeze(['errand-runner', 'scheduler'] as const),
+  selfimprovement: Object.freeze(['reviewer', 'worker'] as const),
+  // The same service under the client name of a deployment set up before the rename (bin/selfimprovement.ts).
   selfdev: Object.freeze(['reviewer', 'worker'] as const),
 });
 

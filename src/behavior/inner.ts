@@ -10,7 +10,7 @@
 // (src/behavior/turn.ts, mode `inner`): no human message, a `<wake>` block, her tools.
 //
 // The heartbeat (docs/inner-life.md "The heartbeat"): a wake kind of its own on its own timer,
-// `innerLife.heartbeat.everyMinutes` moved by a jitter either way, kept in the state
+// `heartbeat.everyMinutes` moved by a jitter either way, kept in the state
 // (`heartbeat: { nextAt, lastAt }`, drawn again once its wake is handled). It has no place and its own chain
 // (`heartbeat:<at>`), is never coalesced with another wake and goes before them in the queue; its `<wake>` facts
 // are built by src/behavior/heartbeat-view.ts.

@@ -134,8 +134,8 @@ const diaryWords = (labels: unknown): Obj => sectionOf(labels, 'diary');
 
 const BRIEF_CHARS = 300;
 const TOPIC_CHARS = 1000;
-const DEFAULT_QUIET_DAY_CHANCE = 0.3; // diary.quietDayChance
-const DEFAULT_FORCE_WAIT_MS = 120000; // diary.forceWaitMs
+const DEFAULT_QUIET_DAY_CHANCE = 0.3; // selfreflection.quietDayChance
+const DEFAULT_FORCE_WAIT_MS = 120000; // selfreflection.forceWaitMs
 // The diary's measures. Production values, config cut of 2026-10-31.
 const DEFAULT_GRACE_MINUTES = 30;
 const DEFAULT_QUIET_CARRY = 0.25;
@@ -234,7 +234,7 @@ function windowSpan(window: unknown, dayKey: string, timezone: string): [number,
  * `to <= from` ends the next day); the slots are sorted, a slot closer than
  * MIN_GAP_MINUTES to the previous kept one is dropped. Slots already
  * past at planning time are kept: dueSlot decides what still fires.
- * `cfg` is `config.diary` (`windows`, `quietDayChance`),
+ * `cfg` is `config.selfreflection` (`windows`, `quietDayChance`),
  * `timezone` is `bot.timezone`, `carry` is nextHunger's result (zeros when missing). The result's `hunger` has one
  * whole count per window, `posted` is empty.
  */
@@ -301,7 +301,7 @@ const numbersOf = (value: unknown): Array<number> => listOf(value).filter(isFini
  * window running past midnight); a fed window goes back to 0, an unfed one
  * grows by 1. A window that can never post (`max === 0`) or a malformed one
  * stays at 0. The result has one entry per window of `windows`, so a changed
- * windows list pads with 0 or drops the tail. `windows` is `config.diary.windows`, `timezone` is `bot.timezone`,
+ * windows list pads with 0 or drops the tail. `windows` is `config.selfreflection.windows`, `timezone` is `bot.timezone`,
  * `graceMinutes` is `diary.slotGraceMinutes`. Pure.
  */
 export function nextHunger(
@@ -409,7 +409,7 @@ export function isSetKind(kind: unknown, setKinds: unknown): boolean {
 }
 
 /**
- * The settings of a set post (`diary.set` of `diaryCfg`, config.diary), each one replaced by its default
+ * The settings of a set post (`set` of `diaryCfg`, config.selfreflection), each one replaced by its default
  * when missing or invalid: `pictures` `[min, max]` whole counts (max never
  * below min; the engine stages at most `max` draw.create pictures, `min` is for the
  * prompt), `minPosted` (fewer pictures generated and nothing is posted; at
@@ -683,8 +683,8 @@ export type DiaryDeps = {
 
 /**
  * The diary's scheduler and its owner-facing edge. `tick()` (every 30 s,
- * src/index.ts) does nothing while the bot is paused (`diary: skip` with `reason`
- * `paused`, once per local day). Otherwise it keeps the day plan of the
+ * src/index.ts) does nothing while `selfreflection.enabled` is false (`diary: skip` with `reason` `disabled`) or the
+ * bot is paused (`reason` `paused`), each logged once per local day. Otherwise it keeps the day plan of the
  * served guild in state.json (`diary[guildId] = { day, slots, done, quiet,
  * posted, hunger, quietStreak }`, `day` the local date in `bot.timezone`):
  * nextHunger from the stored plan, then planDay once per local day (`diary:
@@ -706,7 +706,7 @@ export type DiaryDeps = {
  * characters at most; blank is none) reaches the turn as `diary.topic`, and
  * no topic leaves the field out; while another turn holds the lease
  * (`turns.isAnyBusy()`, or a `busy` outcome) it waits for `turns.waitIdle()`
- * at most `diary.forceWaitMs` and posts then, `{ outcome: 'busy' }` when the
+ * at most `selfreflection.forceWaitMs` and posts then, `{ outcome: 'busy' }` when the
  * turn still runs. Hot values are read at every call.
  * `delay` resolves after `ms` (a timer that never holds the process open); injected by tests.
  * `reads` are the core's reads of the interface (the backfill's history), null when none is connected.
@@ -750,7 +750,7 @@ export function createDiary({
   /** The plan of the local day of `t` for `guildId`, planned (and stored) when the stored one is older. */
   function currentPlan(guildId: string, config: unknown, t: number): DayPlan {
     const timezone = zoneOf(config);
-    const diaryCfg = sectionOf(config, 'diary');
+    const diaryCfg = sectionOf(config, 'selfreflection');
     const day = localDayKey(t, timezone);
     const plans = plansOf(store, true);
     const stored: DayPlan | undefined = plans[guildId];
@@ -837,7 +837,7 @@ export function createDiary({
     const config = hot.config;
     const t = now();
     const day = localDayKey(t, zoneOf(config));
-    const blocked = gate();
+    const blocked = sectionOf(config, 'selfreflection').enabled === false ? 'disabled' : gate();
     if (blocked) {
       skip(blocked, day);
       return;
@@ -890,7 +890,7 @@ export function createDiary({
     if (!guildId) return { outcome: 'not-now', reason: 'no-guild' };
     await backfillOnce(guildId, config);
     const params = { kind: typeof kind === 'string' && kind ? kind : null, topic: diaryTopic(topic), forced: true };
-    // One turn at a time: a running turn is waited for (diary.forceWaitMs at most), once.
+    // One turn at a time: a running turn is waited for (selfreflection.forceWaitMs at most), once.
     let waited = false;
     if (turns.isAnyBusy?.() === true) {
       waited = true;
@@ -902,10 +902,10 @@ export function createDiary({
     return post(guildId, params);
   }
 
-  /** Whether the turn runner went idle within `diary.forceWaitMs` (read from `config`, the live one). */
+  /** Whether the turn runner went idle within `selfreflection.forceWaitMs` (read from `config`, the live one). */
   async function waitIdle(config: unknown) {
     if (typeof turns.waitIdle !== 'function') return false;
-    const cap = Number(sectionOf(config, 'diary').forceWaitMs ?? DEFAULT_FORCE_WAIT_MS);
+    const cap = Number(sectionOf(config, 'selfreflection').forceWaitMs ?? DEFAULT_FORCE_WAIT_MS);
     const idle = await Promise.race([turns.waitIdle().then(() => true), delay(cap).then(() => false)]);
     return idle && turns.isAnyBusy?.() !== true;
   }
@@ -939,7 +939,7 @@ export function createDiary({
  * `kind: null`, a one-line gist, and `labels.diary.pictureUnknown` as the scene of a message that
  * carried a picture. A history that already has posts is left alone (the posts are never rewritten by
  * code). This and the factory are the module's interface-aware edge; everything above stays pure.
- * `config` is the live merged config (`diary` read now); `labels` the live labels; `reads` the core's reads of the
+ * `config` is the live merged config (`selfreflection` read now); `labels` the live labels; `reads` the core's reads of the
  * interface. Answers the number of posts written (0 when the history was not empty).
  */
 export async function backfillDiary({ store, reads, conversation, guildId, labels }: BackfillArgs): Promise<number> {

@@ -864,7 +864,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       // A set kind with fewer pictures staged than `diary.set.minPosted` is not posted at all, not even its messages.
       if (diary && draft.diary?.set) {
         const staged = draft.staged?.length ?? 0;
-        const minPosted = setSettings(hot.config.diary).minPosted;
+        const minPosted = setSettings(hot.config.selfreflection).minPosted;
         if (staged < minPosted) {
           log.info('turn: set short', { channel: channel.id, pictures: staged, wanted: minPosted });
           draft.setShort = staged;

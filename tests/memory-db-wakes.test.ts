@@ -277,9 +277,9 @@ function innerHarness({
         queueMax: 20,
         chatMessages: 30,
         review: { enabled: false, historyDays: 14 },
-        heartbeat: { enabled: false },
         caps: { perChain: 3 },
       },
+      heartbeat: { enabled: false },
     },
   };
   let inner: ReturnType<typeof createInnerLife>;

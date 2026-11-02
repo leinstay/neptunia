@@ -934,7 +934,7 @@ const V11 = [
 ].join('\n');
 
 // Version 12 (spec 2026-10-24-memory-authority, stage W2a): a data step, no table. The diary's legacy mirrors name no
-// place, so their `publications` rows have no destination; the deployment's diary channel (`diary.channelId` of the
+// place, so their `publications` rows have no destination; the deployment's diary channel (`selfreflection.channelId` of the
 // live config, which only the opener knows: open.ts passes it as `context.diaryPlaceId`) becomes it, where that place is
 // stored (publish.ts#assignDiaryDestination). Opened without the channel (a tool), the step leaves the meta key
 // `diary_destination_pending` (when there is a publication to give it to), and the next open that knows the channel

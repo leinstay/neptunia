@@ -77,7 +77,7 @@ function logs() {
 const configOf = (memoryDb = {}) => ({
   features: { record: true, journal: true, archive: true },
   memoryDb: { session: { mode: 'off' }, ...memoryDb },
-  diary: { channelId: CHANNEL },
+  selfreflection: { channelId: CHANNEL },
 });
 
 /**

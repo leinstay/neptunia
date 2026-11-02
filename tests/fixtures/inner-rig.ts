@@ -191,9 +191,10 @@ export function fakeClient(
 // the config holds only the keys that are still settings.
 export function hotWith({
   innerLife = {},
+  heartbeat = { enabled: false },
   timezone = 'UTC',
-}: { innerLife?: Record<string, unknown>; timezone?: string } = {}): {
-  config: { bot: { timezone: string }; innerLife: Record<string, unknown> };
+}: { innerLife?: Record<string, unknown>; heartbeat?: Record<string, unknown>; timezone?: string } = {}): {
+  config: { bot: { timezone: string }; innerLife: Record<string, unknown>; heartbeat: Record<string, unknown> };
 } {
   return {
     config: {
@@ -202,10 +203,10 @@ export function hotWith({
         mode: 'shadow',
         tickSeconds: 60,
         review: { historyDays: 14 },
-        heartbeat: { enabled: false },
         caps: { perChain: 3 },
         ...innerLife,
       },
+      heartbeat,
     },
   };
 }

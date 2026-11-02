@@ -46,7 +46,7 @@ import { OWN_MARK_HOURS } from './request/emoji-gifs.ts';
 
 /** The live config, as far as the pictures and GIFs read it; the settings functions read their own sections. */
 export type DrawGifConfig = {
-  diary?: unknown;
+  selfreflection?: unknown;
 };
 
 /** The labels the GIF picker reads (prompts.labels). */
@@ -309,7 +309,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       // A diary post's pictures: the gate is asked at every picture.
       const gate = diaryPictureGate(hot.config, channel, clock());
       if (!gate.allowed) return failed(refusalStatus(CODE.DAILY_CAP), CODE.DAILY_CAP, { reason: 'pictures' });
-      if ((draft?.staged?.length ?? 0) >= (draft?.diary?.set ? setSettings(hot.config.diary).pictures[1] : 1))
+      if ((draft?.staged?.length ?? 0) >= (draft?.diary?.set ? setSettings(hot.config.selfreflection).pictures[1] : 1))
         return failed(refusalStatus(CODE.LOOP_CAP), CODE.LOOP_CAP, { reason: 'extra-call' });
     }
     try {

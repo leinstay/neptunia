@@ -165,7 +165,7 @@ const READERS: ReadonlyArray<{ name: string; group: CutGroup; read: (config: Tre
     group: 'media and diary',
     read: (config) => audioMapSettings(at(config, 'media.video.audioMap')),
   },
-  { name: 'setSettings', group: 'media and diary', read: (config) => setSettings(config.diary) },
+  { name: 'setSettings', group: 'media and diary', read: (config) => setSettings(config.selfreflection) },
   { name: 'gifPickSettings', group: 'media and diary', read: (config) => gifPickSettings(config) },
   { name: 'loopSettings diary', group: 'media and diary', read: (config) => loopSettings(config, { diary: true }) },
   { name: 'hedgeSettings', group: 'llm and models', read: (config) => hedgeSettings(config) },
@@ -200,6 +200,8 @@ const MAY_CHANGE: ReadonlyArray<string> = [
   'sessionSettings.minLines',
   'sessionSettings.batchLines',
   'sessionSettings.maxWaitHours',
+  // The switch of the selfimprovement wake, `selfimprovement.enabled`: a setting the snapshot has not got.
+  'innerSettings.selfimprovement',
 ];
 const MAY_GO: ReadonlyArray<string> = [
   'paceSettings.typingWhilePreparing',

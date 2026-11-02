@@ -245,7 +245,7 @@ const DAY_MODS = { planDay, zonedEpoch, localDayKey };
 /** Two windows of exactly one post each, never a quiet day: two slots, inside their windows. */
 const DAY_CONFIG = {
   bot: { timezone: 'Europe/Athens' },
-  diary: {
+  selfreflection: {
     windows: [
       { from: 8, to: 12, posts: [1, 1] },
       { from: 14, to: 20, posts: [1, 1] },
@@ -349,7 +349,7 @@ test('replay: --diary-day refuses without --spend covering its estimate; a day w
   assert.equal(passed.gate.budget, 0.7);
   assert.equal(passed.estimate.pictures, 3);
 
-  const quiet = { ...DAY_CONFIG, diary: { ...DAY_CONFIG.diary, quietDayChance: 1 } };
+  const quiet = { ...DAY_CONFIG, selfreflection: { ...DAY_CONFIG.selfreflection, quietDayChance: 1 } };
   const quietDay = diaryDayGate(
     parseArgs(['--diary-day', '--seed', 'abc', '--date', '2026-10-06', '--draw', 'live']),
     quiet,

@@ -8,7 +8,7 @@
 // for the facts when the wake runs, and marks the outbox rows it showed delivered once the wake committed.
 
 import { DAY_MS, utcDay } from '../time.ts';
-import type { Landed } from '../selfdev/landed.ts';
+import type { Landed } from '../selfimprovement/landed.ts';
 import type { BoardCaller } from '../tools/impl/board.ts';
 import { isFiniteNumber, isObj, listOf, objOf } from '../tools/types.ts';
 import type { UseCounts } from '../memory/db/skills.ts';
@@ -206,7 +206,7 @@ export type SelfimprovementFacts = {
     questions: Array<{ taskId: string; questionId: string; text: string; answered: boolean }>;
     reviews: Array<{ taskId: string; decision: string; scope: string | null; note: string | null }>;
     outbox: Array<{ seq: number; taskId: string; kind: string; status: string | null; closeReason: string | null }>;
-    /** Fixes that merged: the pull request's title and paths (src/selfdev/landed.ts), each shown once. */
+    /** Fixes that merged: the pull request's title and paths (src/selfimprovement/landed.ts), each shown once. */
     landed: Array<Landed>;
   };
   outboxSeqs: Array<number>;

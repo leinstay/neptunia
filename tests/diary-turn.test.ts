@@ -210,7 +210,7 @@ function fakeHot({ diary = {}, prompts = {} }: { diary?: Untyped; prompts?: Unty
       llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
       image: { maxPromptChars: 1000 },
-      diary: { channelId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000, ...diary },
+      selfreflection: { channelId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000, ...diary },
     },
     prompts: {
       'system-prompt': 'SYSTEM for {{name}}',

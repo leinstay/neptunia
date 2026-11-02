@@ -794,7 +794,7 @@ function diaryHarness({
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
-      diary: { windows: [{ from: 18, to: 1, posts: [1, 1] }], quietDayChance: 0, ...diary },
+      selfreflection: { windows: [{ from: 18, to: 1, posts: [1, 1] }], quietDayChance: 0, ...diary },
     },
     prompts: { labels },
   };

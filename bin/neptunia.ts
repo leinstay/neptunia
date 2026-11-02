@@ -41,7 +41,7 @@
 // `NEPTUNIA_TASK_TOKEN` or `<private>/clients/watcher.token`). It exits 0 for a report written or already there, and 1
 // for a run that failed, with the code on stderr.
 //
-// `selfdev run` runs one beat of her self-development (bin/selfdev.ts, docs/selfdev.md) as the client `selfdev`: her fix
+// `selfimprovement run` runs one beat of her self-development (bin/selfimprovement.ts, docs/selfimprovement.md) as the client `selfimprovement`: her fix
 // proposals are taken, each approved one is patched in a worktree and opened as a pull request, and the open ones are
 // looked at. It exits 0 for a beat that ran and 1 when the board is not reachable.
 //
@@ -90,7 +90,7 @@ import { createAgentEngine } from '../src/agent-runner/backend.ts';
 import { BACKEND_NAMES, agentSettings, profileOf } from '../src/agent-runner/profiles.ts';
 import type { RunnerTask } from '../src/agent-runner/protocol.ts';
 import { startSweeper } from '../src/agent-runner/sweep.ts';
-import { spawnGh } from '../src/selfdev/repository.ts';
+import { spawnGh } from '../src/selfimprovement/repository.ts';
 import { spawnRun } from '../src/setup/install.ts';
 import { installSubharness } from '../src/subharness/install.ts';
 import type { InstallRun } from '../src/subharness/install.ts';
@@ -140,7 +140,7 @@ import type {
 } from '../src/protocol/plugin.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
 import { parseManifest } from '../src/plugins/manifest.ts';
-import { runSelfdev } from './selfdev.ts';
+import { runSelfimprovement } from './selfimprovement.ts';
 import { runTask, openBoardCaller } from './neptunia-task.ts';
 import { reportAnswer } from './report.ts';
 import { createAnswers, mutableOutput } from './secret-prompt.ts';
@@ -160,10 +160,10 @@ const USAGE = [
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
   '       neptunia plugin run <name>',
   '       neptunia service start|stop|restart|status [<unit> ...]',
-  '       neptunia setup [--system] [--node <path>] [folders|keys-file|units|linger|core|selfdev]',
+  '       neptunia setup [--system] [--node <path>] [folders|keys-file|units|linger|core|selfimprovement]',
   '       neptunia setup subharness codex|claude|opencode [--from <path>]',
   '       neptunia task <command> [options]   (neptunia task help)',
-  '       neptunia selfdev run',
+  '       neptunia selfimprovement run',
   '       neptunia watcher run',
 ].join('\n');
 
@@ -1664,8 +1664,8 @@ switch (group) {
   case 'task':
     process.exit(await runTask(rest).catch(fault));
     break;
-  case 'selfdev':
-    process.exit(await runSelfdev(rest).catch(fault));
+  case 'selfimprovement':
+    process.exit(await runSelfimprovement(rest).catch(fault));
     break;
   case 'watcher':
     await runWatcherCommand(rest).catch(fault);

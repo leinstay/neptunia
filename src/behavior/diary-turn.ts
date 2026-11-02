@@ -149,7 +149,7 @@ function diaryPostOf({
   rendered: { messages: Array<string>; mentions: Array<Array<string>> };
   maxMessageBytes: number;
 } {
-  const diaryCfg = sectionOf(config, 'diary');
+  const diaryCfg = sectionOf(config, 'selfreflection');
   const gistChars = DEFAULT_GIST_CHARS;
   const first = staged[0];
   const maxMessageBytes = setSettings(diaryCfg).maxMessageBytes;

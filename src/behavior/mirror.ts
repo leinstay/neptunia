@@ -496,7 +496,7 @@ export function createMirrors({
   async function send(publication: Publication, place: DiaryPlace, entry: DiaryEntry): Promise<PublishOutcome> {
     const connected = port();
     if (!connected || connected.iface !== place.iface) return { placeId: place.placeId, status: 'queued', code: null };
-    const diary = (config() as { diary?: unknown } | null)?.diary ?? null;
+    const diary = (config() as { selfreflection?: unknown } | null)?.selfreflection ?? null;
     const sent = await sendEntry(connected, { iface: place.iface, conversationId: place.conversationId }, entry, {
       maxMessageBytes: entry.maxMessageBytes ?? setSettings(diary).maxMessageBytes,
       now,

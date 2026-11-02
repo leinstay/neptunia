@@ -38,7 +38,8 @@ import type { EchoLlm, PluginUnit } from './fixtures/plugin-rig.ts';
 const CONFIG = {
   bot: { access: { 'echo.say': { users: ['self-id'] } } },
   features: { innerLife: true, intentions: false },
-  innerLife: { mode: 'shadow', tickSeconds: 1, review: { enabled: false }, heartbeat: { enabled: false } },
+  innerLife: { mode: 'shadow', tickSeconds: 1, review: { enabled: false } },
+  heartbeat: { enabled: false },
   plugins: { callDeadlineMs: 4000 },
 };
 

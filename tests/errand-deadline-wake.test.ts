@@ -37,9 +37,9 @@ function setup() {
         queueMax: 20,
         chatMessages: 30,
         review: { enabled: false, historyDays: 14 },
-        heartbeat: { enabled: false },
         caps: { perChain: 3 },
       },
+      heartbeat: { enabled: false },
     },
   };
   // The errand is running for the whole test: the store of the errand service has it open.

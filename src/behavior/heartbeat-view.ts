@@ -39,7 +39,7 @@ import { isOpen } from '../memory/interests.ts';
 import { currentToolName } from '../tools/definitions.ts';
 import { isFiniteNumber, isObj, listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
-import type { Landed } from '../selfdev/landed.ts';
+import type { Landed } from '../selfimprovement/landed.ts';
 import type { PlacesPage, RecordSource } from './inner/types.ts';
 
 /** The interests shown per person. */
@@ -52,7 +52,7 @@ export const LIST_SHOWN = 8;
 const POSTED_SKILLS: ReadonlyArray<unknown> = Object.freeze(['message.create', 'draw.create', 'voice.say']);
 /** The missed check's verdicts that mean "left alone without her". */
 export const DISMISSED_VERDICTS: ReadonlyArray<unknown> = Object.freeze(['intentional-skip', 'stale', 'uncertain']);
-/** The defaults of the settings (`innerLife.heartbeat`; config.json carries the same). */
+/** The defaults of the settings (`heartbeat`; config.json carries the same). */
 export const VIEW_DEFAULTS = Object.freeze({
   people: 8,
   filteredShown: 10,
@@ -176,7 +176,7 @@ export type HeartbeatFacts = {
   skills: Array<SkillFamily>;
   agents: Array<string>;
   since: Since;
-  /** Fixes of her own code that merged and were not told to her yet (src/selfdev/landed.ts), oldest first. */
+  /** Fixes of her own code that merged and were not told to her yet (src/selfimprovement/landed.ts), oldest first. */
   landed: Array<Landed>;
 };
 
@@ -902,7 +902,7 @@ export type HeartbeatInput = {
   now: number;
   /** Her previous heartbeat (epoch ms); null: the last day. */
   since?: number | null;
-  /** `innerLife.heartbeat`: the numbers of the view. */
+  /** `heartbeat`: the numbers of the view. */
   settings?: Readonly<Record<string, unknown>> | null;
   /** The member profiles (store.listUserProfiles). */
   profiles?: unknown;

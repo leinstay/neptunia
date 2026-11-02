@@ -103,7 +103,7 @@ const NOT_BUILT = {
   // Built inside the createMessageHandler closure of src/behavior/pipeline.ts (buildFollowUpRequest),
   // which fetches its own history: no seam reaches it (owner decision O-9).
   address: 'built inside the src/behavior/pipeline.ts closure (O-9)',
-  selfdev: 'filled by bin/selfdev.ts through src/selfdev/service.ts#briefFrom, a dev run reads it', // tests/selfdev-service
+  selfdev: 'filled by bin/selfimprovement.ts through src/selfimprovement/service.ts#briefFrom, a dev run reads it', // tests/selfimprovement-service
   // Split into families and drawn from line by line (src/behavior/diary.ts#pickSeeds): the plan request carries a few random lines in <seeds>, never the file whole.
   'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.ts#pickSeeds), never sent whole',
   // Her memory session and the description review build their requests over the memory database, not from a turn:
@@ -1317,7 +1317,7 @@ test('buildRequest: a diary post fills system-prompt, character-card, rules, for
     interlocutor: null,
     currentChannelId: DIARY,
   });
-  input.config = shippedConfig({ diary: { world: true, channelId: DIARY } });
+  input.config = shippedConfig({ selfreflection: { world: true, channelId: DIARY } });
   const plan = { kind: 'selfPicture', brief: 'a pier in the fog', picture: true };
   const request = buildRequest({
     ...input,
@@ -1333,7 +1333,7 @@ test('buildRequest: a diary post fills system-prompt, character-card, rules, for
 });
 
 test('buildDiaryPlanRequest: diary-plan.md and world.md fill the plan request with its blocks', async () => {
-  const config = shippedConfig({ diary: { world: true, channelId: DIARY } });
+  const config = shippedConfig({ selfreflection: { world: true, channelId: DIARY } });
   const seeds = renderSeedsBlock(
     // PR 7d: the seed sets and the kinds are the constants of src/behavior/diary.ts.
     pickSeeds(parseSeedFamilies((SHIPPED.prompts as Record<string, unknown>)['diary-seeds']), SEED_SETS, () => 0.5),

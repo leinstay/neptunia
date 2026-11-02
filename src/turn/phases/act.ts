@@ -101,7 +101,7 @@ export function actPhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, a
     log.info('turn: set short', {
       channel: channel.id,
       pictures,
-      wanted: setSettings(hot.config.diary).minPosted,
+      wanted: setSettings(hot.config.selfreflection).minPosted,
       ...extra,
     });
     return { outcome: 'refused', mode: finalMode, reason: 'set-short', ...extra };

@@ -2701,7 +2701,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     if (args.inner === 'heartbeat') {
       // The scheduler builds it: the heartbeat view over the stores as they are, in the conversation it picks.
       if (!settings.heartbeat.enabled)
-        log.warn('replay-cli: innerLife.heartbeat.enabled is off; the live scheduler would not wake her', {});
+        log.warn('replay-cli: heartbeat.enabled is off; the live scheduler would not wake her', {});
       // A pause of hers would hold the live drain; a preview is wanted anyway (the copy of the store is not written).
       if (state.data.paused)
         log.warn('replay-cli: she is paused; the live scheduler would hold the heartbeat, the preview runs it', {});
@@ -3009,7 +3009,7 @@ export function diaryDayGate(
   const timezone = config?.bot?.timezone || 'UTC';
   const date = args.date ?? localDayKey(nowMs, timezone);
   const seed = args.seed ?? randomBytes(6).toString('hex');
-  const day = planDiaryDay({ diaryCfg: config?.diary, timezone, date, seed, planDay, zonedEpoch });
+  const day = planDiaryDay({ diaryCfg: config?.selfreflection, timezone, date, seed, planDay, zonedEpoch });
   const estimate = diaryDayEstimate({
     slots: day.slots.length,
     draw: args.draw,

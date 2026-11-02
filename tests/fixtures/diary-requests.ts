@@ -53,7 +53,7 @@ export function sceneHot(): { config: Record<string, unknown>; prompts: Record<s
       },
       llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
-      diary: { channelId: 'd1', world: true, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
+      selfreflection: { channelId: 'd1', world: true, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
     },
     prompts: {
       'system-prompt': 'SYSTEM for {{name}}',

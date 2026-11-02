@@ -246,7 +246,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   the task and the `<world>`, `<diary>`, `<plan>` and `<found>` blocks. Its speech keeps only
    *   `<msg>` (every reply attribute dropped, links removed, at most `diary.maxMessages` (3), a
    *   message left empty not posted) and `<skip/>`; no reaction, no GIF, no GIF pick. It runs on the
-   *   step engine with `diary.loop`: only her `draw.create` calls run (any other is refused
+   *   step engine with `selfreflection.loop`: only her `draw.create` calls run (any other is refused
    *   `diary-draw-only`; at most `diary.set.pictures[1]` in a step), each picture staged as it is
    *   generated and counted against the day's diary pictures then; a picture while the post may
    *   carry none is refused `daily-cap` (diaryPictureGate). A failed picture holds the post's speech

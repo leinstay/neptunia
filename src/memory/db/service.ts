@@ -48,7 +48,7 @@
 //     store's cache, the module stores, participation, the diary, the vectors) through the writer; resolves once the
 //     worker committed, rejects with a code (`DB_CLOSED` while the database is not open). Each tick also finishes the
 //     graph projection and the stems a migration left (one slice a tick). The opener's migration context is the live
-//     `diary.channelId`'s place (the seed of schema v12's and v15's data steps); a diary write's destination is the
+//     `selfreflection.channelId`'s place (the seed of schema v12's and v15's data steps); a diary write's destination is the
 //     place of the diary's first enabled mirror. The durable intent of a write that failed (spec
 //     2026-10-24-memory-authority, section 6 item 3): `keepPending(update)` (at shutdown, from unit-outbox.ts#keep)
 //     writes it to `data/memory-pending/<sha1 of the owner>.json` (`{ owner, op, value | lines, at }`; the lines of one
@@ -373,7 +373,7 @@ function startWorker({
 
 /** What a migration needs from the opener (open.ts#migrate): the diary channel as a place, and the data directory. */
 function openContextOf(config: Config, dataDir: string): { diaryPlaceId: string | null; dataDir: string } {
-  const channel = config?.diary?.channelId;
+  const channel = config?.selfreflection?.channelId;
   return {
     diaryPlaceId: typeof channel === 'string' && channel ? channelPlaceId(LEGACY_IFACE, channel) : null,
     dataDir,

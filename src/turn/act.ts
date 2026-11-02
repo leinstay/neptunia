@@ -32,7 +32,7 @@ type TypingSettings = Parameters<typeof typingMs>[1] & {
 /** The live config, as far as the act reads it. */
 export type ActConfig = {
   typing: TypingSettings;
-  diary?: unknown;
+  selfreflection?: unknown;
 };
 
 /** An answer of the interface port: its result, and a platform's own code for a refused send. */
@@ -225,7 +225,11 @@ export function createAct(ctx: ActContext): Act {
       const { seconds, cost, self, buffer } = picture;
       log.info('turn: drew', { channel: channel.id, seconds, cost, self, bytes: buffer?.length ?? 0, set: true });
     }
-    const files = chunkPictures(staged, setSettings(hot.config.diary).maxMessageBytes, filesPerMessage(iface)).length;
+    const files = chunkPictures(
+      staged,
+      setSettings(hot.config.selfreflection).maxMessageBytes,
+      filesPerMessage(iface)
+    ).length;
     if (files > 0) log.info('turn: set posted', { channel: channel.id, pictures: staged.length, messages: files });
     return { held: true, delivered: false, answered: new Set(), texts, rendered, staged, posts: [], reacted: [] };
   }

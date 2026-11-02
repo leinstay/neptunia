@@ -1,4 +1,4 @@
-// The heartbeat's schedule (docs/inner-life.md "The heartbeat"): its own timer, `innerLife.heartbeat.everyMinutes`
+// The heartbeat's schedule (docs/inner-life.md "The heartbeat"): its own timer, `heartbeat.everyMinutes`
 // moved by a jitter either way and kept in the state (`heartbeat: { nextAt, lastAt }`), the wake it gives, the facts
 // its `<wake>` carries (src/behavior/heartbeat-view.ts over the stores this life was given) and the log line of its
 // outcome. The tick (src/behavior/inner.ts) and the drain (src/behavior/inner/drain.ts) call it.

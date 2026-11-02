@@ -82,7 +82,7 @@ export async function replyTurn({
   const llm = sequenceLlm(['<msg>γεια</msg>']);
   const turns = worldTurnRunner({
     hot: hotWith({
-      config: diaryChannelId === null ? {} : { diary: { channelId: diaryChannelId } },
+      config: diaryChannelId === null ? {} : { selfreflection: { channelId: diaryChannelId } },
     }),
     store,
     // The memory the runner may read the mirrors from (the store reads the same database).

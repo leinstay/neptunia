@@ -425,7 +425,7 @@
         "src/memory/**",
         "src/plugins/**",
         "src/protocol/**",
-        "src/selfdev/**",
+        "src/selfimprovement/**",
         "src/setup/**",
         "src/skills/**",
         "src/speech/**",
@@ -461,7 +461,7 @@
       "test": "required"
     },
     {
-      "path": "src/selfdev/",
+      "path": "src/selfimprovement/",
       "purpose": "Her self-development: the steps that turn her fix proposals into pull requests (intake, work, observe), the settings, the push-right check of the repository her pull requests go to, and the merged fixes her wake shows. Git, gh, the test runner and the dev run are injected.",
       "layer": "public",
       "imports": ["node:*", "src/**"],

@@ -1,8 +1,10 @@
 // The config keys that moved: the settings under `skills.*`, the switches `features.skills` and
 // `features.skillsDiscovery`, the owner's grants on the tools that were renamed (`skills.describe`, the six `task.*` and
 // the four `intent.*`), the nine settings of `agents` that every errand reads (they live under `errands`),
-// `agents.<name>.search.provider` (now `searchProvider`) and the analyzer timeout `llm.helperTimeoutMs` (now
-// `llm.analyzerTimeoutMs`). A local config written with the old keys keeps its meaning
+// `agents.<name>.search.provider` (now `searchProvider`), the analyzer timeout `llm.helperTimeoutMs` (now
+// `llm.analyzerTimeoutMs`), and the settings of the three ticking mechanics, each a top-level section (MECHANIC_MOVES):
+// `innerLife.heartbeat.*` under `heartbeat`, `diary.*` under `selfreflection`, `selfdev.*` and
+// `innerLife.wakes.selfimprovement.*` under `selfimprovement`. A local config written with the old keys keeps its meaning
 // because `moveConfigKeys` writes each old key under its new name, and the loader (src/config.ts#readConfig) applies it to
 // the local file before that file is laid over config.json, so an old key overrides the shipped default of its new name.
 // `scripts/config-migrate.ts` writes the same moves into the file.
@@ -11,7 +13,7 @@
 // same config. Where the old and the new key are both set, the new one wins and the old one is dropped and reported as
 // shadowed. Keys nothing reads any more (three grants of `bot.access`, `agents.maxDownloadBytes`, the two context
 // keys of `agents.thinker`, `agents.ledger.socket`, and `bot.commandName` and `features.adminCommands` of the slash
-// command that is gone) are removed, with a section they leave empty, and reported as dropped. `diary.channelId` is the seed of the diary's mirror
+// command that is gone) are removed, with a section they leave empty, and reported as dropped. `selfreflection.channelId` is the seed of the diary's mirror
 // (schema v15): once the memory database has that mirror (`diaryMirror`, told by the caller) the key is removed and
 // reported as moved to the database (`toDatabase`). Nothing here reads a file.
 //
@@ -31,7 +33,7 @@ export type MovedConfig = {
   shadowed: Array<Move>;
   /** The dotted paths of the keys removed because nothing reads them. */
   dropped: Array<string>;
-  /** The dotted paths of the keys removed because the memory database holds them (`diary.channelId`). */
+  /** The dotted paths of the keys removed because the memory database holds them (`selfreflection.channelId`). */
   toDatabase: Array<string>;
 };
 
@@ -228,18 +230,73 @@ function dropKeys(config: Config, report: MovedConfig): void {
   }
 }
 
-/** `diary.channelId` removed once the memory database has the diary's mirror; a `diary` section it empties goes too. */
+/**
+ * The settings of the three ticking mechanics that moved to their own top-level section: the old section's path, the
+ * new one's and the keys that move. Only the keys the schema names move; a key the config cut holds (`diary.set`,
+ * `innerLife.heartbeat.people`) stays under its old path, where src/config/cut.ts finds it, and `innerLife.wakes.*`'s
+ * limits of the kind (`tools`, `maxActs`, ...) stay with the other wake kinds.
+ */
+export const MECHANIC_MOVES: ReadonlyArray<{ from: ReadonlyArray<string>; to: string; keys: ReadonlyArray<string> }> = [
+  {
+    from: ['innerLife', 'heartbeat'],
+    to: 'heartbeat',
+    keys: ['enabled', 'everyMinutes', 'jitterMinutes', 'historyDays', 'maxTokens'],
+  },
+  {
+    from: ['diary'],
+    to: 'selfreflection',
+    keys: [
+      'channelId',
+      'world',
+      'windows',
+      'quietDayChance',
+      'forceWaitMs',
+      'loop',
+      'planMaxOutputTokens',
+      'planTimeoutMs',
+    ],
+  },
+  { from: ['selfdev'], to: 'selfimprovement', keys: ['mode', 'base', 'checkout', 'repository'] },
+  { from: ['innerLife', 'wakes', 'selfimprovement'], to: 'selfimprovement', keys: ['everyDays', 'failuresPerShape'] },
+];
+
+/** The keys of MECHANIC_MOVES moved to their top-level section; each old section they leave empty goes with them. */
+function moveMechanics(config: Config, report: MovedConfig): void {
+  for (const move of MECHANIC_MOVES) {
+    const chain: Array<Config> = [config];
+    for (const name of move.from) {
+      const next = sectionOf(chain[chain.length - 1] ?? config, name, false);
+      if (next === null) break;
+      chain.push(next);
+    }
+    const old = chain[chain.length - 1];
+    if (chain.length !== move.from.length + 1 || old === undefined) continue;
+    const keys = move.keys.filter((key) => Object.hasOwn(old, key));
+    if (keys.length === 0) continue;
+    const target = sectionOf(config, move.to, true);
+    if (target === null) continue;
+    const at = move.from.join('.');
+    for (const key of keys)
+      place(old, target, { from: key, to: key }, { from: `${at}.${key}`, to: `${move.to}.${key}` }, report);
+    for (let depth = chain.length - 1; depth > 0; depth -= 1) {
+      if (Object.keys(chain[depth] ?? {}).length > 0) break;
+      delete (chain[depth - 1] ?? config)[move.from[depth - 1] ?? ''];
+    }
+  }
+}
+
+/** `selfreflection.channelId` removed once the memory database has the diary's mirror; a section it empties goes too. */
 function moveDiarySeed(config: Config, diaryMirror: boolean, report: MovedConfig): void {
-  const diary = sectionOf(config, 'diary', false);
-  if (!diaryMirror || diary === null || !Object.hasOwn(diary, 'channelId')) return;
-  delete diary.channelId;
-  if (Object.keys(diary).length === 0) delete config.diary;
-  report.toDatabase.push('diary.channelId');
+  const section = sectionOf(config, 'selfreflection', false);
+  if (!diaryMirror || section === null || !Object.hasOwn(section, 'channelId')) return;
+  delete section.channelId;
+  if (Object.keys(section).length === 0) delete config.selfreflection;
+  report.toDatabase.push('selfreflection.channelId');
 }
 
 /**
  * `config` with the old keys written under their new names. `diaryMirror`: the memory database has the diary's mirror,
- * so `diary.channelId` goes and `toDatabase` names it (empty otherwise). The argument is not changed.
+ * so `selfreflection.channelId` (or the old `diary.channelId`) goes and `toDatabase` names it (empty otherwise). The argument is not changed.
  */
 export function moveConfigKeys(config: Config, { diaryMirror = false }: { diaryMirror?: boolean } = {}): MovedConfig {
   const report: MovedConfig = { config: structuredClone(config), moved: [], shadowed: [], dropped: [], toDatabase: [] };
@@ -252,6 +309,7 @@ export function moveConfigKeys(config: Config, { diaryMirror = false }: { diaryM
   moveSearchProvider(report.config, report);
   renameKey(report.config, 'llm', 'helperTimeoutMs', 'analyzerTimeoutMs', report);
   dropKeys(report.config, report);
+  moveMechanics(report.config, report);
   moveDiarySeed(report.config, diaryMirror, report);
   return report;
 }

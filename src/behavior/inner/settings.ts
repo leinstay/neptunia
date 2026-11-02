@@ -18,8 +18,9 @@ export const WAKE_KINDS = Object.freeze([
 
 /**
  * The inner life's measures: production values of the config cut of 2026-10-31, and the fallbacks of the keys the
- * live config holds (`mode`, `tickSeconds`, `review.historyDays`, the heartbeat's switch, clock, history and token
- * budget, `caps.perChain`, `loop`, `retry` and `factsKeepDays`).
+ * live config holds (`mode`, `tickSeconds`, `review.historyDays`, `caps.perChain`, `loop`, `retry` and `factsKeepDays`
+ * of `innerLife`; the heartbeat's switch, clock, history and token budget of `heartbeat`; the selfimprovement wake's
+ * switch and clock of `selfimprovement`).
  */
 export const INNER_DEFAULTS = Object.freeze({
   mode: 'shadow',
@@ -46,6 +47,7 @@ export const INNER_DEFAULTS = Object.freeze({
   caps: Object.freeze({ perChain: 3 }),
   // The selfimprovement wake (PR 7e): once a week on the heartbeat's clock, and when one chain shape fails this many
   // times in a UTC day. Decision of 2026-10-24 (the archived design), kept by the owner on 2026-10-31.
+  selfimprovement: Object.freeze({ enabled: true }),
   wakes: Object.freeze({ selfimprovement: Object.freeze({ everyDays: 7, failuresPerShape: 3 }) }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
   loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
@@ -88,7 +90,8 @@ const isDelayList = (value: unknown): value is Array<number> =>
 
 /**
  * The inner life's settings: INNER_DEFAULTS, with the keys the live config holds each checked against its default
- * (a missing or bad value takes the default). `mode` is `live` only when it says so exactly. `loop`: the tool loop's
+ * (a missing or bad value takes the default). The heartbeat's keys are read from the `heartbeat` section and the
+ * selfimprovement wake's from `selfimprovement`. `mode` is `live` only when it says so exactly. `loop`: the tool loop's
  * bounds of an inner turn (src/behavior/turn.ts#loopSettings with `inner`; nobody waits for
  * one, so its budget is generous): `maxSteps`, `timeBudgetMs`, `maxCallsPerStep` as
  * `tools.loop`'s, `callTimeoutMs` the most one call of hers may run.
@@ -96,11 +99,11 @@ const isDelayList = (value: unknown): value is Array<number> =>
 export function innerSettings(config: unknown): InnerSettings {
   const raw = objOf(objOf(config).innerLife);
   const caps = objOf(raw.caps);
-  const heartbeat = objOf(raw.heartbeat);
+  const heartbeat = objOf(objOf(config).heartbeat);
   const review = objOf(raw.review);
   const loop = objOf(raw.loop);
   const retry = objOf(raw.retry);
-  const improvement = objOf(objOf(raw.wakes).selfimprovement);
+  const improvement = objOf(objOf(config).selfimprovement);
   const d = INNER_DEFAULTS;
   return {
     mode: raw.mode === 'live' ? 'live' : 'shadow',
@@ -130,6 +133,7 @@ export function innerSettings(config: unknown): InnerSettings {
     caps: {
       perChain: Math.floor(count(caps.perChain, d.caps.perChain)),
     },
+    selfimprovement: { enabled: improvement.enabled !== false },
     wakes: {
       selfimprovement: {
         everyDays: whole(improvement.everyDays, d.wakes.selfimprovement.everyDays),

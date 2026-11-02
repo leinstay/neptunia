@@ -320,13 +320,17 @@
   "watcher": {
     "dir": ".agents/watcher"
   },
-  "selfdev": {
+  "selfimprovement": {
+    "enabled": true,
     "mode": "approve",
     "base": "main",
     "checkout": null,
-    "repository": null
+    "repository": null,
+    "everyDays": 7,
+    "failuresPerShape": 3
   },
-  "diary": {
+  "selfreflection": {
+    "enabled": true,
     "channelId": "",
     "world": false,
     "windows": [
@@ -403,21 +407,8 @@
     "review": {
       "historyDays": 14
     },
-    "heartbeat": {
-      "enabled": true,
-      "everyMinutes": 180,
-      "jitterMinutes": 60,
-      "historyDays": 14,
-      "maxTokens": 2500
-    },
     "caps": {
       "perChain": 3
-    },
-    "wakes": {
-      "selfimprovement": {
-        "everyDays": 7,
-        "failuresPerShape": 3
-      }
     },
     "loop": {
       "maxSteps": 4,
@@ -430,6 +421,13 @@
       "maxHours": 6
     },
     "factsKeepDays": 7
+  },
+  "heartbeat": {
+    "enabled": true,
+    "everyMinutes": 180,
+    "jitterMinutes": 60,
+    "historyDays": 14,
+    "maxTokens": 2500
   },
   "appendStore": {
     "retryMax": 1000

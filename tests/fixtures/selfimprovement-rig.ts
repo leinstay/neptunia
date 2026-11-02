@@ -1,4 +1,4 @@
-// The world of the self-development tests (src/selfdev/): a real task board over a memory database in memory, her
+// The world of the self-development tests (src/selfimprovement/): a real task board over a memory database in memory, her
 // `board.propose` as the operations run it, and fakes for everything outside the process: the subharness runner,
 // `git`, `gh` and the test runner. Each fake records what it was asked, in `order` when the order matters, and answers
 // from `world`, which a test edits before the step it checks. Nothing here touches the network, a provider or a
@@ -9,8 +9,8 @@ import { openMemoryDb } from '../../src/memory/db/open.ts';
 import { openBoard } from '../../src/board/board.ts';
 import type { Board, BoardOp, BoardResults } from '../../src/board/board.ts';
 import type { BoardDb } from '../../src/board/schema.ts';
-import type { SelfdevDeps } from '../../src/selfdev/service.ts';
-import type { RepositoryCheck } from '../../src/selfdev/repository.ts';
+import type { SelfimprovementDeps } from '../../src/selfimprovement/service.ts';
+import type { RepositoryCheck } from '../../src/selfimprovement/repository.ts';
 import { runOpPrechecked } from '../../src/tools/impl/index.ts';
 import { createOpsEnv } from '../../src/tools/impl/env.ts';
 import type { BoardCaller } from '../../src/tools/impl/board.ts';
@@ -18,7 +18,7 @@ import { createDiscordInterface } from '../../interfaces/discord/index.ts';
 import { withCapturedLogs } from './capture-logs.ts';
 import { tempDir } from './tmp.ts';
 
-export const SELFDEV_T0 = Date.parse('2026-11-02T10:00:00Z');
+export const SELFIMPROVEMENT_T0 = Date.parse('2026-11-02T10:00:00Z');
 export const PR_URL = 'https://github.com/example/engine/pull/12';
 export const PASSING_TAP = 'TAP version 13\n# tests 3\n# suites 0\n# pass 3\n# fail 0\n';
 export const FAILING_TAP = 'TAP version 13\n# tests 3\n# suites 0\n# pass 2\n# fail 1\n';
@@ -36,10 +36,10 @@ const WRITES: ReadonlySet<string> = new Set([
 
 export type CheckState = 'SUCCESS' | 'FAILURE' | 'PENDING';
 
-export type SelfdevWorld = {
+export type SelfimprovementWorld = {
   board: Board;
   caller: BoardCaller;
-  deps: SelfdevDeps;
+  deps: SelfimprovementDeps;
   repoDir: string;
   worktreeRoot: string;
   /** What happened, in order: `git worktree add`, `run`, `tests`, `git push`, `gh pr create`, `board <write op>`. */
@@ -49,10 +49,10 @@ export type SelfdevWorld = {
   gh: Array<{ args: ReadonlyArray<string>; cwd: string }>;
   tests: Array<{ file: string; args: ReadonlyArray<string>; cwd: string }>;
   runs: Array<{ taskId: string; brief: string; cwd: string }>;
-  /** The `selfdev.mode` and the base branch the settings read. */
+  /** The `selfimprovement.mode` and the base branch the settings read. */
   mode: 'approve' | 'auto';
   base: string;
-  /** `selfdev.repository`: the repository her pull requests open against. */
+  /** `selfimprovement.repository`: the repository her pull requests open against. */
   repository: string | null;
   /** What the beat's push-right check answers; `checks` counts how often it ran. */
   check: RepositoryCheck;
@@ -79,9 +79,9 @@ export type SelfdevWorld = {
   };
 };
 
-/** The board with its builtin principal `selfdev`, a fake owner `boss`, and a caller that records the writes. */
+/** The board with its builtin principal `selfimprovement`, a fake owner `boss`, and a caller that records the writes. */
 function boardOf(t: { after: (fn: () => void) => void }, order: Array<string>) {
-  const dir = tempDir('nep-selfdev-board-');
+  const dir = tempDir('nep-selfimprovement-board-');
   fs.writeFileSync(
     path.join(dir, 'clients.json'),
     JSON.stringify({ boss: { kind: 'agent', tokenFile: 'clients/boss.token', permissions: [], boardRoles: ['owner'] } })
@@ -92,13 +92,13 @@ function boardOf(t: { after: (fn: () => void) => void }, order: Array<string>) {
     // open.js types the connection as `object`; it is node:sqlite's DatabaseSync, which has every method BoardDb names.
     db: handle.db as BoardDb,
     privateDir: dir,
-    now: () => SELFDEV_T0,
+    now: () => SELFIMPROVEMENT_T0,
     settings: () => ({
       leaseTtlMinutes: 30,
       autoTriage: { role: 'dev', budget: 4, steps: 80, estimate: 30 },
       projects: {},
     }),
-    builtins: { persona: ['persona'], selfdev: ['reviewer', 'worker'] },
+    builtins: { persona: ['persona'], selfimprovement: ['reviewer', 'worker'] },
   });
   const caller: BoardCaller = {
     call<TOp extends BoardOp>(
@@ -119,12 +119,12 @@ const flagOf = (args: ReadonlyArray<string>, name: string): string | null => {
   return at < 0 ? null : (args[at + 1] ?? null);
 };
 
-export function selfdevWorld(t: { after: (fn: () => void) => void }): SelfdevWorld {
+export function selfimprovementWorld(t: { after: (fn: () => void) => void }): SelfimprovementWorld {
   const order: Array<string> = [];
   const { board, caller } = boardOf(t, order);
-  const repoDir = tempDir('nep-selfdev-repo-');
-  const worktreeRoot = tempDir('nep-selfdev-trees-');
-  const world: SelfdevWorld = {
+  const repoDir = tempDir('nep-selfimprovement-repo-');
+  const worktreeRoot = tempDir('nep-selfimprovement-trees-');
+  const world: SelfimprovementWorld = {
     board,
     caller,
     repoDir,
@@ -146,7 +146,7 @@ export function selfdevWorld(t: { after: (fn: () => void) => void }): SelfdevWor
     testRun: { code: 0, stdout: PASSING_TAP },
     create: { code: 0, stderr: '', title: null, body: null, base: null, head: null },
     pr: { state: 'OPEN', title: null, files: null, checks: ['SUCCESS'], mergeCode: 0, ready: false },
-    deps: undefined as unknown as SelfdevDeps,
+    deps: undefined as unknown as SelfimprovementDeps,
   };
   world.deps = {
     board: caller,
@@ -249,7 +249,7 @@ export function herCalls(caller: BoardCaller) {
   const hot = {
     config: { bot: { owners: ['42'], access: {} }, features: {} },
     prompts: { labels: {} },
-    rootDir: tempDir('nep-selfdev-root-'),
+    rootDir: tempDir('nep-selfimprovement-root-'),
     reloadConfig: () => true,
   };
   const env = createOpsEnv({
@@ -261,7 +261,7 @@ export function herCalls(caller: BoardCaller) {
     calibrator: { ratio: 1 },
     getGuildId: () => 'g1',
     board: caller,
-    now: () => SELFDEV_T0,
+    now: () => SELFIMPROVEMENT_T0,
   });
   return async (name: string, args: Record<string, unknown>): Promise<Result> => {
     const { result } = await withCapturedLogs(() =>
@@ -282,7 +282,7 @@ export const FIX_REQUEST = {
 
 /** Her scripted `board.propose` of kind `fix`; returns the task id. */
 export async function proposeFix(
-  world: SelfdevWorld,
+  world: SelfimprovementWorld,
   over: Partial<Record<string, unknown>> = {}
 ): Promise<string> {
   const her = herCalls(world.caller);
@@ -293,10 +293,10 @@ export async function proposeFix(
 
 /**
  * A done task that carries `metadata.landed`, made through the board alone (no service): filed by her, worked by
- * `selfdev`, closed by its review. For the tests of what her wake is shown.
+ * `selfimprovement`, closed by its review. For the tests of what her wake is shown.
  */
 export function landTaskDirectly(
-  world: SelfdevWorld,
+  world: SelfimprovementWorld,
   landed: { title: string; files: Array<string>; pr: number; decidedBy: 'owner' | 'auto' } | null
 ): string {
   const { caller } = world;
@@ -308,25 +308,25 @@ export function landTaskDirectly(
     requester: 'persona:self',
     subscriber: 'persona:self',
   }) as BoardResults['task.add'];
-  const revision = (): number => (caller.call('selfdev', 'task.show', { id: task.id }) as BoardResults['task.show']).task.revision;
-  caller.call('selfdev', 'task.transition', {
+  const revision = (): number => (caller.call('selfimprovement', 'task.show', { id: task.id }) as BoardResults['task.show']).task.revision;
+  caller.call('selfimprovement', 'task.transition', {
     id: task.id,
     status: 'triaged',
     revision: task.revision,
     set: { role: 'dev', estimate: 30, budget: 4, risk: 'low' },
   });
-  caller.call('selfdev', 'task.approve', { id: task.id, scope: 'plan' });
-  const held = caller.call('selfdev', 'task.claim', { id: task.id }) as BoardResults['task.claim'];
-  caller.call('selfdev', 'task.submit', {
+  caller.call('selfimprovement', 'task.approve', { id: task.id, scope: 'plan' });
+  const held = caller.call('selfimprovement', 'task.claim', { id: task.id }) as BoardResults['task.claim'];
+  caller.call('selfimprovement', 'task.submit', {
     id: task.id,
     generation: held.lease_generation,
     handoff: { result: 'done', evidence: [], artifacts: [], tests: [], open_issues: [] },
   });
-  caller.call('selfdev', 'task.update', {
+  caller.call('selfimprovement', 'task.update', {
     id: task.id,
     revision: revision(),
     metadata: { ci: 'green', ...(landed === null ? {} : { landed }) },
   });
-  caller.call('selfdev', 'task.review', { id: task.id, decision: 'accept' });
+  caller.call('selfimprovement', 'task.review', { id: task.id, decision: 'accept' });
   return task.id;
 }

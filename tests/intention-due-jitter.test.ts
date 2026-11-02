@@ -113,9 +113,9 @@ test('the scheduler wakes a shifted heartbeat intention at its shifted time and 
         mode: 'shadow',
         tickSeconds: 60,
         review: { historyDays: 14 },
-        heartbeat: { enabled: false },
         caps: { perChain: 3 },
       },
+      heartbeat: { enabled: false },
     },
   };
   const service = createIntentionService({

@@ -24,17 +24,17 @@ export type DiaryPlan = {
 
 /**
  * The `<world>` block's body of a diary request (the plan and the post):
- * prompts/world.md with `{{name}}` filled, only while `diary.world === true`
+ * prompts/world.md with `{{name}}` filled, only while `selfreflection.world === true`
  * in `config` (the live config, read at the moment of use); '' with the
  * switch off or the file missing or blank. Never part of an ordinary turn:
  * only the diary's two requests call it.
  */
 export function worldText(
-  config: Pick<RequestConfig, 'diary'> | null | undefined,
+  config: Pick<RequestConfig, 'selfreflection'> | null | undefined,
   prompts: Prompts | null | undefined,
   selfName: string
 ): string {
-  if (config?.diary?.world !== true) return '';
+  if (config?.selfreflection?.world !== true) return '';
   const text = prompts?.world;
   if (typeof text !== 'string' || !text.trim()) return '';
   return fillPromptTemplate(text, { name: selfName }).trim();
@@ -44,7 +44,7 @@ export function worldText(
 export function diaryHistoryLines(
   posts: unknown,
   labels: Labels,
-  config: Pick<RequestConfig, 'bot' | 'diary'>
+  config: Pick<RequestConfig, 'bot' | 'selfreflection'>
 ): Array<string> {
   const body = renderDiaryBlock(posts, labels, {
     timezone: config.bot?.timezone,
@@ -80,13 +80,13 @@ export type DiaryParts = {
 };
 
 /**
- * A diary post (mode `diary`): the persona's world (under `diary.world`), its past posts, the post's plan and what
+ * A diary post (mode `diary`): the persona's world (under `selfreflection.world`), its past posts, the post's plan and what
  * its search found. None of it in any other mode.
  */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
 export function diaryOf(given: RequestInput & { labels: Labels }): DiaryParts {
   const { config, prompts, mode, selfName, labels } = given;
-  // A diary post (mode `diary`): the persona's world (under `diary.world`), its past posts, the
+  // A diary post (mode `diary`): the persona's world (under `selfreflection.world`), its past posts, the
   // post's plan and what its search found. None of it in any other mode.
   const diaryMode = mode === 'diary';
   const diaryInput = diaryMode && given.diary && typeof given.diary === 'object' ? given.diary : null;

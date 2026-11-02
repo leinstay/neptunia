@@ -49,9 +49,9 @@ function hotOf() {
         queueMax: 20,
         chatMessages: 30,
         review: { enabled: false, historyDays: 14 },
-        heartbeat: { enabled: false, dueJitterMinutes: 0 },
         caps: { perChain: 3 },
       },
+      heartbeat: { enabled: false, dueJitterMinutes: 0 },
     },
   };
 }

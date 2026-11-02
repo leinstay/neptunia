@@ -35,7 +35,7 @@ import type { JournalNotes } from './journal-notes.ts';
 import type { Participation } from './participation.ts';
 import { snapshotOfDraft } from './routing.ts';
 
-/** The `diary` section of the live config, as the first step reads it. */
+/** The `selfreflection` section of the live config, as the first step reads it. */
 type DiarySection = {
   kinds?: Record<string, number>;
   pictureKinds?: unknown;
@@ -46,8 +46,8 @@ type DiarySection = {
   planMaxOutputTokens?: number;
 };
 
-/** The live config of a diary post: the `diary` section; the settings functions read their own sections. */
-export type DiaryConfig = Parameters<typeof pictureGate>[0]['config'] & { diary?: DiarySection | null };
+/** The live config of a diary post: the `selfreflection` section; the settings functions read their own sections. */
+export type DiaryConfig = Parameters<typeof pictureGate>[0]['config'] & { selfreflection?: DiarySection | null };
 
 /** The prompt files and labels the plan request reads (hot.prompts). */
 type DiaryPrompts = Record<string, unknown> & { labels?: unknown };
@@ -131,10 +131,10 @@ export function createDiary(ctx: DiaryContext): Diary {
    * A diary post's first step (mode `diary`), before its request is built:
    * the post history (store.getDiary), whether it may carry a picture (the
    * image client and Attach Files here), then the plan request (src/behavior/prompt.ts#buildDiaryPlanRequest:
-   * prompts/diary-plan.md on the classifier model, `diary.planMaxOutputTokens`
-   * (300), `diary.planTimeoutMs` (20000), usage purpose `diary-plan`; when
+   * prompts/diary-plan.md on the classifier model, `selfreflection.planMaxOutputTokens`
+   * (300), `selfreflection.planTimeoutMs` (20000), usage purpose `diary-plan`; when
    * `llm.hedge` hedges `analyzer`, the hedged call is limited by
-   * `diary.planTimeoutMs` rather than `llm.hedge.timeoutMs`) with
+   * `selfreflection.planTimeoutMs` rather than `llm.hedge.timeoutMs`) with
    * `<seeds>` drawn from prompts/diary-seeds.md (SEED_SETS) and,
    * with an owner's topic (`params.topic`, src/behavior/diary.ts#diaryTopic),
    * a `<topic>` block after them; the topic also rides on the plan as its
@@ -169,7 +169,7 @@ export function createDiary(ctx: DiaryContext): Diary {
   }: Parameters<Diary['prepareDiary']>[0]): Promise<DiaryPrepared> {
     const prompts = hot.prompts;
     const labels = prompts?.labels;
-    const diaryCfg = config.diary ?? {};
+    const diaryCfg = config.selfreflection ?? {};
     const stored = typeof store.getDiary === 'function' ? store.getDiary(guildId) : null;
     const posts = Array.isArray(stored?.posts) ? stored.posts : [];
     const forcedKind = typeof params?.kind === 'string' && params.kind ? params.kind : null;

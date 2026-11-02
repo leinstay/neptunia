@@ -2088,7 +2088,7 @@ test('inner retry: a review or an attention wake that met a cut-off error is han
 
 // --- The heartbeat ------------------------------------------------------------------------------
 
-const BEAT = { heartbeat: { enabled: true, everyMinutes: 180, jitterMinutes: 60 } };
+const BEAT = { enabled: true, everyMinutes: 180, jitterMinutes: 60 };
 const sayings = () => ({
   async *iterate() {
     yield { kind: 'said', occurredAt: new Date(NOW - HOUR_MS).toISOString(), scope: { channel: 'c3' } };
@@ -2110,19 +2110,19 @@ test('innerSettings: the heartbeat defaults and a bad value taking the default',
     [d.enabled, d.everyMinutes, d.jitterMinutes, d.people, d.filteredShown, d.closedShown],
     [true, 180, 60, 8, 10, 10]
   );
-  // PR 7d: `innerLife.heartbeat.people` is a constant, so the live keys are the switch and the interval.
-  const set = innerSettings({ innerLife: { heartbeat: { enabled: false, everyMinutes: 'x' } } }).heartbeat;
+  // PR 7d: `innerLife.heartbeat.people` (a key of the config cut) is a constant, so the live keys are the switch and the interval.
+  const set = innerSettings({ heartbeat: { enabled: false, everyMinutes: 'x' } }).heartbeat;
   assert.deepEqual([set.enabled, set.everyMinutes], [false, 180]);
 });
 
 test('heartbeat: the first tick draws the moment with the jitter and keeps it in the state; it survives a restart', async () => {
   const dataDir = tempDir('nep-inner-');
-  const run = setup({ dataDir, record: sayings(), hot: hotWith({ innerLife: BEAT }), rng: () => 0.5 });
+  const run = setup({ dataDir, record: sayings(), hot: hotWith({ heartbeat: BEAT }), rng: () => 0.5 });
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 0);
   assert.deepEqual(run.inner.state(GUILD).heartbeat, { nextAt: NOW + 180 * MINUTE_MS, lastAt: null });
   assert.deepEqual(run.inner.status(GUILD).heartbeat, { nextAt: NOW + 180 * MINUTE_MS, lastAt: null });
-  const again = setup({ dataDir, record: sayings(), hot: hotWith({ innerLife: BEAT }), rng: () => 0 });
+  const again = setup({ dataDir, record: sayings(), hot: hotWith({ heartbeat: BEAT }), rng: () => 0 });
   assert.equal(present(again.inner.state(GUILD).heartbeat).nextAt, NOW + 180 * MINUTE_MS);
   await again.inner.tick();
   assert.equal(
@@ -2135,14 +2135,14 @@ test('heartbeat: the first tick draws the moment with the jitter and keeps it in
 });
 
 test('heartbeat: off draws nothing and wakes nobody; the status says so', async () => {
-  const run = setup({ hot: hotWith({ innerLife: { heartbeat: { enabled: false } } }) });
+  const run = setup({ hot: hotWith({ heartbeat: { enabled: false } }) });
   await run.inner.tick();
   assert.equal(run.inner.state(GUILD).heartbeat, null);
   assert.equal(run.inner.status(GUILD).heartbeat, null);
 });
 
 test('heartbeat: at its moment one turn runs in the channel she spoke in, with no current channel, its own chain and the facts; the next moment is drawn from the run', async () => {
-  const run = setup({ record: sayings(), hot: hotWith({ innerLife: BEAT }), rng: () => 0.5 });
+  const run = setup({ record: sayings(), hot: hotWith({ heartbeat: BEAT }), rng: () => 0.5 });
   await run.inner.tick();
   const due = NOW + 180 * MINUTE_MS;
   clock.t = due + MINUTE_MS;
@@ -2181,7 +2181,7 @@ test('heartbeat: never coalesced with another wake and never held behind one: it
   const run = setup({
     records: [intention('i1', { channelId: 'c1', dueAt: NOW + 181 * MINUTE_MS })],
     record: sayings(),
-    hot: hotWith({ innerLife: BEAT }),
+    hot: hotWith({ heartbeat: BEAT }),
     rng: () => 0.5,
   });
   await run.inner.tick();
@@ -2208,7 +2208,7 @@ test('heartbeat: never coalesced with another wake and never held behind one: it
 
 test('heartbeat: an intention it makes due now is not run inside the heartbeat; the next tick wakes her for it as an ordinary intention_due turn', async () => {
   const dataDir = tempDir('nep-inner-');
-  const hot = hotWith({ innerLife: BEAT });
+  const hot = hotWith({ heartbeat: BEAT });
   const service = createIntentionService({
     stores: createIntentionStores({ dataDir, now: () => clock.t }),
     hot,
@@ -2273,7 +2273,7 @@ test('heartbeat: a running turn holds it to the next tick, due time kept; its ch
   const run = setup({
     turns,
     record: sayings(),
-    hot: hotWith({ innerLife: { ...BEAT, caps: { perChain: 1 } } }),
+    hot: hotWith({ heartbeat: BEAT, innerLife: { caps: { perChain: 1 } } }),
     rng: () => 0.5,
   });
   await run.inner.tick();
@@ -2308,7 +2308,7 @@ test('heartbeat: the review keeps working unchanged beside it', async () => {
   };
   const run = setup({
     record,
-    hot: hotWith({ innerLife: BEAT }),
+    hot: hotWith({ heartbeat: BEAT }),
     review: true,
     rng: () => 0.5,
   });

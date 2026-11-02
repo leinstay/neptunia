@@ -206,8 +206,10 @@ export function fixtureConfig(
   intentions: Untyped;
   agents: Untyped;
   innerLife: Untyped;
+  heartbeat: Untyped;
 } {
-  const life = fixture.innerLife ?? {};
+  // A fixture writes the heartbeat under `innerLife`, as its weeks always have; the engine reads it as `heartbeat`.
+  const { heartbeat, ...life } = fixture.innerLife ?? {};
   return {
     bot: { timezone: fixture.timezone },
     private: { enabled: false },
@@ -226,9 +228,9 @@ export function fixtureConfig(
       mode,
       review: { enabled: true, historyDays: 14, ...(life.review ?? {}) },
       caps: { perChain: 3, ...(life.caps ?? {}) },
-      // The heartbeat is off in a fixture unless it asks for it: the shipped weeks predate it and count their wakes.
-      heartbeat: { enabled: false, ...(life.heartbeat ?? {}) },
     },
+    // The heartbeat is off in a fixture unless it asks for it: the shipped weeks predate it and count their wakes.
+    heartbeat: { enabled: false, ...(heartbeat ?? {}) },
   };
 }
 

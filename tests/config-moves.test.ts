@@ -75,7 +75,7 @@ test('leaves every key it does not move exactly where it was', () => {
   const given = {
     bot: { owners: ['o1'] },
     features: { diary: true },
-    diary: { channelId: 'c9' },
+    selfreflection: { channelId: 'c9' },
     recall: { maxPerDay: 3 },
   };
   const { config, moved, shadowed, dropped } = moveConfigKeys(given);
@@ -214,13 +214,13 @@ test('shows each move as `from -> to` on a dry run and changes no byte of the fi
 });
 
 test('writes the moved keys into the file on --apply and leaves everything else as it was', () => {
-  const file = localCopy({ skills: { safeMode: true }, bot: { owners: ['o1'] }, diary: { channelId: 'c9' } });
+  const file = localCopy({ skills: { safeMode: true }, bot: { owners: ['o1'] }, selfreflection: { channelId: 'c9' } });
   const run = migrate(['--apply'], file);
   assert.equal(run.code, 0);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {
     tools: { safeMode: true },
     bot: { owners: ['o1'] },
-    diary: { channelId: 'c9' },
+    selfreflection: { channelId: 'c9' },
   });
 });
 
@@ -471,20 +471,20 @@ test('reads an old llm.helperTimeoutMs of the local file as the analyzer timeout
   assert.deepEqual(result.llm, { analyzerTimeoutMs: 4321 });
 });
 
-// ---- diary.channelId, a seed of the diary's mirror (stage 3 design, section 5) ----------------------------------
+// ---- selfreflection.channelId, a seed of the diary's mirror (stage 3 design, section 5) ----------------------------------
 
-test('drops diary.channelId and reports it moved to the database once the database has a diary mirror', () => {
+test('drops selfreflection.channelId and reports it moved to the database once the database has a diary mirror', () => {
   const { config, toDatabase } = moveConfigKeys(
-    { diary: { channelId: 'c9', maxPerDay: 3 }, bot: { owners: ['o1'] } },
+    { selfreflection: { channelId: 'c9', maxPerDay: 3 }, bot: { owners: ['o1'] } },
     { diaryMirror: true }
   );
-  assert.deepEqual(config, { diary: { maxPerDay: 3 }, bot: { owners: ['o1'] } });
-  assert.deepEqual(toDatabase, ['diary.channelId']);
+  assert.deepEqual(config, { selfreflection: { maxPerDay: 3 }, bot: { owners: ['o1'] } });
+  assert.deepEqual(toDatabase, ['selfreflection.channelId']);
 });
 
-test('keeps diary.channelId while the database has no diary mirror', () => {
-  const { config, toDatabase } = moveConfigKeys({ diary: { channelId: 'c9' } }, { diaryMirror: false });
-  assert.deepEqual(config, { diary: { channelId: 'c9' } });
+test('keeps selfreflection.channelId while the database has no diary mirror', () => {
+  const { config, toDatabase } = moveConfigKeys({ selfreflection: { channelId: 'c9' } }, { diaryMirror: false });
+  assert.deepEqual(config, { selfreflection: { channelId: 'c9' } });
   assert.deepEqual(toDatabase, []);
 });
 
@@ -524,23 +524,23 @@ function memoryFile({ mirror }: { mirror: boolean }): string {
 }
 
 // PR 7d: `diary.maxPerDay` is a daily cap the cut drops, so the key kept beside the channel is `quietDayChance`.
-test('config-migrate drops diary.channelId on --apply when the database it is given has the diary mirror', () => {
-  const file = localCopy({ diary: { channelId: 'c9', quietDayChance: 0.2 } });
+test('config-migrate drops selfreflection.channelId on --apply when the database it is given has the diary mirror', () => {
+  const file = localCopy({ selfreflection: { channelId: 'c9', quietDayChance: 0.2 } });
   const db = memoryFile({ mirror: true });
   const dry = migrate(['--dry-run', '--db', db], file);
   assert.equal(dry.code, 0);
-  assert.equal(dry.out.includes('diary.channelId'), true, 'the dry run names the key');
+  assert.equal(dry.out.includes('selfreflection.channelId'), true, 'the dry run names the key');
   const applied = migrate(['--apply', '--db', db], file);
   assert.equal(applied.code, 0);
-  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { diary: { quietDayChance: 0.2 } });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { selfreflection: { quietDayChance: 0.2 } });
 });
 
-test('config-migrate keeps diary.channelId and says so in one line when the database has no diary mirror', () => {
-  const file = localCopy({ diary: { channelId: 'c9' } });
+test('config-migrate keeps selfreflection.channelId and says so in one line when the database has no diary mirror', () => {
+  const file = localCopy({ selfreflection: { channelId: 'c9' } });
   const before = fs.readFileSync(file, 'utf8');
   const run = migrate(['--apply', '--db', memoryFile({ mirror: false })], file);
   assert.equal(fs.readFileSync(file, 'utf8'), before);
-  const lines = `${run.out}${run.err}`.split('\n').filter((line) => line.includes('diary.channelId'));
+  const lines = `${run.out}${run.err}`.split('\n').filter((line) => line.includes('selfreflection.channelId'));
   assert.equal(lines.length, 1, `${run.out}${run.err}`);
 });
 
@@ -650,4 +650,65 @@ test('config-migrate finds nothing to cut in a layer it already cut', () => {
   assert.equal(again.code, 0, again.err);
   assert.deepEqual([fs.readFileSync(layer.file, 'utf8'), fs.readFileSync(layer.discord, 'utf8')], settled);
   assert.equal(again.out, 'nothing to move\n');
+});
+
+// ---- the three ticking mechanics: heartbeat, selfreflection and selfimprovement at the top level --------------------
+
+test('moves innerLife.heartbeat to heartbeat and leaves the other innerLife settings and its cut keys where they are', () => {
+  const { config, moved } = moveConfigKeys({
+    innerLife: { mode: 'live', heartbeat: { everyMinutes: 360, enabled: false, people: 4 } },
+  });
+  assert.deepEqual(config, {
+    innerLife: { mode: 'live', heartbeat: { people: 4 } },
+    heartbeat: { enabled: false, everyMinutes: 360 },
+  });
+  assert.deepEqual(moved, [
+    { from: 'innerLife.heartbeat.enabled', to: 'heartbeat.enabled' },
+    { from: 'innerLife.heartbeat.everyMinutes', to: 'heartbeat.everyMinutes' },
+  ]);
+});
+
+test('moves diary to selfreflection, drops the emptied diary section and leaves a cut diary key behind', () => {
+  const moved = moveConfigKeys({ diary: { world: true, quietDayChance: 0, loop: { maxSteps: 5 } } }).config;
+  assert.deepEqual(moved, { selfreflection: { world: true, quietDayChance: 0, loop: { maxSteps: 5 } } });
+  const withCut = moveConfigKeys({ diary: { world: true, hungerBoost: 0.9 } }).config;
+  assert.deepEqual(withCut, { diary: { hungerBoost: 0.9 }, selfreflection: { world: true } });
+});
+
+test('moves selfdev and innerLife.wakes.selfimprovement into selfimprovement and keeps the wake limits of the kind', () => {
+  const { config } = moveConfigKeys({
+    selfdev: { mode: 'auto', repository: 'me/fork' },
+    innerLife: { wakes: { selfimprovement: { everyDays: 3, tools: ['board.propose'] } } },
+  });
+  assert.deepEqual(config, {
+    selfimprovement: { mode: 'auto', repository: 'me/fork', everyDays: 3 },
+    innerLife: { wakes: { selfimprovement: { tools: ['board.propose'] } } },
+  });
+});
+
+test('lets selfimprovement.mode win over selfdev.mode and reports the old key as shadowed', () => {
+  const { config, shadowed } = moveConfigKeys({ selfdev: { mode: 'auto' }, selfimprovement: { mode: 'approve' } });
+  assert.deepEqual(config, { selfimprovement: { mode: 'approve' } });
+  assert.deepEqual(shadowed, [{ from: 'selfdev.mode', to: 'selfimprovement.mode' }]);
+});
+
+test('reads an old innerLife.heartbeat key of the local file under heartbeat at load', async () => {
+  const root = deployment({ innerLife: { heartbeat: { everyMinutes: 360 } } });
+  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  assert.deepEqual(result.heartbeat, { everyMinutes: 360 });
+});
+
+test('reads an old diary key of the local file under selfreflection at load', async () => {
+  const root = deployment({ diary: { quietDayChance: 0.5 } });
+  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  assert.deepEqual(result.selfreflection, { quietDayChance: 0.5 });
+});
+
+test('reads old selfdev and innerLife.wakes.selfimprovement keys of the local file under selfimprovement at load', async () => {
+  const root = deployment({
+    selfdev: { repository: 'me/fork' },
+    innerLife: { wakes: { selfimprovement: { everyDays: 2 } } },
+  });
+  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  assert.deepEqual(result.selfimprovement, { repository: 'me/fork', everyDays: 2 });
 });

@@ -1,0 +1,59 @@
+// The settings schema of `selfimprovement` (src/config/schema.ts): one entry per key, in the order of config/config.json.
+
+import type { SchemaEntry } from '../schema.ts';
+
+export const SELFIMPROVEMENT: ReadonlyArray<SchemaEntry> = [
+  {
+    'key': 'selfimprovement.enabled',
+    'types': ['boolean'],
+    'reader': 'src/selfimprovement/settings.ts',
+    'default': true,
+    'text':
+      'Whether the selfimprovement wake falls due and the beat of `neptunia selfimprovement run` works. Off, neither starts',
+  },
+  {
+    'key': 'selfimprovement.mode',
+    'types': ['string'],
+    'reader': 'src/selfimprovement/settings.ts',
+    'default': 'approve',
+    'text':
+      'Who merges a pull request she opened for her own code: `approve` waits for the owner once CI is green, `auto` has the engine merge it when CI is green',
+  },
+  {
+    'key': 'selfimprovement.base',
+    'types': ['string'],
+    'reader': 'src/selfimprovement/settings.ts',
+    'default': 'main',
+    'text': 'The branch her worktrees start from and her pull requests target',
+  },
+  {
+    'key': 'selfimprovement.checkout',
+    'types': ['string', 'null'],
+    'reader': 'src/setup/run.ts',
+    'default': null,
+    'text':
+      'The absolute path of the dev checkout that `neptunia setup` renders `neptunia-selfimprovement.service` and its timer over, so the beat works there. Setup renders no selfimprovement units while it is unset, relative or the deployed checkout itself',
+  },
+  {
+    'key': 'selfimprovement.repository',
+    'types': ['string', 'null'],
+    'reader': 'src/selfimprovement/settings.ts',
+    'default': null,
+    'text':
+      'The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when her gh login can push there. While it is unset every selfimprovement beat pauses',
+  },
+  {
+    'key': 'selfimprovement.everyDays',
+    'types': ['number'],
+    'reader': 'src/behavior/inner/settings.ts',
+    'default': 7,
+    'text': 'Days between two selfimprovement wakes; the wake falls on the heartbeat moment once the days have passed',
+  },
+  {
+    'key': 'selfimprovement.failuresPerShape',
+    'types': ['number'],
+    'reader': 'src/behavior/inner/settings.ts',
+    'default': 3,
+    'text': 'How many chains of one shape must fail in a UTC day to raise a selfimprovement wake with that cause',
+  },
+];

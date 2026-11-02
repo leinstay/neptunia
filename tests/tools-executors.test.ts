@@ -92,7 +92,7 @@ function config({
     features: { tools: true, diary: true, ...features },
     tools: { safeMode: false, ...tools },
     bot: { owners: [OWNER], access },
-    diary: { channelId: '', kinds: { photos: 1, thought: 1 }, ...diary },
+    selfreflection: { channelId: '', kinds: { photos: 1, thought: 1 }, ...diary },
   };
 }
 

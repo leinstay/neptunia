@@ -40,10 +40,10 @@ test('the wake kinds include selfimprovement and its settings default to a week 
   assert.deepEqual(innerSettings({}).wakes.selfimprovement, { everyDays: 7, failuresPerShape: 3 });
 });
 
-test('the settings take positive whole numbers from innerLife.wakes.selfimprovement and the default for anything else', () => {
-  const set = innerSettings({ innerLife: { wakes: { selfimprovement: { everyDays: 3, failuresPerShape: 5 } } } });
+test('the settings take positive whole numbers from selfimprovement and the default for anything else', () => {
+  const set = innerSettings({ selfimprovement: { everyDays: 3, failuresPerShape: 5 } });
   assert.deepEqual(set.wakes.selfimprovement, { everyDays: 3, failuresPerShape: 5 });
-  const bad = innerSettings({ innerLife: { wakes: { selfimprovement: { everyDays: 0, failuresPerShape: 'x' } } } });
+  const bad = innerSettings({ selfimprovement: { everyDays: 0, failuresPerShape: 'x' } });
   assert.deepEqual(bad.wakes.selfimprovement, { everyDays: 7, failuresPerShape: 3 });
 });
 
@@ -145,10 +145,10 @@ function setup() {
         queueMax: 20,
         chatMessages: 30,
         review: { enabled: false, historyDays: 14 },
-        heartbeat: { enabled: false },
         caps: { perChain: 3 },
-        wakes: { selfimprovement: { everyDays: 7, failuresPerShape: 3 } },
       },
+      heartbeat: { enabled: false },
+      selfimprovement: { everyDays: 7, failuresPerShape: 3 },
     },
   };
   const service = createIntentionService({

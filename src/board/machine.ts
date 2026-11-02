@@ -39,7 +39,7 @@ export type Role = BoardRole | DerivedRole;
 
 // risk-low: the task's risk is low. errand: the task is on the errand lane. ci-green: metadata.ci is 'green'.
 // no-ci: the task's project has `ci: false` in `board.projects`. tests-pass: metadata.tests is 'pass'. merged: metadata.merged
-// is an object (the pull request was merged, by the owner or by a released class; src/selfdev/service.ts writes it).
+// is an object (the pull request was merged, by the owner or by a released class; src/selfimprovement/service.ts writes it).
 export const CONDITIONS = ['risk-low', 'errand', 'ci-green', 'no-ci', 'tests-pass', 'merged'] as const;
 export type Condition = (typeof CONDITIONS)[number];
 export type Via =

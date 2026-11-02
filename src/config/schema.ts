@@ -31,8 +31,8 @@ import { SPEECH } from './schema/speech.ts';
 import { TOOLS } from './schema/tools.ts';
 import { SKILLS } from './schema/skills.ts';
 import { WATCHER } from './schema/watcher.ts';
-import { SELFDEV } from './schema/selfdev.ts';
-import { DIARY } from './schema/diary.ts';
+import { SELFIMPROVEMENT } from './schema/selfimprovement.ts';
+import { SELFREFLECTION } from './schema/selfreflection.ts';
 import { GIFS } from './schema/gifs.ts';
 import { PRIVATE } from './schema/private.ts';
 import { ERRANDS } from './schema/errands.ts';
@@ -40,6 +40,7 @@ import { AGENTS } from './schema/agents.ts';
 import { BOARD } from './schema/board.ts';
 import { INTENTIONS } from './schema/intentions.ts';
 import { INNER_LIFE } from './schema/inner-life.ts';
+import { HEARTBEAT } from './schema/heartbeat.ts';
 import { APPEND_STORE } from './schema/append-store.ts';
 import { JOURNAL } from './schema/journal.ts';
 import { ARCHIVE } from './schema/archive.ts';
@@ -86,8 +87,8 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...TOOLS,
   ...SKILLS,
   ...WATCHER,
-  ...SELFDEV,
-  ...DIARY,
+  ...SELFIMPROVEMENT,
+  ...SELFREFLECTION,
   ...GIFS,
   ...PRIVATE,
   ...ERRANDS,
@@ -95,6 +96,7 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...BOARD,
   ...INTENTIONS,
   ...INNER_LIFE,
+  ...HEARTBEAT,
   ...APPEND_STORE,
   ...JOURNAL,
   ...ARCHIVE,
