@@ -6,7 +6,8 @@
 # still going, and it never restarts itself after a failed run.
 #
 # The user is an agent user, never the core's: it reads the checkout, the private layer, the data folder and the logs,
-# writes only the watcher folder and the board through the socket, and holds the login of the agent backend.
+# writes only the watcher folder and the board through the socket, and runs the agent backend from its folder in the
+# private layer, where the backend's login is.
 #
 # `neptunia setup` renders this service and its timer for the installing user (deploy/README.md) and does not start
 # them. The client token of the watcher is made once with scripts/client-token.ts (`add watcher --kind agent --roles
@@ -28,7 +29,7 @@ ExecStart=/opt/node/bin/node bin/neptunia.ts watcher run
 Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc
 Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
 Environment=NEPTUNIA_TASK_CLIENT=watcher
-# The agent backend's binary is found by name: the user's own tools and node's folder go on the PATH.
+# The agent backend is started by its path in the private layer; node's folder and the user's tools go on the PATH.
 Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
 # A run takes what it takes.
 TimeoutStartSec=infinity

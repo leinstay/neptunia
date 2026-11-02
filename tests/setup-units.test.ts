@@ -171,11 +171,12 @@ test('system units run as the installing user and group, and keep the template h
   assert.deepEqual(valuesOf(server, 'IPAddressDeny'), ['any']);
 });
 
-test("system agent units bind the installing user's home, and their PATH reaches its codex and the node", () => {
+test("system agent units bind nothing of the installing user's home, and their PATH reaches its tools and the node", () => {
   // Bug: the unit binds /home/neptunia/.codex, which is not the login of this user, so every task fails backend-missing.
+  // Changed for spec 2026-11-02 PR 5: the backend's login lives in <private>/subharness/<backend>/, never in ~/.codex.
   for (const name of AGENTS) {
     const text = renderUnit(template(name), 'system', VARS);
-    assert.deepEqual(valuesOf(text, 'BindPaths'), [`${VARS.home}/.codex`], name);
+    assert.deepEqual(valuesOf(text, 'BindPaths'), [], name);
     const dirs = (valuesOf(text, 'Environment').find((one) => one.startsWith('PATH=')) ?? '').slice(5).split(':');
     assert.ok(dirs.includes(`${VARS.home}/.local/bin`), name);
     assert.ok(dirs.includes(path.dirname(VARS.node)), name);
@@ -197,12 +198,6 @@ const CORE_AND_WATCHER = ['neptunia-core.service', 'neptunia-watcher.service'];
 const pathDirsOf = (text: string): Array<string> =>
   (valuesOf(text, 'Environment').find((one) => one.startsWith('PATH=')) ?? '').slice(5).split(':').filter(Boolean);
 
-/** The folders the unit's `ReadWritePaths=` lines name, a leading `-` taken off. */
-const writableOf = (text: string): Array<string> =>
-  valuesOf(text, 'ReadWritePaths')
-    .flatMap((one) => one.split(/\s+/))
-    .map((one) => one.replace(/^-/, ''));
-
 for (const scope of ['user', 'system'] as const) {
   test(`${scope} core and watcher units put the user's ~/.local/bin and the node's folder on PATH`, () => {
     // Catches: codex installed under ~/.local/bin is not found by the core's enable check or the watcher's run.
@@ -215,16 +210,85 @@ for (const scope of ['user', 'system'] as const) {
   });
 }
 
-test('the core may write the home of the backend that is on: ~/.codex for codex, ~/.claude for claude, none for none', () => {
-  // Catches: ProtectSystem=strict leaves the backend's home read-only and every run fails writing its session, or a
-  // deployment without the subharness gets a ReadWritePaths of a folder that does not exist and the unit fails.
-  const core = (backend: 'codex' | 'claude' | null): string =>
-    renderUnit(template('neptunia-core.service'), 'user', { ...VARS, backend });
-  assert.ok(writableOf(core('codex')).includes(`${VARS.home}/.codex`));
-  assert.ok(writableOf(core('claude')).includes(`${VARS.home}/.claude`));
-  assert.equal(writableOf(core('claude')).includes(`${VARS.home}/.codex`), false);
+test('the core and the watcher of a deployment with no backend name no backend home', () => {
+  // Catches: a deployment without the subharness gets a ReadWritePaths of a folder that does not exist and the unit fails.
+  // Changed for spec 2026-11-02 PR 5: the core writes the backend's folder in the private layer, checked by the test
+  // "the core may write her backend's folder"; ~/.codex and ~/.claude are no longer its write paths.
   for (const name of CORE_AND_WATCHER) {
     const text = renderUnit(template(name), 'user', { ...VARS, backend: null });
     assert.equal(text.includes('/.codex') || text.includes('/.claude'), false, name);
+  }
+});
+
+// A backend lives in her private layer (spec 2026-11-02, PR 5, "Where a subharness lives"): the units let the agents
+// and the core write `<private>/subharness/<backend>/` in place of the installing user's ~/.codex or ~/.claude.
+
+/** The folders a unit may write: its `ReadWritePaths=` and `BindPaths=` entries, a leading `-` and a `:target` taken off. */
+const writableEntriesOf = (text: string): Array<string> =>
+  [...valuesOf(text, 'ReadWritePaths'), ...valuesOf(text, 'BindPaths')]
+    .flatMap((one) => one.split(/\s+/))
+    .filter(Boolean)
+    .map((one) => one.replace(/^-/, '').split(':')[0] ?? '');
+
+/** Whether one of `entries` is `dir` or a folder above it. */
+const covers = (entries: ReadonlyArray<string>, dir: string): boolean =>
+  entries.some((entry) => {
+    const relative = path.relative(entry, dir);
+    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+  });
+
+/** The rendered lines of a unit that name the user's own backend homes. */
+const userHomesIn = (text: string): Array<string> =>
+  linesOf(text).filter((line) => line.includes(`${VARS.home}/.codex`) || line.includes(`${VARS.home}/.claude`));
+
+const placeOf = (backend: string, privateDir = VARS.privateDir): string => path.join(privateDir, 'subharness', backend);
+
+for (const scope of ['user', 'system'] as const) {
+  test(`${scope} agent units in read and write may write her backend's folder, nothing above it, and no ~/.codex`, () => {
+    // Catches: the agent units still bind the installing user's ~/.codex, so codex in her folder cannot write its
+    // session; or the whole private folder is bound and an agent edits keys.json, its own mode included.
+    for (const name of AGENTS)
+      for (const backend of ['codex', 'claude', 'opencode'] as const)
+        for (const mode of ['read', 'write'] as const) {
+          const text = renderUnit(template(name), scope, { ...VARS, backend, mode });
+          const label = `${name} ${backend} ${mode}`;
+          assert.ok(covers(writableEntriesOf(text), placeOf(backend)), label);
+          assert.equal(covers(writableEntriesOf(text), path.join(VARS.privateDir, 'keys.json')), false, label);
+          assert.deepEqual(userHomesIn(text), [], label);
+        }
+  });
+}
+
+test('agent units bind her backend folder when the private folder lies under the home they hide', () => {
+  // Catches: the folder is given as ReadWritePaths under ProtectHome=tmpfs, where it does not exist, and the unit fails.
+  const privateDir = `${VARS.home}/.neptunia`;
+  for (const name of AGENTS) {
+    const text = renderUnit(template(name), 'user', { ...VARS, privateDir, backend: 'codex', mode: 'write' });
+    const bound = valuesOf(text, 'BindPaths')
+      .flatMap((one) => one.split(/\s+/))
+      .map((one) => one.replace(/^-/, '').split(':')[0] ?? '');
+    assert.ok(covers(bound, placeOf('codex', privateDir)), name);
+  }
+});
+
+test('agent units of a deployment with no backend bind no backend folder at all', () => {
+  // Catches: a unit names a subharness folder that setup never made, or keeps ~/.codex, and fails to start.
+  for (const name of AGENTS) {
+    const text = renderUnit(template(name), 'user', { ...VARS, backend: null, mode: 'write' });
+    assert.equal(
+      linesOf(text).some((line) => line.includes('/subharness')),
+      false,
+      name
+    );
+    assert.deepEqual(userHomesIn(text), [], name);
+  }
+});
+
+test("the core may write her backend's folder and names neither ~/.codex nor ~/.claude", () => {
+  // Catches: the core unit keeps ~/.claude in ReadWritePaths, a folder that may not exist, so the core fails to start.
+  for (const backend of ['codex', 'claude', 'opencode'] as const) {
+    const text = renderUnit(template('neptunia-core.service'), 'system', { ...VARS, backend });
+    assert.ok(covers(writableEntriesOf(text), placeOf(backend)), backend);
+    assert.deepEqual(userHomesIn(text), [], backend);
   }
 });

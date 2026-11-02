@@ -3,11 +3,12 @@
 # A separate, unprivileged process that runs read-only errands on this server
 # through Codex (`codex exec -s read-only`, set by "sandbox" in
 # agents/server/profile.json): it reads files and runs read-only shell commands
-# to answer the owner's questions about the machine. It runs as the user
-# `neptunia`, which holds the one Codex login of the server (~/.codex/auth.json).
+# to answer the owner's questions about the machine. The backend runs from
+# <private>/subharness/<backend>/, which holds its binary and its login.
 # Its network reaches only the local resolver and Cloudflare's ranges, where
 # chatgpt.com, api.openai.com and auth.openai.com sit (IPAddressAllow;
-# everything else denied), and it writes only its own out dir and ~/.codex. The
+# everything else denied), and it writes only its own out dir and the backend's
+# folder. The
 # read-only guarantee is this unit (ProtectSystem=strict, no write paths) plus
 # Codex's read-only sandbox, not a command filter. What it may DISCLOSE is cut
 # by the engine per scope (src/agent-runner/policy.ts), not by the OS here.
@@ -39,7 +40,7 @@ User=neptunia
 Group=neptunia-discord-interface
 WorkingDirectory=/opt/neptunia/app
 ExecStart=/opt/node/bin/node bin/neptunia.ts errand-runner --profile server
-# The runner starts `codex` by name: its folder and node's go on the PATH.
+# Node's folder goes on the PATH; the backend is started by its path in the private layer.
 Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
 # The bot's directories (deploy/neptunia-bot.service), set as in its unit. The
 # runner reads the override prompts.local/agent-server.md from
@@ -69,11 +70,12 @@ IPAddressAllow=173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
 # The whole system is read-only; the agent writes only its own state (out) dir,
-# the runtime socket dir and ~/.codex (Codex's sessions, logs and login). The rest of the home is an
-# empty tmpfs, with ~/.local (the codex binary) read-only.
+# the runtime socket dir and the backend's folder <private>/subharness/<backend>/
+# (its sessions, logs and login), which `neptunia setup` binds after ProtectHome=
+# while a backend is on. The rest of the home is an empty tmpfs, with ~/.local
+# read-only.
 ProtectSystem=strict
 ProtectHome=tmpfs
-BindPaths=/home/neptunia/.codex
 BindReadOnlyPaths=/home/neptunia/.local
 NoNewPrivileges=yes
 PrivateTmp=yes

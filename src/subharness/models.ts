@@ -57,6 +57,7 @@ export async function checkModel(
   if (backend !== 'opencode') {
     const outcome = await deps.runBackend(backend, CHECK_BRIEF, model);
     if (outcome.ok && outcome.text.trim() !== '') return null;
+    if (outcome.error === 'not-installed') return refused('not-installed', `${backend} is not installed`);
     if (outcome.error === 'backend-missing')
       return refused('binary-missing', `${backend} is not on the PATH of the core`);
     log.warn('subharness: model check failed', { backend, model, error: outcome.error ?? null });

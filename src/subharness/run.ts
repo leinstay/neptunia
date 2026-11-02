@@ -3,7 +3,8 @@
 // (hermes_cli/approval_mode.py), so "subharness disable" and "subharness mode" act on the next run without a restart.
 //
 // A run is refused with `subharness-off` while the subharness is off, or when opencode is on a key that has left the
-// store. Otherwise the agent's mode (src/subharness/control.ts) becomes the backend's sandbox, and the child gets a
+// store, and with `not-installed` while the backend is not in `<private>/subharness/<backend>/` (src/subharness/place.ts),
+// whose binary every run starts with that folder's home in its environment. Otherwise the agent's mode (src/subharness/control.ts) becomes the backend's sandbox, and the child gets a
 // PATH on which `sudo` refuses unless the mode is `sudo`: a stand-in named `sudo` in a folder of its own comes first.
 // OpenCode gets the one extra key it was enabled with as OPENROUTER_API_KEY and nothing else key-like; codex and
 // claude bring their own login and get no key. A run in `full` or `sudo` writes one log line before it starts, with
@@ -12,7 +13,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createBackend } from '../agent-runner/backend.ts';
+import { createInstalledBackend } from '../agent-runner/backend.ts';
 import type { Backend, BackendResult, BackendRunOptions } from '../agent-runner/backend.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { log } from '../log.ts';
@@ -42,8 +43,6 @@ export type RunDeps = {
   denyDir: string;
   /** the environment whose PATH the child inherits; `process.env` by default */
   hostEnv?: Record<string, string | undefined>;
-  /** the OpenCode binary, when it is not at its default path */
-  opencodePath?: string;
   /** a test's fake backends */
   backendFactory?: (name: BackendName) => Backend;
 };
@@ -122,8 +121,6 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
     ...(run.images === undefined ? {} : { images: run.images }),
     ...(run.signal === undefined ? {} : { signal: run.signal }),
   };
-  const backend =
-    deps.backendFactory?.(name) ??
-    createBackend(name, name === 'opencode' && deps.opencodePath !== undefined ? { binary: deps.opencodePath } : {});
+  const backend = deps.backendFactory?.(name) ?? createInstalledBackend(name, deps.privateDir);
   return backend.run(run.brief, options);
 }

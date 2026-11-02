@@ -7,14 +7,16 @@
 // directive of the template. `full` drops the mount sandbox (`ProtectSystem`, `ProtectHome` and the bind and write
 // paths), and `sudo` drops in addition what would stop `sudo` (`NoNewPrivileges` and the capability bounding set).
 //
-// The core and the watcher start the subharness backend's binary (the core's enable check, the watcher's run), so their
-// templates put `~/.local/bin` on `PATH`, and the backend's home (`~/.codex` or `~/.claude`) joins the `ReadWritePaths=`
-// of the two while that backend is on.
+// A subharness backend lives in `<private>/subharness/<backend>/` (src/subharness/place.ts), binary and home. The core
+// writes it through the private folder of its `ReadWritePaths=`, and the watcher has no mount sandbox. An agent unit in
+// `read` or `write` hides the home (`ProtectHome=tmpfs`) and sees the private folder read-only, so the folder of the
+// backend in keys.json is bound writable into it, and nothing above it: keys.json stays out of the agent's reach.
 
 import path from 'node:path';
 import { UNIT_SCOPE_ENV } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import type { AgentMode, SubharnessAgent } from '../subharness/control.ts';
+import { subharnessPlace } from '../subharness/place.ts';
 
 /** The templates `setup` renders, by file name. The bot unit and the plugin template are not among them. */
 export const UNIT_FILES: ReadonlyArray<string> = [
@@ -32,11 +34,8 @@ export const UNIT_FILES: ReadonlyArray<string> = [
  */
 export const SELFDEV_UNIT_FILES: ReadonlyArray<string> = ['neptunia-selfdev.service', 'neptunia-selfdev.timer'];
 
-/** The `ExecStart=` of the units that start the subharness backend's binary: the core and the watcher. */
-const BACKEND_HOST = /^ExecStart=\S+ (src\/index\.ts|bin\/neptunia\.ts watcher run)$/m;
-
-/** The home folder of each backend the core and the watcher write; OpenCode keeps no login there. */
-const BACKEND_HOMES: Readonly<Partial<Record<BackendName, string>>> = { codex: '.codex', claude: '.claude' };
+/** The `ExecStart=` of an agent unit: the errand runner. */
+const AGENT_RUNNER = /^ExecStart=\S+ bin\/neptunia\.ts errand-runner\b/m;
 
 /** The agent whose mode shapes a unit, by the unit's file name. */
 export const UNIT_AGENTS: Readonly<Record<string, SubharnessAgent>> = {
@@ -57,7 +56,7 @@ export type UnitVars = {
   node: string;
   /** the mode of the agent the unit runs; absent keeps the template's own sandbox */
   mode?: AgentMode;
-  /** the subharness backend of keys.json; its home (`~/.codex`, `~/.claude`) is writable for the core and the watcher */
+  /** the subharness backend of keys.json; an agent unit binds its folder in the private layer writable */
   backend?: BackendName | null;
 };
 
@@ -112,8 +111,8 @@ type LineRules = {
   dropped: ReadonlySet<string>;
   keepsHome: boolean;
   isInterface: boolean;
-  /** the backend's home added to the unit's `ReadWritePaths=`, null when the unit has none to add */
-  backendHome: string | null;
+  /** the backend's folder bound after the unit's `ProtectHome=` line, null when the unit binds none */
+  backendDir: string | null;
 };
 
 /** The lines `line` becomes: none when it is dropped, two for `User=` of a system unit. */
@@ -125,7 +124,7 @@ function linesOf(line: string, rules: LineRules): Array<string> {
   if (key === 'User') return scope === 'system' ? [`User=${vars.user}`, `Group=${vars.group}`] : [];
   if (scope === 'user' && line === 'WantedBy=multi-user.target') return ['WantedBy=default.target'];
   if (scope === 'user' && rules.isInterface && key === 'InaccessiblePaths') return [];
-  if (rules.backendHome !== null && key === 'ReadWritePaths') return [`${line} -${rules.backendHome}`];
+  if (rules.backendDir !== null && key === 'ProtectHome') return [line, `BindPaths=-${rules.backendDir}`];
   if (rules.keepsHome && key === 'BindReadOnlyPaths') {
     const bound = line.slice('BindReadOnlyPaths='.length).split(/\s+/).filter(Boolean);
     return [`BindReadOnlyPaths=${[...bound, ...visibleHomePaths(vars, bound)].join(' ')}`];
@@ -146,17 +145,16 @@ export function renderUnit(template: string, scope: 'user' | 'system', vars: Uni
   const dropped = new Set<string>();
   if (mode === 'full' || mode === 'sudo') for (const key of MOUNT_SANDBOX) dropped.add(key);
   if (mode === 'sudo') for (const key of STOPS_SUDO) dropped.add(key);
-  // The core keeps `ProtectSystem=strict` with a `ReadWritePaths=` line, and the backend's home joins that line; a unit
-  // with no mount sandbox (the watcher, or any unit in `full`) can write the home already.
-  const homeName = vars.backend == null ? undefined : BACKEND_HOMES[vars.backend];
-  const backendHome = homeName !== undefined && BACKEND_HOST.test(text) ? path.join(vars.home, homeName) : null;
+  // The leading `-` lets the unit start before setup made the folder; the agent then fails `not-installed`.
+  const backendDir =
+    vars.backend != null && AGENT_RUNNER.test(text) ? subharnessPlace(vars.privateDir, vars.backend).dir : null;
   const rules: LineRules = {
     scope,
     vars,
     dropped,
     keepsHome: !dropped.has('ProtectHome') && /^ProtectHome=tmpfs$/m.test(text),
     isInterface: /^ExecStart=.*\binterface run\b/m.test(text),
-    backendHome,
+    backendDir,
   };
   return text
     .split('\n')

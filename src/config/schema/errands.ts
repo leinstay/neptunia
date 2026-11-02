@@ -8,7 +8,7 @@ export const ERRANDS: ReadonlyArray<SchemaEntry> = [
     'types': ['string'],
     'reader': 'bin/neptunia.ts',
     'default': '/opt/opencode/bin/opencode',
-    'text': 'Path to the OpenCode binary',
+    'text': 'The OpenCode executable that `neptunia setup subharness opencode` copies when no `--from` is given',
   },
   {
     'key': 'errands.toolResultChars',

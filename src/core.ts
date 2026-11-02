@@ -126,7 +126,8 @@ import { createTagHistory, deprecatedModelKeys } from './behavior/mention.ts';
 import { createMessageHandler } from './behavior/pipeline.ts';
 import { createLeasedAttention } from './behavior/attention.ts';
 import { RELATIONSHIP_LIMITS } from './memory/text-limits.ts';
-import { createBackend } from './agent-runner/backend.ts';
+import { createInstalledBackend } from './agent-runner/backend.ts';
+import { isInstalled } from './subharness/place.ts';
 import { deferModeToUnit } from './setup/install.ts';
 import { REPLY_CHECK_MS } from './subharness/control.ts';
 import { objOf } from './tools/types.ts';
@@ -1344,8 +1345,9 @@ async function buildCore(
       // mode change goes into the agent's unit (src/setup/install.ts).
       subharness: {
         asksModels: true,
+        isInstalled: (backend) => isInstalled(paths.privateDir, backend),
         runBackend: (backend, brief, model) =>
-          createBackend(backend).run(brief, {
+          createInstalledBackend(backend, paths.privateDir).run(brief, {
             cwd: os.tmpdir(),
             timeoutMs: REPLY_CHECK_MS,
             sandbox: 'read-only',

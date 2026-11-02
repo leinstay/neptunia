@@ -32,3 +32,7 @@ The units start the node that `nodeOf` (`src/setup/run.ts`) finds: the absolute 
 ## After the steps
 
 Setup prints one line per step with its state, then the commands that come next, and opens the chat with `/keys core add` typed. The order after setup is `keys core add`, `interface token set discord` (it asks the bot token without echo and writes `DISCORD_TOKEN` to `<private>/clients/discord.env` at mode 0600, the environment file of the interface unit), `interface enable discord`, then `model set` for the optional roles, `subharness enable` and `simulation enable`. `/help` lists every command. `neptunia doctor` carries a `features` check that warns while the subharness or the simulation is off and names the command that turns it on.
+
+## Subharness backends
+
+`neptunia setup subharness codex`, `claude` or `opencode` installs one subharness backend into `<private>/subharness/<backend>/` and runs none of the steps. `codex` and `claude` come from `npm install --prefix`, and `opencode` is a copy of the executable that `--from <path>` names, else of `errands.opencodePath`. The command prints `done`, `already` or `failed` with one line, and exits 1 for `failed`. After `codex` or `claude` it prints the login line to type at the terminal, which sets the backend's home before the binary, then the chat command `subharness enable <backend>`. Where each backend keeps its home and its login is in [Errands](errands.md#the-subharness).
