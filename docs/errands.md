@@ -28,6 +28,16 @@ Read-only questions about this machine: reads files and runs read-only shell com
 
 Drawing is not an errand. It is a built-in ability of the core, see [Media](media.md#drawings).
 
+## Backends
+
+An agent runs on one of three backends. `codex` starts `codex exec` as a child process, `claude` starts `claude -p`, and `opencode` runs the OpenCode harness described above. `src/agent-runner/backend.ts` holds all three behind one interface and picks the backend of an agent in this order: `agents.<name>.backend` in the config, then the `backend` key of the agent's `profile.json`, then `errands.backend` (default `codex`). A name outside the three is refused: a profile fails to load, and the config value raises an error before anything is spawned.
+
+A CLI backend gets the brief on stdin and works in the task's own folder under the out directory. `codex` runs with `-s workspace-write`, so its writes stay in that folder, and with `--search` when the profile has `"search": true` (the scout does). The final message is read from the file `-o` names, and the token count from the `tokens used` line of its output. `claude` returns its trimmed stdout. Each uses the login of the user the runner runs as, so a task's `secrets` are not passed on.
+
+The child's environment is `PATH`, `HOME`, `TMPDIR`, `LANG`, `LC_ALL` and `LC_CTYPE`, and nothing else from the runner's. The child starts as its own process group. When the seconds cap passes (the task's `limits.seconds`, else the profile's), the whole group gets SIGTERM and, five seconds later, SIGKILL, and the task fails with `time-cap`. A missing binary fails the task with `backend-missing`, a blank brief with `empty-brief`.
+
+Every run logs one `agent-runner: backend run` line with `backend`, `exitCode`, `durationMs`, `tokens` when known and `error` when set. It never holds the brief or the text.
+
 ## How a task runs
 
 ### Enabling a worker

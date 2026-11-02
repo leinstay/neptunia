@@ -436,7 +436,7 @@
     },
     {
       "path": "src/agent-runner/",
-      "purpose": "The process that works errands: the socket server, the profiles, the OpenCode driver and the sweep.",
+      "purpose": "The process that works errands: the socket server, the profiles, the backends (codex, claude, OpenCode) and the sweep.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
