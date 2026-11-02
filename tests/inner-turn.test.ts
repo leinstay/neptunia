@@ -711,6 +711,43 @@ test('wakeBlockText: the wake, the moment and the budgets as facts; none without
   );
 });
 
+test('wakeBlockText: one budget line per key of the core role, with its credit and when the role last switched', () => {
+  const keyLabels = {
+    ...labels,
+    wake: {
+      ...labels.wake,
+      budget: {
+        ...labels.wake.budget,
+        key: '{name}{left}{since}',
+        keyLeft: ' has {amount} left',
+        keySwitched: ', switched {when}',
+      },
+    },
+  };
+  const budgets = {
+    ...WAKE.budgets,
+    keys: [
+      { name: 'OPENROUTER_CORE_KEY', left: 41.5, switchedAt: null },
+      { name: 'OPENROUTER_CORE_BACKUP_KEY', left: null, switchedAt: NOW - 3_600_000 },
+    ],
+  };
+  const lines = wakeBlockText({ ...WAKE, budgets }, keyLabels).split('\n');
+  assert.ok(lines.includes('OPENROUTER_CORE_KEY has 41.50 left'), lines.join('|'));
+  const backup = lines.find((line) => line.startsWith('OPENROUTER_CORE_BACKUP_KEY'));
+  // Bug caught: an unread credit printed as 0 or null, which she would take for an empty key.
+  assert.ok(backup?.startsWith('OPENROUTER_CORE_BACKUP_KEY, switched '), backup);
+  assert.ok(!backup?.includes('left'), backup);
+  assert.ok(lines.indexOf('chain 3/3') > lines.indexOf('budgets:'), 'the chain line stays in the same block');
+  assert.ok(lines.indexOf('OPENROUTER_CORE_KEY has 41.50 left') > lines.indexOf('budgets:'));
+});
+
+test('wakeBlockText: keys without their labels, or an empty list, add nothing', () => {
+  const keys = [{ name: 'OPENROUTER_CORE_KEY', left: 1, switchedAt: null }];
+  const text = wakeBlockText({ ...WAKE, budgets: { ...WAKE.budgets, keys } }, labels);
+  assert.ok(!text.includes('OPENROUTER_CORE_KEY'), text);
+  assert.equal(wakeBlockText({ ...WAKE, budgets: { ...WAKE.budgets, keys: [] } }, labels), wakeBlockText(WAKE, labels));
+});
+
 test('wakeBlockText: an attend wake names the place, the lines and the people; the places page follows with its total and the rest; placesBlockText stands alone', () => {
   const attend = {
     kind: 'attend',
