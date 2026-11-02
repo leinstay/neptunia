@@ -1,5 +1,5 @@
-// Tests for the parts of item 0.5 that surface the key state: the core's `keys-exhausted` reaching the role tracker
-// (src/llm/role-health.ts#reportingCoreKeys) and the grant lines of the status card (src/tools/impl/usage.ts#keyGrantLines).
+// Tests for the key lines and the core health: the core's `keys-exhausted` reaching the role tracker
+// (src/llm/role-health.ts#reportingCoreKeys) and the grant lines of the status card (src/tools/impl/key-lines.ts#keyGrantLines).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRoleHealth, reportingCoreKeys } from '../src/llm/role-health.ts';
