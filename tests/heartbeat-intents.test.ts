@@ -74,7 +74,7 @@ function fakeStore() {
 
 // PR 7d: the switches are code, the heartbeat holds to intention changes and its caps (3 open, 1 recurring) are
 // constants, so the config holds only the keys that are still settings.
-function hotWith({ access = {}, innerLife = {} } = {}) {
+function hotWith({ access = {}, wakes = {} } = {}) {
   return {
     config: {
       bot: { timezone: 'UTC', owners: ['u1'], access },
@@ -93,7 +93,7 @@ function hotWith({ access = {}, innerLife = {} } = {}) {
         callTimeoutMs: 120000,
         loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 },
       },
-      innerLife: { mode: 'shadow', ...innerLife },
+      wakes: { mode: 'shadow', ...wakes },
     },
     prompts: {
       'system-prompt': 'You are a regular member of this chat, not an assistant.',
@@ -173,7 +173,7 @@ async function liveTurn({
   const history = [rawMessage({ id: 'm0', ts: NOW - 120_000, content: 'πρώτο' })];
   const hot: Record<string, Untyped> = hotWith({
     access: personaGrants(GRANTS),
-    innerLife: { mode: 'live' },
+    wakes: { mode: 'live' },
   });
   hot.config.tools.transport = transport;
   hot.config.intentions = { expiresDays: 14, maxOpen: 20, ...intentionsCfg };

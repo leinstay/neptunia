@@ -286,7 +286,7 @@ test('inner: no count of turns refuses one: a day and an hour of turns all run',
       intention('i2', { dueAt: NOW - 2 * MINUTE_MS, channelId: 'c2' }),
       intention('i3', { dueAt: NOW - MINUTE_MS, channelId: 'c3' }),
     ],
-    hot: hotWith({ innerLife: { caps: { perDay: 1, perHour: 1, perChain: 3 } } }),
+    hot: hotWith({ wakes: { caps: { perDay: 1, perHour: 1, perChain: 3 } } }),
   });
   for (let i = 0; i < 3; i += 1) assert.equal(drainedOf(await run.inner.tick()).outcome, 'skip');
   assert.equal(run.turns.calls.length, 3);
@@ -298,7 +298,7 @@ test('inner: a chain past its cap is held, not dropped: its wake waits capped pe
   const caps = { perChain: 1 };
   const run = setup({
     records: [intention('i1', { chainId: 'k' }), intention('i2', { chainId: 'k', channelId: 'c2' })],
-    hot: hotWith({ innerLife: { caps } }),
+    hot: hotWith({ wakes: { caps } }),
   });
   await run.inner.tick();
   assert.deepEqual((await run.inner.tick()).drained, { refused: 'per-chain' });
@@ -340,7 +340,7 @@ test('inner: a wake of another chain that shares the conversation of a held one 
       intention('i1', { chainId: 'k', dueAt: NOW - 3 * MINUTE_MS }),
       intention('i2', { dueAt: NOW - 2 * MINUTE_MS }),
     ],
-    hot: hotWith({ innerLife: { caps: { perChain: 1 } } }),
+    hot: hotWith({ wakes: { caps: { perChain: 1 } } }),
   });
   run.turns.busy = true;
   await run.inner.tick();
@@ -398,7 +398,7 @@ test('chainBudget and turnsToday: counted on the local day, a failed attempt is 
 });
 
 test('inner: the turn is handed no post counter and no delivery channels: nothing counts posts', async () => {
-  const run = setup({ records: [intention('i1')], hot: hotWith({ innerLife: { mode: 'live' } }) });
+  const run = setup({ records: [intention('i1')], hot: hotWith({ wakes: { mode: 'live' } }) });
   await run.inner.tick();
   assert.equal(run.turns.calls[0].inner.shadow, false);
   assert.equal(wrongly<Record<string, unknown>>(run.turns.calls[0].inner).postAllowed, undefined);
@@ -451,7 +451,7 @@ test('inner: stop drops the queue and is seen by a running turn before its next 
 const queueFillers = (count: number) =>
   [...Array(count).keys()].map((n) => intention(`q${n}`, { channelId: `c-q${n}` }));
 
-// PR 7d: `innerLife.queueMax` is the constant 20, so twenty wakes fill the queue.
+// PR 7d: `wakes.queueMax` is the constant 20, so twenty wakes fill the queue.
 test('inner: a wake whose intention closed meanwhile is stale; a full queue records the overflow', async () => {
   const records = queueFillers(20);
   const run = setup({ records });
@@ -527,7 +527,7 @@ test('inner: what one drain hands off (a stale wake) and keeps (the wake of a he
     intention('i1', { dueAt: NOW - 3 * MINUTE_MS }),
     intention('i2', { dueAt: NOW - 2 * MINUTE_MS, chainId: 'k' }),
   ];
-  const hot = hotWith({ innerLife: { caps: { perChain: 1 } } });
+  const hot = hotWith({ wakes: { caps: { perChain: 1 } } });
   // The queue and the handled set live in the memory database (stage 4 cut, the lead's decision 1); the facts stay in inner.json.
   const db = wakeMemory(dataDir, () => clock.t);
   const run = setup({ records, dataDir, hot, memoryDb: db.memoryDb });
@@ -649,7 +649,7 @@ test("inner: what turns cost never refuses the next one; the day's spend is only
 test('inner: an errand an inner turn handed off has its cost recorded when it ends, as a figure with no hold', async () => {
   clock.t = NOW;
   const turns = fakeTurns({ answer: () => ({ outcome: 'spoke', inner: { actions: [], turnId: 't-e' } }) });
-  const run = setup({ records: [intention('i1')], turns, hot: hotWith({ innerLife: { mode: 'live' } }) });
+  const run = setup({ records: [intention('i1')], turns, hot: hotWith({ wakes: { mode: 'live' } }) });
   await run.inner.tick();
   await settle();
   assert.equal(run.inner.onTaskFinished({ id: 'k1', origin: { turnId: 't-e' }, usage: { usd: 0.25 } }, GUILD), true);
@@ -767,7 +767,7 @@ test('inner: a recurring intention advances when its wake is disposed of -- recu
   assert.equal(new Set(state.turns.map((turn) => turn.chainId)).size, 2);
 });
 
-// PR 7d: `innerLife.queueMax` is the constant 20, so nineteen wakes of their own fill the queue beside the held one.
+// PR 7d: `wakes.queueMax` is the constant 20, so nineteen wakes of their own fill the queue beside the held one.
 test('inner: a dropped wake of a recurring intention (no channel, overflow, stale) still advances it; the last occurrence before expiry carries its note', async () => {
   const dataDir = tempDir('nep-inner-');
   const hot: Record<string, Untyped> = hotWith();
@@ -987,7 +987,7 @@ function attentionSetup({
   perDay = 12,
   lines = [],
   turns = fakeTurns(),
-  innerLife = {},
+  wakes = {},
   places = null,
   nameOf = null,
   canSend = () => true,
@@ -998,13 +998,13 @@ function attentionSetup({
   perDay?: number;
   lines?: Array<Untyped>;
   turns?: Untyped;
-  innerLife?: Record<string, Untyped>;
+  wakes?: Record<string, Untyped>;
   places?: Untyped;
   nameOf?: Untyped;
   canSend?: Untyped;
 } = {}) {
   const dataDir = tempDir('nep-inner-');
-  const hot = hotWith({ innerLife });
+  const hot = hotWith({ wakes });
   const service = realIntentions(hot, dataDir);
   const record = fakeRecord(lines);
   const journal: Array<Record<string, Untyped>> = [];
@@ -1429,7 +1429,7 @@ test('inner: a turn that lost something queues one feedback wake in its chain an
   const run = setup({
     records: [intention('i1', { purpose: 'send a cat meme' })],
     turns,
-    hot: hotWith({ innerLife: { mode: 'live' } }),
+    hot: hotWith({ wakes: { mode: 'live' } }),
   });
   const first = await run.inner.tick();
   assert.equal(drainedOf(first).feedback, 'inner.wake:feedback:t-1');
@@ -1571,7 +1571,7 @@ test('inner: the turn is given the current channel and the wake says where and w
   assert.equal(review.turns.calls[0].inner.wake.here, null);
   // A feedback wake keeps the reported turn's current channel, and the next turn is given it.
   const turns = fakeTurns({ answer: () => lostTurn() });
-  const again = setup({ records: [{ ...dest }], turns, hot: hotWith({ innerLife: { mode: 'live' } }) });
+  const again = setup({ records: [{ ...dest }], turns, hot: hotWith({ wakes: { mode: 'live' } }) });
   await again.inner.tick();
   assert.equal(again.inner.state(GUILD).queue[0].here, 'c2');
   clock.t = NOW + MINUTE_MS;
@@ -1593,7 +1593,7 @@ test('inner: a wake of hers dropped no-channel is a fact at that moment (where, 
       intention('i9', { dueAt: NOW - 2 * MINUTE_MS, channelId: 'c9', purpose: 'announce the game night' }),
       intention('i1', { dueAt: NOW - MINUTE_MS }),
     ],
-    hot: hotWith({ innerLife: { mode: 'live' } }),
+    hot: hotWith({ wakes: { mode: 'live' } }),
   });
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 0);
@@ -1703,7 +1703,7 @@ test('inner: every wake outcome other than a turn is a wakeDropped fact at the m
   ]);
   const dm = run.inner.state(GUILD).facts.find((fact) => fact.why === 'dm-off');
   assert.deepEqual([present(dm).channelId, present(dm).privateChat], ['d1', true]);
-  // The queue full (PR 7d: twenty wakes, `innerLife.queueMax` is a constant): the overflowing wake is dropped on the spot; the stop drops what waits.
+  // The queue full (PR 7d: twenty wakes, `wakes.queueMax` is a constant): the overflowing wake is dropped on the spot; the stop drops what waits.
   const full = setup({ records: [...queueFillers(20), intention('i1')] });
   full.turns.busy = true;
   await full.inner.tick();
@@ -1715,7 +1715,7 @@ test('inner: every wake outcome other than a turn is a wakeDropped fact at the m
 
 test("inner: a wake held on the attention's own per-day bound is a wakeHeld fact once, with the local midnight it waits for; the next turn shows it, once", async () => {
   const lines = [seen('m1', { by: 'u1', at: NOW - 5 * MINUTE_MS })];
-  const held = attentionSetup({ lines, perDay: 1, innerLife: { mode: 'live' } });
+  const held = attentionSetup({ lines, perDay: 1, wakes: { mode: 'live' } });
   await held.inner.tick();
   assert.equal(held.turns.calls.length, 1, 'the first burst of the day');
   held.record.lines.push(seen('m2', { by: 'u2', at: NOW + 10 * MINUTE_MS }));
@@ -1754,7 +1754,7 @@ test("inner: a wake held on the attention's own per-day bound is a wakeHeld fact
 
 test('inner: a chain held on its per-chain cap with no turn coming is told by a feedback wake that no cap holds and no other wake joins, and that does not count against the chain', async () => {
   const k1 = { ...intention('i1', { chainId: 'k' }), purpose: 'first' };
-  const run = setup({ records: [k1], hot: hotWith({ innerLife: { mode: 'live', caps: { perChain: 1 } } }) });
+  const run = setup({ records: [k1], hot: hotWith({ wakes: { mode: 'live', caps: { perChain: 1 } } }) });
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 1);
   run.intentions.records.push({ ...intention('i2', { chainId: 'k', dueAt: NOW - 30_000 }), purpose: 'second' });
@@ -1828,7 +1828,7 @@ test('inner: a feedback wake whose facts an earlier turn already carried is hand
 });
 
 test('inner: a fact of a private chat is shown only in that chat, a fact of the server never in a private chat; pending facts are kept seven days, told ones a day', async () => {
-  const run = setup({ hot: hotWith({ innerLife: { mode: 'live' } }) });
+  const run = setup({ hot: hotWith({ wakes: { mode: 'live' } }) });
   const { facts } = run.inner;
   facts.add(GUILD, {
     kind: 'sendFailed',
@@ -1974,7 +1974,7 @@ test('inner retry: the second failure waits the second delay; a success after a 
 });
 
 test('inner retry: the last delay repeats; past retry.maxHours the wake is dropped provider and she is told at her next turn', async () => {
-  const hot = hotWith({ innerLife: { retry: { delaysMinutes: [1, 2], maxHours: 1 } } });
+  const hot = hotWith({ wakes: { retry: { delaysMinutes: [1, 2], maxHours: 1 } } });
   const run = setup({ records: [intention('i1')], turns: failingTurns(99), hot });
   await run.inner.tick();
   clock.t = NOW + MINUTE_MS;
@@ -2110,7 +2110,7 @@ test('innerSettings: the heartbeat defaults and a bad value taking the default',
     [d.enabled, d.everyMinutes, d.jitterMinutes, d.people, d.filteredShown, d.closedShown],
     [true, 180, 60, 8, 10, 10]
   );
-  // PR 7d: `innerLife.heartbeat.people` (a key of the config cut) is a constant, so the live keys are the switch and the interval.
+  // PR 7d: `heartbeat.people` (a key of the config cut) is a constant, so the live keys are the switch and the interval.
   const set = innerSettings({ heartbeat: { enabled: false, everyMinutes: 'x' } }).heartbeat;
   assert.deepEqual([set.enabled, set.everyMinutes], [false, 180]);
 });
@@ -2273,7 +2273,7 @@ test('heartbeat: a running turn holds it to the next tick, due time kept; its ch
   const run = setup({
     turns,
     record: sayings(),
-    hot: hotWith({ heartbeat: BEAT, innerLife: { caps: { perChain: 1 } } }),
+    hot: hotWith({ heartbeat: BEAT, wakes: { caps: { perChain: 1 } } }),
     rng: () => 0.5,
   });
   await run.inner.tick();

@@ -274,7 +274,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    * `image-error`, a refused publication its gateway code, and the port's answer to the upload passes through
    * (`unknown` when it may have gone out: never generated again). In a diary turn (`mode` 'diary') the picture is
    * staged into `draft.staged` as `{ picture, self, text }` instead of posted (ok, code `staged`), and refused
-   * `daily-cap` (reason `pictures`, diaryPictureGate: no image client or no Attach Files) while the post may carry none, `loop-cap` past what the post's kind takes (one picture, or `diary.set.pictures[1]`
+   * `daily-cap` (reason `pictures`, diaryPictureGate: no image client or no Attach Files) while the post may carry none, `loop-cap` past what the post's kind takes (one picture, or `selfreflection.set.pictures[1]`
    * for a set kind: `draft.diary.set`). Never throws.
    */
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move

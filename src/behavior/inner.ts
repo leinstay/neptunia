@@ -6,7 +6,7 @@
 // choosing: no model runs here, nothing ranks or invents a reason. A queued wake keeps its due
 // time while people's turns hold the lease; compatible wakes (the same conversation, and
 // the day's review with any server one) coalesce into one inner turn; a queue past
-// `innerLife.queueMax` records the overflow. The inner turn itself is the turn runner's
+// `wakes.queueMax` records the overflow. The inner turn itself is the turn runner's
 // (src/behavior/turn.ts, mode `inner`): no human message, a `<wake>` block, her tools.
 //
 // The heartbeat (docs/inner-life.md "The heartbeat"): a wake kind of its own on its own timer,
@@ -15,7 +15,7 @@
 // (`heartbeat:<at>`), is never coalesced with another wake and goes before them in the queue; its `<wake>` facts
 // are built by src/behavior/heartbeat-view.ts.
 //
-// Bounds are code, not prose (`innerLife.caps`, a ceiling the owner accepted): inner turns per
+// Bounds are code, not prose (`wakes.caps`, a ceiling the owner accepted): inner turns per
 // local day and per rolling hour, per causal chain (an intention's `chainId`, else the intention
 // itself; a review is its day's chain), public posts per local day. No bound is in dollars: what
 // a turn and the errands it hands off cost is recorded (`state.spend`, the `errand-cost` journal
@@ -26,7 +26,7 @@
 // inner turn's `<wake>`, or an addressed turn (src/behavior/turn.ts). A fact of a private chat is
 // shown only in that chat; a fact of the server never in a private chat.
 // A review's `<wake>` also tells her once which intentions of hers expired untouched since she was
-// last told (`innerLife.review.expiredMax` newest, the rest counted; a candidate never): each is marked
+// last told (`wakes.review.expiredMax` newest, the rest counted; a candidate never): each is marked
 // shown on its record once the review turn ran, so a held or erred review lists them again.
 // Over a cap no turn runs and the refusal is journalled once per wake and held as a fact (with the
 // local midnight it waits for). What is left and when it resets reach her as facts in `<wake>`,
@@ -59,17 +59,17 @@
 // id and newest line, nothing observed lost (the turn's history is the place's lines). With
 // `people` on the attention only their lines count and the wake names them. Past the attention's
 // own `perDay` the wake waits in the queue (`capped: 'attend-per-day'`), as a chain past
-// `innerLife.caps.perChain` waits (`capped: 'per-chain'`). The record is read incrementally (a per-guild place index over the last
-// `innerLife.attention.lookbackHours`), the same store the review's hours come from; the same
+// `wakes.caps.perChain` waits (`capped: 'per-chain'`). The record is read incrementally (a per-guild place index over the last
+// `wakes.attention.lookbackHours`), the same store the review's hours come from; the same
 // index feeds `places` (her `places.list` skill and the page in `<wake>`): per place the
 // interface publishes (`places`, an injected directory of opaque addresses; nothing of the
 // interface's own objects is read here), its lines and people since her last look there.
 //
-// `innerLife.mode`: `shadow` (the default) runs the turn with nothing leaving it -- her reads run,
+// `wakes.mode`: `shadow` (the default) runs the turn with nothing leaving it -- her reads run,
 // every other call is recorded as proposed -- and `live` lets her calls run through the gateway on
 // her own grants. The kill switch (`/nep task inner action:stop`) is persisted with the state,
 // drops the queue, and is asked again right before any external action of a running inner turn
-// (`mayAct`). Off (`features.innerLife` not exactly true, read at every tick) nothing is listed and
+// (`mayAct`). Off (`features.wakes` not exactly true, read at every tick) nothing is listed and
 // nothing is written. The queue, the handled ids and the turn in flight are rows of the memory
 // database's `wakes` (src/behavior/inner/wake-store.ts: a turn claims its wakes with fenced leases
 // before it asks the model and completes them after); the rest of the state per guild (the day's

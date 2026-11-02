@@ -19,7 +19,7 @@
     "selfHours": [13],
     "channel": "c-general"
   },
-  "innerLife": {
+  "wakes": {
     "attention": { "settleSeconds": 90, "perDayDefault": 12, "placesInWake": 8 }
   },
   "stub": {

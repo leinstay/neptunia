@@ -268,10 +268,10 @@ function innerHarness({
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
-      features: { innerLife: true, intentions: true, journal: false },
+      features: { wakes: true, intentions: true, journal: false },
       mention: { oneAtATime: true },
       memoryDb: { wakeRuns },
-      innerLife: {
+      wakes: {
         mode: 'shadow',
         tickSeconds: 60,
         queueMax: 20,
@@ -381,7 +381,7 @@ test('service: recordWake writes with no setting; an open interrupts the stale r
     const before = openMemoryDb(path.join(data, 'memory.db'));
     startRun(before, { id: 'left', kind: 'heartbeat', startedAt: NOW - 30 * MINUTE });
     before.close();
-    const hot = { config: { innerLife: { loop: { timeBudgetMs: 3 * MINUTE } } } };
+    const hot = { config: { wakes: { loop: { timeBudgetMs: 3 * MINUTE } } } };
     const service = createMemoryDb({ hot, dataDir: data, log: SILENT, worker: false, now: () => NOW });
     await service.tick();
     await settle();

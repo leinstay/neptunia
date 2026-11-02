@@ -320,7 +320,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         mixedRequesters: envelope.mixed,
         // An inner turn, or the result turn of her own errand, is her own initiative: nobody asked, her grants alone decide.
         ...(draft?.inner || draft?.ownInitiative ? { ownInitiative: true } : {}),
-        // An inner turn's wake envelope (innerLife.wakes.<kind>): its wake kind and the calls it made so far.
+        // An inner turn's wake envelope (wakes.kinds.<kind>): its wake kind and the calls it made so far.
         ...(draft?.inner?.wake?.kind
           ? { wakeKind: String(draft.inner.wake.kind), wakeActions: draft.innerActions ?? [] }
           : {}),
@@ -551,6 +551,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     if (inner.hold && OWN_MESSAGE_SKILLS.includes(skill) && isLast(args?.message) && inner.hold.holdsIn(where))
       return { refusal: { code: CODE.HELD_MESSAGE, reason: 'held' } };
     if (typeof inner.mayAct === 'function' && !inner.mayAct())
+      // The reason keeps the section's old name: her call result carries it, and her requests stay as they were.
       return { refusal: { code: CODE.INNER_STOPPED, reason: 'innerLife' } };
     const isPublic =
       POSTING_SKILLS.includes(String(skill)) && (inCommunity(channel) || typeof args?.channel === 'string');

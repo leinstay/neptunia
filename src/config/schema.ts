@@ -39,7 +39,7 @@ import { ERRANDS } from './schema/errands.ts';
 import { AGENTS } from './schema/agents.ts';
 import { BOARD } from './schema/board.ts';
 import { INTENTIONS } from './schema/intentions.ts';
-import { INNER_LIFE } from './schema/inner-life.ts';
+import { WAKES } from './schema/wakes.ts';
 import { HEARTBEAT } from './schema/heartbeat.ts';
 import { APPEND_STORE } from './schema/append-store.ts';
 import { JOURNAL } from './schema/journal.ts';
@@ -95,7 +95,7 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...AGENTS,
   ...BOARD,
   ...INTENTIONS,
-  ...INNER_LIFE,
+  ...WAKES,
   ...HEARTBEAT,
   ...APPEND_STORE,
   ...JOURNAL,

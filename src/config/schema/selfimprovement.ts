@@ -56,4 +56,32 @@ export const SELFIMPROVEMENT: ReadonlyArray<SchemaEntry> = [
     'default': 3,
     'text': 'How many chains of one shape must fail in a UTC day to raise a selfimprovement wake with that cause',
   },
+  {
+    'key': 'selfimprovement.tools',
+    'types': ['string', 'array'],
+    'reader': 'src/tools/access.ts',
+    'default': '*',
+    'text': 'The tools a selfimprovement wake may call: `"*"` for every granted tool or a list of tool names',
+  },
+  {
+    'key': 'selfimprovement.maxActs',
+    'types': ['number', 'null'],
+    'reader': 'src/tools/access.ts',
+    'default': null,
+    'text': 'The most actions a selfimprovement wake may take; null: no cap',
+  },
+  {
+    'key': 'selfimprovement.maxTasks',
+    'types': ['number', 'null'],
+    'reader': 'src/tools/access.ts',
+    'default': null,
+    'text': 'The most errands a selfimprovement wake may start; null: no cap',
+  },
+  {
+    'key': 'selfimprovement.inputTokens',
+    'types': ['number', 'null'],
+    'reader': 'src/tools/access.ts',
+    'default': null,
+    'text': 'The input token budget of a selfimprovement wake; null: the loop budget',
+  },
 ];

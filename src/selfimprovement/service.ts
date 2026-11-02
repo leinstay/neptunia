@@ -98,10 +98,10 @@ const SELF = 'persona:self';
 /** The lease of a claimed task, and how often a run renews it (minutes). */
 const LEASE_MINUTES = 90;
 const RENEW_MINUTES = 20;
-/** The refusal tag of the brief (prompts/selfdev.md, docs/prompt-contract.md). */
+/** The refusal tag of the brief (prompts/selfimprovement.md, docs/prompt-contract.md). */
 const REFUSED = /^REFUSED:[ \t]*(.*)$/;
 
-/** The text of prompts/selfdev.md with the fix's fields in their `{{placeholders}}` (docs/prompt-contract.md). */
+/** The text of prompts/selfimprovement.md with the fix's fields in their `{{placeholders}}` (docs/prompt-contract.md). */
 export function briefFrom(template: string, task: FixBrief): string {
   const list = (items: ReadonlyArray<string>): string => items.map((one) => `- ${one}`).join('\n');
   return fillPromptTemplate(template, {

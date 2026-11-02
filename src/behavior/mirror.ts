@@ -66,7 +66,7 @@ export type DiaryEntry = {
   voice?: EntryVoice | null;
   /** The files her messages carry, each with the index of its message in `messages`. */
   files?: ReadonlyArray<EntryFile>;
-  /** The bytes of one message of pictures (`diary.set.maxMessageBytes` when the entry was recorded). */
+  /** The bytes of one message of pictures (`selfreflection.set.maxMessageBytes` when the entry was recorded). */
   maxMessageBytes?: number;
 };
 
@@ -148,7 +148,7 @@ export function imageFileName(mediaType: unknown): string {
 
 /**
  * A diary set's pictures split into messages, in order: a message holds at most `maxFiles` files, and a picture whose
- * bytes would take its message past `maxBytes` (`diary.set.maxMessageBytes`) starts the next one; a picture larger
+ * bytes would take its message past `maxBytes` (`selfreflection.set.maxMessageBytes`) starts the next one; a picture larger
  * than `maxBytes` on its own goes alone. Pure.
  */
 export function chunkPictures<TPicture extends { buffer?: { length: number } | null }>(
@@ -406,7 +406,7 @@ function storedEntry(db: Db, publication: Publication, dataDir: string | null): 
  * The publisher of the diary's mirrors over the memory service `memoryDb` and the connected interface's port
  * (`port()`: null when none is connected). `dataDir` is the memory service's data directory, where the entries' media
  * files are kept (null: a queued entry goes out without them). `config()` is the live config, read at each send for an
- * entry that names no `maxMessageBytes` (`diary.set.maxMessageBytes`).
+ * entry that names no `maxMessageBytes` (`selfreflection.set.maxMessageBytes`).
  */
 export function createMirrors({
   memoryDb,

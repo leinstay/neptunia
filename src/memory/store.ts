@@ -110,7 +110,7 @@ import { classify } from './db/map/index.ts';
 import { createUnitOutbox } from './db/unit-outbox.ts';
 import type { StoredRecord, MemoryDb, Untyped } from './types.ts';
 
-const DIARY_HISTORY_POSTS = 150; // diary.historyPosts
+const DIARY_HISTORY_POSTS = 150; // selfreflection.historyPosts
 
 /** Version history when a writer's caller passes none: `features.versions`, `memory.versionsKept`. */
 const DEFAULT_VERSIONS = { enabled: true, kept: 20 };
@@ -3041,7 +3041,7 @@ function buildStore({
     },
 
     /**
-     * Append one post to the guild's diary, keep the newest `max` (diary.historyPosts), stamp `updatedAt` with `now`.
+     * Append one post to the guild's diary, keep the newest `max` (selfreflection.historyPosts), stamp `updatedAt` with `now`.
      * @param post  `pictures`: a set's count
      *   (`picture` its first scene); `text`: the entry in full; `itemId`: the entry's id.
      * @returns The posts that fell past `max` (see `writeDiary`).
@@ -3060,7 +3060,7 @@ function buildStore({
 
     /**
      * Replace the guild's post list (the backfill, run only on an empty diary, posts oldest first), keeping the newest
-     * `max` (diary.historyPosts), stamping `updatedAt` with `now`; returns the posts that fell past `max` (`writeDiary`).
+     * `max` (selfreflection.historyPosts), stamping `updatedAt` with `now`; returns the posts that fell past `max` (`writeDiary`).
      * @param guildId @param posts @param [opts]
      */
     setDiaryPosts(guildId: string, posts: Array<StoredRecord>, opts: { max?: number; now?: number } = {}) {

@@ -2,9 +2,11 @@
 // `features.skillsDiscovery`, the owner's grants on the tools that were renamed (`skills.describe`, the six `task.*` and
 // the four `intent.*`), the nine settings of `agents` that every errand reads (they live under `errands`),
 // `agents.<name>.search.provider` (now `searchProvider`), the analyzer timeout `llm.helperTimeoutMs` (now
-// `llm.analyzerTimeoutMs`), and the settings of the three ticking mechanics, each a top-level section (MECHANIC_MOVES):
-// `innerLife.heartbeat.*` under `heartbeat`, `diary.*` under `selfreflection`, `selfdev.*` and
-// `innerLife.wakes.selfimprovement.*` under `selfimprovement`. A local config written with the old keys keeps its meaning
+// `llm.analyzerTimeoutMs`), the switch `features.innerLife` (now `features.wakes`), and the sections of the wakes and
+// the three ticking mechanics (MECHANIC_MOVES): `innerLife.heartbeat.*` and `innerLife.wakes.heartbeat.*` under
+// `heartbeat`, `diary.*` under `selfreflection`, `selfdev.*` and `innerLife.wakes.selfimprovement.*` under
+// `selfimprovement`, the other `innerLife.wakes.<kind>.*` under `wakes.kinds`, and the rest of `innerLife.*` under
+// `wakes`. A local config written with the old keys keeps its meaning
 // because `moveConfigKeys` writes each old key under its new name, and the loader (src/config.ts#readConfig) applies it to
 // the local file before that file is laid over config.json, so an old key overrides the shipped default of its new name.
 // `scripts/config-migrate.ts` writes the same moves into the file.
@@ -231,36 +233,33 @@ function dropKeys(config: Config, report: MovedConfig): void {
 }
 
 /**
- * The settings of the three ticking mechanics that moved to their own top-level section: the old section's path, the
- * new one's and the keys that move. Only the keys the schema names move; a key the config cut holds (`diary.set`,
- * `innerLife.heartbeat.people`) stays under its old path, where src/config/cut.ts finds it, and `innerLife.wakes.*`'s
- * limits of the kind (`tools`, `maxActs`, ...) stay with the other wake kinds.
+ * The sections that moved to a section of their own, in this order: the old section's path and the new one's. Every
+ * key of the old section moves, the keys the config cut holds with them (src/config/cut.ts knows them under the new
+ * names, `selfreflection.set`, `heartbeat.people`, `wakes.queueMax`). The three ticking mechanics take what only they
+ * read, the selfimprovement and heartbeat wakes' limits included (`tools`, `maxActs`, `maxTasks`, `inputTokens`); the
+ * other wake kinds' limits go under `wakes.kinds`, and the rest of `innerLife`, the wake engine every kind shares, is
+ * `wakes`.
  */
-export const MECHANIC_MOVES: ReadonlyArray<{ from: ReadonlyArray<string>; to: string; keys: ReadonlyArray<string> }> = [
-  {
-    from: ['innerLife', 'heartbeat'],
-    to: 'heartbeat',
-    keys: ['enabled', 'everyMinutes', 'jitterMinutes', 'historyDays', 'maxTokens'],
-  },
-  {
-    from: ['diary'],
-    to: 'selfreflection',
-    keys: [
-      'channelId',
-      'world',
-      'windows',
-      'quietDayChance',
-      'forceWaitMs',
-      'loop',
-      'planMaxOutputTokens',
-      'planTimeoutMs',
-    ],
-  },
-  { from: ['selfdev'], to: 'selfimprovement', keys: ['mode', 'base', 'checkout', 'repository'] },
-  { from: ['innerLife', 'wakes', 'selfimprovement'], to: 'selfimprovement', keys: ['everyDays', 'failuresPerShape'] },
+export const MECHANIC_MOVES: ReadonlyArray<{ from: ReadonlyArray<string>; to: ReadonlyArray<string> }> = [
+  { from: ['innerLife', 'heartbeat'], to: ['heartbeat'] },
+  { from: ['diary'], to: ['selfreflection'] },
+  { from: ['selfdev'], to: ['selfimprovement'] },
+  { from: ['innerLife', 'wakes', 'selfimprovement'], to: ['selfimprovement'] },
+  { from: ['innerLife', 'wakes', 'heartbeat'], to: ['heartbeat'] },
+  { from: ['innerLife', 'wakes'], to: ['wakes', 'kinds'] },
+  { from: ['innerLife'], to: ['wakes'] },
 ];
 
-/** The keys of MECHANIC_MOVES moved to their top-level section; each old section they leave empty goes with them. */
+/** The section at `path` of `config`, made on the way when `make` is true; null where something else is. */
+function sectionAt(config: Config, path: ReadonlyArray<string>, make: boolean): Config | null {
+  let node: Config | null = config;
+  for (const name of path) {
+    node = node === null ? null : sectionOf(node, name, make);
+  }
+  return node;
+}
+
+/** The sections of MECHANIC_MOVES moved key by key to their new section; each section left empty goes. */
 function moveMechanics(config: Config, report: MovedConfig): void {
   for (const move of MECHANIC_MOVES) {
     const chain: Array<Config> = [config];
@@ -271,13 +270,14 @@ function moveMechanics(config: Config, report: MovedConfig): void {
     }
     const old = chain[chain.length - 1];
     if (chain.length !== move.from.length + 1 || old === undefined) continue;
-    const keys = move.keys.filter((key) => Object.hasOwn(old, key));
+    const keys = Object.keys(old);
     if (keys.length === 0) continue;
-    const target = sectionOf(config, move.to, true);
+    const target = sectionAt(config, move.to, true);
     if (target === null) continue;
     const at = move.from.join('.');
+    const to = move.to.join('.');
     for (const key of keys)
-      place(old, target, { from: key, to: key }, { from: `${at}.${key}`, to: `${move.to}.${key}` }, report);
+      place(old, target, { from: key, to: key }, { from: `${at}.${key}`, to: `${to}.${key}` }, report);
     for (let depth = chain.length - 1; depth > 0; depth -= 1) {
       if (Object.keys(chain[depth] ?? {}).length > 0) break;
       delete (chain[depth - 1] ?? config)[move.from[depth - 1] ?? ''];
@@ -308,6 +308,7 @@ export function moveConfigKeys(config: Config, { diaryMirror = false }: { diaryM
   moveErrandKeys(report.config, report);
   moveSearchProvider(report.config, report);
   renameKey(report.config, 'llm', 'helperTimeoutMs', 'analyzerTimeoutMs', report);
+  renameKey(report.config, 'features', 'innerLife', 'wakes', report);
   dropKeys(report.config, report);
   moveMechanics(report.config, report);
   moveDiarySeed(report.config, diaryMirror, report);

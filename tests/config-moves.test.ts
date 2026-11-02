@@ -654,35 +654,39 @@ test('config-migrate finds nothing to cut in a layer it already cut', () => {
 
 // ---- the three ticking mechanics: heartbeat, selfreflection and selfimprovement at the top level --------------------
 
-test('moves innerLife.heartbeat to heartbeat and leaves the other innerLife settings and its cut keys where they are', () => {
+test('moves the whole innerLife.heartbeat section to heartbeat, a key of the config cut with it', () => {
   const { config, moved } = moveConfigKeys({
     innerLife: { mode: 'live', heartbeat: { everyMinutes: 360, enabled: false, people: 4 } },
   });
   assert.deepEqual(config, {
-    innerLife: { mode: 'live', heartbeat: { people: 4 } },
-    heartbeat: { enabled: false, everyMinutes: 360 },
+    wakes: { mode: 'live' },
+    heartbeat: { everyMinutes: 360, enabled: false, people: 4 },
   });
   assert.deepEqual(moved, [
-    { from: 'innerLife.heartbeat.enabled', to: 'heartbeat.enabled' },
     { from: 'innerLife.heartbeat.everyMinutes', to: 'heartbeat.everyMinutes' },
+    { from: 'innerLife.heartbeat.enabled', to: 'heartbeat.enabled' },
+    { from: 'innerLife.heartbeat.people', to: 'heartbeat.people' },
+    { from: 'innerLife.mode', to: 'wakes.mode' },
   ]);
 });
 
-test('moves diary to selfreflection, drops the emptied diary section and leaves a cut diary key behind', () => {
-  const moved = moveConfigKeys({ diary: { world: true, quietDayChance: 0, loop: { maxSteps: 5 } } }).config;
-  assert.deepEqual(moved, { selfreflection: { world: true, quietDayChance: 0, loop: { maxSteps: 5 } } });
-  const withCut = moveConfigKeys({ diary: { world: true, hungerBoost: 0.9 } }).config;
-  assert.deepEqual(withCut, { diary: { hungerBoost: 0.9 }, selfreflection: { world: true } });
-});
-
-test('moves selfdev and innerLife.wakes.selfimprovement into selfimprovement and keeps the wake limits of the kind', () => {
+test('moves the whole diary section to selfreflection, diary.set with it, and drops the emptied diary section', () => {
   const { config } = moveConfigKeys({
-    selfdev: { mode: 'auto', repository: 'me/fork' },
-    innerLife: { wakes: { selfimprovement: { everyDays: 3, tools: ['board.propose'] } } },
+    diary: { world: true, quietDayChance: 0, loop: { maxSteps: 5 }, set: { minPosted: 1 } },
   });
   assert.deepEqual(config, {
-    selfimprovement: { mode: 'auto', repository: 'me/fork', everyDays: 3 },
-    innerLife: { wakes: { selfimprovement: { tools: ['board.propose'] } } },
+    selfreflection: { world: true, quietDayChance: 0, loop: { maxSteps: 5 }, set: { minPosted: 1 } },
+  });
+});
+
+test('moves selfdev and innerLife.wakes.selfimprovement into selfimprovement, the wake limits with them', () => {
+  const { config } = moveConfigKeys({
+    selfdev: { mode: 'auto', repository: 'me/fork' },
+    innerLife: { wakes: { selfimprovement: { everyDays: 3, tools: ['board.propose'] }, review: { maxActs: 1 } } },
+  });
+  assert.deepEqual(config, {
+    selfimprovement: { mode: 'auto', repository: 'me/fork', everyDays: 3, tools: ['board.propose'] },
+    wakes: { kinds: { review: { maxActs: 1 } } },
   });
 });
 
@@ -711,4 +715,47 @@ test('reads old selfdev and innerLife.wakes.selfimprovement keys of the local fi
   });
   const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
   assert.deepEqual(result.selfimprovement, { repository: 'me/fork', everyDays: 2 });
+});
+
+test('cuts an old diary.set and innerLife.heartbeat.people of the local file at load under their new names', async () => {
+  const root = deployment({ diary: { world: true, set: { minPosted: 1 } }, innerLife: { heartbeat: { people: 4 } } });
+  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  assert.deepEqual(result.selfreflection, { world: true });
+  assert.equal(Object.hasOwn(result, 'heartbeat'), false);
+  assert.equal(Object.hasOwn(result, 'diary') || Object.hasOwn(result, 'innerLife'), false);
+});
+
+test('reads an old innerLife.wakes.selfimprovement.tools of the local file as selfimprovement.tools at load', async () => {
+  const root = deployment({ innerLife: { wakes: { selfimprovement: { tools: ['board.propose'] } } } });
+  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  assert.deepEqual(result.selfimprovement, { tools: ['board.propose'] });
+});
+
+test('moves the rest of innerLife to wakes, the wake engine every kind shares, a cut key with it', () => {
+  const { config } = moveConfigKeys({
+    innerLife: { mode: 'live', tickSeconds: 30, loop: { maxSteps: 5 }, queueMax: 20, caps: { perChain: 2 } },
+  });
+  assert.deepEqual(config, {
+    wakes: { mode: 'live', tickSeconds: 30, loop: { maxSteps: 5 }, queueMax: 20, caps: { perChain: 2 } },
+  });
+});
+
+test('moves the heartbeat wake limits to heartbeat and the other kinds to wakes.kinds', () => {
+  const { config } = moveConfigKeys({
+    innerLife: { wakes: { heartbeat: { tools: ['lore.list'] }, attend: { maxActs: 2 } } },
+  });
+  assert.deepEqual(config, { heartbeat: { tools: ['lore.list'] }, wakes: { kinds: { attend: { maxActs: 2 } } } });
+});
+
+test('writes features.innerLife as features.wakes', () => {
+  const { config, moved } = moveConfigKeys({ features: { innerLife: true } });
+  assert.deepEqual(config, { features: { wakes: true } });
+  assert.deepEqual(moved, [{ from: 'features.innerLife', to: 'features.wakes' }]);
+});
+
+test('reads old innerLife keys of the local file under wakes at load', async () => {
+  const root = deployment({ innerLife: { mode: 'live', loop: { maxSteps: 6 }, wakes: { review: { maxActs: 1 } } } });
+  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  assert.deepEqual(result.wakes, { mode: 'live', loop: { maxSteps: 6 }, kinds: { review: { maxActs: 1 } } });
+  assert.equal(Object.hasOwn(result, 'innerLife'), false);
 });

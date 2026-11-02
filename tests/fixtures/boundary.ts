@@ -54,19 +54,19 @@ export type Rig = Share & {
 /**
  * One core on the fake interface. `answers` are the scripted model's answers (the last one repeats); `interface: false`
  * leaves no client at all, so no conversation can be fetched and nothing is connected; `share` is what a restarted core
- * keeps; `innerLife` overrides the `innerLife` settings and `heartbeat` replaces the `heartbeat` settings.
+ * keeps; `wakes` overrides the `wakes` settings and `heartbeat` replaces the `heartbeat` settings.
  */
 export async function innerRig({
   answers = ['<skip/>'],
   interface: connected = true,
   share = null,
-  innerLife = {},
+  wakes = {},
   heartbeat = { enabled: true, everyMinutes: 180, jitterMinutes: 0 },
 }: {
   answers?: Array<string | object>;
   interface?: boolean;
   share?: Share | null;
-  innerLife?: object;
+  wakes?: object;
   heartbeat?: object;
 } = {}): Promise<Rig> {
   const clock = share?.clock ?? { t: START };
@@ -84,14 +84,14 @@ export async function innerRig({
     config: {
       mention: { oneAtATime: true },
       memoryDb: { wakeRuns: true },
-      innerLife: {
+      wakes: {
         mode: 'shadow',
         tickSeconds: 60,
         queueMax: 20,
         chatMessages: 2,
         review: { enabled: false, historyDays: 14 },
         caps: { perChain: 3 },
-        ...innerLife,
+        ...wakes,
       },
       heartbeat,
     },
@@ -145,7 +145,7 @@ export async function innerRig({
       for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setImmediate(resolve));
     },
     /** The same core after a restart: a new inner life and door over the same data directory and memory. */
-    restart: (extra: object = {}): ReturnType<typeof innerRig> => innerRig({ answers, interface: connected, innerLife, heartbeat, ...extra, share: { dataDir, memory, clock, port, llm } }),
+    restart: (extra: object = {}): ReturnType<typeof innerRig> => innerRig({ answers, interface: connected, wakes, heartbeat, ...extra, share: { dataDir, memory, clock, port, llm } }),
     /** Draws the heartbeat's moment, moves the clock past it and ticks: the heartbeat turn runs. */
     async beat() {
       await inner.tick();

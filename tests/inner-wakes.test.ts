@@ -41,9 +41,9 @@ function hotOf() {
     config: {
       bot: { timezone: 'UTC' },
       context: { turnLeaseMs: LEASE_MS },
-      features: { innerLife: true, intentions: true, journal: false },
+      features: { wakes: true, intentions: true, journal: false },
       mention: { oneAtATime: true },
-      innerLife: {
+      wakes: {
         mode: 'shadow',
         tickSeconds: 60,
         queueMax: 20,

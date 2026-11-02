@@ -938,7 +938,7 @@ test('draw.create on a turn nobody asked (her own initiative): the picture is ch
     answers: [toolAnswer('', [call('draw.create', { text: 'ένας φάρος' })]), '<skip/>'],
     images,
     inner: wake,
-    config: { ...DRAW_CONFIG, innerLife: { mode: 'live', chatMessages: 2 } },
+    config: { ...DRAW_CONFIG, wakes: { mode: 'live', chatMessages: 2 } },
     prompts: { ...DRAW_PROMPTS, inner: 'Do what the wake says.' },
   });
   assert.equal(images.calls.length, 1, JSON.stringify(run.logs.filter((l) => /skill/.test(l.msg))));

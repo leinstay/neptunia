@@ -1,4 +1,4 @@
-// The settings of the persona's inner life: the wake kinds, the defaults of the `innerLife` section and
+// The settings of the persona's inner life: the wake kinds, the defaults of the `wakes` section and
 // `innerSettings`, which checks every number of that section against them. The scheduler's modules
 // (src/behavior/inner/) and the turn runner (src/behavior/turn.ts) read them. Nothing here keeps state.
 
@@ -19,7 +19,7 @@ export const WAKE_KINDS = Object.freeze([
 /**
  * The inner life's measures: production values of the config cut of 2026-10-31, and the fallbacks of the keys the
  * live config holds (`mode`, `tickSeconds`, `review.historyDays`, `caps.perChain`, `loop`, `retry` and `factsKeepDays`
- * of `innerLife`; the heartbeat's switch, clock, history and token budget of `heartbeat`; the selfimprovement wake's
+ * of `wakes`; the heartbeat's switch, clock, history and token budget of `heartbeat`; the selfimprovement wake's
  * switch and clock of `selfimprovement`).
  */
 export const INNER_DEFAULTS = Object.freeze({
@@ -97,7 +97,7 @@ const isDelayList = (value: unknown): value is Array<number> =>
  * `tools.loop`'s, `callTimeoutMs` the most one call of hers may run.
  */
 export function innerSettings(config: unknown): InnerSettings {
-  const raw = objOf(objOf(config).innerLife);
+  const raw = objOf(objOf(config).wakes);
   const caps = objOf(raw.caps);
   const heartbeat = objOf(objOf(config).heartbeat);
   const review = objOf(raw.review);

@@ -137,9 +137,9 @@ function setup() {
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
-      features: { innerLife: true, intentions: true, journal: true },
+      features: { wakes: true, intentions: true, journal: true },
       mention: { oneAtATime: true },
-      innerLife: {
+      wakes: {
         mode: 'shadow',
         tickSeconds: 60,
         queueMax: 20,

@@ -232,6 +232,33 @@ test('createHot: a prompts.local file replaces the base file of the same name', 
   }
 });
 
+test('createHot: a local selfdev.md, the brief under its older name, loads as selfimprovement', () => {
+  const dir = makeRoot({ prompts: { selfimprovement: 'base brief' } });
+  writeLocalPrompt(dir, 'selfdev', 'local brief');
+  const hot = createHot({ rootDir: dir });
+  try {
+    assert.equal(hot.prompts.selfimprovement, 'local brief');
+    assert.equal(hot.promptSources.selfimprovement, 'local');
+    assert.equal(Object.hasOwn(hot.prompts, 'selfdev'), false);
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('createHot: a local selfimprovement.md wins over a local selfdev.md', () => {
+  const dir = makeRoot({ prompts: { selfimprovement: 'base brief' } });
+  writeLocalPrompt(dir, 'selfdev', 'older brief');
+  writeLocalPrompt(dir, 'selfimprovement', 'newer brief');
+  const hot = createHot({ rootDir: dir });
+  try {
+    assert.equal(hot.prompts.selfimprovement, 'newer brief');
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('createHot: an empty local file falls back to the base text', () => {
   const dir = makeRoot({ prompts: { persona: 'base text' } });
   writeLocalPrompt(dir, 'persona', '   \n  ');
@@ -535,13 +562,13 @@ test('createHot: an old config that still sets features.vision or features.attac
   }
 });
 
-test('createHot: an old config that still sets innerLife.loop.strayFollowUps loads and warns once at startup', async () => {
+test('createHot: an old config that still sets wakes.loop.strayFollowUps loads and warns once at startup', async () => {
   const dir = makeRoot({ config: { bot: { timezone: 'UTC' } } });
-  fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ innerLife: { loop: { strayFollowUps: 2 } } }));
+  fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ wakes: { loop: { strayFollowUps: 2 } } }));
   const retired = (logs: Record<string, Untyped>) =>
     logs.filter(
       (entry: Record<string, Untyped>) =>
-        entry.level === 'warn' && entry.msg === 'config: innerLife.loop.strayFollowUps is no longer read'
+        entry.level === 'warn' && entry.msg === 'config: wakes.loop.strayFollowUps is no longer read'
     );
   let hot = wrongly<Hot>(undefined);
   try {
@@ -562,7 +589,7 @@ test('createHot: a config that still sets a dollar limit loads and warns once pe
   fs.writeFileSync(
     path.join(dir, 'config.local.json'),
     JSON.stringify({
-      innerLife: { caps: { usdPerDay: 4 } },
+      wakes: { caps: { usdPerDay: 4 } },
       agents: { scout: { daily: { usd: 8 }, limits: { usd: 1 } } },
     })
   );
@@ -582,7 +609,7 @@ test('createHot: a config that still sets a dollar limit loads and warns once pe
     assert.deepEqual(retired(started.logs), [
       'config: agents.scout.daily.usd is no longer read',
       'config: agents.scout.limits.usd is no longer read',
-      'config: innerLife.caps.usdPerDay is no longer read',
+      'config: wakes.caps.usdPerDay is no longer read',
     ]);
     const again = await withCapturedLogs(() => hot.reloadConfig());
     assert.equal(retired(again.logs).length, 0);
@@ -596,13 +623,13 @@ test('createHot: a config that still sets a per-day, per-hour or public-posts co
   const dir = makeRoot({ config: { bot: { timezone: 'UTC' } } });
   fs.writeFileSync(
     path.join(dir, 'config.local.json'),
-    JSON.stringify({ innerLife: { caps: { perDay: 9, perHour: 2, perChain: 2, publicPostsPerDay: 1 } } })
+    JSON.stringify({ wakes: { caps: { perDay: 9, perHour: 2, perChain: 2, publicPostsPerDay: 1 } } })
   );
   const retired = (logs: Record<string, Untyped>) =>
     logs
       .filter(
         (entry: Record<string, Untyped>) =>
-          entry.level === 'warn' && /^config: innerLife\.caps\..* is no longer read$/.test(entry.msg)
+          entry.level === 'warn' && /^config: wakes\.caps\..* is no longer read$/.test(entry.msg)
       )
       .map((entry: Record<string, Untyped>) => entry.msg)
       .sort();
@@ -612,9 +639,9 @@ test('createHot: a config that still sets a per-day, per-hour or public-posts co
       hot = createHot({ rootDir: dir });
     });
     assert.deepEqual(retired(started.logs), [
-      'config: innerLife.caps.perDay is no longer read',
-      'config: innerLife.caps.perHour is no longer read',
-      'config: innerLife.caps.publicPostsPerDay is no longer read',
+      'config: wakes.caps.perDay is no longer read',
+      'config: wakes.caps.perHour is no longer read',
+      'config: wakes.caps.publicPostsPerDay is no longer read',
     ]);
     const again = await withCapturedLogs(() => hot.reloadConfig());
     assert.equal(retired(again.logs).length, 0);

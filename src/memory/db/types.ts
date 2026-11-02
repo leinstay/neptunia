@@ -67,7 +67,7 @@ export type Config = {
   bot?: { timezone?: unknown };
   selfreflection?: { channelId?: unknown };
   focus?: Row | null;
-  innerLife?: { loop?: { timeBudgetMs?: unknown } };
+  wakes?: { loop?: { timeBudgetMs?: unknown } };
   llm?: { maxRequestTokens?: unknown; keyByRole?: Row };
   memoryDb?: { file?: unknown; closeTimeoutMs?: unknown; session?: Row; backup?: Row; [key: string]: unknown };
   recall?: { db?: Row; [key: string]: unknown };

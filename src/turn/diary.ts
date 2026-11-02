@@ -140,8 +140,8 @@ export function createDiary(ctx: DiaryContext): Diary {
    * a `<topic>` block after them; the topic also rides on the plan as its
    * `topic` field (the `<plan>` block of the post). The answer goes through parseJsonObject and src/behavior/diary.ts#validatePlan
    * (a weighted random kind when it is missing, broken or names no weighted
-   * kind; `diary.searchKinds`, `diary.pictureKinds`). While the post may not
-   * carry a picture, the kinds in `diary.pictureKinds` are dropped before the
+   * kind; `selfreflection.searchKinds`, `selfreflection.pictureKinds`). While the post may not
+   * carry a picture, the kinds in `selfreflection.pictureKinds` are dropped before the
    * plan request and validatePlan (src/behavior/diary.ts#withoutPictureKinds),
    * so neither the planner nor the random fallback picks one, and the
    * `diary: planned` line carries `picturesOff: true`. A forced kind
@@ -151,8 +151,8 @@ export function createDiary(ctx: DiaryContext): Diary {
    * cache): its text is `found`; a failure or nothing
    * found logs `diary: search failed` and the post goes without it. A request
    * or token cap on the plan request throws (the turn is refused); any other
-   * failure of it falls back. A planned kind in `diary.setKinds` (a set post) also draws
-   * `diary.set.seedSets` (6) seed combinations for the compose request (`seeds`, the rendered
+   * failure of it falls back. A planned kind in `selfreflection.setKinds` (a set post) also draws
+   * `selfreflection.set.seedSets` (6) seed combinations for the compose request (`seeds`, the rendered
    * `<seeds>` body; '' for any other kind). Settings come from `config`, the turn's live config.
    */
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
@@ -283,7 +283,7 @@ export function createDiary(ctx: DiaryContext): Diary {
         log.warn('diary: search failed', { channel: channel.id, reason: 'error', error: err });
       }
     }
-    // A set post (diary.setKinds): its compose request gets diary.set.seedSets seed combinations.
+    // A set post (selfreflection.setKinds): its compose request gets selfreflection.set.seedSets seed combinations.
     const seeds = isSetKind(plan.kind, DEFAULT_SET_KINDS)
       ? renderSeedsBlock(
           pickSeeds(parseSeedFamilies(prompts?.['diary-seeds']), setSettings(diaryCfg).seedSets, rng),

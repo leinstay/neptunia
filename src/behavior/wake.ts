@@ -513,7 +513,7 @@ function heartbeatBody(
     ),
     moreOf(life.closed)
   );
-  // What this wake accepts (innerLife.heartbeat.intentionsOnly), before the list of what she can do.
+  // What this wake accepts (heartbeat.intentionsOnly), before the list of what she can do.
   if (facts.intentionsOnly === true) {
     const only = make('intentionsOnly', {});
     if (only) out.push(only);

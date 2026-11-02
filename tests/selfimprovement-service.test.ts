@@ -480,7 +480,7 @@ test('a merge by the owner and a close both delete the branch', async (t) => {
 });
 
 test('the shipped brief fills every placeholder from the fix and keeps the refusal tag', () => {
-  const template = fs.readFileSync(path.join(import.meta.dirname, '..', 'prompts', 'selfdev.md'), 'utf8');
+  const template = fs.readFileSync(path.join(import.meta.dirname, '..', 'prompts', 'selfimprovement.md'), 'utf8');
   const text = briefFrom(template, {
     id: 'T-abc',
     title: 'Raise the timeout',

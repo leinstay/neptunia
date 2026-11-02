@@ -123,7 +123,7 @@ export type DiaryStore = {
 
 /**
  * The post of the guild's diary an entry is (recordEntry): its gist and its first picture's scene cut to
- * `diary.gistChars` (200), her full text, the entry's id as its `itemId`, its search query, how it is sent (`send`) and,
+ * `selfreflection.gistChars` (200), her full text, the entry's id as its `itemId`, its search query, how it is sent (`send`) and,
  * with a voice message, the text as voiced and its length.
  */
 function diaryPostOf({
@@ -175,7 +175,7 @@ function diaryPostOf({
 
 /**
  * A diary post recorded before anything is sent: one post in the guild's diary (`store.appendDiaryPost`, the newest
- * `diary.historyPosts` (150) kept) with its gist and its first picture's scene cut to `diary.gistChars` (200), her
+ * `selfreflection.historyPosts` (150) kept) with its gist and its first picture's scene cut to `selfreflection.gistChars` (200), her
  * full text, the entry's id as its `itemId`, its search query, how it is sent (`send`: her messages as sent, their
  * mentions, the set's byte limit) and, with a voice message, the text as voiced and its length; the day's diary post
  * counted. Every picture was counted when it was generated. Returns the outcome's `diary`

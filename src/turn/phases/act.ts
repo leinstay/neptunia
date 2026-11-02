@@ -96,7 +96,7 @@ export function actPhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, a
     linkFor,
     plain,
   };
-  // A set below diary.set.minPosted (read now) is not posted at all: not even its messages.
+  // A set below selfreflection.set.minPosted (read now) is not posted at all: not even its messages.
   const setShort = (pictures: number, extra: Record<string, unknown> = {}): AttemptResult => {
     log.info('turn: set short', {
       channel: channel.id,

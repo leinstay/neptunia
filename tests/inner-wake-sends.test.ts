@@ -163,7 +163,7 @@ function hotOf(mode: 'live' | 'shadow', heartbeat: boolean) {
     tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
     access: personaGrants(['lore.list', 'message.create', 'message.edit', 'message.react.add']),
     config: {
-      innerLife: {
+      wakes: {
         mode,
         tickSeconds: 60,
         review: { historyDays: 14 },

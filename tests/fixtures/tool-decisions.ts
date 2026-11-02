@@ -159,7 +159,13 @@ export async function toolDecisions(): Promise<DecisionTable> {
     skills: { safeMode, destructiveCooldownMinutes: 10 },
     tools: { safeMode, destructiveCooldownMinutes: 10 },
     bot: { owners: [OWNER], access: granted ? grants(everyone) : {} },
-    innerLife: { wakes: Object.fromEntries(WAKE_KINDS.map((kind) => [kind, envelopeOf(kind)])) },
+    // The heartbeat's envelope is keys of its own section; every other kind's sits under `wakes.kinds`.
+    wakes: {
+      kinds: Object.fromEntries(
+        WAKE_KINDS.filter((kind) => kind !== 'heartbeat').map((kind) => [kind, envelopeOf(kind)])
+      ),
+    },
+    heartbeat: envelopeOf('heartbeat'),
   });
   const open = { quota: () => ({ spent: false, userSpent: false }) };
   const spent = { quota: () => ({ spent: true, userSpent: false }) };

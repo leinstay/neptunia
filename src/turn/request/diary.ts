@@ -40,7 +40,7 @@ export function worldText(
   return fillPromptTemplate(text, { name: selfName }).trim();
 }
 
-/** The `<diary>` block's post lines (no intro), oldest first: the newest `diary.historyPosts` (150). */
+/** The `<diary>` block's post lines (no intro), oldest first: the newest `selfreflection.historyPosts` (150). */
 export function diaryHistoryLines(
   posts: unknown,
   labels: Labels,

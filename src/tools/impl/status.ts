@@ -24,7 +24,7 @@
 // per agent (src/errands/costs.ts through the guild's task store); `costs.development` the development agents'
 // (thinker, dev) from the board's `costs.agents` by role (src/board/costs.ts, with the thinker's last-wave
 // context), both shown with no runs when the board does not answer. The owner's `inner`
-// field (only while features.innerLife is on) is the inner life's own status (src/behavior/inner.ts#status,
+// field (only while features.wakes is on) is the inner life's own status (src/behavior/inner.ts#status,
 // the data `/nep task inner status` reads): its mode and switch, the day's turns, chains, dollars, public
 // posts, the next wake, the last turn and the open intentions; its words are `labels.status.inner`.
 

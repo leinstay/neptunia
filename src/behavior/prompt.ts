@@ -397,7 +397,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   'diary'` (whose task text is `prompts.diary`): `<world>` (prompts/world.md, `{{name}}` filled,
  *   only with `selfreflection.world === true`, see `worldText`; one piece, fitted right after `<attitudes>`),
  *   `<diary>` (the past posts through src/behavior/diary.ts#renderDiaryBlock, the newest
- *   `diary.historyPosts` (150 when unset) oldest first, fitted after `<world>` and losing its
+ *   `selfreflection.historyPosts` (150 when unset) oldest first, fitted after `<world>` and losing its
  *   oldest lines first), `<plan>` (`labels.diary.plan`, then the plan as one JSON line with `kind`,
  *   `brief`, `picture` and, with an owner's topic, `topic`; never cut), `<seeds>` (`seeds`, a set
  *   post's seed combinations already rendered; right after `<plan>`, never cut; absent when
@@ -720,7 +720,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
  * channel's lines match), `<world>` (`worldText`, under `selfreflection.world`),
  * `<diary>` (the past posts, as in the post request), `<kinds>`
  * (src/behavior/diary.ts#renderKindsBlock over `kinds`, the use counted among
- * the newest `diary.historyPosts`) and `<seeds>` (`seedsText`, already
+ * the newest `selfreflection.historyPosts`) and `<seeds>` (`seedsText`, already
  * rendered by src/behavior/diary.ts#renderSeedsBlock), then `<topic>`
  * (`topicText`, the owner's topic already rendered by
  * src/behavior/diary.ts#renderTopicBlock; absent without one). Under the

@@ -84,10 +84,10 @@ const OLD_TOOLS_FILE = path.join(LOCAL_PROMPTS_DIRNAME, 'skills.json');
  * instead: `memory.voiceModel` (the memory wording runs on `models.base.core`, the persona's one model);
  * `features.vision` and `features.attachedDescriptions` (pictures never go into the persona's own
  * request: she sees through the describer's captions and her second look, both on the `vision` model
- * role); `innerLife.loop.strayFollowUps`
+ * role); `wakes.loop.strayFollowUps`
  * (an inner turn's output tags act as calls now, so nothing is left to follow up). No bound in the
- * engine is in dollars: `innerLife.caps.usdPerDay`, `innerLife.estimatedTurnUsd`,
- * `innerLife.errandReserveMaxMinutes`, `agents.<agent>.daily.usd` and `agents.<agent>.limits.usd` are
+ * engine is in dollars: `wakes.caps.usdPerDay`, `wakes.estimatedTurnUsd`,
+ * `wakes.errandReserveMaxMinutes`, `agents.<agent>.daily.usd` and `agents.<agent>.limits.usd` are
  * not read (the provider keys' own limits are the money bounds; costs are only reported).
  */
 const RETIRED_CONFIG_KEYS = Object.freeze([
@@ -99,34 +99,34 @@ const RETIRED_CONFIG_KEYS = Object.freeze([
     read: (config: Untyped) => config?.features?.attachedDescriptions,
   },
   {
-    key: 'innerLife.loop.strayFollowUps',
-    use: 'innerLife.loop.maxSteps',
-    read: (config: Untyped) => config?.innerLife?.loop?.strayFollowUps,
+    key: 'wakes.loop.strayFollowUps',
+    use: 'wakes.loop.maxSteps',
+    read: (config: Untyped) => config?.wakes?.loop?.strayFollowUps,
   },
-  { key: 'innerLife.caps.usdPerDay', use: null, read: (config: Untyped) => config?.innerLife?.caps?.usdPerDay },
-  { key: 'innerLife.caps.perDay', use: null, read: (config: Untyped) => config?.innerLife?.caps?.perDay },
-  { key: 'innerLife.caps.perHour', use: null, read: (config: Untyped) => config?.innerLife?.caps?.perHour },
+  { key: 'wakes.caps.usdPerDay', use: null, read: (config: Untyped) => config?.wakes?.caps?.usdPerDay },
+  { key: 'wakes.caps.perDay', use: null, read: (config: Untyped) => config?.wakes?.caps?.perDay },
+  { key: 'wakes.caps.perHour', use: null, read: (config: Untyped) => config?.wakes?.caps?.perHour },
   {
-    key: 'innerLife.caps.publicPostsPerDay',
+    key: 'wakes.caps.publicPostsPerDay',
     use: null,
-    read: (config: Untyped) => config?.innerLife?.caps?.publicPostsPerDay,
+    read: (config: Untyped) => config?.wakes?.caps?.publicPostsPerDay,
   },
-  { key: 'innerLife.estimatedTurnUsd', use: null, read: (config: Untyped) => config?.innerLife?.estimatedTurnUsd },
+  { key: 'wakes.estimatedTurnUsd', use: null, read: (config: Untyped) => config?.wakes?.estimatedTurnUsd },
   {
-    key: 'innerLife.errandReserveMaxMinutes',
+    key: 'wakes.errandReserveMaxMinutes',
     use: null,
-    read: (config: Untyped) => config?.innerLife?.errandReserveMaxMinutes,
+    read: (config: Untyped) => config?.wakes?.errandReserveMaxMinutes,
   },
   { key: 'intentions.droppedDays', use: null, read: (config: Untyped) => config?.intentions?.droppedDays },
   {
-    key: 'innerLife.heartbeat.droppedDays',
+    key: 'heartbeat.droppedDays',
     use: null,
-    read: (config: Untyped) => config?.innerLife?.heartbeat?.droppedDays,
+    read: (config: Untyped) => config?.heartbeat?.droppedDays,
   },
   {
-    key: 'innerLife.heartbeat.droppedShown',
+    key: 'heartbeat.droppedShown',
     use: null,
-    read: (config: Untyped) => config?.innerLife?.heartbeat?.droppedShown,
+    read: (config: Untyped) => config?.heartbeat?.droppedShown,
   },
   ...['scout', 'server', 'thinker', 'dev'].flatMap((agent) => [
     { key: `agents.${agent}.daily.usd`, use: null, read: (config: Untyped) => config?.agents?.[agent]?.daily?.usd },
@@ -179,6 +179,26 @@ function stripText(raw: Untyped) {
   return raw.replace(/^﻿/, '').replace(/\r\n/g, '\n').trim();
 }
 
+/**
+ * The local prompt files read under a newer name: `prompts.local/selfdev.md` (the brief of src/selfimprovement/ under
+ * its older name) loads as `selfimprovement` while `prompts.local/selfimprovement.md` is absent.
+ */
+const LOCAL_PROMPT_MOVES: Readonly<Record<string, string>> = Object.freeze({ selfdev: 'selfimprovement' });
+
+/** The local file name `file` is read under: its newer name for a file of LOCAL_PROMPT_MOVES, else itself. */
+const localNameOf = (file: string): string => {
+  const moved = LOCAL_PROMPT_MOVES[path.basename(file, '.md')];
+  return moved === undefined ? file : `${moved}.md`;
+};
+
+/** Text of `prompts.local/<file>`, else of the older local name that moves to it, else null. */
+function readLocalMdFile(localDir: string, file: string): string | null {
+  const own = readMdFile(localDir, file) as string | null;
+  if (own !== null) return own;
+  const older = Object.keys(LOCAL_PROMPT_MOVES).find((name) => `${LOCAL_PROMPT_MOVES[name]}.md` === file);
+  return older === undefined ? null : (readMdFile(localDir, `${older}.md`) as string | null);
+}
+
 /** Basenames (with extension) of every `*.md` file directly under `dir`, or `[]` when `dir` is absent. */
 function listMdFiles(dir: Untyped) {
   if (!fs.existsSync(dir)) return [];
@@ -208,7 +228,7 @@ function computePromptFiles(
   prevPrompts: Record<string, unknown>,
   prevSources: Record<string, string>
 ) {
-  const files = new Set([...listMdFiles(promptsDir), ...listMdFiles(localPromptsDir)]);
+  const files = new Set([...listMdFiles(promptsDir), ...listMdFiles(localPromptsDir).map(localNameOf)]);
   const prompts: Record<string, unknown> = {};
   const sources: Record<string, string> = {};
   const keptPrevious: Array<string> = [];
@@ -216,7 +236,7 @@ function computePromptFiles(
   for (const file of files) {
     const name = path.basename(file, '.md');
     const baseText = readMdFile(promptsDir, file);
-    const localText = readMdFile(localPromptsDir, file);
+    const localText = readLocalMdFile(localPromptsDir, file);
     const useLocal = Boolean(localText);
     const effective = useLocal ? localText : (baseText ?? '');
 

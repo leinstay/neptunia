@@ -143,7 +143,7 @@ export async function responsePhase(
       parsed.gif = null;
     }
     if (diaryPrep) {
-      // A diary post: no reaction, no GIF, nothing posted as a reply, no link, at most diary.maxMessages.
+      // A diary post: no reaction, no GIF, nothing posted as a reply, no link, at most selfreflection.maxMessages.
       parsed.reactions = [];
       parsed.gif = null;
       parsed.messages = parsed.messages

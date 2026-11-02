@@ -1019,7 +1019,7 @@ async function buildCore(
     );
   }
   const placesOf = (guildId: string) => placeListings.get(String(guildId)) ?? [];
-  // The persona's inner life (features.innerLife, off by default; docs/inner-life.md): a scheduler
+  // The persona's inner life (features.wakes, off by default; docs/inner-life.md): a scheduler
   // that lists what is due for her (her intentions, waits past their deadline, one daily review, the lines of the places she attends),
   // hands each as an `inner.wake` event through the door, and runs an inner turn when the one
   // attention is free and no cap refuses. Its tick is a beat of the scheduler below; a no-op with the switch off.
@@ -1582,7 +1582,7 @@ async function buildCore(
       if (ids.length > 0) log.info('board: leases expired', { count: ids.length, tasks: ids });
     },
   });
-  // The inner life's tick, every innerLife.tickSeconds (read before each wait).
+  // The inner life's tick, every wakes.tickSeconds (read before each wait).
   scheduler.add({
     name: 'inner.tick',
     everyMs: () => innerSettings(hot.config).tickSeconds * 1000,

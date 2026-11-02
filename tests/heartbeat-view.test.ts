@@ -910,7 +910,7 @@ test('budget: over heartbeat.maxTokens the lists shed their last items in order 
   );
 });
 
-// ---------- the focus set (innerLife.heartbeat.focusSource, src/memory/db/focus.ts) ----------
+// ---------- the focus set (heartbeat.focusSource, src/memory/db/focus.ts) ----------
 
 test('focus: a reader that gives nothing leaves the view exactly as the affinity ranking makes it', async () => {
   const profiles = [profile('a', 10), profile('b', 50), profile('c', 30), profile('self', 99)];

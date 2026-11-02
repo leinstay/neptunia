@@ -109,7 +109,7 @@ test('the scheduler wakes a shifted heartbeat intention at its shifted time and 
       bot: { timezone: 'UTC' },
       // PR 7d: the switches are code and the due jitter is the constant 20 minutes (J).
       intentions: { expiresDays: 14, recurringExpiresDays: 30, maxOpen: 20, candidateExpiresHours: 48 },
-      innerLife: {
+      wakes: {
         mode: 'shadow',
         tickSeconds: 60,
         review: { historyDays: 14 },
@@ -197,7 +197,7 @@ test('a recurring heartbeat intention woken early still advances to the next occ
         candidateExpiresHours: 48,
         waitHours: 2,
       },
-      innerLife: { heartbeat: { dueJitterMinutes: J } },
+      wakes: { heartbeat: { dueJitterMinutes: J } },
     },
   };
   const service = createIntentionService({

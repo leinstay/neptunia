@@ -5,7 +5,7 @@
 // cap refuses, her output tags (<msg>, <gif>, <draw>, <react to>) are lowered into the calls they
 // stand for in the current channel (a refusal when there is none or a reaction names no line),
 // and an ordinary turn's request is unchanged by
-// the switch; a refusal in shadow reaches her within the turn. The loop's inner rules: the loop runs under innerLife.loop's
+// the switch; a refusal in shadow reaches her within the turn. The loop's inner rules: the loop runs under wakes.loop's
 // own bounds (a generous budget: nobody waits), the open-intentions line lists what she woke for
 // and has not touched, her last step still runs one post or intention change, and a post that
 // leaves nothing to show while a woken intention is untouched gets one open follow-up step. Over a real admin and the fake interface adapter; no network, no data/.
@@ -124,8 +124,8 @@ function fakeStore() {
 // the constant 30 lines, so the config holds only the keys that are still settings.
 function hotWith({
   access = {},
-  innerLife = {},
-}: { access?: Record<string, Untyped>; innerLife?: Record<string, Untyped> } = {}) {
+  wakes = {},
+}: { access?: Record<string, Untyped>; wakes?: Record<string, Untyped> } = {}) {
   return {
     config: {
       bot: { timezone: 'UTC', owners: ['u1'], access },
@@ -144,7 +144,7 @@ function hotWith({
         callTimeoutMs: 120000,
         loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 },
       },
-      innerLife: { mode: 'shadow', ...innerLife },
+      wakes: { mode: 'shadow', ...wakes },
     },
     prompts: {
       'system-prompt': 'You are a regular member of this chat, not an assistant.',
@@ -216,7 +216,7 @@ const WAKE = {
 
 /**
  * One inner turn in #general (c1) answered with `answers`; `shadow` its mode; `gate` overrides of
- * the inner parameter (mayAct); `loop` overrides of `innerLife.loop` (the
+ * the inner parameter (mayAct); `loop` overrides of `wakes.loop` (the
  * inner turn's bounds), `skillsLoop` of `tools.loop` (an ordinary turn's); `clock` the turn's
  * clock (NOW when none); `slowMs` delays every operation of hers by that many real milliseconds.
  */
@@ -235,7 +235,7 @@ async function innerTurn({
   clock = () => NOW,
   slowMs = 0,
   gifs = null,
-  innerLife = {},
+  wakes = {},
   filler = 0,
 }: {
   answers: Array<unknown>;
@@ -252,7 +252,7 @@ async function innerTurn({
   clock?: () => number;
   slowMs?: number;
   gifs?: Record<string, Untyped> | null;
-  innerLife?: Record<string, Untyped>;
+  wakes?: Record<string, Untyped>;
   filler?: number;
 }) {
   const history = [
@@ -261,8 +261,8 @@ async function innerTurn({
     rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Zoë', content: 'δεύτερο' }),
     rawMessage({ id: 'm2', ts: NOW - 30_000, content: 'τρίτο' }),
   ];
-  const hot: Record<string, Untyped> = hotWith({ access: personaGrants(allowed), innerLife });
-  if (loop) hot.config.innerLife.loop = { ...loop };
+  const hot: Record<string, Untyped> = hotWith({ access: personaGrants(allowed), wakes });
+  if (loop) hot.config.wakes.loop = { ...loop };
   if (skillsLoop) hot.config.tools.loop = { ...hot.config.tools.loop, ...skillsLoop };
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
@@ -350,7 +350,7 @@ test('inner turn: no message is fabricated; the request carries <wake>, the inne
   assert.ok(text.includes(`<wake>\n${labels.wake.header}`), text);
   assert.ok(text.includes('πες καλημέρα στο κανάλι'));
   assert.ok(text.includes(`<task>\n${INNER_TASK}\n</task>`));
-  assert.ok(!text.includes('πρώτο'), 'innerLife.chatMessages bounds the slice');
+  assert.ok(!text.includes('πρώτο'), 'wakes.chatMessages bounds the slice');
   assert.ok(text.includes('τρίτο'));
   assert.equal(run.result.outcome, 'skip');
   assert.equal(run.result.reason, 'nothing-to-do');
@@ -969,11 +969,11 @@ test('inner turn, live: message.create with gif= posts the text then the GIF', a
   );
 });
 
-test("loopSettings: an inner turn's bounds are innerLife.loop's (config.json's when missing or unusable); an ordinary turn's stay tools.loop's", () => {
+test("loopSettings: an inner turn's bounds are wakes.loop's (config.json's when missing or unusable); an ordinary turn's stay tools.loop's", () => {
   // PR 7c: the shipped settings live in config/config.json.
   const tracked = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
-  assert.deepEqual(loopSettings({}, { inner: true }), tracked.innerLife.loop);
-  assert.deepEqual(tracked.innerLife.loop, {
+  assert.deepEqual(loopSettings({}, { inner: true }), tracked.wakes.loop);
+  assert.deepEqual(tracked.wakes.loop, {
     maxSteps: 4,
     timeBudgetMs: 180000,
     maxCallsPerStep: 4,
@@ -981,24 +981,24 @@ test("loopSettings: an inner turn's bounds are innerLife.loop's (config.json's w
   });
   assert.deepEqual(
     loopSettings(
-      { innerLife: { loop: { maxSteps: 0, timeBudgetMs: -1, maxCallsPerStep: 1.5, callTimeoutMs: 'x' } } },
+      { wakes: { loop: { maxSteps: 0, timeBudgetMs: -1, maxCallsPerStep: 1.5, callTimeoutMs: 'x' } } },
       { inner: true }
     ),
-    tracked.innerLife.loop
+    tracked.wakes.loop
   );
   assert.deepEqual(
     loopSettings(
-      { innerLife: { loop: { maxSteps: 2, timeBudgetMs: 900, maxCallsPerStep: 1, callTimeoutMs: 500 } } },
+      { wakes: { loop: { maxSteps: 2, timeBudgetMs: 900, maxCallsPerStep: 1, callTimeoutMs: 500 } } },
       { inner: true }
     ),
     { maxSteps: 2, timeBudgetMs: 900, maxCallsPerStep: 1, callTimeoutMs: 500 }
   );
-  // tools.loop never reaches an inner turn, innerLife.loop never an ordinary one.
+  // tools.loop never reaches an inner turn, wakes.loop never an ordinary one.
   const both = {
     tools: { loop: { maxSteps: 1, timeBudgetMs: 5, maxCallsPerStep: 1 } },
-    innerLife: { loop: { maxSteps: 9, timeBudgetMs: 99, maxCallsPerStep: 9, callTimeoutMs: 9 } },
+    wakes: { loop: { maxSteps: 9, timeBudgetMs: 99, maxCallsPerStep: 9, callTimeoutMs: 9 } },
   };
-  assert.deepEqual(loopSettings(both, { inner: true }), both.innerLife.loop);
+  assert.deepEqual(loopSettings(both, { inner: true }), both.wakes.loop);
   assert.deepEqual(loopSettings(both), {
     ...both.tools.loop,
     stepReserveTokens: tracked.tools.loop.stepReserveTokens,
@@ -1009,8 +1009,8 @@ test("loopSettings: an inner turn's bounds are innerLife.loop's (config.json's w
   });
 });
 
-test("inner turn, budget: a slow call past tools.loop's 20 s completes inside innerLife.loop; past innerLife.loop.callTimeoutMs it is unknown as today", async () => {
-  // The clock jumps 25 s while the second request is out: tools.loop's budget would be spent, innerLife.loop's is not.
+test("inner turn, budget: a slow call past tools.loop's 20 s completes inside wakes.loop; past wakes.loop.callTimeoutMs it is unknown as today", async () => {
+  // The clock jumps 25 s while the second request is out: tools.loop's budget would be spent, wakes.loop's is not.
   const jumping = () => {
     let at = NOW;
     return {
@@ -1035,7 +1035,7 @@ test("inner turn, budget: a slow call past tools.loop's 20 s completes inside in
   );
   assert.ok(!noteOf(run, 2).includes(LAST), 'not her last step: 25 s is inside the inner budget');
   assert.ok(!run.logs.some((l) => l.msg === 'skills: loop cap'));
-  // The inner per-call timeout: min(innerLife.loop.callTimeoutMs, what is left) -- here 100 ms against a 300 ms call.
+  // The inner per-call timeout: min(wakes.loop.callTimeoutMs, what is left) -- here 100 ms against a 300 ms call.
   t = jumping();
   const cut = await innerTurn({
     answers: [toolAnswer('', [call('lore.list')]), toolAnswer('', [call('lore.list')]), '<skip/>'],

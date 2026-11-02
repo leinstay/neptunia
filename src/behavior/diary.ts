@@ -5,10 +5,10 @@
 // and the hunger that empty windows and quiet days carry into later
 // ones), which planned slot is due now (a slot missed by more than the grace
 // while the bot was down is dropped, never fired late in a burst), which kind
-// of post a plan names (validated against the weighted `diary.kinds`, with a
+// of post a plan names (validated against the weighted `selfreflection.kinds`, with a
 // weighted random fallback; while a post may not carry a picture the picture
 // kinds are dropped before the planner sees them), which kinds post a set of
-// pictures rather than one (`diary.setKinds`, sized by `diary.set`), and how
+// pictures rather than one (`selfreflection.setKinds`, sized by `selfreflection.set`), and how
 // the post history, the kinds and the random seeds are rendered for the plan
 // and compose requests. All wording comes from `labels.diary.*`; kind keys
 // are config keys.
@@ -161,9 +161,9 @@ export const SEED_SETS = 2;
 export const DEFAULT_SEARCH_KINDS: Array<string> = ['news', 'facts'];
 /** The messages one diary post sends at most. */
 export const DIARY_MAX_MESSAGES = 3;
-/** The kinds that mean a picture when `diary.pictureKinds` is not a list. */
+/** The kinds that mean a picture when `selfreflection.pictureKinds` is not a list. */
 export const DEFAULT_PICTURE_KINDS: Array<string> = ['selfPicture', 'picture', 'meme', 'photoset', 'randomSet'];
-/** The kinds whose post is a set of pictures when `diary.setKinds` is not a list. */
+/** The kinds whose post is a set of pictures when `selfreflection.setKinds` is not a list. */
 export const DEFAULT_SET_KINDS: Array<string> = ['photoset', 'randomSet'];
 const DEFAULT_SET_PICTURES: [number, number] = [4, 6];
 const DEFAULT_SET_MIN_POSTED = 2;
@@ -302,7 +302,7 @@ const numbersOf = (value: unknown): Array<number> => listOf(value).filter(isFini
  * grows by 1. A window that can never post (`max === 0`) or a malformed one
  * stays at 0. The result has one entry per window of `windows`, so a changed
  * windows list pads with 0 or drops the tail. `windows` is `config.selfreflection.windows`, `timezone` is `bot.timezone`,
- * `graceMinutes` is `diary.slotGraceMinutes`. Pure.
+ * `graceMinutes` is `selfreflection.slotGraceMinutes`. Pure.
  */
 export function nextHunger(
   previous: unknown,
@@ -343,7 +343,7 @@ export function nextHunger(
 
 /**
  * The slot of `plan` to run at `nowMs`. Among the slots at or before `nowMs`
- * that are not in `plan.done`, those older than `graceMinutes` (`diary.slotGraceMinutes`) are `dropped`
+ * that are not in `plan.done`, those older than `graceMinutes` (`selfreflection.slotGraceMinutes`) are `dropped`
  * (the caller marks them done without firing them) and the oldest remaining
  * one is the `slot`. Null when nothing is due and nothing is dropped;
  * `{ slot: null, dropped }` when every due slot was missed.
@@ -370,7 +370,7 @@ function weightedKinds(kinds: unknown): Array<[string, number]> {
 }
 
 /**
- * One kind key drawn from `kinds` (`{ key: weight }`, `diary.kinds`) in
+ * One kind key drawn from `kinds` (`{ key: weight }`, `selfreflection.kinds`) in
  * proportion to its weight; a kind with a weight of 0 or less is never drawn.
  * Null when no kind has a positive weight.
  */
@@ -391,7 +391,7 @@ const listOr = (value: unknown, fallback: ReadonlyArray<string>): ReadonlyArray<
   Array.isArray(value) ? listOf(value) : fallback;
 
 /**
- * Whether `kind` is a picture kind: listed in `pictureKinds` (`diary.pictureKinds`),
+ * Whether `kind` is a picture kind: listed in `pictureKinds` (`selfreflection.pictureKinds`),
  * DEFAULT_PICTURE_KINDS when that is not a list.
  */
 export function isPictureKind(kind: unknown, pictureKinds: unknown): boolean {
@@ -401,7 +401,7 @@ export function isPictureKind(kind: unknown, pictureKinds: unknown): boolean {
 
 /**
  * Whether `kind` posts a set of pictures: listed in `setKinds`
- * (`diary.setKinds`), DEFAULT_SET_KINDS when that is not a list.
+ * (`selfreflection.setKinds`), DEFAULT_SET_KINDS when that is not a list.
  */
 export function isSetKind(kind: unknown, setKinds: unknown): boolean {
   const sets = listOr(setKinds, DEFAULT_SET_KINDS);
@@ -433,7 +433,7 @@ export function setSettings(diaryCfg: unknown): SetSettings {
 }
 
 /**
- * `kinds` (`diary.kinds`) without its picture kinds (isPictureKind over `pictureKinds`, diary.pictureKinds), the other
+ * `kinds` (`selfreflection.kinds`) without its picture kinds (isPictureKind over `pictureKinds`, selfreflection.pictureKinds), the other
  * weights kept; a new object, the input untouched. What the planner and the
  * random fallback get while a post may not carry a picture.
  */
@@ -444,12 +444,12 @@ export function withoutPictureKinds(kinds: unknown, pictureKinds: unknown): Reco
 
 /**
  * The plan request's answer `parsed` (the JSON the model answered, untrusted), normalised. `kind` must be a key of
- * `kinds` (diary.kinds) with
+ * `kinds` (selfreflection.kinds) with
  * a positive weight, else the whole answer is replaced by a weighted random
  * kind (pickKind; null when no kind is weighted) with an empty brief and
  * search (`fallback: true`). Otherwise `brief` is one line, at most 300
- * characters; `search` is kept only for a kind in `searchKinds` (diary.searchKinds). With
- * `pictureAllowed`, a kind in `pictureKinds` (diary.pictureKinds) always draws (a picture kind
+ * characters; `search` is kept only for a kind in `searchKinds` (selfreflection.searchKinds). With
+ * `pictureAllowed`, a kind in `pictureKinds` (selfreflection.pictureKinds) always draws (a picture kind
  * means a picture, whatever the answer said) and any other kind draws only
  * when the answer says `picture: true`; without it nothing draws.
  */
@@ -500,7 +500,7 @@ function pictureSuffix(picture: unknown, labels: unknown, pictures: unknown): st
  * `timezone`, `{kind}` its kind key or `labels.diary.kindUnknown`, `{gist}`)
  * with `labels.diary.picture` appended when the post had a picture
  * (`labels.diary.pictureSet` with the count for a set: `pictures` above 1). The
- * newest `max` (diary.historyPosts) posts, oldest first. '' when there is no post.
+ * newest `max` (selfreflection.historyPosts) posts, oldest first. '' when there is no post.
  */
 export function renderDiaryBlock(
   posts: unknown,
@@ -524,8 +524,8 @@ export function renderDiaryBlock(
 
 /**
  * The body of the `<kinds>` block: `labels.diary.kinds`, then one
- * `labels.diary.kindLine` per kind of `kinds` (diary.kinds) with a positive weight (`{key}`,
- * `{weight}`, `{count}` its uses among the newest `window` (diary.historyPosts) of `posts` (oldest first), `{window}`
+ * `labels.diary.kindLine` per kind of `kinds` (selfreflection.kinds) with a positive weight (`{key}`,
+ * `{weight}`, `{count}` its uses among the newest `window` (selfreflection.historyPosts) of `posts` (oldest first), `{window}`
  * how many posts that is). '' when no kind is weighted.
  */
 export function renderKindsBlock(
@@ -579,7 +579,7 @@ export function parseSeedFamilies(text: unknown): Record<string, Array<string>> 
 }
 
 /**
- * `sets` (diary.seedSets) seed combinations from `families` (parseSeedFamilies): each one random line of every
+ * `sets` (selfreflection.seedSets) seed combinations from `families` (parseSeedFamilies): each one random line of every
  * non-empty family,
  * in the families' order. [] when no family has a line or `sets` is not a
  * positive count.
@@ -634,7 +634,7 @@ export { stripUrls };
 
 /**
  * A post's one-line gist for diary.json: whitespace collapsed, then cut at a
- * word boundary to at most `chars` characters (diary.gistChars).
+ * word boundary to at most `chars` characters (selfreflection.gistChars).
  */
 export function gistOf(text: unknown, chars?: number): string {
   return clampText(oneLine(text), chars ?? DEFAULT_GIST_CHARS, { tolerance: 1 });
@@ -689,7 +689,7 @@ export type DiaryDeps = {
  * posted, hunger, quietStreak }`, `day` the local date in `bot.timezone`):
  * nextHunger from the stored plan, then planDay once per local day (`diary:
  * plan` with `hunger` and `quietStreak`), the not-done slots of the previous plan still ahead or
- * within the grace merged in. A due slot (dueSlot, `diary.slotGraceMinutes`)
+ * within the grace merged in. A due slot (dueSlot, `selfreflection.slotGraceMinutes`)
  * is marked done before its post runs; slots missed by more than the grace
  * are marked done unfired (`diary: skip`, `grace`). Then, with an empty history,
  * `backfill` once per place and process from the place her diary is posted to
@@ -934,7 +934,7 @@ export function createDiary({
 }
 
 /**
- * The diary's memory start: when the guild's `diary.json` has no posts, read up to `diary.historyPosts`
+ * The diary's memory start: when the guild's `diary.json` has no posts, read up to `selfreflection.historyPosts`
  * of the persona's own messages from the diary channel (REST, oldest first) and store them with
  * `kind: null`, a one-line gist, and `labels.diary.pictureUnknown` as the scene of a message that
  * carried a picture. A history that already has posts is left alone (the posts are never rewritten by

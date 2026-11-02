@@ -33,7 +33,7 @@
 // reset by the service when the day changes). It has no due time and no recurrence (invariants
 // `attend-with-due`, `attend-with-every`); the scheduler wakes her on the place's lines
 // (src/behavior/inner.ts). normalizeAttend fills the defaults (ATTEND_DEFAULTS, or
-// `innerLife.attention.*` through attentionSettings); validAttend checks the shape.
+// `wakes.attention.*` through attentionSettings); validAttend checks the shape.
 
 import { createHash, randomUUID } from 'node:crypto';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../time.ts';

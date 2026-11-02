@@ -266,7 +266,7 @@ export function createInputs(ctx: InputsContext): Inputs {
 
   /**
    * The request's `<places>` body (with ADDRESSED_PLACES on; src/behavior/wake.ts#placesBlockText):
-   * the first `innerLife.attention.placesInWake` places by recent activity (0: none), from the inner
+   * the first `wakes.attention.placesInWake` places by recent activity (0: none), from the inner
    * life's places view. '' with the switch off, without the view, or when it fails.
    */
   function placesInputFor({ guildId, config, labels }: Parameters<Inputs['placesInputFor']>[0]): string {

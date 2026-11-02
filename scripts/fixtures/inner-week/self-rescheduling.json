@@ -5,7 +5,7 @@
   "days": 5,
   "timezone": "UTC",
   "seed": 79,
-  "innerLife": { "review": { "enabled": false } },
+  "wakes": { "review": { "enabled": false } },
   "channels": [
     { "id": "c-general", "name": "general" },
     { "id": "c-games", "name": "games" },

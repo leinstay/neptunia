@@ -18,7 +18,7 @@
 // scheduler bumps (`countAttendWake`) and reads (`attendToday`, the local day of `bot.timezone`).
 // An expired one is told to her once, in her next review's `<wake>`: the scheduler lists the
 // expired records not yet marked and marks them (`markExpiredShown`) once that review turn ran.
-// Settings are read at the moment of use (`intentions.*`, `innerLife.attention.*`,
+// Settings are read at the moment of use (`intentions.*`, `wakes.attention.*`,
 // `features.intentions`); logs carry ids and codes, never text.
 
 import { randomUUID } from 'node:crypto';
@@ -140,7 +140,7 @@ function applyWait(record: Intention, plan: WaitPlan | null, by: string, at: num
 }
 
 /**
- * The refusal of one more intention from a heartbeat when the caps are reached (`innerLife.heartbeat.maxOpen`,
+ * The refusal of one more intention from a heartbeat when the caps are reached (`heartbeat.maxOpen`,
  * `maxRecurring`, read now): `{ ok: false, code: 'heartbeat-cap'|'heartbeat-recurring-cap', open }`, `open` the
  * open records from heartbeats (so she can update or cancel one), or null.
  */
@@ -231,7 +231,7 @@ export function createIntentionService({
    * `{ ok: false, code }` (`no-guild`, `cap-open`, the model's codes, the wait's: `no-errand`,
    * `errand-ended`, `wait-without-errand`, `bad-deadline`; `write-failed`).
    * `input.every` is parseEvery's shape (null or missing: a one-off); its wall-clock time is pinned from `dueAt`.
-   * `input.attend` makes it an attention (model.js#normalizeAttend; its defaults `innerLife.attention.*`, read now).
+   * `input.attend` makes it an attention (model.js#normalizeAttend; its defaults `wakes.attention.*`, read now).
    */
   function set(guildId: unknown, input: SetInput): ReturnType<IntentionService['set']> {
     const store = storeOf(guildId);

@@ -152,7 +152,7 @@ export type InnerState = {
   inflight: Inflight | null;
 };
 
-/** The `innerLife` section with every number checked (innerSettings). */
+/** The `wakes` section with every number checked (innerSettings). */
 export type InnerSettings = {
   mode: 'live' | 'shadow';
   tickSeconds: number;

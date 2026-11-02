@@ -1,5 +1,5 @@
 // Her attention and the places view (docs/inner-life.md "Her attention"): an index per guild of the record's lines
-// per place over `innerLife.attention.lookbackHours`, the `attend` wake an open attention gives once its place has
+// per place over `wakes.attention.lookbackHours`, the `attend` wake an open attention gives once its place has
 // settled, and the page of places that her `places.list` tool and the `<wake>` block show. The tick
 // (src/behavior/inner.ts) refreshes the index; the heartbeat and the drain read it.
 
@@ -291,7 +291,7 @@ export type PlacesQuery = { filter?: string | null; sort?: string; page?: number
  * every attended place), with the lines and distinct people since her last look there (the
  * index: at most the lookback window), its newest line, whether she can write there (null when
  * the interface did not say) and whether she attends it; filtered, sorted and paged (placesPage;
- * `pageSize` defaults to `innerLife.attention.pageSize`). Never throws.
+ * `pageSize` defaults to `wakes.attention.pageSize`). Never throws.
  */
 export function places(
   life: InnerContext,
@@ -326,7 +326,7 @@ export function places(
   return placesPage(rows, { filter, sort: PLACE_SORTS.includes(sort) ? sort : 'recent', page, pageSize: size });
 }
 
-/** The places page of `<wake>` (null when `innerLife.attention.placesInWake` is 0). */
+/** The places page of `<wake>` (null when `wakes.attention.placesInWake` is 0). */
 export function placesInWakeOf(life: InnerContext, guildId: string, settings: InnerSettings): PlacesPage | null {
   const size = settings.attention.placesInWake;
   return size > 0 ? places(life, guildId, { sort: 'recent', page: 1, pageSize: size }) : null;

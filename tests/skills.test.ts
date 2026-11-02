@@ -735,9 +735,12 @@ test('skills gateway: safe mode lets only the carried-over calls pass', () => {
   assert.deepEqual(check({ granted: ['lore.list'], cfg: { bot: { owners: [OWNER] } } }), { ok: true });
 });
 
-// ---- wake envelopes (innerLife.wakes.<kind>) ------------------------------------------
+// ---- wake envelopes (wakes.kinds.<kind>, heartbeat.*) ---------------------------------
 
-/** One gateway check of an inner turn's call: her own initiative, nobody asked, `wakeKind` and the calls so far. */
+/**
+ * One gateway check of an inner turn's call: her own initiative, nobody asked, `wakeKind` and the calls so far. `wakes`
+ * holds an envelope per kind: the heartbeat's goes to the `heartbeat` section, every other under `wakes.kinds`.
+ */
 function innerCheck({
   skill,
   args = {},
@@ -746,7 +749,8 @@ function innerCheck({
   wakeActions = [],
   granted = [],
 }: Record<string, Untyped>) {
-  const cfg = granting(granted, { ...config(), innerLife: { wakes } });
+  const { heartbeat, ...kinds } = wakes as Record<string, Untyped>;
+  const cfg = granting(granted, { ...config(), wakes: { kinds }, ...(heartbeat ? { heartbeat } : {}) });
   return checkSkill({
     skill,
     args,
@@ -761,7 +765,7 @@ test('wake envelope: "*" with no caps, or no envelope at all, is today\'s behavi
   assert.deepEqual(wakeEnvelope({}, 'heartbeat'), { tools: '*', maxActs: null, maxTasks: null, inputTokens: null });
   assert.deepEqual(
     wakeEnvelope(
-      { innerLife: { wakes: { review: { tools: ['a.b'], maxActs: 2, maxTasks: 0, inputTokens: 6000 } } } },
+      { wakes: { kinds: { review: { tools: ['a.b'], maxActs: 2, maxTasks: 0, inputTokens: 6000 } } } },
       'review'
     ),
     { tools: ['a.b'], maxActs: 2, maxTasks: 0, inputTokens: 6000 }
@@ -777,7 +781,7 @@ test('wake envelope: a tool outside the allowlist is refused at the call, carrie
   assert.deepEqual(innerCheck({ skill: 'message.create', args: { text: 'γεια' }, wakes }), {
     ok: false,
     code: 'not-allowed',
-    reason: 'innerLife.wakes.heartbeat.tools',
+    reason: 'heartbeat.tools',
   });
   assert.deepEqual(innerCheck({ skill: 'lore.list', granted: ['lore.list'], wakes }), { ok: true });
   assert.deepEqual(
@@ -794,7 +798,7 @@ test('wake envelope: a tool outside the allowlist is refused at the call, carrie
     ok: true,
   });
   // Not an inner turn: no envelope applies.
-  const cfg = granting([], { ...config(), innerLife: { wakes } });
+  const cfg = granting([], { ...config(), heartbeat: wakes.heartbeat });
   assert.deepEqual(
     checkSkill({
       skill: 'message.create',
@@ -817,7 +821,7 @@ test('wake envelope: maxActs counts the calls that changed something, maxTasks t
   ];
   assert.deepEqual(
     innerCheck({ skill: 'message.create', args: { text: 'γεια' }, wakes, wakeKind: 'improvement', wakeActions: done }),
-    { ok: false, code: 'not-allowed', reason: 'innerLife.wakes.improvement.maxActs' }
+    { ok: false, code: 'not-allowed', reason: 'wakes.kinds.improvement.maxActs' }
   );
   assert.deepEqual(
     innerCheck({ skill: 'lore.list', granted: ['lore.list'], wakes, wakeKind: 'improvement', wakeActions: done }),
@@ -841,7 +845,7 @@ test('wake envelope: maxActs counts the calls that changed something, maxTasks t
       wakes: { improvement: { maxTasks: 0 } },
       wakeKind: 'improvement',
     }),
-    { ok: false, code: 'not-allowed', reason: 'innerLife.wakes.improvement.maxTasks' }
+    { ok: false, code: 'not-allowed', reason: 'wakes.kinds.improvement.maxTasks' }
   );
 });
 
@@ -862,7 +866,7 @@ test('wake envelope: a skill that posts inside its own operation is refused at t
       return { status: 'ok', code: 'ok', summary: 'drawn', data: {} };
     },
     opContext: { guildId: 'g1', channelId: HERE },
-    config: { innerLife: { wakes: { heartbeat: { tools } } } },
+    config: { heartbeat: { tools } },
   });
   const refused = await executeCall(
     resolved as unknown as Parameters<typeof executeCall>[0],
@@ -870,7 +874,7 @@ test('wake envelope: a skill that posts inside its own operation is refused at t
   );
   assert.equal(refused.status, 'denied');
   assert.equal(refused.code, 'not-allowed');
-  assert.equal(refused.reason, 'innerLife.wakes.heartbeat.tools');
+  assert.equal(refused.reason, 'heartbeat.tools');
   assert.equal(ran, 0, 'nothing paid is made for a post the envelope forbids');
   assert.equal(
     (
@@ -896,7 +900,7 @@ test('wake envelope: a skill that posts inside its own operation is refused at t
     channelId: HERE,
     ownInitiative: true,
     wakeKind: 'heartbeat',
-    env: { hot: { config: { innerLife: { wakes: { heartbeat: { tools: ['voice.say'] } } } } } },
+    env: { hot: { config: { heartbeat: { tools: ['voice.say'] } } } },
   };
   await assert.rejects(
     postingConversation({

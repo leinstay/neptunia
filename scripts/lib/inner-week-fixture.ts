@@ -156,7 +156,7 @@ export type Fixture = {
   guildId: string;
   mode: 'shadow' | 'live';
   turnSeconds: number;
-  innerLife: Rec;
+  wakes: Rec;
   agents: Rec;
   intentionsConfig: Rec;
   channels: Array<FixtureChannel>;
@@ -459,7 +459,7 @@ export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: s
     guildId: typeof data.guildId === 'string' && data.guildId ? data.guildId : 'g-week',
     mode: data.mode === 'shadow' ? 'shadow' : 'live',
     turnSeconds: Number.isFinite(data.turnSeconds) && data.turnSeconds >= 0 ? data.turnSeconds : 20,
-    innerLife: isObject(data.innerLife) ? data.innerLife : {},
+    wakes: isObject(data.wakes) ? data.wakes : {},
     agents: isObject(data.agents) ? data.agents : {},
     intentionsConfig: isObject(data.intentionsConfig) ? data.intentionsConfig : {},
     channels,

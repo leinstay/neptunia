@@ -103,7 +103,7 @@ const NOT_BUILT = {
   // Built inside the createMessageHandler closure of src/behavior/pipeline.ts (buildFollowUpRequest),
   // which fetches its own history: no seam reaches it (owner decision O-9).
   address: 'built inside the src/behavior/pipeline.ts closure (O-9)',
-  selfdev: 'filled by bin/selfimprovement.ts through src/selfimprovement/service.ts#briefFrom, a dev run reads it', // tests/selfimprovement-service
+  selfimprovement: 'filled by src/selfimprovement/service.ts#briefFrom, a dev run reads it', // tests/selfimprovement-service
   // Split into families and drawn from line by line (src/behavior/diary.ts#pickSeeds): the plan request carries a few random lines in <seeds>, never the file whole.
   'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.ts#pickSeeds), never sent whole',
   // Her memory session and the description review build their requests over the memory database, not from a turn:

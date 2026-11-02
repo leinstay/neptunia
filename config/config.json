@@ -327,7 +327,11 @@
     "checkout": null,
     "repository": null,
     "everyDays": 7,
-    "failuresPerShape": 3
+    "failuresPerShape": 3,
+    "tools": "*",
+    "maxActs": null,
+    "maxTasks": null,
+    "inputTokens": null
   },
   "selfreflection": {
     "enabled": true,
@@ -401,7 +405,7 @@
     "maxOpen": 20,
     "candidateExpiresHours": 48
   },
-  "innerLife": {
+  "wakes": {
     "mode": "shadow",
     "tickSeconds": 60,
     "review": {
@@ -427,7 +431,11 @@
     "everyMinutes": 180,
     "jitterMinutes": 60,
     "historyDays": 14,
-    "maxTokens": 2500
+    "maxTokens": 2500,
+    "tools": "*",
+    "maxActs": null,
+    "maxTasks": null,
+    "inputTokens": null
   },
   "appendStore": {
     "retryMax": 1000

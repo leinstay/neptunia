@@ -149,7 +149,7 @@ export async function toolRoundPhase(
     draft.reason = 'cut-off';
     return { ended: { outcome: 'error', mode: finalMode, reason: 'cut-off' } };
   }
-  // A set kind that ended below diary.set.minPosted staged pictures (runSteps): nothing was posted.
+  // A set kind that ended below selfreflection.set.minPosted staged pictures (runSteps): nothing was posted.
   if (draft.setShort !== undefined) return { ended: setShort(draft.setShort) };
 
   return { ...acting, ended: null, stepped };

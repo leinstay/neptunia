@@ -1066,7 +1066,7 @@ export async function buildHeartbeatFacts({
     activity,
     refs: book.refs,
     maxTokens: s.maxTokens,
-    // A heartbeat is held to intention changes only: `innerLife.heartbeat.intentionsOnly` was on in production, config
+    // A heartbeat is held to intention changes only: `heartbeat.intentionsOnly` was on in production, config
     // cut of 2026-10-31.
     intentionsOnly: true,
     life: lifeOf(common),

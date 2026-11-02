@@ -33,7 +33,7 @@
 //   - schema v11 (wakes.ts, index-policy.ts):
 //       the wake runs: `recordWake(update)` is the inner life's one way to write its wake runs (src/behavior/
 //       inner.ts), through the writer; at each open the runs a dead process left `running` longer than the inner
-//       turn's time budget (`innerLife.loop.timeBudgetMs`) become `interrupted`.
+//       turn's time budget (`wakes.loop.timeBudgetMs`) become `interrupted`.
 //       the skills registry (skills.ts, schema v22): its writes are `{ kind: 'skills', op, ... }` through the writer.
 //       `recall.db.vectorEviction`: once per UTC day, at a tick, the index policy classifies every line and evicts
 //       the vectors outside the owner's classes, through the writer; the sources a turn's request carried
@@ -123,7 +123,7 @@ export const PENDING_DIR = 'memory-pending';
 
 const DEFAULT_FILE = 'memory.db';
 const DEFAULT_CLOSE_TIMEOUT_MS = 10_000;
-/** The inner turn's time budget when `innerLife.loop.timeBudgetMs` is not set (config.json's value). */
+/** The inner turn's time budget when `wakes.loop.timeBudgetMs` is not set (config.json's value). */
 const DEFAULT_TURN_BUDGET_MS = 180_000;
 /** The least time between two runs of the re-embed job. */
 const REEMBED_EVERY_MS = 60_000;
@@ -792,7 +792,7 @@ export function createMemoryDb({
 
   /** What each open does once (schema v11): stale wake runs interrupted. */
   function startupJobs() {
-    const budget = hot.config?.innerLife?.loop?.timeBudgetMs;
+    const budget = hot.config?.wakes?.loop?.timeBudgetMs;
     write({
       kind: 'wake',
       op: 'interrupt',
