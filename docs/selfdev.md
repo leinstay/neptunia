@@ -4,7 +4,7 @@ This document is for whoever runs a deployment and for whoever changes `src/self
 
 ## The flow
 
-She files a change request with `board.propose` of kind `fix` ([Skills](skills.md#how-a-skill-is-made)). It lands on the task board as a `dev` task in `proposed` with her evidence as its description and her cases in its metadata. `neptunia selfdev run` (`bin/selfdev.ts`) runs one beat of three steps, each in `createSelfdev` (`src/selfdev/service.ts`), which calls the board as the builtin principal `selfdev` ([The task board](board.md#roles)).
+She files a change request with `board.propose` of kind `fix` ([Skills](skills.md#how-a-skill-is-made)). It lands on the task board as a `dev` task in `proposed` with her evidence as its description and her cases in its metadata. `neptunia selfdev run` (`bin/selfdev.ts`) runs one `beat` of `createSelfdev` (`src/selfdev/service.ts`), which calls the board as the builtin principal `selfdev` ([The task board](board.md#roles)). The beat first checks that her gh login can push to `selfdev.repository` ([The repository](#the-repository)), then runs three steps once each.
 
 `intake` takes her `fix` proposals in `proposed` (a `skill` proposal and any task not filed by her stay as they are), triages them to the role, budget, steps and estimate of `board.autoTriage` at risk `low`, and approves the plan. Approval at low risk is safe because nothing lands without a merge.
 
@@ -12,7 +12,7 @@ She files a change request with `board.propose` of kind `fix` ([Skills](skills.m
 
 The engine then commits what the run left, lists the changed paths against the base and runs the tests itself. A changed test file runs as it is. For a changed module `a/b/c.ts` it runs every existing `tests/a-b-c.test.ts`, `tests/b-c.test.ts` and `tests/c.test.ts`, in one `node --test --test-reporter=tap` call in the worktree. The counts come from the `# pass` and `# fail` lines and the exit code decides. What the agent says about its tests never counts. A failing run closes the task with `tests-failed: <command>` and pushes nothing. When no test file covers the change, no test runs and the handoff's `open_issues` names the paths no test covers.
 
-With green tests the engine pushes the branch and opens the pull request as a draft with `gh pr create --draft`. The body holds her evidence, the changed paths, the test command with its counts and the task id. The task gets `metadata.pr`, a result of kind `pr` and a handoff, and moves to `needs_validation`. A `gh` failure closes the task with `gh-failed: <first line of the error>`.
+With green tests the engine pushes the branch with `git push -u https://github.com/<owner>/<name>.git self/<task id>`, the URL of `selfdev.repository` and never the checkout's `origin`, and opens the pull request as a draft with `gh pr create --repo <owner>/<name> --draft`. The body holds her evidence, the changed paths, the test command with its counts and the task id. The task gets `metadata.pr`, a result of kind `pr` and a handoff, and moves to `needs_validation`. A `gh` failure closes the task with `gh-failed: <first line of the error>`.
 
 `observe` looks at every task in `needs_validation` whose `metadata.pr` names a branch `self/<task id>`, through `gh pr view`. A look that `gh` cannot answer leaves the task as it is and the next look tries again.
 
@@ -24,9 +24,27 @@ In `approve` (the default) every pull request waits for the owner. Once every ch
 
 In `auto` the engine runs `gh pr merge <number> --squash --delete-branch` when every check is green and at least one exists. A check that is pending, failed or absent leaves the pull request waiting. The engine records `metadata.autoMerge` before the merge, so a look after a crash still knows the engine decided.
 
-A pull request closed without a merge cancels the task with `pull request closed unmerged`. A branch is deleted right after its pull request ended: by `--delete-branch` in `auto`, and by `git push origin --delete self/<task id>` in the checkout when the owner merged or the request was closed.
+A pull request closed without a merge cancels the task with `pull request closed unmerged`. A branch is deleted right after its pull request ended: by `--delete-branch` in `auto`, and by `git push https://github.com/<owner>/<name>.git --delete self/<task id>` in the checkout when the owner merged or the request was closed.
 
 A merged task carries `metadata.landed` (title, paths, pull request number and who decided, `owner` or `auto`) and `metadata.merged`, and a reviewer moves it to `done` ([The task board](board.md)). The journal line `selfdev merged` names the task, the pull request, who decided and the number of files.
+
+## The repository
+
+`selfdev.repository` names the repository her pull requests open against, as `owner/name`. Every `gh pr create`, `gh pr view`, `gh pr ready` and `gh pr merge` carries `--repo <owner>/<name>`, and branches are pushed to and deleted from `https://github.com/<owner>/<name>.git`. A deployment of someone else's engine names its own fork here, so nothing it does proposes a change upstream. A value that is not two segments of letters, digits, `.`, `_` and `-` joined by one `/` reads as unset.
+
+gh runs under her own config home, `<private>/subharness/gh`, passed as `GH_CONFIG_DIR` to the beat's gh calls and to the check (`ghEnv` in `src/selfdev/repository.ts`). Her pull requests are therefore never the installing user's. The owner logs her in once with `GH_CONFIG_DIR=<private>/subharness/gh gh auth login`.
+
+`checkRepository` is the push-right check. It runs `gh auth status`, then `gh api repos/<owner>/<name>`, and answers `ok` when the answer grants `permissions.push`. Otherwise it answers one of these codes with the line of `labels.selfdev.check.<code>` from the `owner` section of `config/labels.json` ([Prompt contract](prompt-contract.md)):
+
+| Code | When |
+|---|---|
+| `repository-unset` | `selfdev.repository` is unset or not `owner/name`. gh never runs |
+| `gh-missing` | there is no `gh` on `PATH` |
+| `gh-logged-out` | `gh auth status` fails under her gh home |
+| `no-push` | her login can read the repository but not push to it. The line says to fork it and name the fork |
+| `failed` | `gh api` failed, its answer was not JSON, or the check threw |
+
+The line never carries any text gh printed. The beat runs the check once before anything else. On any code but `ok` it takes nothing, runs no git or gh, writes the journal line `selfdev paused` with the code, and `neptunia selfdev run` prints the line and exits 0. Her approved fixes wait in the board until a beat finds the push right again.
 
 ## What reaches her wake
 
@@ -43,6 +61,7 @@ The outbox row of a merged task, addressed to `persona:self`, is read as `landed
 | `selfdev.mode` | `approve` | `approve` or `auto`, as above |
 | `selfdev.base` | `main` | The branch worktrees start from and pull requests target |
 | `selfdev.checkout` | `null` | The dev checkout `neptunia setup` renders the selfdev units over; unset, no units |
+| `selfdev.repository` | `null` | The repository as `owner/name` her branches and pull requests go to; unset, every beat pauses |
 
 The full list is in [Configuration](configuration.md#selfdev).
 
