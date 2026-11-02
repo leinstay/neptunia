@@ -435,3 +435,24 @@ test('setup writes no selfdev unit when selfdev.checkout is the deployed checkou
   await runSetup({ ...options, only: 'units' }, deps);
   for (const name of SELFDEV_UNIT_FILES) assert.equal(fs.existsSync(path.join(unitDir, name)), false, name);
 });
+
+// The self-development step (spec 2026-11-02, PR 5 "Forks"): last, after the core, and optional, so a refusal of it
+// leaves the install whole.
+
+test('a refused self-development step leaves the run ok, stores no repository and still opens the chat', async () => {
+  // Catches: an optional step without gh fails the install, so the owner never reaches the chat that sets her keys.
+  const { options, deps, chat } = rig();
+  withSelfdev(options.privateDir, { checkout: path.join(path.dirname(options.privateDir), 'dev-checkout') });
+  const report = await runSetup(options, {
+    ...deps,
+    ask: () => Promise.resolve('example/engine'),
+    gh: () => Promise.resolve({ found: false }),
+  });
+  assert.equal(report.ok, true);
+  assert.equal(report.steps.find((step) => step.step === 'selfdev')?.state, 'refused');
+  assert.deepEqual(chat, ['/keys core add']);
+  const local = JSON.parse(fs.readFileSync(path.join(options.privateDir, 'config.local', 'config.json'), 'utf8')) as {
+    selfdev: Record<string, unknown>;
+  };
+  assert.equal('repository' in local.selfdev || 'mode' in local.selfdev, false);
+});

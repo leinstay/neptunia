@@ -492,3 +492,96 @@ test('the shipped brief fills every placeholder from the fix and keeps the refus
   // The engine reads this tag in the agent's final message.
   assert.ok(text.includes('REFUSED: <reason>'));
 });
+
+// The fork check of the beat (spec 2026-11-02, PR 5 "Forks"): every beat checks first that her gh login can push to
+// `selfdev.repository`, a failed check pauses the beat with its code, and every gh call names that repository.
+
+const repoOf = (args: ReadonlyArray<string>): string | null => {
+  const at = args.indexOf('--repo');
+  return at < 0 ? null : (args[at + 1] ?? null);
+};
+
+test('a beat whose push check fails takes nothing, runs no git or gh, and journals the pause with its code', async (t) => {
+  // Catches: a lost push right shows up as a failed push that closes her fix as failed, instead of pausing the beat.
+  const world = selfdevWorld(t);
+  const id = await proposeFix(world);
+  world.check = { code: 'no-push', line: 'no push right on example/engine' };
+  const beat = await createSelfdev(world.deps).beat();
+  assert.equal(beat.check.code, 'no-push');
+  assert.deepEqual([beat.taken, beat.reports, beat.seen], [[], [], []]);
+  assert.equal(show(world, id).task.status, 'proposed');
+  assert.deepEqual([world.git, world.gh, world.runs], [[], [], []]);
+  assert.deepEqual(
+    world.journal.filter((line) => line.event === 'paused'),
+    [{ kind: 'selfdev', event: 'paused', code: 'no-push' }]
+  );
+});
+
+test('a beat whose check throws pauses with code failed and touches nothing', async (t) => {
+  // Catches: a crashing check escapes the beat, or lets intake and work run without knowing the push right.
+  const world = selfdevWorld(t);
+  const id = await proposeFix(world);
+  world.deps = { ...world.deps, check: () => Promise.reject(new Error('spawn gh EACCES')) };
+  const beat = await createSelfdev(world.deps).beat();
+  assert.equal(beat.check.code, 'failed');
+  assert.equal(show(world, id).task.status, 'proposed');
+  assert.deepEqual(world.gh, []);
+  assert.deepEqual(
+    world.journal.filter((line) => line.event === 'paused').map((line) => line.code),
+    ['failed']
+  );
+});
+
+test('a beat whose check passes runs intake, work and observe once each, with the check run once first', async (t) => {
+  // Catches: beat() checks but forgets a step, or checks again per task and doubles the gh calls.
+  const world = selfdevWorld(t);
+  const id = await proposeFix(world);
+  const beat = await createSelfdev(world.deps).beat();
+  assert.equal(beat.check.code, 'ok');
+  assert.deepEqual(beat.taken, [id]);
+  assert.deepEqual(
+    beat.reports.map((one) => one.outcome),
+    ['submitted']
+  );
+  assert.deepEqual(
+    beat.seen.map((one) => one.action),
+    ['waiting-owner']
+  );
+  assert.equal(world.checks, 1);
+  assert.equal(
+    world.journal.some((line) => line.event === 'paused'),
+    false
+  );
+});
+
+test('the pull request opens against selfdev.repository', async (t) => {
+  // Catches: gh pr create picks the checkout's origin, so a deployment that named its fork still proposes upstream.
+  const world = selfdevWorld(t);
+  world.repository = 'fork-owner/engine';
+  world.check = { code: 'ok', repository: 'fork-owner/engine' };
+  await submitted(world);
+  const create = world.gh.find((call) => call.args[0] === 'pr' && call.args[1] === 'create');
+  assert.equal(repoOf(create?.args ?? []), 'fork-owner/engine');
+});
+
+test('every look, ready and merge names selfdev.repository too', async (t) => {
+  // Catches: the pull request opens on the fork but gh pr view and merge ask the origin, so it is never seen merged.
+  const world = selfdevWorld(t);
+  world.repository = 'fork-owner/engine';
+  world.check = { code: 'ok', repository: 'fork-owner/engine' };
+  const { service } = await submitted(world);
+  await service.observe();
+  world.mode = 'auto';
+  assert.deepEqual(
+    (await service.observe()).map((one) => one.action),
+    ['merged-auto']
+  );
+  const used = world.gh.filter((call) => call.args[0] === 'pr').map((call) => [call.args[1], repoOf(call.args)]);
+  assert.deepEqual(used, [
+    ['create', 'fork-owner/engine'],
+    ['view', 'fork-owner/engine'],
+    ['ready', 'fork-owner/engine'],
+    ['view', 'fork-owner/engine'],
+    ['merge', 'fork-owner/engine'],
+  ]);
+});

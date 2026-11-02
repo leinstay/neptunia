@@ -10,6 +10,7 @@ import { openBoard } from '../../src/board/board.ts';
 import type { Board, BoardOp, BoardResults } from '../../src/board/board.ts';
 import type { BoardDb } from '../../src/board/schema.ts';
 import type { SelfdevDeps } from '../../src/selfdev/service.ts';
+import type { RepositoryCheck } from '../../src/selfdev/repository.ts';
 import { runOpPrechecked } from '../../src/tools/impl/index.ts';
 import { createOpsEnv } from '../../src/tools/impl/env.ts';
 import type { BoardCaller } from '../../src/tools/impl/board.ts';
@@ -51,6 +52,11 @@ export type SelfdevWorld = {
   /** The `selfdev.mode` and the base branch the settings read. */
   mode: 'approve' | 'auto';
   base: string;
+  /** `selfdev.repository`: the repository her pull requests open against. */
+  repository: string | null;
+  /** What the beat's push-right check answers; `checks` counts how often it ran. */
+  check: RepositoryCheck;
+  checks: number;
   /** The paths the fake agent leaves changed in its worktree. */
   changed: Array<string>;
   /** The test files that exist in a worktree. */
@@ -131,6 +137,9 @@ export function selfdevWorld(t: { after: (fn: () => void) => void }): SelfdevWor
     runs: [],
     mode: 'approve',
     base: 'main',
+    repository: 'example/engine',
+    check: { code: 'ok', repository: 'example/engine' },
+    checks: 0,
     changed: ['src/web/read.ts', 'tests/web-read.test.ts'],
     existing: new Set(['tests/web-read.test.ts', 'tests/unrelated.test.ts']),
     agent: { ok: true, text: 'Raised the limit and added a case. All 99 tests pass.' },
@@ -219,7 +228,11 @@ export function selfdevWorld(t: { after: (fn: () => void) => void }): SelfdevWor
       return Promise.resolve({ code: world.testRun.code, stdout: world.testRun.stdout, stderr: '' });
     },
     brief: (task) => `BRIEF ${task.id}: ${task.title}\n${task.evidence}`,
-    settings: () => ({ mode: world.mode, base: world.base }),
+    settings: () => ({ mode: world.mode, base: world.base, repository: world.repository }),
+    check: () => {
+      world.checks += 1;
+      return Promise.resolve(world.check);
+    },
     triage: () => ({ role: 'dev', budget: 4, steps: 80, estimate: 30 }),
     journal: (line) => world.journal.push(line),
     fileExists: (_dir, relative) => world.existing.has(relative),
