@@ -189,6 +189,8 @@ export const CATALOGUE = Object.freeze({
   'not-writable': wake(),
   unavailable: wake(),
   'no-review-channel': wake(),
+  // Every key of the core's list failed on a budget error (src/llm/key-failover.ts); the turn failed with it.
+  'keys-exhausted': wake(),
 
   // Why a call left the pending queue unanswered (the reasons of a missed fact, src/behavior/missed.ts).
   'pending-full': internal(),

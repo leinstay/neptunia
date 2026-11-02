@@ -32,6 +32,8 @@ import { HOUR_MS, MINUTE_MS, bumpDaily, countToday, dailyCounter } from '../time
 import { log } from '../log.ts';
 import type { LimitsSink } from './limits.ts';
 import { roleModel } from './roles.ts';
+import { createKeyFailover, isBudgetError } from './key-failover.ts';
+import type { KeyFailover, KeyState } from './key-failover.ts';
 
 type Rec = Record<string, unknown>;
 /** `isPlainObject`, as a guard: a non-null object that is not an array. */
@@ -126,35 +128,102 @@ export const STRICT_KEY_ROLES = Object.freeze(['memory']);
 // The `llm.keyByRole` entries already reported as unusable in this process (by name).
 const warnedRoleKeys = new Set<string>();
 
+/** The core's variable names when `llm.keyByRole` does not map it: the main key, then the backup when it is set. */
+/** The variable of the main key: the one every request without a key of its own goes out on. */
+export const MAIN_KEY_NAME = 'OPENROUTER_CORE_KEY';
+const DEFAULT_CORE_KEYS = Object.freeze([MAIN_KEY_NAME, 'OPENROUTER_CORE_BACKUP_KEY']);
+
+type Env = Record<string, string | undefined> | null | undefined;
+
+/** Whether `name` is an allowed variable name that `env` sets to something other than blank. */
+function isSetName(env: Env, name: unknown): name is string {
+  if (typeof name !== 'string' || !ROLE_KEY_NAME.test(name) || !env) return false;
+  const value = env[name];
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+/** The `llm.keyByRole` entry of `role` as it stands in the map: undefined when the role is not mapped. */
+function mappedEntry(config: unknown, role: unknown): unknown {
+  const map = llmOf(config).keyByRole;
+  return typeof role === 'string' && role && isRec(map) && Object.hasOwn(map, role) ? map[role] : undefined;
+}
+
+/**
+ * The variable names a request of `role` may go out on, in order: `llm.keyByRole[role]` is one name or a list, and the
+ * first is the primary. A name that fails `ROLE_KEY_NAME` or is unset or blank in `env` is left out. A `core` the map
+ * does not name takes `OPENROUTER_CORE_KEY` then `OPENROUTER_CORE_BACKUP_KEY`, the ones that are set; any other
+ * unmapped role has no list (`[]`: it is on the main key). Names only.
+ */
+export function roleKeyNames(config: unknown, env: Env, role: unknown): Array<string> {
+  const entry = mappedEntry(config, role);
+  if (entry === undefined) return role === 'core' ? DEFAULT_CORE_KEYS.filter((name) => isSetName(env, name)) : [];
+  const names = Array.isArray(entry) ? entry : [entry];
+  return [...new Set(names)].filter((name): name is string => isSetName(env, name));
+}
+
 /**
  * The OpenRouter key a request of `role` goes out on: the variable `llm.keyByRole[role]` names
  * (read from `env`, the parsed `.env`) when the name matches `ROLE_KEY_NAME` and the variable is
  * set and not blank, else `mainKey`. The map is read from `config` at the moment of use. A mapped
  * role that falls back logs `llm: role key missing` (role, name) once per name per process; a
  * name that is not a variable name is logged as null (it may be a pasted key). Never logs a value.
- * The one place a request's key is chosen (chat completions, embeddings, the status card's reads).
+ * An entry that is a list, or a `core` with a backup variable set (`roleKeyNames`), resolves to the key
+ * `failover` holds as the role's current one, else to the first set name. The one place a
+ * request's key is chosen (chat completions, embeddings, the status card's reads).
  * @param role The request's `options.role`.
  * @param mainKey `OPENROUTER_CORE_KEY`.
+ * @param failover The client's key choice; without it a list gives its first set key.
  */
 export function roleApiKey(
   config: unknown,
-  env: Record<string, string | undefined> | null | undefined,
+  env: Env,
   role: unknown,
-  mainKey: string
+  mainKey: string,
+  failover?: Pick<KeyFailover, 'current'>
 ): string {
-  const map = llmOf(config).keyByRole;
-  const strict = typeof role === 'string' && STRICT_KEY_ROLES.includes(role);
-  if (typeof role !== 'string' || !role || !isRec(map) || !Object.hasOwn(map, role)) return strict ? '' : mainKey;
-  const name = map[role];
-  const valid = typeof name === 'string' && ROLE_KEY_NAME.test(name);
-  const value = valid && env ? env[name] : undefined;
+  const fallback = typeof role === 'string' && STRICT_KEY_ROLES.includes(role) ? '' : mainKey;
+  const entry = mappedEntry(config, role);
+  if (typeof role !== 'string' || !role || (entry === undefined && role !== 'core')) return fallback;
+  if (Array.isArray(entry) || entry === undefined) return listedKey({ config, env, role, entry, failover, fallback });
+  const name = typeof entry === 'string' && ROLE_KEY_NAME.test(entry) ? entry : null;
+  const value = name !== null && env ? env[name] : undefined;
   if (typeof value === 'string' && value.trim()) return value;
-  const seen = valid ? name : `bad:${String(name)}`;
-  if (!warnedRoleKeys.has(seen)) {
-    warnedRoleKeys.add(seen);
-    log.warn('llm: role key missing', { role, name: valid ? name : null });
-  }
-  return strict ? '' : mainKey;
+  warnMissing(role, name ?? scalarText(entry), name !== null);
+  return fallback;
+}
+
+/**
+ * The key of a role with a list (`entry` an array) or of an unmapped `core`: the list's current name, else the first set
+ * name. An unmapped core with fewer than two set names, and a list with none set, fall back (the latter with a warning).
+ */
+function listedKey({
+  config,
+  env,
+  role,
+  entry,
+  failover,
+  fallback,
+}: {
+  config: unknown;
+  env: Env;
+  role: string;
+  entry: unknown;
+  failover?: Pick<KeyFailover, 'current'>;
+  fallback: string;
+}): string {
+  const names = roleKeyNames(config, env, role);
+  if (names.length >= (Array.isArray(entry) ? 1 : 2))
+    return env?.[failover?.current(role, names) ?? names[0] ?? ''] ?? '';
+  if (Array.isArray(entry)) warnMissing(role, entry.join(','), false);
+  return fallback;
+}
+
+/** The one `llm: role key missing` line per name per process; `name` is logged only when it is a variable name. */
+function warnMissing(role: string, name: string, valid: boolean): void {
+  const seen = valid ? name : `bad:${name}`;
+  if (warnedRoleKeys.has(seen)) return;
+  warnedRoleKeys.add(seen);
+  log.warn('llm: role key missing', { role, name: valid ? name : null });
 }
 
 /**
@@ -926,8 +995,11 @@ export function providerLimitOf(err: unknown): {
  * `error` (a rail refusal or any other exception). Only the status, the error name and the
  * message shape are read, never the provider's text.
  */
-export function errorCodeOf(err: unknown): 'provider-limit' | 'provider-error' | 'timeout' | 'error' {
+export function errorCodeOf(
+  err: unknown
+): 'provider-limit' | 'provider-error' | 'timeout' | 'keys-exhausted' | 'error' {
   const { statusCode: status, name, message } = errorFields(err);
+  if (isKeysExhausted(err)) return 'keys-exhausted';
   if (typeof status === 'number' && Number.isInteger(status))
     return status === 429 ? 'provider-limit' : 'provider-error';
   if (err instanceof TokenLimitError || err instanceof DailyCapError || err instanceof NotByokError) return 'error';
@@ -953,7 +1025,127 @@ function retryLimitFields(err: unknown): { limitSource?: string; provider?: stri
 // The error of a non-ok answer: the status on `.statusCode`, the full (untrimmed) body on `.body`
 // for a caller that needs more than the 500-char message allows -- e.g. `/nep ping` picking
 // OpenRouter's `routing_funnel` diagnostic out of a "No endpoints found" error.
-async function httpErrorOf(response: Response): Promise<Error & { statusCode: number; body: string }> {
+/** After a budget error on `name`: the next key of the list to repeat on; throws `keys-exhausted` when none is left. */
+function nextKeyOf(
+  failover: KeyFailover,
+  role: string,
+  names: ReadonlyArray<string>,
+  name: string,
+  status: number
+): string {
+  const next = failover.failed(role, names, name, status);
+  if (next === null) throw keysExhausted(role);
+  return next;
+}
+
+/**
+ * Every role with a list of two or more keys now (`roleKeyNames`, the core included): the key it is on and when it last
+ * switched, null until it does. Names only, never a key.
+ */
+function keyStatesOf(config: unknown, env: Env, failover: KeyFailover): Array<KeyState> {
+  const map = llmOf(config).keyByRole;
+  const roles = new Set(['core', ...(isRec(map) ? Object.keys(map) : [])]);
+  const states: Array<KeyState> = [];
+  for (const role of roles) {
+    const names = roleKeyNames(config, env, role);
+    if (names.length < 2) continue;
+    const switched = failover.states().find((entry) => entry.role === role);
+    const key = failover.current(role, names);
+    states.push({ role, key, switchedAt: switched?.key === key ? switched.switchedAt : null });
+  }
+  return states;
+}
+
+/**
+ * Where one request of a role goes out: the key of `llm.keyByRole` (read now) else the main key, and, for a list of two or
+ * more keys, how a budget error moves it on.
+ */
+type KeyRoute = {
+  /** The key value the next send uses. */
+  key(): string;
+  /** `fields` of a usage line with `key`, the variable the request's key came from, unless that is the main key's. */
+  named<T extends object>(fields: T): T | (T & { key: string });
+  /**
+   * An answer that was not ok: on a budget error of a listed role the role moves to its next key and `send` runs again
+   * with it, one time. The answer and error to go on with; `keys-exhausted` is thrown when no key is left.
+   */
+  failOver(
+    first: Response,
+    firstError: HttpError,
+    send: (signal: AbortSignal) => Promise<Response>,
+    signal: AbortSignal
+  ): Promise<{ response: Response; error: HttpError }>;
+};
+
+function createKeyRoute({
+  config,
+  env,
+  role: givenRole,
+  mainKey,
+  failover,
+}: {
+  config: unknown;
+  env: Record<string, string | undefined>;
+  role: unknown;
+  mainKey: string;
+  failover: KeyFailover;
+}): KeyRoute {
+  const role = typeof givenRole === 'string' ? givenRole : '';
+  const names = roleKeyNames(config, env, role);
+  const listed = names.length >= 2;
+  let key = roleApiKey(config, env, role, mainKey, failover);
+  if (!key)
+    throw Object.assign(new Error('llm: no key for this role'), {
+      code: 'ROLE_KEY_MISSING',
+      name: 'RoleKeyMissingError',
+    });
+  let current = listed ? failover.current(role, names) : '';
+  return {
+    key: () => key,
+    named(fields) {
+      // The list's current name, the one name a role maps to, else the main key's.
+      const only = names.length === 1 ? (names[0] ?? '') : '';
+      const name = listed ? current : only && env[only] === key ? only : MAIN_KEY_NAME;
+      return name === MAIN_KEY_NAME ? fields : { ...fields, key: name };
+    },
+    async failOver(first, firstError, send, signal) {
+      if (!listed || !isBudgetError(first.status, firstError.body)) return { response: first, error: firstError };
+      current = nextKeyOf(failover, role, names, current, first.status);
+      key = env[current] ?? key;
+      const again = await send(signal);
+      if (again.ok) return { response: again, error: firstError };
+      const error = await httpErrorOf(again);
+      // The repeat failed on a budget error too: with every key failed within a minute, the list is spent.
+      if (isBudgetError(again.status, error.body)) nextKeyOf(failover, role, names, current, again.status);
+      return { response: again, error };
+    },
+  };
+}
+
+/** The client's readers of the keys: `keyStates` (the roles with a list and the key each is on) and `keyNames`. */
+function keyReaders(getConfig: () => unknown, env: Env, failover: KeyFailover): Pick<Llm, 'keyStates' | 'keyNames'> {
+  return {
+    keyStates: () => keyStatesOf(getConfig(), env, failover),
+    keyNames: (role) => roleKeyNames(getConfig(), env, role),
+  };
+}
+
+/** Whether `err` is the error `keysExhausted` makes. */
+const isKeysExhausted = (err: unknown): boolean => isRec(err) && err.code === 'keys-exhausted';
+
+/** The error of a role whose every key failed on a budget error: `code: 'keys-exhausted'`, read by the role health. */
+function keysExhausted(role: string): Error {
+  return Object.assign(new Error(`llm: every key of the ${role || 'request'} role is out of credit`), {
+    code: 'keys-exhausted',
+    name: 'KeysExhaustedError',
+    // A payment failure, so the retry loop passes it on at once.
+    statusCode: 402,
+  });
+}
+
+type HttpError = Error & { statusCode: number; body: string };
+
+async function httpErrorOf(response: Response): Promise<HttpError> {
   const rawBody = await response.text();
   return Object.assign(new Error(`OpenRouter HTTP ${response.status}: ${rawBody.slice(0, 500)}`), {
     statusCode: response.status,
@@ -1091,6 +1283,10 @@ export type Llm = {
   keyHash: (options?: { role?: string }) => string;
   roleKeys: () => Array<{ roles: Array<string> }>;
   capLeft: (nowMs?: number) => number;
+  /** The roles with a key list (the core with a backup included): the key each is on and when it last switched. */
+  keyStates: () => Array<KeyState>;
+  /** The variable names a request of `role` may go out on now, the primary first. */
+  keyNames: (role: string) => Array<string>;
 };
 
 /** The `llm` section of the live config, as the client reads it. */
@@ -1155,6 +1351,7 @@ export function createLlm({
   setTimer = (fn, ms) => setTimeout(fn, ms),
   clearTimer = (handle) => clearTimeout(handle),
 }: LlmDeps): Llm {
+  const failover = createKeyFailover({ now });
   /**
    * The requests `llm.maxRequestsPerDay` still allows today, read only: the cap, read now,
    * minus `llmCountToday` (the stored count of another UTC day reads as 0, so the whole cap is
@@ -1544,18 +1741,12 @@ export function createLlm({
     if (Array.isArray(options.plugins) && options.plugins.length) body.plugins = options.plugins;
     // `options.purpose`, `options.origin` and `options.iface` are for the usage line only: never put on `body`.
 
-    // The key of this request's role (`llm.keyByRole`, read now), else the main key.
-    const requestKey = roleApiKey(getConfig(), env, options.role, apiKey);
-    if (!requestKey)
-      throw Object.assign(new Error('llm: no key for this role'), {
-        code: 'ROLE_KEY_MISSING',
-        name: 'RoleKeyMissingError',
-      });
+    const route = createKeyRoute({ config: getConfig(), env, role: options.role, mainKey: apiKey, failover });
     // One POST of this body, under the attempt's own signal.
     const send: Send = (signal) =>
       fetchImpl(apiUrl(cfg.baseUrl, 'chat/completions'), {
         method: 'POST',
-        headers: openRouterHeaders(requestKey),
+        headers: openRouterHeaders(route.key()),
         body: JSON.stringify(body),
         signal,
       });
@@ -1594,7 +1785,8 @@ export function createLlm({
         log.warn('llm: provider counted more prompt tokens than the cap', { usage, estimated });
       }
       const usageFields = { ...usageLogFields(json, usage, body.model, options, marked, now() - startedAt), ...extra };
-      log.info('llm: usage', usageFields);
+      // The line names the key's variable (the usage accumulator's key rows), never the key; the main key is left out.
+      log.info('llm: usage', route.named(usageFields));
       if (options.limits)
         reportLimits(options.limits, {
           where: options.purpose ?? options.role ?? 'request',
@@ -1656,18 +1848,21 @@ export function createLlm({
         response = await send(signal);
 
         if (!response.ok) {
-          const error = await httpErrorOf(response);
-          if (!RETRY_STATUS.has(response.status)) throw error;
-          // A provider's quota of the day: it comes back in minutes, not within the seconds of
-          // `backoffMs`, so a retry only holds the caller (the persona's lease).
-          const limit = providerLimitOf(error);
-          if (limit?.kind === 'daily') {
-            logProviderLimit(options, body.model, limit);
-            notRetried = error;
-            throw error;
+          let error = await httpErrorOf(response);
+          ({ response, error } = await route.failOver(response, error, send, signal));
+          if (!response.ok) {
+            if (!RETRY_STATUS.has(response.status)) throw error;
+            // A provider's quota of the day: it comes back in minutes, not within the seconds of
+            // `backoffMs`, so a retry only holds the caller (the persona's lease).
+            const limit = providerLimitOf(error);
+            if (limit?.kind === 'daily') {
+              logProviderLimit(options, body.model, limit);
+              notRetried = error;
+              throw error;
+            }
+            lastError = error;
+            continue;
           }
-          lastError = error;
-          continue;
         }
       } catch (err) {
         if (err === notRetried) throw err;
@@ -1710,7 +1905,7 @@ export function createLlm({
     { timeoutMs, apiKey: keyOverride, role }: { timeoutMs?: number; apiKey?: string; role?: string } = {}
   ): Promise<FreeAnswer> {
     const cfg = getConfig().llm;
-    const key = keyOverride || (role ? roleApiKey(getConfig(), env, role, apiKey) : apiKey);
+    const key = keyOverride || (role ? roleApiKey(getConfig(), env, role, apiKey, failover) : apiKey);
     const response = await fetchImpl(apiUrl(cfg.baseUrl, endpoint), {
       method: 'GET',
       headers: openRouterHeaders(key),
@@ -1758,7 +1953,8 @@ export function createLlm({
    * without one: what `activity` asks about, never the key itself.
    */
   const keyHash: Llm['keyHash'] = ({ role } = {}) =>
-    keyHashOf(role ? roleApiKey(getConfig(), env, role, apiKey) : apiKey);
+    keyHashOf(role ? roleApiKey(getConfig(), env, role, apiKey, failover) : apiKey);
 
-  return { complete, modelEndpoints, keyInfo, credits, activity, keyHash, roleKeys, capLeft };
+  const keys = keyReaders(getConfig, env, failover);
+  return { complete, modelEndpoints, keyInfo, credits, activity, keyHash, roleKeys, capLeft, ...keys };
 }

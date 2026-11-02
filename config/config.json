@@ -60,6 +60,7 @@
       "dev": "OPENROUTER_DEV_KEY",
       "memory": "OPENROUTER_MEMORY_KEY"
     },
+    "keys": {},
     "cache": {
       "ttl": "1h",
       "roles": ["core"],

@@ -90,7 +90,11 @@ A role never borrows another role's model. An unset role uses its own default (t
 
 ### Keys
 
-`OPENROUTER_CORE_KEY` is the main key. `llm.keyByRole` maps individual roles to their own key (a different environment variable name). The errand and development roles never go out on the main key.
+`OPENROUTER_CORE_KEY` is the main key. `llm.keyByRole` maps individual roles to their own key (a different environment variable name) or to a list of names, the first being the primary. The errand and development roles never go out on the main key.
+
+A role with two or more keys is on one of them at a time, kept in memory by `src/llm/key-failover.ts`. The core has such a list without any setting when `OPENROUTER_CORE_BACKUP_KEY` is set: `OPENROUTER_CORE_KEY`, then the backup. A request that gets HTTP 402, or 429 whose body names credits or balance, moves the role to the next key and is sent again at once on it, one time. After the last key the role goes back to the first. When every key of the list failed within a minute, the request fails with the code `keys-exhausted` and `src/llm/role-health.ts` marks the role down until 00:00 UTC. Other 429 answers and every other status leave the key alone. A role with one key behaves as it always did. The `llm: key switched` log line carries the role, the two variable names and the status, never a key. A request that goes out in the hedge path (`llm.hedge`) does not fail over.
+
+The usage line `llm: usage` names the variable of the key a request used (left out for the main key), and `data/usage.json` keeps the spend per key name, a line without one counting for `OPENROUTER_CORE_KEY`. `llm.keys.<VARIABLE_NAME>` gives a key a grant in dollars and a reset day of the month. The balance of a key is the grant minus its recorded spend since the last reset, computed by `src/llm/key-grants.ts`. Her wake view shows one line of the core keys' summed balances (see [Prompt contract](prompt-contract.md)). `/status` names the key each listed role runs on, when it last switched, each core key's balance, and the keys that have no grant.
 
 ## Web search and page reading
 

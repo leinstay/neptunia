@@ -39,7 +39,7 @@ import {
 import { DAY_MS, utcDay } from './time.ts';
 import { createCalibrator } from './llm/tokens.ts';
 import { createLlm, roleApiKey } from './llm/openrouter.ts';
-import { createRoleHealth, reportingLlm, roleKeyCheck } from './llm/role-health.ts';
+import { createRoleHealth, reportingCoreKeys, reportingLlm, roleKeyCheck } from './llm/role-health.ts';
 import { createEmbedder } from './llm/embed.ts';
 import { createImageGen } from './llm/images.ts';
 import { createSpeech } from './speech/index.ts';
@@ -444,14 +444,18 @@ async function buildCore(
   // `env` (the .env loaded once above): the keys `llm.keyByRole` names per role, looked up per request.
   // createLlm (src/llm/openrouter.js) declares `complete` as `Function`, which no caller's declared call accepts, so
   // the core hands the client on typed as the call the modules below make.
+  // The core's own failure `keys-exhausted` (every key of its list out of credit) is told to the tracker.
   const llm = (options.llm ??
-    createLlm({
-      apiKey: openrouterKey,
-      env,
-      getConfig: () => hot.config,
-      calibrator,
-      state: store.state,
-    })) as ChatClient;
+    reportingCoreKeys(
+      createLlm({
+        apiKey: openrouterKey,
+        env,
+        getConfig: () => hot.config,
+        calibrator,
+        state: store.state,
+      }),
+      roleHealth
+    )) as ChatClient;
   // Embeddings (role embedding) on the same daily request count as the chat client.
   const embedder = options.embedder ?? createEmbedder({ apiKey: openrouterKey, env, state: store.state });
   // The meaning index kept current: record lines queued above, flushed on the tick below.
