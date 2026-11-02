@@ -228,3 +228,76 @@ test('the core may write the home of the backend that is on: ~/.codex for codex,
     assert.equal(text.includes('/.codex') || text.includes('/.claude'), false, name);
   }
 });
+
+// A backend lives in her private layer (spec 2026-11-02, PR 5, "Where a subharness lives"): the units let the agents
+// and the core write `<private>/subharness/<backend>/` in place of the installing user's ~/.codex or ~/.claude.
+
+/** The folders a unit may write: its `ReadWritePaths=` and `BindPaths=` entries, a leading `-` and a `:target` taken off. */
+const writableEntriesOf = (text: string): Array<string> =>
+  [...valuesOf(text, 'ReadWritePaths'), ...valuesOf(text, 'BindPaths')]
+    .flatMap((one) => one.split(/\s+/))
+    .filter(Boolean)
+    .map((one) => one.replace(/^-/, '').split(':')[0] ?? '');
+
+/** Whether one of `entries` is `dir` or a folder above it. */
+const covers = (entries: ReadonlyArray<string>, dir: string): boolean =>
+  entries.some((entry) => {
+    const relative = path.relative(entry, dir);
+    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+  });
+
+/** The rendered lines of a unit that name the user's own backend homes. */
+const userHomesIn = (text: string): Array<string> =>
+  linesOf(text).filter((line) => line.includes(`${VARS.home}/.codex`) || line.includes(`${VARS.home}/.claude`));
+
+const placeOf = (backend: string, privateDir = VARS.privateDir): string => path.join(privateDir, 'subharness', backend);
+
+for (const scope of ['user', 'system'] as const) {
+  test(`${scope} agent units in read and write may write her backend's folder, nothing above it, and no ~/.codex`, () => {
+    // Catches: the agent units still bind the installing user's ~/.codex, so codex in her folder cannot write its
+    // session; or the whole private folder is bound and an agent edits keys.json, its own mode included.
+    for (const name of AGENTS)
+      for (const backend of ['codex', 'claude', 'opencode'] as const)
+        for (const mode of ['read', 'write'] as const) {
+          const text = renderUnit(template(name), scope, { ...VARS, backend, mode });
+          const label = `${name} ${backend} ${mode}`;
+          assert.ok(covers(writableEntriesOf(text), placeOf(backend)), label);
+          assert.equal(covers(writableEntriesOf(text), path.join(VARS.privateDir, 'keys.json')), false, label);
+          assert.deepEqual(userHomesIn(text), [], label);
+        }
+  });
+}
+
+test('agent units bind her backend folder when the private folder lies under the home they hide', () => {
+  // Catches: the folder is given as ReadWritePaths under ProtectHome=tmpfs, where it does not exist, and the unit fails.
+  const privateDir = `${VARS.home}/.neptunia`;
+  for (const name of AGENTS) {
+    const text = renderUnit(template(name), 'user', { ...VARS, privateDir, backend: 'codex', mode: 'write' });
+    const bound = valuesOf(text, 'BindPaths')
+      .flatMap((one) => one.split(/\s+/))
+      .map((one) => one.replace(/^-/, '').split(':')[0] ?? '');
+    assert.ok(covers(bound, placeOf('codex', privateDir)), name);
+  }
+});
+
+test('agent units of a deployment with no backend bind no backend folder at all', () => {
+  // Catches: a unit names a subharness folder that setup never made, or keeps ~/.codex, and fails to start.
+  for (const name of AGENTS) {
+    const text = renderUnit(template(name), 'user', { ...VARS, backend: null, mode: 'write' });
+    assert.equal(
+      linesOf(text).some((line) => line.includes('/subharness')),
+      false,
+      name
+    );
+    assert.deepEqual(userHomesIn(text), [], name);
+  }
+});
+
+test("the core may write her backend's folder and names neither ~/.codex nor ~/.claude", () => {
+  // Catches: the core unit keeps ~/.claude in ReadWritePaths, a folder that may not exist, so the core fails to start.
+  for (const backend of ['codex', 'claude', 'opencode'] as const) {
+    const text = renderUnit(template('neptunia-core.service'), 'system', { ...VARS, backend });
+    assert.ok(covers(writableEntriesOf(text), placeOf(backend)), backend);
+    assert.deepEqual(userHomesIn(text), [], backend);
+  }
+});

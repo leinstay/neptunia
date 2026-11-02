@@ -12,6 +12,7 @@ import path from 'node:path';
 import { runAgent, sandboxOfMode } from '../src/subharness/run.ts';
 import type { AgentRun, RunDeps } from '../src/subharness/run.ts';
 import { setAgentMode } from '../src/subharness/control.ts';
+import { subharnessPlace } from '../src/subharness/place.ts';
 import type { Backend, BackendResult, BackendRunOptions } from '../src/agent-runner/backend.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
@@ -239,4 +240,34 @@ test('opencode enabled on a key that has since left the store is refused instead
   assert.equal(result.ok, false);
   assert.equal(result.error, 'subharness-off');
   assert.equal(seen.length, 0);
+});
+
+// A backend lives in her private layer (spec 2026-11-02, PR 5, "Where a subharness lives"): with no test factory the
+// run starts the binary of `<private>/subharness/<backend>/` with that folder's home, and is refused while it is absent.
+
+/** The rig with the real backend factory and the host PATH of this process, so a shell script can run. */
+function realRig(backend: 'codex' | 'claude') {
+  const { privateDir, denyDir } = rig({ backend });
+  const deps: RunDeps = { privateDir, denyDir, hostEnv: { PATH: process.env.PATH ?? '/usr/bin:/bin' } };
+  return { deps, privateDir };
+}
+
+test('an agent run is refused not-installed while the stored backend is not in her folder', async () => {
+  // Catches: runAgent creates the backend by name, so the codex on the user's PATH runs on his own login.
+  const { deps } = realRig('codex');
+  const result = await runAgent(request('scout'), deps);
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'not-installed');
+});
+
+test('an agent run starts the binary in her folder with her home in its environment', async () => {
+  // Catches: the seam passes the mode's PATH but drops the place's environment, so claude writes the user's ~/.claude.
+  const { deps, privateDir } = realRig('claude');
+  const place = subharnessPlace(privateDir, 'claude');
+  fs.mkdirSync(path.dirname(place.binary), { recursive: true });
+  fs.writeFileSync(place.binary, '#!/bin/sh\ncat >/dev/null\necho "home=$CLAUDE_CONFIG_DIR"\n', { mode: 0o755 });
+  fs.chmodSync(place.binary, 0o755);
+  const result = await runAgent(request('scout', { cwd: tempDir('nep-run-cwd-') }), deps);
+  assert.equal(result.ok, true);
+  assert.equal(result.text, `home=${place.env.CLAUDE_CONFIG_DIR ?? ''}`);
 });

@@ -96,3 +96,18 @@ test('inside the core an agent with no unit, or no agent, gets no unit line', ()
   assert.equal(deferModeToUnit('dev'), null);
   assert.equal(deferModeToUnit('nobody'), null);
 });
+
+test("the units take the backend from keys.json, so the agent units bind that backend's folder in her private layer", async () => {
+  // Catches: installUnits renders the agent units without the stored backend, and scout keeps no write access to codex.
+  const { target, run, unitDir, privateDir } = rig();
+  writeKeysFile(privateDir, { subharness: { backend: 'codex', key: null, modes: {} } });
+  const done = await installUnits(target, run, ['neptunia-agent-scout.service']);
+  assert.equal(done.ok, true);
+  const text = fs.readFileSync(path.join(unitDir, 'neptunia-agent-scout.service'), 'utf8');
+  const writable = text
+    .split('\n')
+    .filter((line) => line.startsWith('ReadWritePaths=') || line.startsWith('BindPaths='))
+    .flatMap((line) => line.slice(line.indexOf('=') + 1).split(/\s+/))
+    .map((one) => one.replace(/^-/, ''));
+  assert.ok(writable.includes(path.join(privateDir, 'subharness', 'codex')), writable.join(' '));
+});

@@ -289,3 +289,14 @@ test('the status text names the backend, the key name and every agent with its m
   const text = statusText(await subharnessView(dir));
   for (const word of ['opencode', ...SUBHARNESS_AGENTS, 'sudo']) assert.ok(text.includes(word), word);
 });
+
+test('a backend that is not installed in her folder is refused as not-installed naming it, and nothing is stored', async () => {
+  // Catches: the enable check reads the missing install as a binary missing from PATH, and the owner installs it there.
+  const { deps, dir } = rig({ result: { ok: false, text: '', exitCode: null, error: 'not-installed' } });
+  const result = await enableSubharness(deps, 'claude');
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'not-installed');
+  assert.ok(result.message.includes('claude'), result.message);
+  assert.equal(result.changed, false);
+  assert.equal(readKeysFile(dir).subharness.backend, null);
+});
