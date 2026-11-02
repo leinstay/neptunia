@@ -167,9 +167,9 @@ function hotOf(mode: 'live' | 'shadow', heartbeat: boolean) {
         mode,
         tickSeconds: 60,
         review: { historyDays: 14 },
-        heartbeat: heartbeat ? { enabled: true, everyMinutes: 60, jitterMinutes: 0 } : { enabled: false },
         caps: { perChain: 3 },
       },
+      heartbeat: heartbeat ? { enabled: true, everyMinutes: 60, jitterMinutes: 0 } : { enabled: false },
     },
   });
   Object.assign(hot.config.context, { turnLeaseMs: LEASE_MS });
