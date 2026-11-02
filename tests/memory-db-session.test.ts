@@ -50,6 +50,7 @@ import {
   personOf,
   prompts,
   request,
+  textOf,
 } from './fixtures/memory-db/session-rig.ts';
 import fs from 'node:fs';
 
@@ -134,14 +135,15 @@ test('the request: the her-turn system text then the session prompt; blocks in t
     assert.equal(system.role, 'system');
     assert.equal(system.content, 'SYSTEM Nep\n\nCARD Nep\n\nRULES\n\nFORMAT\n\nSESSION Nep');
     assert.equal(user.role, 'user');
+    const userText = textOf(user.content);
     const order = ['<self>', '<place>', '<people>', '<episodes>', '<intentions>', '<batch>'].map((tag) =>
-      user.content.indexOf(tag)
+      userText.indexOf(tag)
     );
     assert.ok(
       order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])),
       `blocks in order: ${String(order)}`
     );
-    const batch = user.content.slice(user.content.indexOf('<batch>')).split('\n');
+    const batch = userText.slice(userText.indexOf('<batch>')).split('\n');
     assert.equal(batch[1], 'cutoff: 2026-10-24 11:00', 'the cutoff is stated at the top');
     assert.equal(
       batch[2],
@@ -164,14 +166,14 @@ test('the request: the her-turn system text then the session prompt; blocks in t
     assert.ok(claimIds.some(([label, id]) => label.startsWith('c') && id === 'cl-place'));
     assert.ok(!claimIds.some(([, id]) => id === 'cl-gone'), 'a claim that is not shown has no id in the request');
     assert.deepEqual([...built.maps.episodes.entries()], [['e1', 'ep-1']]);
-    const people = user.content.slice(user.content.indexOf('<people>'), user.content.indexOf('</people>'));
+    const people = userText.slice(userText.indexOf('<people>'), userText.indexOf('</people>'));
     assert.match(people, /## Ada/);
     assert.match(people, /id: <@u-ada>/);
     assert.match(people, /affinity: 5/);
     assert.match(people, /\[c\d+\] interest: likes café mornings/);
-    assert.match(user.content, /\[e1\] 2026-10-10 Ada: Ada helped with the move \(warm\)/);
-    assert.match(user.content, /open|pending: ask Ada about the move|pending: ask Ada/);
-    assert.match(user.content, /<place>\nscope: group\n\[p1\] channel: general - chat\n\[p2\] guild: Server/);
+    assert.match(userText, /\[e1\] 2026-10-10 Ada: Ada helped with the move \(warm\)/);
+    assert.match(userText, /open|pending: ask Ada about the move|pending: ask Ada/);
+    assert.match(userText, /<place>\nscope: group\n\[p1\] channel: general - chat\n\[p2\] guild: Server/);
     assert.deepEqual(
       [...built.maps.places.entries()],
       [
@@ -597,7 +599,7 @@ test('private conversations are scopes of their own: one request each, the partn
     const result = await sweep(ctxOf(env, { llm }));
     assert.equal(result.runs.length, 2);
     assert.equal(llm.calls.length, 2);
-    const [dmCall, groupCall] = llm.calls.map((call) => call.messages[1].content as string);
+    const [dmCall, groupCall] = llm.calls.map((call) => textOf(call.messages[1].content));
     assert.match(dmCall, /private word/);
     assert.doesNotMatch(dmCall, /Thessaloniki/, 'the group lines are not in the private request');
     assert.match(dmCall, /only in private/);
@@ -842,11 +844,11 @@ test('the people block renders a stored profile the way her turns do, from the d
       now: NOW,
     });
     assert.ok(
-      withoutFile.messages[1].content.length < built.messages[1].content.length,
+      textOf(withoutFile.messages[1].content).length < textOf(built.messages[1].content).length,
       'the profile of a file that is gone is left out'
     );
     dbOf(handle).prepare('UPDATE files SET gone_at = NULL WHERE path LIKE ?').run(`guilds/%/users/${MEMBER}.json`);
-    const people = built.messages[1].content;
+    const people = textOf(built.messages[1].content);
     const stored = JSON.parse(
       fs.readFileSync(path.join(data, 'guilds', '300000000000000001', 'users', `${MEMBER}.json`), 'utf8')
     );
@@ -1480,12 +1482,13 @@ test('batches are read in event time and each line names its place; the cursor s
       selfName: 'Nep',
       now: NOW,
     });
-    const lines = built.messages[1].content.slice(built.messages[1].content.indexOf('<batch>')).split('\n');
+    const builtText = textOf(built.messages[1].content);
+    const lines = builtText.slice(builtText.indexOf('<batch>')).split('\n');
     assert.match(lines[2], /^#1 \[2026-10-24 10:30\] \[p1\] Ada: earlier line/);
     assert.match(lines[3], /^#2 \[2026-10-24 10:50\] \[p2\] Ada: middle line/);
     assert.match(lines[4], /^#3 \[2026-10-24 11:10\] \[p2\] Ada: later line/);
     assert.match(
-      built.messages[1].content,
+      textOf(built.messages[1].content),
       /\[p1\] channel: second\n\[p2\] channel: general - chat\n\[p3\] guild: Server/
     );
     const result = await sweep(ctxOf(env, { llm: fakeLlm(memoryBlock({})) }));
@@ -1538,13 +1541,13 @@ test('every person of a batch is a subject: the people are paged over requests o
       ]
     );
     assert.equal(llm.calls.length, 2);
-    const [one, two] = llm.calls.map((call) => call.messages[1].content);
-    assert.match(one as string, /id: <@u-ada>/);
-    assert.doesNotMatch(one as string, /id: <@u-bob>/);
-    assert.match(two as string, /id: <@u-bob>/);
-    assert.doesNotMatch(two as string, /id: <@u-ada>/);
+    const [one, two] = llm.calls.map((call) => textOf(call.messages[1].content));
+    assert.match(one, /id: <@u-ada>/);
+    assert.doesNotMatch(one, /id: <@u-bob>/);
+    assert.match(two, /id: <@u-bob>/);
+    assert.doesNotMatch(two, /id: <@u-ada>/);
     const batchOf2 = (text: string) => text.slice(text.indexOf('<batch>'));
-    assert.equal(batchOf2(one as string), batchOf2(two as string), 'the same lines in each request');
+    assert.equal(batchOf2(one), batchOf2(two), 'the same lines in each request');
     assert.deepEqual(
       env.db
         .prepare('SELECT action FROM decisions ORDER BY id')
@@ -1918,7 +1921,7 @@ test('a batch line names an author who is not a person yet by the handle people:
     });
     const handle = [...request.maps.authors].find(([, entry]) => entry.id === 'discord:555')?.[0];
     assert.ok(handle, 'the stranger has a handle');
-    const user = request.messages[1].content;
+    const user = textOf(request.messages[1].content);
     assert.match(user, new RegExp(`\\[${handle}\\] Stranger: hello there`));
     assert.ok(
       ![...request.maps.authors].some(([h, entry]) => entry.hasPerson && user.includes(`[${h}]`)),

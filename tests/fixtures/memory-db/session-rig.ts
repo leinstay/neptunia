@@ -37,9 +37,17 @@ export const baseConfig = (session: Rec = {}, extra: Rec = {}): Rec => ({
   bot: { timezone: 'UTC' },
   models: { base: { memory: 'x/memory' } },
   llm: { keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } },
-  memoryDb: { session: { mode: 'shadow', minMessages: 1, ...session } },
+  memoryDb: { session: { mode: 'shadow', minMessages: 1, minLines: 0, ...session } },
   ...extra,
 });
+
+/** The text of a message's content: a string as it is, a list of text parts joined in order (the session's user message is parts). */
+export const textOf = (content: unknown): string =>
+  typeof content === 'string'
+    ? content
+    : Array.isArray(content)
+      ? content.map((part: { text?: unknown }) => (typeof part?.text === 'string' ? part.text : '')).join('')
+      : '';
 
 /** A fake llm: answers from a script (a string, an Error, or a function of the messages and options), records the calls. */
 export function fakeLlm(given: LlmScript): FakeLlm {
