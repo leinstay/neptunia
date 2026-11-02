@@ -24,7 +24,15 @@
 
 import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../../llm/openrouter.ts';
 import { MEMORY_PURPOSES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.ts';
-import { batchOf, cursorKey, DESCRIPTION_FIELDS, scopeSweepsToday, scopesOf, sessionSettings } from './session.ts';
+import {
+  batchOf,
+  cursorKey,
+  DESCRIPTION_FIELDS,
+  joinOf,
+  scopeSweepsToday,
+  scopesOf,
+  sessionSettings,
+} from './session.ts';
 import { descriptionIdFor, scopeOfContext } from './describe.ts';
 import { dmContext, groupContext } from './scope.ts';
 import type { Context } from './scope.ts';
@@ -61,6 +69,7 @@ export function dueScopes(db: Db, config: Config, now: number): Array<{ key: str
       audienceId: scope.audienceId ?? null,
     });
     if (batch.length < Math.min(settings.minMessages, settings.maxMessages)) continue;
+    if (joinOf(batch, settings, now).reason === 'wait') continue;
     if (scopeSweepsToday(db, scope.key, now, settings.mode) >= settings.sweepsPerScopePerDay) continue;
     const full = batch.length >= settings.maxMessages;
     const last = db

@@ -107,6 +107,9 @@ const DEFAULTS = Object.freeze({
   everyMinutes: 60,
   reviewsPerDay: 6,
   settleMinutes: 10,
+  minLines: 10,
+  batchLines: 30,
+  maxWaitHours: 24,
   since: null,
   maxPeople: 12,
   claimsPerPerson: 30,
@@ -131,6 +134,9 @@ export type SessionSettings = {
   everyMinutes: number;
   reviewsPerDay: number;
   settleMinutes: number;
+  minLines: number;
+  batchLines: number;
+  maxWaitHours: number;
   since: string | null;
   maxPeople: number;
   claimsPerPerson: number;
@@ -163,6 +169,12 @@ export function sessionSettings(configGiven: unknown): SessionSettings {
         : DEFAULTS.reviewsPerDay,
     // Production value, config cut of 2026-10-31.
     settleMinutes: DEFAULTS.settleMinutes,
+    minLines: isWholeNumber(given.minLines) && given.minLines >= 0 ? given.minLines : DEFAULTS.minLines,
+    batchLines: posInt(given.batchLines, DEFAULTS.batchLines),
+    maxWaitHours:
+      typeof given.maxWaitHours === 'number' && Number.isFinite(given.maxWaitHours) && given.maxWaitHours > 0
+        ? given.maxWaitHours
+        : DEFAULTS.maxWaitHours,
     since: typeof given.since === 'string' && given.since ? given.since : null,
     maxPeople: posInt(given.maxPeople, DEFAULTS.maxPeople),
     claimsPerPerson: posInt(given.claimsPerPerson, DEFAULTS.claimsPerPerson),
@@ -358,6 +370,42 @@ export function batchOf(
     out.push({ ...row, at: Number.isFinite(at) ? at : 0, rowid: row.rowid as number });
   }
   return out.sort((a, b) => a.at - b.at || a.rowid - b.rowid);
+}
+
+/** Whether a batch is written now, and the settled sessions it holds (see `joinOf`). */
+export type JoinVerdict = {
+  write: boolean;
+  sessions: number;
+  reason: 'off' | 'large' | 'batch' | 'deadline' | 'wait';
+};
+
+/**
+ * Whether the settled lines of a scope are written now. A session is a run of lines in event time (`at`); a gap of
+ * `settleMinutes` or more starts the next one. First match wins: `minLines` 0 writes (`off`); a session of more than
+ * `minLines` lines writes (`large`); `batchLines` joined lines write (`batch`); an oldest line `maxWaitHours` old
+ * writes (`deadline`); otherwise the scope waits and its lines join the next batch (`wait`). Pure. `batch` is what
+ * `batchOf` returns.
+ */
+export function joinOf(batch: ReadonlyArray<BatchLine>, settings: SessionSettings, now: number): JoinVerdict {
+  const gap = settings.settleMinutes * MINUTE;
+  const sorted = [...batch].sort((a, b) => a.at - b.at);
+  let sessions = 0;
+  let size = 0;
+  let largest = 0;
+  sorted.forEach((line, index) => {
+    if (index === 0 || line.at - sorted[index - 1].at >= gap) {
+      sessions += 1;
+      size = 0;
+    }
+    size += 1;
+    largest = Math.max(largest, size);
+  });
+  const verdict = (write: boolean, reason: JoinVerdict['reason']): JoinVerdict => ({ write, sessions, reason });
+  if (settings.minLines === 0) return verdict(true, 'off');
+  if (largest > settings.minLines) return verdict(true, 'large');
+  if (sorted.length >= settings.batchLines) return verdict(true, 'batch');
+  if (sorted.length > 0 && now - sorted[0].at >= settings.maxWaitHours * 60 * MINUTE) return verdict(true, 'deadline');
+  return verdict(false, 'wait');
 }
 
 // ---------- the request ----------
@@ -556,7 +604,10 @@ export type RequestMaps = {
 
 /** A request of one batch page: the messages, the maps of its local ids, its counts and the reads it renders. */
 export type SessionRequest = {
-  messages: Array<{ role: 'system' | 'user'; content: string }>;
+  messages: [
+    { role: 'system'; content: string },
+    { role: 'user'; content: Array<{ type: 'text'; text: string; cacheSegment?: 'stable' }> },
+  ];
   maps: RequestMaps;
   lines: number;
   people: Array<BatchPerson>;
@@ -819,16 +870,22 @@ export function buildSessionRequest({
   }
 
   const system = systemTextOf(prompts, selfName, prompts?.['memory-session']);
-  const user = [
+  // The stable blocks first (the cache marker covers them and the system text), the lines last: the stable part holds
+  // no clock and no line of the batch, so it repeats byte for byte while the stored memory does.
+  const stable = [
     block('self', selfLines.join('\n')),
     block('place', placeLines.join('\n')),
     block('people', peopleBodies.join('\n\n')),
     block('episodes', episodeLines.join('\n')),
     block('intentions', intentionLines.join('\n')),
-    block('batch', batchBody),
   ]
     .filter(Boolean)
     .join('\n\n');
+  const user = [
+    // `<place>` always has its scope line, so the stable part is never empty.
+    { type: 'text' as const, text: `${stable}\n\n`, cacheSegment: 'stable' as const },
+    { type: 'text' as const, text: block('batch', batchBody) },
+  ];
   // A read's order is its place in the request: the blocks in the order the user content has them, then as built.
   const rank = (name: string) => SESSION_BLOCKS.indexOf(name);
   const ordered = reads
@@ -1179,7 +1236,14 @@ const codeOf = (error: unknown): string => {
 export type SweepRun = Row & { scope: string; outcome: string; lines: number; errors?: Array<string> };
 
 /** What a model call answers: the text and the tokens it took. */
-export type Completion = { text?: unknown; usage?: { prompt_tokens?: unknown; completion_tokens?: unknown } };
+export type Completion = {
+  text?: unknown;
+  usage?: {
+    prompt_tokens?: unknown;
+    completion_tokens?: unknown;
+    prompt_tokens_details?: { cached_tokens?: unknown };
+  };
+};
 
 /**
  * What the sweep and the reviews take from their caller: the connection, the writer, the model client, the live
@@ -1343,6 +1407,11 @@ export async function sweep(
     });
     if (batch.length < Math.min(settings.minMessages, maxMessages)) {
       runs.push({ scope: scope.key, outcome: 'quiet', lines: batch.length });
+      continue;
+    }
+    // Small sessions wait and join the next batch of their scope: no request, no run row, the cursor stays.
+    if (!joinOf(batch, settings, now()).write) {
+      runs.push({ scope: scope.key, outcome: 'waiting', lines: batch.length });
       continue;
     }
     if (
@@ -1796,7 +1865,7 @@ async function runScope(
       maxOutputTokens: settings.maxOutputTokens,
       timeoutMs: settings.timeoutMs,
       skipCalibration: true,
-      cache: false,
+      cache: true,
       origin: SESSION_PURPOSE,
     });
   } catch (error) {
@@ -1815,6 +1884,8 @@ async function runScope(
   const { plan, counts } = validateAnswer(parsed.value, { maps: request.maps, people: request.people });
   const counted = {
     lines: request.lines,
+    sessions: joinOf(batch, settings, startedAt).sessions,
+    cacheRead: Number(completion?.usage?.prompt_tokens_details?.cached_tokens) || 0,
     page,
     pages,
     kept: counts.kept,
