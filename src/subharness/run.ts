@@ -105,7 +105,7 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
     });
     return off();
   }
-  const { key, models } = store.subharness;
+  const { key, models, efforts } = store.subharness;
   const name = backendOfAgent(store.subharness, run.agent);
   if (name === null) return off();
   if (name === 'opencode' && (key === null || !hasExtraKey(store, key))) return off();
@@ -119,6 +119,7 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
     sandbox: sandboxOfMode(mode),
     env,
     ...(Object.hasOwn(models, run.agent) ? { model: models[run.agent] } : {}),
+    ...(Object.hasOwn(efforts, run.agent) ? { effort: efforts[run.agent] } : {}),
     ...(run.search === undefined ? {} : { search: run.search }),
     ...(run.images === undefined ? {} : { images: run.images }),
     ...(run.signal === undefined ? {} : { signal: run.signal }),

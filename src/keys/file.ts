@@ -7,6 +7,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
+import { isEffortLevel } from '../llm/roles.ts';
+import type { EffortLevel } from '../llm/roles.ts';
 
 /** A key of the core list; only the name is read here. */
 export type CoreKeyRow = { name: string; value: string; grant?: number; resetDay?: number };
@@ -24,6 +26,8 @@ export type KeyStore = {
     modes: Record<string, string>;
     /** the model each agent runs on, by agent; an agent with none runs on the backend's own default */
     models: Record<string, string>;
+    /** the reasoning effort each agent runs at, by agent; an agent with none runs at its model's default */
+    efforts: Record<string, EffortLevel>;
     /** the backend each agent runs through, by agent; an agent with none runs through backends[0] */
     uses: Record<string, BackendName>;
   };
@@ -67,13 +71,20 @@ function usesOf(value: unknown): Record<string, BackendName> {
   return uses;
 }
 
+/** The effort of each agent, entries whose value is no effort level dropped. */
+function effortsOf(value: unknown): Record<string, EffortLevel> {
+  const efforts: Record<string, EffortLevel> = {};
+  for (const [agent, one] of Object.entries(isRecord(value) ? value : {})) if (isEffortLevel(one)) efforts[agent] = one;
+  return efforts;
+}
+
 /** The store a fresh install has. */
 export function emptyKeys(): KeyStore {
   return {
     core: [],
     extra: {},
     roles: {},
-    subharness: { backends: [], key: null, modes: {}, models: {}, uses: {} },
+    subharness: { backends: [], key: null, modes: {}, models: {}, efforts: {}, uses: {} },
     simulation: { key: null },
   };
 }
@@ -107,6 +118,7 @@ export function readKeys(privateDir: string): KeyStore {
       key: typeof sub.key === 'string' ? sub.key : null,
       modes: textMap(sub.modes),
       models: textMap(sub.models),
+      efforts: effortsOf(sub.efforts),
       uses: usesOf(sub.uses),
     },
     simulation: { key: typeof sim.key === 'string' ? sim.key : null },
