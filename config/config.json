@@ -316,6 +316,9 @@
   "skills": {
     "reviewDays": 30
   },
+  "watcher": {
+    "dir": ".agents/watcher"
+  },
   "diary": {
     "channelId": "",
     "world": false,

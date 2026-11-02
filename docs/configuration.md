@@ -486,6 +486,14 @@ Settings for her `SKILL.md` skills. See [Skills](skills.md).
 |---|---|---|---|---|
 | `skills.reviewDays` | number | `30` | Days an active skill may go unread before `/skills` marks it for review; nothing is deleted | `src/skills/settings.ts` |
 
+## `watcher`
+
+Settings for the daily watcher. See [The watcher](watcher.md).
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `watcher.dir` | string | `".agents/watcher"` | Folder of the daily watcher, `prompt.md` and `reports/`; relative to the checkout or absolute | `src/watcher/read.ts` |
+
 ## `diary`
 
 Settings for the diary. See [Diary](diary.md).
