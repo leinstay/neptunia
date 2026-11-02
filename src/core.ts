@@ -12,6 +12,7 @@
 
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { localConfigPath, readInterfaceConfig } from './config/files.ts';
@@ -124,6 +125,9 @@ import { createTagHistory, deprecatedModelKeys } from './behavior/mention.ts';
 import { createMessageHandler } from './behavior/pipeline.ts';
 import { createLeasedAttention } from './behavior/attention.ts';
 import { RELATIONSHIP_LIMITS } from './memory/text-limits.ts';
+import { createBackend } from './agent-runner/backend.ts';
+import { applyModeToUnit, installedTarget, spawnRun } from './setup/install.ts';
+import { REPLY_CHECK_MS } from './subharness/control.ts';
 import { objOf } from './tools/types.ts';
 import type { Untyped } from './tools/types.ts';
 import type {
@@ -1341,6 +1345,24 @@ async function buildCore(
       plugins: pluginControl,
       // `/keys` and the checked `/model set` (src/keys/commands.ts), over the key store.
       keys: { enabled: () => ringNow() !== null, run: (name, args, dialog) => keysCommands.run(name, args, dialog) },
+      // `/subharness enable` checks with one run of the backend or one GET of the key (src/subharness/control.ts); a
+      // mode change goes into the agent's unit (src/setup/install.ts).
+      subharness: {
+        asksModels: true,
+        runBackend: (backend, brief, model) =>
+          createBackend(backend).run(brief, {
+            cwd: os.tmpdir(),
+            timeoutMs: REPLY_CHECK_MS,
+            sandbox: 'read-only',
+            ...(model === undefined ? {} : { model }),
+          }),
+        fetch,
+        get baseUrl() {
+          const base = objOf(objOf(hot.config).llm).baseUrl;
+          return typeof base === 'string' ? base : undefined;
+        },
+        applyMode: (agent) => applyModeToUnit(installedTarget(paths), spawnRun, agent),
+      },
     }),
     interfaces: interfaceLinks,
     guildId: getGuildId,

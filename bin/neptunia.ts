@@ -9,7 +9,8 @@
 //   neptunia errand-runner --profile <name>      the errand runner of one agent (deploy/neptunia-agent-<name>.service)
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
 //   neptunia plugin run <name>                   one plugin (deploy/neptunia-plugin@.service)
-//   neptunia service install|start|stop|restart|status [<unit> ...]   the units, through systemctl
+//   neptunia service start|stop|restart|status [<unit> ...]   the units, through systemctl
+//   neptunia setup [--system] [<step>]           the install of one user: folders, keys file, units, linger, the core
 //   neptunia task <command> [options]            the task board's command line (bin/neptunia-task.ts)
 //   neptunia watcher run                         one run of the daily watcher (deploy/neptunia-watcher.service)
 //
@@ -43,8 +44,8 @@
 // looked at. It exits 0 for a beat that ran and 1 when the board is not reachable.
 //
 // `doctor` writes nothing and asks the core nothing without `--live`: it checks Node, the binaries the engine runs, config.json and
-// config.local.json, the local layer, the `.env` keys of the enabled roles, the client tokens, the memory database
-// (read only, with no lock) and the socket. `--live` adds `providers`, the core's probes of the model roles, which is
+// config.local.json, the local layer, the `.env` keys of the enabled roles, the client tokens, the features (the
+// subharness and the simulation, a warning while either is off), the memory database (read only, with no lock) and the socket. `--live` adds `providers`, the core's probes of the model roles, which is
 // `skipped` when no core answers, since the command line holds no key. `--json` prints
 // `{ checks: [{ name, status, detail }] }`. A check is `ok`, `warn`, `fail` or `skipped`, and any `fail` exits 1. No
 // key or token value is ever printed.
@@ -76,16 +77,22 @@ import { randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { createRunnerServer } from '../src/agent-runner/server.ts';
 import { DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.ts';
-import { backendOf, createAgentEngine, createBackend } from '../src/agent-runner/backend.ts';
+import { createAgentEngine } from '../src/agent-runner/backend.ts';
 import { agentSettings, profileOf } from '../src/agent-runner/profiles.ts';
 import type { RunnerTask } from '../src/agent-runner/protocol.ts';
 import { startSweeper } from '../src/agent-runner/sweep.ts';
+import { spawnRun } from '../src/setup/install.ts';
+import { SetupUsageError, parseSetupArgs, runSetup } from '../src/setup/run.ts';
+import type { SetupReport } from '../src/setup/run.ts';
+import { featureRows } from '../src/subharness/summary.ts';
+import { defaultDenyDir, runAgent } from '../src/subharness/run.ts';
 import { ROOT_DIR, deepMerge, parseEnv, readConfig, resolveEnvRefs } from '../src/config.ts';
 import { moveConfigKeys } from '../src/config-moves.ts';
 import { checkConfig as checkSettings } from '../src/config/check.ts';
@@ -146,7 +153,8 @@ const USAGE = [
   '       neptunia errand-runner --profile <name>',
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
   '       neptunia plugin run <name>',
-  '       neptunia service install|start|stop|restart|status [<unit> ...]',
+  '       neptunia service start|stop|restart|status [<unit> ...]',
+  '       neptunia setup [--system] [folders|keys-file|units|linger|core]',
   '       neptunia task <command> [options]   (neptunia task help)',
   '       neptunia selfdev run',
   '       neptunia watcher run',
@@ -630,7 +638,11 @@ function printBlock(text: string): void {
   process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
 }
 
-async function runChat(): Promise<void> {
+/**
+ * The chat. With `firstLine` (`neptunia setup` hands it `/keys core add`) that line is typed first, and the chat
+ * returns to its caller when the input ends instead of ending the process.
+ */
+async function runChat(firstLine?: string): Promise<void> {
   const where = paths();
   const terminal = process.stdin.isTTY === true && process.stdout.isTTY === true;
   let link: CliLink;
@@ -698,10 +710,14 @@ async function runChat(): Promise<void> {
     }
     if (terminal) input.prompt();
   });
+  if (firstLine !== undefined) {
+    if (terminal) process.stdout.write(`${firstLine}\n`);
+    input.emit('line', firstLine);
+  }
   await new Promise<void>((resolve) => input.once('close', () => resolve()));
   await Promise.race([Promise.all([...running]), link.closed]);
   link.close();
-  process.exit(0);
+  if (firstLine === undefined) process.exit(0);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -929,6 +945,26 @@ async function checkProviders(ask: ((command: Command) => Promise<Answer>) | nul
   return { name: 'providers', status: answer.status === 'failed' ? 'warn' : 'fail', detail: answer.text };
 }
 
+/**
+ * The two features the owner switches on from the chat, the subharness and the simulation (src/subharness/summary.ts):
+ * `warn` naming each one that is off with the command that turns it on, never `fail`.
+ */
+async function checkFeatures(where: { privateDir: string }): Promise<Check> {
+  let rows: Awaited<ReturnType<typeof featureRows>>;
+  try {
+    rows = await featureRows(where.privateDir);
+  } catch (err) {
+    return { name: 'features', status: 'warn', detail: `keys.json cannot be read: ${(err as Error).message}` };
+  }
+  const off = rows.filter((row) => !row.available);
+  if (off.length === 0) return { name: 'features', status: 'ok', detail: 'the subharness and the simulation are on' };
+  return {
+    name: 'features',
+    status: 'warn',
+    detail: off.map((row) => `${row.name} is off${row.hint === null ? '' : `: ${row.hint}`}`).join('\n'),
+  };
+}
+
 /** Every check of the installation; with `live`, the providers probed through the core too. */
 async function doctorChecks(
   where: { rootDir: string; privateDir: string; dataDir: string },
@@ -942,6 +978,7 @@ async function doctorChecks(
     checkEnvKeys(where),
     checkRoles(where),
     checkTokens(where),
+    await checkFeatures(where),
     checkDatabase(where),
     await checkSocket(where),
   ];
@@ -1011,14 +1048,14 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
     }
     return config;
   };
-  const backend = backendOf(name, config);
   const engine = createAgentEngine({
-    backend,
     profile,
     outDir,
     env: process.env,
     opencodePath,
     getConfig: currentConfig,
+    // Every task runs through the subharness: the owner's backend and the mode of this agent, read at each task.
+    subharness: { privateDir: where.privateDir, denyDir: defaultDenyDir(), opencodePath },
   });
   try {
     engine.checkPrompt();
@@ -1045,7 +1082,7 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
     liveIds(): Array<string>;
   };
   await server.start();
-  log.info('agent-runner: ready', { profile: name, socket: socketPath, out: outDir, backend, opencode: opencodePath });
+  log.info('agent-runner: ready', { profile: name, socket: socketPath, out: outDir, opencode: opencodePath });
   const sweeper = startSweeper({
     profile: name,
     outDir,
@@ -1067,15 +1104,55 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// setup
+// ---------------------------------------------------------------------------------------------------------------
+
+/** The report of `setup`: each step with its state, then the commands that come next. */
+function printSetup(report: SetupReport): void {
+  for (const one of report.steps) console.log(`${one.state.padEnd(8)}  ${one.step.padEnd(10)}  ${one.detail}`);
+  if (report.ok) console.log(`next, in the chat: ${report.next.join(', ')}`);
+  else console.error('neptunia: setup stopped at the step that failed; run it again to resume');
+}
+
+/** The group of this process's user by name (`Group=` also takes the number). */
+function groupName(): string {
+  const named = spawnSync('id', ['-gn'], { encoding: 'utf8' });
+  const name = named.status === 0 ? named.stdout.trim() : '';
+  return name === '' ? String(process.getgid?.() ?? '') : name;
+}
+
+async function runSetupCommand(argv: ReadonlyArray<string>): Promise<void> {
+  let parsed: ReturnType<typeof parseSetupArgs>;
+  try {
+    parsed = parseSetupArgs(argv);
+  } catch (err) {
+    if (err instanceof SetupUsageError) usage();
+    throw err;
+  }
+  const where = paths();
+  const report = await runSetup(
+    {
+      ...parsed,
+      user: os.userInfo().username,
+      group: groupName(),
+      home: os.homedir(),
+      rootDir: where.rootDir,
+      privateDir: where.privateDir,
+      dataDir: where.dataDir,
+      node: process.execPath,
+      ...(process.env.XDG_CONFIG_HOME ? { xdgConfigHome: process.env.XDG_CONFIG_HOME } : {}),
+    },
+    { run: spawnRun, openChat: (firstLine) => runChat(firstLine), report: printSetup }
+  );
+  process.exit(report.ok ? 0 : 1);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // service
 // ---------------------------------------------------------------------------------------------------------------
 
 function runService(argv: ReadonlyArray<string>): void {
   const [verb, ...units] = argv;
-  if (verb === 'install') {
-    const run = spawnSync(path.join(ROOT_DIR, 'deploy', 'install.sh'), units, { stdio: 'inherit' });
-    process.exit(run.status ?? 1);
-  }
   if (verb === undefined || !SERVICE_VERBS.includes(verb)) usage();
   const run = spawnSync('systemctl', [verb, ...(units.length > 0 ? units : DEFAULT_UNITS)], { stdio: 'inherit' });
   process.exit(run.status ?? 1);
@@ -1423,16 +1500,16 @@ async function runPlugin(argv: ReadonlyArray<string>): Promise<void> {
 /** How long one watcher run may take before its process group is killed (ms). */
 const WATCHER_TIMEOUT_MS = 60 * 60 * 1000;
 
-/** The watcher's agent: the backend of `agents.watcher` (default `errands.backend`) working in the checkout. */
+/** The watcher's agent: the subharness's backend, in the mode of `watcher`, working in the checkout. */
 function watcherAgent(where: { rootDir: string; privateDir: string }): RunAgent {
   return async (_profile, brief) => {
     const config = readConfig(where.rootDir, { privateDir: where.privateDir });
-    const backend = createBackend(backendOf('watcher', config));
-    const done = await backend.run(brief, {
-      cwd: where.rootDir,
-      timeoutMs: WATCHER_TIMEOUT_MS,
-      sandbox: 'workspace-write',
-    });
+    const errands = isObject(config.errands) ? config.errands : {};
+    const opencodePath = typeof errands.opencodePath === 'string' ? errands.opencodePath : DEFAULT_OPENCODE_PATH;
+    const done = await runAgent(
+      { agent: 'watcher', brief, cwd: where.rootDir, timeoutMs: WATCHER_TIMEOUT_MS },
+      { privateDir: where.privateDir, denyDir: defaultDenyDir(), opencodePath }
+    );
     return { ok: done.ok, text: done.text, exitCode: done.exitCode ?? -1 };
   };
 }
@@ -1486,6 +1563,9 @@ switch (group) {
     break;
   case 'service':
     runService(rest);
+    break;
+  case 'setup':
+    await runSetupCommand(rest).catch(fault);
     break;
   case 'interface':
     await runInterface(rest).catch(fault);
