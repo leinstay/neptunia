@@ -12,6 +12,7 @@ import { log } from '../log.ts';
 import { objOf } from '../tools/types.ts';
 import { apiUrl, openRouterHeaders, providerBodyOf, resolveProvider, roleApiKey } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
+import type { KeyOf } from '../keys/ring.ts';
 
 /** The role a synthesis routes and is keyed as: `"<prefix>@speech"` keys of `llm.providerByModel` apply to it. */
 export const SPEECH_ROLE = 'speech';
@@ -58,6 +59,7 @@ export async function synthesizeSpeech({
   getConfig,
   env = {},
   mainKey,
+  keyOf = () => null,
   fetchImpl = fetch,
   now = () => Date.now(),
   model: given = null,
@@ -66,6 +68,8 @@ export async function synthesizeSpeech({
   getConfig: () => unknown;
   env?: Record<string, string | undefined>;
   mainKey: string;
+  /** The key of the key store; null while there is no `keys.json`, then `.env` serves. */
+  keyOf?: KeyOf;
   fetchImpl?: typeof fetch;
   now?: () => number;
   model?: string | null;
@@ -110,7 +114,7 @@ export async function synthesizeSpeech({
   try {
     response = await fetchImpl(apiUrl(llm.baseUrl, 'audio/speech'), {
       method: 'POST',
-      headers: openRouterHeaders(roleApiKey(config, env, SPEECH_ROLE, mainKey)),
+      headers: openRouterHeaders(keyOf(SPEECH_ROLE) ?? roleApiKey(config, env, SPEECH_ROLE, mainKey)),
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });

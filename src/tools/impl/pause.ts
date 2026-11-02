@@ -98,6 +98,8 @@ const handlers = perEnv((env) => {
     delete state.paused;
     delete state.pausedAt;
     delete state.pausedBy;
+    // The reason the core paused her itself (the last core key removed); an owner's pause has none.
+    delete objOf(state).pausedReason;
     env.store.state.markDirty();
     env.store.flush();
 

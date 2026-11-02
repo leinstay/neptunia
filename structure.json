@@ -419,6 +419,7 @@
         "src/board/**",
         "src/errands/**",
         "src/intentions/**",
+        "src/keys/**",
         "src/llm/**",
         "src/media/**",
         "src/memory/**",
@@ -1305,11 +1306,33 @@
       "test": "required"
     },
     {
+      "path": "src/keys/",
+      "purpose": "The model keys of a deployment: the key store (`keys.json`), the core key list with its failover, the probes that check a key and a model, the owner's key commands and the one-time import of the old `.env` variables.",
+      "layer": "public",
+      "imports": [
+        "node:*",
+        "src/keys/**",
+        "src/llm/key-failover.ts",
+        "src/llm/openrouter.ts",
+        "src/llm/roles.ts",
+        "src/log.ts",
+        "src/time.ts"
+      ],
+      "test": "required"
+    },
+    {
       "path": "src/llm/",
       "purpose": "The language model calls: OpenRouter, roles, budgets, token counts, limits and output parsing.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
+    },
+    {
+      "path": "src/llm/role-keys.ts",
+      "purpose": "How a request finds its key in `.env` and `llm.keyByRole`, while a deployment has no `keys.json`. Re-exported by `src/llm/openrouter.ts`; tested through the role key tests of the client.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
     },
     {
       "path": "src/media/",

@@ -8,6 +8,7 @@
 import { log } from '../log.ts';
 import { objOf } from '../tools/types.ts';
 import { roleModel } from '../llm/roles.ts';
+import type { KeyOf } from '../keys/ring.ts';
 import { CODE } from '../tools/codes.ts';
 import { prepareSpeech } from './prepare.ts';
 import { SpeechSynthError, SPEECH_ROLE, synthesizeSpeech } from './synth.ts';
@@ -57,12 +58,14 @@ export type SpeechMade = {
  * @param deps.getPrompts The live prompts (`hot.prompts`).
  * @param deps.env The parsed `.env`, for `llm.keyByRole`.
  * @param deps.apiKey The main OpenRouter key.
+ * @param deps.keyOf The key of the key store (src/keys/ring.ts#KeyOf); null while there is no `keys.json`.
  */
 export function createSpeech({
   getConfig,
   getPrompts = () => ({}),
   env = {},
   apiKey,
+  keyOf = () => null,
   llm,
   fetchImpl = fetch,
   now = () => Date.now(),
@@ -72,6 +75,7 @@ export function createSpeech({
   getPrompts?: () => object;
   env?: Record<string, string | undefined>;
   apiKey: string;
+  keyOf?: KeyOf;
   llm: { complete: Parameters<typeof prepareSpeech>[0]['complete'] };
   fetchImpl?: typeof fetch;
   now?: () => number;
@@ -104,7 +108,16 @@ export function createSpeech({
 
     let made: Awaited<ReturnType<typeof synthesizeSpeech>>;
     try {
-      made = await synthesizeSpeech({ text: prepared.text, getConfig, env, mainKey: apiKey, fetchImpl, now, model });
+      made = await synthesizeSpeech({
+        text: prepared.text,
+        getConfig,
+        env,
+        mainKey: apiKey,
+        keyOf,
+        fetchImpl,
+        now,
+        model,
+      });
     } catch (err) {
       if (!(err instanceof SpeechSynthError)) throw err;
       const code = err.reason === 'not-configured' ? CODE.SPEECH_NOT_CONFIGURED : CODE.SPEECH_SYNTH_FAILED;

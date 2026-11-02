@@ -27,6 +27,7 @@ const TABLE = [
   'skills',
   'plugins',
   'interface',
+  'keys',
   'help',
   'clear',
 ];

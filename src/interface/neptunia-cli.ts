@@ -24,6 +24,9 @@ import fs from 'node:fs';
 import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { COMMANDS } from './commands/table.ts';
+import { createDialogBroker } from './commands/dialogs.ts';
+import type { DialogBroker, Question } from './commands/dialogs.ts';
+import type { Dialog } from '../keys/commands.ts';
 import { ackOf, validateEvent } from '../protocol/index.ts';
 import type { Adapter } from '../protocol/adapter.ts';
 import type { RoleDown } from '../llm/role-health.ts';
@@ -44,6 +47,9 @@ export type CommandEvent = {
   args: Record<string, unknown>;
   conversation: { id: string; communityId?: string | null };
   requester: { id: string; roles: ReadonlyArray<string> };
+  /** The answer to a question the command asked: the dialog it belongs to and the text. Never part of `args`. */
+  dialogId?: string;
+  answer?: string;
 };
 
 /** One interface as `interface.list` shows it. */
@@ -54,7 +60,7 @@ export type StatusFacts = {
   version: string;
   instance: string;
   coreModel: string;
-  paused: { since: string | null } | null;
+  paused: { since: string | null; reason?: string } | null;
   /** Today's requests and spend, in total and for the core model role. */
   spend: { requests: number; cost: number; coreCost: number };
   interfaces: ReadonlyArray<InterfaceRow>;
@@ -68,7 +74,17 @@ export type StatusFacts = {
 
 export type CommandDeps = {
   /** The owner's console: every command of the table this desk does not answer itself. */
-  console: { run(name: string, args: Record<string, unknown>, requester: { id: string }): Promise<Answer> };
+  console: {
+    run(
+      name: string,
+      args: Record<string, unknown>,
+      requester: { id: string },
+      dialog?: Dialog | null
+    ): Promise<Answer>;
+  };
+  /** The open questions of commands; the desk makes its own while none is given. */
+  dialogs?: DialogBroker;
+  now?: () => number;
   interfaces: {
     list(): ReadonlyArray<InterfaceRow>;
     enable(name: string): void;
@@ -103,7 +119,9 @@ export function statusText(facts: StatusFacts): string {
   const intentions = facts.intentions;
   const latest = facts.errands.latest.map((errand) => `${errand.id} ${errand.agent} ${errand.state}`).join(', ');
   return [
-    facts.paused === null ? 'running' : `paused since ${facts.paused.since ?? 'an unknown time'}`,
+    facts.paused === null
+      ? 'running'
+      : `paused since ${facts.paused.since ?? 'an unknown time'}${facts.paused.reason === undefined ? '' : ` (${facts.paused.reason})`}`,
     `spend today ${money(spend.cost)} over ${spend.requests} requests: core model ${money(spend.coreCost)}, ` +
       `other roles ${money(Math.max(0, spend.cost - spend.coreCost))}`,
     `interfaces: ${interfacesLine(facts.interfaces)}`,
@@ -139,9 +157,14 @@ const failed = (err: unknown): Answer => {
   };
 };
 
+/** What a command answers: a result, or a question the owner answers with a second request. */
+export type Reply = Answer | Question;
+
 export function createCommandDesk(deps: CommandDeps): {
-  run(event: CommandEvent, principal: Pick<Principal, 'kind' | 'name'>): Promise<Answer>;
+  run(event: CommandEvent, principal: Pick<Principal, 'kind' | 'name'>): Promise<Reply>;
 } {
+  const dialogs = deps.dialogs ?? createDialogBroker({ now: deps.now ?? Date.now });
+
   async function interfaceCommand(name: string, args: Record<string, unknown>): Promise<Answer> {
     if (name === 'interface.list') {
       const rows = deps.interfaces.list();
@@ -164,14 +187,23 @@ export function createCommandDesk(deps: CommandDeps): {
     };
   }
 
-  async function cliCommand(event: CommandEvent): Promise<Answer> {
+  async function cliCommand(event: CommandEvent): Promise<Reply> {
     const { name, args } = event;
+    if (event.dialogId !== undefined) {
+      const next = dialogs.answer(name, event.dialogId, event.answer ?? '');
+      return (
+        (await next) ?? {
+          text: 'that question is closed (it expired, or the core restarted): run the command again',
+          status: 'invalid',
+        }
+      );
+    }
     if (name === 'help') return { text: helpText(), status: 'ok' };
     if (name === 'status') return { text: statusText(deps.facts()), status: 'ok' };
     if (name === 'header') return { text: headerText(deps.facts()), status: 'ok' };
     if (name === 'interface.list' || name === 'interface.enable' || name === 'interface.disable')
       return interfaceCommand(name, args);
-    return deps.console.run(name, args, event.requester);
+    return dialogs.start(name, (dialog) => deps.console.run(name, args, event.requester, dialog));
   }
 
   async function skillCommandOfAgent(event: CommandEvent, principal: string): Promise<Answer> {
@@ -239,7 +271,13 @@ export function statusFactsOf(sources: FactSources): StatusFacts {
     version: sources.version,
     instance: typeof name === 'string' && name !== '' ? name : 'neptunia',
     coreModel: String(roleModel(config, 'core') ?? 'unset'),
-    paused: state.paused === true ? { since: typeof state.pausedAt === 'string' ? state.pausedAt : null } : null,
+    paused:
+      state.paused === true
+        ? {
+            since: typeof state.pausedAt === 'string' ? state.pausedAt : null,
+            ...(typeof state.pausedReason === 'string' ? { reason: state.pausedReason } : {}),
+          }
+        : null,
     spend: {
       requests: rows.reduce((sum, row) => sum + numberOf(row.requests), 0),
       cost: rows.reduce((sum, row) => sum + numberOf(row.cost), 0),

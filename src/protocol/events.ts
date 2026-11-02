@@ -227,7 +227,10 @@ export type ReactionChanged = {
 
 /**
  * `command.requested`: the command's `name` (`group.sub` or `sub`), its `args`, who asked, and
- * `replyRef`, the opaque token a `command.result` action answers it by.
+ * `replyRef`, the opaque token a `command.result` action answers it by. A command that asked a question
+ * (a `command.result` with status `ask`) is answered by a second `command.requested` with the same `name`, the
+ * `dialogId` of the question and the `answer` text: the answer is a field of its own, never an entry of `args`,
+ * so nothing that echoes the arguments can echo it.
  */
 export type CommandRequested = {
   kind: 'command.requested';
@@ -239,6 +242,8 @@ export type CommandRequested = {
   args: object;
   requester: { id: string; name: string | null; roles: Array<string>; owner: boolean };
   replyRef: string;
+  dialogId?: string;
+  answer?: string;
 };
 
 /**

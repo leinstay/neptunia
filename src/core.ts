@@ -39,6 +39,13 @@ import {
 import { DAY_MS, utcDay } from './time.ts';
 import { createCalibrator } from './llm/tokens.ts';
 import { createLlm, roleApiKey } from './llm/openrouter.ts';
+import { createKeyFailover } from './llm/key-failover.ts';
+import { MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, roleModel } from './llm/roles.ts';
+import { createKeysCommands } from './keys/commands.ts';
+import { importKeys } from './keys/import.ts';
+import { createKeyRing } from './keys/ring.ts';
+import type { KeyOf } from './keys/ring.ts';
+import { createKeyStore, keysFileExists } from './keys/store.ts';
 import { createRoleHealth, reportingCoreKeys, reportingLlm, roleKeyCheck } from './llm/role-health.ts';
 import { createEmbedder } from './llm/embed.ts';
 import { createImageGen } from './llm/images.ts';
@@ -238,7 +245,15 @@ async function buildCore(
   // No interface in this process: they run as units, and the community comes from the settings.
   const asUnits = interfaces.length === 0;
 
-  const openrouterKey = needOrFail(env, 'OPENROUTER_CORE_KEY');
+  // The model keys: `keys.json` of the private layer when it exists (the key ring, read at each request), else the
+  // `.env` variables `llm.keyByRole` names (scripts/keys-import.ts moves them). A deployment with a key store needs no
+  // key in `.env` to start: without a core key she is paused until `/keys core add`.
+  const keyStore = createKeyStore({ privateDir: paths.privateDir });
+  const keyRing = createKeyRing({ store: keyStore, failover: createKeyFailover({ now: clock }) });
+  const ringNow = () => (keysFileExists(paths.privateDir) ? keyRing : null);
+  /** The key of `role` in the key store, null while there is none (`.env` serves then), '' when the store has no key for it. */
+  const keyOf: KeyOf = (role) => ringNow()?.route(role)?.value ?? (ringNow() === null ? null : '');
+  const openrouterKey = ringNow() === null ? needOrFail(env, 'OPENROUTER_CORE_KEY') : (env.OPENROUTER_CORE_KEY ?? '');
   // Optional: without it a YouTube duration comes from the watch page only.
   const youtubeApiKey = env.YOUTUBE_API_KEY || null;
   // Optional: without it the `brave` search engine never runs (the web lookup still reads links). Never logged.
@@ -442,7 +457,7 @@ async function buildCore(
   // `/status`. A role has no key when the key it resolves to is empty (src/llm/openrouter.js#roleApiKey).
   const roleHealth = createRoleHealth({
     now: () => Date.now(),
-    hasKey: roleKeyCheck({ hot, env, mainKey: openrouterKey }),
+    hasKey: roleKeyCheck({ hot, env, mainKey: openrouterKey, keyOf }),
   });
   // `env` (the .env loaded once above): the keys `llm.keyByRole` names per role, looked up per request.
   // createLlm (src/llm/openrouter.js) declares `complete` as `Function`, which no caller's declared call accepts, so
@@ -453,6 +468,7 @@ async function buildCore(
       createLlm({
         apiKey: openrouterKey,
         env,
+        keys: ringNow,
         getConfig: () => hot.config,
         calibrator,
         state: store.state,
@@ -460,7 +476,7 @@ async function buildCore(
       roleHealth
     )) as ChatClient;
   // Embeddings (role embedding) on the same daily request count as the chat client.
-  const embedder = options.embedder ?? createEmbedder({ apiKey: openrouterKey, env, state: store.state });
+  const embedder = options.embedder ?? createEmbedder({ apiKey: openrouterKey, env, keyOf, state: store.state });
   // The meaning index kept current: record lines queued above, flushed on the tick below.
   embedQueue = createEmbedQueue({
     hot,
@@ -479,7 +495,7 @@ async function buildCore(
   // each request; the main key when the role names none.
   // The options are named first: the module does not declare `state`, the daily counter it shares with the chat client.
   const imageOptions = {
-    apiKey: () => roleApiKey(hot.config, env, 'drawing', openrouterKey),
+    apiKey: () => keyOf('drawing') ?? roleApiKey(hot.config, env, 'drawing', openrouterKey),
     getConfig: () => hot.config,
     state: store.state,
   };
@@ -494,6 +510,7 @@ async function buildCore(
     getPrompts: () => hot.prompts,
     env,
     apiKey: openrouterKey,
+    keyOf,
     llm,
     state: store.state,
   };
@@ -1256,6 +1273,49 @@ async function buildCore(
     // /nep memory snapshot: the data directory it copies.
     dataDir,
   });
+  // The key commands: the checks go to the provider with the global `fetch` of the moment, a model is saved through the
+  // `model.set` operation, and the last core key's removal pauses her with the reason `no-core-key`.
+  const asOwner = { guildId: getGuildId(), userId: '', roleIds: [], actor: 'owner', asOwner: true };
+  const ownerOp = async (op: string, args: Record<string, unknown>): Promise<string> => {
+    const result = await admin.runSkillOp(op, args, { ...asOwner, guildId: getGuildId() });
+    if (result.status !== 'ok') throw new Error(result.summary || result.code);
+    return result.summary;
+  };
+  const keysCommands = createKeysCommands({
+    store: keyStore,
+    ring: keyRing,
+    fetch: (input, init) => globalThis.fetch(input, init),
+    baseUrl: () => String(objOf(objOf(hot.config).llm).baseUrl),
+    defaults: { ...ROLE_DEFAULTS, memory: MEMORY_ROLE_DEFAULT },
+    // A deployment still on `.env` has its keys moved into the store before the first add writes anything.
+    importLegacy: () => {
+      const keyVariables = Object.entries(env).filter(
+        (entry): entry is [string, string] =>
+          /^OPENROUTER_[A-Z0-9_]+_KEY$/.test(entry[0]) && typeof entry[1] === 'string' && entry[1].trim() !== ''
+      );
+      if (keysFileExists(paths.privateDir) || keyVariables.length === 0) return null;
+      return importKeys({ env: Object.fromEntries(keyVariables), config: hot.config, store: keyStore });
+    },
+    currentModel: (role) => roleModel(hot.config, role) ?? '',
+    saveModel: async (role, model) => {
+      await ownerOp('model.set', { role, id: model });
+    },
+    pause: {
+      async pause(reason) {
+        const wasPaused = store.state.data.paused === true;
+        await ownerOp('bot.pause', {});
+        if (wasPaused) return;
+        store.state.data.pausedReason = reason;
+        store.state.markDirty();
+        store.flush();
+      },
+      async resume() {
+        await ownerOp('bot.resume', {});
+        if (store.state.data.paused) throw new Error('she is still paused: run /resume and read its answer');
+      },
+      reason: () => (store.state.data.paused ? String(store.state.data.pausedReason ?? 'owner') : null),
+    },
+  });
   // The owner's commands over the link: the `neptunia` chat and `-p`, and the board commands of the agents.
   commandDesk = createCommandDesk({
     // The owner's console (src/interface/commands/console.ts): the chat's table over the operations, run as the owner.
@@ -1279,6 +1339,8 @@ async function buildCore(
       skills: skillsWiring.access,
       // `/plugins` (src/interface/commands/plugins.ts).
       plugins: pluginControl,
+      // `/keys` and the checked `/model set` (src/keys/commands.ts), over the key store.
+      keys: { enabled: () => ringNow() !== null, run: (name, args, dialog) => keysCommands.run(name, args, dialog) },
     }),
     interfaces: interfaceLinks,
     guildId: getGuildId,

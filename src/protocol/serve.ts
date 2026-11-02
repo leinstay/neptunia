@@ -135,8 +135,28 @@ function cleaned(event: Record<string, unknown>): Record<string, unknown> {
   return clean;
 }
 
+/** The question a `command.result` of status `ask` carries, null for any other result. */
+function askOf(body: Record<string, unknown>): CommandResult['ask'] {
+  if (body.status !== 'ask' || typeof body.dialogId !== 'string') return null;
+  const choices = Array.isArray(body.choices)
+    ? body.choices.filter((one): one is string => typeof one === 'string')
+    : null;
+  return {
+    dialogId: body.dialogId,
+    prompt: typeof body.prompt === 'string' ? body.prompt : String(body.text),
+    secret: body.secret === true,
+    choices,
+  };
+}
+
 /** The `command.result` action as the serving side hands it on: the command it answers, its text and its outcome. */
-export type CommandResult = { replyRef: string; text: string; status: string | null };
+export type CommandResult = {
+  replyRef: string;
+  text: string;
+  status: string | null;
+  /** The question of a status `ask`: its dialog, prompt, whether the answer is secret and its choices. */
+  ask?: { dialogId: string; prompt: string; secret: boolean; choices: Array<string> | null } | null;
+};
 
 /** The action runner of one adapter: reads, effects under their idempotency key, deadlines and cancels. */
 function createActions(
@@ -181,6 +201,7 @@ function createActions(
           replyRef: body.replyRef as string,
           text: body.text as string,
           status: typeof body.status === 'string' ? body.status : null,
+          ask: askOf(body),
         });
         return { status: 'ok' };
       default:

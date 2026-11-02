@@ -83,7 +83,9 @@ export type Port = Adapter & {
  * (`conversation` or `message`), the `content` of a send or an edit, the `emoji` of a reaction.
  * A command result answers the command whose `replyRef` it carries (the adapter alone knows what
  * the token stands for) with `text`, optional `files`, whether only the requester sees it and the command's `status`
- * (`ok` when it ran, another word when it did not).
+ * (`ok` when it ran, another word when it did not). The status `ask` is a question: it carries the `dialogId` to answer
+ * by, the `prompt`, whether the answer is `secret` (typed unseen) and, for a closed question, the `choices`; the `text`
+ * is the prompt too, for a client that knows no dialog.
  */
 export type Action =
   | { action: 'message.send'; conversation: ConversationRef; content: Content }
@@ -99,6 +101,10 @@ export type Action =
       files?: Array<Attachment>;
       ephemeral?: boolean;
       status?: string;
+      dialogId?: string;
+      prompt?: string;
+      secret?: boolean;
+      choices?: Array<string>;
     };
 
 /** Every result status. */

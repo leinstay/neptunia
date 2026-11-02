@@ -4,8 +4,8 @@
 // runs it through `runOp` with the owner's context (`asOwner`, src/tools/types.ts#OpContext), so the rights check
 // passes it as the owner even while `bot.owners` is empty, and the operation's own owner checks do too. The rest read
 // what the core holds: the live config, the usage accumulator, the memory database's read connection and the reply
-// metric. The console asks no model and calls no `fetch`, except the key limits of `/usage` and the probes of
-// `/doctor live`, which are the status card's own reads.
+// metric. The console asks no model and calls no `fetch`, except the key limits of `/usage`, the probes of
+// `/doctor live`, which are the status card's own reads, and the checks of the key commands (src/keys/commands.ts).
 //
 // Every answer is plain text with a status: `ok` when the command ran, else the operation's own (`denied`,
 // `invalid`, `failed`). A refused answer starts with the command as the owner typed it, so it names the id, the tool
@@ -23,6 +23,7 @@ import { coreHealth } from '../../health/core.ts';
 import { memoryHealth } from '../../health/memory.ts';
 import { serverHealth, systemProbe, worse } from '../../health/server.ts';
 import type { HealthStatus } from '../../health/server.ts';
+import type { Dialog } from '../../keys/commands.ts';
 import { DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../../llm/roles.ts';
 import { backupDatabase, backupName, backupSettings, backupsIn, partialOf } from '../../memory/db/backup.ts';
 import { grantedSkillNames } from '../../tools/discovery.ts';
@@ -69,6 +70,14 @@ export type ConsoleDeps = {
   skills?: SkillsAccess | null;
   /** The plugins' switch (src/plugins/control.ts); `/plugins` fails while there is none. */
   plugins?: PluginControl | null;
+  /**
+   * The key commands (src/keys/commands.ts). `enabled()` is true while the core takes its keys from `keys.json`: only then
+   * does `model set` check the model on the role's key before it saves; before that it is the plain operation.
+   */
+  keys?: {
+    enabled(): boolean;
+    run(name: string, args: Record<string, unknown>, dialog: Dialog | null): Promise<Answer>;
+  } | null;
 };
 
 /** The prefix of the `/skills` commands, which `skillsCommand` answers. */
@@ -76,6 +85,9 @@ const SKILLS_PREFIX = 'skills.';
 
 /** The prefix of the `/plugins` commands, which `pluginsCommand` answers. */
 const PLUGINS_PREFIX = 'plugins.';
+
+/** The prefix of the `/keys` commands, which the key commands answer. */
+const KEYS_PREFIX = 'keys.';
 
 /** How many stored lines `/memory conversation` prints. */
 const CONVERSATION_LINES = 30;
@@ -184,7 +196,7 @@ function typed(name: string, args: Readonly<Record<string, unknown>>): string {
 }
 
 export function createConsole(deps: ConsoleDeps): {
-  run(name: string, args: Record<string, unknown>, requester: { id: string }): Promise<Answer>;
+  run(name: string, args: Record<string, unknown>, requester: { id: string }, dialog?: Dialog | null): Promise<Answer>;
 } {
   const config = (): unknown => objOf(deps.hot).config;
   // The read connection is a DatabaseSync (src/memory/db/open.ts), null while the database is closed.
@@ -464,7 +476,10 @@ export function createConsole(deps: ConsoleDeps): {
 
   // `/skills` and `/plugins` have a module of their own; every other command is answered above.
   return {
-    run: (name, args, requester) => {
+    run: (name, args, requester, dialog = null) => {
+      const keys = deps.keys;
+      if (keys != null && (name.startsWith(KEYS_PREFIX) || (name === 'model.set' && keys.enabled())))
+        return keys.run(name, args, dialog);
       if (name.startsWith(SKILLS_PREFIX)) return skillsCommand(deps.skills, name, args);
       if (name.startsWith(PLUGINS_PREFIX)) return pluginsCommand(deps.plugins, name, args);
       return run(name, args, requester);

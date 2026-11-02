@@ -21,6 +21,7 @@ import {
   sleep,
 } from './openrouter.ts';
 import { roleModel } from './roles.ts';
+import type { KeyOf } from '../keys/ring.ts';
 import { errorFields } from '../error-fields.ts';
 import { log } from '../log.ts';
 import { objOf } from '../tools/types.ts';
@@ -94,6 +95,7 @@ function vectorsOf(json: unknown, count: number): Array<Float32Array> {
 /**
  * @param deps.apiKey `OPENROUTER_CORE_KEY`, unless `llm.keyByRole.embedding` names another (`roleApiKey`).
  * @param deps.env The parsed `.env` the role key is looked up in.
+ * @param deps.keyOf The key of the key store (src/keys/ring.ts#KeyOf); null while there is no `keys.json`, then `.env` serves.
  * @param deps.state Persistent state with the daily request counter.
  * @param deps.now Clock in ms: the day of the counter, the logged duration.
  * @param deps.sleepImpl The backoff wait between retries.
@@ -101,6 +103,7 @@ function vectorsOf(json: unknown, count: number): Array<Float32Array> {
 export function createEmbedder({
   apiKey,
   env = {},
+  keyOf = () => null,
   state,
   fetchImpl = fetch,
   now = Date.now,
@@ -108,11 +111,15 @@ export function createEmbedder({
 }: {
   apiKey: string;
   env?: Record<string, string | undefined>;
+  keyOf?: KeyOf;
   state: { data: object; markDirty: () => void };
   fetchImpl?: typeof fetch;
   now?: () => number;
   sleepImpl?: (ms: number) => Promise<void>;
 }): { embed: (texts: unknown, options: unknown) => Promise<Array<Float32Array>> } {
+  /** The key of the embedding role: the key store's, else `.env`'s by `llm.keyByRole`. */
+  const requestKeyOf = (config: unknown): string => keyOf(EMBED_ROLE) ?? roleApiKey(config, env, EMBED_ROLE, apiKey);
+
   /**
    * Embed `texts` (non-empty strings; an empty list returns [] and sends nothing) in one request.
    * The model is `roleModel(config, 'embedding', purpose)` (a
@@ -165,7 +172,7 @@ export function createEmbedder({
     const attemptMs = timeoutMs ?? analyzerMs;
     const retries =
       typeof cfg.retries === 'number' && Number.isInteger(cfg.retries) && cfg.retries > 0 ? cfg.retries : 0;
-    const requestKey = roleApiKey(config, env, EMBED_ROLE, apiKey);
+    const requestKey = requestKeyOf(config);
     const startedAt = now();
 
     let lastError: unknown;

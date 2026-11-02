@@ -33,6 +33,7 @@ The persona's inner life (heartbeat wakes, intentions, the diary) runs the same 
 |---|---|
 | [Getting started](getting-started.md) | Requirements, install, configuration layers, environment keys, first run, service setup, tests, contributing |
 | [The core](core.md) | The composition root, the event door, a turn step by step, the tool loop, prompt assembly and cache layout, model roles and keys, safety rails |
+| [Keys](keys.md) | The key store `keys.json`, the core key list and its failover, the `/keys` commands, the questions a command asks, and the one-time import of the old `.env` variables |
 | [Memory](memory.md) | Concepts, data model, write and read paths, the memory session, recall, scopes, configuration |
 | [Inner life](inner-life.md) | Heartbeat, daily review, the selfimprovement wake, intentions, inner turns, caps, the kill switch, the virtual-week harness |
 | [Skills](skills.md) | The `SKILL.md` skills: where they live, versions and activation, the index in her prompt, use counts, the commands |
