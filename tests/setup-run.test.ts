@@ -81,7 +81,8 @@ function rig(overrides: Partial<SetupOptions> = {}): Rig {
 
 test('the steps run in a fixed order: folders, keys file, units, linger, core', () => {
   // Bug: the core is started before its units exist, or the units are written before the folders they point at.
-  assert.deepEqual([...SETUP_STEPS], ['folders', 'keys-file', 'units', 'linger', 'core']);
+  // Changed: SETUP_STEPS gains the self-development step after the core (spec 2026-11-02, PR 5 "Forks").
+  assert.deepEqual([...SETUP_STEPS], ['folders', 'keys-file', 'units', 'linger', 'core', 'selfdev']);
 });
 
 test('a fresh user setup creates the private folders at 0700 whatever the umask', async () => {
@@ -187,9 +188,10 @@ test('the report lists every step done and the commands that come next, in the o
   // Bug: setup ends without saying what to type next, so the owner does not know the install is only half done.
   const { options, deps } = rig();
   const report = await runSetup(options, deps);
+  // Changed: the self-development step is skipped in this rig (no selfdev.checkout, no ask), every other step is done.
   assert.deepEqual(
     report.steps.map((step) => [step.step, step.state]),
-    SETUP_STEPS.map((step) => [step, 'done'])
+    SETUP_STEPS.map((step) => [step, step === 'selfdev' ? 'skipped' : 'done'])
   );
   assert.deepEqual(report.next, [
     'keys core add',
@@ -229,6 +231,8 @@ test('a rerun after a failure resumes: earlier steps are already done and the co
       ['units', 'already'],
       ['linger', 'already'],
       ['core', 'done'],
+      // Changed: SETUP_STEPS gains selfdev, skipped in this rig (no selfdev.checkout, no ask).
+      ['selfdev', 'skipped'],
     ]
   );
   assert.deepEqual(chat, ['/keys core add']);
@@ -259,6 +263,8 @@ test('a single step runs alone and leaves the others skipped, with no command an
       ['units', 'skipped'],
       ['linger', 'skipped'],
       ['core', 'skipped'],
+      // Changed: SETUP_STEPS gains selfdev, skipped here because it was not asked for.
+      ['selfdev', 'skipped'],
     ]
   );
   assert.equal(fs.existsSync(keysPath(options.privateDir)), false);

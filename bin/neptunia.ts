@@ -10,7 +10,8 @@
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
 //   neptunia plugin run <name>                   one plugin (deploy/neptunia-plugin@.service)
 //   neptunia service start|stop|restart|status [<unit> ...]   the units, through systemctl
-//   neptunia setup [--system] [--node <path>] [<step>]  the install of one user: folders, keys file, units, linger, the core
+//   neptunia setup [--system] [--node <path>] [<step>]  the install of one user: folders, keys file, units, linger, the
+//                                                core, the repository of her self-development
 //   neptunia task <command> [options]            the task board's command line (bin/neptunia-task.ts)
 //   neptunia watcher run                         one run of the daily watcher (deploy/neptunia-watcher.service)
 //
@@ -88,6 +89,7 @@ import { createAgentEngine } from '../src/agent-runner/backend.ts';
 import { agentSettings, profileOf } from '../src/agent-runner/profiles.ts';
 import type { RunnerTask } from '../src/agent-runner/protocol.ts';
 import { startSweeper } from '../src/agent-runner/sweep.ts';
+import { spawnGh } from '../src/selfdev/repository.ts';
 import { spawnRun } from '../src/setup/install.ts';
 import { SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/run.ts';
 import type { SetupReport } from '../src/setup/run.ts';
@@ -154,7 +156,7 @@ const USAGE = [
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
   '       neptunia plugin run <name>',
   '       neptunia service start|stop|restart|status [<unit> ...]',
-  '       neptunia setup [--system] [--node <path>] [folders|keys-file|units|linger|core]',
+  '       neptunia setup [--system] [--node <path>] [folders|keys-file|units|linger|core|selfdev]',
   '       neptunia task <command> [options]   (neptunia task help)',
   '       neptunia selfdev run',
   '       neptunia watcher run',
@@ -1114,6 +1116,18 @@ function printSetup(report: SetupReport): void {
   else console.error('neptunia: setup stopped at the step that failed; run it again to resume');
 }
 
+/** One question at the terminal, `offered` shown in brackets; the owner's line as typed. */
+async function askAtTerminal(question: string, offered: string | null): Promise<string> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await new Promise<string>((resolve) => {
+      rl.question(offered === null ? `${question} ` : `${question} [${offered}] `, resolve);
+    });
+  } finally {
+    rl.close();
+  }
+}
+
 /** The group of this process's user by name (`Group=` also takes the number). */
 function groupName(): string {
   const named = spawnSync('id', ['-gn'], { encoding: 'utf8' });
@@ -1143,7 +1157,12 @@ async function runSetupCommand(argv: ReadonlyArray<string>): Promise<void> {
       node: nodeOf({ given: node, argv0: process.argv0, execPath: process.execPath, pathEnv: process.env.PATH }),
       ...(process.env.XDG_CONFIG_HOME ? { xdgConfigHome: process.env.XDG_CONFIG_HOME } : {}),
     },
-    { run: spawnRun, openChat: (firstLine) => runChat(firstLine), report: printSetup }
+    {
+      run: spawnRun,
+      openChat: (firstLine) => runChat(firstLine),
+      report: printSetup,
+      ...(process.stdin.isTTY === true ? { ask: askAtTerminal, gh: spawnGh(where.privateDir, process.env) } : {}),
+    }
   );
   process.exit(report.ok ? 0 : 1);
 }
