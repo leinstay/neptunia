@@ -21,7 +21,7 @@ function parseUnit(name: string): Unit {
     const head = /^\[(\w+)\]$/.exec(line);
     if (head !== null) {
       section = head[1] ?? '';
-      unit.set(section, unit.get(section) ?? new Map());
+      unit.set(section, unit.get(section) ?? new Map<string, Array<string>>());
       continue;
     }
     const eq = line.indexOf('=');
