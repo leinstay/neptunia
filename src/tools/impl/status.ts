@@ -354,7 +354,9 @@ function datedLine(name: string, count: number, starts: ReadonlyArray<unknown>, 
 function stateValue(data: Untyped): string {
   if (!data.paused) return 'running';
   const by = typeof data.pausedBy === 'string' && data.pausedBy ? ` by <@${data.pausedBy}>` : '';
-  return `paused since ${utcMinute(data.pausedAt)}${by}`;
+  const reason = objOf(data).pausedReason;
+  const why = typeof reason === 'string' && reason ? ` (${reason})` : '';
+  return `paused since ${utcMinute(data.pausedAt)}${by}${why}`;
 }
 
 /** One field of the status card. */

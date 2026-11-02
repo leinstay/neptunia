@@ -10,6 +10,7 @@
 // refuses the bare line. An argument with `choices` takes only those values. A command's `check` refuses what the
 // table's shape cannot say. The parse is pure and never throws.
 
+import { BASE_ROLES, MEMORY_ROLE } from '../../llm/roles.ts';
 import { MODEL_SET_ROLES, ROUTE_ROLES } from '../../tools/impl/catalog.ts';
 import { isDay } from '../../watcher/read.ts';
 
@@ -40,6 +41,9 @@ export type Parsed = { ok: true; name: string; args: Record<string, unknown> } |
 
 /** The roles a route names, and `any` for a route of every role. */
 const ROUTE_CHOICES: ReadonlyArray<string> = ['any', ...ROUTE_ROLES];
+
+/** The roles a key can be bound to or checked for: the base model roles, her memory session included. */
+const KEY_ROLES: ReadonlyArray<string> = [...BASE_ROLES, MEMORY_ROLE];
 
 /** A yes or no argument. */
 const FLAGS: ReadonlyArray<string> = ['true', 'false'];
@@ -299,6 +303,25 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('disable', 'disable an interface', [arg('name')]),
     ],
     otherwise: sub('command', "an interface's own subcommand", [arg('name'), arg('sub'), arg('rest', false)]),
+  },
+  {
+    name: 'keys',
+    help: 'the model keys: core add|remove|list, extra add|remove|list, bind <role> <name>, unbind <role>, check <role>',
+    args: [],
+    needsSubcommand: true,
+    subcommands: [
+      sub('core.add', 'add a core key; the chat asks for the value without showing it', [arg('name')]),
+      sub('core.remove', 'remove a core key; the last one pauses her until the next add', [arg('name')]),
+      sub('core.list', 'the core keys with their last four characters, grants and the one in use'),
+      sub('extra.add', 'add an extra key; the chat asks for the value without showing it', [arg('name')]),
+      sub('extra.remove', 'remove an extra key no role is bound to', [arg('name')]),
+      sub('extra.list', 'the extra keys with the roles bound to them'),
+      sub('bind', 'send one role out on an extra key alone', [arg('role', true, KEY_ROLES), arg('name')]),
+      sub('unbind', 'send a role back out on the core keys', [arg('role', true, KEY_ROLES)]),
+      sub('check', 'one minimal request for a role: its model, its key and whether the key was billed as BYOK', [
+        arg('role', true, KEY_ROLES),
+      ]),
+    ],
   },
   { name: 'help', help: 'this list', args: [], subcommands: [] },
   { name: 'clear', help: 'clear the screen', args: [], subcommands: [] },

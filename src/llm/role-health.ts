@@ -11,6 +11,7 @@
 import { BASE_ROLES, CORE_ROLE, OPTIONAL_ROLES, roleModel } from './roles.ts';
 import { DAY_MS } from '../time.ts';
 import { providerLimitOf, roleApiKey } from './openrouter.ts';
+import type { KeyOf } from '../keys/ring.ts';
 
 /** Why a role is down. */
 export type RoleDownReason =
@@ -205,12 +206,17 @@ export function roleKeyCheck({
   hot,
   env,
   mainKey,
+  keyOf = () => null,
 }: {
   hot: unknown;
   env: Readonly<Record<string, string | undefined>>;
   mainKey: string;
+  /** The key of the key store; null while there is no `keys.json`, then `.env` decides. */
+  keyOf?: KeyOf;
 }): (role: string) => boolean {
   return (role) => {
+    const stored = keyOf(role);
+    if (stored !== null) return stored !== '';
     const config = configOf(hot);
     // roleApiKey reads the config as a loose object and copes with any shape.
     const key: unknown = roleApiKey(config, env, role, mainKey);

@@ -19,7 +19,15 @@ export type KeyRing = {
   states(): Array<KeyState>;
   /** The extra keys some role is bound to, each with its roles. Names only. */
   bound(): Array<{ name: string; roles: Array<string> }>;
+  /** The grant of each core key that has one, by name: what `llm.keys` gave by variable name before. */
+  grants(): Record<string, { grant: number; resetDay: number }>;
 };
+
+/**
+ * The value of the key `role` goes out on, null while there is no `keys.json`: what the modules that look their own key
+ * up (the embedder, the speech synthesis, the pictures) call before they fall back to `.env`. '' when the ring has none.
+ */
+export type KeyOf = (role: string) => string | null;
 
 export function createKeyRing({ store, failover }: { store: KeyStore; failover: KeyFailover }): KeyRing {
   function names(role: string): Array<string> {
@@ -38,6 +46,14 @@ export function createKeyRing({ store, failover }: { store: KeyStore; failover: 
     },
     failed: (role, name, status) => failover.failed(role, names(role), name, status),
     states: () => failover.states(),
+    grants() {
+      const grants: Record<string, { grant: number; resetDay: number }> = {};
+      for (const row of store.list().core) {
+        if (row.grant !== null && row.resetDay !== null)
+          grants[row.name] = { grant: row.grant, resetDay: row.resetDay };
+      }
+      return grants;
+    },
     bound: () =>
       store
         .list()

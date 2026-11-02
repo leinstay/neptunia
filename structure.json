@@ -419,6 +419,7 @@
         "src/board/**",
         "src/errands/**",
         "src/intentions/**",
+        "src/keys/**",
         "src/llm/**",
         "src/media/**",
         "src/memory/**",
