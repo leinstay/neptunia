@@ -19,11 +19,13 @@ import type { BoardDb } from './schema.ts';
 
 /**
  * The principals the core itself calls the board as: her tools run as `persona`, which may file and read only; her
- * errand store as `core`, which runs the errand lane.
+ * errand store as `core`, which runs the errand lane; the self-development service (src/selfdev/) as `selfdev`, which
+ * triages and reviews her fix proposals and works them as the holder, and never owns anything.
  */
 export const CORE_BUILTINS: BoardBuiltins = Object.freeze({
   persona: Object.freeze(['persona'] as const),
   core: Object.freeze(['errand-runner', 'scheduler'] as const),
+  selfdev: Object.freeze(['reviewer', 'worker'] as const),
 });
 
 /** What every board write carries from the core. */

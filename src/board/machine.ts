@@ -38,8 +38,9 @@ export type DerivedRole = 'holder' | 'requester' | 'answerer' | 'reaper';
 export type Role = BoardRole | DerivedRole;
 
 // risk-low: the task's risk is low. errand: the task is on the errand lane. ci-green: metadata.ci is 'green'.
-// no-ci: the task's project has `ci: false` in `board.projects`. tests-pass: metadata.tests is 'pass'.
-export const CONDITIONS = ['risk-low', 'errand', 'ci-green', 'no-ci', 'tests-pass'] as const;
+// no-ci: the task's project has `ci: false` in `board.projects`. tests-pass: metadata.tests is 'pass'. merged: metadata.merged
+// is an object (the pull request was merged, by the owner or by a released class; src/selfdev/service.ts writes it).
+export const CONDITIONS = ['risk-low', 'errand', 'ci-green', 'no-ci', 'tests-pass', 'merged'] as const;
 export type Condition = (typeof CONDITIONS)[number];
 export type Via =
   | 'transition'
@@ -123,12 +124,18 @@ const TRANSITIONS: ReadonlyArray<Transition> = [
   rule('in_progress', 'blocked', ['block'], any('holder')),
   rule('blocked', 'approved', ['unblock'], any('owner', 'reviewer')),
   rule('in_progress', 'needs_validation', ['transition'], any('holder'), { requires: ['result'] }),
-  // The reviewer merges at any risk once CI is green; on a project without CI its recorded passing tests stand in.
+  // The reviewer merges at any risk once CI is green; on a project without CI its recorded passing tests stand in. A
+  // task whose pull request is merged closes for a reviewer whatever CI said: the merge is the decision.
   rule(
     'needs_validation',
     'done',
     ['approve', 'review'],
-    [...any('owner'), { role: 'reviewer', when: ['ci-green'] }, { role: 'reviewer', when: ['no-ci', 'tests-pass'] }]
+    [
+      ...any('owner'),
+      { role: 'reviewer', when: ['ci-green'] },
+      { role: 'reviewer', when: ['no-ci', 'tests-pass'] },
+      { role: 'reviewer', when: ['merged'] },
+    ]
   ),
   rule('needs_validation', 'in_progress', ['transition', 'approve', 'review'], any('owner', 'reviewer'), {
     requires: ['comment'],
