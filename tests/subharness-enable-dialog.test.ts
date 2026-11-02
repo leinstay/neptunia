@@ -35,7 +35,8 @@ test('the id of a dialog that was finished answers nothing a second time', async
   let step = await startEnable(deps, 'claude', undefined, () => 'fixed');
   for (let i = 0; i < 4; i += 1) step = await answerEnable(deps, 'fixed', 'm');
   assert.equal('ok' in step && step.ok, true);
-  assert.equal(readKeysFile(deps.privateDir).subharness.backend, 'claude');
+  // Changed for spec 2026-11-02 PR 5 "Several subharnesses": a write stores the list `backends`.
+  assert.deepEqual(readKeysFile(deps.privateDir).subharness.backends, ['claude']);
   const again = await answerEnable(deps, 'fixed', 'm');
   assert.equal('ok' in again && again.ok, false);
 });

@@ -64,7 +64,8 @@ test('four checked answers store the backend and the four models together', asyn
   }
   assert.equal(answer.status, 'ok');
   const stored = readKeysFile(dir).subharness;
-  assert.equal(stored.backend, 'claude');
+  // Changed for spec 2026-11-02 PR 5 "Several subharnesses": a write stores the list `backends`.
+  assert.deepEqual(stored.backends, ['claude']);
   assert.deepEqual(stored.models, { scout: 'opus', server: 'sonnet', dev: 'opus', watcher: 'sonnet' });
 });
 

@@ -159,7 +159,9 @@ export type FakeTurns = {
   runTurn(params: InnerTurnParams): Promise<unknown>;
 };
 
-export function fakeTurns({ answer = null }: { answer?: ((params: InnerTurnParams) => unknown) | null } = {}): FakeTurns {
+export function fakeTurns({
+  answer = null,
+}: { answer?: ((params: InnerTurnParams) => unknown) | null } = {}): FakeTurns {
   const calls: Array<InnerTurnParams> = [];
   const turns: FakeTurns = {
     busy: false,
@@ -194,7 +196,12 @@ export function hotWith({
   heartbeat = { enabled: false },
   timezone = 'UTC',
 }: { wakes?: Record<string, unknown>; heartbeat?: Record<string, unknown>; timezone?: string } = {}): {
-  config: { bot: { timezone: string }; wakes: Record<string, unknown>; heartbeat: Record<string, unknown> };
+  config: {
+    bot: { timezone: string };
+    wakes: Record<string, unknown>;
+    heartbeat: Record<string, unknown>;
+    selfimprovement: { enabled: boolean };
+  };
 } {
   return {
     config: {
@@ -207,6 +214,9 @@ export function hotWith({
         ...wakes,
       },
       heartbeat,
+      // Proposed for spec 2026-11-02 "`selfimprovement` daily, after the watcher": the selfimprovement wake falls due every day at
+      // 03:00 whatever the heartbeat does, so a rig that counts wakes over days sets it off as it sets the heartbeat off.
+      selfimprovement: { enabled: false },
     },
   };
 }
@@ -280,7 +290,9 @@ export function setup({
     store: { state: { data: {} } },
     getGuildId: () => GUILD,
     peopleWaiting,
-    meter: meter ?? { run: async (fn): Promise<Measured> => ({ result: await fn(), usd: meterUsd, requests: 1, voice: 1 }) },
+    meter: meter ?? {
+      run: async (fn): Promise<Measured> => ({ result: await fn(), usd: meterUsd, requests: 1, voice: 1 }),
+    },
     ...(memoryDb ? { memoryDb } : {}),
     rng,
     now: () => clock.t,

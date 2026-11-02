@@ -41,7 +41,8 @@ test('a backend that is none of the three reads as off', () => {
     path.join(dir, 'keys.json'),
     JSON.stringify({ subharness: { backend: 'rm', key: null, modes: {} } })
   );
-  assert.equal(readKeys(dir).subharness.backend, null);
+  // Changed for spec 2026-11-02 PR 5 "Several subharnesses": the store holds the list `backends`, and off is the empty list.
+  assert.deepEqual(readKeys(dir).subharness.backends, []);
 });
 
 // Several subharnesses (spec 2026-11-02, PR 5): `subharness.backends` is the list of connected backends, and the old

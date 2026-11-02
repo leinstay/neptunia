@@ -1,13 +1,13 @@
 // The `selfimprovement` wake (src/behavior/inner/selfimprovement.ts, the wake kind in src/behavior/inner/settings.ts):
-// it falls due once a week on the heartbeat's clock, and with a cause when one chain shape fails three times in a day,
-// once a day at most. Its turn carries the view's facts, and once its completion committed the outbox rows it showed
+// it falls due once a day at `selfimprovement.at` (tests/inner-selfimprovement-daily.test.ts), and with a cause when
+// one chain shape fails three times in a day, once a day at most. Its turn carries the view's facts, and once its completion committed the outbox rows it showed
 // are marked delivered. The pure rules first, then the inner life over a fake turn runner and a fake journal, with
 // the clock injected.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInnerLife } from '../src/behavior/inner.ts';
 import { INNER_DEFAULTS, WAKE_KINDS, innerSettings } from '../src/behavior/inner/settings.ts';
-import { failureCause, selfimprovementWake, weeklyWake } from '../src/behavior/inner/selfimprovement.ts';
+import { failureCause, selfimprovementWake } from '../src/behavior/inner/selfimprovement.ts';
 import { shapesOf } from '../src/behavior/selfimprovement-view.ts';
 import type { Chain } from '../src/behavior/selfimprovement-view.ts';
 import { createEventDoor } from '../src/interface/door.ts';
@@ -34,17 +34,19 @@ function chain(turnId: string, at: number, status: 'ok' | 'failed' = 'failed', t
   };
 }
 
-test('the wake kinds include selfimprovement and its settings default to a week and three failures', () => {
+test('the wake kinds include selfimprovement and its settings default to 03:00 and three failures', () => {
+  // Changed for spec 2026-11-02 "`selfimprovement` daily, after the watcher": the daily `at` replaces `everyDays`.
   assert.ok((WAKE_KINDS as ReadonlyArray<string>).includes('selfimprovement'));
-  assert.deepEqual(INNER_DEFAULTS.wakes.selfimprovement, { everyDays: 7, failuresPerShape: 3 });
-  assert.deepEqual(innerSettings({}).wakes.selfimprovement, { everyDays: 7, failuresPerShape: 3 });
+  assert.deepEqual(INNER_DEFAULTS.wakes.selfimprovement, { at: '03:00', failuresPerShape: 3 });
+  assert.deepEqual(innerSettings({}).wakes.selfimprovement, { at: '03:00', failuresPerShape: 3 });
 });
 
-test('the settings take positive whole numbers from selfimprovement and the default for anything else', () => {
-  const set = innerSettings({ selfimprovement: { everyDays: 3, failuresPerShape: 5 } });
-  assert.deepEqual(set.wakes.selfimprovement, { everyDays: 3, failuresPerShape: 5 });
-  const bad = innerSettings({ selfimprovement: { everyDays: 0, failuresPerShape: 'x' } });
-  assert.deepEqual(bad.wakes.selfimprovement, { everyDays: 7, failuresPerShape: 3 });
+test('the settings take an HH:MM and a positive whole number from selfimprovement and the default for anything else', () => {
+  // Changed for spec 2026-11-02 "`selfimprovement` daily, after the watcher": the daily `at` replaces `everyDays`.
+  const set = innerSettings({ selfimprovement: { at: '05:15', failuresPerShape: 5 } });
+  assert.deepEqual(set.wakes.selfimprovement, { at: '05:15', failuresPerShape: 5 });
+  const bad = innerSettings({ selfimprovement: { at: '5pm', failuresPerShape: 'x' } });
+  assert.deepEqual(bad.wakes.selfimprovement, { at: '03:00', failuresPerShape: 3 });
 });
 
 test('a selfimprovement wake has its own chain, no place and an id by its time', () => {
@@ -57,17 +59,8 @@ test('a selfimprovement wake has its own chain, no place and an id by its time',
   assert.equal(wake.dueAt, START);
 });
 
-test('the weekly wake falls on the heartbeat moment once the days have passed since the last one', () => {
-  const wake = weeklyWake({ heartbeatAt: START + 7 * DAY, lastAt: START, everyDays: 7 });
-  assert.equal(wake?.reason, 'weekly');
-  assert.equal(wake?.dueAt, START + 7 * DAY);
-  assert.equal(weeklyWake({ heartbeatAt: START + 7 * DAY - 1, lastAt: START, everyDays: 7 }), null);
-});
-
-test('there is no weekly wake while the heartbeat moment or the last wake is unknown', () => {
-  assert.equal(weeklyWake({ heartbeatAt: null, lastAt: START, everyDays: 7 }), null);
-  assert.equal(weeklyWake({ heartbeatAt: START + 30 * DAY, lastAt: null, everyDays: 7 }), null);
-});
+// Changed for spec 2026-11-02 "`selfimprovement` daily, after the watcher": the two tests of `weeklyWake` went with it; the daily
+// wake's rule is tested in tests/inner-selfimprovement-daily.test.ts.
 
 test('three failed chains of one shape in a day are a cause, naming the shape and the count', () => {
   const chains = [chain('f1', START - 3 * HOUR), chain('f2', START - 2 * HOUR), chain('f3', START - HOUR)];
@@ -148,7 +141,8 @@ function setup() {
         caps: { perChain: 3 },
       },
       heartbeat: { enabled: false },
-      selfimprovement: { everyDays: 7, failuresPerShape: 3 },
+      // Changed for spec 2026-11-02 "`selfimprovement` daily, after the watcher": the daily `at` replaces `everyDays`.
+      selfimprovement: { at: '03:00', failuresPerShape: 3 },
     },
   };
   const service = createIntentionService({
@@ -222,7 +216,8 @@ function setup() {
   return { clock, life, calls, records, acked };
 }
 
-test('the first tick starts the weekly count and raises nothing', async () => {
+// Changed for spec 2026-11-02 "`selfimprovement` daily, after the watcher": the first tick starts the daily clock.
+test('the first tick starts the selfimprovement clock and raises nothing', async () => {
   const run = setup();
   const tick = await run.life.tick();
   assert.equal(tick.submitted, 0);
