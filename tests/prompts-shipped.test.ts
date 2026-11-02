@@ -103,6 +103,9 @@ const NOT_BUILT = {
   // Built inside the createMessageHandler closure of src/behavior/pipeline.ts (buildFollowUpRequest),
   // which fetches its own history: no seam reaches it (owner decision O-9).
   address: 'built inside the src/behavior/pipeline.ts closure (O-9)',
+  // The brief of a dev run that patches her own code: `neptunia selfdev run` fills it (src/selfdev/service.ts#briefFrom),
+  // and tests/selfdev-service.test.ts checks what the run is given.
+  selfdev: 'filled by bin/selfdev.ts through src/selfdev/service.ts#briefFrom, a dev run reads it',
   // Split into families and drawn from line by line (src/behavior/diary.ts#pickSeeds): the plan
   // request carries a few random lines in <seeds>, never the file whole.
   'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.ts#pickSeeds), never sent whole',

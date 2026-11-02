@@ -1,15 +1,16 @@
 // She codes herself, end to end (item E of the final plan), over a real task board and fakes for the subharness
 // runner, git, gh and the test runner: her `board.propose` of kind `fix` becomes a dev task, a dev attempt works in a
 // worktree the engine makes from the base branch, the engine runs the tests of the touched modules and opens the pull
-// request, a merge is observed through `gh pr view` and reaches her wake once, a released class merges when CI is
+// request, a merge is observed through `gh pr view` and reaches her wake once, the engine merges in auto mode when CI is
 // green and the journal says who decided, and a refusal is a board event with its reason. Each test names the bug it
 // catches.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import { buildSelfimprovementFacts, proposalsOf } from '../src/behavior/selfimprovement-view.ts';
 import { ackLanded, landedFor } from '../src/selfdev/landed.ts';
-import { createSelfdev } from '../src/selfdev/service.ts';
+import { briefFrom, createSelfdev } from '../src/selfdev/service.ts';
 import { FAILING_TAP, FIX_REQUEST, PR_URL, SELFDEV_T0, proposeFix, selfdevWorld } from './fixtures/selfdev-rig.ts';
 import type { SelfdevWorld } from './fixtures/selfdev-rig.ts';
 
@@ -62,7 +63,7 @@ test('she files a fix about herself, dev patches it, the owner merges it and she
   assert.equal(show(world, id).task.status, 'needs_validation');
 
   // Nothing lands while the owner has not merged.
-  world.released = [];
+  world.mode = 'approve';
   assert.deepEqual(
     (await service.observe()).map((one) => one.action),
     ['waiting-owner']
@@ -129,7 +130,7 @@ test('the attempt works in a worktree made from the base branch and never in the
   const tree = path.join(world.worktreeRoot, id);
   const add = world.git.find((call) => call.args[0] === 'worktree' && call.args[1] === 'add');
   // Bug: the agent edits the live checkout, or branches from whatever HEAD the checkout is on.
-  assert.deepEqual(add?.args, ['worktree', 'add', '-b', `selfdev/${id}`, tree, 'main']);
+  assert.deepEqual(add?.args, ['worktree', 'add', '-b', `self/${id}`, tree, 'main']);
   assert.equal(add?.cwd, world.repoDir);
   assert.equal(world.runs.length, 1);
   assert.equal(world.runs[0]?.cwd, tree);
@@ -219,15 +220,15 @@ test('an agent that changed nothing opens no pull request', async (t) => {
 test('the handoff is a pull request: the branch, the URL, the body with the evidence, the files and the tests', async (t) => {
   const world = selfdevWorld(t);
   const { id, report } = await submitted(world);
-  assert.equal(report.branch, `selfdev/${id}`);
+  assert.equal(report.branch, `self/${id}`);
   assert.equal(report.pr, 12);
   assert.equal(world.create.base, 'main');
-  assert.equal(world.create.head, `selfdev/${id}`);
+  assert.equal(world.create.head, `self/${id}`);
   assert.equal(world.create.title, FIX_REQUEST.title);
   const view = show(world, id);
   assert.equal(view.task.status, 'needs_validation');
   // Bug: the owner gets a review request with no branch, no way to read why, or a body without the proof.
-  assert.deepEqual(view.handoff?.artifacts, [`selfdev/${id}`, PR_URL]);
+  assert.deepEqual(view.handoff?.artifacts, [`self/${id}`, PR_URL]);
   assert.deepEqual(view.handoff?.evidence, ['src/web/read.ts', 'tests/web-read.test.ts']);
   const result = view.results.find((row) => row.kind === 'pr');
   assert.equal(result?.uri, PR_URL);
@@ -342,24 +343,24 @@ test('a pull request closed without a merge cancels the task and does not tell h
   assert.deepEqual((await landedFor(world.caller)).landed, []);
 });
 
-test('a released class merges without the owner when every check is green, and the journal says the rule decided', async (t) => {
+test('in auto mode the engine merges when every check is green, deletes the branch and the journal says auto decided', async (t) => {
   const world = selfdevWorld(t);
-  world.released = ['prompts/*.md', 'config/labels.json'];
-  world.changed = ['prompts/format.md', 'config/labels.json'];
+  world.mode = 'auto';
   const { id, service } = await submitted(world);
   assert.deepEqual(
     (await service.observe()).map((one) => one.action),
-    ['merged-released']
+    ['merged-auto']
   );
   const merges = world.gh.filter((call) => call.args[1] === 'merge');
   assert.equal(merges.length, 1);
   assert.ok(merges[0]?.args.includes('12'));
+  // Bug: the branch of a merged request stays on the remote.
+  assert.ok(merges[0]?.args.includes('--delete-branch'));
   assert.equal(show(world, id).task.status, 'done');
   const merged = world.journal.filter((line) => line.event === 'merged');
   // Bug: the log says "owner" for a merge nobody approved, so the owner cannot tell who decided.
   assert.equal(merged.length, 1);
-  assert.equal(merged[0]?.decidedBy, 'released-class');
-  assert.deepEqual(merged[0]?.globs, ['prompts/*.md', 'config/labels.json']);
+  assert.equal(merged[0]?.decidedBy, 'auto');
   // The look after the merge does not merge again nor write a second event.
   assert.deepEqual(
     (await service.observe()).map((one) => one.action),
@@ -368,7 +369,7 @@ test('a released class merges without the owner when every check is green, and t
   assert.equal(world.gh.filter((call) => call.args[1] === 'merge').length, 1);
   const { landed } = await landedFor(world.caller);
   assert.equal(landed.length, 1);
-  assert.equal(landed[0]?.decidedBy, 'released-class');
+  assert.equal(landed[0]?.decidedBy, 'auto');
 });
 
 for (const [label, checks] of [
@@ -376,10 +377,9 @@ for (const [label, checks] of [
   ['a check is still running', ['SUCCESS', 'PENDING']],
   ['there is no check at all', []],
 ] as const) {
-  test(`a released class does not merge when ${label}`, async (t) => {
+  test(`in auto mode the engine does not merge when ${label}`, async (t) => {
     const world = selfdevWorld(t);
-    world.released = ['prompts/*.md'];
-    world.changed = ['prompts/format.md'];
+    world.mode = 'auto';
     const { id, service } = await submitted(world);
     world.pr.checks = [...checks];
     // Bug: the rule merges on "no red seen" and lands a change CI has not passed.
@@ -392,66 +392,47 @@ for (const [label, checks] of [
       false
     );
     assert.equal(show(world, id).task.status, 'needs_validation');
-    assert.equal(
-      world.journal.some((line) => line.event === 'merged'),
-      false
-    );
-    // Green later: the same task merges on a later look.
     world.pr.checks = ['SUCCESS'];
     assert.deepEqual(
       (await service.observe()).map((one) => one.action),
-      ['merged-released']
+      ['merged-auto']
     );
   });
 }
 
-test('a path outside the released classes waits for the owner even with green checks, and says so once', async (t) => {
+test('in approve mode the draft becomes a request to the owner only once CI is green, and the engine never merges', async (t) => {
   const world = selfdevWorld(t);
-  world.released = ['prompts/*.md'];
-  world.changed = ['prompts/format.md', 'src/core.ts'];
   const { id, service } = await submitted(world);
+  // The request is opened as a draft.
+  assert.ok(world.gh.find((call) => call.args[1] === 'create')?.args.includes('--draft'));
+  world.pr.checks = ['SUCCESS', 'PENDING'];
+  assert.deepEqual(
+    (await service.observe()).map((one) => one.action),
+    ['waiting-ci']
+  );
+  // Bug: the owner is asked to look at a request CI has not passed.
+  assert.equal(world.pr.ready, false);
+  world.pr.checks = ['SUCCESS'];
   assert.deepEqual(
     (await service.observe()).map((one) => one.action),
     ['waiting-owner']
   );
-  assert.deepEqual(
-    (await service.observe()).map((one) => one.action),
-    ['waiting-owner']
-  );
-  // Bug: the prompt edit carries a src/ change through the release.
+  assert.equal(world.pr.ready, true);
+  await service.observe();
+  assert.equal(world.gh.filter((call) => call.args[1] === 'ready').length, 1);
   assert.equal(
     world.gh.some((call) => call.args[1] === 'merge'),
     false
   );
   assert.equal(show(world, id).task.status, 'needs_validation');
-  const notes = show(world, id).comments;
-  assert.equal(notes.length, 1);
-  assert.ok(notes[0]?.text.includes('src/core.ts'));
-  assert.ok(!notes[0]?.text.includes('prompts/format.md'));
 });
 
-test('with nothing released every pull request waits for the owner', async (t) => {
+test('the mode is read at each look, so the owner can take the merge back', async (t) => {
   const world = selfdevWorld(t);
-  world.released = [];
-  world.changed = ['prompts/format.md'];
+  world.mode = 'auto';
   const { service } = await submitted(world);
-  assert.deepEqual(
-    (await service.observe()).map((one) => one.action),
-    ['waiting-owner']
-  );
-  assert.equal(
-    world.gh.some((call) => call.args[1] === 'merge'),
-    false
-  );
-});
-
-test('the released classes are read at each look, so the owner can take a class back', async (t) => {
-  const world = selfdevWorld(t);
-  world.released = ['prompts/*.md'];
-  world.changed = ['prompts/format.md'];
-  const { service } = await submitted(world);
-  // Bug: the globs are cached when the service is made, and a revoked class still merges.
-  world.released = [];
+  // Bug: the mode is cached when the service is made, and a revoked auto still merges.
+  world.mode = 'approve';
   assert.deepEqual(
     (await service.observe()).map((one) => one.action),
     ['waiting-owner']
@@ -464,8 +445,7 @@ test('the released classes are read at each look, so the owner can take a class 
 
 test('a failed merge command leaves the task waiting and records nothing as merged', async (t) => {
   const world = selfdevWorld(t);
-  world.released = ['prompts/*.md'];
-  world.changed = ['prompts/format.md'];
+  world.mode = 'auto';
   const { id, service } = await submitted(world);
   world.pr.mergeCode = 1;
   await service.observe();
@@ -476,4 +456,39 @@ test('a failed merge command leaves the task waiting and records nothing as merg
     false
   );
   assert.deepEqual((await landedFor(world.caller)).landed, []);
+  // The owner merges it by hand afterwards: that is the owner's decision, not the engine's.
+  world.pr.state = 'MERGED';
+  await service.observe();
+  assert.equal(world.journal.find((line) => line.event === 'merged')?.decidedBy, 'owner');
+});
+
+test('a merge by the owner and a close both delete the branch', async (t) => {
+  const world = selfdevWorld(t);
+  const { id, service } = await submitted(world);
+  world.pr.state = 'MERGED';
+  await service.observe();
+  // Bug: the branch of a merged request stays on the remote.
+  const removal = world.git.find((call) => call.args[0] === 'push' && call.args.includes('--delete'));
+  assert.ok(removal?.args.includes(`self/${id}`));
+});
+
+test('the shipped brief fills every placeholder from the fix and keeps the refusal tag', () => {
+  const template = fs.readFileSync(path.join(import.meta.dirname, '..', 'prompts', 'selfdev.md'), 'utf8');
+  const text = briefFrom(template, {
+    id: 'T-abc',
+    title: 'Raise the timeout',
+    evidence: 'EVIDENCE-TEXT',
+    acceptance: 'ACCEPT-TEXT',
+    examples: ['t1', 't2'],
+    counterexamples: ['c1'],
+    benefit: 'BENEFIT-TEXT',
+    evaluation: 'EVAL-TEXT',
+  });
+  // Bug: a placeholder the file names and the code does not fill goes to the dev agent as literal braces.
+  assert.equal(text.includes('{{'), false, text);
+  for (const part of ['T-abc', 'EVIDENCE-TEXT', 'ACCEPT-TEXT', '- t1\n- t2', '- c1', 'BENEFIT-TEXT', 'EVAL-TEXT']) {
+    assert.ok(text.includes(part), part);
+  }
+  // The engine reads this tag in the agent's final message.
+  assert.ok(text.includes('REFUSED: <reason>'));
 });

@@ -48,8 +48,8 @@ export type SelfdevWorld = {
   gh: Array<{ args: ReadonlyArray<string>; cwd: string }>;
   tests: Array<{ file: string; args: ReadonlyArray<string>; cwd: string }>;
   runs: Array<{ taskId: string; brief: string; cwd: string }>;
-  /** The `selfdev.released` globs and the base branch the settings read. */
-  released: Array<string>;
+  /** The `selfdev.mode` and the base branch the settings read. */
+  mode: 'approve' | 'auto';
   base: string;
   /** The paths the fake agent leaves changed in its worktree. */
   changed: Array<string>;
@@ -68,6 +68,8 @@ export type SelfdevWorld = {
     files: Array<string> | null;
     checks: Array<CheckState>;
     mergeCode: number;
+    /** `gh pr ready` ran: the draft is a request to the owner. */
+    ready: boolean;
   };
 };
 
@@ -127,14 +129,14 @@ export function selfdevWorld(t: { after: (fn: () => void) => void }): SelfdevWor
     gh: [],
     tests: [],
     runs: [],
-    released: [],
+    mode: 'approve',
     base: 'main',
     changed: ['src/web/read.ts', 'tests/web-read.test.ts'],
     existing: new Set(['tests/web-read.test.ts', 'tests/unrelated.test.ts']),
     agent: { ok: true, text: 'Raised the limit and added a case. All 99 tests pass.' },
     testRun: { code: 0, stdout: PASSING_TAP },
     create: { code: 0, stderr: '', title: null, body: null, base: null, head: null },
-    pr: { state: 'OPEN', title: null, files: null, checks: ['SUCCESS'], mergeCode: 0 },
+    pr: { state: 'OPEN', title: null, files: null, checks: ['SUCCESS'], mergeCode: 0, ready: false },
     deps: undefined as unknown as SelfdevDeps,
   };
   world.deps = {
@@ -201,6 +203,10 @@ export function selfdevWorld(t: { after: (fn: () => void) => void }): SelfdevWor
           stderr: '',
         });
       }
+      if (args[0] === 'pr' && args[1] === 'ready') {
+        world.pr.ready = true;
+        return Promise.resolve({ code: 0, stdout: '', stderr: '' });
+      }
       if (args[0] === 'pr' && args[1] === 'merge') {
         if (world.pr.mergeCode === 0) world.pr.state = 'MERGED';
         return Promise.resolve({ code: world.pr.mergeCode, stdout: '', stderr: world.pr.mergeCode === 0 ? '' : 'refused' });
@@ -213,7 +219,7 @@ export function selfdevWorld(t: { after: (fn: () => void) => void }): SelfdevWor
       return Promise.resolve({ code: world.testRun.code, stdout: world.testRun.stdout, stderr: '' });
     },
     brief: (task) => `BRIEF ${task.id}: ${task.title}\n${task.evidence}`,
-    settings: () => ({ released: world.released, base: world.base }),
+    settings: () => ({ mode: world.mode, base: world.base }),
     triage: () => ({ role: 'dev', budget: 4, steps: 80, estimate: 30 }),
     journal: (line) => world.journal.push(line),
     fileExists: (_dir, relative) => world.existing.has(relative),
@@ -278,7 +284,7 @@ export async function proposeFix(
  */
 export function landTaskDirectly(
   world: SelfdevWorld,
-  landed: { title: string; files: Array<string>; pr: number; decidedBy: 'owner' | 'released-class' } | null
+  landed: { title: string; files: Array<string>; pr: number; decidedBy: 'owner' | 'auto' } | null
 ): string {
   const { caller } = world;
   const task = caller.call('persona', 'task.add', {

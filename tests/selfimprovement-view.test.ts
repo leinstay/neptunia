@@ -423,7 +423,7 @@ test('a question and a rejection on her proposals appear in the next wake once, 
   const second = await buildSelfimprovementFacts(
     base([], { now: wakeAt + 7 * DAY, since: wakeAt, proposals: again.entries, outbox: again.outbox })
   );
-  assert.deepEqual(second.news, { questions: [], reviews: [], outbox: [] });
+  assert.deepEqual(second.news, { questions: [], reviews: [], outbox: [], landed: [] });
   assert.deepEqual(second.outboxSeqs, []);
   assert.equal(second.proposals.length, 2, 'the proposals stay listed with their state');
 });
