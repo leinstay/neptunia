@@ -11,6 +11,7 @@
 // table's shape cannot say. The parse is pure and never throws.
 
 import { MODEL_SET_ROLES, ROUTE_ROLES } from '../../tools/impl/catalog.ts';
+import { isDay } from '../../watcher/read.ts';
 
 /** One argument of a command, in the order the line gives them. */
 export type CommandArg = { name: string; required: boolean; choices?: ReadonlyArray<string> };
@@ -63,6 +64,12 @@ function checkLogs(_name: string, args: Readonly<Record<string, string>>): strin
   return null;
 }
 
+/** The date of `/report`: none (the latest report) or a real date written YYYY-MM-DD. */
+function checkReportDay(_name: string, args: Readonly<Record<string, string>>): string | null {
+  const day = args.day;
+  return day === undefined || isDay(day) ? null : `/report takes a date written YYYY-MM-DD, not "${day}"`;
+}
+
 /** The target of `/tools grant` and `/tools revoke`: none (her), `everyone`, `role <id>` or `user <id>`. */
 function checkTarget(name: string, args: Readonly<Record<string, string>>): string | null {
   if (name !== 'tools.grant' && name !== 'tools.revoke') return null;
@@ -97,6 +104,13 @@ export const COMMANDS: ReadonlyArray<Command> = [
     args: [arg('options', false)],
     subcommands: [],
     check: checkLogs,
+  },
+  {
+    name: 'report',
+    help: "the watcher's latest report, or the report of a date: /report [YYYY-MM-DD]",
+    args: [arg('day', false)],
+    subcommands: [],
+    check: checkReportDay,
   },
   {
     name: 'usage',

@@ -1,0 +1,39 @@
+# systemd unit for the daily watcher (src/watcher/, docs/watcher.md): one run, one report.
+#
+# `neptunia watcher run` asks the watcher agent once, checks its answer, files the tasks it asks for on the board as the
+# client `watcher` and writes `<watcher.dir>/reports/<UTC date>.md`. neptunia-watcher.timer starts it at 00:00 UTC.
+# A start that finds a report for the day does nothing. The unit is a oneshot, so the timer skips a day whose run is
+# still going, and it never restarts itself after a failed run.
+#
+# The user is an agent user, never the core's: it reads the checkout, the private layer, the data folder and the logs,
+# writes only the watcher folder and the board through the socket, and holds the login of the agent backend.
+#
+# Install:
+#   sudo useradd --system --create-home --shell /usr/sbin/nologin neptunia-agent-watcher
+#   sudo usermod -aG neptunia neptunia-agent-watcher   # the group that reaches the core's socket
+#   sudo -u neptunia-agent-watcher mkdir -p /opt/neptunia/app/.agents/watcher/reports
+#   NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc node scripts/client-token.ts add watcher --kind agent --roles watcher
+#   sudo chown neptunia-agent-watcher /opt/neptunia/etc/clients/watcher.token && sudo chmod 0600 /opt/neptunia/etc/clients/watcher.token
+#   sudo cp deploy/neptunia-watcher.service deploy/neptunia-watcher.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now neptunia-watcher.timer
+# Run now: sudo systemctl start neptunia-watcher.service
+# Logs:    journalctl -u neptunia-watcher
+
+[Unit]
+Description=neptunia watcher (one daily report)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=neptunia-agent-watcher
+WorkingDirectory=/opt/neptunia/app
+ExecStart=/opt/node/bin/node bin/neptunia.ts watcher run
+# The bot's directories (deploy/neptunia-bot.service), set as in its unit.
+Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc
+Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
+Environment=NEPTUNIA_TASK_CLIENT=watcher
+# A run takes what it takes.
+TimeoutStartSec=infinity
+NoNewPrivileges=yes
+PrivateTmp=yes

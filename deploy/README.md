@@ -9,6 +9,7 @@ The systemd units of the engine and the script that installs them. `deploy/insta
 | `neptunia-interface@.service` | One interface, `neptunia interface run %i`, as the user `neptunia-%i-interface`. |
 | `neptunia-plugin@.service` | One plugin, `neptunia plugin run %i`, as the user `neptunia-plugin-%i`. See [Running a plugin as a unit](#running-a-plugin-as-a-unit). |
 | `neptunia-agent-scout.service`, `neptunia-agent-server.service` | The errand agents, `neptunia errand-runner --profile <name>`. Their headers say how to install them. |
+| `neptunia-watcher.service`, `neptunia-watcher.timer` | The daily watcher, `neptunia watcher run`, started by the timer at 00:00 UTC as an agent user. The header of the service says how to install them. See [The watcher](../docs/watcher.md). |
 
 ## Running the interfaces as units
 

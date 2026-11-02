@@ -11,6 +11,7 @@
 //   neptunia plugin run <name>                   one plugin (deploy/neptunia-plugin@.service)
 //   neptunia service install|start|stop|restart|status [<unit> ...]   the units, through systemctl
 //   neptunia task <command> [options]            the task board's command line (bin/neptunia-task.ts)
+//   neptunia watcher run                         one run of the daily watcher (deploy/neptunia-watcher.service)
 //
 // Every command reads `NEPTUNIA_PRIVATE_DIR` (the local layer) and `NEPTUNIA_DATA_DIR` (the data folder), as the core
 // does (src/paths.ts). A usage error exits 2.
@@ -20,9 +21,9 @@
 // line typed is a `message.received` event in the direct chat `cli:dm:owner` between the owner and the persona, and
 // her reply arrives as a send action and is printed. A line starting with `/` is parsed by the command table
 // (src/interface/commands/table.ts), which prints the reason of a line it refuses, and becomes a `command.requested`
-// event: its answer is printed for the owner and never reaches her memory or her requests. `/clear`, `/doctor` and
-// `/logs` (journalctl of the core's unit, from PATH) run here and ask the core nothing, but `/doctor live` asks it
-// for the probes of the model roles. A line typed before the link is up waits in the input until it is. The chat opens with the core's
+// event: its answer is printed for the owner and never reaches her memory or her requests. `/clear`, `/doctor`,
+// `/logs` (journalctl of the core's unit, from PATH) and `/report` (the watcher's report, rendered by bin/markdown.ts)
+// run here and ask the core nothing, but `/doctor live` asks it for the probes of the model roles. A line typed before the link is up waits in the input until it is. The chat opens with the core's
 // header and, above it, the picture in `<private>/cli/picture.txt` when that file exists. In a terminal the command
 // history is kept in `<private>/cli/history`. The end of the input ends the chat with exit 0, once the answers of the
 // commands still running have arrived.
@@ -30,6 +31,12 @@
 // `-p` sends one command the same way and prints its answer alone. It exits 0 when the command ran, 1 for a line the
 // table refuses (the reason on stderr), for any other answer than `ok`, or when no core listens for a command that
 // needs one. Log lines of the chat and of `-p` go to stderr.
+//
+// `watcher run` reads the watcher's folder (`watcher.dir`, default `.agents/watcher`: `prompt.md` and `reports/`), asks
+// the watcher agent once (src/watcher/run.ts) and writes `reports/<UTC date>.md`. It files the tasks the agent asks for
+// on the board over the core's socket as the client `NEPTUNIA_TASK_CLIENT` (default `watcher`, whose token is
+// `NEPTUNIA_TASK_TOKEN` or `<private>/clients/watcher.token`). It exits 0 for a report written or already there, and 1
+// for a run that failed, with the code on stderr.
 //
 // `doctor` writes nothing and asks the core nothing without `--live`: it checks Node, the binaries the engine runs, config.json and
 // config.local.json, the local layer, the `.env` keys of the enabled roles, the client tokens, the memory database
@@ -115,7 +122,11 @@ import type {
 } from '../src/protocol/plugin.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
 import { parseManifest } from '../src/plugins/manifest.ts';
-import { runTask } from './neptunia-task.ts';
+import { runTask, openBoardCaller } from './neptunia-task.ts';
+import { reportAnswer } from './report.ts';
+import { reportsDirOf, watcherDir } from '../src/watcher/read.ts';
+import { runWatcher } from '../src/watcher/run.ts';
+import type { RunAgent } from '../src/watcher/run.ts';
 import type { CommandResult, Logger } from '../src/protocol/serve.ts';
 import { MAX_FRAME_BYTES, connectSocket } from '../src/protocol/wire.ts';
 import type { Transport } from '../src/protocol/wire.ts';
@@ -129,6 +140,7 @@ const USAGE = [
   '       neptunia plugin run <name>',
   '       neptunia service install|start|stop|restart|status [<unit> ...]',
   '       neptunia task <command> [options]   (neptunia task help)',
+  '       neptunia watcher run',
 ].join('\n');
 
 /** The first wait before a new connection, and the longest. */
@@ -434,8 +446,8 @@ type Command = { name: string; args: Record<string, unknown> };
 /** One answer of a command, from the core or from the command line itself. */
 type Answer = { text: string; status: string };
 
-/** The commands the command line runs itself, with no core: the doctor, the journal and the screen. */
-const LOCAL_COMMANDS = new Set(['doctor', 'doctor.live', 'logs', 'clear']);
+/** The commands the command line runs itself, with no core: the doctor, the journal, the screen and the report. */
+const LOCAL_COMMANDS = new Set(['doctor', 'doctor.live', 'logs', 'clear', 'report']);
 
 /** The core's unit, whose journal `/logs` reads (deploy/neptunia-core.service). */
 const CORE_UNIT = 'neptunia-core.service';
@@ -498,10 +510,28 @@ const checkLines = (checks: ReadonlyArray<Check>): string =>
     .map((check) => `${check.status.padEnd(7)}  ${check.name.padEnd(11)}  ${check.detail.replaceAll('\n', '; ')}`)
     .join('\n');
 
+/** The watcher's reports folder: `watcher.dir` of the settings as this user can read them, else the default. */
+function reportsDirIn(where: { rootDir: string; privateDir: string }): string {
+  let config: unknown = {};
+  try {
+    config = readConfig(where.rootDir, { privateDir: where.privateDir });
+  } catch {
+    // Settings this user cannot read: the default folder under the checkout.
+  }
+  return reportsDirOf(where.rootDir, watcherDir(config));
+}
+
 /** A command the command line runs itself; `ask` reaches the core for the probes of `doctor.live`, null when down. */
 async function runLocal(command: Command, ask: ((command: Command) => Promise<Answer>) | null): Promise<Answer> {
   if (command.name === 'clear') return { text: '', status: 'ok' };
   if (command.name === 'logs') return readJournal(typeof command.args.options === 'string' ? command.args.options : '');
+  if (command.name === 'report') {
+    return reportAnswer({
+      reportsDir: reportsDirIn(paths()),
+      day: typeof command.args.day === 'string' ? command.args.day : undefined,
+      color: process.stdout.isTTY && !process.env.NO_COLOR,
+    });
+  }
   const checks = await doctorChecks(paths(), command.name === 'doctor.live' ? { ask } : null);
   return { text: checkLines(checks), status: checks.some((check) => check.status === 'fail') ? 'failed' : 'ok' };
 }
@@ -1323,6 +1353,34 @@ async function runPlugin(argv: ReadonlyArray<string>): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// watcher
+
+/** The agent backend that answers the watcher's brief (plan item 0). Replace this one definition with the backend. */
+const runAgent: RunAgent = () => Promise.reject(new Error('no agent backend is wired to the watcher'));
+
+async function runWatcherCommand(argv: ReadonlyArray<string>): Promise<void> {
+  const [command, ...extra] = argv;
+  if (command !== 'run' || extra.length > 0) usage();
+  const reportsDir = reportsDirIn(paths());
+  const opened = await openBoardCaller({
+    ...process.env,
+    NEPTUNIA_TASK_CLIENT: process.env.NEPTUNIA_TASK_CLIENT || 'watcher',
+  });
+  if (typeof opened === 'string') die(`the board is not reachable: ${opened}`);
+  try {
+    const result = await runWatcher({ now: Date.now, runAgent, board: opened.board, reportsDir });
+    if (!result.ok) die(`the watcher run of ${result.day} failed: ${result.code}, ${result.detail}`);
+    console.log(
+      result.ran
+        ? `watcher: report of ${result.day} written, ${result.filed.length} tasks filed`
+        : `watcher: report of ${result.day} already there`
+    );
+  } finally {
+    opened.close();
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 
 const [group, ...rest] = process.argv.slice(2);
 const fault = (err: unknown): never => die(err instanceof Error ? err.message : String(err));
@@ -1353,6 +1411,10 @@ switch (group) {
     break;
   case 'task':
     process.exit(await runTask(rest).catch(fault));
+    break;
+  case 'watcher':
+    await runWatcherCommand(rest).catch(fault);
+    process.exit(0);
     break;
   default:
     usage();
