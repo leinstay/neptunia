@@ -476,7 +476,7 @@
     },
     {
       "path": "src/subharness/",
-      "purpose": "The subharness: the owner's switch of the agent backend and the mode of each agent over keys.json, the one seam every agent run goes through, and the rows that say what is off.",
+      "purpose": "The subharness: the owner's switch of the agent backend and the mode of each agent over keys.json, the one seam every agent run goes through, where each backend is installed in the private layer, and the rows that say what is off.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
