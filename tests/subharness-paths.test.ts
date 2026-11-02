@@ -308,11 +308,17 @@ function consoleOver(dir: string, subharness: ConsoleDeps['subharness']) {
   return { desk: createConsole(deps), ops };
 }
 
+/** The console deps of a rig without its privateDir, which the console takes from the dir. */
+function withoutPrivateDir<T extends { privateDir?: unknown }>(deps: T): Omit<T, 'privateDir'> {
+  const copy: Record<string, unknown> = { ...deps };
+  delete copy.privateDir;
+  return copy as Omit<T, 'privateDir'>;
+}
+
 test('model set for an agent goes through its subharness with the effort, not to the key commands', async () => {
   // Catches: "/model set dev" written into models.development.dev, which no subharness run reads.
   const { dir, deps, ran } = rig();
-  const { privateDir: _privateDir, ...given } = deps;
-  const { desk, ops } = consoleOver(dir, given);
+  const { desk, ops } = consoleOver(dir, withoutPrivateDir(deps));
   const answer = await desk.run('model.set', { role: 'dev', model: 'gpt-6.1-sol', effort: 'low' }, { id: 'owner' });
   assert.equal(answer.status, 'ok');
   assert.notEqual(answer.text, 'keys answered');
