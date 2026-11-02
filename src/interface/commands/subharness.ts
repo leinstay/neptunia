@@ -99,7 +99,7 @@ export async function subharnessCommand(
       }
     }
     case 'subharness.disable':
-      return answerOf(name, args, await disableSubharness(privateDir));
+      return answerOf(name, args, await disableSubharness(privateDir, text(args.backend)));
     case 'subharness.mode': {
       const agent = text(args.agent);
       const mode = text(args.mode);

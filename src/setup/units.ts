@@ -9,14 +9,18 @@
 //
 // A subharness backend lives in `<private>/subharness/<backend>/` (src/subharness/place.ts), binary and home. The core
 // writes it through the private folder of its `ReadWritePaths=`, and the watcher has no mount sandbox. An agent unit in
-// `read` or `write` hides the home (`ProtectHome=tmpfs`) and sees the private folder read-only, so the folder of the
-// backend in keys.json is bound writable into it, and nothing above it: keys.json stays out of the agent's reach.
+// `read` or `write` hides the home (`ProtectHome=tmpfs`) and sees the private folder read-only, so the folder of every
+// backend connected in keys.json is bound writable into it, and nothing above it: keys.json stays out of the agent's
+// reach.
+//
+// The watcher's timer fires at `watcher.at` when the render is given that hour; the other timers keep their lines.
 
 import path from 'node:path';
 import { UNIT_SCOPE_ENV } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import type { AgentMode, SubharnessAgent } from '../subharness/control.ts';
 import { subharnessPlace } from '../subharness/place.ts';
+import { isClockTime } from '../time.ts';
 
 /** The templates `setup` renders, by file name. The bot unit and the plugin template are not among them. */
 export const UNIT_FILES: ReadonlyArray<string> = [
@@ -36,6 +40,9 @@ export const SELFIMPROVEMENT_UNIT_FILES: ReadonlyArray<string> = [
   'neptunia-selfimprovement.service',
   'neptunia-selfimprovement.timer',
 ];
+
+/** The `Unit=` line of the watcher's timer. */
+const WATCHER_TIMER = /^Unit=neptunia-watcher\.service$/m;
 
 /** The `ExecStart=` of an agent unit: the errand runner. */
 const AGENT_RUNNER = /^ExecStart=\S+ bin\/neptunia\.ts errand-runner\b/m;
@@ -59,8 +66,10 @@ export type UnitVars = {
   node: string;
   /** the mode of the agent the unit runs; absent keeps the template's own sandbox */
   mode?: AgentMode;
-  /** the subharness backend of keys.json; an agent unit binds its folder in the private layer writable */
-  backend?: BackendName | null;
+  /** the connected backends of keys.json; an agent unit binds the folder of each in the private layer writable */
+  backends?: ReadonlyArray<BackendName>;
+  /** `watcher.at` (`HH:MM`, UTC): the watcher's timer fires then; absent keeps the template's `OnCalendar=` */
+  watcherAt?: string;
 };
 
 /** The directives of the mount sandbox: gone in the modes `full` and `sudo`. */
@@ -114,9 +123,19 @@ type LineRules = {
   dropped: ReadonlySet<string>;
   keepsHome: boolean;
   isInterface: boolean;
-  /** the backend's folder bound after the unit's `ProtectHome=` line, null when the unit binds none */
-  backendDir: string | null;
+  /** the backends' folders bound after the unit's `ProtectHome=` line, none when the unit binds none */
+  backendDirs: ReadonlyArray<string>;
+  /** the `OnCalendar=` line of the watcher's timer, null for any other unit or with no hour given */
+  calendar: string | null;
 };
+
+/** The lines the backends' binds and the watcher's hour make of `line`, or null when they leave it alone. */
+function renderedLines(line: string, key: string | null, rules: LineRules): Array<string> | null {
+  if (rules.backendDirs.length > 0 && key === 'ProtectHome')
+    return [line, ...rules.backendDirs.map((dir) => `BindPaths=-${dir}`)];
+  if (rules.calendar !== null && key === 'OnCalendar') return [rules.calendar];
+  return null;
+}
 
 /** The lines `line` becomes: none when it is dropped, two for `User=` of a system unit. */
 function linesOf(line: string, rules: LineRules): Array<string> {
@@ -127,7 +146,8 @@ function linesOf(line: string, rules: LineRules): Array<string> {
   if (key === 'User') return scope === 'system' ? [`User=${vars.user}`, `Group=${vars.group}`] : [];
   if (scope === 'user' && line === 'WantedBy=multi-user.target') return ['WantedBy=default.target'];
   if (scope === 'user' && rules.isInterface && key === 'InaccessiblePaths') return [];
-  if (rules.backendDir !== null && key === 'ProtectHome') return [line, `BindPaths=-${rules.backendDir}`];
+  const rendered = renderedLines(line, key, rules);
+  if (rendered !== null) return rendered;
   if (rules.keepsHome && key === 'BindReadOnlyPaths') {
     const bound = line.slice('BindReadOnlyPaths='.length).split(/\s+/).filter(Boolean);
     return [`BindReadOnlyPaths=${[...bound, ...visibleHomePaths(vars, bound)].join(' ')}`];
@@ -149,15 +169,19 @@ export function renderUnit(template: string, scope: 'user' | 'system', vars: Uni
   if (mode === 'full' || mode === 'sudo') for (const key of MOUNT_SANDBOX) dropped.add(key);
   if (mode === 'sudo') for (const key of STOPS_SUDO) dropped.add(key);
   // The leading `-` lets the unit start before setup made the folder; the agent then fails `not-installed`.
-  const backendDir =
-    vars.backend != null && AGENT_RUNNER.test(text) ? subharnessPlace(vars.privateDir, vars.backend).dir : null;
+  const backendDirs = AGENT_RUNNER.test(text)
+    ? (vars.backends ?? []).map((backend) => subharnessPlace(vars.privateDir, backend).dir)
+    : [];
+  const calendar =
+    isClockTime(vars.watcherAt) && WATCHER_TIMER.test(text) ? `OnCalendar=*-*-* ${vars.watcherAt}:00 UTC` : null;
   const rules: LineRules = {
     scope,
     vars,
     dropped,
     keepsHome: !dropped.has('ProtectHome') && /^ProtectHome=tmpfs$/m.test(text),
     isInterface: /^ExecStart=.*\binterface run\b/m.test(text),
-    backendDir,
+    backendDirs,
+    calendar,
   };
   return text
     .split('\n')

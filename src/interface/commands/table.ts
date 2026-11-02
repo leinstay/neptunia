@@ -340,16 +340,18 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'subharness',
-    help: 'the backend the agents run on and the mode of each: status, enable <codex|claude|opencode> [--key <key>], disable, mode <agent> [mode], model <agent> <model>',
+    help: 'the backends the agents run on and the mode of each: status, enable <codex|claude|opencode> [--key <key>], disable <backend>, mode <agent> [mode], model <agent> <model>',
     args: [],
     defaultSubcommand: 'status',
     subcommands: [
-      sub('status', 'the backend, its key by name and the mode of every agent'),
-      sub('enable', 'turn the subharness on after a check; opencode needs --key, the name of an extra key', [
+      sub('status', 'the connected backends, the key of opencode by name and the mode of every agent'),
+      sub('enable', 'connect one backend after a check; opencode needs --key, the name of an extra key', [
         arg('backend', true, BACKEND_NAMES),
         flagArg('key', false),
       ]),
-      sub('disable', 'turn the subharness off: every agent task is refused until it is on again'),
+      sub('disable', 'disconnect one backend; with none left every agent task is refused', [
+        arg('backend', true, BACKEND_NAMES),
+      ]),
       sub('model', 'set the model of an agent after one reply from it: model <agent> <model>', [
         arg('agent', true, SUBHARNESS_AGENTS),
         arg('model'),

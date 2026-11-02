@@ -10,7 +10,7 @@ export type FeatureRow = { name: 'subharness' | 'simulation'; available: boolean
 /** The subharness and the simulation: available when on, else the command that turns the feature on. */
 export function featureRows(privateDir: string): Promise<Array<FeatureRow>> {
   const store = readKeys(privateDir);
-  const subharnessOn = store.subharness.backend !== null;
+  const subharnessOn = store.subharness.backends.length > 0;
   const simulationKey = store.simulation.key;
   const simulationOn = simulationKey !== null && hasExtraKey(store, simulationKey);
   return Promise.resolve([

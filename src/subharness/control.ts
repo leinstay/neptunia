@@ -1,4 +1,6 @@
-// The owner's switch of the subharness: which backend the agents run on, with which key, and the mode of each agent.
+// The owner's switch of the subharness: which backends are connected, the key opencode runs on, and the mode of each
+// agent. Enable adds one backend to the list after its check, disable removes one; an agent runs through the backend
+// `subharness.uses` names for it, else through the first connected one (src/subharness/run.ts).
 // Everything is stored in keys.json (src/keys/file.ts) and read again at each use, so a change needs no
 // restart. The shape follows the approval mode of Hermes (hermes_cli/approval_mode.py): a tuple of modes, a frozen
 // result with `ok`, `changed` and a message, no argument inspects, and the one write of each change is in this file.
@@ -47,13 +49,11 @@ const CHECK_BRIEF = 'Reply with the single word ok.';
 /** The outcome of one change: `code` is `ok` on success, else why it was refused. */
 export type SubharnessResult = { ok: boolean; code: string; changed: boolean; message: string };
 
-/** What the owner sees: the backend, the key's name, every agent's mode and who holds the sandbox. */
+/** What the owner sees: the connected backends, the name of opencode's key and every agent's mode. */
 export type SubharnessView = {
-  backend: BackendName | null;
+  backends: Array<BackendName>;
   key: string | null;
   modes: Record<SubharnessAgent, AgentMode>;
-  /** `sandbox`: the backend enforces `read` and `write` itself; `unit`: the systemd unit alone does; null while off. */
-  heldBy: 'sandbox' | 'unit' | null;
 };
 
 /** What `enableSubharness` takes. */
@@ -101,8 +101,8 @@ export function subharnessView(privateDir: string): Promise<SubharnessView> {
     SubharnessAgent,
     AgentMode
   >;
-  const heldBy = stored.backend === null ? null : stored.backend === 'codex' ? 'sandbox' : 'unit';
-  return Promise.resolve({ backend: stored.backend, key: stored.backend === null ? null : stored.key, modes, heldBy });
+  const key = stored.backends.includes('opencode') ? stored.key : null;
+  return Promise.resolve({ backends: stored.backends, key, modes });
 }
 
 /** The key check of opencode: the named extra key answers `/auth/key`. */
@@ -175,37 +175,40 @@ export async function checkEnable(
   if (name === 'opencode' && (key === undefined || !hasExtraKey(store, key)))
     return refused('key-unknown', `${key ?? ''} is no extra key; an extra key is added with keys extra`);
   const now = store.subharness;
-  if (now.backend === name && now.key === (key ?? null)) return done(`the subharness is on ${name} already`, false);
+  if (now.backends.includes(name) && (name !== 'opencode' || now.key === key))
+    return done(`${name} is connected already`, false);
   const keyValue = key === undefined ? '' : (store.extra[key] ?? '');
   if (name === 'opencode' && deps.isInstalled?.(name) === false) return notInstalled(deps.privateDir, name);
   const failed = name === 'opencode' ? await checkKey(deps, keyValue) : await checkReply(deps, name);
   return failed ?? { name, key: key ?? null, keyValue };
 }
 
-/** Stores the backend, its key's name and the models of `checked`. The store is read again, the check took a while. */
+/**
+ * Adds the backend of `checked` to the list, with its key's name for opencode, and stores the models. The backends
+ * connected before stay. The store is read again, the check took a while.
+ */
 export function commitEnable(
   privateDir: string,
   checked: Checked,
   models: Readonly<Record<string, string>>
 ): SubharnessResult {
   const fresh = readKeys(privateDir);
+  const { backends } = fresh.subharness;
   writeKeys(privateDir, {
     ...fresh,
     subharness: {
       ...fresh.subharness,
-      backend: checked.name,
-      key: checked.key,
+      backends: backends.includes(checked.name) ? backends : [...backends, checked.name],
+      key: checked.name === 'opencode' ? checked.key : fresh.subharness.key,
       models: { ...fresh.subharness.models, ...models },
     },
   });
   return done(
-    checked.key === null
-      ? `the subharness is on ${checked.name}`
-      : `the subharness is on ${checked.name}, key ${checked.key}`
+    checked.key === null ? `${checked.name} is connected` : `${checked.name} is connected, key ${checked.key}`
   );
 }
 
-/** Turns the subharness on with `backend` after `checkEnable`'s check; a failed check stores nothing and keeps the backend that was on. */
+/** Connects `backend` after `checkEnable`'s check; a failed check stores nothing and keeps the backends connected before. */
 export async function enableSubharness(
   deps: EnableDeps,
   backend: string,
@@ -220,8 +223,9 @@ export async function enableSubharness(
 export async function setAgentModel(deps: EnableDeps, agent: string, model: string): Promise<SubharnessResult> {
   if (!isAgent(agent)) return refused('unknown-agent', `${agent} is no agent; use ${SUBHARNESS_AGENTS.join(', ')}`);
   const store = readKeys(deps.privateDir);
-  const { backend, key } = store.subharness;
-  if (backend === null) return refused('subharness-off', 'the subharness is off: turn it on with subharness enable');
+  const { key } = store.subharness;
+  const backend = backendOfAgent(store.subharness, agent);
+  if (backend === null) return refused('subharness-off', `no backend is connected for ${agent}: subharness enable`);
   const value = key === null ? '' : (store.extra[key] ?? '');
   const failed = await checkModel(deps, backend, value, model);
   if (failed !== null) return { ...failed, message: `${failed.message}; nothing was changed` };
@@ -233,12 +237,36 @@ export async function setAgentModel(deps: EnableDeps, agent: string, model: stri
   return done(`${agent} runs on ${model} from its next run`);
 }
 
-/** Turns the subharness off. The modes the owner set stay. */
-export function disableSubharness(privateDir: string): Promise<SubharnessResult> {
+/**
+ * The backend `agent` runs through: the one `uses` names for it when that one is connected, the first connected one
+ * when it names none, null when the named one is not connected or nothing is.
+ */
+export function backendOfAgent(
+  stored: Readonly<{ backends: ReadonlyArray<BackendName>; uses: Readonly<Record<string, BackendName>> }>,
+  agent: string
+): BackendName | null {
+  const named = Object.hasOwn(stored.uses, agent) ? stored.uses[agent] : undefined;
+  if (named !== undefined) return stored.backends.includes(named) ? named : null;
+  return stored.backends[0] ?? null;
+}
+
+/** Disconnects one backend; removing opencode clears its key, removing the last one turns the subharness off. The modes stay. */
+export function disableSubharness(privateDir: string, backend: string): Promise<SubharnessResult> {
+  const name = BACKEND_NAMES.find((known) => known === backend);
+  if (name === undefined)
+    return Promise.resolve(refused('unknown-backend', `${backend} is no backend; use ${BACKEND_NAMES.join(', ')}`));
   const store = readKeys(privateDir);
-  if (store.subharness.backend === null) return Promise.resolve(done('the subharness is off already', false));
-  writeKeys(privateDir, { ...store, subharness: { ...store.subharness, backend: null, key: null } });
-  return Promise.resolve(done('the subharness is off; every agent task is refused until it is on again'));
+  if (!store.subharness.backends.includes(name)) return Promise.resolve(done(`${name} is not connected`, false));
+  const backends = store.subharness.backends.filter((one) => one !== name);
+  const key = name === 'opencode' ? null : store.subharness.key;
+  writeKeys(privateDir, { ...store, subharness: { ...store.subharness, backends, key } });
+  return Promise.resolve(
+    done(
+      backends.length === 0
+        ? `${name} is disconnected; the subharness is off and every agent task is refused until a backend is connected`
+        : `${name} is disconnected; ${backends.join(', ')} stays connected`
+    )
+  );
 }
 
 /** Sets the mode of one agent, or with no `mode` reports the current one and writes nothing. */
@@ -266,23 +294,24 @@ export function setAgentMode(
   return Promise.resolve({ ...done(`${agent} runs in ${mode} from its next run`), mode });
 }
 
-/** The line that says who enforces `read` and `write` under the backend that is on. */
-function heldLine(view: SubharnessView): string | null {
-  if (view.heldBy === 'sandbox') return `read and write are enforced by the ${view.backend} sandbox and by the unit`;
-  if (view.heldBy === 'unit')
-    return `read and write are held by the systemd unit alone, ${view.backend} has no sandbox flags`;
-  return null;
+/** The line of one connected backend: its key's name for opencode, and who enforces `read` and `write` under it. */
+function backendLine(view: SubharnessView, name: BackendName): string {
+  const key = name === 'opencode' && view.key !== null ? `, key ${view.key}` : '';
+  const held =
+    name === 'codex'
+      ? 'read and write enforced by its sandbox and by the unit'
+      : 'read and write held by the systemd unit alone, no sandbox flags';
+  return `  ${name}${key}: ${held}`;
 }
 
-/** The status the owner reads: the backend, the key's name, every agent with its mode. No key value. */
+/** The status the owner reads: every connected backend with its key's name, every agent with its mode. No key value. */
 export function statusText(view: SubharnessView, models: Readonly<Record<string, string>> = {}): string {
   const head =
-    view.backend === null
-      ? 'subharness: off (every agent task is refused until: subharness enable codex|claude|opencode)'
-      : `subharness: ${view.backend}${view.key === null ? '' : `, key ${view.key}`}`;
-  const held = heldLine(view);
+    view.backends.length === 0
+      ? ['subharness: off (every agent task is refused until: subharness enable codex|claude|opencode)']
+      : ['subharness:', ...view.backends.map((name) => backendLine(view, name))];
   const rows = SUBHARNESS_AGENTS.map(
     (agent) => `  ${agent}  ${view.modes[agent]}${Object.hasOwn(models, agent) ? `  model ${models[agent]}` : ''}`
   );
-  return [head, ...(held === null ? [] : [held]), 'modes:', ...rows].join('\n');
+  return [...head, 'modes:', ...rows].join('\n');
 }

@@ -9,8 +9,10 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { readConfig } from '../config.ts';
 import { readKeys } from '../keys/file.ts';
 import { modeOf } from '../subharness/control.ts';
+import { watcherSettings } from '../watcher/settings.ts';
 import { SELFIMPROVEMENT_UNIT_FILES, UNIT_AGENTS, renderUnit } from './units.ts';
 import type { UnitVars } from './units.ts';
 
@@ -48,11 +50,26 @@ export function systemctlOf(target: UnitTarget, ...args: Array<string>): [string
   return target.system ? ['sudo', ['systemctl', ...args]] : ['systemctl', ['--user', ...args]];
 }
 
-/** The text of one unit as the scope, the owner's modes and the subharness backend of keys.json want it. */
+/** `watcher.at` of the settings, null when they cannot be read (the timer then keeps the template's hour). */
+function watcherHour(target: UnitTarget): string | null {
+  try {
+    return watcherSettings(readConfig(target.rootDir, { privateDir: target.privateDir })).at;
+  } catch {
+    // A checkout without config/config.json or a broken local file: the template's hour stands.
+    return null;
+  }
+}
+
+/**
+ * The text of one unit as the scope, the owner's modes, the backends connected in keys.json and the hour of the
+ * watcher's run (`watcher.at` of the settings) want it.
+ */
 export function unitText(target: UnitTarget, template: string, file: string): string {
   const agent = UNIT_AGENTS[file];
   const { subharness } = readKeys(target.privateDir);
-  const vars: UnitVars = { ...target, backend: subharness.backend };
+  const vars: UnitVars = { ...target, backends: subharness.backends };
+  const watcherAt = watcherHour(target);
+  if (watcherAt !== null) vars.watcherAt = watcherAt;
   if (agent !== undefined) vars.mode = modeOf(subharness.modes, agent);
   if (SELFIMPROVEMENT_UNIT_FILES.includes(file) && target.selfimprovementCheckout)
     vars.rootDir = target.selfimprovementCheckout;
