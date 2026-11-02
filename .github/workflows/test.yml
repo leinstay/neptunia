@@ -97,9 +97,12 @@ jobs:
           if [ -n "$files" ]; then printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 npx prettier --check; fi
 
   tests:
-    # The whole suite with node:test (tests/**). No network, no Discord, no model: every test runs on fakes.
+    # Two shards run the whole suite with node:test (tests/**). Every test runs on fakes.
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -107,7 +110,7 @@ jobs:
           node-version: '26.x'
           cache: npm
       - run: npm ci
-      - run: npm test
+      - run: node --test --test-shard=${{ matrix.shard }}/2 "tests/**/*.test.{js,ts}"
 
   test:
     # The one check branch protection requires (`test (26.x)`): green when the four above are.
