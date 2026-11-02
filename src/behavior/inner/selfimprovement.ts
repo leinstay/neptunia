@@ -137,6 +137,10 @@ export async function selfimprovementFacts(
         })
       : { entries: [], outbox: [] };
     const days = 14;
+    const landed = await Promise.resolve(sources.landed?.()).catch((error: unknown) => {
+      log.warn('inner: selfimprovement landed failed', { guildId, code: errorCode(error) });
+      return [];
+    });
     return await buildSelfimprovementFacts({
       guildId,
       now: at,
@@ -147,6 +151,7 @@ export async function selfimprovementFacts(
       skills: guarded(() => sources.skills?.(at - days * DAY_MS), []),
       proposals: board.entries,
       outbox: board.outbox,
+      landed: landed ?? [],
     });
   } catch (error) {
     log.warn('inner: selfimprovement view failed', { guildId, code: errorCode(error) });

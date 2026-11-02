@@ -547,6 +547,13 @@
         "filteredMissedLine": "{when} #{place}: {who} {handle} {text}{media}: a line judged not owed an answer ({verdict})",
         "more": "... and {more} more"
       },
+      "landed": {
+        "header": "Changes to your own code that were merged since you last looked:",
+        "item": "{task} · {title} · {who} · {files}",
+        "ownerMerged": "merged by the owner",
+        "autoMerged": "merged by the engine after CI passed",
+        "filesMore": " and {count} more"
+      },
       "selfimprovement": {
         "header": "How your work went in the last {days} days:",
         "cause": "You were woken early because one chain of calls failed again and again today: {shape}.",

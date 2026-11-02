@@ -103,6 +103,7 @@ import { createIntentionStores } from './intentions/store.ts';
 import { createIntentionService } from './intentions/service.ts';
 import { skillRegistry, missingDefinitions, setExtraSkills } from './tools/registry.ts';
 import { grantedSkillNames } from './tools/discovery.ts';
+import { ackLanded, landedFor } from './selfdev/landed.ts';
 import { wireSkills } from './skills/wiring.ts';
 import { createReportReader, reportsDirOf, watcherDir } from './watcher/read.ts';
 import { ABILITY_ADDED, abilityWake, fileAnnounceStore, forgetAbilities, newAbilities } from './plugins/announce.ts';
@@ -1050,6 +1051,9 @@ async function buildCore(
       agents: () => Object.keys(AGENT_PROFILES),
       selfId: () => identity.selfId,
       focusPeople: () => memoryDb.focusPeople({ iface: identity.iface }),
+      // The fixes of her own code that merged (src/selfdev/landed.ts), told once.
+      landed: async () => (await landedFor(board)).landed,
+      ackLanded: (seqs) => ackLanded(board, seqs),
     },
     // The selfimprovement wake's facts beyond the journal (src/behavior/selfimprovement-view.ts): her grants, her
     // skills with their use counts, her proposals and her outbox rows on the board.

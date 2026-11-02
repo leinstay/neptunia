@@ -39,6 +39,7 @@ import { isOpen } from '../memory/interests.ts';
 import { currentToolName } from '../tools/definitions.ts';
 import { isFiniteNumber, isObj, listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
+import type { Landed } from '../selfdev/landed.ts';
 import type { PlacesPage, RecordSource } from './inner/types.ts';
 
 /** The interests shown per person. */
@@ -175,6 +176,8 @@ export type HeartbeatFacts = {
   skills: Array<SkillFamily>;
   agents: Array<string>;
   since: Since;
+  /** Fixes of her own code that merged and were not told to her yet (src/selfdev/landed.ts), oldest first. */
+  landed: Array<Landed>;
 };
 
 /** The view's numbers: VIEW_DEFAULTS with the given settings over them. */
@@ -931,6 +934,8 @@ export type HeartbeatInput = {
   activePlaces?: ((memberId: string) => unknown) | null;
   /** Her focus set as member ids; null or absent: the profiles' affinity ranks. */
   focusPeople?: (() => unknown) | null;
+  /** The fixes that merged and were not told to her yet. */
+  landed?: ReadonlyArray<Landed>;
   log?: { warn?(message: string, fields: Obj): void } | null;
 };
 
@@ -956,6 +961,7 @@ export async function buildHeartbeatFacts({
   placeName = (id) => id,
   activePlaces = null,
   focusPeople = null,
+  landed = [],
   log = null,
 }: HeartbeatInput): Promise<HeartbeatFacts> {
   const s: ViewSettings = {
@@ -1066,6 +1072,7 @@ export async function buildHeartbeatFacts({
     life: lifeOf(common),
     skills: skillFamilies(skills),
     agents: listOf(agents).filter((name): name is string => typeof name === 'string' && name !== ''),
+    landed: [...landed],
     since: sinceOf({
       ...common,
       from,

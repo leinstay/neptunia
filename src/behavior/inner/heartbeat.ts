@@ -134,6 +134,10 @@ export async function heartbeatFacts(
     }
   };
   try {
+    const landed = await Promise.resolve(heartbeatSources.landed?.()).catch((err: unknown) => {
+      log.warn('inner: heartbeat source failed', { guildId, code: errorCode(err) });
+      return [];
+    });
     return await buildHeartbeatFacts({
       guildId,
       now: at,
@@ -154,11 +158,31 @@ export async function heartbeatFacts(
       placeName: (id: string) => placeNameOf(life, guildId, id),
       activePlaces: (memberId: string) => activePlacesOf(life, guildId, memberId),
       focusPeople: focusOf(heartbeatSources, guildId),
+      landed: landed ?? [],
       log,
     });
   } catch (err) {
     log.warn('inner: heartbeat view failed', { guildId, code: errorCode(err) });
     return null;
+  }
+}
+
+/**
+ * Once a heartbeat turn's completion committed (its outcome is not an error): the landed fixes its view showed are
+ * marked delivered, so a merge reaches her once. A failing mark is logged and leaves the rows for the next wake. Never
+ * throws.
+ */
+export async function committedHeartbeat(
+  life: InnerContext,
+  guildId: string,
+  turn: { facts: HeartbeatFacts | null; outcome: unknown }
+): Promise<void> {
+  const seqs = (turn.facts?.landed ?? []).map((one) => one.seq);
+  if (turn.outcome === 'error' || seqs.length === 0 || !life.heartbeatSources.ackLanded) return;
+  try {
+    await life.heartbeatSources.ackLanded(seqs);
+  } catch (err) {
+    life.log.warn('inner: heartbeat landed not marked', { guildId, count: seqs.length, code: errorCode(err) });
   }
 }
 

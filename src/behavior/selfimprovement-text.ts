@@ -7,6 +7,7 @@ import { fill } from '../format.ts';
 import { oneLine } from '../memory/clamp.ts';
 import { listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
+import type { Landed } from '../selfdev/landed.ts';
 import type { SelfimprovementFacts, Shape } from './selfimprovement-view.ts';
 
 /** How the `<wake>` words a moment. */
@@ -143,4 +144,33 @@ export function selfimprovementReason(items: ReadonlyArray<unknown> | undefined)
     .map(objOf)
     .find((one) => one.kind === 'selfimprovement');
   return typeof item?.reason === 'string' ? item.reason : null;
+}
+
+/** How many paths of one landed fix the wake lists; the rest is counted. */
+const LANDED_FILES_SHOWN = 8;
+
+/**
+ * The lines of the fixes of her own code that merged: the header, then one `item` per fix (`{task}`, `{title}`,
+ * `{who}`: `ownerMerged` or `autoMerged`, `{files}`: up to eight paths and `filesMore` for the rest). The heartbeat
+ * and the selfimprovement wake both carry them; one that both carry is listed once. Nothing without the header label.
+ */
+export function landedLines(groups: ReadonlyArray<ReadonlyArray<Landed> | undefined>, labels: unknown): Array<string> {
+  const l = objOf(labels);
+  const bySeq = new Map<number, Landed>();
+  for (const one of groups.flatMap((group) => group ?? [])) bySeq.set(one.seq, one);
+  const all = [...bySeq.values()].sort((a, b) => a.seq - b.seq);
+  if (all.length === 0 || typeof l.header !== 'string' || l.header === '') return [];
+  return [
+    l.header,
+    ...all.map((one) => {
+      const shown = one.files.slice(0, LANDED_FILES_SHOWN).join(', ');
+      const more = one.files.length - LANDED_FILES_SHOWN;
+      return word(l, 'item', {
+        task: one.taskId,
+        title: oneLine(one.title),
+        who: word(l, one.decidedBy === 'owner' ? 'ownerMerged' : 'autoMerged'),
+        files: more > 0 ? `${shown}${word(l, 'filesMore', { count: String(more) })}` : shown,
+      });
+    }),
+  ];
 }

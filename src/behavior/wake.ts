@@ -22,7 +22,7 @@ import { estimateTokens } from '../llm/tokens.ts';
 import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
 import type { HeartbeatFacts } from './heartbeat-view.ts';
-import { selfimprovementLines, selfimprovementReason } from './selfimprovement-text.ts';
+import { landedLines, selfimprovementLines, selfimprovementReason } from './selfimprovement-text.ts';
 import type { SelfimprovementFacts } from './selfimprovement-view.ts';
 import type { ChainBudget, PlacesPage } from './inner/types.ts';
 import type { TurnsBudget } from './turn-budget.ts';
@@ -799,6 +799,7 @@ export function wakeBlockText(
     lines.push(...heartbeatLines(wake.heartbeat, l.heartbeat, when, placesBlock, { handleBase, onRefs }));
   else lines.push(...placesBlock);
   lines.push(...selfimprovementLines(wake.selfimprovement, l.selfimprovement, when, selfimprovementReason(wake.items)));
+  lines.push(...landedLines([wake.heartbeat?.landed, wake.selfimprovement?.news.landed], l.landed));
   lines.push(...budgetLines(wake.budgets ?? {}, l, when));
   return lines.join('\n');
 }

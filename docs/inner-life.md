@@ -66,7 +66,7 @@ The state keeps `selfimprovement: { lastAt, raisedAt }`. `raisedAt` is when a fa
 
 Her `<wake>` carries the facts of `src/behavior/selfimprovement-view.ts`, read from the journal and the board with no model. A chain is the tool calls of one turn in order. The chains of the last 14 days are grouped by the ordered tool names with each call's argument names, and the five most frequent shapes come with their counts, failures, retries, costs, the turn of the newest chain and up to five turn ids. Beside them stand the tools she holds and called in none of those chains, her skills with their use counts, her proposals with their state, and what the board holds for her since the last such wake: the questions put to her, the reviews (a rejection included, a plan approval left out) and the outbox rows addressed to `persona:self`. The facts carry tool names, argument names, codes, counts, ids, costs and the board's own titles and notes, and no line of chat.
 
-Once the completion committed, the outbox rows the view showed are marked delivered, so each question and rejection reaches her once. A wake that never committed shows them again. Her answer is `board.propose` with a `kind` of `skill` or `fix` ([Skills](skills.md#how-a-skill-is-made)).
+Once the completion committed, the outbox rows the view showed are marked delivered, so each question and rejection reaches her once. A wake that never committed shows them again. Her answer is `board.propose` with a `kind` of `skill` or `fix` ([Skills](skills.md#how-a-skill-is-made)). A `fix` that reaches a merge comes back as a landed change in this wake or the next heartbeat, whichever comes first ([Self-development](selfdev.md#what-reaches-her-wake)).
 
 ### A new tool from a plugin
 
