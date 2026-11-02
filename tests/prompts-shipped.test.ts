@@ -104,8 +104,7 @@ const NOT_BUILT = {
   // which fetches its own history: no seam reaches it (owner decision O-9).
   address: 'built inside the src/behavior/pipeline.ts closure (O-9)',
   selfdev: 'filled by bin/selfdev.ts through src/selfdev/service.ts#briefFrom, a dev run reads it', // tests/selfdev-service
-  // Split into families and drawn from line by line (src/behavior/diary.ts#pickSeeds): the plan
-  // request carries a few random lines in <seeds>, never the file whole.
+  // Split into families and drawn from line by line (src/behavior/diary.ts#pickSeeds): the plan request carries a few random lines in <seeds>, never the file whole.
   'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.ts#pickSeeds), never sent whole',
   // Her memory session and the description review build their requests over the memory database, not from a turn:
   // tests/memory-db-session.test.ts and tests/memory-db-describe.test.ts check what they load.
