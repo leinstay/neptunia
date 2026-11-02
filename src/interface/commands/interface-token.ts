@@ -12,7 +12,7 @@ import type { Dialog } from '../../keys/commands.ts';
 /** An interface name: lowercase letters, digits and dashes, starting with a letter, up to 32 characters. */
 const IFACE_NAME = /^[a-z][a-z0-9-]{0,31}$/;
 
-/** The variable the interface reads its platform token from: `discord` -> `DISCORD_TOKEN`, dashes become `_`. */
+/** The variable the interface reads its platform token from: `my-chat` -> `MY_CHAT_TOKEN`, dashes become `_`. */
 export function tokenVariableOf(iface: string): string {
   return `${iface.toUpperCase().replaceAll('-', '_')}_TOKEN`;
 }
