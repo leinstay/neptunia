@@ -25,4 +25,4 @@ The unit of an agent follows the agent's mode (`subharness mode <agent> <mode>`,
 
 A unit with `ProtectHome=tmpfs` still sees the checkout and the node binary when they lie under the home, because the renderer binds them read-only.
 
-The agents' socket and out folder default to system paths (`/run/neptunia-agent-<name>/sock`, `/var/lib/neptunia-agent-<name>/out`). A user unit needs `agents.<name>.socket` and `agents.<name>.out` in `config.local/config.json` that point into its `RuntimeDirectory` and `StateDirectory`.
+In a user unit the agents' socket and out folder need no setting. `neptunia setup` adds `NEPTUNIA_UNIT_SCOPE=user` to every user unit, and `agentSettings` then puts the socket in the unit's `RuntimeDirectory` (`$XDG_RUNTIME_DIR/neptunia-agent-<name>/sock`) and the out folder in its `StateDirectory` (`$XDG_STATE_HOME/neptunia-agent-<name>/out`, by default under `~/.local/state`). The core runs from a user unit too, so it reads the same paths. A path named in `agents.<name>.socket` or `agents.<name>.out` still wins.

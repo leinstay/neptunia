@@ -1380,9 +1380,31 @@ export function agentSettings(name: unknown, config: unknown): AgentSettings | n
   for (const key of SETTING_KEYS[profile.kind]) {
     const value = override[key];
     const unusablePath = (key === 'socket' || key === 'out') && !(typeof value === 'string' && value !== '');
-    out[key] = unusablePath || !Object.hasOwn(override, key) ? profile[key] : overlaid(profile[key], value);
+    const fromProfile = unusablePath || !Object.hasOwn(override, key);
+    if (fromProfile && (key === 'socket' || key === 'out') && inUserUnit()) out[key] = userPathOf(key, name);
+    else out[key] = fromProfile ? profile[key] : overlaid(profile[key], value);
   }
   return out as AgentSettings;
+}
+
+/** The unit scope `neptunia setup` sets in every user unit it renders (src/setup/units.ts). */
+export const UNIT_SCOPE_ENV = 'NEPTUNIA_UNIT_SCOPE';
+
+/** Whether this process runs from a user unit, read at each call. */
+const inUserUnit = (): boolean => process.env[UNIT_SCOPE_ENV] === 'user';
+
+/**
+ * The socket or out folder of agent `name` in a user unit: the unit's `RuntimeDirectory` and `StateDirectory`, which
+ * the core, running from a user unit of the same user, resolves to the same place.
+ */
+function userPathOf(key: 'socket' | 'out', name: string): string {
+  const folder = `neptunia-agent-${name}`;
+  if (key === 'socket') {
+    const runtime = process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid?.() ?? 0}`;
+    return path.join(runtime, folder, 'sock');
+  }
+  const state = process.env.XDG_STATE_HOME || path.join(process.env.HOME ?? '', '.local', 'state');
+  return path.join(state, folder, 'out');
 }
 
 /** The profiles of this engine's `agents/` folder, by name, loaded once at import. */

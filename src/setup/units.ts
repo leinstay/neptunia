@@ -8,6 +8,7 @@
 // paths), and `sudo` drops in addition what would stop `sudo` (`NoNewPrivileges` and the capability bounding set).
 
 import path from 'node:path';
+import { UNIT_SCOPE_ENV } from '../agent-runner/profiles.ts';
 import type { AgentMode, SubharnessAgent } from '../subharness/control.ts';
 
 /** The templates `setup` renders, by file name. The bot unit and the plugin template are not among them. */
@@ -85,6 +86,33 @@ function visibleHomePaths(vars: UnitVars, bound: ReadonlyArray<string>): Array<s
 /** The key of a `Key=value` line, or null. */
 const keyOf = (line: string): string | null => /^([A-Za-z]+)=/.exec(line)?.[1] ?? null;
 
+/** What decides the fate of each line of one unit. */
+type LineRules = {
+  scope: 'user' | 'system';
+  vars: UnitVars;
+  dropped: ReadonlySet<string>;
+  keepsHome: boolean;
+  isInterface: boolean;
+};
+
+/** The lines `line` becomes: none when it is dropped, two for `User=` of a system unit. */
+function linesOf(line: string, rules: LineRules): Array<string> {
+  const { scope, vars, dropped } = rules;
+  const key = keyOf(line);
+  if (key === 'Conflicts' && line.includes('neptunia-bot.service')) return [];
+  if (key === 'Group' || (key !== null && dropped.has(key))) return [];
+  if (key === 'User') return scope === 'system' ? [`User=${vars.user}`, `Group=${vars.group}`] : [];
+  if (scope === 'user' && line === 'WantedBy=multi-user.target') return ['WantedBy=default.target'];
+  if (scope === 'user' && rules.isInterface && key === 'InaccessiblePaths') return [];
+  if (rules.keepsHome && key === 'BindReadOnlyPaths') {
+    const bound = line.slice('BindReadOnlyPaths='.length).split(/\s+/).filter(Boolean);
+    return [`BindReadOnlyPaths=${[...bound, ...visibleHomePaths(vars, bound)].join(' ')}`];
+  }
+  // The profiles' socket and out defaults follow the unit's own runtime and state folders (agentSettings).
+  if (scope === 'user' && line === '[Service]') return [line, `Environment=${UNIT_SCOPE_ENV}=user`];
+  return [line];
+}
+
 /**
  * One template as the unit file of `scope` for the installing user in `vars`. Comments stay as the template has them
  * with their paths mapped too.
@@ -96,29 +124,15 @@ export function renderUnit(template: string, scope: 'user' | 'system', vars: Uni
   const dropped = new Set<string>();
   if (mode === 'full' || mode === 'sudo') for (const key of MOUNT_SANDBOX) dropped.add(key);
   if (mode === 'sudo') for (const key of STOPS_SUDO) dropped.add(key);
-  const isInterface = /^ExecStart=.*\binterface run\b/m.test(text);
-  const keepsHome = !dropped.has('ProtectHome') && /^ProtectHome=tmpfs$/m.test(text);
-  const out: Array<string> = [];
-  for (const line of text.split('\n')) {
-    const key = keyOf(line);
-    if (key === 'Conflicts' && line.includes('neptunia-bot.service')) continue;
-    if (key !== null && dropped.has(key)) continue;
-    if (key === 'Group') continue;
-    if (key === 'User') {
-      if (scope === 'system') out.push(`User=${vars.user}`, `Group=${vars.group}`);
-      continue;
-    }
-    if (scope === 'user' && key === 'WantedBy' && line === 'WantedBy=multi-user.target') {
-      out.push('WantedBy=default.target');
-      continue;
-    }
-    if (scope === 'user' && isInterface && key === 'InaccessiblePaths') continue;
-    if (keepsHome && key === 'BindReadOnlyPaths') {
-      const bound = line.slice('BindReadOnlyPaths='.length).split(/\s+/).filter(Boolean);
-      out.push(`BindReadOnlyPaths=${[...bound, ...visibleHomePaths(vars, bound)].join(' ')}`);
-      continue;
-    }
-    out.push(line);
-  }
-  return out.join('\n');
+  const rules: LineRules = {
+    scope,
+    vars,
+    dropped,
+    keepsHome: !dropped.has('ProtectHome') && /^ProtectHome=tmpfs$/m.test(text),
+    isInterface: /^ExecStart=.*\binterface run\b/m.test(text),
+  };
+  return text
+    .split('\n')
+    .flatMap((line) => linesOf(line, rules))
+    .join('\n');
 }
