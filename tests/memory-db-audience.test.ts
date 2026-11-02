@@ -4,23 +4,29 @@
 // malformed rows, every reader returns the same rows whether it reads the triple or `audience_id`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { dbOf } from '../src/memory/db/types.ts';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { SCOPED_TABLES } from '../src/memory/db/schema.ts';
 import {
   AUD_INTERNAL,
   AUD_NONE,
+  CONTEXT_POLICY_VERSION,
+  contextRow,
   SCOPE_INTERNAL,
   SCOPE_NONE,
   allowed,
   allowedAudience,
   audienceOf,
+  audienceParts,
   audienceWhere,
   canRead,
   dmContext,
   dmScope,
   groupContext,
   groupScope,
+  groupsContext,
   internalContext,
   issueContext,
   narrowest,
@@ -174,9 +180,14 @@ test('narrowestAudience: the full meet table', () => {
     [[DA, G], DA],
     [[DA, DA], DA],
     [[DA, DB], I],
-    [[G, GO], I],
-    [[DA, GO], I],
-    [[G, DO], I],
+    // Policy 2 intersects visibility rather than interface provenance.
+    [[G, GO], G],
+    [[GO, G], GO],
+    [[DA, GO], DA],
+    [[GO, DA], DA],
+    [[G, DO], DO],
+    [[DO, G], DO],
+    [['aud:group:', G], I],
     [[DA, DO], I],
     [[N, G, DA, N], DA],
     [[DB, G, DA], I],
@@ -195,6 +206,32 @@ test('narrowestAudience: the full meet table', () => {
       );
     }
   }
+});
+
+test('an unresolved DM audience fails closed while an opaque place resolved by lookup remains private', () => {
+  // Catches treating an unresolved private identifier as valid when relaxing cross-interface group intersections.
+  assert.equal(narrowestAudience(['aud:dm:garbage']), AUD_INTERNAL);
+  const audience = 'aud:dm:opaque-place';
+  const lookup = (place: string) => (place === 'opaque-place' ? { iface: 'discord', partner_person: ALICE } : null);
+  assert.equal(narrowestAudience([audience], lookup), audience);
+  assert.equal(narrowestAudience(['aud:group:other', audience], lookup), audience);
+  assert.equal(narrowestAudience([audience, 'aud:group:other'], lookup), audience);
+  const resolved = audienceParts(audience, lookup);
+  assert.ok(resolved);
+  assert.equal(narrowestAudience([resolved]), audience);
+  assert.equal(narrowestAudience([resolved, 'aud:group:other']), audience);
+});
+
+test('DM audience objects fail closed when their resolved interface metadata is inconsistent or nontext', () => {
+  // Catches malformed resolved metadata bypassing private audience validation.
+  const invalid = [
+    { id: 'aud:dm:discord:dm:one', kind: 'dm', place_id: 'discord:dm:one', iface: 'other' },
+    { id: 'aud:dm:opaque-place', kind: 'dm', place_id: 'opaque-place', iface: 42 },
+  ];
+  assert.deepEqual(
+    invalid.map((parts) => narrowestAudience([parts])),
+    [AUD_INTERNAL, AUD_INTERNAL]
+  );
 });
 
 test('issueContext: an id, the mode, the DM place of the partner; contexts stay valid read contexts', () => {
@@ -501,4 +538,124 @@ test('a context issued with no setting reads a row by its audience_id, not by it
   assert.deepEqual([canRead(probe, group), canRead(probe, bob)], [true, true]);
   const where = scopeWhere(group, 's');
   assert.deepEqual(where, audienceWhere(group, 's'));
+});
+
+test('ordinary audience predicates admit future group interfaces and isolate the exact DM place', () => {
+  // Catches a finite audience list excluding new interfaces or broadening one DM to another place of the same person.
+  const handle = openMemoryDb(':memory:');
+  const db = dbOf(handle);
+  const rows = [
+    ['none', 'aud:none'],
+    ['group', 'aud:group:future-interface'],
+    ['own', 'aud:dm:discord:dm:room-one'],
+    ['other-place', 'aud:dm:discord:dm:room-two'],
+    ['other-iface', 'aud:dm:future-interface:dm:room-one'],
+    ['internal', 'aud:internal'],
+    ['empty-group', 'aud:group:'],
+    ['unknown', 'aud:other:future-interface'],
+    ['missing', null],
+  ] as const;
+  try {
+    db.exec('CREATE TABLE probe (id TEXT, audience_id TEXT)');
+    for (const [id, audience] of rows) db.prepare('INSERT INTO probe VALUES (?, ?)').run(id, audience);
+    const contexts = [
+      { ctx: groupContext('discord'), ids: ['group', 'none'] },
+      { ctx: groupContext('cli'), ids: ['group', 'none'] },
+      { ctx: dmContext(ALICE, 'discord', 'discord:dm:room-one'), ids: ['group', 'none', 'own'] },
+    ];
+    for (const { ctx, ids } of contexts) {
+      const where = audienceWhere(ctx, 'p');
+      const got = db
+        .prepare(`SELECT id FROM probe p WHERE ${where.sql} ORDER BY id`)
+        .all(...where.params)
+        .map((row) => row.id);
+      assert.deepEqual(got, ids);
+      assert.deepEqual(
+        rows
+          .filter(([, audience_id]) => allowedAudience({ audience_id }, ctx))
+          .map(([id]) => id)
+          .sort(),
+        ids
+      );
+    }
+  } finally {
+    handle.close();
+  }
+});
+
+test('recorded contexts use policy 2 without rewriting a historical context version', () => {
+  // Catches applying the new read rule while labeling new contexts as policy 1 or rewriting historical evidence.
+  const handle = openMemoryDb(':memory:');
+  const db = dbOf(handle);
+  try {
+    const historic = issueContext({
+      kind: 'group',
+      iface: 'discord',
+      policyVersion: 1,
+      now: () => NOW,
+      newId: () => 'ctx:historic',
+    });
+    const current = issueContext({
+      kind: 'dm',
+      iface: 'discord',
+      person: ALICE,
+      now: () => NOW,
+      newId: () => 'ctx:current',
+    });
+    applyMemoryWrite(handle, { kind: 'context', context: contextRow(historic) });
+    applyMemoryWrite(handle, { kind: 'context', context: contextRow(current) });
+    assert.equal(CONTEXT_POLICY_VERSION, 2);
+    assert.deepEqual(
+      db
+        .prepare('SELECT id, policy_version, mode FROM execution_contexts ORDER BY id')
+        .all()
+        .map((row) => ({ ...row })),
+      [
+        { id: 'ctx:current', policy_version: 2, mode: 'outward' },
+        { id: 'ctx:historic', policy_version: 1, mode: 'outward' },
+      ]
+    );
+    assert.equal(current.destination, dmPlaceId('discord', 'u-alice'));
+  } finally {
+    handle.close();
+  }
+});
+
+test('group audience predicates reject literal NUL bytes and keep encoded percent text', () => {
+  // Catches JavaScript and SQLite disagreeing on group validity or malformed provenance remaining outward.
+  const handle = openMemoryDb(':memory:');
+  const db = dbOf(handle);
+  const rows = [
+    { id: 'encoded', audience_id: 'aud:group:future-%00' },
+    { id: 'nul-only', audience_id: 'aud:group:\0' },
+    { id: 'nul-middle', audience_id: 'aud:group:future\0interface' },
+  ];
+  try {
+    db.exec('CREATE TABLE probe (id TEXT, audience_id TEXT)');
+    for (const row of rows) db.prepare('INSERT INTO probe VALUES (?, ?)').run(row.id, row.audience_id);
+    for (const ctx of [groupContext('discord'), dmContext(ALICE, 'discord'), groupsContext()]) {
+      assert.deepEqual(
+        rows.filter((row) => allowedAudience(row, ctx)).map((row) => row.id),
+        ['encoded']
+      );
+      const filter = audienceWhere(ctx, 'p');
+      assert.deepEqual(
+        db
+          .prepare(`SELECT id FROM probe p WHERE ${filter.sql}`)
+          .all(...filter.params)
+          .map((row) => row.id),
+        ['encoded']
+      );
+    }
+    for (const audience of ['aud:group:\0', 'aud:group:future\0interface']) {
+      assert.equal(narrowestAudience([audience, 'aud:group:discord']), AUD_INTERNAL);
+      assert.equal(
+        narrowestAudience([{ id: audience, kind: 'group', iface: 'discord', place_id: null }]),
+        AUD_INTERNAL
+      );
+    }
+    assert.equal(narrowestAudience(['aud:group:future-%00', 'aud:group:discord']), 'aud:group:future-%00');
+  } finally {
+    handle.close();
+  }
 });

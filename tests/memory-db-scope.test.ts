@@ -63,11 +63,12 @@ const ROWS: Record<string, Record<string, string | null>> = {
   internal: { scope_kind: 'internal', scope_iface: null, scope_dm: null },
 };
 
+// Policy 2 makes every valid group eligible across interfaces while retaining DM restrictions.
 const MATRIX: Record<string, Record<string, boolean>> = {
   group: {
     none: true,
     group: true,
-    groupOther: false,
+    groupOther: true,
     dmAlice: false,
     dmBob: false,
     dmOtherIface: false,
@@ -76,7 +77,7 @@ const MATRIX: Record<string, Record<string, boolean>> = {
   dmAlice: {
     none: true,
     group: true,
-    groupOther: false,
+    groupOther: true,
     dmAlice: true,
     dmBob: false,
     dmOtherIface: false,
@@ -85,7 +86,7 @@ const MATRIX: Record<string, Record<string, boolean>> = {
   dmBob: {
     none: true,
     group: true,
-    groupOther: false,
+    groupOther: true,
     dmAlice: false,
     dmBob: true,
     dmOtherIface: false,
@@ -132,7 +133,8 @@ test('the SQL filter returns exactly the rows allowed() lets through', () => {
     .prepare(`SELECT p.name FROM probe p WHERE ${aliased.sql} ORDER BY p.name`)
     .all(...aliased.params)
     .map((row) => row.name);
-  assert.deepEqual(got, ['dmAlice', 'group', 'none']);
+  // Policy 2 includes the foreign-interface group in the same aliased SQL read.
+  assert.deepEqual(got, ['dmAlice', 'group', 'groupOther', 'none']);
   handle.close();
 });
 
@@ -211,8 +213,9 @@ test('narrowest: none yields to anything, a DM beats a group, two DMs are intern
   assert.deepEqual(narrowest([ROWS.dmAlice, ROWS.dmAlice]), dmScope(ALICE, 'discord'));
   assert.equal(narrowest([ROWS.dmAlice, ROWS.dmBob]).scope_kind, 'internal');
   assert.equal(narrowest([ROWS.dmBob, ROWS.group, ROWS.dmAlice]).scope_kind, 'internal');
-  assert.equal(narrowest([ROWS.group, ROWS.groupOther]).scope_kind, 'internal');
-  assert.equal(narrowest([ROWS.dmAlice, ROWS.groupOther]).scope_kind, 'internal');
+  // Policy 2 intersects eligibility, so an interface change does not make group evidence internal.
+  assert.deepEqual(narrowest([ROWS.group, ROWS.groupOther]), groupScope('discord'));
+  assert.deepEqual(narrowest([ROWS.dmAlice, ROWS.groupOther]), dmScope(ALICE, 'discord'));
   assert.equal(narrowest([ROWS.none, ROWS.internal, ROWS.group]).scope_kind, 'internal');
 });
 
@@ -256,4 +259,90 @@ test('a claim id is the old itemId when there was one, else kind, owner and a ha
 test('uniqueIds keeps the first and suffixes a repeat', () => {
   const uniq = uniqueIds();
   assert.deepEqual(['a', 'b', 'a', 'a', 'b'].map(uniq), ['a', 'b', 'a-2', 'a-3', 'b-2']);
+});
+
+test('cross-interface group provenance has the same visibility in either evidence order', () => {
+  // Catches a representative interface accidentally narrowing a derived group's readership.
+  const forward = narrowest([groupScope('discord'), groupScope('future-interface')]);
+  const reverse = narrowest([groupScope('future-interface'), groupScope('discord')]);
+  assert.deepEqual(forward, groupScope('discord'));
+  assert.deepEqual(reverse, groupScope('future-interface'));
+  for (const ctx of [groupContext('third-interface'), dmContext(ALICE, 'discord')]) {
+    assert.equal(allowed(forward, ctx), true);
+    assert.equal(allowed(reverse, ctx), true);
+  }
+  for (const evidence of [
+    [groupScope('future-interface'), dmScope(ALICE, 'discord')],
+    [dmScope(ALICE, 'discord'), groupScope('future-interface')],
+  ])
+    assert.deepEqual(narrowest(evidence), dmScope(ALICE, 'discord'));
+});
+
+test('ordinary SQL and memory reads reject malformed groups while admitting an unknown interface', () => {
+  // Catches removing interface equality without retaining the valid nonempty interface requirement.
+  const handle = openMemoryDb(':memory:');
+  const db = dbOf(handle);
+  const rows = [
+    { name: 'valid', scope_kind: 'group', scope_iface: 'future-interface', scope_dm: null },
+    { name: 'empty', scope_kind: 'group', scope_iface: '', scope_dm: null },
+    { name: 'null', scope_kind: 'group', scope_iface: null, scope_dm: null },
+    { name: 'unknown', scope_kind: 'other', scope_iface: 'future-interface', scope_dm: null },
+  ];
+  try {
+    db.exec('CREATE TABLE probe (name TEXT, scope_kind TEXT, scope_iface TEXT, scope_dm TEXT)');
+    for (const row of rows)
+      db.prepare('INSERT INTO probe VALUES (?, ?, ?, ?)').run(row.name, row.scope_kind, row.scope_iface, row.scope_dm);
+    for (const ctx of [groupContext('discord'), dmContext(ALICE, 'discord')]) {
+      assert.deepEqual(
+        rows.filter((row) => allowed(row, ctx)).map((row) => row.name),
+        ['valid']
+      );
+      const where = whereFor(ctx, 'p');
+      assert.deepEqual(
+        db
+          .prepare(`SELECT name FROM probe p WHERE ${where.sql}`)
+          .all(...where.params)
+          .map((row) => row.name),
+        ['valid']
+      );
+    }
+  } finally {
+    handle.close();
+  }
+});
+
+test('group scope identifiers reject literal NUL bytes but preserve an encoded percent sequence', () => {
+  // Catches malformed group provenance becoming readable or surviving a derived scope intersection.
+  const handle = openMemoryDb(':memory:');
+  const db = dbOf(handle);
+  const rows = [
+    { id: 'encoded', ...groupScope('future-%00') },
+    { id: 'nul-only', ...groupScope('\0') },
+    { id: 'nul-middle', ...groupScope('future\0interface') },
+  ];
+  try {
+    db.exec('CREATE TABLE probe (id TEXT, scope_kind TEXT, scope_iface TEXT, scope_dm TEXT)');
+    for (const row of rows)
+      db.prepare('INSERT INTO probe VALUES (?, ?, ?, ?)').run(row.id, row.scope_kind, row.scope_iface, row.scope_dm);
+    for (const ctx of [groupContext('discord'), dmContext(ALICE, 'discord'), groupsContext()]) {
+      assert.deepEqual(
+        rows.filter((row) => allowed(row, ctx)).map((row) => row.id),
+        ['encoded']
+      );
+      const filter = whereFor(ctx, 'p');
+      assert.deepEqual(
+        db
+          .prepare(`SELECT id FROM probe p WHERE ${filter.sql}`)
+          .all(...filter.params)
+          .map((row) => row.id),
+        ['encoded']
+      );
+    }
+    for (const iface of ['\0', 'future\0interface']) {
+      assert.deepEqual(narrowest([groupScope(iface), groupScope('discord')]), SCOPE_INTERNAL);
+    }
+    assert.deepEqual(narrowest([groupScope('future-%00'), groupScope('discord')]), groupScope('future-%00'));
+  } finally {
+    handle.close();
+  }
 });

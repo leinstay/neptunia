@@ -469,7 +469,8 @@ test('v7 contexts: an issued context is recorded once, and turn reads carry its 
         iface: 'discord',
         destination_place_id: dmPlaceId('discord', 'u1'),
         partner_person_id: personId('discord', 'u1'),
-        policy_version: 1,
+        // Policy 2 records the cross-interface group eligibility rule on new contexts.
+        policy_version: 2,
         issued_at: '2026-10-24T12:00:00.000Z',
       }
     );
