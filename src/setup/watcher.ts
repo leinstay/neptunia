@@ -25,6 +25,23 @@ function storeSettings(privateDir: string, enabled: boolean, at: string): void {
   writeLocalConfig(file, local);
 }
 
+/** Writes the watcher's backend and model into keys.json when either differs; true when it wrote. */
+function storeBackend(privateDir: string, backend: BackendName, model: string | null): boolean {
+  const keys = readKeys(privateDir);
+  const { uses, models } = keys.subharness;
+  if (uses.watcher === backend && (models.watcher ?? null) === model) return false;
+  const restModels = Object.fromEntries(Object.entries(models).filter(([agent]) => agent !== 'watcher'));
+  writeKeys(privateDir, {
+    ...keys,
+    subharness: {
+      ...keys.subharness,
+      uses: { ...uses, watcher: backend },
+      models: model === null ? restModels : { ...restModels, watcher: model },
+    },
+  });
+  return true;
+}
+
 export async function watcherStep(
   options: { rootDir: string; privateDir: string },
   deps: WatcherStepDeps
@@ -41,8 +58,7 @@ export async function watcherStep(
     return { state: 'done', detail: 'the watcher is off' };
   }
   const at = await askHour(deps.ask, "The time of the watcher's daily run, HH:MM UTC:", settings.at);
-  const keys = readKeys(options.privateDir);
-  const { backends, uses, models } = keys.subharness;
+  const { backends, uses, models } = readKeys(options.privateDir).subharness;
   const offeredBackend = uses.watcher ?? backends[0] ?? null;
   const backendAnswer = (await deps.ask('The subharness backend the watcher runs through:', offeredBackend)).trim();
   const named = backendAnswer === '' ? offeredBackend : backendAnswer;
@@ -60,18 +76,7 @@ export async function watcherStep(
     await deps.ask('The model the watcher runs on (empty: the backend default):', offeredModel)
   ).trim();
   const model = modelAnswer === '' ? offeredModel : modelAnswer;
-  const keysChanged = uses.watcher !== backend || (models.watcher ?? null) !== model;
-  if (keysChanged) {
-    const restModels = Object.fromEntries(Object.entries(models).filter(([agent]) => agent !== 'watcher'));
-    writeKeys(options.privateDir, {
-      ...keys,
-      subharness: {
-        ...keys.subharness,
-        uses: { ...uses, watcher: backend },
-        models: model === null ? restModels : { ...restModels, watcher: model },
-      },
-    });
-  }
+  const keysChanged = storeBackend(options.privateDir, backend, model);
   const settingsChanged = !settings.enabled || at !== settings.at;
   if (settingsChanged) storeSettings(options.privateDir, true, at);
   const detail = `the watcher runs daily at ${at} UTC through ${backend}${model === null ? '' : ` on ${model}`}`;
