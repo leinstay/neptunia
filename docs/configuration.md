@@ -559,7 +559,7 @@ The settings every errand reads, whichever agent runs it. See [Errands](errands.
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `errands.opencodePath` | string | `"/opt/opencode/bin/opencode"` | Path to the OpenCode binary | `bin/neptunia.ts` |
+| `errands.opencodePath` | string | `"/opt/opencode/bin/opencode"` | The OpenCode executable that `neptunia setup subharness opencode` copies when no `--from` is given | `bin/neptunia.ts` |
 | `errands.toolResultChars` | number | `6000` | Cap on each tool result the agent sees | `bin/neptunia.ts` |
 | `errands.keepFilesHours` | number | `24` | Hours a task's output files are kept | `src/agent-runner/sweep.ts` |
 | `errands.maxOpen` | number | `3` | Errands open at once, all agents together | `src/errands/store.ts` |
