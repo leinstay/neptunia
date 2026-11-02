@@ -183,7 +183,8 @@
   },
   "memory": {
     "vaultDir": "vault",
-    "mainChannelIds": []
+    "mainChannelIds": [],
+    "probeMinutes": 30
   },
   "media": {
     "maxOutputTokens": 2000,

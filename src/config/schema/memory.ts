@@ -19,4 +19,12 @@ export const MEMORY: ReadonlyArray<SchemaEntry> = [
     'text':
       'Channels where people talk to each other; used for character/style portraits and as the destination for calls from read-only channels. Empty means every channel counts',
   },
+  {
+    'key': 'memory.probeMinutes',
+    'types': ['number'],
+    'reader': 'src/subharness/memory-probe.ts',
+    'default': 30,
+    'text':
+      "Minutes between two probes of the memory writer's path, one minimal request on the memory key or one one-word reply through the subharness. The probe also runs at core start and right after a refused writer run. A failed probe pauses her with the reason `memory-down`, and the next passing one resumes her. A value that is no positive number counts as 30",
+  },
 ];

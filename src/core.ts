@@ -44,6 +44,7 @@ import { createKeyFailover } from './llm/key-failover.ts';
 import { MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, roleModel } from './llm/roles.ts';
 import { statusCardKeys } from './keys/card-keys.ts';
 import { createKeysCommands } from './keys/commands.ts';
+import type { PauseControl } from './keys/commands.ts';
 import { importKeys } from './keys/import.ts';
 import { createKeyRing } from './keys/ring.ts';
 import type { KeyOf } from './keys/ring.ts';
@@ -128,10 +129,16 @@ import { createTagHistory, deprecatedModelKeys } from './behavior/mention.ts';
 import { createMessageHandler } from './behavior/pipeline.ts';
 import { createLeasedAttention } from './behavior/attention.ts';
 import { RELATIONSHIP_LIMITS } from './memory/text-limits.ts';
-import { createInstalledBackend } from './agent-runner/backend.ts';
+import { createInstalledBackend, runChildProcess } from './agent-runner/backend.ts';
 import { helpOfInstalled, isInstalled } from './subharness/place.ts';
 import { deferModeToUnit } from './setup/install.ts';
 import { REPLY_CHECK_MS } from './subharness/control.ts';
+import { clearMemoryPath } from './subharness/memory-path.ts';
+import { memoryWriterClient } from './subharness/memory-writer.ts';
+import { createMemoryWatch, memoryProbe } from './subharness/memory-probe.ts';
+import type { MemoryWatch } from './subharness/memory-probe.ts';
+import type { EffortLevel } from './llm/roles.ts';
+import type { SessionContext } from './memory/db/session.ts';
 import { objOf } from './tools/types.ts';
 import type { Untyped } from './tools/types.ts';
 import type {
@@ -340,6 +347,11 @@ async function buildCore(
   // Her memory session is the memory writer: it runs on the chat client (role `memory`, its own key from `env`), and a
   // run that fails is told to her as a `memoryFailed` fact (inner, defined below).
   // The options are named first: the module declares the ones it reads, and `embed` and `selfName` are not among them yet.
+  // The session's model client (src/subharness/memory-writer.ts): the chat client below on the direct path, else one run
+  // through the subharness keys.json names; set once the chat client exists. A refused run wakes the memory probe.
+  let sessionClient: SessionContext['llm'] | null = null;
+  // The probe of the writer's path (src/subharness/memory-probe.ts), created with the pause below.
+  let memoryWatch: MemoryWatch | null = null;
   const memoryDbOptions = {
     hot,
     dataDir,
@@ -349,7 +361,7 @@ async function buildCore(
     iface: () => identity.iface || null,
     embed: (texts: Untyped, options: Untyped) => embedder.embed(texts, options),
     selfName: () => getSelfName(getGuildId()),
-    sessionLlm: () => llm,
+    sessionLlm: () => sessionClient,
     sessionEnv: () => env,
     sessionKeys: ringNow,
     onSessionFailure: (failure: Untyped) => tellSessionFailure(failure),
@@ -478,6 +490,16 @@ async function buildCore(
       }),
       roleHealth
     )) as ChatClient;
+  sessionClient = memoryWriterClient({
+    writer: {
+      privateDir: paths.privateDir,
+      runChild: runChildProcess,
+      workDir: path.join(os.tmpdir(), 'neptunia-memory'),
+    },
+    direct: llm,
+    record: (entry) => usage.record(entry),
+    onRefused: () => void memoryWatch?.refused(),
+  });
   // Embeddings (role embedding) on the same daily request count as the chat client.
   const embedder = options.embedder ?? createEmbedder({ apiKey: openrouterKey, env, keyOf, state: store.state });
   // The meaning index kept current: record lines queued above, flushed on the tick below.
@@ -1292,6 +1314,41 @@ async function buildCore(
     if (result.status !== 'ok') throw new Error(result.summary || result.code);
     return result.summary;
   };
+  // Her pause with a reason, which the key commands and the memory probe set: `no-core-key` after the last core key's
+  // removal, `memory-down` after a failed memory probe. Each lifts only its own pause, never the owner's.
+  const pauseControl: PauseControl = {
+    async pause(reason) {
+      const wasPaused = store.state.data.paused === true;
+      await ownerOp('bot.pause', {});
+      if (wasPaused) return;
+      store.state.data.pausedReason = reason;
+      store.state.markDirty();
+      store.flush();
+    },
+    async resume() {
+      await ownerOp('bot.resume', {});
+      if (store.state.data.paused) throw new Error('she is still paused: run /resume and read its answer');
+    },
+    reason: () => (store.state.data.paused ? String(store.state.data.pausedReason ?? 'owner') : null),
+  };
+  // The key the memory role goes out on now: the ring's route while keys.json exists, else the `.env` variable
+  // `llm.keyByRole.memory` names. Never logged.
+  const memoryRoute = (): { name: string; value: string } | null => {
+    const ring = ringNow();
+    if (ring !== null) return ring.route('memory');
+    const name = objOf(objOf(objOf(hot.config).llm).keyByRole).memory;
+    const value = typeof name === 'string' ? env[name] : undefined;
+    return typeof name === 'string' && typeof value === 'string' && value.trim() !== '' ? { name, value } : null;
+  };
+  // One run of the installed codex or claude for a check: the subharness's `/subharness` checks and the memory probe.
+  const runSubharnessBackend = (backend: 'codex' | 'claude', brief: string, model?: string, effort?: EffortLevel) =>
+    createInstalledBackend(backend, paths.privateDir).run(brief, {
+      cwd: os.tmpdir(),
+      timeoutMs: REPLY_CHECK_MS,
+      sandbox: 'read-only',
+      ...(model === undefined ? {} : { model }),
+      ...(effort === undefined ? {} : { effort }),
+    });
   const keysCommands = createKeysCommands({
     store: keyStore,
     ring: keyRing,
@@ -1322,21 +1379,32 @@ async function buildCore(
       writeLocalSetting(dotted.split('.'), value);
       return Promise.resolve();
     },
-    pause: {
-      async pause(reason) {
-        const wasPaused = store.state.data.paused === true;
-        await ownerOp('bot.pause', {});
-        if (wasPaused) return;
-        store.state.data.pausedReason = reason;
-        store.state.markDirty();
-        store.flush();
-      },
-      async resume() {
-        await ownerOp('bot.resume', {});
-        if (store.state.data.paused) throw new Error('she is still paused: run /resume and read its answer');
-      },
-      reason: () => (store.state.data.paused ? String(store.state.data.pausedReason ?? 'owner') : null),
+    pause: pauseControl,
+    // `/model set memory <model>` returns the writer to the direct path once the model passed its check.
+    directPath: (role) => {
+      if (role === 'memory') clearMemoryPath(paths.privateDir);
     },
+  });
+  // The memory probe (src/subharness/memory-probe.ts): its sleep `memory-down` goes through the same pause. While the
+  // session is off there is no writer to probe, and the probe passes.
+  memoryWatch = createMemoryWatch({
+    probe: (now) =>
+      objOf(objOf(objOf(hot.config).memoryDb).session).mode === 'apply'
+        ? memoryProbe(
+            {
+              privateDir: paths.privateDir,
+              route: memoryRoute,
+              fetch: (input, init) => globalThis.fetch(input, init),
+              baseUrl: String(objOf(objOf(hot.config).llm).baseUrl),
+              model: () => roleModel(hot.config, 'memory') ?? '',
+              runBackend: runSubharnessBackend,
+            },
+            now
+          )
+        : Promise.resolve({ ok: true, at: now }),
+    pause: pauseControl,
+    now: clock,
+    config: (): unknown => hot.config,
   });
   // The owner's commands over the link: the `neptunia` chat and `-p`, and the board commands of the agents.
   commandDesk = createCommandDesk({
@@ -1368,14 +1436,7 @@ async function buildCore(
       subharness: {
         asksModels: true,
         isInstalled: (backend) => isInstalled(paths.privateDir, backend),
-        runBackend: (backend, brief, model, effort) =>
-          createInstalledBackend(backend, paths.privateDir).run(brief, {
-            cwd: os.tmpdir(),
-            timeoutMs: REPLY_CHECK_MS,
-            sandbox: 'read-only',
-            ...(model === undefined ? {} : { model }),
-            ...(effort === undefined ? {} : { effort }),
-          }),
+        runBackend: runSubharnessBackend,
         helpOf: (backend) => helpOfInstalled(paths.privateDir, backend),
         fetch,
         get baseUrl() {
@@ -1794,6 +1855,8 @@ async function buildCore(
   every(60_000, () => metrics.save(), 'metrics.save');
   // Today's per-role usage written to data/usage.json (at most once a minute; nothing new, no write).
   every(60_000, () => usage.save(), 'usage.save');
+  // The memory probe's interval, `memory.probeMinutes` of the live config, looked at once a minute.
+  every(60_000, () => memoryWatch?.tick(), 'memory probe');
   scheduleArchiveDrain();
 
   if (!hot.config.bot.guildId) {
@@ -1814,6 +1877,9 @@ async function buildCore(
   // The database is the memory: opened first (its pending writes of the last shutdown replayed) and awaited, before
   // anything below reads it.
   await startupStep('memoryDb.open', () => memoryDb.tick(), { wait: true });
+
+  // The memory probe at start, with the link up: a dead writer path puts her to sleep before her first turn.
+  await startupStep('memory.probe', () => memoryWatch?.start());
 
   // The journal's start: an unclean stop, the start record. Awaited, before the reconciliation below.
   await startupStep('journal.start', () => startJournal(servedGuildId()), { wait: true });

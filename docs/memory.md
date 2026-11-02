@@ -223,6 +223,16 @@ There is no model role that decides what the persona remembers. She decides hers
 
 The session runs on its own model role (`memory`). While `keys.json` exists its key is the one the key ring routes `memory` to, the extra key the role is bound to or the core key in use ([Keys](keys.md#the-core-keys-and-the-ring)). Without the store the key is the `.env` variable that `llm.keyByRole.memory` names. Without a key, the session refuses to run.
 
+### The writer's path
+
+The session's request goes out on one of two paths, which `memoryWriterClient` (`src/subharness/memory-writer.ts`) reads from `subharness.memory` of `keys.json` at every request. With no record it takes the direct path, a request on the `memory` role's key. `/model set memory --via <backend> <model> [--effort <level>]` moves it to the subharness path after one reply on that model and effort, and `/model set memory <model>` brings it back once the direct model passed its check (`src/subharness/memory-path.ts`). Only `codex` and `claude` carry the writer, because `opencode run` takes no system prompt of its own.
+
+On the subharness path the request is one run of the backend installed in the private layer, with no tools. `claude -p` gets the system text as `--system-prompt`, the batch on stdin and `--output-format json`, and the answer is the envelope's `result`. `codex exec` runs `read-only` whatever the agents' modes are. It gets the system text, a blank line and the batch on stdin, and writes its answer under `--output-schema` as one JSON field, `answer`. Either answer goes to the same `parseSessionAnswer`. A run that is refused (`subharness-off`, `not-installed`, `timeout`, `exit-<n>`, `empty-answer` or `backend-error`) is recorded like a failed request: outcome `llm_error`, the error `llm:<code>`, and the batch waits for the next sweep. The usage store counts a subharness run under `memory` with its tokens at cost 0 and no key, and the direct path is counted by the `llm: usage` line like every role. The description reviews stay on the direct path.
+
+### The memory probe
+
+`createMemoryWatch` (`src/subharness/memory-probe.ts`) probes the writer's path at core start, every `memory.probeMinutes` (default 30) and right after a refused writer run. On the direct path the probe is the request `/keys check memory` sends. On the subharness path it is one one-word reply through the backend, because the subscriptions' five-hour and weekly limits cannot be read. A failed probe while she runs pauses her with the reason `memory-down`, shown on `/status`, and the interfaces stay connected and answer nothing. The next passing probe resumes her. Neither touches a pause of another reason, so the owner's pause and `no-core-key` stay as they are. While `memoryDb.session.mode` is not `apply` there is no writer to probe, and the probe passes.
+
 ### Schedule
 
 Controlled by the `memoryDb.session` config block. A scope (the public channels of an interface together, or one DM conversation) sweeps when:
