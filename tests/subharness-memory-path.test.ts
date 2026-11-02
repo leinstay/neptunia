@@ -255,8 +255,8 @@ test('the table parses model set memory with --via and --effort', () => {
 
 /** What the core hands the console of `deps`: everything but the private directory, which the console has. */
 const consoleSubharness = (deps: EnableDeps): ConsoleDeps['subharness'] => ({
-  runBackend: deps.runBackend,
-  fetch: deps.fetch,
+  runBackend: (...args) => deps.runBackend(...args),
+  fetch: (...args) => deps.fetch(...args),
   ...(deps.helpOf === undefined ? {} : { helpOf: deps.helpOf }),
 });
 
