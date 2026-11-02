@@ -78,7 +78,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { createRunnerServer } from '../src/agent-runner/server.ts';
 import { DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.ts';
-import { backendOf, createAgentEngine } from '../src/agent-runner/backend.ts';
+import { backendOf, createAgentEngine, createBackend } from '../src/agent-runner/backend.ts';
 import { agentSettings, profileOf } from '../src/agent-runner/profiles.ts';
 import type { RunnerTask } from '../src/agent-runner/protocol.ts';
 import { startSweeper } from '../src/agent-runner/sweep.ts';
@@ -1355,8 +1355,22 @@ async function runPlugin(argv: ReadonlyArray<string>): Promise<void> {
 // ---------------------------------------------------------------------------------------------------------------
 // watcher
 
-/** The agent backend that answers the watcher's brief (plan item 0). Replace this one definition with the backend. */
-const runAgent: RunAgent = () => Promise.reject(new Error('no agent backend is wired to the watcher'));
+/** How long one watcher run may take before its process group is killed (ms). */
+const WATCHER_TIMEOUT_MS = 60 * 60 * 1000;
+
+/** The watcher's agent: the backend of `agents.watcher` (default `errands.backend`) working in the checkout. */
+function watcherAgent(where: { rootDir: string; privateDir: string }): RunAgent {
+  return async (_profile, brief) => {
+    const config = readConfig(where.rootDir, { privateDir: where.privateDir });
+    const backend = createBackend(backendOf('watcher', config));
+    const done = await backend.run(brief, {
+      cwd: where.rootDir,
+      timeoutMs: WATCHER_TIMEOUT_MS,
+      sandbox: 'workspace-write',
+    });
+    return { ok: done.ok, text: done.text, exitCode: done.exitCode ?? -1 };
+  };
+}
 
 async function runWatcherCommand(argv: ReadonlyArray<string>): Promise<void> {
   const [command, ...extra] = argv;
@@ -1368,7 +1382,12 @@ async function runWatcherCommand(argv: ReadonlyArray<string>): Promise<void> {
   });
   if (typeof opened === 'string') die(`the board is not reachable: ${opened}`);
   try {
-    const result = await runWatcher({ now: Date.now, runAgent, board: opened.board, reportsDir });
+    const result = await runWatcher({
+      now: Date.now,
+      runAgent: watcherAgent(paths()),
+      board: opened.board,
+      reportsDir,
+    });
     if (!result.ok) die(`the watcher run of ${result.day} failed: ${result.code}, ${result.detail}`);
     console.log(
       result.ran
