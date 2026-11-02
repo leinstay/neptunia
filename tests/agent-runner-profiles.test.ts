@@ -1569,10 +1569,12 @@ test('the real agents/ folder has no drawing agent: no profile, no config entry,
   assert.match(run.stdout + run.stderr, /unknown profile/);
 });
 
-test('the scout unit: runs the scout profile as its own user with the state and runtime dirs the profile and config.json name', () => {
+test('the scout unit: runs the scout profile with the state and runtime dirs the profile and config.json name', () => {
   const unit = fs.readFileSync(path.join(ROOT, 'deploy', 'neptunia-agent-scout.service'), 'utf8');
   const line = (key: string) => unit.split('\n').find((text) => text.startsWith(`${key}=`));
-  assert.equal(line('User'), 'User=neptunia-agent-scout');
+  // Expectation changed on the owner's decision of 2026-11-02: the agents run through Codex, whose only login on this
+  // server belongs to the user `neptunia`, so the unit no longer has a user of its own.
+  assert.equal(line('User'), 'User=neptunia');
   // Stage 4 PR D ("PR D in detail", the errand runner): both errand units call the new entry, named as the interface
   // unit names it (deploy/neptunia-interface@.service).
   assert.ok(loose(line('ExecStart')).endsWith('bin/neptunia.ts errand-runner --profile scout'));
@@ -1581,4 +1583,19 @@ test('the scout unit: runs the scout profile as its own user with the state and 
   assert.equal(line('EnvironmentFile'), 'EnvironmentFile=-/opt/neptunia/etc/agent-scout.env');
   assert.equal(SCOUT.defaultSocket, '/run/neptunia-agent-scout/sock');
   assert.equal(SCOUT.defaultOut, '/var/lib/neptunia-agent-scout/out');
+});
+
+test('the server agent runs its CLI backend read-only, the scout in the writable task folder', () => {
+  // Bug: a CLI backend gives the read-only server agent write access, because the sandbox was one fixed value.
+  assert.equal(SERVER.sandbox, 'read-only');
+  assert.equal(SCOUT.sandbox, 'workspace-write');
+});
+
+test('loadProfiles: a worker without a sandbox key gets workspace-write, and a bad value is refused', () => {
+  withAgentsTree({ probe: workerProfile('probe') }, (rootDir: string) =>
+    assert.equal(loose(loadProfiles({ rootDir, env: {} }).probe).sandbox, 'workspace-write')
+  );
+  withAgentsTree({ probe: workerProfile('probe', { sandbox: 'danger-full-access' }) }, (rootDir: string) =>
+    assertRefused(rootDir, 'probe', 'sandbox')
+  );
 });

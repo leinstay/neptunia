@@ -1,6 +1,7 @@
 // The watcher's systemd units (deploy/neptunia-watcher.timer and .service), read as text, without systemd: the timer
 // fires at 00:00 UTC, and the service runs `neptunia watcher run` once, as a user of its own, with the node of the
-// server. Each fact is a line a deployment would get wrong silently.
+// server. The two errand agent units (neptunia-agent-scout.service and neptunia-agent-server.service) are read the same
+// way: they run Codex as the user that holds its login. Each fact is a line a deployment would get wrong silently.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -72,4 +73,55 @@ test("the service runs as an agent user: not root and not the core's user, which
 test('the service does not restart itself after a failed run: one run a day', () => {
   const restart = one(parseUnit('neptunia-watcher.service'), 'Service', 'Restart');
   assert.ok(restart === undefined || restart === 'no');
+});
+
+const AGENT_UNITS = ['neptunia-agent-scout.service', 'neptunia-agent-server.service'];
+
+test('the agent units run as the user that holds the Codex login, in the group of the core socket', () => {
+  // Bug: a unit left on a retired agent user starts without a Codex login and every task fails.
+  for (const name of AGENT_UNITS) {
+    const service = parseUnit(name);
+    assert.equal(one(service, 'Service', 'User'), 'neptunia', name);
+    assert.equal(one(service, 'Service', 'Group'), 'neptunia-discord-interface', name);
+  }
+});
+
+test('the agent units can write ~/.codex and nothing else of the home, and keep the system read-only', () => {
+  // Bug: ProtectHome=yes hides the Codex binary and its login, or a wide write path opens the home to the agent.
+  for (const name of AGENT_UNITS) {
+    const service = parseUnit(name);
+    assert.equal(one(service, 'Service', 'ProtectSystem'), 'strict', name);
+    assert.equal(one(service, 'Service', 'ProtectHome'), 'tmpfs', name);
+    assert.deepEqual(service.get('Service')?.get('BindPaths'), ['/home/neptunia/.codex'], name);
+    assert.deepEqual(service.get('Service')?.get('BindReadOnlyPaths'), ['/home/neptunia/.local'], name);
+    assert.equal(one(service, 'Service', 'ReadWritePaths'), undefined, name);
+    assert.equal(one(service, 'Service', 'NoNewPrivileges'), 'yes', name);
+    assert.equal(one(service, 'Service', 'PrivateTmp'), 'yes', name);
+  }
+});
+
+test("the agent units' PATH reaches codex and node", () => {
+  // Bug: systemd's default PATH has neither, so the runner fails every task with backend-missing.
+  for (const name of AGENT_UNITS) {
+    const dirs = (one(parseUnit(name), 'Service', 'Environment') ?? '').replace(/^PATH=/, '').split(':');
+    assert.ok(dirs.includes('/home/neptunia/.local/bin'), name);
+    assert.ok(dirs.includes('/opt/node/bin'), name);
+  }
+});
+
+test('the server unit holds no ambient capability, which bubblewrap refuses, and allows the netlink socket it needs', () => {
+  // Bug: an ambient capability makes every Codex command fail with "Unexpected capabilities but not setuid".
+  const service = parseUnit('neptunia-agent-server.service');
+  assert.equal(one(service, 'Service', 'AmbientCapabilities'), undefined);
+  assert.equal(one(service, 'Service', 'CapabilityBoundingSet'), 'CAP_DAC_READ_SEARCH');
+  assert.match(one(service, 'Service', 'RestrictAddressFamilies') ?? '', /\bAF_NETLINK\b/);
+});
+
+test('the server unit denies all addresses but the resolver and the ranges of the Cloudflare hosts Codex talks to', () => {
+  // Bug: a widened allow-list lets the read-only agent reach private networks or the metadata address.
+  const service = parseUnit('neptunia-agent-server.service');
+  assert.equal(one(service, 'Service', 'IPAddressDeny'), 'any');
+  const allowed = service.get('Service')?.get('IPAddressAllow') ?? [];
+  assert.ok(allowed.includes('127.0.0.53/32'));
+  assert.ok(!allowed.some((entry) => /^(0\.0\.0\.0|10\.|169\.254\.)/.test(entry)));
 });
