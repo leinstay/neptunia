@@ -12,6 +12,7 @@
 | `neptunia plugin run <name>` | Runs one plugin, as `deploy/neptunia-plugin@.service` does (see [Plugins](plugins.md)). It loads `plugins.local/<name>/index.ts` of the private layer before `plugins/<name>/index.ts`, reads the token from the unit's credential or `clients/<name>.token`, keeps the plugin's state in `<data>/plugins/<name>` and opens the link again with backoff when it drops. |
 | `neptunia service install\|start\|stop\|restart\|status [<unit> ...]` | Installs the units with `deploy/install.sh`, or runs `systemctl` on the named units, by default `neptunia-core.service` and the two errand units. |
 | `neptunia task <command> [options]` | The task board's command line, a client of the core (see [The task board](#the-task-board)). |
+| `neptunia selfdev run` | One beat of her self-development as the client `selfdev`: takes her fix proposals, works the approved ones into pull requests and looks at the open ones (see [Self-development](selfdev.md)). |
 | `neptunia watcher run` | One run of the daily watcher, as `deploy/neptunia-watcher.service` does (see [The watcher](watcher.md)). |
 
 ## The client

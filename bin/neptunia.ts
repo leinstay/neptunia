@@ -38,6 +38,10 @@
 // `NEPTUNIA_TASK_TOKEN` or `<private>/clients/watcher.token`). It exits 0 for a report written or already there, and 1
 // for a run that failed, with the code on stderr.
 //
+// `selfdev run` runs one beat of her self-development (bin/selfdev.ts, docs/selfdev.md) as the client `selfdev`: her fix
+// proposals are taken, each approved one is patched in a worktree and opened as a pull request, and the open ones are
+// looked at. It exits 0 for a beat that ran and 1 when the board is not reachable.
+//
 // `doctor` writes nothing and asks the core nothing without `--live`: it checks Node, the binaries the engine runs, config.json and
 // config.local.json, the local layer, the `.env` keys of the enabled roles, the client tokens, the memory database
 // (read only, with no lock) and the socket. `--live` adds `providers`, the core's probes of the model roles, which is
@@ -122,6 +126,7 @@ import type {
 } from '../src/protocol/plugin.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
 import { parseManifest } from '../src/plugins/manifest.ts';
+import { runSelfdev } from './selfdev.ts';
 import { runTask, openBoardCaller } from './neptunia-task.ts';
 import { reportAnswer } from './report.ts';
 import { reportsDirOf, watcherDir } from '../src/watcher/read.ts';
@@ -140,6 +145,7 @@ const USAGE = [
   '       neptunia plugin run <name>',
   '       neptunia service install|start|stop|restart|status [<unit> ...]',
   '       neptunia task <command> [options]   (neptunia task help)',
+  '       neptunia selfdev run',
   '       neptunia watcher run',
 ].join('\n');
 
@@ -1433,6 +1439,9 @@ switch (group) {
     break;
   case 'task':
     process.exit(await runTask(rest).catch(fault));
+    break;
+  case 'selfdev':
+    process.exit(await runSelfdev(rest).catch(fault));
     break;
   case 'watcher':
     await runWatcherCommand(rest).catch(fault);
