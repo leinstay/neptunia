@@ -151,9 +151,9 @@ function findBinary(binary: string): boolean {
   });
 }
 
-/** The number after the last `tokens used` line of codex's stdout, commas dropped. */
-function tokensOf(stdout: string): number | undefined {
-  const found = [...stdout.matchAll(/tokens used\s*\n\s*([\d,]+)/g)].pop();
+/** The number after the last `tokens used` label of codex's output, on the same line or the next, commas dropped. */
+function tokensOf(output: string): number | undefined {
+  const found = [...output.matchAll(/tokens used:?\s+([\d,]+)/g)].pop();
   if (!found) return undefined;
   const tokens = Number(found[1].replaceAll(',', ''));
   return Number.isFinite(tokens) ? tokens : undefined;
@@ -163,6 +163,7 @@ function tokensOf(stdout: string): number | undefined {
 type Outcome = {
   exitCode: number | null;
   stdout: string;
+  stderr: string;
   spawnCode: string | null;
   stopped: 'timeout' | 'cancelled' | null;
 };
@@ -190,13 +191,20 @@ function runChild({
         cwd: options.cwd,
         env: childEnvOf(options.env),
         detached: true,
-        stdio: ['pipe', 'pipe', 'ignore'],
+        stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (err) {
-      resolve({ exitCode: null, stdout: '', spawnCode: scalarText(errorFields(err).code ?? 'spawn'), stopped: null });
+      resolve({
+        exitCode: null,
+        stdout: '',
+        stderr: '',
+        spawnCode: scalarText(errorFields(err).code ?? 'spawn'),
+        stopped: null,
+      });
       return;
     }
     let stdout = '';
+    let stderr = '';
     let stopped: Outcome['stopped'] = null;
     let settled = false;
     const timers: Array<NodeJS.Timeout> = [];
@@ -214,7 +222,7 @@ function runChild({
       timers.push(
         setTimeout(() => {
           killTree(child, 'SIGKILL');
-          timers.push(setTimeout(() => settle({ exitCode: null, stdout, spawnCode: null, stopped }), 1_000));
+          timers.push(setTimeout(() => settle({ exitCode: null, stdout, stderr, spawnCode: null, stopped }), 1_000));
         }, KILL_GRACE_MS)
       );
     };
@@ -228,19 +236,31 @@ function runChild({
       stdout += chunk;
       if (stdout.length > STDOUT_KEEP * 2) stdout = tail ? stdout.slice(-STDOUT_KEEP) : stdout.slice(0, STDOUT_KEEP);
     });
+    child.stderr?.setEncoding('utf8');
+    // codex prints its banner and the `tokens used` label to stderr; only the tail is kept and none of it is logged.
+    child.stderr?.on('data', (chunk: string) => {
+      stderr = (stderr + chunk).slice(-STDOUT_KEEP);
+    });
     child.on('error', (err) =>
-      settle({ exitCode: null, stdout, spawnCode: scalarText(errorFields(err).code ?? 'spawn'), stopped })
+      settle({ exitCode: null, stdout, stderr, spawnCode: scalarText(errorFields(err).code ?? 'spawn'), stopped })
     );
     child.on('close', (code) => {
       // A killed group may leave the pipes open a moment; the exit is what counts.
       killTree(child, 'SIGKILL');
-      settle({ exitCode: stopped ? null : code, stdout, spawnCode: null, stopped });
+      settle({ exitCode: stopped ? null : code, stdout, stderr, spawnCode: null, stopped });
     });
     child.stdin?.on('error', () => {
       // the child closed stdin before reading the brief; its exit says why
     });
     child.stdin?.end(stdin);
   });
+}
+
+/** Why a child did not run to its own end: stopped by us, binary missing or unusable, or another spawn failure. */
+function errorOf(outcome: Outcome): BackendError | undefined {
+  if (outcome.stopped) return outcome.stopped;
+  if (outcome.spawnCode === 'ENOENT' || outcome.spawnCode === 'EACCES') return 'backend-missing';
+  return outcome.spawnCode ? 'spawn' : undefined;
 }
 
 /**
@@ -275,16 +295,10 @@ export function createBackend(name: BackendName, deps: BackendDeps = {}): Backen
           spawnImpl,
           tail: recipe.tail,
         });
-        if (name === 'codex') tokens = tokensOf(outcome.stdout);
+        if (name === 'codex') tokens = tokensOf(`${outcome.stderr}\n${outcome.stdout}`);
         let text = outcome.stdout.trim();
         if (outFile) text = (await fsp.readFile(outFile, 'utf8').catch(() => '')).trim();
-        const error: BackendError | undefined =
-          outcome.stopped ??
-          (outcome.spawnCode === 'ENOENT' || outcome.spawnCode === 'EACCES'
-            ? 'backend-missing'
-            : outcome.spawnCode
-              ? 'spawn'
-              : undefined);
+        const error = errorOf(outcome);
         result = {
           ok: !error && outcome.exitCode === 0 && text !== '',
           text: outcome.exitCode === 0 || outFile ? text : '',
