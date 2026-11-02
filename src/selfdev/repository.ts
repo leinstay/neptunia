@@ -4,6 +4,7 @@
 // self-development step of `neptunia setup` (src/setup/selfdev.ts). Its answer is a code and a line from
 // `labels.selfdev.check`; nothing gh printed reaches the line, the journal or the owner.
 
+import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { fill } from '../format.ts';
 import { repositoryName } from './settings.ts';
@@ -32,6 +33,22 @@ export function ghConfigDir(privateDir: string): string {
 /** A copy of `env` with GH_CONFIG_DIR set to ghConfigDir(privateDir); `env` itself is not changed. */
 export function ghEnv(privateDir: string, env: Readonly<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {
   return { ...env, GH_CONFIG_DIR: ghConfigDir(privateDir) };
+}
+
+/** How long one gh command of the check may take (ms). */
+const GH_TIMEOUT_MS = 60_000;
+
+/** The gh of the check as a child process with no shell, under her gh home; no gh on PATH answers `found: false`. */
+export function spawnGh(privateDir: string, env: Readonly<NodeJS.ProcessEnv>): GhRunner {
+  return (args) =>
+    new Promise((resolve) => {
+      const options = { env: ghEnv(privateDir, env), timeout: GH_TIMEOUT_MS, encoding: 'utf8' as const };
+      execFile('gh', [...args], options, (error, stdout, stderr) => {
+        if (error !== null && error.code === 'ENOENT') return resolve({ found: false });
+        const code = error === null ? 0 : typeof error.code === 'number' ? error.code : 1;
+        resolve({ found: true, code, stdout, stderr });
+      });
+    });
 }
 
 /** The remote forms of github.com: https with or without `.git`, scp-like ssh, and ssh:// URLs. */

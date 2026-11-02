@@ -1,11 +1,13 @@
 // `neptunia selfdev run` (bin/neptunia.ts hands it `runSelfdev`): one beat of her self-development
 // (src/selfdev/service.ts, docs/selfdev.md). It connects to the core's socket as the client `NEPTUNIA_TASK_CLIENT`
 // (default `selfdev`, whose token is `NEPTUNIA_TASK_TOKEN` or `<private>/clients/selfdev.token`; the board reads the
-// name `selfdev` as its builtin principal), then runs `intake`, `work` and `observe` once and prints their counts. This
-// file holds the edges the service takes as arguments: git and gh as child processes with no shell, the test runner
-// with a minimal environment, and the dev run over the subharness seam (src/subharness/run.ts, the mode of `dev`). The settings are read
-// from the config at each use, the brief from `prompts/selfdev.md` (or its local copy). Exit 0 when the beat ran, 1
-// when the board could not be reached.
+// name `selfdev` as its builtin principal), then runs one `beat`: the push-right check of `selfdev.repository`, and on
+// `ok` `intake`, `work` and `observe` once, and prints their counts or the code that paused it. This file holds the
+// edges the service takes as arguments: git and gh as child processes with no shell, gh under her own gh home
+// (`GH_CONFIG_DIR`, src/selfdev/repository.ts), the test runner with a minimal environment, and the dev run over the
+// subharness seam (src/subharness/run.ts, the mode of `dev`). The settings are read from the config at each use, the
+// brief from `prompts/selfdev.md` (or its local copy). Exit 0 when the beat ran or paused, 1 when the board could not
+// be reached.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -15,6 +17,7 @@ import { readConfig, ROOT_DIR } from '../src/config.ts';
 import { createHot } from '../src/hot.ts';
 import { log } from '../src/log.ts';
 import { resolvePaths } from '../src/paths.ts';
+import { checkRepository, ghEnv, spawnGh } from '../src/selfdev/repository.ts';
 import { briefFrom, createSelfdev } from '../src/selfdev/service.ts';
 import type { Exec, SubharnessRun } from '../src/selfdev/service.ts';
 import { selfdevSettings } from '../src/selfdev/settings.ts';
@@ -84,20 +87,28 @@ export async function runSelfdev(argv: ReadonlyArray<string>): Promise<number> {
     const service = createSelfdev({
       board: opened.board,
       git: execWith(() => process.env),
-      gh: execWith(() => process.env),
+      gh: execWith(() => ghEnv(where.privateDir, process.env)),
       tests: execWith(testEnv),
       run: subharness(where),
       brief: (task) => briefFrom(template, task),
       settings: () => selfdevSettings(config()),
+      check: () =>
+        checkRepository(
+          selfdevSettings(config()).repository,
+          spawnGh(where.privateDir, process.env),
+          (hot.prompts.labels ?? {}) as Record<string, unknown>
+        ),
       triage: () => boardSettings(config()).autoTriage,
       journal: (line) => log.info('selfdev', line),
       fileExists: (dir, relative) => fs.existsSync(path.join(dir, relative)),
       repoDir: where.rootDir,
       worktreeRoot,
     });
-    const taken = await service.intake();
-    const reports = await service.work();
-    const seen = await service.observe();
+    const { check, taken, reports, seen } = await service.beat();
+    if (check.code !== 'ok') {
+      console.log(`selfdev: paused (${check.code}): ${check.line}`);
+      return 0;
+    }
     console.log(
       `selfdev: ${taken.length} taken, ${reports.length} worked (${reports.filter((one) => one.outcome === 'submitted').length} submitted), ${seen.length} looked at`
     );
