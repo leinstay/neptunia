@@ -4,7 +4,7 @@ The persona can hand a goal to an errand agent with `errand.run`. She writes the
 
 ## Errand agents
 
-Two errand agents ship with the engine. Each is a worker: a standalone process driven by the agent runner (`src/agent-runner/`), connected to the core over a Unix socket. A worker runs on the backend of the [subharness](#the-subharness). The shell and tool lists below, and the permission map of [Sandbox users and the policy](#sandbox-users-and-the-policy), belong to the `opencode` backend, which is [OpenCode](https://opencode.ai). Under `codex` the mode of the agent and the systemd unit bound it.
+Two errand agents ship with the engine. Each is a worker: a standalone process driven by the agent runner (`src/agent-runner/`), connected to the core over a Unix socket. A worker runs on the backend of the [subharness](#the-subharness). The shell and tool lists below, and the permission map of [Sandbox users and the policy](#sandbox-users-and-the-policy), are the profile's definition of what the agent is meant to do (`buildConfig` in `src/agent-runner/profiles.ts`). No backend reads them: `opencode` runs through the plain `opencode run` command like the other two, and the mode of the agent and the systemd unit are what bound it.
 
 ### scout
 
