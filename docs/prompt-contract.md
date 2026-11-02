@@ -1440,7 +1440,12 @@ Never two at once.
 
 System: the same system text her turns get (`system-prompt`, `character-card`, `rules`, `format`, `{{name}}` filled),
 then `prompts/memory-session.md`. User content, blocks in this order (stable first; a block with nothing to say drops
-out):
+out). The user message is two text parts. The first holds the blocks `<self>` to `<intentions>`, tagged
+`cacheSegment: 'stable'` and ending with the blank line between blocks. The second is `<batch>`, untagged. The parts'
+texts joined with nothing are the whole user text. The stable part holds no clock text and no line of the batch, so
+for the same scope, the same people and the same stored claims, episodes and intentions it is byte-identical between
+runs. `memory-session` requests are sent with `cache: true`, so `src/llm/openrouter.ts#withCacheMarker` marks the
+system message and the stable part whatever `llm.cache.roles` and `llm.cache.models` say.
 
 - `<self>`: her self facts and lessons, one `[sN] kind: text` line each (`s1`, ...).
 - `<place>`: `scope: group|dm`, the places of the batch with a handle each, `[pN] channel: name - topic` (`dm` for a
@@ -1457,10 +1462,11 @@ out):
   own lines carry her self label (`labels.self`). Times are `YYYY-MM-DD HH:MM` in `bot.timezone`.
 
 Everything in the request apart from the batch (profiles, claims, episodes) is as of the cutoff: what was created or seen
-again after it is left out.
+again after it is left out. The request goes to the `memory` role and `models.base.memory`, on the key `llm.keyByRole.memory` names alone.
 
 One request per scope and page of people: the public channels of an interface together, each private conversation
-alone, at most `maxMessages` lines, read after the scope's cursor and never newer than ten minutes (`src/memory/db/session.ts#DEFAULTS.settleMinutes`).
+alone, at most `maxMessages` lines, read after the scope's cursor and never newer than ten minutes (`src/memory/db/session.ts#DEFAULTS.settleMinutes`). A scope whose settled lines are all in small sessions waits and sends no request until the join rule says write
+(`memoryDb.session.minLines`, `batchLines`, `maxWaitHours`; see `docs/memory.md`, "Small sessions wait").
 
 ### Memory session answer
 
