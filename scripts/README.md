@@ -12,7 +12,7 @@ cd /opt/neptunia/app && sudo -u neptunia-bot node scripts/<tool>.ts ...
 
 The scripts find files as the bot does: `NEPTUNIA_PRIVATE_DIR` for `.env`, `config.local/` and `prompts.local/`, `NEPTUNIA_DATA_DIR` for `data/` (both default to the checkout). `--data <dir>` overrides the data path.
 
-Every script that sends model requests uses `OPENROUTER_SIM_KEY` from `.env`; without it the script stops with an error and never spends the bot's key.
+Every script that sends model requests spends the simulation's key, read from `keys.json` in `NEPTUNIA_PRIVATE_DIR` (`simulation enable --key <name>` in the chat names it). While the simulation is off the script stops with one line and never spends a core key.
 
 ## Rules
 
@@ -35,7 +35,7 @@ Every script that sends model requests uses `OPENROUTER_SIM_KEY` from `.env`; wi
 | `replay.ts` | Answers one real message again with the current code, prompts and memory. `--split` and `--recall` replay the splitter and the server search. `--snapshot <dir>` reads memory from a snapshot. `--show-request` prints the request. `--show-request <turnId>` prints a journal turn's request | no | no | yes, ~0.15 USD per request |
 | `replay.ts --pair` | Two prompt layers answer the same triggers. Writes `sheet.html` (a blind sheet) and `key.json`. Score with `replay-score.ts` | no | no | yes, 2 requests per trigger |
 | `replay.ts --diary` | Runs the diary's scheduled turn in dry run. Nothing is posted or written under `data/` | no | no | yes, 2 requests per brief |
-| `replay.ts --diary-day` | One whole day of the diary. `--draw live` draws for real on `OPENROUTER_SIM_KEY`. Nothing written under `data/` | no | no | yes, 2 requests per slot; with `--draw live` ~0.025 USD per picture |
+| `replay.ts --diary-day` | One whole day of the diary. `--draw live` draws for real on the simulation's key. Nothing written under `data/` | no | no | yes, 2 requests per slot; with `--draw live` ~0.025 USD per picture |
 | `replay.ts --skills` | Puts invented requests with skills and tools, runs the step engine. A write or paid call is answered canned; reading tools run for real. Nothing written under `data/` | no | no | yes, ~3 requests per decision |
 | `replay.ts --pair-transport` | Same triggers on the native and text transports. Writes the `--pair` files | no | no | yes, ~6 requests per trigger |
 | `replay.ts --loop-triggers` | Same triggers on one side, every turn recorded. Writes `runs.jsonl` and `report.md` | no | no | yes, ~3 requests per trigger |

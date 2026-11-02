@@ -441,6 +441,8 @@ const CODE: Readonly<Record<string, unknown>> = {
 
 /** The switches and knobs that went with their code, with the value production ran with. */
 const GONE: Readonly<Record<string, unknown>> = {
+  // The subharness (src/subharness/) holds the agent backend now; scripts/config-migrate.ts says how to set it.
+  'errands.backend': 'codex',
   'features.dryRun': false,
   'features.spontaneous': false,
   'features.eavesdrop': false,

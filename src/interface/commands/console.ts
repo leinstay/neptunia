@@ -31,8 +31,10 @@ import { ownValueAt, splitPath } from '../../tools/impl/shared.ts';
 import { skillRegistry } from '../../tools/registry.ts';
 import type { PluginControl } from '../../plugins/control.ts';
 import type { SkillsAccess } from '../../skills/port.ts';
+import type { ConsoleSubharness } from './subharness.ts';
 import { pluginsCommand } from './plugins.ts';
 import { skillsCommand } from './skills.ts';
+import { simulationCommand, subharnessCommand, subharnessDeps } from './subharness.ts';
 import { callMethod, listOf, objOf } from '../../tools/types.ts';
 import type { Counters, DaysSum, RoleRow } from '../../tools/impl/usage.ts';
 
@@ -78,6 +80,12 @@ export type ConsoleDeps = {
     enabled(): boolean;
     run(name: string, args: Record<string, unknown>, dialog: Dialog | null): Promise<Answer>;
   } | null;
+  /**
+   * What `/subharness enable` checks with (src/subharness/control.ts): one run of codex or claude, `fetch` for the key
+   * of opencode, and `applyMode`, which puts a mode into the agent's unit. Absent, `enable` answers `failed` and starts
+   * nothing.
+   */
+  subharness?: ConsoleSubharness;
 };
 
 /** The prefix of the `/skills` commands, which `skillsCommand` answers. */
@@ -88,6 +96,9 @@ const PLUGINS_PREFIX = 'plugins.';
 
 /** The prefix of the `/keys` commands, which the key commands answer. */
 const KEYS_PREFIX = 'keys.';
+/** The prefixes of `/subharness` and `/simulation`, which `subharnessCommand` and `simulationCommand` answer. */
+const SUBHARNESS_PREFIX = 'subharness.';
+const SIMULATION_PREFIX = 'simulation.';
 
 /** How many stored lines `/memory conversation` prints. */
 const CONVERSATION_LINES = 30;
@@ -474,7 +485,7 @@ export function createConsole(deps: ConsoleDeps): {
     }
   }
 
-  // `/skills` and `/plugins` have a module of their own; every other command is answered above.
+  // `/skills`, `/plugins`, `/subharness` and `/simulation` have a module of their own; every other command is answered above.
   return {
     run: (name, args, requester, dialog = null) => {
       const keys = deps.keys;
@@ -482,6 +493,8 @@ export function createConsole(deps: ConsoleDeps): {
         return keys.run(name, args, dialog);
       if (name.startsWith(SKILLS_PREFIX)) return skillsCommand(deps.skills, name, args);
       if (name.startsWith(PLUGINS_PREFIX)) return pluginsCommand(deps.plugins, name, args);
+      if (name.startsWith(SUBHARNESS_PREFIX)) return subharnessCommand(subharnessDeps(deps), name, args);
+      if (name.startsWith(SIMULATION_PREFIX)) return simulationCommand(deps.privateDir, name, args);
       return run(name, args, requester);
     },
   };

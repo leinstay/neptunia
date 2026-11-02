@@ -1,0 +1,80 @@
+// The models an agent can run on under each backend, and the one-reply check of a model before it is saved. The list
+// for `opencode` comes from OpenRouter's `/models` on the named extra key. `codex` and `claude` have no list to ask
+// for, so the names their CLIs accept (`codex exec -m`, `claude -p --model`) are fixed here, and the owner may type any
+// other name. A listing that cannot be read is an empty list: the owner types the name. Nothing here prints a key value.
+
+import type { BackendName } from '../agent-runner/profiles.ts';
+import { log } from '../log.ts';
+import type { EnableDeps, SubharnessResult } from './control.ts';
+
+/** The names the CLIs accept now. Free text stays allowed beside them. */
+export const FIXED_MODELS: Readonly<Record<'codex' | 'claude', ReadonlyArray<string>>> = {
+  codex: ['gpt-5.5', 'gpt-5.5-codex', 'gpt-5.5-mini'],
+  claude: ['opus', 'sonnet', 'haiku'],
+};
+
+const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
+const REQUEST_MS = 30_000;
+const CHECK_BRIEF = 'Reply with the single word ok.';
+
+/** The URL of an endpoint under the provider's base. */
+const endpoint = (deps: Pick<EnableDeps, 'baseUrl'>, path: string): string =>
+  `${(deps.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '')}${path}`;
+
+/** The model names offered for `backend`: the fixed list, or OpenRouter's for opencode on `keyValue`. Empty when unreadable. */
+export async function listModels(
+  deps: Pick<EnableDeps, 'fetch' | 'baseUrl'>,
+  backend: BackendName,
+  keyValue: string
+): Promise<Array<string>> {
+  if (backend !== 'opencode') return [...FIXED_MODELS[backend]];
+  try {
+    const response = await deps.fetch(endpoint(deps, '/models'), {
+      headers: { Authorization: `Bearer ${keyValue}` },
+      signal: AbortSignal.timeout(REQUEST_MS),
+    });
+    if (!response.ok) return [];
+    const body: unknown = await response.json();
+    const data: unknown = typeof body === 'object' && body !== null ? Reflect.get(body, 'data') : null;
+    if (!Array.isArray(data)) return [];
+    return data
+      .map((one: unknown): unknown => (typeof one === 'object' && one !== null ? Reflect.get(one, 'id') : null))
+      .filter((id): id is string => typeof id === 'string');
+  } catch {
+    return [];
+  }
+}
+
+const refused = (code: string, message: string): SubharnessResult => ({ ok: false, code, changed: false, message });
+
+/** One reply from `model` under `backend`: null when it answered, else the refusal. */
+export async function checkModel(
+  deps: EnableDeps,
+  backend: BackendName,
+  keyValue: string,
+  model: string
+): Promise<SubharnessResult | null> {
+  if (backend !== 'opencode') {
+    const outcome = await deps.runBackend(backend, CHECK_BRIEF, model);
+    if (outcome.ok && outcome.text.trim() !== '') return null;
+    if (outcome.error === 'backend-missing')
+      return refused('binary-missing', `${backend} is not on the PATH of the core`);
+    log.warn('subharness: model check failed', { backend, model, error: outcome.error ?? null });
+    return refused('model-rejected', `${backend} gave no reply on ${model}`);
+  }
+  let status: number;
+  try {
+    const response = await deps.fetch(endpoint(deps, '/chat/completions'), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${keyValue}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages: [{ role: 'user', content: CHECK_BRIEF }], max_tokens: 8 }),
+      signal: AbortSignal.timeout(REQUEST_MS),
+    });
+    status = response.status;
+  } catch {
+    return refused('model-unreachable', 'the provider did not answer the model check');
+  }
+  if (status >= 200 && status < 300) return null;
+  log.warn('subharness: model check rejected', { model, status });
+  return refused('model-rejected', `the provider refused ${model} (HTTP ${status})`);
+}

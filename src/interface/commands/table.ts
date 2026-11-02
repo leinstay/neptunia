@@ -7,15 +7,19 @@
 // last argument takes the rest of the line, so a rule or a lore text keeps its spaces. A subcommand may be two words
 // (`/memory lore add`), and its parsed name joins the words with dots (`memory.lore.add`). A command without a
 // subcommand runs its `defaultSubcommand`, or itself when it has none, and a command marked `needsSubcommand`
-// refuses the bare line. An argument with `choices` takes only those values. A command's `check` refuses what the
-// table's shape cannot say. The parse is pure and never throws.
+// refuses the bare line. An argument with `choices` takes only those values. An argument with a `flag` is written
+// `--key <word>` after the positional words, takes exactly one word, and is refused when its word is missing, when
+// the flag comes twice, when another flag is typed and when a bare word is left over. A command's `check` refuses
+// what the table's shape cannot say. The parse is pure and never throws.
 
 import { BASE_ROLES, MEMORY_ROLE } from '../../llm/roles.ts';
+import { BACKEND_NAMES } from '../../agent-runner/profiles.ts';
+import { AGENT_MODES, SUBHARNESS_AGENTS } from '../../subharness/control.ts';
 import { MODEL_SET_ROLES, ROUTE_ROLES } from '../../tools/impl/catalog.ts';
 import { isDay } from '../../watcher/read.ts';
 
 /** One argument of a command, in the order the line gives them. */
-export type CommandArg = { name: string; required: boolean; choices?: ReadonlyArray<string> };
+export type CommandArg = { name: string; required: boolean; choices?: ReadonlyArray<string>; flag?: string };
 
 /** One subcommand: its name (two words joined by a dot for a nested one), its help line and its arguments. */
 export type Subcommand = { name: string; help: string; args: ReadonlyArray<CommandArg> };
@@ -50,6 +54,9 @@ const FLAGS: ReadonlyArray<string> = ['true', 'false'];
 
 const arg = (name: string, required = true, choices?: ReadonlyArray<string>): CommandArg =>
   choices === undefined ? { name, required } : { name, required, choices };
+
+/** An argument typed as `--name <word>`, after the positional words. */
+const flagArg = (name: string, required: boolean): CommandArg => ({ name, required, flag: `--${name}` });
 
 const sub = (name: string, help: string, args: ReadonlyArray<CommandArg> = []): Subcommand => ({ name, help, args });
 
@@ -323,6 +330,39 @@ export const COMMANDS: ReadonlyArray<Command> = [
       ]),
     ],
   },
+  {
+    name: 'subharness',
+    help: 'the backend the agents run on and the mode of each: status, enable <codex|claude|opencode> [--key <key>], disable, mode <agent> [mode], model <agent> <model>',
+    args: [],
+    defaultSubcommand: 'status',
+    subcommands: [
+      sub('status', 'the backend, its key by name and the mode of every agent'),
+      sub('enable', 'turn the subharness on after a check; opencode needs --key, the name of an extra key', [
+        arg('backend', true, BACKEND_NAMES),
+        flagArg('key', false),
+      ]),
+      sub('disable', 'turn the subharness off: every agent task is refused until it is on again'),
+      sub('model', 'set the model of an agent after one reply from it: model <agent> <model>', [
+        arg('agent', true, SUBHARNESS_AGENTS),
+        arg('model'),
+      ]),
+      sub('mode', "show or set an agent's mode: read, write, full or sudo", [
+        arg('agent', true, SUBHARNESS_AGENTS),
+        arg('mode', false, AGENT_MODES),
+      ]),
+    ],
+  },
+  {
+    name: 'simulation',
+    help: 'the paid scripts and the key they spend: status, enable --key <key>, disable',
+    args: [],
+    defaultSubcommand: 'status',
+    subcommands: [
+      sub('status', 'whether the simulation is on and the name of its key'),
+      sub('enable', 'let the scripts spend this extra key', [flagArg('key', true)]),
+      sub('disable', 'switch the simulation off: the scripts refuse to run'),
+    ],
+  },
   { name: 'help', help: 'this list', args: [], subcommands: [] },
   { name: 'clear', help: 'clear the screen', args: [], subcommands: [] },
 ];
@@ -342,19 +382,53 @@ function subcommandOf(command: Command, words: ReadonlyArray<string>): { found: 
 
 /** The usage of `name` with `args`, as the owner types it. */
 function usageOf(name: string, args: ReadonlyArray<CommandArg>): string {
-  const words = args.map((one) => (one.required ? `<${one.name}>` : `[${one.name}]`));
+  const words = args.map((one) => {
+    const word = one.flag === undefined ? `<${one.name}>` : `${one.flag} <${one.name}>`;
+    return one.required ? word : `[${word}]`;
+  });
   return ['/' + name.replaceAll('.', ' '), ...words].join(' ');
 }
 
-/** `words` read as `args`, the last argument taking the rest; the reason when a value is missing or not a choice. */
+/** The words of a line split into the positional ones and the values of its flags; the reason when a flag is wrong. */
+function splitFlags(
+  name: string,
+  args: ReadonlyArray<CommandArg>,
+  words: ReadonlyArray<string>
+): { positional: Array<string>; flagged: Record<string, string> } | string {
+  const positional: Array<string> = [];
+  const flagged: Record<string, string> = {};
+  // A command without flags takes its words as they are: a rule or a lore text may hold "--".
+  if (!args.some((one) => one.flag !== undefined)) return { positional: [...words], flagged };
+  for (let i = 0; i < words.length; i += 1) {
+    const word = words[i] ?? '';
+    if (!word.startsWith('--')) {
+      positional.push(word);
+      continue;
+    }
+    const known = args.find((one) => one.flag === word);
+    if (known === undefined) return `${usageOf(name, args)}: ${word} is not an option`;
+    const value = words[i + 1];
+    if (value === undefined || value.startsWith('--')) return `${usageOf(name, args)}: ${word} needs a value`;
+    if (Object.hasOwn(flagged, known.name)) return `${usageOf(name, args)}: ${word} is given twice`;
+    flagged[known.name] = value;
+    i += 1;
+  }
+  return { positional, flagged };
+}
+
+/** `words` read as `args`, the last positional argument taking the rest; the reason when a value is missing or not a choice. */
 function argsOf(
   name: string,
   args: ReadonlyArray<CommandArg>,
   words: ReadonlyArray<string>
 ): Record<string, string> | string {
+  const split = splitFlags(name, args, words);
+  if (typeof split === 'string') return split;
+  const positionalArgs = args.filter((one) => one.flag === undefined);
   const values: Record<string, string> = {};
-  for (const [index, one] of args.entries()) {
-    const value = index === args.length - 1 ? words.slice(index).join(' ') : (words[index] ?? '');
+  for (const [index, one] of positionalArgs.entries()) {
+    const value =
+      index === positionalArgs.length - 1 ? split.positional.slice(index).join(' ') : (split.positional[index] ?? '');
     if (value === '') {
       if (one.required) return `${usageOf(name, args)}: ${one.name} is missing`;
       continue;
@@ -363,7 +437,15 @@ function argsOf(
       return `${usageOf(name, args)}: ${one.name} is one of ${one.choices.join(', ')}, not "${value}"`;
     values[one.name] = value;
   }
-  if (args.length === 0 && words.length > 0) return `${usageOf(name, args)} takes no argument`;
+  for (const one of args.filter((arg) => arg.flag !== undefined)) {
+    const value = split.flagged[one.name];
+    if (value === undefined) {
+      if (one.required) return `${usageOf(name, args)}: ${one.flag ?? one.name} is missing`;
+      continue;
+    }
+    values[one.name] = value;
+  }
+  if (positionalArgs.length === 0 && split.positional.length > 0) return `${usageOf(name, args)} takes no bare word`;
   return values;
 }
 

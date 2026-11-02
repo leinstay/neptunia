@@ -331,7 +331,7 @@
 // `--draw fake` (the default): the image client is the real one
 // (src/llm/images.ts#createImageGen, its caps and model check) over a fetch that
 // answers a 1x1 fixture PNG, so no picture is paid for. `--draw live`: the real
-// client on OPENROUTER_SIM_KEY (required: no fall back to the bot's key here),
+// client on the simulation's key (required: no fall back to the bot's key here),
 // at most `--max-pictures` pictures (default 2; past it a picture is refused as
 // an image cap refuses it), each written to `<out>/pictures/`. Every
 // `generate()` call is recorded at the client's boundary: `{ prompt, reference,
@@ -2960,16 +2960,11 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
 // ---- a diary day (--diary-day) ---------------------------------------------------
 
 /**
- * The OpenRouter key of a `--diary-day` run: with `--draw live` OPENROUTER_SIM_KEY only (a
- * CliError without it: live pictures never fall back to the bot's key), else the tools' slot
- * (scripts/lib/cli.ts#simKey). Never printed.
+ * The OpenRouter key of a `--diary-day` run, for live and fake pictures alike: the simulation's key
+ * (scripts/lib/cli.ts#simKey), a CliError while the simulation is off. Never printed.
  */
-export function diaryDayKey(draw: string, env: Record<string, string | undefined> = process.env): string {
-  if (draw !== 'live') return simKey('replay-cli', env);
-  const key = env.OPENROUTER_SIM_KEY;
-  if (typeof key !== 'string' || key.trim() === '')
-    throw new CliError("replay-cli: --draw live needs OPENROUTER_SIM_KEY (.env); it never spends the bot's key");
-  return key;
+export function diaryDayKey(_draw: string, env: Record<string, string | undefined> = process.env): string {
+  return simKey('replay-cli', env);
 }
 
 /** The file extension of a picture's media type. */
@@ -6733,7 +6728,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
   const discordToken = process.env.DISCORD_TOKEN;
   if (!discordToken) throw new CliError('replay-cli: DISCORD_TOKEN is not set (.env)');
   const keyNeeded = args.showRequestTurn === null && !args.dry;
-  const openrouterKey = keyNeeded ? simKey('replay-cli') : process.env.OPENROUTER_SIM_KEY || undefined;
+  const openrouterKey = keyNeeded ? simKey('replay-cli') : undefined;
   const searchAvailable = searchAvailableOf({
     hot,
     createLookup: (await load('web/lookup.ts')).createLookup,

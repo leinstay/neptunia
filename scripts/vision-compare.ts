@@ -23,7 +23,7 @@
 // watched first and falls back to one frame as live; `describeVideo` with `force` for a video)
 // over a tool-local hot view whose `models.base.vision` and `models.base.video` are the model (the live
 // config is never changed), provider routing as configured (`llm.providerByModel`), an empty
-// in-memory media cache and throwaway daily counters. Requests spend OPENROUTER_SIM_KEY
+// in-memory media cache and throwaway daily counters. Requests spend the simulation key
 // (scripts/lib/cli.ts#simKey), are marked `origin: vision-compare` and never count against
 // `llm.maxRequestsPerDay`; the per-request token caps stay on. `--reasoning <effort>` sends
 // `{ effort }` as the reasoning settings of every request.
@@ -238,7 +238,7 @@ export async function main(
   const { createHot } = await import('../src/hot.ts');
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
   try {
-    // The keys (OPENROUTER_SIM_KEY, DISCORD_TOKEN, YOUTUBE_API_KEY) from .env; never printed.
+    // The keys (the simulation key from the store, DISCORD_TOKEN, YOUTUBE_API_KEY) from .env; never printed.
     const { loadDotEnv } = await import('../src/config.ts');
     loadDotEnv(privateDirOf(ROOT));
     const configuredGuild = hot.config.bot?.guildId || undefined;

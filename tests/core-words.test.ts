@@ -29,6 +29,11 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
     pattern: /discord/i,
     why: 'the settings schema names the interfaces it starts',
   },
+  {
+    file: 'src/setup/run.ts',
+    pattern: /'interface (token set|enable) discord'/,
+    why: 'the setup guide names the interface the owner enables first',
+  },
   { file: 'src/config/cut.ts', pattern: /discord/i, why: 'the config cut moves the Discord keys to their package' },
   { file: 'src/web/lookup.ts', pattern: /discordapp\.(com|net)/, why: 'media hosts the link reader never reads' },
   {

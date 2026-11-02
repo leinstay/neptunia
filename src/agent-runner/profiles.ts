@@ -82,10 +82,8 @@ export const BACKEND_NAMES = ['codex', 'claude', 'opencode'] as const;
 /** One of BACKEND_NAMES. */
 export type BackendName = (typeof BACKEND_NAMES)[number];
 
-/** The keys every profile.json carries, and `backend`, which it may carry. */
+/** The keys every profile.json carries. */
 type CommonDefinition = {
-  /** the backend this agent runs on; absent means `errands.backend` */
-  backend?: BackendName;
   id: string;
   role: string;
   prompt: string | null;
@@ -109,7 +107,7 @@ export type WorkerDefinition = Readonly<
     env: ReadonlyArray<string>;
     /** true: the codex backend runs the agent with live web search */
     search?: boolean;
-    /** the sandbox a CLI backend runs the agent in; absent means workspace-write */
+    /** the sandbox of the agent when the owner has set no mode for it; absent means workspace-write */
     sandbox?: 'read-only' | 'workspace-write';
   }
 >;
@@ -860,11 +858,8 @@ function permissionFor(
 /** The keys every profile carries, whatever its kind. */
 const COMMON_KEYS = Object.freeze(['id', 'kind', 'role', 'prompt', 'override', 'description']);
 
-/** The keys a profile may carry and need not: `backend` for every kind, `search` and `sandbox` for a worker. */
-const OPTIONAL_KEYS = Object.freeze({
-  common: Object.freeze(['backend']),
-  worker: Object.freeze(['search', 'sandbox']),
-});
+/** The keys a profile may carry and need not: `search` and `sandbox` for a worker. */
+const OPTIONAL_WORKER_KEYS = Object.freeze(['search', 'sandbox']);
 
 /** The keys only a worker carries (a consultation naming one is refused as an unknown key). */
 const WORKER_KEYS = Object.freeze([
@@ -1086,13 +1081,11 @@ function checkAbsolute(agent: string, key: string, value: unknown): void {
 
 /** The optional keys a profile of `kind` may carry. */
 function optionalKeysOf(kind: string): ReadonlyArray<string> {
-  return kind === 'worker' ? [...OPTIONAL_KEYS.common, ...OPTIONAL_KEYS.worker] : OPTIONAL_KEYS.common;
+  return kind === 'worker' ? OPTIONAL_WORKER_KEYS : [];
 }
 
-/** Checks the optional keys when present: `backend` is one of BACKEND_NAMES, `search` true or false, `sandbox` read-only or workspace-write. */
+/** Checks the optional keys when present: `search` true or false, `sandbox` read-only or workspace-write. */
 function checkOptional(agent: string, raw: Record<string, unknown>): void {
-  if (Object.hasOwn(raw, 'backend') && !isOneOf(BACKEND_NAMES, raw.backend))
-    throw new AgentProfileError(agent, 'backend', `must be one of ${BACKEND_NAMES.join(', ')}`);
   if (Object.hasOwn(raw, 'search') && typeof raw.search !== 'boolean')
     throw new AgentProfileError(agent, 'search', 'must be true or false');
   if (Object.hasOwn(raw, 'sandbox') && raw.sandbox !== 'read-only' && raw.sandbox !== 'workspace-write')
@@ -1387,15 +1380,31 @@ export function agentSettings(name: unknown, config: unknown): AgentSettings | n
   for (const key of SETTING_KEYS[profile.kind]) {
     const value = override[key];
     const unusablePath = (key === 'socket' || key === 'out') && !(typeof value === 'string' && value !== '');
-    out[key] = unusablePath || !Object.hasOwn(override, key) ? profile[key] : overlaid(profile[key], value);
+    const fromProfile = unusablePath || !Object.hasOwn(override, key);
+    if (fromProfile && (key === 'socket' || key === 'out') && inUserUnit()) out[key] = userPathOf(key, name);
+    else out[key] = fromProfile ? profile[key] : overlaid(profile[key], value);
   }
   return out as AgentSettings;
 }
 
-/** The `backend` the tracked profile of `name` names, or undefined (no profile, or none named). */
-export function profileBackend(name: unknown): BackendName | undefined {
-  const profile = typeof name === 'string' && Object.hasOwn(DEFINITIONS, name) ? DEFINITIONS[name] : undefined;
-  return BACKEND_NAMES.find((known) => known === profile?.backend);
+/** The unit scope `neptunia setup` sets in every user unit it renders (src/setup/units.ts). */
+export const UNIT_SCOPE_ENV = 'NEPTUNIA_UNIT_SCOPE';
+
+/** Whether this process runs from a user unit, read at each call. */
+const inUserUnit = (): boolean => process.env[UNIT_SCOPE_ENV] === 'user';
+
+/**
+ * The socket or out folder of agent `name` in a user unit: the unit's `RuntimeDirectory` and `StateDirectory`, which
+ * the core, running from a user unit of the same user, resolves to the same place.
+ */
+function userPathOf(key: 'socket' | 'out', name: string): string {
+  const folder = `neptunia-agent-${name}`;
+  if (key === 'socket') {
+    const runtime = process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid?.() ?? 0}`;
+    return path.join(runtime, folder, 'sock');
+  }
+  const state = process.env.XDG_STATE_HOME || path.join(process.env.HOME ?? '', '.local', 'state');
+  return path.join(state, folder, 'out');
 }
 
 /** The profiles of this engine's `agents/` folder, by name, loaded once at import. */

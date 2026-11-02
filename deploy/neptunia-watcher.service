@@ -8,15 +8,10 @@
 # The user is an agent user, never the core's: it reads the checkout, the private layer, the data folder and the logs,
 # writes only the watcher folder and the board through the socket, and holds the login of the agent backend.
 #
-# Install:
-#   sudo useradd --system --create-home --shell /usr/sbin/nologin neptunia
-#   sudo usermod -aG neptunia neptunia   # the group that reaches the core's socket
-#   sudo -u neptunia mkdir -p /opt/neptunia/app/.agents/watcher/reports
-#   NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc node scripts/client-token.ts add watcher --kind agent --roles watcher
-#   sudo chown neptunia /opt/neptunia/etc/clients/watcher.token && sudo chmod 0600 /opt/neptunia/etc/clients/watcher.token
-#   sudo cp deploy/neptunia-watcher.service deploy/neptunia-watcher.timer /etc/systemd/system/
-#   sudo systemctl daemon-reload && sudo systemctl enable --now neptunia-watcher.timer
-# Run now: sudo systemctl start neptunia-watcher.service
+# `neptunia setup` renders this service and its timer for the installing user (deploy/README.md) and does not start
+# them. The client token of the watcher is made once with scripts/client-token.ts (`add watcher --kind agent --roles
+# watcher`), and the timer is enabled with `systemctl enable --now neptunia-watcher.timer` (`--user` for a user unit).
+# Run now: systemctl start neptunia-watcher.service
 # Logs:    journalctl -u neptunia-watcher
 
 [Unit]

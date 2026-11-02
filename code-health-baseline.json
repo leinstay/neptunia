@@ -1,6 +1,6 @@
 {
   "files": {
-    "scripts/replay.ts": 7366,
+    "scripts/replay.ts": 7361,
     "src/behavior/recall-run.ts": 2143,
     "src/behavior/recall.ts": 2375,
     "src/behavior/sandbox.ts": 2063,
@@ -86,11 +86,8 @@
       }
     },
     "scripts/memory-session.ts": {
-      "compareMain": {
-        "complexity": 23
-      },
       "main": {
-        "complexity": 39
+        "complexity": 35
       },
       "runCompare": {
         "complexity": 21
@@ -135,7 +132,7 @@
         "function-length": 392
       },
       "runMain": {
-        "complexity": 155,
+        "complexity": 154,
         "function-length": 758
       },
       "runRecall": {
@@ -174,18 +171,6 @@
     "scripts/vision-compare.ts": {
       "resolveFromCache": {
         "complexity": 25
-      }
-    },
-    "src/agent-runner/opencode.ts": {
-      "createOpencodeRunner": {
-        "function-length": 352
-      },
-      "createOpencodeRunner>run": {
-        "complexity": 40,
-        "function-length": 310
-      },
-      "createOpencodeRunner>run><anonymous>#2>handleEvent": {
-        "complexity": 24
       }
     },
     "src/agent-runner/policy.ts": {

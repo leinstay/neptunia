@@ -69,37 +69,15 @@ When `bot.guildId` is empty and the bot is in exactly one server, it locks to th
 
 ## Running as a service
 
-An example systemd unit is in `deploy/neptunia-bot.service`. It uses a layout that keeps private files outside the checkout:
+`neptunia setup` installs the engine for the user who runs it and needs no root. It creates the private and data folders, writes the units and starts the core, then opens the chat on `/keys core add`. [Setup](setup.md) describes the steps and the commands that follow, and [deploy/README.md](../deploy/README.md) the units. The in-process mode has a template of its own, `deploy/neptunia-bot.service`, which setup does not render: its header describes the layout to install it by hand.
 
-```
-/opt/neptunia/
-  app/    the engine checkout (read-only to the service)
-  etc/    .env, config.local/, prompts.local/       (NEPTUNIA_PRIVATE_DIR)
-  data/   everything the bot writes                 (NEPTUNIA_DATA_DIR)
-```
-
-`deploy/install.sh` creates that layout (the service user, the directories, and the unit) without starting the bot. Run it with `--dry-run` first to see the commands:
+To update the code, pull and restart the core:
 
 ```bash
-sudo deploy/install.sh --dry-run
-sudo deploy/install.sh
+git pull && systemctl --user restart neptunia-core
 ```
 
-Fill in `.env` and `config.local/config.json` under the `etc/` directory, then enable the service:
-
-```bash
-sudo systemctl enable --now neptunia-bot
-```
-
-To update the code:
-
-```bash
-git pull && sudo systemctl restart neptunia-bot
-```
-
-A restart loses nothing; all state is on disk. Restarts are needed only after changes under `src/`. Prompt and config edits take effect live.
-
-If you want to keep everything in the checkout instead of the separate layout, delete the two `Environment=` lines from the unit and adjust the paths. The comments in the unit file explain how.
+A restart loses nothing; all state is on disk. Restarts are needed only after changes under `src/`. Prompt and config edits take effect live. A system install restarts with `sudo systemctl restart neptunia-core`.
 
 ## Tests
 

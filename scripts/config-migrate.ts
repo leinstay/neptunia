@@ -187,7 +187,11 @@ function cutReport(moved: Record<string, unknown>): {
   const { config, cut, differs, renamed, interfaces } = cutConfigKeys(moved);
   const discord = interfaces.discord ?? {};
   const cutLines = [
-    ...cut.map((key) => `${key} dropped (${FATE_OF.get(key) ?? 'constant'})`),
+    ...cut.map((key) =>
+      key === 'errands.backend'
+        ? `${key} dropped (the agent backend is the subharness's now: run "subharness enable <codex|claude|opencode>" in the chat)`
+        : `${key} dropped (${FATE_OF.get(key) ?? 'constant'})`
+    ),
     ...differs.map(
       (one) => `${one.key} differs: live ${JSON.stringify(one.live)}, constant ${JSON.stringify(one.constant)}`
     ),

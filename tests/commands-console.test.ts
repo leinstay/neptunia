@@ -54,6 +54,8 @@ const TABLE = [
   'skills',
   'interface',
   'keys',
+  'subharness',
+  'simulation',
   'help',
   'clear',
 ];

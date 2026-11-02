@@ -1,18 +1,16 @@
 # systemd template unit for one interface of the persona, as its own process:
 # neptunia-interface@discord runs `neptunia interface run discord`
-# (bin/neptunia.ts) as the user neptunia-discord-interface.
+# (bin/neptunia.ts).
 #
-# The runner reads the client token <private>/clients/%i.token (written by
-# scripts/client-token.ts, owned by this user, mode 0600), connects to the
-# core's socket <data>/run/core.sock as a member of the group neptunia, and
-# keeps the interface's data under <data>/interfaces/%i. It reads no .env: the
-# platform token (DISCORD_TOKEN for discord) comes from the optional
-# environment file below. It reads config.local/config.json and config.local/interfaces/%i.json only where
-# this user may.
-# deploy/README.md has the cutover.
+# The runner reads the client token <private>/clients/%i.token, connects to the
+# core's socket <data>/run/core.sock and keeps the interface's data under
+# <data>/interfaces/%i. It reads no .env: the platform token (DISCORD_TOKEN for
+# discord) comes from the optional environment file below, which the chat's
+# `interface token set` writes. It reads config.local/config.json and
+# config.local/interfaces/%i.json.
 #
-# Install:   sudo deploy/install.sh   (installs this unit, does not enable it)
-# Start:     sudo systemctl start neptunia-interface@discord
+# `neptunia setup` renders this template for the installing user
+# (deploy/README.md); `interface enable <name>` in the chat starts the unit.
 # Logs:      journalctl -u neptunia-interface@discord -f
 
 [Unit]

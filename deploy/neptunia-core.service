@@ -1,15 +1,15 @@
 # systemd unit for the persona's core with the interfaces as units (interfaces.mode: units).
 #
 # The core runs src/index.ts with no interface of its own: it listens on
-# <data>/run/core.sock (folder 0750, socket 0660, group neptunia) and each
-# interface connects from its own unit (deploy/neptunia-interface@.service).
-# It refuses to start while another core holds the memory database or renewed
-# core:alive within its ttl, and it never runs beside neptunia-bot.service
-# (Conflicts= below). deploy/README.md has the cutover.
+# <data>/run/core.sock and each interface connects from its own unit
+# (deploy/neptunia-interface@.service). It refuses to start while another core
+# holds the memory database or renewed core:alive within its ttl, and it never
+# runs beside neptunia-bot.service (Conflicts= below).
 #
-# Install:   sudo deploy/install.sh   (installs this unit, does not enable it)
-# Start:     sudo systemctl start neptunia-core
-# Logs:      journalctl -u neptunia-core -f
+# `neptunia setup` renders this template for the installing user and starts it
+# (deploy/README.md). The paths below are the template's own and are replaced
+# by the folders of the installation.
+# Logs:      journalctl -u neptunia-core -f   (journalctl --user-unit for a user unit)
 
 [Unit]
 Description=neptunia core (interfaces as units)

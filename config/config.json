@@ -369,7 +369,6 @@
     "minAffinity": 5
   },
   "errands": {
-    "backend": "codex",
     "opencodePath": "/opt/opencode/bin/opencode",
     "toolResultChars": 6000,
     "keepFilesHours": 24,

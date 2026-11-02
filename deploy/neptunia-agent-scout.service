@@ -16,16 +16,12 @@
 # (OPENROUTER_ERRAND_KEY=, OPENCODE_WEBSEARCH_KEY=, PROXY_URL=), when a task
 # brings none.
 #
-# Install:
-#   sudo install -d -o root -g root -m 0750 /opt/neptunia/etc
-#   # optional overrides: sudo install -o root -g root -m 0600 /dev/null /opt/neptunia/etc/agent-scout.env
-#   sudo cp deploy/neptunia-agent-scout.service /etc/systemd/system/
-#   sudo systemctl daemon-reload && sudo systemctl enable --now neptunia-agent-scout
+# `neptunia setup` renders this template for the installing user
+# (deploy/README.md). The sandbox below is the mode `write`; `subharness mode
+# scout <mode>` in the chat renders the unit again: `full` drops the mount
+# sandbox (ProtectSystem, ProtectHome and the bind and write paths) and `sudo`
+# also drops NoNewPrivileges.
 # Logs:    journalctl -u neptunia-agent-scout -f
-#
-# The service group is the bot's (neptunia-discord-interface), which `neptunia`
-# is a member of, so the runtime socket dir and the result files the agent
-# writes are reachable by the core.
 
 [Unit]
 Description=neptunia scout errand agent (Codex worker)
@@ -66,7 +62,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
-InaccessiblePaths=/srv /opt/neptunia/data /opt/neptunia/etc/.env /var/www /etc/nginx /etc/letsencrypt /srv/neptunia-dev/.secrets
+InaccessiblePaths=-/opt/neptunia/data -/opt/neptunia/etc/.env
 StateDirectory=neptunia-agent-scout
 RuntimeDirectory=neptunia-agent-scout
 RuntimeDirectoryMode=0750

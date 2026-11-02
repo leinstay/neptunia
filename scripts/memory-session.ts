@@ -3,8 +3,7 @@
 // shadow, and say what she proposed. It exists so a session can be judged on real chat before the engine acts on it.
 //
 //   cd <checkout> && node scripts/memory-session.ts --db <memory.db> [--data <dir>] [--scope <scope key>] [--limit N]
-//        [--key-env OPENROUTER_SIM_KEY] [--review <person|place|self>:<id>:<field>] [--show] [--self-name <name>]
-//        [--keep <copy.db>]
+//        [--review <person|place|self>:<id>:<field>] [--show] [--self-name <name>] [--keep <copy.db>]
 //
 // The database is copied first (VACUUM INTO, a consistent copy) into a temporary directory under TMPDIR, and the copy
 // is the one written to: the given file is only read, and the copy is removed at the end (`--keep` names a file to
@@ -14,8 +13,8 @@
 // (default `memoryDb.session.maxMessages`). The first sweep on a copy reads from its first line (or from
 // `memoryDb.session.since`).
 //
-// `--key-env` names the `.env` variable whose OpenRouter key pays (default `OPENROUTER_SIM_KEY`); the memory role's own
-// key (`OPENROUTER_MEMORY_KEY`) is not touched unless named. The config and the prompts are read from the checkout
+// The simulation's key pays (scripts/lib/cli.ts#simKey): the run stops with one line while the simulation is off.
+// The core keys are never touched. The config and the prompts are read from the checkout
 // (and its private layer) as the bot reads them. A request is answered, or after a 429 tried again after the
 // provider's wait (`Retry-After` when the error carries it), at most three tries in all.
 //
@@ -29,12 +28,11 @@
 // Nothing here starts the bot. It needs the key, so the lead runs it.
 //
 // compare (stage W3, the day against the analyzer):
-//   node scripts/memory-session.ts compare --db <copy> [--data <copy>] --day <YYYY-MM-DD> [--shadow] [--key-env <ENV NAME>]
+//   node scripts/memory-session.ts compare --db <copy> [--data <copy>] --day <YYYY-MM-DD> [--shadow]
 //        [--scope <scope key>] [--show] [--self-name <name>] [--keep <copy.db>]
 // On a copy of the database (as above), her session runs in shadow over the lines of that UTC day only (`since` the
 // day's start, nothing newer than its end, every scope from its first line of the day, the copy's shadow cursors
-// cleared first), sweep after sweep until every scope is quiet, on the memory key by default (`--key-env`
-// OPENROUTER_MEMORY_KEY). `--shadow` runs nothing (no key, no request): it compares the shadow proposals the copy
+// cleared first), sweep after sweep until every scope is quiet, on the simulation's key. `--shadow` runs nothing (no key, no request): it compares the shadow proposals the copy
 // already holds for lines of that day (a live shadow session's). Then, per scope, her proposals beside what the
 // analyzer wrote that day (`claim_versions`, `episodes`, `affinity_events` recorded that day, her own session's rows
 // left out): kept by both (the same claim, or the same subject and kind with most of the words; an episode of the same
@@ -47,7 +45,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CliError, parseFlags, privateDirOf, runCli } from './lib/cli.ts';
+import { CliError, parseFlags, privateDirOf, runCli, simKey } from './lib/cli.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { sqlOf } from './lib/sql.ts';
 import type { SqlDb } from './lib/sql.ts';
@@ -58,10 +56,12 @@ type Rec = Record<string, Untyped>;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'memory-session-tool';
-const USAGE = `usage: node scripts/memory-session.ts --db <memory.db> [--data <dir>] [--scope <scope key>] [--limit N] [--key-env <ENV NAME>]
+/** The name the simulation's key goes by inside the tool's own settings (`llm.keyByRole.memory`) and environment. */
+const KEY_SLOT = 'MEMORY_SESSION_KEY';
+const USAGE = `usage: node scripts/memory-session.ts --db <memory.db> [--data <dir>] [--scope <scope key>] [--limit N]
        [--review <person|place|self>:<id>:<field>] [--show] [--self-name <name>] [--keep <copy.db>]`;
 const COMPARE_USAGE = `usage: node scripts/memory-session.ts compare --db <memory.db copy> [--data <dir>] --day <YYYY-MM-DD> [--shadow]
-       [--key-env <ENV NAME>] [--scope <scope key>] [--show] [--self-name <name>] [--keep <copy.db>]`;
+       [--scope <scope key>] [--show] [--self-name <name>] [--keep <copy.db>]`;
 const TRIES = 3;
 const FALLBACK_WAIT_MS = 15_000;
 const MAX_WAIT_MS = 120_000;
@@ -506,7 +506,7 @@ export async function runCompare({
 /** The compare subcommand (see the head of this file). */
 async function compareMain(argv: Array<string>) {
   const flags = parseFlags(argv, {
-    values: ['--db', '--data', '--day', '--key-env', '--scope', '--self-name', '--keep'],
+    values: ['--db', '--data', '--day', '--scope', '--self-name', '--keep'],
     switches: ['--shadow', '--show'],
     usage: COMPARE_USAGE,
   });
@@ -516,8 +516,7 @@ async function compareMain(argv: Array<string>) {
   const source = path.resolve(flags['--db']);
   if (!fs.existsSync(source)) throw new CliError(`memory-session: no database at ${source}`);
   const shadowOnly = flags['--shadow'] === true;
-  const keyEnv = flags['--key-env'] ?? 'OPENROUTER_MEMORY_KEY';
-  if (!/^[A-Z][A-Z0-9_]*$/.test(keyEnv)) throw new CliError('memory-session: --key-env names an environment variable');
+  const keyEnv = KEY_SLOT;
 
   const { createHot } = await import('../src/hot.ts');
   const { loadDotEnv } = await import('../src/config.ts');
@@ -525,8 +524,7 @@ async function compareMain(argv: Array<string>) {
   let apiKey: string | undefined;
   if (!shadowOnly) {
     loadDotEnv(privateDirOf(ROOT));
-    apiKey = process.env[keyEnv];
-    if (typeof apiKey !== 'string' || !apiKey.trim()) throw new CliError(`memory-session: ${keyEnv} is not set (.env)`);
+    apiKey = simKey('memory-session');
   }
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
   const work = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memory-session-'));
@@ -613,7 +611,7 @@ async function compareMain(argv: Array<string>) {
 export async function main(argv: Array<string>): Promise<string> {
   if (argv[0] === 'compare') return compareMain(argv.slice(1));
   const flags = parseFlags(argv, {
-    values: ['--db', '--data', '--scope', '--limit', '--key-env', '--review', '--self-name', '--keep'],
+    values: ['--db', '--data', '--scope', '--limit', '--review', '--self-name', '--keep'],
     switches: ['--show'],
     usage: USAGE,
   });
@@ -623,8 +621,7 @@ export async function main(argv: Array<string>): Promise<string> {
   const limit = flags['--limit'] === undefined ? undefined : Number(flags['--limit']);
   if (limit !== undefined && (!Number.isInteger(limit) || limit < 1))
     throw new CliError(`memory-session: --limit is a whole number above 0\n${USAGE}`);
-  const keyEnv = flags['--key-env'] ?? 'OPENROUTER_SIM_KEY';
-  if (!/^[A-Z][A-Z0-9_]*$/.test(keyEnv)) throw new CliError('memory-session: --key-env names an environment variable');
+  const keyEnv = KEY_SLOT;
   const review = flags['--review'] ? parseSubject(flags['--review']) : null;
   const show = flags['--show'] === true;
 
@@ -638,8 +635,7 @@ export async function main(argv: Array<string>): Promise<string> {
   const { applyMemoryWrite } = await import('../src/memory/db/session-write.ts');
 
   loadDotEnv(privateDirOf(ROOT));
-  const apiKey = process.env[keyEnv];
-  if (typeof apiKey !== 'string' || !apiKey.trim()) throw new CliError(`memory-session: ${keyEnv} is not set (.env)`);
+  const apiKey = simKey('memory-session');
 
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
   const lines = [];
@@ -652,7 +648,7 @@ export async function main(argv: Array<string>): Promise<string> {
     handle = openMemoryDb(copy);
     lines.push(`copy: ${flags['--keep'] ? 'kept' : 'temporary'}, schema ok`);
 
-    // The effective config: shadow, a sweep of the tool's own, the key variable named by --key-env pays.
+    // The effective config: shadow, a sweep of the tool's own, the simulation's key pays.
     const live = hot.config;
     const config = {
       ...live,
@@ -717,7 +713,7 @@ export async function main(argv: Array<string>): Promise<string> {
     };
 
     const settings = sessionSettings(config);
-    lines.push(`mode shadow, up to ${settings.maxMessages} lines a request, model role memory, key from ${keyEnv}`);
+    lines.push(`mode shadow, up to ${settings.maxMessages} lines a request, model role memory, the simulation's key`);
     const result: Untyped = await sweep(ctx, { scope: flags['--scope'], limit, ignoreSweepCap: true });
     if (result.status !== 'ok') lines.push(`sweep: ${result.status} (${result.code})`);
     for (const run of result.runs) {

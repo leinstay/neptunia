@@ -11,7 +11,7 @@
 # plugin.json lists come from the optional environment file below.
 # plugins/README.md says how to write and connect a plugin, deploy/README.md has the units.
 #
-# Install:   sudo deploy/install.sh   (installs this unit, does not enable it)
+# `neptunia setup` does not render this template: install it by hand when a plugin is used.
 # Start:     /plugins enable echo     (or: sudo systemctl start neptunia-plugin@echo)
 # Logs:      journalctl -u neptunia-plugin@echo -f
 

@@ -157,8 +157,8 @@ Only the core model's list in `models.abilities` is read, by `src/tools/gateway.
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `models.errands.scout` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the scout errand agent | `src/agent-runner/opencode.ts` |
-| `models.errands.server` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the server errand agent | `src/agent-runner/opencode.ts` |
+| `models.errands.scout` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the scout errand agent | `src/tools/impl/status.ts` |
+| `models.errands.server` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the server errand agent | `src/tools/impl/status.ts` |
 
 ### `models.development`
 
@@ -557,7 +557,6 @@ The settings every errand reads, whichever agent runs it. See [Errands](errands.
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `errands.backend` | string | `"codex"` | Backend of an agent that names none: codex, claude or opencode | `src/agent-runner/backend.ts` |
 | `errands.opencodePath` | string | `"/opt/opencode/bin/opencode"` | Path to the OpenCode binary | `bin/neptunia.ts` |
 | `errands.toolResultChars` | number | `6000` | Cap on each tool result the agent sees | `bin/neptunia.ts` |
 | `errands.keepFilesHours` | number | `24` | Hours a task's output files are kept | `src/agent-runner/sweep.ts` |

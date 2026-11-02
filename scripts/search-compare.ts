@@ -34,7 +34,7 @@
 // Rails: requests marked `origin: 'search-compare'`, never counted against llm.maxRequestsPerDay,
 // no calibration, the daily counters a throwaway copy; one search at a time; no row is started
 // once the summed cost has passed `--max-usd` (default 2). The key: the variable `--key` names
-// (read from the private .env), else OPENROUTER_SIM_KEY (scripts/lib/cli.ts#simKey). Nothing under
+// (read from the private .env), else the simulation key (scripts/lib/cli.ts#simKey). Nothing under
 // data/ is read or written; `--out` may not point there.
 //
 // Output in `--out`: `results.jsonl` (per row, engine and run `{ id, engine, ok, reason,
