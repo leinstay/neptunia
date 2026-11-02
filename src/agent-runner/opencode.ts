@@ -144,7 +144,7 @@ export function isolationEnv(): Record<string, string> {
 }
 
 /** Kill `child` and its process group. */
-function killTree(child: ChildProcess | undefined, signal: NodeJS.Signals): void {
+export function killTree(child: ChildProcess | undefined, signal: NodeJS.Signals): void {
   if (!child) return;
   try {
     if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, signal);
@@ -175,7 +175,7 @@ function count(value: unknown): number {
 const NOT_A_RESULT = /^(\.|opencode\.db)/;
 
 /** The files the agent saved under `dir` (recursively), as result file handles; OpenCode's own files skipped. */
-async function collectFiles(dir: string, id: string): Promise<Array<ResultFile>> {
+export async function collectFiles(dir: string, id: string): Promise<Array<ResultFile>> {
   const base = path.join(dir, id);
   const out: Array<ResultFile> = [];
   async function walk(current: string): Promise<void> {
@@ -236,7 +236,7 @@ async function fileCarriesSecret(file: ResultFile): Promise<boolean> {
  * rules could have copied the withheld file whole. In every scope, `core` included, a text file that
  * carries a secret is dropped (reason `secret`). Nothing of a file's content is logged.
  */
-async function deliverableFiles(
+export async function deliverableFiles(
   collected: Array<ResultFile>,
   { scope, withheldCount }: { scope: string; withheldCount: number }
 ): Promise<{ files: Array<ResultFile>; dropped: Array<{ name: string; reason: 'withheld' | 'secret' }> }> {
