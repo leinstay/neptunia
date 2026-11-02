@@ -182,8 +182,7 @@ const LOADS = {
 
 /** The shipped config.json with `overrides` deep-merged over a fresh copy. */
 function shippedConfig(overrides: Record<string, unknown> = {}) {
-  // The shipped config leaves the four optional roles off (null); the requests under test describe media, draw and speak.
-  const on = { models: { base: { vision: 'x/vision', video: 'x/video', drawing: 'x/drawing', speech: 'x/speech' } } };
+  const on = { models: { base: { vision: 'x/vision', video: 'x/video', drawing: 'x/drawing', speech: 'x/speech' } } }; // off when shipped
   return deepMerge(deepMerge(structuredClone(SHIPPED.config), on), overrides);
 }
 
