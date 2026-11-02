@@ -330,7 +330,9 @@ test('split CLI parts each search private evidence and send only to the CLI dest
   });
 });
 
-test('a live CLI query queued behind a blocked turn retains its own internal reads and CLI reply', async () => {
+test('a live CLI query queued behind a blocked turn retains its own internal reads and CLI reply', async (t) => {
+  // Drain waits between two and nine seconds. Fix the random boundary so its delay fits the bounded fixture wait.
+  t.mock.method(Math, 'random', () => 0);
   await withRig({ config: CONFIG }, async ({ dirs, cores, clis, units, logs }) => {
     seed(dirs);
     const waiting = Promise.withResolvers<Completion>();
