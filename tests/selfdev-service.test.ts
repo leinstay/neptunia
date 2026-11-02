@@ -585,3 +585,16 @@ test('every look, ready and merge names selfdev.repository too', async (t) => {
     ['merge', 'fork-owner/engine'],
   ]);
 });
+
+test('the branch is pushed to the selfdev.repository URL, never to origin', async (t) => {
+  // Catches: the branch goes to origin (upstream) while the pull request opens on the fork, so gh finds no head branch.
+  const world = selfdevWorld(t);
+  world.repository = 'fork-owner/engine';
+  world.check = { code: 'ok', repository: 'fork-owner/engine' };
+  const { id } = await submitted(world);
+  const pushes = world.git.filter((call) => call.args[0] === 'push');
+  assert.deepEqual(
+    pushes.map((call) => call.args),
+    [['push', '-u', 'https://github.com/fork-owner/engine.git', `self/${id}`]]
+  );
+});
