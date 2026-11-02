@@ -711,41 +711,26 @@ test('wakeBlockText: the wake, the moment and the budgets as facts; none without
   );
 });
 
-test('wakeBlockText: one budget line per key of the core role, with its credit and when the role last switched', () => {
-  const keyLabels = {
+test('wakeBlockText: one turns line after the chain line, with the Sunday, the turns so far and the possible count', () => {
+  const turnsLabels = {
     ...labels,
-    wake: {
-      ...labels.wake,
-      budget: {
-        ...labels.wake.budget,
-        key: '{name}{left}{since}',
-        keyLeft: ' has {amount} left',
-        keySwitched: ', switched {when}',
-      },
-    },
+    wake: { ...labels.wake, budget: { ...labels.wake.budget, turns: 'until {until}: {spent} turns of {possible}' } },
   };
-  const budgets = {
-    ...WAKE.budgets,
-    keys: [
-      { name: 'OPENROUTER_CORE_KEY', left: 41.5, switchedAt: null },
-      { name: 'OPENROUTER_CORE_BACKUP_KEY', left: null, switchedAt: NOW - 3_600_000 },
-    ],
-  };
-  const lines = wakeBlockText({ ...WAKE, budgets }, keyLabels).split('\n');
-  assert.ok(lines.includes('OPENROUTER_CORE_KEY has 41.50 left'), lines.join('|'));
-  const backup = lines.find((line) => line.startsWith('OPENROUTER_CORE_BACKUP_KEY'));
-  // Bug caught: an unread credit printed as 0 or null, which she would take for an empty key.
-  assert.ok(backup?.startsWith('OPENROUTER_CORE_BACKUP_KEY, switched '), backup);
-  assert.ok(!backup?.includes('left'), backup);
-  assert.ok(lines.indexOf('chain 3/3') > lines.indexOf('budgets:'), 'the chain line stays in the same block');
-  assert.ok(lines.indexOf('OPENROUTER_CORE_KEY has 41.50 left') > lines.indexOf('budgets:'));
+  const turns = { until: Date.parse('2026-11-08T00:00:00Z'), spent: 37, possible: 200 };
+  const lines = wakeBlockText({ ...WAKE, budgets: { ...WAKE.budgets, turns } }, turnsLabels).split('\n');
+  assert.ok(lines.includes('until 2026-11-08: 37 turns of 200'), lines.join('|'));
+  assert.ok(lines.indexOf('until 2026-11-08: 37 turns of 200') > lines.indexOf('chain 3/3'), 'after the chain line');
+  // Bug caught: an unknown possible count printed as null or NaN, which she would read as a number.
+  const unknown = wakeBlockText(
+    { ...WAKE, budgets: { ...WAKE.budgets, turns: { ...turns, possible: null } } },
+    turnsLabels
+  );
+  assert.ok(unknown.includes('until 2026-11-08: 37 turns of ?'), unknown);
 });
 
-test('wakeBlockText: keys without their labels, or an empty list, add nothing', () => {
-  const keys = [{ name: 'OPENROUTER_CORE_KEY', left: 1, switchedAt: null }];
-  const text = wakeBlockText({ ...WAKE, budgets: { ...WAKE.budgets, keys } }, labels);
-  assert.ok(!text.includes('OPENROUTER_CORE_KEY'), text);
-  assert.equal(wakeBlockText({ ...WAKE, budgets: { ...WAKE.budgets, keys: [] } }, labels), wakeBlockText(WAKE, labels));
+test('wakeBlockText: a turns figure without its label adds nothing', () => {
+  const turns = { until: Date.parse('2026-11-08T00:00:00Z'), spent: 1, possible: 2 };
+  assert.equal(wakeBlockText({ ...WAKE, budgets: { ...WAKE.budgets, turns } }, labels), wakeBlockText(WAKE, labels));
 });
 
 test('wakeBlockText: an attend wake names the place, the lines and the people; the places page follows with its total and the rest; placesBlockText stands alone', () => {
