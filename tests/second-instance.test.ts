@@ -316,7 +316,8 @@ test('the sockets a child holds are its own, and neither child has a file open i
     const { files, sockets } = world.open[name];
     assert.ok(sockets.includes(join(world[name].dataDir, 'run', 'core.sock')), `${name} has its socket open`);
     for (const socket of sockets) assert.ok(isWithin(socket, world[name].dataDir), `${name} holds ${socket}`);
-    for (const file of files) {
+    // A file inside this instance's own folder is its own even when TMPDIR puts that folder under the checkout.
+    for (const file of files.filter((file) => !isWithin(file, world[name].dir))) {
       assert.equal(isWithin(file, other.dir), false, `${name} has ${file} open`);
       assert.equal(isWithin(file, REPO.replace(/\/$/, '')), false, `${name} has ${file} open`);
     }
