@@ -42,7 +42,7 @@ function lines(env: Fixture, n: number, startMin: number, tag: string, extra: Pa
     env.say({
       native: `${tag}${i}`,
       minutesAgo: -(startMin + i),
-      text: `${tag} line ${i} about café`,
+      text: `${tag}${i} line about café`,
       author: i % 2 === 0 ? ADA : BOB,
       ...extra,
     });

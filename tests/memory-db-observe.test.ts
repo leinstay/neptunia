@@ -20,6 +20,7 @@ import {
 import { audienceWhere, dmContext, groupContext, groupScope } from '../src/memory/db/scope.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { batchOf, buildSessionRequest, scopesOf, validateAnswer } from '../src/memory/db/session.ts';
+import { textOf } from './fixtures/memory-db/session-rig.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { wrongly, sqlOf } from './fixtures/loose-types.ts';
 import type { UntypedDb } from './fixtures/loose-types.ts';
@@ -733,7 +734,7 @@ test('people:add: the batch carries author handles; the validator keeps a well-f
       ]
     );
     assert.ok(
-      built.messages[1].content.includes('[a1] Ab12: post 101'),
+      textOf(built.messages[1].content).includes('[a1] Ab12: post 101'),
       'a participant line shows its handle before its display name'
     );
 
