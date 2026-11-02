@@ -807,7 +807,6 @@
       "src/memory/db/readers/common.ts",
       "src/memory/db/rows.ts",
       "src/memory/db/schema.ts",
-      "src/memory/db/session-write.ts",
       "src/memory/db/stems.ts",
       "src/memory/db/unit-outbox.ts",
       "src/memory/db/unit-write.ts",
