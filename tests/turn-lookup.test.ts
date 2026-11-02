@@ -21,7 +21,10 @@ for (const direction of ['ordinary-first', 'internal-first'] as const) {
       recall: {
         prefetch: (args) => {
           contexts.push(args.memoryContext);
-          return { status: 'ok', excerpts: [args.memoryContext === internal ? 'private-evidence' : 'public-evidence'] };
+          return Promise.resolve({
+            status: 'ok',
+            excerpts: [args.memoryContext === internal ? 'private-evidence' : 'public-evidence'],
+          });
         },
       },
       membersOf: null,

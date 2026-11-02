@@ -42,7 +42,7 @@ function setup(parts: Array<{ index: number; text: string }> = []) {
     llm: { maxRequestTokens: 50000, maxRequestsPerDay: 100, timeoutMs: 1000 },
   };
   const hot = { config, prompts: { labels, merge: 'Choose an item or new. {{items}} {{message}}' } };
-  const queue = createPendingQueue({ hot, now: () => NOW, turns, missed: null, pending, followUpMuted: () => false });
+  const queue = createPendingQueue({ hot, now: () => NOW, turns, missed: null, pending, followUpMuted: () => null });
   const merge = createMerge({
     hot,
     now: () => NOW,

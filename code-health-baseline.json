@@ -258,7 +258,7 @@
         "complexity": 36
       },
       "createRecall>prefetch": {
-        "complexity": 38
+        "complexity": 36
       },
       "createRecall>recallWith": {
         "complexity": 74,

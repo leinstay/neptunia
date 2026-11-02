@@ -826,8 +826,8 @@ export function createRecall({
   }
 
   /** The cached captions of the windows' pictures and custom emoji, or undefined (cache only, never a request). */
-  function cachedCaptions(config: Untyped, guildId: string, windows: Untyped) {
-    if (typeof describer?.cachedDescriptions !== 'function') return undefined;
+  function cachedCaptions(config: Untyped, guildId: string | null, windows: Untyped) {
+    if (!guildId || typeof describer?.cachedDescriptions !== 'function') return undefined;
     const { items, rest, emoji } = pullPictures(
       windows.flatMap((w: Untyped) => w.messages),
       0
@@ -889,6 +889,21 @@ export function createRecall({
     }
   }
 
+  function profilesFor(guildId: string | null): Array<Untyped> {
+    if (!guildId || typeof store.listUserProfiles !== 'function') return [];
+    return store.listUserProfiles(guildId) ?? [];
+  }
+
+  function namesFor(guildId: string | null, profiles: Array<Untyped>) {
+    const stored = new Map<string, Untyped>(
+      profiles.filter((profile) => profile?.id).map((profile) => [String(profile.id), profile])
+    );
+    return (id: Untyped) => {
+      const name = stored.get(String(id))?.names?.[0];
+      return (typeof name === 'string' && name ? name : null) ?? (guildId ? memberName(guildId, String(id)) : null);
+    };
+  }
+
   function dbReader({
     db = null,
     config,
@@ -900,16 +915,7 @@ export function createRecall({
     memoryContext = null,
   }: DbReaderInput) {
     const { privateUserId } = scopeOf({ config, snapshot, channel, partnerId });
-    const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
-    const stored = new Map<string, Untyped>(
-      profiles
-        .filter((profile: Untyped) => profile?.id)
-        .map((profile: Untyped): [string, Untyped] => [String(profile.id), profile])
-    );
-    const nameOf = (id: Untyped) => {
-      const name = stored.get(String(id))?.names?.[0];
-      return (typeof name === 'string' && name ? name : null) ?? memberName(guildId, String(id)) ?? null;
-    };
+    const nameOf = namesFor(guildId, profilesFor(guildId));
     const ctx = readContext({ config, channel, privateUserId, asker, memoryContext });
     const placeExists = db?.prepare('SELECT id FROM places WHERE id = ?');
     const knownPlaces = new Map<string, boolean>();
@@ -1692,7 +1698,7 @@ export function createRecall({
       const prompt = summaryPrompt();
       if (!prompt && !quotes) return skip('no-prompt');
       if (capSpent()) return skip('daily-cap');
-      if (op) await op.started();
+      await op?.started();
 
       // The persona's own search over the memory database: no message search, no summary.
       if (quotes) {
@@ -1721,6 +1727,8 @@ export function createRecall({
         if (op) await op.succeeded(opResult(found, 'ok'));
         return finish(found);
       }
+
+      if (!guildId) return skip('private-chat');
 
       controller = new AbortController();
       const searching = new AbortController();
@@ -1856,16 +1864,8 @@ export function createRecall({
       const { sourceOf, privateUserId, allowEntry, allowLine } = scope;
       const own = inCommunity(channel) && Array.isArray(history) ? history.filter((m) => m?.id) : [];
       const ownIds = new Set(own.map((m) => m.id));
-      const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
-      const stored = new Map<string, Untyped>(
-        profiles
-          .filter((profile: Untyped) => profile?.id)
-          .map((profile: Untyped): [string, Untyped] => [String(profile.id), profile])
-      );
-      const nameOf = (id: Untyped) => {
-        const name = stored.get(String(id))?.names?.[0];
-        return (typeof name === 'string' && name ? name : null) ?? memberName(guildId, String(id)) ?? null;
-      };
+      const profiles = profilesFor(guildId);
+      const nameOf = namesFor(guildId, profiles);
       const channelNameOf = (id: Untyped) => snapshot?.get(id)?.name ?? null;
       // A replay's moment bounds the archive too: an entry recorded after it did not exist yet.
       const archiveShared = sharedSource(
@@ -1938,7 +1938,7 @@ export function createRecall({
         tasks.push(
           task('memory', async () => {
             const used = plan;
-            if (!used) return null;
+            if (!used || !guildId) return null;
             const forms = [...used.phrases, ...used.forms];
             if (forms.length === 0 && used.who.length === 0) return null;
             const memory = await timed(

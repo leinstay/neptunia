@@ -71,7 +71,7 @@ for (const privileged of [true, false]) {
       checkPrivateGate: () => Promise.resolve({ gate: { ok: true }, isOwner: true }),
       dropPrivate() {},
       afterPrivateTurn: () => Promise.resolve(),
-      followUpStale: () => false,
+      followUpStale: () => null,
       decideAndLog: () => ({ respond: true, reason: 'fixture', ignoreChance: 0 }),
     });
     await drainPending();

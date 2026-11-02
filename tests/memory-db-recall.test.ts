@@ -1878,3 +1878,71 @@ for (const kind of ['group', 'dm'] as const) {
     }
   });
 }
+
+for (const reader of ['run', 'window', 'prefetch'] as const) {
+  test(`an internal ${reader} without a guild reads SQLite without consulting legacy guild data`, async () => {
+    const env = fixture();
+    try {
+      const { issueContext } = await import('../src/memory/db/scope.ts');
+      const { rig } = await import('./fixtures/reads-rig.ts');
+      env.account(BOB, ['Benoit']);
+      for (const [native, offset] of [
+        ['null-guild-before', 60_000],
+        ['null-guild-anchor', 0],
+      ] as const) {
+        env.say({
+          native,
+          at: NOW - DAY - offset,
+          text: 'το κουνέλι null-guild-private-evidence',
+          place: dmPlaceId('discord', BOB),
+          author: BOB,
+          scope: dmScope(personId('discord', BOB), 'discord'),
+        });
+      }
+      env.stem();
+      const s = runner(env);
+      const calls: Array<string> = [];
+      const reject = (name: string) => () => {
+        calls.push(name);
+        throw new Error(`unexpected legacy guild read: ${name}`);
+      };
+      const recaller = createRecall({
+        reads: rig().reads,
+        hot: s.hot,
+        store: {
+          state: { data: {}, markDirty() {} },
+          listUserProfiles: reject('profiles'),
+          getLore: reject('lore'),
+          getGuild: reject('guild'),
+          getRecent: reject('recent'),
+          getPrivate: reject('private'),
+        },
+        memberName: reject('member name'),
+        describer: { cachedDescriptions: reject('captions') },
+        llm: { capLeft: () => 100, complete: () => Promise.reject(new Error('SQLite evidence needs no model')) },
+        now: () => NOW,
+        memoryDb: { database: () => env.db },
+      });
+      const args = {
+        ...s.args,
+        guildId: null,
+        snapshot: null,
+        channel: s.dm,
+        memoryContext: issueContext({ kind: 'internal', newId: () => `ctx:null-guild-${reader}`, now: () => NOW }),
+      };
+      const found =
+        reader === 'run'
+          ? await recaller.run({ ...args, server: { forms: ['κουνέλι'], who: [], from: null, to: null }, quotes: true })
+          : reader === 'window'
+            ? await recaller.window({ ...args, anchor: 'null-guild-anchor', move: 'up', messages: 1 })
+            : await recaller.prefetch({
+                ...args,
+                lanes: [{ kind: 'message', text: 'το κουνέλι', words: 'το κουνέλι' }],
+              });
+      assert.deepEqual(calls, []);
+      assert.ok(JSON.stringify(found).includes('null-guild-private-evidence'));
+    } finally {
+      env.done();
+    }
+  });
+}

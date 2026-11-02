@@ -495,7 +495,7 @@ export type MemoryDbService = {
   writeUnit(update: unknown): Promise<unknown>;
   keepPending(update: unknown): string;
   recordWake(update: unknown): Promise<unknown> | null;
-  issueContext(spec?: Context): Context;
+  issueContext(spec?: Parameters<typeof issuePureContext>[0]): Context;
   observe(envelope: unknown, where?: Row | null): Promise<object> | null;
   waitObservations(): Promise<number>;
   focusPeople(options?: {
@@ -1526,7 +1526,7 @@ export function createMemoryDb({
    * Issues an execution context for one turn, session or wake (scope.ts#issueContext), read through `audience_id`. While the database is open the context is recorded in `execution_contexts`,
    * deferred through the writer (a failure is logged with a code); otherwise it is only the object.
    */
-  function issueContext(spec: Context = {}): Context {
+  function issueContext(spec: Parameters<typeof issuePureContext>[0] = {}): Context {
     const ctx = issuePureContext({ ...spec, now });
     if (!handle || closing) return ctx;
     const update = { kind: 'context', context: contextRow(ctx) };
