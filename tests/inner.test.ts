@@ -2159,6 +2159,7 @@ test('heartbeat: at its moment one turn runs in the channel she spoke in, with n
     'activity',
     'agents',
     'intentionsOnly',
+    'landed',
     'life',
     'maxTokens',
     'people',
