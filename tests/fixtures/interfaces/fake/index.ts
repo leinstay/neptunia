@@ -13,7 +13,7 @@
 //   as `{ op: 'held' }`.
 // Once `start` resolved, the fixture tells `{ op: 'started' }`.
 
-import type { ConversationInfo, MessageEvent } from '../../../../src/protocol/adapter.ts';
+import type { ConversationInfo, MessageEvent, MemberInfo } from '../../../../src/protocol/adapter.ts';
 import type { InterfaceHost, RunningInterface } from '../../../../src/protocol/host.ts';
 import { start as startFake } from '../../../../src/interface/fake-interface.ts';
 
@@ -23,6 +23,7 @@ const COMMUNITY = { id: 'g1', name: 'Alpha' };
 
 type Request =
   | { id: number; op: 'seed-conversation'; info: ConversationInfo }
+  | { id: number; op: 'seed-member'; communityId: string; member: MemberInfo }
   | { id: number; op: 'emit'; event: MessageEvent }
   | { id: number; op: 'posted'; conversationId: string }
   | { id: number; op: 'hold' }
@@ -63,6 +64,10 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
     switch (request.op) {
       case 'seed-conversation':
         fake.seedConversation(request.info);
+        tell({ id: request.id, op: 'done' });
+        return;
+      case 'seed-member':
+        fake.seedMember(request.communityId, request.member);
         tell({ id: request.id, op: 'done' });
         return;
       case 'emit': {

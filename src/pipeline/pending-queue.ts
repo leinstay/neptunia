@@ -23,6 +23,7 @@ import type { FollowUpWindows } from './follow-up-window.ts';
 import type {
   Conv,
   Line,
+  MessageReadOptions,
   PendingQueue,
   Ping,
   PipelineHot,
@@ -61,7 +62,8 @@ export type PendingQueueOps = {
     kind: PingKind,
     destination?: Conv | null,
     superseded?: Array<string>,
-    arrivedAt?: number
+    arrivedAt?: number,
+    readOptions?: MessageReadOptions
   ) => void;
   requeueBusy: (ping: Ping) => boolean;
 };
@@ -243,7 +245,8 @@ export function createPendingQueue({
     kind: PingKind,
     destination: Conv | null = null,
     superseded: Array<string> = [],
-    arrivedAt: number = now()
+    arrivedAt: number = now(),
+    readOptions?: MessageReadOptions
   ): void {
     const maxPending = hot.config.mention.maxPending ?? 6;
     const routed = destination
@@ -253,7 +256,15 @@ export function createPendingQueue({
       const { replaced } = followUpSlot(pending.list, channel.id, kind) as { replaced: Ping | null };
       if (replaced) dropReplaced(replaced, trigger.id);
     }
-    const ping: Ping = { channelId: channel.id, channel, trigger, kind, arrivedAt, ...routed };
+    const ping: Ping = {
+      channelId: channel.id,
+      channel,
+      trigger,
+      kind,
+      arrivedAt,
+      ...routed,
+      ...(readOptions ? { readOptions } : {}),
+    };
     const { list, evicted } = addPending(pending.list, ping, maxPending) as Kept;
     pending.list = list;
     log.info('mention: deferred', {

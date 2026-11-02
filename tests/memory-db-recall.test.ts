@@ -827,7 +827,7 @@ function runner(
   };
 }
 
-test('recall.run: the stretches come from the database, in scope and behind the pull rail, with no Discord request and no summary', async () => {
+test('recall.run: stored group stretches follow memory scope without a live interface request or summary', async () => {
   const env = fixture();
   try {
     env.account(ALICE, ['Αλίκη']);
@@ -857,18 +857,20 @@ test('recall.run: the stretches come from the database, in scope and behind the 
     assert.equal(found.outcome.kind, 'searched');
     assert.deepEqual(
       found.quotes.map((quote) => quote.channelName),
-      ['general']
+      ['secret', 'general']
     );
+    // Policy 2 shares stored group evidence independently of the live pull permission.
     assert.deepEqual(
-      found.quotes[0].entries.map((entry) => entry.id),
+      found.quotes[1].entries.map((entry) => entry.id),
       ['r1', 'r2']
     );
-    assert.ok(found.quotes[0].lines.includes('Αλίκη'));
-    assert.ok(!JSON.stringify(found).includes('κρυφο') && !JSON.stringify(found).includes('ιδιωτικο'));
+    assert.ok(found.quotes[1].lines.includes('Αλίκη'));
+    assert.ok(JSON.stringify(found).includes('κρυφο'));
+    assert.equal(JSON.stringify(found).includes('ιδιωτικο'), false);
     assert.deepEqual(s.rest, [], 'no request to Discord');
     assert.equal(s.llmCalls.length, 0, 'no summary');
-    // The DM line of the asker matched better than the group's: the marker, nothing else.
-    assert.equal(found.hidden, true);
+    // Policy 2 exposes the stronger secret-group match, so the asker's weaker DM match needs no hint.
+    assert.equal(found.hidden, false);
     const stranger = await s.recaller.run({
       ...s.args,
       candidate: { ...s.args.candidate, authorId: ALICE },
@@ -876,13 +878,17 @@ test('recall.run: the stretches come from the database, in scope and behind the 
       quotes: true,
     });
     assert.equal(stranger.hidden, false, "the DM is another person's");
-    // The channel she names is refused by the pull rail.
+    // Policy 2 also permits a named stored group independently of live pull permission.
     const named = await s.recaller.run({
       ...s.args,
       server: { forms: ['σπιτι'], who: [], from: null, to: null, channelId: 'c4' },
       quotes: true,
     });
-    assert.equal(named.outcome.kind, 'not-visible');
+    assert.equal(named.outcome.kind, 'searched');
+    assert.deepEqual(
+      named.quotes.flatMap((quote) => quote.entries.map((entry) => entry.id)),
+      ['r3']
+    );
     // The turn's own lines are left out.
     const seen = await s.recaller.run({
       ...s.args,
@@ -967,7 +973,7 @@ test('recall.run: the question is embedded once for the meaning search, and a fa
   }
 });
 
-test('recall.window: reads up or down from a message through the same rails; an anchor it cannot open is unknown', async () => {
+test('recall.window: reads stored group lines through memory scope and refuses an unknown anchor', async () => {
   const env = fixture();
   try {
     for (let i = 1; i <= 5; i += 1)
@@ -977,6 +983,7 @@ test('recall.window: reads up or down from a message through the same rails; an 
         text: `γραμμη ${i}`,
         place: channelPlaceId('discord', 'c1'),
       });
+    env.say({ native: 'y0', at: NOW - 120000, text: 'πριν αλλου', place: channelPlaceId('discord', 'c4') });
     env.say({ native: 'y1', at: NOW - 60000, text: 'αλλου', place: channelPlaceId('discord', 'c4') });
     env.stem();
     const s = runner(env);
@@ -986,10 +993,12 @@ test('recall.window: reads up or down from a message through the same rails; an 
       ['x3', 'x4']
     );
     assert.equal(down.quotes[0].channelName, 'general');
-    assert.equal(
-      (await s.recaller.window({ ...s.args, anchor: 'y1', move: 'up', messages: 2 })).outcome.kind,
-      'unknown-anchor',
-      'a place the pull rail refuses'
+    // Policy 2 permits stored group windows even when live pull permission excludes the channel.
+    const stored = await s.recaller.window({ ...s.args, anchor: 'y1', move: 'up', messages: 2 });
+    assert.equal(stored.outcome.kind, 'searched');
+    assert.deepEqual(
+      stored.quotes.flatMap((quote) => quote.entries.map((entry) => entry.id)),
+      ['y0']
     );
     assert.equal((await s.recaller.window({ ...s.args, anchor: 'zzz', move: 'up' })).outcome.kind, 'unknown-anchor');
     const off = runner(env, { open: false, places: false });
@@ -1582,3 +1591,290 @@ test('recall finds another interface group before a candidate cap without exposi
     env.done();
   }
 });
+
+test('an issued internal context reads another DM through search and window without changing its scope', async () => {
+  const env = fixture();
+  try {
+    env.account(BOB, ['Benoît']);
+    const place = dmPlaceId('discord', BOB);
+    env.say({
+      native: 'owner-private-first',
+      at: NOW - DAY,
+      text: 'το κουνέλι private-first',
+      place,
+      author: BOB,
+      scope: dmScope(personId('discord', BOB), 'discord'),
+    });
+    env.say({
+      native: 'owner-private-anchor',
+      at: NOW - DAY + 60_000,
+      text: 'το κουνέλι private-anchor',
+      place,
+      author: BOB,
+      scope: dmScope(personId('discord', BOB), 'discord'),
+    });
+    env.stem();
+    const s = runner(env);
+    const { issueContext } = await import('../src/memory/db/scope.ts');
+    const memoryContext = issueContext({ kind: 'internal', newId: () => 'ctx:owner-private', now: () => NOW });
+    const before = env.db
+      .prepare('SELECT audience_id, scope_kind, scope_iface, scope_dm FROM sources WHERE native_id = ?')
+      .get('owner-private-anchor');
+    const found = await s.recaller.run({
+      ...s.args,
+      server: { forms: ['κουνέλι'], who: ['benoît'], from: NOW - DAY, to: NOW },
+      quotes: true,
+      memoryContext,
+    });
+    assert.ok(found.quotes.flatMap((quote) => quote.entries).some((entry) => entry.id === 'owner-private-anchor'));
+    const expanded = await s.recaller.window({
+      ...s.args,
+      anchor: 'owner-private-anchor',
+      move: 'up',
+      messages: 2,
+      memoryContext,
+    });
+    assert.ok(expanded.quotes.flatMap((quote) => quote.entries).some((entry) => entry.id === 'owner-private-first'));
+    const ordinary = await s.recaller.run({
+      ...s.args,
+      server: { forms: ['κουνέλι'], who: [], from: null, to: null },
+      quotes: true,
+    });
+    assert.deepEqual(ordinary.quotes, []);
+    assert.deepEqual(
+      env.db
+        .prepare('SELECT audience_id, scope_kind, scope_iface, scope_dm FROM sources WHERE native_id = ?')
+        .get('owner-private-anchor'),
+      before
+    );
+  } finally {
+    env.done();
+  }
+});
+
+test('an ordinary DM retains its own evidence and public groups while another private conversation stays excluded', async () => {
+  const env = fixture();
+  try {
+    env.account(BOB, ['Benoit']);
+    env.account(CAROL, ['Carol']);
+    env.say({
+      native: 'own-private',
+      at: NOW - DAY,
+      text: 'το κουνέλι own-private-marker',
+      place: dmPlaceId('discord', BOB),
+      author: BOB,
+      scope: dmScope(personId('discord', BOB), 'discord'),
+    });
+    env.say({
+      native: 'unrelated-private',
+      at: NOW - DAY,
+      text: 'το κουνέλι unrelated-private-marker',
+      place: dmPlaceId('discord', CAROL),
+      author: CAROL,
+      scope: dmScope(personId('discord', CAROL), 'discord'),
+    });
+    env.say({
+      native: 'shared-group',
+      at: NOW - DAY,
+      text: 'το κουνέλι shared-group-marker',
+      place: channelPlaceId('discord', 'c1'),
+    });
+    env.stem();
+    const s = runner(env);
+    const found = await s.recaller.run({
+      ...s.args,
+      channel: s.dm,
+      partnerId: BOB,
+      server: { forms: ['κουνέλι'], who: [], from: null, to: null },
+      quotes: true,
+    });
+    const entries = found.quotes.flatMap((quote) => quote.entries.map((entry) => entry.id));
+    assert.ok(entries.includes('own-private'));
+    assert.ok(entries.includes('shared-group'), JSON.stringify(found));
+    assert.equal(entries.includes('unrelated-private'), false);
+    const denied = await s.recaller.window({
+      ...s.args,
+      channel: s.dm,
+      partnerId: BOB,
+      anchor: 'unrelated-private',
+      move: 'up',
+      messages: 2,
+    });
+    assert.equal(denied.outcome.kind, 'unknown-anchor');
+  } finally {
+    env.done();
+  }
+});
+
+test('search, window and prefetch retain one issued internal context rather than issuing narrower readers', async () => {
+  const env = fixture();
+  try {
+    const { issueContext } = await import('../src/memory/db/scope.ts');
+    const { rig } = await import('./fixtures/reads-rig.ts');
+    env.account(BOB, ['Benoit']);
+    env.say({
+      native: 'owner-shared-reader-before',
+      at: NOW - DAY - 60_000,
+      text: 'το κουνέλι shared-reader-marker',
+      place: dmPlaceId('discord', BOB),
+      author: BOB,
+      scope: dmScope(personId('discord', BOB), 'discord'),
+    });
+    env.say({
+      native: 'owner-shared-reader',
+      at: NOW - DAY,
+      text: 'το κουνέλι shared-reader-marker',
+      place: dmPlaceId('discord', BOB),
+      author: BOB,
+      scope: dmScope(personId('discord', BOB), 'discord'),
+    });
+    env.stem();
+    const s = runner(env);
+    const issued: Array<Parameters<typeof issueContext>[0]> = [];
+    const recaller = createRecall({
+      reads: rig().reads,
+      hot: s.hot,
+      store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [] },
+      llm: {
+        capLeft: () => 100,
+        complete: () => Promise.reject(new Error('quoted database reads do not summarize')),
+      },
+      now: () => NOW,
+      memoryDb: {
+        database: () => env.db,
+        issueContext: (spec: Parameters<typeof issueContext>[0]) => {
+          issued.push(spec);
+          return issueContext({ ...spec, newId: () => `ctx:unexpected:${issued.length}`, now: () => NOW });
+        },
+      },
+    });
+    const memoryContext = issueContext({ kind: 'internal', newId: () => 'ctx:shared-reader', now: () => NOW });
+    const found = await recaller.run({
+      ...s.args,
+      server: { forms: ['κουνέλι'], who: [], from: null, to: null },
+      quotes: true,
+      memoryContext,
+    });
+    assert.ok(JSON.stringify(found).includes('shared-reader-marker'));
+    const expanded = await recaller.window({
+      ...s.args,
+      anchor: 'owner-shared-reader',
+      move: 'up',
+      messages: 1,
+      memoryContext,
+    });
+    assert.ok(JSON.stringify(expanded).includes('shared-reader-marker'));
+    const prefetched = await recaller.prefetch({
+      ...s.args,
+      lanes: [{ kind: 'message', text: 'το κουνέλι', words: 'το κουνέλι' }],
+      memoryContext,
+    });
+    assert.ok(JSON.stringify(prefetched).includes('shared-reader-marker'));
+    assert.deepEqual(issued, []);
+  } finally {
+    env.done();
+  }
+});
+
+for (const memoryContext of [
+  { internal: true, mode: 'internal', id: '' },
+  { internal: true, mode: 'outward', id: 'ctx:wrong-mode' },
+  { mode: 'internal', id: 'ctx:missing-marker' },
+]) {
+  test(`a malformed internal reader fails closed for ${memoryContext.id || 'empty ID'}`, async () => {
+    const env = fixture();
+    try {
+      env.say({
+        native: 'malformed-hidden',
+        at: NOW - DAY,
+        text: 'το κουνέλι malformed-hidden-marker',
+        place: dmPlaceId('discord', BOB),
+        author: BOB,
+        scope: dmScope(personId('discord', BOB), 'discord'),
+      });
+      env.stem();
+      const s = runner(env);
+      const found = await s.recaller.run({
+        ...s.args,
+        server: { forms: ['κουνέλι'], who: [], from: null, to: null },
+        quotes: true,
+        memoryContext,
+      });
+      assert.deepEqual(found.quotes, []);
+      const expanded = await s.recaller.window({
+        ...s.args,
+        anchor: 'malformed-hidden',
+        move: 'up',
+        messages: 1,
+        memoryContext,
+      });
+      assert.equal(expanded.outcome.kind, 'unknown-anchor');
+      const prefetched = await s.recaller.prefetch({
+        ...s.args,
+        lanes: [{ kind: 'message', text: 'το κουνέλι', words: 'το κουνέλι' }],
+        memoryContext,
+      });
+      assert.equal(JSON.stringify(prefetched).includes('malformed-hidden-marker'), false);
+    } finally {
+      env.done();
+    }
+  });
+}
+
+for (const kind of ['group', 'dm'] as const) {
+  test(`a ${kind} reader searches and expands an offline foreign group outside its live snapshot`, async () => {
+    const env = fixture();
+    try {
+      for (const [native, minute] of [
+        ['offline-before', 0],
+        ['offline-anchor', 1],
+      ] as const) {
+        env.say({
+          native,
+          iface: 'other',
+          at: NOW - DAY + minute * 60_000,
+          text: `το κουνέλι ${native}`,
+          place: channelPlaceId('other', 'offline'),
+          scope: groupScope('other'),
+        });
+      }
+      env.stem();
+      const s = runner(env);
+      insertRows(env.db, {
+        places: [
+          {
+            id: channelPlaceId('other', 'offline'),
+            iface: 'other',
+            kind: 'channel',
+            native_id: 'offline',
+            scope_kind: 'group',
+            name: 'offline group',
+          },
+        ],
+      });
+      const context = kind === 'dm' ? dmContext(personId('discord', BOB), 'discord') : groupContext('discord');
+      assert.deepEqual(ids(run(env, ['κουνέλι'], {}, { ...context, audienceColumn: true })).sort(), [
+        'offline-anchor',
+        'offline-before',
+      ]);
+      const args = { ...s.args, ...(kind === 'dm' ? { channel: s.dm, partnerId: BOB } : {}) };
+      const found = await s.recaller.run({
+        ...args,
+        server: { forms: ['κουνέλι'], who: [], from: null, to: null },
+        quotes: true,
+      });
+      assert.ok(found.quotes.flatMap((quote) => quote.entries).some((entry) => entry.id === 'offline-anchor'));
+      assert.ok(found.quotes.some((quote) => quote.channelName === 'offline group'));
+      const expanded = await s.recaller.window({ ...args, anchor: 'offline-anchor', move: 'up', messages: 2 });
+      assert.ok(expanded.quotes.flatMap((quote) => quote.entries).some((entry) => entry.id === 'offline-before'));
+      const prefetched = await s.recaller.prefetch({
+        ...args,
+        lanes: [{ kind: 'message', text: 'το κουνέλι', words: 'το κουνέλι' }],
+      });
+      assert.ok(JSON.stringify(prefetched).includes('offline-before'));
+      assert.deepEqual(s.rest, [], 'stored evidence needs no live interface search');
+    } finally {
+      env.done();
+    }
+  });
+}

@@ -188,7 +188,7 @@ export function createDrain({
         // landed and spoke with it in view: not answered a second time (a
         // routed call, and the calls of its source that turn showed, are no
         // longer presented as waiting either).
-        if (turns.spokeAfterSeeing?.(ping.channelId, ping.trigger.id)) {
+        if (!ping.readOptions?.memoryContext && turns.spokeAfterSeeing?.(ping.channelId, ping.trigger.id)) {
           if (isDeferredFollowUp(ping)) logPending(ping, 'dropped', { reason: 'answered' });
           else log.info('mention: already answered', { channel: ping.channelId, kind: ping.kind, ...routed });
           if (ping.destination) skipSeenCalls(ping.channelId, ping.trigger.id);
@@ -207,7 +207,7 @@ export function createDrain({
           if (!privateGuildId) continue;
           try {
             const authorId = ping.trigger.authorId;
-            const check = await checkPrivateGate(config, privateGuildId, authorId);
+            const check = await checkPrivateGate(config, privateGuildId, authorId, ping.channel.iface);
             if (!check.gate.ok) {
               dropPrivate(check);
               continue;
@@ -218,6 +218,7 @@ export function createDrain({
               mode: 'reply',
               trigger: ping.trigger,
               triggerKind: 'private',
+              memoryContext: ping.readOptions?.memoryContext,
               queued: queuedFor(ping.channelId, ping.trigger),
               added: ping.added ?? null,
             });

@@ -1,5 +1,6 @@
 // The types of the signatures in ./recall-run.ts: the inputs and results that are too long to read inline.
 
+import type { Context } from '../memory/db/scope.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { recallSettings } from './recall.ts';
 import type { Reads } from '../interface/reads.ts';
@@ -63,6 +64,8 @@ export type CreateRecallInput = {
 
 export type CreateRecallResult = {
   run: (args: {
+    quotes?: boolean;
+    memoryContext?: Context;
     guildId?: string;
     channel: Untyped;
     partnerId?: string | null;

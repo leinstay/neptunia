@@ -23,6 +23,7 @@
 // would be a new background job) and returns the library's handles, which post exactly as the
 // `<gifs>` block's do.
 
+import { hasRecallContext } from '../behavior/recall-reads.ts';
 import { fill } from '../format.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { zonedDay } from '../time.ts';
@@ -590,7 +591,7 @@ export async function runMemorySearch({
   try {
     if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available()))
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
-    if (!guildId || (channel?.communityId == null && !partnerId))
+    if (!hasRecallContext({ guildId, channel, partnerId, memoryContext }))
       return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const settings = recallSettings(objOf(config));
     const zone = objOf(objOf(config).bot).timezone;
@@ -641,8 +642,7 @@ export async function runMemorySearch({
       terms: text(given.terms),
       when: text(given.when),
       channelId: text(given.channelId) || null,
-      profiles:
-        typeof store?.listUserProfiles === 'function' ? listOf(store.listUserProfiles(guildId)).filter(isObj) : [],
+      profiles: storedRecallProfiles(store, guildId),
       selfId,
       selfName,
       maxForms: settings?.maxForms,
@@ -697,6 +697,14 @@ export async function runMemorySearch({
   } catch {
     return { status: 'failed', code: CODE.ERROR };
   }
+}
+
+function storedRecallProfiles(
+  store: { listUserProfiles?: (guildId: string) => unknown } | null | undefined,
+  guildId: string | null
+): Array<Obj> {
+  if (!guildId || typeof store?.listUserProfiles !== 'function') return [];
+  return listOf(store.listUserProfiles(guildId)).filter(isObj);
 }
 
 /** The most second looks one turn of hers may take. Production value, config cut of 2026-10-31. */

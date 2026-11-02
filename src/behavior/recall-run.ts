@@ -104,10 +104,10 @@ import { fitExcerpts, focusHits, lanePlan, lexicalKeep, rankPrefetch } from './p
 import { indexWords } from '../memory/record-index.ts';
 import { CODE } from '../tools/codes.ts';
 import { dbSettings, quotesOf, search as searchRows, window as windowRows } from '../memory/db/recall.ts';
-import { channelPlaceId, nativeAuthorityOf, personId } from '../memory/db/ids.ts';
-import { issueContext } from '../memory/db/scope.ts';
+import { channelPlaceId, personId } from '../memory/db/ids.ts';
+import { isIssuedInternalContext, issueContext } from '../memory/db/scope.ts';
 import { LEGACY_IFACE } from '../memory/db/legacy-namespace.ts';
-import { hitFrom, inCommunity, linesOf, searchQueryOf, untilAborted } from './recall-reads.ts';
+import { hasRecallContext, hitFrom, inCommunity, linesOf, searchQueryOf, untilAborted } from './recall-reads.ts';
 import { isFiniteNumber, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
 import type {
@@ -899,7 +899,7 @@ export function createRecall({
     asker = null,
     memoryContext = null,
   }: DbReaderInput) {
-    const { sourceOf, privateUserId } = scopeOf({ config, snapshot, channel, partnerId });
+    const { privateUserId } = scopeOf({ config, snapshot, channel, partnerId });
     const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
     const stored = new Map<string, Untyped>(
       profiles
@@ -911,52 +911,23 @@ export function createRecall({
       return (typeof name === 'string' && name ? name : null) ?? memberName(guildId, String(id)) ?? null;
     };
     const ctx = readContext({ config, channel, privateUserId, asker, memoryContext });
+    const placeExists = db?.prepare('SELECT id FROM places WHERE id = ?');
+    const knownPlaces = new Map<string, boolean>();
     return {
-      sourceOf,
       nameOf,
       ctx,
       model: roleModel(config, 'embedding', 'recall-query') ?? null,
       channelNameOf: (id: Untyped) => snapshot?.get(id)?.name ?? null,
-      allowPlace: placeRule(db, ctx, sourceOf),
-    };
-  }
-
-  /** The place rule of a db read (see dbReader): one lookup per place, kept for the read. */
-  function placeRule(db: Untyped, ctx: Untyped, sourceOf: Untyped) {
-    const authority = nativeAuthorityOf(ctx?.iface ?? null);
-    const judged = new Map();
-    let statement = null;
-    return (placeId: Untyped) => {
-      const id = String(placeId ?? '');
-      if (judged.has(id)) return judged.get(id);
-      let allowed = false;
-      try {
-        statement ??=
-          db?.prepare('SELECT kind, native_id, native_key, conversation, authority_id FROM places WHERE id = ?') ??
-          null;
-        const row = id ? statement?.get(id) : null;
-        if (row && row.authority_id === authority) {
-          if (row.conversation === 'dm') allowed = true;
-          else if (row.conversation === 'group') {
-            // The channel of the place, as its native key names it (`<kind>:<channel id>`).
-            const native =
-              typeof row.native_key === 'string' && row.native_key.includes(':')
-                ? row.native_key.slice(row.native_key.indexOf(':') + 1)
-                : row.native_id;
-            allowed = typeof native === 'string' && native !== '' && sourceOf(native) !== null;
-          }
-        }
-      } catch {
-        allowed = false;
-      }
-      judged.set(id, allowed);
-      return allowed;
+      allowPlace: (placeId: string) => {
+        if (!knownPlaces.has(placeId)) knownPlaces.set(placeId, Boolean(placeExists?.get(placeId)));
+        return knownPlaces.get(placeId) === true;
+      },
     };
   }
 
   /**
    * The read context of a db read (see dbReader): the turn's own when it fits, else one issued for this read.
-   * The turn's context fits a private chat when it is a DM of the same partner, a server read when it is a group read.
+   * An issued internal context spans every audience. Outward contexts must fit the destination's group or DM.
    */
   function readContext({ channel, privateUserId, asker, memoryContext = null }: ReadContextInput) {
     const spec = privateUserId
@@ -966,9 +937,12 @@ export function createRecall({
       memoryContext &&
       typeof memoryContext === 'object' &&
       typeof memoryContext.id === 'string' &&
-      (privateUserId
-        ? memoryContext.kind === 'dm' && memoryContext.person === spec.person
-        : memoryContext.kind === 'group');
+      memoryContext.id.length > 0 &&
+      (isIssuedInternalContext(memoryContext) ||
+        (!memoryContext.internal &&
+          (privateUserId
+            ? memoryContext.kind === 'dm' && memoryContext.person === spec.person
+            : memoryContext.kind === 'group')));
     const issued = fits
       ? memoryContext
       : typeof memoryDb?.issueContext === 'function'
@@ -1025,14 +999,6 @@ export function createRecall({
       asker: candidate?.authorId ?? null,
       memoryContext,
     });
-    if (server?.channelId && reader.sourceOf(server.channelId) === null)
-      return {
-        text: null,
-        stretch: null,
-        people: [],
-        stats: { ...stats, ms: now() - started },
-        outcome: { kind: 'not-visible' },
-      };
     let vector = null;
     let degraded = false;
     if (typeof embed === 'function' && settings.meaningCandidates > 0) {
@@ -1132,7 +1098,8 @@ export function createRecall({
       const settings = recallSettings(config);
       const db = dbOf();
       if (!settings || !db) return out({ outcome: { kind: 'not-configured' } });
-      if (!guildId || (!inCommunity(channel) && !partnerId)) return out({ outcome: { kind: 'not-configured' } });
+      if (!hasRecallContext({ guildId, channel, partnerId, memoryContext }))
+        return out({ outcome: { kind: 'not-configured' } });
       const reader = dbReader({ db, config, snapshot, guildId, channel, partnerId, asker, memoryContext });
       const own = inCommunity(channel) && Array.isArray(history) ? history.filter((m) => m?.id).map((m) => m.id) : [];
       const found = dbWindow(db, {
@@ -1720,7 +1687,7 @@ export function createRecall({
       // Every run past the switch is traced, one skipped by a gate below included (its reason in `skipped`).
       trace = newTrace({ started, channelId, candidate, server });
       traceMaxLines = settings.traceMaxLines;
-      if (!guildId || (!inCommunity(channel) && !partnerId)) return skip('private-chat');
+      if (!hasRecallContext({ guildId, channel, partnerId, memoryContext })) return skip('private-chat');
       if (!asksServer(server)) return skip('no-query');
       const prompt = summaryPrompt();
       if (!prompt && !quotes) return skip('no-prompt');
@@ -1878,7 +1845,8 @@ export function createRecall({
       const config = hot.config;
       const settings = recallSettings(config);
       if (!settings || list.length === 0) return null;
-      if (!guildId || (!inCommunity(channel) && !partnerId)) return finish('unavailable', { reason: 'private-chat' });
+      if (!hasRecallContext({ guildId, channel, partnerId, memoryContext }))
+        return finish('unavailable', { reason: 'private-chat' });
       const p = settings.prefetch;
       const until = isFiniteNumber(at) ? at : now();
       const bounded = isFiniteNumber(at);

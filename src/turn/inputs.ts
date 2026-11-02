@@ -115,8 +115,9 @@ export function createInputs(ctx: InputsContext): Inputs {
     draft: InputsDraft | null | undefined,
     channel: { id?: string; communityId?: string | null } | null | undefined
   ): unknown {
-    if (!draft || typeof memoryContext !== 'function') return null;
+    if (!draft) return null;
     if (draft.memoryContext !== undefined) return draft.memoryContext;
+    if (typeof memoryContext !== 'function') return null;
     let ctx: unknown = null;
     try {
       const isPrivate = !inCommunity(channel);

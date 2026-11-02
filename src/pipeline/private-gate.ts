@@ -12,6 +12,7 @@ import { log } from '../log.ts';
 import type { ConversationInfo, ConversationRef } from '../protocol/adapter.ts';
 import { isOwnerId } from '../tools/impl/grants.ts';
 import type { TurnParams } from '../turn/outcome.ts';
+import type { MessageReadOptions } from './types.ts';
 import type { MessageEvent, Observed } from './edits.ts';
 
 /** A normalized line (src/behavior/line-of.ts#lineOf), as the private chat reads it. */
@@ -56,7 +57,14 @@ export type PrivateContext = {
     where?: { guildId: string; privateUserId?: string } | null
   ) => Promise<Observed> | null;
   turnBlocked: (channelId: string, config: object) => boolean;
-  holdCall: (channel: ConversationInfo, trigger: PrivateLine, kind: string) => void;
+  holdCall: (
+    channel: ConversationInfo,
+    trigger: PrivateLine,
+    kind: string,
+    destination?: ConversationInfo | null,
+    superseded?: Array<string>,
+    options?: MessageReadOptions
+  ) => void;
   queuedFor: (channelId: string, trigger: PrivateLine) => unknown;
   announceRefusal: (
     channel: ConversationInfo,
@@ -75,7 +83,7 @@ export type PrivateGate = {
   ) => Promise<void>;
   checkPrivateGate: (config: PrivateConfig, guildId: string, authorId: string, iface?: string) => Promise<GateCheck>;
   dropPrivate: (check: GateCheck) => void;
-  onPrivateMessage: (event: MessageEvent, config: PrivateConfig) => Promise<void>;
+  onPrivateMessage: (event: MessageEvent, config: PrivateConfig, options?: MessageReadOptions) => Promise<void>;
 };
 
 export function createPrivateGate({
@@ -154,7 +162,11 @@ export function createPrivateGate({
    * public attitude (privateGate). A refused DM is dropped silently. No
    * follow-up window or address classifier here.
    */
-  async function onPrivateMessage(event: MessageEvent, config: PrivateConfig): Promise<void> {
+  async function onPrivateMessage(
+    event: MessageEvent,
+    config: PrivateConfig,
+    options?: MessageReadOptions
+  ): Promise<void> {
     const author = event.message.author;
     if (privateChatsOff(config, event)) return;
     const selfId = selfIdOf();
@@ -200,7 +212,7 @@ export function createPrivateGate({
     // One turn at a time: busy anywhere (or, with oneAtATime off, in this very
     // chat) -> pending, answered by drainPending once the turn frees up.
     if (turnBlocked(channel.id, config)) {
-      holdCall(channel, normalized, 'private');
+      holdCall(channel, normalized, 'private', null, [], options);
       return;
     }
 
@@ -211,6 +223,7 @@ export function createPrivateGate({
         mode: 'reply',
         trigger: normalized,
         triggerKind: 'private',
+        memoryContext: options?.memoryContext,
         queued: queuedFor(channel.id, normalized),
       })
       .then((result) => afterPrivateTurn(channel, guildId, normalized, result))

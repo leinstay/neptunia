@@ -2,11 +2,15 @@
 // the pipeline reads it, a pending ping, a turn's result and the parts of the core the pipeline calls. Types only:
 // createMessageHandler (src/behavior/pipeline.ts) wires the modules, and nothing here runs.
 
+import type { Context } from '../memory/db/scope.ts';
 import type { PendingPing } from '../behavior/pending.ts';
 import type { ConversationInfo } from '../protocol/adapter.ts';
 import type { TriggerKind } from '../turn/triggers.ts';
 
 export type { TriggerKind };
+
+/** The execution context supplied by the authenticated event handler, kept outside the message. */
+export type MessageReadOptions = { memoryContext?: Context };
 
 /** A conversation as the interface describes it (src/protocol/adapter.ts). */
 export type Conv = ConversationInfo;
@@ -40,6 +44,7 @@ export type Ping = Omit<PendingPing, 'channel' | 'trigger' | 'destination'> & {
   channel: Conv;
   trigger: Line;
   destination?: Conv | null;
+  readOptions?: MessageReadOptions;
 };
 
 /**
@@ -114,6 +119,7 @@ export type PipelineState = {
 
 /** A turn as runTurn starts it (src/behavior/turn.ts#runTurn), as far as the pipeline fills it in. */
 export type TurnRequest = {
+  memoryContext?: Context;
   conversation: { iface: string; conversationId: string };
   guildId?: string;
   mode: 'reply';

@@ -1,3 +1,15 @@
+import {
+  SPLIT_SYSTEM,
+  SPLIT_TEXT,
+  SPLIT_PARTS,
+  PARTS_ANSWER,
+  splitLlm,
+  splitHot,
+  manualSchedule,
+  runSplitTurn,
+  partLabel,
+  taskOf,
+} from './fixtures/turn-split.ts';
 // Tests for src/behavior/turn.ts: the pure helpers (between, typingMs, resolveMentions) plus one integration-style
 // suite for createTurnRunner itself, driven with fake discord.js-shaped objects, a fake LLM and a fake store --
 // proving the feature switches (reactions, multiMessage, typingSimulation, memory) are applied where this module is
@@ -24,7 +36,7 @@ import { loadSkills, skillRegistry } from '../src/tools/registry.ts';
 import { createAdmin } from '../src/admin.ts';
 import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.ts';
 import { createLocalFacts } from '../src/behavior/inner.ts';
-import { freshWorld, world } from './fixtures/turn-world.ts';
+import { freshWorld, world, useIface } from './fixtures/turn-world.ts';
 import type { ChannelSpec } from './fixtures/turn-world.ts';
 import type { TriggerKind } from '../src/turn/triggers.ts';
 import type { TurnParams } from '../src/turn/outcome.ts';
@@ -5498,139 +5510,9 @@ test('runTurn: pace.dropAfterMs 0 sets no bar -- a slow answer is still posted, 
 // ---------------------------------------------------------------------------
 // A message that holds several requests: the splitter (prompts/split.md) and the chain of parts.
 
-const SPLIT_SYSTEM = 'Split this call to {{name}} into at most {{maxTasks}} parts.';
-const SPLIT_TEXT = 'ποιος είναι ο Νίκος ακριβώς; κοίτα το κανάλι της Ελένης, και πες μου αν το μιμίδιο είναι αστείο.';
-// PR 7d: split.minPartChars is the constant 20, so every part is at least that long.
-const SPLIT_PARTS = ['ποιος είναι ο Νίκος ακριβώς', 'κοίτα το κανάλι της Ελένης', 'το μιμίδιο είναι αστείο;'];
-const PARTS_ANSWER = SPLIT_PARTS.map((part) => `- ${part}`).join('\n');
-
-/**
- * An llm fake routing by request purpose: the splitter (`split`), the search classifier
- * (`lookup`), everything else is the reply request. Each answer is a string, an Error to throw,
- * or a function of the call's index (0-based, per kind) giving one of those or a promise.
- */
-function splitLlm({
-  split = PARTS_ANSWER,
-  lookup = 'none',
-  talk = '<msg reply="#2">ok</msg>',
-}: Record<string, Untyped> = {}) {
-  const calls: Record<'split' | 'lookup' | 'talk', Array<{ messages: Untyped; options: Untyped }>> = {
-    split: [],
-    lookup: [],
-    talk: [],
-  };
-  const answer = async (spec: Untyped, index: number) => {
-    const value = typeof spec === 'function' ? await spec(index) : spec;
-    if (value instanceof Error) throw value;
-    return { text: value, usage: {}, estimated: 10 };
-  };
-  return {
-    calls,
-    complete: async (messages: Untyped, options: Untyped) => {
-      const kind = options?.purpose === 'split' ? 'split' : options?.purpose === 'lookup' ? 'lookup' : 'talk';
-      calls[kind].push({ messages, options });
-      const spec = kind === 'split' ? split : kind === 'lookup' ? lookup : talk;
-      return answer(spec, calls[kind].length - 1);
-    },
-  };
-}
-
-/** The settings the split tests rely on, set here: the pre-filter, the cap, and the pace. */
-function splitHot({ features = {}, split = {}, labels: ownLabels }: Record<string, Untyped> = {}) {
-  const hot = lookupHot(
-    { typingSimulation: false, ...features },
-    {},
-    {
-      split: { minChars: 20, minPartChars: 0, maxTasks: 4, contextMessages: 2, maxOutputTokens: 50, ...split },
-      pace: { prepareMs: 5000, prepareSearchMs: 5000, dropAfterMs: 60000 },
-    }
-  );
-  hot.prompts.split = SPLIT_SYSTEM;
-  if (ownLabels) hot.prompts.labels = ownLabels;
-  return hot;
-}
-
-/** A schedule whose timers fire only when `fire(ms)` is called (the turn's clock stands still at NOW). */
-function manualSchedule() {
-  const timers: Array<{ fn: Untyped; ms: Untyped; cancelled: boolean }> = [];
-  const schedule = (fn: unknown, ms: number) => {
-    const timer = { fn, ms, cancelled: false };
-    timers.push(timer);
-    return () => {
-      timer.cancelled = true;
-    };
-  };
-  schedule.fire = (ms: number) => {
-    for (const timer of timers.filter((t) => t.ms === ms && !t.cancelled)) {
-      timer.cancelled = true;
-      timer.fn();
-    }
-  };
-  return schedule;
-}
-
-/** One reply turn on a call with `content`, under the split settings. */
-async function runSplitTurn({
-  hot = splitHot(),
-  llm = splitLlm(),
-  content = SPLIT_TEXT,
-  triggerKind = 'mention',
-  extra = {},
-  turnExtra = {},
-  schedule = manualSchedule(),
-}: {
-  hot?: FakeHot;
-  llm?: ReturnType<typeof splitLlm>;
-  content?: string;
-  triggerKind?: TriggerKind;
-  extra?: Record<string, unknown>;
-  turnExtra?: Record<string, unknown>;
-  schedule?: ReturnType<typeof manualSchedule>;
-} = {}) {
-  const raw = rawMessage({ id: 'm2', ts: NOW - 1000, content });
-  const channel = fakeTurnChannel({
-    historyMessages: [
-      rawMessage({ id: 'm1', ts: NOW - 5000, authorId: 'u2', authorName: 'Léa', content: 'καλημέρα' }),
-      raw,
-    ],
-  });
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store: fakeStore(),
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-    lookup: fakeLookup(),
-    now: () => NOW,
-    schedule,
-    ...extra,
-  });
-  const trigger = normalizedTrigger(raw);
-  const { result, logs } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, mode: 'reply', trigger, triggerKind, ...turnExtra })
-  );
-  return { result, logs, llm, channel, turns, trigger };
-}
-
 /** The `<candidate>` text a classifier request carried. */
 function candidateOf(call: Untyped) {
   return /<candidate>\n[^:]*: ([\s\S]*?)\n<\/candidate>/.exec(textOf(call.messages[1].content))?.[1] ?? null;
-}
-
-/** The `<task>` block of a talk request. */
-function taskOf(call: Untyped) {
-  return /<task>\n([\s\S]*?)\n<\/task>/.exec(userTextOf(call.messages))?.[1] ?? '';
-}
-
-/** labels.task.part as the request renders it for part `index` of SPLIT_PARTS (no queued call). */
-function partLabel(index: number, parts = SPLIT_PARTS) {
-  const others = parts
-    .map((text, i) => (i + 1 === index ? null : `${i + 1}. ${text}`))
-    .filter(Boolean)
-    .join('; ');
-  return fill(labels.task.part, { index, total: parts.length, part: parts[index - 1], others });
 }
 
 test('runTurn: a short or unstructured call never asks the splitter', async () => {
@@ -9079,4 +8961,120 @@ test('runTurn: her GIF is posted after a hundred GIFs today, a stale gifs.maxPer
     maxPerDay: 3,
   });
   assert.deepEqual(run.sent(), ['χα', 'https://tenor.com/view/gif-2']);
+});
+
+test('a cancelled internal turn cannot leave its read context on a subsequent ordinary DM', async () => {
+  const { issueContext } = await import('../src/memory/db/scope.ts');
+  const context = issueContext({ kind: 'internal', newId: () => 'ctx:cancelled-owner', now: () => NOW });
+  const waiting = Promise.withResolvers<{ text: string; usage: object; estimated: number }>();
+  const requested = Promise.withResolvers<void>();
+  const timers = fakeSchedule();
+  const reads: Array<unknown> = [];
+  const requests: Array<unknown> = [];
+  let talkCount = 0;
+  const llm = {
+    complete: async (messages: unknown, options: { purpose?: string }) => {
+      if (options.purpose === 'lookup') return { text: 'none', usage: {}, estimated: 1 };
+      requests.push(messages);
+      talkCount += 1;
+      if (talkCount === 1) {
+        requested.resolve();
+        return waiting.promise;
+      }
+      return { text: '<msg>ordinary-dm-answer</msg>', usage: {}, estimated: 1 };
+    },
+  };
+  const hot = paceHot({}, { dropAfterMs: BAR_MS });
+  const recall = {
+    available: () => true,
+    prefetch: (args: Record<string, unknown>) => {
+      reads.push(args.memoryContext);
+      return Promise.resolve({ status: 'ok', excerpts: [], ms: 0 });
+    },
+  };
+  useIface('cli');
+  try {
+    freshWorld();
+    world().member('g1', { id: 'owner', name: 'Owner' });
+    world().member('g1', { id: 'other', name: 'Other' });
+    hot.config.bot = { timezone: 'UTC', guildId: 'g1', owners: [] };
+    hot.config.private = { enabled: true, likeServer: true, minAffinity: 0 };
+    const ownerRaw = rawMessage({
+      id: 'owner-cancel',
+      authorId: 'owner',
+      content: 'find the distant private rabbit conversation',
+    });
+    const owner = fakeTurnChannel({
+      id: 'cli:dm:owner',
+      dm: true,
+      partnerId: 'owner',
+      guildId: null,
+      historyMessages: [ownerRaw],
+    });
+    const otherRaw = rawMessage({
+      id: 'other-after-cancel',
+      authorId: 'other',
+      content: 'find the public rabbit conversation',
+    });
+    const other = fakeTurnChannel({
+      id: 'cli:dm:other',
+      dm: true,
+      partnerId: 'other',
+      guildId: null,
+      historyMessages: [otherRaw],
+    });
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot,
+      store: fakeStore(),
+      llm,
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+      lookup: fakeLookup(),
+      recall,
+      memoryContext: issueContext,
+      now: () => NOW,
+      schedule: timers.schedule,
+    });
+    const first = withCapturedLogs(() =>
+      turns.runTurn({
+        channel: owner,
+        guildId: 'g1',
+        mode: 'reply',
+        trigger: normalizedTrigger(ownerRaw),
+        triggerKind: 'private',
+        memoryContext: context,
+      })
+    );
+    await requested.promise;
+    assert.deepEqual(reads, [context]);
+    const deadline = timers.live().find((timer) => timer.ms === BAR_MS);
+    assert.ok(deadline);
+    timers.fire(deadline);
+    assert.equal((await first).result.outcome, 'error');
+    assert.deepEqual(owner.sent, []);
+    waiting.resolve({ text: '<msg>late-private-answer</msg>', usage: {}, estimated: 1 });
+    const next = await withCapturedLogs(() =>
+      turns.runTurn({
+        channel: other,
+        guildId: 'g1',
+        mode: 'reply',
+        trigger: normalizedTrigger(otherRaw),
+        triggerKind: 'private',
+      })
+    );
+    assert.equal(next.result.outcome, 'spoke');
+    assert.equal(reads.length, 2);
+    const ordinary = reads[1];
+    assert.ok(ordinary !== null && typeof ordinary === 'object');
+    assert.ok('kind' in ordinary && ordinary.kind === 'dm');
+    assert.ok('person' in ordinary && ordinary.person === 'person:cli:other');
+    assert.ok(!('internal' in ordinary) || ordinary.internal !== true);
+    assert.ok('id' in ordinary && ordinary.id !== context.id);
+    assert.deepEqual(owner.sent, []);
+    assert.equal(other.sent.length, 1);
+  } finally {
+    useIface('discord');
+  }
 });

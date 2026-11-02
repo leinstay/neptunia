@@ -8,6 +8,7 @@ import { takeSnapshot } from '../../../behavior/snapshot.ts';
 import type { Snapshot } from '../../../behavior/snapshot.ts';
 import { createDeadline } from '../../../behavior/turn-parts.ts';
 import type { Deadline } from '../../../behavior/turn-parts.ts';
+import type { Context } from '../../../memory/db/scope.ts';
 import type { MemberInfo } from '../../../protocol/adapter.ts';
 import { transportOf } from '../../../tools/tool-calls.ts';
 import { replyOptionsOf } from '../../calls.ts';
@@ -88,6 +89,7 @@ export async function setupRequest(
     linkTriggers,
     linkCalls,
     startPrefetch,
+    turnContextOf,
     prepareDiary,
   } = ctx;
   const { mode, trigger = null, triggerKind = null, part = null, reuseHistory = null } = params;
@@ -178,7 +180,10 @@ export async function setupRequest(
   const candidate = part && trigger ? { ...trigger, content: part.parts[part.index - 1] ?? trigger.content } : trigger;
   // The automatic memory prefetch started now,
   // alongside the preparation, bounded by its own deadline (startPrefetch).
+  // The inputs retain the context issued by the core or the per-turn issuer.
+  const memoryContext = turnContextOf(draft, channel) as Context | null;
   const prefetching = startPrefetch({
+    memoryContext,
     config,
     channel,
     snapshot: servedSnapshot,

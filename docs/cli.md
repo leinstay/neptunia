@@ -21,6 +21,10 @@
 
 The chat and `-p` are the client `cli` of kind `cli`. Its token is `<private>/clients/cli.token`, which `scripts/client-token.ts add cli --kind cli` writes, and the file must be readable by the user who runs `neptunia`. The command connects to `<data>/run/core.sock` and says `hello` as `iface: 'cli'`, and only a `cli` principal may name that namespace. The core runs its commands with the owner's rights, whatever `bot.owners` says.
 
+An authenticated CLI message receives an internal memory read context from `src/core.ts`. Its automatic prefetch and `memory.search`, including anchor windows, read every stored audience. The reply stays in `cli:dm:owner`. Ordinary group and DM turns keep their audience filters. Event fields and tool arguments cannot request this authority.
+
+A live CLI message waiting behind another turn retains its context in the in-memory pending queue. Split parts share that context. Context-bearing calls remain independent of message merging, and a restart discards their runtime authority. The private turn path requires a configured primary community for its store and journal. `conversation.read` follows its separate record and live-interface read path.
+
 ## The chat
 
 `neptunia` with no argument opens the chat. It prints the picture in `<private>/cli/picture.txt` when that file exists, then the core's header: the instance (`bot.name`), the engine's version, the core model, today's spend, the interfaces connected, the next wake and the open errands.

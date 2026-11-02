@@ -14,6 +14,7 @@ import { isDeferredFollowUp } from './pending-queue.ts';
 import type {
   Conv,
   Line,
+  MessageReadOptions,
   PendingQueue,
   Ping,
   PipelineConfig,
@@ -49,7 +50,8 @@ export type HoldCall = (
   trigger: Line,
   kind: PingKind,
   destination?: Conv | null,
-  superseded?: Array<string>
+  superseded?: Array<string>,
+  readOptions?: MessageReadOptions
 ) => void;
 
 export function createMerge({
@@ -88,11 +90,12 @@ export function createMerge({
     trigger: Line,
     kind: PingKind,
     destination: Conv | null = null,
-    superseded: Array<string> = []
+    superseded: Array<string> = [],
+    readOptions?: MessageReadOptions
   ): void {
-    const items = destination ? [] : waitingItems(channel.id, trigger.authorId);
+    const items = destination || readOptions?.memoryContext ? [] : waitingItems(channel.id, trigger.authorId);
     if (items.length === 0) {
-      enqueuePending(channel, trigger, kind, destination, superseded);
+      enqueuePending(channel, trigger, kind, destination, superseded, undefined, readOptions);
       return;
     }
     const arrivedAt = now();
@@ -118,7 +121,7 @@ export function createMerge({
       ...parts.map((part) => ({ kind: 'part' as const, index: part.index, text: itemText(part.text) })),
       // A deferred follow-up or overheard line is not one: it may still be dropped (window closed, answered).
       ...(authorCalls(pending.list, channelId, authorId) as Array<Ping>)
-        .filter((p) => !isDeferredFollowUp(p))
+        .filter((p) => !isDeferredFollowUp(p) && !p.readOptions?.memoryContext)
         .map((p) => ({ kind: 'call' as const, id: p.trigger.id, text: itemText(p.trigger.content) })),
     ];
   }

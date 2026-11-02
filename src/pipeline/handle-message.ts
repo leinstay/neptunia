@@ -20,7 +20,15 @@ import type { MediaPrefill } from './media-prefill.ts';
 import type { ObserveLine } from './observe.ts';
 import type { PrivateGate } from './private-gate.ts';
 import type { Settles } from './settle.ts';
-import type { Line, PipelineHot, PipelineMissed, PipelineState, PipelineTurns, TriggerKind } from './types.ts';
+import type {
+  Line,
+  MessageReadOptions,
+  PipelineHot,
+  PipelineMissed,
+  PipelineState,
+  PipelineTurns,
+  TriggerKind,
+} from './types.ts';
 
 /** How many message ids each path of handleMessage remembers (the live one, the start's catch-up). */
 const CATCH_UP_IDS_KEPT = 1000;
@@ -58,7 +66,7 @@ export type HandleMessageContext = {
 };
 
 export type HandleMessage = {
-  onMessage: (event: MessageEvent) => Promise<void>;
+  onMessage: (event: MessageEvent, options?: MessageReadOptions) => Promise<void>;
   catchUpMessage: (
     event: MessageReceived & { raw: object },
     options?: { trigger?: boolean }
@@ -104,8 +112,8 @@ export function createHandleMessage({
     if (ids.size > CATCH_UP_IDS_KEPT) ids.delete(ids.values().next().value as string);
   }
 
-  async function onMessage(event: MessageEvent): Promise<void> {
-    await handleMessage(event, null);
+  async function onMessage(event: MessageEvent, options?: MessageReadOptions): Promise<void> {
+    await handleMessage(event, null, options);
   }
 
   /**
@@ -125,7 +133,7 @@ export function createHandleMessage({
   }
 
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/pipeline.ts in stage 5d, a pure move
-  async function handleMessage(event: MessageEvent, catchUp: CatchUp): Promise<Handled> {
+  async function handleMessage(event: MessageEvent, catchUp: CatchUp, options?: MessageReadOptions): Promise<Handled> {
     try {
       // 1. System / webhook messages are not conversation.
       if (event.message.system === true) return 'ignored';
@@ -159,7 +167,7 @@ export function createHandleMessage({
       // (the interface's command handler), never DMs.
       if (event.conversation.communityId === null) {
         if (catchUp) return 'ignored';
-        await onPrivateMessage(event, config);
+        await onPrivateMessage(event, config, options);
         return;
       }
 

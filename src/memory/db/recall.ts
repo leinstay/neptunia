@@ -187,11 +187,7 @@ function placeNames(db: Db, ctx: Context): Map<unknown, string> {
     .prepare('SELECT id, name, iface, scope_kind FROM places WHERE name IS NOT NULL AND retired_at IS NULL')
     .all();
   for (const row of rows) {
-    if (
-      ctx.internal !== true &&
-      (row.scope_kind === 'dm' || row.scope_kind === 'internal' || (row.iface && row.iface !== ctx.iface))
-    )
-      continue;
+    if (ctx.internal !== true && (row.scope_kind === 'dm' || row.scope_kind === 'internal')) continue;
     names.set(row.id, row.name as string);
   }
   return names;

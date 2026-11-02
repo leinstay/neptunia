@@ -10,6 +10,8 @@ import { parseSplitAnswer, splitSettings } from '../behavior/split.ts';
 import type { Reads } from '../interface/reads.ts';
 import { railReason, roleRequestOptions } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
+import { isIssuedInternalContext } from '../memory/db/scope.ts';
+import type { Context } from '../memory/db/scope.ts';
 import { log } from '../log.ts';
 import type { MemberInfo } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
@@ -82,6 +84,7 @@ export type LookupInput = Record<string, unknown> | null;
 
 export type Lookup = {
   startPrefetch: (args: {
+    memoryContext?: Context | null;
     config: LookupConfig;
     channel: Channel;
     snapshot?: Snapshot | null;
@@ -122,8 +125,8 @@ export type Lookup = {
 export function createLookup(ctx: LookupContext): Lookup {
   const { store, llm, clock, recall, membersOf, selfIdOf, ifaceReads, classifierContext, linkCalls } = ctx;
 
-  // Trigger key -> the prefetch already started for it (startPrefetch): a later attempt of the
-  // same turn, or the same part of a split message, reuses it instead of searching again.
+  // A trigger reuses its prefetch only within the same issued read context.
+  // An ordinary turn cannot reuse private evidence fetched for the owner.
   const prefetchMemo = new Map<string, Promise<unknown>>();
   /** The most triggers whose prefetch is remembered (the oldest forgotten first). */
   const PREFETCH_MEMO = 16;
@@ -155,8 +158,14 @@ export function createLookup(ctx: LookupContext): Lookup {
     nameOf,
     journalStep,
     wake = null,
+    memoryContext,
   }: Parameters<Lookup['startPrefetch']>[0]): Prefetching | null {
-    if (!prefetchOn(config) || typeof recall?.prefetch !== 'function' || !guild) return null;
+    if (
+      !prefetchOn(config) ||
+      typeof recall?.prefetch !== 'function' ||
+      (!guild && !isIssuedInternalContext(memoryContext))
+    )
+      return null;
     const settings = recallSettings(config)?.prefetch;
     if (!settings) return null;
     // An inner turn has no message: its lane is the purposes of the intentions it woke for.
@@ -180,9 +189,10 @@ export function createLookup(ctx: LookupContext): Lookup {
       if (skip !== 'no-trigger') log.info('recall: prefetch skipped', { channel: channel.id, reason: skip });
       return null;
     }
-    const key = purposes
+    const triggerKey = purposes
       ? `${channel.id}:inner:${lanes[0]?.text ?? ''}`
       : `${channel.id}:${trigger?.id}:${candidate?.content ?? ''}`;
+    const key = JSON.stringify([memoryContext?.id ?? null, triggerKey]);
     const memo = prefetchMemo.get(key);
     if (prefetchMemo.has(key) && memo) return { lanes, pending: memo };
     const basis = lanes.map((lane) => lane.kind);
@@ -195,6 +205,7 @@ export function createLookup(ctx: LookupContext): Lookup {
         // Checked above: the recall runner has `prefetch`.
         const found = await recall.prefetch!({
           guildId,
+          memoryContext,
           snapshot,
           channel,
           partnerId: partner?.id ?? null,

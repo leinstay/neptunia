@@ -1700,7 +1700,12 @@ async function buildCore(
           if (event.edit) return await onMessage.onMessageUpdate(event);
           // A member's own message carries their avatar: a changed one is queued for a description.
           offerAvatar(event.conversation?.communityId, event.message?.author);
-          return await onMessage(event);
+          const sender = context.authenticated;
+          const memoryContext =
+            sender?.kind === 'cli' && (!context.ingest || context.ingest.principal === sender.name)
+              ? memoryDb.issueContext({ kind: 'internal' })
+              : undefined;
+          return await onMessage(event, { memoryContext });
         } finally {
           release();
         }
