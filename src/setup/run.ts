@@ -1,0 +1,175 @@
+// `neptunia setup`: the install of one user, in five steps that each run on their own and again, like the sections of
+// the setup of Hermes (hermes_cli/setup.py) with a summary at the end (hermes_cli/setup_summary.py). Every step checks
+// first whether its work is done (`already`), so a rerun after a failure resumes where it stopped. A step that fails
+// stops the run, the steps after it are `skipped`, and no chat opens. Nothing here prompts: after the last step the
+// owner's chat opens on `keys core add`, and the chat takes over.
+//
+//   folders    the private folder with `config.local`, `prompts.local`, `clients`, and the data folder, all mode 0700
+//   keys-file  an empty `keys.json` at mode 0600; one that exists keeps its content and is made 0600
+//   units      the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ
+//   linger     `loginctl enable-linger` for the user, so the user units run without a login (user units only)
+//   core       `enable --now neptunia-core.service`, the one unit setup starts
+//
+// With `--system` the units are system units that run as the installing user, put in place with `sudo install`, and
+// every systemctl call goes through `sudo`. The commands run through the injected `deps.run`, so nothing in the
+// tests reaches systemd; the chat is the injected `deps.openChat`.
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { emptyKeys, writeKeys } from '../subharness/keys-file.ts';
+import { installUnits, systemctlOf, unitDirOf, whyFailed } from './install.ts';
+import type { RunResult, UnitTarget } from './install.ts';
+import { UNIT_FILES } from './units.ts';
+
+export type { RunResult };
+
+/** The steps, in the order they run. */
+export const SETUP_STEPS = ['folders', 'keys-file', 'units', 'linger', 'core'] as const;
+export type SetupStep = (typeof SETUP_STEPS)[number];
+
+/** Who and where `setup` installs; `only` runs one step. */
+export type SetupOptions = UnitTarget & { only?: SetupStep };
+
+/** What `setup` reaches outside the files: commands, and the owner's chat. */
+export type SetupDeps = {
+  run(command: string, args: ReadonlyArray<string>): Promise<RunResult>;
+  /** Opens the owner's chat with `firstLine` typed. Called once, last, after a full run. */
+  openChat(firstLine: string): Promise<void>;
+  /** Called once with the report, before the chat opens or when the run ends without it. */
+  report?(report: SetupReport): void;
+};
+
+/** What one step came to. */
+export type StepState = 'done' | 'already' | 'failed' | 'skipped';
+export type SetupReport = {
+  ok: boolean;
+  steps: Array<{ step: SetupStep; state: StepState; detail: string }>;
+  /** the commands the owner types next in the chat, in order */
+  next: Array<string>;
+};
+
+/** The chat commands that finish the install, in order. */
+const NEXT = [
+  'keys core add',
+  'interface token set discord',
+  'interface enable discord',
+  'model set',
+  'subharness enable',
+  'simulation enable',
+];
+
+/** The line the chat opens on. */
+const FIRST_LINE = '/keys core add';
+
+/** The usage error of the command line: nothing has been touched when it is raised. */
+export class SetupUsageError extends Error {}
+
+/** `setup [--system] [step]` as options, or a SetupUsageError. */
+export function parseSetupArgs(argv: ReadonlyArray<string>): { system: boolean; only?: SetupStep } {
+  let system = false;
+  let only: SetupStep | undefined;
+  for (const word of argv) {
+    if (word === '--system') system = true;
+    else if (word.startsWith('-')) throw new SetupUsageError(`setup has no option ${word}`);
+    else {
+      const step = SETUP_STEPS.find((known) => known === word);
+      if (step === undefined) throw new SetupUsageError(`${word} is no step; use ${SETUP_STEPS.join(', ')}`);
+      if (only !== undefined) throw new SetupUsageError('setup runs one step at a time');
+      only = step;
+    }
+  }
+  return only === undefined ? { system } : { system, only };
+}
+
+type Outcome = { state: StepState; detail: string };
+
+const done = (detail: string): Outcome => ({ state: 'done', detail });
+const already = (detail: string): Outcome => ({ state: 'already', detail });
+const failed = (detail: string): Outcome => ({ state: 'failed', detail });
+
+/** Makes `dir` at 0700 whatever the umask; true when it was created or its mode changed. */
+function secureDir(dir: string): boolean {
+  const existed = fs.existsSync(dir);
+  if (!existed) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const before = fs.statSync(dir).mode & 0o777;
+  if (before !== 0o700) fs.chmodSync(dir, 0o700);
+  return !existed || before !== 0o700;
+}
+
+function foldersStep(options: SetupOptions): Outcome {
+  const dirs = [
+    options.privateDir,
+    path.join(options.privateDir, 'config.local'),
+    path.join(options.privateDir, 'prompts.local'),
+    path.join(options.privateDir, 'clients'),
+    options.dataDir,
+  ];
+  const touched = dirs.filter((dir) => secureDir(dir));
+  return touched.length === 0 ? already('the folders exist at 0700') : done(`${touched.length} folders at 0700`);
+}
+
+function keysFileStep(options: SetupOptions): Outcome {
+  const file = path.join(options.privateDir, 'keys.json');
+  if (!fs.existsSync(file)) {
+    writeKeys(options.privateDir, emptyKeys());
+    return done('keys.json written empty at 0600');
+  }
+  const before = fs.statSync(file).mode & 0o777;
+  if (before === 0o600) return already('keys.json exists at 0600');
+  fs.chmodSync(file, 0o600);
+  return done('keys.json kept, its mode set to 0600');
+}
+
+async function unitsStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
+  const result = await installUnits(options, (command, args) => deps.run(command, args), UNIT_FILES);
+  if (!result.ok) return failed(result.reason);
+  const where = unitDirOf(options);
+  return result.written.length === 0
+    ? already(`${UNIT_FILES.length} units are in ${where}`)
+    : done(`${result.written.length} units written to ${where}`);
+}
+
+async function lingerStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
+  if (options.system) return { state: 'skipped', detail: 'system units need no linger' };
+  const shown = await deps.run('loginctl', ['show-user', options.user, '-p', 'Linger']);
+  if (shown.code === 0 && /^Linger=yes$/m.test(shown.stdout)) return already(`linger is on for ${options.user}`);
+  const enabled = await deps.run('loginctl', ['enable-linger', options.user]);
+  return enabled.code === 0 ? done(`linger is on for ${options.user}`) : failed(`enable-linger: ${whyFailed(enabled)}`);
+}
+
+async function coreStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
+  const [check, checkArgs] = systemctlOf(options, 'is-active', 'neptunia-core.service');
+  const active = await deps.run(check, checkArgs);
+  if (active.code === 0) return already('the core is running');
+  const [start, startArgs] = systemctlOf(options, 'enable', '--now', 'neptunia-core.service');
+  const started = await deps.run(start, startArgs);
+  return started.code === 0 ? done('the core is enabled and running') : failed(`enable --now: ${whyFailed(started)}`);
+}
+
+/** Runs the steps (one with `only`), the chat last after a full run. Resolves with the report; never rejects for a failed step. */
+export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<SetupReport> {
+  const steps: SetupReport['steps'] = [];
+  let stopped = false;
+  for (const step of SETUP_STEPS) {
+    if (stopped || (options.only !== undefined && options.only !== step)) {
+      steps.push({ step, state: 'skipped', detail: stopped ? 'an earlier step failed' : 'not asked for' });
+      continue;
+    }
+    let outcome: Outcome;
+    try {
+      if (step === 'folders') outcome = foldersStep(options);
+      else if (step === 'keys-file') outcome = keysFileStep(options);
+      else if (step === 'units') outcome = await unitsStep(options, deps);
+      else if (step === 'linger') outcome = await lingerStep(options, deps);
+      else outcome = await coreStep(options, deps);
+    } catch (err) {
+      outcome = failed((err as NodeJS.ErrnoException).code ?? 'the step could not run');
+    }
+    steps.push({ step, ...outcome });
+    if (outcome.state === 'failed') stopped = true;
+  }
+  const report: SetupReport = { ok: !stopped, steps, next: NEXT };
+  deps.report?.(report);
+  if (report.ok && options.only === undefined) await deps.openChat(FIRST_LINE);
+  return report;
+}

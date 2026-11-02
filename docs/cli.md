@@ -10,7 +10,8 @@
 | `neptunia errand-runner --profile <name>` | Runs the errand runner of one agent, as `deploy/neptunia-agent-<name>.service` does. |
 | `neptunia interface run <name> [--interfaces-dir <dir>]` | Runs one interface, as `deploy/neptunia-interface@.service` does (see [Interfaces](interfaces.md#interfaces-as-units)). |
 | `neptunia plugin run <name>` | Runs one plugin, as `deploy/neptunia-plugin@.service` does (see [Plugins](plugins.md)). It loads `plugins.local/<name>/index.ts` of the private layer before `plugins/<name>/index.ts`, reads the token from the unit's credential or `clients/<name>.token`, keeps the plugin's state in `<data>/plugins/<name>` and opens the link again with backoff when it drops. |
-| `neptunia service install\|start\|stop\|restart\|status [<unit> ...]` | Installs the units with `deploy/install.sh`, or runs `systemctl` on the named units, by default `neptunia-core.service` and the two errand units. |
+| `neptunia service start\|stop\|restart\|status [<unit> ...]` | Runs `systemctl` on the named units, by default `neptunia-core.service` and the two errand units. |
+| `neptunia setup [--system] [<step>]` | Installs for one user: the folders, the key store, the units, linger and the core, then opens the chat on `/keys core add`. See [Setup](setup.md). |
 | `neptunia task <command> [options]` | The task board's command line, a client of the core (see [The task board](#the-task-board)). |
 | `neptunia selfdev run` | One beat of her self-development as the client `selfdev`: takes her fix proposals, works the approved ones into pull requests and looks at the open ones (see [Self-development](selfdev.md)). |
 | `neptunia watcher run` | One run of the daily watcher, as `deploy/neptunia-watcher.service` does (see [The watcher](watcher.md)). |
@@ -65,6 +66,13 @@ The core's console (`src/interface/commands/console.ts`) runs each command with 
 | `/plugins`, `/plugins enable <name>`, `/plugins disable <name>`, `/plugins setup <name>` | Every plugin with its switch, its link and its registered tools, the owner's switch of one, and which environment keys of a plugin are set. An enable writes the plugin's token and starts its unit. See [Plugins](plugins.md). |
 | `/keys core add <name>`, `core remove <name>`, `core list`, `extra add <name>`, `extra remove <name>`, `extra list`, `bind <role> <name>`, `unbind <role>`, `check <role>` | The model keys of the deployment. An add asks the key value in the chat without echo, and the first core key also asks and checks the four mandatory models. See [Keys](keys.md). |
 | `/interface`, `/interface enable <name>`, `/interface disable <name>` | Every interface the core knows, enabled or disabled, connected or not, and the owner's switch of one. A disable gives the actions in flight `interfaces.drainMs` and ends the rest `unknown`. `/interface <name> <sub>` is the form of an interface's own subcommands, and no interface has any yet. |
+| `/subharness`, `/subharness status` | The backend the agents run on, its key by name, the mode of every agent, and who enforces `read` and `write` under that backend. |
+| `/subharness enable <codex\|claude\|opencode> [--key <name>]` | Turns the subharness on after a check: the binary and one reply for `codex` and `claude`, the named extra key answering `/auth/key` for `opencode`, which needs `--key`. It then asks which model each agent runs on, one question at a time, and checks each answer with one reply. A failed check changes nothing. See [Errands](errands.md#the-subharness). |
+| `/subharness model <agent> <model>` | Sets one agent's model after the same one-reply check. |
+| `/subharness disable` | Turns the subharness off. Every agent task is refused with `subharness-off` until it is on again, and the modes are kept. |
+| `/subharness mode <agent> [<mode>]` | Shows the mode of `scout`, `server`, `dev` or `watcher`, or sets it to `read`, `write`, `full` or `sudo` and renders the agent's unit again. Only this chat sets a mode. |
+| `/simulation`, `/simulation status` | Whether the paid scripts may run, and the name of the key they spend. |
+| `/simulation enable --key <name>`, `/simulation disable` | Names an extra key for the scripts, or switches the simulation off so they refuse to run. |
 | `/help` | One line per command. |
 | `/clear` | Clears the screen. |
 

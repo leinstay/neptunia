@@ -22,16 +22,12 @@
 # The EnvironmentFile is optional and read only by the opencode backend
 # (OPENROUTER_ERRAND_KEY=), when a task brings none.
 #
-# Install:
-#   sudo install -d -o root -g root -m 0750 /etc/neptunia
-#   # optional override: sudo install -o root -g root -m 0600 /dev/null /etc/neptunia/agent-server.env
-#   sudo cp deploy/neptunia-agent-server.service /etc/systemd/system/
-#   sudo systemctl daemon-reload && sudo systemctl enable --now neptunia-agent-server
+# `neptunia setup` renders this template for the installing user
+# (deploy/README.md). The sandbox below is the mode `read`; `subharness mode
+# server <mode>` in the chat renders the unit again: `full` drops the mount
+# sandbox (ProtectSystem, ProtectHome and the bind and write paths) and `sudo`
+# also drops NoNewPrivileges and the capability bounding set.
 # Logs:    journalctl -u neptunia-agent-server -f
-#
-# The service group is the bot's (neptunia-discord-interface), which `neptunia`
-# is a member of, so the runtime socket dir and the result files the agent
-# writes are reachable by the core.
 
 [Unit]
 Description=neptunia server-read errand agent (Codex worker)

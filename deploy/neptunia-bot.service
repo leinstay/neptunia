@@ -15,8 +15,7 @@
 #     app/    the engine checkout (root-owned, read-only to the service)
 #     etc/    .env, config.local/, prompts.local/       (NEPTUNIA_PRIVATE_DIR)
 #     data/   everything the bot writes                 (NEPTUNIA_DATA_DIR)
-# deploy/install.sh creates etc/ and data/ for the service user and installs
-# this unit for the checkout (--dry-run shows its commands first).
+# `neptunia setup` does not render this unit: it is the template of the in-process mode, installed by hand.
 #
 # A deployment that keeps everything in the checkout (.env, config.local/,
 # prompts.local/ and data/ next to the code) deletes the two Environment= lines
