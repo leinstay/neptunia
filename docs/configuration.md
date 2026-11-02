@@ -59,6 +59,10 @@ The persona's skills are tools in the settings. `src/config-moves.ts` holds the 
 | `agents.opencodePath`, `toolResultChars`, `keepFilesHours`, `recentLines`, `maxOpen`, `resultMaxChars`, `unreadShown`, `resultRetrySeconds`, `resultCooldownSeconds` | the same names under `errands.*` |
 | `agents.<name>.search.provider` | `agents.<name>.searchProvider` |
 | `llm.helperTimeoutMs` | `llm.analyzerTimeoutMs` |
+| `innerLife.heartbeat.enabled`, `everyMinutes`, `jitterMinutes`, `historyDays`, `maxTokens` | the same names under `heartbeat.*` |
+| `diary.channelId`, `world`, `windows`, `quietDayChance`, `forceWaitMs`, `loop`, `planMaxOutputTokens`, `planTimeoutMs` | the same names under `selfreflection.*` |
+| `selfdev.mode`, `base`, `checkout`, `repository` | the same names under `selfimprovement.*` |
+| `innerLife.wakes.selfimprovement.everyDays`, `failuresPerShape` | the same names under `selfimprovement.*` |
 
 Seven keys have no reader any more and are dropped: the grants `bot.access."memory.refresh.channel"`, `"memory.refresh.server"` and `"memory.refresh.user"`, `agents.maxDownloadBytes`, `agents.thinker.contextLimit` and `contextHard`, and `agents.ledger.socket`. A section a dropped key leaves empty goes with it. The load log line counts them as `dropped` beside `moved` and `shadowed`.
 
@@ -497,32 +501,36 @@ Settings for the daily watcher. See [The watcher](watcher.md).
 |---|---|---|---|---|
 | `watcher.dir` | string | `".agents/watcher"` | Folder of the daily watcher, `prompt.md` and `reports/`; relative to the checkout or absolute | `src/watcher/read.ts` |
 
-## `selfdev`
+## `selfimprovement`
 
-Settings for the fixes she files against her own code. See [Self-development](selfdev.md).
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `selfdev.mode` | string | `"approve"` | Who merges a pull request she opened for her own code: `approve` waits for the owner once CI is green, `auto` has the engine merge it when CI is green | `src/selfdev/settings.ts` |
-| `selfdev.base` | string | `"main"` | The branch her worktrees start from and her pull requests target | `src/selfdev/settings.ts` |
-| `selfdev.checkout` | string, null | `null` | The absolute path of the dev checkout that `neptunia setup` renders `neptunia-selfdev.service` and its timer over, so the beat works there. Setup renders no selfdev units while it is unset, relative or the deployed checkout itself | `src/setup/run.ts` |
-| `selfdev.repository` | string, null | `null` | The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when her gh login can push there. While it is unset every selfdev beat pauses | `src/selfdev/settings.ts` |
-
-## `diary`
-
-Settings for the diary. See [Diary](diary.md).
+Settings for the `selfimprovement` wake, which looks back at her own work ([Inner life](inner-life.md#the-selfimprovement-wake)), and for the beat that works the fixes she files against her own code ([Self-development](selfimprovement.md)). `enabled` switches both.
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `diary.channelId` | string | `""` | The seed of the diary's first mirror: schema v15 makes this channel's place a `diary` mirror, and `scripts/config-migrate.ts --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it | `src/memory/db/service.ts` |
-| `diary.world` | boolean | `false` | Include `prompts/world.md` as a `<world>` block in diary requests | `src/behavior/prompt.ts` |
-| `diary.windows` | array | `[{ "from": 7, "to": 11, "posts": [0, 0] }, { "from": 12, "to": 16, "posts": [0, 1] }, { "from": 18, "to": 1, "posts": [0, 2] }, { "from": 1, "to": 5, "posts": [0, 1] }]` | Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]` | `src/behavior/diary.ts` |
-| `diary.quietDayChance` | number | `0.3` | Chance of no posts for the whole day | `src/behavior/diary.ts` |
-| `diary.forceWaitMs` | number | `120000` | Milliseconds a forced post waits for a running turn | `src/behavior/diary.ts` |
-| `diary.loop.maxSteps` | number | `2` | Further requests one diary post makes | `src/turn/settings.ts` |
-| `diary.loop.timeBudgetMs` | number | `600000` | How long calls and follow-ups may run | `src/turn/settings.ts` |
-| `diary.planMaxOutputTokens` | number | `2000` | Max output tokens for the plan request | `src/turn/diary.ts` |
-| `diary.planTimeoutMs` | number | `60000` | Timeout for the plan request (ms) | `src/turn/diary.ts` |
+| `selfimprovement.enabled` | boolean | `true` | Whether the selfimprovement wake falls due and the beat of `neptunia selfimprovement run` works. Off, neither starts | `src/selfimprovement/settings.ts` |
+| `selfimprovement.mode` | string | `"approve"` | Who merges a pull request she opened for her own code: `approve` waits for the owner once CI is green, `auto` has the engine merge it when CI is green | `src/selfimprovement/settings.ts` |
+| `selfimprovement.base` | string | `"main"` | The branch her worktrees start from and her pull requests target | `src/selfimprovement/settings.ts` |
+| `selfimprovement.checkout` | string, null | `null` | The absolute path of the dev checkout that `neptunia setup` renders `neptunia-selfimprovement.service` and its timer over, so the beat works there. Setup renders no selfimprovement units while it is unset, relative or the deployed checkout itself | `src/setup/run.ts` |
+| `selfimprovement.repository` | string, null | `null` | The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when her gh login can push there. While it is unset every selfimprovement beat pauses | `src/selfimprovement/settings.ts` |
+| `selfimprovement.everyDays` | number | `7` | Days between two selfimprovement wakes; the wake falls on the heartbeat moment once the days have passed | `src/behavior/inner/settings.ts` |
+| `selfimprovement.failuresPerShape` | number | `3` | How many chains of one shape must fail in a UTC day to raise a selfimprovement wake with that cause | `src/behavior/inner/settings.ts` |
+
+## `selfreflection`
+
+Settings for the diary, which this mechanic writes. `enabled` switches the scheduled posts. See [Diary](diary.md).
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `selfreflection.enabled` | boolean | `true` | Whether her diary posts on its day plan. Off, the scheduler plans and posts nothing; a forced post still runs | `src/behavior/diary.ts` |
+| `selfreflection.channelId` | string | `""` | The seed of the diary's first mirror: schema v15 makes this channel's place a `diary` mirror, and `scripts/config-migrate.ts --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it | `src/memory/db/service.ts` |
+| `selfreflection.world` | boolean | `false` | Include `prompts/world.md` as a `<world>` block in diary requests | `src/behavior/prompt.ts` |
+| `selfreflection.windows` | array | `[{ "from": 7, "to": 11, "posts": [0, 0] }, { "from": 12, "to": 16, "posts": [0, 1] }, { "from": 18, "to": 1, "posts": [0, 2] }, { "from": 1, "to": 5, "posts": [0, 1] }]` | Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]` | `src/behavior/diary.ts` |
+| `selfreflection.quietDayChance` | number | `0.3` | Chance of no posts for the whole day | `src/behavior/diary.ts` |
+| `selfreflection.forceWaitMs` | number | `120000` | Milliseconds a forced post waits for a running turn | `src/behavior/diary.ts` |
+| `selfreflection.loop.maxSteps` | number | `2` | Further requests one diary post makes | `src/turn/settings.ts` |
+| `selfreflection.loop.timeBudgetMs` | number | `600000` | How long calls and follow-ups may run | `src/turn/settings.ts` |
+| `selfreflection.planMaxOutputTokens` | number | `2000` | Max output tokens for the plan request | `src/turn/diary.ts` |
+| `selfreflection.planTimeoutMs` | number | `60000` | Timeout for the plan request (ms) | `src/turn/diary.ts` |
 
 Default windows:
 
@@ -623,11 +631,6 @@ Settings for the persona's inner life. See [Inner life](inner-life.md).
 | `innerLife.mode` | string | `"shadow"` | `shadow`: reads run, other calls are recorded but never executed. `live`: calls run on her grants | `src/behavior/inner.ts` |
 | `innerLife.tickSeconds` | number | `60` | How often the scheduler looks at what is due | `src/core.ts` |
 | `innerLife.review.historyDays` | number | `14` | Days of her own lines that decide when the review happens | `src/behavior/inner/settings.ts` |
-| `innerLife.heartbeat.enabled` | boolean | `true` | Whether she has a periodic heartbeat wake | `src/behavior/inner/heartbeat.ts` |
-| `innerLife.heartbeat.everyMinutes` | number | `180` | Heartbeat interval (minutes) | `src/behavior/inner/heartbeat.ts` |
-| `innerLife.heartbeat.jitterMinutes` | number | `60` | Jitter on the heartbeat interval | `src/behavior/inner/heartbeat.ts` |
-| `innerLife.heartbeat.historyDays` | number | `14` | Days of the record read for each person's last contact | `src/behavior/inner/settings.ts` |
-| `innerLife.heartbeat.maxTokens` | number | `2500` | Token cap of the whole heartbeat block. `0` turns the cap off | `src/behavior/inner/settings.ts` |
 | `innerLife.caps.perChain` | number | `3` | Inner turns of one chain per local day | `src/behavior/inner.ts` |
 | `innerLife.loop.maxSteps` | number | `4` | Tool loop bounds of an inner turn | `src/turn/settings.ts` |
 | `innerLife.loop.timeBudgetMs` | number | `180000` | Time budget of an inner turn's calls | `src/memory/db/service.ts` |
@@ -636,12 +639,22 @@ Settings for the persona's inner life. See [Inner life](inner-life.md).
 | `innerLife.retry.delaysMinutes` | array | `[1, 5, 15, 60]` | Retry delays after a provider failure (minutes) | `src/behavior/inner/settings.ts` |
 | `innerLife.retry.maxHours` | number | `6` | Hours before retries stop | `src/behavior/inner/settings.ts` |
 | `innerLife.factsKeepDays` | number | `7` | Days an untold fact stays | `src/behavior/inner/settings.ts` |
-| `innerLife.wakes.selfimprovement.everyDays` | number | `7` | Days between two selfimprovement wakes; the wake falls on the heartbeat moment once the days have passed | `src/behavior/inner/settings.ts` |
-| `innerLife.wakes.selfimprovement.failuresPerShape` | number | `3` | How many chains of one shape must fail in a UTC day to raise a selfimprovement wake with that cause | `src/behavior/inner/settings.ts` |
 | `innerLife.wakes.*.tools` | string, array | `"*"` | The tools a wake of the kind may call: `"*"` (when unset) for every granted tool or a list of tool names | `src/tools/access.ts` |
 | `innerLife.wakes.*.maxActs` | number, null | `null` | The most actions a wake of the kind may take; unset or null: no cap | `src/tools/access.ts` |
 | `innerLife.wakes.*.maxTasks` | number, null | `null` | The most errands a wake of the kind may start; unset or null: no cap | `src/tools/access.ts` |
 | `innerLife.wakes.*.inputTokens` | number, null | `null` | The input token budget of a wake of the kind; unset or null: the loop budget | `src/tools/access.ts` |
+
+## `heartbeat`
+
+Settings for the heartbeat, the wake with no outside reason. See [Inner life](inner-life.md#the-heartbeat).
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `heartbeat.enabled` | boolean | `true` | Whether she has a periodic heartbeat wake | `src/behavior/inner/heartbeat.ts` |
+| `heartbeat.everyMinutes` | number | `180` | Heartbeat interval (minutes) | `src/behavior/inner/heartbeat.ts` |
+| `heartbeat.jitterMinutes` | number | `60` | Jitter on the heartbeat interval | `src/behavior/inner/heartbeat.ts` |
+| `heartbeat.historyDays` | number | `14` | Days of the record read for each person's last contact | `src/behavior/inner/settings.ts` |
+| `heartbeat.maxTokens` | number | `2500` | Token cap of the whole heartbeat block. `0` turns the cap off | `src/behavior/inner/settings.ts` |
 
 ## `appendStore`
 

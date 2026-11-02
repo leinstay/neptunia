@@ -10,7 +10,7 @@ The core is the only process that opens the board for writing. Every board write
 
 ## Roles
 
-A principal's roles come from its `boardRoles` in the private directory's `clients.json`, read at every call. The core adds three builtin principals of its own, `persona`, `core` and `selfdev`, whatever `clients.json` says of those names. `selfdev` holds `reviewer` and `worker`: the self-development service ([Self-development](selfdev.md)) triages her fix proposals, works them as the holder and closes them when their pull request merges.
+A principal's roles come from its `boardRoles` in the private directory's `clients.json`, read at every call. The core adds builtin principals of its own, `persona`, `core` and `selfimprovement`, whatever `clients.json` says of those names. `selfimprovement` holds `reviewer` and `worker`. `selfdev` holds the same two roles, because a deployment whose only token file is `clients/selfdev.token` connects the service under that name. The self-development service ([Self-development](selfimprovement.md)) triages her fix proposals, works them as the holder and closes them when their pull request merges.
 
 | Role | What it may do |
 |---|---|

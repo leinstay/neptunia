@@ -52,7 +52,7 @@ An answer keeps `data.text` only when it is text. The words of each code are `la
 
 ## How she learns of a tool
 
-The first time a plugin registers a tool it was not announced for, the core queues one `heartbeat` wake with the reason `ability.added` and the tool names (`src/plugins/announce.ts`). The wake has no place and no intention, its id is `inner.wake:heartbeat:ability:<plugin>:<at>`, and her `<wake>` shows `labels.wake.abilityAdded` with the names after the heartbeat's own line. A reconnect registers the same tools and raises no wake. `<data>/plugins-announced.json` keeps what was announced per plugin, and a disable forgets the plugin, so the next enable announces again. A heartbeat wake waits in the queue while `innerLife.heartbeat.enabled` is `false`, because its turn is a heartbeat turn.
+The first time a plugin registers a tool it was not announced for, the core queues one `heartbeat` wake with the reason `ability.added` and the tool names (`src/plugins/announce.ts`). The wake has no place and no intention, its id is `inner.wake:heartbeat:ability:<plugin>:<at>`, and her `<wake>` shows `labels.wake.abilityAdded` with the names after the heartbeat's own line. A reconnect registers the same tools and raises no wake. `<data>/plugins-announced.json` keeps what was announced per plugin, and a disable forgets the plugin, so the next enable announces again. A heartbeat wake waits in the queue while `heartbeat.enabled` is `false`, because its turn is a heartbeat turn.
 
 ## Skills a plugin ships
 

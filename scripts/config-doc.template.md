@@ -58,6 +58,10 @@ The persona's skills are tools in the settings. `src/config-moves.ts` holds the 
 | `agents.opencodePath`, `toolResultChars`, `keepFilesHours`, `recentLines`, `maxOpen`, `resultMaxChars`, `unreadShown`, `resultRetrySeconds`, `resultCooldownSeconds` | the same names under `errands.*` |
 | `agents.<name>.search.provider` | `agents.<name>.searchProvider` |
 | `llm.helperTimeoutMs` | `llm.analyzerTimeoutMs` |
+| `innerLife.heartbeat.enabled`, `everyMinutes`, `jitterMinutes`, `historyDays`, `maxTokens` | the same names under `heartbeat.*` |
+| `diary.channelId`, `world`, `windows`, `quietDayChance`, `forceWaitMs`, `loop`, `planMaxOutputTokens`, `planTimeoutMs` | the same names under `selfreflection.*` |
+| `selfdev.mode`, `base`, `checkout`, `repository` | the same names under `selfimprovement.*` |
+| `innerLife.wakes.selfimprovement.everyDays`, `failuresPerShape` | the same names under `selfimprovement.*` |
 
 Seven keys have no reader any more and are dropped: the grants `bot.access."memory.refresh.channel"`, `"memory.refresh.server"` and `"memory.refresh.user"`, `agents.maxDownloadBytes`, `agents.thinker.contextLimit` and `contextHard`, and `agents.ledger.socket`. A section a dropped key leaves empty goes with it. The load log line counts them as `dropped` beside `moved` and `shadowed`.
 
@@ -280,17 +284,17 @@ Settings for the daily watcher. See [The watcher](watcher.md).
 
 <!-- settings: watcher -->
 
-## `selfdev`
+## `selfimprovement`
 
-Settings for the fixes she files against her own code. See [Self-development](selfdev.md).
+Settings for the `selfimprovement` wake, which looks back at her own work ([Inner life](inner-life.md#the-selfimprovement-wake)), and for the beat that works the fixes she files against her own code ([Self-development](selfimprovement.md)). `enabled` switches both.
 
-<!-- settings: selfdev -->
+<!-- settings: selfimprovement -->
 
-## `diary`
+## `selfreflection`
 
-Settings for the diary. See [Diary](diary.md).
+Settings for the diary, which this mechanic writes. `enabled` switches the scheduled posts. See [Diary](diary.md).
 
-<!-- settings: diary -->
+<!-- settings: selfreflection -->
 
 Default windows:
 
@@ -358,6 +362,12 @@ Settings for the persona's intentions. See [Inner life](inner-life.md).
 Settings for the persona's inner life. See [Inner life](inner-life.md).
 
 <!-- settings: innerLife -->
+
+## `heartbeat`
+
+Settings for the heartbeat, the wake with no outside reason. See [Inner life](inner-life.md#the-heartbeat).
+
+<!-- settings: heartbeat -->
 
 ## `appendStore`
 

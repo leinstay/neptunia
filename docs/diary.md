@@ -1,11 +1,11 @@
 # Diary
 
-The persona keeps a diary on its own, at random times, without anyone asking. The entries look like a personal feed: drawings, memes, reflections, retold news, curious facts, one-line moods. Before each entry the persona reviews its own recent history and picks something it has not done yet. Each entry is written into memory first and then posted to the diary's mirrors, the places the owner set up for it. The owner tunes the schedule through config (`diary.windows`, `diary.quietDayChance`).
+The persona keeps a diary on its own, at random times, without anyone asking. The entries look like a personal feed: drawings, memes, reflections, retold news, curious facts, one-line moods. Before each entry the persona reviews its own recent history and picks something it has not done yet. Each entry is written into memory first and then posted to the diary's mirrors, the places the owner set up for it. The owner tunes the schedule through config (`selfreflection.windows`, `selfreflection.quietDayChance`).
 
 ## Setup
 
 1. Create a channel on your server. The bot needs View Channel, Send Messages, Read Message History and Attach Files there.
-2. Set `diary.channelId` to the channel's id (`/config set diary.channelId <id>`, or in `config.local/config.json`). The key is the seed of the diary's first mirror: the memory database's schema step v15 makes the channel's place a `diary` mirror the first time it opens with the key set and the place stored.
+2. Set `selfreflection.channelId` to the channel's id (`/config set selfreflection.channelId <id>`, or in `config.local/config.json`). The key is the seed of the diary's first mirror: the memory database's schema step v15 makes the channel's place a `diary` mirror the first time it opens with the key set and the place stored.
 3. Once the mirror exists, `node scripts/config-migrate.ts --dry-run --db data/memory.db` and then `--apply --db data/memory.db` take the key out of `config.local/config.json`. Without the mirror the tool keeps the key and says so in one line.
 4. The diary runs with or without a mirror. With none, its entries stay in memory and nothing is posted. Posting starts on the next tick (every 30 seconds), and the first entry may take a few minutes, depending on when the next planned slot falls.
 
@@ -22,7 +22,7 @@ The four default windows, all times in `bot.timezone`:
 | Evening | 18 to 01 | `[0, 2]` |
 | Night | 01 to 05 | `[0, 1]` |
 
-With `diary.quietDayChance` (default 0.3) the whole day gets no slots. A plan is created once per local day and stored in `data/state.json`. A new local day replans; a restart keeps the existing plan.
+With `selfreflection.quietDayChance` (default 0.3) the whole day gets no slots. A plan is created once per local day and stored in `data/state.json`. A new local day replans; a restart keeps the existing plan.
 
 ### Hunger
 
@@ -80,7 +80,7 @@ To customise, copy `prompts/diary-seeds.md` to `prompts.local/diary-seeds.md` an
 
 `prompts/world.md` describes the persona's virtual world: the places and routines it lives in outside the chat. The tracked file is a neutral example. To write your own, create `prompts.local/world.md`.
 
-The world block appears only in the diary's plan and compose requests. Turn it on with `/config set diary.world true` (default `false`). Without it, the persona has no fixed home and does not claim one.
+The world block appears only in the diary's plan and compose requests. Turn it on with `/config set selfreflection.world true` (default `false`). Without it, the persona has no fixed home and does not claim one.
 
 The world file never appears in an ordinary chat turn.
 

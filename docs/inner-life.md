@@ -20,7 +20,7 @@ The review's `<wake>` also tells her which of her intentions expired untouched s
 
 ### The heartbeat
 
-A wake with no outside reason. It runs on its own timer: `innerLife.heartbeat.everyMinutes` (default 180) moved by up to `jitterMinutes` (default 60) either way, around the clock. The moment is kept in the state and drawn again after each run.
+A wake with no outside reason. It runs on its own timer: `heartbeat.everyMinutes` (default 180) moved by up to `jitterMinutes` (default 60) either way, around the clock. The moment is kept in the state and drawn again after each run.
 
 The heartbeat is never coalesced with another wake and goes before others in the queue. A running turn holds it to the next tick. Its chain is its own, so no chain cap of another kind touches it.
 
@@ -60,17 +60,17 @@ With the switch `false`, the heartbeat can act freely; the origin and caps below
 
 ### The selfimprovement wake
 
-A wake for looking back at her own work. It falls due on the first heartbeat moment that comes at least `innerLife.wakes.selfimprovement.everyDays` (default 7) days after the last such wake, and early when one chain shape fails `innerLife.wakes.selfimprovement.failuresPerShape` (default 3) times in one UTC day, at most once a day. With the heartbeat off the weekly wake never falls due. The first tick of a state with no clock only starts the count.
+A wake for looking back at her own work. It falls due on the first heartbeat moment that comes at least `selfimprovement.everyDays` (default 7) days after the last such wake, and early when one chain shape fails `selfimprovement.failuresPerShape` (default 3) times in one UTC day, at most once a day. While `selfimprovement.enabled` is `false` it never falls due, and with the heartbeat off the weekly wake never does. The first tick of a state with no clock only starts the count.
 
 The state keeps `selfimprovement: { lastAt, raisedAt }`. `raisedAt` is when a failure cause last raised a wake. `lastAt` is the time of the last wake whose turn did not end in an error, set once that turn's completion committed (`src/behavior/inner/selfimprovement.ts`). The wake has no place, goes alone like the heartbeat (after a heartbeat that shares its moment) and runs in a channel she spoke in lately, or in the stand-in when there is none. `innerLife.mode` governs it like every other wake.
 
 Her `<wake>` carries the facts of `src/behavior/selfimprovement-view.ts`, read from the journal and the board with no model. A chain is the tool calls of one turn in order. The chains of the last 14 days are grouped by the ordered tool names with each call's argument names, and the five most frequent shapes come with their counts, failures, retries, costs, the turn of the newest chain and up to five turn ids. Beside them stand the tools she holds and called in none of those chains, her skills with their use counts, her proposals with their state, and what the board holds for her since the last such wake: the questions put to her, the reviews (a rejection included, a plan approval left out) and the outbox rows addressed to `persona:self`. The facts carry tool names, argument names, codes, counts, ids, costs and the board's own titles and notes, and no line of chat.
 
-Once the completion committed, the outbox rows the view showed are marked delivered, so each question and rejection reaches her once. A wake that never committed shows them again. Her answer is `board.propose` with a `kind` of `skill` or `fix` ([Skills](skills.md#how-a-skill-is-made)). A `fix` that reaches a merge comes back as a landed change in this wake or the next heartbeat, whichever comes first ([Self-development](selfdev.md#what-reaches-her-wake)).
+Once the completion committed, the outbox rows the view showed are marked delivered, so each question and rejection reaches her once. A wake that never committed shows them again. Her answer is `board.propose` with a `kind` of `skill` or `fix` ([Skills](skills.md#how-a-skill-is-made)). A `fix` that reaches a merge comes back as a landed change in this wake or the next heartbeat, whichever comes first ([Self-development](selfimprovement.md#what-reaches-her-wake)).
 
 ### A new tool from a plugin
 
-When a plugin registers a tool it was not announced for, the core queues one `heartbeat` wake with the reason `ability.added` and the tool names ([Plugins](plugins.md#how-she-learns-of-a-tool)). It has no place and no intention, goes through the queue like the heartbeat, and its `<wake>` adds `labels.wake.abilityAdded` with the names. While `innerLife.heartbeat.enabled` is `false` it waits in the queue.
+When a plugin registers a tool it was not announced for, the core queues one `heartbeat` wake with the reason `ability.added` and the tool names ([Plugins](plugins.md#how-she-learns-of-a-tool)). It has no place and no intention, goes through the queue like the heartbeat, and its `<wake>` adds `labels.wake.abilityAdded` with the names. While `heartbeat.enabled` is `false` it waits in the queue.
 
 ### Her attention
 
