@@ -126,7 +126,7 @@ import {
   VIDEO_TOKENS_PER_SECOND as STATIC_TOKENS_PER_SECOND_FALLBACK,
 } from '../llm/openrouter.ts';
 import { clampText, oneLine } from './clamp.ts';
-import { roleModel } from '../llm/roles.ts';
+import { roleModel, roleOn } from '../llm/roles.ts';
 import { fillPromptTemplate } from '../behavior/prompt.ts';
 import { createYoutubeCheck } from './youtube-check.ts';
 import { gifWatchBlocker as gifWatchBlockerOf, gifWatchPrompt } from './gif-watch.ts';
@@ -200,6 +200,11 @@ function gifAnimationSource(item: MediaItem) {
   if (typeof item.animationUrl === 'string' && item.animationUrl) return item.animationUrl;
   if (item.source === 'attachment' && typeof item.url === 'string' && item.url) return item.url;
   return null;
+}
+
+/** The model role that describes `item`: a GIF or a video needs `video`, every other picture `vision`. */
+function mediaRoleOf(item: MediaItem): string {
+  return item.kind === 'gif' || item.kind === 'video' ? 'video' : 'vision';
 }
 
 /** Whether `item` is one collectVideos candidate (an attached video or a video-site link). */
@@ -964,7 +969,7 @@ function buildDescriber({
     const on = picturesOn();
     const spent = on && capSpent();
     for (const item of on ? (items ?? []) : []) {
-      if (!item?.itemId || seen.has(item.itemId)) continue;
+      if (!item?.itemId || seen.has(item.itemId) || !roleOn(hot.config, mediaRoleOf(item))) continue;
       seen.add(item.itemId);
       const hit = cachedPicture(guildId, item.itemId);
       if (hit === FRESH_MISS) continue;
@@ -1403,7 +1408,7 @@ function buildDescriber({
   ) {
     const videos = new Map();
     let newCount = 0;
-    for (const item of items) {
+    for (const item of roleOn(hot.config, 'video') ? items : []) {
       const cacheOnly = newCount >= maxNew;
       const { result, sent, attempted } = await describeVideoCharged(guildId, item, { cacheOnly });
       if (attempted) newCount += 1;
