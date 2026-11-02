@@ -8,7 +8,7 @@
 // describer's model client; the tool gateway (src/tools/gateway.ts#abilityRoute) reads it to route a tool role's call,
 // and `/status` lists `failing`. Pure apart from the injected clock.
 
-import { BASE_ROLES, CORE_ROLE, roleModel } from './roles.ts';
+import { BASE_ROLES, CORE_ROLE, OPTIONAL_ROLES, roleModel } from './roles.ts';
 import { DAY_MS } from '../time.ts';
 import { providerLimitOf, roleApiKey } from './openrouter.ts';
 
@@ -60,7 +60,9 @@ function configReasonOf(config: unknown, role: string, hasKey: (role: string) =>
   const models: unknown = config !== null && typeof config === 'object' ? Reflect.get(config, 'models') : null;
   const base: unknown = models !== null && typeof models === 'object' ? Reflect.get(models, 'base') : null;
   const model: unknown = base !== null && typeof base === 'object' ? Reflect.get(base, role) : undefined;
-  if (model === false) return 'no-model';
+  if (model === false || (model === null && OPTIONAL_ROLES.includes(role as (typeof OPTIONAL_ROLES)[number]))) {
+    return 'no-model';
+  }
   return hasKey(role) ? null : 'no-key';
 }
 
