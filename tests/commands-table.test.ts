@@ -28,6 +28,8 @@ const TABLE = [
   'plugins',
   'interface',
   'keys',
+  'subharness',
+  'simulation',
   'help',
   'clear',
 ];

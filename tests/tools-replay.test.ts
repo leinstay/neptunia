@@ -20,7 +20,6 @@ import {
   diaryPromptLayers,
   searchAvailableOf,
   diaryDayGate,
-  diaryDayKey,
   refuseDiscordWrites,
 } from '../scripts/replay.ts';
 import {
@@ -417,12 +416,6 @@ test('replay: --diary-day records every generate() call at the image client and 
     slots: [{ n: 1, at: 'x', outcome: 'spoke', messages: ['hi'], draws: images.calls }],
   });
   assert.ok(md.includes('```text\nA drawing.\n\nScene: a café\n```'), 'the whole prompt, as sent');
-});
-
-test('replay: --diary-day --draw live spends OPENROUTER_SIM_KEY only', () => {
-  assert.throws(() => diaryDayKey('live', { OPENROUTER_CORE_KEY: 'bot' }), /OPENROUTER_SIM_KEY/);
-  assert.equal(diaryDayKey('live', { OPENROUTER_SIM_KEY: 'sim', OPENROUTER_CORE_KEY: 'bot' }), 'sim');
-  assert.equal(diaryDayKey('fake', { OPENROUTER_SIM_KEY: 'sim' }), 'sim');
 });
 
 test("replay: --show-request reads the base dumps of a turn by default, --steps adds each attempt's later requests after it", () => {
