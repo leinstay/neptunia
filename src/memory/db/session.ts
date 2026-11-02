@@ -52,6 +52,7 @@ import { turnReadRows } from './service.ts';
 import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.ts';
 import { asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Intention } from '../../intentions/types.ts';
+import type { KeyRing } from '../../keys/ring.ts';
 import type { Labels, Profile } from '../../turn/request/types.ts';
 import type { Config, Db, Log, Row } from './types.ts';
 import type { Context, Scope } from './scope.ts';
@@ -188,13 +189,20 @@ export function sessionSettings(configGiven: unknown): SessionSettings {
 }
 
 /**
- * Whether the memory role has its own key: `llm.keyByRole.memory` names a variable (OPENROUTER_*) that is set in
- * `env`. No other key stands in. `name` is the variable's name (never its value).
+ * Whether the memory role has a key. With a key ring (`keys.json` exists) it is the key the ring routes `memory` to:
+ * the extra key the role is bound to, else the core key in use; `llm.keyByRole` and `env` are not read. Without a ring,
+ * `llm.keyByRole.memory` names a variable (OPENROUTER_*) that is set in `env`, and no other key stands in. `name` is the
+ * key's or the variable's name, never its value.
  */
 export function memoryKeyState(
   config: Config | null | undefined,
-  env: Row | null | undefined
+  env: Row | null | undefined,
+  ring?: KeyRing | null
 ): { ok: boolean; name: string | null } {
+  if (ring) {
+    const route = ring.route(MEMORY_ROLE);
+    return route === null ? { ok: false, name: null } : { ok: true, name: route.name };
+  }
   const name = config?.llm?.keyByRole?.memory;
   const valid = typeof name === 'string' && ROLE_KEY_NAME.test(name);
   const value = valid && env ? env[name] : undefined;
@@ -207,11 +215,12 @@ export function memoryKeyState(
 export function refusalOf(
   config: Config | null | undefined,
   env: Row | null | undefined,
-  prompts: Row | null | undefined
+  prompts: Row | null | undefined,
+  ring?: KeyRing | null
 ): string | null {
   const { mode } = sessionSettings(config);
   if (mode === 'off') return CODES.OFF;
-  if (!memoryKeyState(config, env).ok) return CODES.NOT_CONFIGURED;
+  if (!memoryKeyState(config, env, ring).ok) return CODES.NOT_CONFIGURED;
   const prompt = prompts?.['memory-session'];
   if (typeof prompt !== 'string' || !prompt.trim()) return CODES.NO_PROMPT;
   return null;
@@ -1255,6 +1264,8 @@ export type SessionContext = {
   llm: { complete(messages: ReadonlyArray<Row>, options: Row): Promise<Completion> };
   hot: { config: Config; prompts?: Row | null };
   env?: Row | null;
+  /** The core's key ring while `keys.json` exists (see `memoryKeyState`), else null or absent. */
+  ring?: KeyRing | null;
   now?: () => number;
   log?: Partial<Log>;
   selfName?: string;
@@ -1383,7 +1394,7 @@ export async function sweep(
   const { db, hot, env } = ctx;
   const now = ctx.now ?? Date.now;
   const config = hot.config;
-  const refused = refusalOf(config, env, hot.prompts);
+  const refused = refusalOf(config, env, hot.prompts, ctx.ring);
   if (refused) return { status: refused === CODES.OFF ? 'off' : 'refused', code: refused, runs: [] };
   const settings = sessionSettings(config);
   const started = now();

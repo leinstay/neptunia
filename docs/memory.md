@@ -221,7 +221,7 @@ When her session moves someone's attitude, `noteAffinityMoves` in the store drop
 
 There is no model role that decides what the persona remembers. She decides herself.
 
-The session runs on its own model role (`memory`) and its own key (configured through `llm.keyByRole.memory`, which names the `.env` variable to read). Without the key, the session refuses to run.
+The session runs on its own model role (`memory`). While `keys.json` exists its key is the one the key ring routes `memory` to, the extra key the role is bound to or the core key in use ([Keys](keys.md#the-core-keys-and-the-ring)). Without the store the key is the `.env` variable that `llm.keyByRole.memory` names. Without a key, the session refuses to run.
 
 ### Schedule
 

@@ -56,8 +56,11 @@ type Rec = Record<string, Untyped>;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'memory-session-tool';
-/** The name the simulation's key goes by inside the tool's own settings (`llm.keyByRole.memory`) and environment. */
-const KEY_SLOT = 'MEMORY_SESSION_KEY';
+/**
+ * The name the simulation's key goes by inside the tool's own settings (`llm.keyByRole.memory`) and environment. It
+ * passes `ROLE_KEY_NAME` (src/llm/role-keys.ts), or the session refuses `not_configured`.
+ */
+const KEY_SLOT = 'OPENROUTER_MEMORY_SESSION_KEY';
 const USAGE = `usage: node scripts/memory-session.ts --db <memory.db> [--data <dir>] [--scope <scope key>] [--limit N]
        [--review <person|place|self>:<id>:<field>] [--show] [--self-name <name>] [--keep <copy.db>]`;
 const COMPARE_USAGE = `usage: node scripts/memory-session.ts compare --db <memory.db copy> [--data <dir>] --day <YYYY-MM-DD> [--shadow]
@@ -503,6 +506,22 @@ export async function runCompare({
   return lines;
 }
 
+/**
+ * The live config and the environment the tool's session runs with: `llm.keyByRole.memory` names the tool's key slot,
+ * and `env` maps that slot to `apiKey` (the simulation's key). Every other key of `live` is kept. The session runs with
+ * no key ring, so it finds its key through the slot.
+ */
+export function sessionKeyWiring<TConfig extends Record<string, unknown>>(
+  live: TConfig,
+  apiKey: string
+): { config: TConfig; env: Record<string, string> } {
+  const llm = (live.llm ?? {}) as Rec; // the live settings are an object of objects; nothing here reads a value of it
+  const keyByRole = (llm.keyByRole ?? {}) as Rec;
+  // The copy differs from `live` in one string under `llm.keyByRole`, so it keeps the live settings' type.
+  const config = { ...live, llm: { ...llm, keyByRole: { ...keyByRole, memory: KEY_SLOT } } } as TConfig;
+  return { config, env: { [KEY_SLOT]: apiKey } };
+}
+
 /** The compare subcommand (see the head of this file). */
 async function compareMain(argv: Array<string>) {
   const flags = parseFlags(argv, {
@@ -516,7 +535,6 @@ async function compareMain(argv: Array<string>) {
   const source = path.resolve(flags['--db']);
   if (!fs.existsSync(source)) throw new CliError(`memory-session: no database at ${source}`);
   const shadowOnly = flags['--shadow'] === true;
-  const keyEnv = KEY_SLOT;
 
   const { createHot } = await import('../src/hot.ts');
   const { loadDotEnv } = await import('../src/config.ts');
@@ -535,10 +553,8 @@ async function compareMain(argv: Array<string>) {
     await copyDatabase(source, copy);
     handle = openMemoryDb(copy);
     const live = hot.config;
-    const config = {
-      ...live,
-      llm: { ...(live.llm ?? {}), keyByRole: { ...(live.llm?.keyByRole ?? {}), memory: keyEnv } },
-    };
+    const wiring = sessionKeyWiring(live, apiKey ?? '');
+    const config = wiring.config;
     const usage: Usage = {
       requests: 0,
       prompt: 0,
@@ -551,7 +567,7 @@ async function compareMain(argv: Array<string>) {
       const { createCalibrator } = await import('../src/llm/tokens.ts');
       const client = createLlm({
         apiKey: apiKey as string, // set and checked above whenever the model is called
-        env: { [keyEnv]: apiKey },
+        env: wiring.env,
         getConfig: () => config,
         calibrator: createCalibrator(undefined),
         state: { data: {}, markDirty() {} },
@@ -585,7 +601,7 @@ async function compareMain(argv: Array<string>) {
       handle,
       llm,
       hot: { config, prompts: hot.prompts },
-      env: apiKey ? { [keyEnv]: apiKey } : {},
+      env: apiKey ? wiring.env : {},
       day: flags['--day'],
       shadowOnly,
       scope: flags['--scope'] ?? null,
@@ -621,7 +637,6 @@ export async function main(argv: Array<string>): Promise<string> {
   const limit = flags['--limit'] === undefined ? undefined : Number(flags['--limit']);
   if (limit !== undefined && (!Number.isInteger(limit) || limit < 1))
     throw new CliError(`memory-session: --limit is a whole number above 0\n${USAGE}`);
-  const keyEnv = KEY_SLOT;
   const review = flags['--review'] ? parseSubject(flags['--review']) : null;
   const show = flags['--show'] === true;
 
@@ -650,9 +665,9 @@ export async function main(argv: Array<string>): Promise<string> {
 
     // The effective config: shadow, a sweep of the tool's own, the simulation's key pays.
     const live = hot.config;
+    const wiring = sessionKeyWiring(live, apiKey);
     const config = {
-      ...live,
-      llm: { ...(live.llm ?? {}), keyByRole: { ...(live.llm?.keyByRole ?? {}), memory: keyEnv } },
+      ...wiring.config,
       memoryDb: {
         ...(live.memoryDb ?? {}),
         session: {
@@ -669,7 +684,7 @@ export async function main(argv: Array<string>): Promise<string> {
     const counters = { data: {}, markDirty() {} };
     const client = createLlm({
       apiKey,
-      env: { [keyEnv]: apiKey },
+      env: wiring.env,
       getConfig: () => config,
       calibrator: createCalibrator(undefined),
       state: counters,
@@ -701,7 +716,7 @@ export async function main(argv: Array<string>): Promise<string> {
       write: async (update: Rec) => applyMemoryWrite(handle, update),
       llm: { complete },
       hot: { config, prompts: hot.prompts },
-      env: { [keyEnv]: apiKey },
+      env: wiring.env,
       now: Date.now,
       log: {
         info() {},
