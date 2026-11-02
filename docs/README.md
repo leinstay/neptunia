@@ -41,6 +41,7 @@ The persona's inner life (heartbeat wakes, intentions, the diary) runs the same 
 | [Errands](errands.md) | `errand.run`, errand agents, the runner, sandbox users, results returning as a turn |
 | [Development agents](development-agents.md) | The dev and thinker agents, profiles, the two run paths |
 | [The task board](board.md) | What the board holds, its roles, how the agents reach it, its costs, the restore and the ledger import |
+| [Self-development](selfdev.md) | How her fix proposals become pull requests: the three steps, the worktree, the tests the engine runs, `selfdev.mode`, the branch names and how a merge reaches her wake |
 | [The watcher](watcher.md) | The daily watcher: a run, the folder, the brief, the report and its checks, the tasks it files, `watcher.read` and `/report` |
 | [Interfaces](interfaces.md) | The interface port and protocol, the Discord adapter, adding an interface |
 | [The neptunia command](cli.md) | The owner's chat in a terminal and its commands, the access model, `-p`, pause, `doctor`, the errand runner and the units |

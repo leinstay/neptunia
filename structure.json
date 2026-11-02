@@ -424,6 +424,7 @@
         "src/memory/**",
         "src/plugins/**",
         "src/protocol/**",
+        "src/selfdev/**",
         "src/skills/**",
         "src/speech/**",
         "src/tools/**",
@@ -452,6 +453,13 @@
     {
       "path": "src/skills/",
       "purpose": "Her skills: the SKILL.md format and loader, the index of the active ones, the use rows of a turn, the port over the registry in the memory database, its client over the memory writer and the agents' commands.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/selfdev/",
+      "purpose": "Her self-development: the steps that turn her fix proposals into pull requests (intake, work, observe), the settings, and the merged fixes her wake shows. Git, gh, the test runner and the dev run are injected.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"

@@ -280,6 +280,12 @@ Settings for the daily watcher. See [The watcher](watcher.md).
 
 <!-- settings: watcher -->
 
+## `selfdev`
+
+Settings for the fixes she files against her own code. See [Self-development](selfdev.md).
+
+<!-- settings: selfdev -->
+
 ## `diary`
 
 Settings for the diary. See [Diary](diary.md).
