@@ -5,6 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 
 /** A key of the core list; only the name is read here. */
@@ -16,11 +17,15 @@ export type KeyStore = {
   extra: Record<string, string>;
   roles: Record<string, string>;
   subharness: {
-    backend: BackendName | null;
+    /** the connected backends, in the order they were connected, no name twice */
+    backends: Array<BackendName>;
+    /** the extra key opencode runs on; null while opencode is not connected */
     key: string | null;
     modes: Record<string, string>;
     /** the model each agent runs on, by agent; an agent with none runs on the backend's own default */
     models: Record<string, string>;
+    /** the backend each agent runs through, by agent; an agent with none runs through backends[0] */
+    uses: Record<string, BackendName>;
   };
   simulation: { key: string | null };
 };
@@ -36,13 +41,39 @@ const textMap = (value: unknown): Record<string, string> =>
     Object.entries(isRecord(value) ? value : {}).filter(([, one]) => typeof one === 'string')
   ) as Record<string, string>;
 
+const backendOf = (value: unknown): BackendName | undefined => BACKEND_NAMES.find((name) => name === value);
+
+/**
+ * The connected backends: the stored list when there is one, unknown names and repeats dropped and the order kept,
+ * else the single `backend` of a store written before the list, as a list of that one.
+ */
+function backendsOf(sub: Record<string, unknown>): Array<BackendName> {
+  const listed = Array.isArray(sub.backends) ? (sub.backends as Array<unknown>) : [sub.backend];
+  const names: Array<BackendName> = [];
+  for (const value of listed) {
+    const name = backendOf(value);
+    if (name !== undefined && !names.includes(name)) names.push(name);
+  }
+  return names;
+}
+
+/** The backend of each agent, entries whose value is no backend dropped. */
+function usesOf(value: unknown): Record<string, BackendName> {
+  const uses: Record<string, BackendName> = {};
+  for (const [agent, one] of Object.entries(isRecord(value) ? value : {})) {
+    const name = backendOf(one);
+    if (name !== undefined) uses[agent] = name;
+  }
+  return uses;
+}
+
 /** The store a fresh install has. */
 export function emptyKeys(): KeyStore {
   return {
     core: [],
     extra: {},
     roles: {},
-    subharness: { backend: null, key: null, modes: {}, models: {} },
+    subharness: { backends: [], key: null, modes: {}, models: {}, uses: {} },
     simulation: { key: null },
   };
 }
@@ -66,18 +97,17 @@ export function readKeys(privateDir: string): KeyStore {
   if (!isRecord(parsed)) throw new Error(`${KEYS_FILE} is not a JSON object`);
   const sub = isRecord(parsed.subharness) ? parsed.subharness : {};
   const sim = isRecord(parsed.simulation) ? parsed.simulation : {};
-  const backend =
-    sub.backend === 'codex' || sub.backend === 'claude' || sub.backend === 'opencode' ? sub.backend : null;
   return {
     ...parsed,
     core: Array.isArray(parsed.core) ? (parsed.core as Array<CoreKeyRow>) : [],
     extra: textMap(parsed.extra),
     roles: textMap(parsed.roles),
     subharness: {
-      backend,
+      backends: backendsOf(sub),
       key: typeof sub.key === 'string' ? sub.key : null,
       modes: textMap(sub.modes),
       models: textMap(sub.models),
+      uses: usesOf(sub.uses),
     },
     simulation: { key: typeof sim.key === 'string' ? sim.key : null },
   };

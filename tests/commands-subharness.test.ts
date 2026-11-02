@@ -31,7 +31,12 @@ test('the table parses /subharness: a bare line is the status, enable takes a ba
     name: 'subharness.enable',
     args: { backend: 'opencode', key: 'oc-1' },
   });
-  assert.deepEqual(parseCommandLine('/subharness disable'), { ok: true, name: 'subharness.disable', args: {} });
+  // Changed for spec 2026-11-02 PR 5 "Several subharnesses": disable removes one named backend.
+  assert.deepEqual(parseCommandLine('/subharness disable codex'), {
+    ok: true,
+    name: 'subharness.disable',
+    args: { backend: 'codex' },
+  });
 });
 
 test('the table refuses a backend that is none, a --key with no value, an unknown flag and a bare key word', () => {
@@ -114,8 +119,9 @@ test('enable, status, mode and disable change keys.json and answer ok', async ()
   assert.equal(status.status, 'ok');
   assert.ok(status.text.includes('opencode') && status.text.includes('sudo'));
   assert.equal(status.text.includes(SECRET), false);
-  assert.equal((await subharnessCommand(deps, 'subharness.disable', {})).status, 'ok');
-  assert.equal(readKeysFile(dir).subharness.backend, null);
+  // Changed for spec 2026-11-02 PR 5 "Several subharnesses": disable names the backend, and a write keeps only the list.
+  assert.equal((await subharnessCommand(deps, 'subharness.disable', { backend: 'opencode' })).status, 'ok');
+  assert.deepEqual(readKeysFile(dir).subharness.backends, []);
 });
 
 test('a refused enable answers failed, starts with the command as typed, and writes nothing', async () => {
@@ -124,7 +130,8 @@ test('a refused enable answers failed, starts with the command as typed, and wri
   const answer = await subharnessCommand(deps, 'subharness.enable', { backend: 'opencode', key: 'nope' });
   assert.equal(answer.status, 'failed');
   assert.ok(answer.text.startsWith('/subharness enable'));
-  assert.equal(readKeysFile(dir).subharness.backend, null);
+  // Changed for spec 2026-11-02 PR 5 "Several subharnesses": the connected backends are the list `backends`.
+  assert.deepEqual(readKeysFile(dir).subharness.backends ?? [], []);
 });
 
 test('a mode line with no mode shows the current one and writes nothing', async () => {
@@ -185,7 +192,8 @@ test('without the runner and fetch the console refuses enable and runs no proces
   const desk = consoleOver(dir, undefined);
   const answer = await desk.run('subharness.enable', { backend: 'codex' }, { id: 'owner' });
   assert.equal(answer.status, 'failed');
-  assert.equal(readKeysFile(dir).subharness.backend, null);
+  // Changed for spec 2026-11-02 PR 5 "Several subharnesses": the connected backends are the list `backends`.
+  assert.deepEqual(readKeysFile(dir).subharness.backends ?? [], []);
 });
 
 function deskOver() {

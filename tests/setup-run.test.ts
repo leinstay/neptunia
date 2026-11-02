@@ -10,7 +10,7 @@ import path from 'node:path';
 import { SETUP_STEPS, SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/run.ts';
 import type { RunResult, SetupDeps, SetupOptions } from '../src/setup/run.ts';
 import { SELFIMPROVEMENT_UNIT_FILES, UNIT_FILES } from '../src/setup/units.ts';
-import { keysPath, readKeysFile } from './fixtures/keys-file.ts';
+import { keysPath, readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
@@ -82,7 +82,12 @@ function rig(overrides: Partial<SetupOptions> = {}): Rig {
 test('the steps run in a fixed order: folders, keys file, units, linger, core', () => {
   // Bug: the core is started before its units exist, or the units are written before the folders they point at.
   // Changed: SETUP_STEPS gains the self-development step after the core (spec 2026-11-02, PR 5 "Forks").
-  assert.deepEqual([...SETUP_STEPS], ['folders', 'keys-file', 'units', 'linger', 'core', 'selfimprovement']);
+  // Changed again for spec 2026-11-02 PR 5 "Several subharnesses": the four steps that ask come before the units, so
+  // the units bind the backends just connected and the watcher timer takes the hour just given; the core is last.
+  assert.deepEqual(
+    [...SETUP_STEPS],
+    ['folders', 'keys-file', 'subharness', 'selfimprovement', 'mechanics', 'watcher', 'units', 'linger', 'core']
+  );
 });
 
 test('a fresh user setup creates the private folders at 0700 whatever the umask', async () => {
@@ -113,7 +118,8 @@ test('setup writes an empty keys.json at 600 with no key in it', async () => {
   const stored = readKeysFile(options.privateDir);
   assert.deepEqual(stored.core, []);
   assert.deepEqual(stored.extra, {});
-  assert.equal(stored.subharness.backend, null);
+  // Changed for spec 2026-11-02 PR 5 "Several subharnesses": an empty store holds an empty list `backends`.
+  assert.deepEqual(stored.subharness.backends, []);
   assert.equal(stored.simulation.key, null);
 });
 
@@ -189,9 +195,11 @@ test('the report lists every step done and the commands that come next, in the o
   const { options, deps } = rig();
   const report = await runSetup(options, deps);
   // Changed: the self-development step is skipped in this rig (no selfimprovement.checkout, no ask), every other step is done.
+  // Changed again for spec 2026-11-02 PR 5: the subharness, mechanics and watcher steps are skipped too (no terminal).
+  const asking = ['subharness', 'selfimprovement', 'mechanics', 'watcher'];
   assert.deepEqual(
     report.steps.map((step) => [step.step, step.state]),
-    SETUP_STEPS.map((step) => [step, step === 'selfimprovement' ? 'skipped' : 'done'])
+    SETUP_STEPS.map((step) => [step, asking.includes(step) ? 'skipped' : 'done'])
   );
   assert.deepEqual(report.next, [
     'keys core add',
@@ -225,14 +233,17 @@ test('a rerun after a failure resumes: earlier steps are already done and the co
   assert.equal(report.ok, true);
   assert.deepEqual(
     report.steps.map((step) => [step.step, step.state]),
+    // Changed for spec 2026-11-02 PR 5: the four steps that ask run before the units, skipped in this rig (no ask).
     [
       ['folders', 'already'],
       ['keys-file', 'already'],
+      ['subharness', 'skipped'],
+      ['selfimprovement', 'skipped'],
+      ['mechanics', 'skipped'],
+      ['watcher', 'skipped'],
       ['units', 'already'],
       ['linger', 'already'],
       ['core', 'done'],
-      // Changed: SETUP_STEPS gains selfimprovement, skipped in this rig (no selfimprovement.checkout, no ask).
-      ['selfimprovement', 'skipped'],
     ]
   );
   assert.deepEqual(chat, ['/keys core add']);
@@ -257,14 +268,17 @@ test('a single step runs alone and leaves the others skipped, with no command an
   assert.equal(report.ok, true);
   assert.deepEqual(
     report.steps.map((step) => [step.step, step.state]),
+    // Changed for spec 2026-11-02 PR 5: the four steps that ask run before the units, skipped as not asked for.
     [
       ['folders', 'done'],
       ['keys-file', 'skipped'],
+      ['subharness', 'skipped'],
+      ['selfimprovement', 'skipped'],
+      ['mechanics', 'skipped'],
+      ['watcher', 'skipped'],
       ['units', 'skipped'],
       ['linger', 'skipped'],
       ['core', 'skipped'],
-      // Changed: SETUP_STEPS gains selfimprovement, skipped here because it was not asked for.
-      ['selfimprovement', 'skipped'],
     ]
   );
   assert.equal(fs.existsSync(keysPath(options.privateDir)), false);
@@ -464,4 +478,50 @@ test('a refused self-development step leaves the run ok, stores no repository an
     selfimprovement: Record<string, unknown>;
   };
   assert.equal('repository' in local.selfimprovement || 'mode' in local.selfimprovement, false);
+});
+
+// The subharness, mechanics and watcher steps (spec 2026-11-02, PR 5 "Several subharnesses", "The three ticking
+// mechanics", "The watcher is a fourth ticking mechanic"): asked before the units are written, so the units bind the
+// backends just connected and the watcher timer takes the hour just given.
+
+test('the questions of the subharness, the mechanics and the watcher come before the units, and the core comes last', () => {
+  // Catches: the watcher hour or the backends are asked after the units were rendered, so the timer and the agent units
+  // carry the old values until a second setup run.
+  const at = (step: string): number => SETUP_STEPS.findIndex((one) => one === step);
+  for (const step of ['subharness', 'mechanics', 'watcher']) {
+    assert.notEqual(at(step), -1, step);
+    assert.ok(at(step) < at('units'), step);
+  }
+  assert.ok(at('subharness') < at('mechanics'), 'mechanics refuses selfimprovement without a connected backend');
+  assert.ok(at('selfimprovement') < at('mechanics'), 'mechanics refuses selfimprovement without her repository');
+  assert.equal(SETUP_STEPS.at(-1), 'core');
+});
+
+test('without a terminal the subharness, mechanics and watcher steps are skipped and the install still opens the chat', async () => {
+  // Catches: a setup run by a script with no terminal fails on a question nobody can answer and never starts the core.
+  const { options, deps, chat } = rig();
+  const report = await runSetup(options, deps);
+  const stateOf = (step: string): string | undefined => report.steps.find((one) => one.step === step)?.state;
+  assert.deepEqual(['subharness', 'mechanics', 'watcher'].map(stateOf), ['skipped', 'skipped', 'skipped']);
+  assert.equal(report.ok, true);
+  assert.deepEqual(chat, ['/keys core add']);
+});
+
+test('parseSetupArgs takes the subharness, mechanics and watcher steps by name', () => {
+  // Catches: the new steps are missing from the step names, so `neptunia setup watcher` is a usage error.
+  assert.deepEqual(
+    ['subharness', 'mechanics', 'watcher'].map((step) => parseSetupArgs([step]).only),
+    ['subharness', 'mechanics', 'watcher']
+  );
+});
+
+test('the watcher hour given in a setup run is in the timer the same run writes', async () => {
+  // Catches: the units are rendered before the watcher step, or without watcher.at, so the timer keeps 00:00.
+  const { options, deps, unitDir } = rig();
+  writeKeysFile(options.privateDir, { subharness: { backends: ['codex'], key: null, modes: {} } });
+  const answers = ['on', '05:30', 'codex', ''];
+  const report = await runSetup(options, { ...deps, ask: () => Promise.resolve(answers.shift() ?? '') });
+  assert.equal(report.steps.find((step) => step.step === 'watcher')?.state, 'done');
+  const timer = fs.readFileSync(path.join(unitDir, 'neptunia-watcher.timer'), 'utf8');
+  assert.deepEqual(unitValues(timer, 'OnCalendar'), ['*-*-* 05:30:00 UTC']);
 });

@@ -241,3 +241,27 @@ test('selfimprovementReason reads the reason of the selfimprovement item and not
   assert.equal(selfimprovementReason(undefined), null);
   assert.equal(selfimprovementReason([]), null);
 });
+
+// The watcher's report (spec 2026-11-02, "`selfimprovement` daily, after the watcher"): one block under one label,
+// `watcher`, with `{day}`, `{forOwner}` and `{tasksFiled}`.
+
+const WATCHER = { day: '2026-11-02', forOwner: 'Look at the retries.', tasksFiled: '- T3 fix: retries' };
+const WITH_WATCHER = { ...LABELS, watcher: 'WATCHER {day} | {forOwner} | {tasksFiled}' };
+
+test('a watcher report in the facts becomes one block filled from its label', () => {
+  // Catches: the report reaches the facts but no line of the wake, or a placeholder is left unfilled.
+  const lines = selfimprovementLines(facts({ watcher: WATCHER }), WITH_WATCHER, when, null);
+  assert.ok(lines.includes('WATCHER 2026-11-02 | Look at the retries. | - T3 fix: retries'), lines.join('\n'));
+});
+
+test('with no watcher report the block is absent and the other lines stay', () => {
+  // Catches: a null report prints the label with empty placeholders, telling her of a report that does not exist.
+  const lines = selfimprovementLines(facts({ watcher: null }), WITH_WATCHER, when, null);
+  assert.deepEqual(lines, ['HEADER 14d', 'NOSHAPES']);
+});
+
+test('without the watcher label the report is left out and the other lines stay', () => {
+  // Catches: a deployment whose labels lack the key gets the report's raw text, or loses the whole selfimprovement block.
+  const lines = selfimprovementLines(facts({ watcher: WATCHER }), LABELS, when, null);
+  assert.deepEqual(lines, ['HEADER 14d', 'NOSHAPES']);
+});

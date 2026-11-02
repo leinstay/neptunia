@@ -10,8 +10,9 @@
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
 //   neptunia plugin run <name>                   one plugin (deploy/neptunia-plugin@.service)
 //   neptunia service start|stop|restart|status [<unit> ...]   the units, through systemctl
-//   neptunia setup [--system] [--node <path>] [<step>]  the install of one user: folders, keys file, units, linger, the
-//                                                core, the repository of her self-development
+//   neptunia setup [--system] [--node <path>] [<step>]  the install of one user: folders, keys file, her subharness
+//                                                backends, the repository of her self-development, her mechanics,
+//                                                the watcher, units, linger, the core
 //   neptunia setup subharness <backend> [--from <path>]   one subharness backend into <private>/subharness/<backend>/
 //   neptunia task <command> [options]            the task board's command line (bin/neptunia-task.ts)
 //   neptunia watcher run                         one run of the daily watcher (deploy/neptunia-watcher.service)
@@ -86,12 +87,14 @@ import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { createRunnerServer } from '../src/agent-runner/server.ts';
 import { DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.ts';
-import { createAgentEngine } from '../src/agent-runner/backend.ts';
+import { createAgentEngine, createInstalledBackend } from '../src/agent-runner/backend.ts';
 import { BACKEND_NAMES, agentSettings, profileOf } from '../src/agent-runner/profiles.ts';
 import type { RunnerTask } from '../src/agent-runner/protocol.ts';
 import { startSweeper } from '../src/agent-runner/sweep.ts';
 import { spawnGh } from '../src/selfimprovement/repository.ts';
 import { spawnRun } from '../src/setup/install.ts';
+import { REPLY_CHECK_MS } from '../src/subharness/control.ts';
+import type { EnableDeps } from '../src/subharness/control.ts';
 import { installSubharness } from '../src/subharness/install.ts';
 import type { InstallRun } from '../src/subharness/install.ts';
 import { loginCommand } from '../src/subharness/place.ts';
@@ -160,7 +163,7 @@ const USAGE = [
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
   '       neptunia plugin run <name>',
   '       neptunia service start|stop|restart|status [<unit> ...]',
-  '       neptunia setup [--system] [--node <path>] [folders|keys-file|units|linger|core|selfimprovement]',
+  '       neptunia setup [--system] [--node <path>] [folders|keys-file|subharness|selfimprovement|mechanics|watcher|units|linger|core]',
   '       neptunia setup subharness codex|claude|opencode [--from <path>]',
   '       neptunia task <command> [options]   (neptunia task help)',
   '       neptunia selfimprovement run',
@@ -1205,8 +1208,19 @@ async function runSubharnessSetup(argv: ReadonlyArray<string>): Promise<void> {
   process.exit(0);
 }
 
+/** The reply check of the subharness step: one run of her installed codex or claude, read-only, in the temp folder. */
+function replyCheck(privateDir: string): EnableDeps['runBackend'] {
+  return (backend, brief, model) =>
+    createInstalledBackend(backend, privateDir).run(brief, {
+      cwd: os.tmpdir(),
+      timeoutMs: REPLY_CHECK_MS,
+      sandbox: 'read-only',
+      ...(model === undefined ? {} : { model }),
+    });
+}
+
 async function runSetupCommand(argv: ReadonlyArray<string>): Promise<void> {
-  if (argv[0] === 'subharness') return runSubharnessSetup(argv.slice(1));
+  if (argv[0] === 'subharness' && argv.length > 1) return runSubharnessSetup(argv.slice(1));
   let parsed: ReturnType<typeof parseSetupArgs>;
   try {
     parsed = parseSetupArgs(argv);
@@ -1232,7 +1246,16 @@ async function runSetupCommand(argv: ReadonlyArray<string>): Promise<void> {
       run: spawnRun,
       openChat: (firstLine) => runChat(firstLine),
       report: printSetup,
-      ...(process.stdin.isTTY === true ? { ask: askAtTerminal, gh: spawnGh(where.privateDir, process.env) } : {}),
+      ...(process.stdin.isTTY === true
+        ? {
+            ask: askAtTerminal,
+            gh: spawnGh(where.privateDir, process.env),
+            install: installRun,
+            runBackend: replyCheck(where.privateDir),
+            fetch,
+            hostEnv: process.env,
+          }
+        : {}),
     }
   );
   process.exit(report.ok ? 0 : 1);

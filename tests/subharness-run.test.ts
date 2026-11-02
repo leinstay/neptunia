@@ -271,3 +271,43 @@ test('an agent run starts the binary in her folder with her home in its environm
   assert.equal(result.ok, true);
   assert.equal(result.text, `home=${place.env.CLAUDE_CONFIG_DIR ?? ''}`);
 });
+
+// Several subharnesses (spec 2026-11-02, PR 5): an agent runs through the backend `subharness.uses` names for it, else
+// through the first connected one; a named backend that is not connected refuses the run.
+
+/** A rig whose keys.json holds the list `backends` and the agents' `uses`. */
+function listRig(
+  backends: Array<'codex' | 'claude' | 'opencode'>,
+  uses: Record<string, 'codex' | 'claude' | 'opencode'>
+) {
+  const r = rig({ backend: null });
+  writeKeysFile(r.privateDir, {
+    core: [{ name: 'core-1', value: CORE_SECRET }],
+    extra: { opencode: OC_SECRET },
+    // The old single field stays beside the list, as in a store written before it: the list is what counts.
+    subharness: { backend: backends[0] ?? null, backends, uses, key: null, modes: {} },
+  });
+  return r;
+}
+
+test('an agent runs through the backend named for it when that one is connected', async () => {
+  // Catches: the run always takes the first backend, so the watcher set to claude still runs on codex.
+  const { deps, seen } = listRig(['codex', 'claude'], { watcher: 'claude' });
+  await runAgent(request('watcher'), deps);
+  assert.equal(seen[0]?.name, 'claude');
+});
+
+test('an agent with no backend named runs through the first connected one', async () => {
+  // Catches: an agent with no entry in uses is refused, so errands stop the moment a second backend is connected.
+  const { deps, seen } = listRig(['claude', 'codex'], { watcher: 'codex' });
+  await runAgent(request('scout'), deps);
+  assert.equal(seen[0]?.name, 'claude');
+});
+
+test('an agent whose named backend is not connected is refused subharness-off and no backend is made', async () => {
+  // Catches: the run falls back to another connected backend, so an agent runs on a login the owner did not choose.
+  const { deps, seen } = listRig(['codex'], { watcher: 'claude' });
+  const result = await runAgent(request('watcher'), deps);
+  assert.equal(result.error, 'subharness-off');
+  assert.equal(seen.length, 0);
+});

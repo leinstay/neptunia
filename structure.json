@@ -469,7 +469,7 @@
     },
     {
       "path": "src/watcher/",
-      "purpose": "The daily watcher: the brief, the report check and writer, the task filer, the reader of the reports and the run that joins them. The agent backend is injected.",
+      "purpose": "The daily watcher: its settings, the brief, the report check and writer, the task filer, the reader of the reports, the newest report for her selfimprovement wake and the run that joins them. The agent backend is injected.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
@@ -490,7 +490,7 @@
     },
     {
       "path": "src/setup/",
-      "purpose": "`neptunia setup`: the unit templates rendered for the installing user, the six steps, the writing of the units and the question for her self-development repository.",
+      "purpose": "`neptunia setup`: the unit templates rendered for the installing user, the nine steps, the writing of the units, and the questions for her subharness backends, her self-development repository, her three mechanics and the watcher.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"

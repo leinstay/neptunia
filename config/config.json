@@ -318,6 +318,8 @@
     "reviewDays": 30
   },
   "watcher": {
+    "enabled": false,
+    "at": "00:00",
     "dir": ".agents/watcher"
   },
   "selfimprovement": {
@@ -326,7 +328,7 @@
     "base": "main",
     "checkout": null,
     "repository": null,
-    "everyDays": 7,
+    "at": "03:00",
     "failuresPerShape": 3,
     "tools": "*",
     "maxActs": null,

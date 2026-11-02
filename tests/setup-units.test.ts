@@ -202,7 +202,8 @@ for (const scope of ['user', 'system'] as const) {
   test(`${scope} core and watcher units put the user's ~/.local/bin and the node's folder on PATH`, () => {
     // Catches: codex installed under ~/.local/bin is not found by the core's enable check or the watcher's run.
     for (const name of CORE_AND_WATCHER) {
-      const dirs = pathDirsOf(renderUnit(template(name), scope, { ...VARS, backend: 'codex' }));
+      // Changed for spec 2026-11-02 PR 5 "Several subharnesses": UnitVars carries the list `backends`.
+      const dirs = pathDirsOf(renderUnit(template(name), scope, { ...VARS, backends: ['codex'] }));
       assert.ok(dirs.includes(`${VARS.home}/.local/bin`), name);
       assert.ok(dirs.includes(path.dirname(VARS.node)), name);
       assert.ok(dirs.includes('/usr/bin'), name);
@@ -215,7 +216,8 @@ test('the core and the watcher of a deployment with no backend name no backend h
   // Changed for spec 2026-11-02 PR 5: the core writes the backend's folder in the private layer, checked by the test
   // "the core may write her backend's folder"; ~/.codex and ~/.claude are no longer its write paths.
   for (const name of CORE_AND_WATCHER) {
-    const text = renderUnit(template(name), 'user', { ...VARS, backend: null });
+    // Changed for spec 2026-11-02 PR 5 "Several subharnesses": UnitVars carries the list `backends`.
+    const text = renderUnit(template(name), 'user', { ...VARS, backends: [] });
     assert.equal(text.includes('/.codex') || text.includes('/.claude'), false, name);
   }
 });
@@ -250,7 +252,8 @@ for (const scope of ['user', 'system'] as const) {
     for (const name of AGENTS)
       for (const backend of ['codex', 'claude', 'opencode'] as const)
         for (const mode of ['read', 'write'] as const) {
-          const text = renderUnit(template(name), scope, { ...VARS, backend, mode });
+          // Changed for spec 2026-11-02 PR 5 "Several subharnesses": UnitVars carries the list `backends`.
+          const text = renderUnit(template(name), scope, { ...VARS, backends: [backend], mode });
           const label = `${name} ${backend} ${mode}`;
           assert.ok(covers(writableEntriesOf(text), placeOf(backend)), label);
           assert.equal(covers(writableEntriesOf(text), path.join(VARS.privateDir, 'keys.json')), false, label);
@@ -263,7 +266,8 @@ test('agent units bind her backend folder when the private folder lies under the
   // Catches: the folder is given as ReadWritePaths under ProtectHome=tmpfs, where it does not exist, and the unit fails.
   const privateDir = `${VARS.home}/.neptunia`;
   for (const name of AGENTS) {
-    const text = renderUnit(template(name), 'user', { ...VARS, privateDir, backend: 'codex', mode: 'write' });
+    // Changed for spec 2026-11-02 PR 5 "Several subharnesses": UnitVars carries the list `backends`.
+    const text = renderUnit(template(name), 'user', { ...VARS, privateDir, backends: ['codex'], mode: 'write' });
     const bound = valuesOf(text, 'BindPaths')
       .flatMap((one) => one.split(/\s+/))
       .map((one) => one.replace(/^-/, '').split(':')[0] ?? '');
@@ -274,7 +278,8 @@ test('agent units bind her backend folder when the private folder lies under the
 test('agent units of a deployment with no backend bind no backend folder at all', () => {
   // Catches: a unit names a subharness folder that setup never made, or keeps ~/.codex, and fails to start.
   for (const name of AGENTS) {
-    const text = renderUnit(template(name), 'user', { ...VARS, backend: null, mode: 'write' });
+    // Changed for spec 2026-11-02 PR 5 "Several subharnesses": UnitVars carries the list `backends`.
+    const text = renderUnit(template(name), 'user', { ...VARS, backends: [], mode: 'write' });
     assert.equal(
       linesOf(text).some((line) => line.includes('/subharness')),
       false,
@@ -287,8 +292,41 @@ test('agent units of a deployment with no backend bind no backend folder at all'
 test("the core may write her backend's folder and names neither ~/.codex nor ~/.claude", () => {
   // Catches: the core unit keeps ~/.claude in ReadWritePaths, a folder that may not exist, so the core fails to start.
   for (const backend of ['codex', 'claude', 'opencode'] as const) {
-    const text = renderUnit(template('neptunia-core.service'), 'system', { ...VARS, backend });
+    // Changed for spec 2026-11-02 PR 5 "Several subharnesses": UnitVars carries the list `backends`.
+    const text = renderUnit(template('neptunia-core.service'), 'system', { ...VARS, backends: [backend] });
     assert.ok(covers(writableEntriesOf(text), placeOf(backend)), backend);
     assert.deepEqual(userHomesIn(text), [], backend);
   }
+});
+
+// Several subharnesses and the watcher's hour (spec 2026-11-02, PR 5 "Several subharnesses", "`selfimprovement` daily,
+// after the watcher"): an agent unit binds the folder of every connected backend, and the watcher timer fires at
+// `watcher.at`.
+
+test('agent units bind the folder of every connected backend', () => {
+  // Catches: only the first backend's folder is bound, so an agent the owner moved to claude cannot write claude's home.
+  for (const name of AGENTS) {
+    const text = renderUnit(template(name), 'user', { ...VARS, backends: ['codex', 'claude'], mode: 'write' });
+    assert.ok(covers(writableEntriesOf(text), placeOf('codex')), name);
+    assert.ok(covers(writableEntriesOf(text), placeOf('claude')), name);
+  }
+});
+
+test('the watcher timer fires at the hour it is rendered with', () => {
+  // Catches: watcher.at is stored but the timer keeps the template's midnight, so the watcher runs after her wake.
+  const text = renderUnit(template('neptunia-watcher.timer'), 'user', { ...VARS, watcherAt: '05:30' });
+  assert.deepEqual(valuesOf(text, 'OnCalendar'), ['*-*-* 05:30:00 UTC']);
+});
+
+test('the watcher timer rendered with no hour keeps the template line', () => {
+  // Catches: a missing hour renders an empty or "undefined" OnCalendar and systemd refuses the timer.
+  const text = renderUnit(template('neptunia-watcher.timer'), 'user', VARS);
+  assert.deepEqual(valuesOf(text, 'OnCalendar'), valuesOf(template('neptunia-watcher.timer'), 'OnCalendar'));
+});
+
+test("the watcher's hour changes no other timer", () => {
+  // Catches: every OnCalendar line is rewritten, and the hourly selfimprovement beat turns into a daily one.
+  const selfimprovement = template('neptunia-selfimprovement.timer');
+  const text = renderUnit(selfimprovement, 'user', { ...VARS, watcherAt: '05:30' });
+  assert.deepEqual(valuesOf(text, 'OnCalendar'), valuesOf(selfimprovement, 'OnCalendar'));
 });

@@ -50,9 +50,11 @@ The line never carries any text gh printed. The beat runs the check once before 
 
 The outbox row of a merged task, addressed to `persona:self`, is read as `landedFor` (`src/selfimprovement/landed.ts`) in two wakes, the `selfimprovement` wake and the heartbeat. Each shows the pull request's title and its paths through `labels.wake.landed` ([Prompt contract](prompt-contract.md)), never the diff, and marks the row delivered with `ackLanded` once its turn committed. Whichever wake comes first tells her, and a wake that did not commit tells her again. A landed fix does not also appear as a plain outbox row.
 
+The `selfimprovement` wake falls due once a day at `selfimprovement.at` (default `03:00` UTC), after the watcher's daily run, and carries the watcher's newest report when the watcher is on ([The watcher](watcher.md#her-selfimprovement-wake), [Inner life](inner-life.md#the-selfimprovement-wake)). The beat keeps its own hourly timer: it works the fixes already approved and does not wait for the wake.
+
 ## The beat as a unit
 
-`neptunia setup` renders `deploy/neptunia-selfimprovement.service` and `deploy/neptunia-selfimprovement.timer` when `selfimprovement.checkout` holds the absolute path of a checkout other than the deployed one ([Setup](setup.md#the-steps)). The service runs one beat with that checkout as its working directory and the deployment's private and data folders, and the timer starts it every hour. The owner enables the timer with `systemctl enable --now neptunia-selfimprovement.timer` (`--user` for a user unit). On a deployment without the setting no selfimprovement unit exists.
+`neptunia setup` turns `selfimprovement.enabled` on only when a subharness backend is connected and the push-right check passes ([Setup](setup.md#the-steps)). It renders `deploy/neptunia-selfimprovement.service` and `deploy/neptunia-selfimprovement.timer` when `selfimprovement.checkout` holds the absolute path of a checkout other than the deployed one ([Setup](setup.md#the-steps)). The service runs one beat with that checkout as its working directory and the deployment's private and data folders, and the timer starts it every hour, whatever `selfimprovement.at` says. The owner enables the timer with `systemctl enable --now neptunia-selfimprovement.timer` (`--user` for a user unit). On a deployment without the setting no selfimprovement unit exists.
 
 ## Settings
 
@@ -63,6 +65,7 @@ The outbox row of a merged task, addressed to `persona:self`, is read as `landed
 | `selfimprovement.base` | `main` | The branch worktrees start from and pull requests target |
 | `selfimprovement.checkout` | `null` | The dev checkout `neptunia setup` renders the selfimprovement units over; unset, no units |
 | `selfimprovement.repository` | `null` | The repository as `owner/name` her branches and pull requests go to; unset, every beat pauses |
+| `selfimprovement.at` | `03:00` | The time of the daily `selfimprovement` wake, `HH:MM` of the UTC day, asked by `neptunia setup` |
 
 The full list is in [Configuration](configuration.md#selfimprovement).
 

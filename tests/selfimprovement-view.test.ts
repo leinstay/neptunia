@@ -492,3 +492,18 @@ test('the outbox rows of other addressees are never shown to her', async () => {
   );
   assert.deepEqual(facts.outboxSeqs, [3]);
 });
+
+// The watcher's report in the facts (spec 2026-11-02, "`selfimprovement` daily, after the watcher").
+
+test('the watcher report handed in is carried in the facts as it is', async () => {
+  // Catches: the view drops the report it was given, so the block never reaches her wake.
+  const watcher = { day: '2026-11-01', forOwner: 'Look at the retries.', tasksFiled: '- T3 fix: retries' };
+  const facts = await buildSelfimprovementFacts(base([], { watcher }));
+  assert.deepEqual(facts.watcher, watcher);
+});
+
+test('with no watcher report handed in the facts carry none', async () => {
+  // Catches: an absent report becomes an empty object, and the text renders a block with no date.
+  const facts = await buildSelfimprovementFacts(base([]));
+  assert.equal(facts.watcher ?? null, null);
+});

@@ -52,6 +52,9 @@ function hotOf() {
         caps: { perChain: 3 },
       },
       heartbeat: { enabled: false, dueJitterMinutes: 0 },
+      // Proposed for spec 2026-11-02 "`selfimprovement` daily, after the watcher": the daily selfimprovement wake is off here too,
+      // or it runs at 03:00 of each day this rig crosses and is counted among the turns.
+      selfimprovement: { enabled: false },
     },
   };
 }

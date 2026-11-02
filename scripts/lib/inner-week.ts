@@ -207,6 +207,7 @@ export function fixtureConfig(
   agents: Untyped;
   wakes: Untyped;
   heartbeat: Untyped;
+  selfimprovement: { enabled: boolean };
 } {
   // A fixture writes the heartbeat under `wakes`; the engine reads it as `heartbeat`.
   const { heartbeat, ...life } = fixture.wakes ?? {};
@@ -231,6 +232,8 @@ export function fixtureConfig(
     },
     // The heartbeat is off in a fixture unless it asks for it: the shipped weeks predate it and count their wakes.
     heartbeat: { enabled: false, ...(heartbeat ?? {}) },
+    // The daily selfimprovement wake is off for the same reason: the shipped weeks count no wake of it.
+    selfimprovement: { enabled: false },
   };
 }
 

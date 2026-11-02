@@ -2,8 +2,9 @@
 // keys.json at the moment of the run, as Hermes' approval guard reads its mode on each check
 // (hermes_cli/approval_mode.py), so "subharness disable" and "subharness mode" act on the next run without a restart.
 //
-// A run is refused with `subharness-off` while the subharness is off, or when opencode is on a key that has left the
-// store, and with `not-installed` while the backend is not in `<private>/subharness/<backend>/` (src/subharness/place.ts),
+// An agent runs through the backend `subharness.uses` names for it, else through the first connected one. A run is
+// refused with `subharness-off` while no backend is connected, when the named backend is not connected, or when
+// opencode is on a key that has left the store, and with `not-installed` while the backend is not in `<private>/subharness/<backend>/` (src/subharness/place.ts),
 // whose binary every run starts with that folder's home in its environment. Otherwise the agent's mode (src/subharness/control.ts) becomes the backend's sandbox, and the child gets a
 // PATH on which `sudo` refuses unless the mode is `sudo`: a stand-in named `sudo` in a folder of its own comes first.
 // OpenCode gets the one extra key it was enabled with as OPENROUTER_API_KEY and nothing else key-like; codex and
@@ -17,7 +18,7 @@ import { createInstalledBackend } from '../agent-runner/backend.ts';
 import type { Backend, BackendResult, BackendRunOptions } from '../agent-runner/backend.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { log } from '../log.ts';
-import { modeOf } from './control.ts';
+import { backendOfAgent, modeOf } from './control.ts';
 import type { AgentMode } from './control.ts';
 import { hasExtraKey, readKeys } from '../keys/file.ts';
 
@@ -92,7 +93,7 @@ function envOf(deps: RunDeps, mode: AgentMode, keyValue: string | null): Record<
   return env;
 }
 
-/** Runs one agent through the backend the owner chose, in the mode the owner gave it. Resolves with `subharness-off` while off. */
+/** Runs one agent through its backend, in the mode the owner gave it. Resolves with `subharness-off` while it has none. */
 export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendResult> {
   let store;
   try {
@@ -104,7 +105,8 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
     });
     return off();
   }
-  const { backend: name, key, models } = store.subharness;
+  const { key, models } = store.subharness;
+  const name = backendOfAgent(store.subharness, run.agent);
   if (name === null) return off();
   if (name === 'opencode' && (key === null || !hasExtraKey(store, key))) return off();
   const mode = modeOf(store.subharness.modes, run.agent);

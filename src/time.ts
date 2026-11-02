@@ -8,7 +8,8 @@
 // Pure: the caller passes the clock reading and marks its state dirty.
 // It also turns a local wall time of an IANA zone into an instant and back
 // to a local date key (zonedEpoch / zonedDay), for dates a model writes in
-// the bot's time zone.
+// the bot's time zone. `isClockTime` checks an `HH:MM` setting of a daily
+// moment (`selfimprovement.at`, `watcher.at`).
 
 /** One minute in milliseconds. */
 export const MINUTE_MS = 60_000;
@@ -16,6 +17,11 @@ export const MINUTE_MS = 60_000;
 export const HOUR_MS = 60 * MINUTE_MS;
 /** One day in milliseconds. */
 export const DAY_MS = 24 * HOUR_MS;
+
+/** Whether `value` is a time of day written `HH:MM`, from `00:00` to `23:59`. */
+export function isClockTime(value: unknown): value is string {
+  return typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
 
 /**
  * The UTC date key (`YYYY-MM-DD`) of an epoch timestamp.
