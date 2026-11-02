@@ -322,7 +322,8 @@
   },
   "selfdev": {
     "mode": "approve",
-    "base": "main"
+    "base": "main",
+    "checkout": null
   },
   "diary": {
     "channelId": "",

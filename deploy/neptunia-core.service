@@ -27,10 +27,14 @@ Restart=on-failure
 RestartSec=5
 Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc
 Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
+# The subharness backend's binary (codex, claude) is found by name: the user's
+# own tools and node's folder go on the PATH.
+Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=-/opt/neptunia/etc/.env
 
 # The same hardening as neptunia-bot.service: writes go to the data and the
-# private directory only.
+# private directory only, and to the home folder of the subharness backend,
+# which `neptunia setup` adds while a backend is on.
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/opt/neptunia/data /opt/neptunia/etc

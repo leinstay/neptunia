@@ -127,7 +127,7 @@ import { createMessageHandler } from './behavior/pipeline.ts';
 import { createLeasedAttention } from './behavior/attention.ts';
 import { RELATIONSHIP_LIMITS } from './memory/text-limits.ts';
 import { createBackend } from './agent-runner/backend.ts';
-import { applyModeToUnit, installedTarget, spawnRun } from './setup/install.ts';
+import { deferModeToUnit } from './setup/install.ts';
 import { REPLY_CHECK_MS } from './subharness/control.ts';
 import { objOf } from './tools/types.ts';
 import type { Untyped } from './tools/types.ts';
@@ -1356,7 +1356,7 @@ async function buildCore(
           const base = objOf(objOf(hot.config).llm).baseUrl;
           return typeof base === 'string' ? base : undefined;
         },
-        applyMode: (agent) => applyModeToUnit(installedTarget(paths), spawnRun, agent),
+        applyMode: (agent) => Promise.resolve(deferModeToUnit(agent)),
       },
     }),
     interfaces: interfaceLinks,

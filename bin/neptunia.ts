@@ -10,7 +10,7 @@
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
 //   neptunia plugin run <name>                   one plugin (deploy/neptunia-plugin@.service)
 //   neptunia service start|stop|restart|status [<unit> ...]   the units, through systemctl
-//   neptunia setup [--system] [<step>]           the install of one user: folders, keys file, units, linger, the core
+//   neptunia setup [--system] [--node <path>] [<step>]  the install of one user: folders, keys file, units, linger, the core
 //   neptunia task <command> [options]            the task board's command line (bin/neptunia-task.ts)
 //   neptunia watcher run                         one run of the daily watcher (deploy/neptunia-watcher.service)
 //
@@ -89,7 +89,7 @@ import { agentSettings, profileOf } from '../src/agent-runner/profiles.ts';
 import type { RunnerTask } from '../src/agent-runner/protocol.ts';
 import { startSweeper } from '../src/agent-runner/sweep.ts';
 import { spawnRun } from '../src/setup/install.ts';
-import { SetupUsageError, parseSetupArgs, runSetup } from '../src/setup/run.ts';
+import { SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/run.ts';
 import type { SetupReport } from '../src/setup/run.ts';
 import { featureRows } from '../src/subharness/summary.ts';
 import { defaultDenyDir, runAgent } from '../src/subharness/run.ts';
@@ -154,7 +154,7 @@ const USAGE = [
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
   '       neptunia plugin run <name>',
   '       neptunia service start|stop|restart|status [<unit> ...]',
-  '       neptunia setup [--system] [folders|keys-file|units|linger|core]',
+  '       neptunia setup [--system] [--node <path>] [folders|keys-file|units|linger|core]',
   '       neptunia task <command> [options]   (neptunia task help)',
   '       neptunia selfdev run',
   '       neptunia watcher run',
@@ -1130,16 +1130,17 @@ async function runSetupCommand(argv: ReadonlyArray<string>): Promise<void> {
     throw err;
   }
   const where = paths();
+  const { node, ...rest } = parsed;
   const report = await runSetup(
     {
-      ...parsed,
+      ...rest,
       user: os.userInfo().username,
       group: groupName(),
       home: os.homedir(),
       rootDir: where.rootDir,
       privateDir: where.privateDir,
       dataDir: where.dataDir,
-      node: process.execPath,
+      node: nodeOf({ given: node, argv0: process.argv0, execPath: process.execPath, pathEnv: process.env.PATH }),
       ...(process.env.XDG_CONFIG_HOME ? { xdgConfigHome: process.env.XDG_CONFIG_HOME } : {}),
     },
     { run: spawnRun, openChat: (firstLine) => runChat(firstLine), report: printSetup }

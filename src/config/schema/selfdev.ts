@@ -18,4 +18,12 @@ export const SELFDEV: ReadonlyArray<SchemaEntry> = [
     'default': 'main',
     'text': 'The branch her worktrees start from and her pull requests target',
   },
+  {
+    'key': 'selfdev.checkout',
+    'types': ['string', 'null'],
+    'reader': 'src/setup/run.ts',
+    'default': null,
+    'text':
+      'The absolute path of the dev checkout that `neptunia setup` renders `neptunia-selfdev.service` and its timer over, so the beat works there. Setup renders no selfdev units while it is unset, relative or the deployed checkout itself',
+  },
 ];

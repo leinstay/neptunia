@@ -505,6 +505,7 @@ Settings for the fixes she files against her own code. See [Self-development](se
 |---|---|---|---|---|
 | `selfdev.mode` | string | `"approve"` | Who merges a pull request she opened for her own code: `approve` waits for the owner once CI is green, `auto` has the engine merge it when CI is green | `src/selfdev/settings.ts` |
 | `selfdev.base` | string | `"main"` | The branch her worktrees start from and her pull requests target | `src/selfdev/settings.ts` |
+| `selfdev.checkout` | string, null | `null` | The absolute path of the dev checkout that `neptunia setup` renders `neptunia-selfdev.service` and its timer over, so the beat works there. Setup renders no selfdev units while it is unset, relative or the deployed checkout itself | `src/setup/run.ts` |
 
 ## `diary`
 
