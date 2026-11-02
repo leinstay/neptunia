@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { readKeys } from '../subharness/keys-file.ts';
+import { readKeys } from '../keys/file.ts';
 import { modeOf } from '../subharness/control.ts';
 import { SELFDEV_UNIT_FILES, UNIT_AGENTS, renderUnit } from './units.ts';
 import type { UnitVars } from './units.ts';

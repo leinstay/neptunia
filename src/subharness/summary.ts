@@ -2,7 +2,7 @@
 // whether it is available and a hint) that its doctor and its setup summary both print. Here the rows come from
 // keys.json, and `neptunia doctor` carries them as one `features` check (bin/neptunia.ts). Reads only, creates nothing.
 
-import { readKeys, hasExtraKey } from './keys-file.ts';
+import { readKeys, hasExtraKey } from '../keys/file.ts';
 
 /** One feature the owner switches on from the chat. */
 export type FeatureRow = { name: 'subharness' | 'simulation'; available: boolean; hint: string | null };

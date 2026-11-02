@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readConfig } from '../config.ts';
 import { selfdevSettings } from '../selfdev/settings.ts';
-import { emptyKeys, writeKeys } from '../subharness/keys-file.ts';
+import { emptyKeys, writeKeys } from '../keys/file.ts';
 import { installUnits, systemctlOf, unitDirOf, whyFailed } from './install.ts';
 import type { RunResult, UnitTarget } from './install.ts';
 import { SELFDEV_UNIT_FILES, UNIT_FILES } from './units.ts';

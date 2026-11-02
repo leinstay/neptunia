@@ -5,7 +5,7 @@
 // rather than an error, so the card still renders. Nothing here logs or returns a key anywhere but to its caller.
 
 import { keysFileExists } from './store.ts';
-import { readKeys } from '../subharness/keys-file.ts';
+import { readKeys } from './file.ts';
 
 export type CardKeys = { simKey: string | null; managementKey: string | null };
 

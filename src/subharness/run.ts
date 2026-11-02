@@ -18,7 +18,7 @@ import type { BackendName } from '../agent-runner/profiles.ts';
 import { log } from '../log.ts';
 import { modeOf } from './control.ts';
 import type { AgentMode } from './control.ts';
-import { hasExtraKey, readKeys } from './keys-file.ts';
+import { hasExtraKey, readKeys } from '../keys/file.ts';
 
 /** One agent run. */
 export type AgentRun = {
