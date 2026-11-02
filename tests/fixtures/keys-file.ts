@@ -7,12 +7,25 @@ import path from 'node:path';
 /** A key of the `core` list. */
 export type CoreKeyRow = { name: string; value: string; grant?: number; resetDay?: number };
 
+/** A backend name as keys.json writes it. */
+type Backend = 'codex' | 'claude' | 'opencode';
+
 /** keys.json. */
 export type KeysFile = {
   core: Array<CoreKeyRow>;
   extra: Record<string, string>;
   roles: Record<string, string>;
-  subharness: { backend: 'codex' | 'claude' | 'opencode' | null; key: string | null; modes: Record<string, string>; models?: Record<string, string> };
+  subharness: {
+    /** the old single backend, read as a one-element list */
+    backend?: Backend | null;
+    /** the connected backends */
+    backends?: Array<Backend>;
+    key: string | null;
+    modes: Record<string, string>;
+    models?: Record<string, string>;
+    /** the backend each agent runs through */
+    uses?: Record<string, Backend>;
+  };
   simulation: { key: string | null };
 };
 

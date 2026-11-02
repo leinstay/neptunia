@@ -292,3 +292,35 @@ test("the core may write her backend's folder and names neither ~/.codex nor ~/.
     assert.deepEqual(userHomesIn(text), [], backend);
   }
 });
+
+// Several subharnesses and the watcher's hour (spec 2026-11-02, PR 5 "Several subharnesses", "`selfimprovement` daily,
+// after the watcher"): an agent unit binds the folder of every connected backend, and the watcher timer fires at
+// `watcher.at`.
+
+test('agent units bind the folder of every connected backend', () => {
+  // Catches: only the first backend's folder is bound, so an agent the owner moved to claude cannot write claude's home.
+  for (const name of AGENTS) {
+    const text = renderUnit(template(name), 'user', { ...VARS, backends: ['codex', 'claude'], mode: 'write' });
+    assert.ok(covers(writableEntriesOf(text), placeOf('codex')), name);
+    assert.ok(covers(writableEntriesOf(text), placeOf('claude')), name);
+  }
+});
+
+test('the watcher timer fires at the hour it is rendered with', () => {
+  // Catches: watcher.at is stored but the timer keeps the template's midnight, so the watcher runs after her wake.
+  const text = renderUnit(template('neptunia-watcher.timer'), 'user', { ...VARS, watcherAt: '05:30' });
+  assert.deepEqual(valuesOf(text, 'OnCalendar'), ['*-*-* 05:30:00 UTC']);
+});
+
+test('the watcher timer rendered with no hour keeps the template line', () => {
+  // Catches: a missing hour renders an empty or "undefined" OnCalendar and systemd refuses the timer.
+  const text = renderUnit(template('neptunia-watcher.timer'), 'user', VARS);
+  assert.deepEqual(valuesOf(text, 'OnCalendar'), valuesOf(template('neptunia-watcher.timer'), 'OnCalendar'));
+});
+
+test("the watcher's hour changes no other timer", () => {
+  // Catches: every OnCalendar line is rewritten, and the hourly selfimprovement beat turns into a daily one.
+  const selfimprovement = template('neptunia-selfimprovement.timer');
+  const text = renderUnit(selfimprovement, 'user', { ...VARS, watcherAt: '05:30' });
+  assert.deepEqual(valuesOf(text, 'OnCalendar'), valuesOf(selfimprovement, 'OnCalendar'));
+});

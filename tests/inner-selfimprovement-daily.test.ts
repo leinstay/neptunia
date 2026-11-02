@@ -1,0 +1,234 @@
+// The daily selfimprovement wake (src/behavior/inner/selfimprovement.ts, spec 2026-11-02 "`selfimprovement` daily,
+// after the watcher"): once a day at `selfimprovement.at` of the server clock (UTC), never twice a day, never before
+// the hour, and its facts carry the newest watcher report when the source gives one. The pure rule first, then the
+// inner life over a fake turn runner with the clock injected. Each test names the bug it catches.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createInnerLife } from '../src/behavior/inner.ts';
+import { innerSettings } from '../src/behavior/inner/settings.ts';
+import { dailyWake } from '../src/behavior/inner/selfimprovement.ts';
+import { createEventDoor } from '../src/interface/door.ts';
+import { createIntentionService } from '../src/intentions/service.ts';
+import { createIntentionStores } from '../src/intentions/store.ts';
+import type { WatcherNews } from '../src/watcher/news.ts';
+import { tempDir } from './fixtures/tmp.ts';
+import { useIface, world } from './fixtures/turn-world.ts';
+
+useIface('fake');
+const GUILD = 'g1';
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+const SILENT = { info() {}, warn() {}, error() {}, debug() {} };
+const at = (iso: string): number => Date.parse(iso);
+const SLOT = at('2026-11-02T03:00:00Z');
+
+// ---- the rule ----
+
+test('the wake falls due at the hour of the day, its moment being that hour', () => {
+  // Catches: the wake is timed by the tick that saw it, so two ticks of one day give two ids and two wakes.
+  const wake = dailyWake({ now: SLOT, at: '03:00', lastAt: SLOT - DAY });
+  assert.equal(wake?.kind, 'selfimprovement');
+  assert.equal(wake?.reason, 'daily');
+  assert.equal(wake?.dueAt, SLOT);
+});
+
+test('before the hour no wake is due', () => {
+  // Catches: the day is compared and not the hour, so the wake runs at midnight before the watcher wrote its report.
+  assert.equal(dailyWake({ now: SLOT - MINUTE, at: '03:00', lastAt: SLOT - DAY }), null);
+});
+
+test('once the day has had its wake no second one is due that day', () => {
+  // Catches: the wake fires on every tick after the hour, sixty times an hour.
+  assert.equal(dailyWake({ now: SLOT + 5 * HOUR, at: '03:00', lastAt: SLOT }), null);
+});
+
+test('a wake missed at the hour is due later that day with the same moment', () => {
+  // Catches: a core that was down at 03:00 skips the day, or the late wake gets an id of its own and the day has two.
+  const late = dailyWake({ now: SLOT + 12 * HOUR, at: '03:00', lastAt: SLOT - DAY });
+  assert.equal(late?.dueAt, SLOT);
+  assert.equal(late?.id, dailyWake({ now: SLOT, at: '03:00', lastAt: SLOT - DAY })?.id);
+});
+
+test('the next day the wake is due again at the hour', () => {
+  // Catches: lastAt is compared by the day it was set and not by the hour, so a wake at 23:00 blocks the next morning.
+  assert.equal(dailyWake({ now: SLOT + DAY, at: '03:00', lastAt: SLOT })?.dueAt, SLOT + DAY);
+});
+
+test('the hour of the setting is the one used, not a fixed one', () => {
+  // Catches: the hour is read once or hard-coded, so selfimprovement.at changes nothing.
+  assert.equal(dailyWake({ now: at('2026-11-02T05:44:00Z'), at: '05:45', lastAt: SLOT - DAY }), null);
+  assert.equal(
+    dailyWake({ now: at('2026-11-02T05:45:00Z'), at: '05:45', lastAt: SLOT - DAY })?.dueAt,
+    at('2026-11-02T05:45:00Z')
+  );
+});
+
+test('with no wake moment known yet no wake is due', () => {
+  // Catches: a fresh install without a stored clock throws or wakes at once.
+  assert.equal(dailyWake({ now: SLOT, at: '03:00', lastAt: null }), null);
+});
+
+test('the settings read the hour of selfimprovement.at, and anything that is no HH:MM as no setting', () => {
+  // Catches: "25:00" or "3" is passed on, and the wake's moment is NaN so it never falls due.
+  assert.equal(innerSettings({ selfimprovement: { at: '05:45' } }).wakes.selfimprovement.at, '05:45');
+  const fallback = innerSettings({}).wakes.selfimprovement.at;
+  for (const bad of ['25:00', '3', '03:60', 3])
+    assert.equal(innerSettings({ selfimprovement: { at: bad } }).wakes.selfimprovement.at, fallback, String(bad));
+});
+
+// ---- the inner life ----
+
+type Call = {
+  inner: {
+    wake: {
+      kind: string;
+      items: Array<{ reason: string }>;
+      selfimprovement?: { shapes: Array<unknown>; watcher?: WatcherNews | null } | null;
+    };
+  };
+};
+
+function setup(start: number, watcher?: (now: number) => WatcherNews | null) {
+  const clock = { t: start };
+  world().channel({ id: 'c1', name: 'chan-c1', guildId: GUILD, permissions: { send: true } });
+  const hot = {
+    config: {
+      bot: { timezone: 'UTC' },
+      features: { wakes: true, intentions: true, journal: true },
+      mention: { oneAtATime: true },
+      wakes: {
+        mode: 'shadow',
+        tickSeconds: 60,
+        queueMax: 20,
+        chatMessages: 30,
+        review: { enabled: false, historyDays: 14 },
+        caps: { perChain: 3 },
+      },
+      heartbeat: { enabled: false },
+      selfimprovement: { enabled: true, at: '03:00', failuresPerShape: 3 },
+    },
+  };
+  const service = createIntentionService({
+    stores: createIntentionStores({ dataDir: tempDir('nep-daily-'), now: () => clock.t, log: SILENT }),
+    hot,
+    getGuildId: () => GUILD,
+    now: () => clock.t,
+    log: SILENT,
+  });
+  const calls: Array<Call> = [];
+  const turns = {
+    isAnyBusy: () => false,
+    runTurn: (params: Call) => {
+      calls.push(params);
+      return Promise.resolve({
+        outcome: 'skip',
+        reason: 'nothing-to-do',
+        inner: { actions: [], turnId: `t-${calls.length}` },
+      });
+    },
+  };
+  const journal = { inner: () => Promise.resolve(), read: () => [] };
+  let life: ReturnType<typeof createInnerLife> | null = null;
+  const door = createEventDoor({ handlers: { 'inner.wake': (event: object) => life?.onWake(event) }, log: SILENT });
+  life = createInnerLife({
+    hot,
+    dataDir: tempDir('nep-daily-inner-'),
+    turns,
+    intentions: service,
+    journal,
+    reads: world().reads,
+    iface: () => 'fake',
+    conversationName: (id: string) => `chan-${id}`,
+    submit: (event: object) => door.submit(event),
+    store: { state: { data: {} } },
+    getGuildId: () => GUILD,
+    meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
+    selfimprovement: {
+      granted: () => [],
+      skills: () => [],
+      proposals: () => Promise.resolve({ entries: [], outbox: [] }),
+      ackOutbox: () => Promise.resolve(),
+      ...(watcher === undefined ? {} : { watcher }),
+    },
+    rng: () => 0.5,
+    now: () => clock.t,
+    log: SILENT,
+  });
+  return { clock, life, calls };
+}
+
+const selfimprovementCalls = (calls: ReadonlyArray<Call>): Array<Call> =>
+  calls.filter((call) => call.inner.wake.kind === 'selfimprovement');
+
+test('the tick at the hour raises one daily wake, and the ticks after it that day raise none', async () => {
+  // Catches: selfimprovementDue still waits seven days on the heartbeat clock, or wakes her again on the next tick.
+  const run = setup(SLOT - HOUR);
+  await run.life.tick();
+  run.clock.t = SLOT;
+  await run.life.tick();
+  run.clock.t = SLOT + 30 * MINUTE;
+  await run.life.tick();
+  run.clock.t = SLOT + 10 * HOUR;
+  await run.life.tick();
+  const woken = selfimprovementCalls(run.calls);
+  assert.equal(woken.length, 1);
+  assert.equal(woken[0]?.inner.wake.items[0]?.reason, 'daily');
+});
+
+test('no daily wake is raised before the hour', async () => {
+  // Catches: the first tick of the day raises the wake at once, before the watcher's report exists.
+  const run = setup(SLOT - 3 * HOUR);
+  await run.life.tick();
+  run.clock.t = SLOT - MINUTE;
+  await run.life.tick();
+  assert.equal(selfimprovementCalls(run.calls).length, 0);
+});
+
+test('the next day the wake comes again at the hour', async () => {
+  // Catches: the wake's moment is stored as a day and the next day's comparison never passes, so she wakes once ever.
+  const run = setup(SLOT - HOUR);
+  await run.life.tick();
+  run.clock.t = SLOT;
+  await run.life.tick();
+  run.clock.t = SLOT + DAY;
+  await run.life.tick();
+  assert.equal(selfimprovementCalls(run.calls).length, 2);
+});
+
+test("the wake's facts carry the watcher report the source gives for the wake's time", async () => {
+  // Catches: the report is read but never put into the facts, or read with the tick's clock instead of the wake's.
+  const news: WatcherNews = { day: '2026-11-02', forOwner: 'Look at the retries.', tasksFiled: '- T3 fix: retries' };
+  const asked: Array<number> = [];
+  const run = setup(SLOT - HOUR, (now) => (asked.push(now), news));
+  await run.life.tick();
+  run.clock.t = SLOT;
+  await run.life.tick();
+  assert.deepEqual(selfimprovementCalls(run.calls)[0]?.inner.wake.selfimprovement?.watcher, news);
+  assert.ok(asked.includes(SLOT), asked.join(','));
+});
+
+test('a watcher source that gives nothing leaves the report out of the facts', async () => {
+  // Catches: a null report becomes an empty object, which the text renders as a block without a date.
+  const run = setup(SLOT - HOUR, () => null);
+  await run.life.tick();
+  run.clock.t = SLOT;
+  await run.life.tick();
+  const woken = selfimprovementCalls(run.calls);
+  assert.equal(woken.length, 1);
+  assert.equal(woken[0]?.inner.wake.selfimprovement?.watcher ?? null, null);
+});
+
+test('a watcher source that throws leaves the report out and the wake keeps its other facts', async () => {
+  // Catches: a broken reports folder fails the whole view, and the wake runs with no facts at all.
+  const run = setup(SLOT - HOUR, () => {
+    throw new Error('EACCES');
+  });
+  await run.life.tick();
+  run.clock.t = SLOT;
+  await run.life.tick();
+  const woken = selfimprovementCalls(run.calls);
+  assert.equal(woken.length, 1);
+  assert.deepEqual(woken[0]?.inner.wake.selfimprovement?.shapes, []);
+  assert.equal(woken[0]?.inner.wake.selfimprovement?.watcher ?? null, null);
+});

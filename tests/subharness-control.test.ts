@@ -300,3 +300,100 @@ test('a backend that is not installed in her folder is refused as not-installed 
   assert.equal(result.changed, false);
   assert.equal(readKeysFile(dir).subharness.backend, null);
 });
+
+// Several subharnesses (spec 2026-11-02, PR 5): enable adds one backend to `subharness.backends` after its check,
+// disable removes one, and the status lists every one connected.
+
+test('enabling a second backend keeps the first one connected', async () => {
+  // Catches: enable still replaces the single backend, so connecting claude for the watcher cuts off codex for errands.
+  const { deps, dir } = rig();
+  await enableSubharness(deps, 'codex');
+  const second = await enableSubharness(deps, 'claude');
+  assert.equal(second.ok, true);
+  assert.deepEqual(readKeysFile(dir).subharness.backends, ['codex', 'claude']);
+});
+
+test('enabling a backend that is already in the list adds it no second time and runs no check', async () => {
+  // Catches: a repeat enable lists codex twice, or spends a reply check on a backend already proven.
+  const { deps, dir, ran } = rig();
+  await enableSubharness(deps, 'codex');
+  await enableSubharness(deps, 'claude');
+  const before = ran.length;
+  const again = await enableSubharness(deps, 'codex');
+  assert.equal(again.changed, false);
+  assert.equal(ran.length, before);
+  assert.deepEqual(readKeysFile(dir).subharness.backends, ['codex', 'claude']);
+});
+
+test('a second backend that fails its check is not added and the first stays', async () => {
+  // Catches: the list is written before the check, so a claude that is not logged in is listed and its agents fail.
+  const { deps, dir } = rig();
+  await enableSubharness(deps, 'codex');
+  const failing: EnableDeps = { ...deps, runBackend: () => Promise.resolve(SILENT) };
+  const result = await enableSubharness(failing, 'claude');
+  assert.equal(result.ok, false);
+  assert.deepEqual(readKeysFile(dir).subharness.backends, ['codex']);
+});
+
+test('opencode joins the list with its key name beside a backend that takes none', async () => {
+  // Catches: enabling opencode beside codex drops codex, or enabling codex afterwards clears the key opencode runs on.
+  const { deps, dir } = rig();
+  await enableSubharness(deps, 'codex');
+  await enableSubharness(deps, 'opencode', 'opencode');
+  await enableSubharness(deps, 'claude');
+  const stored = readKeysFile(dir).subharness;
+  assert.deepEqual(stored.backends, ['codex', 'opencode', 'claude']);
+  assert.equal(stored.key, 'opencode');
+});
+
+test('disabling one backend removes it and leaves the others connected', async () => {
+  // Catches: disable still turns the whole subharness off, so dropping claude also stops every codex errand.
+  const { deps, dir } = rig();
+  await enableSubharness(deps, 'codex');
+  await enableSubharness(deps, 'claude');
+  const result = await disableSubharness(dir, 'claude');
+  assert.equal(result.ok, true);
+  assert.equal(result.changed, true);
+  assert.deepEqual(readKeysFile(dir).subharness.backends, ['codex']);
+});
+
+test('disabling opencode clears the key it ran on and keeps the backend beside it', async () => {
+  // Catches: the key name outlives opencode, and a later enable of opencode reuses it without the owner naming one.
+  const { deps, dir } = rig();
+  await enableSubharness(deps, 'codex');
+  await enableSubharness(deps, 'opencode', 'opencode');
+  await disableSubharness(dir, 'opencode');
+  const stored = readKeysFile(dir).subharness;
+  assert.deepEqual(stored.backends, ['codex']);
+  assert.equal(stored.key, null);
+});
+
+test('disabling a backend that is not connected changes nothing, and a name that is no backend is refused', async () => {
+  // Catches: disable of a backend never enabled reports a change, or a typo empties the list.
+  const { deps, dir } = rig();
+  await enableSubharness(deps, 'codex');
+  assert.equal((await disableSubharness(dir, 'claude')).changed, false);
+  assert.equal((await disableSubharness(dir, 'codx')).code, 'unknown-backend');
+  assert.deepEqual(readKeysFile(dir).subharness.backends, ['codex']);
+});
+
+test('disabling the last backend turns the subharness off and keeps the modes', async () => {
+  // Catches: an empty list is stored as something other than off, or the owner's sudo for dev is reset on the way.
+  const { deps, dir } = rig();
+  await enableSubharness(deps, 'codex');
+  await setAgentMode(dir, 'dev', 'sudo');
+  await disableSubharness(dir, 'codex');
+  const view = await subharnessView(dir);
+  assert.deepEqual(view.backends, []);
+  assert.equal(view.modes.dev, 'sudo');
+});
+
+test('the status names every connected backend', async () => {
+  // Catches: the status shows only the first backend, so the owner cannot see that claude is connected too.
+  const { deps, dir } = rig();
+  await enableSubharness(deps, 'codex');
+  await enableSubharness(deps, 'claude');
+  const text = statusText(await subharnessView(dir));
+  assert.match(text, /codex/);
+  assert.match(text, /claude/);
+});
