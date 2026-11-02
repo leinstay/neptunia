@@ -24,6 +24,7 @@ import { memoryHealth } from '../../health/memory.ts';
 import { serverHealth, systemProbe, worse } from '../../health/server.ts';
 import type { HealthStatus } from '../../health/server.ts';
 import type { Dialog } from '../../keys/commands.ts';
+import { setInterfaceToken } from './interface-token.ts';
 import { DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../../llm/roles.ts';
 import { backupDatabase, backupName, backupSettings, backupsIn, partialOf } from '../../memory/db/backup.ts';
 import { grantedSkillNames } from '../../tools/discovery.ts';
@@ -485,7 +486,8 @@ export function createConsole(deps: ConsoleDeps): {
     }
   }
 
-  // `/skills`, `/plugins`, `/subharness` and `/simulation` have a module of their own; every other command is answered above.
+  // `/skills`, `/plugins`, `/subharness`, `/simulation` and `/interface token set` have a module of their own; every other
+  // command is answered above.
   return {
     run: (name, args, requester, dialog = null) => {
       const keys = deps.keys;
@@ -495,6 +497,8 @@ export function createConsole(deps: ConsoleDeps): {
       if (name.startsWith(PLUGINS_PREFIX)) return pluginsCommand(deps.plugins, name, args);
       if (name.startsWith(SUBHARNESS_PREFIX)) return subharnessCommand(subharnessDeps(deps), name, args);
       if (name.startsWith(SIMULATION_PREFIX)) return simulationCommand(deps.privateDir, name, args);
+      if (name === 'interface.token.set')
+        return setInterfaceToken({ privateDir: deps.privateDir, iface: text(args.name), dialog });
       return run(name, args, requester);
     },
   };

@@ -16,6 +16,10 @@
 // `--dry-run` prints each move as `from -> to`, each key nothing reads any more as `<path> dropped (no reader)`, and
 // writes nothing. A second run finds nothing to move.
 //
+// `llm.keyByRole` and `llm.keys` are dropped, one line each and one naming `scripts/keys-import.ts`, once `keys.json`
+// sits in the private directory of the file (the folder holding `config.local/`, or the folder of `config.local.json`).
+// Without it both stay, and one line says to run `scripts/keys-import.ts` first.
+//
 // The config cut (src/config/cut.ts) runs after the moves. It prints `<key> dropped (<becomes>)` for each key that
 // left the settings, `<key> differs: live <json>, constant <json>` for each live value apart from the constant that
 // replaced it, `<from> -> <to>` for the two privacy switches, and `<key> -> config.local/interfaces/discord.json` for
@@ -38,6 +42,7 @@ import { CUT_KEYS, cutConfigKeys } from '../src/config/cut.ts';
 import { agentSettings } from '../src/agent-runner/profiles.ts';
 import { grantedToPersona } from '../src/tools/access.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
+import { keysFileExists } from '../src/keys/store.ts';
 import { CliError, parseFlags, privateDirOf, runCli } from './lib/cli.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
@@ -215,6 +220,47 @@ function writeInterfaceFile(target: string, moved: Record<string, unknown>) {
   fs.writeFileSync(target, `${JSON.stringify(deepMerge(moved, objectOf(held)), null, 2)}\n`);
 }
 
+/** The key settings `scripts/keys-import.ts` carries into keys.json, under `llm`. */
+const KEY_SETTINGS = ['keyByRole', 'keys'];
+
+/**
+ * The private directory of the settings file `file`: the folder that holds `config.local/` for a file of the new
+ * layout, the file's own folder for `config.local.json` of the old one.
+ */
+function privateDirOfFile(file: string): string {
+  const dir = path.dirname(file);
+  return path.basename(dir) === LOCAL_CONFIG_DIR ? path.dirname(dir) : dir;
+}
+
+/**
+ * The old key settings of a layer: dropped with a line each once keys.json sits in the private directory of `file`,
+ * kept with a line that says to import them first while it does not. A layer with neither gives no line.
+ */
+function keySettings(
+  config: Record<string, unknown>,
+  file: string
+): { config: Record<string, unknown>; lines: Array<string>; note: string } {
+  const llm = objectOf(config.llm);
+  const present = KEY_SETTINGS.filter((key) => Object.hasOwn(llm, key));
+  if (present.length === 0) return { config, lines: [], note: '' };
+  if (!keysFileExists(privateDirOfFile(file)))
+    return {
+      config,
+      lines: [],
+      note: `${present.map((key) => `llm.${key}`).join(' and ')} kept: keys.json does not exist yet; run scripts/keys-import.ts first
+`,
+    };
+  const rest = Object.fromEntries(Object.entries(llm).filter(([key]) => !KEY_SETTINGS.includes(key)));
+  return {
+    config: { ...config, llm: rest },
+    lines: [
+      ...present.map((key) => `llm.${key} dropped (the keys live in keys.json)`),
+      'the keys of those settings were carried into keys.json by scripts/keys-import.ts',
+    ],
+    note: '',
+  };
+}
+
 export function main(argv: Array<string>): Promise<string> {
   return Promise.resolve(migrate(argv));
 }
@@ -246,19 +292,21 @@ function migrate(argv: Array<string>): string {
     throw new CliError(`${file} must hold a JSON object; nothing was changed`);
   const diaryMirror = hasDiaryMirror(flags['--db']);
   const { config: movedConfig, moved, shadowed, dropped, toDatabase } = moveConfigKeys(parsed, { diaryMirror });
-  const { config, cutLines, discord } = cutReport(movedConfig);
+  const { config: cutConfig, cutLines, discord } = cutReport(movedConfig);
+  const { config, lines: keyLines, note } = keySettings(cutConfig, file);
   const lines = [
     ...moved.map((move) => `${move.from} -> ${move.to}`),
     ...shadowed.map((move) => `${move.from} -> ${move.to} (already set; the old key is dropped)`),
     ...dropped.map((key) => `${key} dropped (no reader)`),
     ...toDatabase.map((key) => `${key} -> memory database (its diary mirror)`),
     ...cutLines,
+    ...keyLines,
   ];
   if (flags['--apply'] && lines.length > 0) writeMigrated(file, config, discord);
   const kept = Object.hasOwn(objectOf(config.diary), 'channelId')
     ? `diary.channelId kept: the memory database ${typeof flags['--db'] === 'string' ? 'has no diary mirror yet' : 'was not given (--db)'}\n`
     : '';
-  const moves = `${lines.length === 0 ? 'nothing to move\n' : `${lines.join('\n')}\n`}${kept}`;
+  const moves = `${lines.length === 0 ? 'nothing to move\n' : `${lines.join('\n')}\n`}${kept}${note}`;
   if (typeof flags['--compare-with'] !== 'string') return moves;
   const report = compared(
     parsed,

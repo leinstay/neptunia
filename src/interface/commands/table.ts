@@ -301,25 +301,33 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'interface',
-    help: 'the interfaces: list, enable <name>, disable <name>, <name> <sub>',
+    help: 'the interfaces: list, enable <name>, disable <name>, token set <name>, <name> <sub>',
     args: [],
     defaultSubcommand: 'list',
     subcommands: [
       sub('list', 'every interface, whether it is enabled and whether it is connected'),
       sub('enable', 'enable an interface', [arg('name')]),
       sub('disable', 'disable an interface', [arg('name')]),
+      sub('token.set', 'save the platform token of an interface; the chat asks for it without showing it', [
+        arg('name'),
+      ]),
     ],
     otherwise: sub('command', "an interface's own subcommand", [arg('name'), arg('sub'), arg('rest', false)]),
   },
   {
     name: 'keys',
-    help: 'the model keys: core add|remove|list, extra add|remove|list, bind <role> <name>, unbind <role>, check <role>',
+    help: 'the model keys: core add|remove|list|grant, extra add|remove|list, bind <role> <name>, unbind <role>, check <role>',
     args: [],
     needsSubcommand: true,
     subcommands: [
       sub('core.add', 'add a core key; the chat asks for the value without showing it', [arg('name')]),
       sub('core.remove', 'remove a core key; the last one pauses her until the next add', [arg('name')]),
       sub('core.list', 'the core keys with their last four characters, grants and the one in use'),
+      sub('core.grant', 'set the grant of a core key in USD and its reset day, or none to clear it', [
+        arg('name'),
+        arg('usd'),
+        arg('day', false),
+      ]),
       sub('extra.add', 'add an extra key; the chat asks for the value without showing it', [arg('name')]),
       sub('extra.remove', 'remove an extra key no role is bound to', [arg('name')]),
       sub('extra.list', 'the extra keys with the roles bound to them'),
