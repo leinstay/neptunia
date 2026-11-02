@@ -34,7 +34,7 @@ async function bodyOf(
   const llm = createLlm({
     apiKey: 'k',
     getConfig: () => configWith(reasoningByRole),
-    calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
+    calibrator: { apply: (n: number) => n, observe: () => {} },
     state: { data: {}, markDirty: () => {} },
     fetchImpl: (_url: unknown, init?: RequestInit) => {
       sent.push(JSON.parse(wrongly<string>(init?.body)));
