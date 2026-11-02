@@ -189,7 +189,7 @@ function deskOver() {
   const taskCalls: Array<string> = [];
   const desk = createCommandDesk({
     console: {
-      run: (name) => {
+      run: (name: string) => {
         consoleCalls.push(name);
         return Promise.resolve({ text: 'ran', status: 'ok' });
       },
@@ -200,7 +200,7 @@ function deskOver() {
     },
     guildId: () => null,
     tasks: {
-      command: (_principal, name) => {
+      command: (_principal: string, name: string) => {
         taskCalls.push(name);
         return Promise.resolve({ text: 'board', status: 'invalid' });
       },

@@ -119,24 +119,34 @@ test('user units name no User= or Group= and install into the default target', (
   ]);
 });
 
-test('user units drop what would stop an agent in sudo or cannot hold in a user manager', () => {
-  // Bug: NoNewPrivileges stops sudo for every mode; a read-only system or an address allow-list contradicts the modes.
+const MOUNT_SANDBOX = ['ProtectSystem', 'ProtectHome', 'ReadWritePaths', 'BindPaths', 'BindReadOnlyPaths'];
+const STOPS_SUDO = ['NoNewPrivileges', 'CapabilityBoundingSet'];
+
+test('agent units keep every sandbox directive in read and write, drop the mount sandbox in full, and sudo-blockers in sudo', () => {
+  // Bug: the units drop the sandbox for every mode (the first draft of this test), so "subharness mode dev read" and
+  // "write" are held by the backend alone; or sudo mode leaves NoNewPrivileges on and sudo cannot work.
   for (const name of AGENTS) {
-    const text = renderUnit(template(name), 'user', VARS);
-    for (const key of [
-      'NoNewPrivileges',
-      'ProtectSystem',
-      'ProtectHome',
-      'ReadWritePaths',
-      'BindPaths',
-      'BindReadOnlyPaths',
-      'IPAddressDeny',
-      'IPAddressAllow',
-      'CapabilityBoundingSet',
-      'RestrictAddressFamilies',
-    ])
-      assert.deepEqual(valuesOf(text, key), [], `${name} ${key}`);
+    const kept = (mode: 'read' | 'write' | 'full' | 'sudo', scope: 'user' | 'system') =>
+      renderUnit(template(name), scope, { ...VARS, mode });
+    for (const scope of ['user', 'system'] as const) {
+      for (const mode of ['read', 'write'] as const) {
+        const text = kept(mode, scope);
+        assert.deepEqual(valuesOf(text, 'ProtectSystem'), ['strict'], `${name} ${scope} ${mode}`);
+        assert.deepEqual(valuesOf(text, 'NoNewPrivileges'), ['yes'], `${name} ${scope} ${mode}`);
+      }
+      for (const key of MOUNT_SANDBOX) assert.deepEqual(valuesOf(kept('full', scope), key), [], `${name} full ${key}`);
+      assert.deepEqual(valuesOf(kept('full', scope), 'NoNewPrivileges'), ['yes'], `${name} full keeps NoNewPrivileges`);
+      for (const key of [...MOUNT_SANDBOX, ...STOPS_SUDO])
+        assert.deepEqual(valuesOf(kept('sudo', scope), key), [], `${name} sudo ${key}`);
+    }
   }
+});
+
+test('user units drop the address allow-list and capability set only where the mode asks, never by scope', () => {
+  // Bug: a user unit loses IPAddressDeny for the read-only server agent because the scope was blamed for it.
+  const server = renderUnit(template('neptunia-agent-server.service'), 'user', { ...VARS, mode: 'read' });
+  assert.deepEqual(valuesOf(server, 'IPAddressDeny'), ['any']);
+  assert.deepEqual(valuesOf(server, 'CapabilityBoundingSet'), ['CAP_DAC_READ_SEARCH']);
 });
 
 test('user units drop the exclusions that rely on a second user, since there is one user', () => {
@@ -153,7 +163,8 @@ test('system units run as the installing user and group, and keep the template h
     const text = renderUnit(template(name), 'system', VARS);
     assert.deepEqual(valuesOf(text, 'User'), [VARS.user], name);
     assert.deepEqual(valuesOf(text, 'Group'), [VARS.group], name);
-    assert.ok(valuesOf(text, 'WantedBy').includes('multi-user.target'), name);
+    // The watcher service is a oneshot that its timer starts: the template has no [Install] section, and none is added.
+    if (name !== 'neptunia-watcher.service') assert.ok(valuesOf(text, 'WantedBy').includes('multi-user.target'), name);
   }
   const server = renderUnit(template('neptunia-agent-server.service'), 'system', VARS);
   assert.deepEqual(valuesOf(server, 'ProtectSystem'), ['strict']);

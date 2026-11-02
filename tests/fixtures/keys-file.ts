@@ -12,7 +12,7 @@ export type KeysFile = {
   core: Array<CoreKeyRow>;
   extra: Record<string, string>;
   roles: Record<string, string>;
-  subharness: { backend: 'codex' | 'claude' | 'opencode' | null; key: string | null; modes: Record<string, string> };
+  subharness: { backend: 'codex' | 'claude' | 'opencode' | null; key: string | null; modes: Record<string, string>; models?: Record<string, string> };
   simulation: { key: string | null };
 };
 

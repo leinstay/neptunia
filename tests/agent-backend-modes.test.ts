@@ -48,3 +48,17 @@ test('with no sandbox given codex still runs read-only', async () => {
     cleanup();
   }
 });
+
+test('a model reaches each backend as its own flag, and no flag is added without one', async () => {
+  // Bug: the model the owner chose per agent is dropped, or "-m undefined" is passed.
+  const { dir, cleanup } = scratch();
+  try {
+    const env = { FAKE_MODE: 'report' };
+    const withModel = reportOf((await codex().run('x', { cwd: dir, timeoutMs: 20_000, env, model: 'gpt-x' })).text);
+    assert.equal(withModel.argv[withModel.argv.indexOf('-m') + 1], 'gpt-x');
+    const without = reportOf((await codex().run('x', { cwd: dir, timeoutMs: 20_000, env })).text);
+    assert.equal(without.argv.includes('-m'), false);
+  } finally {
+    cleanup();
+  }
+});
