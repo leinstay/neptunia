@@ -43,8 +43,7 @@ import { createLlm, roleApiKey } from './llm/openrouter.ts';
 import { createKeyFailover } from './llm/key-failover.ts';
 import { MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, roleModel } from './llm/roles.ts';
 import { statusCardKeys } from './keys/card-keys.ts';
-import { createKeysCommands } from './keys/commands.ts';
-import type { PauseControl } from './keys/commands.ts';
+import { createKeysCommands, reasonedPause } from './keys/commands.ts';
 import { importKeys } from './keys/import.ts';
 import { createKeyRing } from './keys/ring.ts';
 import type { KeyOf } from './keys/ring.ts';
@@ -1315,22 +1314,9 @@ async function buildCore(
     return result.summary;
   };
   // Her pause with a reason, which the key commands and the memory probe set: `no-core-key` after the last core key's
-  // removal, `memory-down` after a failed memory probe. Each lifts only its own pause, never the owner's.
-  const pauseControl: PauseControl = {
-    async pause(reason) {
-      const wasPaused = store.state.data.paused === true;
-      await ownerOp('bot.pause', {});
-      if (wasPaused) return;
-      store.state.data.pausedReason = reason;
-      store.state.markDirty();
-      store.flush();
-    },
-    async resume() {
-      await ownerOp('bot.resume', {});
-      if (store.state.data.paused) throw new Error('she is still paused: run /resume and read its answer');
-    },
-    reason: () => (store.state.data.paused ? String(store.state.data.pausedReason ?? 'owner') : null),
-  };
+  // removal, `memory-down` after a failed memory probe. Each lifts only its own pause, and an owner's pause given over
+  // one of them becomes his.
+  const pauseControl = reasonedPause({ run: ownerOp, store });
   // The key the memory role goes out on now: the ring's route while keys.json exists, else the `.env` variable
   // `llm.keyByRole.memory` names. Never logged.
   const memoryRoute = (): { name: string; value: string } | null => {

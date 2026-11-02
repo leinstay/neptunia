@@ -35,12 +35,51 @@ export type Dialog = {
   ): Promise<string>;
 };
 
-/** The core's pause with a reason. `reason()` is null while she runs. */
+/**
+ * The core's pause with a reason. `reason()` is null while she runs, `owner` for a pause the owner gave. `resume` with
+ * a reason lifts the pause only while it is that reason.
+ */
 export type PauseControl = {
   pause(reason: string): Promise<void>;
-  resume(): Promise<void>;
+  resume(reason?: string): Promise<void>;
   reason(): string | null;
 };
+
+/** What `reasonedPause` runs on: the owner's `bot.pause` and `bot.resume` and the state file they write. */
+export type ReasonedPauseDeps = {
+  run(op: 'bot.pause' | 'bot.resume', args: Record<string, unknown>): Promise<unknown>;
+  store: { state: { data: Record<string, unknown>; markDirty(): void }; flush(): void };
+};
+
+/**
+ * The core's pause over the owner's operations: `pause(reason)` pauses her and stores the reason, and does nothing
+ * while she is paused already, so no reason replaces another or the owner's. `resume(reason)` asks `bot.resume` to lift
+ * only a pause of that reason. A pause the owner gives over one of these becomes his (src/tools/impl/pause.ts).
+ */
+export function reasonedPause(deps: ReasonedPauseDeps): PauseControl {
+  const state = () => deps.store.state;
+  const reason = (): string | null => {
+    const { data } = state();
+    if (data.paused !== true) return null;
+    return typeof data.pausedReason === 'string' ? data.pausedReason : 'owner';
+  };
+  return {
+    async pause(why) {
+      if (state().data.paused === true) return;
+      await deps.run('bot.pause', {});
+      state().data.pausedReason = why;
+      state().markDirty();
+      deps.store.flush();
+    },
+    async resume(why) {
+      await deps.run('bot.resume', why === undefined ? {} : { reason: why });
+      const now = reason();
+      if (now !== null && (why === undefined || now === why))
+        throw new Error('she is still paused: run /resume and read its answer');
+    },
+    reason,
+  };
+}
 
 /**
  * One command's answer: the status is `ok`, `invalid` (the line or a name is refused) or `failed` (a check or a save did
@@ -170,7 +209,7 @@ export function createKeysCommands(deps: KeysDeps): {
   /** Lifts the pause the last removal set, and only that one. */
   async function resumeIfNoKey(): Promise<boolean> {
     if (deps.pause.reason() !== NO_CORE_KEY) return false;
-    await deps.pause.resume();
+    await deps.pause.resume(NO_CORE_KEY);
     return true;
   }
 

@@ -13,6 +13,9 @@ import type { Call, Reply } from './fixtures/keys-rig.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
 import type { KeysFile } from './fixtures/keys-file.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { createAdmin } from '../src/admin.ts';
+import { reasonedPause } from '../src/keys/commands.ts';
+import { makeStore } from './fixtures/admin-store.ts';
 
 const T0 = Date.parse('2026-11-02T12:00:00Z');
 const MINUTE = 60_000;
@@ -284,4 +287,28 @@ test('a probe that throws counts as failed and pauses her', async () => {
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.code, 'probe-error');
   assert.deepEqual(pause.pauses, [MEMORY_DOWN]);
+});
+
+test('an owner pause given over memory-down stays when the next probe passes', async () => {
+  // Catches: the owner's /pause while she sleeps as memory-down keeps that reason, so a passing probe wakes her against
+  // his word while he edits data/.
+  const store = makeStore();
+  const admin = createAdmin({ hot: { config: { bot: { owners: [] } }, prompts: {} }, store });
+  const pause = reasonedPause({ run: (op, args) => admin.run(op, args, {}), store });
+  let clock = T0;
+  const results = [false, true];
+  const watch = createMemoryWatch({
+    probe: (now) =>
+      Promise.resolve(results.shift() === false ? { ok: false, code: 'model-failed', at: now } : { ok: true, at: now }),
+    pause,
+    now: () => clock,
+    config: () => ({ memory: { probeMinutes: 30 } }),
+  });
+  await watch.start();
+  assert.equal(pause.reason(), MEMORY_DOWN);
+  await admin.run('bot.pause', {}, {});
+  clock = T0 + 30 * MINUTE;
+  await watch.tick();
+  assert.equal(store.state.data.paused, true);
+  assert.equal(pause.reason(), 'owner');
 });

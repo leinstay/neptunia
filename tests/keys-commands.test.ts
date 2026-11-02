@@ -6,7 +6,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createKeysCommands } from '../src/keys/commands.ts';
+import { createKeysCommands, reasonedPause } from '../src/keys/commands.ts';
+import { createAdmin } from '../src/admin.ts';
+import { makeStore } from './fixtures/admin-store.ts';
 import { createKeyRing } from '../src/keys/ring.ts';
 import { createKeyStore, KEYS_FILE } from '../src/keys/store.ts';
 import { createKeyFailover } from '../src/llm/key-failover.ts';
@@ -175,6 +177,35 @@ test('the next core add resumes a no-core-key pause, and leaves a pause the owne
   await owner.keys.run('keys.core.add', { name: 'core-2' }, scriptedDialog([SECRET_2]).dialog);
   // Bug caught: adding a key undoing a pause the owner set for editing data/.
   assert.equal(owner.pause.resumes, 0);
+});
+
+test('an owner pause given over no-core-key stays when the next core key is added', async () => {
+  // Catches: the owner's /pause after the last key's removal keeps the reason no-core-key, so the next add wakes her
+  // while he edits data/.
+  const state = makeStore();
+  const admin = createAdmin({ hot: { config: { bot: { owners: [] } }, prompts: {} }, store: state });
+  const privateDir = tempDir('keys-commands-');
+  const store = createKeyStore({ privateDir });
+  const ring = createKeyRing({ store, failover: createKeyFailover({ now: () => T0 }) });
+  const pause = reasonedPause({ run: (op, args) => admin.run(op, args, {}), store: state });
+  const keys = createKeysCommands({
+    store,
+    ring,
+    fetch: fakeFetch().fetch,
+    baseUrl: () => BASE_URL,
+    defaults: DEFAULTS,
+    currentModel: (role) => `current/${role}`,
+    saveModel: () => Promise.resolve(),
+    pause,
+  });
+  store.addCore({ name: 'core-1', value: SECRET });
+  await keys.run('keys.core.remove', { name: 'core-1' }, null);
+  assert.equal(pause.reason(), 'no-core-key');
+  await admin.run('bot.pause', {}, {});
+  await keys.run('keys.core.add', { name: 'core-2' }, scriptedDialog([SECRET_2, ...BLANKS]).dialog);
+  assert.deepEqual(store.coreNames(), ['core-2']);
+  assert.equal(state.state.data.paused, true);
+  assert.equal(pause.reason(), 'owner');
 });
 
 test('a failed add does not resume the no-core-key pause', async () => {

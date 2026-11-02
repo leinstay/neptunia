@@ -4,7 +4,7 @@
 
 import { log } from '../../log.ts';
 import { defineOp, perEnv } from './registry.ts';
-import { objOf } from '../types.ts';
+import { callMethod, objOf } from '../types.ts';
 import type { OpContext } from '../types.ts';
 
 const handlers = perEnv((env) => {
@@ -17,13 +17,21 @@ const handlers = perEnv((env) => {
    * all are idle does it clear the pending-ping queue when the deps give a `pending.clear` (the core gives none:
    * its pings wait for the resume), flush everything and drop every cache except state.json itself, so
    * nothing stale (or a late in-flight write) can land in data/ after the
-   * owner starts editing it. Idempotent: a second call just reports the
-   * state. Then the journal's `pause` record; nothing is posted to the chat (the persona learns
+   * owner starts editing it. A second call reports the state, and a pause the core set with a reason
+   * (`no-core-key`, `memory-down`) becomes the owner's, so only his resume lifts it. Then the journal's `pause` record; nothing is posted to the chat (the persona learns
    * of the pause from the journal, src/memory/journal.ts#offPeriods).
    */
   async function cmdPause(context: OpContext): Promise<string> {
     const state = env.store.state.data;
     if (state.paused) {
+      const held = objOf(state);
+      if (held.pausedReason !== undefined) {
+        delete held.pausedReason;
+        if (context?.userId) held.pausedBy = String(context.userId);
+        const store = objOf(env.store);
+        callMethod(store.state, 'markDirty');
+        callMethod(store, 'flush');
+      }
       return [
         `Already paused (since ${state.pausedAt ?? '?'}).`,
         `Files under data/ can be edited freely. Run ${slash('resume')} when done.`,
@@ -76,9 +84,9 @@ const handlers = perEnv((env) => {
    * Then the journal's `resume` record; nothing is posted to the chat. Then `pending.drain(guildId)` hands back
    * what the pause kept (the core's held messages and queued pings), never awaited. Last, the meaning index's
    * catch-up pass starts in the background (`embedQueue.catchUp`, never awaited; it does nothing
-   * with the index switches off).
+   * with the index switches off). With `only`, a pause of another reason stays (the core's own resumes).
    */
-  async function cmdResume(context: OpContext): Promise<string> {
+  async function cmdResume(context: OpContext, only?: string): Promise<string> {
     if (!env.store.state.data.paused) return 'Not paused.';
 
     const badFiles = typeof env.store.validate === 'function' ? env.store.validate() : [];
@@ -94,6 +102,7 @@ const handlers = perEnv((env) => {
     if (!state.paused) {
       return 'Not paused.';
     }
+    if (only !== undefined && objOf(state).pausedReason !== only) return 'Still paused: the pause has another reason.';
 
     delete state.paused;
     delete state.pausedAt;
@@ -136,5 +145,5 @@ defineOp({
 defineOp({
   name: 'bot.resume',
   rights: { kind: 'write' },
-  run: (args, ctx) => handlers(ctx.env).cmdResume(ctx),
+  run: (args, ctx) => handlers(ctx.env).cmdResume(ctx, typeof args.reason === 'string' ? args.reason : undefined),
 });
