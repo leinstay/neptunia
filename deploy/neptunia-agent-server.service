@@ -1,42 +1,50 @@
 # systemd unit for the persona's server-read errand agent (src/agent-runner/, profile server).
 #
 # A separate, unprivileged process that runs read-only errands on this server
-# through OpenCode: it reads files and runs read-only shell commands to answer
-# the owner's questions about the machine. Its network reaches only the local
-# resolver and the model provider (IPAddressAllow; everything else denied),
-# holds only the agents' OpenRouter key, and writes only its own out dir. It is
-# granted CAP_DAC_READ_SEARCH so it can read any file like root WITHOUT being
-# root -- the read-only guarantee is this unit (ProtectSystem=strict, no
-# write paths), not a command filter. What it may DISCLOSE is cut by the
-# engine per scope (src/agent-runner/policy.ts), not by the OS here.
+# through Codex (`codex exec -s read-only`, set by "sandbox" in
+# agents/server/profile.json): it reads files and runs read-only shell commands
+# to answer the owner's questions about the machine. It runs as the user
+# `neptunia`, which holds the one Codex login of the server (~/.codex/auth.json).
+# Its network reaches only the local resolver and Cloudflare's ranges, where
+# chatgpt.com, api.openai.com and auth.openai.com sit (IPAddressAllow;
+# everything else denied), and it writes only its own out dir and ~/.codex. The
+# read-only guarantee is this unit (ProtectSystem=strict, no write paths) plus
+# Codex's read-only sandbox, not a command filter. What it may DISCLOSE is cut
+# by the engine per scope (src/agent-runner/policy.ts), not by the OS here.
 #
-# Keys: every key lives in the bot's .env, which this process cannot read. The
-# core sends the agents' key (OPENROUTER_ERRAND_KEY) with each task. The
-# EnvironmentFile is optional: an OPENROUTER_ERRAND_KEY= there is used only when
-# a task brings none.
+# It reads what the user `neptunia` can read, not everything like root: Codex
+# sandboxes its commands with bubblewrap, which refuses to start while a
+# capability is ambient (AmbientCapabilities=CAP_DAC_READ_SEARCH failed with
+# "Unexpected capabilities but not setuid"), so the unit holds no ambient
+# capability. AF_NETLINK is allowed because bubblewrap opens a netlink socket
+# to set up loopback in its new network namespace.
+#
+# The EnvironmentFile is optional and read only by the opencode backend
+# (OPENROUTER_ERRAND_KEY=), when a task brings none.
 #
 # Install:
-#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin neptunia-agent-server
 #   sudo install -d -o root -g root -m 0750 /etc/neptunia
 #   # optional override: sudo install -o root -g root -m 0600 /dev/null /etc/neptunia/agent-server.env
 #   sudo cp deploy/neptunia-agent-server.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now neptunia-agent-server
 # Logs:    journalctl -u neptunia-agent-server -f
 #
-# OpenCode's model price catalog fetch is disabled (the runner passes the model
-# cost in the config, agents.<profile>.cost), so the only outbound traffic is
-# the model API.
+# The service group is the bot's (neptunia-discord-interface), which `neptunia`
+# is a member of, so the runtime socket dir and the result files the agent
+# writes are reachable by the core.
 
 [Unit]
-Description=neptunia server-read errand agent (OpenCode worker)
+Description=neptunia server-read errand agent (Codex worker)
 After=network.target
 
 [Service]
 Type=simple
-User=neptunia-agent-server
+User=neptunia
 Group=neptunia-discord-interface
 WorkingDirectory=/opt/neptunia/app
 ExecStart=/opt/node/bin/node bin/neptunia.ts errand-runner --profile server
+# The runner starts `codex` by name: its folder and node's go on the PATH.
+Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
 # The bot's directories (deploy/neptunia-bot.service), set as in its unit. The
 # runner reads the override prompts.local/agent-server.md from
 # NEPTUNIA_PRIVATE_DIR (the tracked agents/server/prompt.md stays in the
@@ -47,26 +55,30 @@ ExecStart=/opt/node/bin/node bin/neptunia.ts errand-runner --profile server
 # keeps everything in the checkout deletes both lines.
 Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc
 Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
-# Optional override (the leading '-': the file may be absent); the key comes from the core.
+# Optional override for the opencode backend (the leading '-': the file may be absent).
 EnvironmentFile=-/etc/neptunia/agent-server.env
 Restart=on-failure
 RestartSec=5
 
-# Read everything like root, without being root.
-AmbientCapabilities=CAP_DAC_READ_SEARCH
+# No capability beyond the one the bounding set names, and none ambient.
 CapabilityBoundingSet=CAP_DAC_READ_SEARCH
 
-# Network only to the local resolver stub and to the model API (OpenRouter sits
-# behind Cloudflare; these are Cloudflare's published IPv4 ranges). Everything
+# Network only to the local resolver stub and to the model API (chatgpt.com,
+# api.openai.com and OpenRouter sit behind Cloudflare; these are Cloudflare's
+# published IPv4 ranges, and the addresses of those hosts fall inside them). Everything
 # else, the private ranges and the cloud metadata address included, is denied.
 IPAddressDeny=any
 IPAddressAllow=127.0.0.53/32
 IPAddressAllow=173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
-# The whole system is read-only; the agent writes only its own state (out) dir
-# and the runtime socket dir.
+# The whole system is read-only; the agent writes only its own state (out) dir,
+# the runtime socket dir and ~/.codex (Codex's sessions, logs and login). The rest of the home is an
+# empty tmpfs, with ~/.local (the codex binary) read-only.
 ProtectSystem=strict
+ProtectHome=tmpfs
+BindPaths=/home/neptunia/.codex
+BindReadOnlyPaths=/home/neptunia/.local
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectKernelTunables=yes

@@ -4,7 +4,7 @@ The persona can hand a goal to an errand agent with `errand.run`. She writes the
 
 ## Errand agents
 
-Two errand agents ship with the engine. Each is a worker: a standalone [OpenCode](https://opencode.ai) process driven by the agent runner (`src/agent-runner/`), connected to the core over a Unix socket.
+Two errand agents ship with the engine. Each is a worker: a standalone process driven by the agent runner (`src/agent-runner/`), connected to the core over a Unix socket. A worker runs on a backend (see [Backends](#backends)), by default `codex`. The shell and tool lists below, and the permission map of [Sandbox users and the policy](#sandbox-users-and-the-policy), belong to the `opencode` backend, which is [OpenCode](https://opencode.ai). Under `codex` the sandbox of the profile and the systemd unit bound the agent.
 
 ### scout
 
@@ -32,7 +32,7 @@ Drawing is not an errand. It is a built-in ability of the core, see [Media](medi
 
 An agent runs on one of three backends. `codex` starts `codex exec` as a child process, `claude` starts `claude -p`, and `opencode` runs the OpenCode harness described above. `src/agent-runner/backend.ts` holds all three behind one interface and picks the backend of an agent in this order: `agents.<name>.backend` in the config, then the `backend` key of the agent's `profile.json`, then `errands.backend` (default `codex`). A name outside the three is refused: a profile fails to load, and the config value raises an error before anything is spawned.
 
-A CLI backend gets the brief on stdin and works in the task's own folder under the out directory. `codex` runs with `-s workspace-write`, so its writes stay in that folder, and with `--search` when the profile has `"search": true` (the scout does). The final message is read from the file `-o` names, and the token count from the `tokens used` line of its output. `claude` returns its trimmed stdout. Each uses the login of the user the runner runs as, so a task's `secrets` are not passed on.
+A CLI backend gets the brief on stdin and works in the task's own folder under the out directory. `codex` runs with `-s <sandbox>`, where the sandbox is the profile's `sandbox` key (`workspace-write` unless the profile says otherwise, so the writes stay in that folder; `read-only` for the server agent), and with `--search` when the profile has `"search": true` (the scout does). The final message is read from the file `-o` names, and the token count from the `tokens used` line of its output. `claude` returns its trimmed stdout. Each uses the login of the user the runner runs as, so a task's `secrets` are not passed on. On this server both units run as the user `neptunia`, which holds the only Codex login (`~/.codex/auth.json`).
 
 The child's environment is `PATH`, `HOME`, `TMPDIR`, `LANG`, `LC_ALL` and `LC_CTYPE`, and nothing else from the runner's. The child starts as its own process group. When the seconds cap passes (the task's `limits.seconds`, else the profile's), the whole group gets SIGTERM and, five seconds later, SIGKILL, and the task fails with `time-cap`. A missing binary fails the task with `backend-missing`, a blank brief with `empty-brief`.
 
@@ -56,7 +56,7 @@ Caps enforced at queuing:
 
 ### The runner
 
-Each worker runs as a systemd service under its own Unix user (`deploy/neptunia-agent-scout.service`, `deploy/neptunia-agent-server.service`), which starts `neptunia errand-runner --profile <name>` (see [The neptunia command](cli.md#the-errand-runner)). The runner listens on a Unix socket (the profile's `socket`, overridable under `agents.<profile>.socket`); the core connects and sends tasks as JSON, one object per line.
+Each worker runs as a systemd service (`deploy/neptunia-agent-scout.service`, `deploy/neptunia-agent-server.service`) as the user `neptunia`, in the group of the core's interface so the core reaches the socket. The service starts `neptunia errand-runner --profile <name>` (see [The neptunia command](cli.md#the-errand-runner)). The runner listens on a Unix socket (the profile's `socket`, overridable under `agents.<profile>.socket`); the core connects and sends tasks as JSON, one object per line.
 
 One task is one `opencode run` child process in a fresh working directory under the profile's output folder. The runner builds an OpenCode config from the profile (the prompt, the step cap, the permission map for the scope) and passes it through `OPENCODE_CONFIG_CONTENT`. Auto-update and the price-catalog fetch are disabled, so nothing of the server leaks into the worker. Built against OpenCode v1.19.3.
 
@@ -104,9 +104,11 @@ A command that reaches a withheld path despite these rules (a pipe into a reader
 
 ### Systemd isolation
 
-The **scout** service has network access to the public internet. Egress to localhost and private ranges is refused by `IPAddressDeny` in the unit and in code. The filesystem is read-only except its state directory. Paths to the bot's data, `.env`, `/var/www`, nginx and Let's Encrypt configs are inaccessible.
+Both services see the home of `neptunia` as an empty tmpfs with two exceptions: `~/.codex` (sessions, logs and the login) is writable and `~/.local` (the `codex` binary) is read-only. Codex sandboxes its own commands with bubblewrap, which works under `NoNewPrivileges`, `ProtectSystem=strict` and `PrivateTmp`.
 
-The **server** service has network access only to the local DNS resolver and the model API (Cloudflare's ranges, where OpenRouter sits). It has `CAP_DAC_READ_SEARCH`, so it can read any file without being root. The whole system is read-only except its state directory and a private `/tmp`.
+The **scout** service has network access to the public internet. Egress to localhost and private ranges is refused by `IPAddressDeny` in the unit and in code. The filesystem is read-only except its state directory and `~/.codex`. Paths to the bot's data, `.env`, `/var/www`, nginx and Let's Encrypt configs are inaccessible.
+
+The **server** service has network access only to the local DNS resolver and the model API (Cloudflare's ranges, where OpenRouter, `chatgpt.com`, `api.openai.com` and `auth.openai.com` sit). Its capability bounding set is `CAP_DAC_READ_SEARCH` and it holds no ambient capability, because bubblewrap refuses to start with one, so it reads what the user `neptunia` can read. `AF_NETLINK` is allowed beside the IP families because bubblewrap opens a netlink socket for loopback. The whole system is read-only except its state directory, `~/.codex` and a private `/tmp`.
 
 Neither shell runs an interpreter or command runner (`python`, `node`, `perl`, `sh -c`, `bash -c`, `eval`, `xargs`, `env`). Neither shell can read its own environment (where the agent's API key lives): `echo` with any `$` is refused, and `jq` naming `env` or `$ENV` is refused.
 

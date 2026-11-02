@@ -12,6 +12,7 @@
   "daily": { "tasks": 40 },
   "searchProvider": "exa",
   "search": true,
+  "sandbox": "workspace-write",
   "socket": "/run/neptunia-agent-scout/sock",
   "out": "/var/lib/neptunia-agent-scout/out",
   "env": ["OPENROUTER_ERRAND_KEY", "OPENCODE_WEBSEARCH_KEY", "PROXY_URL"],
