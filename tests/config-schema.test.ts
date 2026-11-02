@@ -196,6 +196,10 @@ const MAY_CHANGE: ReadonlyArray<string> = [
   'innerSettings.wakes',
   'agentSettings scout.daily',
   'agentSettings server.daily',
+  // Item 0.3 adds the join rule of the memory writer: three settings the snapshot has not got.
+  'sessionSettings.minLines',
+  'sessionSettings.batchLines',
+  'sessionSettings.maxWaitHours',
 ];
 const MAY_GO: ReadonlyArray<string> = [
   'paceSettings.typingWhilePreparing',

@@ -229,9 +229,14 @@ Controlled by the `memoryDb.session` config block. A scope (the public channels 
 
 - at least `minMessages` (default 5) settled lines sit after its cursor
 - ten minutes have passed since the newest of those lines (a constant, `DEFAULTS.settleMinutes` in `src/memory/db/session.ts`)
+- the join rule below says write
 - `everyMinutes` (default 60) have passed since the last sweep of this scope, or the scope has `maxMessages` (default 200) waiting lines
 
 One sweep at a time. At most `sweepsPerScopePerDay` (default 24) sweeps of one scope per UTC day.
+
+### Small sessions wait
+
+A session is a run of settled lines in event time; a gap of ten minutes or more starts the next one. `joinOf` in `src/memory/db/session.ts` decides from the lines after a scope's cursor, first match winning. A scope is written when `minLines` is 0 (default 10; `0` writes every session at once), when one session holds more than `minLines` lines, when the joined lines reach `batchLines` (default 30), or when the oldest waiting line is `maxWaitHours` old (default 24). Otherwise the scope waits: the sweep reports `waiting` for it, sends no request, writes no `session_runs` row, leaves the cursor and the sweep count alone, and `dueScopes` in `src/memory/db/writer-switch.ts` does not list it. The waiting lines go out with the next batch of the same scope, so none is dropped. A group and each private conversation wait on their own and never join each other.
 
 ### The batch
 
@@ -239,7 +244,7 @@ Lines are read by arrival from the cursor (none is skipped), shown in event time
 
 ### What she receives
 
-Her own system text (card, rules), then `prompts/memory-session.md`, then her self claims, the places with handles, the people of the batch with their profiles (the same rendering her turns use), open episodes, open intentions, and the batch lines.
+Her own system text (card, rules), then `prompts/memory-session.md`, then her self claims, the places with handles, the people of the batch with their profiles (the same rendering her turns use), open episodes, open intentions, and the batch lines. The stable blocks come first and the batch lines last, so the provider's prompt cache can serve the system text and the stable blocks on the next run of the scope (the sweep asks for the cache marker with `cache: true`). Each run records `counts.sessions`, the sessions the batch joined, and `counts.cacheRead`, the tokens the provider read from its cache (`0` when it reports none).
 
 ### What she may answer
 

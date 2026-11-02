@@ -83,6 +83,28 @@ export const MEMORY_DB: ReadonlyArray<SchemaEntry> = [
     'text': 'A scope with fewer new lines waits',
   },
   {
+    'key': 'memoryDb.session.minLines',
+    'types': ['number'],
+    'reader': 'src/memory/db/session.ts',
+    'default': 10,
+    'text':
+      'A settled session of this many lines or fewer waits and joins the next batch of its scope. `0` writes every session at once',
+  },
+  {
+    'key': 'memoryDb.session.batchLines',
+    'types': ['number'],
+    'reader': 'src/memory/db/session.ts',
+    'default': 30,
+    'text': 'Joined lines at which a scope with waiting sessions is written',
+  },
+  {
+    'key': 'memoryDb.session.maxWaitHours',
+    'types': ['number'],
+    'reader': 'src/memory/db/session.ts',
+    'default': 24,
+    'text': 'Age of the oldest waiting line at which its scope is written, whatever the size',
+  },
+  {
     'key': 'memoryDb.session.sweepsPerScopePerDay',
     'types': ['number'],
     'reader': 'src/memory/db/session.ts',
