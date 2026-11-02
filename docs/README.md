@@ -46,6 +46,7 @@ The persona's inner life (heartbeat wakes, intentions, the diary) runs the same 
 | [The watcher](watcher.md) | The daily watcher: a run, the folder, the brief, the report and its checks, the tasks it files, `watcher.read` and `/report` |
 | [Interfaces](interfaces.md) | The interface port and protocol, the Discord adapter, adding an interface |
 | [The neptunia command](cli.md) | The owner's chat in a terminal and its commands, the access model, `-p`, pause, `doctor`, the errand runner and the units |
+| [Persona file migration](persona-migration.md) | Offline preparatory copies of personal configuration and ordinary prompts, conflict checks and held contracts |
 | [Setup](setup.md) | `neptunia setup`: the five steps, the user and system scopes, what comes after |
 | [Media](media.md) | Pictures, video, drawing, voice messages, GIFs, custom emoji, web and server search |
 | [Repository structure](structure.md) | The generated table of every folder and file pattern of the tracked tree: purpose, layer, what it may import, whether its modules need a test |
