@@ -6,6 +6,7 @@
 
 import path from 'node:path';
 import { proposalsOf, ackOutbox } from '../behavior/selfimprovement-view.ts';
+import { landedFor } from '../selfdev/landed.ts';
 import type { SelfimprovementSources } from '../behavior/inner/types.ts';
 import { SKILL_USE_KINDS, listSkills, useCountsBySkill } from '../memory/db/skills.ts';
 import type { SkillUse, SkillsUpdate, UseCounts } from '../memory/db/skills.ts';
@@ -26,7 +27,7 @@ export type SkillsWiring = {
   index: () => Promise<{ text: string; indexed: Array<IndexedSkill> } | null>;
   /** Writes the use rows of a turn; resolves how many were written. */
   record: (uses: ReadonlyArray<SkillUse>) => Promise<number>;
-  selfimprovement: Pick<SelfimprovementSources, 'granted' | 'skills' | 'proposals' | 'ackOutbox'>;
+  selfimprovement: Pick<SelfimprovementSources, 'granted' | 'skills' | 'proposals' | 'ackOutbox' | 'landed'>;
 };
 
 /** The tool that opens a line of the index; without her grant of it the index is not shown. */
@@ -100,6 +101,7 @@ export function wireSkills(deps: SkillsWiringDeps): SkillsWiring {
       },
       proposals: () => proposalsOf(deps.board),
       ackOutbox: (seqs) => ackOutbox(deps.board, seqs),
+      landed: async () => (await landedFor(deps.board)).landed,
     },
   };
 }

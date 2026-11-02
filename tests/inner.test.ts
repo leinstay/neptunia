@@ -1703,8 +1703,7 @@ test('inner: every wake outcome other than a turn is a wakeDropped fact at the m
   ]);
   const dm = run.inner.state(GUILD).facts.find((fact) => fact.why === 'dm-off');
   assert.deepEqual([present(dm).channelId, present(dm).privateChat], ['d1', true]);
-  // The queue full (PR 7d: twenty wakes, `innerLife.queueMax` is a constant): the overflowing wake is dropped on the
-  // spot; the stop drops what waits.
+  // The queue full (PR 7d: twenty wakes, `innerLife.queueMax` is a constant): the overflowing wake is dropped on the spot; the stop drops what waits.
   const full = setup({ records: [...queueFillers(20), intention('i1')] });
   full.turns.busy = true;
   await full.inner.tick();
@@ -2159,6 +2158,7 @@ test('heartbeat: at its moment one turn runs in the channel she spoke in, with n
     'activity',
     'agents',
     'intentionsOnly',
+    'landed',
     'life',
     'maxTokens',
     'people',

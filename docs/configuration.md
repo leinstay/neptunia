@@ -497,6 +497,15 @@ Settings for the daily watcher. See [The watcher](watcher.md).
 |---|---|---|---|---|
 | `watcher.dir` | string | `".agents/watcher"` | Folder of the daily watcher, `prompt.md` and `reports/`; relative to the checkout or absolute | `src/watcher/read.ts` |
 
+## `selfdev`
+
+Settings for the fixes she files against her own code. See [Self-development](selfdev.md).
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `selfdev.mode` | string | `"approve"` | Who merges a pull request she opened for her own code: `approve` waits for the owner once CI is green, `auto` has the engine merge it when CI is green | `src/selfdev/settings.ts` |
+| `selfdev.base` | string | `"main"` | The branch her worktrees start from and her pull requests target | `src/selfdev/settings.ts` |
+
 ## `diary`
 
 Settings for the diary. See [Diary](diary.md).

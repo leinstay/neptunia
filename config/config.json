@@ -320,6 +320,10 @@
   "watcher": {
     "dir": ".agents/watcher"
   },
+  "selfdev": {
+    "mode": "approve",
+    "base": "main"
+  },
   "diary": {
     "channelId": "",
     "world": false,

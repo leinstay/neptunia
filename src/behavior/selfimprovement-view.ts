@@ -3,11 +3,12 @@
 // of their arguments, and the most frequent shapes come with their counts, failures, retries, costs and turn ids. Beside
 // them the tools she holds and called in none of those chains, her skills with their use counts, her proposals with
 // their state, and what the board holds for her since the last wake: the questions put to her, the reviews (a rejection
-// included) and the outbox rows addressed to `persona:self`, each shown once. The view carries tool names, argument
+// included), the outbox rows addressed to `persona:self` and the fixes that landed, each shown once. The view carries tool names, argument
 // names, codes, counts, ids, costs and the board's own titles and notes. `src/behavior/inner/selfimprovement.ts` asks
 // for the facts when the wake runs, and marks the outbox rows it showed delivered once the wake committed.
 
 import { DAY_MS, utcDay } from '../time.ts';
+import type { Landed } from '../selfdev/landed.ts';
 import type { BoardCaller } from '../tools/impl/board.ts';
 import { isFiniteNumber, isObj, listOf, objOf } from '../tools/types.ts';
 import type { UseCounts } from '../memory/db/skills.ts';
@@ -205,6 +206,8 @@ export type SelfimprovementFacts = {
     questions: Array<{ taskId: string; questionId: string; text: string; answered: boolean }>;
     reviews: Array<{ taskId: string; decision: string; scope: string | null; note: string | null }>;
     outbox: Array<{ seq: number; taskId: string; kind: string; status: string | null; closeReason: string | null }>;
+    /** Fixes that merged: the pull request's title and paths (src/selfdev/landed.ts), each shown once. */
+    landed: Array<Landed>;
   };
   outboxSeqs: Array<number>;
 };
@@ -272,6 +275,7 @@ export async function buildSelfimprovementFacts(input: {
   skills: ReadonlyArray<SkillUseRow>;
   proposals: ReadonlyArray<ProposalEntry>;
   outbox: ReadonlyArray<OutboxRow>;
+  landed?: ReadonlyArray<Landed>;
 }): Promise<SelfimprovementFacts> {
   const days = input.days ?? DAYS_DEFAULT;
   const from = input.now - days * DAY_MS;
@@ -279,7 +283,11 @@ export async function buildSelfimprovementFacts(input: {
   const chains = chainsOfJournal(lines);
   const { shapes, more } = shapesOf(chains, { shown: input.shown ?? SHAPES_SHOWN_DEFAULT });
   const called = new Set(chains.flatMap((chain) => chain.calls.map((call) => call.tool)));
-  const outbox = input.outbox.filter((row) => row.to_whom === SELF && !row.delivered_at);
+  const landed = [...(input.landed ?? [])];
+  const landedSeqs = new Set(landed.map((one) => one.seq));
+  const outbox = input.outbox.filter(
+    (row) => row.to_whom === SELF && !row.delivered_at && !landedSeqs.has(Number(row.seq))
+  );
   const rows = outbox.map((row) => {
     const payload = objOf(row.payload);
     return {
@@ -327,8 +335,9 @@ export async function buildSelfimprovementFacts(input: {
           }))
       ),
       outbox: rows,
+      landed,
     },
-    outboxSeqs: rows.map((row) => row.seq),
+    outboxSeqs: [...new Set([...rows.map((row) => row.seq), ...landedSeqs])].sort((a, b) => a - b),
   };
 }
 

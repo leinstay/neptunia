@@ -669,6 +669,7 @@ export class Board {
     if (meta?.ci === 'green') out.add('ci-green');
     if (task.project !== null && this.context.settings.projects[task.project]?.ci === false) out.add('no-ci');
     if (meta?.tests === 'pass') out.add('tests-pass');
+    if (isObject(meta?.merged)) out.add('merged');
     return out;
   }
 
@@ -1494,9 +1495,9 @@ function costsOf(board: Board, _principal: string, args: Args): Readonly<Record<
   return agentCosts(board.db, { nowMs, agents: recorders, by });
 }
 
-// The caller's undelivered outbox rows; `ack` marks the caller's rows up to that seq delivered first. `to_whom` narrows
-// both to the rows addressed to that name, so a caller that speaks for several names (`persona` and `persona:self`)
-// marks only the rows it showed.
+// The caller's undelivered outbox rows; `ack` marks the caller's rows up to that seq delivered first, `ack_seqs` exactly
+// the rows with those numbers. `to_whom` narrows both to the rows addressed to that name, so a caller that speaks for
+// several names (`persona` and `persona:self`) marks only the rows it showed.
 function pullOutbox(board: Board, principal: string, args: Args): Array<Row> {
   const only = str(args.to_whom, 'to_whom', { max: 200 });
   const mine = (row: Row): boolean =>
@@ -1510,6 +1511,17 @@ function pullOutbox(board: Board, principal: string, args: Args): Array<Row> {
       .prepare('SELECT seq, to_whom FROM board_outbox WHERE delivered_at IS NULL AND seq <= ?')
       .all(ack)) {
       if (mine(row)) mark.run(now, row.seq);
+    }
+  }
+  if (args.ack_seqs !== undefined && args.ack_seqs !== null) {
+    if (!Array.isArray(args.ack_seqs)) throw invalid('ack_seqs must be a list of numbers');
+    const now = board.now();
+    const mark = board.db.prepare('UPDATE board_outbox SET delivered_at = ? WHERE seq = ?');
+    for (const seq of new Set(args.ack_seqs.map((one) => int(one, 'ack_seqs', { min: 0 })))) {
+      const row = board.db
+        .prepare('SELECT seq, to_whom FROM board_outbox WHERE delivered_at IS NULL AND seq = ?')
+        .get(seq);
+      if (row !== undefined && mine(row)) mark.run(now, row.seq);
     }
   }
   const limit = int(args.limit, 'limit', { min: 0, max: 1000 }) ?? 100;

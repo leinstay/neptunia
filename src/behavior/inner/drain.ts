@@ -19,7 +19,7 @@ import type { ConversationInfo } from '../../protocol/adapter.ts';
 import type { HeartbeatFacts } from '../heartbeat-view.ts';
 import { deliveriesOf, holdFor, sendDeliveries } from './deliveries.ts';
 import { asText, factPayload, feedbackFacts, idOrNull, markFactsTold, pendingFactsOf } from './facts.ts';
-import { heartbeatFacts, logHeartbeatOutcome } from './heartbeat.ts';
+import { committedHeartbeat, heartbeatFacts, logHeartbeatOutcome } from './heartbeat.ts';
 import { committedSelfimprovement, selfimprovementFacts } from './selfimprovement.ts';
 import type { SelfimprovementFacts } from '../selfimprovement-view.ts';
 import { attendFactsOf, placeNameOf, placesInWakeOf } from './places.ts';
@@ -468,6 +468,22 @@ async function turnsBudgetOf(life: InnerContext): Promise<TurnsBudget | null> {
     life.log.warn('inner: turns budget not read', { error });
     return null;
   }
+}
+
+/** Once the turn committed: the facts of the wake kinds that carry their own view are marked as told. */
+async function committedFacts(
+  life: InnerContext,
+  guildId: string,
+  turn: {
+    heartbeat: HeartbeatFacts | null;
+    improvementWake: Wake | null;
+    selfimprovement: SelfimprovementFacts | null;
+    outcome: unknown;
+  }
+): Promise<void> {
+  const { heartbeat, improvementWake, selfimprovement, outcome } = turn;
+  await committedSelfimprovement(life, guildId, { wake: improvementWake, facts: selfimprovement, outcome });
+  await committedHeartbeat(life, guildId, { facts: heartbeat, outcome });
 }
 
 /** The facts of the wake kinds that carry their own view: the heartbeat's and the selfimprovement wake's, each null for a group without it. */
@@ -950,7 +966,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   save(life, guildId);
   const recorded = await finishTurn(life, guildId, group, after, deliveriesOf(hold, { turnId: turnKey, chainId }));
   await sendDeliveries(life, guildId, recorded);
-  await committedSelfimprovement(life, guildId, { wake: improvementWake, facts: selfimprovement, outcome });
+  await committedFacts(life, guildId, { heartbeat, improvementWake, selfimprovement, outcome });
   let feedbackWakeId: string | null = null;
   if (feedback.length > 0 && !isFeedback && !comesBack) {
     feedbackWakeId = `inner.wake:feedback:${asText(turnId ?? ended)}`;

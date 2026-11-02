@@ -10,7 +10,7 @@ The core is the only process that opens the board for writing. Every board write
 
 ## Roles
 
-A principal's roles come from its `boardRoles` in the private directory's `clients.json`, read at every call. The core adds two builtin principals of its own, `persona` and `core`, whatever `clients.json` says of those names.
+A principal's roles come from its `boardRoles` in the private directory's `clients.json`, read at every call. The core adds three builtin principals of its own, `persona`, `core` and `selfdev`, whatever `clients.json` says of those names. `selfdev` holds `reviewer` and `worker`: the self-development service ([Self-development](selfdev.md)) triages her fix proposals, works them as the holder and closes them when their pull request merges.
 
 | Role | What it may do |
 |---|---|
@@ -36,9 +36,11 @@ A development agent runs `neptunia task <command>` with its token in `NEPTUNIA_T
 
 Her tools `board.propose` and `board.status` call the board as `persona`. They are closed until the owner grants them to her by name with `/tools grant <tool>`, like every tool of hers. `board.propose` takes an optional `kind`, `skill` or `fix`. With a kind it also takes `examples` (at least one), `counterexamples`, `benefit` and `evaluation`, and the task's `metadata` holds the five. A call with one of those fields and no kind, or with a kind but no examples, benefit or evaluation case, is `invalid`.
 
-`outbox.pull` takes an optional `to_whom`. With it, the rows it returns and the rows its `ack` marks delivered are only those addressed to that name. Her `selfimprovement` wake pulls and acknowledges `persona:self` this way, so the rows addressed to `persona` for her errands stay as they are.
+`outbox.pull` takes an optional `to_whom`. With it, the rows it returns and the rows its `ack` marks delivered are only those addressed to that name. `ack` marks every such row up to a number, `ack_seqs` marks exactly the rows with the numbers it lists, which is how the heartbeat acknowledges the merged fixes it showed without marking the older rows it did not. Her `selfimprovement` wake pulls and acknowledges `persona:self` this way, so the rows addressed to `persona` for her errands stay as they are.
 
 No dollar cap stops a task or an attempt. `budget_usd` is stored on a task and an attempt reports its cost with `task.attempt.end`, and nothing compares the two. The money bound of an agent is the OpenRouter limit of the key it spends.
+
+A task whose `metadata.merged` is an object holds the condition `merged`: a reviewer then moves it from `needs_validation` to `done` through `task.review` whatever CI said, because the merge is the decision. The self-development service writes `merged` and `landed` when it sees the pull request merged.
 
 ## Costs on the status card
 
