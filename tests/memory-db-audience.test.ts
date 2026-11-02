@@ -234,6 +234,96 @@ test('DM audience objects fail closed when their resolved interface metadata is 
   );
 });
 
+test('a forged audience kind cannot make private provenance source-free', () => {
+  // Catches declaring private evidence source-free to widen a derived audience.
+  const privateAsNone = { id: 'aud:dm:discord:dm:one', kind: 'none', iface: 'discord', place_id: 'discord:dm:one' };
+  assert.equal(narrowestAudience([privateAsNone, 'aud:group:discord']), AUD_INTERNAL);
+});
+
+test('forged shared place metadata cannot merge distinct DM audiences', () => {
+  // Catches joining distinct DMs through forged shared place metadata.
+  const forgedPlaces = ['one', 'two'].map((name) => ({
+    id: `aud:dm:discord:dm:${name}`,
+    kind: 'dm',
+    iface: 'discord',
+    place_id: 'same-forged',
+  }));
+  assert.equal(narrowestAudience(forgedPlaces), AUD_INTERNAL);
+});
+
+test('incidental person and place fields do not give a group context private audience access', () => {
+  // Catches using a group's incidental identity fields as authorization to include a DM audience.
+  const handle = openMemoryDb(':memory:');
+  const db = dbOf(handle);
+  const place = dmPlaceId('discord', 'u-alice');
+  const ctx = { ...groupContext('discord'), person: ALICE, place };
+  const rows = [
+    { id: 'group', audience_id: 'aud:group:other' },
+    { id: 'private', audience_id: `aud:dm:${place}` },
+  ];
+  try {
+    db.exec('CREATE TABLE probe (id TEXT, audience_id TEXT)');
+    for (const row of rows) db.prepare('INSERT INTO probe VALUES (?, ?)').run(row.id, row.audience_id);
+    assert.deepEqual(
+      rows.filter((row) => allowedAudience(row, ctx)).map((row) => row.id),
+      ['group']
+    );
+    const filter = audienceWhere(ctx, 'p');
+    assert.deepEqual(
+      db
+        .prepare(`SELECT id FROM probe p WHERE ${filter.sql}`)
+        .all(...filter.params)
+        .map((row) => row.id),
+      ['group']
+    );
+    assert.equal(allowed(dmScope(ALICE, 'discord'), ctx), false);
+  } finally {
+    handle.close();
+  }
+});
+
+test('the groups-only selector excludes its own DM even when the context retains DM fields', () => {
+  // Catches private identity fields overriding an explicit groups-only read restriction.
+  const handle = openMemoryDb(':memory:');
+  const db = dbOf(handle);
+  const ctx = { ...dmContext(ALICE, 'discord'), ...groupsContext() };
+  const rows = [
+    { id: 'group', ...audienceOf(groupScope('other')) },
+    { id: 'private', ...audienceOf(dmScope(ALICE, 'discord')) },
+  ];
+  try {
+    db.exec('CREATE TABLE probe (id TEXT, audience_id TEXT, scope_kind TEXT, scope_iface TEXT, scope_dm TEXT)');
+    for (const row of rows) {
+      db.prepare('INSERT INTO probe VALUES (?, ?, ?, ?, ?)').run(
+        row.id,
+        row.audience_id,
+        row.scope_kind,
+        row.scope_iface,
+        row.scope_dm
+      );
+    }
+    assert.deepEqual(
+      rows.filter((row) => allowedAudience(row, ctx)).map((row) => row.id),
+      ['group']
+    );
+    assert.deepEqual(
+      rows.filter((row) => allowed(row, ctx)).map((row) => row.id),
+      ['group']
+    );
+    for (const filter of [audienceWhere(ctx, 'p'), whereFor(ctx, 'p')]) {
+      assert.deepEqual(
+        db
+          .prepare(`SELECT id FROM probe p WHERE ${filter.sql}`)
+          .all(...filter.params)
+          .map((row) => row.id),
+        ['group']
+      );
+    }
+  } finally {
+    handle.close();
+  }
+});
+
 test('issueContext: an id, the mode, the DM place of the partner; contexts stay valid read contexts', () => {
   let n = 0;
   const newId = () => `ctx:test-${(n += 1)}`;

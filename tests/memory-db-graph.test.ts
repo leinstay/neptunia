@@ -303,8 +303,12 @@ function traversalFixture() {
   return { handle, db, ids, accounts, places, ctx };
 }
 
-const rowIds = (result: { rows: ReadonlyArray<{ rowId: string }> }): Array<string> =>
-  result.rows.map((row) => row.rowId);
+function rowIds(result: ReturnType<typeof walk>): Array<string> {
+  return result.rows.map((row) => {
+    assert.ok(typeof row.rowId === 'string', 'a fixture graph row has a text id');
+    return row.rowId;
+  });
+}
 
 test('everything a person said across interfaces keeps private links out of a group', () => {
   const env = traversalFixture();
@@ -632,6 +636,24 @@ test('re-projection after an edit, a link revocation and a retirement: stale edg
 });
 
 // ---------- version-level evidence and compare-and-set ----------
+
+test('internal traversal opens a retired source without an audience witness while a group cannot', () => {
+  // Catches restricting trusted internal traversal to nodes that still have outward audience witnesses.
+  const env = traversalFixture();
+  const { db, ids, ctx } = env;
+  const node = graphNodeId('source', ids.early);
+  try {
+    handleTx(env, () => {
+      db.prepare('UPDATE sources SET retired_at = ? WHERE id = ?').run(at(70), ids.early);
+      projectRow(wrongly(db), 'sources', { id: ids.early }, { at: at(70) });
+    });
+    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM node_access WHERE node_id = ?', node), 0);
+    assert.deepEqual(rowIds(walk(wrongly(db), ctx.internal, { from: node, maxDepth: 0 })), [ids.early]);
+    assert.deepEqual(rowIds(walk(wrongly(db), ctx.group, { from: node, maxDepth: 0 })), []);
+  } finally {
+    env.handle.close();
+  }
+});
 
 test('claim edits: every new version keeps its sources; a stale base is refused and recorded; a current one or none goes through', () => {
   const handle = openMemoryDb(':memory:');

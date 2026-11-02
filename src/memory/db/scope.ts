@@ -159,7 +159,7 @@ export function narrowest(scopes: unknown): Scope {
   let result: Scope = { ...SCOPE_NONE };
   for (const scope of (Array.isArray(scopes) ? scopes : []) as Array<Partial3 | null | undefined>) {
     const kind = scope?.scope_kind;
-    if (!wellFormed(scope)) return { ...SCOPE_INTERNAL };
+    if (!scope || !wellFormed(scope)) return { ...SCOPE_INTERNAL };
     if (kind === 'none') continue;
     if (kind !== 'group' && kind !== 'dm') return { ...SCOPE_INTERNAL };
     result = meetScopes(result, {
