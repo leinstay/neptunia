@@ -46,7 +46,7 @@ export type SetupDeps = {
   /** Called once with the report, before the chat opens or when the run ends without it. */
   report?(report: SetupReport): void;
   /** Asks the owner at the terminal; absent when no terminal is there, and the self-development step is skipped. */
-  ask?(question: string, offered: string | null): Promise<string>;
+  ask?: (question: string, offered: string | null) => Promise<string>;
   /** gh under her own gh home, for the self-development step's push-right check. */
   gh?: GhRunner;
 };
