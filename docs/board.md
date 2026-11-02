@@ -18,7 +18,7 @@ A principal's roles come from its `boardRoles` in the private directory's `clien
 | `reviewer` | Triages, briefs, rejects, approves a plan at low risk, reviews a submitted task and merges it once CI is green, retries a failed task, records its own runs. Never claims |
 | `worker` | Claims an approved task and works it as its holder: heartbeat, results, questions, block, submit, release |
 | `scheduler` | Triages, claims and fails a task, edits its fields |
-| `watcher` | Reads only |
+| `watcher` | Reads, and files a task with `task.add`. It never triages, claims, runs, comments or reviews. See [The watcher](watcher.md) |
 | `persona` | Files a proposal and reads the tasks filed for her. The builtin `persona` holds this role alone |
 | `errand-runner` | Runs the errand lane and sees only its errand tasks. The builtin `core` holds it with `scheduler` |
 
