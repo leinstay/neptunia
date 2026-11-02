@@ -7,7 +7,7 @@ import type { Db, MemoryHandle } from '../../../src/memory/db/types.ts';
 export type Rec = Record<string, unknown>;
 
 export type LlmCall = {
-  messages: Array<{ content: unknown }>;
+  messages: Array<{ role?: string; content: unknown }>;
   options: { role: string; purpose: string; model: string };
 };
 export type LlmScript =
