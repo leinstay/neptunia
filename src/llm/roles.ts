@@ -221,3 +221,30 @@ export function roleOn(config: unknown, role: string): boolean {
 export function offRoles(config: unknown): Array<string> {
   return OPTIONAL_ROLES.filter((role) => !roleOn(config, role));
 }
+
+/** The reasoning efforts a role or an agent runs at, OpenRouter's `reasoning.effort` levels that every backend takes. */
+export const EFFORT_LEVELS = ['low', 'medium', 'high'] as const;
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
+/** Whether `value` is one of EFFORT_LEVELS. */
+export const isEffortLevel = (value: unknown): value is EffortLevel => EFFORT_LEVELS.some((level) => level === value);
+
+/**
+ * The base roles whose requests take OpenRouter's `reasoning.effort`: the chat completions other than the core's. The
+ * core is left out on purpose, the owner's rule (2026-10-19): her written `<think>` is her thinking, never provider
+ * reasoning. `embedding`, `speech` and `drawing` go to endpoints that take no reasoning.
+ */
+export const REASONING_ROLES: ReadonlyArray<string> = Object.freeze(['memory', 'analyzer', 'vision', 'video']);
+
+/**
+ * The `reasoning` of a request for `role`: `llm.reasoningByRole.<role>` when the role is one of REASONING_ROLES and the
+ * entry holds a known effort, else undefined.
+ * @param config The whole live config, read at the moment of use.
+ */
+export function reasoningOf(config: unknown, role: string): { effort: EffortLevel } | undefined {
+  if (!REASONING_ROLES.includes(role)) return undefined;
+  const byRole = objOf(objOf(config).llm).reasoningByRole;
+  const entry: unknown = isObj(byRole) && Object.hasOwn(byRole, role) ? byRole[role] : undefined;
+  const effort: unknown = isObj(entry) ? entry.effort : undefined;
+  return isEffortLevel(effort) ? { effort } : undefined;
+}

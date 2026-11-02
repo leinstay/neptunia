@@ -52,6 +52,7 @@
     "maxRequestsPerDay": 5000,
     "provider": null,
     "providerByModel": {},
+    "reasoningByRole": {},
     "keyByRole": {
       "scout": "OPENROUTER_ERRAND_KEY",
       "server": "OPENROUTER_ERRAND_KEY",

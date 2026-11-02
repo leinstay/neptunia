@@ -30,7 +30,7 @@ import { objOf, scalarText } from '../tools/types.ts';
 import { HOUR_MS, MINUTE_MS, bumpDaily, countToday, dailyCounter } from '../time.ts';
 import { log } from '../log.ts';
 import type { LimitsSink } from './limits.ts';
-import { roleModel } from './roles.ts';
+import { reasoningOf, roleModel } from './roles.ts';
 import { createKeyFailover, isBudgetError } from './key-failover.ts';
 import type { KeyFailover, KeyState } from './key-failover.ts';
 import type { KeyRing } from '../keys/ring.ts';
@@ -1292,6 +1292,13 @@ export type CompleteResult = {
   toolCalls?: Array<unknown>;
 };
 
+/** The `reasoning` of a body: a call's own object wins, else the role's `llm.reasoningByRole` entry (never the core's). */
+function reasoningField(options: { reasoning?: unknown; role?: unknown }, config: unknown): { reasoning?: Rec } {
+  if (isRec(options.reasoning)) return { reasoning: options.reasoning };
+  const own = typeof options.role === 'string' ? reasoningOf(config, options.role) : undefined;
+  return own === undefined ? {} : { reasoning: own };
+}
+
 /** The JSON body of one chat completion, as `complete` builds it. */
 type RequestBody = {
   model: string | undefined;
@@ -1609,7 +1616,7 @@ export function createLlm({
    * (e.g. `{ enabled: false }`); a plain object is sent verbatim as
    * `body.reasoning`, anything else omits the field. Used by the video
    * describer (`media.video.reasoning`), whose model otherwise spends the
-   * output budget on reasoning.
+   * output budget on reasoning. Without it, the role's `llm.reasoningByRole`.
    * `options.plugins` — OpenRouter's plugins for this one call (e.g. `[{ id: 'web', engine:
    *   'exa', max_results: 5 }]`); a non-empty array is sent verbatim as `body.plugins`,
    *   anything else omits the field. Used by the web lookup's `openrouter` engine
@@ -1711,7 +1718,7 @@ export function createLlm({
       role: options.role,
     });
     if (provider) body.provider = providerBodyOf(provider);
-    if (isRec(options.reasoning)) body.reasoning = options.reasoning;
+    Object.assign(body, reasoningField(options, getConfig()));
     // Native tool calling, only when asked for: the definitions, the choice ('auto' unless given) and
     // whether the model may call several at once (sent only when given).
     if (tools) {
