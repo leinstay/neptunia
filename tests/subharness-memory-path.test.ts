@@ -257,7 +257,9 @@ test('the table parses model set memory with --via and --effort', () => {
 const consoleSubharness = (deps: EnableDeps): ConsoleDeps['subharness'] => ({
   runBackend: (...args) => deps.runBackend(...args),
   fetch: (...args) => deps.fetch(...args),
-  ...(deps.helpOf === undefined ? {} : { helpOf: deps.helpOf }),
+  ...(deps.helpOf === undefined
+    ? {}
+    : { helpOf: (...args: Parameters<NonNullable<EnableDeps['helpOf']>>) => deps.helpOf!(...args) }),
 });
 
 /** A console over fakes: runOp records each operation, the key commands answer `keys answered`. */
