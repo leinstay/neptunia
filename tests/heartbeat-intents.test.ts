@@ -185,7 +185,17 @@ async function liveTurn({
   const client = { user: { id: 'self-id', username: 'Bot' } };
   const store = fakeStore();
   store.getLore = () => lore;
-  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', port, reads, intentions });
+  const admin = createAdmin({
+    discord: DISCORD,
+    hot,
+    store,
+    client,
+    getGuildId: () => 'g1',
+    port,
+    reads,
+    intentions,
+    now: () => NOW,
+  });
   const llm = sequenceLlm(typeof answers === 'function' ? answers(intentions) : answers);
   const calibrator = { ratio: 1, apply: (value: Record<string, Untyped>) => value, observe: () => {} };
   const turns = createTurnRunner({

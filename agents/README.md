@@ -22,7 +22,7 @@ Every profile carries `id`, `kind`, `role`, `prompt`, `override` and `descriptio
 - **Worker:** `tools`, `shell`, `enabled`, `cost` (`{ input, output }`, USD per million tokens), `limits` (`{ steps, seconds }`), `daily` (`{ tasks }`), `searchProvider`, `socket`, `out`, `env`.
 - **Development:** `tools`, `permission`, `effort`, `limits` (`{ steps, minutes }`), `cost` (`{ input, output }`).
 
-Any profile may also carry `backend` (`codex`, `claude` or `opencode`; see [docs/errands.md](../docs/errands.md#backends)), and a worker `search` (`true` makes the `codex` backend search the web).
+Any profile may also carry `backend` (`codex`, `claude` or `opencode`; see [docs/errands.md](../docs/errands.md#backends)), and a worker `search` (`true` makes the `codex` backend search the web) and `sandbox` (`read-only` or `workspace-write`, the default; the sandbox a CLI backend runs the agent in).
 
 A deployment overrides `enabled`, `cost`, `socket`, `out`, `limits`, `daily` and `searchProvider` of a worker, and `cost` and `limits` of a development agent, under `agents.<name>` in `config.local/config.json`. `agentSettings(name, config)` in `src/agent-runner/profiles.ts` lays that override over the profile, and every reader of these settings goes through it. A development profile refuses `enabled`.
 

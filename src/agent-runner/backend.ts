@@ -359,7 +359,8 @@ const FALLBACK_SECONDS = 300;
 /**
  * The task engine of a runner: OpenCode through createOpencodeRunner, or a CLI backend that works the task's brief
  * (the profile's prompt, the preamble, the goal and context) in `<outDir>/<id>/` and delivers the files left there.
- * The agent runs with `workspace-write` (its writes stay in that directory) and with `--search` when the profile asks.
+ * The agent runs in the profile's sandbox (`workspace-write` unless the profile says `read-only`) and with `--search`
+ * when the profile asks.
  * A CLI backend brings its own login: a task's `secrets` are not passed on.
  */
 export function createAgentEngine({ backend, binary, ...deps }: EngineDeps): Runner {
@@ -397,7 +398,7 @@ export function createAgentEngine({ backend, binary, ...deps }: EngineDeps): Run
     const outcome = await cli.run(brief, {
       cwd: dir,
       timeoutMs: cap * 1000,
-      sandbox: 'workspace-write',
+      sandbox: profile.sandbox,
       search: profile.search,
       signal: task.signal,
     });

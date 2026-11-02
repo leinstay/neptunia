@@ -11,6 +11,7 @@
   "limits": { "steps": 20, "seconds": 120 },
   "daily": { "tasks": 40 },
   "searchProvider": null,
+  "sandbox": "read-only",
   "socket": "/run/neptunia-agent-server/sock",
   "out": "/var/lib/neptunia-agent-server/out",
   "env": ["OPENROUTER_ERRAND_KEY"],

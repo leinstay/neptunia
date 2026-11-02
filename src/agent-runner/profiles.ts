@@ -109,6 +109,8 @@ export type WorkerDefinition = Readonly<
     env: ReadonlyArray<string>;
     /** true: the codex backend runs the agent with live web search */
     search?: boolean;
+    /** the sandbox a CLI backend runs the agent in; absent means workspace-write */
+    sandbox?: 'read-only' | 'workspace-write';
   }
 >;
 
@@ -169,6 +171,7 @@ export type Profile = {
   defaultSocket: string;
   defaultOut: string;
   search: boolean;
+  sandbox: 'read-only' | 'workspace-write';
   buildConfig: (options?: BuildConfigOptions) => OpenCodeConfig;
 };
 
@@ -857,8 +860,11 @@ function permissionFor(
 /** The keys every profile carries, whatever its kind. */
 const COMMON_KEYS = Object.freeze(['id', 'kind', 'role', 'prompt', 'override', 'description']);
 
-/** The keys a profile may carry and need not: `backend` for every kind, `search` for a worker. */
-const OPTIONAL_KEYS = Object.freeze({ common: Object.freeze(['backend']), worker: Object.freeze(['search']) });
+/** The keys a profile may carry and need not: `backend` for every kind, `search` and `sandbox` for a worker. */
+const OPTIONAL_KEYS = Object.freeze({
+  common: Object.freeze(['backend']),
+  worker: Object.freeze(['search', 'sandbox']),
+});
 
 /** The keys only a worker carries (a consultation naming one is refused as an unknown key). */
 const WORKER_KEYS = Object.freeze([
@@ -1083,12 +1089,14 @@ function optionalKeysOf(kind: string): ReadonlyArray<string> {
   return kind === 'worker' ? [...OPTIONAL_KEYS.common, ...OPTIONAL_KEYS.worker] : OPTIONAL_KEYS.common;
 }
 
-/** Checks the optional keys when present: `backend` is one of BACKEND_NAMES, `search` true or false. */
+/** Checks the optional keys when present: `backend` is one of BACKEND_NAMES, `search` true or false, `sandbox` read-only or workspace-write. */
 function checkOptional(agent: string, raw: Record<string, unknown>): void {
   if (Object.hasOwn(raw, 'backend') && !isOneOf(BACKEND_NAMES, raw.backend))
     throw new AgentProfileError(agent, 'backend', `must be one of ${BACKEND_NAMES.join(', ')}`);
   if (Object.hasOwn(raw, 'search') && typeof raw.search !== 'boolean')
     throw new AgentProfileError(agent, 'search', 'must be true or false');
+  if (Object.hasOwn(raw, 'sandbox') && raw.sandbox !== 'read-only' && raw.sandbox !== 'workspace-write')
+    throw new AgentProfileError(agent, 'sandbox', 'must be read-only or workspace-write');
 }
 
 /**
@@ -1249,6 +1257,8 @@ function makeProfile(
     defaultOut: definition.out,
     // Whether the codex backend runs it with live web search (`codex exec --search`).
     search: definition.search === true,
+    // The sandbox of a CLI backend (`codex exec -s`): workspace-write unless the profile asks for read-only.
+    sandbox: definition.sandbox ?? 'workspace-write',
     /**
      * The OpenCode config (V1 shape) for one task, to pass as
      * OPENCODE_CONFIG_CONTENT. `providerModel` is `provider/model`; `cost`
