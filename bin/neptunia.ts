@@ -104,6 +104,7 @@ import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
 import { BASE_ROLES, MEMORY_ROLE } from '../src/llm/roles.ts';
+import { createKeyStore, keysFileExists } from '../src/keys/store.ts';
 import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../src/llm/openrouter.ts';
 import { log, logToStderr } from '../src/log.ts';
 import { resolvePaths } from '../src/paths.ts';
@@ -129,6 +130,8 @@ import { parseManifest } from '../src/plugins/manifest.ts';
 import { runSelfdev } from './selfdev.ts';
 import { runTask, openBoardCaller } from './neptunia-task.ts';
 import { reportAnswer } from './report.ts';
+import { createAnswers, mutableOutput } from './secret-prompt.ts';
+import type { Answers } from './secret-prompt.ts';
 import { reportsDirOf, watcherDir } from '../src/watcher/read.ts';
 import { runWatcher } from '../src/watcher/run.ts';
 import type { RunAgent } from '../src/watcher/run.ts';
@@ -367,9 +370,12 @@ function lineEvent(text: string, at: number, options: { id?: string; self?: bool
 /** One command as the `command.requested` event of the owner, answered by the `command.result` naming `replyRef`. */
 function commandEvent(
   command: { name: string; args: Record<string, unknown> },
-  replyRef: string
+  replyRef: string,
+  dialog: { dialogId: string; answer: string } | null = null
 ): Record<string, unknown> {
   return {
+    // The answer to a question the command asked is a field of its own, never an argument.
+    ...(dialog === null ? {} : dialog),
     kind: 'command.requested',
     iface: CLI_IFACE,
     at: Date.now(),
@@ -387,7 +393,8 @@ const quiet: Logger = { info() {}, warn() {}, error() {} };
 /** The command line's link to the core: its events, and the answers of its commands by their `replyRef`. */
 type CliLink = {
   say(text: string): Promise<string>;
-  ask(command: Command): Promise<Answer>;
+  /** Sends a command; a question it asks goes to `answers`, and without them the command is refused. */
+  ask(command: Command, answers?: Answers): Promise<Answer>;
   closed: Promise<void>;
   close(): void;
 };
@@ -398,12 +405,12 @@ async function openCliLink(print: ((text: string) => void) | null): Promise<CliL
   const transcript: Array<MessageEvent> = [];
   const token = readToken(where.privateDir, CLI_CLIENT);
   const transport = await connectSocket({ path: coreSocketPath(where.dataDir), maxFrameBytes: MAX_FRAME_BYTES });
-  const answers = new Map<string, (result: { text: string; status: string }) => void>();
+  const waiting = new Map<string, (result: Reply) => void>();
   const closed = new Promise<void>((resolve) =>
     transport.onClose(() => {
-      for (const resolveAnswer of answers.values())
+      for (const resolveAnswer of waiting.values())
         resolveAnswer({ text: 'The link to the core closed.', status: 'failed' });
-      answers.clear();
+      waiting.clear();
       resolve();
     })
   );
@@ -420,9 +427,9 @@ async function openCliLink(print: ((text: string) => void) | null): Promise<CliL
     adapter: cliAdapter(print, transcript),
     log: quiet,
     onCommandResult: (result: CommandResult) => {
-      const resolveAnswer = answers.get(result.replyRef);
-      answers.delete(result.replyRef);
-      resolveAnswer?.({ text: result.text, status: result.status ?? 'ok' });
+      const resolveAnswer = waiting.get(result.replyRef);
+      waiting.delete(result.replyRef);
+      resolveAnswer?.({ text: result.text, status: result.status ?? 'ok', ask: result.ask ?? null });
     },
   });
   return {
@@ -431,15 +438,24 @@ async function openCliLink(print: ((text: string) => void) | null): Promise<CliL
       keep(transcript, event);
       return served.emit(event);
     },
-    async ask(command) {
-      const replyRef = randomUUID();
-      const answer = new Promise<{ text: string; status: string }>((resolve) => answers.set(replyRef, resolve));
-      const acked = await served.emit(commandEvent(command, replyRef));
-      if (acked !== 'ok') {
-        answers.delete(replyRef);
-        return { text: `The core did not take the command (${acked}).`, status: acked };
+    async ask(command, answers) {
+      /** One request and the reply to it: a result, or a question. */
+      async function send(dialog: { dialogId: string; answer: string } | null): Promise<Reply> {
+        const replyRef = randomUUID();
+        const reply = new Promise<Reply>((resolve) => waiting.set(replyRef, resolve));
+        const acked = await served.emit(commandEvent(command, replyRef, dialog));
+        if (acked === 'ok') return reply;
+        waiting.delete(replyRef);
+        return { text: `The core did not take the command (${acked}).`, status: acked, ask: null };
       }
-      return answer;
+      let reply = await send(null);
+      while (reply.ask != null) {
+        if (answers === undefined)
+          return { text: 'This command asks a question: run it in the chat.', status: 'invalid' };
+        const { dialogId, prompt, secret } = reply.ask;
+        reply = await send({ dialogId, answer: await answers.ask(prompt, secret) });
+      }
+      return { text: reply.text, status: reply.status };
     },
     closed,
     close: () => served.close(),
@@ -451,6 +467,9 @@ type Command = { name: string; args: Record<string, unknown> };
 
 /** One answer of a command, from the core or from the command line itself. */
 type Answer = { text: string; status: string };
+
+/** What the core sent for one request: an answer, or a question to put to the owner (`ask`). */
+type Reply = Answer & { ask?: CommandResult['ask'] };
 
 /** The commands the command line runs itself, with no core: the doctor, the journal, the screen and the report. */
 const LOCAL_COMMANDS = new Set(['doctor', 'doctor.live', 'logs', 'clear', 'report']);
@@ -567,9 +586,21 @@ async function runOne(argv: ReadonlyArray<string>): Promise<void> {
   } catch (err) {
     die(`no core listens (${(err as NodeJS.ErrnoException).code ?? 'error'}); start it with neptunia service start`);
   }
-  const answer = await link.ask(command);
+  // A command that asks a question (a key value) reads the answer from the terminal when there is one.
+  const questions = process.stdin.isTTY === true ? openQuestions() : null;
+  const answer = await link.ask(command, questions?.answers);
+  questions?.close();
   link.close();
   print(answer);
+}
+
+/** The terminal's questions for one command: its readline interface (muted while a secret is typed) and the answers over it. */
+function openQuestions(): { answers: Answers; close(): void } {
+  const output = mutableOutput(process.stdout);
+  const input = readline.createInterface({ input: process.stdin, output, terminal: true });
+  const answers = createAnswers({ rl: input, input: process.stdin, output, target: process.stdout });
+  input.on('line', (line: string) => answers.take(line));
+  return { answers, close: () => input.close() };
 }
 
 /** The `cli` client's link when its token is there and a core listens, else null. */
@@ -614,15 +645,20 @@ async function runChat(): Promise<void> {
   if (header.status === 'ok') printBlock(header.text);
 
   const historyFile = path.join(where.privateDir, 'cli', 'history');
+  // In a terminal the interface draws into a writable that a secret answer mutes (bin/secret-prompt.ts).
+  const output = terminal ? mutableOutput(process.stdout) : null;
   const input = readline.createInterface({
     input: process.stdin,
-    output: terminal ? process.stdout : undefined,
+    output: output ?? undefined,
     terminal,
     history: terminal ? readHistory(historyFile) : [],
     historySize: 1000,
   });
+  const answers = createAnswers({ rl: input, input: process.stdin, output, target: process.stdout });
   if (terminal) {
     input.on('history', (lines: Array<string>) => {
+      // A secret answer is neither kept in the file nor in the list: it is taken out of both.
+      if (answers.secretWaiting()) return;
       fs.mkdirSync(path.dirname(historyFile), { recursive: true, mode: 0o700 });
       fs.writeFileSync(historyFile, `${[...lines].reverse().join('\n')}\n`, { mode: 0o600 });
     });
@@ -635,6 +671,8 @@ async function runChat(): Promise<void> {
     void work.finally(() => running.delete(work));
   };
   input.on('line', (line: string) => {
+    // The line a question waits for is its answer, never a command.
+    if (answers.take(line)) return;
     const text = line.trim();
     if (text === '') return;
     if (text === '/clear') {
@@ -650,7 +688,7 @@ async function runChat(): Promise<void> {
         track(followJournal(parsed.args.options, printBlock));
       else if (LOCAL_COMMANDS.has(parsed.name))
         track(runLocal(parsed, (asked) => link.ask(asked)).then((answer) => printBlock(answer.text)));
-      else track(link.ask(parsed).then((answer) => printBlock(answer.text)));
+      else track(link.ask(parsed, answers).then((answer) => printBlock(answer.text)));
     } else {
       track(
         link.say(line).then((status) => {
@@ -736,8 +774,21 @@ function checkLocalLayer(where: { privateDir: string }): Check {
   };
 }
 
+/** The model keys of a deployment with a `keys.json`: how many core keys it holds. Names and counts only. */
+function checkKeyStore(privateDir: string): Check {
+  try {
+    const core = createKeyStore({ privateDir }).list().core.length;
+    return core > 0
+      ? { name: 'env-keys', status: 'ok', detail: `keys.json holds ${core} core keys` }
+      : { name: 'env-keys', status: 'warn', detail: 'keys.json holds no core key: add one with /keys core add' };
+  } catch {
+    return { name: 'env-keys', status: 'fail', detail: 'keys.json does not read' };
+  }
+}
+
 /** The `.env` keys the enabled roles name (`llm.keyByRole`), beside the core's own: names only, never a value. */
 function checkEnvKeys(where: { rootDir: string; privateDir: string }): Check {
+  if (keysFileExists(where.privateDir)) return checkKeyStore(where.privateDir);
   let names: Set<string>;
   try {
     names = new Set(Object.keys(parseEnv(fs.readFileSync(path.join(where.privateDir, '.env'), 'utf8'))));
@@ -778,16 +829,21 @@ function checkRoles(where: { rootDir: string; privateDir: string }): Check {
   let names: Set<string>;
   try {
     config = readConfig(where.rootDir, { privateDir: where.privateDir });
-    names = new Set(Object.keys(parseEnv(fs.readFileSync(path.join(where.privateDir, '.env'), 'utf8'))));
+    names = keysFileExists(where.privateDir)
+      ? new Set()
+      : new Set(Object.keys(parseEnv(fs.readFileSync(path.join(where.privateDir, '.env'), 'utf8'))));
   } catch {
     return { name: 'roles', status: 'warn', detail: 'not checked: the config or .env does not read' };
   }
   const byRole = isObject(config.llm) && isObject(config.llm.keyByRole) ? config.llm.keyByRole : {};
-  const noKey = STRICT_KEY_ROLES.filter((role) => {
-    const entry = byRole[role];
-    const listed = Array.isArray(entry) ? entry : [entry];
-    return !listed.some((name) => typeof name === 'string' && ROLE_KEY_NAME.test(name) && names.has(name));
-  });
+  // With a key store a role goes out on a core key or its bound key; the store's own check says whether there is one.
+  const noKey = keysFileExists(where.privateDir)
+    ? []
+    : STRICT_KEY_ROLES.filter((role) => {
+        const entry = byRole[role];
+        const listed = Array.isArray(entry) ? entry : [entry];
+        return !listed.some((name) => typeof name === 'string' && ROLE_KEY_NAME.test(name) && names.has(name));
+      });
   const problems = [
     ...rolesOff(config).map((role) => `${role} has no model`),
     ...noKey.map((role) => `${role} has no key`),

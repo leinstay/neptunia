@@ -235,6 +235,9 @@ function checkCommandRequested(event: Rec): void {
   needIds(requester.roles, 'requester.roles');
   need(requester.owner, 'requester.owner', isBoolean);
   need(event.replyRef, 'replyRef', isId);
+  need(event.dialogId, 'dialogId', isId, { required: false });
+  need(event.answer, 'answer', isString, { required: false });
+  if ((event.dialogId === undefined) !== (event.answer === undefined)) throw new Refusal('answer', 'required');
 }
 
 function checkErrandDone(event: Rec): void {
@@ -381,13 +384,19 @@ function checkCommandResult(action: Rec): void {
   need(action.files, 'files', Array.isArray, { required: false });
   need(action.ephemeral, 'ephemeral', isBoolean, { required: false });
   need(action.status, 'status', isId, { required: false });
+  // The fields of a question (status `ask`): the dialog it opens, its prompt, whether the answer is typed unseen, the choices.
+  need(action.dialogId, 'dialogId', isId, { required: false });
+  need(action.prompt, 'prompt', isString, { required: false });
+  need(action.secret, 'secret', isBoolean, { required: false });
+  need(action.choices, 'choices', Array.isArray, { required: false });
 }
 
 /**
  * Whether `action` is a well-formed outbound action (actions.ts): a known `action` name, a
  * target reference with string ids (a message's with its `messageId`), an object `content` for a
  * send or an edit, a string `emoji` for a reaction, for a message fetch the `messageIds`, and for a command
- * result its `replyRef` and `text` (and, when present, its `status`, the command's outcome as a non-empty string). An `idempotencyKey`, when present, is a non-empty string, and a `deadlineAt` a finite number (ms since the epoch). What the content holds and whose the target is stay the adapter's checks. Never throws.
+ * result its `replyRef` and `text` (and, when present, its `status`, the command's outcome as a non-empty string, and, for
+ * the status `ask`, the `dialogId`, `prompt`, `secret` and `choices` of the question). An `idempotencyKey`, when present, is a non-empty string, and a `deadlineAt` a finite number (ms since the epoch). What the content holds and whose the target is stay the adapter's checks. Never throws.
  */
 export function validateAction(given: unknown): { ok: true } | { ok: false; reason: string } {
   return verdict(() => {

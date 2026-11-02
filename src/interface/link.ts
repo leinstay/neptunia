@@ -65,7 +65,16 @@ type Kind = 'effect' | 'read';
 type Waiting = { kind: Kind; resolve(result: Result): void };
 
 /** The answer to one `command.requested`: the token it named, the text the owner reads and the command's outcome. */
-export type CommandAnswer = { replyRef: string; text: string; status: string };
+export type CommandAnswer = {
+  replyRef: string;
+  text: string;
+  status: string;
+  /** A question (status `ask`): the dialog to answer by, the prompt, whether the answer is secret and its choices. */
+  dialogId?: string;
+  prompt?: string;
+  secret?: boolean;
+  choices?: Array<string>;
+};
 
 /** What a drain answers: the effects in flight that finished within its time, and those it ended `unknown`. */
 export type Drained = { drained: number; unknown: number };
