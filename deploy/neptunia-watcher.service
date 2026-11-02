@@ -9,11 +9,11 @@
 # writes only the watcher folder and the board through the socket, and holds the login of the agent backend.
 #
 # Install:
-#   sudo useradd --system --create-home --shell /usr/sbin/nologin neptunia-agent-watcher
-#   sudo usermod -aG neptunia neptunia-agent-watcher   # the group that reaches the core's socket
-#   sudo -u neptunia-agent-watcher mkdir -p /opt/neptunia/app/.agents/watcher/reports
+#   sudo useradd --system --create-home --shell /usr/sbin/nologin neptunia
+#   sudo usermod -aG neptunia neptunia   # the group that reaches the core's socket
+#   sudo -u neptunia mkdir -p /opt/neptunia/app/.agents/watcher/reports
 #   NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc node scripts/client-token.ts add watcher --kind agent --roles watcher
-#   sudo chown neptunia-agent-watcher /opt/neptunia/etc/clients/watcher.token && sudo chmod 0600 /opt/neptunia/etc/clients/watcher.token
+#   sudo chown neptunia /opt/neptunia/etc/clients/watcher.token && sudo chmod 0600 /opt/neptunia/etc/clients/watcher.token
 #   sudo cp deploy/neptunia-watcher.service deploy/neptunia-watcher.timer /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now neptunia-watcher.timer
 # Run now: sudo systemctl start neptunia-watcher.service
@@ -26,7 +26,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=neptunia-agent-watcher
+User=neptunia
 WorkingDirectory=/opt/neptunia/app
 ExecStart=/opt/node/bin/node bin/neptunia.ts watcher run
 # The bot's directories (deploy/neptunia-bot.service), set as in its unit.
