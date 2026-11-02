@@ -477,3 +477,32 @@ test('a rerun finishes after an application write failure and preserves already 
   assert.deepEqual(fs.readdirSync(path.join(options.dataDir, 'prompts')), ['rules.md']);
   assert.deepEqual(snapshot(options.privateDir), before);
 });
+
+test('preserves a competing destination created after staging and removes the staged file', (t) => {
+  // Catches a late collision overwriting another writer's file or leaving staged output after refusal.
+  const options = fixture();
+  write(options.privateDir, 'prompts.local/rules.md', 'migration source\n');
+  const sources = snapshot(options.privateDir);
+  const target = path.join(options.dataDir, 'prompts/rules.md');
+  const competing = 'competing destination\n';
+  const writeFile = fs.writeFileSync;
+  let hasInjected = false;
+  const intercepted = t.mock.method(fs, 'writeFileSync', (...args: Parameters<typeof fs.writeFileSync>) => {
+    writeFile(...args);
+    if (typeof args[0] === 'number' && !hasInjected) {
+      hasInjected = true;
+      writeFile(target, competing, { mode: 0o644 });
+      fs.chmodSync(target, 0o644);
+    }
+  });
+  try {
+    assert.throws(() => applyPersonaLayers(options));
+  } finally {
+    intercepted.mock.restore();
+  }
+  assert.equal(hasInjected, true, 'the collision occurs after the staged descriptor receives its bytes');
+  assert.equal(fs.readFileSync(target, 'utf8'), competing);
+  assert.equal(fs.statSync(target).mode & 0o777, 0o644);
+  assert.deepEqual(snapshot(options.privateDir), sources);
+  assert.deepEqual(fs.readdirSync(path.dirname(target)), ['rules.md']);
+});
