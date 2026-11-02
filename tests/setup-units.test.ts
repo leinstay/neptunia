@@ -37,6 +37,20 @@ const valuesOf = (text: string, key: string): Array<string> =>
 
 const AGENTS = ['neptunia-agent-scout.service', 'neptunia-agent-server.service'];
 
+for (const field of ['rootDir', 'privateDir', 'dataDir'] as const) {
+  test(`rendering preserves ${field} when its replacement contains a legacy home prefix`, () => {
+    // Catches replacement values being rewritten as though they were still template paths.
+    const vars: UnitVars = { ...VARS, home: '/home/installer', [field]: `/home/neptunia/worktree/${field}` };
+    const text = renderUnit(template('neptunia-core.service'), 'user', vars);
+    assert.deepEqual(valuesOf(text, 'WorkingDirectory'), [vars.rootDir]);
+    const env = valuesOf(text, 'Environment');
+    assert.ok(env.includes(`NEPTUNIA_PRIVATE_DIR=${vars.privateDir}`));
+    assert.ok(env.includes(`NEPTUNIA_DATA_DIR=${vars.dataDir}`));
+    const dirs = (env.find((value) => value.startsWith('PATH=')) ?? '').slice(5).split(':');
+    assert.ok(dirs.includes(`${vars.home}/.local/bin`));
+  });
+}
+
 test('setup renders these six templates and not the bot unit or the plugin template', () => {
   // Bug: the bot unit (which conflicts with the core) is installed beside the core, or a template is forgotten.
   assert.deepEqual(

@@ -1,11 +1,11 @@
-# systemd timer for neptunia-selfimprovement.service: one beat every hour, the server clock. The service is a oneshot, so a
-# beat still running when the hour comes is not started twice; a beat missed while the machine was off is not caught up.
+# systemd timer for neptunia-selfimprovement.service, one beat every six hours UTC. The service is a oneshot, so a
+# beat still running at the next scheduled time is not started twice. A beat missed while the machine is off is skipped.
 
 [Unit]
-Description=neptunia selfimprovement, hourly
+Description=neptunia selfimprovement, every six hours UTC
 
 [Timer]
-OnCalendar=hourly
+OnCalendar=*-*-* 00,06,12,18:00:00 UTC
 Unit=neptunia-selfimprovement.service
 
 [Install]

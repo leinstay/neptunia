@@ -14,7 +14,16 @@ function terminal() {
   let drawn = '';
   stdout.on('data', (chunk: Buffer) => (drawn += chunk.toString()));
   const output = mutableOutput(stdout);
-  const rl = readline.createInterface({ input: stdin, output, terminal: true, history: ['/status'] });
+  const previousTerm = process.env.TERM;
+  let rl: readline.Interface;
+  try {
+    // Readline chooses its backspace handler at construction from TERM, so the fake terminal supplies it.
+    process.env.TERM = 'xterm-256color';
+    rl = readline.createInterface({ input: stdin, output, terminal: true, history: ['/status'] });
+  } finally {
+    if (previousTerm === undefined) delete process.env.TERM;
+    else process.env.TERM = previousTerm;
+  }
   const answers = createAnswers({ rl, input: stdin, output, target: stdout });
   const commands: Array<string> = [];
   const historyWhileSecret: Array<boolean> = [];
