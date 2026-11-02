@@ -1,12 +1,12 @@
 # systemd unit for the persona's scout errand agent (src/agent-runner/, profile scout).
 #
 # A separate, unprivileged process that runs internet errands for the bot
-# through Codex (`codex exec -s workspace-write --search`, the profile's
-# backend; src/agent-runner/backend.ts). It reaches the internet but never the
-# server's filesystem beyond its own out dir and ~/.codex, and never localhost
-# or private networks. It runs as the user `neptunia`, which holds the one
-# Codex login of the server (~/.codex/auth.json), so no model key reaches it
-# from the bot's .env.
+# through the subharness backend (`codex exec -s workspace-write --search` for
+# codex; src/agent-runner/backend.ts). It reaches the internet but never the
+# server's filesystem beyond its own out dir and the backend's folder in the
+# private layer, and never localhost or private networks. The backend runs from
+# <private>/subharness/<backend>/, which holds its binary and its login, so no
+# model key reaches it from the bot's .env.
 #
 # Codex sandboxes the commands it runs with its own bubblewrap. That works
 # under this unit's NoNewPrivileges, ProtectSystem and PrivateTmp (checked
@@ -34,7 +34,7 @@ User=neptunia
 Group=neptunia-discord-interface
 WorkingDirectory=/opt/neptunia/app
 ExecStart=/opt/node/bin/node bin/neptunia.ts errand-runner --profile scout
-# The runner starts `codex` by name: its folder and node's go on the PATH.
+# Node's folder goes on the PATH; the backend is started by its path in the private layer.
 Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
 # The bot's directories (deploy/neptunia-bot.service), set as in its unit. The
 # runner reads the override prompts.local/agent-scout.md from
@@ -51,12 +51,13 @@ EnvironmentFile=-/opt/neptunia/etc/agent-scout.env
 Restart=on-failure
 RestartSec=5
 
-# Writes only its state (out) dir, the runtime socket dir and ~/.codex (Codex's
-# sessions, logs and login); the rest of the home is an empty tmpfs, with
-# ~/.local (the codex binary) read-only; everything else is read-only or inaccessible.
+# Writes only its state (out) dir, the runtime socket dir and the backend's
+# folder <private>/subharness/<backend>/ (its sessions, logs and login), which
+# `neptunia setup` binds after ProtectHome= while a backend is on; the rest of
+# the home is an empty tmpfs, with ~/.local read-only; everything else is
+# read-only or inaccessible.
 ProtectSystem=strict
 ProtectHome=tmpfs
-BindPaths=/home/neptunia/.codex
 BindReadOnlyPaths=/home/neptunia/.local
 NoNewPrivileges=yes
 PrivateTmp=yes

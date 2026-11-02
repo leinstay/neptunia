@@ -67,8 +67,10 @@ test('an installed unit is rendered again for the new mode, the manager reloads 
   ]);
 });
 
-test('the units take the backend from keys.json, so the core may write the home of the backend that is on', async () => {
-  // Catches: the renderer gets no backend from setup and the core unit never names ~/.claude, whatever the owner enabled.
+test('the units take the backend from keys.json, and the core names no home of the user for it', async () => {
+  // Catches: the core unit names ~/.claude from the stored backend, a folder that may not exist, and fails to start.
+  // Changed for spec 2026-11-02 PR 5: the backend lives in <private>/subharness/<backend>/, which the core writes
+  // through its private folder; the agent units' bind of it is the test on the scout unit below.
   const { target, run, unitDir, privateDir } = rig();
   writeKeysFile(privateDir, { subharness: { backend: 'claude', key: null, modes: {} } });
   const done = await installUnits(target, run, ['neptunia-core.service']);
@@ -79,7 +81,8 @@ test('the units take the backend from keys.json, so the core may write the home 
     .filter((line) => line.startsWith('ReadWritePaths='))
     .flatMap((line) => line.slice('ReadWritePaths='.length).split(/\s+/))
     .map((one) => one.replace(/^-/, ''));
-  assert.ok(writable.includes(path.join(target.home, '.claude')));
+  assert.equal(writable.includes(path.join(target.home, '.claude')), false);
+  assert.ok(writable.includes(privateDir), writable.join(' '));
 });
 
 // `subharness mode` inside the core (spec 2026-11-02, follow-up 8): the core runs under NoNewPrivileges, so it never

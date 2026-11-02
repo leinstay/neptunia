@@ -171,11 +171,12 @@ test('system units run as the installing user and group, and keep the template h
   assert.deepEqual(valuesOf(server, 'IPAddressDeny'), ['any']);
 });
 
-test("system agent units bind the installing user's home, and their PATH reaches its codex and the node", () => {
+test("system agent units bind nothing of the installing user's home, and their PATH reaches its tools and the node", () => {
   // Bug: the unit binds /home/neptunia/.codex, which is not the login of this user, so every task fails backend-missing.
+  // Changed for spec 2026-11-02 PR 5: the backend's login lives in <private>/subharness/<backend>/, never in ~/.codex.
   for (const name of AGENTS) {
     const text = renderUnit(template(name), 'system', VARS);
-    assert.deepEqual(valuesOf(text, 'BindPaths'), [`${VARS.home}/.codex`], name);
+    assert.deepEqual(valuesOf(text, 'BindPaths'), [], name);
     const dirs = (valuesOf(text, 'Environment').find((one) => one.startsWith('PATH=')) ?? '').slice(5).split(':');
     assert.ok(dirs.includes(`${VARS.home}/.local/bin`), name);
     assert.ok(dirs.includes(path.dirname(VARS.node)), name);
@@ -197,12 +198,6 @@ const CORE_AND_WATCHER = ['neptunia-core.service', 'neptunia-watcher.service'];
 const pathDirsOf = (text: string): Array<string> =>
   (valuesOf(text, 'Environment').find((one) => one.startsWith('PATH=')) ?? '').slice(5).split(':').filter(Boolean);
 
-/** The folders the unit's `ReadWritePaths=` lines name, a leading `-` taken off. */
-const writableOf = (text: string): Array<string> =>
-  valuesOf(text, 'ReadWritePaths')
-    .flatMap((one) => one.split(/\s+/))
-    .map((one) => one.replace(/^-/, ''));
-
 for (const scope of ['user', 'system'] as const) {
   test(`${scope} core and watcher units put the user's ~/.local/bin and the node's folder on PATH`, () => {
     // Catches: codex installed under ~/.local/bin is not found by the core's enable check or the watcher's run.
@@ -215,14 +210,10 @@ for (const scope of ['user', 'system'] as const) {
   });
 }
 
-test('the core may write the home of the backend that is on: ~/.codex for codex, ~/.claude for claude, none for none', () => {
-  // Catches: ProtectSystem=strict leaves the backend's home read-only and every run fails writing its session, or a
-  // deployment without the subharness gets a ReadWritePaths of a folder that does not exist and the unit fails.
-  const core = (backend: 'codex' | 'claude' | null): string =>
-    renderUnit(template('neptunia-core.service'), 'user', { ...VARS, backend });
-  assert.ok(writableOf(core('codex')).includes(`${VARS.home}/.codex`));
-  assert.ok(writableOf(core('claude')).includes(`${VARS.home}/.claude`));
-  assert.equal(writableOf(core('claude')).includes(`${VARS.home}/.codex`), false);
+test('the core and the watcher of a deployment with no backend name no backend home', () => {
+  // Catches: a deployment without the subharness gets a ReadWritePaths of a folder that does not exist and the unit fails.
+  // Changed for spec 2026-11-02 PR 5: the core writes the backend's folder in the private layer, checked by the test
+  // "the core may write her backend's folder"; ~/.codex and ~/.claude are no longer its write paths.
   for (const name of CORE_AND_WATCHER) {
     const text = renderUnit(template(name), 'user', { ...VARS, backend: null });
     assert.equal(text.includes('/.codex') || text.includes('/.claude'), false, name);

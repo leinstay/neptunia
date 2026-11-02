@@ -86,13 +86,14 @@ test('the agent units run as the user that holds the Codex login, in the group o
   }
 });
 
-test('the agent units can write ~/.codex and nothing else of the home, and keep the system read-only', () => {
+test('the agent units write nothing of the home, and keep the system read-only', () => {
   // Bug: ProtectHome=yes hides the Codex binary and its login, or a wide write path opens the home to the agent.
+  // Changed for spec 2026-11-02 PR 5: the template binds no ~/.codex; setup binds the backend's private-layer folder.
   for (const name of AGENT_UNITS) {
     const service = parseUnit(name);
     assert.equal(one(service, 'Service', 'ProtectSystem'), 'strict', name);
     assert.equal(one(service, 'Service', 'ProtectHome'), 'tmpfs', name);
-    assert.deepEqual(service.get('Service')?.get('BindPaths'), ['/home/neptunia/.codex'], name);
+    assert.equal(service.get('Service')?.get('BindPaths'), undefined, name);
     assert.deepEqual(service.get('Service')?.get('BindReadOnlyPaths'), ['/home/neptunia/.local'], name);
     assert.equal(one(service, 'Service', 'ReadWritePaths'), undefined, name);
     assert.equal(one(service, 'Service', 'NoNewPrivileges'), 'yes', name);

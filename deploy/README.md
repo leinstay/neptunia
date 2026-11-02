@@ -18,11 +18,11 @@ The templates keep the paths of the first deployment (`/opt/neptunia/app`, `/opt
 
 The node binary is the one `neptunia setup` was started with, as it was typed or found on `PATH` and never resolved through a link, so a unit names `/opt/node/bin/node` when `/opt/node` is a link to a versioned folder. `neptunia setup --node <path>` names another one.
 
-The core, the watcher, the agents and the selfdev beat start the subharness backend's binary by name, so their `PATH` holds `<home>/.local/bin` and the folder of the node binary. While `subharness.backend` of `keys.json` is `codex` or `claude`, the core unit may also write that backend's home folder, `<home>/.codex` or `<home>/.claude`, through a `ReadWritePaths=` entry with a leading `-`. The core keeps `ProtectSystem=strict`, so without the entry the backend could not write its session there. The watcher unit has no mount sandbox and needs no entry.
+A subharness backend lives in `<private>/subharness/<backend>/` with its binary and its home (`src/subharness/place.ts`), and a run starts that binary by its path. While `subharness.backend` of `keys.json` names a backend, an agent unit in `read` or `write` binds that folder writable with a `BindPaths=` entry after `ProtectHome=tmpfs`. The entry has a leading `-`, so the unit starts before the backend is installed. It covers that folder alone, and `keys.json` stays read-only for the agent. The core writes the folder through the private directory in its `ReadWritePaths=`, and the watcher unit has no mount sandbox. The units keep `<home>/.local/bin` and the folder of the node binary on `PATH`.
 
 A user unit goes to `$XDG_CONFIG_HOME/systemd/user` (`~/.config/systemd/user` when the variable is unset). It has no `User=` or `Group=`, installs into `default.target`, and the interface unit loses its `InaccessiblePaths`, since the one user owns the core's files too. The `Conflicts=` line against the bot unit is dropped.
 
-A system unit, written with `neptunia setup --system`, goes to `/etc/systemd/system` through `sudo install -m 0644`. It runs as the installing user and keeps the template's hardening. The agent units bind `<home>/.codex`.
+A system unit, written with `neptunia setup --system`, goes to `/etc/systemd/system` through `sudo install -m 0644`. It runs as the installing user and keeps the template's hardening, and its agent units bind the backend's folder in the private directory as a user unit does.
 
 ## The sandbox of an agent unit
 
