@@ -4,7 +4,7 @@
 // `selfimprovement` on needs a connected subharness backend, `selfimprovement.repository` and a push right to it
 // through her gh login (src/selfimprovement/repository.ts); without them it is stored off and the step is `refused`.
 // The answers go into `<private>/config.local/config.json`, every other key kept, and nothing is written when no
-// answer changes a value. The watcher step (src/setup/watcher.ts) asks its questions through the same two helpers.
+// answer changes a value. The watcher step (src/setup/watcher.ts) asks through `askSwitch` and `askHour` of this file.
 
 import { readConfig } from '../config.ts';
 import { localConfigPath } from '../config/files.ts';
