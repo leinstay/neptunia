@@ -88,7 +88,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/behavior/sandbox-types.ts` | public | The long input and result types of the signatures of the sandbox replay. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |
 | `src/behavior/turn-types.ts` | public | The long input and result types of the signatures of the turn runner. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |
 | `src/behavior/inner/types.ts` | public | The shapes the inner life modules share. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |
-| `src/behavior/inner/settings.ts` | public | The inner life's settings: the wake kinds, the `innerLife` defaults and `innerSettings`. Tested through the inner life tests. | `node:*`, `src/**` | none |
+| `src/behavior/inner/settings.ts` | public | The inner life's settings: the wake kinds, the `wakes` defaults and `innerSettings`. Tested through the inner life tests. | `node:*`, `src/**` | none |
 | `src/behavior/inner/queue.ts` | public | The inner life's wake queue and its state file `inner.json`: the door's handler of `inner.wake`, the wakes an intention gives and how queued wakes coalesce. Tested through the inner life tests. | `node:*`, `src/**` | none |
 | `src/behavior/inner/places.ts` | public | Her attention and the places view of the inner life: the place index, the attend wakes and the places page. Tested through the inner life tests. | `node:*`, `src/**` | none |
 | `src/behavior/inner/review.ts` | public | The inner life's day review: its drawn moment and the channels she spoke in lately. Tested through the inner life tests. | `node:*`, `src/**` | none |

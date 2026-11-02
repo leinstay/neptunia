@@ -59,10 +59,14 @@ The persona's skills are tools in the settings. `src/config-moves.ts` holds the 
 | `agents.opencodePath`, `toolResultChars`, `keepFilesHours`, `recentLines`, `maxOpen`, `resultMaxChars`, `unreadShown`, `resultRetrySeconds`, `resultCooldownSeconds` | the same names under `errands.*` |
 | `agents.<name>.search.provider` | `agents.<name>.searchProvider` |
 | `llm.helperTimeoutMs` | `llm.analyzerTimeoutMs` |
-| `innerLife.heartbeat.enabled`, `everyMinutes`, `jitterMinutes`, `historyDays`, `maxTokens` | the same names under `heartbeat.*` |
-| `diary.channelId`, `world`, `windows`, `quietDayChance`, `forceWaitMs`, `loop`, `planMaxOutputTokens`, `planTimeoutMs` | the same names under `selfreflection.*` |
-| `selfdev.mode`, `base`, `checkout`, `repository` | the same names under `selfimprovement.*` |
-| `innerLife.wakes.selfimprovement.everyDays`, `failuresPerShape` | the same names under `selfimprovement.*` |
+| `innerLife.heartbeat.*` | the same names under `heartbeat.*` |
+| `diary.*` | the same names under `selfreflection.*` |
+| `selfdev.*` | the same names under `selfimprovement.*` |
+| `innerLife.wakes.selfimprovement.*` | the same names under `selfimprovement.*` |
+| `innerLife.wakes.heartbeat.*` | the same names under `heartbeat.*` |
+| `innerLife.wakes.<kind>.*` of the other wake kinds | `wakes.kinds.<kind>.*` |
+| every other key of `innerLife.*` | the same name under `wakes.*` |
+| `features.innerLife` | `features.wakes` |
 
 Seven keys have no reader any more and are dropped: the grants `bot.access."memory.refresh.channel"`, `"memory.refresh.server"` and `"memory.refresh.user"`, `agents.maxDownloadBytes`, `agents.thinker.contextLimit` and `contextHard`, and `agents.ledger.socket`. A section a dropped key leaves empty goes with it. The load log line counts them as `dropped` beside `moved` and `shadowed`.
 
@@ -81,7 +85,7 @@ Two hard rails that must stay on:
 
 ## The config cut
 
-The settings hold the keys someone would change, the timeouts, budgets, retention and recovery limits, the privacy switches and the two rails. `src/config/cut.ts` lists every key the cut of 2026-10-31 took out and what it became: a named constant in the module that reads it, with the value production ran with; code that always runs, for a switch that was on (the `features.*` switches and the rollouts of `memoryDb`); nothing, for a switch that was off and the code it reached (`features.dryRun`, `features.spontaneous`, `features.eavesdrop`, `features.turnPlanner`, `pace.typingWhilePreparing`, `bot.dryRunChannelId`, `spontaneous.*`); and nothing, for a daily cap, whose counter went with it. `features.privateMessages` and `features.privateLikeServer` are `private.enabled` and `private.likeServer`, and the per-wake budgets are one `innerLife.wakes.*.<field>` entry each.
+The settings hold the keys someone would change, the timeouts, budgets, retention and recovery limits, the privacy switches and the two rails. `src/config/cut.ts` lists every key the cut of 2026-10-31 took out and what it became: a named constant in the module that reads it, with the value production ran with; code that always runs, for a switch that was on (the `features.*` switches and the rollouts of `memoryDb`); nothing, for a switch that was off and the code it reached (`features.dryRun`, `features.spontaneous`, `features.eavesdrop`, `features.turnPlanner`, `pace.typingWhilePreparing`, `bot.dryRunChannelId`, `spontaneous.*`); and nothing, for a daily cap, whose counter went with it. `features.privateMessages` and `features.privateLikeServer` are `private.enabled` and `private.likeServer`, and the per-wake budgets are one `wakes.kinds.*.<field>` entry each.
 
 `src/config.ts` takes the cut keys out of the private settings file at each load, after the moves, and logs one warning line with the counts. `node scripts/config-migrate.ts --dry-run` prints `<key> dropped (<becomes>)` for each, `<key> differs: live <json>, constant <json>` for a live value apart from the constant that replaced it, `<from> -> <to>` for the two privacy switches, and `<key> -> config.local/interfaces/discord.json` for a key of the Discord package. `--apply` writes the file and merges the Discord keys under what `config.local/interfaces/discord.json` already holds.
 
@@ -514,6 +518,10 @@ Settings for the `selfimprovement` wake, which looks back at her own work ([Inne
 | `selfimprovement.repository` | string, null | `null` | The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when her gh login can push there. While it is unset every selfimprovement beat pauses | `src/selfimprovement/settings.ts` |
 | `selfimprovement.everyDays` | number | `7` | Days between two selfimprovement wakes; the wake falls on the heartbeat moment once the days have passed | `src/behavior/inner/settings.ts` |
 | `selfimprovement.failuresPerShape` | number | `3` | How many chains of one shape must fail in a UTC day to raise a selfimprovement wake with that cause | `src/behavior/inner/settings.ts` |
+| `selfimprovement.tools` | string, array | `"*"` | The tools a selfimprovement wake may call: `"*"` for every granted tool or a list of tool names | `src/tools/access.ts` |
+| `selfimprovement.maxActs` | number, null | `null` | The most actions a selfimprovement wake may take; null: no cap | `src/tools/access.ts` |
+| `selfimprovement.maxTasks` | number, null | `null` | The most errands a selfimprovement wake may start; null: no cap | `src/tools/access.ts` |
+| `selfimprovement.inputTokens` | number, null | `null` | The input token budget of a selfimprovement wake; null: the loop budget | `src/tools/access.ts` |
 
 ## `selfreflection`
 
@@ -622,27 +630,27 @@ Settings for the persona's intentions. See [Inner life](inner-life.md).
 | `intentions.maxOpen` | number | `20` | Max intentions open at once | `src/intentions/service.ts` |
 | `intentions.candidateExpiresHours` | number | `48` | Hours before an unhandled candidate expires | `src/intentions/model.ts` |
 
-## `innerLife`
+## `wakes`
 
-Settings for the persona's inner life. See [Inner life](inner-life.md).
+Settings for the wake engine every wake kind shares: the scheduler's tick, the mode, the caps, the tool loop and the retries of an inner turn, and the limits of each wake kind under `wakes.kinds`. The heartbeat and the selfimprovement wake keep their own limits in their sections. See [Inner life](inner-life.md).
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `innerLife.mode` | string | `"shadow"` | `shadow`: reads run, other calls are recorded but never executed. `live`: calls run on her grants | `src/behavior/inner.ts` |
-| `innerLife.tickSeconds` | number | `60` | How often the scheduler looks at what is due | `src/core.ts` |
-| `innerLife.review.historyDays` | number | `14` | Days of her own lines that decide when the review happens | `src/behavior/inner/settings.ts` |
-| `innerLife.caps.perChain` | number | `3` | Inner turns of one chain per local day | `src/behavior/inner.ts` |
-| `innerLife.loop.maxSteps` | number | `4` | Tool loop bounds of an inner turn | `src/turn/settings.ts` |
-| `innerLife.loop.timeBudgetMs` | number | `180000` | Time budget of an inner turn's calls | `src/memory/db/service.ts` |
-| `innerLife.loop.maxCallsPerStep` | number | `4` | Calls per answer of an inner turn | `src/turn/settings.ts` |
-| `innerLife.loop.callTimeoutMs` | number | `60000` | Max time per call of an inner turn | `src/turn/tool-round.ts` |
-| `innerLife.retry.delaysMinutes` | array | `[1, 5, 15, 60]` | Retry delays after a provider failure (minutes) | `src/behavior/inner/settings.ts` |
-| `innerLife.retry.maxHours` | number | `6` | Hours before retries stop | `src/behavior/inner/settings.ts` |
-| `innerLife.factsKeepDays` | number | `7` | Days an untold fact stays | `src/behavior/inner/settings.ts` |
-| `innerLife.wakes.*.tools` | string, array | `"*"` | The tools a wake of the kind may call: `"*"` (when unset) for every granted tool or a list of tool names | `src/tools/access.ts` |
-| `innerLife.wakes.*.maxActs` | number, null | `null` | The most actions a wake of the kind may take; unset or null: no cap | `src/tools/access.ts` |
-| `innerLife.wakes.*.maxTasks` | number, null | `null` | The most errands a wake of the kind may start; unset or null: no cap | `src/tools/access.ts` |
-| `innerLife.wakes.*.inputTokens` | number, null | `null` | The input token budget of a wake of the kind; unset or null: the loop budget | `src/tools/access.ts` |
+| `wakes.mode` | string | `"shadow"` | `shadow`: reads run, other calls are recorded but never executed. `live`: calls run on her grants | `src/behavior/inner.ts` |
+| `wakes.tickSeconds` | number | `60` | How often the scheduler looks at what is due | `src/core.ts` |
+| `wakes.review.historyDays` | number | `14` | Days of her own lines that decide when the review happens | `src/behavior/inner/settings.ts` |
+| `wakes.caps.perChain` | number | `3` | Inner turns of one chain per local day | `src/behavior/inner.ts` |
+| `wakes.loop.maxSteps` | number | `4` | Tool loop bounds of an inner turn | `src/turn/settings.ts` |
+| `wakes.loop.timeBudgetMs` | number | `180000` | Time budget of an inner turn's calls | `src/memory/db/service.ts` |
+| `wakes.loop.maxCallsPerStep` | number | `4` | Calls per answer of an inner turn | `src/turn/settings.ts` |
+| `wakes.loop.callTimeoutMs` | number | `60000` | Max time per call of an inner turn | `src/turn/tool-round.ts` |
+| `wakes.retry.delaysMinutes` | array | `[1, 5, 15, 60]` | Retry delays after a provider failure (minutes) | `src/behavior/inner/settings.ts` |
+| `wakes.retry.maxHours` | number | `6` | Hours before retries stop | `src/behavior/inner/settings.ts` |
+| `wakes.factsKeepDays` | number | `7` | Days an untold fact stays | `src/behavior/inner/settings.ts` |
+| `wakes.kinds.*.tools` | string, array | `"*"` | The tools a wake of the kind may call: `"*"` (when unset) for every granted tool or a list of tool names | `src/tools/access.ts` |
+| `wakes.kinds.*.maxActs` | number, null | `null` | The most actions a wake of the kind may take; unset or null: no cap | `src/tools/access.ts` |
+| `wakes.kinds.*.maxTasks` | number, null | `null` | The most errands a wake of the kind may start; unset or null: no cap | `src/tools/access.ts` |
+| `wakes.kinds.*.inputTokens` | number, null | `null` | The input token budget of a wake of the kind; unset or null: the loop budget | `src/tools/access.ts` |
 
 ## `heartbeat`
 
@@ -655,6 +663,10 @@ Settings for the heartbeat, the wake with no outside reason. See [Inner life](in
 | `heartbeat.jitterMinutes` | number | `60` | Jitter on the heartbeat interval | `src/behavior/inner/heartbeat.ts` |
 | `heartbeat.historyDays` | number | `14` | Days of the record read for each person's last contact | `src/behavior/inner/settings.ts` |
 | `heartbeat.maxTokens` | number | `2500` | Token cap of the whole heartbeat block. `0` turns the cap off | `src/behavior/inner/settings.ts` |
+| `heartbeat.tools` | string, array | `"*"` | The tools a heartbeat wake may call: `"*"` for every granted tool or a list of tool names | `src/tools/access.ts` |
+| `heartbeat.maxActs` | number, null | `null` | The most actions a heartbeat wake may take; null: no cap | `src/tools/access.ts` |
+| `heartbeat.maxTasks` | number, null | `null` | The most errands a heartbeat wake may start; null: no cap | `src/tools/access.ts` |
+| `heartbeat.inputTokens` | number, null | `null` | The input token budget of a heartbeat wake; null: the loop budget | `src/tools/access.ts` |
 
 ## `appendStore`
 
