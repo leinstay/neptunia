@@ -18,7 +18,7 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const REPORT_FILE = /^(\d{4}-\d{2}-\d{2})\.md$/;
 
 /** Whether `day` is a real date written `YYYY-MM-DD`. */
-export function isDay(day: unknown): day is string {
+export function isDay(day: unknown): boolean {
   if (typeof day !== 'string' || !DAY.test(day)) return false;
   const at = Date.parse(`${day}T00:00:00Z`);
   return !Number.isNaN(at) && new Date(at).toISOString().slice(0, 10) === day;
