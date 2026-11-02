@@ -43,6 +43,7 @@ import { ackOf, declaredHooks, envelope, portAction, validateEnvelope } from '..
 import type { Adapter, Capabilities, Delivery, SendOptions } from '../protocol/adapter.ts';
 import type { AckStatus, Hello, Logger, Named } from '../protocol/serve.ts';
 import type { Envelope, Transport } from '../protocol/wire.ts';
+import type { From } from './door.ts';
 import type { Principal } from './principals.ts';
 
 /** How many actions may wait for an answer at once. */
@@ -52,7 +53,7 @@ const MAX_PENDING = 256;
 const TOKEN_PRINCIPAL: Principal = { name: 'boot', kind: 'interface', iface: null, permissions: [] };
 
 /** Who sent an envelope through the door: the principal's name and the envelope's `seq`. */
-export type From = { principal: string | null; seq?: number | null };
+export type { From } from './door.ts';
 
 /** The door as the link uses it. */
 export type LinkDoor = { receive(value: unknown, from?: From): Promise<Envelope> };
@@ -174,6 +175,10 @@ function ifaceRefusal(found: Principal, iface: unknown): string | null {
   return null;
 }
 
+function senderOf(principal: Principal, seq: number | null): From {
+  return { principal: principal.name, seq, authenticated: { name: principal.name, kind: principal.kind } };
+}
+
 export function openAdapterLink(options: {
   transport: Transport;
   door: LinkDoor;
@@ -273,7 +278,7 @@ export function openAdapterLink(options: {
     const seq = typeof value.seq === 'number' ? value.seq : null;
     let answer: Envelope;
     try {
-      answer = await door.receive(value, { principal: who.name, seq });
+      answer = await door.receive(value, senderOf(who, seq));
     } catch (err) {
       log.warn('link: door failed', { name: err instanceof Error ? err.name : null });
       answer = ackOf(value, 'failed', 'handler-threw');

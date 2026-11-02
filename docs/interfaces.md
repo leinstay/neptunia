@@ -173,6 +173,8 @@ Validation checks shapes only: known kinds, required keys, string ids, finite nu
 
 All inbound events enter the core through one door (`src/interface/door.ts`). The door validates an event with `validateEvent`, checks its id against those already handled, and hands it to the handler registered for its kind.
 
+The link supplies the authenticated sender's name and kind separately from the event. The door passes this identity to the handler beside its ingestion row. Wire fields cannot replace it. An internal submission without this metadata receives `authenticated: null`. A principal name alone grants no authenticated identity. A mismatch between the principal name and the supplied sender returns `invalid` before deduplication or ingestion.
+
 - An id the door has seen returns `duplicate`. The handler does not run again.
 - An id whose handler threw returns `failed`. The id is not remembered, so a redelivery gets another try.
 - A malformed event returns `invalid` with one log line (kind and reason, never content).
