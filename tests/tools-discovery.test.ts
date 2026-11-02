@@ -452,3 +452,69 @@ test('exposedSkillNames: safe mode keeps the carried-over ones, the registry dec
     'only what the registry holds'
   );
 });
+
+// ---- roles that are off ----------------------------------------------------------------------------------------------
+// An optional model role (`vision`, `video`, `drawing`, `speech`) with a null model is off, and the tools it serves
+// leave her list, so the request's `tools` field does not offer what cannot run.
+
+const OFF_SELF = 'self-id';
+const OFF_GRANT = { everyone: false, roles: [], users: [OFF_SELF] };
+
+/** A config granting her `media.look`, with the given `models.base` entries. */
+function lookConfig(base: Record<string, unknown>) {
+  return { bot: { access: { 'media.look': OFF_GRANT } }, models: { base } };
+}
+
+const ALL_ON = { vision: 'x/v', video: 'x/w', drawing: 'x/d', speech: 'x/s' };
+
+// Bug caught: the model is offered a picture it cannot draw, calls it, and the turn spends a step on a refusal.
+test('exposedSkillNames: draw.create leaves the list while drawing is off, the others stay', () => {
+  const registry = skillRegistry();
+  const on = exposedSkillNames({ config: lookConfig(ALL_ON), selfId: OFF_SELF, registry });
+  assert.ok(on.includes('draw.create'));
+  const off = exposedSkillNames({ config: lookConfig({ ...ALL_ON, drawing: null }), selfId: OFF_SELF, registry });
+  assert.deepEqual(
+    off,
+    on.filter((name) => name !== 'draw.create')
+  );
+});
+
+// Bug caught: a voice message promised with no speech model behind it.
+test('exposedSkillNames: voice.say leaves the list while speech is off', () => {
+  const registry = skillRegistry();
+  const on = exposedSkillNames({ config: lookConfig(ALL_ON), selfId: OFF_SELF, registry });
+  assert.ok(on.includes('voice.say'));
+  const off = exposedSkillNames({ config: lookConfig({ ...ALL_ON, speech: null }), selfId: OFF_SELF, registry });
+  assert.deepEqual(
+    off,
+    on.filter((name) => name !== 'voice.say')
+  );
+});
+
+// Bug caught: media.look dropped when only one of its two roles is off, so she cannot look at what she still can see.
+test('exposedSkillNames: media.look stays while vision or video is on and leaves when both are off', () => {
+  const registry = skillRegistry();
+  const names = (base: Record<string, unknown>) =>
+    exposedSkillNames({ config: lookConfig(base), selfId: OFF_SELF, registry });
+  assert.ok(names(ALL_ON).includes('media.look'));
+  assert.ok(names({ ...ALL_ON, vision: null }).includes('media.look'), 'video on');
+  assert.ok(names({ ...ALL_ON, video: null }).includes('media.look'), 'vision on');
+  assert.equal(names({ ...ALL_ON, vision: null, video: null }).includes('media.look'), false);
+});
+
+// Bug caught: the off state read only for the carried-over tools, so safe mode brings the dead ones back.
+test("exposedSkillNames: safe mode does not bring an off role's carried-over tools back", () => {
+  const registry = skillRegistry();
+  const config = { ...lookConfig({ ...ALL_ON, drawing: null, speech: null }), tools: { safeMode: true } };
+  assert.deepEqual(exposedSkillNames({ config, selfId: OFF_SELF, registry }), ['message.create', 'message.react.add']);
+});
+
+// Bug caught: a deployment with every role on losing a tool, which changes its request.
+test('exposedSkillNames: a config with every optional role on, or with no models at all, lists the same tools', () => {
+  const registry = skillRegistry();
+  const bare = { bot: { access: { 'media.look': OFF_GRANT } } };
+  assert.deepEqual(
+    exposedSkillNames({ config: lookConfig(ALL_ON), selfId: OFF_SELF, registry }),
+    exposedSkillNames({ config: bare, selfId: OFF_SELF, registry })
+  );
+});

@@ -268,3 +268,172 @@ test('a text-only core loses vision, video, drawing and speech, and she is told 
     assert.equal(linesEqual(afterSecond, phrase('unavailable', ability, 'no-model')), 0, `${ability} not told alone`);
   }
 });
+
+// ---- roles that are off ----------------------------------------------------------------------------------------------
+// An optional role with a null model (`models.base.<role>`) is off. The tools it serves are not in her request's
+// `tools`, a picture, GIF or video that needs it is not described, and the request carries the words of the
+// `ability-unavailable` answer once for each ability that is down, so she can say she cannot see it.
+
+const ON_ROLES = { vision: 'x/vision', video: 'x/video', drawing: 'x/draw', speech: 'x/speech' };
+const CORE_AND_TEXT = { core: 'x/core', analyzer: 'x/text' };
+
+/** The names of the tools of her first request. */
+function toolNamesOf(run: Run): Array<string> {
+  const tools: unknown = run.llm.options[0]?.tools;
+  if (!Array.isArray(tools)) return [];
+  return tools.map((tool: unknown) => {
+    const fn: unknown = tool !== null && typeof tool === 'object' ? Reflect.get(tool, 'function') : null;
+    const name: unknown = fn !== null && typeof fn === 'object' ? Reflect.get(fn, 'name') : null;
+    return String(name);
+  });
+}
+
+// Bug caught: the model is offered tools whose model is off, and spends steps on calls that cannot run.
+test('with drawing and speech off, her tools field has no draw_create and no voice_say, and media_look stays', async () => {
+  const run = await coreTurn({
+    answers: ['<skip/>'],
+    allowed: ['media.look'],
+    config: { models: { base: { ...CORE_AND_TEXT, ...ON_ROLES, drawing: null, speech: null } } },
+    prompts: { labels: ROUTE_LABELS },
+  });
+  const names = toolNamesOf(run);
+  assert.ok(names.includes('message_create') && names.includes('media_look'), names.join());
+  assert.equal(names.includes('draw_create'), false);
+  assert.equal(names.includes('voice_say'), false);
+});
+
+// Bug caught: any change to the request of a deployment where every role has a model.
+test('with every role on, her whole request and her tools are byte-identical to a config that names no optional model', async () => {
+  const turn = (base: Record<string, unknown>) =>
+    coreTurn({
+      answers: ['<skip/>'],
+      allowed: ['media.look', 'web.search'],
+      config: { models: { base } },
+      prompts: { labels: ROUTE_LABELS },
+    });
+  const explicit = await turn({ ...CORE_AND_TEXT, ...ON_ROLES });
+  const bare = await turn(CORE_AND_TEXT);
+  const shape = (run: Run) => JSON.stringify({ calls: run.llm.calls, tools: run.llm.options.map((o) => o.tools) });
+  assert.equal(shape(explicit), shape(bare));
+  assert.ok(toolNamesOf(explicit).includes('draw_create') && toolNamesOf(explicit).includes('voice_say'));
+});
+
+const GIF = new Map([
+  [
+    'ga',
+    {
+      id: 'ga',
+      contentType: 'image/gif',
+      name: 'anim.gif',
+      url: 'https://cdn.discordapp.com/attachments/1/2/anim.gif',
+    },
+  ],
+]);
+const CLIP = new Map([
+  [
+    'va',
+    {
+      id: 'va',
+      contentType: 'video/mp4',
+      name: 'clip.mp4',
+      size: 1000,
+      url: 'https://cdn.discordapp.com/attachments/1/2/clip.mp4',
+    },
+  ],
+]);
+const DESCRIBE_PROMPTS = {
+  describe: 'Describe it in {{maxChars}}.',
+  'describe-video': 'Watch it in {{maxChars}}.',
+};
+
+/** A turn whose first message carries `attachments`, with the real describer over a recording model and fetchers. */
+async function mediaTurn(base: Record<string, unknown>, attachments: Map<string, unknown>) {
+  const described: Array<unknown> = [];
+  const describeLlm = {
+    complete: (messages: unknown, options: { model?: unknown }) => {
+      described.push({ messages, model: options.model });
+      return Promise.resolve({ text: 'une chose décrite', usage: {}, estimated: 5 });
+    },
+  };
+  const store = { ...fakeStore(), getMediaCache: () => ({}), markMediaCacheDirty() {} };
+  let turnHot: { config: unknown; prompts: unknown } | null = null;
+  const hot = {
+    get config() {
+      return turnHot?.config;
+    },
+    get prompts() {
+      return turnHot?.prompts;
+    },
+  };
+  const fetched: Array<string> = [];
+  const videoFetcher = {
+    fetchAttachment: (url: string) => {
+      fetched.push(url);
+      return Promise.resolve({ ok: false, reason: 'error' });
+    },
+  };
+  const describer = createDescriber({
+    hot,
+    store,
+    llm: describeLlm,
+    imageFetcher: fakePictures,
+    videoFetcher,
+    state: { data: {}, markDirty() {} },
+  });
+  const run = await coreTurn({
+    answers: ['<skip/>'],
+    allowed: [],
+    firstAttachments: attachments,
+    store,
+    config: { models: { base: { ...CORE_AND_TEXT, ...base } }, media: { maxOutputTokens: 120 } },
+    prompts: { ...DESCRIBE_PROMPTS, labels: ROUTE_LABELS },
+    runner: { describer, imageFetcher: fakePictures, videoFetcher, roleHealth: healthAt() },
+    withHot: (given: { config: unknown; prompts: unknown }) => {
+      turnHot = given;
+    },
+  });
+  return { run, described, fetched };
+}
+
+/** How many lines of her first request are exactly the words of the ability-unavailable answer for `ability`. */
+function toldOnce(run: Run, ability: Ability): number {
+  return linesEqual(requestOf(run, 0), unavailableReason(ability, 'no-model'));
+}
+
+// Bug caught: a picture sent to a vision model nobody set, or the turn silent about not having seen it.
+test('a picture with vision off is not described and the request carries the ability-unavailable words for pictures', async () => {
+  const { run, described } = await mediaTurn({ ...ON_ROLES, vision: null }, PICTURE);
+  assert.equal(described.length, 0, 'no model request for the picture');
+  assert.equal(toldOnce(run, 'imagesIn'), 1);
+  assert.equal(toldOnce(run, 'videoIn'), 0, 'video is on and no video is there');
+});
+
+// Bug caught: the same picture, vision on, losing its caption or being announced as unseen.
+test('a picture with vision on is described and the request carries no ability-unavailable words', async () => {
+  const { run, described } = await mediaTurn(ON_ROLES, PICTURE);
+  assert.equal(described.length, 1);
+  assert.equal(toldOnce(run, 'imagesIn'), 0);
+  assert.equal(toldOnce(run, 'videoIn'), 0);
+});
+
+// Bug caught: a GIF read through the vision model while video is off, or the loss told as the picture's.
+test('a GIF with video off is not described and the request carries the ability-unavailable words for videos', async () => {
+  const { run, described } = await mediaTurn({ ...ON_ROLES, video: null }, GIF);
+  assert.equal(described.length, 0, 'no request on any role');
+  assert.equal(toldOnce(run, 'videoIn'), 1);
+  assert.equal(toldOnce(run, 'imagesIn'), 0, 'pictures are on and none is there');
+});
+
+// Bug caught: a video fetched and sent to a video model that is off.
+test('a video with video off is not fetched or watched and the request carries the ability-unavailable words for videos', async () => {
+  const { run, described, fetched } = await mediaTurn({ ...ON_ROLES, video: null }, CLIP);
+  assert.equal(described.length, 0);
+  assert.equal(fetched.length, 0);
+  assert.equal(toldOnce(run, 'videoIn'), 1);
+});
+
+// Bug caught: every role off telling nothing when there is no media, which would add a line to every request.
+test('with every media role off and no media in the window, the request carries no ability-unavailable words', async () => {
+  const { run } = await mediaTurn({ ...ON_ROLES, vision: null, video: null }, new Map());
+  assert.equal(toldOnce(run, 'imagesIn') + toldOnce(run, 'videoIn'), 0);
+});
