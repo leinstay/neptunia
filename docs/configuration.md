@@ -157,8 +157,8 @@ Only the core model's list in `models.abilities` is read, by `src/tools/gateway.
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `models.errands.scout` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the scout errand agent | `src/agent-runner/opencode.ts` |
-| `models.errands.server` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the server errand agent | `src/agent-runner/opencode.ts` |
+| `models.errands.scout` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the scout errand agent | `src/tools/impl/status.ts` |
+| `models.errands.server` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the server errand agent | `src/tools/impl/status.ts` |
 
 ### `models.development`
 

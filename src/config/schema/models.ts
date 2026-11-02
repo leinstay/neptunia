@@ -86,14 +86,14 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'models.errands.scout',
     'types': ['string'],
-    'reader': 'src/agent-runner/opencode.ts',
+    'reader': 'src/tools/impl/status.ts',
     'default': 'openrouter/openai/gpt-6.1-sol',
     'text': 'OpenCode model id of the scout errand agent',
   },
   {
     'key': 'models.errands.server',
     'types': ['string'],
-    'reader': 'src/agent-runner/opencode.ts',
+    'reader': 'src/tools/impl/status.ts',
     'default': 'openrouter/openai/gpt-6.1-sol',
     'text': 'OpenCode model id of the server errand agent',
   },
