@@ -66,17 +66,25 @@ export type KeyStore = {
   boundTo(role: string): string | null;
   /** The value of a core or extra key. Only the key ring and the check call it. */
   valueOf(name: string): string | null;
-  addCore(input: { name: string; value: string; grant?: number; resetDay?: number }): void;
+  /** `from` is the `.env` variable the key came from (the import), so spend recorded under it counts for the key. */
+  addCore(input: { name: string; value: string; grant?: number; resetDay?: number; from?: string }): void;
   removeCore(name: string): { left: number };
-  addExtra(input: { name: string; value: string }): void;
+  addExtra(input: { name: string; value: string; from?: string }): void;
   removeExtra(name: string): void;
   /** Binds a base role to an extra key. */
   bind(role: string, name: string): void;
   unbind(role: string): void;
+  /** The `.env` variable each imported key came from, by key name. */
+  variables(): Record<string, string>;
 };
 
 type CoreRow = { name: string; value: string; grant: number | null; resetDay: number | null };
-type Content = { core: Array<CoreRow>; extra: Record<string, string>; roles: Record<string, string> };
+type Content = {
+  core: Array<CoreRow>;
+  extra: Record<string, string>;
+  roles: Record<string, string>;
+  variables: Record<string, string>;
+};
 
 const NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
@@ -143,13 +151,15 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
     const extra = stringMapOf(raw.extra);
     const roles = stringMapOf(raw.roles);
     if (core === null || extra === null || roles === null) throw new KeysError('unreadable-file');
-    return { core, extra, roles };
+    const variables = stringMapOf(raw.variables);
+    if (variables === null) throw new KeysError('unreadable-file');
+    return { core, extra, roles, variables };
   }
 
   /** Writes the three sections the store owns and keeps every other section of the file as it was. */
   function write(content: Content): void {
     const kept = readRaw();
-    const text = `${JSON.stringify({ ...kept, core: content.core, extra: content.extra, roles: content.roles }, null, 2)}\n`;
+    const text = `${JSON.stringify({ ...kept, core: content.core, extra: content.extra, roles: content.roles, variables: content.variables }, null, 2)}\n`;
     fs.mkdirSync(privateDir, { recursive: true, mode: 0o700 });
     const temp = `${file}.${process.pid}.tmp`;
     try {
@@ -204,25 +214,28 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
       if (row !== undefined) return row.value;
       return Object.hasOwn(extra, name) ? (extra[name] ?? null) : null;
     },
-    addCore({ name, value, grant, resetDay }) {
+    addCore({ name, value, grant, resetDay, from }) {
       const content = read();
       checkNew(content, name, value);
       if ((grant === undefined) !== (resetDay === undefined)) throw new KeysError('bad-grant');
       if (grant !== undefined && (!isGrant(grant) || !isResetDay(resetDay))) throw new KeysError('bad-grant');
       content.core.push({ name, value, grant: grant ?? null, resetDay: resetDay ?? null });
+      if (from !== undefined) content.variables[name] = from;
       write(content);
     },
     removeCore(name) {
       const content = read();
       if (!content.core.some((row) => row.name === name)) throw new KeysError('unknown-key');
       content.core = content.core.filter((row) => row.name !== name);
+      delete content.variables[name];
       write(content);
       return { left: content.core.length };
     },
-    addExtra({ name, value }) {
+    addExtra({ name, value, from }) {
       const content = read();
       checkNew(content, name, value);
       content.extra[name] = value;
+      if (from !== undefined) content.variables[name] = from;
       write(content);
     },
     removeExtra(name) {
@@ -230,6 +243,7 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
       if (!Object.hasOwn(content.extra, name)) throw new KeysError('unknown-key');
       if (Object.values(content.roles).includes(name)) throw new KeysError('key-in-use');
       delete content.extra[name];
+      delete content.variables[name];
       write(content);
     },
     bind(role, name) {
@@ -239,6 +253,7 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
       content.roles[role] = name;
       write(content);
     },
+    variables: () => ({ ...read().variables }),
     unbind(role) {
       const content = read();
       if (!Object.hasOwn(content.roles, role)) throw new KeysError('not-bound');

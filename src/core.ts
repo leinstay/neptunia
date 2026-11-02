@@ -42,6 +42,7 @@ import { createLlm, roleApiKey } from './llm/openrouter.ts';
 import { createKeyFailover } from './llm/key-failover.ts';
 import { MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, roleModel } from './llm/roles.ts';
 import { createKeysCommands } from './keys/commands.ts';
+import { importKeys } from './keys/import.ts';
 import { createKeyRing } from './keys/ring.ts';
 import type { KeyOf } from './keys/ring.ts';
 import { createKeyStore, keysFileExists } from './keys/store.ts';
@@ -1286,6 +1287,15 @@ async function buildCore(
     fetch: (input, init) => globalThis.fetch(input, init),
     baseUrl: () => String(objOf(objOf(hot.config).llm).baseUrl),
     defaults: { ...ROLE_DEFAULTS, memory: MEMORY_ROLE_DEFAULT },
+    // A deployment still on `.env` has its keys moved into the store before the first add writes anything.
+    importLegacy: () => {
+      const keyVariables = Object.entries(env).filter(
+        (entry): entry is [string, string] =>
+          /^OPENROUTER_[A-Z0-9_]+_KEY$/.test(entry[0]) && typeof entry[1] === 'string' && entry[1].trim() !== ''
+      );
+      if (keysFileExists(paths.privateDir) || keyVariables.length === 0) return null;
+      return importKeys({ env: Object.fromEntries(keyVariables), config: hot.config, store: keyStore });
+    },
     currentModel: (role) => roleModel(hot.config, role) ?? '',
     saveModel: async (role, model) => {
       await ownerOp('model.set', { role, id: model });

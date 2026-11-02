@@ -1090,6 +1090,7 @@ function createKeyLookup({
     /** `keyNames`: the names a request of `role` may go out on. `keyStates`: the roles that switched keys. */
     readers: {
       keyGrants: (): Record<string, { grant: number; resetDay: number }> | null => ring()?.grants() ?? null,
+      keyVariables: (): Record<string, string> => ring()?.variables() ?? {},
       keyNames: (role: string): Array<string> => ring()?.names(role) ?? roleKeyNames(getConfig(), env, role),
       keyStates(): Array<KeyState> {
         const keyRing = ring();
@@ -1263,6 +1264,8 @@ export type Llm = {
   keyNames: (role: string) => Array<string>;
   /** The grants of the core keys by name when the keys come from a key store, null when `llm.keys` holds them. */
   keyGrants: () => Record<string, { grant: number; resetDay: number }> | null;
+  /** The `.env` variable each imported key came from: spend recorded under it counts for the key. */
+  keyVariables: () => Record<string, string>;
 };
 
 /** The `llm` section of the live config, as the client reads it. */

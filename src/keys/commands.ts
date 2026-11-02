@@ -9,6 +9,7 @@
 import { roleGroup } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { checkKey, checkRole } from './check.ts';
+import type { ImportReport } from './import.ts';
 import type { CheckResult } from './check.ts';
 import type { KeyRing } from './ring.ts';
 import { isKeyName, KeysError } from './store.ts';
@@ -53,6 +54,17 @@ export type KeysDeps = {
   /** Saves a role's model (the console runs the `model.set` operation). */
   saveModel(role: string, model: string): Promise<void>;
   pause: PauseControl;
+  /**
+   * Moves the `.env` keys of a deployment that has no `keys.json` into the store, and reports what it moved; null when
+   * there is nothing to move. Called before the first add, so a legacy deployment keeps its keys.
+   */
+  importLegacy?: () => ImportReport | null;
+};
+
+/** What a legacy import moved, by name: the answer of the command that triggered it starts with it. */
+const importedLine = (report: ImportReport): string => {
+  const names = [...report.core, ...report.extra.map((row) => row.name)];
+  return `Moved ${names.length} keys from .env into keys.json first: ${names.join(', ')}.`;
 };
 
 const money = (value: number): string => `$${value.toFixed(4)}`;
@@ -103,6 +115,22 @@ export function createKeysCommands(deps: KeysDeps): {
     return null;
   }
 
+  /** The grant and reset day asked after the value: both optional, `none` or a blank answer for no grant. */
+  async function askGrant(dialog: Dialog, key: string): Promise<{ grant?: number; resetDay?: number } | string> {
+    const none = (answer: string): boolean => answer === '' || answer.toLowerCase() === 'none';
+    const given = pasted(await dialog.ask(`Grant of ${key} in USD (blank or none for no grant):`, { fallback: '' }));
+    if (none(given)) return {};
+    const grant = Number(given);
+    if (!Number.isFinite(grant) || grant < 0) return 'the grant is a number of dollars from 0 up, or none';
+    const day = pasted(
+      await dialog.ask(`Day of the month (1 to 31) the grant of ${key} is given again:`, { fallback: '' })
+    );
+    const resetDay = Number(day);
+    if (day === '' || !Number.isInteger(resetDay) || resetDay < 1 || resetDay > 31)
+      return 'the reset day is a whole day of the month from 1 to 31';
+    return { grant, resetDay };
+  }
+
   async function askValue(dialog: Dialog, key: string): Promise<string> {
     return pasted(await dialog.ask(`Paste the key ${key}. Nothing is shown while you type.`, { secret: true }));
   }
@@ -118,6 +146,8 @@ export function createKeysCommands(deps: KeysDeps): {
       if (model === '' || /\s/.test(model)) return invalid(name, `no usable model for the ${role} role`);
       models.set(role, model);
     }
+    const granted = await askGrant(dialog, key);
+    if (typeof granted === 'string') return invalid(name, granted);
     const results = await Promise.all(
       [...models].map(([role, model]) =>
         checkRole({ fetch: deps.fetch, baseUrl: deps.baseUrl(), role, model, keyName: key, value })
@@ -126,7 +156,7 @@ export function createKeysCommands(deps: KeysDeps): {
     const bad = results.filter((result) => !result.ok);
     if (bad.length > 0)
       return failed(name, ['nothing is saved, no key and no model.', ...bad.map(checkLine)].join('\n'));
-    store.addCore({ name: key, value });
+    store.addCore({ name: key, value, ...granted });
     for (const [role, model] of models) await deps.saveModel(role, model);
     const resumed = await resumeIfNoKey();
     const cost = results.reduce((sum, result) => sum + result.cost, 0);
@@ -148,13 +178,15 @@ export function createKeysCommands(deps: KeysDeps): {
     const problem = valueProblem(value);
     if (problem !== null) return invalid(name, problem);
     if (store.coreNames().length === 0) return firstCoreKey(name, key, value, dialog);
+    const granted = await askGrant(dialog, key);
+    if (typeof granted === 'string') return invalid(name, granted);
     const info = await checkKey({ fetch: deps.fetch, baseUrl: deps.baseUrl(), value });
     if (!info.ok)
       return failed(
         name,
         `the provider refused the key${info.status === null ? '' : ` (HTTP ${info.status})`}: ${info.error ?? 'no reason given'}`
       );
-    store.addCore({ name: key, value });
+    store.addCore({ name: key, value, ...granted });
     const resumed = await resumeIfNoKey();
     return { text: `${key} is added to the core keys.${resumed ? ' She is running again.' : ''}`, status: 'ok' };
   }
@@ -289,7 +321,10 @@ export function createKeysCommands(deps: KeysDeps): {
   return {
     async run(name, args, dialog) {
       try {
-        return await dispatch(name, args, dialog);
+        const adds = dialog !== null && (name === 'keys.core.add' || name === 'keys.extra.add');
+        const imported = adds ? (deps.importLegacy?.() ?? null) : null;
+        const answer = await dispatch(name, args, dialog);
+        return imported === null ? answer : { ...answer, text: `${importedLine(imported)}\n${answer.text}` };
       } catch (err) {
         if (err instanceof KeysError) return invalid(name, err.message);
         log.warn('keys: command failed', { command: name, error: err });

@@ -21,6 +21,8 @@ export type KeyRing = {
   bound(): Array<{ name: string; roles: Array<string> }>;
   /** The grant of each core key that has one, by name: what `llm.keys` gave by variable name before. */
   grants(): Record<string, { grant: number; resetDay: number }>;
+  /** The `.env` variable each imported key came from, by key name. */
+  variables(): Record<string, string>;
 };
 
 /**
@@ -46,6 +48,7 @@ export function createKeyRing({ store, failover }: { store: KeyStore; failover: 
     },
     failed: (role, name, status) => failover.failed(role, names(role), name, status),
     states: () => failover.states(),
+    variables: () => store.variables(),
     grants() {
       const grants: Record<string, { grant: number; resetDay: number }> = {};
       for (const row of store.list().core) {

@@ -76,7 +76,7 @@ function importCore({ env, config, store, byRole, report }: Context): Set<string
     }
     const name = `core-${report.core.length + 1}`;
     try {
-      store.addCore({ name, value, ...grantOf(config, variable) });
+      store.addCore({ name, value, from: variable, ...grantOf(config, variable) });
     } catch (err) {
       if (!(err instanceof KeysError)) throw err;
       if (err.code !== 'bad-grant') {
@@ -84,7 +84,7 @@ function importCore({ env, config, store, byRole, report }: Context): Set<string
         continue;
       }
       // A grant the store refuses is left out; the key itself is kept.
-      store.addCore({ name, value });
+      store.addCore({ name, value, from: variable });
     }
     report.core.push(name);
     used.add(variable);
@@ -104,7 +104,7 @@ function importExtra({ env, store, report }: Context, coreUsed: ReadonlySet<stri
       continue;
     }
     try {
-      store.addExtra({ name: extra, value });
+      store.addExtra({ name: extra, value, from: variable });
     } catch (err) {
       if (!(err instanceof KeysError)) throw err;
       report.skipped.push({ what: variable, reason: err.code });
