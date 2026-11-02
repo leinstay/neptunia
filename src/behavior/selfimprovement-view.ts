@@ -9,6 +9,7 @@
 
 import { DAY_MS, utcDay } from '../time.ts';
 import type { Landed } from '../selfimprovement/landed.ts';
+import type { WatcherNews } from '../watcher/news.ts';
 import type { BoardCaller } from '../tools/impl/board.ts';
 import { isFiniteNumber, isObj, listOf, objOf } from '../tools/types.ts';
 import type { UseCounts } from '../memory/db/skills.ts';
@@ -210,6 +211,8 @@ export type SelfimprovementFacts = {
     landed: Array<Landed>;
   };
   outboxSeqs: Array<number>;
+  /** The watcher's newest report of the past day (src/watcher/news.ts), null when there is none. */
+  watcher?: WatcherNews | null;
 };
 
 /** The default window of the facts, and the default number of shapes shown. */
@@ -276,6 +279,7 @@ export async function buildSelfimprovementFacts(input: {
   proposals: ReadonlyArray<ProposalEntry>;
   outbox: ReadonlyArray<OutboxRow>;
   landed?: ReadonlyArray<Landed>;
+  watcher?: WatcherNews | null;
 }): Promise<SelfimprovementFacts> {
   const days = input.days ?? DAYS_DEFAULT;
   const from = input.now - days * DAY_MS;
@@ -338,6 +342,7 @@ export async function buildSelfimprovementFacts(input: {
       landed,
     },
     outboxSeqs: [...new Set([...rows.map((row) => row.seq), ...landedSeqs])].sort((a, b) => a - b),
+    watcher: input.watcher ?? null,
   };
 }
 

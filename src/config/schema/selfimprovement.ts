@@ -43,11 +43,12 @@ export const SELFIMPROVEMENT: ReadonlyArray<SchemaEntry> = [
       'The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when her gh login can push there. While it is unset every selfimprovement beat pauses',
   },
   {
-    'key': 'selfimprovement.everyDays',
-    'types': ['number'],
+    'key': 'selfimprovement.at',
+    'types': ['string'],
     'reader': 'src/behavior/inner/settings.ts',
-    'default': 7,
-    'text': 'Days between two selfimprovement wakes; the wake falls on the heartbeat moment once the days have passed',
+    'default': '03:00',
+    'text':
+      "The time of the daily selfimprovement wake, `HH:MM` of the UTC day, after the watcher's run so the wake carries its report. `neptunia setup` asks for it, and a value that is no `HH:MM` reads as the default",
   },
   {
     'key': 'selfimprovement.failuresPerShape',

@@ -10,6 +10,7 @@ import type { Adapter, ConversationInfo, ConversationRef } from '../../protocol/
 import type { SendHold } from '../../tools/send-hold.ts';
 import type { WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
 import type { Landed } from '../../selfimprovement/landed.ts';
+import type { WatcherNews } from '../../watcher/news.ts';
 import type { HeartbeatFacts } from '../heartbeat-view.ts';
 import type { OutboxRow, ProposalEntry, SelfimprovementFacts, SkillUseRow } from '../selfimprovement-view.ts';
 import type { WakeBlockInput } from '../wake.ts';
@@ -178,7 +179,8 @@ export type InnerSettings = {
   caps: { perChain: number };
   /** `selfimprovement.enabled`: false only when the config says so; the wake then never falls due. */
   selfimprovement: { enabled: boolean };
-  wakes: { selfimprovement: { everyDays: number; failuresPerShape: number } };
+  /** `at`: the daily wake's time of the UTC day, `HH:MM` (`selfimprovement.at`). */
+  wakes: { selfimprovement: { at: string; failuresPerShape: number } };
   attention: {
     settleSeconds: number;
     perDayDefault: number;
@@ -299,6 +301,8 @@ export type SelfimprovementSources = {
   ackOutbox?(seqs: ReadonlyArray<number>): Promise<void>;
   /** The fixes that merged and were not told to her yet (src/selfimprovement/landed.ts). */
   landed?(): Promise<ReadonlyArray<Landed>>;
+  /** The newest watcher report of the past day at `now` (src/watcher/news.ts), null when there is none. */
+  watcher?(now: number): WatcherNews | null;
 };
 
 /** The facts an inner turn's request carries in `<wake>` (the drain builds them, src/behavior/wake.ts words them). */

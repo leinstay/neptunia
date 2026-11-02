@@ -1,6 +1,6 @@
 // The settings of her self-improvement's hands (docs/selfimprovement.md): `selfimprovement.enabled`,
 // `selfimprovement.mode`, `selfimprovement.base`, `selfimprovement.checkout` and `selfimprovement.repository`, read
-// from a config at the moment of use. The wake's own keys (`everyDays`, `failuresPerShape`) are read by
+// from a config at the moment of use. The wake's own keys (`at`, `failuresPerShape`) are read by
 // src/behavior/inner/settings.ts.
 
 import path from 'node:path';

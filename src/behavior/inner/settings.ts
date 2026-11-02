@@ -2,6 +2,7 @@
 // `innerSettings`, which checks every number of that section against them. The scheduler's modules
 // (src/behavior/inner/) and the turn runner (src/behavior/turn.ts) read them. Nothing here keeps state.
 
+import { isClockTime } from '../../time.ts';
 import { isPositive, objOf } from '../../tools/types.ts';
 import type { InnerSettings } from './types.ts';
 
@@ -45,10 +46,10 @@ export const INNER_DEFAULTS = Object.freeze({
     dueJitterMinutes: 20,
   }),
   caps: Object.freeze({ perChain: 3 }),
-  // The selfimprovement wake (PR 7e): once a week on the heartbeat's clock, and when one chain shape fails this many
-  // times in a UTC day. Decision of 2026-10-24 (the archived design), kept by the owner on 2026-10-31.
+  // The selfimprovement wake: once a day at `at` (UTC, three hours after the watcher's default midnight run, owner
+  // 2026-11-02), and when one chain shape fails this many times in a UTC day (decision of 2026-10-24).
   selfimprovement: Object.freeze({ enabled: true }),
-  wakes: Object.freeze({ selfimprovement: Object.freeze({ everyDays: 7, failuresPerShape: 3 }) }),
+  wakes: Object.freeze({ selfimprovement: Object.freeze({ at: '03:00', failuresPerShape: 3 }) }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
   loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
   retry: Object.freeze({ delaysMinutes: Object.freeze([1, 5, 15, 60]), maxHours: 6 }),
@@ -136,7 +137,7 @@ export function innerSettings(config: unknown): InnerSettings {
     selfimprovement: { enabled: improvement.enabled !== false },
     wakes: {
       selfimprovement: {
-        everyDays: whole(improvement.everyDays, d.wakes.selfimprovement.everyDays),
+        at: isClockTime(improvement.at) ? improvement.at : d.wakes.selfimprovement.at,
         failuresPerShape: whole(improvement.failuresPerShape, d.wakes.selfimprovement.failuresPerShape),
       },
     },

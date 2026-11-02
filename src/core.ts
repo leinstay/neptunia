@@ -115,6 +115,7 @@ import { grantedSkillNames } from './tools/discovery.ts';
 import { ackLanded, landedFor } from './selfimprovement/landed.ts';
 import { wireSkills } from './skills/wiring.ts';
 import { createReportReader, reportsDirOf, watcherDir } from './watcher/read.ts';
+import { watcherNews } from './watcher/news.ts';
 import { ABILITY_ADDED, abilityWake, fileAnnounceStore, forgetAbilities, newAbilities } from './plugins/announce.ts';
 import { createPluginControl, systemdUnits } from './plugins/control.ts';
 import { loadPlugins } from './plugins/folders.ts';
@@ -1074,8 +1075,11 @@ async function buildCore(
       ackLanded: (seqs) => ackLanded(board, seqs),
     },
     // The selfimprovement wake's facts beyond the journal (src/behavior/selfimprovement-view.ts): her grants, her
-    // skills with their use counts, her proposals and her outbox rows on the board.
-    selfimprovement: skillsWiring.selfimprovement,
+    // skills with their use counts, her proposals and her outbox rows on the board, and the watcher's newest report.
+    selfimprovement: {
+      ...skillsWiring.selfimprovement,
+      watcher: (now) => watcherNews({ config: hot.config, rootDir: paths.rootDir, now }),
+    },
     log,
   });
   // The drops, holds and failures kept for her next request in a conversation live in the inner life's state.

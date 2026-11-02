@@ -1,10 +1,12 @@
-// The `selfimprovement` wake (PR 7e): once a week on the heartbeat's clock, and with a cause when one chain shape fails
+// The `selfimprovement` wake (PR 7e): once a day at `selfimprovement.at` of the UTC day, after the watcher's daily run,
+// and with a cause when one chain shape fails
 // `selfimprovement.failuresPerShape` times in a UTC day, at most one such cause a day. Its turn carries
 // the facts of src/behavior/selfimprovement-view.ts, and her answer is `board.propose`. The clock is
 // `state.selfimprovement = { lastAt, raisedAt }`: `lastAt` moves when a wake's completion committed (and the outbox rows
 // it showed are marked delivered), `raisedAt` when a failure cause raised a wake. The tick (src/behavior/inner.ts) asks
 // `selfimprovementDue`; the drain (src/behavior/inner/drain.ts) asks `selfimprovementFacts` for its turn and
-// `committedSelfimprovement` once the turn committed. `weeklyWake` and `failureCause` are the rules, pure.
+// `committedSelfimprovement` once the turn committed. `dailyWake` and `failureCause` are the rules, pure. The facts
+// carry the newest watcher report the source gives for the wake's time (src/watcher/news.ts).
 
 import { DAY_MS, utcDay } from '../../time.ts';
 import { errorCode, isFiniteNumber } from '../../tools/types.ts';
@@ -27,15 +29,17 @@ export function selfimprovementWake(at: number, reason: string): Wake {
   };
 }
 
-/** The weekly wake: due on the heartbeat moment once `everyDays` have passed since the last one; null while either moment is unknown. */
-export function weeklyWake(input: {
-  heartbeatAt: number | null;
-  lastAt: number | null;
-  everyDays: number;
-}): Wake | null {
-  const { heartbeatAt, lastAt, everyDays } = input;
-  if (heartbeatAt === null || lastAt === null) return null;
-  return heartbeatAt - lastAt >= everyDays * DAY_MS ? selfimprovementWake(heartbeatAt, 'weekly') : null;
+/**
+ * The daily wake at `at` (`HH:MM`, UTC, the server clock) of the UTC day of `now`: due once `now` reached that moment
+ * and `lastAt` is before it; its `dueAt` (and so its id) is that moment, reason `daily`. Null while `lastAt` is
+ * unknown, before the hour, or when the day's wake already ran.
+ */
+export function dailyWake(input: { now: number; at: string; lastAt: number | null }): Wake | null {
+  const { now, at, lastAt } = input;
+  if (lastAt === null) return null;
+  const moment = Date.parse(`${utcDay(now)}T${at}:00Z`);
+  if (Number.isNaN(moment) || now < moment || lastAt >= moment) return null;
+  return selfimprovementWake(moment, 'daily');
 }
 
 /**
@@ -67,8 +71,8 @@ function journalOf(
 
 /**
  * The wakes this tick owes: nothing while `selfimprovement.enabled` is false, nothing on the first tick (it only starts
- * the weekly count), the weekly wake when the heartbeat moment has come, else the wake of a failure cause found in the
- * day's chains. Never throws.
+ * the clock, so a fresh install's first wake is the next `at`), the daily wake once its hour has come, else the wake
+ * of a failure cause found in the day's chains. Never throws.
  */
 export async function selfimprovementDue(
   life: InnerContext,
@@ -77,20 +81,15 @@ export async function selfimprovementDue(
   at: number
 ): Promise<Array<Wake>> {
   if (!settings.selfimprovement.enabled) return [];
-  const { everyDays, failuresPerShape } = settings.wakes.selfimprovement;
+  const { at: hour, failuresPerShape } = settings.wakes.selfimprovement;
   const state = stateOf(life, guildId);
   if (state.selfimprovement === null) {
     state.selfimprovement = { lastAt: at, raisedAt: null };
     save(life, guildId);
     return [];
   }
-  const nextAt = state.heartbeat?.nextAt ?? null;
-  const weekly = weeklyWake({
-    heartbeatAt: nextAt !== null && nextAt <= at ? nextAt : null,
-    lastAt: state.selfimprovement.lastAt,
-    everyDays,
-  });
-  if (weekly !== null) return [weekly];
+  const daily = dailyWake({ now: at, at: hour, lastAt: state.selfimprovement.lastAt });
+  if (daily !== null) return [daily];
   try {
     const lines = await readJournalLines(
       journalOf(life),
@@ -154,6 +153,7 @@ export async function selfimprovementFacts(
       proposals: board.entries,
       outbox: board.outbox,
       landed: landed ?? [],
+      watcher: guarded(() => sources.watcher?.(at), null),
     });
   } catch (error) {
     log.warn('inner: selfimprovement view failed', { guildId, code: errorCode(error) });

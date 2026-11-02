@@ -117,7 +117,10 @@ function newsLines(facts: SelfimprovementFacts, l: Obj): Array<string> {
   ];
 }
 
-/** The lines of the facts: the cause, the window, the shapes, the tools never called, the skills, the proposals and the news. */
+/**
+ * The lines of the facts: the cause, the window, the shapes, the tools never called, the skills, the proposals, the
+ * news and the watcher's newest report (one block under `watcher`, left out without the report or the label).
+ */
 export function selfimprovementLines(
   facts: SelfimprovementFacts | null | undefined,
   labels: unknown,
@@ -135,6 +138,7 @@ export function selfimprovementLines(
     ...skillLines(facts, l),
     ...proposalLines(facts, l),
     ...newsLines(facts, l),
+    facts.watcher ? word(l, 'watcher', { ...facts.watcher }) : '',
   ].filter((line) => line !== '');
 }
 

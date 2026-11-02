@@ -503,6 +503,8 @@ Settings for the daily watcher. See [The watcher](watcher.md).
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
+| `watcher.enabled` | boolean | `false` | Whether the deployment runs the daily watcher, which only `true` turns on. `neptunia setup` asks. While it is off the selfimprovement wake carries no watcher report | `src/watcher/settings.ts` |
+| `watcher.at` | string | `"00:00"` | The time of the watcher's daily run, `HH:MM` of the UTC day: the `OnCalendar=` of `neptunia-watcher.timer` that `neptunia setup` renders. A value that is no `HH:MM` reads as the default | `src/watcher/settings.ts` |
 | `watcher.dir` | string | `".agents/watcher"` | Folder of the daily watcher, `prompt.md` and `reports/`; relative to the checkout or absolute | `src/watcher/read.ts` |
 
 ## `selfimprovement`
@@ -516,7 +518,7 @@ Settings for the `selfimprovement` wake, which looks back at her own work ([Inne
 | `selfimprovement.base` | string | `"main"` | The branch her worktrees start from and her pull requests target | `src/selfimprovement/settings.ts` |
 | `selfimprovement.checkout` | string, null | `null` | The absolute path of the dev checkout that `neptunia setup` renders `neptunia-selfimprovement.service` and its timer over, so the beat works there. Setup renders no selfimprovement units while it is unset, relative or the deployed checkout itself | `src/setup/run.ts` |
 | `selfimprovement.repository` | string, null | `null` | The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when her gh login can push there. While it is unset every selfimprovement beat pauses | `src/selfimprovement/settings.ts` |
-| `selfimprovement.everyDays` | number | `7` | Days between two selfimprovement wakes; the wake falls on the heartbeat moment once the days have passed | `src/behavior/inner/settings.ts` |
+| `selfimprovement.at` | string | `"03:00"` | The time of the daily selfimprovement wake, `HH:MM` of the UTC day, after the watcher's run so the wake carries its report. `neptunia setup` asks for it, and a value that is no `HH:MM` reads as the default | `src/behavior/inner/settings.ts` |
 | `selfimprovement.failuresPerShape` | number | `3` | How many chains of one shape must fail in a UTC day to raise a selfimprovement wake with that cause | `src/behavior/inner/settings.ts` |
 | `selfimprovement.tools` | string, array | `"*"` | The tools a selfimprovement wake may call: `"*"` for every granted tool or a list of tool names | `src/tools/access.ts` |
 | `selfimprovement.maxActs` | number, null | `null` | The most actions a selfimprovement wake may take; null: no cap | `src/tools/access.ts` |
