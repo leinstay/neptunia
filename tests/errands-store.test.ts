@@ -501,7 +501,7 @@ test('an errand an internal turn asked for keeps its publication restriction on 
   // Bug: the record forgets its origin's restriction, so the result turn may post private work to a group.
   const boundary = { kind: 'internal-turn', origin: { iface: 'cli', conversationId: 'dm-owner' } } as const;
   const dataDir = tempDir('nep-errand-boundary-');
-  const first = createErrandStore({ dataDir, guildId: 'g1', now: () => 1000 });
+  const first = createErrandStore({ dataDir, guildId: 'g1', memoryDb: memoryOf(dataDir), now: () => 1000 });
   const added = first.add({
     agent: 'scout',
     goal: 'find it',
