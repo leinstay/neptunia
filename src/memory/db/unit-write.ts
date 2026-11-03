@@ -434,7 +434,7 @@ function writeMediaDescriptions(db: Db, unit: Unit, given: unknown, at: string) 
             field: 'description',
             current_version: versionId,
             owner_key: unit.full,
-            ...groupScope(storageContext(db, key).iface),
+            ...groupScope(storageContext(db, key).iface ?? null),
           },
         ],
         operational: [
