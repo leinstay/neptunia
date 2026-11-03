@@ -175,6 +175,10 @@ Database recall checks source audiences and requires the source's place to exist
 
 Stored recall resolves authors through the source's exact account ID and places through its exact place ID. Native IDs shared by different interfaces do not share names. An account or group place in the reader's interface keeps its profile or snapshot naming precedence. Foreign accounts and places use their own stored names. A retired account retains its native ID and interface for attribution, while its stored name is excluded. An ordinary DM read hides its private place name before consulting a callback, while an internal read retains access to that name. Lines of kind `said` use the supplied persona name.
 
+Database recall messages and quote entries carry exact source and place references separately from native message IDs. Search merges and ranks windows by source identity. A structured source anchor opens that exact non-retired source, including an opaque ID or a historical revision. A structured native anchor requires a verified interface, conversation and message locator. Raw anchor text succeeds only when one current source matches across source IDs and native keys. Every selection still passes the caller's audience check. Reply expansion resolves parents within the originating place and interface.
+
+The protocol observation mapper stores a versioned `$messageLocator` in source metadata. The writer validates its dedicated envelope field and preserves the locator on repeated observations. Generic observation extras cannot issue this route. The record mapper derives a locator from a version-one record's actual channel and message ID, and omits internal metadata when rebuilding the record. Historic record rows require the recognized record-day layout and retained version-one identity. Sources without verified routing metadata remain readable through exact source references.
+
 `issueContext` records policy version `2` for newly issued contexts. Existing context rows retain their recorded version. This eligibility rule has no configuration switch and leaves recall ranking and candidate limits unchanged.
 
 ## Writing memory

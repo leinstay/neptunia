@@ -34,6 +34,8 @@
 // as arguments. Rows are read here; wording and rendering are the caller's (`quotesOf` turns windows into the
 // stretches `recall.run` returns when it renders them with src/behavior/recall.js#renderRecallWindows).
 
+import { fromRows as recordFromRows } from './map/record.ts';
+import { locatorText, messageLocator } from './message-locator.ts';
 import { MINUTE_MS } from '../../time.ts';
 import {
   RECALL_DEFAULTS,
@@ -70,18 +72,45 @@ const WINDOW_FALLBACK = 16;
 const STREAMS = ['words', 'trigram', 'meaning', 'people'];
 
 /** `current`: the newest revision of a chat line, once, and not a deleted message. Needs the alias `s`. */
+const SOURCE_FAMILY = `t.native_id IS s.native_id AND t.iface IS s.iface AND t.place_id IS s.place_id
+  AND COALESCE(t.authority_id, t.iface || '/global') IS COALESCE(s.authority_id, s.iface || '/global')
+  AND COALESCE(t.native_kind, 'message') IS COALESCE(s.native_kind, 'message')
+  AND COALESCE(t.generation, 1) IS COALESCE(s.generation, 1)`;
 const CURRENT = `s.kind IN ('seen', 'said') AND s.retired_at IS NULL
-  AND s.revision IS (SELECT MAX(t.revision) FROM sources t WHERE t.native_id = s.native_id AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL)
-  AND s.rowid = (SELECT MIN(t.rowid) FROM sources t WHERE t.native_id = s.native_id AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL AND t.revision IS s.revision)
-  AND NOT EXISTS (SELECT 1 FROM sources d WHERE d.native_id = s.native_id AND d.kind = 'deleted' AND d.retired_at IS NULL)`;
+  AND s.revision IS (SELECT MAX(t.revision) FROM sources t WHERE ${SOURCE_FAMILY} AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL)
+  AND s.rowid = (SELECT MIN(t.rowid) FROM sources t WHERE ${SOURCE_FAMILY} AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL AND t.revision IS s.revision)
+  AND NOT EXISTS (SELECT 1 FROM sources d WHERE d.native_id IS s.native_id AND d.iface IS s.iface
+    AND d.place_id IS s.place_id AND d.kind = 'deleted' AND d.retired_at IS NULL
+    AND (d.authority_id IS NULL OR d.authority_id IS COALESCE(s.authority_id, s.iface || '/global'))
+    AND (d.native_kind IS NULL OR d.native_kind IS COALESCE(s.native_kind, 'message'))
+    AND (d.generation IS NULL OR d.generation IS COALESCE(s.generation, 1)))`;
 
 /** A term of the plan as stems: the form, its stem keys, their joined id, the folded form and whether it is a phrase. */
 type Term = { form: string; keys: Array<string>; id: string; folded: string; phrase: boolean };
 /** The filters every stream shares: the range, the place and the places the caller allows. */
 type ScopeArgs = { from: number | null; to: number | null; placeId: string | null; places: string | null };
+
+/** A verified interface route kept separately from a stored source's native observation key. */
+export type NativeMessageLocator = Readonly<{
+  iface: string;
+  conversationId: string;
+  messageId: string;
+}>;
+
+export type ResolvedRecallAnchor =
+  Readonly<{ kind: 'source'; sourceId: string }> | Readonly<{ kind: 'native'; locator: NativeMessageLocator }>;
+
+export type StoredSourceRef = Readonly<{
+  sourceId: string;
+  placeId: string;
+  iface: string | null;
+  native?: NativeMessageLocator;
+}>;
+
 /** One source row as a chat message (the shape renderRecallWindows reads). */
-type RecallMessage = {
+export type RecallMessage = {
   id: unknown;
+  stored?: StoredSourceRef;
   channelId: string;
   authorId: string | null;
   authorName: string;
@@ -108,6 +137,7 @@ type RecallWindow = {
   channelName: string | null;
   messages: Array<RecallMessage>;
   hitIds: Array<unknown>;
+  sourceHitIds?: Iterable<unknown>;
   overlapsChat: boolean;
 };
 /** What the streams, the windows and the quotes need to name a message's author and its channel. */
@@ -207,6 +237,40 @@ function channelOf(row: Row, extra: Row): string {
   return dm ?? nativeOf(row.place_id) ?? asText(row.place_id ?? '');
 }
 
+/** Historic record routes require the mapper's retained version and actual channel. */
+function nativeLocatorOf(row: Row, extra: Row): NativeMessageLocator | undefined {
+  const marker = messageLocator(extra.$messageLocator, row.iface);
+  if (marker) return { iface: marker.iface, conversationId: marker.conversationId, messageId: marker.messageId };
+  if (Object.hasOwn(extra, '$messageLocator')) return undefined;
+  if (
+    !/^(?:guilds\/[^/]+\/)?(?:private\/[^/]+\/)?record\/\d{4}-\d{2}\/\d{4}-\d{2}-\d{2}\.jsonl$/.test(
+      str(row.owner_file)
+    ) ||
+    extra.v !== 1 ||
+    !locatorText(extra.id) ||
+    (row.kind !== 'seen' && row.kind !== 'said') ||
+    !locatorText(row.iface) ||
+    row.iface.includes('/') ||
+    !locatorText(row.native_id)
+  )
+    return undefined;
+  const line = recordFromRows({ sources: [{ ...row }] });
+  const scope = line.scope;
+  if (!scope || typeof scope !== 'object' || Array.isArray(scope)) return undefined;
+  const channel = (scope as Row).channel;
+  return locatorText(channel) ? { iface: row.iface, conversationId: channel, messageId: row.native_id } : undefined;
+}
+
+function storedRefOf(row: Row, extra: Row): StoredSourceRef {
+  const native = nativeLocatorOf(row, extra);
+  return {
+    sourceId: str(row.id),
+    placeId: str(row.place_id),
+    iface: str(row.iface) || null,
+    ...(native ? { native } : {}),
+  };
+}
+
 /** One source row as a normalized chat message (the shape renderRecallWindows reads). */
 function messageOf(row: Row, { authorOf, selfName }: Pick<Reader, 'authorOf' | 'selfName'>): RecallMessage {
   const extra = (parseJson(row.extra) ?? {}) as Row;
@@ -220,6 +284,7 @@ function messageOf(row: Row, { authorOf, selfName }: Pick<Reader, 'authorOf' | '
   const mentions = parseJson(row.mentions);
   return {
     id: row.native_id,
+    stored: storedRefOf(row, extra),
     channelId: channelOf(row, extra),
     authorId: author.id,
     authorName:
@@ -613,13 +678,78 @@ function rowsByRowid(db: Db, rowids: ReadonlyArray<unknown>): Array<Row> {
  * The current line of a message id, only when the context may open it: the scope columns are read first, the text
  * of a line the context may not open is never loaded.
  */
-function sourceByNative(db: Db, ctx: Context, nativeId: unknown): Row | null {
-  const light = db
-    .prepare(
-      `SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id FROM sources s WHERE s.native_id = ? AND ${CURRENT}`
-    )
-    .get(String(nativeId));
+const SOURCE_METADATA = `s.rowid AS rowid, s.id, s.iface, s.native_id, s.place_id, s.kind,
+  s.extra, s.owner_file, s.scope_kind, s.scope_iface, s.scope_dm, s.audience_id`;
+
+function readableSource(db: Db, ctx: Context, candidates: Array<Row>): Row | null {
+  const light = candidates.length === 1 ? candidates[0] : null;
   return light && canRead(light, ctx) ? (rowsByRowid(db, [light.rowid])[0] ?? null) : null;
+}
+
+function sourceByNative(db: Db, ctx: Context, nativeId: unknown, origin: Row): Row | null {
+  const matches = db
+    .prepare(
+      `SELECT ${SOURCE_METADATA} FROM sources s
+    WHERE s.native_id = ? AND s.place_id IS ? AND s.iface IS ? AND ${CURRENT}`
+    )
+    .all(String(nativeId), origin.place_id, origin.iface);
+  return readableSource(db, ctx, matches);
+}
+
+function sourceForAnchor(db: Db, ctx: Context, raw: unknown, resolved?: ResolvedRecallAnchor): Row | null {
+  if (resolved !== undefined) {
+    if (!resolved || typeof resolved !== 'object') return null;
+    if (resolved.kind === 'source') {
+      if (!locatorText(resolved.sourceId)) return null;
+      return readableSource(
+        db,
+        ctx,
+        db
+          .prepare(
+            `SELECT ${SOURCE_METADATA} FROM sources s
+        WHERE s.id = ? AND s.retired_at IS NULL`
+          )
+          .all(resolved.sourceId)
+      );
+    }
+    if (resolved.kind !== 'native') return null;
+    const locator = resolved.locator;
+    if (
+      !locator ||
+      !locatorText(locator.iface) ||
+      !locatorText(locator.conversationId) ||
+      !locatorText(locator.messageId)
+    )
+      return null;
+    const candidates = db
+      .prepare(
+        `SELECT ${SOURCE_METADATA} FROM sources s WHERE s.iface = ?
+      AND (s.native_id = ? OR CASE WHEN json_valid(s.extra)
+        THEN json_extract(s.extra, '$."$messageLocator".messageId') END = ?) AND ${CURRENT}`
+      )
+      .all(locator.iface, locator.messageId, locator.messageId)
+      .filter((row) => {
+        const native = nativeLocatorOf(row, (parseJson(row.extra) ?? {}) as Row);
+        return (
+          native?.iface === locator.iface &&
+          native.conversationId === locator.conversationId &&
+          native.messageId === locator.messageId
+        );
+      });
+    return readableSource(db, ctx, candidates);
+  }
+  const id = asText(raw ?? '').trim();
+  if (!id) return null;
+  return readableSource(
+    db,
+    ctx,
+    db
+      .prepare(
+        `SELECT ${SOURCE_METADATA} FROM sources s
+    WHERE (s.id = ? OR s.native_id = ?) AND ${CURRENT}`
+      )
+      .all(id, id)
+  );
 }
 
 /** The stretch around a hit: reply chain, `around` lines each side, the followed conversation. Rows, oldest first. */
@@ -632,7 +762,7 @@ function stretchAround(
   const chosen = new Map<unknown, Row>([[hit.rowid, hit]]);
   let parent = hit.reply_to;
   for (let depth = 0; parent && depth < REPLY_CHAIN_MAX; depth += 1) {
-    const found = sourceByNative(db, ctx, parent);
+    const found = sourceByNative(db, ctx, parent, hit);
     if (!found || found.place_id !== hit.place_id || chosen.has(found.rowid)) break;
     chosen.set(found.rowid, found);
     parent = found.reply_to;
@@ -667,6 +797,23 @@ function stretchAround(
         ? 1
         : (a.rowid as number) - (b.rowid as number)
   );
+}
+
+/** Render and merge using stored identity while preserving native IDs on public messages. */
+function keyedWindow(window: RecallWindow): RecallWindow {
+  return {
+    ...window,
+    hitIds: [...(window.sourceHitIds ?? window.hitIds)],
+    messages: window.messages.map((message) => ({ ...message, id: message.stored?.sourceId ?? message.id })),
+  };
+}
+
+function originalMessage(message: RecallMessage, windows: Array<RecallWindow>): RecallMessage {
+  for (const window of windows) {
+    const found = window.messages.find((candidate) => candidate.stored?.sourceId === message.id);
+    if (found) return found;
+  }
+  return message;
 }
 
 /** A window (the recall runner's shape) of source rows. */
@@ -873,7 +1020,7 @@ export function search(
   const byScore = [...hits].sort((a, b) => b.score - a.score);
   const chosen = new Set(hits.slice(0, keep * HITS_PER_WINDOW).map((hit) => hit.rowid));
   for (const hit of byScore.slice(0, keep)) chosen.add(hit.rowid);
-  const hitIds = new Set(hits.map((hit) => hit.messageId));
+  const hitIds = new Set(hits.map((hit) => hit.id));
   const built = hits
     .filter((hit) => chosen.has(hit.rowid))
     .map((hit) => {
@@ -882,23 +1029,25 @@ export function search(
         followMessages: opts.followMessages,
         followGapMinutes: opts.followGapMinutes,
       });
-      return windowOf(rows, new Set(rows.map((row) => row.native_id).filter((id) => hitIds.has(id))), read);
+      return windowOf(rows, new Set(rows.map((row) => row.id).filter((id) => hitIds.has(id))), read);
     });
   // A window's place is its best hit's place.
   // Its place is the better of two ranks: in the ranked hits (coverage) and by the fused score (where the meaning
   // stream lifts a line the words miss), so neither kind of match crowds the other out of the windows kept.
-  const byRank = new Map(hits.map((hit, i): [unknown, number] => [hit.messageId, i]));
-  const byFused = new Map(byScore.map((hit, i): [unknown, number] => [hit.messageId, i]));
+  const byRank = new Map(hits.map((hit, i): [unknown, number] => [hit.id, i]));
+  const byFused = new Map(byScore.map((hit, i): [unknown, number] => [hit.id, i]));
   const order = new Map(
     hits.map((hit): [unknown, number] => [
-      hit.messageId,
-      Math.min(byRank.get(hit.messageId) as number, byFused.get(hit.messageId) as number),
+      hit.id,
+      Math.min(byRank.get(hit.id) as number, byFused.get(hit.id) as number),
     ])
   );
   // recall.js declares the windows with a string channel id and string hit ids; these carry a null channel when a
   // window has no message and ids of any kind, so the call goes through its own parameter type.
   const merged = (
-    mergeWindows(built as unknown as Parameters<typeof mergeWindows>[0]) as unknown as Array<RecallWindow>
+    mergeWindows(
+      built.map(keyedWindow) as unknown as Parameters<typeof mergeWindows>[0]
+    ) as unknown as Array<RecallWindow>
   ).map((window) => ({
     ...window,
     best: Math.min(Infinity, ...[...window.hitIds].map((id) => order.get(id) ?? Infinity)),
@@ -909,7 +1058,16 @@ export function search(
     .sort((a, b) => a.best - b.best || b.endTs - a.endTs)
     .slice(0, keep)
     .sort((a, b) => b.endTs - a.endTs)
-    .map(({ best, endTs, ...window }) => window);
+    .map(({ best, endTs, ...window }) => ({
+      ...window,
+      source: 'db',
+      sourceHitIds: window.hitIds,
+      hitIds: [...window.hitIds].map(
+        (id) => built.flatMap((part) => part.messages).find((message) => message.stored?.sourceId === id)?.id ?? id
+      ),
+      placeId: window.messages[0]?.stored?.placeId ?? null,
+      messages: window.messages.map((message) => originalMessage(message, built)),
+    }));
 
   const hidden =
     context.kind === 'group' && terms.length > 0
@@ -1000,6 +1158,7 @@ export function window(
   {
     ctx,
     anchor,
+    resolvedAnchor,
     move = 'up',
     messages = null,
     minutes = null,
@@ -1012,6 +1171,7 @@ export function window(
   }: {
     ctx?: Context;
     anchor?: unknown;
+    resolvedAnchor?: ResolvedRecallAnchor;
     move?: string;
     messages?: unknown;
     minutes?: unknown;
@@ -1031,19 +1191,7 @@ export function window(
     unknown: true,
     stopped: null,
   };
-  const id = asText(anchor ?? '').trim();
-  if (!id) return gone;
-  let row: Row | null = null;
-  if (id.startsWith('src:')) {
-    const light = db
-      .prepare(
-        'SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id FROM sources s WHERE s.id = ? AND s.retired_at IS NULL'
-      )
-      .get(id);
-    row = light && canRead(light, context) ? (rowsByRowid(db, [light.rowid])[0] ?? null) : null;
-  } else {
-    row = sourceByNative(db, context, id);
-  }
+  const row = sourceForAnchor(db, context, anchor, resolvedAnchor);
   if (!row || !row.place_id || (typeof allowPlace === 'function' && !allowPlace(row.place_id))) return gone;
   const count =
     isWholeNumber(messages) && messages > 0
@@ -1091,21 +1239,27 @@ export function quotesOf(
   for (const one of (Array.isArray(windows) ? windows : []) as Array<RecallWindow | null>) {
     if (!one || !(stretchChars > 0)) continue;
     // Same as in `search`: recall.ts types the window and its lines narrower than they are.
-    const [shown] = renderRecallWindows([one as unknown as Parameters<typeof renderRecallWindows>[0][number]], {
-      ...render,
-      indexed: false,
-    });
+    const [shown] = renderRecallWindows(
+      [keyedWindow(one) as unknown as Parameters<typeof renderRecallWindows>[0][number]],
+      {
+        ...render,
+        indexed: false,
+      }
+    );
     const lines = cutStretch(shown?.lines ?? [], stretchChars) as unknown as Array<{
       id: unknown;
       text: string;
       ts: number;
     }>;
     if (lines.length === 0) continue;
-    const byId = new Map(one.messages.map((message): [unknown, RecallMessage] => [message.id, message]));
+    const byId = new Map(
+      one.messages.map((message): [unknown, RecallMessage] => [message.stored?.sourceId ?? message.id, message])
+    );
     const entries = lines.map((line) => {
       const message = byId.get(line.id) ?? null;
       return {
-        id: line.id,
+        id: message?.id ?? line.id,
+        ...(message?.stored ? { stored: message.stored } : {}),
         text: line.text,
         authorId: message?.authorId ?? null,
         self: message?.self === true,
