@@ -50,7 +50,6 @@ const TABLE = [
   'memory',
   'rules',
   'tools',
-  'plugins',
   'skills',
   'interface',
   'keys',

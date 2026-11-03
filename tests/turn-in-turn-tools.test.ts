@@ -52,7 +52,6 @@ function cacheScene() {
     turnContextOf: () => groupContext('fake'),
     linkCalls: (lines) => lines,
     drawTool: () => Promise.reject(new Error('drawing is outside this fixture')),
-    plugins: null,
   });
   const history = [
     {
