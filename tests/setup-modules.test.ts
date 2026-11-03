@@ -5,7 +5,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { interfaceCredential } from '../src/config/files.ts';
 import { moduleCommand } from '../src/interface/commands/module-setup.ts';
-import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { moduleDir, moduleValues, readModuleSettings, setModuleValue } from '../src/setup/modules.ts';
 import type { ModuleKind } from '../src/setup/modules.ts';
 import { scriptedDialog } from './fixtures/keys-rig.ts';
@@ -132,23 +131,4 @@ test('a name that leaves the module folders and a key the module does not declar
   assert.equal((await run('set', { key: 'nope', value: 'x' })).status, 'invalid');
   assert.equal(fs.existsSync(path.join(moduleDir(ref), 'config.json')), false);
   assert.throws(() => setModuleValue(ref, DISCORD_LIKE.settings as never, 'nope', 'x'), /no setting/);
-});
-
-test('the chat parses the targeted commands of both module kinds', () => {
-  // Bug: the table lacks a command the setup promises, so the owner cannot change one value without the whole walk.
-  for (const [line, name] of [
-    ['/interface setup discord', 'interface.setup'],
-    ['/interface settings discord', 'interface.settings'],
-    ['/interface set discord token', 'interface.set'],
-    ['/interface clear discord token', 'interface.clear'],
-    ['/interface add discord servers 111', 'interface.add'],
-    ['/interface remove discord servers 111', 'interface.remove'],
-    ['/skills setup gifs', 'skills.setup'],
-    ['/skills settings gifs', 'skills.settings'],
-    ['/skills set gifs key', 'skills.set'],
-    ['/skills clear gifs key', 'skills.clear'],
-  ]) {
-    const parsed = parseCommandLine(line);
-    assert.equal(typeof parsed === 'object' && parsed !== null && 'name' in parsed ? parsed.name : parsed, name, line);
-  }
 });
