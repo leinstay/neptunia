@@ -13,6 +13,7 @@ import {
   isAttend,
   normalizeAttend,
   validAttend,
+  STANDING_EXPIRES_AT,
   advanceOccurrence,
   nextOccurrence,
   parseEvery,
@@ -902,4 +903,41 @@ test('createIntention dropped: born dropped with its reason, no due or recurrenc
   );
   assert.equal(checkInvariants(made.intention), null);
   assert.equal(made.intention.expiresAt, T0);
+});
+
+test('a standing task outlives the recurring limit, is skipped forward, and needs a recurrence', () => {
+  // Bug: a task the owner wants for good silently expires after 30 days, or an ordinary intention stops expiring.
+  const every = { period: 'day', at: '21:00' };
+  const made = createIntention({
+    purpose: 'κάθε μέρα',
+    provenance: { kind: 'self' },
+    dueAt: T0 + HOUR,
+    every,
+    standing: true,
+    now: T0,
+    id: 's1',
+  });
+  if (!made.ok) throw new Error(made.code);
+  const standing = made.intention;
+  assert.equal(standing.standing, true);
+  const later = T0 + 400 * DAY;
+  assert.equal(expireAt(standing, later).intention?.status, standing.status, 'still open after 400 days');
+  const moved = advanceOccurrence(standing, { now: later, by: 'engine', code: 'done-occurrence' });
+  assert.ok((moved.intention?.dueAt ?? 0) > later, 'the missed occurrences are skipped, none replayed');
+  assert.equal(moved.intention?.expiresAt, STANDING_EXPIRES_AT);
+  assert.equal(
+    transition(standing, 'cancelled', { now: later, by: 'persona', code: 'cancelled' }).intention?.status,
+    'cancelled'
+  );
+  assert.equal(createIntention({ purpose: 'x', provenance: { kind: 'self' }, standing: true, now: T0 }).ok, false);
+  const ordinary = createIntention({
+    purpose: 'y',
+    provenance: { kind: 'self' },
+    dueAt: T0 + HOUR,
+    every,
+    now: T0,
+    id: 'o1',
+  });
+  if (!ordinary.ok) throw new Error(ordinary.code);
+  assert.equal(expireAt(ordinary.intention, later).intention?.status, 'expired');
 });

@@ -241,8 +241,7 @@ export function createIntentionService({
     if (activeCount(store.list()) >= limits.maxOpen) return { ok: false, code: CODE.CAP_OPEN };
     const by = input.by ?? 'persona';
     if (input.state === 'dropped') return setDropped(store, input, by);
-    // What a heartbeat turn creates is stamped by the engine and held to its own caps, checked here
-    // in the same synchronous step as the add (nothing can slip between the count and the write).
+    // What a heartbeat turn creates is stamped by the engine and held to its caps, in the same synchronous step as the add.
     const origin = input.origin === HEARTBEAT_ORIGIN ? HEARTBEAT_ORIGIN : null;
     if (origin) {
       const refused = heartbeatCapRefusal(hot.config, store, { recurring: Boolean(input.every) });
@@ -261,6 +260,7 @@ export function createIntentionService({
       dueAt: input.dueAt ?? null,
       every: pinEvery(input.every ?? null, input.dueAt ?? null, timezone()),
       expiresAt: input.expiresAt ?? null,
+      standing: input.standing,
       destination: input.destination ?? null,
       completionCondition: input.completionCondition ?? null,
       chainId: input.chainId ?? null,

@@ -266,3 +266,6 @@ The inner turns are answered by a stub voice (deterministic, costs nothing). The
 
 Each inner turn is recorded as a wake run in the memory database with its actions. Once per UTC day the focus job (`src/memory/db/focus.ts`) recomputes the focus set, the close and exploring people scored by affinity, reciprocity, recency and other factors, and the heartbeat's people view reads it. Addressed server turns carry no `<places>` block: `ADDRESSED_PLACES` in `src/turn/inputs.ts` is `false`, and the code that builds the block stays.
 
+## Standing tasks
+
+`intention.set` with `standing` true and an `every` makes a recurring task that lasts until it is cancelled (`createIntention` in `src/intentions/model.ts`). Its `expiresAt` is the far end of the calendar, so every clock comparison stays as it is. Missed occurrences are skipped, after any length of absence, and nothing interrupted is replayed. Ordinary intentions keep `intentions.expiresDays`, and ordinary recurring ones `intentions.recurringExpiresDays`.
