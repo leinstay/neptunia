@@ -1,6 +1,6 @@
 # Diary
 
-The persona keeps a diary on its own, at random times, without anyone asking. The entries look like a personal feed: drawings, memes, reflections, retold news, curious facts, one-line moods. Before each entry the persona reviews its own recent history and picks something it has not done yet. Each entry is written into memory first and then posted to the diary's mirrors, the places the owner set up for it. The owner tunes the schedule through config (`selfreflection.windows`, `selfreflection.quietDayChance`).
+The persona keeps a diary on its own, at random times, without anyone asking. The entries look like a personal feed: drawings, memes, reflections, retold news, curious facts, one-line moods. Before each entry the persona reviews its own recent history and picks something it has not done yet. Each entry is written into memory first and then posted to the diary's mirrors, the places the owner set up for it. The owner tunes the schedule through `selfreflection.windows` and `selfreflection.quietDayChance`, and `selfreflection.enabled` (default `true`) switches the day plan off, while a forced post still runs.
 
 ## Internal entries
 
@@ -30,7 +30,7 @@ The four default windows, all times in `bot.timezone`:
 | Evening | 18 to 01 | `[0, 2]` |
 | Night | 01 to 05 | `[0, 1]` |
 
-With `selfreflection.quietDayChance` (default 0.3) the whole day gets no slots. A plan is created once per local day and stored in `data/state.json`. A new local day replans; a restart keeps the existing plan.
+With `selfreflection.quietDayChance` (default 0.3) the whole day gets no slots. A plan is created once per local day and kept in the persona's state, the root `state.json` row of `memory.db`. A new local day replans, and a restart keeps the existing plan.
 
 ### Hunger
 
@@ -40,18 +40,15 @@ A slot missed by more than 30 minutes (`DEFAULT_GRACE_MINUTES`) while the bot wa
 
 ## What a post costs
 
-Each diary post is two model requests:
+Each diary post is two model requests. A plan request on the `analyzer` role picks the kind, a one-line brief, whether to search and whether to draw. A compose request on the `core` role, the persona's model, carries the character card and the full memory blocks.
 
-1. A plan request on the `analyzer` role: picks the kind, a one-line brief, whether to search, and whether to draw.
-2. A compose request on the `core` role (the persona's model) with the character card and full memory blocks.
-
-When the plan asks for a web search (only for the kinds `news` and `facts`, `DEFAULT_SEARCH_KINDS`), a Brave search runs first and adds a third request (the condenser on the `analyzer` role).
+When the plan asks for a web search (only for the kinds `news` and `facts`, `DEFAULT_SEARCH_KINDS`), the engine named by `web.search.engine` runs first, and a condensing request on the `search` role with the model `web.search.model` adds a third request. With the `openrouter` engine one request on that role searches and condenses ([Web search and page reading](core.md#web-search-and-page-reading)).
 
 When the post includes a picture, the image model generates it at its own price.
 
 A set post (`photoset`, `randomSet`) costs one picture per `draw.create` call, four to six of them. A set that comes out short is not posted, but the pictures it generated are paid for.
 
-Every model request counts against `llm.maxRequestsPerDay`. With the defaults (0 to 3 posts a day, 2 to 3 requests each), a day costs roughly 0 to 9 chat requests plus picture generation.
+Every model request counts against `llm.maxRequestsPerDay`. With the default windows a day holds 0 to 4 posts at 2 to 3 requests each, so up to 12 chat requests plus picture generation.
 
 ## Kinds and seeds
 
@@ -80,7 +77,7 @@ The kinds `photoset` and `randomSet` (`DEFAULT_SET_KINDS`) post a set: one messa
 
 ### Seeds
 
-`prompts/diary-seeds.md` holds random seeds grouped by `# family` headers (place, setting, detail, activity, subject, twist). Code draws one line per family and composes two combinations (`SEED_SETS`), handed to the planner in a `<seeds>` block. The planner builds something absent from the diary history out of them, or ignores them.
+`prompts/diary-seeds.md` holds random seeds grouped by `# family` headers (place, setting, detail, activity, subject, twist). Code draws one line per family and composes two combinations (`SEED_SETS`), handed to the planner in a `<seeds>` block. The compose request of a set post gets six combinations (`DEFAULT_SET_SEED_SETS`). The planner builds something absent from the diary history out of them, or ignores them.
 
 To customise, copy `prompts/diary-seeds.md` to `prompts.local/diary-seeds.md` and edit. Each line under a header is one seed; blank lines are ignored.
 
@@ -110,10 +107,10 @@ Outside the diary turn she writes to her diary with `message.create` and `diary`
 
 ## Mirrors
 
-A mirror is one row of the `mirrors` table (schema v15): a place, whether it is enabled, and who set it up. There may be none or many. An enabled mirror is the owner's standing permission to post every entry there. A disabled row is kept and grants nothing.
+A mirror is one row of the `mirrors` table (schema v15): a place, whether it is enabled, and who set it up. Schema step v15 seeds the first row from `selfreflection.channelId`, and no chat command edits the table. There may be none or many. An enabled mirror is the owner's standing permission to post every entry there. A disabled row is kept and grants nothing.
 
 A mirror place is written only by the diary. A message there opens no turn of hers (its line is still recorded in memory), and the core's outbound port (`guardMirrorPort`) refuses every send there from a turn, a wake or a tool with the code `diary-mirror`, which her tool result names. Reactions are not refused. Every mirror place carries the `labels.server.diary` mark in `<server>`, and the `<senses>` line names the first.
 
 ## Config reference
 
-Every key is listed in [Configuration: diary](configuration.md#diary).
+Every key is listed in [Configuration: selfreflection](configuration.md#selfreflection).
