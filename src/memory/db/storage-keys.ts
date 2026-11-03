@@ -44,7 +44,7 @@ export type StorageKind =
 export type StorageSelector = Readonly<{
   collection?: 'active' | 'archive' | 'value' | 'history';
   requestId?: string;
-  versionKind?: 'users' | 'channels' | 'guild' | 'lore';
+  versionKind?: 'users' | 'channels' | 'guild' | 'lore' | 'media';
   itemId?: string;
 }>;
 export type StorageKey = Readonly<{

@@ -12,8 +12,64 @@ import type { Mapper, MappedPath } from './map/index.ts';
 import { filesOf } from './map/vectors.ts';
 import { OWNED } from './upsert.ts';
 import { addSessionRows } from './session-rows.ts';
-import { asText } from './types.ts';
-import type { Db, Row, Rows } from './types.ts';
+import { asText, dbOf, isFiniteNumber } from './types.ts';
+import type { Connection, Db, Row, Rows } from './types.ts';
+
+export type MediaDescriptionEntry =
+  | { text: string; ts: number; [field: string]: unknown }
+  | { answer: string; question: string; ts: number; [field: string]: unknown };
+export type MediaDescriptionVersion = { version: number; entry: MediaDescriptionEntry };
+
+/** Successful describer payloads retain their complete structured data. */
+export function isMediaDescriptionEntry(value: unknown): value is MediaDescriptionEntry {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const entry = value as Row;
+  return (
+    !entry.miss &&
+    isFiniteNumber(entry.ts) &&
+    ((typeof entry.text === 'string' && entry.text.length > 0) ||
+      (typeof entry.answer === 'string' && entry.answer.length > 0 && typeof entry.question === 'string'))
+  );
+}
+
+/** A descriptor belongs to one exact community, interface and cache key. */
+export const mediaDescriptionId = (key: StorageKey): string => `desc:media:${storageId(key)}`;
+
+function mediaEntryOf(row: Row | undefined): MediaDescriptionEntry | null {
+  if (!row || typeof row.extra !== 'string') return null;
+  const extra: unknown = JSON.parse(row.extra);
+  if (!extra || typeof extra !== 'object' || !('entry' in extra) || !isMediaDescriptionEntry(extra.entry)) return null;
+  const failed = 'refreshFailedAt' in extra && isFiniteNumber(extra.refreshFailedAt) ? extra.refreshFailedAt : null;
+  return { ...extra.entry, ...(failed !== null ? { refreshFailedAt: failed } : {}) };
+}
+
+/** Point lookup of the current successful payload, without reading its history. */
+export function mediaDescriptionOf(handle: Connection, key: StorageKey): MediaDescriptionEntry | null {
+  return mediaEntryOf(
+    dbOf(handle)
+      .prepare(
+        `SELECT v.extra FROM descriptions d JOIN description_versions v ON v.id=d.current_version
+     WHERE d.id=? AND d.owner_key=? AND d.retired_at IS NULL AND v.retired_at IS NULL`
+      )
+      .get(mediaDescriptionId(key), storageId(key))
+  );
+}
+
+/** Successful versions of one media description, in generation order. */
+export function mediaDescriptionVersions(
+  handle: Connection,
+  { key }: { key: StorageKey }
+): Array<MediaDescriptionVersion> {
+  return dbOf(handle)
+    .prepare(
+      'SELECT position,extra FROM description_versions WHERE owner_key=? AND retired_at IS NULL ORDER BY position'
+    )
+    .all(storageId(key))
+    .flatMap((row) => {
+      const entry = mediaEntryOf(row);
+      return entry ? [{ version: Number(row.position), entry }] : [];
+    });
+}
 
 const CHILDREN: Record<string, [string, string]> = {
   episode_sources: ['episodes', 'episode_id'],

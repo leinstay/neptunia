@@ -10,7 +10,7 @@ Transcript lines carry media in brackets: pictures, GIFs, videos, stickers, cust
 
 The persona does not receive images directly in her own request. A picture reaches her as a one-line caption in the transcript, written by a vision-capable model on the `vision` role (`models.base.vision`, default `google/gemini-3.8-flash`). The prompt is `prompts/describe.md`.
 
-Each attachment or embed is described once and cached in `data/guilds/<id>/media.json`, trimmed by LRU to 5,000 entries (`MEDIA_CACHE_ENTRIES` in `src/web/cache.ts`). A repost costs nothing. A failed description is cached as a miss for one hour, except when the daily request cap (`llm.maxRequestsPerDay`) is spent: then nothing is downloaded or cached as a miss, so pictures from the last hours are still described after midnight UTC.
+Successful media descriptions and their versions are stored in the memory database through `src/memory/store.ts` and its writer. The active cache holds at most 5,000 entries (`MEDIA_CACHE_ENTRIES` in `src/web/cache.ts`). On a cache miss, the describer reads the stored description before calling a model. Eviction and restart preserve the description. A failed refresh of a stale caption keeps its last successful version and the existing retry delay. A failed description is cached as a miss for one hour, except when the daily request cap (`llm.maxRequestsPerDay`) is spent: then nothing is downloaded or cached as a miss, so pictures from the last hours are still described after midnight UTC.
 
 The picture is downloaded first (`src/media/fetch-image.ts`) and sent to the model as a `data:` URL, because some providers get a 403 from Discord's CDN. Downloads are cached in a small in-memory LRU (about 50 entries, 10 minutes), keyed by the URL without its query string (Discord's CDN query params rotate between fetches of the same file).
 
@@ -56,7 +56,7 @@ The measures are `AUDIO_MAP_DEFAULTS` in `src/media/audio-map.ts`: a noise floor
 
 #### Re-watch
 
-The persona watches a video again herself through `media.look`, with her own question. The video model watches the clip again and the answer appears in the transcript alongside the original summary. The per-turn bound of `media.look` applies, and answers are cached for an hour per question.
+The persona watches a video again herself through `media.look`, with her own question. The video model watches the clip again and the answer appears in the transcript alongside the original summary. The per-turn bound of `media.look` applies, and answers are cached for an hour per question. Each successful answer has its own stored version under the question key. These versions preserve the original summary.
 
 Model role: `video`.
 
