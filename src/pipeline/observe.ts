@@ -158,6 +158,7 @@ export function createObserve({ hot, memoryDb, selfIdOf, timers }: ObserveContex
     where: ObserveWhere = null,
     acceptedEvent?: AcceptedMessageEvent
   ): Promise<Observed> | null {
+    if (!acceptedEvent && !memoryDb?.deleteMessage) return null;
     const envelope = () => deletionOf(event);
     return writeBeforeDeadline(() => {
       if (acceptedEvent)

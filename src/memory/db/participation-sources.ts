@@ -24,38 +24,53 @@ function capturedSource(db: Db, episode: Row, link: Row): unknown {
     .get(episode.id, link.position, episode.place_id)?.source_id;
 }
 
-function qualifiedSource(db: Db, episode: Row, reference: string): unknown {
+type SourceSchema = { catalog: boolean; tuple: boolean };
+
+function qualifiedSource(db: Db, episode: Row, reference: string, schema: SourceSchema): unknown {
   const iface = typeof episode.place_id === 'string' ? episode.place_id.split(':')[0] : '';
   const prefix = `src:${iface}:`;
   if (!reference.startsWith(prefix)) return null;
   const message = reference.slice(prefix.length);
-  const source = db
-    .prepare(
-      `SELECT s.id FROM message_families f JOIN sources s
+  const source = schema.catalog
+    ? db
+        .prepare(
+          `SELECT s.id FROM message_families f JOIN sources s
     ON s.authority_id = f.authority_id AND s.native_kind = f.native_kind
     AND s.native_id = f.native_key AND s.generation = f.generation
     WHERE f.iface = ? AND f.conversation_id = ? AND f.message_id = ?
     AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL
     ORDER BY s.revision DESC LIMIT 1`
-    )
-    .get(iface, nativeOfAny(episode.place_id), message);
+        )
+        .get(iface, nativeOfAny(episode.place_id), message)
+    : null;
   if (source) return source.id;
   // Record-only sources can predate indexed family adoption. Their actual stored route remains authoritative.
   return db
     .prepare(
       `SELECT id FROM sources WHERE iface = ? AND place_id = ? AND native_id = ?
-    AND native_kind = 'message' AND kind IN ('seen', 'said') AND retired_at IS NULL
-    ORDER BY generation DESC, revision DESC LIMIT 1`
+    ${schema.tuple ? "AND native_kind = 'message' AND generation = 1" : ''}
+    AND kind IN ('seen', 'said') AND retired_at IS NULL
+    ORDER BY revision DESC LIMIT 1`
     )
     .get(iface, episode.place_id, message)?.id;
 }
 
 /** Keeps captured revisions and resolves new evidence by its episode conversation and interface. */
 export function resolveParticipationSources(db: Db, mapping: Rows): void {
-  for (const link of mapping.episode_sources ?? []) {
+  const links = mapping.episode_sources ?? [];
+  if (!links.length) return;
+  const schema: SourceSchema = {
+    catalog:
+      db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'message_families'").get() !== undefined,
+    tuple: db
+      .prepare('PRAGMA table_info(sources)')
+      .all()
+      .some((column) => column.name === 'native_kind'),
+  };
+  for (const link of links) {
     const episode = mapping.episodes?.find((row) => row.id === link.episode_id && row.kind === 'participation');
     if (!episode || typeof link.source_id !== 'string') continue;
-    const source = capturedSource(db, episode, link) ?? qualifiedSource(db, episode, link.source_id);
+    const source = capturedSource(db, episode, link) ?? qualifiedSource(db, episode, link.source_id, schema);
     if (typeof source === 'string') link.source_id = source;
   }
 }
