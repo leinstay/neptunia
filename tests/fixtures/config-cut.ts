@@ -502,7 +502,8 @@ export const CUT: ReadonlyArray<CutRow> = [
   { key: 'wakes.kinds.feedback.maxTasks', group: 'inner life', becomes: 'wildcard', production: null, to: 'wakes.kinds.*.maxTasks' },
   { key: 'wakes.kinds.feedback.inputTokens', group: 'inner life', becomes: 'wildcard', production: null, to: 'wakes.kinds.*.inputTokens' },
   { key: 'appendStore.fsyncMs', group: 'memory', becomes: 'constant', production: 500 },
-  { key: 'journal.thinkChars', group: 'memory', becomes: 'constant', production: 4000 },
+  { key: 'journal.thinkChars', group: 'memory', becomes: 'gone', production: 4000 },
+  { key: 'journal.keepRequests', group: 'memory', becomes: 'gone', production: 3 },
   { key: 'journal.offWindowHours', group: 'memory', becomes: 'constant', production: 24 },
 ];
 
@@ -728,7 +729,6 @@ export const KEPT: ReadonlyArray<string> = [
   'wakes.retry.maxHours',
   'wakes.factsKeepDays',
   'appendStore.retryMax',
-  'journal.keepRequests',
   'archive.drainMs',
   'archive.holdMaxMs',
 ];

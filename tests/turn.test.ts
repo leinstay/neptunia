@@ -7393,52 +7393,6 @@ test('turn: limits lists a preview cut', async () => {
   );
 });
 
-test('turn: a journalled turn dumps its request and raw answer', async () => {
-  const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', ts: NOW - 1000 });
-  const answer = '<think>σκέψη</think><msg reply="#1">γεια</msg>';
-  const run = async (failing = false) => {
-    const dumps: Array<{ guildId: string; dump: object }> = [];
-    const { journal } = journalOverMemory();
-    journal.dumpRequest = async (guildId, dump) => {
-      dumps.push({ guildId, dump });
-      if (failing) throw Object.assign(new Error('disk'), { code: 'EIO' });
-    };
-    const llm = usageLlm(answer);
-    const turns = createTurnRunner({
-      discord: DISCORD,
-      createPort: createDiscordAdapter,
-      hot: fakeHot(),
-      store: fakeStore(),
-      llm,
-      calibrator: identityCalibrator(),
-      client: fakeClient(),
-      journal,
-    });
-    const result = await turns.runTurn({
-      channel: fakeTurnChannel({ historyMessages: [raw] }),
-      mode: 'reply',
-      trigger: normalizedTrigger(raw),
-      triggerKind: 'mention',
-    });
-    await new Promise((resolve) => setImmediate(resolve));
-    return { dumps, llm, result };
-  };
-
-  const on = await run();
-  assert.equal(on.result.outcome, 'spoke');
-  assert.equal(on.dumps.length, 1);
-  const { dump } = on.dumps[0];
-  assert.equal(asRecord(dump).turnId, on.result.turnId);
-  assert.equal(asRecord(dump).attemptId, 1);
-  assert.equal(asRecord(dump).raw, answer);
-  assert.deepEqual(asRecord(dump).usage, { prompt: 1500, cached: 300, cacheWrite: 200, completion: 700 });
-  assert.equal(asRecord(dump).request.messages, on.llm.calls[0], 'the exact message list the client was given');
-
-  // A failing write is logged and never breaks the turn.
-  const failing = await run(true);
-  assert.equal(failing.result.outcome, 'spoke');
-});
-
 // ---------------------------------------------------------------------------
 // Skills discovery: the skills a turn offers her and the catalogue.
 

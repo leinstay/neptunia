@@ -406,43 +406,6 @@ test('retired tags: a leftover <call> or <draw> in her speech is cut out, never 
   assert.ok(!noteText(long.llm, 2).includes(labels.task.diagnostics), noteText(long.llm, 2));
 });
 
-test('journal dumps: the reply request is dumped as the base dump, each later request with its step and everything after the first two messages as `later`; the tools by hash', async () => {
-  const { journal } = journalOverMemory();
-  const dumps: Array<object> = [];
-  journal.dumpRequest = async (guildId, dump) => {
-    dumps.push(dump);
-  };
-  const run = await coreTurn({
-    answers: [
-      toolAnswer('<think>1</think>', [call('lore.list', {}, { id: 'a' })]),
-      toolAnswer('<think>2</think>', [call('memory.server.read', {}, { id: 'b' })]),
-      '<think>3</think><msg>τέλος</msg>',
-    ],
-    journal,
-    loop: { maxSteps: 4 },
-  });
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(run.llm.calls.length, 3);
-  assert.deepEqual(
-    dumps.map((dump) => asRecord(dump).step ?? null),
-    [null, 1, 2]
-  );
-  assert.equal(asRecord(dumps[0]).later, undefined);
-  assert.equal(asRecord(dumps[1]).later.length, 2, 'her answer and its tool message; there is nothing to note');
-  assert.equal(asRecord(dumps[2]).later.length, 4);
-  dumps.forEach((dump, i) => {
-    assert.deepEqual(
-      asRecord(dump).request.messages,
-      run.llm.calls[i].slice(0, 2),
-      `request ${i}: the first two messages`
-    );
-    assert.equal(asRecord(dump).tools.length > 0, true, 'the tools the request carried');
-    assert.equal(asRecord(dump).toolChoice, 'auto');
-  });
-  assert.deepEqual(asRecord(dumps[2]).toolCalls, undefined, 'the last answer called nothing');
-  assert.equal(asRecord(dumps[0]).toolCalls.length, 1);
-});
-
 test('carried over: draw.create in the current conversation runs on a spontaneous turn with nobody asking, as the old tag did; in another channel it is refused no-requester', async () => {
   const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.ts');
   const here = await drawTurn({
