@@ -3,6 +3,7 @@
 // the lines come back rebuilt by the export, in file order. Pure functions over a read connection.
 
 import { byBytes, childNames, layerDir, ownersUnder, unitLines } from './common.ts';
+import type { NativeMessageLocator } from '../recall.ts';
 import type { Db } from '../types.ts';
 
 const MONTH_RE = /^\d{4}-\d{2}$/;
@@ -49,16 +50,29 @@ export function recordNewestRevision(
   guildIdGiven: unknown,
   privateUserId: string | null,
   month: string,
-  messageId: unknown
+  messageId: unknown,
+  locator?: NativeMessageLocator
 ): number | null {
   const guildId = guildIdGiven as string;
   const prefix = `${recordDirOf(guildId, privateUserId)}/${month}/`;
+  const family = locator
+    ? db
+        .prepare(
+          'SELECT * FROM message_families WHERE iface = ? AND conversation_id = ? AND message_id = ? AND generation = 1'
+        )
+        .get(locator.iface, locator.conversationId, locator.messageId)
+    : null;
+  if (locator && (!family || locator.messageId !== messageId)) return null;
+  const clause = family ? 'authority_id = ? AND native_kind = ? AND native_id = ? AND generation = ?' : 'native_id = ?';
+  const values = family
+    ? [family.authority_id, family.native_kind, family.native_key, family.generation]
+    : [String(messageId)];
   let newest: number | null = null;
   for (const row of db
     .prepare(
-      'SELECT kind, revision FROM sources WHERE native_id = ? AND owner_file >= ? AND owner_file < ? AND retired_at IS NULL'
+      `SELECT kind, revision FROM sources WHERE ${clause} AND owner_file >= ? AND owner_file < ? AND retired_at IS NULL`
     )
-    .all(String(messageId), prefix, `${prefix}￿`)) {
+    .all(...values, prefix, `${prefix}￿`)) {
     if (row.kind === 'deleted') continue;
     const n = Number.isInteger(row.revision) && (row.revision as number) > 0 ? (row.revision as number) : 1;
     if (n > (newest ?? 0)) newest = n;
@@ -96,7 +110,7 @@ export function recordStats(db: Db, guildIdGiven: unknown): { messages: number; 
   const prefix = `${dir}/`;
   const messages = db
     .prepare(
-      'SELECT COUNT(DISTINCT native_id) AS n FROM sources WHERE native_id IS NOT NULL AND owner_file >= ? AND owner_file < ? AND retired_at IS NULL'
+      'SELECT COUNT(DISTINCT json_array(iface, authority_id, native_kind, native_id, generation)) AS n FROM sources WHERE native_id IS NOT NULL AND owner_file >= ? AND owner_file < ? AND retired_at IS NULL'
     )
     .get(prefix, `${prefix}￿`)?.n as number;
   return { messages, days, first };

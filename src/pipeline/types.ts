@@ -2,6 +2,8 @@
 // the pipeline reads it, a pending ping, a turn's result and the parts of the core the pipeline calls. Types only:
 // createMessageHandler (src/behavior/pipeline.ts) wires the modules, and nothing here runs.
 
+import type { AcceptedEventReceipt } from '../interface/door.ts';
+import type { NativeMessageLocator } from '../memory/db/recall.ts';
 import type { Context } from '../memory/db/scope.ts';
 import type { PendingPing } from '../behavior/pending.ts';
 import type { ConversationInfo } from '../protocol/adapter.ts';
@@ -10,7 +12,13 @@ import type { TriggerKind } from '../turn/triggers.ts';
 export type { TriggerKind };
 
 /** The execution context supplied by the authenticated event handler, kept outside the message. */
-export type MessageReadOptions = { memoryContext?: Context };
+export type AcceptedMessageEvent = Readonly<{
+  eventId: string;
+  locator: NativeMessageLocator;
+  receipt: AcceptedEventReceipt;
+}>;
+
+export type MessageReadOptions = { memoryContext?: Context; acceptedEvent?: AcceptedMessageEvent };
 
 /** A conversation as the interface describes it (src/protocol/adapter.ts). */
 export type Conv = ConversationInfo;
@@ -63,7 +71,7 @@ export type PipelineConfig = {
   readonly web?: {
     readonly links?: { readonly enabled?: unknown; readonly prefill?: unknown; readonly prefillPerUserPerDay?: number };
   };
-  readonly memoryDb?: { readonly observeTimeoutMs?: number };
+  readonly memoryDb?: { readonly observeTimeoutMs?: number; readonly ingestKeepDays?: number };
   readonly mention: MentionConfig;
   readonly bot: {
     readonly timezone: string;

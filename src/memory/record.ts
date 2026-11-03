@@ -32,6 +32,7 @@ import { memoryRootOf } from './root.ts';
 import { recordDays, recordLines, recordMonths, recordNewestRevision, recordStats } from './db/readers/record.ts';
 import { isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
 import type { StoredRecord, MemoryDb, Untyped } from './types.ts';
+import type { NativeMessageLocator } from './db/recall.ts';
 
 /** The schema version every line carries. */
 export const RECORD_VERSION = 1;
@@ -314,11 +315,17 @@ export function asRecordLines(lines: AsyncIterable<object>): AsyncIterable<Recor
   return lines as AsyncIterable<RecordLine>;
 }
 
+export type RecordMessageRef = Readonly<{
+  lineId: string;
+  locator: NativeMessageLocator;
+  observedSourceId?: string;
+}>;
+
 export type RecordStore = {
   append(
     guildId: string,
     lines: Array<object>,
-    opts?: { privateUserId?: string | null }
+    opts?: { privateUserId?: string | null; messages?: ReadonlyArray<RecordMessageRef> }
   ): Promise<{ written: number; duplicates: number }>;
   dayFile(guildId: string, occurredAtIso: string, privateUserId?: string | null): string;
   iterate(
@@ -329,7 +336,7 @@ export type RecordStore = {
     guildId: string,
     messageId: string,
     occurredAtIso: string,
-    opts?: { privateUserId?: string | null }
+    opts?: { privateUserId?: string | null; locator?: NativeMessageLocator }
   ): Promise<number | null>;
   stats(guildId: string): Promise<{ messages: number; days: number; first: string | null }>;
 };
@@ -408,14 +415,21 @@ export function createRecord({
   }
 
   /** The lines go to the database, each run of lines of one day as one write. */
-  async function appendToDb(guildId: string, lines: Untyped, privateUserId: string | null) {
+  async function appendToDb(
+    guildId: string,
+    lines: Untyped,
+    privateUserId: string | null,
+    messages?: ReadonlyArray<RecordMessageRef>
+  ) {
     const write = seam.run(() => unitWriter());
     let written = 0;
     let duplicates = 0;
     const flush = async (owner: Untyped, run: Untyped) => {
       if (run.length === 0) return;
       // The writer answers a lines unit with how many lines it wrote and how many it already held.
-      const done = (await seam.run(() => write({ op: 'lines', owner, lines: run }))) as StoredRecord | undefined;
+      const done = (await seam.run(() =>
+        write({ op: 'lines', owner, lines: run, ...(messages ? { messages } : {}) })
+      )) as StoredRecord | undefined;
       written += done?.written ?? 0;
       duplicates += done?.duplicates ?? 0;
     };
@@ -439,10 +453,13 @@ export function createRecord({
   async function append(
     guildId: string,
     lines: Array<Untyped>,
-    { privateUserId = null }: { privateUserId?: string | null } = {}
+    {
+      privateUserId = null,
+      messages,
+    }: { privateUserId?: string | null; messages?: ReadonlyArray<RecordMessageRef> } = {}
   ) {
     if (typeof writerGate === 'function') await writerGate();
-    return serial(() => appendToDb(guildId, lines, privateUserId));
+    return serial(() => appendToDb(guildId, lines, privateUserId, messages));
   }
 
   async function* iterate(
@@ -486,12 +503,12 @@ export function createRecord({
     guildId: string,
     messageId: string,
     occurredAtIso: Untyped,
-    { privateUserId = null }: { privateUserId?: string | null } = {}
+    { privateUserId = null, locator }: { privateUserId?: string | null; locator?: NativeMessageLocator } = {}
   ) {
     return serial(async () => {
       const db = seam.db();
       return seam.run(() =>
-        recordNewestRevision(db, guildId, privateUserId, dayOf(occurredAtIso).slice(0, 7), messageId)
+        recordNewestRevision(db, guildId, privateUserId, dayOf(occurredAtIso).slice(0, 7), messageId, locator)
       );
     });
   }

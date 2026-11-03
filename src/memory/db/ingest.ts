@@ -219,7 +219,7 @@ export function createIngestRecord(deps: {
       return db === null ? [] : heldEvents(db as unknown as ListDb);
     },
     release: (principal, eventId) => deps.memoryDb.memoryWrite({ kind: 'ingest-release', principal, eventId }),
-    withRow: (envelope, row) => (row === null ? envelope : { ...envelope, ingest: { row, keepDays: keepDays() } }),
+    withRow: (envelope, row) => withIngestRow(envelope, row, keepDays()),
   };
 }
 
@@ -260,4 +260,35 @@ export function observingWith<TDb extends { observe(envelope: object, where?: un
   // The same service with its `observe` taking the row along; every other member is `memoryDb`'s own, through the
   // prototype, so the object is a `TDb` the compiler cannot see through `Object.create`.
   return Object.assign(Object.create(memoryDb) as object, { observe }) as unknown as TDb;
+}
+
+/** The exact source committed by an accepted event, independent of later family revisions. */
+export function receiptSource(db: Db, envelope: unknown): { sourceId: string; revision: number | null } | null {
+  const ingest = ingestOption(envelope);
+  if (!ingest) return null;
+  const found = db
+    .prepare(
+      'SELECT s.id, s.revision FROM ingest i JOIN sources s ON s.id = i.source_id WHERE i.principal = ? AND i.event_id = ?'
+    )
+    .get(ingest.row.principal, ingest.row.eventId);
+  return typeof found?.id === 'string'
+    ? { sourceId: found.id, revision: typeof found.revision === 'number' ? found.revision : null }
+    : null;
+}
+
+/** Associates a normalized source and its transport receipt within their shared writer transaction. */
+export function associateReceipt(db: Db, envelope: unknown, sourceId: string, at: number): void {
+  const ingest = ingestOption(envelope);
+  if (!ingest) return;
+  insertIngest(db, ingest.row, { at, keepDays: ingest.keepDays });
+  db.prepare('UPDATE ingest SET source_id = ? WHERE principal = ? AND event_id = ? AND source_id IS NULL').run(
+    sourceId,
+    ingest.row.principal,
+    ingest.row.eventId
+  );
+}
+
+/** Adds the accepted transport row before the observation crosses the writer boundary. */
+export function withIngestRow(envelope: object, row: Readonly<IngestRow> | null, keepDays: number): object {
+  return row === null ? envelope : { ...envelope, ingest: { row, keepDays } };
 }

@@ -515,11 +515,6 @@
         "complexity": 53
       }
     },
-    "src/memory/db/unit-write.ts": {
-      "writeLines": {
-        "complexity": 23
-      }
-    },
     "src/memory/describe.ts": {
       "buildDescriber": {
         "function-length": 1284

@@ -1262,6 +1262,8 @@ export const MIGRATIONS: Array<Migration> = [
   V21,
   V22,
   migrateMessageFamilies,
+  `ALTER TABLE ingest ADD COLUMN source_id TEXT REFERENCES sources(id);
+   CREATE INDEX ingest_source ON ingest(source_id) WHERE source_id IS NOT NULL;`,
 ];
 
 /** Every table schema v8 adds. */

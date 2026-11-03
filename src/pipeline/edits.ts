@@ -9,6 +9,7 @@ import { log } from '../log.ts';
 import { appendRevision, gifOpts, slimMessage, toRecordLine } from '../memory/index.ts';
 import type { Message, MessageReceived } from '../protocol/events.ts';
 import { utcDay } from '../time.ts';
+import type { MessageReadOptions } from './types.ts';
 
 /** A `message.received` event of a whole message, with the message as it was before an edit. */
 export type MessageEvent = Omit<MessageReceived, 'message' | 'previous'> & {
@@ -56,8 +57,8 @@ export type EditsContext = {
 };
 
 export type Edits = {
-  onMessageUpdate: (event: MessageReceived) => Promise<void>;
-  onMessageDelete: (event: MessageReceived) => Promise<void>;
+  onMessageUpdate: (event: MessageReceived, options?: MessageReadOptions) => Promise<void>;
+  onMessageDelete: (event: MessageReceived, options?: MessageReadOptions) => Promise<void>;
 };
 
 /**

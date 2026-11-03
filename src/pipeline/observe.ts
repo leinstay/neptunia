@@ -4,8 +4,12 @@
 
 import { log } from '../log.ts';
 import { observationOf } from '../memory/db/observe-event.ts';
+import { DEFAULT_KEEP_DAYS, withIngestRow } from '../memory/db/ingest.ts';
+import { objOf } from '../tools/types.ts';
+import type { ObservationCommit } from '../interface/door.ts';
+import type { Envelope } from '../memory/db/observe.ts';
 import type { MessageEvent, Observed } from './edits.ts';
-import type { PipelineHot, Thrown } from './types.ts';
+import type { AcceptedMessageEvent, Thrown } from './types.ts';
 
 /** The record a line belongs to: the guild's, or a private chat's under it. */
 export type ObserveWhere = { guildId: string; privateUserId?: string } | null;
@@ -18,8 +22,11 @@ export type Timers = { set: (fn: () => unknown, ms: number) => unknown; clear: (
 
 /** What createObserve reads: the dependencies of createMessageHandler. */
 export type ObserveContext = {
-  hot: PipelineHot;
-  memoryDb: { observe?: (envelope: object, where: ObserveWhere) => Promise<Observed> | Observed } | null;
+  hot: { readonly config: { readonly memoryDb?: Readonly<Record<string, unknown>> } };
+  memoryDb: {
+    observe?: (envelope: object, where: ObserveWhere) => Promise<Observed> | Observed;
+    observeMessage?: (envelope: object, where: ObserveWhere) => Promise<object> | object | null;
+  } | null;
   selfIdOf: () => string;
   timers: Timers;
 };
@@ -27,7 +34,50 @@ export type ObserveContext = {
 /** The logger as the refusal line calls it: a debug level it may lack. */
 type DebugLog = { debug?: (msg: string, meta: object) => void };
 
-export type ObserveLine = (event: MessageEvent, direct?: boolean, where?: ObserveWhere) => Promise<Observed> | null;
+export type ObserveLine = (
+  event: MessageEvent,
+  direct?: boolean,
+  where?: ObserveWhere,
+  acceptedEvent?: AcceptedMessageEvent
+) => Promise<Observed> | null;
+
+function acceptedObservation({
+  envelope,
+  accepted,
+  memoryDb,
+  hot,
+  where,
+}: {
+  envelope: () => Envelope | null;
+  accepted: AcceptedMessageEvent;
+  memoryDb: ObserveContext['memoryDb'];
+  hot: ObserveContext['hot'];
+  where: ObserveWhere;
+}): Promise<ObservationCommit> {
+  return accepted.receipt.observe(async (row) => {
+    const mappedEnvelope = envelope();
+    const mapped = mappedEnvelope?.messageLocator;
+    if (
+      !mapped ||
+      accepted.eventId !== accepted.receipt.eventId ||
+      mapped.iface !== accepted.locator.iface ||
+      mapped.conversationId !== accepted.locator.conversationId ||
+      mapped.messageId !== accepted.locator.messageId
+    )
+      return { ok: false, code: 'BAD_NATIVE' };
+    if (!memoryDb?.observeMessage || !mappedEnvelope) return { ok: false, code: 'DB_CLOSED' };
+    const days = hot.config.memoryDb?.ingestKeepDays;
+    const keepDays = typeof days === 'number' && days > 0 ? days : DEFAULT_KEEP_DAYS;
+    const done = objOf(await memoryDb.observeMessage(withIngestRow(mappedEnvelope, row, keepDays), where));
+    if (done.ok !== true || typeof done.sourceId !== 'string')
+      return { ok: false, ...(typeof done.code === 'string' ? { code: done.code } : {}) };
+    return {
+      ok: true,
+      sourceId: done.sourceId,
+      ...(typeof done.revision === 'number' ? { revision: done.revision } : {}),
+    };
+  });
+}
 
 export function createObserve({ hot, memoryDb, selfIdOf, timers }: ObserveContext): { observeLine: ObserveLine } {
   /**
@@ -36,12 +86,21 @@ export function createObserve({ hot, memoryDb, selfIdOf, timers }: ObserveContex
    * the record the line belongs to: a promise of the observe result (null on a failure or past
    * `memoryDb.observeTimeoutMs`), which the caller awaits; null without a memory database. Codes only.
    */
-  function observeLine(event: MessageEvent, direct = false, where: ObserveWhere = null): Promise<Observed> | null {
-    if (!memoryDb || typeof memoryDb.observe !== 'function') return null;
+  function observeLine(
+    event: MessageEvent,
+    direct = false,
+    where: ObserveWhere = null,
+    acceptedEvent?: AcceptedMessageEvent
+  ): Promise<Observed> | null {
+    if (!acceptedEvent && (!memoryDb || typeof memoryDb.observe !== 'function')) return null;
     try {
-      const envelope = observationOf(event, { selfId: selfIdOf() || null, direct });
-      if (!envelope) return null;
-      const sent = Promise.resolve(memoryDb.observe(envelope, where))
+      const mapEnvelope = (): Envelope | null => observationOf(event, { selfId: selfIdOf() || null, direct });
+      const envelope = acceptedEvent ? null : mapEnvelope();
+      if (!acceptedEvent && !envelope) return null;
+      const write = acceptedEvent
+        ? acceptedObservation({ envelope: mapEnvelope, accepted: acceptedEvent, memoryDb, hot, where })
+        : memoryDb?.observe?.(envelope ?? {}, where);
+      const sent = Promise.resolve(write)
         .then((done) => {
           // src/log.ts has no debug level, so this optional call writes nothing.
           if (done && done.ok === false) (log as DebugLog).debug?.('events: observe refused', { code: done.code });
