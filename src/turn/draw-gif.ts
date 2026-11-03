@@ -3,6 +3,9 @@
 // message with a GIF. createTurnRunner (src/behavior/turn.ts) builds it once per runner with createDrawGif; the act,
 // her calls and the attempt call its functions.
 
+import type { PublicationBoundary } from '../tools/publication.ts';
+import { publicationBoundaryOf, bindPublicationPort } from '../tools/publication.ts';
+import type { Context } from '../memory/db/scope.ts';
 import { imageFileName } from '../behavior/mirror.ts';
 import { setSettings } from '../behavior/diary.ts';
 import {
@@ -121,6 +124,7 @@ type Staged = { picture: Picture; self: boolean; text: string };
 
 /** What an attempt's draft holds that a picture reads and writes. */
 type DrawDraft = {
+  memoryContext?: Context;
   staged?: Array<Staged>;
   diary?: { set?: unknown } | null;
   avatar?: { reference?: string | null };
@@ -185,7 +189,11 @@ export type DrawGif = {
     gif: ResolvedGif,
     replyId: string | null,
     link: string | null,
-    options?: { openOp?: () => JournalOp | Readonly<JournalOp>; trigger?: DrawTrigger }
+    options?: {
+      openOp?: () => JournalOp | Readonly<JournalOp>;
+      trigger?: DrawTrigger;
+      publicationBoundary?: PublicationBoundary;
+    }
   ) => Promise<{ message: ReturnType<typeof postedOf>; op: JournalOp | Readonly<JournalOp> } | null>;
   pickedInTime: (
     picking: Promise<ResolvedGif | null>,
@@ -292,6 +300,8 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     }: Parameters<DrawGif['drawTool']>[1],
     model: string | null = null
   ): Promise<DrawResult> {
+    const publicationBoundary = publicationBoundaryOf(draft?.memoryContext, conversationOf(channel));
+    const port = bindPublicationPort(iface, publicationBoundary);
     const none = { text: '' };
     const failed = (status: string, code: string | undefined, extra: object = {}): DrawResult => ({
       status,
@@ -326,7 +336,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
           iface: channel.iface,
           guildId,
           channelId: given ?? reply?.channelId ?? null,
-          context: { channelId: String(channel.id) },
+          context: { channelId: String(channel.id), publicationBoundary },
           need: 'attach',
         });
         replyId = reply?.messageId ?? null;
@@ -382,7 +392,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       // A refusal carries its gateway code.
       if (!after.ok) return failed(refusalStatus(after.code!), after.code, { reason: after.reason });
       const target = channelId === String(channel.id) ? channel : { id: channelId };
-      const result = await iface.send(conversationOf(target), {
+      const result = await port.send(conversationOf(target), {
         attachments: [{ name, data: picture.buffer, contentType: picture.mediaType }],
         ...(replyId ? { replyTo: messageOf(target, replyId) } : {}),
       });
@@ -467,7 +477,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     gif: ResolvedGif,
     replyId: string | null,
     link: string | null,
-    { openOp = () => NO_OP, trigger = null }: NonNullable<Parameters<DrawGif['postGif']>[5]> = {}
+    { openOp = () => NO_OP, trigger = null, publicationBoundary }: NonNullable<Parameters<DrawGif['postGif']>[5]> = {}
   ): Promise<{ message: ReturnType<typeof postedOf>; op: JournalOp | Readonly<JournalOp> } | null> {
     const { entry } = gif;
     let op: JournalOp | Readonly<JournalOp> = NO_OP;
@@ -477,7 +487,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       if (!checkEffect('message.create', sendArgs({ text, replyId }), { channel, trigger }).ok) return null;
       op = openOp();
       if (op.opId) await op.started();
-      const result = await iface.send(conversationOf(channel), {
+      const result = await bindPublicationPort(iface, publicationBoundary).send(conversationOf(channel), {
         text,
         ...(replyId ? { replyTo: messageOf(channel, replyId) } : {}),
       });

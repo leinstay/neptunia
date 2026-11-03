@@ -9,6 +9,8 @@
 // the turn notes on its sends what they are for (`note`): the skill, and for a `message.create` the said line the
 // record keeps of it once it is sent, as a sent post of a message turn is recorded (src/turn/journal-notes.ts#recordSaid).
 
+import { isPublicationBoundary, publicationRefusal, refusedPublication } from './publication.ts';
+import type { PublicationBoundary } from './publication.ts';
 import type { ConversationRef, Delivery, SendOptions } from '../protocol/adapter.ts';
 import type { Content } from '../protocol/actions.ts';
 
@@ -24,7 +26,13 @@ export type SaidNote = {
 export type HeldNote = { skill: string; privateChat: boolean; said: SaidNote | null };
 
 /** One send a wake turn held: its effect key, where it goes, what it carries and what the turn noted on it. */
-export type HeldSend = { key: string; conversation: ConversationRef; content: Content; note?: HeldNote };
+export type HeldSend = {
+  publicationBoundary?: PublicationBoundary;
+  key: string;
+  conversation: ConversationRef;
+  content: Content;
+  note?: HeldNote;
+};
 
 /** The sends of one wake turn, in the order she made them. */
 export type SendHold = {
@@ -80,10 +88,20 @@ export function heldPort<TPort extends object>(real: TPort, context: HoldContext
   const callKey = typeof context?.idempotencyKey === 'string' ? context.idempotencyKey : 'held';
   let unkeyed = 0;
   const send = (conversation: ConversationRef, content: Content, options: SendOptions = {}): Promise<Delivery> => {
+    const boundary = context?.publicationBoundary;
+    if (boundary !== undefined && (!isPublicationBoundary(boundary) || publicationRefusal(boundary, conversation)))
+      return Promise.resolve(refusedPublication(options.idempotencyKey));
     const given = typeof options.idempotencyKey === 'string' ? options.idempotencyKey : '';
     const key = given || (unkeyed === 0 ? callKey : `${callKey}:${unkeyed}`);
     if (!given) unkeyed += 1;
-    hold.keep({ key, conversation: { ...conversation }, content });
+    hold.keep({
+      key,
+      conversation: { ...conversation },
+      content,
+      ...(isPublicationBoundary(boundary)
+        ? { publicationBoundary: { kind: boundary.kind, origin: { ...boundary.origin } } }
+        : {}),
+    });
     return Promise.resolve({ status: 'ok', ref: null, parts: [], at: null, idempotencyKey: key, error: null });
   };
   // The ports a post goes through differ in how they type `send`; the held one takes and answers what an adapter's does.

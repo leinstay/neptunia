@@ -6,6 +6,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { publicationRefusal } from '../publication.ts';
+import type { PublicationBoundary } from '../publication.ts';
 import { emptyAffinity, affinityBand, roundScore } from '../../memory/index.ts';
 import { topByRank } from '../../memory/ranking.ts';
 import { fromTokens } from '../../memory/mentions.ts';
@@ -742,6 +744,7 @@ export const CHANNEL_NEEDS: Readonly<
 
 /** What posting in another conversation reads of the call's context: where it runs, and the wake it is made in. */
 export type PostingContext = {
+  publicationBoundary?: PublicationBoundary;
   channelId?: string | null;
   ownInitiative?: boolean;
   wakeKind?: string;
@@ -755,6 +758,13 @@ const NEED_CAPABILITY: Readonly<Record<string, string>> = Object.freeze({
   attach: 'message.create',
   react: 'message.react.add',
 });
+
+function checkWakePosting(context: PostingContext, capability: string | null): void {
+  if (capability && context?.ownInitiative === true && typeof context.wakeKind === 'string') {
+    const refusal = nestedRefusal({ config: context.env?.hot?.config, wakeKind: context.wakeKind, capability });
+    if (refusal) throw denied(`the wake envelope does not allow ${capability}`, refusal.reason);
+  }
+}
 
 /**
  * The conversation an operation acting as the persona aims at (`/nep message`, `/nep draw
@@ -784,12 +794,11 @@ export async function postingConversation({
   need: keyof typeof CHANNEL_NEEDS;
 }): Promise<string> {
   const capability = NEED_CAPABILITY[need] ?? null;
-  if (capability && context?.ownInitiative === true && typeof context.wakeKind === 'string') {
-    const refusal = nestedRefusal({ config: context.env?.hot?.config, wakeKind: context.wakeKind, capability });
-    if (refusal) throw denied(`the wake envelope does not allow ${capability}`, refusal.reason);
-  }
+  checkWakePosting(context, capability);
   const id = channelId ? channelId : context.channelId ? context.channelId : null;
   if (!id) throw invalid('a channel is required');
+  if (capability && publicationRefusal(context.publicationBoundary, { iface, conversationId: id }))
+    throw denied('publication-boundary', 'not-allowed');
   if (id === (context.channelId ?? '')) return id;
   const allowedThere = CHANNEL_NEEDS[need] as ((permissions: Permissions) => boolean) | undefined;
   if (typeof allowedThere !== 'function') throw new Error(`unknown channel need: ${need}`);

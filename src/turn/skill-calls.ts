@@ -3,6 +3,9 @@
 // planned calls made in segments. createTurnRunner (src/behavior/turn.ts) builds it once per runner with
 // createSkillCalls; the tool round and the attempt call its functions.
 
+import { publicationBoundaryOf } from '../tools/publication.ts';
+import type { ConversationRef } from '../protocol/adapter.ts';
+import type { Context } from '../memory/db/scope.ts';
 import { DESTINATION_REQUIRED } from '../behavior/inner-output.ts';
 import { POSTING_SKILLS } from '../behavior/inner.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
@@ -55,6 +58,7 @@ export type SkillCallsContext = {
   selfIdOf: () => string;
   clock: () => number;
   iface: CallsPort;
+  conversationOf: (channel: { id: string }) => ConversationRef;
   images: GateContext['images'] | undefined;
   speech: GateContext['speech'] | null;
   errands: CallsErrands;
@@ -127,6 +131,7 @@ export type InnerAction = {
 /** What an attempt's draft holds that the calls read and write. */
 export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
   NonNullable<Parameters<JournalNotes['noteLineSources']>[0]> & {
+    memoryContext?: Context;
     inner?: CallsInner | null;
     ownInitiative?: boolean;
     innerActions?: Array<InnerAction>;
@@ -233,6 +238,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     selfIdOf,
     clock,
     iface,
+    conversationOf,
     images,
     speech,
     errands,
@@ -641,15 +647,18 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         // A destructive call counts from its dispatch, whatever comes back.
         if (resolvedCall.dispatch && (skills ?? defaultSkills()).get(skill)?.effects === 'destructive')
           destructiveRuns.set(`${skill}:${envelope.originChannelId}`, clock());
+        const publicationBoundary = publicationBoundaryOf(draft?.memoryContext, conversationOf(channel));
         result = await executeCall(resolvedCall, {
+          publicationBoundary,
           port: iface,
-          refOf: (conversationId) => ({ iface: iface.iface, conversationId: String(conversationId) }),
+          refOf: (conversationId) => conversationOf({ id: String(conversationId) }),
           renderText,
           envelope,
           ...(runOp ? { runOp } : {}),
           ...(runOwnOp ? { runOwnOp } : {}),
           ...(runInitiativeOp ? { runInitiativeOp } : {}),
           opContext: {
+            publicationBoundary,
             guildId,
             channelId: String(channel.id),
             ...(privateChat ? { privateChat: true } : {}),

@@ -3,6 +3,8 @@
 // createTurnRunner (src/behavior/turn.ts) builds it once per runner with createAct; the attempt and her calls call act
 // and holdSpeech.
 
+import { bindPublicationPort, publicationBoundaryOf } from '../tools/publication.ts';
+import type { Context } from '../memory/db/scope.ts';
 import { setSettings } from '../behavior/diary.ts';
 import { chunkPictures, filesPerMessage } from '../behavior/mirror.ts';
 import type { EntryPicture } from '../behavior/mirror.ts';
@@ -91,6 +93,7 @@ type ActTrigger = { id?: string; authorId?: string | null } | null;
 /** What an attempt's draft holds that the act reads and writes. */
 type ActDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
   NonNullable<Parameters<JournalNotes['noteLineSources']>[0]> & {
+    memoryContext?: Context;
     snapshot?: Snapshot | null;
     ownPosts?: Array<string>;
     deliveredIn?: Set<string>;
@@ -316,6 +319,8 @@ export function createAct(ctx: ActContext): Act {
     participation = null,
     draft = null,
   }: ActArgs): Promise<ActOutcome> {
+    const publicationBoundary = publicationBoundaryOf(draft?.memoryContext, conversationOf(channel));
+    const port = bindPublicationPort(iface, publicationBoundary);
     const cfg = hot.config.typing;
     const typingOn = true;
     // The typing imitation of one message: the indicator, then the time its text takes to type.
@@ -369,7 +374,7 @@ export function createAct(ctx: ActContext): Act {
         sourceMessageIds: [targetId],
       });
       if (op.opId) await op.started();
-      const result = await iface.react(messageOf(route.target, targetId), reaction.emoji);
+      const result = await port.react(messageOf(route.target, targetId), reaction.emoji);
       if (result.status === 'ok') {
         delivered = true;
         reacted.push({ ...opField(op), to: targetId, emoji: reaction.emoji });
@@ -453,7 +458,11 @@ export function createAct(ctx: ActContext): Act {
           input: { gif: gif.entry?.id ?? null },
           sourceMessageIds: replyId ? [replyId] : [],
         });
-      const sent = await postGif(channel, guildId, gif, replyId, linkFor(pulledId), { openOp, trigger });
+      const sent = await postGif(channel, guildId, gif, replyId, linkFor(pulledId), {
+        openOp,
+        trigger,
+        publicationBoundary,
+      });
       if (sent) {
         delivered = true;
         if (pulledId) answered.add(pulledId);
@@ -536,7 +545,7 @@ export function createAct(ctx: ActContext): Act {
         sourceMessageIds: replyId ? [replyId] : [],
       });
       if (op.opId) await op.started();
-      const result = await iface.send(conversationOf(channel), {
+      const result = await port.send(conversationOf(channel), {
         text,
         ...(replyId ? { replyTo: messageOf(channel, replyId) } : {}),
         mentions: { users: userIds.filter((id) => !pingsOff(id)), repliedUser: !pingsOff(repliedAuthorId) },
