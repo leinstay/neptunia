@@ -115,7 +115,8 @@ function ownCommand(
 /** `/memory accounts`: the accounts of one person, read through the memory database's read connection. */
 function accountsCommand(memoryDb: unknown, args: Record<string, unknown>): Answer {
   const db = callMethod(memoryDb, 'database') as Parameters<typeof accountLinks>[0] | null;
-  if (db === null) return { text: 'the memory database is closed', status: 'failed' };
+  if (db == null || typeof db.prepare !== 'function')
+    return { text: 'the memory database is closed', status: 'failed' };
   const word = (key: string) => (typeof args[key] === 'string' ? args[key] : '');
   const { accounts } = accountLinks(db, word('iface'), word('account'));
   return { text: accounts.map((one) => `${one.iface} ${one.native}`).join('\n'), status: 'ok' };

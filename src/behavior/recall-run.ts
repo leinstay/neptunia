@@ -105,6 +105,7 @@ import { indexWords } from '../memory/record-index.ts';
 import { CODE } from '../tools/codes.ts';
 import { dbSettings, quotesOf, search as searchRows, window as windowRows } from '../memory/db/recall.ts';
 import { personId } from '../memory/db/ids.ts';
+import { currentIface } from '../memory/db/current-iface.ts';
 import { isIssuedInternalContext, issueContext, readContextSpec } from '../memory/db/scope.ts';
 import { LEGACY_IFACE } from '../memory/db/legacy-namespace.ts';
 import {
@@ -917,11 +918,10 @@ export function createRecall({
   }
 
   /**
-   * The read context of a db read (see dbReader): the turn's own when it fits, else one issued for this read.
-   * An issued internal context spans every audience. Outward contexts must fit the destination's group or DM.
+   * The read context of a db read (see dbReader): the turn's own when it fits, else one issued for this read; an issued internal context spans every audience.
    */
   function readContext({ channel, privateUserId, asker, memoryContext = null }: ReadContextInput) {
-    const spec = readContextSpec(channel?.iface, iface, channel?.id, privateUserId);
+    const spec = readContextSpec(currentIface(), iface, channel?.id, privateUserId);
     const fits =
       memoryContext &&
       typeof memoryContext === 'object' &&
@@ -930,7 +930,7 @@ export function createRecall({
       (isIssuedInternalContext(memoryContext) ||
         (!memoryContext.internal &&
           (privateUserId
-            ? memoryContext.kind === 'dm' && memoryContext.person === spec.person
+            ? memoryContext.kind === 'dm' && spec.kind === 'dm' && memoryContext.person === spec.person
             : memoryContext.kind === 'group')));
     const issued = fits
       ? memoryContext

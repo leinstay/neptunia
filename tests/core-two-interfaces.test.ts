@@ -164,7 +164,7 @@ test('a DM on the second interface is answered there and kept in that account ow
   await withCapturedLogs(async () => {
     await withTwoInterfaces(async ({ other, dataDir }) => {
       other.adapter.seedConversation({ ...channelInfo('c1'), communityId: 'g3', iface: 'other' });
-      other.adapter.seedMember('g3', { id: 'u1', name: 'Eleni' });
+      other.adapter.seedMember('g3', { id: 'u1', name: 'Eleni' } as Parameters<Running['adapter']['seedMember']>[1]);
       const first = deliver(other.adapter, { id: 'm1', text: 'Nova, hello', at: Date.now(), mention: true });
       await other.emit({ ...first, iface: 'other', conversation: { ...first.conversation, communityId: 'g3' } });
       await until(() => other.adapter.messagesIn('c1').some((message) => message.authorId === SELF.id));

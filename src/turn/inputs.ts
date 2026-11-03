@@ -10,10 +10,10 @@ import { innerSettings } from '../behavior/inner.ts';
 import { DEFAULT_RESULT_MAX_CHARS, errandResultText, errandsBlockText } from '../errands/blocks.ts';
 import type { ErrandRecord } from '../errands/types.ts';
 import { portIface } from '../interface/capabilities.ts';
+import { readContextSpec } from '../memory/db/scope.ts';
 import { DEFAULT_INTENTIONS_CAP, intentionsBlockText } from '../intentions/blocks.ts';
 import { intentionSettings } from '../intentions/model.ts';
 import { log } from '../log.ts';
-import { channelPlaceId, personId } from '../memory/db/ids.ts';
 import type { ConversationRef, MessageRef } from '../protocol/adapter.ts';
 import { checkReplyEffect } from '../tools/gateway.ts';
 import { PERSONA } from './calls.ts';
@@ -125,15 +125,8 @@ export function createInputs(ctx: InputsContext): Inputs {
       const partner = isPrivate ? (draft.privateUserId ?? null) : null;
       if (!isPrivate || partner) {
         ctx =
-          memoryContext(
-            isPrivate
-              ? { iface: channelIface, kind: 'dm', person: personId(channelIface, String(partner)) }
-              : {
-                  iface: channelIface,
-                  kind: 'group',
-                  destination: channel?.id ? channelPlaceId(channelIface, channel.id) : null,
-                }
-          ) ?? null;
+          memoryContext(readContextSpec(channelIface, channelIface, channel?.id, isPrivate ? String(partner) : null)) ??
+          null;
       }
     } catch {
       ctx = null;

@@ -247,7 +247,7 @@
     },
     "src/behavior/recall-run.ts": {
       "createRecall": {
-        "function-length": 1705
+        "function-length": 1704
       },
       "createRecall>findPeople": {
         "complexity": 36
