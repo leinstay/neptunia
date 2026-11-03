@@ -14,6 +14,7 @@ import type { Reads } from '../interface/reads.ts';
 import { collectReadableLinks } from '../media/classify.ts';
 import type { ConversationInfo, ConversationRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
+import { isIssuedInternalContext } from '../memory/db/scope.ts';
 import { fetchSpan, recordMessages, runConversationRead } from '../tools/conversation-read.ts';
 import type { ReadMessage } from '../tools/conversation-read.ts';
 import {
@@ -326,6 +327,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       channelNameOf: (id) => channelOf(id)?.name ?? null,
       allowed: (id) => {
         if (String(id) === String(channel.id) && inCommunity(channel)) return true;
+        // The owner's authenticated command line reads every stored conversation; its publication stays restricted.
+        if (isIssuedInternalContext(draft?.memoryContext)) return true;
         try {
           return (
             checkPull({
@@ -341,7 +344,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           return false;
         }
       },
-      readRecord: ({ channelId, from }) => recordMessages(record, guildId, { channelId, from, nameOf, selfName }),
+      readRecord: ({ channelId, from }) =>
+        recordMessages(record, channelOf(channelId)?.communityId ?? guildId, { channelId, from, nameOf, selfName }),
       fetchLive: (request) => {
         const source = channelOf(request.channelId);
         // fetchSpan takes the request as it comes, its anchor included.

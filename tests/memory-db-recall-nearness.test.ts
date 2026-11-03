@@ -1,9 +1,9 @@
 // src/memory/db/recall.ts: proximity breaks a tie of relevance and excludes nothing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { channelPlaceId } from '../src/memory/db/ids.ts';
+import { channelPlaceId, dmPlaceId, personId } from '../src/memory/db/ids.ts';
 import { dbSettings, search } from '../src/memory/db/recall.ts';
-import { groupContext, groupScope } from '../src/memory/db/scope.ts';
+import { dmScope, groupContext, groupScope } from '../src/memory/db/scope.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import { fixture } from './fixtures/memory-db-recall.ts';
 
@@ -44,6 +44,42 @@ test('an equal hit in the current place comes first, and a stronger hit on anoth
     assert.deepEqual(
       found.hits.map((hit) => hit.messageId),
       ['far-strong', 'near-equal', 'far-equal']
+    );
+  } finally {
+    env.done();
+  }
+});
+
+test('an old dated source is still found by its date, and its audience still holds', () => {
+  // Bug: a storage move or a short record window silently drops old experience, or age widens who may read it.
+  const env = fixture();
+  try {
+    const old = NOW - 400 * DAY;
+    env.say({
+      native: 'old-group',
+      at: old,
+      text: 'ενα σπιτι',
+      place: channelPlaceId('discord', 'old'),
+      scope: groupScope('discord'),
+    });
+    env.say({
+      native: 'old-private',
+      at: old,
+      text: 'ενα σπιτι',
+      place: dmPlaceId('discord', 'someone'),
+      scope: dmScope(personId('discord', 'someone'), 'discord'),
+    });
+    env.stem();
+    fillEnvAudiences(env);
+    const found = search(env.db, {
+      ctx: { ...groupContext('discord'), audienceColumn: true },
+      plan: { forms: ['σπιτι'], who: [], from: old - DAY, to: old + DAY },
+      now: NOW,
+      settings: { ...dbSettings({})!, gateShare: 0 },
+    });
+    assert.deepEqual(
+      found.hits.map((hit) => hit.messageId),
+      ['old-group']
     );
   } finally {
     env.done();
