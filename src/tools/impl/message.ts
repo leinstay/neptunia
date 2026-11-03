@@ -28,6 +28,7 @@
 // byte cap (`attachment-too-large`), a failed download (`file-unreadable`), or together with `file`/`gif`.
 // With `diary` the post goes to her diary in place of a channel, everything above included (diaryPort).
 
+import { skillOutputFile } from '../../skills/run.ts';
 import fsp from 'node:fs/promises';
 import { bindPublicationPort, publicationRefusal } from '../publication.ts';
 import { messageRefOf, portAnswer, postingConversation } from './shared.ts';
@@ -200,8 +201,10 @@ async function errandFile(
 ): Promise<Upload | null> {
   const handle = textOf(args.file).trim();
   if (!handle) return null;
-  const file =
-    typeof env.errands?.fileOf === 'function'
+  const skillFile = env.dataDir ? skillOutputFile(env.dataDir, handle) : null;
+  const file = skillFile
+    ? skillFile
+    : typeof env.errands?.fileOf === 'function'
       ? env.errands.fileOf({ guildId: env.resolvedGuildId(context), handle, privateChannelId: channelId })
       : null;
   if (file?.expired) throw invalid(`files of ${handle} have expired`, CODE.FILE_EXPIRED);

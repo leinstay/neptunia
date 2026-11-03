@@ -315,6 +315,17 @@ function termsOf(stem: (word: string) => string, forms: unknown): Array<Term> {
 }
 
 /**
+ * How near a hit's place is to the conversation the read is for: its own place, then its own interface, then the rest.
+ * It only breaks a tie of relevance, so a stronger hit elsewhere keeps its rank and no hit is left out.
+ */
+function nearness(placeId: unknown, context: unknown): number {
+  const here = (context as { destination?: unknown; iface?: unknown } | null)?.destination;
+  if (typeof placeId !== 'string' || typeof here !== 'string') return 0;
+  if (placeId === here) return 2;
+  return placeId.split(':')[0] === here.split(':')[0] ? 1 : 0;
+}
+
+/**
  * The relevance gate: a hit stays when its fused score is at least `gateShare` of the best one, or when it holds as
  * many distinct terms as the best-covering hit (two at least). Without the second rule a line holding every term but
  * found by the words alone falls under a recent line the meaning stream also found (its fused score doubles).
@@ -1018,6 +1029,7 @@ export function search(
         : (a, b) =>
             b.terms - a.terms ||
             b.phrases - a.phrases ||
+            nearness(b.placeId, context) - nearness(a.placeId, context) ||
             Math.abs(a.ts - target) - Math.abs(b.ts - target) ||
             b.score - a.score
     );

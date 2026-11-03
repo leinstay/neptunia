@@ -496,3 +496,21 @@ test('an existing store reads the personal daily cap again after a profile edit'
     rig.close();
   }
 });
+
+test('an errand an internal turn asked for keeps its publication restriction on its record', () => {
+  // Bug: the record forgets its origin's restriction, so the result turn may post private work to a group.
+  const boundary = { kind: 'internal-turn', origin: { iface: 'cli', conversationId: 'dm-owner' } } as const;
+  const dataDir = tempDir('nep-errand-boundary-');
+  // @ts-expect-error: createErrandStore takes no `dataDir`; the memory database holds the board
+  const first = createErrandStore({ dataDir, guildId: 'g1', memoryDb: memoryOf(dataDir), now: () => 1000 });
+  const added = first.add({
+    agent: 'scout',
+    goal: 'find it',
+    requester: { kind: 'owner', userId: 'u1' },
+    origin: { channelId: 'dm-owner', messageId: null, publicationBoundary: boundary },
+    scope: 'dm',
+  });
+  // `add` answers the record itself or wraps it, depending on the idempotency key.
+  const record = ('errand' in added ? added.errand : added) as { origin: { publicationBoundary?: unknown } };
+  assert.deepEqual(record.origin.publicationBoundary, boundary);
+});

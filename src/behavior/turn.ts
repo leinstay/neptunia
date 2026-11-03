@@ -288,6 +288,12 @@ function typedFreeze<TValue>(freeze: Map<string, unknown>) {
  * her name in a community, `memberOf(communityId, memberId)` the name and kind of a member the core has been told of,
  * `membersOf(communityId)` all of them and `conversationName(id)` the name the interface gave a conversation.
  */
+/** An attempt's first draft: its limits, and the context and the restriction the turn was opened with. */
+function draftOf(args: TurnParams): Draft {
+  const { memoryContext, publicationBoundary } = args;
+  return { limits: createLimits(), memoryContext, publicationBoundary } as Draft;
+}
+
 export function createTurnRunner({
   hot,
   store,
@@ -669,7 +675,7 @@ export function createTurnRunner({
    */
   async function runTurnOnce(args: TurnParams) {
     // `limits`: what bit during this attempt, for its turn record. The request phase sets `tools` and the response phase `format` before any phase reads them (src/turn/draft.ts).
-    const draft = { limits: createLimits(), memoryContext: args.memoryContext } as Draft;
+    const draft = draftOf(args);
     // `runTurn` names the conversation of every attempt (TurnParams types it as optional) and adds the attempts to
     // journal and the end facts (src/turn/outcome.ts).
     const phaseArgs = args as Parameters<typeof preflight>[1] & TrackedParams;

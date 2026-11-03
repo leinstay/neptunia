@@ -5,17 +5,14 @@
 // the whole event in `held` (`holdIfPaused`), committed with the row before the core acknowledges the event, so a
 // restart while paused keeps it. The pipeline observes the line into the memory database as the live path would
 // (`observeWhilePaused`) and runs no turn. On resume, `resumeHeld` hands each held event, oldest first, once to the
-// pipeline's catch-up path (a direct chat to its private-chat path), answered as a live call when
-// `features.offlineCatchUp` is on and the message is younger than `offlineCatchUp.windowMinutes`, clears its hold
-// through the writer after it, and then drains the queued direct pings. A pause that comes back during the replay
-// stops it, and what is left waits for the next resume.
+// pipeline's catch-up path as history, with no turn (the owner's no-catch-up policy, 2026-11-02; a direct chat was
+// observed while paused and needs nothing more), clears its hold through the writer after it, and then drains the
+// queued direct pings. A pause that comes back during the replay stops it, and what is left waits for the next resume.
 //
 // It also holds the rule of the owner's command line in the private-chat gate: a direct chat of `iface: 'cli'` is the
 // owner's own, so it passes whatever private.enabled and bot.owners say (`privateChatsOff`, `CLI_GATE`).
 
 import type { AcceptedMessageEvent } from '../pipeline/types.ts';
-import { MINUTE_MS } from '../time.ts';
-import { catchUpSettings } from './catch-up.ts';
 import type { HeldEvent } from '../memory/db/ingest.ts';
 
 type Loose = Record<string, unknown>;
@@ -149,19 +146,12 @@ async function callOn(owner: unknown, name: string, args: Array<unknown>): Promi
 
 /** The resume's hand-back of the held messages, then of the queued direct pings. Answers how many were replayed. */
 export async function resumeHeld(deps: ResumeDeps): Promise<number> {
-  const config = looseOf(deps.hot).config;
   const isPaused = (): boolean => isPausedIn(deps.store);
-  const answer = true;
-  const windowMs = catchUpSettings(looseOf(config)).windowMinutes * MINUTE_MS;
   let replayed = 0;
   for (const held of deps.ingest.held()) {
     if (isPaused()) break;
-    const at = held.event.at;
-    const trigger = answer && typeof at === 'number' && deps.now() - at <= windowMs;
-    // A direct chat that calls for an answer goes through the private-chat path; it was observed while paused.
     if (looseOf(held.event.conversation).communityId !== null)
-      await callOn(deps.handler, 'catchUp', [held.event, { trigger }]);
-    else if (trigger) await callOn(deps.handler, 'onPrivate', [held.event]);
+      await callOn(deps.handler, 'catchUp', [held.event, { trigger: false }]);
     await deps.ingest.release(held.principal, held.eventId);
     replayed += 1;
   }

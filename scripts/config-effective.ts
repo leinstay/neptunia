@@ -35,7 +35,6 @@ import { participationPickSettings } from '../src/behavior/participation-pick.ts
 import { routeSettings } from '../src/behavior/route.ts';
 import { pullSettings } from '../src/behavior/pull.ts';
 import { setSettings } from '../src/behavior/diary.ts';
-import { catchUpSettings } from '../src/behavior/catch-up.ts';
 import { elsewhereSettings } from '../src/behavior/elsewhere.ts';
 import { splitSettings } from '../src/behavior/split.ts';
 import { gifPickSettings } from '../src/behavior/gif-pick.ts';
@@ -84,7 +83,6 @@ const READERS: Array<[string, (config: Record<string, Untyped>) => unknown]> = [
   ['boardSettings', (config) => boardSettings(config)],
   ['routeSettings', (config) => routeSettings(config)],
   ['splitSettings', (config) => splitSettings(config)],
-  ['catchUpSettings', (config) => catchUpSettings(config)],
   ['elsewhereSettings', (config) => elsewhereSettings(config)],
   ['missedSettings', (config) => missedSettings(config)],
   ['paceSettings', (config) => paceSettings(config)],

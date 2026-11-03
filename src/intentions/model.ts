@@ -35,6 +35,8 @@
 // (src/behavior/inner.ts). normalizeAttend fills the defaults (ATTEND_DEFAULTS, or
 // `wakes.attention.*` through attentionSettings); validAttend checks the shape.
 
+import { isPublicationBoundary } from '../tools/publication.ts';
+import type { PublicationBoundary } from '../tools/publication.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../time.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
@@ -599,6 +601,12 @@ function withHistory(record: Intention, entry: HistoryEntry): Intention {
  * `provenance.participants` (member ids) names the members of the conversation it came from: who
  * asked, who was answered or mentioned, the other authors of a candidate's channel (concernsMember).
  */
+/** The publication restriction of an intention's provenance, as a field to spread. */
+function boundaryOf(provenance: { publicationBoundary?: unknown }): { publicationBoundary?: PublicationBoundary } {
+  const carried = provenance.publicationBoundary;
+  return isPublicationBoundary(carried) ? { publicationBoundary: carried } : {};
+}
+
 export function createIntention({
   purpose,
   provenance,
@@ -651,6 +659,8 @@ export function createIntention({
       ...(span ? { span } : {}),
       scope: provenance.scope === 'dm' ? 'dm' : 'group',
       ...(participants.length > 0 ? { participants } : {}),
+      // A restriction from the internal turn that set it, kept through updates and recurrence.
+      ...boundaryOf(provenance),
       // A candidate's origin (candidatesFromAnswer): `external` when its words came from outside
       // material, which only her explicit accept in a later ordinary turn activates (acceptRefusal).
       ...(candidate ? { origin: bornOrigin } : {}),

@@ -2,6 +2,7 @@
 // service and the notes of where a line came from. Types only, nothing runs here. src/intentions/*.ts, the intention
 // operations (src/tools/impl/intention.ts) and the scheduler's JavaScript read them.
 
+import type { PublicationBoundary } from '../tools/publication.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { ErrandRecord, ErrandScope, FlushCounts, Logger } from '../errands/types.ts';
 
@@ -52,6 +53,7 @@ export type Provenance = {
   span?: string;
   scope: ErrandScope;
   participants?: Array<string>;
+  publicationBoundary?: PublicationBoundary;
   /** A candidate's origin: `external` when its words came from outside material. */
   origin?: 'own' | 'external';
   originReason?: string;
@@ -122,6 +124,7 @@ export type CreateInput = {
     span?: string | null;
     scope?: ErrandScope;
     participants?: Array<string>;
+    publicationBoundary?: PublicationBoundary;
     origin?: string;
     originReason?: string;
     bornInner?: boolean;
@@ -151,6 +154,7 @@ export type Candidate = {
   channelId: string | null;
   ts: number | null;
   participants?: Array<string>;
+  publicationBoundary?: PublicationBoundary;
   origin: 'own' | 'external';
   originReason?: string;
   turnId: string | null;
@@ -213,6 +217,7 @@ export type SetInput = {
   channelId?: string | null;
   scope?: ErrandScope;
   participants?: Array<string>;
+  publicationBoundary?: PublicationBoundary;
   by?: string;
   origin?: string | null;
   attend?: AttendInput | null;

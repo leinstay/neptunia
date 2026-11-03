@@ -395,6 +395,34 @@ test("a wake turn's message.create is held until the completion, then the port g
   }
 });
 
+for (const [name, answer, sent] of [
+  ['leaves the work unfinished', ['<skip/>'], []],
+  ['continues it with a new send', [toolAnswer('', [call('message.create', { text: 'ξανά' })]), '<skip/>'], ['ξανά']],
+] as const) {
+  test(`an interrupted send reaches her next turn as a fact, wakes nothing, and she ${name}`, async () => {
+    // Bug: the interruption stays in an operational log, or the stored work resends itself after the restart.
+    const run = await core({ answers: ['<msg>καλησπέρα</msg>', '<skip/>'], dieAtCommit: true });
+    try {
+      dueIntention(run, T - MINUTE);
+      const tick = run.life.tick().then(() => 'ended' as const);
+      await Promise.race([run.dead, tick]);
+      await run.restart({ answers: [...answer] });
+      run.clock.t = T + 10 * MINUTE;
+      await run.life.tick();
+      assert.deepEqual(sendsOf(run.port), [], 'no wake and no send come from the record alone');
+      assert.equal(run.calls.length, 1, 'recovery asks the model nothing');
+      dueIntention(run, run.clock.t + MINUTE);
+      run.clock.t += 2 * HOUR;
+      await run.life.tick();
+      assert.equal(run.calls.length, 2, 'her next turn runs');
+      assert.match(JSON.stringify(run.calls.at(-1)?.inner), /interrupted/);
+      assert.deepEqual(sendsOf(run.port), sent);
+    } finally {
+      await run.close();
+    }
+  });
+}
+
 test('a crash after completion abandons the held message across repeated starts', async () => {
   const run = await core({ answers: ['<msg>καλησπέρα</msg>', '<skip/>'], dieAtCommit: true });
   try {

@@ -183,7 +183,11 @@ export function createErrandTurns({
       later(errand, guildId, attempt, retryMs);
       return null;
     }
-    const conversation = { iface: iface(), conversationId: String(channelId) };
+    // A restricted errand names its exact origin, which may be on another interface than the home one.
+    const conversation = {
+      iface: errand.origin?.publicationBoundary?.origin.iface ?? iface(),
+      conversationId: String(channelId),
+    };
     const known = await reads.conversationInfo(conversation);
     if (known === null) {
       log.warn('errands: result conversation unavailable', { id: errand.id, channelId });
@@ -201,6 +205,7 @@ export function createErrandTurns({
         trigger,
         triggerKind: 'errand',
         taskResult: errand,
+        ...(errand.origin?.publicationBoundary ? { publicationBoundary: errand.origin.publicationBoundary } : {}),
         ...(requester ? { requester } : {}),
       });
     } catch (err) {

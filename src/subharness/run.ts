@@ -29,6 +29,8 @@ export type AgentRun = {
   brief: string;
   cwd: string;
   timeoutMs: number;
+  /** The most model steps the run may take, where the backend has a control for it. */
+  maxSteps?: number;
   /** codex: live web search */
   search?: boolean;
   /** codex: pictures handed to the agent */
@@ -93,6 +95,11 @@ function envOf(deps: RunDeps, mode: AgentMode, keyValue: string | null): Record<
   return env;
 }
 
+/** opencode has no step flag: its agent's `steps` comes in through its inline config. */
+function opencodeSteps(maxSteps: number): Record<string, string> {
+  return { OPENCODE_CONFIG_CONTENT: JSON.stringify({ agent: { build: { steps: maxSteps } } }) };
+}
+
 /** Runs one agent through its backend, in the mode the owner gave it. Resolves with `subharness-off` while it has none. */
 export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendResult> {
   let store;
@@ -117,9 +124,10 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
     cwd: run.cwd,
     timeoutMs: run.timeoutMs,
     sandbox: sandboxOfMode(mode),
-    env,
+    env: name === 'opencode' && run.maxSteps !== undefined ? { ...env, ...opencodeSteps(run.maxSteps) } : env,
     ...(Object.hasOwn(models, run.agent) ? { model: models[run.agent] } : {}),
     ...(Object.hasOwn(efforts, run.agent) ? { effort: efforts[run.agent] } : {}),
+    ...(run.maxSteps === undefined ? {} : { maxSteps: run.maxSteps }),
     ...(run.search === undefined ? {} : { search: run.search }),
     ...(run.images === undefined ? {} : { images: run.images }),
     ...(run.signal === undefined ? {} : { signal: run.signal }),

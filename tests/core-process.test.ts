@@ -386,7 +386,7 @@ test('a unit killed and started again keeps the link, and neither message is ans
 });
 
 // Case 3 of PR C, an event that waited in the outbox of a process that died.
-test('an event queued while the core was down survives the kill of its unit and is answered once', async () => {
+test('an event queued while the core was down survives the kill of its unit as history, with no turn over it', async () => {
   await withRig({}, async ({ dirs, llm, units, cores }) => {
     const core = await startUnitsCore(dirs, llm);
     const first = await startedUnit(dirs);
@@ -402,10 +402,11 @@ test('an event queued while the core was down survives the kill of its unit and 
     cores.push(await startUnitsCore(dirs, llm));
     const second = await startedUnit(dirs);
     units.push(second);
-    assert.deepEqual(await postedOnce(second, 1), [ANSWER], 'the reply to m2 reaches the new process');
+    // Changed: the owner's no-catch-up policy of 2026-11-02. The backlog is kept as history and starts no turn.
+    await until(() => query(dirs, `SELECT 1 FROM sources WHERE kind = 'seen'`).length === 2, 'm2 kept as history');
     await pause(300);
-    assert.deepEqual(await second.posted('c1'), [ANSWER], 'her reply is sent once');
-    assert.equal(llm.requests.length, 2, 'one turn for m1 and one for m2');
+    assert.deepEqual(await second.posted('c1'), [], 'no reply over the backlog');
+    assert.equal(llm.requests.length, 1, 'one turn, for m1');
     // The catalog retains native message IDs while sources.native_id stores an opaque family key.
     assert.deepEqual(
       query(

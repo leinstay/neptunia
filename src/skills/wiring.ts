@@ -59,7 +59,6 @@ export function wireSkills(deps: SkillsWiringDeps): SkillsWiring {
     now: deps.now,
     load: () =>
       loadSkills({
-        trackedDir: path.join(deps.rootDir, 'skills'),
         localDir: path.join(deps.privateDir, 'skills'),
         pluginDirs: deps.pluginDirs?.() ?? [],
       }),

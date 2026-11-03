@@ -407,14 +407,13 @@ async function liveRound(round: number, ledger: Ledger, repeats: number): Promis
       await live.deliver(first);
       expected.push(said('one'));
 
-      // An event emitted while the link is down waits in the outbox and arrives once after the reconnect.
+      // An event emitted while the link is down arrives once after the reconnect, as history: the owner's no-catch-up
+      // policy starts no turn over a backlog, so nothing is said.
       await live.iface().drop();
       const waiting = live.deliver(messageEvent('m2', `do:say:${word('two')}`, Date.now()));
       await sleep(80);
       await live.iface().reconnect();
       await waiting;
-      await answered('two');
-      expected.push(said('two'));
 
       // Conflicting corrections: an edit and a delete of the message reach the core while its turn waits on the model.
       await live.deliver(messageEvent('m3', `do:hold:${word('three')}`, Date.now()));

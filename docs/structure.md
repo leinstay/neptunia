@@ -12,7 +12,6 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `.github/` | public | The continuous integration workflow, the issue and pull request templates and the README images. | nothing | none |
 | `.agents/` | local | The working folder of the agents of one deployment. | nothing | none |
 | `prompts.local/` | local | A deployment prompt layer that shadows the tracked prompts. | nothing | none |
-| `skills.local/` | local | A deployment's own skills, one folder with a SKILL.md each; a skill here replaces the tracked skill of the same name. | nothing | none |
 | `plugins/` | public | The tracked plugins: one folder per plugin with a package.json, a plugin.json, an index.ts, the skills it ships and a README, and the README that says how to write and connect one. A plugin imports only the protocol. | `node:*`, `src/protocol/**` | required |
 | `plugins.local/` | local | A deployment's own plugins, one folder per plugin with its plugin.json and index.ts; a plugin here replaces the tracked plugin of the same name. | nothing | none |
 | `config.local.json` | local | The old place of a deployment's settings, read until `scripts/config-files-move.ts` moves it into `config.local/`. | nothing | none |
@@ -36,7 +35,6 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `.gitattributes` | public | The git attributes of the tree. | nothing | none |
 | `.nvmrc` | public | The Node version of the project. | nothing | none |
 | `prompts/` | public | The tracked prompt files the model reads. | nothing | none |
-| `skills/` | public | The tracked skills: one folder per skill with a SKILL.md, and the README that says how to write one. | nothing | none |
 | `docs/` | public | How the engine works, one topic per file. | nothing | none |
 | `agents/` | public | The profile and prompt of each errand and development agent. | nothing | none |
 | `agents/scout/web-search.ts` | public | The scout's web search command, run by its wrapper `agents/scout/bin/web-search` on the agent's PATH. Its logic is `src/web/web-search.ts`, tested there. | `src/web/web-search.ts` | none |
