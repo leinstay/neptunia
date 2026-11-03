@@ -12,7 +12,7 @@ An interface is a folder `interfaces/<name>/` with these files:
 |---|---|
 | `package.json` | The package and its platform dependency, installed into its own `node_modules`. |
 | `index.ts` or `index.js` | The entry: it exports `start(host)`, which resolves with a running interface (`src/protocol/host.ts`). |
-| `config.json` | The package's own settings, laid over the core's `config.json` and under `config.local.json` when the interface runs as a unit. |
+| `config.json` | The package's own settings, laid over the core's settings and under `data/interfaces/<name>/config.json`. |
 | `setup.json` | The settings the interface declares (`src/setup/modules.ts`), asked by `neptunia setup` and `/interface setup <name>`. |
 | `README.md` | What the interface connects to and how it runs. |
 
