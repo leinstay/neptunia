@@ -169,6 +169,10 @@ A group context reads source-free rows and every valid group audience. A DM cont
 
 A derived row takes the intersection of its inputs' visibility through `narrowest` or `narrowestAudience`. Groups from different interfaces remain group-visible and retain the first group identifier as their stored representative. Any group combined with a DM becomes that DM. Different DM places, internal evidence and malformed provenance produce internal memory. Source-free evidence does not narrow visibility. Session claims, episodes and affinity events use this rule through `src/memory/db/session-write.ts`. Stored internal rows retain their existing audience.
 
+The core issues an internal context for a live message authenticated as a CLI principal. `src/pipeline/` carries it separately from the event into the turn, including an in-memory busy queue. `src/turn/lookup.ts` separates prefetch results by execution context ID. Split attempts retain the supplied ID, and another turn receives its own context. `src/behavior/recall-run.ts` preserves that context through quoted search, anchor windows and automatic prefetch.
+
+Database recall checks source audiences and requires the source's place to exist. Stored group evidence remains readable when its interface is offline or absent from the live conversation snapshot. Live interface searches and history pulls retain their own permission checks. Private place names remain hidden from ordinary outward reads, while group place names are visible across interfaces. These reads preserve source provenance and do not change the reply destination.
+
 `issueContext` records policy version `2` for newly issued contexts. Existing context rows retain their recorded version. This eligibility rule has no configuration switch and leaves recall ranking and candidate limits unchanged.
 
 ## Writing memory

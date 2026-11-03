@@ -2,10 +2,26 @@
 // search hit read as the clustering takes it, a search plan entry written as the interface's message search takes it,
 // a history read turned into lines, and the wait on a read that cannot be cancelled.
 
+import { isIssuedInternalContext } from '../memory/db/scope.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { HistoryQuery, MessageHit } from '../protocol/adapter.ts';
 import { lineOf } from './line-of.ts';
 import { objOf } from '../tools/types.ts';
+
+/** Stored recall needs an ordinary conversation context or a trusted issued internal context. */
+export function hasRecallContext({
+  guildId,
+  channel,
+  partnerId,
+  memoryContext,
+}: {
+  guildId: string | null;
+  channel: unknown;
+  partnerId?: string | null;
+  memoryContext: unknown;
+}): boolean {
+  return isIssuedInternalContext(memoryContext) || Boolean(guildId && (inCommunity(channel) || partnerId));
+}
 
 /** A search hit as the clustering reads it; `queries` holds the keys of the queries that found it. */
 export type RecallHit = {

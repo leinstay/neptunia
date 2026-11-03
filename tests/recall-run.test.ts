@@ -1913,13 +1913,10 @@ test('recall-run: a locator whose record reaches past the decay margin sends no 
 test('recall-run outcome: a spent daily request cap is named', async () => {
   const spent = scene({ capLeft: 0 });
   const second = await withCapturedLogs(() =>
-    spent.recaller.run({ ...spent.args, server: RABBIT_SERVER, quotes: true } as unknown as Parameters<
-      typeof spent.recaller.run
-    >[0])
+    spent.recaller.run({ ...spent.args, server: RABBIT_SERVER, quotes: true })
   );
   assert.deepEqual(asRecord(second.result).outcome, { kind: 'daily-cap' });
   const other = await withCapturedLogs(() =>
-    // @ts-expect-error: the call passes a gate flag the input type does not name
     scene().recaller.run({ ...scene().args, server: { forms: [], who: [], from: null, to: null }, quotes: true })
   );
   assert.equal(asRecord(other.result).outcome, undefined, 'a gate that is no news to her says nothing');
@@ -1943,9 +1940,7 @@ test("recall-run outcome: a throw is an error; with no open memory database the 
   assert.deepEqual(asRecord(failed.result).outcome, { kind: 'error' });
   const closed = scene({ lines: { c1: RABBIT_LINES }, answers: rabbitAnswers });
   const none = await withCapturedLogs(() =>
-    closed.recaller.run({ ...closed.args, server: RABBIT_SERVER, quotes: true } as unknown as Parameters<
-      typeof closed.recaller.run
-    >[0])
+    closed.recaller.run({ ...closed.args, server: RABBIT_SERVER, quotes: true })
   );
   assert.deepEqual(asRecord(none.result).outcome, { kind: 'not-configured' });
   assert.equal(searches(closed.calls).length, 0, 'no Discord search for her own search');

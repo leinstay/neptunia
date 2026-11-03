@@ -38,6 +38,21 @@ export type Context = {
   asker?: Array<string>;
   [key: string]: unknown;
 };
+/** Checks an issued internal context supplied by a trusted caller, never a protocol argument. */
+export function isIssuedInternalContext(value: unknown): value is Context {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    'id' in value &&
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    'mode' in value &&
+    value.mode === 'internal' &&
+    'internal' in value &&
+    value.internal === true
+  );
+}
+
 type Row = Record<string, unknown>;
 type Lookup = ((placeId: string) => Row | null | undefined) | null;
 export type AudienceParts = { id: string; kind: string; iface: string | null; place_id: string | null };

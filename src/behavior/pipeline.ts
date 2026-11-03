@@ -34,7 +34,7 @@ import { createPrivateGate } from '../pipeline/private-gate.ts';
 import { createSettles } from '../pipeline/settle.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { Adapter } from '../protocol/adapter.ts';
-import type { PendingQueue, PipelineLlm, PipelineMissed } from '../pipeline/types.ts';
+import type { MessageReadOptions, PendingQueue, PipelineLlm, PipelineMissed } from '../pipeline/types.ts';
 import type { MessageReceived } from '../protocol/events.ts';
 import type { createTurnRunner } from './turn.ts';
 import type { createStore } from '../memory/store.ts';
@@ -48,7 +48,7 @@ type PrivateGateDeps = Parameters<typeof createPrivateGate>[0];
 type EditsDeps = Parameters<typeof createEdits>[0];
 
 /** What the handler answers: the message function, with the methods the core and the turn runner call on it. */
-export type MessageHandler = ((event: MessageReceived) => Promise<void>) & {
+export type MessageHandler = ((event: MessageReceived, options?: MessageReadOptions) => Promise<void>) & {
   drainPending: () => unknown;
   catchUp: ReturnType<typeof createHandleMessage>['catchUpMessage'];
   onPrivate: (event: MessageReceived) => Untyped;
@@ -389,7 +389,7 @@ export function createMessageHandler({
 
   // The door and the tests hand in the protocol's `MessageReceived`, whose message may be the partial one of an edit or
   // a deletion; the handler routes those itself (src/pipeline/handle-message.ts).
-  return Object.assign(onMessage as (event: MessageReceived) => Promise<void>, {
+  return Object.assign(onMessage as (event: MessageReceived, options?: MessageReadOptions) => Promise<void>, {
     drainPending: drain.drainPending,
     catchUp: catchUpMessage,
     onPrivate: (event: MessageReceived) => onPrivateMessage(event as HandledEvent, hot.config),

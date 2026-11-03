@@ -86,12 +86,12 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
     throw new Error('runTurn: a private chat needs a guildId');
   }
   const isPrivate = !inCommunity(channel);
+  draft.privateUserId = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
   // The journal: the turn starts here, past the pause and
   // attention rails; a later attempt of the same turn (journalTurn) keeps its id.
   if (journalOn()) {
     draft.guildId = guildId;
     draft.channelId = channel.id;
-    draft.privateUserId = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
     draft.mode = mode;
     draft.started = journal.start(guildId, journalStartOf({ draft, channel, trigger, triggerKind, mode, journalTurn }));
   }

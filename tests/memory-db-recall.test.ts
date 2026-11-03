@@ -13,13 +13,13 @@ import { channel as channelInfo, privateChannel } from './fixtures/reads-rig.ts'
 import { memorySearchText, runMemorySearch } from '../src/tools/tools.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { search, window, quotesOf, dbSettings } from '../src/memory/db/recall.ts';
-import { fillStems, loadStemmer, stemsOf } from '../src/memory/db/stems.ts';
+import { loadStemmer, stemsOf } from '../src/memory/db/stems.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import { channelPlaceId, dmPlaceId, messageSourceId, personId } from '../src/memory/db/ids.ts';
 import { dmContext, dmScope, groupContext, groupScope, internalContext } from '../src/memory/db/scope.ts';
-import { quantize } from '../src/memory/vectors.ts';
+import { fixture } from './fixtures/memory-db-recall.ts';
 import { labels } from './fixtures/labels.ts';
 import { buildDataDir, guildDir, MEMBER, CHANNEL } from './fixtures/memory-db/datadir.ts';
 import { dbOf, type Db, type Statement } from '../src/memory/db/types.ts';
@@ -37,7 +37,14 @@ const asRecall = (input: (Omit<RecallInput, 'reads'> & { reads: RecallInput['rea
 
 type Found = {
   outcome: { kind: string; degraded?: boolean };
-  quotes: Array<{ channelName: string; lines: string; entries: Array<{ id: string }> }>;
+  quotes: Array<{
+    channelName: string;
+    lines: string;
+    entries: Array<{
+      id: string;
+      message: { authorName: string; attachments: Array<{ id: string; kind: string; name: string }> };
+    }>;
+  }>;
   hidden: boolean;
 };
 
@@ -49,127 +56,6 @@ const ALICE = 'u-alice';
 const BOB = 'u-bob';
 const CAROL = 'u-carol';
 const group = groupContext('discord');
-
-/** Filler chat that teaches the stemmer its Greek endings: twelve stems, each seen with five endings. */
-const FILLER_STEMS = ['βιβλι', 'παιδ', 'δρομ', 'λογ', 'ανθρωπ', 'καιρ', 'φιλ', 'χρον', 'τοπ', 'κοσμ', 'νερ', 'ουραν'];
-const FILLER_ENDINGS = ['ος', 'ου', 'ο', 'οι', 'ων'];
-
-function fixture() {
-  const handle = openMemoryDb(':memory:');
-  const db = dbOf(handle);
-  let rowid = 0;
-  const api = {
-    handle,
-    db,
-    /** Inserts one chat line; returns its source id. `at` is epoch ms. */
-    say({
-      native,
-      at,
-      text,
-      iface = 'discord',
-      place = MAIN,
-      author = ALICE,
-      kind = 'seen',
-      scope = groupScope('discord'),
-      revision = 1,
-      replyTo = null,
-      extra = null,
-    }: {
-      native: string | number;
-      at: number;
-      text: string;
-      iface?: string;
-      place?: string;
-      author?: string;
-      kind?: string;
-      scope?: ReturnType<typeof groupScope>;
-      revision?: number;
-      replyTo?: string | null;
-      extra?: string | null;
-    }) {
-      rowid += 1;
-      const id = messageSourceId(iface, native, revision, kind);
-      db.prepare(
-        `INSERT INTO sources (id, kind, iface, native_id, revision, place_id, author_account, reply_to, occurred_at, recorded_at, text, direct,
-        scope_kind, scope_iface, scope_dm, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
-      ).run(
-        id,
-        kind,
-        iface,
-        String(native),
-        revision,
-        place,
-        `${iface}:${author}`,
-        replyTo,
-        new Date(at).toISOString(),
-        new Date(at).toISOString(),
-        text,
-        scope.scope_kind,
-        scope.scope_iface,
-        scope.scope_dm,
-        extra
-      );
-      return id;
-    },
-    deleted(native: string, at: number) {
-      db.prepare(
-        `INSERT INTO sources (id, kind, iface, native_id, place_id, occurred_at, scope_kind, scope_iface)
-        VALUES (?, 'deleted', 'discord', ?, ?, ?, 'group', 'discord')`
-      ).run(`src:discord:${native}:none:deleted:x`, String(native), MAIN, new Date(at).toISOString());
-    },
-    account(userId: string, names: Array<string>) {
-      db.prepare(
-        "INSERT INTO accounts (id, iface, native_id, person_id, link, names) VALUES (?, 'discord', ?, ?, 'verified', ?)"
-      ).run(`discord:${userId}`, userId, personId('discord', userId), JSON.stringify(names));
-    },
-    /** A vector row for a source (by native id): the vector is stored as int8 the way the engine stores it. */
-    vector(
-      native: string,
-      vector: Array<number>,
-      { scope = groupScope('discord'), at = NOW }: { scope?: ReturnType<typeof groupScope>; at?: number } = {}
-    ) {
-      const source = db
-        .prepare('SELECT rowid AS rowid FROM sources WHERE native_id = ? ORDER BY rowid LIMIT 1')
-        .get(String(native))!;
-      const { bytes, scale, norm } = quantize(vector);
-      db.prepare(
-        `INSERT INTO vectors (source_rowid, item_id, chunk_key, model, dims, scale, norm, bytes, context, occurred_at, scope_kind, scope_iface, scope_dm)
-        VALUES (?, ?, ?, 'test/embedder', ?, ?, ?, ?, '{}', ?, ?, ?, ?)`
-      ).run(
-        source.rowid,
-        String(native),
-        `record:${native}:1`,
-        vector.length,
-        scale,
-        norm,
-        bytes,
-        new Date(at).toISOString(),
-        scope.scope_kind,
-        scope.scope_iface,
-        scope.scope_dm
-      );
-    },
-    /** Teaches the stemmer from the filler chat, then stamps every row. */
-    stem() {
-      FILLER_STEMS.forEach((stem, i) =>
-        FILLER_ENDINGS.forEach((ending, j) =>
-          api.say({
-            native: `filler-${i}-${j}`,
-            at: NOW - 400 * DAY,
-            text: `${stem}${ending}`,
-            place: channelPlaceId('discord', 'filler'),
-            author: BOB,
-          })
-        )
-      );
-      return fillStems(db);
-    },
-    done() {
-      handle.close();
-    },
-  };
-  return api;
-}
 
 const plan = (forms: Array<string>, extra: Record<string, unknown> = {}) => ({
   forms,
@@ -827,7 +713,7 @@ function runner(
   };
 }
 
-test('recall.run: the stretches come from the database, in scope and behind the pull rail, with no Discord request and no summary', async () => {
+test('recall.run: stored group stretches follow memory scope without a live interface request or summary', async () => {
   const env = fixture();
   try {
     env.account(ALICE, ['Αλίκη']);
@@ -857,18 +743,20 @@ test('recall.run: the stretches come from the database, in scope and behind the 
     assert.equal(found.outcome.kind, 'searched');
     assert.deepEqual(
       found.quotes.map((quote) => quote.channelName),
-      ['general']
+      ['secret', 'general']
     );
+    // Policy 2 shares stored group evidence independently of the live pull permission.
     assert.deepEqual(
-      found.quotes[0].entries.map((entry) => entry.id),
+      found.quotes[1].entries.map((entry) => entry.id),
       ['r1', 'r2']
     );
-    assert.ok(found.quotes[0].lines.includes('Αλίκη'));
-    assert.ok(!JSON.stringify(found).includes('κρυφο') && !JSON.stringify(found).includes('ιδιωτικο'));
+    assert.ok(found.quotes[1].lines.includes('Αλίκη'));
+    assert.ok(JSON.stringify(found).includes('κρυφο'));
+    assert.equal(JSON.stringify(found).includes('ιδιωτικο'), false);
     assert.deepEqual(s.rest, [], 'no request to Discord');
     assert.equal(s.llmCalls.length, 0, 'no summary');
-    // The DM line of the asker matched better than the group's: the marker, nothing else.
-    assert.equal(found.hidden, true);
+    // Policy 2 exposes the stronger secret-group match, so the asker's weaker DM match needs no hint.
+    assert.equal(found.hidden, false);
     const stranger = await s.recaller.run({
       ...s.args,
       candidate: { ...s.args.candidate, authorId: ALICE },
@@ -876,13 +764,17 @@ test('recall.run: the stretches come from the database, in scope and behind the 
       quotes: true,
     });
     assert.equal(stranger.hidden, false, "the DM is another person's");
-    // The channel she names is refused by the pull rail.
+    // Policy 2 also permits a named stored group independently of live pull permission.
     const named = await s.recaller.run({
       ...s.args,
       server: { forms: ['σπιτι'], who: [], from: null, to: null, channelId: 'c4' },
       quotes: true,
     });
-    assert.equal(named.outcome.kind, 'not-visible');
+    assert.equal(named.outcome.kind, 'searched');
+    assert.deepEqual(
+      named.quotes.flatMap((quote) => quote.entries.map((entry) => entry.id)),
+      ['r3']
+    );
     // The turn's own lines are left out.
     const seen = await s.recaller.run({
       ...s.args,
@@ -967,7 +859,7 @@ test('recall.run: the question is embedded once for the meaning search, and a fa
   }
 });
 
-test('recall.window: reads up or down from a message through the same rails; an anchor it cannot open is unknown', async () => {
+test('recall.window: reads stored group lines through memory scope and refuses an unknown anchor', async () => {
   const env = fixture();
   try {
     for (let i = 1; i <= 5; i += 1)
@@ -977,6 +869,7 @@ test('recall.window: reads up or down from a message through the same rails; an 
         text: `γραμμη ${i}`,
         place: channelPlaceId('discord', 'c1'),
       });
+    env.say({ native: 'y0', at: NOW - 120000, text: 'πριν αλλου', place: channelPlaceId('discord', 'c4') });
     env.say({ native: 'y1', at: NOW - 60000, text: 'αλλου', place: channelPlaceId('discord', 'c4') });
     env.stem();
     const s = runner(env);
@@ -986,10 +879,12 @@ test('recall.window: reads up or down from a message through the same rails; an 
       ['x3', 'x4']
     );
     assert.equal(down.quotes[0].channelName, 'general');
-    assert.equal(
-      (await s.recaller.window({ ...s.args, anchor: 'y1', move: 'up', messages: 2 })).outcome.kind,
-      'unknown-anchor',
-      'a place the pull rail refuses'
+    // Policy 2 permits stored group windows even when live pull permission excludes the channel.
+    const stored = await s.recaller.window({ ...s.args, anchor: 'y1', move: 'up', messages: 2 });
+    assert.equal(stored.outcome.kind, 'searched');
+    assert.deepEqual(
+      stored.quotes.flatMap((quote) => quote.entries.map((entry) => entry.id)),
+      ['y0']
     );
     assert.equal((await s.recaller.window({ ...s.args, anchor: 'zzz', move: 'up' })).outcome.kind, 'unknown-anchor');
     const off = runner(env, { open: false, places: false });
@@ -1582,3 +1477,504 @@ test('recall finds another interface group before a candidate cap without exposi
     env.done();
   }
 });
+
+test('an issued internal context reads another DM through search and window without changing its scope', async () => {
+  const env = fixture();
+  try {
+    env.account(BOB, ['Benoît']);
+    const place = dmPlaceId('discord', BOB);
+    env.say({
+      native: 'owner-private-first',
+      at: NOW - DAY,
+      text: 'το κουνέλι private-first',
+      place,
+      author: BOB,
+      scope: dmScope(personId('discord', BOB), 'discord'),
+    });
+    env.say({
+      native: 'owner-private-anchor',
+      at: NOW - DAY + 60_000,
+      text: 'το κουνέλι private-anchor',
+      place,
+      author: BOB,
+      scope: dmScope(personId('discord', BOB), 'discord'),
+    });
+    env.stem();
+    const s = runner(env);
+    const { issueContext } = await import('../src/memory/db/scope.ts');
+    const memoryContext = issueContext({ kind: 'internal', newId: () => 'ctx:owner-private', now: () => NOW });
+    const before = env.db
+      .prepare('SELECT audience_id, scope_kind, scope_iface, scope_dm FROM sources WHERE native_id = ?')
+      .get('owner-private-anchor');
+    const found = await s.recaller.run({
+      ...s.args,
+      server: { forms: ['κουνέλι'], who: ['benoît'], from: NOW - DAY, to: NOW },
+      quotes: true,
+      memoryContext,
+    });
+    assert.ok(found.quotes.flatMap((quote) => quote.entries).some((entry) => entry.id === 'owner-private-anchor'));
+    const expanded = await s.recaller.window({
+      ...s.args,
+      anchor: 'owner-private-anchor',
+      move: 'up',
+      messages: 2,
+      memoryContext,
+    });
+    assert.ok(expanded.quotes.flatMap((quote) => quote.entries).some((entry) => entry.id === 'owner-private-first'));
+    const ordinary = await s.recaller.run({
+      ...s.args,
+      server: { forms: ['κουνέλι'], who: [], from: null, to: null },
+      quotes: true,
+    });
+    assert.deepEqual(ordinary.quotes, []);
+    assert.deepEqual(
+      env.db
+        .prepare('SELECT audience_id, scope_kind, scope_iface, scope_dm FROM sources WHERE native_id = ?')
+        .get('owner-private-anchor'),
+      before
+    );
+  } finally {
+    env.done();
+  }
+});
+
+test('an ordinary DM retains its own evidence and public groups while another private conversation stays excluded', async () => {
+  const env = fixture();
+  try {
+    env.account(BOB, ['Benoit']);
+    env.account(CAROL, ['Carol']);
+    env.say({
+      native: 'own-private',
+      at: NOW - DAY,
+      text: 'το κουνέλι own-private-marker',
+      place: dmPlaceId('discord', BOB),
+      author: BOB,
+      scope: dmScope(personId('discord', BOB), 'discord'),
+    });
+    env.say({
+      native: 'unrelated-private',
+      at: NOW - DAY,
+      text: 'το κουνέλι unrelated-private-marker',
+      place: dmPlaceId('discord', CAROL),
+      author: CAROL,
+      scope: dmScope(personId('discord', CAROL), 'discord'),
+    });
+    env.say({
+      native: 'shared-group',
+      at: NOW - DAY,
+      text: 'το κουνέλι shared-group-marker',
+      place: channelPlaceId('discord', 'c1'),
+    });
+    env.stem();
+    const s = runner(env);
+    const found = await s.recaller.run({
+      ...s.args,
+      channel: s.dm,
+      partnerId: BOB,
+      server: { forms: ['κουνέλι'], who: [], from: null, to: null },
+      quotes: true,
+    });
+    const entries = found.quotes.flatMap((quote) => quote.entries.map((entry) => entry.id));
+    assert.ok(entries.includes('own-private'));
+    assert.ok(entries.includes('shared-group'), JSON.stringify(found));
+    assert.equal(entries.includes('unrelated-private'), false);
+    const denied = await s.recaller.window({
+      ...s.args,
+      channel: s.dm,
+      partnerId: BOB,
+      anchor: 'unrelated-private',
+      move: 'up',
+      messages: 2,
+    });
+    assert.equal(denied.outcome.kind, 'unknown-anchor');
+  } finally {
+    env.done();
+  }
+});
+
+test('search, window and prefetch retain one issued internal context rather than issuing narrower readers', async () => {
+  const env = fixture();
+  try {
+    const { issueContext } = await import('../src/memory/db/scope.ts');
+    const { rig } = await import('./fixtures/reads-rig.ts');
+    env.account(BOB, ['Benoit']);
+    env.say({
+      native: 'owner-shared-reader-before',
+      at: NOW - DAY - 60_000,
+      text: 'το κουνέλι shared-reader-marker',
+      place: dmPlaceId('discord', BOB),
+      author: BOB,
+      scope: dmScope(personId('discord', BOB), 'discord'),
+    });
+    env.say({
+      native: 'owner-shared-reader',
+      at: NOW - DAY,
+      text: 'το κουνέλι shared-reader-marker',
+      place: dmPlaceId('discord', BOB),
+      author: BOB,
+      scope: dmScope(personId('discord', BOB), 'discord'),
+    });
+    env.stem();
+    const s = runner(env);
+    const issued: Array<Parameters<typeof issueContext>[0]> = [];
+    const recaller = createRecall({
+      reads: rig().reads,
+      hot: s.hot,
+      store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [] },
+      llm: {
+        capLeft: () => 100,
+        complete: () => Promise.reject(new Error('quoted database reads do not summarize')),
+      },
+      now: () => NOW,
+      memoryDb: {
+        database: () => env.db,
+        issueContext: (spec: Parameters<typeof issueContext>[0]) => {
+          issued.push(spec);
+          return issueContext({ ...spec, newId: () => `ctx:unexpected:${issued.length}`, now: () => NOW });
+        },
+      },
+    });
+    const memoryContext = issueContext({ kind: 'internal', newId: () => 'ctx:shared-reader', now: () => NOW });
+    const found = await recaller.run({
+      ...s.args,
+      server: { forms: ['κουνέλι'], who: [], from: null, to: null },
+      quotes: true,
+      memoryContext,
+    });
+    assert.ok(JSON.stringify(found).includes('shared-reader-marker'));
+    const expanded = await recaller.window({
+      ...s.args,
+      anchor: 'owner-shared-reader',
+      move: 'up',
+      messages: 1,
+      memoryContext,
+    });
+    assert.ok(JSON.stringify(expanded).includes('shared-reader-marker'));
+    const prefetched = await recaller.prefetch({
+      ...s.args,
+      lanes: [{ kind: 'message', text: 'το κουνέλι', words: 'το κουνέλι' }],
+      memoryContext,
+    });
+    assert.ok(JSON.stringify(prefetched).includes('shared-reader-marker'));
+    assert.deepEqual(issued, []);
+  } finally {
+    env.done();
+  }
+});
+
+for (const memoryContext of [
+  { internal: true, mode: 'internal', id: '' },
+  { internal: true, mode: 'outward', id: 'ctx:wrong-mode' },
+  { mode: 'internal', id: 'ctx:missing-marker' },
+]) {
+  test(`a malformed internal reader fails closed for ${memoryContext.id || 'empty ID'}`, async () => {
+    const env = fixture();
+    try {
+      env.say({
+        native: 'malformed-hidden',
+        at: NOW - DAY,
+        text: 'το κουνέλι malformed-hidden-marker',
+        place: dmPlaceId('discord', BOB),
+        author: BOB,
+        scope: dmScope(personId('discord', BOB), 'discord'),
+      });
+      env.stem();
+      const s = runner(env);
+      const found = await s.recaller.run({
+        ...s.args,
+        server: { forms: ['κουνέλι'], who: [], from: null, to: null },
+        quotes: true,
+        memoryContext,
+      });
+      assert.deepEqual(found.quotes, []);
+      const expanded = await s.recaller.window({
+        ...s.args,
+        anchor: 'malformed-hidden',
+        move: 'up',
+        messages: 1,
+        memoryContext,
+      });
+      assert.equal(expanded.outcome.kind, 'unknown-anchor');
+      const prefetched = await s.recaller.prefetch({
+        ...s.args,
+        lanes: [{ kind: 'message', text: 'το κουνέλι', words: 'το κουνέλι' }],
+        memoryContext,
+      });
+      assert.equal(JSON.stringify(prefetched).includes('malformed-hidden-marker'), false);
+    } finally {
+      env.done();
+    }
+  });
+}
+
+for (const kind of ['group', 'dm'] as const) {
+  test(`a ${kind} reader searches and expands an offline foreign group outside its live snapshot`, async () => {
+    const env = fixture();
+    try {
+      for (const [native, minute] of [
+        ['offline-before', 0],
+        ['offline-anchor', 1],
+      ] as const) {
+        env.say({
+          native,
+          iface: 'other',
+          at: NOW - DAY + minute * 60_000,
+          text: `το κουνέλι ${native}`,
+          place: channelPlaceId('other', 'offline'),
+          scope: groupScope('other'),
+        });
+      }
+      env.stem();
+      const s = runner(env);
+      insertRows(env.db, {
+        places: [
+          {
+            id: channelPlaceId('other', 'offline'),
+            iface: 'other',
+            kind: 'channel',
+            native_id: 'offline',
+            scope_kind: 'group',
+            name: 'offline group',
+          },
+        ],
+      });
+      const context = kind === 'dm' ? dmContext(personId('discord', BOB), 'discord') : groupContext('discord');
+      assert.deepEqual(ids(run(env, ['κουνέλι'], {}, { ...context, audienceColumn: true })).sort(), [
+        'offline-anchor',
+        'offline-before',
+      ]);
+      const args = { ...s.args, ...(kind === 'dm' ? { channel: s.dm, partnerId: BOB } : {}) };
+      const found = await s.recaller.run({
+        ...args,
+        server: { forms: ['κουνέλι'], who: [], from: null, to: null },
+        quotes: true,
+      });
+      assert.ok(found.quotes.flatMap((quote) => quote.entries).some((entry) => entry.id === 'offline-anchor'));
+      assert.ok(found.quotes.some((quote) => quote.channelName === 'offline group'));
+      const expanded = await s.recaller.window({ ...args, anchor: 'offline-anchor', move: 'up', messages: 2 });
+      assert.ok(expanded.quotes.flatMap((quote) => quote.entries).some((entry) => entry.id === 'offline-before'));
+      const prefetched = await s.recaller.prefetch({
+        ...args,
+        lanes: [{ kind: 'message', text: 'το κουνέλι', words: 'το κουνέλι' }],
+      });
+      assert.ok(JSON.stringify(prefetched).includes('offline-before'));
+      assert.deepEqual(s.rest, [], 'stored evidence needs no live interface search');
+    } finally {
+      env.done();
+    }
+  });
+}
+
+for (const reader of ['run', 'window', 'prefetch'] as const) {
+  test(`an internal ${reader} without a guild reads SQLite without consulting legacy guild data`, async () => {
+    const env = fixture();
+    try {
+      const { issueContext } = await import('../src/memory/db/scope.ts');
+      const { rig } = await import('./fixtures/reads-rig.ts');
+      env.account(BOB, ['Benoit']);
+      for (const [native, offset] of [
+        ['null-guild-before', 60_000],
+        ['null-guild-anchor', 0],
+      ] as const) {
+        env.say({
+          native,
+          at: NOW - DAY - offset,
+          text: 'το κουνέλι null-guild-private-evidence',
+          place: dmPlaceId('discord', BOB),
+          author: BOB,
+          scope: dmScope(personId('discord', BOB), 'discord'),
+        });
+      }
+      env.stem();
+      const s = runner(env);
+      const calls: Array<string> = [];
+      const reject = (name: string) => () => {
+        calls.push(name);
+        throw new Error(`unexpected legacy guild read: ${name}`);
+      };
+      const recaller = createRecall({
+        reads: rig().reads,
+        hot: s.hot,
+        store: {
+          state: { data: {}, markDirty() {} },
+          listUserProfiles: reject('profiles'),
+          getLore: reject('lore'),
+          getGuild: reject('guild'),
+          getRecent: reject('recent'),
+          getPrivate: reject('private'),
+        },
+        memberName: reject('member name'),
+        describer: { cachedDescriptions: reject('captions') },
+        llm: { capLeft: () => 100, complete: () => Promise.reject(new Error('SQLite evidence needs no model')) },
+        now: () => NOW,
+        memoryDb: { database: () => env.db },
+      });
+      const args = {
+        ...s.args,
+        guildId: null,
+        snapshot: null,
+        channel: s.dm,
+        memoryContext: issueContext({ kind: 'internal', newId: () => `ctx:null-guild-${reader}`, now: () => NOW }),
+      };
+      const found =
+        reader === 'run'
+          ? await recaller.run({ ...args, server: { forms: ['κουνέλι'], who: [], from: null, to: null }, quotes: true })
+          : reader === 'window'
+            ? await recaller.window({ ...args, anchor: 'null-guild-anchor', move: 'up', messages: 1 })
+            : await recaller.prefetch({
+                ...args,
+                lanes: [{ kind: 'message', text: 'το κουνέλι', words: 'το κουνέλι' }],
+              });
+      assert.deepEqual(calls, []);
+      assert.ok(JSON.stringify(found).includes('null-guild-private-evidence'));
+    } finally {
+      env.done();
+    }
+  });
+}
+
+test('an internal window retains stored media without reading captions for a null guild', async () => {
+  const env = fixture();
+  try {
+    const { issueContext } = await import('../src/memory/db/scope.ts');
+    const { rig } = await import('./fixtures/reads-rig.ts');
+    env.account(BOB, ['Benoit']);
+    const source = env.say({
+      native: 'media-before',
+      at: NOW - DAY - 60000,
+      text: 'Stored picture evidence',
+      place: dmPlaceId('discord', BOB),
+      author: BOB,
+      scope: dmScope(personId('discord', BOB), 'discord'),
+    });
+    env.db.prepare('UPDATE sources SET media = ? WHERE id = ?').run(JSON.stringify(['image']), source);
+    env.say({
+      native: 'media-anchor',
+      at: NOW - DAY,
+      text: 'Window anchor',
+      place: dmPlaceId('discord', BOB),
+      author: BOB,
+      scope: dmScope(personId('discord', BOB), 'discord'),
+    });
+    const s = runner(env);
+    let captions = 0;
+    const recaller = asRecall({
+      reads: rig().reads,
+      hot: s.hot,
+      store: {},
+      now: () => NOW,
+      memoryDb: { database: () => env.db },
+      describer: {
+        cachedDescriptions: () => {
+          captions += 1;
+          return new Map();
+        },
+      },
+    });
+    const found = await recaller.window({
+      ...s.args,
+      guildId: null,
+      snapshot: null,
+      channel: s.dm,
+      memoryContext: issueContext({ kind: 'internal', newId: () => 'ctx:media-window', now: () => NOW }),
+      anchor: 'media-anchor',
+      move: 'up',
+      messages: 1,
+    });
+    assert.equal(captions, 0);
+    assert.equal(found.outcome.kind, 'searched');
+    assert.deepEqual(
+      found.quotes.flatMap((quote) => quote.entries.map((entry) => entry.id)),
+      ['media-before']
+    );
+    assert.ok(found.quotes[0].lines.includes('Stored picture evidence'));
+    assert.deepEqual(found.quotes[0].entries[0].message.attachments, [
+      { id: 'media-before#m0', kind: 'image', name: 'image' },
+    ]);
+  } finally {
+    env.done();
+  }
+});
+
+for (const hasProfiles of [true, false]) {
+  test(`a database window ${hasProfiles ? 'prefers an approved profile name to the stored account name' : 'returns stored evidence and names without an optional profile reader'}`, async () => {
+    const env = fixture();
+    try {
+      const { rig } = await import('./fixtures/reads-rig.ts');
+      env.account(ALICE, ['Stored account']);
+      for (const [native, offset] of [
+        ['profile-before', 60000],
+        ['profile-anchor', 0],
+      ] as const) {
+        env.say({ native, at: NOW - DAY - offset, text: 'Profile evidence', place: channelPlaceId('discord', 'c1') });
+      }
+      const s = runner(env);
+      const recaller = asRecall({
+        reads: rig().reads,
+        hot: s.hot,
+        now: () => NOW,
+        store: hasProfiles ? { listUserProfiles: () => [{ id: ALICE, names: ['Approved profile'] }] } : {},
+        memoryDb: { database: () => env.db },
+      });
+      const found = await recaller.window({ ...s.args, anchor: 'profile-anchor', move: 'up', messages: 1 });
+      assert.equal(found.outcome.kind, 'searched');
+      assert.deepEqual(
+        found.quotes.flatMap((quote) => quote.entries.map((entry) => entry.id)),
+        ['profile-before']
+      );
+      assert.ok(found.quotes[0].lines.includes('Profile evidence'));
+      assert.equal(found.quotes[0].entries[0].message.authorName, hasProfiles ? 'Approved profile' : 'Stored account');
+    } finally {
+      env.done();
+    }
+  });
+}
+
+for (const supplied of ['other-dm', 'group', 'current-dm'] as const) {
+  test(`a DM search reads only its current partner when supplied an issued ${supplied} context`, async () => {
+    const env = fixture();
+    try {
+      const { issueContext } = await import('../src/memory/db/scope.ts');
+      for (const author of [BOB, CAROL]) {
+        env.account(author, [author]);
+        env.say({
+          native: `context-${author}`,
+          at: NOW - DAY,
+          text: `το κουνέλι evidence-${author}`,
+          place: dmPlaceId('discord', author),
+          author,
+          scope: dmScope(personId('discord', author), 'discord'),
+        });
+      }
+      env.stem();
+      const s = runner(env);
+      const memoryContext = issueContext({
+        ...(supplied === 'group'
+          ? { kind: 'group' as const }
+          : { kind: 'dm' as const, person: personId('discord', supplied === 'other-dm' ? CAROL : BOB) }),
+        iface: 'discord',
+        newId: () => `ctx:supplied-${supplied}`,
+        now: () => NOW,
+      });
+      const found = await s.recaller.run({
+        ...s.args,
+        channel: s.dm,
+        partnerId: BOB,
+        memoryContext,
+        server: { forms: ['κουνέλι'], who: [], from: null, to: null },
+        quotes: true,
+      });
+      assert.deepEqual(
+        found.quotes.flatMap((quote) => quote.entries.map((entry) => entry.id)),
+        [`context-${BOB}`]
+      );
+      assert.ok(found.quotes[0].lines.includes(`evidence-${BOB}`));
+      assert.equal(
+        found.quotes.some((quote) => quote.lines.includes(`evidence-${CAROL}`)),
+        false
+      );
+    } finally {
+      env.done();
+    }
+  });
+}

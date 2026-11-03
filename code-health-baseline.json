@@ -1,7 +1,7 @@
 {
   "files": {
     "scripts/replay.ts": 7361,
-    "src/behavior/recall-run.ts": 2143,
+    "src/behavior/recall-run.ts": 2111,
     "src/behavior/recall.ts": 2375,
     "src/behavior/sandbox.ts": 2063,
     "tests/admin.test.ts": 3698,
@@ -12,7 +12,7 @@
     "tests/prompt.test.ts": 6595,
     "tests/recall.test.ts": 2419,
     "tests/store.test.ts": 3169,
-    "tests/turn.test.ts": 9082
+    "tests/turn.test.ts": 9080
   },
   "functions": {
     "interfaces/discord/collect.ts": {
@@ -252,20 +252,20 @@
     },
     "src/behavior/recall-run.ts": {
       "createRecall": {
-        "function-length": 1749
+        "function-length": 1717
       },
       "createRecall>findPeople": {
         "complexity": 36
       },
       "createRecall>prefetch": {
-        "complexity": 40
+        "complexity": 36
       },
       "createRecall>recallWith": {
         "complexity": 74,
         "function-length": 481
       },
       "createRecall>run": {
-        "complexity": 28
+        "complexity": 26
       },
       "createRecall>storedMemory": {
         "complexity": 40
@@ -729,7 +729,7 @@
         "complexity": 36
       },
       "runMemorySearch": {
-        "complexity": 35
+        "complexity": 32
       }
     },
     "src/web/fetch-page.ts": {

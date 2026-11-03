@@ -682,7 +682,7 @@ export function createTurnRunner({
    */
   async function runTurnOnce(args: TurnParams) {
     // `limits`: what bit during this attempt, for its turn record. The request phase sets `tools` and the response phase `format` before any phase reads them (src/turn/draft.ts).
-    const draft = { limits: createLimits() } as Draft;
+    const draft = { limits: createLimits(), memoryContext: args.memoryContext } as Draft;
     // `runTurn` names the conversation of every attempt (TurnParams types it as optional) and adds the attempts to
     // journal and the end facts (src/turn/outcome.ts).
     const phaseArgs = args as Parameters<typeof preflight>[1] & TrackedParams;

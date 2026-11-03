@@ -3,6 +3,7 @@
 // inputs. createTurnRunner (src/behavior/turn.ts) builds it once per runner with createOutcome over its attempt
 // (runTurnOnce); the runner's facade hands out runTurn and the chain and idle functions.
 
+import type { Context } from '../memory/db/scope.ts';
 import type { FactInput } from '../behavior/inner.ts';
 import { wakeInputs } from '../behavior/diary-turn.ts';
 import { portIface } from '../interface/capabilities.ts';
@@ -34,6 +35,7 @@ type EndTrigger = {
 
 /** What a turn was asked to do, as its end reads it; the attempt reads the rest. */
 export type TurnParams = {
+  memoryContext?: Context;
   conversation?: ConversationRef;
   guildId?: string | null;
   mode?: string | null;
@@ -99,7 +101,13 @@ type FactsDraft = Parameters<typeof untoldDiagnostics>[0] & {
 type PartMessage = { id: string; text: string; ts: number };
 
 /** The chain of parts running in a channel: its author, its parts, the part in progress and the folded messages. */
-type Chain = { authorId: string | null; parts: Array<string>; next: number; added: Map<number, Array<PartMessage>> };
+type Chain = {
+  memoryContext?: Context;
+  authorId: string | null;
+  parts: Array<string>;
+  next: number;
+  added: Map<number, Array<PartMessage>>;
+};
 
 /** What createOutcome reads: the dependencies, the attempt and the functions of the other topic modules it calls. */
 export type OutcomeContext = {
@@ -480,7 +488,13 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
     const allParts = parts as Array<string>;
     const channel = { id: (params.conversation as ConversationRef).conversationId };
     const total = allParts.length;
-    const chain: Chain = { authorId: trigger?.authorId ?? null, parts: allParts, next: 0, added: new Map() };
+    const chain: Chain = {
+      memoryContext: params.memoryContext,
+      authorId: trigger?.authorId ?? null,
+      parts: allParts,
+      next: 0,
+      added: new Map(),
+    };
     chains.set(channel.id, chain);
     const results: Array<TurnResult> = [];
     try {
@@ -569,14 +583,21 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
     waitingParts: (channelId, authorId) => {
       // A Map answers undefined for a key of another type.
       const chain = chains.get(channelId as string);
-      if (!chain || chain.authorId !== authorId) return [];
+      if (!chain || chain.memoryContext || chain.authorId !== authorId) return [];
       return chain.parts.map((text, i) => ({ index: i + 1, text })).filter(({ index }) => index > chain.next);
     },
     addToPart: (channelId, authorId, given, message) => {
       // A Map answers undefined for a key of another type, and a part's index compares as a number.
       const chain = chains.get(channelId as string);
       const index = given as number;
-      if (!chain || chain.authorId !== authorId || !(index > chain.next) || index > chain.parts.length) return false;
+      if (
+        !chain ||
+        chain.memoryContext ||
+        chain.authorId !== authorId ||
+        !(index > chain.next) ||
+        index > chain.parts.length
+      )
+        return false;
       chain.added.set(index, [...(chain.added.get(index) ?? []), message]);
       return true;
     },

@@ -1,5 +1,6 @@
 // The types of the signatures in ./recall-run.ts: the inputs and results that are too long to read inline.
 
+import type { Context } from '../memory/db/scope.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { recallSettings } from './recall.ts';
 import type { Reads } from '../interface/reads.ts';
@@ -63,7 +64,9 @@ export type CreateRecallInput = {
 
 export type CreateRecallResult = {
   run: (args: {
-    guildId?: string;
+    quotes?: boolean;
+    memoryContext?: Context;
+    guildId?: string | null;
     channel: Untyped;
     partnerId?: string | null;
     snapshot?: Untyped;
@@ -243,15 +246,14 @@ export type ScopeOfInput = {
  * is the context this read would be issued, a DM of the same partner or a group read) or, without one, issued by the
  * core (memoryDb.issueContext records it; without the service it is the pure object): it has an id, names the DM
  * place of a private chat, and reads through `audience_id` when `memoryDb.audienceColumn`.
- * `allowPlace` reads the place's row of the database `db`: a DM place of the context's interface is the private
- * chat's own (the context decides whose); a group place is shown only where the pull rail lets this turn read its
- * channel; a place the database does not hold, or of another authority, is refused.
+ * `allowPlace` requires a stored place row. The execution context filters source audiences independently
+ * of the interface's live channel permissions.
  */
 export type DbReaderInput = {
   db?: Untyped;
   config: Untyped;
   snapshot: Untyped;
-  guildId: string;
+  guildId: string | null;
   channel: Untyped;
   partnerId: Untyped;
   asker?: Untyped;
@@ -269,7 +271,7 @@ export type ReadContextInput = {
 export type DbQuotesInput = {
   config: Untyped;
   settings: RecallSettings;
-  guildId: string;
+  guildId: string | null;
   selfName: string;
   windows: Untyped;
   decorate: Untyped;
@@ -280,7 +282,7 @@ export type RunDbQuotesInput = {
   config: Untyped;
   settings: RecallSettings;
   snapshot: Untyped;
-  guildId: string;
+  guildId: string | null;
   channel: Untyped;
   partnerId: Untyped;
   selfName: string;
