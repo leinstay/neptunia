@@ -3,9 +3,6 @@
     "mode": "inprocess",
     "drainMs": 10000
   },
-  "plugins": {
-    "callDeadlineMs": 30000
-  },
   "bot": {
     "timezone": "UTC",
     "owners": [],
@@ -226,6 +223,7 @@
     "search": {
       "enabled": true,
       "engine": "brave",
+      "model": "openai/gpt-6.1-sol",
       "fallback": [],
       "rawOutputTokens": 256,
       "maxOutputTokens": 4000,

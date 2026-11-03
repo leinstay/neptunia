@@ -93,7 +93,7 @@ function Menu({ items, selected }: { items: ReadonlyArray<MenuCommand>; selected
 
 function PanelView({ panel, search }: { panel: Panel; search: string }) {
   const { stdout } = useStdout();
-  const rows = Math.max(5, (stdout.rows ?? 24) - 8);
+  const rows = Math.max(5, ((stdout as { rows?: number }).rows ?? 24) - 8);
   return h(
     Box,
     { flexDirection: 'column', borderStyle: 'round', paddingX: 1 },

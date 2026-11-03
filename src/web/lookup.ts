@@ -29,7 +29,7 @@
 //   fallbacks and daily slot, but the results come back raw -- title, url, site, the
 //   engine's snippet and date -- with no summary request. Brave and Exa return them as
 //   they are; `openrouter` sends one request with the web plugin and only the query
-//   (purpose `web-search` on the analyzer, its answer cut at `web.search.rawOutputTokens`
+//   (purpose `web-search` on quick search's own role and model, its answer cut at `web.search.rawOutputTokens`
 //   and never read), the results being its `url_citation` annotations with their content.
 //   Cached apart (`results:<sha1 prefix>`), served while younger than `web.search.cacheHours`.
 // - readPage: the persona's own web.read: one page by url through the same fetcher, its
@@ -51,7 +51,7 @@
 
 import { isGifHostUrl, siteOf } from '../media/classify.ts';
 import { videoSiteFor, safeLocation } from '../media/video-sites.ts';
-import { roleModel } from '../llm/roles.ts';
+import { SEARCH_ROLE, searchModel } from '../llm/roles.ts';
 import { fillPromptTemplate } from '../behavior/prompt.ts';
 import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
 import { clampText, oneLine } from '../memory/clamp.ts';
@@ -627,9 +627,9 @@ export function createLookup(deps: LookupDeps): Lookup {
         content: fillPromptTemplate(promptText, { query: asked, maxChars: chars, today: todayDate() }),
       },
       options: {
-        model: roleModel(config, 'analyzer', 'search-summary'),
+        model: searchModel(config),
         ...roleRequestOptions(config, {
-          role: 'analyzer',
+          role: SEARCH_ROLE,
           maxOutputTokens: cfg.maxOutputTokens,
           purpose: 'search-summary',
           long: true,
@@ -783,9 +783,9 @@ export function createLookup(deps: LookupDeps): Lookup {
       let completion;
       try {
         completion = await llm.complete([{ role: 'user', content: asked }], {
-          model: roleModel(config, 'analyzer', 'web-search'),
+          model: searchModel(config),
           ...roleRequestOptions(config, {
-            role: 'analyzer',
+            role: SEARCH_ROLE,
             maxOutputTokens: positiveOr(searchCfg.rawOutputTokens, RAW_OUTPUT_TOKENS_FALLBACK),
             purpose: 'web-search',
           }),

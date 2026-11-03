@@ -3,6 +3,7 @@
 // (src/behavior/turn.ts) calls it before every other phase; what it opens, the later phases use and the attempt's
 // end closes.
 
+import { currentRequestMeta } from '../../llm/archive.ts';
 import { createPrepLedger } from '../../behavior/turn-parts.ts';
 import type { Ledger } from '../../behavior/turn-parts.ts';
 import { log } from '../../log.ts';
@@ -94,6 +95,12 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
     draft.channelId = channel.id;
     draft.mode = mode;
     draft.started = journal.start(guildId, journalStartOf({ draft, channel, trigger, triggerKind, mode, journalTurn }));
+    // The archive's rows of this attempt name its turn (src/llm/archive.ts).
+    Object.assign(currentRequestMeta() ?? {}, {
+      turnId: draft.started?.turnId,
+      attemptId: draft.started?.attemptId,
+      step: 0,
+    });
   }
   // A turn answering a person first lets them finish writing (pace.settleMs), holding the
   // attention meanwhile; the turn's clocks (its deadline, its bar) start after this wait. The

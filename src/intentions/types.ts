@@ -69,6 +69,8 @@ export type WaitOutcome = { errandId: string; state: string; error?: string; at:
 
 /** An intention as the store keeps it. */
 export type Intention = {
+  /** A recurring task that lasts until it is cancelled. */
+  standing?: boolean;
   id: string;
   purpose: string;
   provenance: Provenance;
@@ -133,6 +135,8 @@ export type CreateInput = {
   dueAt?: number | null;
   every?: Every | null;
   expiresAt?: number | null;
+  /** A recurring task that lasts until it is cancelled. */
+  standing?: boolean;
   destination?: string | null;
   completionCondition?: string | null;
   chainId?: string | null;
@@ -200,6 +204,8 @@ export type IntentionStores = {
 
 /** What her `intention.set` (or an owner's command, or the engine) hands the service. */
 export type SetInput = {
+  /** A recurring task that lasts until it is cancelled. */
+  standing?: boolean;
   purpose: string;
   /** `dropped` records a desire she considered and let go; it needs a `reason`. */
   state?: string;

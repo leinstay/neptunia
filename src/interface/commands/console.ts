@@ -30,10 +30,9 @@ import { backupDatabase, backupName, backupSettings, backupsIn, partialOf } from
 import { grantedSkillNames } from '../../tools/discovery.ts';
 import { ownValueAt, splitPath } from '../../tools/impl/shared.ts';
 import { skillRegistry } from '../../tools/registry.ts';
-import type { PluginControl } from '../../plugins/control.ts';
 import type { SkillsAccess } from '../../skills/port.ts';
 import type { ConsoleSubharness } from './subharness.ts';
-import { pluginsCommand } from './plugins.ts';
+import { searchCommand } from './search.ts';
 import { skillsCommand } from './skills.ts';
 import { MODULE_ACTIONS, moduleCommand } from './module-setup.ts';
 import type { ModuleAction } from './module-setup.ts';
@@ -78,8 +77,6 @@ export type ConsoleDeps = {
   now(): number;
   /** Her skills (src/skills/port.ts); `/skills` fails while there is none. */
   skills?: SkillsAccess | null;
-  /** The plugins' switch (src/plugins/control.ts); `/plugins` fails while there is none. */
-  plugins?: PluginControl | null;
   /**
    * The key commands (src/keys/commands.ts). `enabled()` is true while the core takes its keys from `keys.json`: only then
    * does `model set` check the model on the role's key before it saves; before that it is the plain operation.
@@ -108,6 +105,7 @@ function ownCommand(
 ): Promise<Answer> | null {
   if (name.startsWith('keys.service.')) return serviceCommand(dataDir, name, args, dialog);
   if (name === 'status.brief') return Promise.resolve({ text: JSON.stringify(brief?.() ?? null), status: 'ok' });
+  if (name.startsWith('search.')) return Promise.resolve(searchCommand(dataDir, name, args));
   if (name === 'memory.bind' || name === 'memory.unbind') return personLinkCommand(memoryDb, name, args);
   if (name === 'memory.accounts') return Promise.resolve(accountsCommand(memoryDb, args));
   const action = moduleActionOf(name);
@@ -170,9 +168,6 @@ function moduleActionOf(name: string): ModuleAction | null {
 
 /** The prefix of the `/skills` commands, which `skillsCommand` answers. */
 const SKILLS_PREFIX = 'skills.';
-
-/** The prefix of the `/plugins` commands, which `pluginsCommand` answers. */
-const PLUGINS_PREFIX = 'plugins.';
 
 /** The prefix of the `/keys` commands, which the key commands answer. */
 const KEYS_PREFIX = 'keys.';
@@ -600,7 +595,7 @@ export function createConsole(deps: ConsoleDeps): {
     }
   }
 
-  // `/skills`, `/plugins`, `/subharness`, `/simulation` and `/interface token set` have a module of their own; every other
+  // `/skills`, `/subharness`, `/simulation` and `/interface token set` have a module of their own; every other
   // command is answered above.
   return {
     run: (name, args, requester, dialog = null) => {
@@ -611,7 +606,6 @@ export function createConsole(deps: ConsoleDeps): {
       const owned = ownCommand(deps, name, args, dialog);
       if (owned !== null) return owned;
       if (name.startsWith(SKILLS_PREFIX)) return skillsCommand(deps.skills, name, args);
-      if (name.startsWith(PLUGINS_PREFIX)) return pluginsCommand(deps.plugins, name, args);
       if (name.startsWith(SUBHARNESS_PREFIX)) return subharnessCommand(subharnessDeps(deps), name, args);
       if (name.startsWith(SIMULATION_PREFIX)) return simulationCommand(deps.privateDir, name, args);
       if (name === 'interface.token.set')

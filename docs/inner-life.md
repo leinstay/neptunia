@@ -68,10 +68,6 @@ Her `<wake>` carries the facts of `src/behavior/selfimprovement-view.ts`, read f
 
 Once the completion committed, the outbox rows the view showed are marked delivered, so each question and rejection reaches her once. A wake that never committed shows them again. Her answer is `board.propose` with a `kind` of `skill` or `fix` ([Skills](skills.md#how-a-skill-is-made)). A `fix` that reaches a merge comes back as a landed change in this wake or the next heartbeat, whichever comes first ([Self-development](selfimprovement.md#what-reaches-her-wake)).
 
-### A new tool from a plugin
-
-When a plugin registers a tool it was not announced for, the core queues one `heartbeat` wake with the reason `ability.added` and the tool names ([Plugins](plugins.md#how-she-learns-of-a-tool)). It has no place and no intention, goes through the queue like the heartbeat, and its `<wake>` adds `labels.wake.abilityAdded` with the names. While `heartbeat.enabled` is `false` it waits in the queue.
-
 ### Her attention
 
 She chooses where to listen. `intention.set attend=<place>` makes an open intention of kind `attend`: while it is open, the engine wakes her on new lines in that place.
@@ -270,3 +266,6 @@ The inner turns are answered by a stub voice (deterministic, costs nothing). The
 
 Each inner turn is recorded as a wake run in the memory database with its actions. Once per UTC day the focus job (`src/memory/db/focus.ts`) recomputes the focus set, the close and exploring people scored by affinity, reciprocity, recency and other factors, and the heartbeat's people view reads it. Addressed server turns carry no `<places>` block: `ADDRESSED_PLACES` in `src/turn/inputs.ts` is `false`, and the code that builds the block stays.
 
+## Standing tasks
+
+`intention.set` with `standing` true and an `every` makes a recurring task that lasts until it is cancelled (`createIntention` in `src/intentions/model.ts`). Its `expiresAt` is the far end of the calendar, so every clock comparison stays as it is. Missed occurrences are skipped, after any length of absence, and nothing interrupted is replayed. Ordinary intentions keep `intentions.expiresDays`, and ordinary recurring ones `intentions.recurringExpiresDays`.

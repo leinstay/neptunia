@@ -260,6 +260,7 @@ const handlers = perEnv((env) => {
       dueAt: moment(args, 'due') ?? null,
       every: every(args) ?? null,
       expiresAt: moment(args, 'expires') ?? null,
+      ...(text(args, 'standing') === 'true' || args.standing === true ? { standing: true } : {}),
       destination: text(args, 'channelId') ?? null,
       completionCondition: text(args, 'condition') ?? null,
       chainId: text(args, 'chain') ?? null,

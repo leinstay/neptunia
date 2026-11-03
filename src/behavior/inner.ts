@@ -105,7 +105,6 @@ import {
   inScope,
   addFact,
   deadlineWakes,
-  enqueue,
   mayAct,
   note,
   onWake,
@@ -227,8 +226,6 @@ export type InnerLife = {
   tick: () => Promise<TickAnswer>;
   drain: (guildId: string) => Promise<DrainAnswer>;
   onWake: (event: unknown) => WakeAnswer;
-  /** Queues `wake` through the door as the life's own wakes are (a plugin's `ability.added`, src/plugins/announce.ts). */
-  enqueue: (guildId: string, wake: Wake) => Promise<unknown>;
   onTaskFinished: (task: unknown, guildId?: string | null) => boolean;
   mayAct: (guildId: unknown) => boolean;
   stop: (guildId?: string | null, options?: SwitchOptions) => SwitchAnswer;
@@ -421,7 +418,6 @@ export function createInnerLife({
     tick,
     drain: (guildId) => drain(life, guildId),
     onWake: (event) => onWake(life, event),
-    enqueue: (guildId, wake) => enqueue(life, guildId, wake),
     onTaskFinished: (task, guildId) => onTaskFinished(life, task, guildId),
     mayAct: (guildId) => mayAct(life, guildId),
     stop: (guildId, options) => stop(life, guildId, options),

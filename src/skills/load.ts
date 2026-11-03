@@ -1,8 +1,6 @@
 // Loads the skills from disk at the moment of use: `<trackedDir>/<name>/SKILL.md` for the tracked layer and
 // `<localDir>/<name>/SKILL.md` for the local one, each call reading the folders anew. A local skill replaces the
-// tracked skill of the same name whole. Each entry of `pluginDirs` is a folder of skill folders (a plugin's
-// `skills/`, src/plugins/folders.ts): a plugin skill replaces a tracked skill of its name and a local skill replaces
-// both. A folder without a `SKILL.md`, a README and any loose file are ignored; a
+// tracked skill of the same name whole. A folder without a `SKILL.md`, a README and any loose file are ignored; a
 // file that does not parse, or whose `name` differs from its folder, is a problem and no skill, and never stops the
 // others. The skills port (port.ts) is the caller.
 
@@ -12,7 +10,7 @@ import { parseSkillFile } from './format.ts';
 import { packageHash, snapshotPackage } from './package.ts';
 import type { ParsedSkill, SkillFileCode } from './format.ts';
 
-export type LoadedSkill = ParsedSkill & { layer: 'tracked' | 'plugin' | 'local'; dir: string };
+export type LoadedSkill = ParsedSkill & { layer: 'tracked' | 'local'; dir: string };
 export type SkillProblem = { dir: string; code: SkillFileCode | 'name-mismatch' | 'unreadable' };
 
 const FILE = 'SKILL.md';
@@ -20,7 +18,7 @@ const FILE = 'SKILL.md';
 /** The skills and problems of one layer's folder; a missing folder holds nothing. */
 function readLayer(
   root: string,
-  layer: 'tracked' | 'plugin' | 'local'
+  layer: 'tracked' | 'local'
 ): { skills: Array<LoadedSkill>; problems: Array<SkillProblem> } {
   const skills: Array<LoadedSkill> = [];
   const problems: Array<SkillProblem> = [];
@@ -55,20 +53,18 @@ function readLayer(
   return { skills, problems };
 }
 
-export function loadSkills(folders: { trackedDir?: string; localDir: string; pluginDirs?: ReadonlyArray<string> }): {
+export function loadSkills(folders: { trackedDir?: string; localDir: string }): {
   skills: Array<LoadedSkill>;
   problems: Array<SkillProblem>;
 } {
   const tracked =
     folders.trackedDir === undefined ? { skills: [], problems: [] } : readLayer(folders.trackedDir, 'tracked');
-  const plugins = (folders.pluginDirs ?? []).map((dir) => readLayer(dir, 'plugin'));
   const local = readLayer(folders.localDir, 'local');
   const byName = new Map<string, LoadedSkill>();
-  for (const skill of [...tracked.skills, ...plugins.flatMap((layer) => layer.skills), ...local.skills])
-    byName.set(skill.name, skill);
+  for (const skill of [...tracked.skills, ...local.skills]) byName.set(skill.name, skill);
   const skills = [...byName.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  const problems = [...tracked.problems, ...plugins.flatMap((layer) => layer.problems), ...local.problems].sort(
-    (a, b) => (a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : 0)
+  const problems = [...tracked.problems, ...local.problems].sort((a, b) =>
+    a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : 0
   );
   return { skills, problems };
 }

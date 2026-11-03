@@ -107,6 +107,7 @@ import { channelPlaceId, guildPlaceId, nativeAuthorityOf } from './ids.ts';
 import { LEGACY_IFACE, liveIface, withLiveIface } from './legacy-namespace.ts';
 import { contextRow, issueContext as issuePureContext } from './scope.ts';
 import { linkedDmScopes } from './person-links.ts';
+import { recoverRequestArchive } from './request-archive.ts';
 import { applyDiaryUpdate, createDiaryMedia } from './diary-media.ts';
 import { NEWEST_CLAIM_VERSION_SQL, applyMemoryWrite, writeTurnReadRows } from './session-write.ts';
 import { FOCUS_DEFAULTS, focusView, lastFocusDay, runFocusDay } from './focus.ts';
@@ -632,6 +633,12 @@ function linkedContext(ctx: Context, read: Db | null): Context {
   return { ...ctx, linked: linkedDmScopes(read, ctx.iface, ctx.person) };
 }
 
+/** What an open writer brings in once: the core's old JSON state, and the request archive's recovery. */
+function importOnOpen(handle: MemoryHandle, where: { dataDir: string; now: number }): void {
+  importCoreJsonState(handle, where);
+  recoverRequestArchive(handle, where);
+}
+
 function databaseSettings(config: Config) {
   const given = config?.memoryDb ?? {};
   const closeMs = given.closeTimeoutMs;
@@ -727,7 +734,7 @@ export function createMemoryDb({
         engine = started;
       } else {
         handle = openDb(dbPath, { context: openContext() });
-        importCoreJsonState(handle, { dataDir, now: now() });
+        importOnOpen(handle, { dataDir, now: now() });
       }
       // The writes a shutdown left pending go in before anything reads (synchronous without a worker).
       await replayPending();

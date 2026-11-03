@@ -4,7 +4,7 @@
 // 0600, in a folder of mode 0700. The core reads both at every envelope, so a change applies to the next one and a
 // rotated or revoked token closes that client's live link.
 //
-//   node scripts/client-token.ts add <name> --kind interface|cli|plugin|agent [--iface <iface>] [--permission <p> ...]
+//   node scripts/client-token.ts add <name> --kind interface|cli|agent [--iface <iface>] [--permission <p> ...]
 //        [--roles <role>,<role>]
 //        Writes a new token and the client's entry. An interface needs `--iface`, the namespace its events carry.
 //        `--roles` takes the client's task board roles (src/board/machine.ts `BOARD_ROLES`) as a comma list and writes
@@ -27,7 +27,7 @@ import { CLIENTS_FILE, PRINCIPAL_KINDS } from '../src/interface/principals.ts';
 import { CliError, parseFlags, privateDirOf, runCli } from './lib/cli.ts';
 
 const USAGE = [
-  'usage: node scripts/client-token.ts add <name> --kind interface|cli|plugin|agent [--iface <iface>]',
+  'usage: node scripts/client-token.ts add <name> --kind interface|cli|agent [--iface <iface>]',
   '         [--permission <p> ...] [--roles <role>,<role>]',
   '       node scripts/client-token.ts rotate <name>',
   '       node scripts/client-token.ts revoke <name>',
