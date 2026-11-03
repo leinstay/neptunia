@@ -131,9 +131,10 @@ import { helpOfInstalled, isInstalled } from './subharness/place.ts';
 import { deferModeToUnit } from './setup/install.ts';
 import { REPLY_CHECK_MS } from './subharness/control.ts';
 import { clearMemoryPath } from './subharness/memory-path.ts';
+import { memoryPath, memoryPathText } from './subharness/memory-path.ts';
 import { memoryWriterClient } from './subharness/memory-writer.ts';
 import { createMemoryWatch, memoryProbe } from './subharness/memory-probe.ts';
-import type { MemoryWatch } from './subharness/memory-probe.ts';
+import type { MemoryWatch, ProbeResult } from './subharness/memory-probe.ts';
 import type { EffortLevel } from './llm/roles.ts';
 import type { SessionContext } from './memory/db/session.ts';
 import { objOf } from './tools/types.ts';
@@ -1268,21 +1269,26 @@ async function buildCore(
   });
   // The memory probe (src/subharness/memory-probe.ts): its sleep `memory-down` goes through the same pause. While the
   // session is off there is no writer to probe, and the probe passes.
+  let lastMemoryProbe: ProbeResult | null = null;
+  const probeMemoryWriter = (now: number) =>
+    objOf(objOf(objOf(hot.config).memoryDb).session).mode === 'apply'
+      ? memoryProbe(
+          {
+            privateDir: paths.privateDir,
+            route: memoryRoute,
+            fetch: (input, init) => globalThis.fetch(input, init),
+            baseUrl: String(objOf(objOf(hot.config).llm).baseUrl),
+            model: () => roleModel(hot.config, 'memory') ?? '',
+            runBackend: runSubharnessBackend,
+          },
+          now
+        )
+      : Promise.resolve<ProbeResult>({ ok: true, at: now });
   memoryWatch = createMemoryWatch({
-    probe: (now) =>
-      objOf(objOf(objOf(hot.config).memoryDb).session).mode === 'apply'
-        ? memoryProbe(
-            {
-              privateDir: paths.privateDir,
-              route: memoryRoute,
-              fetch: (input, init) => globalThis.fetch(input, init),
-              baseUrl: String(objOf(objOf(hot.config).llm).baseUrl),
-              model: () => roleModel(hot.config, 'memory') ?? '',
-              runBackend: runSubharnessBackend,
-            },
-            now
-          )
-        : Promise.resolve({ ok: true, at: now }),
+    probe: async (now) => {
+      lastMemoryProbe = await probeMemoryWriter(now);
+      return lastMemoryProbe;
+    },
     pause: pauseControl,
     now: clock,
     config: (): unknown => hot.config,
@@ -1291,6 +1297,19 @@ async function buildCore(
   commandDesk = createCommandDesk({
     // The owner's console (src/interface/commands/console.ts): the chat's table over the operations, run as the owner.
     console: createConsole({
+      statusBrief: () => ({
+        core: {
+          state: store.state.data.paused ? 'paused' : 'running',
+          reason: store.state.data.paused ? pauseControl.reason() : null,
+        },
+        memory: {
+          path: memoryPathText(memoryPath(paths.privateDir)),
+          model: roleModel(hot.config, 'memory') ?? null,
+          probe: lastMemoryProbe === null ? 'unknown' : lastMemoryProbe.ok ? 'ok' : 'failed',
+          checkedAt: lastMemoryProbe?.at ?? null,
+        },
+        interfaces: interfaceLinks.list(),
+      }),
       runOp: (op, args, context) => admin.runSkillOp(op, args, context),
       ownerReads: admin.ownerReads,
       guildId: getGuildId,

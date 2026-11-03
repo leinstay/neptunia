@@ -110,7 +110,8 @@ import {
 import { cutConfigKeys } from '../src/config/cut.ts';
 import type { LocalFiles } from '../src/config/files.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
-import { parseCommandLine } from '../src/interface/commands/table.ts';
+import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
+import type { StatusBrief } from '../cli/index.ts';
 import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
 import { BASE_ROLES, MEMORY_ROLE } from '../src/llm/roles.ts';
@@ -632,6 +633,84 @@ function printBlock(text: string): void {
   process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
 }
 
+/** The answer lines of a command for a panel: the commands that open one, with their own title. */
+const PANEL_COMMANDS: Readonly<Record<string, string>> = {
+  help: 'Help',
+  status: 'Status',
+  'status.full': 'Status',
+  'config.show': 'Config',
+};
+
+/**
+ * The chat in a terminal (cli/): the same link, commands and handlers as the plain chat, only another presentation. It
+ * asks the core `status.brief` for its status line, which reads what the core knows and calls no provider.
+ */
+async function runInkChat(where: { privateDir: string }): Promise<void> {
+  const { runInteractive, reducedMotion } = await import('../cli/index.ts');
+  let entry: (one: { who: 'owner' | 'her' | 'system'; text: string }) => void = () => {};
+  let question: (asked: { question: string; secret: boolean; answer: (text: string) => void }) => void = () => {};
+  let linked: (connected: boolean) => void = () => {};
+  const say = (text: string): void => entry({ who: 'her', text });
+  let link: CliLink;
+  try {
+    link = await openCliLink(say);
+  } catch (err) {
+    die(`no core listens (${(err as NodeJS.ErrnoException).code ?? 'error'}); start it with neptunia service start`);
+  }
+  void link.closed.then(() => linked(false));
+  const answers: Answers = {
+    ask: (asked, secret) =>
+      new Promise((resolve) => {
+        question({ question: asked, secret, answer: resolve });
+      }),
+    take: () => false,
+    secretWaiting: () => false,
+  };
+  const historyFile = path.join(where.privateDir, 'cli', 'history');
+  const run = (parsed: Command): Promise<Answer> =>
+    LOCAL_COMMANDS.has(parsed.name) ? runLocal(parsed, (asked) => link.ask(asked)) : link.ask(parsed, answers);
+  await runInteractive({
+    title: 'neptunia',
+    commands: COMMANDS.map((command) => ({ name: command.name, help: command.help })),
+    history: readHistory(historyFile),
+    still: reducedMotion(process.env),
+    now: () => Date.now(),
+    subscribe(listeners) {
+      entry = listeners.entry;
+      question = listeners.question;
+      linked = listeners.connected;
+    },
+    saveHistory(lines) {
+      fs.mkdirSync(path.dirname(historyFile), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(historyFile, `${[...lines].reverse().join('\n')}\n`, { mode: 0o600 });
+    },
+    status: async () => {
+      const answer = await link.ask({ name: 'status.brief', args: {} });
+      return answer.status === 'ok' ? (JSON.parse(answer.text) as StatusBrief | null) : null;
+    },
+    panelOf: async (line) => {
+      const parsed = parseCommandLine(line);
+      const title = parsed.ok ? PANEL_COMMANDS[parsed.name] : undefined;
+      if (!parsed.ok || title === undefined) return null;
+      return { title, lines: (await run(parsed)).text.split('\n') };
+    },
+    send(line) {
+      const text = line.trim();
+      if (!text.startsWith('/')) {
+        void link.say(line).then((status) => {
+          if (status !== 'ok') entry({ who: 'system', text: `the core did not take the line (${status})` });
+        });
+        return;
+      }
+      const parsed = parseCommandLine(text);
+      if (!parsed.ok) entry({ who: 'system', text: parsed.reason });
+      else void run(parsed).then((answer) => entry({ who: 'system', text: answer.text }));
+    },
+  });
+  link.close();
+  process.exit(0);
+}
+
 /**
  * The chat. With `firstLine` (`neptunia setup` hands it `/keys core add`) that line is typed first, and the chat
  * returns to its caller when the input ends instead of ending the process.
@@ -639,6 +718,7 @@ function printBlock(text: string): void {
 async function runChat(firstLine?: string): Promise<void> {
   const where = paths();
   const terminal = process.stdin.isTTY === true && process.stdout.isTTY === true;
+  if (terminal && firstLine === undefined && process.env.NEPTUNIA_PLAIN_CHAT !== '1') return runInkChat(where);
   let link: CliLink;
   try {
     link = await openCliLink(printBlock);

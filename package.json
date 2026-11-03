@@ -43,7 +43,8 @@
     "mutation": "node scripts/mutation-diff.ts"
   },
   "workspaces": [
-    "interfaces/*"
+    "interfaces/*",
+    "cli"
   ],
   "license": "MIT",
   "devDependencies": {

@@ -65,6 +65,8 @@ export type ConsoleDeps = {
   /** The private directory, where config.local/config.json lives. */
   privateDir: string;
   dataDir: string;
+  /** What the chat's status line reads: what the core already knows, with no probe (src/core.ts). */
+  statusBrief?: () => unknown;
   /** The memory database (src/memory/db/service.ts): `database()` is its read connection, null while it is closed. */
   memoryDb: unknown;
   usage: { byRole(): Array<RoleRow>; sumDays(days: number): DaysSum } | null;
@@ -96,13 +98,13 @@ const ENGINE_ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
 
 /** The commands answered by a module of their own, or null for any other. */
 function ownCommand(
-  dataDir: string,
-  memoryDb: unknown,
+  { dataDir, memoryDb, statusBrief: brief }: Pick<ConsoleDeps, 'dataDir' | 'memoryDb' | 'statusBrief'>,
   name: string,
   args: Record<string, unknown>,
   dialog: Dialog | null
 ): Promise<Answer> | null {
   if (name.startsWith('keys.service.')) return serviceCommand(dataDir, name, args, dialog);
+  if (name === 'status.brief') return Promise.resolve({ text: JSON.stringify(brief?.() ?? null), status: 'ok' });
   if (name.startsWith('search.')) return Promise.resolve(searchCommand(dataDir, name, args));
   if (name === 'memory.bind' || name === 'memory.unbind') return personLinkCommand(memoryDb, name, args);
   if (name === 'memory.accounts') return Promise.resolve(accountsCommand(memoryDb, args));
@@ -601,7 +603,7 @@ export function createConsole(deps: ConsoleDeps): {
       if (routed !== null) return routed;
       if (deps.keys != null && (name.startsWith(KEYS_PREFIX) || (name === 'model.set' && deps.keys.enabled())))
         return deps.keys.run(name, args, dialog);
-      const owned = ownCommand(deps.dataDir, deps.memoryDb, name, args, dialog);
+      const owned = ownCommand(deps, name, args, dialog);
       if (owned !== null) return owned;
       if (name.startsWith(SKILLS_PREFIX)) return skillsCommand(deps.skills, name, args);
       if (name.startsWith(SUBHARNESS_PREFIX)) return subharnessCommand(subharnessDeps(deps), name, args);
