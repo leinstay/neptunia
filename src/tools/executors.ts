@@ -28,6 +28,7 @@ import { idText, isObj, listOf, objOf, textOf } from './types.ts';
 import type { Obj, Skill, SkillMap } from './types.ts';
 import type { Refusal } from './gateway.ts';
 import type { Reads } from '../interface/reads.ts';
+import type { ConversationRef } from '../protocol/adapter.ts';
 
 /** A message of this turn's transcript as the view finds it by its number. */
 export type ViewLine = {
@@ -666,6 +667,7 @@ function callPublicationRefusal(
   deps: ExecuteDeps,
   boundary: PublicationBoundary | null | undefined
 ) {
+  if (boundary == null) return null;
   if (!['message.create', 'message.edit', 'message.react.add', 'draw.create', 'voice.say'].includes(resolved.skill))
     return null;
   const channel = resolved.args.channel;
@@ -1001,8 +1003,8 @@ export type ExecuteDeps = {
   runOwnOp?: RunOperation;
   runInitiativeOp?: RunOperation;
   config?: unknown;
-  opContext?: Obj & { channelId?: unknown };
+  opContext?: Obj & { channelId?: unknown; publicationBoundary?: PublicationBoundary };
   timeoutMs?: number;
   port: { send(ref: unknown, body: unknown): Promise<unknown> };
-  refOf(channelId: unknown): unknown;
+  refOf(channelId: unknown): ConversationRef;
 };
