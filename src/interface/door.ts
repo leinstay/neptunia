@@ -1,21 +1,8 @@
-// The event door: the one entry through which anything that happens reaches the mind -- a
-// message or a reaction an interface reports, an errand that ended, a clock
-// tick. Every event is validated at the boundary (src/protocol/validate.ts), deduplicated
-// by its id and handed to the handler of its kind. Delivery is at-least-once, so the door is
-// idempotent: an id that was handled is `duplicate` the second time and its handler does not run
-// again; an id whose handler threw is not remembered (`failed`), so the sender's redelivery gets
-// another try; an id being handled right now is `duplicate` too. Nothing here throws: the answer
-// is `{ status, id, reason?, result? }` with the statuses of an ack (envelope.ts#ACK_STATUSES).
-// The ids seen are kept in memory, the newest `capacity` of them, scoped by the principal that sent
-// the event (src/interface/principals.ts). With `ingest` (the memory database's ingestion record,
-// src/memory/db/ingest.ts) an event of a principal is also looked up there, so a restart still
-// knows it, and once its handler succeeds its row is committed before the answer goes back: the
-// handler gets the row (`{ ingest }`, its second argument) to commit it together with the
-// observation it makes, and the door's own commit of the same row then changes nothing. The live
-// state kinds (DEDUP_IN_MEMORY: presence, voice, connection) are deduplicated in memory only,
-// because their handlers set what is current and a repeat changes nothing. A commit that fails is
-// `failed` with `ingest-failed`, and the id is not remembered. Logs carry the kind, the status and
-// the reason, never the content of an event.
+// The event door validates and deduplicates events before dispatching them to their handlers. A handler receives
+// a door-owned receipt whose single observation claim tracks the atomic source and ingestion write. Claimed writes
+// must succeed before acknowledgement. An unused receipt keeps the standalone ingestion commit. Completed event
+// ids occupy a bounded cache scoped by sender, and durable ingestion rows also recognize redelivery after restart.
+// Live state kinds use memory deduplication only. Logs carry event kind, status and reason, never event contents.
 //
 // `receive(envelope, from)` is the same door for the wire form: hello and ping are answered, an event
 // envelope goes through `submit` with the principal and `seq` of `from` and is answered by an `ack`,
@@ -24,6 +11,7 @@
 import { log as defaultLog } from '../log.ts';
 import { ackOf, validateEnvelope, validateEvent } from '../protocol/index.ts';
 import { objOf } from '../tools/types.ts';
+import type { IngestRow } from '../memory/db/ingest.ts';
 import type { AuthenticatedSender } from './principals.ts';
 
 /** The ids kept by default. */
@@ -61,13 +49,62 @@ type SubmittedEvent = {
 };
 
 /** The ingestion row of an event: who sent it, the number it was sent under, its id, kind and conversation. */
-export type IngestRow = {
-  principal: string;
-  seq: number | null;
+export type { IngestRow } from '../memory/db/ingest.ts';
+
+export type ObservationCommit = { ok: true; sourceId: string; revision?: number } | { ok: false; code?: string };
+
+export type AcceptedEventReceipt = Readonly<{
   eventId: string;
-  kind: string;
-  conversation: string | null;
-};
+  row: Readonly<IngestRow> | null;
+  observe(write: (row: Readonly<IngestRow> | null) => Promise<ObservationCommit>): Promise<ObservationCommit>;
+}>;
+
+type ObservationState = 'unused' | 'pending' | 'committed' | 'failed';
+type ReceiptTracker = { receipt: AcceptedEventReceipt; state(): ObservationState };
+
+function createReceipt({
+  eventId,
+  row,
+  onCommit,
+  onSettled,
+}: {
+  eventId: string;
+  row: IngestRow | null;
+  onCommit: () => void;
+  onSettled: () => void;
+}): ReceiptTracker {
+  let state: ObservationState = 'unused';
+  const copyRow = (): Readonly<IngestRow> | null => (row ? Object.freeze({ ...row }) : null);
+  const receipt: AcceptedEventReceipt = Object.freeze({
+    eventId,
+    get row() {
+      return copyRow();
+    },
+    observe(write: (row: Readonly<IngestRow> | null) => Promise<ObservationCommit>): Promise<ObservationCommit> {
+      if (state !== 'unused') return Promise.resolve({ ok: false, code: 'OBSERVATION_CLAIMED' });
+      state = 'pending';
+      const capturedRow = copyRow();
+      const pending = Promise.resolve()
+        .then(() => write(capturedRow))
+        .then(
+          (result) => {
+            state = result.ok ? 'committed' : 'failed';
+            if (result.ok) onCommit();
+            return result;
+          },
+          (error: unknown) => {
+            state = 'failed';
+            throw error;
+          }
+        )
+        .finally(onSettled);
+      // The handler may stop awaiting after its deadline. Keep a late rejection handled while returning it to awaiters.
+      void pending.catch(() => {});
+      return pending;
+    },
+  });
+  return { receipt, state: () => state };
+}
 
 /** Who an event came from: the principal's name and the `seq` of its envelope (null for an un-numbered one). */
 export type From = {
@@ -78,6 +115,7 @@ export type From = {
 
 /** The ingestion identity and verified sender supplied to an event handler. */
 export type EventHandlerContext = {
+  receipt?: AcceptedEventReceipt;
   ingest: IngestRow | null;
   authenticated: AuthenticatedSender | null;
 };
@@ -113,7 +151,7 @@ export function createEventDoor({
 }): EventDoor {
   // Insertion order is the age: the oldest id is the first key.
   const seen = new Set<string>();
-  const inFlight = new Set<string>();
+  const inFlight = new Map<string, ReceiptTracker>();
 
   function remember(id: string): void {
     seen.add(id);
@@ -131,6 +169,23 @@ export function createEventDoor({
     const conversation = typeof given === 'string' ? given : null;
     const seq = typeof from.seq === 'number' && Number.isInteger(from.seq) ? from.seq : null;
     return { principal: from.principal, seq, eventId: id, kind: event.kind, conversation };
+  }
+
+  function duplicateOf({ key, row, id }: { key: string; row: IngestRow | null; id: string }): SubmitResult | null {
+    if (seen.has(key)) return { status: 'duplicate', id };
+    const active = inFlight.get(key);
+    if (active) {
+      const state = active.state();
+      if (state === 'pending' || state === 'failed') {
+        return { status: 'failed', id, reason: state === 'pending' ? 'observation-pending' : 'observation-failed' };
+      }
+      return { status: 'duplicate', id };
+    }
+    if (row && ingest?.seen(row.principal, id)) {
+      remember(key);
+      return { status: 'duplicate', id };
+    }
+    return null;
   }
 
   /** One event through the door. */
@@ -153,30 +208,40 @@ export function createEventDoor({
     // An id is one event of one sender: two principals may use the same id.
     const key = typeof from?.principal === 'string' ? `${from.principal}\u0000${id}` : id;
     const row = rowOf(checked, id, from);
-    if (seen.has(key) || inFlight.has(key)) return { status: 'duplicate', id };
-    if (row && ingest?.seen(row.principal, id)) {
-      remember(key);
-      return { status: 'duplicate', id };
-    }
+    const duplicate = duplicateOf({ key, row, id });
+    if (duplicate) return duplicate;
     const handler = handlers?.[checked.kind];
     if (typeof handler !== 'function') {
       log.warn('interface: unhandled event', { kind: checked.kind });
       return { status: 'unhandled', id };
     }
-    inFlight.add(key);
+    let hasHandlerFinished = false;
+    const tracked = createReceipt({
+      eventId: id,
+      row,
+      onCommit: () => remember(key),
+      onSettled: () => {
+        if (hasHandlerFinished) inFlight.delete(key);
+      },
+    });
+    inFlight.set(key, tracked);
     try {
       let result: unknown;
       try {
         // A handler takes the event type of its kind, which the door cannot name: it is called with the event as it is.
         result = await Reflect.apply(handler, undefined, [
           event,
-          { ingest: row, authenticated: from.authenticated ?? null },
+          { receipt: tracked.receipt, ingest: row, authenticated: from.authenticated ?? null },
         ]);
       } catch (err) {
         log.warn('interface: event handler failed', { kind: checked.kind, error: err });
         return { status: 'failed', id, reason: 'handler-threw' };
       }
-      if (row && ingest) {
+      const state = tracked.state();
+      if (state === 'pending' || state === 'failed') {
+        return { status: 'failed', id, reason: state === 'pending' ? 'observation-pending' : 'observation-failed' };
+      }
+      if (state === 'unused' && row && ingest) {
         try {
           await ingest.commit(row);
         } catch (err) {
@@ -187,7 +252,8 @@ export function createEventDoor({
       remember(key);
       return { status: 'ok', id, result };
     } finally {
-      inFlight.delete(key);
+      hasHandlerFinished = true;
+      if (tracked.state() !== 'pending') inFlight.delete(key);
     }
   }
 

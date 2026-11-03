@@ -229,13 +229,25 @@ test('direct submissions without authenticated metadata remain ordinary even wit
   });
   assert.equal((await door.submit(reaction('direct'))).status, 'ok');
   assert.equal((await door.submit(reaction('named'), { principal: 'owner', seq: 4 })).status, 'ok');
-  assert.deepEqual(contexts, [
-    { ingest: null, authenticated: null },
-    {
-      ingest: { principal: 'owner', seq: 4, eventId: 'named', kind: 'reaction.changed', conversation: 'c1' },
-      authenticated: null,
-    },
-  ]);
+  // The additive receipt carries observation state beside the unchanged provenance fields.
+  assert.deepEqual(
+    contexts.map(({ ingest, authenticated }) => ({ ingest, authenticated })),
+    [
+      { ingest: null, authenticated: null },
+      {
+        ingest: { principal: 'owner', seq: 4, eventId: 'named', kind: 'reaction.changed', conversation: 'c1' },
+        authenticated: null,
+      },
+    ]
+  );
+  assert.deepEqual(
+    contexts.map(({ receipt }) => receipt?.eventId),
+    ['direct', 'named']
+  );
+  assert.deepEqual(
+    contexts.map(({ receipt }) => receipt?.row),
+    contexts.map(({ ingest }) => ingest)
+  );
   assert.deepEqual(committed, [
     { principal: 'owner', seq: 4, eventId: 'named', kind: 'reaction.changed', conversation: 'c1' },
   ]);
@@ -279,7 +291,15 @@ for (const entry of ['receive', 'submit'] as const) {
       kind: 'reaction.changed',
       conversation: 'c1',
     };
-    assert.deepEqual(contexts, [{ ingest, authenticated }]);
+    // The receipt is additive. Authentication and ingestion retain their exact prior values.
+    assert.deepEqual(
+      contexts.map(({ ingest, authenticated }) => ({ ingest, authenticated })),
+      [{ ingest, authenticated }]
+    );
+    assert.deepEqual(
+      contexts.map(({ receipt }) => [receipt?.eventId, receipt?.row]),
+      [[event.id, ingest]]
+    );
     assert.deepEqual(committed, [ingest]);
   });
 }
