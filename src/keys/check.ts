@@ -36,7 +36,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const ERROR_CHARS = 500;
 
 /** The model roles a chat completion proves. */
-const CHAT_ROLES: ReadonlyArray<string> = ['core', 'memory', 'analyzer', 'vision', 'video'];
+const CHAT_ROLES: ReadonlyArray<string> = ['core', 'memory', 'analyzer', 'search', 'vision', 'video'];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);

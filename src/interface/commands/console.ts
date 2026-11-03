@@ -105,7 +105,7 @@ function ownCommand(
 ): Promise<Answer> | null {
   if (name.startsWith('keys.service.')) return serviceCommand(dataDir, name, args, dialog);
   if (name === 'status.brief') return Promise.resolve({ text: JSON.stringify(brief?.() ?? null), status: 'ok' });
-  if (name.startsWith('search.')) return Promise.resolve(searchCommand(dataDir, name, args));
+  if (name.startsWith('search.')) return Promise.resolve(searchCommand(dataDir, name, args, ENGINE_ROOT));
   if (name === 'memory.bind' || name === 'memory.unbind') return personLinkCommand(memoryDb, name, args);
   if (name === 'memory.accounts') return Promise.resolve(accountsCommand(memoryDb, args));
   const action = moduleActionOf(name);

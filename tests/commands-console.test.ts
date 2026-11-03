@@ -188,6 +188,16 @@ test('every read command of the table answers with exit 0 and asks no model', as
 });
 
 // The parse error path of `-p`: the line never becomes a command.
+test('/search status names the engine the shipped settings choose when the persona sets none', async () => {
+  // Bug: the console read only the persona's settings and answered `engine unset` over a shipped default.
+  await withRig({}, async ({ dirs, llm, cores }) => {
+    cores.push(await startUnitsCore(dirs, llm, () => T0));
+    const run = await p(dirs, '/search');
+    assert.equal(run.code, 0, run.stderr.slice(-2000));
+    assert.doesNotMatch(run.stdout, /engine unset/);
+  });
+});
+
 test('-p exits 1 for a line the table refuses', async () => {
   await withRig({}, async ({ dirs, llm, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
