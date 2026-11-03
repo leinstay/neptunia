@@ -88,7 +88,7 @@ import { pathToFileURL } from 'node:url';
 import { createRunnerServer } from '../src/agent-runner/server.ts';
 import { DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.ts';
 import { createAgentEngine, createInstalledBackend } from '../src/agent-runner/backend.ts';
-import { BACKEND_NAMES, agentSettings, profileOf } from '../src/agent-runner/profiles.ts';
+import { BACKEND_NAMES, agentSettings, profileOf, listAgents, promptFilesOf } from '../src/agent-runner/profiles.ts';
 import type { RunnerTask } from '../src/agent-runner/protocol.ts';
 import { startSweeper } from '../src/agent-runner/sweep.ts';
 import { spawnGh } from '../src/selfimprovement/repository.ts';
@@ -1030,7 +1030,8 @@ function profileFlag(argv: ReadonlyArray<string>): string {
 async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
   const name = profileFlag(argv);
   const where = paths();
-  const profile = profileOf(name);
+  const agentPaths = { rootDir: where.rootDir, dataDir: where.dataDir, env: process.env };
+  const profile = profileOf(name, agentPaths);
   if (profile === null) die(`unknown profile: ${name} (expected scout or server)`);
   // config/config.json, then the private settings file when this user can read it: the runner's user may not read the
   // local layer.
@@ -1039,7 +1040,7 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
   const read = (): Settings => files.read();
   let config = read();
   const errands = isObject(config.errands) ? config.errands : {};
-  const settings = agentSettings(name, config);
+  const settings = agentSettings(name, config, agentPaths);
   const socketPath = typeof settings?.socket === 'string' ? settings.socket : '';
   const outDir = typeof settings?.out === 'string' ? settings.out : '';
   if (socketPath === '') die(`no socket for ${name}: set agents.${name}.socket`);
@@ -1059,6 +1060,7 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
     return config;
   };
   const engine = createAgentEngine({
+    agentPaths,
     profile,
     outDir,
     env: process.env,
@@ -1072,19 +1074,25 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
   } catch (err) {
     die((err as Error).message);
   }
-  const limitsDefault = {
-    ...profile.defaultLimits,
-    ...settings?.limits,
-    toolResultChars: errands.toolResultChars,
-  };
   const runner = {
-    run: (task: RunnerTask) =>
-      engine.run({
+    run(task: RunnerTask) {
+      const config = currentConfig();
+      const profile = profileOf(name, agentPaths);
+      if (!profile) throw new Error('the worker profile is unavailable');
+      const settings = agentSettings(name, config, agentPaths);
+      const errands = isObject(config.errands) ? config.errands : {};
+      return engine.run({
         ...task,
-        limits: { ...limitsDefault, ...task.limits },
+        limits: {
+          ...profile.defaultLimits,
+          ...settings?.limits,
+          toolResultChars: errands.toolResultChars,
+          ...task.limits,
+        },
         cost: task.cost ?? settings?.cost,
         searchProvider: task.searchProvider ?? settings?.searchProvider,
-      }),
+      });
+    },
   };
   const server = createRunnerServer({ profile: name, runner, socketPath }) as {
     start(): Promise<void>;
@@ -1628,7 +1636,12 @@ function watcherAgent(where: { rootDir: string; privateDir: string }): RunAgent 
 async function runWatcherCommand(argv: ReadonlyArray<string>): Promise<void> {
   const [command, ...extra] = argv;
   if (command !== 'run' || extra.length > 0) usage();
-  const reportsDir = reportsDirIn(paths());
+  const where = paths();
+  const reportsDir = reportsDirIn(where);
+  const agentPaths = { rootDir: where.rootDir, dataDir: where.dataDir, env: process.env };
+  const definition = listAgents(agentPaths).find((agent) => agent.kind === 'watcher');
+  if (!definition) die('the watcher definition is unavailable');
+  const promptFiles = promptFilesOf(definition.id, { ...agentPaths, prompt: definition.prompt });
   const opened = await openBoardCaller({
     ...process.env,
     NEPTUNIA_TASK_CLIENT: process.env.NEPTUNIA_TASK_CLIENT || 'watcher',
@@ -1637,7 +1650,8 @@ async function runWatcherCommand(argv: ReadonlyArray<string>): Promise<void> {
   try {
     const result = await runWatcher({
       now: Date.now,
-      runAgent: watcherAgent(paths()),
+      runAgent: watcherAgent(where),
+      promptFiles,
       board: opened.board,
       reportsDir,
     });

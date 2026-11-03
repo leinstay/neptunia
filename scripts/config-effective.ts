@@ -91,7 +91,7 @@ const READERS: Array<[string, (config: Record<string, Untyped>) => unknown]> = [
   ['loopSettings', (config) => loopSettings(config)],
   ...['scout', 'server', 'thinker', 'dev'].map((agent): [string, (config: Tree) => unknown] => [
     `agentSettings ${agent}`,
-    (config) => agentSettings(agent, config),
+    (config) => agentSettings(agent, config, { rootDir: ROOT_DIR }),
   ]),
 ];
 

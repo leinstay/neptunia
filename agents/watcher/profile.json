@@ -1,0 +1,7 @@
+{
+  "id": "watcher",
+  "kind": "watcher",
+  "prompt": "prompt.md",
+  "override": null,
+  "description": "Reviews the persona engine, project and deployment evidence and reports findings to the owner."
+}

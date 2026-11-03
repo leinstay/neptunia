@@ -25,12 +25,21 @@ import net from 'node:net';
 import { log as defaultLog } from '../log.ts';
 import { encodeLine, normalizeResult, normalizeUsage, MAX_PREAMBLE_CHARS } from '../agent-runner/protocol.ts';
 import { agentSettings, profileOf } from '../agent-runner/profiles.ts';
+import type { AgentPaths } from '../agent-runner/profiles.ts';
 import { roleModel } from '../llm/roles.ts';
 import { composePreamble } from './preambles.ts';
 import { CODE } from '../tools/codes.ts';
 import { errorCode, objOf, textOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
-import type { ErrandClient, ErrandClientOptions, PingAnswer, RunOutcome, RunRequest, TimerHandle } from './types.ts';
+import type {
+  ErrandClient,
+  ErrandClientOptions,
+  Logger,
+  PingAnswer,
+  RunOutcome,
+  RunRequest,
+  TimerHandle,
+} from './types.ts';
 
 /** One agent's connection to its runner. */
 type Link = {
@@ -59,8 +68,8 @@ function failed(error: string): RunOutcome {
 }
 
 /** The role model of `agent`, read now from the live config, or null. */
-function runModelFor(agent: string, config: Untyped): string | null {
-  const model = roleModel(config, textOf(objOf(profileOf(agent)).modelRole));
+function runModelFor(agent: string, config: Untyped, agentPaths?: AgentPaths): string | null {
+  const model = roleModel(config, textOf(objOf(profileOf(agent, agentPaths)).modelRole));
   return typeof model === 'string' && model ? model : null;
 }
 
@@ -72,12 +81,51 @@ function costFor(agent: string, config: Untyped): { input: number; output: numbe
   return { input: cost.input, output: cost.output };
 }
 
+/** The socket path of `agent` when its profile is set up and enabled now, else null. */
+function socketOf(agent: string, config: Untyped, agentPaths?: AgentPaths): string | null {
+  const profile = profileOf(agent, agentPaths);
+  if (!profile) return null;
+  const settings = agentSettings(agent, config, agentPaths);
+  if (settings?.enabled !== true) return null;
+  return settings.socket || null;
+}
+
+/**
+ * The preamble of a run of `agent` on `runModel`: `{ text, files, chars }`.
+ * Over MAX_PREAMBLE_CHARS, a warning names the files sent and left out.
+ */
+function preambleOf(
+  agent: string,
+  runModel: string | null,
+  hot: ErrandClientOptions['hot'],
+  log: Logger
+): ReturnType<typeof composePreamble> {
+  const composed = composePreamble({
+    prompts: { preambles: hot?.prompts?.preambles },
+    agent,
+    model: runModel,
+    maxChars: MAX_PREAMBLE_CHARS,
+  });
+  if (composed.dropped.length > 0) {
+    log.warn('errands: preamble over the cap', {
+      agent,
+      model: runModel,
+      files: composed.files,
+      dropped: composed.dropped,
+      chars: composed.chars,
+      maxChars: MAX_PREAMBLE_CHARS,
+    });
+  }
+  return composed;
+}
+
 /**
  * `hot` holds the live config (`agents.<profile>.enabled`, `.socket`, the agent roles' models) and prompts
  * (`preambles`: read at each run). `connect` opens a socket (tests inject one).
  */
 export function createErrandClient({
   hot,
+  agentPaths,
   log = defaultLog,
   connect = (socketPath) => net.createConnection(socketPath),
   setTimer = (fn, ms) => setTimeout(fn, ms),
@@ -92,15 +140,6 @@ export function createErrandClient({
   const progressListeners = new Set<Parameters<ErrandClient['onProgress']>[0]>();
   const linkListeners = new Set<Parameters<ErrandClient['onLink']>[0]>();
   let closed = false;
-
-  /** The socket path of `agent` when its profile is set up and enabled now, else null. */
-  function socketOf(agent: string): string | null {
-    const profile = profileOf(agent);
-    if (!profile) return null;
-    const settings = agentSettings(agent, hot?.config);
-    if (settings?.enabled !== true) return null;
-    return settings.socket || null;
-  }
 
   /** One outcome of `agent`'s connect loop to the `onLink` listeners. */
   function emitLink(agent: string, up: boolean, code: string | null = null): void {
@@ -190,11 +229,18 @@ export function createErrandClient({
     link.backoffMs = Math.min(RECONNECT_MAX_MS, link.backoffMs * 2);
     link.timer = setTimer(() => {
       link.timer = null;
-      if (closed || !socketOf(agent)) {
+      try {
+        if (closed || !socketOf(agent, hot?.config, agentPaths)) {
+          links.delete(agent);
+          return;
+        }
+        open(agent).catch(() => {});
+      } catch (error) {
         links.delete(agent);
-        return;
+        const code = errorCode(error) ?? CODE.NOT_CONFIGURED;
+        log.warn('errands: reconnect refused', { agent, code });
+        emitLink(agent, false, code);
       }
-      open(agent).catch(() => {});
     }, wait);
     link.timer?.unref?.();
   }
@@ -204,7 +250,7 @@ export function createErrandClient({
    * connected; rejects (and arms a reconnect) when the connection fails.
    */
   function open(agent: string): Promise<Link> {
-    const socketPath = socketOf(agent);
+    const socketPath = socketOf(agent, hot?.config, agentPaths);
     if (!socketPath) return Promise.reject(Object.assign(new Error('not configured'), { code: CODE.NOT_CONFIGURED }));
     let link = links.get(agent);
     if (link?.open && link.path === socketPath) return Promise.resolve(link);
@@ -301,27 +347,8 @@ export function createErrandClient({
     }
   }
 
-  /**
-   * The preamble of a run of `agent` on `runModel`: `{ text, files, chars }`.
-   * Over MAX_PREAMBLE_CHARS, a warning names the files sent and left out.
-   */
-  function preambleOf(agent: string, runModel: string | null): ReturnType<typeof composePreamble> {
-    const composed = composePreamble({ prompts: hot?.prompts, agent, model: runModel, maxChars: MAX_PREAMBLE_CHARS });
-    if (composed.dropped.length > 0) {
-      log.warn('errands: preamble over the cap', {
-        agent,
-        model: runModel,
-        files: composed.files,
-        dropped: composed.dropped,
-        chars: composed.chars,
-        maxChars: MAX_PREAMBLE_CHARS,
-      });
-    }
-    return composed;
-  }
-
   async function run({ agent, id, goal, context = {}, limits = {}, secrets = null }: RunRequest): Promise<RunOutcome> {
-    if (closed || !socketOf(agent)) return failed(CODE.NOT_CONFIGURED);
+    if (closed || !socketOf(agent, hot?.config, agentPaths)) return failed(CODE.NOT_CONFIGURED);
     if (pending.has(id)) return failed(CODE.DUPLICATE_ID);
     try {
       await open(agent);
@@ -348,11 +375,11 @@ export function createErrandClient({
       const request: Record<string, unknown> = { op: 'run', id, goal, context };
       if (limits && Object.keys(limits).length > 0) request.limits = limits;
       if (secrets) request.secrets = secrets;
-      const model = runModelFor(agent, hot?.config);
+      const model = runModelFor(agent, hot?.config, agentPaths);
       if (model) request.model = model;
       const cost = costFor(agent, hot?.config);
       if (cost) request.cost = cost;
-      const preamble = preambleOf(agent, model);
+      const preamble = preambleOf(agent, model, hot, log);
       if (preamble.text) request.preamble = preamble.text;
       if (!send(agent, request)) {
         pending.delete(id);
@@ -365,12 +392,12 @@ export function createErrandClient({
   }
 
   function cancel({ agent, id }: { agent: string; id: string }): boolean {
-    if (!socketOf(agent)) return false;
+    if (!socketOf(agent, hot?.config, agentPaths)) return false;
     return send(agent, { op: 'cancel', id });
   }
 
   async function ping(agent: string): Promise<PingAnswer> {
-    if (closed || !socketOf(agent)) return { ok: false, error: CODE.NOT_CONFIGURED };
+    if (closed || !socketOf(agent, hot?.config, agentPaths)) return { ok: false, error: CODE.NOT_CONFIGURED };
     try {
       await open(agent);
     } catch (err) {
@@ -432,5 +459,13 @@ export function createErrandClient({
     }
   }
 
-  return { run, cancel, ping, onProgress, onLink, configured: (agent) => socketOf(agent) !== null, close };
+  return {
+    run,
+    cancel,
+    ping,
+    onProgress,
+    onLink,
+    configured: (agent) => socketOf(agent, hot?.config, agentPaths) !== null,
+    close,
+  };
 }

@@ -6,6 +6,8 @@
 // and no secret reaches a log call, a journal line or the store's files. The runner's health flag
 // (over a real errand client and a fake runner socket): a runner known unreachable refuses a new
 // task at once with `runner-down`, and a ping that succeeds flips the flag back.
+import { consumers, consumerRig } from './fixtures/agent-consumers.ts';
+import type { RunRequest } from '../src/errands/types.ts';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -618,5 +620,90 @@ test("errands service: the file of an expired task is a marker, not a path; a pr
     );
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('the running service forwards fresh personal limits with live config precedence', async () => {
+  const rig = consumerRig();
+  rig.override({ enabled: true, limits: { seconds: 17, steps: 7 }, daily: { tasks: 4 } });
+  const hot = { config: { errands: { maxOpen: 3 }, agents: { scout: { limits: { steps: 2 } } } } };
+  const runs: Array<RunRequest> = [];
+  const stores = consumers.stores({ agentPaths: rig.options, config: () => hot.config });
+  const service = consumers.service({
+    agentPaths: rig.options,
+    hot,
+    stores,
+    getGuildId: () => 'synthetic-guild',
+    client: {
+      configured: () => true,
+      run: (request) => {
+        runs.push(request);
+        return Promise.resolve({
+          status: 'done' as const,
+          result: { text: 'synthetic result', sources: [], files: [] },
+          usage: { input: 0, output: 0, usd: 0, steps: 0, seconds: 0 },
+        });
+      },
+    },
+    defer: (fn) => fn(),
+  });
+  try {
+    assert.equal(service.submit(ask('scout')).ok, true);
+    await service.idle();
+    rig.override({ enabled: true, limits: { seconds: 29, steps: 11 }, daily: { tasks: 4 } });
+    assert.equal(service.submit(ask('scout')).ok, true);
+    await service.idle();
+    assert.deepEqual(
+      runs.map((run) => run.limits),
+      [
+        { steps: 2, seconds: 17 },
+        { steps: 2, seconds: 29 },
+      ]
+    );
+    assert.equal(service.store()?.today('scout').caps.tasks, 4);
+  } finally {
+    rig.close();
+  }
+});
+
+test('a profile made invalid after submission closes the deferred errand without calling its client', async () => {
+  const rig = consumerRig();
+  rig.override({ enabled: true, limits: { seconds: 17 } });
+  const hot = { config: { errands: { maxOpen: 3 }, agents: {} } };
+  const deferred: Array<() => unknown> = [];
+  const runs: Array<RunRequest> = [];
+  const stores = consumers.stores({ agentPaths: rig.options, config: () => hot.config });
+  const service = consumers.service({
+    agentPaths: rig.options,
+    hot,
+    stores,
+    getGuildId: () => 'synthetic-guild',
+    defer: (fn) => deferred.push(fn),
+    client: {
+      configured: () => true,
+      run: (request) => {
+        runs.push(request);
+        return Promise.resolve({
+          status: 'done' as const,
+          result: { text: 'synthetic result', sources: [], files: [] },
+          usage: { input: 0, output: 0, usd: 0, steps: 0, seconds: 0 },
+        });
+      },
+    },
+  });
+  try {
+    const accepted = service.submit(ask('scout'));
+    assert.equal(accepted.ok, true);
+    if (!accepted.ok) return;
+    assert.equal(service.store()?.get(accepted.errand.id)?.state, 'queued');
+    assert.equal(deferred.length, 1);
+    rig.override({ limits: { seconds: 0 } });
+    deferred[0]?.();
+    await service.idle();
+    const finished = service.store()?.get(accepted.errand.id);
+    assert.deepEqual([finished?.state, finished?.error], ['failed', 'client-error']);
+    assert.equal(runs.length, 0);
+  } finally {
+    rig.close();
   }
 });

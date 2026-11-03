@@ -322,7 +322,7 @@
     },
     "src/errands/client.ts": {
       "createErrandClient": {
-        "function-length": 358
+        "function-length": 346
       },
       "createErrandClient>onEvent": {
         "complexity": 26
@@ -330,12 +330,12 @@
     },
     "src/errands/service.ts": {
       "createErrandService": {
-        "function-length": 305
+        "function-length": 301
       }
     },
     "src/errands/store.ts": {
       "createErrandStore": {
-        "function-length": 520
+        "function-length": 512
       }
     },
     "src/format.ts": {

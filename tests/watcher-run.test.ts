@@ -1,6 +1,8 @@
 // The watcher's entry (src/watcher/run.ts#runWatcher): brief, agent, check, tasks, report, in that order, with a fake
 // runAgent, a fake board and a temp folder. A report that fails its check is never written and files nothing; the
 // run is marked failed by a `<day>.failed` marker and a result code.
+import { consumers, consumerRig } from './fixtures/agent-consumers.ts';
+import { runAgent as runSubharness } from '../src/subharness/run.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -31,7 +33,14 @@ function setup(answer: string) {
   const dirs = watcherDirs();
   const agent = fakeAgent(said(answer));
   const fake = fakeBoard([], { now: () => NOW });
-  const deps = { now: () => NOW, runAgent: agent.run, board: fake.board, reportsDir: dirs.reportsDir };
+  // Explicit candidates keep report storage independent from prompt selection.
+  const deps = {
+    now: () => NOW,
+    runAgent: agent.run,
+    board: fake.board,
+    reportsDir: dirs.reportsDir,
+    promptFiles: [path.join(dirs.watcherDir, 'prompt.md')],
+  };
   return { dirs, agent, fake, deps };
 }
 
@@ -107,6 +116,7 @@ test('an agent that fails is a failed run with no report, whatever text it left'
     runAgent: agent.run,
     board: fakeBoard().board,
     reportsDir: dirs.reportsDir,
+    promptFiles: [path.join(dirs.watcherDir, 'prompt.md')],
   });
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.code, 'agent-failed');
@@ -141,6 +151,7 @@ test('a board that refuses the filing fails the run but keeps the report, becaus
     runAgent: agent.run,
     board: fake.board,
     reportsDir: dirs.reportsDir,
+    promptFiles: [path.join(dirs.watcherDir, 'prompt.md')],
   });
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.code, 'board-failed');
@@ -161,6 +172,7 @@ test('a task filed yesterday for the same evidence is not filed again by the nex
     runAgent: agent.run,
     board: fake.board,
     reportsDir: dirs.reportsDir,
+    promptFiles: [path.join(dirs.watcherDir, 'prompt.md')],
   });
   assert.equal(result.ok, true);
   assert.equal(fake.added().length, 0);
@@ -175,6 +187,7 @@ test('a missing prompt file is a failed run before the agent is asked', async ()
     runAgent: agent.run,
     board: fakeBoard().board,
     reportsDir: dirs.reportsDir,
+    promptFiles: [path.join(dirs.watcherDir, 'prompt.md')],
   });
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.code, 'no-prompt');
@@ -191,6 +204,98 @@ test('the day is the UTC day of now, even on a server whose local day is already
   const dirs = watcherDirs();
   const late = Date.parse('2026-11-02T23:59:00Z');
   const agent = fakeAgent(said(reportText()));
-  await runWatcher({ now: () => late, runAgent: agent.run, board: fakeBoard().board, reportsDir: dirs.reportsDir });
+  await runWatcher({
+    now: () => late,
+    runAgent: agent.run,
+    board: fakeBoard().board,
+    reportsDir: dirs.reportsDir,
+    promptFiles: [path.join(dirs.watcherDir, 'prompt.md')],
+  });
   assert.ok(fs.existsSync(path.join(dirs.reportsDir, '2026-11-02.md')));
+});
+
+test('watcher runs read personal edits and shared fallback independently from report and credential folders', async () => {
+  const rig = consumerRig();
+  let now = Date.parse('2026-11-03T12:00:00Z');
+  const deps = {
+    now: () => now,
+    reportsDir: rig.reportsDir,
+    promptFiles: rig.promptFiles,
+    board: fakeBoard().board,
+    runAgent: async (agent: string, brief: string) => {
+      const result = await runSubharness({ agent, brief, cwd: rig.rootDir, timeoutMs: 9000 }, rig.subharness);
+      return { ok: result.ok, text: result.text, exitCode: result.exitCode ?? 1 };
+    },
+  };
+  try {
+    assert.equal((await consumers.watcher(deps)).ok, true);
+    fs.writeFileSync(rig.personalWatcher, 'PERSONAL-WATCHER-EDITED');
+    now += 24 * 60 * 60 * 1000;
+    assert.equal((await consumers.watcher(deps)).ok, true);
+    fs.unlinkSync(rig.personalWatcher);
+    now += 24 * 60 * 60 * 1000;
+    assert.equal((await consumers.watcher(deps)).ok, true);
+    assert.match(rig.calls[0]?.brief ?? '', /PERSONAL-WATCHER-MARKER/);
+    assert.match(rig.calls[1]?.brief ?? '', /PERSONAL-WATCHER-EDITED/);
+    assert.match(rig.calls[2]?.brief ?? '', /SHARED-WATCHER-MARKER/);
+    assert.deepEqual(
+      rig.calls.map(({ name, options }) => [name, options.model, options.effort]),
+      [
+        ['claude', 'watcher-selected-model', 'low'],
+        ['claude', 'watcher-selected-model', 'low'],
+        ['claude', 'watcher-selected-model', 'low'],
+      ]
+    );
+    for (const call of rig.calls) assert.doesNotMatch(call.brief, /REPORTS-DECOY-MARKER|PRIVATE-DECOY-MARKER/);
+  } finally {
+    rig.close();
+  }
+});
+
+for (const state of ['missing', 'blank', 'unreadable'] as const) {
+  test(`watcher refuses ${state} selected prompt files before invoking an agent`, async () => {
+    const rig = consumerRig();
+    const agent = fakeAgent(said(reportText()));
+    fs.unlinkSync(rig.personalWatcher);
+    if (state === 'missing') fs.unlinkSync(rig.sharedWatcher);
+    if (state === 'blank') fs.writeFileSync(rig.personalWatcher, ' \n\t');
+    // A directory produces a deterministic read failure without depending on the test user's privileges.
+    if (state === 'unreadable') fs.mkdirSync(rig.personalWatcher);
+    try {
+      const result = await consumers.watcher({
+        now: () => NOW,
+        reportsDir: rig.reportsDir,
+        promptFiles: rig.promptFiles,
+        board: fakeBoard().board,
+        runAgent: agent.run,
+      });
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.equal(result.code, 'no-prompt');
+      assert.equal(agent.calls.length, 0);
+      assert.equal(fs.existsSync(path.join(rig.reportsDir, `${DAY}.md`)), false);
+    } finally {
+      rig.close();
+    }
+  });
+}
+
+test('an existing watcher report returns before invalid prompt candidates are read', async () => {
+  const rig = consumerRig();
+  const agent = fakeAgent(said(reportText()));
+  fs.writeFileSync(path.join(rig.reportsDir, `${DAY}.md`), reportText({ Memory: 'CAPTURED-REPORT' }));
+  try {
+    const result = await consumers.watcher({
+      now: () => NOW,
+      reportsDir: rig.reportsDir,
+      promptFiles: [rig.personal],
+      board: fakeBoard().board,
+      runAgent: agent.run,
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.ran, false);
+    assert.equal(agent.calls.length, 0);
+    assert.match(fs.readFileSync(path.join(rig.reportsDir, `${DAY}.md`), 'utf8'), /CAPTURED-REPORT/);
+  } finally {
+    rig.close();
+  }
 });

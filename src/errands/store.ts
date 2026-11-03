@@ -44,6 +44,7 @@ import { createReadSeam } from '../memory/db/readers/common.ts';
 import { createUnitOutbox } from '../memory/db/unit-outbox.ts';
 import { errandsOf, pendingEnds as boardEnds } from '../board/errands.ts';
 import { agentSettings, profileOf } from '../agent-runner/profiles.ts';
+import type { AgentPaths } from '../agent-runner/profiles.ts';
 import { CODE } from '../tools/codes.ts';
 import { errorCode, idText, isFiniteNumber, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
@@ -125,6 +126,7 @@ function endStateOf(status: unknown): 'done' | 'failed' | 'cancelled' {
 
 /** The values a store is built over; `memoryDb` is the memory database service (src/memory/db/). */
 type StoreOptions = {
+  agentPaths?: AgentPaths;
   guildId: string;
   now?: () => number;
   /** The live config (`errands.*`, `agents.<profile>` overrides, `features.journal`). */
@@ -252,6 +254,14 @@ function copy(errand: ErrandRecord): ErrandRecord {
   return JSON.parse(JSON.stringify(errand)) as ErrandRecord;
 }
 
+/** The daily caps of `agent`: its profile's `daily` under the deployment's override. */
+function dailyCaps(agent: string, config: Untyped, agentPaths?: AgentPaths): { tasks: number | undefined } {
+  const defaults = profileOf(agent, agentPaths)?.defaultDaily ?? {};
+  const set: Record<string, number> = agentSettings(agent, config, agentPaths)?.daily ?? {};
+  const fallback = defaults.tasks;
+  return { tasks: Number.isFinite(set.tasks) ? set.tasks : typeof fallback === 'number' ? fallback : undefined };
+}
+
 /**
  * `memoryDb` is the memory database service: the errands and the spend records are loaded from the board on its read
  *   connection (src/board/errands.ts#errandsOf; a failed read throws, with a code), and each change goes to the board
@@ -266,6 +276,7 @@ export function createErrandStore({
   uuid = randomUUID,
   log = defaultLog,
   memoryDb = null,
+  agentPaths,
 }: StoreOptions): ErrandStore {
   const seam = createReadSeam({ memoryDb, log, reader: 'tasks' });
   const db = memoryDb ? seam.db() : null;
@@ -359,7 +370,7 @@ export function createErrandStore({
 
   /** The out directory of `agent` (its profile's `out` under the deployment's override); null for an unknown agent. */
   function outDirOf(agent: string): string | null {
-    return agentSettings(agent, config())?.out || null;
+    return agentSettings(agent, config(), agentPaths)?.out || null;
   }
 
   /** Whether `file` is missing (ENOENT); false when it is there or cannot be told. */
@@ -394,15 +405,6 @@ export function createErrandStore({
     return changed;
   }
 
-  /** The daily caps of `agent`: its profile's `daily` under the deployment's override. */
-  function dailyCaps(agent: string): { tasks: number | undefined } {
-    // profiles.js types a profile as `object`, so its default caps are read through objOf.
-    const defaults = objOf(objOf(profileOf(agent)).defaultDaily);
-    const set: Record<string, number> = agentSettings(agent, config())?.daily ?? {};
-    const fallback = defaults.tasks;
-    return { tasks: Number.isFinite(set.tasks) ? set.tasks : typeof fallback === 'number' ? fallback : undefined };
-  }
-
   /**
    * The spend of every agent with a record, and of each of `agents` (src/errands/costs.ts#agentCosts):
    * per window (`today`, `last7`, `last30`) its runs, input and output tokens and dollars.
@@ -422,7 +424,7 @@ export function createErrandStore({
     const set = config()?.errands?.maxOpen;
     const maxOpen = Number.isFinite(set) ? set : DEFAULT_MAX_OPEN;
     if (open().length >= maxOpen) return 'cap-open';
-    const caps = dailyCaps(agent);
+    const caps = dailyCaps(agent, config(), agentPaths);
     const used = usedToday(agent);
     if (isFiniteNumber(caps.tasks) && used.tasks >= caps.tasks) return 'cap-tasks';
     return null;
@@ -450,7 +452,7 @@ export function createErrandStore({
    * second errand. The goal is kept as she wrote it (trimmed).
    */
   function add({ agent, goal, requester, origin, scope, idempotencyKey = null }: Partial<AddInput> = {}): AddResult {
-    if (typeof agent !== 'string' || !profileOf(agent)) return { ok: false, code: CODE.UNKNOWN_AGENT };
+    if (typeof agent !== 'string' || !profileOf(agent, agentPaths)) return { ok: false, code: CODE.UNKNOWN_AGENT };
     const text = String(goal ?? '').trim();
     if (!text) return { ok: false, code: CODE.BAD_GOAL };
     const key = typeof idempotencyKey === 'string' && idempotencyKey ? idempotencyKey : null;
@@ -647,7 +649,7 @@ export function createErrandStore({
    * when a cap would refuse a new errand now (`key` the setting).
    */
   function budget(agent: string): Budget {
-    const code = profileOf(agent) ? capHit(agent) : CODE.UNKNOWN_AGENT;
+    const code = profileOf(agent, agentPaths) ? capHit(agent) : CODE.UNKNOWN_AGENT;
     const key =
       code === CODE.CAP_OPEN ? 'errands.maxOpen' : code === CODE.CAP_TASKS ? `agents.${agent}.daily.tasks` : null;
     return { spent: code !== null, key, code };
@@ -655,7 +657,7 @@ export function createErrandStore({
 
   /** Today's use of `agent` against its caps: `{ tasks, usd, caps }`. */
   function today(agent: string): { tasks: number; usd: number; caps: { tasks: number | undefined } } {
-    return { ...usedToday(agent), caps: dailyCaps(agent) };
+    return { ...usedToday(agent), caps: dailyCaps(agent, config(), agentPaths) };
   }
 
   /**
@@ -789,6 +791,7 @@ export function createErrandStores({
   now = Date.now,
   log = defaultLog,
   memoryDb = null,
+  agentPaths,
 }: Omit<StoreOptions, 'guildId' | 'uuid'>): ErrandStores {
   const stores = new Map<string, ErrandStore>();
   const errands: ErrandStores = {
@@ -797,7 +800,7 @@ export function createErrandStores({
       if (!key) return null;
       let store = stores.get(key);
       if (!store) {
-        store = createErrandStore({ guildId: key, config, journal, now, log, memoryDb });
+        store = createErrandStore({ guildId: key, config, journal, now, log, memoryDb, agentPaths });
         stores.set(key, store);
       }
       return store;

@@ -6,6 +6,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { readPromptFile } from '../agent-runner/opencode.ts';
 import type { BoardCaller } from '../tools/impl/board.ts';
 import { buildBrief } from './brief.ts';
 import { checkReport, findSecret, insertFiled, writeReport } from './report.ts';
@@ -29,9 +30,6 @@ export type WatcherRun =
 /** The agent profile the watcher runs under (agents/watcher). */
 const PROFILE = 'watcher';
 
-/** The prompt file sits beside the reports folder. */
-const promptFile = (reportsDir: string): string => path.join(reportsDir, '..', 'prompt.md');
-
 type Failure = Exclude<WatcherRun, { ok: true }>;
 
 /** A failed run: the marker file beside the reports, then the result. */
@@ -46,6 +44,7 @@ export async function runWatcher(deps: {
   runAgent: RunAgent;
   board: BoardCaller;
   reportsDir: string;
+  promptFiles: Array<string>;
 }): Promise<WatcherRun> {
   const { reportsDir } = deps;
   const day = new Date(deps.now()).toISOString().slice(0, 10);
@@ -54,7 +53,7 @@ export async function runWatcher(deps: {
 
   let prompt = '';
   try {
-    prompt = fs.readFileSync(promptFile(reportsDir), 'utf8');
+    prompt = readPromptFile(deps.promptFiles);
   } catch {
     // The refusal below names the missing file.
   }

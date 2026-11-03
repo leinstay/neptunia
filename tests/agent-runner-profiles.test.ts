@@ -1531,7 +1531,7 @@ test("the development agents' folders hold no absolute server path and no Cyrill
   }
 });
 
-test('the real agents/ folder: scout and server workers, two development agents, no drawing agent, no advice consultation, each prompt tracked beside its profile', () => {
+test('the real agents/ folder has two workers, two development agents and a watcher with tracked prompts', () => {
   const agents = listAgents();
   assert.deepEqual(
     // Watcher definitions have no model role. Worker and development roles remain explicit.
@@ -1541,11 +1541,20 @@ test('the real agents/ folder: scout and server workers, two development agents,
       ['scout', 'worker', 'scout'],
       ['server', 'worker', 'server'],
       ['thinker', 'development', 'thinker'],
+      ['watcher', 'watcher', null],
     ]
   );
   // @ts-expect-error: a profile may have no prompt file; every agent listed here has one
   for (const agent of agents) assert.ok(fs.existsSync(path.join(ROOT, 'agents', agent.id, agent.prompt)), agent.id);
   assert.deepEqual(Object.keys(PROFILES).sort(), ['scout', 'server']);
+  // Watcher execution uses the subharness policy. It contributes no worker profile or model role.
+  const watcher = agents.find((agent) => agent.kind === 'watcher');
+  assert.ok(watcher);
+  assert.deepEqual(Object.keys(watcher).sort(), ['description', 'id', 'kind', 'override', 'prompt']);
+  assert.equal(watcher.prompt, 'prompt.md');
+  assert.equal(watcher.override, null);
+  assert.equal(profileOf('watcher'), null);
+  assert.deepEqual(Object.keys(loadProfiles()).sort(), ['scout', 'server']);
   assert.equal(fs.existsSync(path.join(ROOT, 'agents', 'advice')), false, 'the advice profile is gone');
   for (const profile of [SCOUT, SERVER]) {
     assert.ok(fs.existsSync(path.join(ROOT, 'agents', profile.name, 'prompt.md')), profile.name);

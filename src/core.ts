@@ -124,7 +124,7 @@ import { loadPlugins } from './plugins/folders.ts';
 import { openPluginLink, routeConnection } from './plugins/link.ts';
 import { createPluginRegistry } from './plugins/registry.ts';
 import { pluginCallDeadlineMs, pluginEnabled } from './plugins/settings.ts';
-import { PROFILES as AGENT_PROFILES } from './agent-runner/profiles.ts';
+import { loadProfiles } from './agent-runner/profiles.ts';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.ts';
 import { createMessageHandler } from './behavior/pipeline.ts';
 import { createLeasedAttention } from './behavior/attention.ts';
@@ -892,8 +892,9 @@ async function buildCore(
   const activity = createActivity();
   // The persona's errands (`errands.*`, `agents.<profile>` overrides): a task she or a member asks for goes to its agent runner over
   // its socket in the background (src/errands/); the errands are tasks of the board's errand lane in memory.db.
-  const errandClient = createErrandClient({ hot, log });
-  const taskStores = createErrandStores({ config: () => hot.config, journal, log, memoryDb });
+  const agentPaths = { rootDir: paths.rootDir, dataDir: paths.dataDir, env };
+  const errandClient = createErrandClient({ hot, log, agentPaths });
+  const taskStores = createErrandStores({ config: () => hot.config, journal, log, memoryDb, agentPaths });
   // An errand's end opens her own turn where it was asked (the task turns, created below the runner).
   // An errand's end is an `errand.done` event through the event door (`door`, created below with
   // the gateway's handlers), its id `errand-done:<errand id>`; the door's handler (src/errands/turns.ts#onEvent) first
@@ -938,6 +939,7 @@ async function buildCore(
     return lines.reverse();
   }
   const errands = createErrandService({
+    agentPaths,
     client: errandClient,
     stores: taskStores,
     hot,
@@ -1094,7 +1096,7 @@ async function buildCore(
     heartbeat: {
       tasks: (guildId) => taskStores.get(guildId)?.recent(100),
       skills: () => grantedSkillNames({ config: hot.config, selfId: identity.selfId, registry: skillRegistry() }),
-      agents: () => Object.keys(AGENT_PROFILES),
+      agents: () => Object.keys(loadProfiles(agentPaths)),
       selfId: () => identity.selfId,
       focusPeople: () => memoryDb.focusPeople({ iface: identity.iface }),
       // The fixes of her own code that merged (src/selfimprovement/landed.ts), told once.

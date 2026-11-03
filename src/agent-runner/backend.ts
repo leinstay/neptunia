@@ -28,8 +28,8 @@ import {
 } from './opencode.ts';
 import type { RunnerDeps, Runner } from './opencode.ts';
 import { redactorFor, scopeOf } from './policy.ts';
-import { BACKEND_NAMES } from './profiles.ts';
-import type { BackendName } from './profiles.ts';
+import { BACKEND_NAMES, profileOf } from './profiles.ts';
+import type { AgentPaths, BackendName, Profile } from './profiles.ts';
 import type { RunnerTask, TaskResult } from './protocol.ts';
 import { runAgent } from '../subharness/run.ts';
 import type { RunDeps } from '../subharness/run.ts';
@@ -412,7 +412,7 @@ export function createInstalledBackend(
 }
 
 /** What `createAgentEngine` takes: the runner's deps, and the subharness seam every run goes through. */
-export type EngineDeps = RunnerDeps & { subharness: RunDeps };
+export type EngineDeps = RunnerDeps & { subharness: RunDeps; agentPaths?: AgentPaths };
 
 /** The seconds a task may run when neither it nor the profile says. */
 const FALLBACK_SECONDS = 300;
@@ -424,9 +424,15 @@ const FALLBACK_SECONDS = 300;
  * the subharness is off the task fails with `subharness-off`. A backend brings its own login: a task's `secrets` are
  * not passed on.
  */
-export function createAgentEngine({ subharness, ...deps }: EngineDeps): Runner {
-  const { profile, outDir } = deps;
-  const checkPrompt = (): string => readPromptFile(profile.promptFiles);
+export function createAgentEngine({ subharness, agentPaths, ...deps }: EngineDeps): Runner {
+  const { outDir } = deps;
+  function currentProfile(): Profile {
+    if (!agentPaths) return deps.profile;
+    const profile = profileOf(deps.profile.name, agentPaths);
+    if (!profile) throw new Error('the worker profile is unavailable');
+    return profile;
+  }
+  const checkPrompt = (): string => readPromptFile(currentProfile().promptFiles);
 
   async function run(task: Omit<RunnerTask, 'onProgress'> & { onProgress?: RunnerTask['onProgress'] }) {
     const scope = scopeOf(task.context);
@@ -444,8 +450,10 @@ export function createAgentEngine({ subharness, ...deps }: EngineDeps): Runner {
       return failed('workdir');
     }
     let system: string;
+    let profile: Profile;
     try {
-      system = checkPrompt();
+      profile = currentProfile();
+      system = readPromptFile(profile.promptFiles);
     } catch {
       return failed('no-prompt');
     }

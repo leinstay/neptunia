@@ -10,7 +10,7 @@ The watcher never speaks in her channels, touches her memory or changes her prom
 
 Otherwise a run goes through these steps, and the first one that fails ends it.
 
-1. It reads `prompt.md` from the watcher folder. A missing or blank file is `no-prompt`.
+1. It reads the resolved watcher prompt candidates through `readPromptFile`. An absent personal file or a personal `EACCES` or `EPERM` read falls back to the shared candidate. No usable candidate, a blank selected prompt or any other read error gives `no-prompt` before an agent is called.
 2. It asks the agent once under the profile `watcher` with the brief. A run that fails or exits non-zero is `agent-failed`.
 3. It refuses the answer if a key-looking string is anywhere in it, tasks block included (`secret`).
 4. It cuts the tasks block out of the answer (`bad-tasks` for a block it refuses).
@@ -24,11 +24,11 @@ A run that fails before step 6 files no task, writes no report and leaves `repor
 
 ## The watcher folder
 
-`watcher.dir` (default `.agents/watcher`, relative to the checkout or absolute) holds `prompt.md`, which a person writes, and `reports/`, which the watcher writes. The folder is private to the deployment and never tracked. `reports/` holds `<YYYY-MM-DD>.md` files and the `<YYYY-MM-DD>.failed` markers. Every reader ignores any other name.
+`watcher.dir` (default `.agents/watcher`, relative to the checkout or absolute) holds `reports/`, which the watcher writes. The folder is private to the deployment and never tracked. `reports/` holds `<YYYY-MM-DD>.md` files and the `<YYYY-MM-DD>.failed` markers. Every reader ignores any other name.
 
 ## The brief
 
-`buildBrief` (`src/watcher/brief.ts`) joins the text of `prompt.md`, the line `<day>YYYY-MM-DD</day>` and the last seven reports before that day, oldest first, each inside `<report day="YYYY-MM-DD">`. So the agent sees its own last week. The questions it asks and the form of its answer belong to `prompt.md`, which has to ask for the report and the tasks block described below.
+`buildBrief` (`src/watcher/brief.ts`) joins the selected prompt text, the line `<day>YYYY-MM-DD</day>` and the last seven reports before that day, oldest first, each inside `<report day="YYYY-MM-DD">`. So the agent sees its own last week. Shared definitions and prompts live at `agents/watcher/profile.json` and `agents/watcher/prompt.md`. The command entry resolves persona profile overrides and passes `<dataDir>/agents/watcher/<prompt>` before the shared candidate to `runWatcher`. Each run reads the prompt files afresh. A personal prompt needs no personal profile. Neither the private credentials directory nor `watcher.dir` selects it. Existing reports return before prompt reads. The definition has no model role; backend, model and effort remain the subharness selections.
 
 ## The report
 
@@ -82,6 +82,6 @@ The principal `watcher` is a client of `clients.json` with the board role `watch
 |---|---|---|
 | `watcher.enabled` | `false` | Whether the deployment runs the watcher. Only `true` counts, and while it is off her selfimprovement wake carries no report |
 | `watcher.at` | `00:00` | The time of the daily run, `HH:MM` UTC, rendered into the timer by `neptunia setup` |
-| `watcher.dir` | `.agents/watcher` | The folder of `prompt.md` and `reports/` |
+| `watcher.dir` | `.agents/watcher` | The folder containing `reports/` |
 
 `settings.ts` reads the three settings, `read.ts` finds and reads the reports, `news.ts` gives her wake the newest report, `brief.ts` builds the brief, `report.ts` checks and writes a report, `tasks.ts` splits the answer and files the tasks, and `run.ts` joins them. `bin/markdown.ts` and `bin/report.ts` are the console's side.
