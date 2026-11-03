@@ -121,11 +121,11 @@ async function quietly<TResult>(fn: () => Promise<TResult>): Promise<TResult> {
   }
 }
 
-function run(argv: Untyped, { dir, env = ENV }: Untyped) {
+function run(argv: Untyped, { dir, env = ENV, selectedRoot = tempDir('nep-search-credentials-') }: Untyped) {
   const clock = { t: NOW };
   const f = fakes({ clock });
   // Search credentials live in the prepared persona key store.
-  const dataDir = tempDir('nep-search-credentials-');
+  const dataDir = selectedRoot;
   fs.mkdirSync(dataDir, { recursive: true });
   fs.writeFileSync(path.join(dataDir, 'keys.json'), JSON.stringify({ core: [], extra: {}, roles: {}, services: env }), {
     mode: 0o600,
@@ -369,7 +369,7 @@ test('search-compare: --max-usd stops starting rows; --repeat records each run; 
 
   await assert.rejects(run([file], { dir }).promise, (err) => err instanceof CliError && /--out/.test(err.message));
   await assert.rejects(
-    run([file, '--out', 'data/x'], { dir }).promise,
+    run([file, '--out', 'data/x'], { dir, selectedRoot: path.join(dir, 'data') }).promise,
     (err) => err instanceof CliError && /under data/.test(err.message)
   );
   await assert.rejects(

@@ -93,8 +93,6 @@ function keyOf(name: string | undefined, env: Record<string, string | undefined>
   return value.trim();
 }
 
-/** An env value trimmed, or null when unset or blank. */
-
 /** The `--engines` list: known engines, each once, in the given order. */
 function enginesOf(value: Untyped, known: Untyped) {
   if (value === undefined) return [...DEFAULT_ENGINES];
