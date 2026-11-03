@@ -10,7 +10,7 @@ Run as the service user, from the checkout:
 cd /opt/neptunia/app && sudo -u neptunia-bot node scripts/<tool>.ts ...
 ```
 
-The scripts find files as the bot does: `NEPTUNIA_PRIVATE_DIR` for `.env`, `config.local/` and `prompts.local/`, `NEPTUNIA_DATA_DIR` for `data/` (both default to the checkout). `--data <dir>` overrides the data path.
+The scripts find files as the bot does: `NEPTUNIA_DATA_DIR` names the persona folder, `data/` in the checkout by default. `--data <dir>` overrides the data path.
 
 Every script that sends model requests spends the simulation's key, read from `keys.json` in `NEPTUNIA_PRIVATE_DIR` (`simulation enable --key <name>` in the chat names it). While the simulation is off the script stops with one line and never spends a core key.
 
@@ -60,5 +60,5 @@ Pure helpers live in `scripts/lib/` and are tested by `tests/tools-*.test.js`.
 1. `/nep memory snapshot` in Discord; note the path.
 2. Let the bot run for a day with the change under test.
 3. `node scripts/journal-report.ts --since <day>` for the day's numbers.
-4. `node scripts/replay.ts --pair prompts.local <candidate-dir> --triggers triggers.txt --out /tmp/pair-1` to read the estimate, then again with `--spend <usd>`.
+4. `node scripts/replay.ts --pair data/prompts <candidate-dir> --triggers triggers.txt --out /tmp/pair-1` to read the estimate, then again with `--spend <usd>`.
 5. Score `sheet.html` in a browser, save as `scores.json`, then `node scripts/replay-score.ts /tmp/pair-1/sheet.html /tmp/pair-1/key.json scores.json`.

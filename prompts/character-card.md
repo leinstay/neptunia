@@ -1,6 +1,6 @@
 <!--
   This is the one file you need to rewrite to make the bot yours.
-  Copy it to prompts.local/character-card.md, write in whatever
+  Copy it to data/prompts/character-card.md, write in whatever
   language your character speaks, and keep the section structure.
 -->
 
