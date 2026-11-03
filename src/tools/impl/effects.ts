@@ -70,6 +70,7 @@ export const OP_EFFECTS: Readonly<Record<string, EffectClass>> = Object.freeze({
   'board.status': 'read',
   'skill.read': 'read',
   'skill.disable': 'write',
+  'skill.run': 'write',
   'watcher.read': 'read',
   'web.search': 'read',
   'web.read': 'read',
@@ -112,4 +113,5 @@ export const SELF_OWNED_OPS: ReadonlyArray<string> = Object.freeze([
   // Her skills are her own too (src/tools/impl/skill.ts).
   'skill.read',
   'skill.disable',
+  'skill.run',
 ]);

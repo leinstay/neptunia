@@ -43,13 +43,6 @@
       "test": "none"
     },
     {
-      "path": "skills.local/",
-      "purpose": "A deployment's own skills, one folder with a SKILL.md each; a skill here replaces the tracked skill of the same name.",
-      "layer": "local",
-      "imports": [],
-      "test": "none"
-    },
-    {
       "path": "plugins/",
       "purpose": "The tracked plugins: one folder per plugin with a package.json, a plugin.json, an index.ts, the skills it ships and a README, and the README that says how to write and connect one. A plugin imports only the protocol.",
       "layer": "public",
@@ -212,13 +205,6 @@
     {
       "path": "prompts/",
       "purpose": "The tracked prompt files the model reads.",
-      "layer": "public",
-      "imports": [],
-      "test": "none"
-    },
-    {
-      "path": "skills/",
-      "purpose": "The tracked skills: one folder per skill with a SKILL.md, and the README that says how to write one.",
       "layer": "public",
       "imports": [],
       "test": "none"

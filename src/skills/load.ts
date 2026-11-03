@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseSkillFile } from './format.ts';
+import { packageHash, snapshotPackage } from './package.ts';
 import type { ParsedSkill, SkillFileCode } from './format.ts';
 
 export type LoadedSkill = ParsedSkill & { layer: 'tracked' | 'plugin' | 'local'; dir: string };
@@ -44,16 +45,22 @@ function readLayer(
     const parsed = parseSkillFile(text);
     if (!parsed.ok) problems.push({ dir: entry.name, code: parsed.code });
     else if (parsed.skill.name !== entry.name) problems.push({ dir: entry.name, code: 'name-mismatch' });
-    else skills.push({ ...parsed.skill, layer, dir: entry.name });
+    else {
+      const skillDir = path.join(root, entry.name);
+      const contentHash = packageHash(skillDir, text, parsed.skill.contentHash);
+      if (contentHash !== parsed.skill.contentHash) snapshotPackage(skillDir, text, contentHash);
+      skills.push({ ...parsed.skill, contentHash, layer, dir: entry.name });
+    }
   }
   return { skills, problems };
 }
 
-export function loadSkills(folders: { trackedDir: string; localDir: string; pluginDirs?: ReadonlyArray<string> }): {
+export function loadSkills(folders: { trackedDir?: string; localDir: string; pluginDirs?: ReadonlyArray<string> }): {
   skills: Array<LoadedSkill>;
   problems: Array<SkillProblem>;
 } {
-  const tracked = readLayer(folders.trackedDir, 'tracked');
+  const tracked =
+    folders.trackedDir === undefined ? { skills: [], problems: [] } : readLayer(folders.trackedDir, 'tracked');
   const plugins = (folders.pluginDirs ?? []).map((dir) => readLayer(dir, 'plugin'));
   const local = readLayer(folders.localDir, 'local');
   const byName = new Map<string, LoadedSkill>();

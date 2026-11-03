@@ -241,6 +241,7 @@ export const API_NAMES: Readonly<Record<string, string>> = Object.freeze({
   'board.status': 'board_status',
   'skill.read': 'skill_read',
   'skill.disable': 'skill_disable',
+  'skill.run': 'skill_run',
   'watcher.read': 'watcher_read',
   'intention.set': 'intention_set',
   'intention.update': 'intention_update',
@@ -697,6 +698,11 @@ const ENTRIES: Array<Definition> = [
     body: 'name',
     effects: 'read',
     toArgs: (a) => ({ name: val(a, 'name') }),
+  }),
+  def('skill.run', {
+    params: obj({ name: str(60), script: str(60), args: str(8000) }, ['name', 'script']),
+    effects: 'write',
+    toArgs: (a) => ({ name: val(a, 'name'), script: val(a, 'script'), args: opt(a, 'args') }),
   }),
   def('skill.disable', {
     params: obj({ name: str(60) }, ['name']),
