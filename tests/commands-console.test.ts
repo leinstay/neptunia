@@ -55,6 +55,8 @@ const TABLE = [
   'interface',
   'keys',
   'subharness',
+  // Changed: `/search` holds quick search's targeted settings.
+  'search',
   'simulation',
   'help',
   'clear',

@@ -50,6 +50,21 @@ export const MEMORY_ROLE = 'memory';
 /** The memory role's model while `models.base.memory` is unset: the core's built-in default, as config.json ships it. */
 export const MEMORY_ROLE_DEFAULT = 'anthropic/claude-opus-4.6';
 
+/**
+ * Quick search's own binding target and request role: a key bound to it (`/keys bind search <name>`) leaves the analyzer's
+ * key alone, and unbinding it goes back to the core keys. Its model is the setting `web.search.model`.
+ */
+export const SEARCH_ROLE = 'search';
+
+/** `web.search.model` while the setting is empty: the owner's choice of 2026-11-03. */
+const SEARCH_MODEL_DEFAULT = 'openai/gpt-6.1-sol';
+
+/** The model of quick search and of the scout's web search. */
+export function searchModel(config: unknown): string {
+  const model = objOf(objOf(objOf(config).web).search).model;
+  return typeof model === 'string' && model !== '' ? model : SEARCH_MODEL_DEFAULT;
+}
+
 /** The model roles other than `core` that a turn calls, in display order. */
 export const NON_CORE_ROLES = Object.freeze(['analyzer', 'vision', 'video', 'embedding', 'speech']);
 

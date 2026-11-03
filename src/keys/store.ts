@@ -8,7 +8,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { roleGroup } from '../llm/roles.ts';
+import { SEARCH_ROLE, roleGroup } from '../llm/roles.ts';
 
 export const KEYS_FILE = 'keys.json';
 
@@ -259,7 +259,7 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
     },
     bind(role, name) {
       const content = read();
-      if (roleGroup(role) !== 'base') throw new KeysError('unknown-role');
+      if (roleGroup(role) !== 'base' && role !== SEARCH_ROLE) throw new KeysError('unknown-role');
       if (!Object.hasOwn(content.extra, name)) throw new KeysError('unknown-key');
       content.roles[role] = name;
       write(content);

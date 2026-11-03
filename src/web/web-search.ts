@@ -12,14 +12,14 @@
 // The key is the task's OpenRouter key the runner already gives the OpenCode
 // child (OPENROUTER_API_KEY, the agents' key, never the persona's); the model
 // is the one the runner reads from the live config at each task
-// (webSearchModel: the `analyzer` role for `web-search`, the model of the
+// (webSearchModel: the setting `web.search.model`, the model of the
 // persona's own web.search on the same engine) and passes as NEPTUNIA_WEB_SEARCH_MODEL. A failure prints one
 // `web-search: <code>` line on stderr and a non-zero exit; neither the key nor
 // a response body is ever printed. Pure but for `fetchImpl`.
 
 import { errorFields } from '../error-fields.ts';
 import { objOf } from '../tools/types.ts';
-import { roleModel } from '../llm/roles.ts';
+import { searchModel } from '../llm/roles.ts';
 import { apiUrl, openRouterHeaders } from '../llm/openrouter.ts';
 import { clampText } from '../memory/clamp.ts';
 import { cleanQuery, renderResults, urlCitations, webSearchPlugins } from './lookup.ts';
@@ -41,10 +41,10 @@ const EXIT = Object.freeze({ ok: 0, failed: 1, usage: 2 });
 
 /**
  * The model the scout agent searches with in `config` (the live engine config): the persona's own
- * web.search's, `models.base.analyzer` for the `web-search` purpose (src/llm/roles.ts#roleModel).
+ * web.search's, the setting `web.search.model` (src/llm/roles.ts#searchModel).
  */
 export function webSearchModel(config: unknown): string | undefined {
-  return roleModel(config, 'analyzer', 'web-search');
+  return searchModel(config);
 }
 
 /**

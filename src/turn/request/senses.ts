@@ -212,6 +212,8 @@ export function renderSenses(
   // Her own page reader (granted to her by name): she can open a page herself.
   if (readerOn && senses.readTool) lines.push(senses.readTool);
   if (searchOn && granted('web.search') && senses.searchTool) lines.push(senses.searchTool);
+  // Quick search absent, her scout at hand: a look online goes through an errand, when she decides on one.
+  else if (!searchOn && granted('errand.run') && senses.deepSearchTool) lines.push(senses.deepSearchTool);
   // The search of the server's own message history (`recallAvailable`: a server turn where the runner is
   // available); an older labels.json without the line shows nothing. Per turn.
   if (recallAvailable === true && granted('memory.search') && senses.recallTool) turnLines.push(senses.recallTool);

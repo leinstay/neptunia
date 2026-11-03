@@ -35,6 +35,7 @@ function hotFixture() {
       web: {
         maxPerDay: 0,
         search: {
+          model: 'test/search',
           engine: 'brave',
           fallback: ['exa'],
           results: 5,
@@ -264,8 +265,9 @@ test('search-compare: two queries x three engines -> results, summary, blind she
   assert.equal(asRecord(calls.brave[0]).options.timeoutMs, 7000);
   assert.equal(asRecord(calls.exa[0]).options.apiKey, null);
   const summaryCall = asRecord(calls.llm[0]).options;
-  assert.equal(summaryCall.model, 'test/analyzer');
-  assert.equal(summaryCall.role, 'analyzer');
+  // Changed: quick search has its own model setting, apart from the analyzer.
+  assert.equal(summaryCall.model, 'test/search');
+  assert.equal(summaryCall.role, 'search');
   assert.equal(summaryCall.purpose, 'search-summary');
   assert.equal(summaryCall.origin, 'search-compare');
   assert.equal(summaryCall.countAgainstDailyCap, false);
