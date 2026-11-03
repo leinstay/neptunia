@@ -10,7 +10,6 @@ import {
   createOffPeriodsReader,
   offPeriods,
   triggerLinksOf,
-  toolsHashOf,
 } from '../src/memory/journal.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { openTestMemory, openTestMemorySync } from './fixtures/memory-db/service.ts';
@@ -136,8 +135,7 @@ test('journal: start allots a turnId and writes turn.start to the day of occurre
   assert.equal(second.attemptId, 2);
 });
 
-// PR 7d: `journal.thinkChars` is the constant 4000, so the think is longer than that.
-test('journal: turn record carries the envelope and caps think at thinkChars', async () => {
+test('journal: turn record carries the envelope and its think', async () => {
   const clock = { ms: DAY_D };
   const { journal, appendStore } = journalAt(clock);
   await journal.turn('g1', {
@@ -170,15 +168,25 @@ test('journal: turn record carries the envelope and caps think at thinkChars', a
   assert.equal(record.id, 'u-1');
   assert.deepEqual(record.scope, { channel: 'c1' });
   assert.deepEqual(record.participants, ['u1', 'u2']);
-  assert.ok(Array.from(record.think).length <= 4000, record.think);
+  // The owner's decision of 2026-11-02 keeps the whole think, so the former cap and its mark are gone.
   assert.ok(record.think.length > 0);
-  assert.equal(record.thinkTruncated, true);
+  assert.equal('thinkTruncated' in record, false);
   assert.deepEqual(record.posted, [{ messageId: 's1', replyTo: 'm2' }]);
 
   await journal.turn('g1', { turnId: 't-2', attemptId: 1, channelId: 'c1', outcome: 'skip', think: 'κοντό' });
   const short = records(appendStore)[1].record;
   assert.equal(short.think, 'κοντό');
   assert.equal('thinkTruncated' in short, false);
+});
+
+test('journal: a think over the former limit is stored whole', async () => {
+  // Bug: a think over 4000 characters lost its tail, so her diary and her replay read a cut thought.
+  const { journal, appendStore } = journalAt({ ms: DAY_D });
+  const think = 'a'.repeat(9000);
+  await journal.turn('g1', { turnId: 't-1', attemptId: 1, channelId: 'c1', outcome: 'spoke', reason: null, think });
+  const [{ record }] = records(appendStore);
+  assert.equal(record.think, think);
+  assert.equal('thinkTruncated' in record, false);
 });
 
 test('journal: a private turn goes to the private day file, never the guild file', async () => {
@@ -918,216 +926,6 @@ test('journalLine: one short line per kind', async () => {
   );
 });
 
-/** An in-memory `fs/promises` stand-in: files by path, directories derived from them. */
-function memoryFs() {
-  const files = new Map();
-  const dirNames = (dir: string) => {
-    const prefix = dir.endsWith(path.sep) ? dir : dir + path.sep;
-    const names = new Set();
-    for (const file of files.keys())
-      if (file.startsWith(prefix)) names.add(file.slice(prefix.length).split(path.sep)[0]);
-    return [...names];
-  };
-  return {
-    files,
-    mkdir: async () => {},
-    writeFile: async (file: string, text: string) => {
-      files.set(file, String(text));
-    },
-    rename: async (from: string, to: Array<Record<string, Untyped>>) => {
-      files.set(to, files.get(from));
-      files.delete(from);
-    },
-    readdir: async (dir: string) => {
-      const names = dirNames(dir);
-      if (names.length === 0) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
-      return names;
-    },
-    rm: async (target: string) => {
-      for (const file of [...files.keys()])
-        if (file === target || file.startsWith(target + path.sep)) files.delete(file);
-    },
-  };
-}
-
-function dumpJournal({ keepRequests = 3 }: { keepRequests?: number } = {}, ms = DAY_D) {
-  const fs = memoryFs();
-  const journal = createJournal(
-    wrongly({
-      appendStore: fakeAppendStore(),
-      dataDir: DATA,
-      config: () => ({ thinkChars: 4000, keepRequests }),
-      now: () => ms,
-      uuid: counter('u-'),
-      fs,
-    })
-  );
-  return { journal, fs };
-}
-
-const REQUESTS = path.join(DATA, 'guilds', 'g1', 'journal', 'requests');
-
-test('journal: dumpRequest writes <day>/<turnId>-<attempt>.json with the request parts and the raw answer', async () => {
-  const { journal, fs } = dumpJournal();
-  const dataUrl = `data:image/png;base64,${'QUJD'.repeat(10)}`;
-  await journal.dumpRequest('g1', {
-    turnId: 't-1',
-    attemptId: 2,
-    request: {
-      messages: [
-        { role: 'system', content: 'sys text' },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: 'chat' },
-            { type: 'image_url', image_url: { url: dataUrl } },
-            { type: 'text', text: 'task' },
-          ],
-        },
-      ],
-    },
-    raw: '<msg>γεια</msg>',
-    usage: { prompt: 10, cached: 4, completion: 2 },
-  });
-  const file = path.join(REQUESTS, '2026-10-13', 't-1-2.json');
-  assert.deepEqual([...fs.files.keys()], [file]);
-  const dump = JSON.parse(fs.files.get(file));
-  assert.equal(dump.v, 1);
-  assert.equal(dump.turnId, 't-1');
-  assert.equal(dump.attemptId, 2);
-  assert.equal(dump.recordedAt, new Date(DAY_D).toISOString());
-  assert.equal(dump.system, 'sys text');
-  assert.equal(dump.raw, '<msg>γεια</msg>');
-  assert.deepEqual(dump.usage, { prompt: 10, cached: 4, completion: 2 });
-  assert.deepEqual(dump.parts, [
-    { type: 'text', text: 'chat' },
-    { image: 'attachment', bytes: 30 },
-    { type: 'text', text: 'task' },
-  ]);
-  assert.ok(!fs.files.get(file).includes('data:'));
-
-  // A private turn lands under the partner's private journal directory.
-  await journal.dumpRequest('g1', {
-    turnId: 't-2',
-    attemptId: 1,
-    request: { system: 's', parts: [{ type: 'text', text: 'x' }] },
-    raw: '',
-    usage: null,
-    privateUserId: 'u9',
-  });
-  assert.ok(
-    fs.files.has(path.join(DATA, 'guilds', 'g1', 'private', 'u9', 'journal', 'requests', '2026-10-13', 't-2-1.json'))
-  );
-});
-
-test('journal: dumpRequest of a tool-loop step writes <turnId>-<attempt>-s<step>.json beside the base dump, same shape', async () => {
-  const { journal, fs } = dumpJournal();
-  const request = {
-    messages: [
-      { role: 'system', content: 'sys' },
-      { role: 'user', content: 'chat <result>ok</result> task' },
-    ],
-  };
-  await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, request, raw: 'base', usage: null });
-  await journal.dumpRequest('g1', {
-    turnId: 't-1',
-    attemptId: 1,
-    step: 2,
-    request,
-    raw: '<msg>δεύτερο</msg>',
-    usage: { prompt: 5, completion: 1 },
-  });
-  const base = path.join(REQUESTS, '2026-10-13', 't-1-1.json');
-  const step = path.join(REQUESTS, '2026-10-13', 't-1-1-s2.json');
-  assert.deepEqual([...fs.files.keys()].sort(), [base, step].sort());
-  const dump = JSON.parse(fs.files.get(step));
-  assert.deepEqual(Object.keys(dump), [
-    'v',
-    'turnId',
-    'attemptId',
-    'step',
-    'recordedAt',
-    'system',
-    'parts',
-    'raw',
-    'usage',
-  ]);
-  assert.equal(dump.step, 2);
-  assert.equal(dump.system, 'sys');
-  assert.deepEqual(dump.parts, [{ type: 'text', text: 'chat <result>ok</result> task' }]);
-  assert.equal(dump.raw, '<msg>δεύτερο</msg>');
-  assert.ok(!('step' in JSON.parse(fs.files.get(base))), 'the base dump has no step');
-});
-
-test('journal: dumpRequest stores the later messages with their tool calls, pictures reduced; absent when there are none', async () => {
-  const { journal, fs } = dumpJournal();
-  const request = {
-    messages: [
-      { role: 'system', content: 'sys' },
-      { role: 'user', content: 'chat' },
-    ],
-  };
-  const dataUrl = `data:image/png;base64,${'QUJD'.repeat(10)}`;
-  const toolCalls = [{ id: 'call_1', type: 'function', function: { name: 'search_web', arguments: '{"q":"γάτα"}' } }];
-  const later = [
-    { role: 'assistant', content: '<think>x</think>', tool_calls: toolCalls },
-    { role: 'tool', tool_call_id: 'call_1', content: '{"status":"ok"}' },
-    {
-      role: 'user',
-      content: [
-        { type: 'text', text: 'note' },
-        { type: 'image_url', image_url: { url: dataUrl } },
-      ],
-    },
-  ];
-  await journal.dumpRequest('g1', { turnId: 't-1', attemptId: 1, step: 1, request, raw: 'r', later });
-  await journal.dumpRequest('g1', { turnId: 't-2', attemptId: 1, request, raw: 'r', later: [] });
-  const dump = JSON.parse(fs.files.get(path.join(REQUESTS, '2026-10-13', 't-1-1-s1.json')));
-  assert.deepEqual(dump.later[0], later[0]);
-  assert.deepEqual(dump.later[1], later[1]);
-  assert.deepEqual(dump.later[2], {
-    role: 'user',
-    content: [
-      { type: 'text', text: 'note' },
-      { image: 'attachment', bytes: 30 },
-    ],
-  });
-  assert.ok(!JSON.stringify(dump).includes('data:'));
-  assert.equal('later' in JSON.parse(fs.files.get(path.join(REQUESTS, '2026-10-13', 't-2-1.json'))), false);
-});
-
-test('journal: pruneRequests deletes days older than keepRequests and keeps the rest', async () => {
-  const { journal, fs } = dumpJournal({ keepRequests: 3 });
-  for (const day of ['2026-10-08', '2026-10-09', '2026-10-10', '2026-10-12', '2026-10-13'])
-    fs.files.set(path.join(REQUESTS, day, 't-1.json'), '{}');
-  fs.files.set(path.join(DATA, 'guilds', 'g1', 'private', 'u9', 'journal', 'requests', '2026-10-01', 't-1.json'), '{}');
-  fs.files.set(path.join(REQUESTS, 'notes'), 'not a day');
-  const result = await journal.pruneRequests('g1');
-  assert.deepEqual(result, { removed: 3 });
-  const left = [...fs.files.keys()].map((file) => path.relative(DATA, file)).sort();
-  assert.deepEqual(left, [
-    path.join('guilds', 'g1', 'journal', 'requests', '2026-10-10', 't-1.json'),
-    path.join('guilds', 'g1', 'journal', 'requests', '2026-10-12', 't-1.json'),
-    path.join('guilds', 'g1', 'journal', 'requests', '2026-10-13', 't-1.json'),
-    path.join('guilds', 'g1', 'journal', 'requests', 'notes'),
-  ]);
-});
-
-test('journal: keepRequests 0 writes nothing', async () => {
-  const { journal, fs } = dumpJournal({ keepRequests: 0 });
-  await journal.dumpRequest('g1', {
-    turnId: 't-1',
-    attemptId: 1,
-    request: { system: 's', parts: [] },
-    raw: 'x',
-    usage: null,
-  });
-  assert.equal(fs.files.size, 0);
-  fs.files.set(path.join(REQUESTS, '2000-01-01', 't.json'), '{}');
-  assert.deepEqual(await journal.pruneRequests('g1'), { removed: 0 });
-  assert.equal(fs.files.size, 1);
-});
-
 test('journal: withWriterLock flushes the store first and holds appends until fn resolves', async () => {
   const clock = { ms: DAY_D };
   const { journal, appendStore }: Record<string, Untyped> = journalAt(clock);
@@ -1335,61 +1133,4 @@ test('journal: turnOperations gives the operations of one turn with how each end
   );
   assert.deepEqual(await journal.turnOperations('g1', { turnId: 't-9', days: ['2026-10-13'] }), []);
   assert.deepEqual(await journal.turnOperations('g1', { turnId: wrongly(null), days: ['2026-10-13'] }), []);
-});
-
-test("journal: dumpRequest of a request with tools stores the array once by hash, the choice and the answer's tool calls", async () => {
-  const { journal, fs } = dumpJournal();
-  const tools = [
-    {
-      type: 'function',
-      function: { name: 'draw_create', description: 'd', parameters: { type: 'object', properties: {} } },
-    },
-  ];
-  const request = { system: 's', parts: [{ type: 'text', text: 'x' }] };
-  const toolCalls = [{ id: 'c1', name: 'draw_create', arguments: '{}', parsed: {}, parseError: null }];
-  await journal.dumpRequest('g1', {
-    turnId: 't-1',
-    attemptId: 1,
-    request,
-    raw: 'r',
-    usage: null,
-    tools,
-    toolChoice: 'auto',
-    toolCalls,
-  });
-  await journal.dumpRequest('g1', {
-    turnId: 't-1',
-    attemptId: 1,
-    step: 2,
-    request,
-    raw: 'r',
-    usage: null,
-    tools,
-    toolChoice: 'auto',
-  });
-  const hash = toolsHashOf(tools);
-  const copy = path.join(REQUESTS, 'tools', `${hash}.json`);
-  assert.deepEqual(JSON.parse(fs.files.get(copy)), tools);
-  assert.equal([...fs.files.keys()].filter((f) => f.includes(`${path.sep}tools${path.sep}`)).length, 1);
-  const dump = JSON.parse(fs.files.get(path.join(REQUESTS, '2026-10-13', 't-1-1.json')));
-  assert.equal(dump.tools, hash);
-  assert.equal(dump.toolChoice, 'auto');
-  assert.deepEqual(dump.toolCalls, toolCalls);
-  const step = JSON.parse(fs.files.get(path.join(REQUESTS, '2026-10-13', 't-1-1-s2.json')));
-  assert.equal(step.tools, hash);
-  assert.equal('toolCalls' in step, false);
-});
-
-test('journal: dumpRequest without tools has no tool fields and writes no tools copy', async () => {
-  const { journal, fs } = dumpJournal();
-  await journal.dumpRequest('g1', {
-    turnId: 't-1',
-    attemptId: 1,
-    request: { system: 's', parts: [] },
-    raw: 'r',
-    usage: null,
-  });
-  const dump = JSON.parse(fs.files.get(path.join(REQUESTS, '2026-10-13', 't-1-1.json')));
-  assert.deepEqual(Object.keys(dump), ['v', 'turnId', 'attemptId', 'recordedAt', 'system', 'parts', 'raw', 'usage']);
-  assert.equal(fs.files.size, 1);
 });

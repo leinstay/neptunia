@@ -365,7 +365,6 @@ const CONSTANTS: Readonly<Record<string, unknown>> = {
   'wakes.attention.placesInWake': 8,
   'wakes.attention.lookbackHours': 24,
   'appendStore.fsyncMs': 500,
-  'journal.thinkChars': 4000,
   'journal.offWindowHours': 24,
 };
 
@@ -477,6 +476,10 @@ const GONE: Readonly<Record<string, unknown>> = {
   'spontaneous.minGapMinutes': 12,
   'spontaneous.maxChannelSilenceHours': 6,
   'spontaneous.someoneAroundMinutes': 120,
+  // The journal's request dumps went to the `model_requests` table (src/llm/archive.ts), and the journal stores her
+  // whole think.
+  'journal.keepRequests': 3,
+  'journal.thinkChars': 4000,
 };
 
 /** The daily caps of plan section 4.5, gone with their counters. */

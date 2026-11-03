@@ -441,9 +441,6 @@
   "appendStore": {
     "retryMax": 1000
   },
-  "journal": {
-    "keepRequests": 3
-  },
   "archive": {
     "drainMs": 30000,
     "holdMaxMs": 5000

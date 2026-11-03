@@ -54,7 +54,7 @@ export async function responsePhase(
   prepared: Prepared
 ): Promise<Ended | Answered> {
   const { hot, store, llm, calibrator, clock, skills, pullViews } = ctx;
-  const { dumpTurnRequest, emojiLookup, resolveGif, noteThink, markPulledSeen, stampShownCalls, journalOn } = ctx;
+  const { emojiLookup, resolveGif, noteThink, markPulledSeen, stampShownCalls, journalOn } = ctx;
   const { trigger = null, triggerKind = null, source = null } = params;
   const { opened, setup, pulled: pulledStep, waited, gathered, request } = prepared;
   const { channel, guildId, isPrivate, settledMs, life } = opened;
@@ -67,7 +67,7 @@ export async function responsePhase(
   const messages = request.messages;
 
   let completion: Completion;
-  // What the client was given, for the journal's request dump.
+  // What the client was given: the tool round continues from it.
   const sentMessages = messages;
   // Her tools travel as the request's `tools` on the native transport (the text transport described them in `<tools>`).
   const toolsSent =
@@ -99,9 +99,6 @@ export async function responsePhase(
   // The answer is in hand: the bar is met, and the typing imitation below (never shortened) takes over.
   bar.close();
   life.stopTyping();
-
-  // The journal's request dump (journal.keepRequests): the request as sent and the raw answer.
-  dumpTurnRequest(guildId, draft, sentMessages, completion, null, toolsSent);
 
   // The model's output as it is acted on: the feature switches drop parts of it first. The same
   // for the answer to every request after her calls.
@@ -184,7 +181,7 @@ export async function responsePhase(
     parsed.loweredCalls.length === 0;
   // Nothing to post and nothing to call: silence (her calls run all the same when she wrote any).
   const silent = (parsed.skip || nothingToDo) && first.calls.length === 0;
-  // The journal keeps the think (journal.thinkChars); the log then carries its length only.
+  // The journal keeps the think; the log then carries its length only.
   if (draft.started) {
     draft.think = parsed.think;
     draft.usage = journalUsage(completion);

@@ -32,7 +32,6 @@ import type { Act, ActArgs, ActOutcome, HeldSpeech, HoldArgs } from './act.ts';
 import { CALL_STATUS_NAMES, callTextOf, defaultSkills, ifaceOption, searchHandles, speechItemsOf } from './calls.ts';
 import type { CallEnvelope, SearchRefs } from './calls.ts';
 import { cutOffOf, untoldDiagnostics } from './journal.ts';
-import type { JournalNotes } from './journal-notes.ts';
 import { snapshotOfDraft } from './routing.ts';
 import {
   INNER_TERMINAL_SKILLS,
@@ -104,7 +103,6 @@ export type ToolRoundContext = {
   typingWhileCalls: Typing['typingWhileCalls'];
   holdSpeech: Act['holdSpeech'];
   act: Act['act'];
-  dumpTurnRequest: JournalNotes['dumpTurnRequest'];
 };
 
 /** A line of a turn's history, as the steps number and keep it. */
@@ -256,7 +254,6 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     typingWhileCalls,
     holdSpeech,
     act,
-    dumpTurnRequest,
   } = ctx;
 
   /**
@@ -773,15 +770,6 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       draft.steps = step;
       // The delta's lines went out in that request: she saw them (noteSpokeSaw).
       (draft.loopSeen ??= []).push(...delta.lines);
-      dumpTurnRequest(
-        guildId,
-        draft,
-        sent.slice(0, 2),
-        completion,
-        step,
-        'tools' in tools ? tools : null,
-        sent.slice(2)
-      );
       // The answer completed with the note on: what the parser said is told, and the results are read.
       for (const diagnostic of draft.diagnostics ?? []) diagnostic.told = true;
       for (const action of ranActions) action.presented = true;

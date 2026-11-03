@@ -13,7 +13,7 @@ import { log } from '../log.ts';
 import { toRecordLine } from '../memory/record.ts';
 import { outcomeDetail } from '../tools/executors.ts';
 import { CALL_MARKS_MAX, POSTED_FROM_MAX, TRIGGER_LINKS_MAX } from './calls.ts';
-import { FAILED_TURN_KEEP_MS, NO_OP, journalTurnRecord, journalUsage } from './journal.ts';
+import { FAILED_TURN_KEEP_MS, NO_OP, journalTurnRecord } from './journal.ts';
 import type { JournalDraft, JournalOp } from './journal.ts';
 import { inCommunity } from './routing.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
@@ -29,7 +29,6 @@ const PREVIOUS_THINK_MINUTES = 30;
 
 /** The journal (src/memory/journal.ts#createJournal) as far as the notes use it. */
 export type NotesJournal = {
-  dumpRequest?: (guildId: string, dump: Record<string, unknown>) => unknown;
   turn: (guildId: string, record: Record<string, unknown>) => unknown;
   op?: (guildId: string | undefined, fields: Record<string, unknown>) => JournalOp;
 };
@@ -90,12 +89,6 @@ export type NotesDraft = TurnIds & {
   finalThink?: unknown;
   actions?: Array<unknown>;
 };
-
-/** A completion as the request dump keeps it. */
-type DumpCompletion = NonNullable<Parameters<typeof journalUsage>[0]> & { text?: unknown; toolCalls?: unknown };
-
-/** What a request carried besides messages, when it had tools. */
-type DumpSent = { tools?: unknown; toolChoice?: unknown } | null;
 
 /** A channel the notes name: its id and the community it is in, when one. */
 type NotesChannel = { id: string; communityId?: string | null };
@@ -172,15 +165,6 @@ export type JournalNotes = {
     options: { channel: NotesChannel; snapshot?: Snapshot | null; guildId: string | null; extra?: unknown }
   ) => Array<object>;
   journalOn: () => boolean;
-  dumpTurnRequest: (
-    guildId: string,
-    draft: (NotesDraft & { started?: { turnId: string; attemptId: string } | null }) | null | undefined,
-    messages: unknown,
-    completion: DumpCompletion,
-    step?: number | null,
-    sent?: DumpSent,
-    later?: unknown
-  ) => void;
   offPeriodsFor: (guildId: string) => Promise<unknown>;
   writeTurnRecords: (
     attempts: Iterable<{ draft: JournalDraft & { guildId: string }; result: Parameters<typeof journalTurnRecord>[1] }>
@@ -443,52 +427,6 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   }
 
   /**
-   * The journal's request dump (journal.keepRequests) of one request of the turn: the message
-   * list as sent and the raw answer; `step` (1, 2, ...) for a request after a call (the
-   * follow-up, the tool loop's steps), none for the reply's own. Fire-and-forget, only for a
-   * started turn with the journal on; a failure is logged with a count of one, never the contents.
-   * `sent` (`{ tools, toolChoice }`) is what the request carried besides messages, when it had tools.
-   * `later` (the messages after the first two, when the turn's steps appended any) is stored with the dump.
-   */
-  function dumpTurnRequest(
-    guildId: string,
-    draft: (NotesDraft & { started?: { turnId: string; attemptId: string } | null }) | null | undefined,
-    messages: unknown,
-    completion: DumpCompletion,
-    step: number | null = null,
-    sent: DumpSent = null,
-    later: unknown = null
-  ): void {
-    if (!draft?.started || !journalOn() || typeof journal?.dumpRequest !== 'function') return;
-    const started = draft.started;
-    const target = journal;
-    Promise.resolve()
-      .then(() =>
-        // The check above found dumpRequest on this journal.
-        target.dumpRequest!(guildId, {
-          turnId: started.turnId,
-          attemptId: started.attemptId,
-          ...(step !== null ? { step } : {}),
-          request: { messages },
-          raw: completion.text,
-          usage: journalUsage(completion),
-          privateUserId: draft.privateUserId ?? null,
-          // A request that carried tools: the definitions and the choice sent, the answer's calls.
-          ...(Array.isArray(sent?.tools) && sent.tools.length > 0
-            ? { tools: sent.tools, toolChoice: sent.toolChoice ?? 'auto' }
-            : {}),
-          ...(Array.isArray(completion.toolCalls) && completion.toolCalls.length > 0
-            ? { toolCalls: completion.toolCalls }
-            : {}),
-          ...(Array.isArray(later) && later.length > 0 ? { later } : {}),
-        })
-      )
-      .catch((error: unknown) =>
-        log.warn('journal: dump failed', { code: codeOf(error), failed: 1, ...(step !== null ? { step } : {}) })
-      );
-  }
-
-  /**
    * The off periods `<now>` shows (src/memory/journal.ts#offPeriods): read only with the journal
    * on and features.offPeriods on (a missing key counts as on), over the last
    * `DEFAULT_OFF_WINDOW_HOURS` hours of src/memory/journal.ts, all read now; null otherwise. Never throws.
@@ -645,7 +583,6 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     seedCallMarks,
     linkCalls,
     journalOn,
-    dumpTurnRequest,
     offPeriodsFor,
     writeTurnRecords,
     recordSaid,

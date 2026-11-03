@@ -40,7 +40,6 @@ import { INTENTIONS } from './schema/intentions.ts';
 import { WAKES } from './schema/wakes.ts';
 import { HEARTBEAT } from './schema/heartbeat.ts';
 import { APPEND_STORE } from './schema/append-store.ts';
-import { JOURNAL } from './schema/journal.ts';
 import { ARCHIVE } from './schema/archive.ts';
 
 export type ConfigType = 'boolean' | 'number' | 'string' | 'array' | 'null' | 'map';
@@ -94,7 +93,6 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...WAKES,
   ...HEARTBEAT,
   ...APPEND_STORE,
-  ...JOURNAL,
   ...ARCHIVE,
 ];
 

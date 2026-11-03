@@ -407,7 +407,6 @@ export function createTurnRunner({
     seedCallMarks,
     linkCalls,
     journalOn,
-    dumpTurnRequest,
     offPeriodsFor,
     writeTurnRecords,
     recordSaid,
@@ -561,7 +560,6 @@ export function createTurnRunner({
     typingWhileCalls,
     holdSpeech,
     act,
-    dumpTurnRequest,
   });
   const { inTurnTools } = createInTurnTools({
     hot,
@@ -633,7 +631,6 @@ export function createTurnRunner({
     linkCalls,
     earlierThinkFor,
     journalOn,
-    dumpTurnRequest,
     offPeriodsFor,
     journalOp,
     prepareDiary,
