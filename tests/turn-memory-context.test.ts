@@ -1,3 +1,4 @@
+// Public turn context, split-chain merging and private journal boundaries.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.ts';
@@ -13,7 +14,23 @@ import {
   normalizedTrigger,
   rawMessage,
 } from './fixtures/turn-kit.ts';
-import { SPLIT_TEXT, splitLlm, splitHot, manualSchedule, runSplitTurn } from './fixtures/turn-split.ts';
+import { createMerge } from '../src/pipeline/merge.ts';
+import { createPendingQueue } from '../src/pipeline/pending-queue.ts';
+import type { PendingQueue, PipelineTurns, Line } from '../src/pipeline/types.ts';
+import { channelInfo } from './fixtures/core-over-fake.ts';
+import { labels } from './fixtures/labels.ts';
+import { createJournal } from '../src/memory/journal.ts';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
+import {
+  SPLIT_TEXT,
+  SPLIT_PARTS,
+  PARTS_ANSWER,
+  taskOf,
+  splitLlm,
+  splitHot,
+  manualSchedule,
+  runSplitTurn,
+} from './fixtures/turn-split.ts';
 
 const DISCORD = createDiscordInterface().capabilities;
 
@@ -84,4 +101,200 @@ test('an internal split chain exposes no waiting part for an ordinary follow-up 
   assert.deepEqual(waiting, [[]]);
   assert.deepEqual(folded, [false]);
   assert.ok(llm.calls.talk.every((request) => !JSON.stringify(request.messages).includes('untrusted-followup-marker')));
+});
+
+for (const replacement of ['author', 'shorter'] as const) {
+  test(`a delayed merge queues its message when a replacement chain has ${replacement === 'author' ? 'a different author' : 'fewer parts'}`, async () => {
+    const decision = Promise.withResolvers<{ text: string }>();
+    const pending: PendingQueue = { list: [] };
+    const incoming: Line = {
+      id: 'late-followup',
+      channelId: 'c1',
+      authorId: 'u1',
+      authorName: 'Member',
+      content: 'delayed-followup-evidence',
+      ts: NOW,
+      replyToId: null,
+      mentionedUserIds: [],
+    };
+    const mergeChannel = channelInfo('c1');
+    const llm = splitLlm({
+      split: (index) =>
+        index === 1 && replacement === 'shorter'
+          ? SPLIT_PARTS.slice(0, 2)
+              .map((part) => `- ${part}`)
+              .join('\n')
+          : PARTS_ANSWER,
+      talk: async (index) => {
+        if (index === 0) merge.holdCall(mergeChannel, incoming, 'mention');
+        if (index === 3) {
+          decision.resolve({ text: replacement === 'shorter' ? '2' : '1' });
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+        return '<msg>part complete</msg>';
+      },
+    });
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot: splitHot(),
+      store: fakeStore(),
+      llm,
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+      lookup: fakeLookup(),
+      now: () => NOW,
+      schedule: manualSchedule(),
+    });
+    const pipelineTurns: PipelineTurns = {
+      isBusy: () => true,
+      isAnyBusy: () => true,
+      runTurn: () => Promise.resolve({ outcome: 'busy' }),
+      notePost() {},
+      waitingParts: turns.waitingParts,
+      addToPart: turns.addToPart,
+    };
+    const hot = {
+      config: {
+        bot: { timezone: 'UTC' },
+        mention: { neverIgnore: [], repeatWindowMinutes: 0, maxPending: 10 },
+        models: { base: { analyzer: 'test/analyzer' } },
+        llm: { maxRequestTokens: 50000, maxRequestsPerDay: 100, timeoutMs: 1000 },
+      },
+      prompts: { labels, merge: 'Choose an item or new. {{items}} {{message}}' },
+    };
+    const queue = createPendingQueue({
+      hot,
+      now: () => NOW,
+      turns: pipelineTurns,
+      missed: null,
+      pending,
+      followUpMuted: () => null,
+    });
+    const merge = createMerge({
+      hot,
+      now: () => NOW,
+      turns: pipelineTurns,
+      store: { state: { data: {} } },
+      pending,
+      llm: { complete: () => decision.promise },
+      tagHistory: { hit: () => 1 },
+      getGuildId: () => 'g1',
+      getSelfName: () => 'Persona',
+      itemText: queue.itemText,
+      enqueuePending: queue.enqueuePending,
+      turnBlocked: () => true,
+      drainPending: async () => {},
+    });
+    const first = rawMessage({ id: 'first-chain', content: SPLIT_TEXT, ts: NOW - 1000 });
+    const second = rawMessage({
+      id: 'replacement-chain',
+      content: SPLIT_TEXT,
+      ts: NOW,
+      authorId: replacement === 'author' ? 'u2' : 'u1',
+    });
+    const channel = fakeTurnChannel({ historyMessages: [first, second] });
+    await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(first), triggerKind: 'mention' });
+    await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(second), triggerKind: 'mention' });
+    assert.equal(llm.calls.talk.length, replacement === 'shorter' ? 5 : 6);
+    assert.deepEqual(
+      pending.list.map((ping) => ping.trigger.id),
+      ['late-followup']
+    );
+    assert.equal(
+      llm.calls.talk.some((request) => taskOf(request).includes(incoming.content)),
+      false
+    );
+  });
+}
+
+test('a follow-up folded into the last waiting part appears only in that part', async () => {
+  const accepted: Array<boolean> = [];
+  const llm = splitLlm({
+    talk: (index) => {
+      if (index === 0)
+        accepted.push(turns.addToPart('c1', 'u1', 3, { id: 'last-followup', text: 'last-part-evidence', ts: NOW }));
+      return '<msg>part complete</msg>';
+    },
+  });
+  const turns = createTurnRunner({
+    discord: DISCORD,
+    createPort: createDiscordAdapter,
+    hot: splitHot(),
+    store: fakeStore(),
+    llm,
+    calibrator: identityCalibrator(),
+    client: fakeClient(),
+    lookup: fakeLookup(),
+    now: () => NOW,
+    schedule: manualSchedule(),
+  });
+  const raw = rawMessage({ id: 'last-part-chain', content: SPLIT_TEXT, ts: NOW - 1000 });
+  const channel = fakeTurnChannel({ historyMessages: [raw] });
+  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
+  assert.deepEqual(accepted, [true]);
+  assert.deepEqual(
+    llm.calls.talk.map((request) => taskOf(request).includes('last-part-evidence')),
+    [false, false, true]
+  );
+});
+
+test('a triggerless private inner turn writes its completed turn only to its partner journal', async () => {
+  const memory = await openTestMemory({ now: () => NOW });
+  try {
+    let id = 0;
+    const journal = createJournal({
+      memoryDb: memory.memoryDb,
+      dataDir: memory.dataDir,
+      config: () => ({ thinkChars: 4000 }),
+      now: () => NOW,
+      uuid: () => `private-turn-${++id}`,
+    });
+    const hot = splitHot();
+    hot.prompts.inner = 'Respond to the private wake.';
+    const llm = splitLlm({ talk: '<msg>private inner answer</msg>' });
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot,
+      store: fakeStore(),
+      llm,
+      journal,
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+      lookup: fakeLookup(),
+      now: () => NOW,
+      schedule: manualSchedule(),
+    });
+    const channel = fakeTurnChannel({ id: 'private-room', dm: true, partnerId: 'u1' });
+    const result = await turns.runTurn({
+      channel,
+      guildId: 'g1',
+      mode: 'inner',
+      triggerKind: 'inner',
+      inner: {
+        wake: {
+          kind: 'intention_due',
+          items: [],
+          intentions: [],
+          now: NOW,
+          timezone: 'UTC',
+          channels: [],
+          budgets: { chain: { used: 0, cap: 3, left: 3 } },
+        },
+        shadow: false,
+        mayAct: () => true,
+      },
+    });
+    assert.equal(result.outcome, 'spoke');
+    const day = new Date(NOW).toISOString().slice(0, 10);
+    const privateTurns = await journal.read('g1', { day, kind: 'turn', privateUserId: 'u1' });
+    const groupTurns = await journal.read('g1', { day, kind: 'turn' });
+    assert.equal(groupTurns.length, 0);
+    assert.equal(privateTurns.length, 1);
+    assert.equal(privateTurns[0].mode, 'inner');
+    assert.deepEqual(privateTurns[0].scope, { user: 'u1', private: true });
+  } finally {
+    await memory.close();
+  }
 });
