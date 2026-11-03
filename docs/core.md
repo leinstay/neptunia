@@ -8,6 +8,8 @@ How the engine processes one event from start to finish: the event door, the pip
 
 ## The event door
 
+`createMessageProducers` in `src/behavior/core-message-producers.ts` passes each accepted receipt beside its validated message event. New messages, edits and deletions share this carrier through the pipeline and the normalized writer. Native adapter routes stay separate from storage family keys.
+
 Every event enters through one door (`src/interface/door.ts`). An interface adapter (Discord today) normalizes what the platform delivers into a typed event (defined in `src/protocol/events.ts`): a received message, a reaction, an owner command, a membership change, a voice state change. The core's own events (a scheduler tick, a completed errand, an inner-life wake) enter the same way.
 
 The door validates each event against the protocol's schema and deduplicates by event id. An id that was already handled gets a `duplicate` status and its handler does not run again. An id whose handler threw before a successful observation is not remembered, so redelivery gets another try. Nothing throws out of the door: the answer is always a status with a reason.

@@ -2,8 +2,10 @@
 // and awaited at most `memoryDb.observeTimeoutMs`. createMessageHandler (src/behavior/pipeline.ts) builds it once with
 // createObserve; a new line, an edit and a private message observe through it.
 
+import type { MessageDeletion } from '../memory/db/message-families.ts';
+import type { MessageReceived } from '../protocol/events.ts';
 import { log } from '../log.ts';
-import { observationOf } from '../memory/db/observe-event.ts';
+import { observationOf, deletionOf } from '../memory/db/observe-event.ts';
 import { DEFAULT_KEEP_DAYS, withIngestRow } from '../memory/db/ingest.ts';
 import { objOf } from '../tools/types.ts';
 import type { ObservationCommit } from '../interface/door.ts';
@@ -25,6 +27,7 @@ export type ObserveContext = {
   hot: { readonly config: { readonly memoryDb?: Readonly<Record<string, unknown>> } };
   memoryDb: {
     observe?: (envelope: object, where: ObserveWhere) => Promise<Observed> | Observed;
+    deleteMessage?: (envelope: object, where: ObserveWhere) => Promise<object> | object | null;
     observeMessage?: (envelope: object, where: ObserveWhere) => Promise<object> | object | null;
   } | null;
   selfIdOf: () => string;
@@ -47,8 +50,10 @@ function acceptedObservation({
   memoryDb,
   hot,
   where,
+  deletion = false,
 }: {
-  envelope: () => Envelope | null;
+  envelope: () => Envelope | MessageDeletion | null;
+  deletion?: boolean;
   accepted: AcceptedMessageEvent;
   memoryDb: ObserveContext['memoryDb'];
   hot: ObserveContext['hot'];
@@ -65,10 +70,11 @@ function acceptedObservation({
       mapped.messageId !== accepted.locator.messageId
     )
       return { ok: false, code: 'BAD_NATIVE' };
-    if (!memoryDb?.observeMessage || !mappedEnvelope) return { ok: false, code: 'DB_CLOSED' };
+    const write = deletion ? memoryDb?.deleteMessage : memoryDb?.observeMessage;
+    if (!write || !mappedEnvelope) return { ok: false, code: 'DB_CLOSED' };
     const days = hot.config.memoryDb?.ingestKeepDays;
     const keepDays = typeof days === 'number' && days > 0 ? days : DEFAULT_KEEP_DAYS;
-    const done = objOf(await memoryDb.observeMessage(withIngestRow(mappedEnvelope, row, keepDays), where));
+    const done = objOf(await write(withIngestRow(mappedEnvelope, row, keepDays), where));
     if (done.ok !== true || typeof done.sourceId !== 'string')
       return { ok: false, ...(typeof done.code === 'string' ? { code: done.code } : {}) };
     return {
@@ -79,31 +85,25 @@ function acceptedObservation({
   });
 }
 
-export function createObserve({ hot, memoryDb, selfIdOf, timers }: ObserveContext): { observeLine: ObserveLine } {
-  /**
-   * The live observation path: `event` as an observation of the memory database (see
-   * deps.memoryDb), with `direct` as memory gets it and `where` (`{ guildId, privateUserId }`)
-   * the record the line belongs to: a promise of the observe result (null on a failure or past
-   * `memoryDb.observeTimeoutMs`), which the caller awaits; null without a memory database. Codes only.
-   */
-  function observeLine(
-    event: MessageEvent,
-    direct = false,
-    where: ObserveWhere = null,
-    acceptedEvent?: AcceptedMessageEvent
+export type DeleteLine = (
+  event: MessageReceived,
+  where?: ObserveWhere,
+  acceptedEvent?: AcceptedMessageEvent
+) => Promise<Observed> | null;
+
+export function createObserve({ hot, memoryDb, selfIdOf, timers }: ObserveContext): {
+  observeLine: ObserveLine;
+  deleteLine: DeleteLine;
+} {
+  function writeBeforeDeadline(
+    write: () => object | Promise<object | null> | null | undefined
   ): Promise<Observed> | null {
-    if (!acceptedEvent && (!memoryDb || typeof memoryDb.observe !== 'function')) return null;
     try {
-      const mapEnvelope = (): Envelope | null => observationOf(event, { selfId: selfIdOf() || null, direct });
-      const envelope = acceptedEvent ? null : mapEnvelope();
-      if (!acceptedEvent && !envelope) return null;
-      const write = acceptedEvent
-        ? acceptedObservation({ envelope: mapEnvelope, accepted: acceptedEvent, memoryDb, hot, where })
-        : memoryDb?.observe?.(envelope ?? {}, where);
-      const sent = Promise.resolve(write)
+      const sent = Promise.resolve(write())
         .then((done) => {
           // src/log.ts has no debug level, so this optional call writes nothing.
-          if (done && done.ok === false) (log as DebugLog).debug?.('events: observe refused', { code: done.code });
+          const result = objOf(done);
+          if (result.ok === false) (log as DebugLog).debug?.('events: observe refused', { code: result.code });
           return done ?? null;
         })
         .catch((err: Thrown) => {
@@ -126,5 +126,46 @@ export function createObserve({ hot, memoryDb, selfIdOf, timers }: ObserveContex
     }
   }
 
-  return { observeLine };
+  /**
+   * The live observation path: `event` as an observation of the memory database (see
+   * deps.memoryDb), with `direct` as memory gets it and `where` (`{ guildId, privateUserId }`)
+   * the record the line belongs to: a promise of the observe result (null on a failure or past
+   * `memoryDb.observeTimeoutMs`), which the caller awaits; null without a memory database. Codes only.
+   */
+  function observeLine(
+    event: MessageEvent,
+    direct = false,
+    where: ObserveWhere = null,
+    acceptedEvent?: AcceptedMessageEvent
+  ): Promise<Observed> | null {
+    if (!acceptedEvent && !memoryDb) return null;
+    try {
+      const mapEnvelope = (): Envelope | null => observationOf(event, { selfId: selfIdOf() || null, direct });
+      const envelope = acceptedEvent ? null : mapEnvelope();
+      if (!acceptedEvent && !envelope) return null;
+      const write = acceptedEvent
+        ? acceptedObservation({ envelope: mapEnvelope, accepted: acceptedEvent, memoryDb, hot, where })
+        : (memoryDb?.observeMessage ?? memoryDb?.observe)?.(envelope ?? {}, where);
+      return writeBeforeDeadline(() => write);
+    } catch (err) {
+      log.warn('events: observe failed', { code: (err as Thrown)?.code ?? null });
+      return null;
+    }
+  }
+
+  function deleteLine(
+    event: MessageReceived,
+    where: ObserveWhere = null,
+    acceptedEvent?: AcceptedMessageEvent
+  ): Promise<Observed> | null {
+    const envelope = () => deletionOf(event);
+    return writeBeforeDeadline(() => {
+      if (acceptedEvent)
+        return acceptedObservation({ envelope, accepted: acceptedEvent, memoryDb, hot, where, deletion: true });
+      const mapped = envelope();
+      return mapped ? memoryDb?.deleteMessage?.(mapped, where) : null;
+    });
+  }
+
+  return { observeLine, deleteLine };
 }

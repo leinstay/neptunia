@@ -3,6 +3,7 @@
 // and answered in its own turn; the same gate for a queued direct message and for a recovery turn in a DM. createMessageHandler (src/behavior/pipeline.ts) builds it once with
 // createPrivateGate; the live path, the drain of the pending queue and the replay of a held chat call it.
 
+import type { ObserveLine } from './observe.ts';
 import { lineOf } from '../behavior/line-of.ts';
 import { isLimitNotice } from '../behavior/limits.ts';
 import { CLI_GATE, CLI_IFACE, privateChatsOff } from '../behavior/core-pause.ts';
@@ -13,7 +14,7 @@ import type { ConversationInfo, ConversationRef } from '../protocol/adapter.ts';
 import { isOwnerId } from '../tools/impl/grants.ts';
 import type { TurnParams } from '../turn/outcome.ts';
 import type { MessageReadOptions } from './types.ts';
-import type { MessageEvent, Observed } from './edits.ts';
+import type { MessageEvent } from './edits.ts';
 
 /** A normalized line (src/behavior/line-of.ts#lineOf), as the private chat reads it. */
 export type PrivateLine = {
@@ -51,11 +52,7 @@ export type PrivateContext = {
   missed: { setPrivateRecovery?: (recovery: object) => void } | null;
   refOf: (channel: ConversationInfo) => ConversationRef;
   infoNow: (iface: string, conversationId: string) => Promise<ConversationInfo | null>;
-  observeLine: (
-    event: MessageEvent,
-    direct?: boolean,
-    where?: { guildId: string; privateUserId?: string } | null
-  ) => Promise<Observed> | null;
+  observeLine: ObserveLine;
   turnBlocked: (channelId: string, config: object) => boolean;
   holdCall: (
     channel: ConversationInfo,
@@ -190,7 +187,12 @@ export function createPrivateGate({
       // isLimitNotice reads the labels it is given, a missing labels file as none.
       if (isLimitNotice(hot.prompts?.labels as object, normalized.content)) return;
       memory.observe(guildId, normalized, { private: partnerId });
-      const observing = observeLine(event, false, { guildId, privateUserId: String(partnerId) });
+      const observing = observeLine(
+        event,
+        false,
+        { guildId, privateUserId: String(partnerId) },
+        options?.acceptedEvent
+      );
       if (observing) await observing;
       return;
     }
@@ -206,7 +208,11 @@ export function createPrivateGate({
 
     // Observed like a direct call.
     memory.observe(guildId, normalized, { direct: true, private: authorId });
-    const observing = observeLine(event, true, { guildId, privateUserId: String(authorId) });
+    // A DM without a named partner is deliberately unobserved by the message mapper.
+    const observing =
+      event.conversation.partnerId != null
+        ? observeLine(event, true, { guildId, privateUserId: String(authorId) }, options?.acceptedEvent)
+        : null;
     if (observing) await observing;
 
     // One turn at a time: busy anywhere (or, with oneAtATime off, in this very

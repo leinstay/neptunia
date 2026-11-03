@@ -13,6 +13,7 @@
 // It also holds the rule of the owner's command line in the private-chat gate: a direct chat of `iface: 'cli'` is the
 // owner's own, so it passes whatever private.enabled and bot.owners say (`privateChatsOff`, `CLI_GATE`).
 
+import type { AcceptedMessageEvent } from '../pipeline/types.ts';
 import { MINUTE_MS } from '../time.ts';
 import { catchUpSettings } from './catch-up.ts';
 import type { HeldEvent } from '../memory/db/ingest.ts';
@@ -78,6 +79,7 @@ function pausedObservation(
   if (fields.edit === true || fields.deleted === true || message.system === true) return null;
   if (conversation.communityId === null || conversation.communityId === undefined) {
     if (fields.iface !== CLI_IFACE || author.self === true || typeof author.id !== 'string') return null;
+    if (conversation.partnerId === undefined || conversation.partnerId === null) return null;
     return { direct: true, where: { guildId, privateUserId: author.id } };
   }
   if (conversation.communityId !== guildId || conversation.kind === 'thread') return null;
@@ -90,11 +92,20 @@ export type PausedDeps = {
   hot: unknown;
   getGuildId: () => unknown;
   selfIdOf: () => unknown;
-  observeLine: (event: never, direct: boolean, where: object) => Promise<unknown> | null;
+  observeLine: (
+    event: never,
+    direct: boolean,
+    where: object,
+    acceptedEvent?: AcceptedMessageEvent
+  ) => Promise<unknown> | null;
 };
 
 /** Observes a line that arrives while paused into the memory database, awaited; nothing else happens to it here. */
-export async function observeWhilePaused(event: unknown, deps: PausedDeps): Promise<void> {
+export async function observeWhilePaused(
+  event: unknown,
+  deps: PausedDeps,
+  acceptedEvent?: AcceptedMessageEvent
+): Promise<void> {
   const guildId = deps.getGuildId();
   const selfId = deps.selfIdOf();
   const observed = pausedObservation(event, {
@@ -102,7 +113,7 @@ export async function observeWhilePaused(event: unknown, deps: PausedDeps): Prom
     selfId: typeof selfId === 'string' ? selfId : '',
   });
   // The pipeline's observe path takes the event the door validated.
-  if (observed !== null) await deps.observeLine(event as never, observed.direct, observed.where);
+  if (observed !== null) await deps.observeLine(event as never, observed.direct, observed.where, acceptedEvent);
 }
 
 /**
