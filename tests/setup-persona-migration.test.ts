@@ -7,9 +7,12 @@ import path from 'node:path';
 import { applyPersonaLayers, planPersonaLayers } from '../src/setup/persona-migration.ts';
 import type { PersonaLayerOptions, PersonaLayerIssue } from '../src/setup/persona-migration.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { createKeyStore } from '../src/keys/store.ts';
+import { readInterfaceConfig } from '../src/config/files.ts';
+import { main as movePersonaFiles } from '../scripts/persona-files-move.ts';
 import { listAgents } from '../src/agent-runner/profiles.ts';
 
-function write(root: string, relative: string, bytes: string, mode = 0o640): void {
+function write(root: string, relative: string, bytes: string | Uint8Array, mode = 0o640): void {
   const file = path.join(root, relative);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, bytes, { mode });
@@ -362,7 +365,7 @@ for (const key of ['privateDir', 'dataDir'] as const) {
   });
 }
 
-test('holds agent contracts, interface contracts and unknown entries without reading unknown contents', () => {
+test('holds undeclared agent contracts and unknown entries while extracting interface settings', () => {
   // Catches agent overrides copied as ordinary prompts or arbitrary private files silently migrated.
   const options = fixture();
   declareAgent(options.rootDir, 'custom-worker.md');
@@ -378,8 +381,12 @@ test('holds agent contracts, interface contracts and unknown entries without rea
     assert.equal(fs.readFileSync(path.join(options.dataDir, 'agents/probe/prompt.md'), 'utf8'), 'custom agent');
     assert.equal(fs.existsSync(path.join(options.dataDir, 'prompts/custom-worker.md')), false);
     assert.equal(fs.existsSync(path.join(options.dataDir, 'agents/probe/agent-probe.md')), false);
+    // Dedicated interface configuration belongs to the persona's interface package.
+    assert.deepEqual(
+      JSON.parse(fs.readFileSync(path.join(options.dataDir, 'interfaces/sample/config.json'), 'utf8')),
+      {}
+    );
     assert.deepEqual(plan.held, [
-      { path: 'config.local/interfaces', reason: 'interface-contract' },
       { path: 'prompts.local/agent-probe.md', reason: 'agent-contract' },
       { path: 'prompts.local/unknown.bin', reason: 'unclassified' },
     ]);
@@ -851,4 +858,187 @@ test('agent prompt migration uses shared declarations despite unrelated process 
     if (before === undefined) delete process.env.NEPTUNIA_DATA_DIR;
     else process.env.NEPTUNIA_DATA_DIR = before;
   }
+});
+
+// Reinstallation must retain personal packages, client identities and persona-owned login bytes.
+test('personal packages and credentials remain intact after the source root becomes unavailable', () => {
+  const options = fixture();
+  declareAgent(options.privateDir, 'prompt.md');
+  const agentProfile = fs.readFileSync(path.join(options.privateDir, 'agents/probe/profile.json'), 'utf8');
+  const keys = JSON.stringify({
+    core: [{ name: 'core-1', value: 'synthetic-stored-key' }],
+    extra: {},
+    roles: {},
+    services: { exa: 'synthetic-exa' },
+    subharness: { backends: ['codex'] },
+    simulation: { key: 'sim' },
+  });
+  const files: Array<[string, string, string | Uint8Array]> = [
+    ['keys.json', 'keys.json', keys],
+    [
+      'clients.json',
+      'clients.json',
+      '{"shell":{"kind":"cli","tokenFile":"clients/shell.token","boardRoles":["owner"]}}',
+    ],
+    ['clients/shell.token', 'clients/shell.token', 'synthetic-client-token\n'],
+    ['skills.local/probe/SKILL.md', 'skills/probe/SKILL.md', 'Synthetic skill instructions\n'],
+    ['skills.local/probe/run.sh', 'skills/probe/run.sh', '#!/bin/sh\nexit 0\n'],
+    ['skills.local/probe/data.bin', 'skills/probe/data.bin', Uint8Array.of(0, 255, 128, 10)],
+    ['agents/probe/profile.json', 'agents/probe/profile.json', agentProfile],
+    ['agents/probe/prompt.md', 'agents/probe/prompt.md', 'Personal worker instructions\n'],
+    ['interfaces/sample/index.ts', 'interfaces/sample/index.ts', 'export const sample = true;\n'],
+    ['interfaces/sample/resources.json', 'interfaces/sample/resources.json', '[1,2,3]'],
+    ['cli/preferences.json', 'cli/preferences.json', '{"format":"compact"}'],
+    [
+      'subharness/codex/home/auth.json',
+      'subharness/codex/home/auth.json',
+      '{"tokens":{"access_token":"synthetic-codex"}}',
+    ],
+    [
+      'subharness/claude/home/.credentials.json',
+      'subharness/claude/home/.credentials.json',
+      '{"claudeAiOauth":{"accessToken":"synthetic-claude"}}',
+    ],
+    [
+      'subharness/codex/home/sessions/2026/session.jsonl',
+      'subharness/codex/home/sessions/2026/session.jsonl',
+      '{"type":"session_meta","payload":{"id":"synthetic-persona-session"}}\n',
+    ],
+    ['subharness/gh/hosts.yml', 'subharness/gh/hosts.yml', 'example.test:\n  oauth_token: synthetic-gh\n'],
+    ['subharness/codex/package.json', 'subharness/codex/package.json', '{"dependencies":{"@openai/codex":"1.2.3"}}'],
+    ['subharness/codex/package-lock.json', 'subharness/codex/package-lock.json', '{"lockfileVersion":3}'],
+  ];
+  for (const [source, , bytes] of files) write(options.privateDir, source, bytes);
+  fs.chmodSync(path.join(options.privateDir, 'skills.local/probe/run.sh'), 0o750);
+  write(options.privateDir, '.env', 'OPENROUTER_CORE_KEY=synthetic-obsolete-env-key\n');
+  write(options.privateDir, 'subharness/codex/node_modules/.bin/codex', 'synthetic install binary');
+  write(options.privateDir, '.codex/auth.json', 'independent owner login');
+  write(options.rootDir, 'interfaces/tracked/index.ts', 'engine default');
+  const before = snapshot(options.privateDir);
+  const plan = applyPersonaLayers(options);
+  assert.deepEqual(plan.conflicts, []);
+  assert.deepEqual(snapshot(options.privateDir), before);
+  fs.renameSync(options.privateDir, `${options.privateDir}-unavailable`);
+  for (const [, target, bytes] of files)
+    assert.deepEqual(fs.readFileSync(path.join(options.dataDir, target)), Buffer.from(bytes));
+  assert.equal(fs.statSync(path.join(options.dataDir, 'skills/probe/run.sh')).mode & 0o100, 0o100);
+  for (const target of ['keys.json', 'clients/shell.token', 'subharness/codex/home/auth.json'])
+    assert.equal(fs.statSync(path.join(options.dataDir, target)).mode & 0o077, 0);
+  assert.equal(fs.existsSync(path.join(options.dataDir, 'interfaces/tracked')), false);
+  assert.equal(fs.existsSync(path.join(options.dataDir, 'subharness/codex/node_modules')), false);
+  assert.equal(fs.existsSync(path.join(options.dataDir, '.codex')), false);
+  assert.ok(plan.held.some(({ path: at }) => at.startsWith('subharness/codex/node_modules')));
+  assert.ok(plan.held.some(({ path: at }) => at === '.codex'));
+});
+
+// A legacy environment-only install must retain usable logins without exposing credentials in reports.
+test('legacy model and service credentials reach private JSON with roles and grants but never migration output', async () => {
+  const options = fixture();
+  const env = {
+    OPENROUTER_CORE_KEY: 'synthetic-core-AAA1',
+    OPENROUTER_CORE_BACKUP_KEY: 'synthetic-backup-BBB2',
+    OPENROUTER_MEMORY_KEY: 'synthetic-memory-CCC3',
+    DISCORD_TOKEN: 'synthetic-discord-DDD4',
+    YOUTUBE_API_KEY: 'synthetic-youtube-EEE5',
+    BRAVE_SEARCH_API_KEY: 'synthetic-brave-FFF6',
+    EXA_API_KEY: 'synthetic-exa-GGG7',
+    MEDIA_VIDEO_PROXY: 'https://synthetic-user:synthetic-password@proxy.test:8443',
+    UNCLASSIFIED_TOKEN: 'synthetic-held-HHH8',
+  };
+  const config = {
+    llm: {
+      keyByRole: { core: ['OPENROUTER_CORE_BACKUP_KEY', 'OPENROUTER_CORE_KEY'], memory: 'OPENROUTER_MEMORY_KEY' },
+      keys: {
+        OPENROUTER_CORE_KEY: { grant: 200, resetDay: 22 },
+        OPENROUTER_CORE_BACKUP_KEY: { grant: 100, resetDay: 1 },
+      },
+    },
+    media: { video: { proxy: '${env:MEDIA_VIDEO_PROXY}' } },
+  };
+  write(
+    options.privateDir,
+    '.env',
+    Object.entries(env)
+      .map(([name, value]) => `${name}="${value}"`)
+      .join('\n')
+  );
+  write(options.privateDir, 'config.local/config.json', JSON.stringify(config));
+  const before = snapshot(options.privateDir);
+  const plan = planPersonaLayers(options);
+  const args = ['--root', options.rootDir, '--private', options.privateDir, '--data', options.dataDir];
+  const output = await movePersonaFiles(args);
+  assert.deepEqual(snapshot(options.dataDir), {}, 'planning creates no destination or temporary key store');
+  assert.deepEqual(snapshot(options.privateDir), before);
+  const applied = applyPersonaLayers(options);
+  assert.deepEqual(applied.conflicts, []);
+  const appliedOutput = await movePersonaFiles([...args, '--apply']);
+  for (const value of Object.values(env))
+    assert.equal(
+      [JSON.stringify(plan), JSON.stringify(applied), output, appliedOutput].some((text) => text.includes(value)),
+      false
+    );
+  const keys = createKeyStore({ privateDir: options.dataDir });
+  assert.deepEqual(keys.list().core, [
+    { name: 'core-1', last4: 'BBB2', grant: 100, resetDay: 1 },
+    { name: 'core-2', last4: 'AAA1', grant: 200, resetDay: 22 },
+  ]);
+  assert.equal(keys.valueOf('core-1'), env.OPENROUTER_CORE_BACKUP_KEY);
+  assert.equal(keys.valueOf('core-2'), env.OPENROUTER_CORE_KEY);
+  assert.equal(keys.boundTo('memory'), 'memory');
+  assert.equal(keys.valueOf('memory'), env.OPENROUTER_MEMORY_KEY);
+  const written: unknown = JSON.parse(fs.readFileSync(path.join(options.dataDir, 'keys.json'), 'utf8'));
+  assert.deepEqual(Reflect.get(Object(written), 'services'), {
+    youtube: env.YOUTUBE_API_KEY,
+    brave: env.BRAVE_SEARCH_API_KEY,
+    exa: env.EXA_API_KEY,
+    videoProxy: env.MEDIA_VIDEO_PROXY,
+  });
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(path.join(options.dataDir, 'interfaces/discord/credentials.json'), 'utf8')),
+    { token: env.DISCORD_TOKEN }
+  );
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(options.dataDir, 'config/config.json'), 'utf8')), config);
+  for (const target of ['keys.json', 'interfaces/discord/credentials.json'])
+    assert.equal(fs.statSync(path.join(options.dataDir, target)).mode & 0o077, 0);
+  assert.equal(JSON.stringify(plan.held).includes('UNCLASSIFIED_TOKEN'), true);
+  assert.deepEqual(snapshot(options.privateDir), before);
+});
+
+// Extracting interface settings must preserve effective precedence and unrelated core management settings.
+test('interface extraction keeps dedicated overrides above nested settings without changing unrelated core values', () => {
+  const options = fixture();
+  const own = { discord: { intents: { presences: false, members: false } }, context: { maxUrlChars: 100 } };
+  const core = {
+    discord: { intents: { presences: true, members: true } },
+    context: { maxUrlChars: 200, softChars: 900 },
+    interfaces: { enabled: ['discord'], restartMs: 750 },
+    recall: { timeoutMs: 9 },
+  };
+  const dedicated = { discord: { intents: { members: false } }, context: { maxUrlChars: 300 } };
+  write(options.rootDir, 'interfaces/discord/config.json', JSON.stringify(own));
+  write(options.privateDir, 'config.local/config.json', JSON.stringify(core));
+  write(options.privateDir, 'config.local/interfaces/discord.json', JSON.stringify(dedicated));
+  const effective = readInterfaceConfig({
+    rootDir: options.rootDir,
+    privateDir: options.privateDir,
+    name: 'discord',
+    base: {},
+  });
+  assert.deepEqual(effective, {
+    discord: { intents: { presences: true, members: false } },
+    context: { maxUrlChars: 300 },
+  });
+  const before = snapshot(options.privateDir);
+  const plan = applyPersonaLayers(options);
+  assert.deepEqual(plan.conflicts, []);
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(path.join(options.dataDir, 'interfaces/discord/config.json'), 'utf8')),
+    effective
+  );
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(options.dataDir, 'config/config.json'), 'utf8')), {
+    context: { softChars: 900 },
+    interfaces: core.interfaces,
+    recall: core.recall,
+  });
+  assert.deepEqual(snapshot(options.privateDir), before);
 });
