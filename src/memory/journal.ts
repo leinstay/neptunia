@@ -6,8 +6,8 @@
 // units under the partner's private directory and is never written to the guild's journal. Every record carries the same envelope (`v`, `id`,
 // `kind`, `occurredAt`, `recordedAt`, `guildId`, `scope`, `participants`, `sourceMessageIds`,
 // `origin`); a record missing a list is written with an empty one, never rejected: a journal
-// line lost to validation is worse than an incomplete one. The model's `think` is stored
-// capped at `DEFAULT_THINK_CHARS`, never shown back to it.
+// line lost to validation is worse than an incomplete one. The model's `think` is stored whole,
+// never shown back to it.
 //
 // Every side effect is an operation with its own `opId` (`op`): a `started` line before the
 // call, one closing line after it (`succeeded`, `failed` or `unknown`). After a restart the
@@ -18,16 +18,8 @@
 // A `.running` marker in the guild's journal directory (an operational file), written at start and
 // removed on a clean stop (`markRunning` / `clearRunning`), lets the next start record an `unclean-stop`.
 //
-// Request dumps (`dumpRequest`): beside the journal, `requests/<day>/<turnId>-<attempt>.json` holds the
-// request as the client sent it (a tool-loop step's or the follow-up's request after a call, the
-// same shape with its `step`, `<turnId>-<attempt>-s<step>.json`) (system string and message parts, pictures reduced to their size)
-// with the model's raw answer and its usage, written whole through a `.tmp` file and a rename
-// (not the append store: it is one document, not a line). Written only while
-// `journal.keepRequests` is above 0; `pruneRequests` deletes the day directories older than that
-// many days, a private chat's included. A dump is a debugging copy: it may hold the chat's text.
-//
 // `withWriterLock(fn)` (`/nep memory snapshot`) holds every new line back while `fn` runs, after
-// the append stores flushed what they had: the journal's own lines and request dumps here, and the
+// the append stores flushed what they had: the journal's own lines here, and the
 // record's and the archive's appends, which wait on `waitUnlocked` (src/memory/record.ts,
 // src/memory/archive.ts `writerGate`; the append stores are flushed through `lockStores`). A copy of
 // `data/` taken inside it sees no line half-way.
@@ -55,12 +47,12 @@
 
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { journalKey } from './db/storage-keys.ts';
 import type { StorageKey } from './db/storage-keys.ts';
 
 import { log as defaultLog } from '../log.ts';
-import { clampText, oneLine } from './clamp.ts';
+import { oneLine } from './clamp.ts';
 import { memoryRootOf } from './root.ts';
 
 import { journalLastWrite, journalLines } from './db/readers/journal.ts';
@@ -73,8 +65,6 @@ import type { AppendStore } from './append-store.ts';
 /** The schema version every record carries. */
 export const JOURNAL_VERSION = 1;
 
-/** The stored length of a think. Production value, config cut of 2026-10-31. */
-const DEFAULT_THINK_CHARS = 4000;
 const DEFAULT_READ_N = 50;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}/;
 /** How many characters of a post's text its `started` line keeps for the reconciliation. */
@@ -87,28 +77,14 @@ const RECONCILE_SKEW_MS = 60_000;
 const CLOSING_PHASES = new Set(['succeeded', 'failed', 'unknown']);
 /** The fields a closing line repeats from its operation (never the input or the intent). */
 const OP_FIELDS = ['turnId', 'name', 'by', 'channelId', 'privateUserId', 'participants', 'sourceMessageIds', 'dryRun'];
-/** A member id usable as a directory name. */
-const USER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
-/** A request-dump directory's name. */
-const REQUEST_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** The characters of `think` a `/nep journal` line shows. */
 export const LINE_THINK_CHARS = 80;
-
-/** Whether a dump's `step` marks a later request of the turn: a positive integer. */
-function isStep(step: unknown): step is number {
-  return isIntegerNumber(step) && step > 0;
-}
 
 /** The records of a parsed journal read: the entries that are objects (anything else says nothing). */
 function recordsOf(records: Array<unknown>): Array<StoredRecord> {
   return (Array.isArray(records) ? records : []).filter(
     (record): record is StoredRecord => Boolean(record) && typeof record === 'object'
   );
-}
-
-/** The hash a dump names a stored `tools` array by: sha256 of its JSON, hex. */
-export function toolsHashOf(tools: unknown): string {
-  return createHash('sha256').update(JSON.stringify(tools)).digest('hex');
 }
 
 /**
@@ -525,7 +501,7 @@ export function turnOfMessage(
  * One turn as `turnOfMessage` found it, for the owner (`/nep memory journal message:`): its id
  * and attempt, start and end time, channel, mode, trigger kind and message id, outcome and
  * reason, the message ids it posted, its skill calls, then the stored `think` whole (saying so
- * when it was cut at `DEFAULT_THINK_CHARS` on the way in). Multi-line text. Pure.
+ * when a record stored before the cap was lifted was cut). Multi-line text. Pure.
  */
 export function turnView({
   turn,
@@ -573,33 +549,6 @@ export function turnView({
       : 'think: none',
     ...(think ? [think] : []),
   ].join('\n');
-}
-
-/** The text of a system message's content (a string, or text parts joined). */
-function textOfContent(content: unknown) {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content.map((part) => (typeof part?.text === 'string' ? part.text : '')).join('');
-}
-
-/** One user-message part as stored: a picture becomes its size, a data: URL is never kept. */
-function dumpPart(part: Untyped) {
-  if (part?.type !== 'image_url') return part;
-  const url = typeof part.image_url?.url === 'string' ? part.image_url.url : '';
-  const comma = url.startsWith('data:') ? url.indexOf(',') : -1;
-  const bytes = comma >= 0 ? Math.floor(((url.length - comma - 1) * 3) / 4) : null;
-  return { image: typeof part.messageId === 'string' && part.messageId ? part.messageId : 'attachment', bytes };
-}
-
-/**
- * The messages after the first two as stored (`later`): role, content (a picture part reduced like
- * `dumpPart`), an assistant message's `tool_calls`, a tool message's `tool_call_id`, kept as sent.
- */
-function dumpLater(later: Untyped) {
-  return later.map((message: Untyped) => {
-    if (!message || typeof message !== 'object') return message;
-    return Array.isArray(message.content) ? { ...message, content: message.content.map(dumpPart) } : { ...message };
-  });
 }
 
 /** The record's scope: the partner's private layer, a channel, or the whole guild. */
@@ -694,8 +643,6 @@ export type Journal = {
   stalled(): boolean;
   markRunning(guildId: string): Promise<{ unclean: boolean }>;
   clearRunning(guildId: string): Promise<void>;
-  dumpRequest(guildId: string, dump: object): Promise<void>;
-  pruneRequests(guildId: string): Promise<{ removed: number }>;
   withWriterLock<TResult>(fn: () => Promise<TResult> | TResult): Promise<TResult>;
   waitUnlocked(): Promise<void>;
   stats(guildId: string, query?: { now?: number }): Promise<{ lastWriteMs: number | null }>;
@@ -732,41 +679,22 @@ type JournalDeps = {
   memoryDb: MemoryDb | null;
 };
 
-type DumpRequestInput = {
-  turnId: string;
-  attemptId?: number;
-  step?: number | null;
-  request: Untyped;
-  raw?: string;
-  usage?: Untyped;
-  privateUserId?: string | null;
-  tools?: Array<Untyped> | null;
-  toolChoice?: Untyped;
-  toolCalls?: Array<Untyped> | null;
-  later?: Array<Untyped> | null;
-};
-
-function thinkLimit() {
-  return DEFAULT_THINK_CHARS;
-}
-
 /**
  * Create the journal.
  *
  * @param [options.appendStore]  src/memory/append-store.ts, optional:
  *   flushed by `withWriterLock`; its `stats().stalled` is `stalled()`
  * @param options.dataDir  the `data/` directory
- * @param [options.config]  the live `journal` config
- *   section, read at each write (`hot.config.journal`)
- * @param [options.fs]  a `node:fs/promises`-shaped API (the `.running` marker and the request dumps)
+ * @param [options.config]  accepted and ignored: the journal reads no setting
+ * @param [options.fs]  a `node:fs/promises`-shaped API (the `.running` marker)
  * @param [options.lockStores]  other append stores `withWriterLock`
  *   flushes before `fn` (the record's and the archive's, src/index.js)
  * @param options.memoryDb  the memory database service (src/memory/db/service.ts): the day reads
  *   (`read`, `timeline`, and so `findTurn`, `turnOperations`, `pending`, `triggerLinks`, `callMarks`,
  *   `reconcile`'s scan) and `stats` are answered from it (src/memory/db/readers/journal.ts; a failed read rejects
  *   with a code), and every line the writers write goes to it as the journal mapper maps it (`day`, `decisions`,
- *   her answers' `sources`, `affinity_events`, in the day's unit, `memoryDb.writeUnit`): the request dumps and the
- *   `.running` marker stay files.
+ *   her answers' `sources`, `affinity_events`, in the day's unit, `memoryDb.writeUnit`); the
+ *   `.running` marker stays a file.
  *   `actionLine` builds an `action` line and its day unit without writing it: an errand's end writes it with its
  *   board move.
  *   `stats` says when the guild journal was last written: the latest `recordedAt` of the lines of the day of `now`
@@ -800,7 +728,6 @@ function thinkLimit() {
 export function createJournal({
   appendStore = null,
   dataDir,
-  config = () => ({}),
   now = Date.now,
   uuid = randomUUID,
   log = defaultLog,
@@ -914,14 +841,7 @@ export function createJournal({
   function turn(guildId: string, record: StoredRecord) {
     const { think, ...rest } = record ?? {};
     const fields = { ...rest };
-    if (typeof think === 'string') {
-      const limit = thinkLimit();
-      const cut = limit > 0 && Array.from(think.trim()).length > limit;
-      fields.think = cut ? clampText(think, limit, { tolerance: 1 }) : think;
-      if (cut) fields.thinkTruncated = true;
-    } else {
-      fields.think = null;
-    }
+    fields.think = typeof think === 'string' ? think : null;
     return write(guildId, 'turn', fields);
   }
 
@@ -933,16 +853,6 @@ export function createJournal({
   // `capped`, `overflow`, `stale`, `no-channel`, `review-drawn`, `review-missed`, `errand-cost`,
   // `stopped`, `started`. Ids, codes, counts and costs only.
   const inner = (guildId: string, record: StoredRecord) => write(guildId, 'inner', record);
-
-  /** The names of `dir` (none when it is absent). */
-  async function namesIn(dir: string): Promise<Array<string>> {
-    try {
-      return await fs.readdir(dir);
-    } catch (error) {
-      if (propOf(error, 'code') === 'ENOENT' || propOf(error, 'code') === 'ENOTDIR') return [];
-      throw error;
-    }
-  }
 
   /** The lines (text) of one day's unit in the database. */
   function* dayLines(db: Untyped, key: StorageKey) {
@@ -1214,119 +1124,11 @@ export function createJournal({
     return counts;
   }
 
-  /** Days the request dumps are kept; 0 (or anything unusable) means none. */
-  function keepRequests() {
-    const value: unknown = config()?.keepRequests;
-    return typeof value === 'number' && isFiniteNumber(value) && value > 0 ? Math.floor(value) : 0;
-  }
-
-  // The tool-definition copies written by this process (`requests/tools/<sha>.json`).
-  const toolsWritten = new Set();
-
-  /**
-   * Write one request and its raw answer as `requests/<day>/<turnId>-<attemptId>.json` (the day
-   * of now, UTC; with a `step`, a later request of the turn's tool loop or its follow-up,
-   * `<turnId>-<attemptId>-s<step>.json` with `step` in the body) when `journal.keepRequests` is above 0. `request` is the client's message list
-   * (`{ messages }`: the system message, then the user message) or `{ system, parts }`. With `tools`
-   * (the array the request carried) the dump holds `tools` (its sha256, `toolsHashOf`) and `toolChoice`,
-   * the array itself stored once as `requests/tools/<sha>.json`; `toolCalls` (the answer's) sit beside
-   * `raw`. `later` (the messages after the first two: her assistant messages with their tool calls, the tool messages, appended user notes) is stored as `later`, pictures reduced; absent when there are none. Rejects on a disk error; the caller logs it.
-   */
-  async function dumpRequest(
-    guildId: string,
-    {
-      turnId,
-      attemptId = 1,
-      step = null,
-      request,
-      raw = '',
-      usage = null,
-      privateUserId = null,
-      tools = null,
-      toolChoice = null,
-      toolCalls = null,
-      later = null,
-    }: DumpRequestInput
-  ): Promise<void> {
-    if (keepRequests() === 0) return;
-    const messages = Array.isArray(request?.messages) ? request.messages : [];
-    const system = typeof request?.system === 'string' ? request.system : textOfContent(messages[0]?.content);
-    const userContent = Array.isArray(request?.parts) ? request.parts : messages[1]?.content;
-    const parts = (Array.isArray(userContent) ? userContent : [{ type: 'text', text: textOfContent(userContent) }]).map(
-      dumpPart
-    );
-    const at = new Date(now()).toISOString();
-    const dir = path.join(journalDir(guildId, privateUserId), 'requests', utcDay(now()));
-    const stepped = isStep(step);
-    const file = path.join(dir, stepped ? `${turnId}-${attemptId}-s${step}.json` : `${turnId}-${attemptId}.json`);
-    // A request that carried tools: the array is stored once per hash beside the day directories
-    // (`requests/tools/<sha>.json`), the dump names it by that hash; the answer's tool calls sit beside `raw`.
-    const withTools = Array.isArray(tools) && tools.length > 0;
-    const toolsHash = withTools ? toolsHashOf(tools) : null;
-    const body = JSON.stringify({
-      v: JOURNAL_VERSION,
-      turnId,
-      attemptId,
-      ...(stepped ? { step } : {}),
-      recordedAt: at,
-      system,
-      parts,
-      raw: typeof raw === 'string' ? raw : '',
-      usage,
-      ...(withTools ? { tools: toolsHash, toolChoice: toolChoice ?? 'auto' } : {}),
-      ...(Array.isArray(toolCalls) && toolCalls.length > 0 ? { toolCalls } : {}),
-      ...(Array.isArray(later) && later.length > 0 ? { later: dumpLater(later) } : {}),
-    });
-    await unlocked();
-    if (withTools) {
-      const toolsDir = path.join(journalDir(guildId, privateUserId), 'requests', 'tools');
-      const toolsFile = path.join(toolsDir, `${toolsHash}.json`);
-      // Written once per process and hash (the content is its name: a rewrite after a restart is harmless).
-      if (!toolsWritten.has(toolsFile)) {
-        await fs.mkdir(toolsDir, { recursive: true });
-        await fs.writeFile(`${toolsFile}.tmp`, JSON.stringify(tools));
-        await fs.rename(`${toolsFile}.tmp`, toolsFile);
-        toolsWritten.add(toolsFile);
-      }
-    }
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(`${file}.tmp`, body);
-    await fs.rename(`${file}.tmp`, file);
-  }
-
-  /**
-   * Delete the request-dump day directories (the guild's and every private journal's) dated
-   * earlier than `journal.keepRequests` days ago, by directory name; with 0 nothing is deleted.
-   */
-  async function pruneRequests(guildId: string): Promise<{ removed: number }> {
-    const keep = keepRequests();
-    if (keep === 0) return { removed: 0 };
-    const cutoff = utcDay(now() - keep * DAY_MS);
-    let removed = 0;
-    for (const root of await requestRoots(guildId)) {
-      for (const name of await namesIn(root)) {
-        if (!REQUEST_DAY_RE.test(name) || name >= cutoff) continue;
-        await fs.rm(path.join(root, name), { recursive: true, force: true });
-        removed += 1;
-      }
-    }
-    return { removed };
-  }
-
-  /** The request-dump roots of the guild: its own, then every private journal's. */
-  async function requestRoots(guildId: string) {
-    const roots = [path.join(journalDir(guildId), 'requests')];
-    for (const userId of await namesIn(path.join(guildDir(guildId), 'private'))) {
-      if (USER_ID_RE.test(userId)) roots.push(path.join(journalDir(guildId, userId), 'requests'));
-    }
-    return roots;
-  }
-
   /**
    * Run `fn` with every journal write held back, and the record's and the archive's appends too
    * (they wait on `waitUnlocked` through their `writerGate`): the lock waits for one already
    * held, the append store and every `lockStores` store flush (queued lines retried, files
-   * fsynced), then `fn` runs; lines and request dumps written meanwhile wait and land after it in
+   * fsynced), then `fn` runs; lines written meanwhile wait and land after it in
    * their order. The lock is released however `fn` ends; its
    * result or rejection is passed on.
    */
@@ -1405,8 +1207,6 @@ export function createJournal({
     stalled,
     markRunning,
     clearRunning,
-    dumpRequest,
-    pruneRequests,
     withWriterLock,
     waitUnlocked: unlocked,
   };

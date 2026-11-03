@@ -664,14 +664,6 @@ The journal, record and archive's file writer.
 |---|---|---|---|---|
 | `appendStore.retryMax` | number | `1000` | Lines kept in memory while the disk refuses writes | `src/core.ts` |
 
-## `journal`
-
-The persona's journal.
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `journal.keepRequests` | number | `3` | Days the request dumps are kept. `0` writes none | `src/core.ts` |
-
 ## `archive`
 
 Before anything leaves hot memory, a copy goes to `data/guilds/<id>/archive/<YYYY-MM>.jsonl`.

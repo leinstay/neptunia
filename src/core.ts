@@ -415,7 +415,6 @@ async function buildCore(
   // record's and the archive's writers through their writerGate.
   const journal = createJournal({
     dataDir,
-    config: () => hot.config.journal ?? {},
     lockStores: [archiveAppendStore],
     memoryDb,
   });
@@ -1473,13 +1472,6 @@ async function buildCore(
   /** Whether the journal is written now (features.journal exactly true, read now). */
   const journalOn = () => true;
 
-  /** Delete the request dumps older than journal.keepRequests days. */
-  async function pruneJournalRequests(guildId: string) {
-    if (!journalOn()) return;
-    const { removed } = await journal.pruneRequests(guildId);
-    log.info('journal: pruned', { guildId, removed });
-  }
-
   /**
    * The journal at start, with the journal on: a `.running` marker left by a run that never stopped
    * cleanly becomes an `unclean-stop` record, this run's marker is written and the `start` record follows.
@@ -1784,10 +1776,6 @@ async function buildCore(
   // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn
   // starting meanwhile is never touched (only earlier operations are), and it never sends.
   await startupStep('journal.reconcile', () => reconcileJournal(servedGuildId()).finally(journalReconciled));
-
-  // The request dumps older than journal.keepRequests days: once now, then daily.
-  await startupStep('journal.prune', () => pruneJournalRequests(servedGuildId()));
-  every(DAY_MS, () => pruneJournalRequests(servedGuildId()), 'journal.prune');
 
   // The custom emoji ranking from history, once (no emojiBackfill stamp). Fire-and-forget: never blocks the persona, logs its errors.
   await startupStep('emojiBackfill.startIfNeeded', () => emojiBackfill.startIfNeeded(servedGuildId()));

@@ -137,14 +137,7 @@ export type PhaseContext = {
   > &
   Pick<
     JournalNotes,
-    | 'noteSeen'
-    | 'linkTriggers'
-    | 'linkCalls'
-    | 'earlierThinkFor'
-    | 'journalOn'
-    | 'dumpTurnRequest'
-    | 'offPeriodsFor'
-    | 'journalOp'
+    'noteSeen' | 'linkTriggers' | 'linkCalls' | 'earlierThinkFor' | 'journalOn' | 'offPeriodsFor' | 'journalOp'
   > &
   Pick<Diary, 'prepareDiary' | 'diaryPictureGate'> &
   Pick<DrawGif, 'resolveGif'> &

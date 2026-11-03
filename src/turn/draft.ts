@@ -9,7 +9,7 @@ import type { Act } from './act.ts';
 import type { DrawGif } from './draw-gif.ts';
 import type { InTurnDraft } from './in-turn-tools.ts';
 import type { Inputs } from './inputs.ts';
-import type { JournalNotes, NotesDraft } from './journal-notes.ts';
+import type { NotesDraft } from './journal-notes.ts';
 import type { noteDiagnostics } from './journal.ts';
 import type { ToolRoundDraft } from './tool-round.ts';
 import type { IndexedSkill } from '../skills/uses.ts';
@@ -45,8 +45,7 @@ type ModuleDrafts = ToolRoundDraft &
   NotesDraft &
   NonNullable<Parameters<Inputs['turnContextOf']>[0]> &
   NonNullable<Parameters<DrawGif['drawTool']>[1]['draft']> &
-  NonNullable<Parameters<typeof noteDiagnostics>[0]> &
-  NonNullable<Parameters<JournalNotes['dumpTurnRequest']>[1]>;
+  NonNullable<Parameters<typeof noteDiagnostics>[0]>;
 
 /**
  * Every field an attempt's draft holds. `limits`, `format` and `tools` exist before any phase that reads them:

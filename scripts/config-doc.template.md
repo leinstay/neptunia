@@ -367,12 +367,6 @@ The journal, record and archive's file writer.
 
 <!-- settings: appendStore -->
 
-## `journal`
-
-The persona's journal.
-
-<!-- settings: journal -->
-
 ## `archive`
 
 Before anything leaves hot memory, a copy goes to `data/guilds/<id>/archive/<YYYY-MM>.jsonl`.

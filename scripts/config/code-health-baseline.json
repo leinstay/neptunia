@@ -304,7 +304,7 @@
     },
     "src/behavior/turn.ts": {
       "createTurnRunner": {
-        "function-length": 455
+        "function-length": 452
       }
     },
     "src/behavior/wake.ts": {
@@ -552,7 +552,7 @@
         "complexity": 41
       },
       "createJournal": {
-        "function-length": 614
+        "function-length": 486
       },
       "journalLine": {
         "complexity": 22
