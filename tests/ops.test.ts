@@ -31,6 +31,7 @@ const AGREED = new Set([
   'board.status',
   'skill.read',
   'skill.disable',
+  'skill.run',
   'watcher.read',
   'status.show',
   'config.set',

@@ -317,7 +317,11 @@
     }
   },
   "skills": {
-    "reviewDays": 30
+    "reviewDays": 30,
+    "run": {
+      "timeoutMs": 60000,
+      "maxOutputBytes": 1000000
+    }
   },
   "watcher": {
     "enabled": false,
