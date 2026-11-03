@@ -446,7 +446,6 @@
         "heartbeat": "Your heartbeat: nothing outside called you.",
         "selfimprovement": "Your time to look back at your own work: nobody called you. What follows is how your work went. A change or a skill goes through board.propose; leaving it is fine too."
       },
-      "abilityAdded": "A plugin registered new tools with the core: {tools}. A tool is yours to call once the owner has granted it to you.",
       "delayed": "Due {minutes} min ago; the provider call failed ({code}).",
       "feedbackInTurn": "Since you were last told:",
       "feedbackItem": "- {fact}",
@@ -636,9 +635,6 @@
           "timeout": "{what} timed out",
           "link-closed": "the connection to the chat was lost, so the message may or may not have gone",
           "link-busy": "too much is waiting to be sent, try again shortly",
-          "plugin-no-answer": "the plugin did not answer in time, so the call may or may not have gone through",
-          "plugin-not-connected": "the plugin is not connected right now",
-          "invalid-answer": "the plugin answered in a shape the engine cannot read",
           "adapter-threw": "the chat interface failed on this request",
           "cap-open": "too many of your errands are open already",
           "cap-tasks": "today's errands for that agent are used up",

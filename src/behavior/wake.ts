@@ -642,16 +642,6 @@ export type WakeBlockInput = {
   here?: { channel: string; why: string | null } | null;
 };
 
-/** The line that names the tools a plugin just registered, after the kind line of the wake that carries them (src/plugins/announce.ts); none for any other wake. */
-function abilityLines(item: Obj, l: Obj): Array<string> {
-  if (item.reason !== 'ability.added' || !Array.isArray(item.tools) || item.tools.length === 0) return [];
-  const tools = listOf(item.tools)
-    .map((tool) => oneLine(asText(tool)))
-    .join(', ');
-  const line = part(l, 'abilityAdded', { tools });
-  return line ? [line] : [];
-}
-
 /** The budgets part of the wake: the `labels.wake.budgets` lead, then one line per budget (`chain`, then `turns`). [] without a line. */
 function budgetLines(budgets: NonNullable<WakeBlockInput['budgets']>, l: Obj, when: When): Array<string> {
   const budget = objOf(l.budget);
@@ -742,7 +732,6 @@ export function wakeBlockText(
       const note = typeof noteLabel === 'string' ? fill(noteLabel, { task: '' }) : '';
       lines.push(note ? `${line} · ${note}` : line);
     }
-    lines.push(...abilityLines(item, l));
     // A wake that ran late because its first turn failed: how long since it was due, and the failure's code.
     const delayed = objOf(item.delayed);
     if (item.delayed && typeof l.delayed === 'string' && l.delayed)

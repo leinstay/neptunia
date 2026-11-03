@@ -22,7 +22,7 @@ import {
 } from './grants.ts';
 import { log } from '../../log.ts';
 import { NONE, reloadNote } from './shared.ts';
-import { pluginToolNames, skillNames, skillRegistry } from '../registry.ts';
+import { skillNames, skillRegistry } from '../registry.ts';
 import { NOT_GRANTABLE_TO_PERSONA } from '../access.ts';
 import { defineOp, perEnv, invalid, denied, listOps } from './registry.ts';
 import { CODE } from '../codes.ts';
@@ -299,10 +299,7 @@ const handlers = perEnv((env) => {
     // The persona's grants on skills no person may hold are hers as they are: never migrated.
     const kept: Access = {};
     const rest: Access = {};
-    // A grant on a tool an installed plugin declares is hers too: the plugin registers when it connects, after this runs.
-    const plugins = new Set(pluginToolNames());
-    for (const [key, entry] of Object.entries(before))
-      (personaOnlyKey(key, ops) || plugins.has(key) ? kept : rest)[key] = entry;
+    for (const [key, entry] of Object.entries(before)) (personaOnlyKey(key, ops) ? kept : rest)[key] = entry;
     const { access: migrated, report, note } = migrateGrants({ access: rest, ops, legacy });
     const access = { ...migrated, ...kept };
     if (JSON.stringify(access) !== JSON.stringify(before)) writeAccess(access);

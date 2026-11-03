@@ -68,10 +68,6 @@ Her `<wake>` carries the facts of `src/behavior/selfimprovement-view.ts`, read f
 
 Once the completion committed, the outbox rows the view showed are marked delivered, so each question and rejection reaches her once. A wake that never committed shows them again. Her answer is `board.propose` with a `kind` of `skill` or `fix` ([Skills](skills.md#how-a-skill-is-made)). A `fix` that reaches a merge comes back as a landed change in this wake or the next heartbeat, whichever comes first ([Self-development](selfimprovement.md#what-reaches-her-wake)).
 
-### A new tool from a plugin
-
-When a plugin registers a tool it was not announced for, the core queues one `heartbeat` wake with the reason `ability.added` and the tool names ([Plugins](plugins.md#how-she-learns-of-a-tool)). It has no place and no intention, goes through the queue like the heartbeat, and its `<wake>` adds `labels.wake.abilityAdded` with the names. While `heartbeat.enabled` is `false` it waits in the queue.
-
 ### Her attention
 
 She chooses where to listen. `intention.set attend=<place>` makes an open intention of kind `attend`: while it is open, the engine wakes her on new lines in that place.

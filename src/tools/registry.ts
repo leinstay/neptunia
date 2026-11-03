@@ -173,30 +173,6 @@ export function buildSkills({
 
 let loaded: SkillMap | null = null;
 
-/** Where the skills of the registered plugins come from (src/plugins/registry.ts), null while no core wired one. */
-let extra: (() => SkillMap) | null = null;
-let declared: (() => ReadonlyArray<string>) | null = null;
-let merged: { base: SkillMap; more: SkillMap; both: SkillMap } | null = null;
-
-/**
- * Lays the tools of the plugins over the registry: `skillRegistry()` answers the table's skills and then these, read at
- * each call. `names` lists the tools the installed plugins declare, registered or not (`pluginToolNames`). The core
- * sets both at start and clears them when it stops; `null` clears them.
- */
-export function setExtraSkills(
-  provider: (() => SkillMap) | null,
-  names: (() => ReadonlyArray<string>) | null = null
-): void {
-  extra = provider;
-  declared = names;
-  merged = null;
-}
-
-/** The tools the installed plugins declare in their `plugin.json`, whether or not they registered: the names a stored grant may name before the plugin connects. */
-export function pluginToolNames(): ReadonlyArray<string> {
-  return declared?.() ?? [];
-}
-
 /**
  * Every skill against the live ops registry (buildSkills, the registered operations), loaded once on first use
  * (src/index.ts calls this at start so a bad definition fails there). A load that throws is
@@ -204,12 +180,7 @@ export function pluginToolNames(): ReadonlyArray<string> {
  */
 export function skillRegistry(): SkillMap {
   loaded ??= buildSkills({ registered: true });
-  const more = extra?.() ?? null;
-  if (more === null || more.size === 0) return loaded;
-  // A plugin's tool never shadows a core tool of the same name. One merged map per pair of inputs, so a caller comparing registries by identity sees a stable one.
-  if (merged === null || merged.base !== loaded || merged.more !== more)
-    merged = { base: loaded, more, both: new Map([...more, ...loaded]) };
-  return merged.both;
+  return loaded;
 }
 
 /**
@@ -242,9 +213,9 @@ function textOf(texts: unknown, name: string, key: string): string {
 export function describeSkill(skill: Skill, texts?: unknown): DescribedSkill {
   return {
     ...skill,
-    title: textOf(texts, skill.name, 'title') || (skill.wording?.title ?? ''),
-    whenToUse: textOf(texts, skill.name, 'whenToUse') || (skill.wording?.whenToUse ?? ''),
-    whenNotToUse: textOf(texts, skill.name, 'whenNotToUse') || (skill.wording?.whenNotToUse ?? ''),
+    title: textOf(texts, skill.name, 'title'),
+    whenToUse: textOf(texts, skill.name, 'whenToUse'),
+    whenNotToUse: textOf(texts, skill.name, 'whenNotToUse'),
   };
 }
 
