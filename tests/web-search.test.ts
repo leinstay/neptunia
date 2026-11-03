@@ -89,13 +89,11 @@ test('buildSearchRequest: the query as the only message, the Exa web plugin with
   assert.equal(requestBody({ query: 'q', count: undefined, model: 'm' }).plugins[0]?.max_results, 8);
 });
 
-test("webSearchModel: the persona's own web.search model (analyzer for web-search), a byPurpose entry included", () => {
-  assert.equal(webSearchModel({}), ROLE_DEFAULTS.analyzer);
-  assert.equal(webSearchModel({ models: { base: { analyzer: 'x/cheap' } } }), 'x/cheap');
-  assert.equal(
-    webSearchModel({ models: { base: { analyzer: 'x/cheap' }, byPurpose: { 'web-search': 'x/other' } } }),
-    'x/other'
-  );
+test("webSearchModel: the setting of quick search, apart from the analyzer's model", () => {
+  // Changed: quick search has its own model setting (the owner's decision of 2026-11-03); the scout's helper reads it too.
+  assert.equal(webSearchModel({}), 'openai/gpt-6.1-sol');
+  assert.equal(webSearchModel({ models: { base: { analyzer: 'x/cheap' } } }), 'openai/gpt-6.1-sol');
+  assert.equal(webSearchModel({ web: { search: { model: 'x/quick' } } }), 'x/quick');
 });
 
 test('searchResults: the url_citation annotations, http(s) only, each url once, snippet one line and clamped', () => {

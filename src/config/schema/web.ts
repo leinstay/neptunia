@@ -46,6 +46,13 @@ export const WEB: ReadonlyArray<SchemaEntry> = [
     'text': 'Search engine: `brave`, `exa` or `openrouter`',
   },
   {
+    'key': 'web.search.model',
+    'types': ['string'],
+    'reader': 'src/llm/roles.ts',
+    'default': 'openai/gpt-6.1-sol',
+    'text': 'The model of the `openrouter` engine and of the search summary, apart from the analyzer',
+  },
+  {
     'key': 'web.search.fallback',
     'types': ['array'],
     'reader': 'src/core.ts',

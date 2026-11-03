@@ -32,6 +32,7 @@ import { ownValueAt, splitPath } from '../../tools/impl/shared.ts';
 import { skillRegistry } from '../../tools/registry.ts';
 import type { SkillsAccess } from '../../skills/port.ts';
 import type { ConsoleSubharness } from './subharness.ts';
+import { searchCommand } from './search.ts';
 import { skillsCommand } from './skills.ts';
 import { MODULE_ACTIONS, moduleCommand } from './module-setup.ts';
 import type { ModuleAction } from './module-setup.ts';
@@ -102,6 +103,7 @@ function ownCommand(
   dialog: Dialog | null
 ): Promise<Answer> | null {
   if (name.startsWith('keys.service.')) return serviceCommand(dataDir, name, args, dialog);
+  if (name.startsWith('search.')) return Promise.resolve(searchCommand(dataDir, name, args));
   if (name === 'memory.bind' || name === 'memory.unbind') return personLinkCommand(memoryDb, name, args);
   if (name === 'memory.accounts') return Promise.resolve(accountsCommand(memoryDb, args));
   const action = moduleActionOf(name);

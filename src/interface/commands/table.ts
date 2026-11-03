@@ -12,7 +12,7 @@
 // the flag comes twice, when another flag is typed and when a bare word is left over. A command's `check` refuses
 // what the table's shape cannot say. The parse is pure and never throws.
 
-import { BASE_ROLES, MEMORY_ROLE } from '../../llm/roles.ts';
+import { BASE_ROLES, MEMORY_ROLE, SEARCH_ROLE } from '../../llm/roles.ts';
 import { BACKEND_NAMES } from '../../agent-runner/profiles.ts';
 import { AGENT_MODES, SUBHARNESS_AGENTS } from '../../subharness/control.ts';
 import { MODEL_SET_ROLES, ROUTE_ROLES } from '../../tools/impl/catalog.ts';
@@ -47,7 +47,7 @@ export type Parsed = { ok: true; name: string; args: Record<string, unknown> } |
 const ROUTE_CHOICES: ReadonlyArray<string> = ['any', ...ROUTE_ROLES];
 
 /** The roles a key can be bound to or checked for: the base model roles, her memory session included. */
-const KEY_ROLES: ReadonlyArray<string> = [...BASE_ROLES, MEMORY_ROLE];
+const KEY_ROLES: ReadonlyArray<string> = [...BASE_ROLES, MEMORY_ROLE, SEARCH_ROLE];
 
 /** The roles `/model set` names: the model roles, her memory session and the watcher, whose model is its subharness's. */
 const MODEL_SET_CHOICES: ReadonlyArray<string> = [...MODEL_SET_ROLES, MEMORY_ROLE, 'watcher'];
@@ -337,6 +337,19 @@ export const COMMANDS: ReadonlyArray<Command> = [
       ...moduleSubcommands('interface'),
     ],
     otherwise: sub('command', "an interface's own subcommand", [arg('name'), arg('sub'), arg('rest', false)]),
+  },
+  {
+    name: 'search',
+    help: 'quick search: status, enable, disable, engine <openrouter|brave|exa>, model <id>',
+    args: [],
+    defaultSubcommand: 'status',
+    subcommands: [
+      sub('status', 'quick search: on or off, its engine, its model and the key it goes out on'),
+      sub('enable', 'turn quick search on'),
+      sub('disable', 'turn quick search off; reading a known page stays'),
+      sub('engine', 'choose the engine of quick search', [arg('name', true, ['openrouter', 'brave', 'exa'])]),
+      sub('model', 'choose the model of the openrouter engine', [arg('id')]),
+    ],
   },
   {
     name: 'keys',
