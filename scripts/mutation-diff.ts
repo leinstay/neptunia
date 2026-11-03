@@ -5,7 +5,7 @@
 // the same tool, no fixture followed), and every changed test file. A changed file that no test is named after or
 // imports is named and skipped. A change whose commit subjects all start with
 // "Format " is skipped whole, because formatting rewrites old lines. The score is read from Stryker's
-// json report and compared with `thresholds.break` of stryker.config.json, a starting value of 60 to raise once real
+// json report and compared with `thresholds.break` of scripts/config/stryker.config.json, a starting value of 60 to raise once real
 // runs are measured.
 //
 //   node scripts/mutation-diff.ts <base-ref>   exit 0: nothing to mutate, or the score meets the threshold
@@ -251,7 +251,9 @@ function main(base: string) {
   }
 
   const tests = selectTestFiles(Object.keys(ranges), Object.keys(changed), allTests, readFromTree);
-  const parsedConfig: unknown = JSON.parse(fs.readFileSync(path.join(root, 'stryker.config.json'), 'utf8'));
+  const parsedConfig: unknown = JSON.parse(
+    fs.readFileSync(path.join(root, 'scripts', 'config', 'stryker.config.json'), 'utf8')
+  );
   const baseConfig = parsedConfig as { thresholds?: { break?: number }; tap?: Record<string, Untyped> };
   const threshold = baseConfig.thresholds?.break ?? 0;
 

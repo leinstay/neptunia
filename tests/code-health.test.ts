@@ -421,7 +421,7 @@ test('checkStructure: an empty tree reports nothing', () => {
   assert.deepEqual(checkStructure(entries, {}), { unmatched: [], local: [], imports: {}, missingTests: [] });
 });
 
-// ---- the entry and the core import no Discord (the tracked structure.json) ----
+// ---- the entry and the core import no Discord (the tracked scripts/config/structure.json) ----
 
 const tracked = trackedEntries();
 

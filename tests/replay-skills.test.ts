@@ -82,7 +82,7 @@ function load(items: unknown) {
 
 test('parseScenarios: the example file loads; omitted fields take their defaults', () => {
   const example = parseScenarios(
-    fs.readFileSync(new URL('../scripts/prompts/skill-scenarios.example.json', import.meta.url), 'utf8')
+    fs.readFileSync(new URL('../scripts/fixtures/skill-scenarios.example.json', import.meta.url), 'utf8')
   );
   assert.ok(example.length >= 3);
   for (const scenario of example) assert.ok(/^[A-Za-z0-9._-]+$/.test(scenario.id));
