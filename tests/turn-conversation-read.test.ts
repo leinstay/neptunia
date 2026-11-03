@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { userText } from '../src/behavior/prompt.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
+import { issueContext } from '../src/memory/db/scope.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 import { createTurnRunner } from './fixtures/turn-runner.ts';
 import '../src/tools/impl/index.ts';
@@ -261,6 +262,7 @@ async function turn({
   jardinLive = [],
   features = {},
   seeds = [],
+  memoryContext,
 }: {
   answers: Array<unknown>;
   allowed?: Array<string>;
@@ -268,6 +270,7 @@ async function turn({
   jardinLive?: Array<Record<string, unknown>>;
   features?: Record<string, unknown>;
   seeds?: Array<{ conversationId: string; authorId: string; messageId: string; text: string }>;
+  memoryContext?: ReturnType<typeof issueContext>;
 }) {
   const history = [
     rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα' }),
@@ -301,6 +304,7 @@ async function turn({
       mode: 'reply',
       trigger: normalizedTrigger(history[1]),
       triggerKind: 'mention',
+      ...(memoryContext === undefined ? {} : { memoryContext }),
     })
   );
   return { result, logs, llm, port, server, record };
@@ -408,6 +412,21 @@ test('the record lacks the span: the history of the channel is asked and its lin
   assert.deepEqual(run.server.fetches.c2, [{ limit: 3 }]);
   const text = requestText(run.llm, 1);
   assert.match(text, /^#\d+ \[\d\d:\d\d\] Éloïse: από το ιστορικό$/m);
+});
+
+test("the owner's internal turn reads a channel the pull rail hides from an ordinary turn", async () => {
+  // Bug: the authenticated command line has all memory through search, yet this reader answers it with the live gate.
+  const memoryContext = issueContext({ kind: 'internal', newId: () => 'ctx:owner', now: () => NOW });
+  const run = await turn({
+    answers: [toolAnswer('', [call('conversation.read', { channel: 'secret', last: 3 })]), '<skip/>'],
+    record: fakeRecord([]),
+    memoryContext,
+  });
+  const text = requestText(run.llm, 1);
+  assert.equal(
+    text.startsWith(fill(labels.tools.result.refused, { reason: labels.tools.result.reasons['channel-not-visible'] })),
+    false
+  );
 });
 
 test('a channel the pull rail hides is refused channel-not-visible and nothing of it is read', async () => {
