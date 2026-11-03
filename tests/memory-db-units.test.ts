@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
+import { importCoreJsonState } from '../src/memory/db/core-state-import.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { isOperational } from '../src/memory/db/paths.ts';
 import { createAppendStore } from '../src/memory/append-store.ts';
@@ -133,7 +134,7 @@ function setDirs(data: string, mode: number) {
 }
 
 /** The modules of one run, over one data directory (`memoryDb`: a service of the test's own, else a new one). */
-function modules(
+async function modules(
   data: string,
   {
     log = quiet,
@@ -145,6 +146,8 @@ function modules(
   const service =
     (memoryDb as Service | null) ??
     createMemoryDb({ hot, dataDir: data, log, worker: false, now: () => NOW, defer: (fn) => setImmediate(fn) });
+  // Root state loads eagerly from the database. Readiness precedes construction of its readers.
+  if (!memoryDb) await service.open();
   const archiveStore = createAppendStore({ log: quiet, now: () => NOW });
   const record = createRecord({ dataDir: data, log: quiet, now: () => NOW, memoryDb: service });
   const journal = createJournal({ dataDir: data, now: () => NOW, uuid: counter('j'), log: quiet, memoryDb: service });
@@ -209,7 +212,7 @@ function modules(
  * The scripted day: counters, a private touch, a decay tick, lore and learning ops, a channel touch, an intention added
  * and updated, a task added and finished.
  */
-async function day(m: ReturnType<typeof modules>) {
+async function day(m: Awaited<ReturnType<typeof modules>>) {
   const at = (minutes: number) => NOW - 3_600_000 + minutes * 60_000;
   const message = (id: string, minutes: number) => ({
     id,
@@ -342,7 +345,7 @@ test('a day of writes with the memory files gone writes every kind of unit to th
   const db = prepared();
   retireFiles(db.data);
   const dbLog = logs();
-  const dm = modules(db.data, { log: dbLog });
+  const dm = await modules(db.data, { log: dbLog });
   try {
     await dm.service.tick();
     assert.equal(dm.service.status().open, true);
@@ -402,7 +405,7 @@ test('a day of writes with the memory files gone writes every kind of unit to th
 test('reads: the store, the intentions and the tasks load the database values with the memory files gone', async () => {
   const db = prepared({ archived: true });
   retireFiles(db.data);
-  const dm = modules(db.data);
+  const dm = await modules(db.data);
   try {
     await dm.service.tick();
     assert.equal((dm.store.getUser(GUILD, MEMBER) as Profile | null)?.id, MEMBER);
@@ -421,12 +424,11 @@ test('reads: the store, the intentions and the tasks load the database values wi
     );
     assert.ok(!dm.store.validate().includes(`guilds/${GUILD}/voice.json`), 'a memory unit is never checked as a file');
     // A closed database is an error to the reader, never a file read.
-    const closed = modules(db.data, { memoryDb: { readHandle: () => null, database: () => null } });
-    assert.throws(
-      () => closed.store.getGuild(GUILD),
+    // Eager root-state construction refuses the same closed database before any reader is returned.
+    await assert.rejects(
+      () => modules(db.data, { memoryDb: { readHandle: () => null, database: () => null } }),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
-    await closed.close();
   } finally {
     await dm.close();
     setDirs(db.data, 0o755);
@@ -463,7 +465,7 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
         return service.writeUnit(update);
       },
     };
-    const m = modules(data, { log, memoryDb: down });
+    const m = await modules(data, { log, memoryDb: down });
     const before = moves(service.readHandle()!);
     m.store.setLore(GUILD, [{ title: 'Η αποβάθρα', keys: ['αποβάθρα'], text: 'The old pier.' }], {
       source: 'owner',
@@ -597,7 +599,7 @@ test('a task transition or an intention whose write committed and whose answer w
         return done;
       },
     };
-    const m = modules(data, { memoryDb: flaky });
+    const m = await modules(data, { memoryDb: flaky });
     const db = () => dbOf(service.readHandle()!);
     // PR 6d, errands on the board: the transitions are the task's status events and its end the outbox row to
     // `persona`, written by op `errand` (they were `work_events` lines of op `lines` before).
@@ -683,7 +685,7 @@ test("her session's attitude move reaches the store's cached profile: a later fl
     fs.chmodSync(data, 0o755);
     await service.tick();
     await service.tick();
-    const m = modules(data, { memoryDb: service });
+    const m = await modules(data, { memoryDb: service });
     const db = () => dbOf(service.readHandle()!);
     const person = `person:discord:${MEMBER}`;
     const stored = () => db().prepare('SELECT affinity FROM people WHERE id = ?').get(person)!.affinity;
@@ -749,5 +751,88 @@ test("her session's attitude move reaches the store's cached profile: a later fl
     await service.close();
     setDirs(data, 0o755);
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('root state and participation, GIF and media caches persist through the writer without legacy JSON', async () => {
+  const fixture = prepared();
+  const handle = openMemoryDb(path.join(fixture.data, 'memory.db'));
+  try {
+    importCoreJsonState(handle, { dataDir: fixture.data });
+  } finally {
+    handle.close();
+  }
+  const files = ['state.json', ...['participation', 'gifs', 'media'].map((name) => `guilds/${GUILD}/${name}.json`)].map(
+    (file) => path.join(fixture.data, file)
+  );
+  for (const file of files) fs.rmSync(file, { force: true });
+  let run = await modules(fixture.data);
+  try {
+    await run.service.tick();
+    run.store.state.data.paused = true;
+    run.store.state.markDirty();
+    run.store.setParticipation(
+      GUILD,
+      {
+        nextId: 10,
+        episodes: [
+          {
+            itemId: 'pt-roundtrip',
+            id: 'p-roundtrip',
+            channelId: CHANNEL,
+            startAt: NOW,
+            lastAt: NOW,
+            lastOwnAt: NOW,
+            continues: null,
+            messages: [{ id: 'native-roundtrip', ts: NOW, self: true, text: 'café' }],
+          },
+        ],
+      },
+      { now: NOW }
+    );
+    run.store.getMediaCache(GUILD).photo = { text: 'a café terrace', ts: NOW };
+    run.store.markMediaCacheDirty(GUILD);
+    assert.equal(
+      run.store.recordGifs(GUILD, [
+        {
+          id: 'native-gif',
+          channelId: CHANNEL,
+          ts: NOW,
+          self: false,
+          bot: false,
+          links: [{ id: 'gif-key', kind: 'gif', site: 'Tenor', url: 'https://tenor.com/view/cat-dance-123' }],
+          attachments: [],
+        },
+      ]),
+      1
+    );
+    const participation = run.store.getParticipation(GUILD);
+    const gifs = structuredClone(run.store.getGifs(GUILD));
+    await run.store.flushSettled({ final: true });
+    assert.deepEqual(
+      files.filter((file) => fs.existsSync(file)),
+      []
+    );
+    run.store.state.data.paused = false;
+    run.store.reloadState();
+    assert.equal(run.store.state.data.paused, true);
+    run.store.state.data.afterReload = 'persisted after reload';
+    run.store.state.markDirty();
+    await run.store.flushSettled({ final: true });
+    await run.close();
+    run = await modules(fixture.data);
+    await run.service.tick();
+    assert.equal(run.store.state.data.paused, true);
+    assert.equal(run.store.state.data.afterReload, 'persisted after reload');
+    assert.deepEqual(run.store.getParticipation(GUILD), participation);
+    assert.deepEqual(run.store.getGifs(GUILD), gifs);
+    assert.deepEqual(run.store.getMediaCache(GUILD).photo, { text: 'a café terrace', ts: NOW });
+    assert.deepEqual(
+      files.filter((file) => fs.existsSync(file)),
+      []
+    );
+  } finally {
+    await run.close();
+    fs.rmSync(fixture.root, { recursive: true, force: true });
   }
 });

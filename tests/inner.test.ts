@@ -35,6 +35,7 @@ import { createIntention } from '../src/intentions/model.ts';
 import { localHour } from '../src/format.ts';
 import { HOUR_MS, MINUTE_MS, DAY_MS, zonedEpoch } from '../src/time.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { unitValue } from '../src/memory/db/readers/common.ts';
 import {
   GUILD,
   NOW,
@@ -521,14 +522,14 @@ test("wakeOfDue: a wait past its deadline names its errand; the chain is the int
   assert.equal(wakeOfDue({ intention: intention('i2'), reason: 'due', at: 7 }).chainId, 'intention:i2');
 });
 
-test('inner: what one drain hands off (a stale wake) and keeps (the wake of a held chain) is all on disk afterwards', async () => {
+test('inner: one drain persists its stale wake, held chain and facts in the database', async () => {
   const dataDir = tempDir('nep-inner-drain-');
   const records = [
     intention('i1', { dueAt: NOW - 3 * MINUTE_MS }),
     intention('i2', { dueAt: NOW - 2 * MINUTE_MS, chainId: 'k' }),
   ];
   const hot = hotWith({ wakes: { caps: { perChain: 1 } } });
-  // The queue and the handled set live in the memory database (stage 4 cut, the lead's decision 1); the facts stay in inner.json.
+  // With a database supplied, queue dispositions and inner facts persist through the database writer.
   const db = wakeMemory(dataDir, () => clock.t);
   const run = setup({ records, dataDir, hot, memoryDb: db.memoryDb });
   run.turns.busy = true;
@@ -539,7 +540,13 @@ test('inner: what one drain hands off (a stale wake) and keeps (the wake of a he
   run.turns.busy = false;
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 0);
-  const onDisk = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', GUILD, 'inner.json'), 'utf8'));
+  await run.inner.release();
+  const handle = db.memoryDb.readHandle();
+  assert.ok(handle);
+  const saved = unitValue(handle.db, `guilds/${GUILD}/inner.json`);
+  assert.ok(saved.found);
+  const facts: unknown = Reflect.get(Object(saved.value), 'facts');
+  assert.ok(Array.isArray(facts));
   assert.deepEqual(
     db
       .queue()
@@ -556,7 +563,9 @@ test('inner: what one drain hands off (a stale wake) and keeps (the wake of a he
     'the hold, told by a feedback wake'
   );
   assert.deepEqual(
-    onDisk.facts.map((fact: Record<string, Untyped>) => `${fact.kind}:${fact.code}`),
+    facts.map(
+      (fact: unknown) => `${String(Reflect.get(Object(fact), 'kind'))}:${String(Reflect.get(Object(fact), 'code'))}`
+    ),
     ['wakeDropped:stale', 'wakeHeld:per-chain']
   );
   assert.deepEqual(

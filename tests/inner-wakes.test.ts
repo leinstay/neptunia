@@ -8,6 +8,8 @@
 // service and event door, a fake turn runner standing in for the model call; the clock injected as `now`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { createInnerLife } from '../src/behavior/inner.ts';
 import type { InnerTurnParams } from '../src/behavior/inner/types.ts';
 import { createEventDoor } from '../src/interface/door.ts';
@@ -114,6 +116,7 @@ async function core() {
   };
   let current = await open();
   return {
+    dataDir,
     clock,
     flags,
     service,
@@ -332,6 +335,21 @@ test('a recurring intention whose occurrence fell due during the downtime loses 
       [[id]],
       'the next occurrence runs as usual'
     );
+  } finally {
+    await run.close();
+  }
+});
+
+test('inner stop state saved through the writer survives reopening without inner.json', async () => {
+  const run = await core();
+  const file = path.join(run.dataDir, 'guilds', GUILD, 'inner.json');
+  try {
+    run.life.stop(GUILD, { by: 'owner' });
+    await run.life.release();
+    assert.equal(fs.existsSync(file), false);
+    await run.restart();
+    assert.equal(run.life.status(GUILD).stopped, true);
+    assert.equal(fs.existsSync(file), false);
   } finally {
     await run.close();
   }

@@ -23,6 +23,7 @@ import {
 } from '../src/tools/impl/usage.ts';
 import { createLlm, keyHashOf } from '../src/llm/openrouter.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
 
 const HOUR = 3_600_000;
 
@@ -912,4 +913,26 @@ test('keyStateLines: one line per role with the key it is on and, once it switch
   ]);
   assert.deepEqual(keyStateLines({ states, labels: {}, when }), []);
   assert.deepEqual(keyStateLines({ states: [], labels, when }), []);
+});
+
+test('usage saved through the writer survives reopening without usage.json', async () => {
+  const now = clock();
+  let memory = await openTestMemory({ now });
+  const dataDir = memory.dataDir;
+  try {
+    const options = { dataDir, now, memoryDb: memory.memoryDb };
+    const first = createUsage(options);
+    first.record({ role: 'core', promptTokens: 100, cachedTokens: 40, completionTokens: 7, cost: 0.25 });
+    assert.equal(await first.save({ force: true }), true);
+    assert.equal(fs.existsSync(path.join(dataDir, USAGE_FILE)), false);
+    await memory.close();
+    memory = await openTestMemory({ dataDir, now });
+    const loaded = createUsage({ ...options, memoryDb: memory.memoryDb });
+    assert.deepEqual(loaded.byRole(), [
+      { role: 'core', requests: 1, promptTokens: 100, cachedTokens: 40, completionTokens: 7, cost: 0.25 },
+    ]);
+    assert.equal(fs.existsSync(path.join(dataDir, USAGE_FILE)), false);
+  } finally {
+    await memory.close();
+  }
 });

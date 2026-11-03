@@ -7,6 +7,7 @@ import { createMetrics, metricsTap, SPEED_METRICS } from '../src/tools/impl/metr
 import { log, onLog } from '../src/log.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -199,4 +200,25 @@ test('metricsTap: subscribed to the log, it records what the log writes', async 
     off();
   }
   assert.deepEqual(metrics.summary('analyzer batch', 24), { n: 1, median: 321, mean: 321 });
+});
+
+test('metrics saved through the writer survive reopening without metrics.json', async () => {
+  const now = clock();
+  let memory = await openTestMemory({ now });
+  const dataDir = memory.dataDir;
+  try {
+    const options = { dataDir, now, memoryDb: memory.memoryDb };
+    const first = createMetrics(options);
+    first.record('reply', 400);
+    first.record('reply', 600);
+    assert.equal(await first.save({ force: true }), true);
+    assert.equal(fs.existsSync(path.join(dataDir, 'metrics.json')), false);
+    await memory.close();
+    memory = await openTestMemory({ dataDir, now });
+    const loaded = createMetrics({ ...options, memoryDb: memory.memoryDb });
+    assert.deepEqual(loaded.summary('reply', 24), { n: 2, median: 500, mean: 500 });
+    assert.equal(fs.existsSync(path.join(dataDir, 'metrics.json')), false);
+  } finally {
+    await memory.close();
+  }
 });

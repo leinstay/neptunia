@@ -50,7 +50,7 @@ import { familyError } from './message-family-catalog.ts';
 import { observedSourceId } from './observe.ts';
 import { parseExtra } from './map/common.ts';
 import type { ResolvedRecordIdentity } from './map/common.ts';
-import { currentUnitPath } from './paths.ts';
+import { currentUnitPath, rootStateKind } from './paths.ts';
 import { classify } from './map/index.ts';
 import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
 import { hotClaimIds, linkVectors, qualify, retireAbsent, writeMapping } from './upsert.ts';
@@ -501,6 +501,18 @@ function project(handle: MemoryHandle, update: Row, at: string): { units: number
   return out;
 }
 
+/** A root core-state value uses the operational row and the same transactional unit marker. */
+function writeRootState(db: Db, update: Row, at: string): { written: number } | null {
+  const kind = rootStateKind(update.owner);
+  if (!kind) return null;
+  db.prepare(
+    `INSERT INTO operational (kind, owner, value, owner_file) VALUES (?, ?, ?, NULL)
+    ON CONFLICT(kind, owner) DO UPDATE SET value = excluded.value`
+  ).run(kind, update.owner, JSON.stringify(update.value));
+  noteUnit(db, String(update.owner), 'core-state-import', { at });
+  return { written: 1 };
+}
+
 /**
 
  * One write of an append-like memory unit (see the head of this file). `handle` is the writer.
@@ -512,7 +524,7 @@ export function applyUnitWrite(handle: MemoryHandle, update: Row): unknown {
   const db = dbOf(handle);
   const runs: Record<string, (() => unknown) | undefined> = {
     lines: () => skippedErrandUnit(db, update, unitOf) ?? writeLines(db, update, at),
-    value: () => skippedErrandUnit(db, update, unitOf) ?? writeValue(db, update, at),
+    value: () => writeRootState(db, update, at) ?? skippedErrandUnit(db, update, unitOf) ?? writeValue(db, update, at),
     diary: () => writeDiary(db, update, at),
     vectors: () => writeVectors(db, update, at),
     errand: () => applyErrandUnit(db, update, at, (closing) => writeLines(db, closing, at)),

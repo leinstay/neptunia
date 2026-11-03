@@ -3,8 +3,7 @@
 // slashes (`guilds/<g>/users/<u>.json`, `state.json`).
 //
 //   OPERATIONAL_PATTERNS  what is written as a file: the process's operational
-//                         state (`state.json`, `usage.json`, `metrics.json`, a guild's `inner.json` and `missed.json`),
-//                         the participation file, the GIF library and the vision cache (`gifs.json`, `media.json`), the
+//                         state outside the inventoried root and guild units, the
 //                         recall trace, the journal's `.running` marker and request dumps (`journal/` is a mixed
 //                         directory: only its day files retire), the backfill folders and the backfill cursor
 //                         (`record/backfill.json`), the archive's pending queue, the vault, the snapshots, the unit
@@ -17,7 +16,8 @@
 //                         paths of a private layer), `record/` (but the backfill cursor), `archive/` (but the pending
 //                         queue), the journal's day files only, `guild.json`, `lore.json`, `recent.json`, `diary.json`,
 //                         `buffer.json`, `voice.json`, `forgotten.json`, `intentions*.json[l]`, `errands*.json[l]` and `tasks*.json[l]` (the
-//                         names an errand unit had before `errands.json`).
+//                         names an errand unit had before `errands.json`), root `state.json`, `usage.json` and
+//                         `metrics.json`, and guild `inner.json`, `missed.json`, `participation.json`, `gifs.json` and `media.json`.
 // The two lists never share a path (tests/memory-db-paths.test.js enumerates every path the mappers map or skip and the
 // data layout, and fails on a path in neither or both). A path in neither is unknown: not memory the mappers map, and
 // not on the allowlist.
@@ -49,10 +49,9 @@ const TOOL_OUTPUT = '(?:mentor|recall-eval|vision-compare)(?:/.*)?';
 
 /** What is written as a file (see the head of this file). */
 export const OPERATIONAL_PATTERNS = Object.freeze([
-  pattern('{state,usage,metrics}.json', '(?:state|usage|metrics)\\.json'),
   pattern(
-    'guilds/*/[private/*/]{state,usage,metrics,inner,missed,participation,gifs,media}.json',
-    `${G}${P}${GUILD_STATE}`
+    'guilds/*/{state,usage,metrics}.json and private core state',
+    `${G}(?:(?:state|usage|metrics)\\.json|private/[^/]+/${GUILD_STATE})`
   ),
   pattern('guilds/*/recall-trace.jsonl', `${G}recall-trace\\.jsonl`),
   pattern('guilds/*/[private/*/]journal/.running', `${G}${P}journal/\\.running`),
@@ -75,6 +74,11 @@ const PRIVATE_OPERATIONAL = `(?:${GUILD_STATE}|journal/\\.running|journal/reques
 
 /** The memory paths, units of the database only (see the head of this file). */
 export const MEMORY_PATTERNS = Object.freeze([
+  pattern('{state,usage,metrics}.json', '(?:state|usage|metrics)\\.json'),
+  pattern(
+    'guilds/*/{inner,missed,participation,gifs,media}.json',
+    `${G}(?:inner|missed|participation|gifs|media)\\.json`
+  ),
   pattern('guilds/*/users/**', `${NOT_LEFTOVER}${G}users/.+`),
   pattern('guilds/*/channels/**', `${NOT_LEFTOVER}${G}channels/.+`),
   pattern(
@@ -130,4 +134,17 @@ export function pathClass(rel: unknown): 'operational' | 'memory' | null {
   if (matches(OPERATIONAL_PATTERNS, name)) return 'operational';
   if (matches(MEMORY_PATTERNS, name)) return 'memory';
   return null;
+}
+
+/** The root operational row used by the core-state writer, or null for another unit. */
+export function rootStateKind(owner: unknown): string | null {
+  return typeof owner === 'string' ? (/^(state|usage|metrics)\.json$/.exec(owner)?.[1] ?? null) : null;
+}
+
+/** The inventoried core state kept in database rows, with its legacy relative owner preserved. */
+export function isCoreStatePath(owner: unknown): boolean {
+  return (
+    rootStateKind(owner) !== null ||
+    (typeof owner === 'string' && /^guilds\/[^/]+\/(?:inner|missed|participation|gifs|media)\.json$/.test(owner))
+  );
 }

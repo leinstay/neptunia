@@ -49,7 +49,10 @@ function readState(file: string): Row | undefined {
 }
 
 /** Copies unimported JSON without changing source files or selecting live readers and writers. */
-export function importCoreJsonState(handle: MemoryHandle, { dataDir }: { dataDir: string }): { imported: number } {
+export function importCoreJsonState(
+  handle: MemoryHandle,
+  { dataDir, now = Date.now() }: { dataDir: string; now?: number }
+): { imported: number } {
   return handle.transaction(() => {
     const db = dbOf(handle);
     // The enclosing import owns the transaction, including each unit writer's values and marker.
@@ -58,7 +61,7 @@ export function importCoreJsonState(handle: MemoryHandle, { dataDir }: { dataDir
     const root = db.prepare(
       'INSERT OR IGNORE INTO operational (kind, owner, value, owner_file) VALUES (?, ?, ?, NULL)'
     );
-    const at = new Date().toISOString();
+    const at = new Date(now).toISOString();
     let imported = 0;
     for (const source of sourcesIn(dataDir)) {
       if (known.get(source.owner)) continue;

@@ -472,5 +472,6 @@ export type InnerContext = {
 export type InnerMemoryDb = {
   recordWake?(update: WakeUpdate): unknown;
   memoryWrite?(update: WakeQueueUpdate): Promise<unknown>;
-  readHandle?(): unknown;
+  writeUnit?(update: { op: 'value'; owner: string; value: unknown }): Promise<unknown>;
+  readHandle?(): { db: object } | null;
 };

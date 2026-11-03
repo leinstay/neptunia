@@ -221,7 +221,7 @@
     },
     "src/behavior/missed.ts": {
       "createMissed": {
-        "function-length": 648
+        "function-length": 647
       },
       "createMissed>onTurnEnd": {
         "complexity": 22
@@ -479,7 +479,7 @@
     },
     "src/memory/db/service.ts": {
       "createMemoryDb": {
-        "function-length": 1088
+        "function-length": 1083
       },
       "createMemoryDb>sessionJob": {
         "complexity": 30

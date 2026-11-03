@@ -6,7 +6,7 @@
 // or found nothing to do (`not-now`), a call that left the pending queue unanswered because the queue
 // was full, the call waited too long or a stronger line took its place (`pending-full`,
 // `pending-expired`, `pending-outranked`, src/behavior/pipeline.ts) -- become candidates in a small registry, persisted in
-// `data/guilds/<id>/missed.json` (written whole through a `.tmp` file and a rename) and written to
+// the database unit `guilds/<id>/missed.json` through the memory writer and written to
 // the journal as `answer` records. A `<skip/>` and a refusal are the persona's decisions and
 // never candidates; neither is an overheard line or a routed call. A private chat's are: its
 // records go to that person's private journal and its recovery turn runs in that chat, after the
@@ -34,6 +34,7 @@
 
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
+import { createReadSeam, unitValue } from '../memory/db/readers/common.ts';
 import { formatTranscript, MAX_MESSAGE_CHARS, renderTranscript, withTriggers } from '../format.ts';
 import { roleRequestOptions } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
@@ -560,6 +561,38 @@ export function buildCheckRequest({
   };
 }
 
+const registryOwner = (guildId: string): string => `guilds/${guildId}/missed.json`;
+const registryFile = (dataDir: string, guildId: string): string => path.join(dataDir, registryOwner(guildId));
+
+/** The candidate registry's existing JSON shape, independent of its persistence backend. */
+function registryOf(value: unknown): { candidates: Array<Candidate>; lastRecoveryAt: Record<string, number> } {
+  const parsed = objOf(value);
+  return {
+    candidates: Array.isArray(parsed.candidates)
+      ? parsed.candidates.filter((candidate: Candidate) => candidate && typeof candidate.messageId === 'string')
+      : [],
+    lastRecoveryAt:
+      parsed.lastRecoveryAt && typeof parsed.lastRecoveryAt === 'object' ? { ...parsed.lastRecoveryAt } : {},
+  };
+}
+
+/** Persist one complete registry through the configured writer. */
+async function writeRegistry(
+  memoryDb: CreateMissedInput['memoryDb'],
+  fs: NonNullable<CreateMissedInput['fs']>,
+  file: string,
+  guildId: string,
+  value: unknown
+): Promise<void> {
+  if (memoryDb) {
+    await memoryDb.writeUnit({ op: 'value', owner: registryOwner(guildId), value });
+    return;
+  }
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(`${file}.tmp`, JSON.stringify(value));
+  await fs.rename(`${file}.tmp`, file);
+}
+
 /**
  * The registry, its sweeps and its recovery turns.
  *
@@ -587,6 +620,7 @@ export function createMissed({
   getGuildId,
   getSelfName = () => 'bot',
   dataDir,
+  memoryDb,
   fs = nodeFs,
   now = Date.now,
   timers = {
@@ -599,10 +633,11 @@ export function createMissed({
   },
   log = defaultLog,
 }: CreateMissedInput): CreateMissedResult {
+  const seam = createReadSeam({ memoryDb, log, reader: 'missed' });
   let candidates: Array<Candidate> = [];
   let privateRecovery: Untyped = null;
   let lastRecoveryAt: Record<string, number> = {};
-  let loadedGuildId: Untyped = null;
+  let loadedGuildId: string | null = null;
   let dirty = false;
   let chain = Promise.resolve();
   let promptMissingLogged = false;
@@ -613,7 +648,6 @@ export function createMissed({
   const recoveryOn = () => true;
   const paused = () => Boolean(store?.state?.data?.paused);
   const journalOn = () => Boolean(journal) && typeof journal.answer === 'function';
-  const fileOf = (guildId: string) => path.join(dataDir, 'guilds', String(guildId), 'missed.json');
   const iso = (ms: number) => new Date(ms).toISOString();
 
   /** The person a private chat belongs to, null for a server channel (or one not known). */
@@ -632,7 +666,7 @@ export function createMissed({
       .catch((error) => log.warn('missed: journal failed', { code: objOf(error).code ?? null }));
   }
 
-  /** Write the registry (not while paused: the owner may be editing data/; it is written later). */
+  /** Write the registry through its persistence backend when the core is running. */
   function save() {
     dirty = true;
     const guildId = loadedGuildId ?? getGuildId?.();
@@ -641,12 +675,10 @@ export function createMissed({
       if (!dirty) return;
       dirty = false;
       candidates = pruneCandidates(candidates, now());
-      const file = fileOf(guildId);
-      const text = JSON.stringify({ v: FILE_VERSION, candidates, lastRecoveryAt });
+      const file = registryFile(dataDir, guildId);
+      const value = { v: FILE_VERSION, candidates, lastRecoveryAt };
       try {
-        await fs.mkdir(path.dirname(file), { recursive: true });
-        await fs.writeFile(`${file}.tmp`, text);
-        await fs.rename(`${file}.tmp`, file);
+        await writeRegistry(memoryDb, fs, file, guildId, value);
       } catch (error) {
         dirty = true;
         log.warn('missed: save failed', { code: objOf(error).code ?? null });
@@ -656,9 +688,14 @@ export function createMissed({
     return run;
   }
 
-  /** Read the registry; a missing file is an empty one, a broken one is moved aside, never overwritten. */
+  /** Read the database registry, or the standalone file backend when no service is supplied. */
   async function load(guildId: string) {
-    const file = fileOf(guildId);
+    if (memoryDb) {
+      const found = seam.run(() => unitValue(seam.db(), registryOwner(guildId)));
+      ({ candidates, lastRecoveryAt } = registryOf(found.found ? found.value : null));
+      return;
+    }
+    const file = registryFile(dataDir, guildId);
     let text;
     try {
       text = await fs.readFile(file, 'utf8');
@@ -667,12 +704,7 @@ export function createMissed({
       return;
     }
     try {
-      const parsed = JSON.parse(text);
-      candidates = Array.isArray(parsed?.candidates)
-        ? parsed.candidates.filter((candidate: Candidate) => candidate && typeof candidate.messageId === 'string')
-        : [];
-      lastRecoveryAt =
-        parsed?.lastRecoveryAt && typeof parsed.lastRecoveryAt === 'object' ? { ...parsed.lastRecoveryAt } : {};
+      ({ candidates, lastRecoveryAt } = registryOf(JSON.parse(text)));
     } catch {
       log.warn('missed: file unreadable, moved aside', { guildId: String(guildId) });
       await fs.rename(file, `${file}.bad-${now()}`).catch(() => {});

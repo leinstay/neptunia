@@ -1671,12 +1671,15 @@ test('validate: names every unparsable operational *.json file, path relative to
   fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'users', 'u1.json'), '{ not json');
   fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'inner.json'), '{ not json either');
   fs.writeFileSync(path.join(dir, 'state.json'), '{ also not json');
+  // Database-backed state files are retired. Operational guild aliases still require file validation.
+  fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'usage.json'), '{ malformed operational usage');
+  fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'metrics.json'), '{ malformed operational metrics');
 
   const bad = store.validate();
   assert.deepEqual(
     bad.sort(),
-    ['guilds/g1/inner.json', 'state.json'],
-    'a memory unit is in the database, never checked as a file'
+    ['guilds/g1/metrics.json', 'guilds/g1/usage.json'],
+    'database-authoritative paths are ignored while malformed operational files remain visible'
   );
 });
 

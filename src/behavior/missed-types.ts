@@ -1,5 +1,7 @@
 // The types of the signatures in ./missed.ts: the inputs and results that are too long to read inline.
 
+import type * as nodeFs from 'node:fs/promises';
+import type { MemoryDbService } from '../memory/db/service.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { Line } from './lines.ts';
@@ -65,7 +67,8 @@ export type CreateMissedInput = {
   getGuildId: () => string | null;
   getSelfName?: (guildId: string) => string;
   dataDir: string;
-  fs?: Untyped;
+  memoryDb?: Pick<MemoryDbService, 'readHandle' | 'writeUnit'>;
+  fs?: Pick<typeof nodeFs, 'mkdir' | 'writeFile' | 'rename' | 'readFile'>;
   now?: () => number;
   timers?: { set: (fn: () => void, ms: number) => Untyped; clear: (timer: Untyped) => void };
   log?: Logger;

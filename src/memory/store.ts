@@ -3,7 +3,7 @@
 // database, named by the path it had under data/ (`guilds/<g>/users/<u>.json`; the mappers of src/memory/db/map/
 // turn a unit into rows and back); the operational files beside it stay JSON files under data/:
 //
-//   data/state.json                          (a file) the pause flag, the spontaneous schedule, token calibration,
+//   state.json                               the pause flag, the spontaneous schedule, token calibration,
 //                                            the daily counters (LLM requests, videos and re-watches, pictures
 //                                            drawn, web lookups, GIFs posted and watched), the open follow-up
 //                                            windows, the ring of calls from other channels and the seen marks
@@ -17,12 +17,12 @@
 //   guilds/<guildId>/channels/<channelId>.json  one entry per channel the persona has seen (the server map),
 //                                            with the tally of who writes there
 //   guilds/<guildId>/lore.json               the guild's lorebook
-//   data/guilds/<guildId>/media.json         (a file, its memory rows sent too) the media description cache
-//   data/guilds/<guildId>/gifs.json          (a file) the GIF library the persona posts from (src/memory/gifs.ts)
+//   guilds/<guildId>/media.json              the media description cache
+//   guilds/<guildId>/gifs.json               the GIF library the persona posts from (src/memory/gifs.ts)
 //   guilds/<guildId>/recent.json             the recent store: short dated lines about the last
 //                                            `memory.recentHours` hours, each with its source channel
 //                                            (src/memory/recent.ts)
-//   data/guilds/<guildId>/participation.json  (a file, its memory rows sent too) the persona's participation
+//   guilds/<guildId>/participation.json      the persona's participation
 //                                            episodes: slices of channels around her own lines over the last
 //                                            `participation.hours` (src/memory/participation.ts)
 //   guilds/<guildId>/diary.json              the persona's diary posts, newest last, one-line gists
@@ -104,6 +104,7 @@ import { PARTICIPATION_DEFAULTS, emptyParticipation, expireEpisodes, normalizePa
 import { ITEM_ID_PREFIX, archiveEntry, archiveRevision } from './archive.ts';
 import { normalizeAvatar } from './avatars.ts';
 import { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR, memoryRootOf } from './root.ts';
+import { isCoreStatePath } from './db/paths.ts';
 import { unitValue } from './db/readers/common.ts';
 import { idsUnderDir } from './db/export.ts';
 import { classify } from './db/map/index.ts';
@@ -360,12 +361,12 @@ function findInvalidJsonFiles(
 /**
  * The JSON files written as files (src/memory/db/paths.ts#OPERATIONAL_PATTERNS lists every operational path): the
  * process's operational state, the request dumps and tool lists, the backfill folder, the vault and the snapshots, the
- * GIF library and the vision cache, the participation file, and the unit writes a shutdown could not make
+ * unit writes a shutdown could not make
  * (`memory-pending/`). Paths relative to the data directory. `/nep resume` checks only these (`validate`).
  */
 export function operationalJsonPath(rel: string): boolean {
   const name = String(rel).replace(/\\/g, '/');
-  if (/^(?:state|usage|metrics)\.json$/.test(name)) return true;
+  if (isCoreStatePath(name)) return false;
   if (/^(?:vault|snapshots)\//.test(name)) return true;
   // The unit writes a shutdown could not make (src/memory/db/service.ts#keepPending).
   if (/^memory-pending\//.test(name)) return true;
@@ -1603,11 +1604,17 @@ function buildStore({
 
   /**
    * Where a cache entry lands: `{ rel, file, send }`. An operational file (`operationalJsonPath`) or a path the mappers
-   * do not map as a JSON memory unit is written as a file (`file`), media.json and participation.json also sent
-   * (`send`, their memory rows); every other unit is a unit of the memory database, sent only.
+   * do not map as a JSON memory unit is written as a file (`file`). Inventoried core state uses the supplied database
+   * along with mapped memory units (`send`). Standalone operational state retains its file backend.
    */
   function dbPlace(file: string) {
     const rel = root.relative(file);
+    if (isCoreStatePath(rel))
+      return {
+        rel,
+        file: !memoryDb,
+        send: Boolean(memoryDb) || /^guilds\/[^/]+\/(?:participation|media)\.json$/.test(rel),
+      };
     if (operationalJsonPath(rel))
       return { rel, file: true, send: /^guilds\/[^/]+\/(?:participation|media)\.json$/.test(rel) };
     const info: Untyped = classify(rel);
@@ -3426,14 +3433,16 @@ function buildStore({
     },
 
     /**
-     * Force `state.json` to be re-read from disk right now, discarding
-     * whatever was cached (`/nep resume`): the owner may have
-     * hand-edited it while paused. Any unflushed
-     * in-memory change is lost, the same guarantee every other cached file
-     * already has once dropped.
+     * Read the persisted state into the existing public state handle (`/nep resume`).
+     * Any unflushed in-memory change is discarded. The supplied database is authoritative.
      */
     reloadState() {
-      stateEntry.value = readJson(stateFile, {});
+      const place = dbPlace(stateFile);
+      if (place.file) stateEntry.value = readJson(stateFile, {});
+      else {
+        const found = seam.run(() => unitValue(seam.db(), place.rel));
+        stateEntry.value = found.found ? found.value : {};
+      }
       stateEntry.dirty = false;
     },
 
@@ -3442,7 +3451,9 @@ function buildStore({
      * (`/nep resume`) -- see `findInvalidJsonFiles` above.
      */
     validate(): Array<string> {
-      return findInvalidJsonFiles(dataDir, { only: operationalJsonPath });
+      return findInvalidJsonFiles(dataDir, {
+        only: (rel) => operationalJsonPath(rel) || (!memoryDb && isCoreStatePath(rel)),
+      });
     },
 
     /**
@@ -3505,7 +3516,7 @@ export type Store = Omit<
   listUserProfiles: (guildId: Untyped) => Array<object>;
   listChannels: (guildId: Untyped) => Array<object>;
   updateChannel: (...args: Parameters<StoreView['updateChannel']>) => object;
-  getMediaCache: (guildId: Untyped) => object;
+  getMediaCache: StoreView['getMediaCache'];
   getLore: (guildId: Untyped) => Array<object>;
 };
 
@@ -3526,9 +3537,9 @@ export type Store = Omit<
  *   database throws, with a code), whether it exists is the database's `files` row (`known`), a directory's ids
  *   are the database's (`idsUnder`), and a flush hands its whole value to the outbox (src/memory/db/unit-outbox.ts,
  *   op `value`): the entry stays the truth and counts as written only when the outbox no longer holds it (the write
- *   resolved); a failed write waits there and goes again at the next flush. The operational files
- *   (`operationalJsonPath`: state, gifs, media, participation, ...) are read and written as files; `media.json` and
- *   `participation.json` also send their value. A diary post is sent at once (`appendDiaryPost` flushes the diary: its
+ *   resolved); a failed write waits there and goes again at the next flush. Core state, participation, GIFs and media
+ *   use the database with their existing unit owners. Other operational files retain their file backend.
+ *   A diary post is sent at once (`appendDiaryPost` flushes the diary: its
  *   row and its mirror's `sent` publication). `flushSettled({ final: true })` (the shutdown) waits for the outbox and
  *   keeps what still fails in `memory-pending/` (`memoryDb.keepPending`, replayed by the service at its next open);
  *   `dropCaches` keeps the entries the outbox holds; `validate` (`/nep resume`) checks the operational JSON files.
