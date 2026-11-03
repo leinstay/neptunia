@@ -1,14 +1,13 @@
 // The agent profiles, built from the `agents/` folder at the engine root: one
 // `agents/<id>/profile.json` per agent, beside its tracked prompt
-// (`agents/<id>/prompt.md`). A profile file only describes a request: its
+// (`agents/<id>/prompt.md`). Persona files under `data/agents/<id>/` override shared defaults. A profile describes its
 // kind (`worker`, run under this runner on a socket; `consultation`, a
 // model role tools call directly; `development`, an agent of the
 // workspace's development side that a dispatcher outside this engine runs
-// on OpenCode: the runner skips the last two), its model role
-// (`scout`, `server`, `thinker`, `dev`: the key of its model under `models.<group>`), its prompt and the deployment's override
-// name under `prompts.local/`, the OpenCode tools it asks for, the name of
-// its shell class, its default limits, daily caps, socket and out dir, and
-// the environment variable names its run may fall back on (the core sends
+// on OpenCode; `watcher`, a subharness report definition). The runner loads only workers. Model roles
+// (`scout`, `server`, `thinker`, `dev`) remain stable. Definitions carry a prompt filename and migration override metadata.
+// Worker definitions also list tools, a shell class, default limits, daily caps, socket and out directory, and
+// environment variable names their run may fall back on (the core sends
 // the keys with each task). It never authorizes anything: the shell classes
 // (their allow lists, which tools each class may grant) and every deny are
 // defined here and in src/agent-runner/policy.ts, a profile can only ask for
@@ -127,8 +126,26 @@ export type DevelopmentDefinition = Readonly<
 /** A consultation's profile.json: the common keys only. */
 export type ConsultationDefinition = Readonly<CommonDefinition & { kind: 'consultation' }>;
 
+/** A report watcher uses subharness policy without a worker model role or permissions. */
+export type WatcherDefinition = Readonly<{
+  id: 'watcher';
+  kind: 'watcher';
+  prompt: string;
+  override: null;
+  description: string;
+}>;
+
 /** The validated profile.json of any agent. */
-export type AgentDefinition = WorkerDefinition | DevelopmentDefinition | ConsultationDefinition;
+export type AgentDefinition = WorkerDefinition | DevelopmentDefinition | ConsultationDefinition | WatcherDefinition;
+
+/** The engine and persona agent trees, resolved independently of private credentials. */
+export type AgentPaths = {
+  rootDir?: string;
+  dataDir?: string;
+  env?: Record<string, string | undefined>;
+};
+
+type ResolvedAgentPaths = Required<AgentPaths>;
 
 /** The OpenCode config of one task. */
 export type OpenCodeConfig = {
@@ -182,26 +199,40 @@ const AGENTS_DIRNAME = 'agents';
 /** The description file inside an agent's folder. */
 const PROFILE_FILE = 'profile.json';
 
-/**
- * The system-prompt files of agent `name`, in the order they are tried: the deployment's
- * override `prompts.local/<override>` under the private directory (`NEPTUNIA_PRIVATE_DIR`, else
- * the root; src/paths.ts#resolvePaths), then the tracked `agents/<name>/<prompt>` under the root.
- * `override` defaults to `agent-<name>.md` and `prompt` to `prompt.md`, the names the shipped
- * profiles use, so the owner's override files keep their names. An override that exists but
- * cannot be read (EACCES, EPERM) is skipped like an absent one, with one warning
- * (src/agent-runner/opencode.ts#readPromptFile). Pure: `env` is only read.
- */
+/** Resolves explicit and environment data paths against the engine root. */
+function agentPaths(options: AgentPaths): ResolvedAgentPaths {
+  const env = options.env ?? process.env;
+  const resolved = resolvePaths({ rootDir: options.rootDir ?? ROOT_DIR, env });
+  return {
+    rootDir: resolved.rootDir,
+    dataDir: options.dataDir === undefined ? resolved.dataDir : path.resolve(resolved.rootDir, options.dataDir),
+    env,
+  };
+}
+
+/** Canonical candidates for a definition whose identity and filename have been validated. */
+function promptCandidates(
+  name: string,
+  paths: Pick<ResolvedAgentPaths, 'rootDir' | 'dataDir'>,
+  prompt: string
+): Array<string> {
+  return [
+    path.join(paths.dataDir, AGENTS_DIRNAME, name, prompt),
+    path.join(paths.rootDir, AGENTS_DIRNAME, name, prompt),
+  ];
+}
+
+/** The persona prompt followed by the shared prompt. The override option is migration metadata only. */
 export function promptFilesOf(
   name: string,
-  {
-    rootDir = ROOT_DIR,
-    env = process.env,
-    override = `agent-${name}.md`,
-    prompt = 'prompt.md',
-  }: { rootDir?: string; env?: Record<string, string | undefined>; override?: string; prompt?: string } = {}
+  options: AgentPaths & { override?: string; prompt?: string } = {}
 ): Array<string> {
-  const { rootDir: root, privateDir } = resolvePaths({ rootDir, env });
-  return [path.join(privateDir, 'prompts.local', override), path.join(root, AGENTS_DIRNAME, name, prompt)];
+  checkId(name);
+  const prompt = options.prompt === undefined ? 'prompt.md' : options.prompt;
+  checkFileName(name, 'prompt', prompt, false);
+  const paths = agentPaths(options);
+  checkPersonalPaths(paths.dataDir, name, prompt);
+  return promptCandidates(name, paths, prompt);
 }
 
 /** The first option words `tar` may start with on the server: the list mode (`-t`) with only
@@ -887,6 +918,7 @@ const KEYS_BY_KIND: Readonly<Record<string, ReadonlyArray<string>>> = Object.fre
   worker: Object.freeze([...COMMON_KEYS, ...WORKER_KEYS]),
   consultation: COMMON_KEYS,
   development: Object.freeze([...COMMON_KEYS, ...DEVELOPMENT_KEYS]),
+  watcher: Object.freeze(['id', 'kind', 'prompt', 'override', 'description']),
 });
 
 /**
@@ -1092,6 +1124,27 @@ function checkOptional(agent: string, raw: Record<string, unknown>): void {
     throw new AgentProfileError(agent, 'sandbox', 'must be read-only or workspace-write');
 }
 
+/** A path-safe agent directory name. */
+function checkId(agent: string): void {
+  if (typeof agent !== 'string' || !ID_PATTERN.test(agent))
+    throw new AgentProfileError(agent, 'id', 'must be lowercase letters, digits and dashes');
+}
+
+/** Checks identity and prompt fields shared by every definition kind. */
+function checkDefinitionIdentity(agent: string, raw: Record<string, unknown>): void {
+  if (raw.id !== agent || (raw.kind === 'watcher' && agent !== 'watcher'))
+    throw new AgentProfileError(agent, 'id', 'must be the folder name and match the agent kind');
+  checkId(agent);
+  if (raw.kind !== 'watcher') {
+    const roles = raw.kind === 'development' ? DEVELOPMENT_ROLES : OPENCODE_ROLES;
+    if (!isOneOf(roles, raw.role)) throw new AgentProfileError(agent, 'role', `must be one of ${roles.join(', ')}`);
+  } else if (raw.override !== null) throw new AgentProfileError(agent, 'override', 'must be null');
+  checkFileName(agent, 'prompt', raw.prompt, raw.kind === 'consultation');
+  checkFileName(agent, 'override', raw.override, raw.kind !== 'worker');
+  if (typeof raw.description !== 'string' || !raw.description.trim())
+    throw new AgentProfileError(agent, 'description', 'must be a non-empty string');
+}
+
 /**
  * Validates the parsed `profile.json` of the agent in folder `agent`: every key of its kind
  * present, no other key, each value of the right form; for a worker the shell class one this
@@ -1123,14 +1176,7 @@ function validateProfile(agent: string, raw: unknown) {
   }
 
   checkOptional(agent, raw);
-  if (raw.id !== agent) throw new AgentProfileError(agent, 'id', 'must be the folder name');
-  if (!ID_PATTERN.test(agent)) throw new AgentProfileError(agent, 'id', 'must be lowercase letters, digits and dashes');
-  const roles = development ? DEVELOPMENT_ROLES : OPENCODE_ROLES;
-  if (!isOneOf(roles, raw.role)) throw new AgentProfileError(agent, 'role', `must be one of ${roles.join(', ')}`);
-  checkFileName(agent, 'prompt', raw.prompt, !worker && !development);
-  checkFileName(agent, 'override', raw.override, !worker);
-  if (typeof raw.description !== 'string' || !raw.description.trim())
-    throw new AgentProfileError(agent, 'description', 'must be a non-empty string');
+  checkDefinitionIdentity(agent, raw);
   if (development) {
     checkTools(agent, raw.tools, DEVELOPMENT_TOOLS, 'for a development profile');
     checkPermission(agent, raw.permission, raw.tools);
@@ -1174,36 +1220,118 @@ function frozenCopy(value: unknown): unknown {
   return value;
 }
 
-/**
- * Every agent described under `<rootDir>/agents/`, of every kind, as their
- * validated `profile.json` (deep-frozen), sorted by id: the reader for the docs, the tools and
- * later the persona's list of her agents. A file directly under `agents/` (its README) is not an
- * agent; a folder without a readable, valid `profile.json` fails with AgentProfileError.
- */
-export function listAgents({ rootDir = ROOT_DIR }: { rootDir?: string } = {}): ReadonlyArray<AgentDefinition> {
-  const agentsDir = path.join(rootDir, AGENTS_DIRNAME);
-  const folders = fs
-    .readdirSync(agentsDir, { withFileTypes: true })
+/** Absence is the only ignored filesystem error in the persona layer. */
+function personalStat(file: string): fs.Stats | null {
+  try {
+    return fs.lstatSync(file);
+  } catch (error) {
+    if (errorFields(error).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function refuseLink(file: string, agent: string, key: string): fs.Stats | null {
+  const stat = personalStat(file);
+  if (stat?.isSymbolicLink()) throw new AgentProfileError(agent, key, 'symbolic links are not allowed');
+  return stat;
+}
+
+function checkPersonalPaths(dataDir: string, agent: string, prompt?: string | null): void {
+  const root = path.join(dataDir, AGENTS_DIRNAME);
+  refuseLink(root, agent, 'id');
+  const folder = path.join(root, agent);
+  const directory = refuseLink(folder, agent, 'id');
+  if (directory && !directory.isDirectory()) return;
+  refuseLink(path.join(folder, PROFILE_FILE), agent, PROFILE_FILE);
+  if (prompt) refuseLink(path.join(folder, prompt), agent, 'prompt');
+}
+
+/** Reads JSON without exposing its contents in an error. A missing personal profile inherits the shared one. */
+function readDefinition(folder: string, agent: string, optional = false): unknown {
+  try {
+    const raw: unknown = JSON.parse(fs.readFileSync(path.join(folder, agent, PROFILE_FILE), 'utf8'));
+    if (!isObject(raw)) throw new AgentProfileError(agent, PROFILE_FILE, 'must be a JSON object');
+    return raw;
+  } catch (error) {
+    const { code, name } = errorFields(error);
+    if (optional && code === 'ENOENT') return undefined;
+    throw new AgentProfileError(
+      agent,
+      PROFILE_FILE,
+      code === 'ENOENT' ? 'missing' : `unreadable (${scalarText(code ?? name ?? 'parse')})`
+    );
+  }
+}
+
+/** Shared definitions are validated before a personal override can change them. */
+function sharedAgents(rootDir: string): ReadonlyArray<AgentDefinition> {
+  const folder = path.join(rootDir, AGENTS_DIRNAME);
+  return fs
+    .readdirSync(folder, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
-    .sort();
-  return Object.freeze(
-    folders.map((agent) => {
-      let raw: unknown;
-      try {
-        raw = JSON.parse(fs.readFileSync(path.join(agentsDir, agent, PROFILE_FILE), 'utf8'));
-      } catch (err) {
-        const { code, name } = errorFields(err);
-        throw new AgentProfileError(
-          agent,
-          PROFILE_FILE,
-          code === 'ENOENT' ? 'missing' : `unreadable (${scalarText(code ?? name ?? 'parse')})`
-        );
-      }
+    .sort()
+    .map((agent) => {
+      const raw = readDefinition(folder, agent);
       validateProfile(agent, raw);
-      // validateProfile has checked every key of the kind and the form of each value.
+      // The validator checks every required field and excludes unknown keys.
       return frozenCopy(raw) as AgentDefinition;
-    })
+    });
+}
+
+/** Shared definitions for migration and compatibility snapshots, without reading a persona tree. */
+export function listSharedAgents({
+  rootDir = ROOT_DIR,
+}: Pick<AgentPaths, 'rootDir'> = {}): ReadonlyArray<AgentDefinition> {
+  return Object.freeze(sharedAgents(path.resolve(rootDir)));
+}
+
+/** Enumerates only configured personal directories. Ordinary root files do not define agents. */
+function personalAgents(dataDir: string, shared: ReadonlyArray<AgentDefinition>): ReadonlySet<string> {
+  const folder = path.join(dataDir, AGENTS_DIRNAME);
+  refuseLink(folder, 'agents', 'id');
+  let entries: Array<fs.Dirent>;
+  try {
+    entries = fs.readdirSync(folder, { withFileTypes: true });
+  } catch (error) {
+    if (errorFields(error).code === 'ENOENT') return new Set();
+    throw error;
+  }
+  const personal = new Set<string>();
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) throw new AgentProfileError(entry.name, 'id', 'symbolic links are not allowed');
+    if (entry.isDirectory() && !shared.some((definition) => definition.id === entry.name))
+      throw new AgentProfileError(entry.name, 'id', 'has no shared definition');
+    if (entry.isDirectory()) personal.add(entry.name);
+  }
+  return personal;
+}
+
+function personalDefinition(definition: AgentDefinition, dataDir: string): AgentDefinition {
+  const agent = definition.id;
+  checkPersonalPaths(dataDir, agent);
+  const override = readDefinition(path.join(dataDir, AGENTS_DIRNAME), agent, true);
+  if (isObject(override)) {
+    for (const key of ['id', 'kind', 'role'] as const) {
+      if (Object.hasOwn(override, key) && override[key] !== Reflect.get(definition, key))
+        throw new AgentProfileError(agent, key, 'cannot change shared identity');
+    }
+  }
+  const merged = overlaid(definition, override);
+  validateProfile(agent, merged);
+  // Validation establishes the union member before freezing its nested values.
+  const result = frozenCopy(merged) as AgentDefinition;
+  checkPersonalPaths(dataDir, agent, result.prompt);
+  return result;
+}
+
+/** Reads and validates the current shared and personal definitions, sorted by agent id. */
+export function listAgents(options: AgentPaths = {}): ReadonlyArray<AgentDefinition> {
+  const { rootDir, dataDir } = agentPaths(options);
+  const shared = listSharedAgents({ rootDir });
+  const personal = personalAgents(dataDir, shared);
+  return Object.freeze(
+    shared.map((definition) => (personal.has(definition.id) ? personalDefinition(definition, dataDir) : definition))
   );
 }
 
@@ -1211,10 +1339,7 @@ export function listAgents({ rootDir = ROOT_DIR }: { rootDir?: string } = {}): R
  * One worker profile, the object the runner and the core use, from its validated description.
  * @param definition a worker's validated profile.json
  */
-function makeProfile(
-  definition: WorkerDefinition,
-  { rootDir, env }: { rootDir: string; env: Record<string, string | undefined> }
-): Profile {
+function makeProfile(definition: WorkerDefinition, paths: ResolvedAgentPaths): Profile {
   const { id: name, role: modelRole } = definition;
   const defaultModel = ROLE_DEFAULTS[modelRole];
   const agentId = `errand-${name}`;
@@ -1224,12 +1349,7 @@ function makeProfile(
     description: definition.description,
     // The OpenCode agent name of one task's config (`--agent`).
     agentId,
-    promptFiles: promptFilesOf(name, {
-      rootDir,
-      env,
-      override: definition.override ?? undefined,
-      prompt: definition.prompt ?? undefined,
-    }),
+    promptFiles: promptCandidates(name, paths, definition.prompt ?? 'prompt.md'),
     envNames: definition.env,
     // The model role (src/llm/roles.ts) whose model the agent runs on: `models.<group>.<modelRole>`,
     // else its default, which is `defaultModel`.
@@ -1306,16 +1426,21 @@ function makeProfile(
  * profile object the runner and the core use. Throws AgentProfileError on the first profile that
  * cannot be used, so a bad file stops the process at start.
  */
-export function loadProfiles({
-  rootDir = ROOT_DIR,
-  env = process.env,
-}: { rootDir?: string; env?: Record<string, string | undefined> } = {}): Readonly<Record<string, Profile>> {
-  const workers = listAgents({ rootDir }).filter(
-    (definition): definition is WorkerDefinition => definition.kind === 'worker'
-  );
+function profilesFrom(
+  definitions: ReadonlyArray<AgentDefinition>,
+  paths: ResolvedAgentPaths
+): Readonly<Record<string, Profile>> {
   return Object.freeze(
-    Object.fromEntries(workers.map((definition) => [definition.id, makeProfile(definition, { rootDir, env })]))
+    Object.fromEntries(
+      definitions
+        .filter((definition): definition is WorkerDefinition => definition.kind === 'worker')
+        .map((definition) => [definition.id, makeProfile(definition, paths)])
+    )
   );
+}
+
+export function loadProfiles(options: AgentPaths = {}): Readonly<Record<string, Profile>> {
+  return profilesFrom(listAgents(options), agentPaths(options));
 }
 
 /** The settings of one agent, from its profile with the deployment's override over it. */
@@ -1336,11 +1461,6 @@ export type AgentSettings = {
   searchProvider?: string | null;
 };
 
-/** The validated profile definitions of this engine's `agents/` folder by id, loaded once at import. */
-const DEFINITIONS = Object.freeze(
-  Object.fromEntries(listAgents().map((definition) => [String(definition.id), definition]))
-) as Readonly<Record<string, Record<string, unknown>>>;
-
 /** The keys of the settings of each kind of agent. */
 const SETTING_KEYS = Object.freeze({
   worker: Object.freeze(['enabled', 'cost', 'socket', 'out', 'limits', 'daily', 'searchProvider']),
@@ -1350,14 +1470,19 @@ const SETTING_KEYS = Object.freeze({
 /** `override` laid over `base`: a plain object merged key by key, anything else replaced. */
 function overlaid(base: unknown, override: unknown): unknown {
   if (!isObject(base) || !isObject(override)) return override === undefined ? base : override;
-  const merged = { ...base };
-  for (const [key, value] of Object.entries(override)) merged[key] = overlaid(base[key], value);
-  return merged;
+  return Object.fromEntries(
+    [...new Set([...Object.keys(base), ...Object.keys(override)])].map((key) => [
+      key,
+      Object.hasOwn(override, key)
+        ? overlaid(Object.hasOwn(base, key) ? base[key] : undefined, override[key])
+        : base[key],
+    ])
+  );
 }
 
 /**
- * The settings of agent `name`: its tracked profile (`agents/<name>/profile.json`) with the deployment's override,
- * `config.agents.<name>`, laid over it, a nested object merged key by key. A worker gives `{ enabled, cost, socket, out,
+ * The settings of agent `name`: current shared and personal profiles with `config.agents.<name>` laid over them.
+ * Nested objects merge key by key. A worker gives `{ enabled, cost, socket, out,
  * limits, daily, searchProvider }`, a development agent `{ cost, limits }`. A socket or out path that is not a
  * non-empty string in the override falls back to the profile's. The one reader of these settings for the core, the
  * runner and the dispatcher, read from the config it is given at each call. Null for a name that is no agent
@@ -1365,14 +1490,12 @@ function overlaid(base: unknown, override: unknown): unknown {
  * @param name The agent's id; anything else is no agent.
  * @param config The live config, or any object with an `agents` section.
  */
-export function agentSettings(name: unknown, config: unknown): AgentSettings | null {
-  const profile = typeof name === 'string' && Object.hasOwn(DEFINITIONS, name) ? DEFINITIONS[name] : undefined;
-  if (
-    typeof name !== 'string' ||
-    profile === undefined ||
-    (profile.kind !== 'worker' && profile.kind !== 'development')
-  )
-    return null;
+export function agentSettings(name: unknown, config: unknown, options: AgentPaths = {}): AgentSettings | null {
+  if (typeof name !== 'string') return null;
+  const profile = listAgents(options).find((definition) => definition.id === name);
+  if (profile === undefined || (profile.kind !== 'worker' && profile.kind !== 'development')) return null;
+  const { env } = agentPaths(options);
+  const values: Record<string, unknown> = { ...profile };
   const section = isObject(config) && isObject(config.agents) ? config.agents : {};
   const given = section[name];
   const override = isObject(given) ? given : {};
@@ -1381,8 +1504,8 @@ export function agentSettings(name: unknown, config: unknown): AgentSettings | n
     const value = override[key];
     const unusablePath = (key === 'socket' || key === 'out') && !(typeof value === 'string' && value !== '');
     const fromProfile = unusablePath || !Object.hasOwn(override, key);
-    if (fromProfile && (key === 'socket' || key === 'out') && inUserUnit()) out[key] = userPathOf(key, name);
-    else out[key] = fromProfile ? profile[key] : overlaid(profile[key], value);
+    if (fromProfile && (key === 'socket' || key === 'out') && inUserUnit(env)) out[key] = userPathOf(key, name, env);
+    else out[key] = fromProfile ? values[key] : overlaid(values[key], value);
   }
   return out as AgentSettings;
 }
@@ -1391,24 +1514,24 @@ export function agentSettings(name: unknown, config: unknown): AgentSettings | n
 export const UNIT_SCOPE_ENV = 'NEPTUNIA_UNIT_SCOPE';
 
 /** Whether this process runs from a user unit, read at each call. */
-const inUserUnit = (): boolean => process.env[UNIT_SCOPE_ENV] === 'user';
+const inUserUnit = (env: Record<string, string | undefined>): boolean => env[UNIT_SCOPE_ENV] === 'user';
 
 /**
  * The socket or out folder of agent `name` in a user unit: the unit's `RuntimeDirectory` and `StateDirectory`, which
  * the core, running from a user unit of the same user, resolves to the same place.
  */
-function userPathOf(key: 'socket' | 'out', name: string): string {
+function userPathOf(key: 'socket' | 'out', name: string, env: Record<string, string | undefined>): string {
   const folder = `neptunia-agent-${name}`;
   if (key === 'socket') {
-    const runtime = process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid?.() ?? 0}`;
+    const runtime = env.XDG_RUNTIME_DIR || `/run/user/${process.getuid?.() ?? 0}`;
     return path.join(runtime, folder, 'sock');
   }
-  const state = process.env.XDG_STATE_HOME || path.join(process.env.HOME ?? '', '.local', 'state');
+  const state = env.XDG_STATE_HOME || path.join(env.HOME ?? '', '.local', 'state');
   return path.join(state, folder, 'out');
 }
 
-/** The profiles of this engine's `agents/` folder, by name, loaded once at import. */
-export const PROFILES = loadProfiles();
+/** Shared worker snapshots for compatibility. Fresh path-aware consumers use loadProfiles or profileOf. */
+export const PROFILES = profilesFrom(listSharedAgents(), agentPaths({ rootDir: ROOT_DIR }));
 
 /** The `scout` profile: internet errands through OpenCode's web tools and a curl/ffmpeg download shell. */
 export const SCOUT = PROFILES.scout ?? null;
@@ -1417,6 +1540,8 @@ export const SCOUT = PROFILES.scout ?? null;
 export const SERVER = PROFILES.server ?? null;
 
 /** The profile of `name`, or null. */
-export function profileOf(name: unknown): Profile | null {
-  return typeof name === 'string' && Object.hasOwn(PROFILES, name) ? PROFILES[name] : null;
+export function profileOf(name: unknown, options: AgentPaths = {}): Profile | null {
+  if (typeof name !== 'string') return null;
+  const profiles = loadProfiles(options);
+  return Object.hasOwn(profiles, name) ? profiles[name] : null;
 }

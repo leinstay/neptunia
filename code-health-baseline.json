@@ -178,11 +178,6 @@
         "complexity": 29
       }
     },
-    "src/agent-runner/profiles.ts": {
-      "validateProfile": {
-        "complexity": 26
-      }
-    },
     "src/agent-runner/protocol.ts": {
       "validateRun": {
         "complexity": 42

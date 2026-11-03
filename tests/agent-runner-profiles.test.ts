@@ -6,7 +6,7 @@
 // filtered scope (the path tools' globs and the server shell's per-command
 // patterns, checked through a copy of OpenCode's wildcard and last-match
 // rule), each profile's model role, where its system-prompt files are
-// (the override under the private directory, the tracked prompt in
+// (the override under the persona data directory, the tracked prompt in
 // agents/<id>/), and the agents/ folder the profiles are built from: the
 // real one, and temporary trees with a valid worker, an unknown tool, an
 // unknown shell class, a missing key, a consultation and development
@@ -66,8 +66,15 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA_DIR = resolvePaths({ rootDir: ROOT }).dataDir;
 
 test('profileOf: scout, server, and nothing else', () => {
-  assert.equal(profileOf('scout'), SCOUT);
-  assert.equal(profileOf('server'), SERVER);
+  // Fresh personal reads return equivalent worker values without promising snapshot identity.
+  for (const expected of [SCOUT, SERVER]) {
+    const actual = profileOf(expected.name);
+    assert.ok(actual);
+    assert.deepEqual(
+      { ...actual, buildConfig: actual.buildConfig() },
+      { ...expected, buildConfig: expected.buildConfig() }
+    );
+  }
   assert.equal(profileOf('nope'), null);
 });
 
@@ -314,11 +321,12 @@ test('model: each profile runs on its model role, whose default is its default m
   }
 });
 
-test('promptFilesOf: the override is read from NEPTUNIA_PRIVATE_DIR, the tracked prompt from agents/<name>/ under the root; the profiles use it', () => {
+test('promptFilesOf reads persona data prompts before shared prompts and ignores legacy private overrides', () => {
   const base = tempDir('agent-profiles-');
   try {
     const rootDir = path.join(base, 'checkout');
     const privateDir = path.join(base, 'private');
+    const dataDir = path.join(base, 'persona');
     const write = (file: string, text: string) => {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, text);
@@ -326,20 +334,26 @@ test('promptFilesOf: the override is read from NEPTUNIA_PRIVATE_DIR, the tracked
     write(path.join(rootDir, 'agents', 'scout', 'prompt.md'), 'tracked');
     write(path.join(rootDir, 'prompts.local', 'agent-scout.md'), 'checkout override');
     write(path.join(privateDir, 'prompts.local', 'agent-scout.md'), 'private override');
+    // The approved path contract uses data/agents for runtime overrides and holds prompts.local as migration input.
+    write(path.join(dataDir, 'agents', 'scout', 'prompt.md'), 'persona override');
+    write(path.join(rootDir, 'data', 'agents', 'scout', 'prompt.md'), 'default data override');
 
-    const apart = promptFilesOf('scout', { rootDir, env: { NEPTUNIA_PRIVATE_DIR: privateDir } });
+    const apart = promptFilesOf('scout', {
+      rootDir,
+      env: { NEPTUNIA_PRIVATE_DIR: privateDir, NEPTUNIA_DATA_DIR: dataDir },
+    });
     assert.deepEqual(apart, [
-      path.join(privateDir, 'prompts.local', 'agent-scout.md'),
+      path.join(dataDir, 'agents', 'scout', 'prompt.md'),
       path.join(rootDir, 'agents', 'scout', 'prompt.md'),
     ]);
-    assert.equal(readPromptFile(apart), 'private override', 'the checkout prompts.local/ is not read');
+    assert.equal(readPromptFile(apart), 'persona override', 'the legacy private and checkout overrides stay unused');
     assert.equal(
       readPromptFile(promptFilesOf('scout', { rootDir, env: {} })),
-      'checkout override',
-      'unset: the root is the private directory'
+      'default data override',
+      'an unset data root selects the engine data directory'
     );
-    fs.rmSync(path.join(privateDir, 'prompts.local', 'agent-scout.md'));
-    assert.equal(readPromptFile(apart), 'tracked', 'no override: the tracked prompt under the root');
+    fs.rmSync(path.join(dataDir, 'agents', 'scout', 'prompt.md'));
+    assert.equal(readPromptFile(apart), 'tracked', 'a missing personal prompt selects the shared prompt');
 
     assert.deepEqual(SCOUT.promptFiles, promptFilesOf('scout'));
     assert.deepEqual(SERVER.promptFiles, promptFilesOf('server'));
@@ -1295,8 +1309,9 @@ test("loadProfiles: a valid worker from a temporary agents/ tree becomes a profi
     assert.equal(probe.agentId, 'errand-probe');
     assert.equal(probe.modelRole, 'server');
     assert.equal(probe.defaultModel, ROLE_DEFAULTS.server);
+    // Credentials do not select persona prompts. The resolved data root owns agent overrides.
     assert.deepEqual(probe.promptFiles, [
-      path.join('/private', 'prompts.local', 'agent-probe.md'),
+      path.join(rootDir, 'data', 'agents', 'probe', 'prompt.md'),
       path.join(rootDir, 'agents', 'probe', 'prompt.md'),
     ]);
     assert.deepEqual(probe.defaultLimits, { steps: 5, seconds: 60 });
@@ -1519,7 +1534,8 @@ test("the development agents' folders hold no absolute server path and no Cyrill
 test('the real agents/ folder: scout and server workers, two development agents, no drawing agent, no advice consultation, each prompt tracked beside its profile', () => {
   const agents = listAgents();
   assert.deepEqual(
-    agents.map((agent) => [agent.id, agent.kind, agent.role]),
+    // Watcher definitions have no model role. Worker and development roles remain explicit.
+    agents.map((agent) => [agent.id, agent.kind, 'role' in agent ? agent.role : null]),
     [
       ['dev', 'development', 'dev'],
       ['scout', 'worker', 'scout'],
@@ -1533,7 +1549,11 @@ test('the real agents/ folder: scout and server workers, two development agents,
   assert.equal(fs.existsSync(path.join(ROOT, 'agents', 'advice')), false, 'the advice profile is gone');
   for (const profile of [SCOUT, SERVER]) {
     assert.ok(fs.existsSync(path.join(ROOT, 'agents', profile.name, 'prompt.md')), profile.name);
-    assert.equal(path.basename(profile.promptFiles[0]), `agent-${profile.name}.md`, 'the override keeps its name');
+    // Persona agent prompts use the canonical data tree and the shared filename.
+    assert.deepEqual(profile.promptFiles, [
+      path.join(DATA_DIR, 'agents', profile.name, 'prompt.md'),
+      path.join(ROOT, 'agents', profile.name, 'prompt.md'),
+    ]);
     assert.ok(SHELL_CLASSES[profile.shell].tools.length >= profile.tools.length);
   }
   assert.equal(fs.existsSync(path.join(ROOT, 'prompts', 'agent-scout.md')), false, 'the agent prompts left prompts/');
