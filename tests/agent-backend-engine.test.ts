@@ -154,3 +154,14 @@ test('a running engine refuses an invalid personal definition instead of using i
     rig.close();
   }
 });
+
+test("the profile's step limit reaches the run, and a task's own limit wins", async () => {
+  // Bug: `limits.steps` stays a field nobody passes on, while `limits.seconds` is enforced.
+  const { engine, calls } = engineRig('claude', 'scout');
+  await engine.run(TASK);
+  await engine.run({ ...TASK, id: 't2', limits: { steps: 2 } });
+  assert.deepEqual(
+    calls.map((one) => one.maxSteps),
+    [5, 2]
+  );
+});

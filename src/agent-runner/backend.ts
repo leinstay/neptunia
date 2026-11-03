@@ -56,6 +56,11 @@ export type BackendRunOptions = {
   env?: Record<string, string>;
   /** codex: adds `--search` */
   search?: boolean;
+  /**
+   * The most model steps the run may take. A step is one model turn: claude `--max-turns`. opencode reads it as its agent's
+   * `steps` through `OPENCODE_CONFIG_CONTENT`. codex has no such control, so only the timeout bounds it.
+   */
+  maxSteps?: number;
   /** codex: `-s <sandbox>`, `read-only` unless told otherwise; `none` runs without a sandbox (the modes full and sudo) */
   sandbox?: 'read-only' | 'workspace-write' | 'danger-full-access' | 'none';
   /** the model flag of the backend (`-m`, `--model`); absent runs the backend's own default */
@@ -143,6 +148,7 @@ const RECIPES: Readonly<Record<BackendName, Recipe>> = {
     tail: false,
     args: (options) => [
       '-p',
+      ...(options.maxSteps === undefined ? [] : ['--max-turns', String(options.maxSteps)]),
       ...(options.model === undefined ? [] : ['--model', options.model]),
       ...(options.effort === undefined ? [] : ['--effort', options.effort]),
     ],
@@ -461,9 +467,19 @@ export function createAgentEngine({ subharness, agentPaths, ...deps }: EngineDep
     const brief = [preamble, system, taskPrompt(task.goal, task.context)].filter(Boolean).join('\n\n');
     const seconds = Number(task.limits?.seconds);
     const cap = Number.isFinite(seconds) && seconds > 0 ? seconds : (profile.defaultLimits.seconds ?? FALLBACK_SECONDS);
+    const steps = Number(task.limits?.steps);
+    const maxSteps = Number.isFinite(steps) && steps > 0 ? steps : profile.defaultLimits.steps;
     const startedAt = (deps.now ?? Date.now)();
     const outcome = await runAgent(
-      { agent: profile.name, brief, cwd: dir, timeoutMs: cap * 1000, search: profile.search, signal: task.signal },
+      {
+        agent: profile.name,
+        brief,
+        cwd: dir,
+        timeoutMs: cap * 1000,
+        ...(maxSteps === undefined ? {} : { maxSteps }),
+        search: profile.search,
+        signal: task.signal,
+      },
       subharness
     );
     const usage = {
