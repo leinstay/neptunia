@@ -126,7 +126,7 @@
       "test": "none"
     },
     {
-      "path": "stryker.config.json",
+      "path": "scripts/config/stryker.config.json",
       "purpose": "The Stryker settings that stay the same on every mutation run.",
       "layer": "public",
       "imports": [],
@@ -147,21 +147,21 @@
       "test": "none"
     },
     {
-      "path": "code-health-baseline.json",
+      "path": "scripts/config/code-health-baseline.json",
       "purpose": "The recorded size and structure breaches that may only shrink.",
       "layer": "public",
       "imports": [],
       "test": "none"
     },
     {
-      "path": "prose-baseline.json",
+      "path": "scripts/config/prose-baseline.json",
       "purpose": "The recorded prose violations that may only shrink.",
       "layer": "public",
       "imports": [],
       "test": "none"
     },
     {
-      "path": "structure.json",
+      "path": "scripts/config/structure.json",
       "purpose": "This manifest of the tracked tree.",
       "layer": "public",
       "imports": [],
@@ -303,14 +303,14 @@
     },
     {
       "path": "scripts/fixtures/",
-      "purpose": "Sample data for the virtual-week harness.",
+      "purpose": "Sample weeks for the virtual-week harness and the example scenarios of the replay script.",
       "layer": "public",
       "imports": [],
       "test": "none"
     },
     {
-      "path": "scripts/prompts/",
-      "purpose": "Example scenario files for the scripts.",
+      "path": "scripts/config/",
+      "purpose": "The settings of the development checks: the baselines, the structure manifest and the Stryker settings.",
       "layer": "public",
       "imports": [],
       "test": "none"

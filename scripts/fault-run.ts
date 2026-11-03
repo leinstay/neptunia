@@ -6,7 +6,7 @@
 //   node scripts/fault-run.ts [--rounds <n>] [--repeats <n>] [--weeks all|<name>,<name>] [--short]
 //
 // The default is the long run: 10 rounds of the live-core scenarios, 50 deliveries of each repeated event, every week
-// fixture of scripts/fixtures/inner-week/. `--short` is the run the suite makes (tests/fault-run.test.ts). The other
+// fixture of scripts/fixtures/. `--short` is the run the suite makes (tests/fault-run.test.ts). The other
 // flags override one number of the chosen plan. The exit code is 0 when the run passed and 1 when a key repeated or an
 // expected effect is missing. The table goes to stdout.
 import { CliError, parseFlags, runCli } from './lib/cli.ts';

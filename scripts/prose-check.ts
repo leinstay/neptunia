@@ -1,7 +1,7 @@
 // The prose check. Reads the tracked prose files (`git ls-files`: the root documents, `docs/`, the interface
 // READMEs, `scripts/README.md` and the markdown under `.github/`) and enforces the objective rules of `WRITING.md`.
 //
-//   hard rules   fail the run unless `prose-baseline.json` records them
+//   hard rules   fail the run unless `scripts/config/prose-baseline.json` records them
 //     dash       an em dash, an en dash or a spaced double hyphen in prose
 //     label      a "Label: explanation" row outside a table: a list item or paragraph that opens with a label of at
 //                most four words (bold or not), a colon and at least three more words. A lead-in that ends in a
@@ -28,7 +28,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { compareToBaseline } from './type-baseline.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const baselinePath = path.join(root, 'prose-baseline.json');
+const baselinePath = path.join(root, 'scripts', 'config', 'prose-baseline.json');
 
 const MAX_LABEL_WORDS = 4;
 const MIN_EXPLANATION_WORDS = 3;
