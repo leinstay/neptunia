@@ -1292,6 +1292,17 @@ function migrateStorageOwners(db: Db): void {
 
 /** Each entry moves the schema one version up: SQL text, or a function of the connection (and the opener's context)
  * for a step SQL cannot do. Never edit a shipped entry: append a new one. */
+// The durable record of every model request (src/memory/db/request-archive.ts). Its full system text stays per row: the
+// owner's decision of 2026-11-02, so an old prompt can be read as it was sent. No index reaches ordinary recall.
+const V_REQUESTS = `CREATE TABLE model_requests (
+  id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, turn_id TEXT, attempt_id TEXT, step INTEGER, role TEXT, model TEXT,
+  purpose TEXT, status TEXT NOT NULL CHECK (status IN ('pending', 'ok', 'failed', 'unknown')), started_at TEXT NOT NULL,
+  finished_at TEXT, system_text TEXT, messages JSON NOT NULL, tools JSON, tool_choice TEXT, response_text TEXT, think TEXT,
+  tool_calls JSON, usage JSON, error_code TEXT, source TEXT
+);
+CREATE INDEX model_requests_started ON model_requests(started_at);
+CREATE INDEX model_requests_turn ON model_requests(turn_id, attempt_id, step);`;
+
 export const MIGRATIONS: Array<Migration> = [
   V1,
   V2,
@@ -1319,6 +1330,7 @@ export const MIGRATIONS: Array<Migration> = [
   `ALTER TABLE ingest ADD COLUMN source_id TEXT REFERENCES sources(id);
    CREATE INDEX ingest_source ON ingest(source_id) WHERE source_id IS NOT NULL;`,
   migrateStorageOwners,
+  V_REQUESTS,
 ];
 
 /** Every table schema v8 adds. */

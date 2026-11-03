@@ -78,6 +78,7 @@
 // Counts and codes only, never a text.
 
 import { applyPersonLinkWrite } from './person-links.ts';
+import { applyRequestArchiveWrite } from './request-archive.ts';
 import { randomUUID } from 'node:crypto';
 import { ownershipSql } from './storage-units.ts';
 
@@ -768,6 +769,7 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['wake-queue', applyWakeQueueWrite],
   ['board', applyBoardWrite],
   ['person-link', applyPersonLinkWrite],
+  ['request-archive', applyRequestArchiveWrite],
 ]);
 
 /** Applies one write on the writer connection; returns counts. */

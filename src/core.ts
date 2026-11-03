@@ -42,6 +42,7 @@ import {
 } from './memory/index.ts';
 import { DAY_MS, utcDay } from './time.ts';
 import { createCalibrator } from './llm/tokens.ts';
+import { archivedLlm } from './llm/archive.ts';
 import { createLlm, roleApiKey } from './llm/openrouter.ts';
 import { createKeyFailover } from './llm/key-failover.ts';
 import { MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, SEARCH_ROLE, roleModel, searchModel } from './llm/roles.ts';
@@ -436,7 +437,11 @@ async function buildCore(
   // createLlm (src/llm/openrouter.js) declares `complete` as `Function`, which no caller's declared call accepts, so
   // the core hands the client on typed as the call the modules below make.
   // The core's own failure `keys-exhausted` (every key of its list out of credit) is told to the tracker.
-  const llm = (options.llm ??
+  const requestArchive = {
+    write: (update: Record<string, unknown>) => memoryDb.memoryWrite(update),
+    log,
+  };
+  const directLlm = (options.llm ??
     reportingCoreKeys(
       createLlm({
         apiKey: openrouterKey,
@@ -448,16 +453,21 @@ async function buildCore(
       }),
       roleHealth
     )) as ChatClient;
-  sessionClient = memoryWriterClient({
-    writer: {
-      privateDir: paths.privateDir,
-      runChild: runChildProcess,
-      workDir: path.join(os.tmpdir(), 'neptunia-memory'),
-    },
-    direct: llm,
-    record: (entry) => usage.record(entry),
-    onRefused: () => void memoryWatch?.refused(),
-  });
+  const llm = archivedLlm(directLlm, requestArchive);
+  // Her memory session through a subharness never reaches the chat client, so it has its own archive wrap.
+  sessionClient = archivedLlm(
+    memoryWriterClient({
+      writer: {
+        privateDir: paths.privateDir,
+        runChild: runChildProcess,
+        workDir: path.join(os.tmpdir(), 'neptunia-memory'),
+      },
+      direct: directLlm,
+      record: (entry) => usage.record(entry),
+      onRefused: () => void memoryWatch?.refused(),
+    }),
+    requestArchive
+  );
   // Embeddings (role embedding) on the same daily request count as the chat client.
   const embedder = options.embedder ?? createEmbedder({ apiKey: openrouterKey, env, keyOf, state: store.state });
   // The meaning index kept current: record lines queued above, flushed on the tick below.

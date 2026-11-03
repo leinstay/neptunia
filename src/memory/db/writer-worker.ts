@@ -16,6 +16,7 @@
 //              { type: 'log', level, message, fields }              a line for the service's log (warnings only)
 // Counts and codes only, never a path or a text.
 
+import { recoverRequestArchive } from './request-archive.ts';
 import { parentPort } from 'node:worker_threads';
 import process from 'node:process';
 import { importCoreJsonState } from './core-state-import.ts';
@@ -63,8 +64,10 @@ const handlers: Record<string, (message: Row) => unknown> = {
   open({ path, context, now }) {
     handle = openMemoryDb(path, { alive, context: context ?? {} });
     const dataDir = (context as Row | undefined)?.dataDir;
-    if (typeof dataDir === 'string')
+    if (typeof dataDir === 'string') {
       importCoreJsonState(handle, { dataDir, ...(typeof now === 'number' ? { now } : {}) });
+      recoverRequestArchive(handle, { dataDir, ...(typeof now === 'number' ? { now } : {}) });
+    }
     return {};
   },
   turnReads({ turnId, step, guildId, reads, rows: given }) {
