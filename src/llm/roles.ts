@@ -59,7 +59,7 @@ export const SEARCH_ROLE = 'search';
 /** `web.search.model` while the setting is empty: the owner's choice of 2026-11-03. */
 const SEARCH_MODEL_DEFAULT = 'openai/gpt-6.1-sol';
 
-/** The model of quick search and of the scout's search helper. */
+/** The model of quick search and of the scout's web search. */
 export function searchModel(config: unknown): string {
   const model = objOf(objOf(objOf(config).web).search).model;
   return typeof model === 'string' && model !== '' ? model : SEARCH_MODEL_DEFAULT;
