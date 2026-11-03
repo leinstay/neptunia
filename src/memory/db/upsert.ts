@@ -1,26 +1,11 @@
-// The one way rows of a memory unit get into the memory database: a unit's mapper (src/memory/db/map/) turns a unit's
-// value or lines into rows, and these write them, keeping the ownership rules. Every row a unit's mapper wrote carries
-// the unit's full path (`guilds/<g>/users/<u>.json`) as `owner_file`, so two guilds never share a unit. A row that two
-// guilds both map (one person in two servers) stays one row owned by the first; the others are listed in `co_owners`
-// (an export of their unit finds it, and retiring the owner hands it over). Rows the database itself wrote (no
-// `owner_file`) are never updated or retired by a unit write, and neither are child links (`claim_sources`,
-// `episode_sources`, `diary_mirrors`) without an `owner_file`: a write retires the links its unit no longer holds
-// (`retired_at`) and un-retires the ones that return, it never deletes.
-//
-// Every row is written with its derived columns filled from the row itself (rows.ts#deriveRow: the audience, an
-// account's or a place's authority and native key, a source's author kind); the DM place a DM row names and its
-// audience are created when missing; people, accounts and places are registered in `external_keys`; an account with a
-// person gets its `account_person_links` row once. A line's `reply_to` also gives it a `source_relations` row
-// (rows.ts#ensureRelations). Every row written or retired is projected into the graph in the same transaction
-// (graph.ts#projectRow), and every diary mirror written or retired derives its `publications` row
-// (publish.ts#deriveMirrorPublication). A row an observation wrote live (observe.ts: a line, an account, a place under
-// the observer's own id) is adopted when a unit write brings it (`observedRow`). In a row the unit still owns, the
-// columns her memory session wrote last stay as she wrote them (session-rows.ts#sessionHold: a person's attitude, a
-// description's current version).
-//
-// Pure of the bot: it takes an opened database's connection; the caller holds the writer lock and the transaction
-// (unit-write.ts, through the service's writer).
+// Unit writes preserve primary and shared ownership through catalog owner keys. A row shared across semantic
+// community scopes keeps its original owner until retirement hands it to a surviving co-owner. Session-owned rows
+// and child links have no owner key and remain protected. Derived identity, graph projection, publication state and
+// session-held fields are updated within the caller's writer transaction. Historical imports retain their original
+// column contract and frozen path provenance through the explicit compatibility adapter.
 
+import { hasStorageUnits, ensureUnit, unitById } from './storage-units.ts';
+import { legacyStorageKey } from './paths.ts';
 import { deriveRow, ensureLinks, ensureNodeKeys, ensureRelations, restrictDiaryMedia } from './rows.ts';
 import { projectRow } from './graph.ts';
 import { deriveMirrorPublication } from './publish.ts';
@@ -29,7 +14,7 @@ import { sessionHold } from './session-rows.ts';
 import { asText } from './types.ts';
 import type { Db, Row, Rows } from './types.ts';
 
-/** Tables whose rows belong to one file (`owner_file`), and their primary key columns. */
+/** Tables whose rows belong to one file (`owner_key`), and their primary key columns. */
 export const OWNED: Record<string, ReadonlyArray<string>> = {
   people: ['id'],
   accounts: ['id'],
@@ -85,7 +70,20 @@ function prepared(db: Db, sql: string): ReturnType<Db['prepare']> {
   if (!map) statementCache.set(db, (map = new Map()));
   let statement = map.get(sql);
   if (!statement) {
-    statement = db.prepare(sql);
+    const legacy = !hasStorageUnits(db);
+    const raw = db.prepare(legacy ? sql.replaceAll('owner_key', 'owner_file') : sql);
+    const owned = (row: Row | undefined): Row | undefined =>
+      row && legacy && Object.hasOwn(row, 'owner_file') ? { ...row, owner_key: row.owner_file } : row;
+    statement = legacy
+      ? {
+          run: (...args: Array<unknown>) => raw.run(...args),
+          get: (...args: Array<unknown>) => owned(raw.get(...args)),
+          all: (...args: Array<unknown>) => raw.all(...args).map((row) => owned(row)!),
+          *iterate(...args: Array<unknown>) {
+            for (const row of raw.iterate(...args)) yield owned(row)!;
+          },
+        }
+      : raw;
     map.set(sql, statement);
   }
   return statement;
@@ -94,7 +92,10 @@ function prepared(db: Db, sql: string): ReturnType<Db['prepare']> {
 const bind = (value: unknown): unknown => (value === undefined ? null : value);
 
 /** The guild directory prefix of a full unit path (`guilds/<g>/`), or null. */
-const guildOf = (owner: unknown): string | null => /^guilds\/[^/]+\//.exec(asText(owner ?? ''))?.[0] ?? null;
+const guildOf = (db: Db, owner: unknown): string | null =>
+  hasStorageUnits(db)
+    ? (unitById(db, asText(owner))?.key.scopePlaceId ?? null)
+    : (/^guilds\/[^/]+\//.exec(asText(owner ?? ''))?.[0] ?? null);
 
 /** Inserts a row, or updates the columns it names when the primary key exists (rowid and unnamed columns stay). */
 function upsert(db: Db, table: string, row: Row, { ignore = false }: { ignore?: boolean } = {}): void {
@@ -119,20 +120,20 @@ function upsert(db: Db, table: string, row: Row, { ignore = false }: { ignore?: 
 
 const keyOf = (table: string, row: Row): string => OWNED[table].map((col) => row[col]).join('\u0000');
 
-/** The existing row of a mapped row's primary key: { owner_file, retired_at, origin? } or undefined. */
+/** The existing row of a mapped row's primary key: { owner_key, retired_at, origin? } or undefined. */
 function existingOf(db: Db, table: string, row: Row): Row | undefined {
   const key = OWNED[table];
   const origin = table === 'sources' ? ', origin' : '';
   return prepared(
     db,
-    `SELECT owner_file, retired_at${origin} FROM ${quote(table)} WHERE ${key.map((col) => `${quote(col)} = ?`).join(' AND ')}`
+    `SELECT owner_key, retired_at${origin} FROM ${quote(table)} WHERE ${key.map((col) => `${quote(col)} = ?`).join(' AND ')}`
   ).get(...key.map((col) => bind(row[col])));
 }
 
 /**
  * Whether a row the database wrote is an observation's (observe.ts) that a unit write now brings: a line observed
  * live (`origin` `observation`), or an account or a non-DM place (only an observation writes those without a unit;
- * the DM places the resolver creates are never in a unit). The unit's row adopts it (its `owner_file`, every column
+ * the DM places the resolver creates are never in a unit). The unit's row adopts it (its `owner_key`, every column
  * the mapping names) instead of skipping it or writing a second row.
  */
 const observedRow = (table: string, found: Row, row: Row) =>
@@ -148,12 +149,12 @@ const observedRow = (table: string, found: Row, row: Row) =>
 function writeRow(db: Db, table: string, row: Row, opts: { ignore?: boolean; at?: string }): boolean {
   const found = existingOf(db, table, row);
   if (found) {
-    if ((found.owner_file === null || found.owner_file === undefined) && !observedRow(table, found, row)) return false;
-    const mine = row.owner_file;
-    if (found.owner_file !== mine && found.retired_at === null) {
-      const theirs = guildOf(found.owner_file);
-      if (theirs !== null && guildOf(mine) !== null && theirs !== guildOf(mine)) {
-        prepared(db, 'INSERT OR IGNORE INTO co_owners (tbl, key, owner_file) VALUES (?, ?, ?)').run(
+    if ((found.owner_key === null || found.owner_key === undefined) && !observedRow(table, found, row)) return false;
+    const mine = row.owner_key;
+    if (found.owner_key !== mine && found.retired_at === null) {
+      const theirs = guildOf(db, found.owner_key);
+      if (theirs !== null && guildOf(db, mine) !== null && theirs !== guildOf(db, mine)) {
+        prepared(db, 'INSERT OR IGNORE INTO co_owners (tbl, key, owner_key) VALUES (?, ?, ?)').run(
           table,
           keyOf(table, row),
           mine
@@ -172,11 +173,11 @@ function writeRow(db: Db, table: string, row: Row, opts: { ignore?: boolean; at?
   if (table === 'sources') ensureRelations(db, derived, { at: opts.at });
   else projectRow(db, table, derived, { at: opts.at });
   if (table === 'diary') restrictDiaryMedia(db, derived, opts.at);
-  if (found && found.owner_file !== row.owner_file) {
-    prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_file = ?').run(
+  if (found && found.owner_key !== row.owner_key) {
+    prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_key = ?').run(
       table,
       keyOf(table, row),
-      row.owner_file
+      row.owner_key
     );
   }
   return true;
@@ -186,24 +187,24 @@ function writeRow(db: Db, table: string, row: Row, opts: { ignore?: boolean; at?
 function handOver(db: Db, table: string, key: Row, owner: string): boolean {
   const heir = prepared(
     db,
-    `SELECT c.owner_file FROM co_owners c JOIN files f ON f.path = c.owner_file
-     WHERE c.tbl = ? AND c.key = ? AND c.owner_file != ? AND f.gone_at IS NULL ORDER BY c.owner_file LIMIT 1`
+    `SELECT c.owner_key FROM co_owners c JOIN ${hasStorageUnits(db) ? 'storage_units' : 'files'} f ON f.${hasStorageUnits(db) ? 'id' : 'path'} = c.owner_key
+     WHERE c.tbl = ? AND c.key = ? AND c.owner_key != ? AND f.${hasStorageUnits(db) ? 'retired_at' : 'gone_at'} IS NULL ORDER BY c.owner_key LIMIT 1`
   ).get(table, keyOf(table, key), owner);
   if (!heir) return false;
   const cols = OWNED[table];
   prepared(
     db,
-    `UPDATE ${quote(table)} SET owner_file = ? WHERE ${cols.map((col) => `${quote(col)} = ?`).join(' AND ')}`
-  ).run(heir.owner_file, ...cols.map((col) => key[col]));
-  prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_file = ?').run(
+    `UPDATE ${quote(table)} SET owner_key = ? WHERE ${cols.map((col) => `${quote(col)} = ?`).join(' AND ')}`
+  ).run(heir.owner_key, ...cols.map((col) => key[col]));
+  prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_key = ?').run(
     table,
     keyOf(table, key),
-    heir.owner_file
+    heir.owner_key
   );
   for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
     if (parent === table)
-      prepared(db, `UPDATE ${quote(child)} SET owner_file = ? WHERE ${quote(link)} = ? AND owner_file = ?`).run(
-        heir.owner_file,
+      prepared(db, `UPDATE ${quote(child)} SET owner_key = ? WHERE ${quote(link)} = ? AND owner_key = ?`).run(
+        heir.owner_key,
         key.id,
         owner
       );
@@ -219,12 +220,13 @@ const childKey = (child: string, row: Row): string =>
 
 /** Retires the active rows of a unit that the given mapping no longer holds. Returns how many. */
 export function retireAbsent(db: Db, owner: string, mapping: Rows, at: string): number {
+  owner = mappingOwner(db, mapping, owner);
   let count = 0;
   for (const [table, key] of Object.entries(OWNED)) {
     const keep = new Set((mapping[table] ?? []).map((row: Row) => keyOf(table, row)));
     const existing = prepared(
       db,
-      `SELECT ${key.map(quote).join(', ')} FROM ${quote(table)} WHERE owner_file = ? AND retired_at IS NULL`
+      `SELECT ${key.map(quote).join(', ')} FROM ${quote(table)} WHERE owner_key = ? AND retired_at IS NULL`
     ).all(owner);
     const update = prepared(
       db,
@@ -238,13 +240,9 @@ export function retireAbsent(db: Db, owner: string, mapping: Rows, at: string): 
       count += 1;
     }
     // This unit no longer maps the rows it shared with another guild.
-    for (const shared of prepared(db, 'SELECT key FROM co_owners WHERE tbl = ? AND owner_file = ?').all(table, owner)) {
+    for (const shared of prepared(db, 'SELECT key FROM co_owners WHERE tbl = ? AND owner_key = ?').all(table, owner)) {
       if (!keep.has(shared.key as string))
-        prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_file = ?').run(
-          table,
-          shared.key,
-          owner
-        );
+        prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_key = ?').run(table, shared.key, owner);
     }
   }
   for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
@@ -252,8 +250,8 @@ export function retireAbsent(db: Db, owner: string, mapping: Rows, at: string): 
     const cols = child === 'diary_mirrors' ? 'rowid, diary_id, iface, place_id' : `rowid, ${quote(link)}, position`;
     const existing = prepared(
       db,
-      `SELECT ${cols} FROM ${quote(child)} c WHERE owner_file = ? AND retired_at IS NULL
-      AND NOT EXISTS (SELECT 1 FROM ${quote(parent)} p WHERE p.id = c.${quote(link)} AND p.retired_at IS NULL AND p.owner_file IS NOT NULL AND p.owner_file != ?)`
+      `SELECT ${cols} FROM ${quote(child)} c WHERE owner_key = ? AND retired_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM ${quote(parent)} p WHERE p.id = c.${quote(link)} AND p.retired_at IS NULL AND p.owner_key IS NOT NULL AND p.owner_key != ?)`
     ).all(owner, owner);
     for (const row of existing) {
       if (keep.has(childKey(child, row))) continue;
@@ -278,7 +276,7 @@ function writeChildren(
   for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
     for (const row of mapping[child] ?? []) {
       if (skippedParents.has(`${parent}\u0000${asText(row[link])}`)) continue;
-      const out: Row = { ...row, owner_file: owner, retired_at: null };
+      const out: Row = { ...row, owner_key: owner, retired_at: null };
       const cols = Object.keys(out);
       const where =
         child === 'diary_mirrors'
@@ -288,9 +286,9 @@ function writeChildren(
         child === 'diary_mirrors' ? [row.diary_id, row.iface, row.place_id ?? ''] : [row[link], bind(row.position)];
       const found = prepared(
         db,
-        `SELECT rowid, owner_file FROM ${quote(child)} WHERE ${where} ORDER BY owner_file IS NULL DESC, rowid LIMIT 1`
+        `SELECT rowid, owner_key FROM ${quote(child)} WHERE ${where} ORDER BY owner_key IS NULL DESC, rowid LIMIT 1`
       ).get(...args);
-      if (found && (found.owner_file === null || found.owner_file === undefined)) continue;
+      if (found && (found.owner_key === null || found.owner_key === undefined)) continue;
       if (found) {
         prepared(
           db,
@@ -309,6 +307,19 @@ function writeChildren(
   return count;
 }
 
+/** Legacy import adapters resolve their provenance once; active writers already provide a catalog identity. */
+function mappingOwner(db: Db, mapping: Rows, owner: string): string {
+  const current = hasStorageUnits(db);
+  const id = current && !owner.startsWith('unit:') ? ensureUnit(db, legacyStorageKey(owner)) : owner;
+  for (const rows of Object.values(mapping))
+    for (const row of rows) {
+      const provenance = row.owner_file;
+      if ((row.owner_key !== null && row.owner_key !== undefined) || (provenance !== null && provenance !== undefined))
+        row.owner_key = id;
+    }
+  return id;
+}
+
 /** Writes a mapping (table -> rows) of the unit `owner`. */
 export function writeMapping(
   db: Db,
@@ -316,6 +327,7 @@ export function writeMapping(
   owner: string,
   { ignoreClaims = false, at }: { ignoreClaims?: boolean; at?: string } = {}
 ): number {
+  owner = mappingOwner(db, mapping, owner);
   resolveParticipationSources(db, mapping);
   let count = 0;
   const skippedParents = new Set<string>();
@@ -341,18 +353,23 @@ export function writeMapping(
   return count;
 }
 
-/** Makes a unit's mapping use the full unit path: `owner_file` of every row, and the `owner` of an operational row built from the path. */
+/** Makes a unit's mapping use the full unit path: `owner_key` of every row, and the `owner` of an operational row built from the path. */
 export function qualify(mapping: Rows, unit: { rel: string; full: string }): Rows {
   for (const rows of Object.values(mapping)) {
     for (const row of rows) {
-      if (row.owner_file !== undefined && row.owner_file !== null && row.owner_file === unit.rel) {
+      if (row.owner_file === unit.rel) {
         if (row.owner !== undefined && (row.owner === unit.rel || asText(row.owner).startsWith(`${unit.rel}#`)))
           row.owner = `${unit.full}${asText(row.owner).slice(unit.rel.length)}`;
         row.owner_file = unit.full;
       }
+      if (row.owner_key !== undefined && row.owner_key !== null && row.owner_key === unit.rel) {
+        if (row.owner !== undefined && (row.owner === unit.rel || asText(row.owner).startsWith(`${unit.rel}#`)))
+          row.owner = `${unit.full}${asText(row.owner).slice(unit.rel.length)}`;
+        row.owner_key = unit.full;
+      }
     }
   }
-  for (const child of Object.keys(CHILDREN)) for (const row of mapping[child] ?? []) row.owner_file = unit.full;
+  for (const child of Object.keys(CHILDREN)) for (const row of mapping[child] ?? []) row.owner_key = unit.full;
   return mapping;
 }
 
@@ -360,7 +377,11 @@ export function qualify(mapping: Rows, unit: { rel: string; full: string }): Row
 export function hotClaimIds(db: Db): Set<string> {
   const ids = new Set<string>();
   for (const row of db
-    .prepare("SELECT id FROM claims WHERE retired_at IS NULL AND owner_file NOT GLOB '*archive/*'")
+    .prepare(
+      hasStorageUnits(db)
+        ? "SELECT c.id FROM claims c LEFT JOIN storage_units u ON u.id=c.owner_key WHERE c.retired_at IS NULL AND (u.kind IS NULL OR u.kind != 'archive')"
+        : "SELECT id FROM claims WHERE retired_at IS NULL AND owner_file NOT GLOB '*archive/*'"
+    )
     .all())
     ids.add(row.id as string);
   for (const row of db.prepare('SELECT id FROM episodes WHERE retired_at IS NULL').all()) ids.add(row.id as string);

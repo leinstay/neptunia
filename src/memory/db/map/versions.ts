@@ -36,7 +36,9 @@ export function versionKeyOf(rel: string): [string, string] {
 
 /** The prefix of the description ids of a version file: `desc:<subject id>`. */
 export function descriptionPrefix(rel: string, ctx: MapContext = {}): string {
-  const [kind, key] = versionKeyOf(rel);
+  const [kind, key] = ctx.versionKind
+    ? [ctx.versionKind, ctx.itemId ?? ctx.subjectNativeId ?? ctx.subjectId ?? rel]
+    : versionKeyOf(rel);
   const iface = ifaceOf(ctx);
   if (kind === 'users') return `desc:${personId(iface, key)}`;
   if (kind === 'channels') return `desc:${channelPlaceId(iface, key)}`;

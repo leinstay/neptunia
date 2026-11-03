@@ -689,7 +689,7 @@ export function buildSessionRequest({
     .map((id) =>
       db
         .prepare(
-          "SELECT id, kind, name, topic, parent_id FROM places WHERE id = ? AND (kind IS NOT 'dm' OR owner_file IS NOT NULL)"
+          "SELECT id, kind, name, topic, parent_id FROM places WHERE id = ? AND (kind IS NOT 'dm' OR owner_key IS NOT NULL)"
         )
         .get(id)
     )

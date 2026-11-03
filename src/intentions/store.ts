@@ -6,6 +6,7 @@
 // breaks the model's invariants is left out on load (counted in the log). The store moves nothing by itself: every
 // change is a pure transition of the model applied through `update`. Logs carry ids and counts, never text.
 
+import { communityKey, namespaceOf } from '../memory/db/storage-keys.ts';
 import { log as defaultLog } from '../log.ts';
 import { checkInvariants, isOpen } from './model.ts';
 import { CODE } from '../tools/codes.ts';
@@ -46,14 +47,17 @@ export function createIntentionStore({
     memoryDb && typeof memoryDb.writeUnit === 'function'
       ? createUnitOutbox({ memoryDb, log, name: 'intentions' })
       : null;
-  const owner = `guilds/${String(guildId)}/intentions.json`;
-  const archiveOwner = `guilds/${String(guildId)}/intentions-archive.jsonl`;
+  const owner = communityKey('intentions', guildId, {
+    iface: namespaceOf(memoryDb),
+    selector: { collection: 'active' },
+  });
+  const archiveOwner = { ...owner, selector: { collection: 'archive' as const } };
 
   /** The list read once from the database (none without a `memoryDb`). */
   function load(): Array<Intention> {
     if (!memoryDb) return [];
     const db = seam.db();
-    const found = seam.run(() => intentionsValue(db, guildId));
+    const found = seam.run(() => intentionsValue(db, guildId, namespaceOf(memoryDb)));
     return valid(found.found ? found.value : null);
   }
 
@@ -100,7 +104,7 @@ export function createIntentionStore({
   function archived(): Array<Intention> {
     if (!memoryDb) return state.archived.map(copy);
     const db = seam.db();
-    const raw = seam.run(() => intentionsArchiveLines(db, guildId)).join('\n');
+    const raw = seam.run(() => intentionsArchiveLines(db, guildId, namespaceOf(memoryDb))).join('\n');
     const out: Array<Intention> = [];
     for (const line of raw.split('\n')) {
       if (!line.trim()) continue;

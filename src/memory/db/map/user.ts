@@ -41,8 +41,8 @@ export const userIdOf = (rel: string): string => /([^/]+)\.json$/.exec(String(re
 
 export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const iface = ifaceOf(ctx);
-  const userId = userIdOf(rel);
-  const person = personId(iface, userId);
+  const userId = ctx.subjectNativeId ?? userIdOf(rel);
+  const person = ctx.subjectPersonId ?? personId(iface, userId);
   const scope = groupScope(iface);
   const rows: Rows = {};
   const { rest, affinity } = profileRows(rows, value, {

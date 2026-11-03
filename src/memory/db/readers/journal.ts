@@ -4,11 +4,12 @@
 // is joined with its answer and a memory line with its attitude rows exactly as the file holds them. Pure functions
 // over a read connection.
 
+import type { StorageKey } from '../storage-keys.ts';
 import { unitLines } from './common.ts';
 import type { Db } from '../types.ts';
 
 /** The lines (JSON text) of one journal day unit (`owner`: its full path), in file order. */
-export const journalLines = (dbGiven: unknown, owner: string): Array<string> => {
+export const journalLines = (dbGiven: unknown, owner: StorageKey): Array<string> => {
   const db = dbGiven as Db;
   return unitLines(db, owner);
 };
@@ -17,7 +18,7 @@ export const journalLines = (dbGiven: unknown, owner: string): Array<string> => 
  * When the journal was last written, from the database: the latest `recordedAt` among the lines of the given day
  * units (epoch ms), or null when none has one.
  */
-export function journalLastWrite(db: Db, owners: ReadonlyArray<string>): number | null {
+export function journalLastWrite(db: Db, owners: ReadonlyArray<StorageKey>): number | null {
   let last: number | null = null;
   for (const owner of owners) {
     for (const line of unitLines(db, owner)) {

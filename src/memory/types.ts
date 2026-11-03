@@ -49,6 +49,7 @@ export type StoredRecord = Record<string, Untyped>;
 
 /** The memory database service (src/memory/db/service.ts) as the memory modules call it. */
 export type MemoryDb = {
+  namespace?: () => string | null;
   readHandle?: () => MemoryHandle | null;
   writeUnit?: (update: unknown) => Promise<unknown>;
   keepPending?: (update: unknown) => string;

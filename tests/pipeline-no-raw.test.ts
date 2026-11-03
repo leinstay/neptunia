@@ -110,5 +110,6 @@ test('dates a deletion by the time of the message and not by the time of the del
     await until(() => rig.sources('deleted').length === 1);
     return rig.sources('deleted');
   });
-  assert.equal(String(result[0]?.owner_file).includes('2026-10-10'), true);
+  // The semantic UTC partition carries the message date without requiring filename provenance.
+  assert.equal(Reflect.get(Object(result[0]?.storage_key), 'partition'), '2026-10-10');
 });

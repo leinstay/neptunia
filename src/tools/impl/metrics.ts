@@ -7,6 +7,8 @@
 
 import * as nodeFs from 'node:fs';
 import path from 'node:path';
+import { personaKey } from '../../memory/db/storage-keys.ts';
+
 import { createReadSeam, unitValue } from '../../memory/db/readers/common.ts';
 import type { MemoryDbService } from '../../memory/db/service.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS } from '../../time.ts';
@@ -126,7 +128,7 @@ export function createMetrics({
     try {
       parsed = memoryDb
         ? seam.run(() => {
-            const found = unitValue(seam.db(), METRICS_FILE);
+            const found = unitValue(seam.db(), personaKey('metrics'));
             return found.found ? found.value : null;
           })
         : (JSON.parse(fs.readFileSync(file, 'utf8')) as unknown);
@@ -183,7 +185,7 @@ export function createMetrics({
     for (const name of [...series.keys()]) prune(name);
     const value = { v: VERSION, samples: Object.fromEntries(series) };
     if (memoryDb) {
-      await memoryDb.writeUnit({ op: 'value', owner: METRICS_FILE, value });
+      await memoryDb.writeUnit({ op: 'value', key: personaKey('metrics'), value });
       return;
     }
     const text = JSON.stringify(value);

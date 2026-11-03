@@ -1,6 +1,8 @@
 // The service and writer worker commit normalized messages through conversation-qualified families.
 
 import { randomUUID } from 'node:crypto';
+import { storageOwner, ownershipRow } from './storage-units.ts';
+
 import { checkEnvelope, observe, observationAudience, resolveObservationPlace, OBSERVE_CODES } from './observe.ts';
 import type { Envelope, MessageConversation, ObserveResult } from './observe.ts';
 import { locatorText, messageLocator } from './message-locator.ts';
@@ -233,7 +235,7 @@ function writeDeletion(db: Db, input: MessageDeletion, options: MessageWriteOpti
   }
   const place = resolveObservationPlace(db, { ...input, place: deletionPlace(input) }, at);
   const { scope, audience } = observationAudience(input.iface, place);
-  const owner = options.owner ?? null;
+  const owner = storageOwner(db, options.owner ?? null);
   const position = owner ? nextPosition(db, owner) : null;
   const row = deriveRow(
     db,
@@ -254,15 +256,16 @@ function writeDeletion(db: Db, input: MessageDeletion, options: MessageWriteOpti
       observed_at: input.observedAt,
       recorded_at: input.observedAt,
       origin: 'observation',
-      owner_file: owner,
+      owner_key: owner,
       position,
       extra: JSON.stringify({ $messageLocator: input.messageLocator }),
     },
     { at, log: options.log }
   );
-  const columns = Object.keys(row);
+  const storedRow = ownershipRow(db, row);
+  const columns = Object.keys(storedRow);
   db.prepare(`INSERT INTO sources (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`).run(
-    ...columns.map((column) => row[column])
+    ...columns.map((column) => storedRow[column])
   );
   if (owner && position !== null) noteUnit(db, owner, 'record', { lines: position + 1, at });
   addKey(db, family.authority_id, 'source', canonicalKey('message', [family.native_key, null, 'deleted']), sourceId, {

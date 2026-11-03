@@ -3,6 +3,7 @@
 // (src/behavior/inner.ts) builds over them. Types only, nothing runs here. src/behavior/inner/*.ts, the heartbeat view
 // (src/behavior/heartbeat-view.ts), the `<wake>` block (src/behavior/wake.ts) and the turn runner's JavaScript read them.
 
+import type { StorageKey } from '../../memory/db/storage-keys.ts';
 import type { Obj } from '../../tools/types.ts';
 import type { Due, Intention } from '../../intentions/types.ts';
 import type { Reads } from '../../interface/reads.ts';
@@ -470,8 +471,9 @@ export type InnerContext = {
 
 /** The memory database as the inner life uses it (src/memory/db/service.ts): wake runs, the writer, the reads. */
 export type InnerMemoryDb = {
+  namespace?(): string | null;
   recordWake?(update: WakeUpdate): unknown;
   memoryWrite?(update: WakeQueueUpdate): Promise<unknown>;
-  writeUnit?(update: { op: 'value'; owner: string; value: unknown }): Promise<unknown>;
+  writeUnit?(update: { op: 'value'; key: StorageKey; value: unknown }): Promise<unknown>;
   readHandle?(): { db: object } | null;
 };

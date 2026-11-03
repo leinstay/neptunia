@@ -7,6 +7,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { communityKey, namespaceOf } from '../../memory/db/storage-keys.ts';
+
 import { createReadSeam, unitValue } from '../../memory/db/readers/common.ts';
 import { writeJsonAtomic } from '../../memory/index.ts';
 import { DAY_MS } from '../../time.ts';
@@ -309,7 +311,9 @@ export function stateOf(life: InnerContext, guildId: unknown): InnerState {
   try {
     if (life.memoryDb) {
       const seam = stateSeam(life);
-      const found = seam.run(() => unitValue(seam.db(), `guilds/${key}/inner.json`));
+      const found = seam.run(() =>
+        unitValue(seam.db(), communityKey('inner', key, { iface: namespaceOf(life.memoryDb) }))
+      );
       raw = found.found ? found.value : null;
     } else raw = JSON.parse(fs.readFileSync(fileOf(life, key), 'utf8'));
   } catch (err) {
@@ -383,9 +387,8 @@ function persistState(life: InnerContext, key: string, state: InnerState): void 
       throw Object.assign(new Error('DB_WRITE_UNAVAILABLE'), { code: 'DB_WRITE_UNAVAILABLE' });
     const write = life.memoryDb.writeUnit.bind(life.memoryDb);
     const snapshot: unknown = JSON.parse(JSON.stringify(value));
-    life.writes = life.writes
-      .then(() => write({ op: 'value', owner: `guilds/${key}/inner.json`, value: snapshot }))
-      .catch(failed);
+    const keyOfState = communityKey('inner', key, { iface: namespaceOf(life.memoryDb) });
+    life.writes = life.writes.then(() => write({ op: 'value', key: keyOfState, value: snapshot })).catch(failed);
     return;
   }
   try {

@@ -35,8 +35,11 @@
 // uses preparePublication but the diary's mirrors (src/behavior/mirror.ts); the legacy diary posts derive their
 // `sent` publications on the diary's own write like the sync (unit-write.ts). Logs: none; a caller logs codes.
 
-import { diaryMetadataOf, diaryPublicationRefusal } from '../../tools/publication.ts';
 import { createHash } from 'node:crypto';
+import { ownershipRow, hasStorageUnits, ownershipSql } from './storage-units.ts';
+
+import { diaryMetadataOf, diaryPublicationRefusal } from '../../tools/publication.ts';
+
 import { legacyNativeKind, nativeAuthorityOf } from './ids.ts';
 import { contextRow } from './scope.ts';
 import { projectRow } from './graph.ts';
@@ -254,8 +257,11 @@ export function preparePublication(
       ensureContext(db, context as Context);
       const id = idOfKey(key);
       db.prepare(
-        `INSERT INTO publications (id, row_kind, row_id, content_hash, rendered, destination_place_id, context_id, grant_id, status, idempotency_key, receipts, created_at, sent_at, owner_file, retired_at)
+        ownershipSql(
+          db,
+          `INSERT INTO publications (id, row_kind, row_id, content_hash, rendered, destination_place_id, context_id, grant_id, status, idempotency_key, receipts, created_at, sent_at, owner_key, retired_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, ?, NULL, NULL, NULL)`
+        )
       ).run(
         id,
         rowKind,
@@ -528,7 +534,7 @@ export function mirrorPublicationRow(
     receipts: JSON.stringify(mirrorReceipts(String(mirror.iface), mirror.native_ids)),
     created_at: filled(mirror.posted_at) ? mirror.posted_at : at,
     sent_at: filled(mirror.posted_at) ? mirror.posted_at : null,
-    owner_file: mirror.owner_file ?? null,
+    owner_key: mirror.owner_key ?? null,
     retired_at: mirror.retired_at ?? null,
   };
 }
@@ -554,7 +560,10 @@ export function deriveMirrorPublication(
   if (!found && filled(mirror?.diary_id)) {
     found = db
       .prepare(
-        "SELECT * FROM diary_mirrors WHERE diary_id = ? AND iface IS ? AND COALESCE(place_id, '') = ? ORDER BY owner_file IS NULL DESC, rowid LIMIT 1"
+        ownershipSql(
+          db,
+          "SELECT * FROM diary_mirrors WHERE diary_id = ? AND iface IS ? AND COALESCE(place_id, '') = ? ORDER BY owner_key IS NULL DESC, rowid LIMIT 1"
+        )
       )
       .get(mirror.diary_id, mirror.iface ?? null, mirror.place_id ?? '');
   }
@@ -564,26 +573,34 @@ export function deriveMirrorPublication(
   const placeExists =
     filled(found.place_id) && db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(found.place_id) !== undefined;
   const stamp = filled(at) ? at : new Date().toISOString();
-  const row = mirrorPublicationRow(found, { text, placeExists, at: stamp });
+  const row = mirrorPublicationRow(hasStorageUnits(db) ? found : { ...found, owner_key: found.owner_file }, {
+    text,
+    placeExists,
+    at: stamp,
+  });
   const existing = db
-    .prepare('SELECT id, owner_file FROM publications WHERE idempotency_key = ?')
+    .prepare(ownershipSql(db, 'SELECT id, owner_key FROM publications WHERE idempotency_key = ?'))
     .get(row.idempotency_key);
   if (!existing) {
-    const cols = Object.keys(row);
+    const stored = ownershipRow(db, row);
+    const cols = Object.keys(stored);
     db.prepare(
       `INSERT INTO publications (${cols.map((col) => `"${col}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
-    ).run(...cols.map((col) => row[col]));
-  } else if (existing.owner_file !== null && existing.owner_file !== undefined) {
+    ).run(...cols.map((col) => stored[col]));
+  } else if ((hasStorageUnits(db) ? existing.owner_key : existing.owner_file) != null) {
     // Only the mirror's own publication follows it; the content is filled once, never rewritten (a trigger guards it).
     db.prepare(
-      `UPDATE publications SET receipts = ?, owner_file = ?, retired_at = ?,
+      ownershipSql(
+        db,
+        `UPDATE publications SET receipts = ?, owner_key = ?, retired_at = ?,
         destination_place_id = COALESCE(destination_place_id, ?),
         rendered = CASE WHEN content_hash IS NULL THEN ? ELSE rendered END,
         content_hash = CASE WHEN content_hash IS NULL THEN ? ELSE content_hash END
       WHERE id = ?`
+      )
     ).run(
       row.receipts,
-      row.owner_file,
+      row.owner_key,
       row.retired_at,
       row.destination_place_id,
       row.rendered,
@@ -614,7 +631,10 @@ export function assignDiaryDestination(
   if (db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(placeId) === undefined) return 0;
   const ids = db
     .prepare(
-      `UPDATE publications SET destination_place_id = ? WHERE row_kind = 'diary' AND destination_place_id IS NULL${filled(owner) ? ' AND owner_file = ?' : ''} RETURNING id`
+      ownershipSql(
+        db,
+        `UPDATE publications SET destination_place_id = ? WHERE row_kind = 'diary' AND destination_place_id IS NULL${filled(owner) ? ' AND owner_key = ?' : ''} RETURNING id`
+      )
     )
     .all(...(filled(owner) ? [placeId, owner] : [placeId]))
     .map((row) => row.id);

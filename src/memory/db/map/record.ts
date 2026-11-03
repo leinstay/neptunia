@@ -72,7 +72,12 @@ export function toRows(rel: string, line: Row, ctx: MapContext = {}): Rows {
     if (locator) rest.$messageLocator = locator;
   }
   const scopeRest = {};
-  const scope = scopeInto(scopeRest, line.scope as OldScope | undefined, privateUserOf(rel), iface);
+  const scope = scopeInto(
+    scopeRest,
+    line.scope as OldScope | undefined,
+    ctx.privateUserId ?? privateUserOf(rel),
+    iface
+  );
   Object.assign(rest, scopeRest);
   const identity = ctx.messageIdentity;
   const row = {
@@ -97,7 +102,7 @@ export function toRows(rel: string, line: Row, ctx: MapContext = {}): Rows {
   return { sources: [row] };
 }
 
-export function fromRows(rows: Rows): Row {
+export function fromRows(rows: Rows, ctx: MapContext = {}): Row {
   const row = rows.sources[0];
   const rest = parseExtra(row.extra);
   const locator = messageLocator(rest.$messageLocator, row.iface);
@@ -107,7 +112,7 @@ export function fromRows(rows: Rows): Row {
       : null;
   delete rest.$messageLocator;
   delete rest.$messageReply;
-  const scope = scopeFrom(row, rest, privateUserOf(String(row.owner_file)), ifaceOf(row));
+  const scope = scopeFrom(row, rest, ctx.privateUserId ?? privateUserOf(String(row.owner_file)), ifaceOf(row));
   const line = join(row, rest, SPEC);
   if (locator) line.messageId = locator.messageId;
   if (reply) line.replyTo = reply.messageId;

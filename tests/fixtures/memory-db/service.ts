@@ -6,15 +6,21 @@
 // builds its stores synchronously; `unitFile` is a memory unit as the file it stands for (its text, from the database
 // alone). Synthetic data only.
 import fs from 'node:fs';
+import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import type { Config, Db, Log } from '../../../src/memory/db/types.ts';
+import { dbOf, type Config, type Log } from '../../../src/memory/db/types.ts';
 import type { MemoryDbService } from '../../../src/memory/db/service.ts';
 import { createMemoryDb } from '../../../src/memory/db/service.ts';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
 import { classify } from '../../../src/memory/db/map/index.ts';
 import { filesOfUnit } from '../../../src/memory/db/export.ts';
 import { seedUnits } from './seed.ts';
+import { legacyStorageKey } from '../../../src/memory/db/paths.ts';
+import { listUnits } from '../../../src/memory/db/storage-units.ts';
+import { unitValue, unitLines } from '../../../src/memory/db/readers/common.ts';
+import { nativeOfAny } from '../../../src/memory/db/ids.ts';
+import type { StorageKey } from '../../../src/memory/db/storage-keys.ts';
 
 const silent = { info() {}, debug() {}, warn() {}, error() {} };
 
@@ -57,7 +63,15 @@ export async function openTestMemory({
   seed = false,
   now = Date.now,
   log = silent,
-}: { dataDir?: string; config?: Config; seed?: boolean; now?: () => number; log?: Partial<Log> } = {}): Promise<TestMemory> {
+  iface,
+}: {
+  dataDir?: string;
+  config?: Config;
+  seed?: boolean;
+  now?: () => number;
+  log?: Partial<Log>;
+  iface?: () => string | null;
+} = {}): Promise<TestMemory> {
   fs.mkdirSync(dataDir, { recursive: true });
   if (seed) {
     const handle = openMemoryDb(path.join(dataDir, 'memory.db'));
@@ -67,9 +81,12 @@ export async function openTestMemory({
       handle.close();
     }
   }
-  const hot = { config: { ...config, memoryDb: { session: { mode: 'off' }, ...(config.memoryDb ?? {}) } }, prompts: {} };
+  const hot = {
+    config: { ...config, memoryDb: { session: { mode: 'off' }, ...(config.memoryDb ?? {}) } },
+    prompts: {},
+  };
   // The service calls only the methods of `log` a test gives it.
-  const memoryDb = createMemoryDb({ hot, dataDir, log: log as Log, now, worker: false });
+  const memoryDb = createMemoryDb({ hot, dataDir, log: log as Log, now, worker: false, iface });
   await memoryDb.tick();
   if (!memoryDb.readHandle()) throw new Error('the test memory database did not open');
   return { memoryDb, dataDir, hot, close: () => memoryDb.close() };
@@ -86,7 +103,10 @@ export function openTestMemorySync({
   log = silent,
 }: { dataDir?: string; config?: Config; now?: () => number; log?: Partial<Log> } = {}): TestMemory {
   fs.mkdirSync(dataDir, { recursive: true });
-  const hot = { config: { ...config, memoryDb: { session: { mode: 'off' }, ...(config.memoryDb ?? {}) } }, prompts: {} };
+  const hot = {
+    config: { ...config, memoryDb: { session: { mode: 'off' }, ...(config.memoryDb ?? {}) } },
+    prompts: {},
+  };
   const memoryDb = createMemoryDb({ hot, dataDir, log: log as Log, now, worker: false });
   memoryDb.tick();
   if (!memoryDb.readHandle()) throw new Error('the test memory database did not open');
@@ -100,11 +120,35 @@ export function openTestMemorySync({
 export function unitFile(memoryDb: Pick<MemoryDbService, 'readHandle'>, rel: string): string | null {
   const handle = memoryDb.readHandle();
   if (!handle) throw new Error('the memory database is not open');
-  const db = handle.db as Db;
+  const db = dbOf(handle);
   const info = classify(rel);
   if (!info || 'skipped' in info) return null;
   const full = info.guildId === undefined ? info.unit : `guilds/${info.guildId}/${info.unit}`;
-  if (!db.prepare('SELECT 1 AS ok FROM files WHERE path = ? AND gone_at IS NULL').get(full)) return null;
+  // This fixture accepts a legacy export label. Fresh semantic units need no provenance alias.
+  const key = legacyStorageKey(full);
+  if (listUnits(db, key).length === 0) return null;
+  if (info.format === 'jsonl') {
+    const lines = unitLines(db, key);
+    return lines.join('\n') + (lines.length ? '\n' : '');
+  }
+  if (info.format === 'json') {
+    const value = unitValue(db, key);
+    return value.found ? `${JSON.stringify(value.value, null, 2)}\n` : null;
+  }
   const [out] = filesOfUnit(db, info.unit, info, full);
   return out ? out.data.toString('utf8') : null;
+}
+
+/** A journal's legacy test label projected from its actual key, with no change to the writer update. */
+export function journalLabel(dataDir: string, key: StorageKey): string {
+  const privatePart = key.subject.type === 'account' ? ['private', String(nativeOfAny(key.subject.id))] : [];
+  const rel = path.join(
+    'guilds',
+    String(nativeOfAny(key.scopePlaceId)),
+    ...privatePart,
+    'journal',
+    `${key.partition}.jsonl`
+  );
+  assert.deepEqual(legacyStorageKey(rel), key);
+  return path.join(dataDir, rel);
 }

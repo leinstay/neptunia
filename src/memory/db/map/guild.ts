@@ -51,7 +51,7 @@ const LISTS: Array<ListDef & { subject: string; scope: string }> = [
 export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const iface = ifaceOf(ctx);
   const guildId = ctx.guildId ?? 'unknown';
-  const placeId = guildPlaceId(iface, guildId);
+  const placeId = ctx.scopePlaceId ?? guildPlaceId(iface, guildId);
   const rows: Rows = {};
   const rest = { ...value };
   put(rows, 'places', {

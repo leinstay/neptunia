@@ -5,6 +5,8 @@
 // and give her everything the old files held under the new names. The pieces run for real: the schema migration, the
 // memory database service, the errand and intention stores and services, the inner life's scheduler and the call
 // normalizer; the turn runner and the errand runner's client are fakes. Synthetic data only.
+import { storageId } from '../src/memory/db/storage-keys.ts';
+import { legacyStorageKey, currentUnitPath } from '../src/memory/db/paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -221,17 +223,33 @@ test('one open of the v13 database moves the errand units and the intention reco
   const now = openCurrent(file);
   try {
     const after = dumpTables(now.db);
+    // Migration adds semantic ownership while every original field remains part of the comparison.
+    const expectedOwners = (rows: Array<Row> | undefined) =>
+      (rows ?? []).map((row) => {
+        const result = { ...row };
+        if ('owner_file' in row && !('owner_key' in row)) {
+          const owner = row.owner_file;
+          assert.ok(owner === null || typeof owner === 'string');
+          result.owner_key = owner === null ? null : storageId(legacyStorageKey(currentUnitPath(owner)));
+        }
+        return result;
+      });
+    const plain = (rows: Array<Row> | undefined) => (rows ?? []).map((row) => ({ ...row }));
     for (const table of Object.keys(old)) {
       if (TOUCHED.includes(table)) continue;
       // Schema v21 drops the eight reserved ledger_* tables of v1, empty in every database (spec 2026-10-31-stage-6-cut,
       // PR 6a), so they are gone after the open rather than as they were.
       if (table.startsWith('ledger_')) continue;
-      assert.deepEqual(after[table], old[table], `the table ${table} is as it was`);
+      assert.deepEqual(plain(after[table]), expectedOwners(old[table]), `the table ${table} is as it was`);
     }
     const sans = (rows: Array<Row> | undefined) =>
       (rows ?? []).map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'owner_file')));
-    assert.deepEqual(sans(after.work), sans(old.work), 'work, record column included, apart from its unit path');
-    assert.deepEqual(sans(after.work_events), sans(old.work_events), 'work_events likewise');
+    assert.deepEqual(
+      sans(after.work),
+      sans(expectedOwners(old.work)),
+      'work, record column included, apart from its unit path'
+    );
+    assert.deepEqual(sans(after.work_events), sans(expectedOwners(old.work_events)), 'work_events likewise');
     assert.deepEqual(
       new Set((after.work ?? []).map((row) => row.owner_file)),
       new Set([`guilds/${GUILD}/errands.json`])

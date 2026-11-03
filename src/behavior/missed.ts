@@ -34,6 +34,9 @@
 
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
+import type { StorageKey } from '../memory/db/storage-keys.ts';
+import { communityKey, namespaceOf } from '../memory/db/storage-keys.ts';
+
 import { createReadSeam, unitValue } from '../memory/db/readers/common.ts';
 import { formatTranscript, MAX_MESSAGE_CHARS, renderTranscript, withTriggers } from '../format.ts';
 import { roleRequestOptions } from '../llm/openrouter.ts';
@@ -561,6 +564,8 @@ export function buildCheckRequest({
   };
 }
 
+const missedKey = (memoryDb: CreateMissedInput['memoryDb'], guildId: string) =>
+  communityKey('missed', guildId, { iface: namespaceOf(memoryDb) });
 const registryOwner = (guildId: string): string => `guilds/${guildId}/missed.json`;
 const registryFile = (dataDir: string, guildId: string): string => path.join(dataDir, registryOwner(guildId));
 
@@ -580,14 +585,16 @@ function registryOf(value: unknown): { candidates: Array<Candidate>; lastRecover
 async function writeRegistry(
   memoryDb: CreateMissedInput['memoryDb'],
   fs: NonNullable<CreateMissedInput['fs']>,
-  file: string,
+  dataDir: string,
   guildId: string,
+  key: StorageKey,
   value: unknown
 ): Promise<void> {
   if (memoryDb) {
-    await memoryDb.writeUnit({ op: 'value', owner: registryOwner(guildId), value });
+    await memoryDb.writeUnit({ op: 'value', key, value });
     return;
   }
+  const file = registryFile(dataDir, guildId);
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(`${file}.tmp`, JSON.stringify(value));
   await fs.rename(`${file}.tmp`, file);
@@ -671,14 +678,14 @@ export function createMissed({
     dirty = true;
     const guildId = loadedGuildId ?? getGuildId?.();
     if (!guildId || paused()) return chain;
+    const key = missedKey(memoryDb, guildId);
     const run = chain.then(async () => {
       if (!dirty) return;
       dirty = false;
       candidates = pruneCandidates(candidates, now());
-      const file = registryFile(dataDir, guildId);
       const value = { v: FILE_VERSION, candidates, lastRecoveryAt };
       try {
-        await writeRegistry(memoryDb, fs, file, guildId, value);
+        await writeRegistry(memoryDb, fs, dataDir, guildId, key, value);
       } catch (error) {
         dirty = true;
         log.warn('missed: save failed', { code: objOf(error).code ?? null });
@@ -691,7 +698,7 @@ export function createMissed({
   /** Read the database registry, or the standalone file backend when no service is supplied. */
   async function load(guildId: string) {
     if (memoryDb) {
-      const found = seam.run(() => unitValue(seam.db(), registryOwner(guildId)));
+      const found = seam.run(() => unitValue(seam.db(), missedKey(memoryDb, guildId)));
       ({ candidates, lastRecoveryAt } = registryOf(found.found ? found.value : null));
       return;
     }

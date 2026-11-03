@@ -32,6 +32,14 @@ export type MapContext = {
   iface?: string;
   guildId?: string;
   position?: number;
+  subjectId?: string;
+  subjectNativeId?: string;
+  subjectPersonId?: string;
+  scopePlaceId?: string;
+  privateUserId?: string | null;
+  collection?: string;
+  versionKind?: string;
+  itemId?: string;
   hotClaimIds?: ReadonlySet<string>;
   [key: string]: unknown;
 };

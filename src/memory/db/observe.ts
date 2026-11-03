@@ -51,11 +51,13 @@
 //     partner gets it filled in.
 // The observation is the record of a seen line (spec 2026-10-24-memory-authority section 6 item 3), so the service
 // passes the line's record unit (`owner`: `guilds/<g>/record/<YYYY-MM>/<day>.jsonl`, or the private record's day
-// file) and the row is written in it: `owner_file` that unit, `position` the next one of the unit (the unit's `files`
+// file) and the row is written in it: `owner_key` that unit, `position` the next one of the unit (the unit's `files`
 // row is kept, unit-write.ts#noteUnit), and a stored line of the tuple with no owner yet is stamped the same way.
 // Without `owner` the row has none. With `owner` the result also carries the line's `revision` (an edit's is the one
 // counted here).
 // Logs carry codes only (`log.debug?.()`).
+
+import { storageOwner, ownershipRow, ownershipSql, hasStorageUnits } from './storage-units.ts';
 
 import { messageLocator } from './message-locator.ts';
 import type { NativeMessageLocator } from './recall.ts';
@@ -460,6 +462,7 @@ function nodeOf(
 }
 
 function insertRow(db: Db, table: string, row: Row): void {
+  row = ownershipRow(db, row);
   const cols = Object.keys(row);
   db.prepare(
     `INSERT INTO "${table}" (${cols.map((col) => `"${col}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
@@ -527,7 +530,7 @@ function accountOf(
       native_key: String(key),
       generation: gen,
       kind: filled(kind) ? kind : 'user',
-      owner_file: null,
+      owner_key: null,
     },
     { at }
   );
@@ -628,7 +631,7 @@ function placeOf(
       seen_from_at: envelope.occurredAt,
       seen_to_at: envelope.occurredAt,
       extra: filled(p.parent) && !parent ? json({ parent: p.parent }) : null,
-      owner_file: null,
+      owner_key: null,
     },
     { at }
   );
@@ -838,10 +841,16 @@ function replayOf(
 ): ObserveResult {
   const e = envelope;
   if (filled(owner)) {
-    const stored = db.prepare('SELECT owner_file FROM sources WHERE id = ?').get(sourceId);
-    if (stored && (stored.owner_file === null || stored.owner_file === undefined)) {
+    const stored = db
+      .prepare(`SELECT ${hasStorageUnits(db) ? 'owner_key' : 'owner_file'} AS current_owner FROM sources WHERE id = ?`)
+      .get(sourceId);
+    if (stored && (stored.current_owner === null || stored.current_owner === undefined)) {
       const position = nextPosition(db, owner);
-      db.prepare('UPDATE sources SET owner_file = ?, position = ? WHERE id = ?').run(owner, position, sourceId);
+      db.prepare(ownershipSql(db, 'UPDATE sources SET owner_key = ?, position = ? WHERE id = ?')).run(
+        owner,
+        position,
+        sourceId
+      );
       noteUnit(db, owner, 'record', { lines: position + 1, at });
     }
   }
@@ -885,6 +894,7 @@ function writeObservation(
   log: Partial<Log> | null | undefined,
   owner: string | null = null
 ): ObserveResult {
+  owner = storageOwner(db, owner);
   // An edit with no revision: the database's count says which revision it is.
   let e: Envelope = given;
   let known: string | null = null;
@@ -960,7 +970,7 @@ function writeObservation(
       audience_id: audience,
       origin: 'observation',
       extra: Object.keys(extra).length > 0 ? json(extra) : null,
-      owner_file: filled(owner) ? owner : null,
+      owner_key: filled(owner) ? owner : null,
       position: filled(owner) ? nextPosition(db, owner) : null,
     },
     { at, log }

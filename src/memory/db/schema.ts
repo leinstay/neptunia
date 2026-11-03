@@ -8,6 +8,8 @@
 //
 // There is no `now` table and no `states` table: the owner dropped both.
 
+import { ensureUnit } from './storage-units.ts';
+import { legacyStorageKey } from './paths.ts';
 import { migrateMessageFamilies } from './message-family-catalog.ts';
 import { assignDiaryDestination, deriveAllMirrorPublications } from './publish.ts';
 import { pastEntries } from './diary-past.ts';
@@ -1236,6 +1238,58 @@ export type MigrationContext = { diaryPlaceId?: string | null; dataDir?: string 
 /** One migration: SQL text, or a function of the connection and the opener's context. */
 export type Migration = string | ((db: Db, context: MigrationContext) => void);
 
+function migrateStorageOwners(db: Db): void {
+  db.exec(`CREATE TABLE storage_units (
+    id TEXT PRIMARY KEY, kind TEXT NOT NULL, subject_type TEXT NOT NULL, subject_id TEXT NOT NULL,
+    scope_place_id TEXT, partition TEXT, selector JSON, key_json TEXT NOT NULL UNIQUE,
+    lines INTEGER, offset INTEGER, synced_at TEXT, retired_at TEXT);
+    CREATE INDEX storage_units_subject ON storage_units(kind,subject_type,subject_id,scope_place_id,partition);
+    CREATE TABLE legacy_unit_aliases(path TEXT PRIMARY KEY, unit_id TEXT NOT NULL REFERENCES storage_units(id));`);
+  const tables = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+    .all()
+    .map((row) => String(row.name))
+    .filter((table) =>
+      db
+        .prepare(`PRAGMA table_info("${table}")`)
+        .all()
+        .some((col) => col.name === 'owner_file')
+    );
+  const owners = new Set<string>(
+    db
+      .prepare('SELECT path FROM files')
+      .all()
+      .map((row) => String(row.path))
+  );
+  for (const table of tables)
+    for (const row of db.prepare(`SELECT DISTINCT owner_file FROM "${table}" WHERE owner_file IS NOT NULL`).all())
+      owners.add(String(row.owner_file));
+  for (const owner of owners) {
+    const file = db.prepare('SELECT kind,lines,offset,synced_at,gone_at FROM files WHERE path = ?').get(owner);
+    const key = legacyStorageKey(owner, undefined, typeof file?.kind === 'string' ? file.kind : undefined);
+    const id = ensureUnit(db, key);
+    db.prepare('INSERT INTO legacy_unit_aliases(path,unit_id) VALUES (?,?)').run(owner, id);
+    if (file)
+      db.prepare('UPDATE storage_units SET lines=?,offset=?,synced_at=?,retired_at=? WHERE id=?').run(
+        file.lines,
+        file.offset,
+        file.synced_at,
+        file.gone_at,
+        id
+      );
+  }
+  for (const table of tables) {
+    db.exec(`ALTER TABLE "${table}" ADD COLUMN owner_key TEXT REFERENCES storage_units(id)`);
+    db.exec(
+      `UPDATE "${table}" SET owner_key = (SELECT unit_id FROM legacy_unit_aliases WHERE path = "${table}".owner_file) WHERE owner_file IS NOT NULL`
+    );
+    db.exec(`CREATE INDEX "${table}_storage_owner" ON "${table}"(owner_key)`);
+  }
+  db.exec('CREATE UNIQUE INDEX co_owners_storage ON co_owners(tbl,key,owner_key)');
+  db.exec(`UPDATE operational SET owner_key=(SELECT unit_id FROM legacy_unit_aliases WHERE path=operational.owner)
+    WHERE owner_file IS NULL AND kind IN ('state','usage','metrics') AND owner IN ('state.json','usage.json','metrics.json')`);
+}
+
 /** Each entry moves the schema one version up: SQL text, or a function of the connection (and the opener's context)
  * for a step SQL cannot do. Never edit a shipped entry: append a new one. */
 export const MIGRATIONS: Array<Migration> = [
@@ -1264,6 +1318,7 @@ export const MIGRATIONS: Array<Migration> = [
   migrateMessageFamilies,
   `ALTER TABLE ingest ADD COLUMN source_id TEXT REFERENCES sources(id);
    CREATE INDEX ingest_source ON ingest(source_id) WHERE source_id IS NOT NULL;`,
+  migrateStorageOwners,
 ];
 
 /** Every table schema v8 adds. */

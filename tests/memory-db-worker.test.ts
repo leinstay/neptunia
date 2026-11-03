@@ -13,6 +13,8 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
 import { unitUpdates } from './fixtures/memory-db/seed.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
+import { guildPlaceId } from '../src/memory/db/ids.ts';
+import { listUnits } from '../src/memory/db/storage-units.ts';
 
 const tmpRoot = () => fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-worker-'));
 const REAL_WORKER = pathToFileURL(path.resolve('src/memory/db/writer-worker.ts')).href;
@@ -380,18 +382,34 @@ test('worker: the unit writers and the observation write through the worker (buf
       delta: { manifest, meta, i8: Buffer.from([1, 2, 3, 4]) },
     });
     const db = dbOf(env.service.readHandle()!);
+    // Observation and record adoption share semantic ownership even when no legacy provenance path exists.
+    const place = guildPlaceId('discord', GUILD);
+    const units = listUnits(db, {
+      kind: 'record',
+      subject: { type: 'place', id: place },
+      scopePlaceId: place,
+      partition: '2026-11-03',
+    });
+    assert.equal(units.length, 1);
     assert.deepEqual(
       db
-        .prepare('SELECT kind, position FROM sources WHERE owner_file = ? ORDER BY position')
-        .all(owner)
+        .prepare('SELECT kind, position FROM sources WHERE owner_key = ? ORDER BY position')
+        .all(units[0].id)
         .map((row) => [row.kind, row.position]),
       [
         ['seen', 0],
         ['said', 1],
       ]
     );
+    const vectorUnits = listUnits(db, {
+      kind: 'vectors',
+      subject: { type: 'place', id: place },
+      scopePlaceId: place,
+      partition: '2026-11',
+    });
+    assert.equal(vectorUnits.length, 1);
     assert.deepEqual(
-      [...(db.prepare('SELECT bytes FROM vectors WHERE owner_file = ?').get(month)!.bytes as Uint8Array)],
+      [...(db.prepare('SELECT bytes FROM vectors WHERE owner_key = ?').get(vectorUnits[0].id)!.bytes as Uint8Array)],
       [1, 2, 3, 4]
     );
   } finally {

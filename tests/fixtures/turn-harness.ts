@@ -3,7 +3,6 @@
 // no data/. An answer of the script is a string (speech only), a toolAnswer (tests/fixtures/tool-answers.ts) or a
 // function of the request that builds one; the last one repeats.
 import { after } from 'node:test';
-import path from 'node:path';
 import { createTurnRunner as createRealTurnRunner } from '../../src/behavior/turn.ts';
 import { userText } from '../../src/behavior/prompt.ts';
 import { createFakeAdapter } from '../../src/interface/fake.ts';
@@ -11,7 +10,8 @@ import { createDiscordInterface } from '../../interfaces/discord/index.ts';
 import { createJournal } from '../../src/memory/journal.ts';
 import { createErrandStores } from '../../src/errands/store.ts';
 import { createErrandService } from '../../src/errands/service.ts';
-import { openTestMemorySync } from './memory-db/service.ts';
+import { openTestMemorySync, journalLabel } from './memory-db/service.ts';
+import type { StorageKey } from '../../src/memory/db/storage-keys.ts';
 import '../../src/tools/impl/index.ts';
 import { skillRegistry } from '../../src/tools/registry.ts';
 import { createAdmin } from '../../src/admin.ts';
@@ -246,8 +246,8 @@ export function journalOverMemory(): { journal: ReturnType<typeof createJournal>
   const memoryDb = {
     ...mem.memoryDb,
     writeUnit: (given: unknown) => {
-      const update = given as { owner: string; lines?: Array<unknown> };
-      for (const line of update.lines ?? []) lines.push({ file: path.join('fake-data', update.owner), record: line });
+      const update = given as { key: StorageKey; lines?: Array<unknown> };
+      for (const line of update.lines ?? []) lines.push({ file: journalLabel('fake-data', update.key), record: line });
       return mem.memoryDb.writeUnit(update);
     },
   };

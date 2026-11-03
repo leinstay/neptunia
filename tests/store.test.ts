@@ -1,10 +1,10 @@
-// Tests for src/memory/store.ts: the cache over the memory units (profiles, guild memory, channels, lore and the
-// rest, kept in the memory database) and the operational state files.
+// Tests for the memory store's database collections and standalone file backend.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createStore, writeJsonAtomic } from '../src/memory/store.ts';
+import { legacyStorageKey } from '../src/memory/db/paths.ts';
 import { mergeEpisodes } from '../src/memory/episodes.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { PARTICIPATION_DEFAULTS, emptyParticipation, recordOwnLine } from '../src/memory/participation.ts';
@@ -635,7 +635,7 @@ test('flush: only writes the units that are dirty', async () => {
   const counted = {
     ...memoryDb,
     writeUnit: (update: Untyped) => {
-      writes.push(update.owner);
+      writes.push(update.key);
       return memoryDb.writeUnit(update);
     },
   };
@@ -643,10 +643,10 @@ test('flush: only writes the units that are dirty', async () => {
   store.touchUser('g1', 'u1', 'Alice', 1000);
   store.flush();
   await store.flushSettled({});
-  assert.deepEqual(writes, ['guilds/g1/users/u1.json']);
+  assert.deepEqual(writes, [legacyStorageKey('guilds/g1/users/u1.json')]);
   store.flush();
   await store.flushSettled({}); // nothing changed since -> should be a no-op
-  assert.deepEqual(writes, ['guilds/g1/users/u1.json']);
+  assert.deepEqual(writes, [legacyStorageKey('guilds/g1/users/u1.json')]);
 });
 
 test('state: data persists across restarts via flush + markDirty', () => {

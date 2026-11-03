@@ -24,6 +24,10 @@
 import * as nodeFs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { communityKey, namespaceOf, keyText } from './db/storage-keys.ts';
+
+import type { StorageKey } from './db/storage-keys.ts';
+
 import { isRecord, propOf, isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
 import { log as defaultLog } from '../log.ts';
 import { stripUrls } from './clamp.ts';
@@ -372,7 +376,6 @@ export function createArchive({
       : path.join(guildBase(guildId), 'archive');
   }
 
-  const segmentFile = (base: Untyped, month: string) => path.join(base, `${month}.jsonl`);
   const pendingFile = (base: Untyped) => path.join(base, 'pending.jsonl');
   const doneFile = (base: Untyped) => path.join(base, 'pending-done.jsonl');
 
@@ -422,7 +425,7 @@ export function createArchive({
     const cached = indexes.get(owner);
     if (cached) return cached;
     const keys = new Set();
-    for (const line of seam.run(() => archiveLines(db, guildId, privateUserId, month))) {
+    for (const line of seam.run(() => archiveLines(db, guildId, privateUserId, month, namespaceOf(memoryDb)))) {
       const key = keyOf(parse(line));
       if (key) keys.add(key);
     }
@@ -435,16 +438,20 @@ export function createArchive({
     const db = seam.db();
     if (typeof memoryDb?.writeUnit !== 'function')
       throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
-    const base = baseDir(guildId, privateUserId);
     const isPrivate = typeof privateUserId === 'string' && privateUserId;
-    const months = new Map(); // owner -> { keys, lines, added }
+    const months = new Map<
+      string,
+      { keys: Set<unknown>; lines: Array<Record<string, Untyped>>; added: Set<unknown> }
+    >();
     let duplicates = 0;
     for (const raw of Array.isArray(entries) ? entries : []) {
       if (!isRecord(raw)) continue;
       const entry: Record<string, Untyped> = { ...raw, guildId: String(guildId) };
       if (isPrivate) entry.scope = { user: privateUserId, private: true };
       const month = monthOf(entry);
-      const owner = root.relative(segmentFile(base, month));
+      const owner = keyText(
+        communityKey('archive', guildId, { iface: namespaceOf(memoryDb), privateUserId, partition: month })
+      );
       let unit = months.get(owner);
       if (!unit)
         months.set(
@@ -462,7 +469,7 @@ export function createArchive({
     let written = 0;
     for (const [owner, unit] of months) {
       if (unit.lines.length === 0) continue;
-      await memoryDb.writeUnit({ op: 'lines', owner, lines: unit.lines });
+      await memoryDb.writeUnit({ op: 'lines', key: JSON.parse(owner) as StorageKey, lines: unit.lines });
       for (const key of unit.added) unit.keys.add(key);
       written += unit.lines.length;
     }
@@ -506,10 +513,10 @@ export function createArchive({
     const toMonth = to ? String(isoOf(to) ?? '').slice(0, 7) : '9999-99';
     const wanted = Array.isArray(kinds) && kinds.length > 0 ? new Set(kinds) : null;
     const scopeKeys = isRecord(scope) ? Object.entries(scope) : [];
-    for (const month of seam.run(() => archiveMonths(db, guildId, privateUserId))) {
+    for (const month of seam.run(() => archiveMonths(db, guildId, privateUserId, namespaceOf(memoryDb)))) {
       if (!MONTH_RE.test(month) || month < fromMonth || month > toMonth) continue;
       const seen = new Set();
-      for (const line of seam.run(() => archiveLines(db, guildId, privateUserId, month))) {
+      for (const line of seam.run(() => archiveLines(db, guildId, privateUserId, month, namespaceOf(memoryDb)))) {
         const entry = parse(line);
         if (!entry || seen.has(entry.id)) continue;
         seen.add(entry.id);
@@ -525,7 +532,7 @@ export function createArchive({
   async function find(guildId: string, itemId: string) {
     const out = [];
     const db = seam.db();
-    const layers = [null, ...seam.run(() => archiveLayers(db, guildId))];
+    const layers = [null, ...seam.run(() => archiveLayers(db, guildId, namespaceOf(memoryDb)))];
     for (const privateUserId of layers) {
       for await (const entry of iterate(guildId, { privateUserId })) if (entry.itemId === itemId) out.push(entry);
     }

@@ -348,7 +348,7 @@ export function affinityFrom(rows: Rows, cols: Row, leftovers: unknown, has: Rea
 export function historyFrom(rows: Rows): Array<Row> {
   const events = ordered(rows, 'affinity_events');
   return events.map((row) =>
-    row.owner_file === null || row.owner_file === undefined
+    (row.owner_key ?? row.owner_file) == null
       ? { ...join(row, null, HISTORY_SPEC), itemId: row.id }
       : join(row, row.extra, HISTORY_SPEC)
   );

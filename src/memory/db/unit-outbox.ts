@@ -18,6 +18,8 @@
 //   - `size()`                how many units wait or are under way.
 // Logs carry codes and counts only.
 
+import { keyText } from './storage-keys.ts';
+import type { StorageKey } from './storage-keys.ts';
 import type { Log, Row } from './types.ts';
 
 const noop = (): void => {};
@@ -27,12 +29,12 @@ type Waiting = { op: 'value'; value: unknown } | { op: 'lines'; lines: Array<unk
 
 /** What a unit outbox offers: queue a value or lines, push and flush them, keep them at shutdown. */
 export type UnitOutbox = {
-  value: (owner: unknown, next: unknown) => void;
-  lines: (owner: string, list: unknown) => void;
+  value: (owner: StorageKey | string, next: unknown) => void;
+  lines: (owner: StorageKey | string, list: unknown) => void;
   push: () => Promise<number>;
   flush: (options?: { rounds?: number }) => Promise<number>;
   keep: () => number;
-  holds: (owner: string) => boolean;
+  holds: (owner: StorageKey | string) => boolean;
   size: () => number;
 };
 
@@ -56,12 +58,13 @@ export function createUnitOutbox({
   // owner -> the promise of the write under way
   const sending = new Map<string, Promise<boolean>>();
 
-  function value(ownerGiven: unknown, next: unknown): void {
-    const owner = ownerGiven as string;
+  function value(ownerGiven: StorageKey | string, next: unknown): void {
+    const owner = typeof ownerGiven === 'string' ? ownerGiven : keyText(ownerGiven);
     waiting.set(owner, { op: 'value', value: next });
   }
 
-  function lines(owner: string, list: unknown): void {
+  function lines(key: StorageKey | string, list: unknown): void {
+    const owner = typeof key === 'string' ? key : keyText(key);
     if (!Array.isArray(list) || list.length === 0) return;
     const held = waiting.get(owner);
     if (held?.op === 'lines') held.lines.push(...(list as Array<unknown>));
@@ -69,8 +72,12 @@ export function createUnitOutbox({
   }
 
   /** The update of a waiting unit, as the writer takes it. */
-  const updateOf = (owner: string, item: Waiting): Row =>
-    item.op === 'value' ? { op: 'value', owner, value: item.value } : { op: 'lines', owner, lines: item.lines };
+  const updateOf = (owner: string, item: Waiting): Row => {
+    const target = owner.startsWith('{') ? { key: JSON.parse(owner) as StorageKey } : { owner };
+    return item.op === 'value'
+      ? { op: 'value', ...target, value: item.value }
+      : { op: 'lines', ...target, lines: item.lines };
+  };
 
   /** A failed write back in the outbox: a newer value stays; lines go in front of the ones that came meanwhile. */
   function putBack(owner: string, item: Waiting): void {
@@ -149,7 +156,10 @@ export function createUnitOutbox({
     push,
     flush,
     keep,
-    holds: (owner: string) => waiting.has(owner) || sending.has(owner),
+    holds: (key: StorageKey | string) => {
+      const owner = typeof key === 'string' ? key : keyText(key);
+      return waiting.has(owner) || sending.has(owner);
+    },
     size: () => new Set([...waiting.keys(), ...sending.keys()]).size,
   };
 }
