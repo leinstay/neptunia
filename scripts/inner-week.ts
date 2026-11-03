@@ -1,6 +1,6 @@
 // The virtual week of the persona's inner life (docs/inner-life.md "Testing it over a week"): the
 // production scheduler and intention service over a temporary data directory, a fake clock that
-// jumps between the moments that matter, the week scripted by a fixture (scripts/fixtures/inner-week/),
+// jumps between the moments that matter, the week scripted by a fixture (scripts/fixtures/),
 // the inner turns answered by a deterministic stub voice -- or, on selected days, by the real voice
 // in shadow on the simulator key. Prints the acceptance gates; writes a report per fixture.
 //
@@ -10,7 +10,7 @@
 //   node scripts/inner-week.ts --fixture <name|file> --live --days <2,4-5> --channel <channelId>
 //        [--data <dir>] [--spend <usd>] [--out <dir>]
 //
-// `--fixture`: a file, or the name of one under scripts/fixtures/inner-week/ (`ordinary-talk`).
+// `--fixture`: a file, or the name of one under scripts/fixtures/ (`ordinary-talk`).
 // `--out <dir>`: `<dir>/<fixture>/report.json` and `report.md` (every wake, inner turn, cap
 // refusal, drop, disposition, intention lifecycle, per-day counts and spend, the gates); never
 // under the data directory. `--keep` leaves the temporary data directory of each week (its path
@@ -73,7 +73,7 @@ import type { Fixture } from './lib/inner-week-fixture.ts';
 type Rec = Record<string, Untyped>;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const FIXTURES = path.join(ROOT, 'scripts', 'fixtures', 'inner-week');
+const FIXTURES = path.join(ROOT, 'scripts', 'fixtures');
 /** An inner turn's requests at most: her answer and up to three tool-loop steps. */
 export const INNER_REQUESTS = 4;
 /** The estimate per model request, as replay.ts uses it. */
@@ -128,7 +128,7 @@ export function parseArgs(argv: Array<string>): InnerWeekArgs {
   return out;
 }
 
-/** A fixture by file path or by name under scripts/fixtures/inner-week/. */
+/** A fixture by file path or by name under scripts/fixtures/. */
 export function readFixture(
   value: Untyped,
   { cwd = process.cwd(), dir = FIXTURES }: { cwd?: string; dir?: string } = {}
