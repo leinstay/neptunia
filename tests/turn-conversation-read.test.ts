@@ -270,7 +270,7 @@ async function turn({
   jardinLive?: Array<Record<string, unknown>>;
   features?: Record<string, unknown>;
   seeds?: Array<{ conversationId: string; authorId: string; messageId: string; text: string }>;
-  memoryContext?: object;
+  memoryContext?: ReturnType<typeof issueContext>;
 }) {
   const history = [
     rawMessage({ id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα' }),
