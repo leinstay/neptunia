@@ -38,3 +38,20 @@ test('reports a failed claude run with its exit code', async () => {
     cleanup();
   }
 });
+
+test('claude takes the step limit as --max-turns, and without one runs with no such flag', async () => {
+  // Bug: the scout's profile says 25 steps and nothing enforces it, so a run that loops spends until its timeout.
+  const { dir, cleanup } = scratch();
+  try {
+    const env = { FAKE_MODE: 'report' };
+    const limited = reportOf((await claude().run('x', { cwd: dir, timeoutMs: 20_000, env, maxSteps: 25 })).text);
+    const free = reportOf((await claude().run('x', { cwd: dir, timeoutMs: 20_000, env })).text);
+    assert.deepEqual(limited.argv.slice(limited.argv.indexOf('--max-turns'), limited.argv.indexOf('--max-turns') + 2), [
+      '--max-turns',
+      '25',
+    ]);
+    assert.equal(free.argv.includes('--max-turns'), false);
+  } finally {
+    cleanup();
+  }
+});

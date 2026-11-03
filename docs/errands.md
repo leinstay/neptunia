@@ -212,3 +212,7 @@ The status card (`/status full`) shows errand agents' models in `models.errands`
 3. For a worker: fill in the profile's `enabled`, `cost`, `limits`, `daily`, `socket` and `out`, add a systemd unit like `deploy/neptunia-agent-scout.service`, and the agent's name in `TASK_AGENTS` (`src/tools/impl/catalog.ts`) and who may ask for it in `src/tools/impl/errand.ts`.
 4. If no existing shell class fits, that is a code change in `src/agent-runner/profiles.ts`.
 5. Run `tests/agent-runner-profiles.test.ts`.
+
+## Step limit
+
+`limits.steps` of an agent's profile, or of one task, reaches the run through `createAgentEngine` in `src/agent-runner/backend.ts`, beside `limits.seconds`. One step is one model turn. `claude` takes it as `--max-turns`, and `opencode` as its agent's `steps` through `OPENCODE_CONFIG_CONTENT`. `codex exec` has no such control, so only the timeout bounds a run there.
