@@ -267,7 +267,7 @@ test('search-compare: two queries x three engines -> results, summary, blind she
   const summaryCall = asRecord(calls.llm[0]).options;
   // Changed: quick search has its own model setting, apart from the analyzer.
   assert.equal(summaryCall.model, 'test/search');
-  assert.equal(summaryCall.role, 'analyzer');
+  assert.equal(summaryCall.role, 'search');
   assert.equal(summaryCall.purpose, 'search-summary');
   assert.equal(summaryCall.origin, 'search-compare');
   assert.equal(summaryCall.countAgainstDailyCap, false);
