@@ -35,6 +35,8 @@ import type { SkillsAccess } from '../../skills/port.ts';
 import type { ConsoleSubharness } from './subharness.ts';
 import { pluginsCommand } from './plugins.ts';
 import { skillsCommand } from './skills.ts';
+import { MODULE_ACTIONS, moduleCommand } from './module-setup.ts';
+import type { ModuleAction } from './module-setup.ts';
 import { simulationCommand, subharnessCommand, subharnessDeps } from './subharness.ts';
 import { SUBHARNESS_AGENTS } from '../../subharness/control.ts';
 import { callMethod, listOf, objOf } from '../../tools/types.ts';
@@ -89,6 +91,28 @@ export type ConsoleDeps = {
    */
   subharness?: ConsoleSubharness;
 };
+
+/** The engine checkout, where the shipped interface packages and their setup contracts are. */
+const ENGINE_ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
+
+/** Runs a command over a module's setup contract: `/skills` for a skill, `/interface` for an interface. */
+function moduleRun(
+  dataDir: string,
+  name: string,
+  action: ModuleAction,
+  args: Record<string, unknown>,
+  dialog: Dialog | null
+) {
+  const kind = name.startsWith('skills.') ? 'skill' : 'interface';
+  return moduleCommand({ rootDir: ENGINE_ROOT, dataDir, kind }, action, args, dialog);
+}
+
+/** The action of a command over a module's setup contract, or null for any other command. */
+function moduleActionOf(name: string): ModuleAction | null {
+  const [group, action] = name.split('.');
+  if (group !== 'interface' && group !== 'skills') return null;
+  return MODULE_ACTIONS.find((one) => one === action) ?? null;
+}
 
 /** The prefix of the `/skills` commands, which `skillsCommand` answers. */
 const SKILLS_PREFIX = 'skills.';
@@ -531,6 +555,8 @@ export function createConsole(deps: ConsoleDeps): {
       const keys = deps.keys;
       if (keys != null && (name.startsWith(KEYS_PREFIX) || (name === 'model.set' && keys.enabled())))
         return keys.run(name, args, dialog);
+      const action = moduleActionOf(name);
+      if (action !== null) return moduleRun(deps.dataDir, name, action, args, dialog);
       if (name.startsWith(SKILLS_PREFIX)) return skillsCommand(deps.skills, name, args);
       if (name.startsWith(PLUGINS_PREFIX)) return pluginsCommand(deps.plugins, name, args);
       if (name.startsWith(SUBHARNESS_PREFIX)) return subharnessCommand(subharnessDeps(deps), name, args);

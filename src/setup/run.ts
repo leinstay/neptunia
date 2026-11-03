@@ -1,12 +1,14 @@
-// `neptunia setup`: the install of one user, in nine steps that each run on their own and again, like the sections of
+// `neptunia setup`: the install of one user, in ten steps that each run on their own and again, like the sections of
 // the setup of Hermes (hermes_cli/setup.py) with a summary at the end (hermes_cli/setup_summary.py). Every step checks
 // first whether its work is done (`already`), so a rerun after a failure resumes where it stopped. A step that fails
-// stops the run, the steps after it are `skipped`, and no chat opens. The four steps that ask come before `units`, so
+// stops the run, the steps after it are `skipped`, and no chat opens. The five steps that ask come before `units`, so
 // the units bind the backends just connected and the watcher's timer takes the hour just given; each is `skipped` with
 // no terminal. After the last step the owner's chat opens on `keys core add`, and the chat takes over.
 //
 //   folders          the private folder with `config.local`, `prompts.local`, `clients`, and the data folder, mode 0700
 //   keys-file        an empty `keys.json` at mode 0600; one that exists keeps its content and is made 0600
+//   interfaces       each interface package with a `setup.json`: asked whether to use it, then its own questions
+//                    (src/setup/interfaces.ts, src/setup/modules.ts)
 //   subharness       the backends her agents run through, installed and connected (src/setup/subharness.ts)
 //   selfimprovement  the repository her pull requests go to, checked through her gh login
 //                    (src/setup/selfimprovement.ts); skipped while `selfimprovement.checkout` is unset
@@ -32,6 +34,7 @@ import { assertPersonaLayout } from '../config/files.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { emptyKeys, writeKeys } from '../keys/file.ts';
 import type { GhRunner } from '../selfimprovement/repository.ts';
+import { interfacesStep } from './interfaces.ts';
 import { installUnits, systemctlOf, unitDirOf, whyFailed } from './install.ts';
 import type { RunResult, UnitTarget } from './install.ts';
 import { mechanicsStep } from './mechanics.ts';
@@ -48,6 +51,7 @@ export type { RunResult };
 export const SETUP_STEPS = [
   'folders',
   'keys-file',
+  'interfaces',
   'subharness',
   'selfimprovement',
   'mechanics',
@@ -69,7 +73,7 @@ export type SetupDeps = {
   /** Called once with the report, before the chat opens or when the run ends without it. */
   report?(report: SetupReport): void;
   /** Asks the owner at the terminal; absent when no terminal is there, and the steps that ask are skipped. */
-  ask?: (question: string, offered: string | null) => Promise<string>;
+  ask?: (question: string, offered: string | null, options?: { secret: boolean }) => Promise<string>;
   /** gh under her own gh home, for the push-right check of the self-development and mechanics steps. */
   gh?: GhRunner;
   /** npm for the subharness step's install (src/subharness/install.ts); without it that step is skipped. */
@@ -270,6 +274,8 @@ async function stepOutcome(step: SetupStep, options: SetupOptions, deps: SetupDe
       return foldersStep(options);
     case 'keys-file':
       return keysFileStep(options);
+    case 'interfaces':
+      return deps.ask === undefined ? NOT_AT_TERMINAL : interfacesStep(options, { ask: deps.ask });
     case 'subharness':
       return subharnessSetupStep(options, deps);
     case 'selfimprovement':

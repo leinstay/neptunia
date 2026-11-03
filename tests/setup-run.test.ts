@@ -87,7 +87,19 @@ test('the steps run in a fixed order: folders, keys file, units, linger, core', 
   // the units bind the backends just connected and the watcher timer takes the hour just given; the core is last.
   assert.deepEqual(
     [...SETUP_STEPS],
-    ['folders', 'keys-file', 'subharness', 'selfimprovement', 'mechanics', 'watcher', 'units', 'linger', 'core']
+    // Changed: the interfaces step asks after the key file, because interfaces own their token and server list now.
+    [
+      'folders',
+      'keys-file',
+      'interfaces',
+      'subharness',
+      'selfimprovement',
+      'mechanics',
+      'watcher',
+      'units',
+      'linger',
+      'core',
+    ]
   );
 });
 
@@ -202,7 +214,8 @@ test('the report lists every step done and the commands that come next, in the o
   const report = await runSetup(options, deps);
   // Changed: the self-development step is skipped in this rig (no selfimprovement.checkout, no ask), every other step is done.
   // Changed again for spec 2026-11-02 PR 5: the subharness, mechanics and watcher steps are skipped too (no terminal).
-  const asking = ['subharness', 'selfimprovement', 'mechanics', 'watcher'];
+  // Changed: the interfaces step asks too.
+  const asking = ['interfaces', 'subharness', 'selfimprovement', 'mechanics', 'watcher'];
   assert.deepEqual(
     report.steps.map((step) => [step.step, step.state]),
     SETUP_STEPS.map((step) => [step, asking.includes(step) ? 'skipped' : 'done'])
@@ -243,6 +256,8 @@ test('a rerun after a failure resumes: earlier steps are already done and the co
     [
       ['folders', 'already'],
       ['keys-file', 'already'],
+      // Changed: the interfaces step sits after the key file, and asks.
+      ['interfaces', 'skipped'],
       ['subharness', 'skipped'],
       ['selfimprovement', 'skipped'],
       ['mechanics', 'skipped'],
@@ -278,6 +293,8 @@ test('a single step runs alone and leaves the others skipped, with no command an
     [
       ['folders', 'done'],
       ['keys-file', 'skipped'],
+      // Changed: the interfaces step sits after the key file.
+      ['interfaces', 'skipped'],
       ['subharness', 'skipped'],
       ['selfimprovement', 'skipped'],
       ['mechanics', 'skipped'],
@@ -539,7 +556,8 @@ test('the watcher hour given in a setup run is in the timer the same run writes'
   // Catches: the units are rendered before the watcher step, or without watcher.at, so the timer keeps 00:00.
   const { options, deps, unitDir } = rig();
   writeKeysFile(options.privateDir, { subharness: { backends: ['codex'], key: null, modes: {} } });
-  const answers = ['on', '05:30', 'codex', ''];
+  // Changed: the first answer declines the interface step, which asks before the watcher.
+  const answers = ['no', 'on', '05:30', 'codex', ''];
   const report = await runSetup(options, { ...deps, ask: () => Promise.resolve(answers.shift() ?? '') });
   assert.equal(report.steps.find((step) => step.step === 'watcher')?.state, 'done');
   const timer = fs.readFileSync(path.join(unitDir, 'neptunia-watcher.timer'), 'utf8');
