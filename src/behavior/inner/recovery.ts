@@ -189,7 +189,7 @@ async function startUpNow(life: InnerContext, guildId: string): Promise<void> {
   const alive = leaseOf(read, ALIVE_LEASE);
   if (alive && alive.holder !== life.holder && alive.renewedAt < at) life.sleep.windows.push([alive.renewedAt, at]);
   const cutOff = listWakes(read, { states: ['running'] }).filter(
-    (row) => row.leaseHolder !== life.holder && !life.running.has(row.id)
+    (row) => life.oldWakes.has(row.id) && row.leaseHolder !== life.holder && !life.running.has(row.id)
   );
   if (cutOff.length > 0) {
     for (const mark of cutOffMarks(cutOff)) {
@@ -197,10 +197,12 @@ async function startUpNow(life: InnerContext, guildId: string): Promise<void> {
       await resolveInflight(life, cutOff.find((row) => row.id === mark.wakeIds[0])?.community ?? guildId);
     }
   }
-  await dbWrite(life, { kind: 'wake-queue', op: 'recover', now: at }).catch(() => null);
-  for (const wake of state.queue) state.handled[wake.id] = { at, outcome: 'interrupted' };
-  state.queue = [];
-  for (const synced of life.synced.values()) synced.clear();
+  await dbWrite(life, { kind: 'wake-queue', op: 'recover', now: at, ids: [...life.oldWakes] }).catch(() => null);
+  for (const wake of state.queue) {
+    if (life.oldWakes.has(wake.id)) state.handled[wake.id] = { at, outcome: 'interrupted' };
+  }
+  state.queue = state.queue.filter((wake) => !life.oldWakes.has(wake.id));
+  for (const synced of life.synced.values()) for (const id of life.oldWakes) synced.delete(id);
   save(life, guildId);
   // A handled id is kept as long as the state file kept it (queue.ts, CHAIN_KEEP_MS), so a due item never wakes her twice.
   dbSend(life, { kind: 'wake-queue', op: 'prune', before: at - HANDLED_KEEP_MS, dataDir: life.dataDir });

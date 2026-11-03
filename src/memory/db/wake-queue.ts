@@ -594,9 +594,14 @@ function sleepIn(db: Db, id: string, now: number): boolean {
 }
 
 /** Old queued and running actions become terminal at startup, retaining their turn and fencing old holders. */
-export function recoverWakes(handle: Handle, { now }: { now: number }): { interrupted: number; slept: number } {
+export function recoverWakes(
+  handle: Handle,
+  { now, ids }: { now: number; ids?: ReadonlyArray<string> }
+): { interrupted: number; slept: number } {
   return inWrite(handle, (db) => {
-    const rows = db.prepare("SELECT id FROM wakes WHERE state IN ('queued', 'running')").all();
+    if (ids?.length === 0) return { interrupted: 0, slept: 0 };
+    const selected = ids ? ` AND id IN (${ids.map(() => '?').join(',')})` : '';
+    const rows = db.prepare(`SELECT id FROM wakes WHERE state IN ('queued', 'running')${selected}`).all(...(ids ?? []));
     for (const row of rows) {
       db.prepare('UPDATE leases SET token = token + 1, expires_at = ? WHERE name = ?').run(
         now,
@@ -606,9 +611,9 @@ export function recoverWakes(handle: Handle, { now }: { now: number }): { interr
     const changed = db
       .prepare(
         `UPDATE wakes SET state = 'handled', handled_at = ?, outcome = 'interrupted',
-       lease_holder = NULL, lease_expires_at = NULL WHERE state IN ('queued', 'running')`
+       lease_holder = NULL, lease_expires_at = NULL WHERE state IN ('queued', 'running')${selected}`
       )
-      .run(now).changes;
+      .run(now, ...(ids ?? [])).changes;
     return { interrupted: Number(changed), slept: 0 };
   });
 }
@@ -676,7 +681,7 @@ export type WakeQueueUpdate =
       now: number;
       leaseMs: number;
     }
-  | { kind: 'wake-queue'; op: 'recover'; now: number }
+  | { kind: 'wake-queue'; op: 'recover'; now: number; ids?: ReadonlyArray<string> }
   | { kind: 'wake-queue'; op: 'prune'; before: number; dataDir?: string | null }
   | { kind: 'wake-queue'; op: 'alive'; holder: string; now: number; ttlMs: number }
   | { kind: 'wake-queue'; op: 'lease-acquire'; name: string; holder: string; now: number; ttlMs: number }

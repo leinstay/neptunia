@@ -481,6 +481,8 @@ export type InnerContext = {
   writes: Promise<unknown>;
   /** Per guild: whether the queue view was read back from the table. */
   viewLoaded: Set<string>;
+  /** Persisted queue IDs read before this life admits fresh events. */
+  oldWakes: Set<string>;
   /** Per guild: each queued wake as it was last written, by id. */
   synced: Map<string, Map<string, string>>;
   /** The lease tokens of the wakes this life's turns hold, by wake id. */

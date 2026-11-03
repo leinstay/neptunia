@@ -307,6 +307,7 @@ export function createInnerLife({
     wakeDb: null,
     writes: Promise.resolve(),
     viewLoaded: new Set(),
+    oldWakes: new Set(),
     synced: new Map(),
     claims: new Map(),
     started: new Map(),

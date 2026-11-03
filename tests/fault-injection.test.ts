@@ -717,7 +717,7 @@ function assertPrivateKept(
 
 // ---- the rows ----
 
-test('row 1: the process dies right after a wake is queued -- the wake runs after the reload, once, and is not queued twice by the due list', async () => {
+test('row 1: a queued wake is interrupted after reload and the due list does not revive it', async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
   const records = [intentionRecord('i1', { purpose: 'say good morning' })];
@@ -734,12 +734,9 @@ test('row 1: the process dies right after a wake is queued -- the wake runs afte
     'the queue is read back from the disk'
   );
   await after.tick();
-  assert.equal(
-    chat.llm.calls.length,
-    1,
-    'the wake ran after the reload, and the due list did not queue it a second time'
-  );
-  assert.equal(after.state().handled[wake.id].outcome, 'skip');
+  // Restart retains the queued action as evidence and requires a fresh decision to act.
+  assert.equal(chat.llm.calls.length, 0, 'neither recovery nor the due list revives the old wake');
+  assert.equal(after.state().handled[wake.id].outcome, 'interrupted');
   assert.deepEqual(after.state().queue, []);
   assertNoSilentFailure(after, { accepted: [wake.id] });
 });
@@ -912,7 +909,7 @@ test("row 2: the process dies after an inner turn's tool call posted and before 
   assertNoSilentFailure(after, { accepted: [wake.id] });
 });
 
-test('row 2: the process dies in an inner turn before anything went out -- the reload runs the wake again, once, and nothing is told as cut off', async () => {
+test('row 2: an unfinished inner turn is interrupted after reload even when nothing went out', async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
   const records = [intentionRecord('i1')];
@@ -927,9 +924,10 @@ test('row 2: the process dies in an inner turn before anything went out -- the r
   const after = boot(chat, { dataDir, records, hot, journal: reborn.journal, ready: reborn.ready });
   chat.script = ['<msg>καλημέρα</msg>'];
   await after.tick();
-  assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα'], 'the wake ran again and said it once');
-  assert.ok(chat.llm.calls.length >= 2, 'the interrupted call and the new turn');
-  assert.deepEqual([after.state().handled[wake.id]?.outcome, after.state().inflight], ['spoke', null]);
+  // An empty journal cannot authorize replay of an unfinished action.
+  assert.deepEqual(chat.textsFromSelf('c1'), [], 'restart sends nothing');
+  assert.equal(chat.llm.calls.length, 1, 'only the original interrupted model call');
+  assert.deepEqual([after.state().handled[wake.id]?.outcome, after.state().inflight], ['interrupted', null]);
   assert.deepEqual(
     after.state().facts.filter((fact: Record<string, Untyped>) => fact.kind === 'interrupted'),
     []
@@ -1039,6 +1037,10 @@ test('row 4: the process dies before a fact was presented -- the fact is still u
   const after = boot(chat, { dataDir, records });
   assert.deepEqual(after.factKinds(), ['wakeDropped'], 'still untold after the reload');
   await after.tick();
+  assert.equal(chat.llm.calls.length, 1, 'restart never replays the interrupted turn');
+  // A fresh due intention presents retained facts without reviving the abandoned wake.
+  records.push(intentionRecord('i-fresh'));
+  await after.tick();
   assert.equal(chat.llm.calls.length, 2);
   assert.ok(requestText(chat, 1).includes('no-channel'), 'shown in the next turn');
   assert.deepEqual(after.factKinds(), ['wakeDropped:told']);
@@ -1127,7 +1129,7 @@ test('row 6: the feedback turn itself fails -- its facts stay untold, the wake i
   assertNoSilentFailure(run);
 });
 
-test('row 7: a chain at its cap holds a wake through a local midnight and a reload -- told at the hold, run after midnight, never dropped as chain-cap', async () => {
+test('row 7: a chain-cap hold retains its fact after reload and midnight without replay', async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
   // Europe/Athens is UTC+3 on this date: 12:00Z is 15:00 local, the local midnight is 21:00Z.
@@ -1153,18 +1155,18 @@ test('row 7: a chain at its cap holds a wake through a local midnight and a relo
   assert.ok(requestText(chat, 1).includes('held intention_due i2'), 'she is told at the hold');
   assert.equal(first.state().queue.filter((wake: Record<string, Untyped>) => wake.kind === 'intention_due').length, 1);
 
-  // The process restarts, still before midnight: the wake is still held, nothing new is said about it.
+  // Restart interrupts the held action while preserving the fact already presented.
   const second = boot(chat, { dataDir, records, hot });
   await second.tick();
   assert.equal(chat.llm.calls.length, 2);
   assert.equal(second.state().facts.filter((fact: Record<string, Untyped>) => fact.kind === 'wakeHeld').length, 1);
 
-  // After the local midnight the wake runs.
+  // The cap reset does not authorize replay of the abandoned action.
   clock.t = midnight + MINUTE_MS;
   await second.tick();
-  assert.equal(chat.llm.calls.length, 3);
+  assert.equal(chat.llm.calls.length, 2);
   const i2 = wakeOfDue({ intention: records[1], reason: 'due', at: records[1].dueAt });
-  assert.equal(second.state().handled[i2.id].outcome, 'skip');
+  assert.equal(second.state().handled[i2.id].outcome, 'interrupted');
   assert.equal(
     second.state().facts.filter((fact: Record<string, Untyped>) => fact.kind === 'wakeDropped').length,
     0,

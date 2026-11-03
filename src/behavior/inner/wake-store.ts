@@ -115,6 +115,7 @@ export function loadView(life: InnerContext, guildId: string, state: InnerState,
     })
   );
   state.queue = [...queue, ...state.queue.filter((wake) => !ids.has(wake.id))];
+  life.oldWakes = new Set(state.queue.map((wake) => wake.id));
   const handled = listWakes(read, { states: ['handled', 'slept'], handledSince: keepSince });
   state.handled = { ...state.handled, ...Object.fromEntries(handled.map((row) => [row.id, handledOfRow(row)])) };
 }
