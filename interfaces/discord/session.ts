@@ -29,7 +29,7 @@ import {
   toEvent,
 } from './collect.ts';
 import { createDiscordClient } from './gateway.ts';
-import { resolveGuild } from './guild.ts';
+import { resolveGuilds } from './guild.ts';
 import { createDiscordInterface } from './index.ts';
 import { memberView, membershipUpdatedEvent } from './members.ts';
 import { DISCORD_IFACE } from './port.ts';
@@ -175,13 +175,19 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   await ready;
 
   const guilds = [...client.guilds.cache.values()].map((guild) => ({ id: String(guild.id), name: String(guild.name) }));
-  const resolved = resolveGuild(text(obj(config().bot).guildId) ?? '', guilds);
+  const listed = Array.isArray(config().servers) ? (config().servers as Array<unknown>).map(String) : [];
+  const resolved = resolveGuilds(listed, text(obj(config().bot).guildId) ?? '', guilds);
   if ('error' in resolved) {
     await client.destroy();
     throw new Error(resolved.error);
   }
-  const guildId = resolved.guildId;
-  const guildNow = (): Obj | null => client.guilds.cache.get(guildId) ?? null;
+  if (resolved.missing.length > 0)
+    log.warn('interface: listed servers the bot is not in', { missing: resolved.missing });
+  const { guildIds } = resolved;
+  const guildById = (id: string): Obj | null => client.guilds.cache.get(id) ?? null;
+  // The first server names the persona in `hello`; her name in the others comes with each of their events.
+  const guildNow = (): Obj | null => guildById(guildIds[0] ?? '');
+  const communityOf = (id: string) => ({ id, name: guilds.find((guild) => guild.id === id)?.name ?? id });
   const selfId = (): string | null => client.user?.id ?? null;
 
   const discord = createDiscordInterface({ client, config });
@@ -195,7 +201,8 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
       hello: {
         iface: discord.port.iface,
         self: { id: selfId() ?? '', name: displayNameIn(guildNow(), client.user) },
-        community: { id: guildId, name: guilds.find((guild) => guild.id === guildId)?.name ?? guildId },
+        community: communityOf(guildIds[0] ?? ''),
+        communities: guildIds.map(communityOf),
         // What the gateway reports depends on the intents it was asked for: presences only with that intent.
         capabilities: { ...discord.port.capabilities(), presence: intents.presences === true },
         resume: null,
@@ -207,7 +214,10 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
     });
   let served = await serve();
 
-  const audienceWarmer = createAudienceWarmer({ getGuild: guildNow, logger: log });
+  const audienceWarmers = guildIds.map((id) => createAudienceWarmer({ getGuild: () => guildById(id), logger: log }));
+  const warmAudiences = (options?: { quiet: boolean }): void => {
+    for (const warmer of audienceWarmers) void warmer.warm(options);
+  };
 
   // Events are held until open(): the core's door has no handlers before it.
   let held: Array<{ kind: string; event: Obj }> | null = [];
@@ -243,20 +253,23 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
 
   // The live snapshot (`<people_now>`) follows the gateway: a fresh session delivers the guild's state again, so
   // it is announced again together with the names of the conversations the client holds.
-  function announceGuild(): void {
-    const guild = guildNow();
+  function announceGuild(id: string): void {
+    const guild = guildById(id);
     if (guild === null) return;
     const at = Date.now();
     inbound('presence.snapshot', () => presenceSnapshotEvent(guild, at));
-    inbound('connection.changed', () => connectionEvent('resumed', at));
     for (const channel of client.channels.cache.values()) {
-      if (obj(channel.guild).id !== guildId) continue;
+      if (obj(channel.guild).id !== id) continue;
       const readable = isThreadChannel(channel) ? canRead(channel) : isReadableChannel(channel);
-      if (readable) inbound('conversation.changed', () => conversationChangedEvent('updated', channel, guildId, at));
+      if (readable) inbound('conversation.changed', () => conversationChangedEvent('updated', channel, id, at));
     }
   }
+  function announceGuilds(): void {
+    inbound('connection.changed', () => connectionEvent('resumed', Date.now()));
+    for (const id of guildIds) announceGuild(id);
+  }
 
-  const inGuild = (value: unknown): boolean => obj(obj(value).guild).id === guildId;
+  const inGuild = (value: unknown): boolean => guildIds.includes(String(obj(obj(value).guild).id));
   const on = (event: string, listener: (...args: Array<never>) => void): void => void client.on(event, listener);
 
   on(Events.MessageCreate, (message: Obj) => {
@@ -275,8 +288,10 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   // A new or edited channel of the served guild may name a member the cache has not seen.
   const channelChanged = (change: 'created' | 'updated' | 'deleted', channel: Obj): void => {
     if (!inGuild(channel)) return;
-    if (change !== 'deleted') void audienceWarmer.warm({ quiet: true });
-    inbound('conversation.changed', () => conversationChangedEvent(change, channel, guildId, Date.now()));
+    if (change !== 'deleted') warmAudiences({ quiet: true });
+    inbound('conversation.changed', () =>
+      conversationChangedEvent(change, channel, String(obj(channel.guild).id), Date.now())
+    );
   };
   on(Events.ChannelCreate, (channel: Obj) => channelChanged('created', channel));
   on(Events.ChannelUpdate, (_old: Obj, channel: Obj) => channelChanged('updated', channel));
@@ -298,9 +313,11 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
     if (inGuild(member)) inbound('membership.changed', () => membershipUpdatedEvent(member, Date.now()));
   });
   on(Events.UserUpdate, (_old: Obj, user: Obj) => {
-    const members = obj(guildNow()?.members) as { cache?: Map<string, Obj> };
-    const member = members.cache?.get(String(user.id));
-    if (member) inbound('membership.changed', () => membershipUpdatedEvent(member, Date.now()));
+    for (const id of guildIds) {
+      const members = obj(guildById(id)?.members) as { cache?: Map<string, Obj> };
+      const member = members.cache?.get(String(user.id));
+      if (member) inbound('membership.changed', () => membershipUpdatedEvent(member, Date.now()));
+    }
   });
 
   on(Events.MessageReactionAdd, (reaction: Obj, user: Obj) => {
@@ -319,13 +336,13 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   on(Events.ShardDisconnect, () => inbound('connection.changed', () => connectionEvent('lost', Date.now())));
   on(Events.ShardReconnecting, () => inbound('connection.changed', () => connectionEvent('lost', Date.now())));
   on(Events.ShardResume, () => inbound('connection.changed', () => connectionEvent('resumed', Date.now())));
-  on(Events.ShardReady, announceGuild);
+  on(Events.ShardReady, announceGuilds);
 
   // An interaction for a command the bot no longer registers: refused here, never sent to the core.
   on(Events.InteractionCreate, (interaction: Interaction) => void refuseInteraction(interaction));
 
-  announceGuild();
-  void deleteCommandsOf(guildNow(), log);
+  announceGuilds();
+  for (const id of guildIds) void deleteCommandsOf(guildById(id), log);
 
   return {
     iface: discord.port.iface,
@@ -333,11 +350,11 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
       if (held === null) return;
       const waiting = held;
       held = null;
-      for (const event of memberEvents(guildNow())) deliver('membership.changed', event);
+      for (const id of guildIds) for (const event of memberEvents(guildById(id))) deliver('membership.changed', event);
       if (dropped > 0) log.warn('interface: events dropped before open', { dropped });
       for (const { kind, event } of waiting) deliver(kind, event);
       // The members named by channel overwrites, fetched so the audience rail knows which are bots.
-      void audienceWarmer.warm();
+      warmAudiences();
     },
     async reconnect(): Promise<void> {
       served.close();

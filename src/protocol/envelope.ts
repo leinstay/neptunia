@@ -6,7 +6,7 @@
 // id), `type` one of ENVELOPE_TYPES, `replyTo` the id of the envelope this one answers (null for
 // the first of a conversation), `body` the type's payload, and `seq` the number an interface with an
 // outbox gives each event it sends (src/protocol/outbox.ts), counted per client from 1:
-//   hello          { iface, self: { id, name }, community: { id, name }|null, capabilities?: string[]|object, resume?: string|null, token?: string }  who is speaking, who the persona is there, the community it serves, what it offers
+//   hello          { iface, self: { id, name }, community: { id, name }|null, communities?: [{ id, name }], capabilities?: string[]|object, resume?: string|null, token?: string }  who is speaking, who the persona is there, the community it serves, what it offers
 //   event          an inbound event (events.ts)                           interface -> core
 //   ack            { status: 'ok'|'duplicate'|'invalid'|'unhandled'|'failed', reason?, ackedSeq? }  the event is taken (or not); the answer to hello carries the client's watermark
 //   action         an outbound action (actions.ts)                        core -> interface
@@ -72,6 +72,8 @@ function checkHello(body: Record<string, unknown>): { ok: true } | { ok: false; 
   if (!isNamed(body.self)) return { ok: false, reason: 'body.self:type' };
   if (body.community !== undefined && body.community !== null && !isNamed(body.community))
     return { ok: false, reason: 'body.community:type' };
+  if (body.communities !== undefined && !(Array.isArray(body.communities) && body.communities.every(isNamed)))
+    return { ok: false, reason: 'body.communities:type' };
   const offers = body.capabilities;
   if (offers !== undefined && !isObject(offers) && !(Array.isArray(offers) && offers.every(isId)))
     return { ok: false, reason: 'body.capabilities:type' };

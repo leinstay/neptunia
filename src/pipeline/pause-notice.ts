@@ -22,6 +22,8 @@ export type PauseNoticeContext = {
   now: () => number;
   port: Parameters<typeof postPauseNotice>[0]['port'];
   getGuildId: () => string | null;
+  /** A community some connected interface serves; the one community of `getGuildId` when absent. */
+  isServedCommunity?: (communityId: string | null | undefined) => boolean;
   selfIdOf: () => string;
   checkPrivateGate: PrivateGate['checkPrivateGate'];
   infoNow: Conversations['infoNow'];
@@ -34,6 +36,7 @@ export function createPauseNotice({
   now,
   port,
   getGuildId,
+  isServedCommunity,
   selfIdOf,
   checkPrivateGate,
   infoNow,
@@ -68,7 +71,13 @@ export function createPauseNotice({
       return privateChannel ? { channel: privateChannel, trigger: normalize(), kind: 'private' } : null;
     }
 
-    if (event.conversation.communityId !== getGuildId() || event.conversation.kind === 'thread') return null;
+    if (
+      !(isServedCommunity
+        ? isServedCommunity(event.conversation.communityId)
+        : event.conversation.communityId === getGuildId()) ||
+      event.conversation.kind === 'thread'
+    )
+      return null;
     const channel = await infoNow(event.iface, event.conversation.id);
     if (!channel?.permissions.send) return null;
     const normalized = normalize();

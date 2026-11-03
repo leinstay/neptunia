@@ -40,6 +40,7 @@ function buildAvatarQueue({
   llm,
   imageFetcher,
   getGuildId,
+  isServedCommunity,
   selfId,
   reads,
   paused = () => false,
@@ -51,6 +52,8 @@ function buildAvatarQueue({
   llm: { complete: Untyped; capLeft?: Untyped };
   imageFetcher: { fetchAsDataUrl: Untyped };
   getGuildId: () => string | null;
+  /** A community some connected interface serves; the one community of `getGuildId` when absent. */
+  isServedCommunity?: (communityId: string | null | undefined) => boolean;
   selfId: () => string | null;
   reads: Reads;
   paused?: () => boolean;
@@ -85,7 +88,8 @@ function buildAvatarQueue({
   ): 'off' | 'other-guild' | 'invalid' | 'self' | 'bot' | 'no-profile' | 'current' | 'failed' | 'queued' | 'error' {
     try {
       if (!on()) return 'off';
-      if (!guildId || guildId !== getGuildId()) return 'other-guild';
+      if (!guildId || !(isServedCommunity ? isServedCommunity(guildId) : guildId === getGuildId()))
+        return 'other-guild';
       if (!view || typeof view.id !== 'string' || !view.id) return 'invalid';
       if (view.id === selfId()) return 'self';
       if (view.bot) return 'bot';

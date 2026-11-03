@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveGuild } from '../interfaces/discord/index.ts';
+import { resolveGuild, resolveGuilds } from '../interfaces/discord/index.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 
 test("resolveGuild: configured id present among the bot's guilds resolves to it", () => {
@@ -43,4 +43,15 @@ test('resolveGuild: no configured id and several guilds is an error listing them
   assert.ok(result.error);
   assert.match(result.error, /Alpha \(g1\)/);
   assert.match(result.error, /Beta \(g2\)/);
+});
+
+test('resolveGuilds keeps the listed servers the bot is in and fails only when it is in none', () => {
+  // Bug: one server still waiting for its invite stops the bot on all the others.
+  const guilds = [
+    { id: 'a', name: 'A' },
+    { id: 'b', name: 'B' },
+  ];
+  assert.deepEqual(resolveGuilds(['b', 'c'], '', guilds), { guildIds: ['b'], missing: ['c'] });
+  assert.ok('error' in resolveGuilds(['c'], '', guilds));
+  assert.deepEqual(resolveGuilds([], 'a', guilds), { guildIds: ['a'], missing: [] });
 });

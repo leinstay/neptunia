@@ -8,6 +8,8 @@
 // `options.adapter` is a fake adapter the caller keeps: the interface serves it instead of making its own, so the chat
 // it holds outlives a restart of the core (a test starts the interface again over the same adapter).
 //
+// `options.communities` lists several communities in `hello`; `community` names the first.
+//
 // `options.self` and `options.community` are what `hello` tells the core about the persona and the community it serves.
 // `options.reads` limits the reads the fake offers (their wire names; all when absent).
 //
@@ -49,6 +51,7 @@ export async function start(
     selfId?: string;
     self?: Named;
     community?: Named | null;
+    communities?: ReadonlyArray<Named>;
     reads?: ReadonlyArray<string>;
   } = {}
 ): Promise<FakeInterface> {
@@ -61,7 +64,8 @@ export async function start(
     });
   // The persona is `self` when given, else the account of `selfId` (the fake's own default) under a name the fake picks.
   const self = options.self ?? { id: options.selfId ?? 'self', name: 'Fake' };
-  const community = options.community === undefined ? DEFAULT_COMMUNITY : options.community;
+  const community =
+    options.community === undefined ? (options.communities?.[0] ?? DEFAULT_COMMUNITY) : options.community;
   const outbox =
     host.dataDir === undefined
       ? undefined
@@ -69,7 +73,14 @@ export async function start(
   const serve = async (): Promise<ReturnType<typeof serveAdapter>> =>
     serveAdapter({
       transport: await host.connect(),
-      hello: { iface: adapter.iface, self, community, capabilities: adapter.capabilities(), resume: null },
+      hello: {
+        iface: adapter.iface,
+        self,
+        community,
+        ...(options.communities === undefined ? {} : { communities: options.communities }),
+        capabilities: adapter.capabilities(),
+        resume: null,
+      },
       token: host.token,
       adapter,
       log: host.log,

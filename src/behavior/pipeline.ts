@@ -134,6 +134,7 @@ export function createMessageHandler({
   memory,
   tagHistory,
   getGuildId,
+  isServedCommunity,
   getSelfName = () => 'bot',
   describer,
   llm,
@@ -159,6 +160,8 @@ export function createMessageHandler({
   tagHistory: ReturnType<typeof createTagHistory>;
   llm?: PipelineLlm;
   getGuildId: () => string | null;
+  /** A community some connected interface serves; the one community of `getGuildId` when absent. */
+  isServedCommunity?: (communityId: string | null | undefined) => boolean;
   getSelfName?: (guildId: string) => string;
   describer?: Untyped;
   lookup?: Untyped;
@@ -335,6 +338,7 @@ export function createMessageHandler({
     answerCall,
   });
   const { maybePauseNotice } = createPauseNotice({
+    ...(isServedCommunity === undefined ? {} : { isServedCommunity }),
     hot,
     now,
     port,
@@ -349,6 +353,7 @@ export function createMessageHandler({
 
   // One new message (src/pipeline/handle-message.ts).
   const { onMessage, catchUpMessage } = createHandleMessage({
+    ...(isServedCommunity === undefined ? {} : { isServedCommunity }),
     hot,
     store,
     turns,
@@ -375,6 +380,7 @@ export function createMessageHandler({
 
   // An edit and a deletion of a message (src/pipeline/edits.ts).
   const { onMessageUpdate, onMessageDelete } = createEdits({
+    ...(isServedCommunity === undefined ? {} : { isServedCommunity }),
     hot,
     // The edit handlers declare `recordGifs` with an `opts` of `unknown`; the store takes its own options object.
     store: store as EditsDeps['store'],

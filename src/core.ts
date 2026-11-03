@@ -599,11 +599,10 @@ async function buildCore(
   // The interface clients of clients.json, read when the core needs their names.
   const interfaceClients = () => (loadPrincipals(paths.privateDir) ?? []).filter((entry) => entry.kind === 'interface');
   if (asUnits) {
-    // The core serves one interface: its namespace is known from clients.json before any unit connects, so every module
-    // below is built with it.
+    // The namespace the modules below are built with comes from clients.json before any unit connects: the first it
+    // names is the home interface of what no conversation addresses (wakes, the diary). Every effect of a turn goes by
+    // the `iface` of its own reference (`createIfaceRouter`), so the other interfaces work beside it.
     const ifaces = [...new Set(interfaceClients().map((entry) => entry.iface))];
-    if (ifaces.length > 1)
-      fail(`index: clients.json names interfaces of ${ifaces.length} namespaces; the core serves one.`);
     identity.iface = ifaces[0] ?? '';
   }
   // One setting of the private settings file, its keys of an old name settled first (src/config-moves.ts), then reloaded.
@@ -650,6 +649,22 @@ async function buildCore(
   // becomes the one the core serves.
   let linkSwitch: ReturnType<typeof createLinkSwitch> | null = asUnits ? createLinkSwitch(null) : null;
   let servedName: string | null = null;
+  // Every connected interface by name, and which of them serves each community. One persona across all of them: the
+  // served interface above keeps the core's identity and capabilities, and an effect goes by the reference's `iface`.
+  const linksByName = new Map<string, ReturnType<typeof createLinkSwitch>>();
+  const servingName = new Map<string, string>();
+  function connectInterface(name: string, greeting: Hello, link: ReturnType<typeof openAdapterLink>) {
+    const known = linksByName.get(greeting.iface);
+    if (known === undefined) linksByName.set(greeting.iface, createLinkSwitch(link));
+    else known.attach(link);
+    for (const community of [greeting.community, ...(greeting.communities ?? [])]) {
+      if (community !== null) servingName.set(community.id, greeting.iface);
+    }
+    log.info('index: interface connected', { principal: name, iface: greeting.iface, communities: servingName.size });
+  }
+  /** True for a community some connected interface serves, and the configured one before any said hello. */
+  const isServedCommunity = (id: string | null | undefined): boolean =>
+    typeof id === 'string' && (servingName.has(id) || id === instance.guildId);
   /** The served interface's hello: who the persona is on it. */
   function greet(greeting: Hello) {
     identity.iface = greeting.iface;
@@ -689,13 +704,8 @@ async function buildCore(
     link.hello.then(
       (greeting) => {
         const principal = link.principal();
-        if (asUnits && servedName === null && principal?.kind === 'interface') {
-          servedName = principal.name;
-          if (greeting.community !== null && greeting.community.id !== instance.guildId)
-            log.warn('index: the interface serves another community than bot.guildId', {
-              principal: principal.name,
-            });
-        }
+        if (principal?.kind === 'interface') connectInterface(principal.name, greeting, link);
+        if (asUnits && servedName === null && principal?.kind === 'interface') servedName = principal.name;
         if (principal === null || principal.name !== (asUnits ? servedName : switched.current().principal()?.name))
           return;
         switched.attach(link);
@@ -828,8 +838,13 @@ async function buildCore(
   // interface; with no chat connected a reply there ends as a dropped link's does.
   const routed = createIfaceRouter(
     coreLink.adapter,
-    (name) => (name !== CLI_IFACE ? null : (intake.chat() ?? closedAdapter())),
-    () => [intake.chat()].filter((adapter) => adapter !== null)
+    (name) => (name === CLI_IFACE ? (intake.chat() ?? closedAdapter()) : (linksByName.get(name)?.adapter ?? null)),
+    () =>
+      [intake.chat(), ...[...linksByName.values()].map((link) => link.adapter)].filter((adapter) => adapter !== null),
+    (communityId) => {
+      const name = servingName.get(communityId);
+      return name === undefined ? null : (linksByName.get(name)?.adapter ?? null);
+    }
   );
   const iface = guardMirrorPort(routed, { memoryDb });
   // The diary's mirrors (src/behavior/mirror.ts): each recorded entry published once to every enabled mirror.
@@ -857,7 +872,7 @@ async function buildCore(
     reads,
     paused: () => store.state.data.paused === true,
   };
-  const avatars = createAvatarQueue(avatarOptions);
+  const avatars = createAvatarQueue({ ...avatarOptions, isServedCommunity });
   // Who reacted to her messages, fed by `reaction.changed` (the door below) and by the `reactors` read.
   const reactors = createReactorStore();
   // The route classifier: picks a channel the conversation is about for <channel_view>.
@@ -1176,6 +1191,7 @@ async function buildCore(
   });
 
   const onMessage = createMessageHandler({
+    isServedCommunity,
     hot,
     store,
     // The core's reads of the interface: the conversation a message is in, its history, a message by id, a member.

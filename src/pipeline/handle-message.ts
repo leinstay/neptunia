@@ -48,6 +48,8 @@ export type HandleMessageContext = {
   activity: { note: (channelId: string, authorId: string, at: number) => void } | null;
   missed: PipelineMissed | null;
   getGuildId: () => string | null;
+  /** A community some connected interface serves; the one community of `getGuildId` when absent. */
+  isServedCommunity?: (communityId: string | null | undefined) => boolean;
   selfIdOf: () => string;
   observeLine: ObserveLine;
   maybePauseNotice: (event: MessageEvent) => Promise<void>;
@@ -81,6 +83,7 @@ export function createHandleMessage({
   activity,
   missed,
   getGuildId,
+  isServedCommunity,
   selfIdOf,
   observeLine,
   maybePauseNotice,
@@ -103,7 +106,8 @@ export function createHandleMessage({
   // catch-up has not taken.
   const liveIds = new Set<string>();
   // observeWhilePaused always names the record of the line it observes (src/behavior/core-pause.ts).
-  const pausedDeps = { hot, getGuildId, selfIdOf, observeLine: observeLine as PausedDeps['observeLine'] };
+  const isServed = isServedCommunity ?? ((id: string | null | undefined) => id === getGuildId());
+  const pausedDeps = { hot, getGuildId, isServed, selfIdOf, observeLine: observeLine as PausedDeps['observeLine'] };
   const caughtUpIds = new Set<string>();
   /** Add `id` to `ids`, the oldest past the cap going first. */
   function keepId(ids: Set<string>, id: string): void {
@@ -176,7 +180,7 @@ export function createHandleMessage({
 
       // 3. This instance serves exactly one guild; no threads. Which channels
       // it sees is the platform's permissions alone.
-      if (event.conversation.communityId !== getGuildId()) return 'ignored';
+      if (!isServed(event.conversation.communityId)) return 'ignored';
       if (event.conversation.kind === 'thread') return 'ignored';
 
       // 3c. When this author last wrote in this channel, for a turn that waits until the person

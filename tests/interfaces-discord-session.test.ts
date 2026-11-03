@@ -143,7 +143,14 @@ function messageIn(id: string, channel: Fake, guild: Fake): Fake {
 
 // The first guild has two readable channels (c1, c2), one the bot may not read (c3) and a cached thread (t1) that
 // only the client's own cache holds; a second guild, when asked for, is empty.
-function harness(options: { botGuildId?: string; env?: Record<string, string | undefined>; twoGuilds?: boolean } = {}) {
+function harness(
+  options: {
+    botGuildId?: string;
+    env?: Record<string, string | undefined>;
+    servers?: Array<string>;
+    twoGuilds?: boolean;
+  } = {}
+) {
   const first = guildOf('g1', 'Alpha');
   const c1 = textChannel('c1', first.guild);
   const c2 = textChannel('c2', first.guild);
@@ -180,6 +187,7 @@ function harness(options: { botGuildId?: string; env?: Record<string, string | u
   });
 
   const config = {
+    ...(options.servers === undefined ? {} : { servers: options.servers }),
     bot: { guildId: options.botGuildId ?? '', dryRunChannelId: '' },
     discord: { intents: { presences: false, members: false } },
     media: { embedTextChars: 200, video: { sites: [] as Array<string> } },
@@ -263,6 +271,18 @@ test('says hello with the only guild the bot is in as its community when bot.gui
 test('says hello with the configured guild as its community when the bot is in two and bot.guildId names one', async () => {
   await withSession({ twoGuilds: true, botGuildId: 'g2' }, async (h) => {
     assert.deepEqual((await h.link.hello).community, { id: 'g2', name: 'Beta' });
+  });
+});
+
+test('says hello with every listed server the bot is in and reports the one it is not in', async () => {
+  // Bug: the second server of the owner's list is never told to the core, so its messages are all ignored.
+  await withSession({ twoGuilds: true, servers: ['g2', 'g1', 'g9'] }, async (h) => {
+    const hello = await h.link.hello;
+    assert.deepEqual(hello.community, { id: 'g2', name: 'Beta' });
+    assert.deepEqual(
+      hello.communities?.map((one) => one.id),
+      ['g2', 'g1']
+    );
   });
 });
 
