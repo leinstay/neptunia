@@ -450,7 +450,7 @@ async function liveRound(round: number, ledger: Ledger, repeats: number): Promis
 
 // ---- the simulated weeks -----------------------------------------------------------------------------------------
 
-const FIXTURES = join(ROOT, 'scripts', 'fixtures', 'inner-week');
+const FIXTURES = join(ROOT, 'scripts', 'fixtures');
 /** What the week's journal says of a wake it ran. */
 type WakeEntry = { event: string; wake?: { id?: string } };
 
@@ -464,7 +464,7 @@ type PlayWeek = (
 const playWeek = weekOf as unknown as PlayWeek;
 
 /**
- * One simulated week of the fixture `name` (scripts/fixtures/inner-week/, scripts/lib/inner-week.ts): the production
+ * One simulated week of the fixture `name` (scripts/fixtures/, scripts/lib/inner-week.ts): the production
  * scheduler and intention service over a fake clock, the turns answered by the stub voice. Each wake the journal says
  * ran is a `wake` effect under its id, and each errand end the week counted an `errand` effect. Returns the keys that
  * must have happened once.

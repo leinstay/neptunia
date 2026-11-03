@@ -56,7 +56,7 @@ import type { Fixture, WeekRun } from '../scripts/lib/inner-week-fixture.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const FIXTURES = path.join(ROOT, 'scripts', 'fixtures', 'inner-week');
+const FIXTURES = path.join(ROOT, 'scripts', 'fixtures');
 const effectsOf = effectsLookup();
 
 /** A minimal fixture, `extra` merged over it. */

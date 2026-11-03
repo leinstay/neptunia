@@ -66,7 +66,7 @@ jobs:
 
   types:
     # `typecheck`: tsc, strict, over the .ts files only (type-baseline.json may only shrink). `health`: file,
-    # function and nesting limits and the folder rules of structure.json (code-health-baseline.json may only
+    # function and nesting limits and the folder rules of scripts/config/structure.json (scripts/config/code-health-baseline.json may only
     # shrink). `prose`: the objective rules of WRITING.md on the Markdown files. `check:codes`: the result codes
     # against config/labels.json and the contract table. Then Prettier on the files this change touches only: a
     # pull request diffs against its base, a push to main against the commit before it.
