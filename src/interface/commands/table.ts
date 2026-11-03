@@ -63,6 +63,20 @@ const flagArg = (name: string, required: boolean): CommandArg => ({ name, requir
 
 const sub = (name: string, help: string, args: ReadonlyArray<CommandArg> = []): Subcommand => ({ name, help, args });
 
+/** The commands over the setup contract of a module (src/setup/modules.ts), the same for each kind. */
+const moduleSubcommands = (kind: string): ReadonlyArray<Subcommand> => [
+  sub('setup', `ask every setting of one ${kind} in turn`, [arg('name')]),
+  sub('settings', `the settings of one ${kind}, a secret masked`, [arg('name')]),
+  sub('set', `change one setting of one ${kind}; a secret is asked without showing it`, [
+    arg('name'),
+    arg('key'),
+    arg('value', false),
+  ]),
+  sub('clear', `clear one setting of one ${kind}`, [arg('name'), arg('key')]),
+  sub('add', `add one item to a list setting of one ${kind}`, [arg('name'), arg('key'), arg('value')]),
+  sub('remove', `remove one item from a list setting of one ${kind}`, [arg('name'), arg('key'), arg('value')]),
+];
+
 /** The words `/logs` takes after the command: `errors`, `follow` and `since <value>`. */
 function checkLogs(_name: string, args: Readonly<Record<string, string>>): string | null {
   const words = (args.options ?? '').split(' ').filter((word) => word !== '');
@@ -285,7 +299,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'skills',
-    help: 'her skills: list, show <name>, review <name>, pending, activate <name>, rollback <name>, reject <name>, enable <name>, disable <name>',
+    help: 'her skills: list, show <name>, review <name>, pending, activate <name>, rollback <name>, reject <name>, enable <name>, disable <name>, setup <name>, settings <name>, set|clear|add|remove <name> <key>',
     args: [],
     defaultSubcommand: 'list',
     subcommands: [
@@ -298,6 +312,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('reject', 'retire every pending version of a skill', [arg('name')]),
       sub('enable', 'bring a skill she turned off back into her list', [arg('name')]),
       sub('disable', 'take a skill out of her list', [arg('name')]),
+      ...moduleSubcommands('skill'),
     ],
   },
   {
@@ -314,7 +329,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'interface',
-    help: 'the interfaces: list, enable <name>, disable <name>, token set <name>, <name> <sub>',
+    help: 'the interfaces: list, enable <name>, disable <name>, token set <name>, setup <name>, settings <name>, set|clear|add|remove <name> <key>, <name> <sub>',
     args: [],
     defaultSubcommand: 'list',
     subcommands: [
@@ -324,6 +339,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('token.set', 'save the platform token of an interface; the chat asks for it without showing it', [
         arg('name'),
       ]),
+      ...moduleSubcommands('interface'),
     ],
     otherwise: sub('command', "an interface's own subcommand", [arg('name'), arg('sub'), arg('rest', false)]),
   },

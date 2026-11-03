@@ -4,14 +4,21 @@
 
 There is no install script. `npm install` fetches the dependencies, `neptunia setup` does the rest (`src/setup/run.ts`, `bin/neptunia.ts`), and the user who runs it is the user the engine runs as. That user is a full administrator of the machine in the owner's deployment, and nothing here edits a file by hand or needs root.
 
+## The setup contract of a module
+
+An interface package or an executable skill declares its settings in `setup.json`: a `settings` list whose rows have `key`, `question`, `kind` (`text`, `list` or `secret`) and `required`. `src/setup/modules.ts` validates the declaration and stores the values under the module's own folder: `data/interfaces/<name>/` or `data/skills/<name>/`, plain values in `config.json` and secrets in `credentials.json` at mode `0600`. The `interfaces` step, `/interface setup <name>`, `/skills setup <name>` and the targeted commands `settings`, `set`, `clear`, `add` and `remove` of the same two groups all write through that file, so a value has one home. `settings` shows a secret as set with its last four characters, and `set` refuses a secret typed on the command line and asks for it without echo. Removing a module's code leaves its values in place.
+
+The Discord package declares `token` and `servers`, a list of any number of server ids.
+
 ## The steps
 
-`runSetup` runs nine steps in this order. Each checks first whether its work is done, so a rerun after a failure resumes where it stopped. A step that fails stops the run, the later steps are `skipped` and no chat opens. A `refused` step stops nothing. The four steps that ask questions come before `units`, so the units bind the backends just connected and the watcher's timer takes the hour just given. Without a terminal they are `skipped` and the install goes on.
+`runSetup` runs ten steps in this order. Each checks first whether its work is done, so a rerun after a failure resumes where it stopped. A step that fails stops the run, the later steps are `skipped` and no chat opens. A `refused` step stops nothing. The four steps that ask questions come before `units`, so the units bind the backends just connected and the watcher's timer takes the hour just given. Without a terminal they are `skipped` and the install goes on.
 
 | Step | What it does | `already` when |
 |---|---|---|
 | `folders` | Creates the private folder with `config.local`, `prompts.local` and `clients`, and the data folder, all at mode 0700 whatever the umask. | all five exist at 0700 |
 | `keys-file` | Writes an empty `keys.json` at mode 0600. A file that exists keeps its content and is set to 0600. | the file exists at 0600 |
+| `interfaces` | Offers every interface package with a `setup.json`, asks its own questions, a secret without echo, and enables it once every required value is stored. | no answer changes a value |
 | `subharness` | Asks which backends to install, then installs and connects each. | every chosen backend is installed and connected |
 | `selfimprovement` | Asks for `selfimprovement.repository` and stores it when her gh login can push there. Skipped while `selfimprovement.checkout` is unset. | the stored repository passes the check |
 | `mechanics` | Asks `heartbeat`, `selfreflection` and `selfimprovement` on or off, and `selfimprovement.at`. Refused for `selfimprovement` without what it needs. | no answer changes a value |

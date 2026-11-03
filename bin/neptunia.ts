@@ -1136,11 +1136,22 @@ function printSetup(report: SetupReport): void {
 }
 
 /** One question at the terminal, `offered` shown in brackets; the owner's line as typed. */
-async function askAtTerminal(question: string, offered: string | null): Promise<string> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+async function askAtTerminal(
+  question: string,
+  offered: string | null,
+  options: { secret: boolean } = { secret: false }
+): Promise<string> {
+  const output = mutableOutput(process.stdout);
+  const rl = readline.createInterface({ input: process.stdin, output, terminal: process.stdin.isTTY === true });
   try {
     return await new Promise<string>((resolve) => {
-      rl.question(offered === null ? `${question} ` : `${question} [${offered}] `, resolve);
+      rl.question(offered === null ? `${question} ` : `${question} [${offered}] `, (answer) => {
+        output.muted = false;
+        if (options.secret) process.stdout.write('\n');
+        resolve(answer);
+      });
+      // readline has drawn the question; what the owner types next is not echoed.
+      output.muted = options.secret;
     });
   } finally {
     rl.close();

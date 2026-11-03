@@ -9,7 +9,6 @@ import { setInterfaceToken, tokenVariableOf } from '../src/interface/commands/in
 import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
-import { setup as discordSetup } from '../interfaces/discord/setup.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { scriptedDialog } from './fixtures/keys-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -129,14 +128,4 @@ test('the console writes the token file for interface.token.set over its private
   );
   assert.equal(answer.status, 'ok');
   assert.deepEqual(JSON.parse(fs.readFileSync(envFile(privateDir, 'discord'), 'utf8')), { token: TOKEN });
-});
-
-test('the Discord setup points at interface token set, not at a section of deploy/README.md', async () => {
-  // Catches: the setup sends the owner to a README section that no longer exists.
-  const message = await discordSetup().then(
-    () => '',
-    (err: unknown) => (err instanceof Error ? err.message : String(err))
-  );
-  assert.ok(message.includes('interface token set discord'));
-  assert.equal(message.includes('deploy/README.md'), false);
 });
