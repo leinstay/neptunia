@@ -15,7 +15,6 @@ import { EMBED } from './schema/embed.ts';
 import { CONTEXT } from './schema/context.ts';
 import { MENTION } from './schema/mention.ts';
 import { MISSED } from './schema/missed.ts';
-import { OFFLINE_CATCH_UP } from './schema/offline-catch-up.ts';
 import { TYPING } from './schema/typing.ts';
 import { PACE } from './schema/pace.ts';
 import { FORMAT } from './schema/format.ts';
@@ -71,7 +70,6 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...CONTEXT,
   ...MENTION,
   ...MISSED,
-  ...OFFLINE_CATCH_UP,
   ...TYPING,
   ...PACE,
   ...FORMAT,

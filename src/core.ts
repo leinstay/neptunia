@@ -59,7 +59,6 @@ import { ffmpegAvailable } from './speech/convert.ts';
 import { createTurnRunner } from './behavior/turn.ts';
 import { createActivity } from './behavior/activity.ts';
 import { createMissed } from './behavior/missed.ts';
-import { createOfflineCatchUp } from './behavior/catch-up.ts';
 import { createEmojiIndex } from './behavior/emoji-index.ts';
 import { ownMessagesOf } from './behavior/own-messages.ts';
 import { hasRequiredLabels } from './behavior/prompt.ts';
@@ -148,7 +147,6 @@ import type {
   ConversationChanged,
   InnerWake,
   MembershipChanged,
-  MessageReceived,
   PresenceChanged,
   PresenceSnapshot,
   ReactionChanged,
@@ -1219,19 +1217,6 @@ async function buildCore(
     port: iface,
   });
 
-  // The messages posted while the bot was down (src/behavior/catch-up.ts): once at start, read through the interface's
-  // history after the last message seen per channel and handed to the handler's catch-up path.
-  const offlineCatchUp = createOfflineCatchUp({
-    hot,
-    store,
-    journal,
-    iface: identity.iface,
-    reads,
-    // A caught-up message is observed once, by the handler's catch-up path, never emitted as a live event.
-    // The adapter's `MessageEvent` and the protocol's `MessageReceived` name one event; the second marks every field.
-    deliver: (event, options) => onMessage.catchUp(event as MessageReceived & { raw: object }, options),
-  });
-
   // One turn at a time (mention.oneAtATime): once a turn frees its channel, answer
   // the oldest pending direct ping it may have collected while busy elsewhere.
   turns.setOnIdle(() => onMessage.drainPending());
@@ -1482,7 +1467,6 @@ async function buildCore(
 
   function sweepAffinityDecay() {
     const guildId = instance.guildId;
-    const config = hot.config;
     if (!guildId) return;
     if (store.state.data.paused) return;
     // Decay counts only time she was running: the sweep runs hourly, so a gap of more than two sweeps since the last one
@@ -1893,11 +1877,6 @@ async function buildCore(
   // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn
   // starting meanwhile is never touched (only earlier operations are), and it never sends.
   await startupStep('journal.reconcile', () => reconcileJournal(servedGuildId()).finally(journalReconciled));
-
-  // The messages posted while the bot was down: observed, and a call
-  // younger than offlineCatchUp.windowMinutes answered as live. Fire-and-forget: REST per
-  // channel, never throws; the gateway's own messages are not held up meanwhile.
-  await startupStep('offlineCatchUp.run', () => offlineCatchUp.run(servedGuildId()));
 
   // The request dumps older than journal.keepRequests days: once now, then daily.
   await startupStep('journal.prune', () => pruneJournalRequests(servedGuildId()));

@@ -24,7 +24,7 @@ import {
 // that is not her answer, and the tests count it among the posts.
 
 // Case 5 of PR D.
-test('pause sends the reply already on its way, keeps a message that arrives, and resume answers it once', async () => {
+test('pause sends the reply already on its way, keeps a message that arrives, and resume starts no turn over it', async () => {
   await withRig({}, async ({ dirs, llm, units, cores, logs }) => {
     cores.push(await startUnitsCore(dirs, llm));
     const unit = await startedUnit(dirs);
@@ -54,18 +54,16 @@ test('pause sends the reply already on its way, keeps a message that arrives, an
 
     const resumed = await runCli(dirs, ['-p', '/resume']);
     assert.equal(resumed.code, 0, resumed.stderr.slice(-2000));
-    await until(() => llm.requests.length >= 2, 'the turn of the kept message');
-    assert.ok(JSON.stringify(llm.requests[1]).includes('are you still there'));
-    assert.deepEqual(await postedOnce(unit, 3), [ANSWER, notice, ANSWER]);
+    // Changed: the owner's no-catch-up policy of 2026-11-02. The kept message stays history; a resume starts no turn.
     await settle(600);
-    assert.equal(llm.requests.length, 2, 'the kept message reached her once');
-    assert.deepEqual(await unit.posted('c1'), [ANSWER, notice, ANSWER], 'her answer to it was sent once');
+    assert.equal(llm.requests.length, 1, 'no turn over what arrived while paused');
+    assert.deepEqual(await postedOnce(unit, 2), [ANSWER, notice]);
     assert.deepEqual(seenIds(dirs), ['m1', 'm2'], 'the resume observed nothing twice');
   });
 });
 
 // Case 6 of PR D.
-test('a core restarted while paused stays paused until resume, then answers the message once', async () => {
+test('a core restarted while paused stays paused until resume, and the resume starts no turn over what it kept', async () => {
   await withRig({}, async ({ dirs, llm, units, cores }) => {
     const first = await startUnitsCore(dirs, llm);
     cores.push(first);
@@ -85,10 +83,9 @@ test('a core restarted while paused stays paused until resume, then answers the 
 
     const resumed = await runCli(dirs, ['-p', '/resume']);
     assert.equal(resumed.code, 0, resumed.stderr.slice(-2000));
-    await until(() => llm.requests.length >= 1, 'the turn of the kept message');
-    assert.deepEqual(await postedOnce(unit, 2), [notice, ANSWER]);
+    // Changed: the owner's no-catch-up policy of 2026-11-02. The kept message stays history; a resume starts no turn.
     await settle(600);
-    assert.equal(llm.requests.length, 1, 'the kept message reached her once');
-    assert.deepEqual(await unit.posted('c1'), [notice, ANSWER]);
+    assert.equal(llm.requests.length, 0, 'no turn over what arrived while paused');
+    assert.deepEqual(await unit.posted('c1'), [notice]);
   });
 });

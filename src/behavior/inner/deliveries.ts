@@ -269,6 +269,22 @@ export async function sendDeliveries(life: InnerContext, guildId: string, keys: 
   }
 }
 
+/** An interrupted send told to her: a fact her next turn in that conversation shows. It wakes nothing and sends nothing. */
+function tellInterrupted(life: InnerContext, guildId: string, delivery: Delivery, status: 'failed' | 'unknown'): void {
+  const noted = notedOf(delivery);
+  const state = stateOf(life, guildId);
+  addFact(life, state, {
+    at: life.now(),
+    kind: 'callFailed',
+    skill: noted.skill ?? 'message.create',
+    status,
+    code: 'interrupted',
+    channelId: delivery.target,
+    privateChat: noted.privateChat,
+  });
+  save(life, guildId);
+}
+
 /** Retire queued deliveries and reconcile uncertain sends without issuing a send or a feedback wake. */
 export async function resumeDeliveries(life: InnerContext): Promise<void> {
   const { port, log } = life;
@@ -282,7 +298,11 @@ export async function resumeDeliveries(life: InnerContext): Promise<void> {
       port && conversation
         ? await reconcileUnknown(port, { conversation, idempotencyKey: delivery.key }).catch(() => null)
         : null;
-    if (!found || found.status === 'unknown') continue;
+    const lostIn = wakeOf(read, delivery.wakeId)?.community;
+    if (!found || found.status === 'unknown') {
+      if (lostIn) tellInterrupted(life, lostIn, delivery, 'unknown');
+      continue;
+    }
     const to = found.status === 'ok' ? 'sent' : 'failed';
     await move(life, delivery.key, ['unknown'], to, to === 'failed' ? { code: 'not-sent' } : receiptOf(found));
     const parent = wakeOf(read, delivery.wakeId);
@@ -294,7 +314,11 @@ export async function resumeDeliveries(life: InnerContext): Promise<void> {
       });
   }
   const queued = deliveriesIn(backendOf(life).read() ?? read, 'queued');
-  for (const delivery of queued) await move(life, delivery.key, ['queued'], 'failed', { code: 'interrupted' });
+  for (const delivery of queued) {
+    await move(life, delivery.key, ['queued'], 'failed', { code: 'interrupted' });
+    const community = wakeOf(read, delivery.wakeId)?.community;
+    if (community) tellInterrupted(life, community, delivery, 'failed');
+  }
   if (lost.length + queued.length > 0)
     log.info('inner: interrupted deliveries settled', { lost: lost.length, queued: queued.length });
 }

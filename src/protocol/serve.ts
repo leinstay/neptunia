@@ -8,10 +8,9 @@
 // With an `outbox` (outbox.ts) every event is numbered and kept until the core acknowledges it. Nothing is sent
 // before the core answers `hello`; its answer carries the watermark of what the core has, and every waiting event
 // after it goes again, in order, before any new one. An emit on a closed link still goes into the outbox, for the
-// next connection to send. A full outbox evicts nothing: the event is refused, the interface reports `outbox-full`
-// on `status()`, and once acknowledgements make room the messages of the gap are read back from the platform's
-// history (`adapter.history` from the time of the first refused message of each conversation), under the ids live
-// ingestion gives them, before anything new is queued. A refused event of another kind is lost, counted in a warning.
+// next connection to send, marked `replayed`, so the core keeps it as history and starts no turn. A full outbox evicts
+// nothing: the event is refused and lost, counted in a warning, and the interface reports `outbox-full` on `status()`.
+// Nothing reads a missed stretch back from the platform on its own (the owner's no-catch-up policy, 2026-11-02).
 //
 // An action carrying `deadlineAt` (ms since the epoch, by the injected `now`) that arrives after it is refused
 // `failed` with `deadline-passed` and never reaches the adapter; one that started in time keeps its result. A
@@ -52,14 +51,11 @@ export type Logger = {
   error(msg: string, meta?: unknown): void;
 };
 
-/** What `status()` reports: whether the outbox refuses events and a gap waits for the platform's history. */
+/** What `status()` reports: whether the outbox refuses events. */
 export type ServeStatus = { outbox: 'ok' | 'outbox-full' };
 
 /** How many idempotency keys the serving side remembers. */
 const KEPT_KEYS = 1000;
-
-/** How many messages of one conversation a gap is read back with: the most one history read answers on the platform. */
-const GAP_HISTORY_LIMIT = 100;
 
 /** How many cancels of actions not seen yet are remembered. */
 const KEPT_CANCELS = 256;
@@ -266,17 +262,6 @@ function createActions(
   };
 }
 
-/** The gap of a full outbox: by conversation, the time of its first message that was refused. */
-type Gap = Map<string, { iface: string; conversationId: string; since: number }>;
-
-/** The conversation of a message event, as a gap reads it back; null for another kind. */
-function gapEntryOf(event: Record<string, unknown>): { iface: string; conversationId: string; at: number } | null {
-  const conversation = isObject(event.conversation) ? event.conversation : null;
-  if (event.kind !== 'message.received' || typeof conversation?.id !== 'string') return null;
-  if (typeof event.iface !== 'string' || typeof event.at !== 'number') return null;
-  return { iface: event.iface, conversationId: conversation.id, at: event.at };
-}
-
 export function serveAdapter(options: {
   transport: Transport;
   hello: Hello;
@@ -292,11 +277,9 @@ export function serveAdapter(options: {
   const actions = createActions(adapter, log, options.now ?? Date.now, options.onCommandResult ?? null);
   const waiting = new Map<string, Array<(status: AckStatus) => void>>();
   const helloId = `hello:${hello.iface}`;
-  const gap: Gap = new Map();
   let closed = false;
   // Without an outbox an event goes out at once; with one, only once the core has answered hello.
   let welcomed = outbox === null;
-  let recovering = false;
   let lostKinds = 0;
 
   function finish(): void {
@@ -319,53 +302,6 @@ export function serveAdapter(options: {
     });
   }
 
-  function extendGap(event: Record<string, unknown>): void {
-    const entry = gapEntryOf(event);
-    if (entry === null) {
-      lostKinds += 1;
-      log.warn('link: event lost while the outbox is full', { kind: event.kind, lost: lostKinds });
-      return;
-    }
-    const known = gap.get(entry.conversationId);
-    if (known === undefined || entry.at < known.since)
-      gap.set(entry.conversationId, { iface: entry.iface, conversationId: entry.conversationId, since: entry.at });
-  }
-
-  // The messages of the gap read back from the platform, oldest first, queued as they come. A conversation whose
-  // read fails or that fills the outbox again stays in the gap for the next round.
-  async function recoverGap(): Promise<void> {
-    if (outbox === null || recovering) return;
-    recovering = true;
-    try {
-      while (gap.size > 0 && !outbox.full() && !closed) {
-        const [conversationId, wanted] = gap.entries().next().value as [
-          string,
-          { iface: string; conversationId: string; since: number },
-        ];
-        gap.delete(conversationId);
-        const ref = { iface: wanted.iface, conversationId };
-        const read = await adapter.history(ref, { limit: GAP_HISTORY_LIMIT, since: wanted.since });
-        if (read.status !== 'ok') {
-          log.warn('link: gap history failed', { code: read.error.code });
-          gap.set(conversationId, wanted);
-          return;
-        }
-        if (!read.complete) log.warn('link: gap longer than one history read', { limit: GAP_HISTORY_LIMIT });
-        for (const found of [...read.events].sort((a, b) => a.at - b.at)) {
-          const event = cleaned(found);
-          const seq = validateEvent(event).ok ? outbox.push(event) : null;
-          if (seq === null) {
-            extendGap(event);
-            continue;
-          }
-          if (welcomed && !closed) sendEvent(event, seq);
-        }
-      }
-    } finally {
-      recovering = false;
-    }
-  }
-
   function onAck(value: Envelope): void {
     if (!validateEnvelope(value).ok) return;
     const body = value.body as { status: AckStatus; ackedSeq?: number };
@@ -373,14 +309,14 @@ export function serveAdapter(options: {
     if (value.replyTo === helloId && !welcomed) {
       welcomed = true;
       // Everything the core has not taken goes again, in order, before anything new.
-      for (const entry of outbox?.pending() ?? []) sendEvent(entry.event, entry.seq);
+      // Marked as replayed: the core keeps them as history and starts no turn over a backlog.
+      for (const entry of outbox?.pending() ?? []) sendEvent({ ...entry.event, replayed: true }, entry.seq);
     }
     const resolvers = waiting.get(value.replyTo ?? '');
     if (resolvers !== undefined) {
       waiting.delete(value.replyTo ?? '');
       for (const resolve of resolvers) resolve(body.status);
     }
-    if (gap.size > 0) void recoverGap();
   }
 
   async function onAction(value: Envelope): Promise<void> {
@@ -415,14 +351,10 @@ export function serveAdapter(options: {
 
   /** One event into the outbox and, when the core has answered hello, onto the link. */
   function emitDurable(event: Record<string, unknown>, box: Outbox): Promise<AckStatus> {
-    if (gap.size > 0 || recovering) {
-      extendGap(event);
-      return Promise.resolve('failed');
-    }
     const seq = box.push(event);
     if (seq === null) {
-      log.warn('link: outbox full', { kind: event.kind });
-      extendGap(event);
+      lostKinds += 1;
+      log.warn('link: event lost while the outbox is full', { kind: event.kind, lost: lostKinds });
       return Promise.resolve('failed');
     }
     if (closed) return Promise.resolve('failed');
@@ -449,7 +381,7 @@ export function serveAdapter(options: {
       return acked;
     },
     status: (): ServeStatus => ({
-      outbox: gap.size > 0 || recovering || outbox?.full() === true ? 'outbox-full' : 'ok',
+      outbox: outbox?.full() === true ? 'outbox-full' : 'ok',
     }),
     close(): void {
       finish();

@@ -42,6 +42,9 @@ export function createMessageProducers(
     if (event.deleted) return deps.onMessage.onMessageDelete(event, options);
     if (event.edit) return deps.onMessage.onMessageUpdate(event, options);
     deps.offerAvatar(event);
+    // A message resent after a lost link is a backlog: kept as history, and no turn starts over it.
+    if ((event as { replayed?: unknown }).replayed === true)
+      return deps.onMessage.catchUp(event as MessageReceived & { raw: object }, { trigger: false });
     return deps.onMessage(event, options);
   };
 }
