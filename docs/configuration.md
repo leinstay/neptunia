@@ -498,6 +498,8 @@ Settings for her `SKILL.md` skills. See [Skills](skills.md).
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `skills.reviewDays` | number | `30` | Days an active skill may go unread before `/skills` marks it for review; nothing is deleted | `src/skills/settings.ts` |
+| `skills.run.timeoutMs` | number | `60000` | How long one `skill.run` script may run; past it the process group is killed and the outcome is unknown | `src/skills/settings.ts` |
+| `skills.run.maxOutputBytes` | number | `1000000` | How much one `skill.run` script may write to stdout before it is stopped | `src/skills/settings.ts` |
 
 ## `watcher`
 
