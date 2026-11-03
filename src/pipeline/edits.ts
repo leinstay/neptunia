@@ -3,6 +3,7 @@
 // a `deleted` line of the record. createMessageHandler (src/behavior/pipeline.js) builds it once with createEdits and
 // hands the two handlers to the interface's edit and deletion events.
 
+import type { ObserveLine, DeleteLine } from './observe.ts';
 import { lineOf } from '../behavior/line-of.ts';
 import type { Reads } from '../interface/reads.ts';
 import { log } from '../log.ts';
@@ -27,7 +28,7 @@ type MediaPart = { readonly attachments?: Array<MediaItem>; readonly links?: Arr
 type Line = MediaPart & { readonly id: string; readonly channelId: string; readonly forwarded?: Array<MediaPart> };
 
 /** What the memory database answered an observation (src/memory/db/service.ts#observe). */
-export type Observed = { ok?: boolean; code?: unknown; revision?: unknown } | null;
+export type Observed = { ok?: boolean; code?: unknown; revision?: unknown; sourceId?: unknown } | null;
 
 /** The live config, as far as the edit handlers read it. */
 type EditsConfig = Record<string, unknown>;
@@ -53,7 +54,8 @@ export type EditsContext = {
   /** The media prefill of an observed message (createMessageHandler's warmMediaCache), never awaited here. */
   warmMediaCache: (guildId: string, message: object) => Promise<void> | null;
   /** The live observation of a line in the memory database (createMessageHandler's observeLine). */
-  observeLine: (event: MessageEvent, direct?: boolean, where?: { guildId: string } | null) => Promise<Observed> | null;
+  observeLine: ObserveLine;
+  deleteLine?: DeleteLine;
 };
 
 export type Edits = {
@@ -106,6 +108,7 @@ export function createEdits({
   now,
   warmMediaCache,
   observeLine,
+  deleteLine,
 }: EditsContext): Edits {
   // The record's edits (recordEdit): messageId -> the last revision written, for the UTC day
   // `revisionsDay`; cleared when the day turns, so it stays small. An edit of a message not in
@@ -128,9 +131,9 @@ export function createEdits({
    * The edit event, a partial one read whole here.
    */
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/pipeline.js in stage 5d, a pure move
-  async function onMessageUpdate(event: MessageReceived): Promise<void> {
+  async function onMessageUpdate(event: MessageReceived, options?: MessageReadOptions): Promise<void> {
     // An edit event carries the whole message unless it is partial; recordEdit leaves a partial one alone.
-    await recordEdit(event as MessageEvent);
+    await recordEdit(event as MessageEvent, options);
     try {
       if (store?.state?.data?.paused) return;
       const guildId = event.conversation.communityId ?? null;
@@ -197,7 +200,7 @@ export function createEdits({
    * line of the record with the next revision of the day (`revisions`). An update that only
    * attached embeds is no edit. Never throws: a refused append is logged as `events: record failed` (counts only).
    */
-  async function recordEdit(event: MessageEvent): Promise<void> {
+  async function recordEdit(event: MessageEvent, options?: MessageReadOptions): Promise<void> {
     try {
       if (event.partial || !recordable(event)) return;
       if (event.previous && sourceTextOf(event.previous) === sourceTextOf(event.message)) return;
@@ -210,17 +213,29 @@ export function createEdits({
         revisions.clear();
         revisionsDay = day;
       }
-      const revision = (revisions.get(normalized.id) ?? 1) + 1;
-      revisions.set(normalized.id, revision);
+      const key = JSON.stringify([event.iface, event.conversation.id, normalized.id]);
+      const revision = (revisions.get(key) ?? 1) + 1;
+      revisions.set(key, revision);
       const slim = slimMessage(normalized, false);
-      // The database counts its own revisions (observe.js): the edit goes there without one, and the observation is the
-      // record: the edit's line takes the revision the database counted (a failed observation waits for its retry).
-      // A revision the record already holds moves the edit past it; later edits continue from there.
-      const observed = observeLine(event, false, { guildId });
+      // A normalized observation owns the source and revision. Record adoption keeps both unchanged.
+      // Direct callers without a source result retain appendRevision's duplicate handling.
+      const observed = observeLine(event, false, { guildId }, options?.acceptedEvent);
       let start = revision;
       if (observed) {
         const done = await observed;
         if (!done || done.ok !== true || typeof done.revision !== 'number' || !Number.isInteger(done.revision)) return;
+        if (typeof done.sourceId === 'string') {
+          await record!.append(guildId, [toRecordLine(slim, { revision: done.revision, now })], {
+            messages: [
+              {
+                lineId: normalized.id,
+                locator: { iface: event.iface, conversationId: event.conversation.id, messageId: normalized.id },
+                observedSourceId: done.sourceId,
+              },
+            ],
+          });
+          return;
+        }
         start = done.revision;
       }
       // recordable holds only with a record.
@@ -230,7 +245,7 @@ export function createEdits({
         (next) => toRecordLine(slim, { revision: next, now }),
         start
       );
-      if (landed.revision > (revisions.get(normalized.id) ?? 0)) revisions.set(normalized.id, landed.revision);
+      if (landed.revision > (revisions.get(key) ?? 0)) revisions.set(key, landed.revision);
     } catch (err) {
       log.warn('events: record failed', { kind: 'seen', lines: 1, code: codeOf(err) });
     }
@@ -245,7 +260,7 @@ export function createEdits({
    * `events: record failed` (counts only).
    * The deletion event.
    */
-  async function onMessageDelete(event: MessageReceived): Promise<void> {
+  async function onMessageDelete(event: MessageReceived, options?: MessageReadOptions): Promise<void> {
     try {
       const message = event?.message;
       const id = message?.id;
@@ -262,7 +277,24 @@ export function createEdits({
         { kind: 'deleted', now }
       );
       // recordable holds only with a record.
-      await record!.append(guildId, [line]);
+      const observed = deleteLine?.(event, { guildId }, options?.acceptedEvent);
+      const done = observed ? await observed : null;
+      if (observed && done?.ok !== true) return;
+      await record!.append(
+        guildId,
+        [line],
+        typeof done?.sourceId === 'string'
+          ? {
+              messages: [
+                {
+                  lineId: String(id),
+                  locator: { iface: event.iface, conversationId: event.conversation.id, messageId: String(id) },
+                  observedSourceId: done.sourceId,
+                },
+              ],
+            }
+          : undefined
+      );
     } catch (err) {
       log.warn('events: record failed', { kind: 'deleted', lines: 1, code: codeOf(err) });
     }

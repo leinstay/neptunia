@@ -161,9 +161,12 @@ export function query(dirs: Dirs, sql: string, ...args: Array<unknown>): Array<R
   }
 }
 
-/** The native ids of the members' lines the memory database holds, in the order they were written. */
+/** The native ids of the members' lines, resolved through the catalog rather than opaque source family keys. */
 export const seenIds = (dirs: Dirs): Array<unknown> =>
-  query(dirs, "SELECT native_id FROM sources WHERE kind = 'seen' ORDER BY rowid").map((row) => row.native_id);
+  query(dirs, `SELECT f.message_id AS native_id FROM sources s
+        LEFT JOIN message_families f ON f.iface = s.iface AND f.authority_id = s.authority_id
+          AND f.native_kind = s.native_kind AND f.native_key = s.native_id AND f.generation = s.generation
+        WHERE s.kind = 'seen' ORDER BY s.rowid`).map((row) => row.native_id);
 
 /** Whether the core took a `hello` of the principal `name` (the link logs `link: hello` with its name). */
 export const helloTaken = (logs: ReadonlyArray<LogEntry>, name: string): boolean =>

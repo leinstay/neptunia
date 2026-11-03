@@ -24,7 +24,7 @@
 import { deriveRow, ensureLinks, ensureNodeKeys, ensureRelations, restrictDiaryMedia } from './rows.ts';
 import { projectRow } from './graph.ts';
 import { deriveMirrorPublication } from './publish.ts';
-import { LEGACY_IFACE } from './legacy-namespace.ts';
+import { resolveParticipationSources } from './participation-sources.ts';
 import { sessionHold } from './session-rows.ts';
 import { asText } from './types.ts';
 import type { Db, Row, Rows } from './types.ts';
@@ -316,6 +316,7 @@ export function writeMapping(
   owner: string,
   { ignoreClaims = false, at }: { ignoreClaims?: boolean; at?: string } = {}
 ): number {
+  resolveParticipationSources(db, mapping);
   let count = 0;
   const skippedParents = new Set<string>();
   const hold = sessionHold(db, mapping);
@@ -332,9 +333,6 @@ export function writeMapping(
   ensureLinks(db, mapping.accounts, { at });
   const touched: Array<[string, Row]> = [];
   count += writeChildren(db, mapping, owner, skippedParents, touched);
-  // A participation file names lines by their message (`src:discord:<id>`): they are pointed at the stored revision
-  // before the episodes are projected, so a remap never projects the bare reference for a moment.
-  if ((mapping.episode_sources ?? []).length > 0) relinkParticipation(db, at);
   // Schema v10: a mirror's publication follows the mirror (publish.ts#deriveMirrorPublication), on this one path.
   for (const [child, row] of touched) {
     if (child === 'diary_mirrors') deriveMirrorPublication(db, row, { at });
@@ -367,43 +365,6 @@ export function hotClaimIds(db: Db): Set<string> {
     ids.add(row.id as string);
   for (const row of db.prepare('SELECT id FROM episodes WHERE retired_at IS NULL').all()) ids.add(row.id as string);
   return ids;
-}
-
-/**
- * Points every participation message ref (`src:discord:<messageId>`) at the newest revision of that message in the
- * record, when the record has it; a ref the record does not hold is kept as it is. Returns how many were changed.
- */
-function relinkParticipation(db: Db, at: unknown): number {
-  // The ref names a message of the legacy namespace: the line is looked up by its native tuple (schema v8), so another interface's id
-  // that happens to be the same string is never taken for it. A database before v8 has only the native id.
-  const tuple = columnsOf(db, 'sources').has('native_kind');
-  const find = tuple
-    ? prepared(
-        db,
-        `SELECT id FROM sources WHERE authority_id = '${LEGACY_IFACE}/global' AND native_kind = 'message' AND generation = 1 AND native_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1`
-      )
-    : prepared(
-        db,
-        "SELECT id FROM sources WHERE native_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1"
-      );
-  const update = prepared(
-    db,
-    'UPDATE episode_sources SET source_id = ? WHERE episode_id = ? AND position = ? AND source_id = ?'
-  );
-  let count = 0;
-  for (const row of db
-    .prepare(
-      `SELECT episode_id, source_id, position FROM episode_sources WHERE source_id LIKE 'src:${LEGACY_IFACE}:%' AND retired_at IS NULL`
-    )
-    .all()) {
-    const messageId = new RegExp(`^src:${LEGACY_IFACE}:([^:]+)`).exec(String(row.source_id))?.[1];
-    const found = messageId ? find.get(messageId) : null;
-    if (!found || found.id === row.source_id) continue;
-    update.run(found.id, row.episode_id, row.position, row.source_id);
-    projectRow(db, 'episode_sources', { episode_id: row.episode_id }, { at });
-    count += 1;
-  }
-  return count;
 }
 
 export function linkVectors(db: Db, rows: ReadonlyArray<Row>): void {

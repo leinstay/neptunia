@@ -168,7 +168,7 @@ export function createMessageHandler({
   timers?: { set: (fn: () => void, ms: number) => Untyped; clear: (timer: Untyped) => void };
   activity?: { note: (channelId: string, authorId: string, at: number) => void } | null;
   record?: { append: (...args: Array<Untyped>) => Untyped } | null;
-  memoryDb?: { observe: (envelope: Untyped) => Promise<Untyped> | null } | null;
+  memoryDb?: Parameters<typeof createObserve>[0]['memoryDb'];
   missed?: (PipelineMissed & { setPrivateRecovery?: (recovery: object) => void }) | null;
   port: Adapter;
 }): MessageHandler {
@@ -178,7 +178,7 @@ export function createMessageHandler({
     memoryDb,
     getGuildId,
   });
-  const { observeLine } = createObserve({ hot, memoryDb, selfIdOf, timers });
+  const { observeLine, deleteLine } = createObserve({ hot, memoryDb, selfIdOf, timers });
   const turnBlocked = () => isTurnBlocked(turns);
   const { warmMediaCache, cachedFollowUpMedia } = createMediaPrefill({
     hot,
@@ -385,6 +385,7 @@ export function createMessageHandler({
     now,
     warmMediaCache,
     observeLine,
+    deleteLine,
   });
 
   // The door and the tests hand in the protocol's `MessageReceived`, whose message may be the partial one of an edit or

@@ -123,7 +123,11 @@ async function withCore(
     rows: (kind) => {
       const handle = openMemoryDb(dbPath, { readOnly: true });
       try {
-        const sql = 'SELECT kind, native_id, text, direct FROM sources WHERE kind = ? ORDER BY rowid';
+        // Catalog IDs preserve the protocol identity while source native_id values identify opaque families.
+        const sql = `SELECT s.kind, f.message_id AS native_id, s.text, s.direct FROM sources s
+          LEFT JOIN message_families f ON f.iface = s.iface AND f.authority_id = s.authority_id
+          AND f.native_kind = s.native_kind AND f.native_key = s.native_id AND f.generation = s.generation
+          WHERE s.kind = ? ORDER BY s.rowid`;
         return (handle.db as { prepare(sql: string): { all(kind: string): Array<Row> } })
           .prepare(sql)
           .all(kind)

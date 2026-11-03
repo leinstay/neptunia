@@ -20,7 +20,7 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
   { file: 'src/memory/db/schema.ts', pattern: /discord/i, why: 'frozen migrations and their notes' },
   { file: 'src/memory/db/legacy-namespace.ts', pattern: /discord/i, why: 'the legacy namespace' },
   { file: 'src/memory/db/ids.ts', pattern: /`[^`]*discord[^`]*`/, why: 'stored legacy ids and the stored iface value' },
-  { file: 'src/memory/db/upsert.ts', pattern: /`src:discord:/, why: 'a stored legacy message ref' },
+  // Qualified message writes keep the upsert module independent from a platform namespace.
   { file: 'src/memory/db/map/participation.ts', pattern: /`src:discord:/, why: 'a stored legacy message ref' },
   { file: 'src/memory/db/map/versions.ts', pattern: /`desc:(person:)?discord:/, why: 'stored legacy description ids' },
   { file: 'src/index.ts', pattern: /discord/i, why: 'the entry point loads the Discord package and its token' },

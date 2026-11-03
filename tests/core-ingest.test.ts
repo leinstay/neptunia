@@ -154,7 +154,14 @@ test('when an emit resolves ok, the ingest row and the observed line of the even
       assert.equal(await rig.live.emit(event), 'ok');
       const ingested = query(dirs, 'SELECT event_id, kind, conversation FROM ingest WHERE event_id = ?', event.id);
       assert.deepEqual(ingested, [{ event_id: event.id, kind: 'message.received', conversation: 'c1' }]);
-      const seen = query(dirs, "SELECT native_id FROM sources WHERE kind = 'seen'");
+      // The catalog retains native message IDs while sources.native_id stores an opaque family key.
+      const seen = query(
+        dirs,
+        `SELECT f.message_id AS native_id FROM sources s
+        LEFT JOIN message_families f ON f.iface = s.iface AND f.authority_id = s.authority_id
+          AND f.native_kind = s.native_kind AND f.native_key = s.native_id AND f.generation = s.generation
+        WHERE s.kind = 'seen'`
+      );
       assert.deepEqual(
         seen.map((row) => row.native_id),
         ['m1']
@@ -201,7 +208,14 @@ test('after a dropped link the fake reconnects, resends what was not acknowledge
       await settle();
       assert.equal(llm.requests.length, 2, 'one turn for each message');
       assert.deepEqual(rig.posted(), [ANSWER, ANSWER]);
-      const seen = query(dirs, "SELECT native_id FROM sources WHERE kind = 'seen' ORDER BY rowid");
+      // The catalog retains native message IDs while sources.native_id stores an opaque family key.
+      const seen = query(
+        dirs,
+        `SELECT f.message_id AS native_id FROM sources s
+        LEFT JOIN message_families f ON f.iface = s.iface AND f.authority_id = s.authority_id
+          AND f.native_kind = s.native_kind AND f.native_key = s.native_id AND f.generation = s.generation
+        WHERE s.kind = 'seen' ORDER BY s.rowid`
+      );
       assert.deepEqual(
         seen.map((row) => row.native_id),
         ['m1', 'm2']

@@ -10,6 +10,7 @@
 // This file stays JavaScript: it is the body of the old entry moved into a function, and stage 8 of the core
 // extraction converts it to TypeScript.
 
+import { createMessageProducers } from './behavior/core-message-producers.ts';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -94,13 +95,13 @@ import {
 } from './interface/link.ts';
 import { createCommandDesk, createCommandIntake, coreStatusFacts } from './interface/neptunia-cli.ts';
 import { createConsole } from './interface/commands/console.ts';
-import { holdIfPaused, resumeHeld } from './behavior/core-pause.ts';
+import { resumeHeld } from './behavior/core-pause.ts';
 import { configuredInterfaces, drainMs, interfaceEnabled } from './interface/mode.ts';
 import { loadPrincipals, principalOfToken } from './interface/principals.ts';
 import { claimCore } from './memory/db/open.ts';
 import { readLocalConfig, setPath, writeLocalConfig } from './tools/impl/shared.ts';
 import { moveConfigKeys } from './config-moves.ts';
-import { createIngestRecord, createRowsByMessage, observingWith } from './memory/db/ingest.ts';
+import { createIngestRecord } from './memory/db/ingest.ts';
 import { coreSocketPath, listenSocket } from './interface/socket.ts';
 import { MAX_FRAME_BYTES, connectSocket } from './protocol/wire.ts';
 import { createAroundStore } from './behavior/around-store.ts';
@@ -646,8 +647,6 @@ async function buildCore(
   const ingestRecord = createIngestRecord({ memoryDb, hot, now: Date.now });
   // The ingestion row of each message event the door is handling: the observation of its line writes the row in the
   // line's transaction (observe.js#observe).
-  const ingestRows = createRowsByMessage();
-  const observingDb = observingWith(memoryDb, ingestRecord, ingestRows);
   // The door is created below, once its handlers exist; an envelope that arrives sooner waits for it.
   const doorReady: PromiseWithResolvers<{ receive(value: unknown, from?: From): Promise<Envelope> }> =
     Promise.withResolvers();
@@ -1204,8 +1203,7 @@ async function buildCore(
     // A failed address gate and a replaced deferred follow-up are missed-answer facts.
     missed,
     // Every observed message goes to the memory database as an observation: the record of the line.
-    // Its observations carry the ingestion row of their event (ingestRows above).
-    memoryDb: observingDb,
+    memoryDb,
     // The limit and pause notices go out through the interface like any other effect.
     port: iface,
   });
@@ -1689,27 +1687,13 @@ async function buildCore(
   const door = createEventDoor({
     handlers: {
       // The second argument holds the event's ingestion row, which the observation of its line commits with the line.
-      'message.received': async (event: MessageReceived, context) => {
-        // A new message while paused is held for the resume, with its ingestion row (src/behavior/core-pause.ts).
-        holdIfPaused(event, context, store);
-        const release = ingestRows.hold(event, context.ingest);
-        try {
-          // The direct chats of members are learned from the messages seen in them.
-          directory.observe(event);
-          if (event.deleted) return await onMessage.onMessageDelete(event);
-          if (event.edit) return await onMessage.onMessageUpdate(event);
-          // A member's own message carries their avatar: a changed one is queued for a description.
-          offerAvatar(event.conversation?.communityId, event.message?.author);
-          const sender = context.authenticated;
-          const memoryContext =
-            sender?.kind === 'cli' && (!context.ingest || context.ingest.principal === sender.name)
-              ? memoryDb.issueContext({ kind: 'internal' })
-              : undefined;
-          return await onMessage(event, { memoryContext });
-        } finally {
-          release();
-        }
-      },
+      'message.received': createMessageProducers({
+        store,
+        onMessage,
+        observeDirectory: (event) => directory.observe(event),
+        offerAvatar: (event) => offerAvatar(event.conversation?.communityId, event.message?.author),
+        issueInternalContext: () => memoryDb.issueContext({ kind: 'internal' }),
+      }),
       // The reactor store follows the reactions on the persona's messages in the served guild, whatever
       // features.reactionNames says (a cheap map update; a switch turned on later finds it current).
       'reaction.changed': (event: ReactionChanged) => {

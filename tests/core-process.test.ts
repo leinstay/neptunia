@@ -350,8 +350,15 @@ test('an interface unit connects with its token, delivers a message and posts he
     await until(() => llm.requests.length === 1, 'the turn of m1');
     const posted = await postedOnce(unit, 1);
     assert.deepEqual(posted, [ANSWER]);
+    // The catalog retains native message IDs while sources.native_id stores an opaque family key.
     assert.deepEqual(
-      query(dirs, "SELECT native_id FROM sources WHERE kind = 'seen'").map((row) => row.native_id),
+      query(
+        dirs,
+        `SELECT f.message_id AS native_id FROM sources s
+        LEFT JOIN message_families f ON f.iface = s.iface AND f.authority_id = s.authority_id
+          AND f.native_kind = s.native_kind AND f.native_key = s.native_id AND f.generation = s.generation
+        WHERE s.kind = 'seen'`
+      ).map((row) => row.native_id),
       ['m1']
     );
   });
@@ -398,8 +405,15 @@ test('an event queued while the core was down survives the kill of its unit and 
     await pause(300);
     assert.deepEqual(await second.posted('c1'), [ANSWER], 'her reply is sent once');
     assert.equal(llm.requests.length, 2, 'one turn for m1 and one for m2');
+    // The catalog retains native message IDs while sources.native_id stores an opaque family key.
     assert.deepEqual(
-      query(dirs, "SELECT native_id FROM sources WHERE kind = 'seen' ORDER BY rowid").map((row) => row.native_id),
+      query(
+        dirs,
+        `SELECT f.message_id AS native_id FROM sources s
+        LEFT JOIN message_families f ON f.iface = s.iface AND f.authority_id = s.authority_id
+          AND f.native_kind = s.native_kind AND f.native_key = s.native_id AND f.generation = s.generation
+        WHERE s.kind = 'seen' ORDER BY s.rowid`
+      ).map((row) => row.native_id),
       ['m1', 'm2']
     );
   });

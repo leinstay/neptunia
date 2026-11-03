@@ -16,6 +16,7 @@
 //   times     `occurredAt` the message's time, `observedAt` the event's.
 // Returns null for an event that is no observable line: a deletion, a partial edit, a malformed event.
 
+import type { MessageDeletion } from './message-families.ts';
 import { messageLocator } from './message-locator.ts';
 import { OBSERVATION_VERSION } from './observe.ts';
 import type { Envelope, MessageConversation } from './observe.ts';
@@ -234,5 +235,29 @@ export function observationOf(
     mentions: mentioned,
     direct: direct === true,
     relations,
+  };
+}
+
+/** A deletion retains the route and time without requiring message content or an author. */
+export function deletionOf(event: Row): MessageDeletion | null {
+  const iface = event.iface;
+  const message = event.message as EventMessage | undefined;
+  if (!filled(iface) || iface.includes('/') || !message || event.deleted !== true) return null;
+  const conversation = event.conversation as EventConversation | undefined;
+  const locator = messageLocator(
+    { v: 1, origin: 'protocol-message', iface, conversationId: conversation?.id, messageId: message.id },
+    iface
+  );
+  const place = placeOf(conversation, `${iface}/global`);
+  const observedAt = isoOf(event.at);
+  if (!locator || !place || !observedAt) return null;
+  return {
+    v: 1,
+    iface,
+    authority: `${iface}/global`,
+    messageLocator: locator,
+    messageConversation: messageConversationOf(locator.conversationId, place, conversation),
+    occurredAt: isoOf(message.at) ?? observedAt,
+    observedAt,
   };
 }

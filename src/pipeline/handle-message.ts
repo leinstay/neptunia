@@ -142,13 +142,16 @@ export function createHandleMessage({
       // into the memory database and the core holds it for the resume, which hands it back through the catch-up path
       // (core-pause.ts), so it is not noted as live; a direct call also gets the pause notice (maybePauseNotice).
       if (store?.state?.data?.paused) {
-        if (!catchUp) await Promise.all([maybePauseNotice(event), observeWhilePaused(event, pausedDeps)]);
+        if (!catchUp)
+          await Promise.all([maybePauseNotice(event), observeWhilePaused(event, pausedDeps, options?.acceptedEvent)]);
         return 'ignored';
       }
 
       // 1b. Once per message across the gateway and the start's catch-up (checked and noted
       // before the first await, so the two paths never both take it).
-      const messageId = event.message.id ?? null;
+      const messageId = event.message.id
+        ? JSON.stringify([event.iface, event.conversation.id, event.message.id])
+        : null;
       if (messageId) {
         if (caughtUpIds.has(messageId)) return 'duplicate';
         if (catchUp) {
@@ -199,7 +202,7 @@ export function createHandleMessage({
         noteFollowUpSend(normalized.channelId, normalized.ts);
         if (memoryOn) {
           memory.observe(guildId, normalized);
-          const observing = observeLine(event, false, { guildId });
+          const observing = observeLine(event, false, { guildId }, options?.acceptedEvent);
           if (observing) await observing;
         }
         return 'observed';
@@ -235,7 +238,7 @@ export function createHandleMessage({
       const ownPrefill = warmMediaCache(guildId, normalized);
       if (memoryOn) {
         memory.observe(guildId, normalized, { direct: Boolean(kind) });
-        const observing = observeLine(event, Boolean(kind), { guildId });
+        const observing = observeLine(event, Boolean(kind), { guildId }, options?.acceptedEvent);
         if (observing) await observing;
       }
 
