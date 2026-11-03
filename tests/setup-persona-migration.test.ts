@@ -4,9 +4,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { applyPersonaLayers, planPersonaLayers } from '../src/config/persona-migration.ts';
-import type { PersonaLayerOptions, PersonaLayerIssue } from '../src/config/persona-migration.ts';
+import { applyPersonaLayers, planPersonaLayers } from '../src/setup/persona-migration.ts';
+import type { PersonaLayerOptions, PersonaLayerIssue } from '../src/setup/persona-migration.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { listAgents } from '../src/agent-runner/profiles.ts';
 
 function write(root: string, relative: string, bytes: string, mode = 0o640): void {
   const file = path.join(root, relative);
@@ -31,7 +32,7 @@ function fixture(): PersonaLayerOptions {
   return options;
 }
 
-function declareAgent(rootDir: string, override: string): void {
+function declareAgent(rootDir: string, override: string, prompt = 'prompt.md'): void {
   write(
     rootDir,
     'agents/probe/profile.json',
@@ -39,7 +40,7 @@ function declareAgent(rootDir: string, override: string): void {
       id: 'probe',
       kind: 'worker',
       role: 'server',
-      prompt: 'prompt.md',
+      prompt,
       override,
       tools: ['read', 'list'],
       shell: 'server-read-only',
@@ -373,13 +374,15 @@ test('holds agent contracts, interface contracts and unknown entries without rea
   try {
     const plan = applyPersonaLayers(options);
     assert.deepEqual(plan.conflicts, []);
+    // A validated declared override belongs to canonical agents, while undeclared aliases remain held.
+    assert.equal(fs.readFileSync(path.join(options.dataDir, 'agents/probe/prompt.md'), 'utf8'), 'custom agent');
+    assert.equal(fs.existsSync(path.join(options.dataDir, 'prompts/custom-worker.md')), false);
+    assert.equal(fs.existsSync(path.join(options.dataDir, 'agents/probe/agent-probe.md')), false);
     assert.deepEqual(plan.held, [
       { path: 'config.local/interfaces', reason: 'interface-contract' },
       { path: 'prompts.local/agent-probe.md', reason: 'agent-contract' },
-      { path: 'prompts.local/custom-worker.md', reason: 'agent-contract' },
       { path: 'prompts.local/unknown.bin', reason: 'unclassified' },
     ]);
-    assert.deepEqual(snapshot(options.dataDir), {});
   } finally {
     fs.chmodSync(path.join(options.privateDir, 'prompts.local/unknown.bin'), 0o640);
   }
@@ -505,4 +508,319 @@ test('preserves a competing destination created after staging and removes the st
   assert.equal(fs.statSync(target).mode & 0o777, 0o644);
   assert.deepEqual(snapshot(options.privateDir), sources);
   assert.deepEqual(fs.readdirSync(path.dirname(target)), ['rules.md']);
+});
+
+test('prepares a declared custom agent prompt without changing its source or canonical profile', () => {
+  // Catches renamed or trimmed prompts, settings synthesized into profiles and destructive source moves.
+  const options = fixture();
+  declareAgent(options.rootDir, 'custom-worker.md', 'instructions.md');
+  assert.doesNotThrow(() => listAgents({ rootDir: options.rootDir }));
+  const bytes = '\uFEFFWorker\r\n  exact spaces  \n';
+  write(options.privateDir, 'prompts.local/custom-worker.md', bytes);
+  write(options.privateDir, 'config.local/config.json', '{"agents":{"probe":{"steps":17}}}');
+  write(options.dataDir, 'agents/probe/profile.json', '{"description":"Personal description"}');
+  const source = snapshot(options.privateDir);
+  const target = snapshot(options.dataDir);
+  const planned = planPersonaLayers(options);
+  assert.deepEqual(planned.conflicts, []);
+  assert.ok(planned.steps.some((step) => step.target === 'agents/probe/instructions.md'));
+  assert.deepEqual(snapshot(options.dataDir), target, 'planning writes nothing');
+  assert.deepEqual(snapshot(options.privateDir), source);
+  const applied = applyPersonaLayers(options);
+  assert.deepEqual(applied.conflicts, []);
+  const file = path.join(options.dataDir, 'agents/probe/instructions.md');
+  assert.equal(fs.readFileSync(file, 'utf8'), bytes);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  assert.equal(
+    fs.readFileSync(path.join(options.dataDir, 'agents/probe/profile.json'), 'utf8'),
+    '{"description":"Personal description"}'
+  );
+  assert.equal(
+    fs.readFileSync(path.join(options.dataDir, 'config/config.json'), 'utf8'),
+    '{"agents":{"probe":{"steps":17}}}'
+  );
+  assert.deepEqual(snapshot(options.privateDir), source);
+  const after = snapshot(options.dataDir);
+  const repeated = applyPersonaLayers(options);
+  assert.deepEqual(repeated.conflicts, []);
+  assert.deepEqual(repeated.steps, []);
+  assert.ok(repeated.unchanged.includes('agents/probe/instructions.md'));
+  assert.deepEqual(snapshot(options.dataDir), after);
+});
+
+test('creates private agent directories and preserves an empty declared prompt', () => {
+  // Catches falling back to a shared prompt when an existing personal file is intentionally empty.
+  const options = fixture();
+  declareAgent(options.rootDir, 'agent-probe.md');
+  write(options.privateDir, 'prompts.local/agent-probe.md', '');
+  const plan = applyPersonaLayers(options);
+  assert.deepEqual(plan.conflicts, []);
+  assert.equal(fs.readFileSync(path.join(options.dataDir, 'agents/probe/prompt.md'), 'utf8'), '');
+  for (const folder of ['agents', 'agents/probe']) {
+    assert.equal(fs.statSync(path.join(options.dataDir, folder)).mode & 0o777, 0o700);
+  }
+});
+
+test('leaves a missing declared override absent instead of copying the shared default', () => {
+  // Catches converting shared defaults into permanent personal overrides.
+  const options = fixture();
+  declareAgent(options.rootDir, 'agent-probe.md');
+  write(options.rootDir, 'agents/probe/prompt.md', 'shared instructions');
+  assert.deepEqual(applyPersonaLayers(options), { steps: [], unchanged: [], held: [], conflicts: [] });
+  assert.deepEqual(snapshot(options.dataDir), {});
+});
+
+test('holds an unclassified development prompt with a null override', () => {
+  // Catches activating an agent-named file that the development profile never selected.
+  const options = fixture();
+  write(
+    options.rootDir,
+    'agents/build/profile.json',
+    JSON.stringify({
+      id: 'build',
+      kind: 'development',
+      role: 'dev',
+      prompt: 'prompt.md',
+      override: null,
+      tools: ['read'],
+      permission: { read: 'allow' },
+      effort: 'medium',
+      limits: { steps: 50, minutes: 30 },
+      cost: { input: 2, output: 10 },
+      description: 'A builder.',
+    })
+  );
+  assert.doesNotThrow(() => listAgents({ rootDir: options.rootDir }));
+  write(options.privateDir, 'prompts.local/agent-build.md', 'unclassified development instructions');
+  const plan = applyPersonaLayers(options);
+  assert.deepEqual(plan.conflicts, []);
+  assert.deepEqual(plan.held, [{ path: 'prompts.local/agent-build.md', reason: 'agent-contract' }]);
+  assert.deepEqual(snapshot(options.dataDir), {});
+});
+
+for (const field of ['id', 'prompt', 'override', 'tools'] as const) {
+  test(`refuses invalid shared agent ${field} before copying any files`, () => {
+    // Catches authorizing a destination from an invalid shared definition.
+    const options = fixture();
+    declareAgent(options.rootDir, 'custom-worker.md');
+    const file = path.join(options.rootDir, 'agents/probe/profile.json');
+    const profile = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    profile[field] = field === 'id' ? 'other' : field === 'prompt' ? 'instructions.txt' : null;
+    fs.writeFileSync(file, JSON.stringify(profile));
+    write(options.privateDir, 'prompts.local/custom-worker.md', 'custom');
+    assertRefuses(options, 'invalid-shape');
+  });
+}
+
+test('refuses a conflicting canonical agent prompt before copying ordinary prompts', () => {
+  // Catches partial migration and overwriting an independently supplied personal prompt.
+  const options = fixture();
+  declareAgent(options.rootDir, 'agent-probe.md');
+  write(options.privateDir, 'prompts.local/agent-probe.md', 'legacy');
+  write(options.dataDir, 'agents/probe/prompt.md', 'canonical');
+  const source = snapshot(options.privateDir);
+  assertRefuses(options, 'different-content');
+  assert.equal(
+    fs.readFileSync(path.join(options.privateDir, 'prompts.local/agent-probe.md'), 'utf8'),
+    source['prompts.local/agent-probe.md'].content
+  );
+});
+
+for (const selected of ['default', 'tracked', 'private', 'old-private', 'external', 'parent-relative', 'blank']) {
+  test(`copies the ${selected} watcher prompt from its resolved engine location`, () => {
+    // Catches choosing watcher paths relative to private or data roots and ignoring effective configuration.
+    const options = fixture();
+    const external = path.join(path.dirname(options.rootDir), 'external-watcher');
+    const tracked = selected === 'tracked' ? 'tracked-watch' : '.agents/watcher';
+    write(options.rootDir, 'config/config.json', JSON.stringify({ watcher: { dir: tracked } }));
+    const relative =
+      selected === 'private' || selected === 'old-private'
+        ? 'personal-watch'
+        : selected === 'external'
+          ? external
+          : selected === 'parent-relative'
+            ? '../external-watcher'
+            : selected === 'blank'
+              ? '   '
+              : tracked;
+    if (['private', 'old-private', 'external', 'parent-relative', 'blank'].includes(selected)) {
+      write(
+        options.privateDir,
+        selected === 'old-private' ? 'config.local.json' : 'config.local/config.json',
+        JSON.stringify({ watcher: { dir: relative } })
+      );
+    }
+    const sourceDir = path.resolve(options.rootDir, relative.trim() || '.agents/watcher');
+    const bytes = 'Watcher\r\n  preserve whitespace  \n';
+    write(sourceDir, 'prompt.md', bytes);
+    write(sourceDir, 'reports/2026-01-01.md', 'report stays outside agents');
+    if (!path.isAbsolute(relative) && !relative.startsWith('..')) {
+      write(options.privateDir, path.join(relative.trim() || '.agents/watcher', 'prompt.md'), 'private decoy');
+      write(options.dataDir, path.join(relative.trim() || '.agents/watcher', 'prompt.md'), 'data decoy');
+    }
+    const source = snapshot(sourceDir);
+    const before = snapshot(options.dataDir);
+    const plan = planPersonaLayers(options);
+    assert.deepEqual(plan.conflicts, []);
+    assert.ok(plan.steps.some((step) => step.target === 'agents/watcher/prompt.md'));
+    assert.deepEqual(snapshot(options.dataDir), before);
+    assert.deepEqual(applyPersonaLayers(options).conflicts, []);
+    const target = path.join(options.dataDir, 'agents/watcher/prompt.md');
+    assert.equal(fs.readFileSync(target, 'utf8'), bytes);
+    assert.equal(fs.statSync(target).mode & 0o777, 0o600);
+    assert.equal(fs.existsSync(path.join(options.dataDir, 'agents/watcher/reports')), false);
+    assert.deepEqual(snapshot(sourceDir), source);
+    assert.ok(applyPersonaLayers(options).unchanged.includes('agents/watcher/prompt.md'));
+  });
+}
+
+test('refuses a conflicting watcher prompt before copying any files', () => {
+  // Catches silently replacing an existing watcher personality during preparatory migration.
+  const options = fixture();
+  write(options.rootDir, '.agents/watcher/prompt.md', 'legacy watcher');
+  write(options.dataDir, 'agents/watcher/prompt.md', 'canonical watcher');
+  assertRefuses(options, 'different-content');
+});
+
+test('refuses conflicting watcher configuration alternatives before copying either prompt', () => {
+  // Catches choosing one legacy configuration arbitrarily and producing a partial persona.
+  const options = fixture();
+  write(options.privateDir, 'config.local.json', '{"watcher":{"dir":"first"}}');
+  write(options.privateDir, 'config.local/config.json', '{"watcher":{"dir":"second"}}');
+  write(options.rootDir, 'first/prompt.md', 'first watcher');
+  write(options.rootDir, 'second/prompt.md', 'second watcher');
+  assertRefuses(options, 'different-content');
+});
+
+for (const side of ['source-file', 'source-directory', 'source-ancestor', 'target-directory']) {
+  test(`refuses a watcher ${side} symlink before copying any files`, () => {
+    // Catches a portable persona depending on a file outside its declared path through a symlink.
+    const options = fixture();
+    const external = path.join(path.dirname(options.rootDir), 'watcher-external');
+    write(external, 'prompt.md', 'external prompt');
+    if (side === 'source-directory') {
+      fs.mkdirSync(path.join(options.rootDir, '.agents'));
+      fs.symlinkSync(external, path.join(options.rootDir, '.agents/watcher'));
+    } else if (side === 'source-file') {
+      fs.mkdirSync(path.join(options.rootDir, '.agents/watcher'), { recursive: true });
+      fs.symlinkSync(path.join(external, 'prompt.md'), path.join(options.rootDir, '.agents/watcher/prompt.md'));
+    } else if (side === 'source-ancestor') {
+      const alias = path.join(path.dirname(options.rootDir), 'watcher-alias');
+      fs.symlinkSync(external, alias);
+      write(external, 'nested/prompt.md', 'nested prompt');
+      write(options.privateDir, 'config.local/config.json', JSON.stringify({ watcher: { dir: `${alias}/nested` } }));
+    } else {
+      write(options.rootDir, '.agents/watcher/prompt.md', 'watcher');
+      fs.mkdirSync(path.join(options.dataDir, 'agents'));
+      fs.symlinkSync(external, path.join(options.dataDir, 'agents/watcher'));
+    }
+    const before = snapshot(external);
+    assertRefuses(options, 'unsafe-path');
+    assert.deepEqual(snapshot(external), before);
+  });
+}
+
+for (const entry of ['shared-profile', 'shared-directory', 'target-directory']) {
+  test(`refuses an agent ${entry} symlink before copying any files`, () => {
+    // Catches trusting profile metadata or installing prompts through a linked agent directory.
+    const options = fixture();
+    declareAgent(options.rootDir, 'agent-probe.md');
+    write(options.privateDir, 'prompts.local/agent-probe.md', 'personal prompt');
+    const external = path.join(path.dirname(options.rootDir), 'external-agent');
+    fs.mkdirSync(external);
+    const shared = path.join(options.rootDir, 'agents/probe');
+    if (entry === 'shared-profile') {
+      fs.renameSync(path.join(shared, 'profile.json'), path.join(external, 'profile.json'));
+      fs.symlinkSync(path.join(external, 'profile.json'), path.join(shared, 'profile.json'));
+    } else if (entry === 'shared-directory') {
+      fs.rmdirSync(external);
+      fs.renameSync(shared, external);
+      fs.symlinkSync(external, shared);
+    } else {
+      fs.mkdirSync(path.join(options.dataDir, 'agents'));
+      fs.symlinkSync(external, path.join(options.dataDir, 'agents/probe'));
+    }
+    const before = snapshot(external);
+    assertRefuses(options, 'unsafe-path');
+    assert.deepEqual(snapshot(external), before);
+  });
+}
+
+for (const layout of ['absent', 'readme'] as const) {
+  test(`copies ordinary settings when the agents directory is ${layout}`, () => {
+    const options = fixture();
+    if (layout === 'absent') fs.rmdirSync(path.join(options.rootDir, 'agents'));
+    else write(options.rootDir, 'agents/README.md', 'Shared agent documentation.');
+    const settings = '{"watcher":{"enabled":false}}\n';
+    write(options.privateDir, 'config.local/config.json', settings);
+    const plan = applyPersonaLayers(options);
+    assert.deepEqual(plan.conflicts, []);
+    assert.deepEqual(Object.keys(snapshot(options.dataDir)), ['config', 'config/config.json']);
+    assert.equal(fs.readFileSync(path.join(options.dataDir, 'config/config.json'), 'utf8'), settings);
+  });
+}
+
+test('copies ordinary settings when the tracked settings file is blank', () => {
+  const options = fixture();
+  write(options.rootDir, 'config/config.json', ' \n');
+  const settings = '{"watcher":{"enabled":false}}\n';
+  write(options.privateDir, 'config.local/config.json', settings);
+  const plan = applyPersonaLayers(options);
+  assert.deepEqual(plan.conflicts, []);
+  assert.equal(fs.readFileSync(path.join(options.dataDir, 'config/config.json'), 'utf8'), settings);
+});
+
+test('holds an agent override outside the selected prompts directory', () => {
+  const options = fixture();
+  declareAgent(options.rootDir, 'agent-probe.md');
+  write(options.privateDir, 'agent-probe.md', 'unselected instructions');
+  write(options.privateDir, 'config.local/agent-probe.md', 'unselected instructions');
+  const plan = applyPersonaLayers(options);
+  assert.deepEqual(plan.conflicts, []);
+  assert.deepEqual(snapshot(options.dataDir), {});
+  assert.deepEqual(
+    plan.held.map((entry) => entry.path),
+    ['agent-probe.md', 'config.local/agent-probe.md']
+  );
+});
+
+test('holds an override for a consultation with no prompt while copying ordinary settings', () => {
+  const options = fixture();
+  write(
+    options.rootDir,
+    'agents/advice/profile.json',
+    JSON.stringify({
+      id: 'advice',
+      kind: 'consultation',
+      role: 'thinker',
+      prompt: null,
+      override: 'agent-advice.md',
+      description: 'A synthetic consultation.',
+    })
+  );
+  assert.doesNotThrow(() => listAgents({ rootDir: options.rootDir }));
+  write(options.privateDir, 'prompts.local/agent-advice.md', 'unselected consultation instructions');
+  const settings = '{"watcher":{"enabled":false}}\n';
+  write(options.privateDir, 'config.local/config.json', settings);
+  const plan = applyPersonaLayers(options);
+  assert.deepEqual(plan.conflicts, []);
+  assert.deepEqual(
+    plan.held.map((entry) => entry.path),
+    ['prompts.local/agent-advice.md']
+  );
+  assert.deepEqual(Object.keys(snapshot(options.dataDir)), ['config', 'config/config.json']);
+  assert.equal(fs.readFileSync(path.join(options.dataDir, 'config/config.json'), 'utf8'), settings);
+});
+
+test('writes only the declared destination when copying an agent override', () => {
+  const options = fixture();
+  declareAgent(options.rootDir, 'agent-probe.md', 'instructions.md');
+  write(options.privateDir, 'prompts.local/agent-probe.md', 'selected instructions\n');
+  const plan = applyPersonaLayers(options);
+  assert.deepEqual(plan.conflicts, []);
+  assert.deepEqual(Object.keys(snapshot(options.dataDir)), ['agents', 'agents/probe', 'agents/probe/instructions.md']);
+  assert.equal(
+    fs.readFileSync(path.join(options.dataDir, 'agents/probe/instructions.md'), 'utf8'),
+    'selected instructions\n'
+  );
 });

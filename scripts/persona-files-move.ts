@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Copies supported personal overrides into an isolated persona root after a read-only conflict check.
 import path from 'node:path';
-import { applyPersonaLayers, planPersonaLayers } from '../src/config/persona-migration.ts';
+import { applyPersonaLayers, planPersonaLayers } from '../src/setup/persona-migration.ts';
 import { CliError, runCli } from './lib/cli.ts';
 
 const USAGE =
