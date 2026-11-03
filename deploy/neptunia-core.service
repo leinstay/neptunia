@@ -20,7 +20,7 @@ Conflicts=neptunia-bot.service
 [Service]
 Type=simple
 WorkingDirectory=/opt/neptunia/app
-ExecStart=/usr/bin/node src/index.ts
+ExecStart=/opt/node/bin/node src/index.ts
 User=neptunia-bot
 Group=neptunia
 Restart=on-failure

@@ -23,7 +23,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/neptunia/app
-ExecStart=/usr/bin/node bin/neptunia.ts plugin run %i
+ExecStart=/opt/node/bin/node bin/neptunia.ts plugin run %i
 User=neptunia-plugin-%i
 Group=neptunia
 # The runner opens the link again by itself, and the core refuses a plugin that is
