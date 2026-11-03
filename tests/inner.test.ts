@@ -1,8 +1,4 @@
-// Tests for the inner life's scheduler (src/behavior/inner.ts): what is due is listed and handed
-// through the event door as wakes, compatible wakes coalesce into one inner turn, a wake waits
-// while the attention is held, the state survives a restart, the daily review falls inside her
-// active hours, the caps refuse a turn, the kill switch stops and drops, and the journal records
-// it all. A fake turn runner, intention service and record; a temp data directory; no network.
+// Inner scheduler tests use injected clocks, a real event door and synthetic stores without network calls.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -35,6 +31,7 @@ import { createIntention } from '../src/intentions/model.ts';
 import { localHour } from '../src/format.ts';
 import { HOUR_MS, MINUTE_MS, DAY_MS, zonedEpoch } from '../src/time.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { unitValue } from '../src/memory/db/readers/common.ts';
 import {
   GUILD,
   NOW,
@@ -177,14 +174,12 @@ test('inner: the queue, the handled wakes and the stop survive a restart; missed
   first.turns.busy = true;
   await first.inner.tick();
   assert.equal(first.inner.status(GUILD).queue.length, 2);
-  // A new process over the same data directory, hours later.
   clock.t = NOW + 3 * HOUR_MS;
   const second = setup({ records, dataDir });
   assert.equal(second.inner.status(GUILD).queue.length, 2);
   await second.inner.tick();
   assert.equal(second.turns.calls.length, 1, 'one turn for both');
   assert.equal(second.turns.calls[0].inner.wake.items.length, 2);
-  // Handled survives: a third process lists nothing new.
   const third = setup({ records, dataDir });
   await third.inner.tick();
   assert.equal(third.turns.calls.length, 0);
@@ -223,7 +218,6 @@ test('drawReviewAt: a seeded draw falls in an hour she speaks in, never before n
     notBefore: NOW,
   });
   assert.ok(present(any) >= NOW && present(any) < zonedEpoch('2026-10-20', 0, 0, 'UTC'));
-  // The same seed, the same moment.
   assert.equal(
     drawReviewAt({ day: '2026-10-19', weights, timezone, rng: seeded(9) }),
     drawReviewAt({ day: '2026-10-19', weights, timezone, rng: seeded(9) })
@@ -451,7 +445,6 @@ test('inner: stop drops the queue and is seen by a running turn before its next 
 const queueFillers = (count: number) =>
   [...Array(count).keys()].map((n) => intention(`q${n}`, { channelId: `c-q${n}` }));
 
-// PR 7d: `wakes.queueMax` is the constant 20, so twenty wakes fill the queue.
 test('inner: a wake whose intention closed meanwhile is stale; a full queue records the overflow', async () => {
   const records = queueFillers(20);
   const run = setup({ records });
@@ -521,25 +514,30 @@ test("wakeOfDue: a wait past its deadline names its errand; the chain is the int
   assert.equal(wakeOfDue({ intention: intention('i2'), reason: 'due', at: 7 }).chainId, 'intention:i2');
 });
 
-test('inner: what one drain hands off (a stale wake) and keeps (the wake of a held chain) is all on disk afterwards', async () => {
+test('inner: one drain persists its stale wake, held chain and facts in the database', async () => {
   const dataDir = tempDir('nep-inner-drain-');
   const records = [
     intention('i1', { dueAt: NOW - 3 * MINUTE_MS }),
     intention('i2', { dueAt: NOW - 2 * MINUTE_MS, chainId: 'k' }),
   ];
   const hot = hotWith({ wakes: { caps: { perChain: 1 } } });
-  // The queue and the handled set live in the memory database (stage 4 cut, the lead's decision 1); the facts stay in inner.json.
+  // With a database supplied, queue dispositions and inner facts persist through the database writer.
   const db = wakeMemory(dataDir, () => clock.t);
   const run = setup({ records, dataDir, hot, memoryDb: db.memoryDb });
   run.turns.busy = true;
   await run.inner.tick();
-  // Chain k already spent; i1 closed meanwhile.
   run.inner.state(GUILD).turns.push(wrongly({ at: NOW - MINUTE_MS, chainId: 'chain:k', outcome: 'spoke' }));
   records[0].status = 'done';
   run.turns.busy = false;
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 0);
-  const onDisk = JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', GUILD, 'inner.json'), 'utf8'));
+  await run.inner.release();
+  const handle = db.memoryDb.readHandle();
+  assert.ok(handle);
+  const saved = unitValue(handle.db, `guilds/${GUILD}/inner.json`);
+  assert.ok(saved.found);
+  const facts: unknown = Reflect.get(Object(saved.value), 'facts');
+  assert.ok(Array.isArray(facts));
   assert.deepEqual(
     db
       .queue()
@@ -556,7 +554,9 @@ test('inner: what one drain hands off (a stale wake) and keeps (the wake of a he
     'the hold, told by a feedback wake'
   );
   assert.deepEqual(
-    onDisk.facts.map((fact: Record<string, Untyped>) => `${fact.kind}:${fact.code}`),
+    facts.map(
+      (fact: unknown) => `${String(Reflect.get(Object(fact), 'kind'))}:${String(Reflect.get(Object(fact), 'code'))}`
+    ),
     ['wakeDropped:stale', 'wakeHeld:per-chain']
   );
   assert.deepEqual(

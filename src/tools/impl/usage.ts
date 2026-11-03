@@ -6,9 +6,9 @@
 // accumulator is fed by the `llm: usage` log lines (src/log.ts#onLog, subscribed in src/index.ts
 // via `usageTap`), the one place every chat completion and embedding request reports its tokens
 // and cost, and by the `images: generated` lines (a picture: the `drawing` role, a cost and no
-// tokens); it keeps the last KEEP_DAYS UTC days (today included), in memory, and `data/usage.json`
+// tokens); it keeps the last KEEP_DAYS UTC days (today included), in memory, and the database `usage.json` unit
 // keeps them across a restart (written at most once a minute, and once more on shutdown;
-// write-temp + rename). A line that names the interface of its turn (`iface`) also adds to that interface's row
+// through the memory writer). A line that names the interface of its turn (`iface`) also adds to that interface's row
 // of the day, kept apart from the role rows. Only numbers, role codes and interface names are kept. The costs are OpenRouter's reported
 // ones: a BYOK request is billed by the provider and shows here at OpenRouter's list price (the
 // upstream cost when the answer carries it). The renderers are pure and take every word from
@@ -16,6 +16,8 @@
 
 import * as nodeFs from 'node:fs';
 import path from 'node:path';
+import { createReadSeam, unitValue } from '../../memory/db/readers/common.ts';
+import type { MemoryDbService } from '../../memory/db/service.ts';
 import { MINUTE_MS, DAY_MS, utcDay, utcMinute } from '../../time.ts';
 import { fill } from '../../format.ts';
 import { log as defaultLog } from '../../log.ts';
@@ -137,16 +139,19 @@ function cleanRow(row: unknown): Counters {
  */
 export function createUsage({
   dataDir,
+  memoryDb,
   now = Date.now,
   fs = nodeFs,
   log = defaultLog,
 }: {
   dataDir: string;
+  memoryDb?: Pick<MemoryDbService, 'readHandle' | 'writeUnit'>;
   now?: () => number;
   fs?: typeof nodeFs;
   log?: { warn: (message: string, fields?: Obj) => void };
 }): Usage {
   const file = path.join(dataDir, USAGE_FILE);
+  const seam = createReadSeam({ memoryDb, log, reader: 'usage' });
   const days: Record<string, Record<string, Counters>> = {}; // day -> role -> counters
   const ifaces: Record<string, Record<string, Counters>> = {}; // day -> interface -> counters
   const keyed: Record<string, Record<string, Counters>> = {}; // day -> key variable name -> counters
@@ -178,8 +183,14 @@ export function createUsage({
   function load(): void {
     let parsed: unknown;
     try {
-      parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
+      parsed = memoryDb
+        ? seam.run(() => {
+            const found = unitValue(seam.db(), USAGE_FILE);
+            return found.found ? found.value : null;
+          })
+        : (JSON.parse(fs.readFileSync(file, 'utf8')) as unknown);
     } catch (error) {
+      if (memoryDb) throw error;
       const code = objOf(error).code;
       if (code !== 'ENOENT') log.warn('usage: load failed', { code: code ?? null });
       return;
@@ -281,12 +292,17 @@ export function createUsage({
   async function write(): Promise<void> {
     prune();
     // The interface and key rows go in only when a request named one, so a file without them stays as it was.
-    const text = JSON.stringify({
+    const value = {
       v: VERSION,
       days,
       ...(Object.keys(ifaces).length > 0 ? { interfaces: ifaces } : {}),
       ...(Object.keys(keyed).length > 0 ? { keys: keyed } : {}),
-    });
+    };
+    if (memoryDb) {
+      await memoryDb.writeUnit({ op: 'value', owner: USAGE_FILE, value });
+      return;
+    }
+    const text = JSON.stringify(value);
     const tmp = `${file}.tmp`;
     await fs.promises.mkdir(dataDir, { recursive: true });
     await fs.promises.writeFile(tmp, text);

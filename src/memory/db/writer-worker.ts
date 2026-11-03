@@ -18,6 +18,7 @@
 
 import { parentPort } from 'node:worker_threads';
 import process from 'node:process';
+import { importCoreJsonState } from './core-state-import.ts';
 import { openMemoryDb } from './open.ts';
 import { insertTurnReads, turnReadRows } from './service.ts';
 import { applyDiaryUpdate } from './diary-media.ts';
@@ -59,8 +60,11 @@ const log = {
 };
 
 const handlers: Record<string, (message: Row) => unknown> = {
-  open({ path, context }) {
+  open({ path, context, now }) {
     handle = openMemoryDb(path, { alive, context: context ?? {} });
+    const dataDir = (context as Row | undefined)?.dataDir;
+    if (typeof dataDir === 'string')
+      importCoreJsonState(handle, { dataDir, ...(typeof now === 'number' ? { now } : {}) });
     return {};
   },
   turnReads({ turnId, step, guildId, reads, rows: given }) {

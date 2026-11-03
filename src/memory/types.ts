@@ -66,6 +66,5 @@ export function readSeamOf(
   log: Pick<Log, 'warn'>,
   reader: string
 ): ReturnType<typeof createReadSeam> {
-  // The handle types its `db` as `object`; the seam reads it as the database.
-  return createReadSeam({ memoryDb: memoryDb as Parameters<typeof createReadSeam>[0]['memoryDb'], log, reader });
+  return createReadSeam({ memoryDb, log, reader });
 }

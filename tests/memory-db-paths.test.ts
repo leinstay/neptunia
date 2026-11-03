@@ -55,27 +55,27 @@ const MAPPED: Array<[string, string, ListName]> = [
   [`${G}/channels/200000000000000001.json`, 'channel', 'memory'],
   [`${G}/guild.json`, 'guild', 'memory'],
   [`${G}/lore.json`, 'lore', 'memory'],
-  [`${G}/participation.json`, 'participation', 'operational'],
+  [`${G}/participation.json`, 'participation', 'memory'],
   [`${G}/recent.json`, 'recent', 'memory'],
   [`${G}/diary.json`, 'diary', 'memory'],
   [`${G}/intentions.json`, 'intentions', 'memory'],
   [`${G}/intentions-archive.jsonl`, 'intentions', 'memory'],
   [`${G}/errands.json`, 'errands', 'memory'],
   [`${G}/errands.jsonl`, 'errands', 'memory'],
-  [`${G}/media.json`, 'media', 'operational'],
-  [`${G}/gifs.json`, 'gifs', 'operational'],
+  [`${G}/media.json`, 'media', 'memory'],
+  [`${G}/gifs.json`, 'gifs', 'memory'],
   [`${G}/recall-trace.jsonl`, 'verbatim', 'operational'],
   [`${G}/voice.json`, 'verbatim', 'memory'],
   [`${G}/buffer.json`, 'verbatim', 'memory'],
-  [`${G}/inner.json`, 'verbatim', 'operational'],
-  [`${G}/missed.json`, 'verbatim', 'operational'],
+  [`${G}/inner.json`, 'verbatim', 'memory'],
+  [`${G}/missed.json`, 'verbatim', 'memory'],
   [`${G}/forgotten.json`, 'verbatim', 'memory'],
   [`${G}/forgetting/${MEMBER}.json`, 'verbatim', 'memory'],
   [`${G}/backfill/candidates.jsonl`, 'verbatim', 'operational'],
   [`${G}/backfill/progress.json`, 'verbatim', 'operational'],
 ];
 
-/** One path of every pattern the sync skips (map/index.js SKIPPED): all operational. */
+/** One path of every pattern the generic sync skips, including root state handled by its dedicated writer. */
 const SKIPPED: Array<string> = [
   'state.json',
   'usage.json',
@@ -145,10 +145,12 @@ test('allowlist: every path the sync maps is in exactly one list, the one the sp
   assert.deepEqual([...new Set(MAPPED.map(([, kind]) => kind))].sort(), Object.keys(MAPPERS).sort());
 });
 
-test('allowlist: every path the sync skips is operational, and so are the leftovers of a memory file', () => {
+test('allowlist: sync-skipped root state uses the database while unrelated files and leftovers stay operational', () => {
   for (const rel of SKIPPED) {
     assert.equal((classify(rel) as { skipped?: true } | null)?.skipped, true, `${rel} is a path the sync skips`);
-    assert.deepEqual(inLists(rel), [true, false], rel);
+    // The root-state writer owns these three skipped units. Unrelated guild and private paths keep their class.
+    const rootState = ['state.json', 'usage.json', 'metrics.json'].includes(rel);
+    assert.deepEqual(inLists(rel), rootState ? [false, true] : [true, false], rel);
   }
 });
 
@@ -177,15 +179,7 @@ test('allowlist: every file of the fixture data directory is in exactly one list
       .filter(isOperational)
       .map((rel) => rel.replace(`${G}/`, ''))
       .sort();
-    assert.deepEqual(operational, [
-      'gifs.json',
-      'inner.json',
-      'journal/requests/2026-10-20/turn-1-s1.json',
-      'media.json',
-      'participation.json',
-      'recall-trace.jsonl',
-      'state.json',
-    ]);
+    assert.deepEqual(operational, ['journal/requests/2026-10-20/turn-1-s1.json', 'recall-trace.jsonl']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

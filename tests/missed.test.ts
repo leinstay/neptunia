@@ -26,6 +26,7 @@ import {
 } from '../src/behavior/missed.ts';
 import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
 // The conversations are held by a fake interface named `fake`.
@@ -259,6 +260,7 @@ function scene({
   dataDir = tmpData(),
   prompts = { missed: 'Check for {{name}}.', labels },
   channels = [],
+  memoryDb,
 }: {
   config?: ReturnType<typeof baseConfig>;
   history?: Array<ReturnType<typeof msg>>;
@@ -268,6 +270,7 @@ function scene({
   paused?: boolean;
   canSend?: (channel: { id: string }) => boolean;
   dataDir?: string;
+  memoryDb?: Pick<Awaited<ReturnType<typeof openTestMemory>>['memoryDb'], 'readHandle' | 'writeUnit'>;
   prompts?: Record<string, unknown>;
   channels?: Array<{ id: string; recipientId: string }>;
 } = {}) {
@@ -305,6 +308,7 @@ function scene({
     getGuildId: () => 'g1',
     getSelfName: () => 'Bot',
     dataDir,
+    ...(memoryDb ? { memoryDb } : {}),
     now: clock,
     timers,
     log,
@@ -1244,4 +1248,30 @@ test("createMissed: a failed turn opened by a finished errand (task) is a candid
       ['m2', 'turn-error', 'd1'],
     ]
   );
+});
+
+test('missed candidates saved through the writer survive reopening without missed.json', async () => {
+  let memory = await openTestMemory({ now: () => T0 });
+  const dataDir = memory.dataDir;
+  let current = scene({ dataDir, memoryDb: memory.memoryDb });
+  const file = path.join(dataDir, 'guilds/g1/missed.json');
+  try {
+    await current.missed.start('g1');
+    current.missed.noteFact(fact('gate-failed', msg({ id: 'persisted-candidate' })));
+    await current.missed.save();
+    assert.equal(fs.existsSync(file), false);
+    current.missed.stop();
+    await memory.close();
+    memory = await openTestMemory({ dataDir, now: () => T0 });
+    current = scene({ dataDir, memoryDb: memory.memoryDb });
+    await current.missed.start('g1');
+    assert.deepEqual(
+      current.missed.candidates().map((candidate) => [candidate.messageId, candidate.state]),
+      [['persisted-candidate', 'pending']]
+    );
+    assert.equal(fs.existsSync(file), false);
+  } finally {
+    current.missed.stop();
+    await memory.close();
+  }
 });

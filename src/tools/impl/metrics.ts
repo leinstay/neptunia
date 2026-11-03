@@ -1,12 +1,14 @@
 // The speed figures of the owner's `/nep status` card: how long a reply, a recall step, an analyzer batch or an embedding flush took over the last day. The durations come
 // from the log lines that already carry them (src/log.ts#onLog, subscribed in src/index.ts via
 // `metricsTap`); each metric keeps its samples of the last 24 h, at most MAX_SAMPLES (the oldest
-// go first), in memory, and `data/metrics.json` keeps them across a restart (written at most once
-// a minute, and once more on shutdown; write-temp + rename). Only numbers are kept: a name, a time
+// go first), in memory, and the database `metrics.json` unit keeps them across a restart (written at most once
+// a minute, and once more on shutdown, through the memory writer). Only numbers are kept: a name, a time
 // and a duration, never a message or an id.
 
 import * as nodeFs from 'node:fs';
 import path from 'node:path';
+import { createReadSeam, unitValue } from '../../memory/db/readers/common.ts';
+import type { MemoryDbService } from '../../memory/db/service.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS } from '../../time.ts';
 import { log as defaultLog } from '../../log.ts';
 import { isObj, objOf } from '../types.ts';
@@ -88,16 +90,19 @@ function summarize(values: ReadonlyArray<number>): Summary {
  */
 export function createMetrics({
   dataDir,
+  memoryDb,
   now = Date.now,
   fs = nodeFs,
   log = defaultLog,
 }: {
   dataDir: string;
+  memoryDb?: Pick<MemoryDbService, 'readHandle' | 'writeUnit'>;
   now?: () => number;
   fs?: typeof nodeFs;
   log?: { warn: (message: string, fields?: Obj) => void };
 }): Metrics {
   const file = path.join(dataDir, METRICS_FILE);
+  const seam = createReadSeam({ memoryDb, log, reader: 'metrics' });
   const series = new Map<string, Array<Sample>>(); // name -> [[atMs, ms], ...], oldest first
   let dirty = false;
   let lastSaveAt = -Infinity;
@@ -119,8 +124,14 @@ export function createMetrics({
   function load(): void {
     let parsed: unknown;
     try {
-      parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
+      parsed = memoryDb
+        ? seam.run(() => {
+            const found = unitValue(seam.db(), METRICS_FILE);
+            return found.found ? found.value : null;
+          })
+        : (JSON.parse(fs.readFileSync(file, 'utf8')) as unknown);
     } catch (error) {
+      if (memoryDb) throw error;
       const code = objOf(error).code;
       if (code !== 'ENOENT') log.warn('metrics: load failed', { code: code ?? null });
       return;
@@ -170,7 +181,12 @@ export function createMetrics({
 
   async function write(): Promise<void> {
     for (const name of [...series.keys()]) prune(name);
-    const text = JSON.stringify({ v: VERSION, samples: Object.fromEntries(series) });
+    const value = { v: VERSION, samples: Object.fromEntries(series) };
+    if (memoryDb) {
+      await memoryDb.writeUnit({ op: 'value', owner: METRICS_FILE, value });
+      return;
+    }
+    const text = JSON.stringify(value);
     const tmp = `${file}.tmp`;
     await fs.promises.mkdir(dataDir, { recursive: true });
     await fs.promises.writeFile(tmp, text);

@@ -14,6 +14,7 @@
 // with code `DB_CLOSED` when the database is not open (or no service is given). A failed database read is an error to
 // the caller, logged once with its code (`memory db: read failed`, fields `reader` and `code`). Logs carry codes only.
 
+import { rootStateKind } from '../paths.ts';
 import { filesOfUnit, unitRows } from '../export.ts';
 import { classify } from '../map/index.ts';
 import type { MappedPath } from '../map/index.ts';
@@ -98,6 +99,13 @@ export function unitLines(dbGiven: unknown, owner: string): Array<string> {
 export function unitValue(dbGiven: unknown, ownerGiven: unknown): { found: true; value: unknown } | { found: false } {
   const db = dbGiven as Db;
   const owner = ownerGiven as string;
+  const kind = rootStateKind(owner);
+  if (kind) {
+    const row = db
+      .prepare('SELECT value FROM operational WHERE kind = ? AND owner = ? AND owner_file IS NULL')
+      .get(kind, owner);
+    return row ? { found: true, value: JSON.parse(String(row.value)) } : { found: false };
+  }
   const info = infoOf(owner, 'json');
   const rows = unitRows(db, owner);
   if (!Object.values(rows).some((list) => list.length > 0)) return { found: false };
@@ -113,7 +121,7 @@ export function createReadSeam({
   log,
   reader,
 }: {
-  memoryDb?: { readHandle?: () => { db: Db } | null } | null;
+  memoryDb?: { readHandle?: () => { db: object } | null } | null;
   log: Pick<Log, 'warn'>;
   reader: string;
 }): { db(): Db; run<TResult>(fn: () => TResult): TResult } {
@@ -132,7 +140,7 @@ export function createReadSeam({
   function db(): Db {
     const handle = memoryDb?.readHandle?.() ?? null;
     if (!handle?.db) throw failed(codedError('DB_CLOSED', 'memory db is not open'));
-    return handle.db;
+    return handle.db as Db;
   }
 
   /** `fn()`, its failure logged with a code and thrown again. */

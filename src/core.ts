@@ -330,18 +330,8 @@ async function buildCore(
   const identity = { iface: '', selfId: '', selfName: 'bot' };
   // The names of the members of the served community, fed by `membership.changed` (a nickname change included).
   const members = createMemberDirectory();
-  // The speed figures of /nep status (src/tools/impl/metrics.ts): the durations the log lines carry,
-  // kept for 24 h in data/metrics.json (loaded now, written every minute and on shutdown).
-  const metrics = createMetrics({ dataDir, log });
-  const untapMetrics = onLog(metricsTap(metrics));
-  cleanups.push(untapMetrics);
-  // The costs field of /nep status (src/tools/impl/usage.ts): today's requests per role from the `llm: usage`
-  // lines, kept for today and yesterday in data/usage.json (loaded now, written every minute and on shutdown).
-  const usage = createUsage({ dataDir, log });
-  const untapUsage = onLog(usageTap(usage));
-  cleanups.push(untapUsage);
   // The memory database (src/memory/db/service.js): the memory. Created before the memory modules, which read and write
-  // it (src/memory/db/readers/, src/memory/db/unit-write.js); opened at the start (the first tick, awaited below).
+  // it (src/memory/db/readers/, src/memory/db/unit-write.js). Readiness is awaited before durable stores are created.
   // diaryMediaDeps is read at each tick: the interface port and the image fetcher exist by then (defined below).
   // `embed` and `selfName` (the re-embed job, recall.db.reembed) are the embedding client and her name, defined below.
   // Her memory session is the memory writer: it runs on the chat client (role `memory`, its own key from `env`), and a
@@ -368,6 +358,18 @@ async function buildCore(
   };
   const memoryDb = createMemoryDb(memoryDbOptions);
   cleanups.push(() => memoryDb.close());
+  await memoryDb.open();
+  // The speed figures of /nep status (src/tools/impl/metrics.ts): the durations the log lines carry,
+  // kept for 24 h in the database metrics unit, written every minute and on shutdown.
+  const metrics = createMetrics({ dataDir, log, memoryDb });
+  const untapMetrics = onLog(metricsTap(metrics));
+  cleanups.push(untapMetrics);
+  // The costs field of /nep status (src/tools/impl/usage.ts): today's requests per role from the `llm: usage`
+  // lines, kept in the database usage unit, written every minute and on shutdown.
+  const usage = createUsage({ dataDir, log, memoryDb });
+  const untapUsage = onLog(usageTap(usage));
+  cleanups.push(untapUsage);
+
   // The task board (src/board/, docs/core.md "The task board"): its tables in the memory database, every write of it
   // a write of the memory writer, over the core's clock, the live `board.*` settings and the private layer's
   // clients.json, read at each call. The agents' `task.*` commands, her board tools and the reaper's beat use it.
@@ -1161,6 +1163,7 @@ async function buildCore(
     getGuildId,
     getSelfName,
     dataDir,
+    memoryDb,
   });
   turns.setOnTurnEnd((end) => missed.onTurnEnd(end));
   // The custom emoji ranking read from history (the interface's reads only, no model call): once at startup, again on /nep emoji rescan.

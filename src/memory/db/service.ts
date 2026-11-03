@@ -2,9 +2,9 @@
 //
 // `createMemoryDb({ hot, dataDir, log, now })` opens `data/<memoryDb.file>` with the writer lock and keeps it open while
 // the bot runs; every memory module reads it and writes it through this service:
-//   - `tick()` opens the database when it is not open yet. A refused open (a live holder of the lock, a broken file) is
-//     logged once per code and tried again at the next tick; the bot never waits for it but at its start (src/index.ts
-//     awaits the first tick before anything reads the memory).
+//   - `open()` imports core state and replays pending writes before exposing readers. Core startup awaits it before
+//     constructing durable stores. It runs no maintenance jobs. `tick()` retries a refused open (logged once per code)
+//     and runs maintenance after the core is constructed.
 //   - `readHandle()` is the read-only connection while the database is open (null otherwise): what the memory modules'
 //     readers read through (src/memory/db/readers/), and `database()` its raw connection for recall
 //     (src/memory/db/recall.ts).
@@ -94,6 +94,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
+import { importCoreJsonState } from './core-state-import.ts';
 import { lockPathOf, openMemoryDb } from './open.ts';
 import { channelPlaceId, guildPlaceId, nativeAuthorityOf } from './ids.ts';
 import { LEGACY_IFACE, liveIface, withLiveIface } from './legacy-namespace.ts';
@@ -102,8 +106,6 @@ import { applyDiaryUpdate, createDiaryMedia } from './diary-media.ts';
 import { NEWEST_CLAIM_VERSION_SQL, applyMemoryWrite, writeTurnReadRows } from './session-write.ts';
 import { FOCUS_DEFAULTS, focusView, lastFocusDay, runFocusDay } from './focus.ts';
 import { utcDay } from '../../time.ts';
-import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { indexSettings, reembedTouched } from './index-policy.ts';
 import {
   deleteMessage as deleteMessageEnvelope,
@@ -112,7 +114,6 @@ import {
 import { observe as observeEnvelope } from './observe.ts';
 import { graphPending } from './graph.ts';
 import { stemsPending } from './stems.ts';
-import { createHash } from 'node:crypto';
 import { backupName, backupOn, backupSettings, configHash, partialOf, pruneBackups } from './backup.ts';
 import { mirrorPlaces, readMirrors } from './mirrors.ts';
 import { noteSkipped } from '../../board/errands.ts';
@@ -516,6 +517,7 @@ export type MemoryDbStatus = {
 
 /** What `createMemoryDb` gives its callers. */
 export type MemoryDbService = {
+  open(): Promise<void>;
   tick(): Promise<void>;
   database(): Db | null;
   readHandle(): MemoryHandle | null;
@@ -578,6 +580,38 @@ export type MemoryDbOptions = {
   iface?: () => string | null;
 };
 
+function databaseSettings(config: Config) {
+  const given = config?.memoryDb ?? {};
+  const closeMs = given.closeTimeoutMs;
+  return {
+    file: typeof given.file === 'string' && given.file ? given.file : DEFAULT_FILE,
+    closeMs: isFiniteNumber(closeMs) && closeMs > 0 ? closeMs : DEFAULT_CLOSE_TIMEOUT_MS,
+  };
+}
+
+const codeOf = (error: unknown): string => {
+  const { code, name } = (error ?? {}) as { code?: string; name?: string };
+  return code ?? name ?? 'ERROR';
+};
+
+/** Report effective model choices after the core's dependencies are available. */
+function reportEffectiveModels(config: Config, env: Row | null, log: Log): Promise<void> {
+  return import('./writer-switch.ts')
+    .then(({ effectiveModels, effectiveModelsLine }) =>
+      log.info('memory db: effective models', { purposes: effectiveModelsLine(effectiveModels(config, env)) })
+    )
+    .catch((error) => log.warn('memory db: effective models failed', { code: codeOf(error) }));
+}
+
+const SESSION_FAILURES = new Set([
+  'llm_error',
+  'bad_answer',
+  'build_error',
+  'write_failed',
+  'not_configured',
+  'skipped',
+]);
+
 export function createMemoryDb({
   hot,
   dataDir,
@@ -617,18 +651,7 @@ export function createMemoryDb({
     return handle;
   }
 
-  const settings = () => {
-    const given = hot.config?.memoryDb ?? {};
-    const closeMs = given.closeTimeoutMs;
-    return {
-      file: typeof given.file === 'string' && given.file ? given.file : DEFAULT_FILE,
-      closeMs: isFiniteNumber(closeMs) && closeMs > 0 ? closeMs : DEFAULT_CLOSE_TIMEOUT_MS,
-    };
-  };
-  const codeOf = (error: unknown): string => {
-    const { code, name } = (error ?? {}) as { code?: string; name?: string };
-    return code ?? name ?? 'ERROR';
-  };
+  const settings = () => databaseSettings(hot.config);
 
   // While the pending unit writes of the last shutdown are replayed at an open, nothing reads the database.
   let replaying = false;
@@ -637,6 +660,9 @@ export function createMemoryDb({
   // What a migration needs from the opener (openContextOf).
   const openContext = () => openContextOf(hot.config, dataDir);
 
+  let opening: Promise<void> | null = null;
+  let startupPending = false;
+
   async function openNow() {
     const { file } = settings();
     const dbPath = path.join(dataDir, file);
@@ -644,11 +670,12 @@ export function createMemoryDb({
     try {
       if (threaded) {
         started = startWorker({ workerFile, log, codeOf });
-        await started.call('open', { path: dbPath, context: openContext() });
+        await started.call('open', { path: dbPath, context: openContext(), now: now() });
         handle = openDb(dbPath, { readOnly: true });
         engine = started;
       } else {
         handle = openDb(dbPath, { context: openContext() });
+        importCoreJsonState(handle, { dataDir, now: now() });
       }
       // The writes a shutdown left pending go in before anything reads (synchronous without a worker).
       const replay = replayPending();
@@ -656,9 +683,7 @@ export function createMemoryDb({
       openedAt = now();
       openErrors.clear();
       log.info('memory db: opened', { file });
-      await logEffectiveModels();
-      drainObservations();
-      startupJobs();
+      startupPending = true;
     } catch (error) {
       replaying = false;
       // A replay that failed leaves the database opened: closed again (its lock released), tried at the next tick.
@@ -678,6 +703,17 @@ export function createMemoryDb({
         log.warn('memory db: open failed', { code });
       }
     }
+  }
+
+  /** Open and import state without invoking maintenance or core callbacks. */
+  async function readyOpen(): Promise<void> {
+    if (!handle && !closing) {
+      opening ??= openNow().finally(() => {
+        opening = null;
+      });
+      await opening;
+    }
+    if (!readHandle()) throw Object.assign(new Error('DB_CLOSED'), { code: 'DB_CLOSED' });
   }
 
   /** Closes the database; the worker gets `timeoutMs` to finish what it holds, then it is terminated. */
@@ -1268,26 +1304,12 @@ export function createMemoryDb({
     reviewFails: 0,
     reviewSkip: new Set(),
   };
-  const SESSION_FAILURES = new Set([
-    'llm_error',
-    'bad_answer',
-    'build_error',
-    'write_failed',
-    'not_configured',
-    'skipped',
-  ]);
 
   /** The start-up line of the effective models (codes and model ids only, never a key value). */
   function logEffectiveModels() {
     if (modelsLogged) return Promise.resolve();
     modelsLogged = true;
-    return import('./writer-switch.ts')
-      .then(({ effectiveModels, effectiveModelsLine }) =>
-        log.info('memory db: effective models', {
-          purposes: effectiveModelsLine(effectiveModels(hot.config, sessionEnv?.() ?? null)),
-        })
-      )
-      .catch((error) => log.warn('memory db: effective models failed', { code: codeOf(error) }));
+    return reportEffectiveModels(hot.config, sessionEnv?.() ?? null, log);
   }
 
   /** One failing scope told once (`onSessionFailure`) until it runs fine again. */
@@ -1401,11 +1423,17 @@ export function createMemoryDb({
     if (closing) return;
     if (engine?.dead) await closeNow(0);
     if (!handle) {
-      // On the calling thread the open is synchronous; only the worker's open is waited for.
-      const opening = openNow();
-      if (threaded) await opening;
+      try {
+        await readyOpen();
+      } catch {
+        return;
+      }
     }
-    if (!handle) return;
+    if (startupPending) {
+      startupPending = false;
+      await logEffectiveModels();
+      startupJobs();
+    }
     drainObservations();
     startProject();
     startDiaryMedia();
@@ -1646,6 +1674,7 @@ export function createMemoryDb({
   const waitBackup = () => backupRun ?? Promise.resolve();
 
   return {
+    open: readyOpen,
     tick,
     database,
     readHandle,

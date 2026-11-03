@@ -42,7 +42,7 @@ There is one writer: every write goes through a worker thread (`src/memory/db/wr
 
 The module seams stay as they were before the database: `record`, `journal`, `archive`, `vectors`, the intention and errand stores keep their public functions. Underneath they read and write the database. The store (`src/memory/store.ts`) keeps an in-memory cache of profiles, places, lore and other units; a dirty unit flushes as a whole value through its mapper into rows.
 
-The explicit `importCoreJsonState(handle, { dataDir })` entry in `src/memory/db/core-state-import.ts` copies legacy core JSON through a writable database handle. Root `state.json`, `usage.json` and `metrics.json` values use `operational` with `core-state-import` provenance in `files`. Existing unit writers map guild `inner`, `missed`, `participation`, `gifs` and `media` JSON. Values and markers commit in one transaction. Repeated imports skip completed units, preserve newer database values and leave source bytes unchanged. Opening a database does not invoke this entry. Live readers and writers retain their existing file paths.
+The explicit `importCoreJsonState(handle, { dataDir })` entry in `src/memory/db/core-state-import.ts` copies legacy core JSON through a writable database handle. Root `state.json`, `usage.json` and `metrics.json` values use `operational` with `core-state-import` provenance in `files`. Existing unit writers map guild `inner`, `missed`, `participation`, `gifs` and `media` JSON. Values and markers commit in one transaction. Repeated imports skip completed units, preserve newer database values and leave source bytes unchanged. The memory service invokes this entry on its writer connection before replaying pending writes and exposing readers. `memoryDb.open()` is a readiness barrier without maintenance jobs. Core startup awaits it before constructing durable stores.
 
 ## Data model
 
@@ -355,10 +355,11 @@ A retired row keeps its history. `removeLore` (`/memory lore remove`) takes one 
 
 ## What stays as files
 
-Operational state that the process writes stays on disk as JSON files. The exact list is `OPERATIONAL_PATTERNS` in `src/memory/db/paths.ts`:
+Root state, usage and metrics use `operational` rows with their existing JSON shapes. Guild inner state, missed messages, participation, GIFs and media descriptions use their existing unit mappers. `store`, inner, missed, usage and metrics read the supplied database without a file fallback and save through `writeUnit`. Shutdown waits for their existing save and flush methods before closing the database. The GIF library and media descriptions remain caches with their existing versions and retention.
 
-- `state.json`, `usage.json`, `metrics.json` (top-level and per-guild)
-- Per-guild: `inner.json`, `missed.json`, `participation.json`, `gifs.json` (the GIF library), `media.json` (the vision cache)
+The remaining operational files are listed by `OPERATIONAL_PATTERNS` in `src/memory/db/paths.ts`:
+
+- Per-guild `state.json`, `usage.json` and `metrics.json`, and private operational state
 - `recall-trace.jsonl`
 - `journal/.running` (the running marker) and `journal/requests/` (request dumps)
 - The backfill folders and `record/backfill.json`

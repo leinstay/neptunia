@@ -2,11 +2,12 @@
 // change), the door's handler of `inner.wake`, the wakes an intention gives and how queued wakes coalesce into one
 // turn. The queue, the handled wakes and the in-flight mark are kept in the memory database's `wakes`
 // (src/behavior/inner/wake-store.ts keeps the state's view of them in step); the rest of the state is
-// `data/guilds/<id>/inner.json`, set aside when it cannot be read. The other modules of src/behavior/inner/ read and
+// the database unit `guilds/<id>/inner.json`, written through the same service. The other modules of src/behavior/inner/ read and
 // change the state only through these functions, over the `life` context that src/behavior/inner.ts builds.
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createReadSeam, unitValue } from '../../memory/db/readers/common.ts';
 import { writeJsonAtomic } from '../../memory/index.ts';
 import { DAY_MS } from '../../time.ts';
 import { errorCode, isFiniteNumber, isObj, listOf, objOf } from '../../tools/types.ts';
@@ -291,7 +292,7 @@ export function coalesceGroup(queue: ReadonlyArray<Wake>, isHeld: (wake: Wake) =
 /** What tells retried wakes of one failed group from fresh ones: '' for a fresh wake. */
 const retryKey = (wake: Wake | undefined): string => (wake?.retry ? `${wake.retry}:${wake.firstFailedAt ?? ''}` : '');
 
-/** The state of `guildId`'s inner life: read from its file on first use, set aside when it cannot be read. */
+/** The state of one guild, read from the ready database on first use when a service is supplied. */
 export function stateOf(life: InnerContext, guildId: unknown): InnerState {
   const { states } = life;
   const key = String(guildId);
@@ -306,8 +307,13 @@ export function stateOf(life: InnerContext, guildId: unknown): InnerState {
   let raw: unknown = null;
   let lost: string | null = null;
   try {
-    raw = JSON.parse(fs.readFileSync(fileOf(life, key), 'utf8'));
+    if (life.memoryDb) {
+      const seam = stateSeam(life);
+      const found = seam.run(() => unitValue(seam.db(), `guilds/${key}/inner.json`));
+      raw = found.found ? found.value : null;
+    } else raw = JSON.parse(fs.readFileSync(fileOf(life, key), 'utf8'));
   } catch (err) {
+    if (life.memoryDb) throw err;
     if (errorCode(err) !== 'ENOENT') lost = errorCode(err) ?? 'parse';
   }
   const state = normalizeState(raw);
@@ -345,22 +351,48 @@ export function loseState(life: InnerContext, key: string, state: InnerState, co
   }
 }
 
-/** The guild's state pruned in place and written: its file, and the queue's changes to the table. */
+/** The guild's state pruned in place and written before the queue changes on the same chain. */
 export function save(life: InnerContext, guildId: unknown): InnerState {
-  const { hot, now, log } = life;
+  const { hot, now } = life;
   const key = String(guildId);
   // Pruned in place: whoever holds the state object keeps seeing the one that is written.
   const next = Object.assign(
     stateOf(life, key),
     pruneState(stateOf(life, key), now(), { factsKeepMs: innerSettings(hot.config).factsKeepDays * DAY_MS })
   );
-  try {
-    writeJsonAtomic(fileOf(life, key), fileStateOf(next));
-  } catch (err) {
-    log.warn('inner: state write failed', { guildId: key, code: errorCode(err) });
-  }
+  persistState(life, key, next);
   syncQueue(life, key, next);
   return next;
+}
+
+/** A supplied service must expose its ready read connection. */
+function stateSeam(life: InnerContext) {
+  return createReadSeam({
+    memoryDb: life.memoryDb,
+    log: life.log,
+    reader: 'inner',
+  });
+}
+
+/** State writes share the queue's chain, which release waits for. */
+function persistState(life: InnerContext, key: string, state: InnerState): void {
+  const failed = (err: unknown) => life.log.warn('inner: state write failed', { guildId: key, code: errorCode(err) });
+  const value = fileStateOf(state);
+  if (life.memoryDb) {
+    if (!life.memoryDb.writeUnit)
+      throw Object.assign(new Error('DB_WRITE_UNAVAILABLE'), { code: 'DB_WRITE_UNAVAILABLE' });
+    const write = life.memoryDb.writeUnit.bind(life.memoryDb);
+    const snapshot: unknown = JSON.parse(JSON.stringify(value));
+    life.writes = life.writes
+      .then(() => write({ op: 'value', owner: `guilds/${key}/inner.json`, value: snapshot }))
+      .catch(failed);
+    return;
+  }
+  try {
+    writeJsonAtomic(fileOf(life, key), value);
+  } catch (err) {
+    failed(err);
+  }
 }
 
 /**

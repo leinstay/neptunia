@@ -62,9 +62,9 @@ test('store: the directory ids come from the database only; a closed database is
     } finally {
       fs.readdirSync = originalReaddir;
     }
-    const closed = createStore({ dataDir: env.data, memoryDb: env.closedDb });
+    // Root state loads eagerly, so the same closed-database error occurs at construction.
     assert.throws(
-      () => closed.listPrivate(GUILD),
+      () => createStore({ dataDir: env.data, memoryDb: env.closedDb }),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
   } finally {
@@ -81,18 +81,16 @@ test('store: /nep resume checks only the operational JSON files', async () => {
     fs.mkdirSync(path.join(g, 'journal', 'requests', '2026-10-21'), { recursive: true });
     fs.writeFileSync(path.join(g, 'journal', 'requests', '2026-10-21', 'turn-9-s1.json'), '{ broken');
     const broken = createStore({ dataDir: env.data, memoryDb: env.memoryDb }).validate().sort();
-    assert.deepEqual(broken, [
-      `guilds/${GUILD}/inner.json`,
-      `guilds/${GUILD}/journal/requests/2026-10-21/turn-9-s1.json`,
-    ]);
+    // Retired inner state is database-authoritative. The malformed operational request still fails validation.
+    assert.deepEqual(broken, [`guilds/${GUILD}/journal/requests/2026-10-21/turn-9-s1.json`]);
     for (const [rel, kept] of [
-      ['state.json', true],
-      ['usage.json', true],
+      ['state.json', false],
+      ['usage.json', false],
       ['vault/x/guilds/1/users/2.json', true],
       ['snapshots/a/b.json', true],
-      [`guilds/${GUILD}/gifs.json`, true],
-      [`guilds/${GUILD}/media.json`, true],
-      [`guilds/${GUILD}/participation.json`, true],
+      [`guilds/${GUILD}/gifs.json`, false],
+      [`guilds/${GUILD}/media.json`, false],
+      [`guilds/${GUILD}/participation.json`, false],
       [`guilds/${GUILD}/backfill/state.json`, true],
       [`guilds/${GUILD}/record/backfill.json`, true],
       [`guilds/${GUILD}/private/${MEMBER}/missed.json`, true],
