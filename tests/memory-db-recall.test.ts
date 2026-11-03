@@ -13,13 +13,13 @@ import { channel as channelInfo, privateChannel } from './fixtures/reads-rig.ts'
 import { memorySearchText, runMemorySearch } from '../src/tools/tools.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { search, window, quotesOf, dbSettings } from '../src/memory/db/recall.ts';
-import { fillStems, loadStemmer, stemsOf } from '../src/memory/db/stems.ts';
+import { loadStemmer, stemsOf } from '../src/memory/db/stems.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import { channelPlaceId, dmPlaceId, messageSourceId, personId } from '../src/memory/db/ids.ts';
 import { dmContext, dmScope, groupContext, groupScope, internalContext } from '../src/memory/db/scope.ts';
-import { quantize } from '../src/memory/vectors.ts';
+import { fixture } from './fixtures/memory-db-recall.ts';
 import { labels } from './fixtures/labels.ts';
 import { buildDataDir, guildDir, MEMBER, CHANNEL } from './fixtures/memory-db/datadir.ts';
 import { dbOf, type Db, type Statement } from '../src/memory/db/types.ts';
@@ -37,7 +37,14 @@ const asRecall = (input: (Omit<RecallInput, 'reads'> & { reads: RecallInput['rea
 
 type Found = {
   outcome: { kind: string; degraded?: boolean };
-  quotes: Array<{ channelName: string; lines: string; entries: Array<{ id: string }> }>;
+  quotes: Array<{
+    channelName: string;
+    lines: string;
+    entries: Array<{
+      id: string;
+      message: { authorName: string; attachments: Array<{ id: string; kind: string; name: string }> };
+    }>;
+  }>;
   hidden: boolean;
 };
 
@@ -49,127 +56,6 @@ const ALICE = 'u-alice';
 const BOB = 'u-bob';
 const CAROL = 'u-carol';
 const group = groupContext('discord');
-
-/** Filler chat that teaches the stemmer its Greek endings: twelve stems, each seen with five endings. */
-const FILLER_STEMS = ['βιβλι', 'παιδ', 'δρομ', 'λογ', 'ανθρωπ', 'καιρ', 'φιλ', 'χρον', 'τοπ', 'κοσμ', 'νερ', 'ουραν'];
-const FILLER_ENDINGS = ['ος', 'ου', 'ο', 'οι', 'ων'];
-
-function fixture() {
-  const handle = openMemoryDb(':memory:');
-  const db = dbOf(handle);
-  let rowid = 0;
-  const api = {
-    handle,
-    db,
-    /** Inserts one chat line; returns its source id. `at` is epoch ms. */
-    say({
-      native,
-      at,
-      text,
-      iface = 'discord',
-      place = MAIN,
-      author = ALICE,
-      kind = 'seen',
-      scope = groupScope('discord'),
-      revision = 1,
-      replyTo = null,
-      extra = null,
-    }: {
-      native: string | number;
-      at: number;
-      text: string;
-      iface?: string;
-      place?: string;
-      author?: string;
-      kind?: string;
-      scope?: ReturnType<typeof groupScope>;
-      revision?: number;
-      replyTo?: string | null;
-      extra?: string | null;
-    }) {
-      rowid += 1;
-      const id = messageSourceId(iface, native, revision, kind);
-      db.prepare(
-        `INSERT INTO sources (id, kind, iface, native_id, revision, place_id, author_account, reply_to, occurred_at, recorded_at, text, direct,
-        scope_kind, scope_iface, scope_dm, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
-      ).run(
-        id,
-        kind,
-        iface,
-        String(native),
-        revision,
-        place,
-        `${iface}:${author}`,
-        replyTo,
-        new Date(at).toISOString(),
-        new Date(at).toISOString(),
-        text,
-        scope.scope_kind,
-        scope.scope_iface,
-        scope.scope_dm,
-        extra
-      );
-      return id;
-    },
-    deleted(native: string, at: number) {
-      db.prepare(
-        `INSERT INTO sources (id, kind, iface, native_id, place_id, occurred_at, scope_kind, scope_iface)
-        VALUES (?, 'deleted', 'discord', ?, ?, ?, 'group', 'discord')`
-      ).run(`src:discord:${native}:none:deleted:x`, String(native), MAIN, new Date(at).toISOString());
-    },
-    account(userId: string, names: Array<string>) {
-      db.prepare(
-        "INSERT INTO accounts (id, iface, native_id, person_id, link, names) VALUES (?, 'discord', ?, ?, 'verified', ?)"
-      ).run(`discord:${userId}`, userId, personId('discord', userId), JSON.stringify(names));
-    },
-    /** A vector row for a source (by native id): the vector is stored as int8 the way the engine stores it. */
-    vector(
-      native: string,
-      vector: Array<number>,
-      { scope = groupScope('discord'), at = NOW }: { scope?: ReturnType<typeof groupScope>; at?: number } = {}
-    ) {
-      const source = db
-        .prepare('SELECT rowid AS rowid FROM sources WHERE native_id = ? ORDER BY rowid LIMIT 1')
-        .get(String(native))!;
-      const { bytes, scale, norm } = quantize(vector);
-      db.prepare(
-        `INSERT INTO vectors (source_rowid, item_id, chunk_key, model, dims, scale, norm, bytes, context, occurred_at, scope_kind, scope_iface, scope_dm)
-        VALUES (?, ?, ?, 'test/embedder', ?, ?, ?, ?, '{}', ?, ?, ?, ?)`
-      ).run(
-        source.rowid,
-        String(native),
-        `record:${native}:1`,
-        vector.length,
-        scale,
-        norm,
-        bytes,
-        new Date(at).toISOString(),
-        scope.scope_kind,
-        scope.scope_iface,
-        scope.scope_dm
-      );
-    },
-    /** Teaches the stemmer from the filler chat, then stamps every row. */
-    stem() {
-      FILLER_STEMS.forEach((stem, i) =>
-        FILLER_ENDINGS.forEach((ending, j) =>
-          api.say({
-            native: `filler-${i}-${j}`,
-            at: NOW - 400 * DAY,
-            text: `${stem}${ending}`,
-            place: channelPlaceId('discord', 'filler'),
-            author: BOB,
-          })
-        )
-      );
-      return fillStems(db);
-    },
-    done() {
-      handle.close();
-    },
-  };
-  return api;
-}
 
 const plan = (forms: Array<string>, extra: Record<string, unknown> = {}) => ({
   forms,
@@ -1941,6 +1827,152 @@ for (const reader of ['run', 'window', 'prefetch'] as const) {
               });
       assert.deepEqual(calls, []);
       assert.ok(JSON.stringify(found).includes('null-guild-private-evidence'));
+    } finally {
+      env.done();
+    }
+  });
+}
+
+test('an internal window retains stored media without reading captions for a null guild', async () => {
+  const env = fixture();
+  try {
+    const { issueContext } = await import('../src/memory/db/scope.ts');
+    const { rig } = await import('./fixtures/reads-rig.ts');
+    env.account(BOB, ['Benoit']);
+    const source = env.say({
+      native: 'media-before',
+      at: NOW - DAY - 60000,
+      text: 'Stored picture evidence',
+      place: dmPlaceId('discord', BOB),
+      author: BOB,
+      scope: dmScope(personId('discord', BOB), 'discord'),
+    });
+    env.db.prepare('UPDATE sources SET media = ? WHERE id = ?').run(JSON.stringify(['image']), source);
+    env.say({
+      native: 'media-anchor',
+      at: NOW - DAY,
+      text: 'Window anchor',
+      place: dmPlaceId('discord', BOB),
+      author: BOB,
+      scope: dmScope(personId('discord', BOB), 'discord'),
+    });
+    const s = runner(env);
+    let captions = 0;
+    const recaller = asRecall({
+      reads: rig().reads,
+      hot: s.hot,
+      store: {},
+      now: () => NOW,
+      memoryDb: { database: () => env.db },
+      describer: {
+        cachedDescriptions: () => {
+          captions += 1;
+          return new Map();
+        },
+      },
+    });
+    const found = await recaller.window({
+      ...s.args,
+      guildId: null,
+      snapshot: null,
+      channel: s.dm,
+      memoryContext: issueContext({ kind: 'internal', newId: () => 'ctx:media-window', now: () => NOW }),
+      anchor: 'media-anchor',
+      move: 'up',
+      messages: 1,
+    });
+    assert.equal(captions, 0);
+    assert.equal(found.outcome.kind, 'searched');
+    assert.deepEqual(
+      found.quotes.flatMap((quote) => quote.entries.map((entry) => entry.id)),
+      ['media-before']
+    );
+    assert.ok(found.quotes[0].lines.includes('Stored picture evidence'));
+    assert.deepEqual(found.quotes[0].entries[0].message.attachments, [
+      { id: 'media-before#m0', kind: 'image', name: 'image' },
+    ]);
+  } finally {
+    env.done();
+  }
+});
+
+for (const hasProfiles of [true, false]) {
+  test(`a database window ${hasProfiles ? 'prefers an approved profile name to the stored account name' : 'returns stored evidence and names without an optional profile reader'}`, async () => {
+    const env = fixture();
+    try {
+      const { rig } = await import('./fixtures/reads-rig.ts');
+      env.account(ALICE, ['Stored account']);
+      for (const [native, offset] of [
+        ['profile-before', 60000],
+        ['profile-anchor', 0],
+      ] as const) {
+        env.say({ native, at: NOW - DAY - offset, text: 'Profile evidence', place: channelPlaceId('discord', 'c1') });
+      }
+      const s = runner(env);
+      const recaller = asRecall({
+        reads: rig().reads,
+        hot: s.hot,
+        now: () => NOW,
+        store: hasProfiles ? { listUserProfiles: () => [{ id: ALICE, names: ['Approved profile'] }] } : {},
+        memoryDb: { database: () => env.db },
+      });
+      const found = await recaller.window({ ...s.args, anchor: 'profile-anchor', move: 'up', messages: 1 });
+      assert.equal(found.outcome.kind, 'searched');
+      assert.deepEqual(
+        found.quotes.flatMap((quote) => quote.entries.map((entry) => entry.id)),
+        ['profile-before']
+      );
+      assert.ok(found.quotes[0].lines.includes('Profile evidence'));
+      assert.equal(found.quotes[0].entries[0].message.authorName, hasProfiles ? 'Approved profile' : 'Stored account');
+    } finally {
+      env.done();
+    }
+  });
+}
+
+for (const supplied of ['other-dm', 'group', 'current-dm'] as const) {
+  test(`a DM search reads only its current partner when supplied an issued ${supplied} context`, async () => {
+    const env = fixture();
+    try {
+      const { issueContext } = await import('../src/memory/db/scope.ts');
+      for (const author of [BOB, CAROL]) {
+        env.account(author, [author]);
+        env.say({
+          native: `context-${author}`,
+          at: NOW - DAY,
+          text: `το κουνέλι evidence-${author}`,
+          place: dmPlaceId('discord', author),
+          author,
+          scope: dmScope(personId('discord', author), 'discord'),
+        });
+      }
+      env.stem();
+      const s = runner(env);
+      const memoryContext = issueContext({
+        ...(supplied === 'group'
+          ? { kind: 'group' as const }
+          : { kind: 'dm' as const, person: personId('discord', supplied === 'other-dm' ? CAROL : BOB) }),
+        iface: 'discord',
+        newId: () => `ctx:supplied-${supplied}`,
+        now: () => NOW,
+      });
+      const found = await s.recaller.run({
+        ...s.args,
+        channel: s.dm,
+        partnerId: BOB,
+        memoryContext,
+        server: { forms: ['κουνέλι'], who: [], from: null, to: null },
+        quotes: true,
+      });
+      assert.deepEqual(
+        found.quotes.flatMap((quote) => quote.entries.map((entry) => entry.id)),
+        [`context-${BOB}`]
+      );
+      assert.ok(found.quotes[0].lines.includes(`evidence-${BOB}`));
+      assert.equal(
+        found.quotes.some((quote) => quote.lines.includes(`evidence-${CAROL}`)),
+        false
+      );
     } finally {
       env.done();
     }

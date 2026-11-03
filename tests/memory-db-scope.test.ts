@@ -15,6 +15,7 @@ import {
   groupScope,
   groupsContext,
   internalContext,
+  isIssuedInternalContext,
   narrowest,
   scopeColumns,
   whereFor,
@@ -345,4 +346,12 @@ test('group scope identifiers reject literal NUL bytes but preserve an encoded p
   } finally {
     handle.close();
   }
+});
+
+test('the internal context validator refuses a primitive value without throwing', () => {
+  assert.equal(isIssuedInternalContext('internal'), false);
+});
+
+test('the internal context validator refuses an empty execution ID', () => {
+  assert.equal(isIssuedInternalContext({ id: '', mode: 'internal', internal: true }), false);
 });
