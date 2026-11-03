@@ -1,6 +1,6 @@
 {
   "files": {
-    "scripts/replay.ts": 7333,
+    "scripts/replay.ts": 7325,
     "src/behavior/recall-run.ts": 2102,
     "src/behavior/recall.ts": 2375,
     "src/behavior/sandbox.ts": 2063,
@@ -95,8 +95,8 @@
     },
     "scripts/recall-eval.ts": {
       "main": {
-        "complexity": 44,
-        "function-length": 517
+        "complexity": 42,
+        "function-length": 515
       },
       "main>askClassifier": {
         "complexity": 24
@@ -129,11 +129,11 @@
       },
       "runInner": {
         "complexity": 62,
-        "function-length": 391
+        "function-length": 389
       },
       "runMain": {
         "complexity": 153,
-        "function-length": 757
+        "function-length": 755
       },
       "runRecall": {
         "complexity": 64,
@@ -159,8 +159,8 @@
     },
     "scripts/search-compare.ts": {
       "main": {
-        "complexity": 32,
-        "function-length": 307
+        "complexity": 31,
+        "function-length": 303
       }
     },
     "scripts/search-policy-eval.ts": {

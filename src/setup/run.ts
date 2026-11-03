@@ -1,7 +1,7 @@
-// `neptunia setup`: the install of one user, in ten steps that each run on their own and again, like the sections of
+// `neptunia setup`: the install of one user, in eleven steps that each run on their own and again, like the sections of
 // the setup of Hermes (hermes_cli/setup.py) with a summary at the end (hermes_cli/setup_summary.py). Every step checks
 // first whether its work is done (`already`), so a rerun after a failure resumes where it stopped. A step that fails
-// stops the run, the steps after it are `skipped`, and no chat opens. The five steps that ask come before `units`, so
+// stops the run, the steps after it are `skipped`, and no chat opens. The six steps that ask come before `units`, so
 // the units bind the backends just connected and the watcher's timer takes the hour just given; each is `skipped` with
 // no terminal. After the last step the owner's chat opens on `keys core add`, and the chat takes over.
 //
@@ -9,6 +9,7 @@
 //   keys-file        an empty `keys.json` at mode 0600; one that exists keeps its content and is made 0600
 //   interfaces       each interface package with a `setup.json`: asked whether to use it, then its own questions
 //                    (src/setup/interfaces.ts, src/setup/modules.ts)
+//   services         the optional YouTube Data API key, with the link that says how to get one (src/setup/services.ts)
 //   subharness       the backends her agents run through, installed and connected (src/setup/subharness.ts)
 //   selfimprovement  the repository her pull requests go to, checked through her gh login
 //                    (src/setup/selfimprovement.ts); skipped while `selfimprovement.checkout` is unset
@@ -35,6 +36,7 @@ import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { emptyKeys, writeKeys } from '../keys/file.ts';
 import type { GhRunner } from '../selfimprovement/repository.ts';
 import { interfacesStep } from './interfaces.ts';
+import { servicesStep } from './services.ts';
 import { installUnits, systemctlOf, unitDirOf, whyFailed } from './install.ts';
 import type { RunResult, UnitTarget } from './install.ts';
 import { mechanicsStep } from './mechanics.ts';
@@ -52,6 +54,7 @@ export const SETUP_STEPS = [
   'folders',
   'keys-file',
   'interfaces',
+  'services',
   'subharness',
   'selfimprovement',
   'mechanics',
@@ -276,6 +279,8 @@ async function stepOutcome(step: SetupStep, options: SetupOptions, deps: SetupDe
       return keysFileStep(options);
     case 'interfaces':
       return deps.ask === undefined ? NOT_AT_TERMINAL : interfacesStep(options, { ask: deps.ask });
+    case 'services':
+      return deps.ask === undefined ? NOT_AT_TERMINAL : servicesStep(options, { ask: deps.ask });
     case 'subharness':
       return subharnessSetupStep(options, deps);
     case 'selfimprovement':

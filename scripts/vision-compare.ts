@@ -240,8 +240,6 @@ export async function main(
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
   try {
     // The keys (the simulation key from the store, DISCORD_TOKEN, YOUTUBE_API_KEY) from .env; never printed.
-    const { loadDotEnv } = await import('../src/config.ts');
-    loadDotEnv(privateDirOf(ROOT));
     const configuredGuild = hot.config.bot?.guildId || undefined;
     let guildId;
     let items;

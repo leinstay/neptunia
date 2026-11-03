@@ -254,9 +254,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
   const replay = await import('./replay.ts');
   const load = (rel: Untyped) => import(pathToFileURL(path.join(ROOT, 'src', rel)).href);
   const mods = { ...(await replay.loadDiaryMods(load)), ...(await load('admin.ts')) };
-  const { loadDotEnv } = await load('config.ts');
   const { createHot } = await load('hot.ts');
-  loadDotEnv(privateDirOf(ROOT));
   const token = interfaceCredential(privateDirOf(ROOT), 'discord');
   if (!token)
     throw new CliError('inner-week: the Discord credential is not set in data/interfaces/discord/credentials.json');

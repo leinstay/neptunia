@@ -10,8 +10,6 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `*.md` | public | The root documents: agent rules, style guide, writing guide, contributing and security policy. | nothing | none |
 | `LICENSE` | public | The license text. | nothing | none |
 | `.github/` | public | The continuous integration workflow, the issue and pull request templates and the README images. | nothing | none |
-| `.env.example` | public | The names of the environment keys a deployment sets, without values. | nothing | none |
-| `.env` | local | The deployment keys, never committed. | nothing | none |
 | `.agents/` | local | The working folder of the agents of one deployment. | nothing | none |
 | `prompts.local/` | local | A deployment prompt layer that shadows the tracked prompts. | nothing | none |
 | `skills.local/` | local | A deployment's own skills, one folder with a SKILL.md each; a skill here replaces the tracked skill of the same name. | nothing | none |

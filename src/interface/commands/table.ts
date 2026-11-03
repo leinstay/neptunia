@@ -360,6 +360,9 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('extra.add', 'add an extra key; the chat asks for the value without showing it', [arg('name')]),
       sub('extra.remove', 'remove an extra key no role is bound to', [arg('name')]),
       sub('extra.list', 'the extra keys with the roles bound to them'),
+      sub('service.list', 'the optional service keys: YouTube, Brave, Exa and the video proxy, each masked'),
+      sub('service.set', 'set one service key; the chat asks for it without showing it', [arg('name')]),
+      sub('service.clear', 'clear one service key', [arg('name')]),
       sub('bind', 'send one role out on an extra key alone', [arg('role', true, KEY_ROLES), arg('name')]),
       sub('unbind', 'send a role back out on the core keys', [arg('role', true, KEY_ROLES)]),
       sub('check', 'one minimal request for a role: its model, its key and whether the key was billed as BYOK', [

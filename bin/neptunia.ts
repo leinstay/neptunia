@@ -47,7 +47,7 @@
 // looked at. It exits 0 for a beat that ran and 1 when the board is not reachable.
 //
 // `doctor` writes nothing and asks the core nothing without `--live`: it checks Node, the binaries the engine runs, config.json and
-// config.local.json, the local layer, the `.env` keys of the enabled roles, the client tokens, the features (the
+// config.local.json, the local layer, the key store's keys of the enabled roles, the client tokens, the features (the
 // subharness and the simulation, a warning while either is off), the memory database (read only, with no lock) and the socket. `--live` adds `providers`, the core's probes of the model roles, which is
 // `skipped` when no core answers, since the command line holds no key. `--json` prints
 // `{ checks: [{ name, status, detail }] }`. A check is `ok`, `warn`, `fail` or `skipped`, and any `fail` exits 1. No
@@ -106,7 +106,7 @@ import { SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/
 import type { SetupReport } from '../src/setup/run.ts';
 import { featureRows } from '../src/subharness/summary.ts';
 import { defaultDenyDir, runAgent } from '../src/subharness/run.ts';
-import { ROOT_DIR, deepMerge, parseEnv, readConfig, resolveEnvRefs } from '../src/config.ts';
+import { ROOT_DIR, deepMerge, readConfig, resolveEnvRefs } from '../src/config.ts';
 import { moveConfigKeys } from '../src/config-moves.ts';
 import { checkConfig as checkSettings } from '../src/config/check.ts';
 import {
@@ -819,28 +819,7 @@ function checkKeyStore(privateDir: string): Check {
 /** The `.env` keys the enabled roles name (`llm.keyByRole`), beside the core's own: names only, never a value. */
 function checkEnvKeys(where: { rootDir: string; privateDir: string }): Check {
   if (keysFileExists(where.privateDir)) return checkKeyStore(where.privateDir);
-  let names: Set<string>;
-  try {
-    names = new Set(Object.keys(parseEnv(fs.readFileSync(path.join(where.privateDir, '.env'), 'utf8'))));
-  } catch {
-    return { name: 'env-keys', status: 'fail', detail: 'no readable .env in the local layer' };
-  }
-  if (!names.has('OPENROUTER_CORE_KEY'))
-    return { name: 'env-keys', status: 'fail', detail: 'OPENROUTER_CORE_KEY is not set' };
-  let wanted: Array<string> = [];
-  try {
-    const config = readConfig(where.rootDir, { privateDir: where.privateDir }) as Settings;
-    const byRole = isObject(config.llm) && isObject(config.llm.keyByRole) ? config.llm.keyByRole : {};
-    wanted = Object.values(byRole)
-      .flat()
-      .filter((name): name is string => typeof name === 'string' && name !== '');
-  } catch {
-    // A config that does not read is the config check's to report.
-  }
-  const missing = [...new Set(wanted)].filter((name) => !names.has(name));
-  return missing.length === 0
-    ? { name: 'env-keys', status: 'ok', detail: 'every key a role names is set' }
-    : { name: 'env-keys', status: 'warn', detail: `not set: ${missing.join(', ')}` };
+  return { name: 'env-keys', status: 'fail', detail: 'no keys.json: run neptunia setup, then /keys core add' };
 }
 
 /** The base model roles `config` switches off with `models.base.<role>: false`. */
@@ -859,11 +838,9 @@ function checkRoles(where: { rootDir: string; privateDir: string }): Check {
   let names: Set<string>;
   try {
     config = readConfig(where.rootDir, { privateDir: where.privateDir });
-    names = keysFileExists(where.privateDir)
-      ? new Set()
-      : new Set(Object.keys(parseEnv(fs.readFileSync(path.join(where.privateDir, '.env'), 'utf8'))));
+    names = new Set();
   } catch {
-    return { name: 'roles', status: 'warn', detail: 'not checked: the config or .env does not read' };
+    return { name: 'roles', status: 'warn', detail: 'not checked: the config does not read' };
   }
   const byRole = isObject(config.llm) && isObject(config.llm.keyByRole) ? config.llm.keyByRole : {};
   // With a key store a role goes out on a core key or its bound key; the store's own check says whether there is one.

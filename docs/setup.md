@@ -12,13 +12,14 @@ The Discord package declares `token` and `servers`, a list of any number of serv
 
 ## The steps
 
-`runSetup` runs ten steps in this order. Each checks first whether its work is done, so a rerun after a failure resumes where it stopped. A step that fails stops the run, the later steps are `skipped` and no chat opens. A `refused` step stops nothing. The four steps that ask questions come before `units`, so the units bind the backends just connected and the watcher's timer takes the hour just given. Without a terminal they are `skipped` and the install goes on.
+`runSetup` runs eleven steps in this order. Each checks first whether its work is done, so a rerun after a failure resumes where it stopped. A step that fails stops the run, the later steps are `skipped` and no chat opens. A `refused` step stops nothing. The four steps that ask questions come before `units`, so the units bind the backends just connected and the watcher's timer takes the hour just given. Without a terminal they are `skipped` and the install goes on.
 
 | Step | What it does | `already` when |
 |---|---|---|
 | `folders` | Creates the private folder with `config.local`, `prompts.local` and `clients`, and the data folder, all at mode 0700 whatever the umask. | all five exist at 0700 |
 | `keys-file` | Writes an empty `keys.json` at mode 0600. A file that exists keeps its content and is set to 0600. | the file exists at 0600 |
 | `interfaces` | Offers every interface package with a `setup.json`, asks its own questions, a secret without echo, and enables it once every required value is stored. | no answer changes a value |
+| `services` | Offers the optional YouTube Data API key with the [setup link](https://developers.google.com/youtube/data/getting-started). It helps read video metadata when other methods fail. An empty answer skips it, and `/keys service set youtube` adds it later. | the key is set or the answer is empty |
 | `subharness` | Asks which backends to install, then installs and connects each. | every chosen backend is installed and connected |
 | `selfimprovement` | Asks for `selfimprovement.repository` and stores it when her gh login can push there. Skipped while `selfimprovement.checkout` is unset. | the stored repository passes the check |
 | `mechanics` | Asks `heartbeat`, `selfreflection` and `selfimprovement` on or off, and `selfimprovement.at`. Refused for `selfimprovement` without what it needs. | no answer changes a value |

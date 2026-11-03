@@ -196,10 +196,6 @@ export async function main(
 
   try {
     if (!hot.prompts?.['search-summary']) throw new CliError('search-compare: prompts.search-summary is missing');
-    if (!llmClient) {
-      const { loadDotEnv } = await import('../src/config.ts');
-      loadDotEnv(privateDirOf(rootDir, env));
-    }
     const keys = serviceKeys({ env });
 
     /**
