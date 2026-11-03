@@ -15,6 +15,7 @@ export async function runInteractive(
   env: ChatEnv,
   streams: { stdin?: NodeJS.ReadStream; stdout?: NodeJS.WriteStream } = {}
 ): Promise<void> {
-  const app = render(createElement(ChatApp, { env }), { exitOnCtrlC: false, ...streams });
+  // Only a terminal reaches this chat, and Ink otherwise stops drawing under a `CI` variable.
+  const app = render(createElement(ChatApp, { env }), { exitOnCtrlC: false, interactive: true, ...streams });
   await app.waitUntilExit();
 }

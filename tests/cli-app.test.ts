@@ -64,9 +64,13 @@ async function withChat(env: ChatEnv, body: (rig: ReturnType<typeof terminal>) =
   const rig = terminal();
   const running = runInteractive(env, { stdin: rig.stdin as never, stdout: rig.stdout as never });
   await pause();
-  await body(rig);
-  rig.type('\u0003');
-  await running;
+  // A failed assertion still closes the chat, so a red test reports instead of hanging the run.
+  try {
+    await body(rig);
+  } finally {
+    rig.type('\u0003');
+    await running;
+  }
 }
 
 test("the screen shows the galaxy, the status line, and a typed line reaches the core with the owner's history saved", async () => {
