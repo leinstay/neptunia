@@ -92,13 +92,14 @@ import { createRunnerServer } from '../src/agent-runner/server.ts';
 import { DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.ts';
 import { createAgentEngine, createInstalledBackend } from '../src/agent-runner/backend.ts';
 import { BACKEND_NAMES, agentSettings, profileOf, listAgents, promptFilesOf } from '../src/agent-runner/profiles.ts';
+import type { BackendName } from '../src/agent-runner/profiles.ts';
 import type { RunnerTask } from '../src/agent-runner/protocol.ts';
 import { startSweeper } from '../src/agent-runner/sweep.ts';
 import { spawnGh } from '../src/selfimprovement/repository.ts';
 import { spawnRun } from '../src/setup/install.ts';
 import { REPLY_CHECK_MS } from '../src/subharness/control.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
-import { installSubharness } from '../src/subharness/install.ts';
+import { installSubharness, rollbackSubharness, updateSubharness } from '../src/subharness/install.ts';
 import type { InstallRun } from '../src/subharness/install.ts';
 import { loginCommand } from '../src/subharness/place.ts';
 import { SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/run.ts';
@@ -167,7 +168,7 @@ const USAGE = [
   '       neptunia plugin run <name>',
   '       neptunia service start|stop|restart|status [<unit> ...]',
   '       neptunia setup [--system] [--node <path>] [folders|keys-file|subharness|selfimprovement|mechanics|watcher|units|linger|core]',
-  '       neptunia setup subharness codex|claude|opencode [--from <path>]',
+  '       neptunia setup subharness codex|claude|opencode [--from <path>] [--version <version>] [--rollback]',
   '       neptunia task <command> [options]   (neptunia task help)',
   '       neptunia selfimprovement run',
   '       neptunia watcher run',
@@ -1172,6 +1173,18 @@ const installRun: InstallRun = (command, args, options) =>
     );
   });
 
+/** `setup subharness <backend> --rollback` or `--version <version>`: the owner's explicit change of a pinned version. */
+async function changeSubharnessVersion(backend: BackendName, flag: string, value: string | undefined): Promise<void> {
+  const { privateDir } = paths();
+  if ((flag === '--rollback') !== (value === undefined)) usage();
+  const outcome =
+    value === undefined
+      ? rollbackSubharness(privateDir, backend)
+      : await updateSubharness({ privateDir, backend, hostEnv: process.env, version: value }, installRun);
+  console.log(`${outcome.state.padEnd(8)}  subharness ${backend}  ${outcome.detail}`);
+  if (outcome.state === 'failed') process.exitCode = 1;
+}
+
 /**
  * `setup subharness <backend> [--from <path>]`: the backend installed into the private layer, then the login line the
  * owner types at this terminal. opencode is copied from `--from`, else from `errands.opencodePath`.
@@ -1180,6 +1193,7 @@ async function runSubharnessSetup(argv: ReadonlyArray<string>): Promise<void> {
   const [name, flag, value, ...extra] = argv;
   const backend = BACKEND_NAMES.find((known) => known === name);
   if (backend === undefined || extra.length > 0) usage();
+  if (flag === '--rollback' || flag === '--version') return changeSubharnessVersion(backend, flag, value);
   if (flag !== undefined && (flag !== '--from' || value === undefined || backend !== 'opencode')) usage();
   const where = paths();
   let source = value === undefined ? undefined : path.resolve(value);

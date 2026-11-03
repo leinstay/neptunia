@@ -21,7 +21,8 @@ test('claude lives in <private>/subharness/claude with the npm binary and CLAUDE
   const place = subharnessPlace(PRIVATE, 'claude');
   assert.equal(place.dir, path.join(PRIVATE, 'subharness', 'claude'));
   assert.equal(place.binary, path.join(place.dir, 'node_modules', '.bin', 'claude'));
-  assert.deepEqual(Object.keys(place.env), ['CLAUDE_CONFIG_DIR']);
+  // Changed: the claude run also carries the control that keeps the pinned version from updating itself.
+  assert.deepEqual(Object.keys(place.env), ['CLAUDE_CONFIG_DIR', 'DISABLE_AUTOUPDATER']);
   assert.ok(inside(place.env.CLAUDE_CONFIG_DIR ?? '', place.dir));
 });
 
@@ -39,7 +40,8 @@ test('opencode lives in <private>/subharness/opencode with its config and data h
   const place = subharnessPlace(PRIVATE, 'opencode');
   assert.equal(place.dir, path.join(PRIVATE, 'subharness', 'opencode'));
   assert.ok(inside(place.binary, place.dir));
-  assert.deepEqual(Object.keys(place.env).sort(), ['XDG_CONFIG_HOME', 'XDG_DATA_HOME']);
+  // Changed: the opencode run also carries the control that keeps the pinned version from updating itself.
+  assert.deepEqual(Object.keys(place.env).sort(), ['OPENCODE_DISABLE_AUTOUPDATE', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME']);
   assert.ok(inside(place.env.XDG_CONFIG_HOME ?? '', place.dir));
   assert.ok(inside(place.env.XDG_DATA_HOME ?? '', place.dir));
   assert.notEqual(place.env.XDG_CONFIG_HOME, place.env.XDG_DATA_HOME);

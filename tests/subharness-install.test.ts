@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { installSubharness } from '../src/subharness/install.ts';
+import { installSubharness, rollbackSubharness, updateSubharness } from '../src/subharness/install.ts';
 import type { InstallRun, InstallRunResult } from '../src/subharness/install.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
 import type { BackendName } from '../src/agent-runner/profiles.ts';
@@ -56,7 +56,18 @@ test('claude is installed with npm install --prefix into her folder and answers 
   assert.equal(outcome.state, 'done');
   assert.deepEqual(
     calls.map((call) => [call.command, call.args]),
-    [['npm', ['install', '--prefix', path.join(privateDir, 'subharness', 'claude'), '@anthropic-ai/claude-code']]]
+    [
+      [
+        'npm',
+        [
+          'install',
+          '--prefix',
+          path.join(privateDir, 'subharness', 'claude'),
+          '--save-exact',
+          '@anthropic-ai/claude-code@2.1.317',
+        ] /* Changed: the install takes the pinned version. */,
+      ],
+    ]
   );
 });
 
@@ -70,7 +81,9 @@ test('codex is installed with npm install --prefix of @openai/codex into its own
     'install',
     '--prefix',
     path.join(privateDir, 'subharness', 'codex'),
-    '@openai/codex',
+    '--save-exact',
+    // Changed: the install takes the pinned version.
+    '@openai/codex@0.164.0',
   ]);
 });
 
@@ -168,4 +181,125 @@ test('opencode with no source path answers failed', async () => {
   const outcome = await installSubharness({ privateDir, backend: 'opencode', hostEnv: HOST_ENV }, run);
   assert.equal(outcome.state, 'failed');
   assert.deepEqual(calls, []);
+});
+
+/** A fake npm: leaves the binary with `version` in it and a lock naming the version and its integrity. */
+function versionedRun(privateDir: string, backend: 'claude' | 'codex', result?: InstallRunResult): InstallRun {
+  return (_command, args) => {
+    if (result !== undefined) return Promise.resolve(result);
+    const place = subharnessPlace(privateDir, backend);
+    const spec = args.at(-1) ?? '';
+    const at = spec.lastIndexOf('@');
+    const [pkg, version] = [spec.slice(0, at), spec.slice(at + 1)];
+    leaveBinary(place.binary);
+    fs.writeFileSync(place.binary, `#!/bin/sh\necho ${version}\n`);
+    fs.writeFileSync(
+      path.join(place.dir, 'package-lock.json'),
+      JSON.stringify({ packages: { [`node_modules/${pkg}`]: { version, integrity: `sha512-of-${version}` } } })
+    );
+    return Promise.resolve({ code: 0, stdout: '', stderr: '' });
+  };
+}
+
+function selectionOf(privateDir: string, backend: BackendName) {
+  return JSON.parse(
+    fs.readFileSync(path.join(subharnessPlace(privateDir, backend).dir, 'version.json'), 'utf8')
+  ) as Record<string, unknown>;
+}
+
+test('a fresh install takes the pinned version, never the latest, and records it with its integrity', async () => {
+  // Bug: `npm install <pkg>` takes whatever is newest, so two installs of one engine run different backends.
+  const privateDir = tempDir('nep-pin-');
+  const calls: Array<Array<string>> = [];
+  const npm = versionedRun(privateDir, 'claude');
+  await installSubharness({ privateDir, backend: 'claude', hostEnv: HOST_ENV }, (command, args, options) => {
+    calls.push([...args]);
+    return npm(command, args, options);
+  });
+  const spec = calls[0]?.at(-1) ?? '';
+  assert.match(spec, /^@anthropic-ai\/claude-code@\d+\.\d+\.\d+$/);
+  const selection = selectionOf(privateDir, 'claude');
+  assert.equal(`@anthropic-ai/claude-code@${String(selection.version)}`, spec);
+  assert.equal(selection.integrity, `sha512-of-${String(selection.version)}`);
+});
+
+test('a restored persona installs the version it recorded, not the version this engine ships', async () => {
+  // Bug: a reinstall or a setup rerun silently upgrades her backend to the engine's newer pin.
+  const privateDir = tempDir('nep-pin-');
+  const place = subharnessPlace(privateDir, 'codex');
+  fs.mkdirSync(place.dir, { recursive: true });
+  fs.writeFileSync(path.join(place.dir, 'version.json'), JSON.stringify({ version: '0.1.0', integrity: 'x' }));
+  const specs: Array<string> = [];
+  const npm = versionedRun(privateDir, 'codex');
+  await installSubharness({ privateDir, backend: 'codex', hostEnv: HOST_ENV }, (command, args, options) => {
+    specs.push(args.at(-1) ?? '');
+    return npm(command, args, options);
+  });
+  assert.deepEqual(specs, ['@openai/codex@0.1.0']);
+});
+
+test('an explicit update replaces the binary, keeps the previous one and leaves her sessions alone', async () => {
+  // Bug: an update wipes the backend's folder, and with it the login and the native sessions under home/.
+  const privateDir = tempDir('nep-pin-');
+  const place = subharnessPlace(privateDir, 'claude');
+  await installSubharness({ privateDir, backend: 'claude', hostEnv: HOST_ENV }, versionedRun(privateDir, 'claude'));
+  const pinned = selectionOf(privateDir, 'claude').version;
+  const session = path.join(place.dir, 'home', 'projects', 'one.jsonl');
+  fs.mkdirSync(path.dirname(session), { recursive: true });
+  fs.writeFileSync(session, 'kept');
+  const outcome = await updateSubharness(
+    { privateDir, backend: 'claude', hostEnv: HOST_ENV, version: '9.9.9' },
+    versionedRun(privateDir, 'claude')
+  );
+  assert.equal(outcome.state, 'done');
+  assert.equal(selectionOf(privateDir, 'claude').version, '9.9.9');
+  assert.equal(selectionOf(privateDir, 'claude').previous, pinned);
+  assert.match(fs.readFileSync(place.binary, 'utf8'), /9\.9\.9/);
+  assert.equal(fs.readFileSync(session, 'utf8'), 'kept');
+});
+
+test('a failed update leaves the version in force working', async () => {
+  // Bug: npm fails halfway and she has no backend at all until someone repairs it by hand.
+  const privateDir = tempDir('nep-pin-');
+  const place = subharnessPlace(privateDir, 'claude');
+  await installSubharness({ privateDir, backend: 'claude', hostEnv: HOST_ENV }, versionedRun(privateDir, 'claude'));
+  const before = fs.readFileSync(place.binary, 'utf8');
+  const selection = selectionOf(privateDir, 'claude');
+  const outcome = await updateSubharness(
+    { privateDir, backend: 'claude', hostEnv: HOST_ENV, version: '9.9.9' },
+    versionedRun(privateDir, 'claude', { code: 1, stdout: '', stderr: 'npm ERR! 404' })
+  );
+  assert.equal(outcome.state, 'failed');
+  assert.equal(fs.readFileSync(place.binary, 'utf8'), before);
+  assert.deepEqual(selectionOf(privateDir, 'claude'), selection);
+});
+
+test('a rollback restores the previous binary and version and leaves her sessions alone', async () => {
+  // Bug: rolling a bad update back loses the sessions written since, or keeps recording the bad version.
+  const privateDir = tempDir('nep-pin-');
+  const place = subharnessPlace(privateDir, 'claude');
+  await installSubharness({ privateDir, backend: 'claude', hostEnv: HOST_ENV }, versionedRun(privateDir, 'claude'));
+  const pinned = selectionOf(privateDir, 'claude').version;
+  await updateSubharness(
+    { privateDir, backend: 'claude', hostEnv: HOST_ENV, version: '9.9.9' },
+    versionedRun(privateDir, 'claude')
+  );
+  const session = path.join(place.dir, 'home', 'new.jsonl');
+  fs.mkdirSync(path.dirname(session), { recursive: true });
+  fs.writeFileSync(session, 'written after the update');
+  assert.equal(rollbackSubharness(privateDir, 'claude').state, 'done');
+  assert.equal(selectionOf(privateDir, 'claude').version, pinned);
+  assert.match(fs.readFileSync(place.binary, 'utf8'), new RegExp(String(pinned).replaceAll('.', '\\.')));
+  assert.equal(fs.readFileSync(session, 'utf8'), 'written after the update');
+  assert.equal(rollbackSubharness(privateDir, 'claude').state, 'failed');
+});
+
+test('a run of each backend carries the control that keeps it from updating itself', async () => {
+  // Bug: the pin holds at install, then the CLI replaces itself in the background at its next start.
+  const privateDir = tempDir('nep-pin-');
+  assert.equal(subharnessPlace(privateDir, 'claude').env.DISABLE_AUTOUPDATER, '1');
+  assert.equal(subharnessPlace(privateDir, 'opencode').env.OPENCODE_DISABLE_AUTOUPDATE, '1');
+  await installSubharness({ privateDir, backend: 'codex', hostEnv: HOST_ENV }, versionedRun(privateDir, 'codex'));
+  const config = path.join(subharnessPlace(privateDir, 'codex').env.CODEX_HOME ?? '', 'config.toml');
+  assert.match(fs.readFileSync(config, 'utf8'), /check_for_update_on_startup = false/);
 });

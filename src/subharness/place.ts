@@ -17,7 +17,7 @@ export type SubharnessPlace = {
   dir: string;
   /** the executable a run starts */
   binary: string;
-  /** the backend's home, every value inside `dir` */
+  /** the backend's home, every path inside `dir`, and the control that keeps a pinned CLI from updating itself */
   env: Readonly<Record<string, string>>;
 };
 
@@ -27,14 +27,22 @@ export function subharnessPlace(privateDir: string, backend: BackendName): Subha
   const home = path.join(dir, 'home');
   switch (backend) {
     case 'claude':
-      return { dir, binary: path.join(dir, 'node_modules', '.bin', 'claude'), env: { CLAUDE_CONFIG_DIR: home } };
+      return {
+        dir,
+        binary: path.join(dir, 'node_modules', '.bin', 'claude'),
+        env: { CLAUDE_CONFIG_DIR: home, DISABLE_AUTOUPDATER: '1' },
+      };
     case 'codex':
       return { dir, binary: path.join(dir, 'node_modules', '.bin', 'codex'), env: { CODEX_HOME: home } };
     case 'opencode':
       return {
         dir,
         binary: path.join(dir, 'bin', 'opencode'),
-        env: { XDG_CONFIG_HOME: path.join(home, 'config'), XDG_DATA_HOME: path.join(home, 'data') },
+        env: {
+          XDG_CONFIG_HOME: path.join(home, 'config'),
+          XDG_DATA_HOME: path.join(home, 'data'),
+          OPENCODE_DISABLE_AUTOUPDATE: '1',
+        },
       };
   }
 }
