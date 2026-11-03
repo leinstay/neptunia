@@ -37,7 +37,7 @@ test('an equal hit in the current place comes first, and a stronger hit on anoth
     fillEnvAudiences(env);
     const found = search(env.db, {
       ctx: { ...groupContext('discord'), audienceColumn: true, destination: here },
-      plan: { forms: ['σπιτι', 'δασκαλου'], phrases: [], who: [], from: null, to: null, places: [] },
+      plan: { forms: ['σπιτι', 'δασκαλου'], who: [], from: null, to: null },
       now: NOW,
       settings: { ...dbSettings({})!, gateShare: 0 },
     });
