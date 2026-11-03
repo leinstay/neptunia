@@ -151,7 +151,7 @@ for (const hasGuild of [false, true]) {
         now: NOW,
         memoryContext,
         args: { question: 'rabbit' },
-      } as unknown as Parameters<typeof runMemorySearch>[0]);
+      });
       assert.equal(result.status, 'ok');
       assert.ok(result.data?.text.includes('rabbit boundary evidence'));
       assert.equal(profiles, 0);

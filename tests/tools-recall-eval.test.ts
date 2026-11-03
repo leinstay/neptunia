@@ -365,7 +365,7 @@ test('recall-eval: the local guild runs the record stage of the real recall, sur
         windows.push(messages);
         return messages;
       },
-    } as unknown as Parameters<typeof recall.run>[0])
+    })
   );
   assert.equal(out.text, 'In the garden.');
   assert.equal(calls.length, 1);

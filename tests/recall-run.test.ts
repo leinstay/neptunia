@@ -957,11 +957,7 @@ test('recall: the summary reads the last six chat lines as <context> right befor
   );
 
   const other = scene({ lines: CHAT_LINES, answers: chatAnswers });
-  await withCapturedLogs(() =>
-    other.recaller.run({ ...other.args, context: routed, server: RABBIT_SERVER } as unknown as Parameters<
-      typeof other.recaller.run
-    >[0])
-  );
+  await withCapturedLogs(() => other.recaller.run({ ...other.args, context: routed, server: RABBIT_SERVER }));
   const withRouted = other.llmCalls[0].messages[1].content;
   assert.match(
     withRouted,
@@ -1287,9 +1283,7 @@ test('recall-run: a channel the member cannot read is skipped before matching', 
     ],
   });
   const s = scene({ profiles: MEMORY_PROFILES, record, archive });
-  const { result } = await withCapturedLogs(() =>
-    s.recaller.run({ ...s.args, server: RECENT_SERVER } as unknown as Parameters<typeof s.recaller.run>[0])
-  );
+  const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RECENT_SERVER }));
   const user = s.llmCalls[0].messages[1].content;
   assert.ok(user.includes('archived recent | 2026-10-04 | - | κουνέλι archived in the garden'), user);
   assert.ok(user.includes('κουνέλι στον κήπο σήμερα') && user.includes('#garden | source: record'), user);
@@ -1932,11 +1926,7 @@ test("recall-run outcome: a throw is an error; with no open memory database the 
     from: null,
     to: null,
   };
-  const failed = await withCapturedLogs(() =>
-    thrown.recaller.run({ ...thrown.args, server, quotes: true } as unknown as Parameters<
-      typeof thrown.recaller.run
-    >[0])
-  );
+  const failed = await withCapturedLogs(() => thrown.recaller.run({ ...thrown.args, server, quotes: true }));
   assert.deepEqual(asRecord(failed.result).outcome, { kind: 'error' });
   const closed = scene({ lines: { c1: RABBIT_LINES }, answers: rabbitAnswers });
   const none = await withCapturedLogs(() =>
