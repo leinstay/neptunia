@@ -58,7 +58,11 @@ export function holdIfPaused(event: unknown, context: unknown, store: unknown): 
 }
 
 /** Where the pipeline is when a line arrives while paused. */
-type PausedPlace = { guildId: string | null; selfId: string };
+type PausedPlace = {
+  guildId: string | null;
+  selfId: string;
+  isServed?: (communityId: string | null | undefined) => boolean;
+};
 
 /**
  * How a line that arrives while paused is observed: `direct` and the record it belongs to, or null for a line the live
@@ -82,15 +86,20 @@ function pausedObservation(
     if (conversation.partnerId === undefined || conversation.partnerId === null) return null;
     return { direct: true, where: { guildId, privateUserId: author.id } };
   }
-  if (conversation.communityId !== guildId || conversation.kind === 'thread') return null;
+  const isServed = place.isServed ?? ((id: unknown) => id === guildId);
+  if (!isServed(conversation.communityId as string | null | undefined) || conversation.kind === 'thread') return null;
   if (author.bot === true && author.id !== place.selfId) return null;
-  return { direct: looseOf(fields.addressing).mentioned === true, where: { guildId } };
+  return {
+    direct: looseOf(fields.addressing).mentioned === true,
+    where: { guildId: conversation.communityId as string },
+  };
 }
 
 /** What the pipeline observes a paused line with: the hot config, the served guild, her id and its observe path. */
 export type PausedDeps = {
   hot: unknown;
   getGuildId: () => unknown;
+  isServed?: (communityId: string | null | undefined) => boolean;
   selfIdOf: () => unknown;
   observeLine: (
     event: never,
@@ -111,6 +120,7 @@ export async function observeWhilePaused(
   const observed = pausedObservation(event, {
     guildId: typeof guildId === 'string' ? guildId : null,
     selfId: typeof selfId === 'string' ? selfId : '',
+    ...(deps.isServed === undefined ? {} : { isServed: deps.isServed }),
   });
   // The pipeline's observe path takes the event the door validated.
   if (observed !== null) await deps.observeLine(event as never, observed.direct, observed.where, acceptedEvent);

@@ -260,6 +260,7 @@ export function openAdapterLink(options: {
       iface: body.iface as string,
       self: body.self as Named,
       community: (body.community ?? null) as Named | null,
+      ...(Array.isArray(body.communities) ? { communities: body.communities as Array<Named> } : {}),
       capabilities: (body.capabilities ?? NO_CAPABILITIES) as Capabilities,
       resume: typeof body.resume === 'string' ? body.resume : null,
     };
@@ -554,12 +555,18 @@ export const closedAdapter = (): Adapter => closedLink().adapter;
 export function createIfaceRouter(
   served: Adapter,
   routeOf: (iface: string) => Adapter | null,
-  routed: () => ReadonlyArray<Adapter>
+  routed: () => ReadonlyArray<Adapter>,
+  routeOfCommunity: (communityId: string) => Adapter | null = () => null
 ): Adapter {
   const by = (ref: { iface?: unknown } | null | undefined): Adapter => {
     const iface = ref?.iface;
     if (typeof iface !== 'string' || iface === '' || iface === served.iface) return served;
     return routeOf(iface) ?? served;
+  };
+  // A read of a community has no reference to route by, only the community's id. Its first argument names it.
+  const byCommunity = (scope: unknown): Adapter => {
+    const id = typeof scope === 'string' ? scope : (scope as { communityId?: unknown } | null)?.communityId;
+    return typeof id === 'string' ? (routeOfCommunity(id) ?? served) : served;
   };
   return {
     ...declaredHooks(),
@@ -579,12 +586,12 @@ export function createIfaceRouter(
     typing: (...args: Parameters<Adapter['typing']>) => by(args[0]).typing(...args),
     fetchMessages: (...args: Parameters<Adapter['fetchMessages']>) => by(args[0]).fetchMessages(...args),
     conversationInfo: (...args: Parameters<Adapter['conversationInfo']>) => by(args[0]).conversationInfo(...args),
-    conversations: (...args: Parameters<Adapter['conversations']>) => served.conversations(...args),
+    conversations: (...args: Parameters<Adapter['conversations']>) => byCommunity(args[0]).conversations(...args),
     history: (...args: Parameters<Adapter['history']>) => by(args[0]).history(...args),
-    memberInfo: (...args: Parameters<Adapter['memberInfo']>) => served.memberInfo(...args),
-    searchMessages: (...args: Parameters<Adapter['searchMessages']>) => served.searchMessages(...args),
-    searchMembers: (...args: Parameters<Adapter['searchMembers']>) => served.searchMembers(...args),
-    emoji: (...args: Parameters<Adapter['emoji']>) => served.emoji(...args),
+    memberInfo: (...args: Parameters<Adapter['memberInfo']>) => byCommunity(args[0]).memberInfo(...args),
+    searchMessages: (...args: Parameters<Adapter['searchMessages']>) => byCommunity(args[0]).searchMessages(...args),
+    searchMembers: (...args: Parameters<Adapter['searchMembers']>) => byCommunity(args[0]).searchMembers(...args),
+    emoji: (...args: Parameters<Adapter['emoji']>) => byCommunity(args[0]).emoji(...args),
     parseLinks: (...args: Parameters<Adapter['parseLinks']>) => served.parseLinks(...args),
     reactors: (...args: Parameters<Adapter['reactors']>) => by(args[0]).reactors(...args),
   };

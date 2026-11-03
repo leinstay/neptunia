@@ -40,6 +40,8 @@ export type Hello = {
   iface: string;
   self: Named;
   community: Named | null;
+  /** Every community an interface serving several serves, `community` among them. */
+  communities?: ReadonlyArray<Named>;
   capabilities: Capabilities;
   resume: string | null;
 };
@@ -402,6 +404,7 @@ export function serveAdapter(options: {
         iface: hello.iface,
         self: hello.self,
         community: hello.community,
+        ...(hello.communities === undefined ? {} : { communities: hello.communities }),
         capabilities: hello.capabilities,
         resume: hello.resume,
         token,

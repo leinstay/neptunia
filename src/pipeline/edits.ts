@@ -48,6 +48,8 @@ export type EditsContext = {
   } | null;
   reads: Reads;
   getGuildId: () => string | null;
+  /** A community some connected interface serves; the one community of `getGuildId` when absent. */
+  isServedCommunity?: (communityId: string | null | undefined) => boolean;
   selfIdOf: () => string;
   record: EditsRecord | null;
   now: () => number;
@@ -103,6 +105,7 @@ export function createEdits({
   store,
   reads,
   getGuildId,
+  isServedCommunity,
   selfIdOf,
   record,
   now,
@@ -137,7 +140,7 @@ export function createEdits({
     try {
       if (store?.state?.data?.paused) return;
       const guildId = event.conversation.communityId ?? null;
-      if (!guildId || guildId !== getGuildId()) return;
+      if (!guildId || !(isServedCommunity ? isServedCommunity(guildId) : guildId === getGuildId())) return;
       let edited = event as MessageEvent;
       if (event.partial) {
         const fetched = await reads.fetchMessages({ iface: event.iface, conversationId: event.conversation.id }, [
@@ -184,7 +187,7 @@ export function createEdits({
   function recordable(event: MessageReceived): boolean {
     if (!record) return false;
     const guildId = event.conversation?.communityId ?? null;
-    if (!guildId || guildId !== getGuildId()) return false;
+    if (!guildId || !(isServedCommunity ? isServedCommunity(guildId) : guildId === getGuildId())) return false;
     const message = event.message;
     if ('system' in message && message.system === true) return false;
     if (message?.author?.bot && message.author.self !== true) return false;
