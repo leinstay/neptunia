@@ -437,7 +437,6 @@ async function traces(flags: Flags, { dataDir, guildId, now, cwd }: RunContext) 
   const limit = numberFlag(flags['--limit'], all.length, { min: 1, integer: true });
   const runs = all.slice(-limit);
   const { createHot } = await import('../src/hot.ts');
-  const { loadDotEnv } = await import('../src/config.ts');
   const { createRecall } = await import('../src/behavior/recall-run.ts');
   const { prefetchLanes } = await import('../src/behavior/prefetch.ts');
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
@@ -459,7 +458,6 @@ async function traces(flags: Flags, { dataDir, guildId, now, cwd }: RunContext) 
     );
     let embed = null;
     if (meaningOn) {
-      loadDotEnv(privateDirOf(ROOT));
       const { createEmbedder } = await import('../src/llm/embed.ts');
       const embedder = createEmbedder({ apiKey: simKey(ORIGIN), env: {}, state: { data: {}, markDirty() {} } });
       embed = (texts: Untyped, options: Untyped = {}) =>
@@ -650,7 +648,6 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   if (!fs.existsSync(dbFile)) throw new CliError(`recall-eval: no database at ${dbFile}`);
 
   const { createHot } = await import('../src/hot.ts');
-  const { loadDotEnv } = await import('../src/config.ts');
   const { createRecall } = await import('../src/behavior/recall-run.ts');
   const { parseLookupAnswer } = await import('../src/behavior/recall.ts');
   const { fallbackLookupPlan } = await import('../src/behavior/turn.ts');
@@ -685,7 +682,6 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   );
 
   // The keys (the simulation key from the store, DISCORD_TOKEN, the search engine's) only when something is sent.
-  if (!dry || useDiscord) loadDotEnv(privateDirOf(ROOT));
   let webParts: Untyped = null;
   if (useWeb) {
     const { createLookup } = await import('../src/web/lookup.ts');

@@ -29,20 +29,6 @@
       "test": "none"
     },
     {
-      "path": ".env.example",
-      "purpose": "The names of the environment keys a deployment sets, without values.",
-      "layer": "public",
-      "imports": [],
-      "test": "none"
-    },
-    {
-      "path": ".env",
-      "purpose": "The deployment keys, never committed.",
-      "layer": "local",
-      "imports": [],
-      "test": "none"
-    },
-    {
       "path": ".agents/",
       "purpose": "The working folder of the agents of one deployment.",
       "layer": "local",

@@ -92,6 +92,7 @@ test('the steps run in a fixed order: folders, keys file, units, linger, core', 
       'folders',
       'keys-file',
       'interfaces',
+      'services',
       'subharness',
       'selfimprovement',
       'mechanics',
@@ -215,7 +216,7 @@ test('the report lists every step done and the commands that come next, in the o
   // Changed: the self-development step is skipped in this rig (no selfimprovement.checkout, no ask), every other step is done.
   // Changed again for spec 2026-11-02 PR 5: the subharness, mechanics and watcher steps are skipped too (no terminal).
   // Changed: the interfaces step asks too.
-  const asking = ['interfaces', 'subharness', 'selfimprovement', 'mechanics', 'watcher'];
+  const asking = ['interfaces', 'services', 'subharness', 'selfimprovement', 'mechanics', 'watcher'];
   assert.deepEqual(
     report.steps.map((step) => [step.step, step.state]),
     SETUP_STEPS.map((step) => [step, asking.includes(step) ? 'skipped' : 'done'])
@@ -258,6 +259,7 @@ test('a rerun after a failure resumes: earlier steps are already done and the co
       ['keys-file', 'already'],
       // Changed: the interfaces step sits after the key file, and asks.
       ['interfaces', 'skipped'],
+      ['services', 'skipped'],
       ['subharness', 'skipped'],
       ['selfimprovement', 'skipped'],
       ['mechanics', 'skipped'],
@@ -295,6 +297,7 @@ test('a single step runs alone and leaves the others skipped, with no command an
       ['keys-file', 'skipped'],
       // Changed: the interfaces step sits after the key file.
       ['interfaces', 'skipped'],
+      ['services', 'skipped'],
       ['subharness', 'skipped'],
       ['selfimprovement', 'skipped'],
       ['mechanics', 'skipped'],
@@ -556,8 +559,8 @@ test('the watcher hour given in a setup run is in the timer the same run writes'
   // Catches: the units are rendered before the watcher step, or without watcher.at, so the timer keeps 00:00.
   const { options, deps, unitDir } = rig();
   writeKeysFile(options.privateDir, { subharness: { backends: ['codex'], key: null, modes: {} } });
-  // Changed: the first answer declines the interface step, which asks before the watcher.
-  const answers = ['no', 'on', '05:30', 'codex', ''];
+  // Changed: the first two answers decline the interface step and the YouTube key, which ask before the watcher.
+  const answers = ['no', '', 'on', '05:30', 'codex', ''];
   const report = await runSetup(options, { ...deps, ask: () => Promise.resolve(answers.shift() ?? '') });
   assert.equal(report.steps.find((step) => step.step === 'watcher')?.state, 'done');
   const timer = fs.readFileSync(path.join(unitDir, 'neptunia-watcher.timer'), 'utf8');

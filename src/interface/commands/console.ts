@@ -37,6 +37,7 @@ import { pluginsCommand } from './plugins.ts';
 import { skillsCommand } from './skills.ts';
 import { MODULE_ACTIONS, moduleCommand } from './module-setup.ts';
 import type { ModuleAction } from './module-setup.ts';
+import { serviceCommand } from '../../keys/services.ts';
 import { simulationCommand, subharnessCommand, subharnessDeps } from './subharness.ts';
 import { SUBHARNESS_AGENTS } from '../../subharness/control.ts';
 import { callMethod, listOf, objOf } from '../../tools/types.ts';
@@ -552,9 +553,9 @@ export function createConsole(deps: ConsoleDeps): {
     run: (name, args, requester, dialog = null) => {
       const routed = name === 'model.set' ? modelSetElsewhere(deps, args) : null;
       if (routed !== null) return routed;
-      const keys = deps.keys;
-      if (keys != null && (name.startsWith(KEYS_PREFIX) || (name === 'model.set' && keys.enabled())))
-        return keys.run(name, args, dialog);
+      if (name.startsWith('keys.service.')) return serviceCommand(deps.dataDir, name, args, dialog);
+      if (deps.keys != null && (name.startsWith(KEYS_PREFIX) || (name === 'model.set' && deps.keys.enabled())))
+        return deps.keys.run(name, args, dialog);
       const action = moduleActionOf(name);
       if (action !== null) return moduleRun(deps.dataDir, name, action, args, dialog);
       if (name.startsWith(SKILLS_PREFIX)) return skillsCommand(deps.skills, name, args);

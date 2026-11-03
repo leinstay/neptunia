@@ -146,16 +146,6 @@ function warnUnsetEnvRef(name: string) {
 }
 
 /**
- * Load `<privateDir>/.env` into process.env (no-op when the file is absent). `privateDir` is the
- * deployment's private directory (src/paths.ts), the checkout root by default.
- */
-export function loadDotEnv(privateDir: string = ROOT_DIR): void {
-  const file = path.join(privateDir, '.env');
-  if (!fs.existsSync(file)) return;
-  applyEnv(parseEnv(fs.readFileSync(file, 'utf8')));
-}
-
-/**
  * Read config/config.json merged with the private settings file, then every `${env:NAME}` in a string value
  * replaced from process.env (`resolveEnvRefs`; an unset name becomes '' and is warned about once
  * per process). Throws on invalid JSON and on a private settings file at both its places. config/config.json comes

@@ -537,11 +537,9 @@ async function compareMain(argv: Array<string>) {
   const shadowOnly = flags['--shadow'] === true;
 
   const { createHot } = await import('../src/hot.ts');
-  const { loadDotEnv } = await import('../src/config.ts');
   const { openMemoryDb } = await import('../src/memory/db/open.ts');
   let apiKey: string | undefined;
   if (!shadowOnly) {
-    loadDotEnv(privateDirOf(ROOT));
     apiKey = simKey('memory-session');
   }
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
@@ -641,15 +639,12 @@ export async function main(argv: Array<string>): Promise<string> {
   const show = flags['--show'] === true;
 
   const { createHot } = await import('../src/hot.ts');
-  const { loadDotEnv } = await import('../src/config.ts');
   const { createLlm } = await import('../src/llm/openrouter.ts');
   const { createCalibrator } = await import('../src/llm/tokens.ts');
   const { openMemoryDb } = await import('../src/memory/db/open.ts');
   const { sweep, sessionSettings } = await import('../src/memory/db/session.ts');
   const { reviewDescription } = await import('../src/memory/db/describe.ts');
   const { applyMemoryWrite } = await import('../src/memory/db/session-write.ts');
-
-  loadDotEnv(privateDirOf(ROOT));
   const apiKey = simKey('memory-session');
 
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });

@@ -196,10 +196,8 @@ export async function main(
     );
     let llm = llmClient;
     if (!llm) {
-      const { loadDotEnv } = await import('../src/config.ts');
       const { createLlm } = await import('../src/llm/openrouter.ts');
       const { createCalibrator } = await import('../src/llm/tokens.ts');
-      loadDotEnv(privateDirOf(rootDir, env));
       const apiKey = keyOf(flags['--key'], env);
       // Per-role keys are not looked up (env {}): the given key pays; the daily counters are a throwaway copy.
       llm = createLlm({

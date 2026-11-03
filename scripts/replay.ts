@@ -1965,7 +1965,7 @@ export function diaryTurnRunner(
   });
 }
 
-async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv, log, signal, rng }: ModeCtx) {
+async function runDiary({ args, root, load, hot: liveHot, createHot, log, signal, rng }: ModeCtx) {
   const mods = await loadDiaryMods(load);
   const { DIARY_KINDS, diaryTopic, isPictureKind, isSetKind, stripUrls, validatePlan } = mods;
   const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild } = mods;
@@ -1979,8 +1979,6 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
   const outFile = args.outDir !== null ? path.resolve(root, args.outDir) : null;
   if (outFile !== null && (outFile === liveData || outFile.startsWith(`${liveData}${path.sep}`)))
     throw new CliError('replay-cli: --out may not be under data/');
-
-  loadDotEnv(privateDirOf(root));
   const discordToken = platformToken('discord', { rootDir: root });
   const openrouterKey = simKey('replay-cli');
 
@@ -2539,7 +2537,7 @@ export function innerReportMarkdown(result: Untyped): string {
  * The `--inner` mode (see the header): one inner turn for one wake (`--samples` times), in shadow, against the
  * live data (or `--snapshot`) read only. Returns `{ code, result }`.
  */
-async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv, log, budget = null }: ModeCtx) {
+async function runInner({ args, root, load, hot: liveHot, createHot, log, budget = null }: ModeCtx) {
   const mods = {
     ...(await loadDiaryMods(load)),
     ...(await load('behavior/inner.ts')),
@@ -2578,8 +2576,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
   const outFile = args.outDir !== null ? path.resolve(root, args.outDir) : null;
   if (outFile !== null && [liveData, dataDir].some((dir) => outFile === dir || outFile.startsWith(`${dir}${path.sep}`)))
     throw new CliError('replay-cli: --out may not be under data/');
-
-  loadDotEnv(privateDirOf(root));
   const discordToken = platformToken('discord', { rootDir: root });
   const openrouterKey = simKey('replay-cli');
 
@@ -3006,7 +3002,7 @@ export function diaryDayGate(
  * diary turn run to the end into an in-memory port, every drawing call recorded. Returns
  * `{ code, result }`.
  */
-async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, signal }: ModeCtx) {
+async function runDiaryDay({ args, root, load, hot: liveHot, log, signal }: ModeCtx) {
   const mods = await loadDiaryMods(load);
   const { localDayKey, planDay } = mods;
   const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild, createFakeAdapter } = mods;
@@ -3070,8 +3066,6 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
     log.info('replay-cli: diary day without a slot', { date, quiet: day.quiet });
     return done(0);
   }
-
-  loadDotEnv(privateDirOf(root));
   const discordToken = platformToken('discord', { rootDir: root });
   const openrouterKey = diaryDayKey(args.draw!);
 
@@ -6567,7 +6561,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
     }
     scenarios = parseScenarios(text);
   }
-  const { loadDotEnv, deepMerge } = await load('config.ts');
+  const { deepMerge } = await load('config.ts');
   const { createHot } = await load('hot.ts');
   const { log } = await load('log.ts');
 
@@ -6631,21 +6625,21 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
   }
   if (args.diary) {
     try {
-      return await runDiary({ args, root, load, hot, createHot, loadDotEnv, log, signal, rng });
+      return await runDiary({ args, root, load, hot, createHot, log, signal, rng });
     } finally {
       hot.close();
     }
   }
   if (args.diaryDay) {
     try {
-      return await runDiaryDay({ args, root, load, hot, loadDotEnv, log, signal });
+      return await runDiaryDay({ args, root, load, hot, log, signal });
     } finally {
       hot.close();
     }
   }
   if (args.inner) {
     try {
-      return await runInner({ args, root, load, hot, createHot, loadDotEnv, log, budget: spendBudget });
+      return await runInner({ args, root, load, hot, createHot, log, budget: spendBudget });
     } finally {
       hot.close();
     }
@@ -6696,8 +6690,6 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
     args.channelId = turnStart.scope.channel;
     args.triggerId = turnStart.trigger.messageId;
   }
-
-  loadDotEnv(privateDirOf(root));
   const discordToken = platformToken('discord', { rootDir: root });
   const keyNeeded = args.showRequestTurn === null && !args.dry;
   const openrouterKey = keyNeeded ? simKey('replay-cli') : undefined;
