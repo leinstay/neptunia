@@ -745,3 +745,82 @@ for (const entry of ['shared-profile', 'shared-directory', 'target-directory']) 
     assert.deepEqual(snapshot(external), before);
   });
 }
+
+for (const layout of ['absent', 'readme'] as const) {
+  test(`copies ordinary settings when the agents directory is ${layout}`, () => {
+    const options = fixture();
+    if (layout === 'absent') fs.rmdirSync(path.join(options.rootDir, 'agents'));
+    else write(options.rootDir, 'agents/README.md', 'Shared agent documentation.');
+    const settings = '{"watcher":{"enabled":false}}\n';
+    write(options.privateDir, 'config.local/config.json', settings);
+    const plan = applyPersonaLayers(options);
+    assert.deepEqual(plan.conflicts, []);
+    assert.deepEqual(Object.keys(snapshot(options.dataDir)), ['config', 'config/config.json']);
+    assert.equal(fs.readFileSync(path.join(options.dataDir, 'config/config.json'), 'utf8'), settings);
+  });
+}
+
+test('copies ordinary settings when the tracked settings file is blank', () => {
+  const options = fixture();
+  write(options.rootDir, 'config/config.json', ' \n');
+  const settings = '{"watcher":{"enabled":false}}\n';
+  write(options.privateDir, 'config.local/config.json', settings);
+  const plan = applyPersonaLayers(options);
+  assert.deepEqual(plan.conflicts, []);
+  assert.equal(fs.readFileSync(path.join(options.dataDir, 'config/config.json'), 'utf8'), settings);
+});
+
+test('holds an agent override outside the selected prompts directory', () => {
+  const options = fixture();
+  declareAgent(options.rootDir, 'agent-probe.md');
+  write(options.privateDir, 'agent-probe.md', 'unselected instructions');
+  write(options.privateDir, 'config.local/agent-probe.md', 'unselected instructions');
+  const plan = applyPersonaLayers(options);
+  assert.deepEqual(plan.conflicts, []);
+  assert.deepEqual(snapshot(options.dataDir), {});
+  assert.deepEqual(
+    plan.held.map((entry) => entry.path),
+    ['agent-probe.md', 'config.local/agent-probe.md']
+  );
+});
+
+test('holds an override for a consultation with no prompt while copying ordinary settings', () => {
+  const options = fixture();
+  write(
+    options.rootDir,
+    'agents/advice/profile.json',
+    JSON.stringify({
+      id: 'advice',
+      kind: 'consultation',
+      role: 'thinker',
+      prompt: null,
+      override: 'agent-advice.md',
+      description: 'A synthetic consultation.',
+    })
+  );
+  assert.doesNotThrow(() => listAgents({ rootDir: options.rootDir }));
+  write(options.privateDir, 'prompts.local/agent-advice.md', 'unselected consultation instructions');
+  const settings = '{"watcher":{"enabled":false}}\n';
+  write(options.privateDir, 'config.local/config.json', settings);
+  const plan = applyPersonaLayers(options);
+  assert.deepEqual(plan.conflicts, []);
+  assert.deepEqual(
+    plan.held.map((entry) => entry.path),
+    ['prompts.local/agent-advice.md']
+  );
+  assert.deepEqual(Object.keys(snapshot(options.dataDir)), ['config', 'config/config.json']);
+  assert.equal(fs.readFileSync(path.join(options.dataDir, 'config/config.json'), 'utf8'), settings);
+});
+
+test('writes only the declared destination when copying an agent override', () => {
+  const options = fixture();
+  declareAgent(options.rootDir, 'agent-probe.md', 'instructions.md');
+  write(options.privateDir, 'prompts.local/agent-probe.md', 'selected instructions\n');
+  const plan = applyPersonaLayers(options);
+  assert.deepEqual(plan.conflicts, []);
+  assert.deepEqual(Object.keys(snapshot(options.dataDir)), ['agents', 'agents/probe', 'agents/probe/instructions.md']);
+  assert.equal(
+    fs.readFileSync(path.join(options.dataDir, 'agents/probe/instructions.md'), 'utf8'),
+    'selected instructions\n'
+  );
+});
