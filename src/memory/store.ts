@@ -69,6 +69,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { keyText, personaKey, storageId, communityKey, namespaceOf } from './db/storage-keys.ts';
 import type { StorageKey, StorageKind, StorageSelector } from './db/storage-keys.ts';
+import { isMediaDescriptionEntry, mediaDescriptionOf } from './db/export.ts';
+import type { MediaDescriptionEntry } from './db/export.ts';
 
 import { listUnits } from './db/storage-units.ts';
 import type { UnitQuery } from './db/storage-units.ts';
@@ -1163,6 +1165,46 @@ function buildStore({
   const entries = new Map<string, CacheItem>();
   // The units a flush hands over, until their write resolved.
   const outbox = canWriteUnits(memoryDb) ? createUnitOutbox({ memoryDb, log, name: 'store' }) : null;
+  const seededMedia = new Set<string>();
+  const pendingMedia = new Map<string, { key: StorageKey; entry: MediaDescriptionEntry }>();
+
+  function mediaDescriptionKey(guildId: string, cacheKey: string): StorageKey {
+    return communityKey('versions', guildId, {
+      iface: namespaceOf(memoryDb),
+      selector: { versionKind: 'media', itemId: cacheKey },
+    });
+  }
+
+  function rememberMedia(guildId: string, cacheKey: string, value: MediaDescriptionEntry, seed = false): void {
+    if (!outbox) return;
+    const key = mediaDescriptionKey(guildId, cacheKey);
+    const text = keyText(key);
+    if (seed && (pendingMedia.has(text) || mediaDescriptionOf(seam.db(), key))) return;
+    const snapshot = structuredClone(value);
+    pendingMedia.set(text, { key, entry: snapshot });
+    outbox.lines(key, [{ op: seed ? 'seed' : 'described', id: newId(), entry: snapshot }]);
+  }
+
+  function currentMedia(guildId: string, cacheKey: string): MediaDescriptionEntry | null {
+    if (!outbox) return null;
+    const key = mediaDescriptionKey(guildId, cacheKey);
+    const text = keyText(key);
+    const pending = pendingMedia.get(text);
+    if (pending && outbox.holds(key)) return structuredClone(pending.entry);
+    pendingMedia.delete(text);
+    return seam.run(() => mediaDescriptionOf(seam.db(), key));
+  }
+
+  function seedMedia(guildId: string, file: string, cache: StoredRecord): void {
+    if (!outbox || seededMedia.has(file)) return;
+    seededMedia.add(file);
+    for (const [key, value] of Object.entries(cache)) {
+      if (!isMediaDescriptionEntry(value) || /^(?:preview|search|results|page):/.test(key)) continue;
+      const provenance = isFiniteNumber(value.describedAt) && typeof value.model === 'string' && value.model !== '';
+      const answer = /^(?:video|image|gif):.+:q:[a-f0-9]+$/.test(key) && typeof value.answer === 'string';
+      if (provenance || answer) rememberMedia(guildId, key, value, true);
+    }
+  }
 
   // ---- The archive (src/memory/archive.ts): nothing leaves a hot list without a copy ----
   //
@@ -2950,7 +2992,22 @@ function buildStore({
      * pattern as `state.data`) and call `markMediaCacheDirty` afterwards.
      */
     getMediaCache(guildId: string): StoredRecord {
-      return entry(mediaCacheFile(guildId), () => ({})).value;
+      const file = mediaCacheFile(guildId);
+      const value = entry(file, () => ({})).value as StoredRecord;
+      seedMedia(guildId, file, value);
+      return value;
+    },
+
+    getMediaDescription: currentMedia,
+    rememberMediaDescription(guildId: string, cacheKey: string, value: MediaDescriptionEntry): void {
+      rememberMedia(guildId, cacheKey, value);
+    },
+    markMediaDescriptionRefreshFailed(guildId: string, cacheKey: string, at: number): void {
+      const previous = currentMedia(guildId, cacheKey);
+      if (!previous || !outbox) return;
+      const key = mediaDescriptionKey(guildId, cacheKey);
+      pendingMedia.set(keyText(key), { key, entry: { ...previous, refreshFailedAt: at } });
+      outbox.lines(key, [{ op: 'refresh-failed', at }]);
     },
 
     markMediaCacheDirty(guildId: string) {
@@ -3344,6 +3401,7 @@ function buildStore({
       if (held > 0) log.warn('store: flushed held', { files: held });
       if (outbox) {
         counts.waiting = await outbox.flush();
+        for (const [text, pending] of pendingMedia) if (!outbox.holds(pending.key)) pendingMedia.delete(text);
         if (final) counts.pending = outbox.keep();
       }
       return counts;

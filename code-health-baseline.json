@@ -512,7 +512,7 @@
     },
     "src/memory/describe.ts": {
       "buildDescriber": {
-        "function-length": 1284
+        "function-length": 1276
       },
       "buildDescriber>fetchVideoMedia": {
         "complexity": 21
@@ -779,7 +779,6 @@
       "src/media/classify.ts",
       "src/media/gif-post.ts",
       "src/memory/avatar-queue.ts",
-      "src/memory/db/export.ts",
       "src/memory/db/graph-manifest.ts",
       "src/memory/db/map/channel.ts",
       "src/memory/db/map/common.ts",

@@ -19,7 +19,7 @@ import { parseExtra } from './map/common.ts';
 
 import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
 import { hotClaimIds, linkVectors, qualify, retireAbsent, writeMapping } from './upsert.ts';
-import { unitRows } from './export.ts';
+import { unitRows, isMediaDescriptionEntry, mediaDescriptionId } from './export.ts';
 import { unitValue } from './readers/common.ts';
 import { assignDiaryDestination } from './publish.ts';
 import { graphPending, projectPending } from './graph.ts';
@@ -28,6 +28,8 @@ import { applyErrandUnit, skippedErrandUnit } from '../../board/errands.ts';
 import { dbOf, asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
 import type { MappedPath } from './map/index.ts';
+import { groupScope } from './scope.ts';
+import { storageContext } from './map/index.ts';
 
 /** Tables of an owned unit whose rows carry a `position`. */
 const POSITIONED = [
@@ -346,6 +348,8 @@ function writeLine(
 
 function writeLines(db: Db, update: Row, at: string): { written: number; duplicates: number; adopted: number } {
   const unit = updateUnit(db, update);
+  if (unit.key?.kind === 'versions' && unit.key.selector?.versionKind === 'media')
+    return writeMediaDescriptions(db, unit, update.lines, at);
   if (unit.format !== 'jsonl' || !LINE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
   const lines = (Array.isArray(update.lines) ? (update.lines as Array<unknown>) : []).filter(
     (line): line is Row => line !== null && typeof line === 'object' && !Array.isArray(line)
@@ -367,6 +371,88 @@ function writeLines(db: Db, update: Row, at: string): { written: number; duplica
   noteUnit(db, unit.full, unit.kind, { lines: position, at });
   if (result.written > 0) markStemsPending(db);
   return result;
+}
+
+/** Media generations append independently of the active cache's replacement writes. */
+function writeMediaDescriptions(db: Db, unit: Unit, given: unknown, at: string) {
+  const key = unit.key!;
+  const descriptionId = mediaDescriptionId(key);
+  let written = 0;
+  let duplicates = 0;
+  for (const event of Array.isArray(given) ? given : []) {
+    if (!event || typeof event !== 'object') throw coded('UNIT_BAD_OP');
+    const line = event as Row;
+    const current = db
+      .prepare(
+        `SELECT v.id,v.extra FROM descriptions d JOIN description_versions v ON v.id=d.current_version
+       WHERE d.id=? AND d.owner_key=?`
+      )
+      .get(descriptionId, unit.full);
+    if (line.op === 'refresh-failed') {
+      if (current && isFiniteNumber(line.at)) {
+        const extra = parseExtra(current.extra);
+        db.prepare('UPDATE description_versions SET extra=? WHERE id=?').run(
+          JSON.stringify({ ...extra, refreshFailedAt: line.at }),
+          current.id
+        );
+        written += 1;
+      }
+      continue;
+    }
+    if (!isMediaDescriptionEntry(line.entry) || !filled(line.id)) throw coded('UNIT_BAD_OP');
+    const versionId = `${descriptionId}:${line.id}`;
+    if ((line.op === 'seed' && current) || db.prepare('SELECT 1 FROM description_versions WHERE id=?').get(versionId)) {
+      duplicates += 1;
+      continue;
+    }
+    const version = Number(
+      db
+        .prepare('SELECT COALESCE(MAX(position),0)+1 AS version FROM description_versions WHERE owner_key=?')
+        .get(unit.full)?.version
+    );
+    const text = typeof line.entry.text === 'string' ? line.entry.text : line.entry.answer;
+    writeMapping(
+      db,
+      {
+        description_versions: [
+          {
+            id: versionId,
+            description_id: descriptionId,
+            text,
+            written_at: isoOf(line.entry.ts),
+            origin: 'media',
+            extra: JSON.stringify({ entry: line.entry }),
+            owner_key: unit.full,
+            position: version,
+          },
+        ],
+        descriptions: [
+          {
+            id: descriptionId,
+            subject_kind: 'media',
+            subject_id: key.selector?.itemId,
+            field: 'description',
+            current_version: versionId,
+            owner_key: unit.full,
+            ...groupScope(storageContext(db, key).iface),
+          },
+        ],
+        operational: [
+          {
+            kind: 'versions',
+            owner: unit.full,
+            owner_key: unit.full,
+            value: JSON.stringify({ $has: { media: descriptionId } }),
+          },
+        ],
+      },
+      unit.full,
+      { at }
+    );
+    written += 1;
+  }
+  noteUnit(db, unit.full, unit.kind, { at });
+  return { written, duplicates, adopted: 0 };
 }
 
 /** The kinds of JSON unit op `value` does not write (the request dumps: a step source needs its turn's answer). */
