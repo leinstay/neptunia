@@ -4,7 +4,7 @@
 // (closeAttempt), and what runTurn hears of the attempt (attemptReport). runTurnOnce (src/behavior/turn.ts) calls
 // them all.
 
-import { publicationBoundaryOf } from '../../tools/publication.ts';
+import { turnBoundary } from '../../tools/publication.ts';
 import { recordEntry } from '../../behavior/diary-turn.ts';
 import { limitOf } from '../../behavior/limits.ts';
 import { DailyCapError, TokenLimitError, errorCodeOf, railReason } from '../../llm/openrouter.ts';
@@ -48,7 +48,7 @@ export function outcomePhase(ctx: PhaseContext, params: PhaseParams, draft: Draf
     diaryPrep && held.length > 0
       ? {
           diary: recordEntry({
-            publicationBoundary: publicationBoundaryOf(draft.memoryContext, ctx.conversationOf(channel)),
+            publicationBoundary: turnBoundary(draft, ctx.conversationOf(channel)),
             store,
             config: hot.config,
             guildId,

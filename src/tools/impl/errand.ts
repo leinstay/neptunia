@@ -112,6 +112,7 @@ const handlers = perEnv((env) => {
       channelId: context?.channelId ? idText(context.channelId) : null,
       messageId: context?.sourceMessageId ? idText(context.sourceMessageId) : null,
       ...(persona && context?.turnId ? { turnId: idText(context.turnId) } : {}),
+      ...(context?.publicationBoundary ? { publicationBoundary: context.publicationBoundary } : {}),
     };
     const idempotencyKey = persona && typeof context?.idempotencyKey === 'string' ? context.idempotencyKey : null;
     const submitted = errands().submit({

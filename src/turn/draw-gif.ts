@@ -4,7 +4,7 @@
 // her calls and the attempt call its functions.
 
 import type { PublicationBoundary } from '../tools/publication.ts';
-import { publicationBoundaryOf, bindPublicationPort } from '../tools/publication.ts';
+import { turnBoundary, bindPublicationPort } from '../tools/publication.ts';
 import type { Context } from '../memory/db/scope.ts';
 import { imageFileName } from '../behavior/mirror.ts';
 import { setSettings } from '../behavior/diary.ts';
@@ -300,7 +300,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     }: Parameters<DrawGif['drawTool']>[1],
     model: string | null = null
   ): Promise<DrawResult> {
-    const publicationBoundary = publicationBoundaryOf(draft?.memoryContext, conversationOf(channel));
+    const publicationBoundary = turnBoundary(draft, conversationOf(channel));
     const port = bindPublicationPort(iface, publicationBoundary);
     const none = { text: '' };
     const failed = (status: string, code: string | undefined, extra: object = {}): DrawResult => ({

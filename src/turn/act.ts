@@ -3,7 +3,7 @@
 // createTurnRunner (src/behavior/turn.ts) builds it once per runner with createAct; the attempt and her calls call act
 // and holdSpeech.
 
-import { bindPublicationPort, publicationBoundaryOf } from '../tools/publication.ts';
+import { bindPublicationPort, turnBoundary } from '../tools/publication.ts';
 import type { Context } from '../memory/db/scope.ts';
 import { setSettings } from '../behavior/diary.ts';
 import { chunkPictures, filesPerMessage } from '../behavior/mirror.ts';
@@ -319,7 +319,7 @@ export function createAct(ctx: ActContext): Act {
     participation = null,
     draft = null,
   }: ActArgs): Promise<ActOutcome> {
-    const publicationBoundary = publicationBoundaryOf(draft?.memoryContext, conversationOf(channel));
+    const publicationBoundary = turnBoundary(draft, conversationOf(channel));
     const port = bindPublicationPort(iface, publicationBoundary);
     const cfg = hot.config.typing;
     const typingOn = true;
