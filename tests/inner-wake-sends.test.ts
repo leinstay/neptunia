@@ -260,7 +260,8 @@ async function core(
     const committed: { sends: number | null } = { sends: null };
     let life: ReturnType<typeof createInnerLife> | null = null;
     const memoryDb = {
-      readHandle: (): unknown => memory.memoryDb.readHandle(),
+      readHandle: () => memory.memoryDb.readHandle(),
+      writeUnit: (update: Parameters<typeof memory.memoryDb.writeUnit>[0]) => memory.memoryDb.writeUnit(update),
       memoryWrite: async (update: WakeQueueUpdate): Promise<unknown> => {
         // The synthetic persisted completion models a restricted producer, including malformed stored metadata.
         const stored =

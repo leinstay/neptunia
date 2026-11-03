@@ -1666,7 +1666,6 @@ test('validate: names every unparsable operational *.json file, path relative to
   store.touchUser('g1', 'u1', 'Alice', 1000);
   store.flush();
   await store.flushSettled({});
-
   fs.mkdirSync(path.join(dir, 'guilds', 'g1', 'users'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'users', 'u1.json'), '{ not json');
   fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'inner.json'), '{ not json either');
@@ -1674,10 +1673,8 @@ test('validate: names every unparsable operational *.json file, path relative to
   // Database-backed state files are retired. Operational guild aliases still require file validation.
   fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'usage.json'), '{ malformed operational usage');
   fs.writeFileSync(path.join(dir, 'guilds', 'g1', 'metrics.json'), '{ malformed operational metrics');
-
-  const bad = store.validate();
   assert.deepEqual(
-    bad.sort(),
+    store.validate().sort(),
     ['guilds/g1/metrics.json', 'guilds/g1/usage.json'],
     'database-authoritative paths are ignored while malformed operational files remain visible'
   );

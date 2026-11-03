@@ -1430,6 +1430,8 @@ test('row 14: the inner state file is corrupt at start -- a backup is written an
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
   const file = path.join(dataDir, 'guilds', GUILD, 'inner.json');
+  // The errand database opens before corruption so this case exercises the standalone inner-file reader.
+  memoryOf(dataDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, '{"v":1,"queue":[{"id":"inner.wake:');
   const records = [intentionRecord('i1')];
