@@ -1531,7 +1531,10 @@ function userPathOf(key: 'socket' | 'out', name: string, env: Record<string, str
 }
 
 /** Shared worker snapshots for compatibility. Fresh path-aware consumers use loadProfiles or profileOf. */
-export const PROFILES = profilesFrom(listSharedAgents(), agentPaths({ rootDir: ROOT_DIR }));
+export const PROFILES = profilesFrom(
+  listSharedAgents(),
+  agentPaths({ rootDir: ROOT_DIR, env: { ...process.env, NEPTUNIA_PRIVATE_DIR: undefined } })
+);
 
 /** The `scout` profile: internet errands through OpenCode's web tools and a curl/ffmpeg download shell. */
 export const SCOUT = PROFILES.scout ?? null;

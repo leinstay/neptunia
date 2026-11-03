@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CliError, parseFlags, runCli } from './lib/cli.ts';
+import { CliError, parseFlags, runCli } from './lib/cli-args.ts';
 import { CONFIG_DIR, LABELS_FILE, LOCAL_CONFIG_DIR, OLD_LOCAL_CONFIG, OLD_LOCAL_LABELS } from '../src/config/files.ts';
 import { splitLabels } from '../src/config/labels.ts';
 

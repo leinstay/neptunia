@@ -8,7 +8,7 @@ The offline converter in `src/setup/persona-migration.ts` prepares personal file
 node scripts/persona-files-move.ts --root <engine-root> --private <source-root> --data <target-root> [--apply]
 ```
 
-Each required path resolves independently against the working directory. The default is a dry run. With `--apply`, the command inspects the files afresh and copies only missing destinations. It starts no services and makes no provider calls. Legacy credential conversion uses a private temporary key store during inspection and removes it afterwards. Use stopped or isolated roots. Source and target trees must be separate. The target may lie beneath the engine root, but it must not equal or contain that root.
+Each required path resolves independently against the working directory. A legacy `NEPTUNIA_PRIVATE_DIR` does not replace these explicit paths or prevent offline inspection. The default is a dry run. With `--apply`, the command inspects the files afresh and copies only missing destinations. It starts no services and makes no provider calls. Legacy credential conversion uses a private temporary key store during inspection and removes it afterwards. Use stopped or isolated roots. Source and target trees must be separate. The target may lie beneath the engine root, but it must not equal or contain that root.
 
 ## Supported files
 
