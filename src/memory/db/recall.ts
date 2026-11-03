@@ -114,8 +114,8 @@ type RecallWindow = {
 type Reader = {
   selfName: string;
   exclude: Set<unknown>;
-  nameOf: (id: string) => string | null;
-  channelNameOf: (channelId: unknown, placeId: unknown) => string | null;
+  authorOf: (accountId: unknown) => { id: string | null; name: string | null };
+  channelNameOf: (placeId: unknown) => string | null;
 };
 /** The settings of a db recall: the recall settings with the keys of `recall.db` lifted out. */
 type DbKeys = { gateShare: number; candidates: number; minMeaning: number; wordPool?: number };
@@ -167,28 +167,36 @@ const parseJson = (text: unknown): unknown => {
 };
 const str = (value: unknown): string => (typeof value === 'string' ? value : '');
 
-/** The first name of each account, by native id: an account's own names only, never through its person's other accounts. */
-function accountNames(db: Db): Map<unknown, string> {
-  const names = new Map<unknown, string>();
-  for (const row of db.prepare('SELECT id, native_id, names FROM accounts WHERE retired_at IS NULL').all()) {
+type AccountName = { nativeId: string | null; iface: string; name: string | null };
+type PlaceName = { nativeId: string | null; iface: string; name: string | null; private: boolean };
+
+/** Account names retain their exact identity when native IDs collide across interfaces. */
+function accountNames(db: Db): Map<unknown, AccountName> {
+  const names = new Map<unknown, AccountName>();
+  for (const row of db.prepare('SELECT id, iface, native_id, names, retired_at FROM accounts').all()) {
     const list = parseJson(row.names);
-    const first = Array.isArray(list)
-      ? (list as Array<unknown>).find((name) => typeof name === 'string' && name)
-      : null;
-    if (first) names.set(row.native_id ?? nativeOf(row.id), first as string);
+    const first: unknown = Array.isArray(list) ? list.find((name: unknown) => typeof name === 'string' && name) : null;
+    names.set(row.id, {
+      nativeId: str(row.native_id) || null,
+      iface: str(row.iface),
+      name: row.retired_at === null ? str(first) || null : null,
+    });
   }
   return names;
 }
 
-/** The names of the places a context may know: a private place's name is the internal context's alone. */
-function placeNames(db: Db, ctx: Context): Map<unknown, string> {
-  const names = new Map<unknown, string>();
-  const rows = db
-    .prepare('SELECT id, name, iface, scope_kind FROM places WHERE name IS NOT NULL AND retired_at IS NULL')
-    .all();
-  for (const row of rows) {
-    if (ctx.internal !== true && (row.scope_kind === 'dm' || row.scope_kind === 'internal')) continue;
-    names.set(row.id, row.name as string);
+/** Exact place metadata gates private names before consulting an interface's snapshot. */
+function placeNames(db: Db): Map<unknown, PlaceName> {
+  const names = new Map<unknown, PlaceName>();
+  for (const row of db
+    .prepare('SELECT id, native_id, name, iface, scope_kind, conversation FROM places WHERE retired_at IS NULL')
+    .all()) {
+    names.set(row.id, {
+      nativeId: str(row.native_id) || null,
+      iface: str(row.iface),
+      name: str(row.name) || null,
+      private: row.scope_kind === 'dm' || row.scope_kind === 'internal' || row.conversation === 'dm',
+    });
   }
   return names;
 }
@@ -200,11 +208,11 @@ function channelOf(row: Row, extra: Row): string {
 }
 
 /** One source row as a normalized chat message (the shape renderRecallWindows reads). */
-function messageOf(row: Row, { nameOf, selfName }: Pick<Reader, 'nameOf' | 'selfName'>): RecallMessage {
+function messageOf(row: Row, { authorOf, selfName }: Pick<Reader, 'authorOf' | 'selfName'>): RecallMessage {
   const extra = (parseJson(row.extra) ?? {}) as Row;
   const self = row.kind === 'said';
-  const by = row.author_account ? nativeOf(row.author_account) : null;
-  const name = self ? selfName : by ? (nameOf(by) ?? '') : '';
+  const author = authorOf(row.author_account);
+  const name = self ? selfName : author.name;
   const media = parseJson(row.media);
   const links = Array.isArray(extra.links) ? (extra.links as Array<Row>) : [];
   const ts = Date.parse(row.occurred_at as string);
@@ -213,7 +221,7 @@ function messageOf(row: Row, { nameOf, selfName }: Pick<Reader, 'nameOf' | 'self
   return {
     id: row.native_id,
     channelId: channelOf(row, extra),
-    authorId: by,
+    authorId: author.id,
     authorName:
       String(name ?? '')
         .replace(/\s+/g, ' ')
@@ -669,7 +677,7 @@ function windowOf(rows: ReadonlyArray<Row>, hitIds: Iterable<unknown>, read: Rea
     source: 'db',
     placeId: rows[0]?.place_id ?? null,
     channelId,
-    channelName: read.channelNameOf(channelId, rows[0]?.place_id),
+    channelName: read.channelNameOf(rows[0]?.place_id),
     messages,
     hitIds: [...hitIds].filter((id) => !read.exclude.has(id)),
     overlapsChat: messages.length < rows.length,
@@ -686,22 +694,30 @@ function readerOf(
     exclude = null,
   }: { nameOf?: unknown; selfName?: string; channelNameOf?: unknown; exclude?: unknown } = {}
 ): Reader {
-  let names: Map<unknown, string> | null = null;
-  let places: Map<unknown, string> | null = null;
+  let names: Map<unknown, AccountName> | null = null;
+  let places: Map<unknown, PlaceName> | null = null;
   return {
     selfName,
     exclude: exclude instanceof Set ? exclude : new Set(Array.isArray(exclude) ? exclude : []),
-    nameOf: (id: string): string | null => {
-      const given = typeof nameOf === 'function' ? (nameOf(id) as string | null) : null;
-      if (given) return given;
+    authorOf: (accountId) => {
       names ??= accountNames(db);
-      return names.get(String(id)) ?? null;
+      const account = names.get(accountId);
+      if (!account) return { id: null, name: null };
+      const given =
+        account.iface === ctx.iface && account.nativeId && typeof nameOf === 'function'
+          ? str(nameOf(account.nativeId))
+          : '';
+      return { id: account.nativeId, name: given || account.name };
     },
-    channelNameOf: (channelId: unknown, placeId: unknown): string | null => {
-      const given = typeof channelNameOf === 'function' ? (channelNameOf(channelId) as string | null) : null;
-      if (given) return given;
-      places ??= placeNames(db, ctx);
-      return places.get(placeId) ?? places.get(channelPlaceId(ifaceOf(ctx), channelId)) ?? null;
+    channelNameOf: (placeId: unknown): string | null => {
+      places ??= placeNames(db);
+      const place = places.get(placeId);
+      if (!place || (place.private && ctx.internal !== true)) return null;
+      const given =
+        place.iface === ctx.iface && place.nativeId && typeof channelNameOf === 'function'
+          ? str(channelNameOf(place.nativeId))
+          : '';
+      return given || place.name;
     },
   };
 }

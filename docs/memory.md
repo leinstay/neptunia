@@ -173,6 +173,8 @@ The core issues an internal context for a live message authenticated as a CLI pr
 
 Database recall checks source audiences and requires the source's place to exist. Stored group evidence remains readable when its interface is offline or absent from the live conversation snapshot. Live interface searches and history pulls retain their own permission checks. Private place names remain hidden from ordinary outward reads, while group place names are visible across interfaces. These reads preserve source provenance and do not change the reply destination.
 
+Stored recall resolves authors through the source's exact account ID and places through its exact place ID. Native IDs shared by different interfaces do not share names. An account or group place in the reader's interface keeps its profile or snapshot naming precedence. Foreign accounts and places use their own stored names. A retired account retains its native ID and interface for attribution, while its stored name is excluded. An ordinary DM read hides its private place name before consulting a callback, while an internal read retains access to that name. Lines of kind `said` use the supplied persona name.
+
 `issueContext` records policy version `2` for newly issued contexts. Existing context rows retain their recorded version. This eligibility rule has no configuration switch and leaves recall ranking and candidate limits unchanged.
 
 ## Writing memory
