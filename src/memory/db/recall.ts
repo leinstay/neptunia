@@ -34,8 +34,8 @@
 // as arguments. Rows are read here; wording and rendering are the caller's (`quotesOf` turns windows into the
 // stretches `recall.run` returns when it renders them with src/behavior/recall.js#renderRecallWindows).
 
-import { fromRows as recordFromRows } from './map/record.ts';
-import { locatorText, messageLocator } from './message-locator.ts';
+import { nativeLocatorOf } from './source-locator.ts';
+import { locatorText } from './message-locator.ts';
 import { MINUTE_MS } from '../../time.ts';
 import {
   RECALL_DEFAULTS,
@@ -235,30 +235,6 @@ function placeNames(db: Db): Map<unknown, PlaceName> {
 function channelOf(row: Row, extra: Row): string {
   const dm = typeof extra?.dmChannel === 'string' && extra.dmChannel ? extra.dmChannel : null;
   return dm ?? nativeOf(row.place_id) ?? asText(row.place_id ?? '');
-}
-
-/** Historic record routes require the mapper's retained version and actual channel. */
-function nativeLocatorOf(row: Row, extra: Row): NativeMessageLocator | undefined {
-  const marker = messageLocator(extra.$messageLocator, row.iface);
-  if (marker) return { iface: marker.iface, conversationId: marker.conversationId, messageId: marker.messageId };
-  if (Object.hasOwn(extra, '$messageLocator')) return undefined;
-  if (
-    !/^(?:guilds\/[^/]+\/)?(?:private\/[^/]+\/)?record\/\d{4}-\d{2}\/\d{4}-\d{2}-\d{2}\.jsonl$/.test(
-      str(row.owner_file)
-    ) ||
-    extra.v !== 1 ||
-    !locatorText(extra.id) ||
-    (row.kind !== 'seen' && row.kind !== 'said') ||
-    !locatorText(row.iface) ||
-    row.iface.includes('/') ||
-    !locatorText(row.native_id)
-  )
-    return undefined;
-  const line = recordFromRows({ sources: [{ ...row }] });
-  const scope = line.scope;
-  if (!scope || typeof scope !== 'object' || Array.isArray(scope)) return undefined;
-  const channel = (scope as Row).channel;
-  return locatorText(channel) ? { iface: row.iface, conversationId: channel, messageId: row.native_id } : undefined;
 }
 
 function storedRefOf(row: Row, extra: Row): StoredSourceRef {

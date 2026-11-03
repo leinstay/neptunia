@@ -1,0 +1,70 @@
+// The extracted source locator preserves routes already covered by the database source-handle regressions.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { nativeLocatorOf } from '../src/memory/db/source-locator.ts';
+import { toRows as recordRows } from '../src/memory/db/map/record.ts';
+import type { Row } from '../src/memory/db/types.ts';
+
+function historical(): { row: Row; extra: Row } {
+  const mapping = recordRows('private/partner-42/record/2026-10/2026-10-23.jsonl', {
+    v: 1,
+    id: 'record-historic-anchor',
+    kind: 'seen',
+    messageId: 'historic-anchor',
+    revision: 1,
+    occurredAt: '2026-10-23T12:00:00.000Z',
+    recordedAt: '2026-10-24T12:00:00.000Z',
+    guildId: 'g1',
+    scope: { channel: 'historic-dm-73' },
+    by: 'partner-42',
+    text: 'Synthetic historical evidence',
+    origin: 'live',
+  });
+  const row = mapping.sources?.[0];
+  if (!row || typeof row.extra !== 'string') {
+    throw new Error('record mapper omitted its source metadata');
+  }
+  const parsed: unknown = JSON.parse(row.extra);
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('record mapper metadata must be a JSON object');
+  }
+  // A parsed JSON object has string keys after the object and array checks above.
+  const extra = parsed as Row;
+  delete extra.$messageLocator;
+  return { row, extra };
+}
+
+test('a verified marker returns its native route instead of the opaque storage key', () => {
+  const result = nativeLocatorOf(
+    { iface: 'fake', native_id: 'opaque-family-key', kind: 'seen', place_id: 'opaque-place' },
+    {
+      $messageLocator: {
+        v: 1,
+        origin: 'protocol-message',
+        iface: 'fake',
+        conversationId: 'actual-dm',
+        messageId: 'same-native',
+      },
+    }
+  );
+  assert.deepEqual(result, { iface: 'fake', conversationId: 'actual-dm', messageId: 'same-native' });
+});
+
+test('an unmarked historical record routes through its actual DM conversation rather than its partner', () => {
+  const { row, extra } = historical();
+  assert.deepEqual(nativeLocatorOf(row, extra), {
+    iface: 'discord',
+    conversationId: 'historic-dm-73',
+    messageId: 'historic-anchor',
+  });
+});
+
+test('a malformed present marker refuses the otherwise valid historical fallback', () => {
+  const { row, extra } = historical();
+  assert.equal(nativeLocatorOf(row, { ...extra, $messageLocator: null }), undefined);
+});
+
+test('a nonrecord source never gains a route from record-shaped native metadata', () => {
+  const { row, extra } = historical();
+  assert.equal(nativeLocatorOf({ ...row, owner_file: 'guilds/g1/users/partner-42.json' }, extra), undefined);
+});
