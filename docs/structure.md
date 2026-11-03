@@ -19,6 +19,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `plugins.local/` | local | A deployment's own plugins, one folder per plugin with its plugin.json and index.ts; a plugin here replaces the tracked plugin of the same name. | nothing | none |
 | `config.local.json` | local | The old place of a deployment's settings, read until `scripts/config-files-move.ts` moves it into `config.local/`. | nothing | none |
 | `config.local/` | local | A deployment's settings, labels and tool texts, each laid over its tracked file, and the settings of each interface it runs. | nothing | none |
+| `data/README.md` | public | The one public file of the persona root: what its folders hold. | nothing | none |
 | `data/` | local | A deployment memory, state and logs. | nothing | none |
 | `config/` | public | The tracked default settings, the labels code inserts (split into model and owner) and the texts of the persona's tools. | nothing | none |
 | `package.json` | public | The root package: scripts, workspaces and development dependencies. | nothing | none |

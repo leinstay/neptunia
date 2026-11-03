@@ -92,6 +92,13 @@
       "test": "none"
     },
     {
+      "path": "data/README.md",
+      "purpose": "The one public file of the persona root: what its folders hold.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
       "path": "data/",
       "purpose": "A deployment memory, state and logs.",
       "layer": "local",
