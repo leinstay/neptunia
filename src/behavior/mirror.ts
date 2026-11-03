@@ -22,13 +22,15 @@
 // there with the code `diary-mirror`, and the message handler opens no turn for an event there (src/behavior/
 // pipeline.js). Logs carry counts and codes, never a text.
 
+import { diaryMetadataOf, diaryPublicationRefusal, isPublicationBoundary } from '../tools/publication.ts';
+import type { PublicationBoundary } from '../tools/publication.ts';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { log } from '../log.ts';
 import { portLimit } from '../interface/capabilities.ts';
 import { issueContext } from '../memory/db/scope.ts';
-import { mirrorReceipts } from '../memory/db/publish.ts';
+import { mirrorReceipts, storedDiaryPublicationRefusal, recheck } from '../memory/db/publish.ts';
 import { setSettings } from './diary.ts';
 import {
   diaryConversationIds,
@@ -44,6 +46,7 @@ import { CODE } from '../tools/codes.ts';
 import type { Attachment, Content } from '../protocol/actions.ts';
 import type { ConversationRef, Delivery, SendOptions } from '../protocol/adapter.ts';
 import type { Context } from '../memory/db/scope.ts';
+import type { Db, Row } from '../memory/db/types.ts';
 
 /** One picture of an entry: its bytes and its media type. */
 export type EntryPicture = { buffer: Uint8Array; mediaType: string };
@@ -59,6 +62,7 @@ export type EntryFile = { message: number; name: string; data: Uint8Array; conte
  * notify (`mentions[i]` for `messages[i]`, none when absent), the pictures and the voice message.
  */
 export type DiaryEntry = {
+  publicationBoundary?: PublicationBoundary;
   id: string;
   messages: ReadonlyArray<string>;
   mentions?: ReadonlyArray<ReadonlyArray<string>>;
@@ -104,7 +108,13 @@ export type HeldDiaryMessage = {
 };
 
 /** What one turn wrote to her diary: its entry's id, when it began, the community and its messages, in order. */
-export type HeldDiary = { id: string; at: number; guildId: string; messages: Array<HeldDiaryMessage> };
+export type HeldDiary = {
+  publicationBoundary?: PublicationBoundary;
+  id: string;
+  at: number;
+  guildId: string;
+  messages: Array<HeldDiaryMessage>;
+};
 
 /** One mirror as `listMirrors` answers it. */
 export type Mirror = { id: string; placeId: string; enabled: boolean };
@@ -118,10 +128,6 @@ export type MirrorMemory = {
   memoryWrite(update: Record<string, unknown>): Promise<unknown>;
 };
 
-type Row = Record<string, unknown>;
-type Db = {
-  prepare(sql: string): { all(...params: Array<unknown>): Array<Row>; get(...params: Array<unknown>): Row | undefined };
-};
 type Publication = {
   id: string;
   status: string;
@@ -214,6 +220,8 @@ export async function sendEntry(
   entry: DiaryEntry,
   { maxMessageBytes, now }: { maxMessageBytes: number; now: () => number }
 ): Promise<EntrySent> {
+  if (diaryPublicationRefusal(entry.publicationBoundary, conversation))
+    return { status: 'failed', code: 'not-allowed', messageIds: [], attachmentIds: [], posted: [] };
   // Each send with the entry's files it carries, numbered as the entry keeps them: the pictures, then the voice.
   const pictures = entry.pictures ?? [];
   const sends: Array<{ content: Content; items: Array<number> }> = [];
@@ -361,11 +369,14 @@ const mediaNumber = (id: unknown): number => Number(/-(\d+)$/.exec(String(id))?.
  */
 function storedEntry(db: Db, publication: Publication, dataDir: string | null): DiaryEntry {
   const row = db.prepare('SELECT extra FROM diary WHERE id = ?').get(publication.row_id);
-  const send = objectOf(row?.extra).send as
-    { messages?: unknown; mentions?: unknown; maxMessageBytes?: unknown } | undefined;
+  const metadata = diaryMetadataOf(row?.extra);
+  const send = metadata.send as { messages?: unknown; mentions?: unknown; maxMessageBytes?: unknown } | undefined;
   const messages = Array.isArray(send?.messages) ? (send.messages as Array<string>) : [publication.rendered ?? ''];
   const entry: DiaryEntry = {
     id: publication.row_id,
+    ...(isPublicationBoundary(metadata.publicationBoundary)
+      ? { publicationBoundary: metadata.publicationBoundary }
+      : {}),
     messages,
     ...(Array.isArray(send?.mentions) ? { mentions: send.mentions as Array<Array<string>> } : {}),
     ...(typeof send?.maxMessageBytes === 'number' ? { maxMessageBytes: send.maxMessageBytes } : {}),
@@ -425,7 +436,12 @@ export function createMirrors({
   publishEntry(entry: DiaryEntry): Promise<Array<PublishOutcome>>;
   queueEntry(entry: DiaryEntry): Promise<void>;
   drainQueued(): Promise<number>;
-  holdDiary(turnId: string, guildId: string, message: HeldDiaryMessage): HeldDiary;
+  holdDiary(
+    turnId: string,
+    guildId: string,
+    message: HeldDiaryMessage,
+    options?: { publicationBoundary?: PublicationBoundary }
+  ): HeldDiary;
   heldDiary(turnId: string): number;
   takeDiary(turnId: string): HeldDiary | null;
   keepEntryMedia(entry: DiaryEntry): Promise<void>;
@@ -434,8 +450,19 @@ export function createMirrors({
   const held = new Map<string, HeldDiary>();
 
   /** Holds one diary message of the turn `turnId` (its entry gets its id with the first); answers what the turn holds. */
-  function holdDiary(turnId: string, guildId: string, message: HeldDiaryMessage): HeldDiary {
-    const entry = held.get(turnId) ?? { id: `diary:${randomUUID()}`, at: now(), guildId, messages: [] };
+  function holdDiary(
+    turnId: string,
+    guildId: string,
+    message: HeldDiaryMessage,
+    options: { publicationBoundary?: PublicationBoundary } = {}
+  ): HeldDiary {
+    const entry: HeldDiary = held.get(turnId) ?? { id: `diary:${randomUUID()}`, at: now(), guildId, messages: [] };
+    const boundary = options.publicationBoundary;
+    if (boundary !== undefined) {
+      if (!isPublicationBoundary(boundary) || diaryPublicationRefusal(entry.publicationBoundary, boundary.origin))
+        throw Object.assign(new Error('incompatible diary publication restriction'), { code: 'not-allowed' });
+      entry.publicationBoundary = { kind: boundary.kind, origin: { ...boundary.origin } };
+    }
     held.set(turnId, entry);
     entry.messages.push(message);
     return entry;
@@ -494,6 +521,19 @@ export function createMirrors({
 
   /** A queued publication sent to its place, when the port of its interface is connected; its outcome. */
   async function send(publication: Publication, place: DiaryPlace, entry: DiaryEntry): Promise<PublishOutcome> {
+    const db = database();
+    const destination = { iface: place.iface, conversationId: place.conversationId };
+    const context = issueContext({ kind: 'group', iface: place.iface, destination: place.placeId, now });
+    const refusal = diaryPublicationRefusal(entry.publicationBoundary, destination);
+    const checked = db ? recheck(db, publication.id, context) : { ok: false };
+    if (refusal || !checked.ok) {
+      await write({ op: 'failed', id: publication.id });
+      return {
+        placeId: place.placeId,
+        status: 'failed',
+        code: refusal?.code ?? ('code' in checked ? String(checked.code) : 'not-allowed'),
+      };
+    }
     const connected = port();
     if (!connected || connected.iface !== place.iface) return { placeId: place.placeId, status: 'queued', code: null };
     const diary = (config() as { selfreflection?: unknown } | null)?.selfreflection ?? null;
@@ -527,6 +567,16 @@ export function createMirrors({
     for (const mirror of listMirrors().filter((one) => one.enabled)) {
       const place = mirroredPlace(db, mirror.placeId);
       if (!place) continue;
+      if (
+        diaryPublicationRefusal(entry.publicationBoundary, {
+          iface: place.iface,
+          conversationId: place.conversationId,
+        }) ||
+        storedDiaryPublicationRefusal(db, entry.id, place.placeId)
+      ) {
+        out.push({ place, prepared: { ok: false, code: 'not-allowed' } });
+        continue;
+      }
       const context: Context = issueContext({ kind: 'group', iface: place.iface, destination: place.placeId, now });
       const rendered = entryText(entry);
       const input = { context, rowKind: 'diary', rowId: entry.id, rendered, destination: place.placeId, pending };

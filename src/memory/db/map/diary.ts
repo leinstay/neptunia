@@ -8,12 +8,13 @@
 // src/behavior/diary-turn.ts) sets the `text` column; any other leaves `text` and `lost` alone (a re-map does too):
 // src/memory/db/diary-media.ts fills them for the older posts from the interface, with the pictures. The old JSON has
 // no such fields, so the export leaves them out.
-// The diary is public: scope group.
+// Ordinary entries have group scope. A saved publication restriction gives an entry internal scope.
 //
 // toRows(rel, value, ctx) -> { diary, diary_mirrors, operational }     fromRows(rows, ctx) -> the file's value
 
 import { itemOrDerivedId, uniqueIds } from '../ids.ts';
-import { groupScope } from '../scope.ts';
+import { diaryRestricted } from '../../../tools/publication.ts';
+import { groupScope, SCOPE_INTERNAL } from '../scope.ts';
 import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.ts';
 import type { Row, Rows } from '../types.ts';
 import type { MapContext, Spec } from './common.ts';
@@ -57,7 +58,7 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
         world: null,
         status: null,
         perspective: null,
-        ...groupScope(iface),
+        ...(diaryRestricted(post) ? SCOPE_INTERNAL : groupScope(iface)),
         extra: extraText(part.rest),
         owner_file: rel,
         position,

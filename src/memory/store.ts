@@ -3026,15 +3026,7 @@ function buildStore({
      * diary (`{ posts: [], updatedAt: 0 }`) when there is no file, never null. Reading never creates the file.
      */
     getDiary(guildId: string): {
-      posts: Array<{
-        at: number;
-        kind: string | null;
-        gist: string;
-        picture: string | boolean | null;
-        pictures?: number;
-        messageIds: Array<string>;
-        search: string;
-      }>;
+      posts: Array<DiaryPostOptions & { messageIds: Array<string> }>;
       updatedAt: number;
     } {
       return structuredClone(diaryEntry(guildId).value);

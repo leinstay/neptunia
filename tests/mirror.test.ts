@@ -6,13 +6,14 @@
 // scripted model. Synthetic text only.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createMirrors } from '../src/behavior/mirror.ts';
+import { sendEntry, createMirrors } from '../src/behavior/mirror.ts';
 import { createDiary } from '../src/behavior/diary.ts';
 import { createStore } from '../src/memory/store.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
-import { contentHash, preparePublication } from '../src/memory/db/publish.ts';
+import { contentHash, preparePublication, recheck } from '../src/memory/db/publish.ts';
 import { issueContext } from '../src/memory/db/scope.ts';
+import { walk } from '../src/memory/db/graph.ts';
 import { notOk } from '../src/protocol/actions.ts';
 import type { Content } from '../src/protocol/actions.ts';
 import { GUILD, NOW, sceneHot, sceneLlm, sceneRunner } from './fixtures/diary-requests.ts';
@@ -507,4 +508,218 @@ test('preparePublication takes a disabled mirror as no grant', () => {
 test('preparePublication keeps the grant rule for a row that is not a diary entry, also to a mirrored place', () => {
   const { prepare } = grantFixture({ enabled: true });
   assert.deepEqual(prepare(GENERAL, 'claim'), { ok: false, code: 'no-grant' });
+});
+
+const RESTRICTED_ENTRY = { kind: 'internal-turn', origin: { iface: 'cli', conversationId: 'd1' } } as const;
+
+async function restrictStoredEntry(core: Awaited<ReturnType<typeof scene>>, metadata: unknown): Promise<void> {
+  const posts = core.store.getDiary(GUILD).posts.map((post) => ({ ...post, publicationBoundary: metadata }));
+  core.store.setDiaryPosts(GUILD, posts);
+  await core.store.flushSettled({});
+}
+
+for (const metadata of [RESTRICTED_ENTRY, null, { kind: 'internal-turn', origin: {} }]) {
+  test(`a fresh mirror publisher refuses a queued entry with a stored ${metadata === RESTRICTED_ENTRY ? 'foreign' : metadata === null ? 'null' : 'malformed'} restriction`, async () => {
+    // Catches restoring a queued row through rendered text without rechecking its stored diary restriction.
+    const core = await scene({ mirrors: [{ conversationId: 'd1' }], connected: false });
+    const entry = await core.record();
+    await core.mirrors.queueEntry(entry);
+    assert.deepEqual(
+      diaryPublications(core.memory.memoryDb).map((row) => row.status),
+      ['queued']
+    );
+    await restrictStoredEntry(core, metadata);
+    const restarted = createMirrors({
+      memoryDb: core.memory.memoryDb,
+      port: () => world().port,
+      now: () => NOW,
+      dataDir: core.memory.dataDir,
+    });
+    assert.equal(await restarted.drainQueued(), 0);
+    assert.deepEqual(core.texts('d1'), []);
+    assert.deepEqual(
+      diaryPublications(core.memory.memoryDb).map((row) => row.status),
+      ['failed']
+    );
+    assert.equal(diaryRows(core.memory.memoryDb)[0].text, TEXT);
+  });
+}
+
+test('publishing an entry without supplied metadata cannot clear its stored restriction', async () => {
+  // Catches trusting the caller entry object over the authoritative saved diary row.
+  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const entry = await core.record();
+  await restrictStoredEntry(core, RESTRICTED_ENTRY);
+  const result = await core.mirrors.publishEntry(entry);
+  assert.deepEqual(
+    result.map(({ status, code }) => ({ status, code })),
+    [{ status: 'failed', code: 'not-allowed' }]
+  );
+  assert.deepEqual(core.texts('d1'), []);
+});
+
+test('publication preparation intersects the mirror standing grant with the stored restriction', async () => {
+  // Catches direct writer preparation bypassing a restriction enforced only in the mirror wrapper.
+  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const entry = await core.record();
+  await restrictStoredEntry(core, RESTRICTED_ENTRY);
+  const context = issueContext({ kind: 'group', iface: 'fake', destination: core.places[0], now: () => NOW });
+  const result = await core.memory.memoryDb.memoryWrite({
+    kind: 'publication',
+    op: 'prepare',
+    input: {
+      context,
+      rowKind: 'diary',
+      rowId: entry.id,
+      rendered: TEXT,
+      destination: core.places[0],
+    },
+  });
+  assert.deepEqual(result, { ok: false, code: 'not-allowed' });
+  assert.deepEqual(diaryPublications(core.memory.memoryDb), []);
+});
+
+test('recheck refuses a queued diary publication whose stored origin became restricted', async () => {
+  // Catches treating an earlier standing grant as permanent permission after private content replaces the entry.
+  const core = await scene({ mirrors: [{ conversationId: 'd1' }], connected: false });
+  const entry = await core.record();
+  await core.mirrors.queueEntry(entry);
+  await restrictStoredEntry(core, RESTRICTED_ENTRY);
+  const handle = core.memory.memoryDb.readHandle();
+  assert.ok(handle);
+  const publication = dbOf(core.memory.memoryDb)
+    .prepare("SELECT id FROM publications WHERE row_kind = 'diary'")
+    .all()[0];
+  assert.ok(publication && typeof publication.id === 'string');
+  const context = issueContext({ kind: 'group', iface: 'fake', destination: core.places[0], now: () => NOW });
+  assert.deepEqual(recheck(handle, publication.id, context), { ok: false, code: 'not-allowed' });
+});
+
+test('sendEntry refuses the same native conversation on a different origin interface', async () => {
+  // Catches comparing only conversation IDs at the actual attachment and text send boundary.
+  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const entry = {
+    id: 'direct-restricted',
+    messages: [TEXT],
+    publicationBoundary: RESTRICTED_ENTRY,
+    pictures: [{ buffer: new Uint8Array([1, 2]), mediaType: 'image/png' }],
+  };
+  const result = await sendEntry(world().port, { iface: 'fake', conversationId: 'd1' }, entry, {
+    maxMessageBytes: 1000000,
+    now: () => NOW,
+  });
+  assert.deepEqual([result.status, result.code], ['failed', 'not-allowed']);
+  assert.deepEqual(core.texts('d1'), []);
+});
+
+test('a same-origin restriction permits a mirror send without changing ordinary standing grants', async () => {
+  // Catches replacing the exact-origin rule with a blanket ban on restricted entries.
+  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const entry = await core.record();
+  await restrictStoredEntry(core, { kind: 'internal-turn', origin: { iface: 'fake', conversationId: 'd1' } });
+  const result = await core.mirrors.publishEntry(entry);
+  assert.equal(result[0].status, 'sent');
+  assert.deepEqual(core.texts('d1'), [TEXT]);
+});
+
+test('a held diary entry retains its restriction when a later message omits the descriptor', async () => {
+  // Catches the second diary message downgrading the restriction on the complete held entry.
+  const core = await scene({ mirrors: [] });
+  const message = { text: TEXT, mentions: [], files: [] };
+  core.mirrors.holdDiary('restricted-turn', GUILD, message, { publicationBoundary: RESTRICTED_ENTRY });
+  core.mirrors.holdDiary('restricted-turn', GUILD, { ...message, text: 'second entry line' });
+  const held = core.mirrors.takeDiary('restricted-turn');
+  assert.deepEqual(held?.publicationBoundary, RESTRICTED_ENTRY);
+  assert.deepEqual(
+    held?.messages.map((part) => part.text),
+    [TEXT, 'second entry line']
+  );
+});
+
+test('a stored restriction refuses publication when its destination has no native route', async () => {
+  // Catches interpreting a missing native destination as an unrestricted mirror.
+  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const entry = await core.record();
+  await restrictStoredEntry(core, { kind: 'internal-turn', origin: { iface: 'fake', conversationId: 'd1' } });
+  dbOf(core.memory.memoryDb).prepare('UPDATE places SET native_id = NULL WHERE id = ?').run(core.places[0]);
+  const context = issueContext({ kind: 'group', iface: 'fake', destination: core.places[0], now: () => NOW });
+  const result = await core.memory.memoryDb.memoryWrite({
+    kind: 'publication',
+    op: 'prepare',
+    input: {
+      context,
+      rowKind: 'diary',
+      rowId: entry.id,
+      rendered: TEXT,
+      destination: core.places[0],
+    },
+  });
+  assert.deepEqual(result, { ok: false, code: 'not-allowed' });
+  assert.deepEqual(diaryPublications(core.memory.memoryDb), []);
+});
+
+test('a supplied entry restriction prevents queueing and publication before its saved row changes', async () => {
+  // Catches checking only durable metadata while a producer already carries a stricter live boundary.
+  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const entry = { ...(await core.record()), publicationBoundary: RESTRICTED_ENTRY };
+  await core.mirrors.queueEntry(entry);
+  assert.deepEqual(diaryPublications(core.memory.memoryDb), []);
+  const result = await core.mirrors.publishEntry(entry);
+  assert.deepEqual(
+    result.map(({ status, code }) => ({ status, code })),
+    [{ status: 'failed', code: 'not-allowed' }]
+  );
+  assert.deepEqual(core.texts('d1'), []);
+});
+
+test('restricting a saved diary entry hides its existing media while independent public media stays readable', async () => {
+  // Catches a diary scope update leaving its retained attachments visible through the memory graph.
+  const core = await scene({ mirrors: [] });
+  const entry = await core.record();
+  const publicId = 'diary:independent-public';
+  const original = core.store.getDiary(GUILD).posts;
+  core.store.setDiaryPosts(GUILD, [...original, { ...original[0], itemId: publicId }]);
+  await core.store.flushSettled({});
+  for (const id of [entry.id, publicId])
+    await core.memory.memoryDb.memoryWrite({
+      kind: 'entry-media',
+      id,
+      items: [{ data: new Uint8Array([1, 2, 3]), mime: 'image/png' }],
+    });
+  const db = dbOf(core.memory.memoryDb);
+  const nodes = db
+    .prepare(
+      "SELECT g.id, m.id AS media_id, m.owner FROM graph_nodes g JOIN media m ON g.row_id = m.id WHERE g.kind = 'media' AND m.kind = 'diary'"
+    )
+    .all();
+  assert.equal(nodes.length, 2);
+  const group = issueContext({ kind: 'group', iface: 'fake', now: () => NOW });
+  const owner = issueContext({ kind: 'internal', now: () => NOW });
+  for (const node of nodes) {
+    if (typeof node.id !== 'string') throw new Error('media node has no ID');
+    assert.deepEqual(
+      walk(db, group, { from: node.id, maxDepth: 0 }).rows.map((row) => row.rowId),
+      [node.media_id]
+    );
+  }
+  core.store.setDiaryPosts(
+    GUILD,
+    core.store
+      .getDiary(GUILD)
+      .posts.map((post) => (post.itemId === entry.id ? { ...post, publicationBoundary: RESTRICTED_ENTRY } : post))
+  );
+  await core.store.flushSettled({});
+  const restricted = db.prepare('SELECT scope_kind FROM diary WHERE id = ?').all(entry.id)[0];
+  assert.equal(restricted?.scope_kind, 'internal');
+  for (const node of nodes) {
+    if (typeof node.id !== 'string') throw new Error('media node has no ID');
+    assert.deepEqual(
+      walk(db, owner, { from: node.id, maxDepth: 0 }).rows.map((row) => row.rowId),
+      [node.media_id]
+    );
+    assert.deepEqual(
+      walk(db, group, { from: node.id, maxDepth: 0 }).rows.map((row) => row.rowId),
+      node.owner === entry.id ? [] : [node.media_id]
+    );
+  }
 });

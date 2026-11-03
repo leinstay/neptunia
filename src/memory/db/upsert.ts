@@ -21,7 +21,7 @@
 // Pure of the bot: it takes an opened database's connection; the caller holds the writer lock and the transaction
 // (unit-write.ts, through the service's writer).
 
-import { deriveRow, ensureLinks, ensureNodeKeys, ensureRelations } from './rows.ts';
+import { deriveRow, ensureLinks, ensureNodeKeys, ensureRelations, restrictDiaryMedia } from './rows.ts';
 import { projectRow } from './graph.ts';
 import { deriveMirrorPublication } from './publish.ts';
 import { LEGACY_IFACE } from './legacy-namespace.ts';
@@ -171,6 +171,7 @@ function writeRow(db: Db, table: string, row: Row, opts: { ignore?: boolean; at?
   // v9: the row's unit is projected (ensureRelations projects a source with its relations).
   if (table === 'sources') ensureRelations(db, derived, { at: opts.at });
   else projectRow(db, table, derived, { at: opts.at });
+  if (table === 'diary') restrictDiaryMedia(db, derived, opts.at);
   if (found && found.owner_file !== row.owner_file) {
     prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_file = ?').run(
       table,
