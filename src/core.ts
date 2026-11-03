@@ -44,7 +44,7 @@ import { DAY_MS, utcDay } from './time.ts';
 import { createCalibrator } from './llm/tokens.ts';
 import { createLlm, roleApiKey } from './llm/openrouter.ts';
 import { createKeyFailover } from './llm/key-failover.ts';
-import { MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, roleModel } from './llm/roles.ts';
+import { MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, SEARCH_ROLE, roleModel, searchModel } from './llm/roles.ts';
 import { statusCardKeys } from './keys/card-keys.ts';
 import { createKeysCommands, reasonedPause } from './keys/commands.ts';
 import { importKeys } from './keys/import.ts';
@@ -1359,7 +1359,7 @@ async function buildCore(
       if (keysFileExists(paths.privateDir) || keyVariables.length === 0) return null;
       return importKeys({ env: Object.fromEntries(keyVariables), config: hot.config, store: keyStore });
     },
-    currentModel: (role) => roleModel(hot.config, role) ?? '',
+    currentModel: (role) => (role === SEARCH_ROLE ? searchModel(hot.config) : (roleModel(hot.config, role) ?? '')),
     saveModel: async (role, model) => {
       await ownerOp('model.set', { role, id: model });
     },

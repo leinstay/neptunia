@@ -8,7 +8,7 @@
 // that was refused.
 
 import { matchRoute } from '../llm/openrouter.ts';
-import { EFFORT_LEVELS, MEMORY_ROLE, REASONING_ROLES, isEffortLevel, roleGroup } from '../llm/roles.ts';
+import { EFFORT_LEVELS, MEMORY_ROLE, REASONING_ROLES, SEARCH_ROLE, isEffortLevel, roleGroup } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { checkKey, checkRole } from './check.ts';
 import { listRoleModels } from './models.ts';
@@ -450,7 +450,8 @@ export function createKeysCommands(deps: KeysDeps): {
         return { text: `The ${text(args.role)} role is back on the core keys.`, status: 'ok' };
       case 'keys.check': {
         const role = text(args.role);
-        if (roleGroup(role) !== 'base') return invalid(name, new KeysError('unknown-role').message);
+        if (roleGroup(role) !== 'base' && role !== SEARCH_ROLE)
+          return invalid(name, new KeysError('unknown-role').message);
         return checkOne(name, role);
       }
       case 'model.set':
