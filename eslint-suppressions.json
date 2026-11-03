@@ -4366,10 +4366,10 @@
   },
   "tests/tools-search-compare.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 10
+      "count": 9
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 10
+      "count": 7
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 1

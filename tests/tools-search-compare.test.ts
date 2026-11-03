@@ -121,15 +121,20 @@ async function quietly<TResult>(fn: () => Promise<TResult>): Promise<TResult> {
   }
 }
 
-function run(argv: Untyped, { dir, env = ENV, selectedRoot = tempDir('nep-search-credentials-') }: Untyped) {
+type RunOptions = { dir: string; env?: Record<string, string>; selectedRoot?: string };
+
+function run(argv: Array<string>, { dir, env = ENV, selectedRoot = tempDir('nep-search-credentials-') }: RunOptions) {
   const clock = { t: NOW };
   const f = fakes({ clock });
   // Search credentials live in the prepared persona key store.
-  const dataDir = selectedRoot;
-  fs.mkdirSync(dataDir, { recursive: true });
-  fs.writeFileSync(path.join(dataDir, 'keys.json'), JSON.stringify({ core: [], extra: {}, roles: {}, services: env }), {
-    mode: 0o600,
-  });
+  fs.mkdirSync(selectedRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(selectedRoot, 'keys.json'),
+    JSON.stringify({ core: [], extra: {}, roles: {}, services: env }),
+    {
+      mode: 0o600,
+    }
+  );
   const promise = quietly(() =>
     main(argv, {
       cwd: dir,
@@ -138,7 +143,7 @@ function run(argv: Untyped, { dir, env = ENV, selectedRoot = tempDir('nep-search
       hot: wrongly<Hot>(hotFixture()),
       llmClient: f.llm,
       searches: f.searches,
-      env: { NEPTUNIA_DATA_DIR: dataDir },
+      env: { NEPTUNIA_DATA_DIR: selectedRoot },
     })
   );
   return { promise, ...f };
