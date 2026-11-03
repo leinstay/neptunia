@@ -155,10 +155,13 @@ export function isCoreStatePath(owner: unknown): boolean {
 }
 
 /** The semantic identity of a historical collection without merging its existing replacement boundary. */
-export function legacyStorageKey(owner: string, iface = LEGACY_IFACE): StorageKey {
+export function legacyStorageKey(owner: string, iface = LEGACY_IFACE, legacyKind?: string): StorageKey {
   const root = rootStateKind(owner);
   if (root) return { kind: root as StorageKind, subject: { type: 'persona', id: 'persona:local' } };
-  const info = classify(/\/vectors\/\d{4}-\d{2}$/.test(owner) ? `${owner}/manifest.json` : owner);
+  const canonical = currentUnitPath(owner);
+  const info =
+    classify(/\/vectors\/\d{4}-\d{2}$/.test(canonical) ? `${canonical}/manifest.json` : canonical) ??
+    historicalTaskUnit(canonical, legacyKind);
   if (!info || 'skipped' in info || !info.guildId)
     throw Object.assign(new Error('UNIT_UNMAPPED'), { code: 'UNIT_UNMAPPED' });
   const scopePlaceId = guildPlaceId(iface, info.guildId);
@@ -173,6 +176,12 @@ export function legacyStorageKey(owner: string, iface = LEGACY_IFACE): StorageKe
         ? /\d{4}-\d{2}/.exec(rel)?.[0]
         : undefined;
   return { kind, subject, scopePlaceId, ...(partition ? { partition } : {}), ...(selector ? { selector } : {}) };
+}
+
+/** V14 deliberately preserves private task units; their explicit stored kind identifies that historical collection. */
+function historicalTaskUnit(owner: string, kind?: string): { kind: 'errands'; unit: string; guildId: string } | null {
+  const match = /^guilds\/([^/]+)\/(private\/[^/]+\/tasks\.jsonl?)$/.exec(owner);
+  return kind === 'tasks' && match ? { kind: 'errands', guildId: match[1], unit: match[2] } : null;
 }
 
 /** Selectors retain distinct legacy collections and individual request and version records. */

@@ -1265,10 +1265,10 @@ function migrateStorageOwners(db: Db): void {
     for (const row of db.prepare(`SELECT DISTINCT owner_file FROM "${table}" WHERE owner_file IS NOT NULL`).all())
       owners.add(String(row.owner_file));
   for (const owner of owners) {
-    const key = legacyStorageKey(owner);
+    const file = db.prepare('SELECT kind,lines,offset,synced_at,gone_at FROM files WHERE path = ?').get(owner);
+    const key = legacyStorageKey(owner, undefined, typeof file?.kind === 'string' ? file.kind : undefined);
     const id = ensureUnit(db, key);
     db.prepare('INSERT INTO legacy_unit_aliases(path,unit_id) VALUES (?,?)').run(owner, id);
-    const file = db.prepare('SELECT lines,offset,synced_at,gone_at FROM files WHERE path = ?').get(owner);
     if (file)
       db.prepare('UPDATE storage_units SET lines=?,offset=?,synced_at=?,retired_at=? WHERE id=?').run(
         file.lines,

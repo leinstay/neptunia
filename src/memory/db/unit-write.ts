@@ -524,8 +524,8 @@ export function applyUnitWrite(handle: MemoryHandle, update: Row): unknown {
   if (op === 'project') return project(handle, update, at);
   const db = dbOf(handle);
   const runs: Record<string, (() => unknown) | undefined> = {
-    lines: () => skippedErrandUnit(db, update, () => updateUnit(db, update)) ?? writeLines(db, update, at),
-    value: () => skippedErrandUnit(db, update, () => updateUnit(db, update)) ?? writeValue(db, update, at),
+    lines: () => skippedErrandUnit(db, update, () => update.key ?? unitOf(update.owner)) ?? writeLines(db, update, at),
+    value: () => skippedErrandUnit(db, update, () => update.key ?? unitOf(update.owner)) ?? writeValue(db, update, at),
     diary: () => writeDiary(db, update, at),
     vectors: () => writeVectors(db, update, at),
     errand: () => applyErrandUnit(db, update, at, (closing) => writeLines(db, closing, at)),
