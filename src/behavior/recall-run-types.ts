@@ -1,7 +1,6 @@
 // The types of the signatures in ./recall-run.ts: the inputs and results that are too long to read inline.
 
 import type { ResolvedRecallAnchor } from '../memory/db/recall.ts';
-import type { Context } from '../memory/db/scope.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { recallSettings } from './recall.ts';
 import type { Reads } from '../interface/reads.ts';
@@ -70,26 +69,7 @@ export type CreateRecallInput = {
 };
 
 export type CreateRecallResult = {
-  run: (args: {
-    quotes?: boolean;
-    memoryContext?: Context;
-    guildId?: string | null;
-    channel: Untyped;
-    partnerId?: string | null;
-    snapshot?: Untyped;
-    selfId: string;
-    selfName: string;
-    history?: Array<Untyped>;
-    candidate: { authorName?: string; content?: string };
-    server: {
-      forms: Array<string>;
-      who: Array<string>;
-      from: number | null;
-      to: number | null;
-      recent?: true;
-      locator?: true;
-    } | null;
-  }) => Promise<{
+  run: (args: RunInput) => Promise<{
     text: string | null;
     stretch: RecallStretch | null;
     people: Array<{ id: string; name: string; username: string; count: number; newestTs: number | null }>;
@@ -114,7 +94,7 @@ export type FindPeopleInput = {
   guildId: string;
   who: Array<string>;
   maxPeople: Untyped;
-  selfId: string;
+  selfId: string | null;
   signal: AbortSignal;
   searchUntil: Untyped;
   via?: Untyped;
@@ -326,7 +306,7 @@ export type RecallWithInput = {
   guildId: string;
   channel: Untyped;
   partnerId: Untyped;
-  selfId: string;
+  selfId: string | null;
   selfName: string;
   history: Untyped;
   context: Untyped;
@@ -409,7 +389,7 @@ export type RunInput = {
   snapshot?: Untyped;
   channel: Untyped;
   partnerId?: string | null;
-  selfId: string;
+  selfId: string | null;
   selfName: string;
   history?: Array<Untyped>;
   context?: Untyped;

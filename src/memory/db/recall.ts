@@ -1212,6 +1212,23 @@ export function window(
 
 // ---------- quotes ----------
 
+type RecallQuoteEntry = {
+  id: unknown;
+  stored?: StoredSourceRef;
+  text: string;
+  authorId: string | null;
+  self: boolean;
+  message: RecallMessage | null;
+};
+
+type RecallQuote = {
+  channelId: string | null;
+  channelName: string | null;
+  startTs: number;
+  lines: string;
+  entries: Array<RecallQuoteEntry>;
+};
+
 /**
  * The stretches `recall.run` returns for a persona's own search (`quotes`): every window rendered without indices,
  * cut to `stretchChars`, each with its `entries` (a line's message, for the handles of a result).
@@ -1222,20 +1239,8 @@ export function window(
 export function quotesOf(
   windows: unknown,
   { render, stretchChars }: { render: Row; stretchChars: number }
-): Array<{
-  channelId: string | null;
-  channelName: string | null;
-  startTs: number;
-  lines: string;
-  entries: Array<Row>;
-}> {
-  const out: Array<{
-    channelId: string | null;
-    channelName: string | null;
-    startTs: number;
-    lines: string;
-    entries: Array<Row>;
-  }> = [];
+): Array<RecallQuote> {
+  const out: Array<RecallQuote> = [];
   for (const one of (Array.isArray(windows) ? windows : []) as Array<RecallWindow | null>) {
     if (!one || !(stretchChars > 0)) continue;
     // Same as in `search`: recall.ts types the window and its lines narrower than they are.

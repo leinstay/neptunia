@@ -25,7 +25,7 @@
 
 import type { ResolvedRecallAnchor, StoredSourceRef } from '../memory/db/recall.ts';
 import type { SearchRef } from '../turn/calls.ts';
-import type { WindowInput } from '../behavior/recall-run-types.ts';
+import type { CreateRecallResult } from '../behavior/recall-run-types.ts';
 import { hasRecallContext } from '../behavior/recall-reads.ts';
 import { fill } from '../format.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
@@ -89,8 +89,8 @@ export type QuoteEntry = {
 
 /** The recall runner as the tools use it. */
 export type RecallClient = {
-  run?: (input: Obj) => Promise<unknown>;
-  window?: (input: WindowInput) => Promise<unknown>;
+  run?: (input: Parameters<CreateRecallResult['run']>[0]) => Promise<unknown>;
+  window?: (input: Parameters<CreateRecallResult['window']>[0]) => Promise<unknown>;
   available?: () => boolean;
 };
 
@@ -632,7 +632,7 @@ export async function runMemorySearch({
           channel,
           partnerId,
           selfName,
-          history,
+          history: [...history],
           anchor: text(given.anchor),
           resolvedAnchor,
           move: text(given.move) === 'down' ? 'down' : 'up',
@@ -683,7 +683,7 @@ export async function runMemorySearch({
         partnerId,
         selfId,
         selfName,
-        history,
+        history: [...history],
         candidate,
         server: plan,
         decorate,
