@@ -1,5 +1,6 @@
 // The task engine of the runner (src/agent-runner/backend.ts#createAgentEngine) runs every task through the subharness
 // seam (src/subharness/run.ts): refused while the subharness is off, run in the mode of the profile's agent otherwise.
+import { consumers, consumerRig } from './fixtures/agent-consumers.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -73,4 +74,83 @@ test("a task runs in the mode of its profile's agent, not in the profile's own s
     calls.map((one) => one.sandbox),
     ['read-only', 'workspace-write']
   );
+});
+
+test('a running engine reads personal prompts and limits afresh while retaining subharness selections', async () => {
+  const rig = consumerRig();
+  rig.override({ limits: { seconds: 17 } });
+  fs.writeFileSync(path.join(rig.personal, 'prompt.md'), 'PERSONAL-WORKER-FIRST');
+  const engine = consumers.engine({
+    profile: rig.profile,
+    agentPaths: rig.options,
+    outDir: path.join(rig.base, 'out'),
+    subharness: rig.subharness,
+  });
+  const task = {
+    id: 'first',
+    goal: 'inspect synthetic files',
+    context: {},
+    signal: new AbortController().signal,
+    onProgress: () => {},
+  };
+  try {
+    assert.equal(engine.checkPrompt(), 'PERSONAL-WORKER-FIRST');
+    assert.equal((await engine.run(task)).status, 'done');
+    rig.override({ limits: { seconds: 29 } });
+    fs.writeFileSync(path.join(rig.personal, 'prompt.md'), 'PERSONAL-WORKER-SECOND');
+    assert.equal(engine.checkPrompt(), 'PERSONAL-WORKER-SECOND');
+    assert.equal((await engine.run({ ...task, id: 'second' })).status, 'done');
+    assert.deepEqual(
+      rig.calls.map(({ name, options }) => [name, options.model, options.effort, options.timeoutMs]),
+      [
+        ['codex', 'worker-selected-model', 'high', 17000],
+        ['codex', 'worker-selected-model', 'high', 29000],
+      ]
+    );
+    assert.match(rig.calls[0]?.brief ?? '', /PERSONAL-WORKER-FIRST/);
+    assert.match(rig.calls[1]?.brief ?? '', /PERSONAL-WORKER-SECOND/);
+    for (const call of rig.calls) assert.doesNotMatch(call.brief, /PRIVATE-DECOY-MARKER|shared marker/);
+    fs.unlinkSync(path.join(rig.personal, 'prompt.md'));
+    assert.equal(engine.checkPrompt(), 'shared marker');
+    assert.equal((await engine.run({ ...task, id: 'fallback' })).status, 'done');
+    assert.match(rig.calls[2]?.brief ?? '', /shared marker/);
+    assert.deepEqual(
+      [rig.calls[2]?.name, rig.calls[2]?.options.model, rig.calls[2]?.options.effort],
+      ['codex', 'worker-selected-model', 'high']
+    );
+  } finally {
+    rig.close();
+  }
+});
+
+test('a running engine refuses an invalid personal definition instead of using its captured profile', async () => {
+  const rig = consumerRig();
+  rig.override({ limits: { seconds: 17 } });
+  const engine = consumers.engine({
+    profile: rig.profile,
+    agentPaths: rig.options,
+    outDir: path.join(rig.base, 'out'),
+    subharness: rig.subharness,
+  });
+  const task = {
+    id: 'valid',
+    goal: 'inspect synthetic files',
+    context: {},
+    signal: new AbortController().signal,
+    onProgress: () => {},
+  };
+  try {
+    assert.equal((await engine.run(task)).status, 'done');
+    rig.override({ limits: { seconds: 0 } });
+    assert.throws(() => engine.checkPrompt());
+    // The public runner may reject the definition or return a failed outcome. Both must stop before the backend.
+    const invalid = await engine.run({ ...task, id: 'invalid' }).then(
+      (outcome) => outcome.status,
+      () => 'failed'
+    );
+    assert.equal(invalid, 'failed');
+    assert.equal(rig.calls.length, 1);
+  } finally {
+    rig.close();
+  }
 });

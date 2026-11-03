@@ -30,7 +30,8 @@
 // The flag is logged once per change (`errands: runner up` / `errands: runner down`).
 
 import { log as defaultLog } from '../log.ts';
-import { PROFILES, agentSettings, profileOf } from '../agent-runner/profiles.ts';
+import { loadProfiles, agentSettings, profileOf } from '../agent-runner/profiles.ts';
+import type { AgentPaths } from '../agent-runner/profiles.ts';
 import { roleApiKey } from '../llm/openrouter.ts';
 import { MAX_RECENT_ENTRIES, RECENT_CHARS, httpProxyForm } from '../agent-runner/protocol.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
@@ -67,10 +68,9 @@ export const DEFAULT_RECENT_LINES = 6;
 export const RUNNER_RECHECK_MS = 10_000;
 
 /** The limits an errand of `agent` runs under: its profile's `limits` under the deployment's override. */
-function limitsFor(agent: string, config: Untyped): Limits {
-  const set: Record<string, number> = agentSettings(agent, config)?.limits ?? {};
-  // profiles.ts types a profile as `object`, so its default limits are read through objOf.
-  const defaults = objOf(objOf(profileOf(agent)).defaultLimits);
+function limitsFor(agent: string, config: Untyped, agentPaths?: AgentPaths): Limits {
+  const set: Record<string, number> = agentSettings(agent, config, agentPaths)?.limits ?? {};
+  const defaults = profileOf(agent, agentPaths)?.defaultLimits ?? {};
   const out: Limits = {};
   for (const key of ERRAND_LIMIT_KEYS) {
     const value = isPositive(set[key]) ? set[key] : defaults[key];
@@ -83,8 +83,13 @@ function limitsFor(agent: string, config: Untyped): Limits {
  * The secrets an errand of `agent` carries to its runner: `{ openrouterKey, proxy?, searchKey? }`,
  * or null when the agent's role has no key of its own (never the main key: none is passed).
  */
-function secretsFor(agent: string, config: Untyped, env: Record<string, string | undefined>): RunSecrets | null {
-  const profile = objOf(profileOf(agent));
+function secretsFor(
+  agent: string,
+  config: Untyped,
+  env: Record<string, string | undefined>,
+  agentPaths?: AgentPaths
+): RunSecrets | null {
+  const profile = objOf(profileOf(agent, agentPaths));
   // The main key is never passed (an empty one: a role without a key of its own gets none).
   const openrouterKey = profile.modelRole ? roleApiKey(config, env, profile.modelRole, '') : null;
   if (typeof openrouterKey !== 'string' || !openrouterKey) return null;
@@ -128,6 +133,16 @@ function recentLinesOf(
     .slice(-count);
 }
 
+/** The origin and visible recent lines that accompany one dispatched errand. */
+function dispatchContext(errand: ErrandRecord, recent: RunContext['recent']): RunContext {
+  return {
+    scope: errand.scope,
+    channel: errand.origin?.channelId ?? null,
+    asker: errand.requester?.userId ?? null,
+    recent: errand.scope === 'dm' ? [] : recent,
+  };
+}
+
 /**
  * `hot` holds the live config. `env` is the parsed environment (src/config.ts#env): the keys and the proxy a run
  * carries. `memory` gives the channel's newest lines, oldest first (src/index.ts reads them from the memory
@@ -139,6 +154,7 @@ export function createErrandService({
   stores,
   hot,
   env = {},
+  agentPaths,
   memory = null,
   getGuildId = () => null,
   onFinished = null,
@@ -204,8 +220,8 @@ export function createErrandService({
     return stores.get(guildId || getGuildId?.() || '');
   }
 
-  const limitsOf = (agent: string): Limits => limitsFor(agent, hot.config);
-  const secretsOf = (agent: string): RunSecrets | null => secretsFor(agent, hot.config, env);
+  const limitsOf = (agent: string): Limits => limitsFor(agent, hot.config, agentPaths);
+  const secretsOf = (agent: string): RunSecrets | null => secretsFor(agent, hot.config, env, agentPaths);
   const recentOf = (guildId: string, channelId: string | null, scope: ErrandScope): RunContext['recent'] =>
     recentLinesOf({ memory, log }, guildId, channelId, scope);
 
@@ -215,21 +231,16 @@ export function createErrandService({
     recentById.delete(id);
     const errand = store.start(id);
     if (!errand) return null;
-    const secrets = secretsOf(errand.agent);
-    const limits = limitsOf(errand.agent);
     let outcome: FinishOutcome;
     try {
+      const secrets = secretsOf(errand.agent);
+      const limits = limitsOf(errand.agent);
       outcome = await client.run!({
         // `run` is always on the core's client; a fake without it throws into the catch
         agent: errand.agent,
         id: errand.id,
         goal: errand.goal,
-        context: {
-          scope: errand.scope,
-          channel: errand.origin?.channelId ?? null,
-          asker: errand.requester?.userId ?? null,
-          recent: errand.scope === 'dm' ? [] : recent,
-        },
+        context: dispatchContext(errand, recent),
         limits,
         ...(secrets ? { secrets } : {}),
       });
@@ -268,7 +279,7 @@ export function createErrandService({
   }: SubmitInput): AddResult {
     const store = storeOf(guildId);
     if (!store) return { ok: false, code: CODE.NO_GUILD };
-    if (!profileOf(agent)) return { ok: false, code: CODE.UNKNOWN_AGENT };
+    if (!profileOf(agent, agentPaths)) return { ok: false, code: CODE.UNKNOWN_AGENT };
     if (typeof client?.configured === 'function' && !client.configured(agent))
       return { ok: false, code: CODE.NOT_CONFIGURED };
     if (runnerDown(agent)) return { ok: false, code: CODE.RUNNER_DOWN };
@@ -396,7 +407,7 @@ export function createErrandService({
    */
   function start(guildId: unknown): number {
     // Each enabled agent's runner pinged in the background: its flag known before the first ask.
-    for (const agent of Object.keys(PROFILES)) check(agent).catch(() => {});
+    for (const agent of Object.keys(loadProfiles(agentPaths))) check(agent).catch(() => {});
     const store = storeOf(guildId);
     if (!store) return 0;
     const failed = store.failOpen('restarted');

@@ -8,6 +8,7 @@
 // picked by agent and by the agent's role model and capped by whole files; prompts.local/agents.md
 // (`hot.prompts.agents`) is never read as one. A run carries the live role model and the live
 // `agents.<profile>.cost` (when usable), since the runners cannot read the private config.
+import { consumers, consumerRig } from './fixtures/agent-consumers.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
@@ -456,5 +457,64 @@ test('errands client: onLink gets each outcome of the connect loop: a failed con
   } finally {
     client.close();
     if (runner) await runner.close();
+  }
+});
+
+test('the running client reads personal enabled settings beneath live config overrides', () => {
+  const rig = consumerRig();
+  const hot = { config: { agents: {} } };
+  rig.override({ enabled: true });
+  const client = consumers.client({ hot, agentPaths: rig.options });
+  try {
+    assert.equal(client.configured('scout'), true);
+    rig.override({ enabled: false });
+    assert.equal(client.configured('scout'), false);
+    hot.config.agents = { scout: { enabled: true } };
+    assert.equal(client.configured('scout'), true);
+  } finally {
+    client.close();
+    rig.close();
+  }
+});
+
+test('a reconnect timer contains an invalid personal edit without reconnecting or replaying the failed errand', async () => {
+  const rig = consumerRig();
+  const socket = path.join(rig.base, 'personal-runner.sock');
+  rig.override({ enabled: true, socket });
+  const connects: Array<string> = [];
+  const timers: Array<{ fire: () => void; handle: ReturnType<typeof setTimeout> }> = [];
+  const links: Array<{ agent: string; up: boolean; code?: string }> = [];
+  const client = consumers.client({
+    agentPaths: rig.options,
+    hot: { config: { agents: {} } },
+    connect: (selected) => {
+      connects.push(selected);
+      throw Object.assign(new Error('synthetic runner unavailable'), { code: 'ECONNREFUSED' });
+    },
+    setTimer: (fire) => {
+      const handle = setTimeout(() => {}, 60000);
+      handle.unref();
+      timers.push({ fire, handle });
+      return handle;
+    },
+    clearTimer: (timer) => clearTimeout(timer ?? undefined),
+  });
+  client.onLink((event) => links.push(event));
+  try {
+    const failed = await client.run({ agent: 'scout', id: 'synthetic-errand', goal: 'inspect synthetic files' });
+    assert.deepEqual([failed.status, failed.error], ['failed', 'disconnected']);
+    assert.deepEqual(connects, [socket]);
+    assert.deepEqual(links, [{ agent: 'scout', up: false, code: 'ECONNREFUSED' }]);
+    assert.equal(timers.length, 1);
+    rig.override({ enabled: true, socket, limits: { seconds: 0 } });
+    assert.doesNotThrow(() => timers[0]?.fire());
+    await Promise.resolve();
+    assert.deepEqual(connects, [socket], 'the failed errand cannot reopen a cached runner path');
+    assert.equal(timers.length, 1, 'an invalid profile cannot schedule another retry');
+    assert.equal(links.at(-1)?.up, false);
+  } finally {
+    client.close();
+    for (const timer of timers) clearTimeout(timer.handle);
+    rig.close();
   }
 });

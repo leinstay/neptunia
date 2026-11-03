@@ -14,6 +14,12 @@ other. See `CONTRIBUTING.md` for the workflow around changes.
 Both hot-reloaded. `/rules add` writes to `prompts.local/rules.md` (seeded from the default), never to `prompts/`.
 All instructions are English in both layers; a character's speech samples may be in the language it speaks.
 
+## Agent prompts
+
+Agent prompts use `agents/<name>/<prompt>` as the shared default and `<dataDir>/agents/<name>/<prompt>` as the persona replacement. `src/agent-runner/profiles.ts` validates the definition and resolves this ordered pair. `readPromptFile` reads the selected file at run time. These prompts have no engine placeholder substitution. Worker task briefs add their goal and context, while the watcher adds the UTC day and prior reports.
+
+`agents/watcher/prompt.md` requests exactly the seven report headings and the optional JSON `tasks` fence in [The watcher](watcher.md#the-report). `src/watcher/report.ts` validates the report, and `src/watcher/tasks.ts` validates the drafts. The report folder does not select the prompt. The selfimprovement runner retains its separate hot prompt brief.
+
 ## Files
 
 | File | Required | Role | Placeholders |

@@ -3,6 +3,7 @@
 // operations (src/tools/impl/errand.ts) and the intention service (src/intentions/) import them.
 
 import type net from 'node:net';
+import type { AgentPaths } from '../agent-runner/profiles.ts';
 import type { Untyped } from '../tools/types.ts';
 
 /** A logger of a module that reports errors too. */
@@ -253,7 +254,8 @@ export type TimerHandle = ReturnType<typeof setTimeout>;
 
 /** What `createErrandClient` is given. `hot` holds the live config and prompts; `connect` opens a socket. */
 export type ErrandClientOptions = {
-  hot?: Untyped;
+  agentPaths?: AgentPaths;
+  hot?: { readonly config?: unknown; readonly prompts?: Readonly<Record<string, unknown>> };
   log?: Logger;
   connect?: (path: string) => net.Socket;
   setTimer?: (fn: () => void, ms: number) => TimerHandle;
@@ -262,6 +264,7 @@ export type ErrandClientOptions = {
 
 /** What `createErrandService` is given. */
 export type ErrandServiceOptions = {
+  agentPaths?: AgentPaths;
   client: Partial<ErrandClient>;
   stores: ErrandStores;
   hot: Untyped;

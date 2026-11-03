@@ -1,6 +1,6 @@
 # agents/
 
-Each agent has its own folder here with a `profile.json` and, for workers and development agents, a `prompt.md`.
+Each agent has its own folder here with a `profile.json` and a prompt when its kind uses one.
 
 | Folder | Kind | What it does |
 |---|---|---|
@@ -8,6 +8,7 @@ Each agent has its own folder here with a `profile.json` and, for workers and de
 | `server/` | worker | Read-only questions about this machine: reads files and runs read-only shell commands, with no network but the model API. |
 | `thinker/` | development | Picks up development tasks, writes briefs, reviews the work (text included), runs the tests and merges. Never deploys. |
 | `dev/` | development | Writes code and text (prompts, documentation) within one development task. |
+| `watcher/` | watcher | Reviews available deployment and project evidence and writes a daily report. |
 
 ## Kinds
 
@@ -34,7 +35,7 @@ A profile with a missing key, an unknown key, a tool its shell class does not al
 
 `listAgents`, `loadProfiles`, `profileOf` and `agentSettings` in `src/agent-runner/profiles.ts` accept `AgentPaths` with `rootDir`, `dataDir` and `env`. Shared definitions live under `<rootDir>/agents/<name>/profile.json`. A partial personal profile under `<dataDir>/agents/<name>/profile.json` overlays that definition. Nested objects merge by own keys, arrays and scalar values replace their defaults, and null remains explicit. The loader validates the shared definition before applying the overlay, then validates and freezes the merged definition. A personal profile cannot change `id`, `kind` or `role` or introduce a new agent.
 
-Each public call reads current files. `agentSettings` applies live `config.agents.<name>` after the file overlay and retains user-unit socket and output defaults. `PROFILES`, `SCOUT` and `SERVER` are shared snapshots for compatibility. Consumers of personal settings use the path-aware functions.
+Each public call reads current files. `agentSettings` applies live `config.agents.<name>` after the file overlay and retains user-unit socket and output defaults. `PROFILES`, `SCOUT` and `SERVER` are shared snapshots for compatibility. Errand consumers use the path-aware functions with the core or command entry roots. The runner refreshes its definition, prompt and default limits for each task. The selfimprovement runner retains its separate brief contract.
 
 `promptFilesOf` returns `<dataDir>/agents/<name>/<prompt>` before `<rootDir>/agents/<name>/<prompt>`, with `prompt.md` as the default filename. A personal prompt needs no personal profile. The profile's `override` field remains validated migration metadata and contributes no runtime path. Explicit `dataDir` wins over `NEPTUNIA_DATA_DIR`; relative data paths resolve against `rootDir`. The private directory does not select the agent tree. Personal directories, profile files and selected prompts reject symbolic links.
 

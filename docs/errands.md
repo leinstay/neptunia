@@ -96,7 +96,9 @@ Caps enforced at queuing:
 
 Each worker runs as a systemd service (`deploy/neptunia-agent-scout.service`, `deploy/neptunia-agent-server.service`), as the user that installed the engine, so the core reaches the socket. The service starts `neptunia errand-runner --profile <name>` (see [The neptunia command](cli.md#the-errand-runner)). The runner listens on a Unix socket (the profile's `socket`, overridable under `agents.<profile>.socket`); the core connects and sends tasks as JSON, one object per line.
 
-One task is one run of the subharness's backend in a fresh working directory under the profile's output folder: the profile's prompt, the preamble, the goal and the context make the brief, and the files the agent leaves there are the result's files.
+One task is one run of the subharness's backend in a fresh working directory under the profile's output folder. The profile's prompt, the preamble, the goal and the context make the brief, and the files the agent leaves there are the result's files.
+
+The core and command entry pass the resolved engine and persona data roots into the errand client, service, stores and engine. Shared definitions under `agents/<name>/profile.json` receive partial overrides from `<dataDir>/agents/<name>/profile.json`, with `config.agents.<name>` applied last. Prompt candidates are `<dataDir>/agents/<name>/<prompt>` followed by the shared file. `override` is migration metadata, with no runtime `prompts.local` fallback. The engine reads the current definition and prompt for each task and prompt check. The command entry rebuilds default limits for each run. Invalid personal definitions stop execution before the backend and close an accepted errand as failed. Backend, model and effort remain selected by the subharness.
 
 A runner works one task at a time. Further requests queue.
 

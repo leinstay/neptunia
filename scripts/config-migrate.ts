@@ -112,7 +112,7 @@ function compareSettings(before: Record<string, unknown>, after: Record<string, 
     check(`agents.${key} -> errands.${key}`, objectOf(before.agents)[key], objectOf(after.errands)[key]);
   for (const [name, keys] of COMPARED_AGENTS) {
     const old = objectOf(objectOf(before.agents)[name]);
-    const now = objectOf(agentSettings(name, after));
+    const now = objectOf(agentSettings(name, after, { rootDir: ROOT_DIR }));
     for (const key of keys) {
       const was = key === 'searchProvider' ? objectOf(old.search).provider : old[key];
       check(`agents.${name}.${key}`, was ?? null, now[key] ?? null);

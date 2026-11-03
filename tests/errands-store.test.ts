@@ -3,6 +3,7 @@
 // errand lane with one status event per transition, the caps refuse with their codes (open at
 // once, tasks and dollars per UTC day), the journal gets one operation per task with counts
 // only, and a file handle resolves only to a file the task's result lists.
+import { consumers, consumerRig } from './fixtures/agent-consumers.ts';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -466,4 +467,32 @@ test("task store: the persona's call keeps its turn and its brief as written; th
     assert.deepEqual(loose(plain).origin, { channelId: 'c1', messageId: 'm1' });
     assert.equal('idempotencyKey' in loose(plain), false);
   });
+});
+
+test('an existing store reads the personal daily cap again after a profile edit', () => {
+  const rig = consumerRig();
+  rig.override({ enabled: true, daily: { tasks: 3 } });
+  const store = consumers.store({
+    guildId: 'synthetic-guild',
+    agentPaths: rig.options,
+    now: () => Date.parse('2026-11-03T12:00:00Z'),
+  });
+  try {
+    assert.equal(store.today('scout').caps.tasks, 3);
+    rig.override({ enabled: true, daily: { tasks: 1 } });
+    assert.equal(store.today('scout').caps.tasks, 1);
+    assert.equal(
+      store.add({
+        agent: 'scout',
+        goal: 'inspect synthetic files',
+        scope: 'group',
+        requester: { userId: 'synthetic-user', kind: 'member' },
+        origin: { channelId: 'synthetic-room', messageId: 'synthetic-message' },
+      }).ok,
+      true
+    );
+    assert.equal(store.budget('scout').code, 'cap-tasks');
+  } finally {
+    rig.close();
+  }
 });

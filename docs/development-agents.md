@@ -24,7 +24,7 @@ Both agents follow the [style guide](../STYLEGUIDE.md) when they write code.
 | `kind` | Always `development`. |
 | `role` | The model role whose model sits under `models.development` (`thinker`, `dev`). |
 | `prompt` | The prompt file inside the folder (`prompt.md`). |
-| `override` | `null` for development agents: the deployment's rules come from its dispatcher, not from `prompts.local/`. |
+| `override` | Validated migration metadata, null in the shipped development profiles. Personal prompts use `<dataDir>/agents/<name>/<prompt>`. |
 | `description` | One sentence saying what the agent does. |
 | `tools` | The OpenCode tools the agent asks for, from a fixed list: `bash`, `read`, `grep`, `glob`, `list`, `edit`, `write`, `patch`, `webfetch`, `websearch`, `todowrite`, `skill`, `external_directory`. Never `task` (subagents) or `question` (a headless run cannot answer it). |
 | `permission` | Rules that narrow the tools above: a tool mapped to `allow`, `ask` or `deny`, or to an object of command patterns and actions (OpenCode wildcards `*` and `?`, the last matching pattern wins). Only tools from `tools` may appear. The shipped profiles use it on `bash` to refuse a whole-suite test run: `node --test` without a test file and `npm test` are denied, `node --test --test-reporter=dot tests/<module>.test.js` is allowed, and the thinker alone may run the whole suite with the prefix `FULL_SUITE=1`. |
@@ -78,7 +78,7 @@ The development agents' tasks, briefs, reviews, attempts and results live on the
 
 ## Config
 
-The price and the limits of a development agent live in its profile, and a deployment overrides them under `agents.<name>` in `config.local/config.json`. `agentSettings(name, config)` in `src/agent-runner/profiles.ts` lays the override over the profile.
+The price and the limits of a development agent live in its profile, and a deployment overrides them under `agents.<name>` in `config.local/config.json`. `agentSettings(name, config, paths)` in `src/agent-runner/profiles.ts` reads shared and persona profiles, then applies the live configuration. `paths` supplies the engine and persona roots. A dispatcher uses the same paths for `listAgents` and `promptFilesOf`; personal prompts need no personal profile. The selfimprovement runner reads its separate task brief from the hot prompt contract.
 
 | Key | Default (thinker / dev) | What it does |
 |---|---|---|
