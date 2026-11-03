@@ -138,8 +138,8 @@ function desk(privateDir: string, config: Record<string, unknown>): ReturnType<t
 
 function localLayer(local: Record<string, unknown>): string {
   const dir = tempDir('nep-config-check-');
-  fs.mkdirSync(path.join(dir, 'config.local'));
-  fs.writeFileSync(path.join(dir, 'config.local', 'config.json'), JSON.stringify(local));
+  fs.mkdirSync(path.join(dir, 'config'));
+  fs.writeFileSync(path.join(dir, 'config', 'config.json'), JSON.stringify(local));
   return dir;
 }
 
@@ -176,17 +176,21 @@ test('the core starts on a local layer with an unknown key and a wrong type, and
 
 // ---- neptunia doctor -----------------------------------------------------------------------------------------------
 
-test('neptunia doctor warns about an unknown key and a key of the wrong type in config.local/config.json', async () => {
+test('neptunia doctor warns about an unknown key and a key of the wrong type in config/config.json', async () => {
   const dirs = folders({});
-  fs.rmSync(path.join(dirs.privateDir, 'config.local.json'));
-  fs.mkdirSync(path.join(dirs.privateDir, 'config.local'));
+  fs.rmSync(path.join(dirs.privateDir, 'config', 'config.json'));
+  fs.mkdirSync(path.join(dirs.privateDir, 'config'), { recursive: true });
   fs.writeFileSync(
-    path.join(dirs.privateDir, 'config.local', 'config.json'),
+    path.join(dirs.privateDir, 'config', 'config.json'),
     JSON.stringify({ llm: { maxRequestsPerDay: 'many' }, nosuch: { key: 1 } })
   );
-  fs.writeFileSync(path.join(dirs.privateDir, '.env'), 'OPENROUTER_CORE_KEY=sk-or-test-not-a-real-key\n', {
-    mode: 0o600,
-  });
+  fs.writeFileSync(
+    path.join(dirs.privateDir, 'keys.json'),
+    JSON.stringify({ core: [{ name: 'core-1', value: 'sk-or-test-not-a-real-key' }], extra: {}, roles: {} }),
+    {
+      mode: 0o600,
+    }
+  );
   const run = await runCli(dirs, ['doctor', '--json']);
   const parsed: unknown = JSON.parse(run.stdout);
   const checks =

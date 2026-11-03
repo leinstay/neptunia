@@ -1,15 +1,12 @@
-// Entry point: reads the paths and the private layer's .env, decides from `interfaces.mode` (src/interface/mode.ts)
-// where the interfaces run, hands them to `startCore` (src/core.ts) and owns the process: the signal handlers, the
-// exit code of a failed start and the exit after a clean stop. With `inprocess` it loads the Discord interface
-// (interfaces/discord/, by path at run time, so nothing here imports discord.js) and the core starts it. With `units`
-// the core starts with no interface and each one runs in its own unit (bin/neptunia.ts), so no Discord token is
-// read here. Nothing else lives here: the core is built and stopped by `startCore`, and the Discord side is built by
-// the interface.
+// The entry point resolves the engine and persona data roots, selects the interface mode and starts the core.
+// In-process interfaces load the selected personal or engine package and receive only their platform credential.
+// The entry owns process signals, startup failure and clean shutdown. Platform SDKs stay in interface packages.
 
 import path from 'node:path';
+import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-import { ROOT_DIR, env, loadDotEnv, readConfig } from './config.ts';
+import { ROOT_DIR, env, readConfig, interfaceLaunch } from './config.ts';
 import { startCore } from './core.ts';
 import { interfaceMode } from './interface/mode.ts';
 import { log } from './log.ts';
@@ -30,7 +27,6 @@ function die(message: string): never {
 // (NEPTUNIA_DATA_DIR). The two variables come from the process environment (the unit file), never
 // from .env, whose own place depends on them.
 const paths = resolvePaths({ rootDir: ROOT_DIR });
-loadDotEnv(paths.privateDir);
 
 // Where the interfaces run, read once: the mode decides what this process is.
 let mode: InterfaceMode = 'inprocess';
@@ -43,16 +39,13 @@ try {
 /** The Discord interface started in this process, as the core takes it. */
 async function inProcessDiscord() {
   // Handed to the Discord interface at its start, which logs in with it. Never logged.
-  const discordToken = env.DISCORD_TOKEN;
-  if (discordToken === undefined || discordToken === '')
-    die(
-      'index: missing required environment variable DISCORD_TOKEN — copy .env.example to .env and fill in the real values.'
-    );
+  const { token: discordToken, packageDir: folder } = interfaceLaunch({ ...paths, name: 'discord' });
+  if (discordToken === null) die('index: missing Discord token in data/interfaces/discord/credentials.json.');
 
   // The interface is loaded by name at run time.
-  const loaded: unknown = await import(
-    pathToFileURL(path.join(paths.rootDir, 'interfaces', 'discord', 'index.js')).href
-  );
+  const entry = ['index.ts', 'index.js'].map((name) => path.join(folder, name)).find((file) => fs.existsSync(file));
+  if (!entry) die('index: Discord package entry is unavailable');
+  const loaded: unknown = await import(pathToFileURL(entry).href);
   // The package is found by path at run time, so its shape is the one the core declares for an interface's `start`.
   const discordPackage = loaded as Pick<CoreInterface, 'start'>;
   return {

@@ -1053,9 +1053,9 @@ function makeEnv({ cfg = config(), roles = [] }: Record<string, Untyped> = {}) {
     getGuildId: () => 'g1',
     now: () => Date.UTC(2026, 9, 14, 10, 0, 0),
   } as unknown as Parameters<typeof createOpsEnv>[0]);
-  /** `bot.access` as written to the private settings file (PR 7c: config.local/config.json). */
+  /** `bot.access` as written to the private settings file (canonical persona config/config.json). */
   const stored = (): Record<string, Untyped> => {
-    const file = path.join(rootDir, 'config.local', 'config.json');
+    const file = path.join(rootDir, 'data', 'config', 'config.json');
     return fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')).bot?.access ?? {}) : {};
   };
   return { env, hot, store, client, stored, cleanup: () => fs.rmSync(rootDir, { recursive: true, force: true }) };

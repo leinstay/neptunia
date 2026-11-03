@@ -8,7 +8,6 @@ import { applyPersonaLayers, planPersonaLayers } from '../src/setup/persona-migr
 import type { PersonaLayerOptions, PersonaLayerIssue } from '../src/setup/persona-migration.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { createKeyStore } from '../src/keys/store.ts';
-import { readInterfaceConfig } from '../src/config/files.ts';
 import { main as movePersonaFiles } from '../scripts/persona-files-move.ts';
 import { listAgents } from '../src/agent-runner/profiles.ts';
 
@@ -1018,16 +1017,8 @@ test('interface extraction keeps dedicated overrides above nested settings witho
   write(options.rootDir, 'interfaces/discord/config.json', JSON.stringify(own));
   write(options.privateDir, 'config.local/config.json', JSON.stringify(core));
   write(options.privateDir, 'config.local/interfaces/discord.json', JSON.stringify(dedicated));
-  const effective = readInterfaceConfig({
-    rootDir: options.rootDir,
-    privateDir: options.privateDir,
-    name: 'discord',
-    base: {},
-  });
-  assert.deepEqual(effective, {
-    discord: { intents: { presences: true, members: false } },
-    context: { maxUrlChars: 300 },
-  });
+  // The offline converter owns legacy precedence; runtime readers accept only its prepared output.
+  const effective = { discord: { intents: { presences: true, members: false } }, context: { maxUrlChars: 300 } };
   const before = snapshot(options.privateDir);
   const plan = applyPersonaLayers(options);
   assert.deepEqual(plan.conflicts, []);

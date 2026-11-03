@@ -153,7 +153,7 @@ test('the script reads .env and the local config of the private folder, writes k
     spawnSync(process.execPath, ['scripts/keys-import.ts'], {
       cwd: ROOT,
       encoding: 'utf8',
-      env: { ...process.env, NEPTUNIA_PRIVATE_DIR: privateDir },
+      env: { ...process.env, NEPTUNIA_PRIVATE_DIR: privateDir, NEPTUNIA_DATA_DIR: privateDir },
     });
   const first = run();
   assert.equal(first.status, 0, first.stderr);

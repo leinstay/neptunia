@@ -1,18 +1,15 @@
-// Reading the watcher's reports: the folder they live in, the latest report or the one of a day, and a reader bound to
-// a folder. Her tool `watcher.read` (src/tools/impl/watcher.ts), the core and the console's `/report` (bin/report.ts)
-// call it; the watcher run (src/watcher/run.ts) and the brief (src/watcher/brief.ts) use the day check and the list of
-// days. The folder is `watcher.dir` (default `.agents/watcher`) under the checkout, read at each call.
+// Watcher reports live in data/agents/watcher/reports. The watcher, core and CLI use the same fixed persona
+// location. Report readers return a selected day's text or the newest valid report without logging its contents.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { objOf } from '../tools/types.ts';
 
 export type ReportView = { day: string; text: string };
 export type ReadResult = { ok: true; report: ReportView } | { ok: false; code: 'not-found' | 'invalid-day' };
 export type ReportReader = { read(day?: string): ReadResult };
 
-/** `watcher.dir` when the setting is missing or empty (config/config.json carries the same). */
-export const DEFAULT_WATCHER_DIR = '.agents/watcher';
+/** The fixed watcher directory relative to the persona data root. */
+export const DEFAULT_WATCHER_DIR = 'agents/watcher';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const REPORT_FILE = /^(\d{4}-\d{2}-\d{2})\.md$/;
@@ -24,10 +21,10 @@ export function isDay(day: unknown): boolean {
   return !Number.isNaN(at) && new Date(at).toISOString().slice(0, 10) === day;
 }
 
-/** `watcher.dir` of a config, read at the moment of use; the default for a missing or blank value. */
+/** The fixed directory; the argument preserves the existing caller shape. */
 export function watcherDir(config: unknown): string {
-  const dir = objOf(objOf(config).watcher).dir;
-  return typeof dir === 'string' && dir.trim() !== '' ? dir.trim() : DEFAULT_WATCHER_DIR;
+  void config;
+  return DEFAULT_WATCHER_DIR;
 }
 
 /** The reports folder under `rootDir`: `<dir>/reports`, `dir` being relative to the root or absolute. */

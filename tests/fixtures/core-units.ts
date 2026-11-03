@@ -77,13 +77,14 @@ export type Dirs = {
   paths: { rootDir: string; privateDir: string; dataDir: string };
 };
 
-/** Fresh folders, the private layer's config.local.json the base merged with `config`. Short: a socket path is limited. */
+/** Fresh folders, the canonical config/config.json the base merged with `config`. Short: a socket path is limited. */
 export function folders(config: Settings = {}): Dirs {
   const root = mkdtempSync(join(tmpdir(), 'nc-'));
   const dataDir = join(root, 'd');
-  const privateDir = join(root, 'p');
-  mkdirSync(privateDir);
-  writeFileSync(join(privateDir, 'config.local.json'), JSON.stringify(merged(BASE_CONFIG, config)));
+  // The prepared persona configuration, credentials and runtime state share one selected data root.
+  const privateDir = dataDir;
+  mkdirSync(join(dataDir, 'config'), { recursive: true });
+  writeFileSync(join(dataDir, 'config', 'config.json'), JSON.stringify(merged(BASE_CONFIG, config)));
   return { root, dataDir, privateDir, paths: { rootDir: REPO, privateDir, dataDir } };
 }
 
@@ -109,7 +110,7 @@ export function addClient(privateDir: string, client: Client): void {
   const run = spawnSync(process.execPath, args, {
     cwd: REPO,
     encoding: 'utf8',
-    env: { ...process.env, NEPTUNIA_PRIVATE_DIR: privateDir },
+    env: { ...process.env, NEPTUNIA_PRIVATE_DIR: privateDir, NEPTUNIA_DATA_DIR: privateDir },
   });
   assert.equal(run.status, 0, `client-token add ${client.name} failed: ${run.stderr}`);
 }
@@ -140,7 +141,7 @@ export function scriptedLlm(): Llm {
 export function startUnitsCore(dirs: Dirs, llm: Llm, now?: () => number): Promise<Core> {
   return startCore({
     paths: dirs.paths,
-    env: { OPENROUTER_CORE_KEY: 'test-key' },
+    env: {},
     interfaces: [],
     llm,
     embedder: { embed: () => Promise.resolve([]) },
@@ -163,10 +164,13 @@ export function query(dirs: Dirs, sql: string, ...args: Array<unknown>): Array<R
 
 /** The native ids of the members' lines, resolved through the catalog rather than opaque source family keys. */
 export const seenIds = (dirs: Dirs): Array<unknown> =>
-  query(dirs, `SELECT f.message_id AS native_id FROM sources s
+  query(
+    dirs,
+    `SELECT f.message_id AS native_id FROM sources s
         LEFT JOIN message_families f ON f.iface = s.iface AND f.authority_id = s.authority_id
           AND f.native_kind = s.native_kind AND f.native_key = s.native_id AND f.generation = s.generation
-        WHERE s.kind = 'seen' ORDER BY s.rowid`).map((row) => row.native_id);
+        WHERE s.kind = 'seen' ORDER BY s.rowid`
+  ).map((row) => row.native_id);
 
 /** Whether the core took a `hello` of the principal `name` (the link logs `link: hello` with its name). */
 export const helloTaken = (logs: ReadonlyArray<LogEntry>, name: string): boolean =>
@@ -281,7 +285,8 @@ export async function startedUnit(dirs: Dirs): Promise<Unit> {
 }
 
 /** A member's message in c1 that calls the persona. */
-export const mention = (id: string, text: string, at = Date.now()): MessageEvent => lineEvent({ id, text, at, mention: true });
+export const mention = (id: string, text: string, at = Date.now()): MessageEvent =>
+  lineEvent({ id, text, at, mention: true });
 
 /** What `unit` posted to c1 once it posted `count` texts, or after the wait. */
 export async function postedOnce(unit: Unit, count: number): Promise<Array<string>> {
@@ -311,7 +316,11 @@ export type Cli = {
 };
 
 export function spawnCli(dirs: Dirs, args: ReadonlyArray<string>, extraEnv: NodeJS.ProcessEnv = {}): Cli {
-  const child = spawn(process.execPath, [BIN, ...args], { cwd: REPO, env: { ...env(dirs), ...extraEnv }, stdio: 'pipe' });
+  const child = spawn(process.execPath, [BIN, ...args], {
+    cwd: REPO,
+    env: { ...env(dirs), ...extraEnv },
+    stdio: 'pipe',
+  });
   let out = '';
   let err = '';
   child.stdout.on('data', (chunk: Buffer) => (out += chunk.toString()));
@@ -345,7 +354,11 @@ export async function runCli(
   const timer = setTimeout(() => void cli.kill(), ms);
   const exit = await cli.exited;
   clearTimeout(timer);
-  assert.equal(exit.signal, null, `neptunia ${args.join(' ')} did not end within ${ms} ms:\n${cli.stderr().slice(-2000)}`);
+  assert.equal(
+    exit.signal,
+    null,
+    `neptunia ${args.join(' ')} did not end within ${ms} ms:\n${cli.stderr().slice(-2000)}`
+  );
   return { ...exit, stdout: cli.stdout(), stderr: cli.stderr() };
 }
 

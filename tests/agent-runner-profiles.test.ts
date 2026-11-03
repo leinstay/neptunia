@@ -285,11 +285,11 @@ test("server external_directory: allowed in core, the path tools' withheld denie
   for (const glob of withheldGlobsOf({
     paths: resolvePaths({
       rootDir: '/opt/neptunia/app',
-      env: { NEPTUNIA_PRIVATE_DIR: '/opt/neptunia/etc', NEPTUNIA_DATA_DIR: '/opt/neptunia/data' },
+      env: { NEPTUNIA_PRIVATE_DIR: '/opt/neptunia/data', NEPTUNIA_DATA_DIR: '/opt/neptunia/data' },
     }),
   }))
     loose(apart)[glob] = 'deny';
-  for (const resource of ['/opt/neptunia/etc/*', '/opt/neptunia/etc/prompts.local/*', '/opt/neptunia/data/*'])
+  for (const resource of ['/opt/neptunia/data/config/*', '/opt/neptunia/data/prompts/*', '/opt/neptunia/data/*'])
     assert.equal(actionOf(apart, resource), 'deny', resource);
   assert.equal(actionOf(apart, '/opt/neptunia/app/*'), 'allow');
 });
@@ -340,7 +340,7 @@ test('promptFilesOf reads persona data prompts before shared prompts and ignores
 
     const apart = promptFilesOf('scout', {
       rootDir,
-      env: { NEPTUNIA_PRIVATE_DIR: privateDir, NEPTUNIA_DATA_DIR: dataDir },
+      env: { NEPTUNIA_PRIVATE_DIR: dataDir, NEPTUNIA_DATA_DIR: dataDir },
     });
     assert.deepEqual(apart, [
       path.join(dataDir, 'agents', 'scout', 'prompt.md'),
@@ -365,7 +365,7 @@ test('promptFilesOf reads persona data prompts before shared prompts and ignores
 test('readPromptFile: an override that exists but cannot be read falls back to the tracked prompt, warned once; other errors still throw', () => {
   const [override, tracked] = promptFilesOf('scout', {
     rootDir: '/checkout',
-    env: { NEPTUNIA_PRIVATE_DIR: '/private-unreadable' },
+    env: { NEPTUNIA_DATA_DIR: '/private-unreadable' },
   });
   const failing = (code: Untyped) => (file: string) => {
     if (file === override) throw Object.assign(new Error(`${code}: ${file}`), { code });
@@ -487,10 +487,10 @@ test("withheldShellDenies: the deployment's data directory and a private directo
   const apart = withheldShellDenies({
     paths: resolvePaths({
       rootDir: '/srv/app',
-      env: { NEPTUNIA_PRIVATE_DIR: '/srv/site/etc', NEPTUNIA_DATA_DIR: '/srv/site/data' },
+      env: { NEPTUNIA_PRIVATE_DIR: '/srv/site/data', NEPTUNIA_DATA_DIR: '/srv/site/data' },
     }),
   });
-  for (const pattern of ['cat */srv/site/data*', 'grep */srv/site/etc*', 'cat */etc/neptunia*'])
+  for (const pattern of ['cat */srv/site/data*', 'grep */srv/site/data*', 'cat */etc/neptunia*'])
     assert.ok(apart.includes(pattern), pattern);
   assert.ok(!apart.some((pattern) => pattern.includes('/srv/app')), 'the checkout itself is not withheld');
   const together = withheldShellDenies({ paths: resolvePaths({ rootDir: '/srv/app', env: {} }) });
@@ -1302,7 +1302,7 @@ function assertRefused(rootDir: string, agent: string, key: string) {
 
 test("loadProfiles: a valid worker from a temporary agents/ tree becomes a profile with the runner's shape", () => {
   withAgentsTree({ probe: workerProfile('probe') }, (rootDir: string) => {
-    const profiles = loadProfiles({ rootDir, env: { NEPTUNIA_PRIVATE_DIR: '/private' } });
+    const profiles = loadProfiles({ rootDir, env: {} });
     assert.deepEqual(Object.keys(profiles), ['probe']);
     const probe = profiles.probe;
     assert.equal(probe.name, 'probe');
@@ -1609,7 +1609,7 @@ test('the scout unit: runs the scout profile with the state and runtime dirs the
   assert.ok(loose(line('ExecStart')).endsWith('bin/neptunia.ts errand-runner --profile scout'));
   assert.equal(line('StateDirectory'), 'StateDirectory=neptunia-agent-scout');
   assert.equal(line('RuntimeDirectory'), 'RuntimeDirectory=neptunia-agent-scout');
-  assert.equal(line('EnvironmentFile'), 'EnvironmentFile=-/opt/neptunia/etc/agent-scout.env');
+  assert.equal(line('EnvironmentFile'), 'EnvironmentFile=-/opt/neptunia/data/agent-scout.env');
   assert.equal(SCOUT.defaultSocket, '/run/neptunia-agent-scout/sock');
   assert.equal(SCOUT.defaultOut, '/var/lib/neptunia-agent-scout/out');
 });

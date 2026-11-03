@@ -94,7 +94,7 @@ function layout(root: string, name: Name): Omit<Instance, 'child'> {
     name,
     dir,
     engine: join(dir, 'engine'),
-    privateDir: join(dir, 'private'),
+    privateDir: join(dir, 'data'),
     dataDir: join(dir, 'data'),
     persona,
     answer: `answer of ${name}`,
@@ -102,10 +102,10 @@ function layout(root: string, name: Name): Omit<Instance, 'child'> {
 }
 
 function writeLayer(one: Omit<Instance, 'child'>): void {
-  mkdirSync(join(one.privateDir, 'config.local'), { recursive: true });
-  mkdirSync(join(one.privateDir, 'prompts.local'), { recursive: true });
-  writeFileSync(join(one.privateDir, 'config.local', 'config.json'), JSON.stringify(settings(`g-${one.name}`)));
-  writeFileSync(join(one.privateDir, 'prompts.local', 'character-card.md'), `${one.persona}. You are a quiet guest.\n`);
+  mkdirSync(join(one.privateDir, 'config'), { recursive: true });
+  mkdirSync(join(one.privateDir, 'prompts'), { recursive: true });
+  writeFileSync(join(one.privateDir, 'config', 'config.json'), JSON.stringify(settings(`g-${one.name}`)));
+  writeFileSync(join(one.privateDir, 'prompts', 'character-card.md'), `${one.persona}. You are a quiet guest.\n`);
 }
 
 type Pending = Map<number, (reply: InstanceReply) => void>;
@@ -213,6 +213,12 @@ const world: {
   stop(): Promise<void>;
 } = {} as never; // filled in `before`, read by every test below: the two children run once for all of them
 
+// Only configuration and prompt inputs stay immutable; runtime records share their canonical data root.
+const personalFiles = (dir: string): Tree =>
+  new Map(
+    [...walk(dir)].filter(([at]) => ['config', 'prompts'].some((part) => at === part || at.startsWith(`${part}/`)))
+  );
+
 const textOf = (name: Name): string => `question to ${name}`;
 
 before(async () => {
@@ -224,7 +230,7 @@ before(async () => {
     writeLayer(one);
   }
   world.engineBefore = { alpha: walk(plain.alpha.engine), beta: walk(plain.beta.engine) };
-  world.layerBefore = { alpha: walk(plain.alpha.privateDir), beta: walk(plain.beta.privateDir) };
+  world.layerBefore = { alpha: personalFiles(plain.alpha.privateDir), beta: personalFiles(plain.beta.privateDir) };
   world.rootBefore = walk(root);
   const pending: Pending = new Map();
   const [alpha, beta] = await Promise.all([startChild(plain.alpha, pending), startChild(plain.beta, pending)]);
@@ -289,7 +295,11 @@ test('the engine copies are the same files after the run as before it', () => {
 
 test('the private layers are the same files after the run as before it', () => {
   for (const name of NAMES) {
-    assert.deepEqual(changes(world.layerBefore[name], walk(world[name].privateDir)), [], `${name} layer changed`);
+    assert.deepEqual(
+      changes(world.layerBefore[name], personalFiles(world[name].privateDir)),
+      [],
+      `${name} layer changed`
+    );
   }
 });
 

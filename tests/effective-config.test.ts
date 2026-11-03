@@ -44,8 +44,10 @@ function load(local: Settings): Settings {
       bot: { owners: [], access: {} },
     })
   );
-  fs.writeFileSync(path.join(root, 'config.local.json'), JSON.stringify(local));
-  return readConfig(root, { privateDir: root });
+  // Semantic key migrations still run on canonical persona files.
+  fs.mkdirSync(path.join(root, 'data', 'config'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'data', 'config', 'config.json'), JSON.stringify(local));
+  return readConfig(root, { privateDir: path.join(root, 'data') });
 }
 
 /** The errand settings config.json carries, the ones every errand reads (PR 7d: three more are constants). */

@@ -25,7 +25,7 @@ function tool(privateDir: string, args: Array<string>): { code: number | null; o
   const run = spawnSync(process.execPath, ['scripts/client-token.ts', ...args], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: { ...process.env, NEPTUNIA_PRIVATE_DIR: privateDir },
+    env: { ...process.env, NEPTUNIA_PRIVATE_DIR: privateDir, NEPTUNIA_DATA_DIR: privateDir },
   });
   return { code: run.status, out: `${run.stdout}${run.stderr}` };
 }

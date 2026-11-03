@@ -193,7 +193,7 @@ function buildEnv({
   /** The private settings file the live config reads (src/config/files.ts#localConfigPath) in the private directory
    * (`hot.privateDir`, the checkout root unless set apart; a hot without one falls back to `hot.rootDir`). */
   function localConfigFile(): string {
-    return localConfigPath((hot.privateDir ?? hot.rootDir) as string);
+    return localConfigPath((hot.privateDir ?? path.join(hot.rootDir as string, 'data')) as string);
   }
 
   /** the private settings file with its keys of an old name written under their new one (src/config-moves.ts), as the

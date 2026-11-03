@@ -85,6 +85,9 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
+import { tokenVariableOf } from '../src/interface/commands/interface-token.ts';
+import { interfaceCredential } from '../src/config/files.ts';
+import { interfacePackageDir } from '../src/config/files.ts';
 import { createRunnerServer } from '../src/agent-runner/server.ts';
 import { DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.ts';
 import { createAgentEngine, createInstalledBackend } from '../src/agent-runner/backend.ts';
@@ -561,7 +564,7 @@ function reportsDirIn(where: { rootDir: string; privateDir: string }): string {
   } catch {
     // Settings this user cannot read: the default folder under the checkout.
   }
-  return reportsDirOf(where.rootDir, watcherDir(config));
+  return reportsDirOf(where.privateDir, watcherDir(config));
 }
 
 /** A command the command line runs itself; `ask` reaches the core for the probes of `doctor.live`, null when down. */
@@ -792,7 +795,7 @@ function checkConfig(where: { rootDir: string; privateDir: string }): Check {
 function checkLocalLayer(where: { privateDir: string }): Check {
   if (!fs.existsSync(where.privateDir))
     return { name: 'local-layer', status: 'fail', detail: `${where.privateDir} does not exist` };
-  const prompts = fs.existsSync(path.join(where.privateDir, 'prompts.local'));
+  const prompts = fs.existsSync(path.join(where.privateDir, 'prompts'));
   return {
     name: 'local-layer',
     status: 'ok',
@@ -1289,7 +1292,7 @@ function parseRun(argv: ReadonlyArray<string>): { name: string; interfacesDir: s
   const [command, name, ...rest] = argv;
   if (command !== 'run' || name === undefined) usage();
   if (!NAME.test(name)) die(`invalid interface name "${name}"; use lowercase letters, digits, - and _`);
-  let interfacesDir = path.join(ROOT_DIR, 'interfaces');
+  let interfacesDir = path.dirname(interfacePackageDir(ROOT_DIR, paths().dataDir, name));
   for (let i = 0; i < rest.length; i += 1) {
     const value = rest[i + 1];
     if (rest[i] !== '--interfaces-dir' || value === undefined) usage();
@@ -1452,7 +1455,7 @@ async function runInterface(argv: ReadonlyArray<string>): Promise<void> {
     connect,
     token,
     dataDir: path.join(where.dataDir, 'interfaces', name),
-    env: process.env,
+    env: { [tokenVariableOf(name)]: interfaceCredential(where.dataDir, name) ?? '' },
     config: () => settings.read(),
     onConfigChange: (listener) => settings.onChange(listener),
     log,

@@ -93,9 +93,10 @@ export async function withFakeCore<T>(
   // Short folders: a Unix socket path is limited to 108 bytes.
   const root = mkdtempSync(join(tmpdir(), 'cf-'));
   const dataDir = join(root, 'd');
-  const privateDir = join(root, 'p');
-  mkdirSync(privateDir);
-  writeFileSync(join(privateDir, 'config.local.json'), JSON.stringify(merged(BASE_CONFIG, options.config ?? {})));
+  // Runtime privateDir aliases the prepared persona data root.
+  const privateDir = dataDir;
+  mkdirSync(join(privateDir, 'config'), { recursive: true });
+  writeFileSync(join(privateDir, 'config', 'config.json'), JSON.stringify(merged(BASE_CONFIG, options.config ?? {})));
   const requests: Array<unknown> = [];
   const llm = {
     complete: (messages: unknown): Promise<{ text: string; usage: object; estimated: number }> => {

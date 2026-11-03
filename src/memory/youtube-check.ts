@@ -38,6 +38,7 @@ export function createYoutubeCheck({
   hot,
   videoFetcher,
   youtubeApiKey = null,
+  videoProxy = null,
 }: {
   hot: Hot;
   videoFetcher: {
@@ -45,6 +46,7 @@ export function createYoutubeCheck({
     probeYoutube: (url: string, options: Obj) => Promise<Probe>;
   };
   youtubeApiKey?: string | null;
+  videoProxy?: string | null;
 }): () => Promise<{ status: 'ytdlp' | 'api' | 'page' | 'blocked'; detail: string; keySet: boolean }> {
   return async function checkYoutube() {
     const keySet = typeof youtubeApiKey === 'string' && youtubeApiKey !== '';
@@ -56,7 +58,7 @@ export function createYoutubeCheck({
       const site = await videoFetcher.probeSite(url, {
         ytdlpPath: videoCfg.ytdlpPath,
         toolTimeoutMs: videoCfg.toolTimeoutMs,
-        proxy: proxyFor(url, videoCfg),
+        proxy: proxyFor(url, videoCfg, videoProxy),
         proxyRetryMinutes: videoCfg.proxyRetryMinutes,
       });
       if (hasDuration(site)) return { status: 'ytdlp', detail: `duration ${site.durationSec}s`, keySet };

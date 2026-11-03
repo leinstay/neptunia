@@ -66,8 +66,8 @@ function rig(
     log: { warn: (message) => warnings.push(message) },
   };
   const write = (name: string, text: string): void => {
-    fs.mkdirSync(path.join(privateDir, 'skills.local', name), { recursive: true });
-    fs.writeFileSync(path.join(privateDir, 'skills.local', name, 'SKILL.md'), text);
+    fs.mkdirSync(path.join(privateDir, 'skills', name), { recursive: true });
+    fs.writeFileSync(path.join(privateDir, 'skills', name, 'SKILL.md'), text);
   };
   return { wiring: wireSkills(deps), state, calls, warnings, write, rootDir, handle };
 }

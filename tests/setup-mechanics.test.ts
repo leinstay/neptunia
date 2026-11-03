@@ -25,7 +25,7 @@ type Rig = {
   ghFound: boolean;
 };
 
-const configFile = (privateDir: string): string => path.join(privateDir, 'config.local', 'config.json');
+const configFile = (privateDir: string): string => path.join(privateDir, 'config', 'config.json');
 const local = (privateDir: string): Record<string, Section> =>
   JSON.parse(fs.readFileSync(configFile(privateDir), 'utf8')) as Record<string, Section>;
 
@@ -35,7 +35,7 @@ function rig(
   backends: Array<'codex' | 'claude' | 'opencode'> = ['codex']
 ): Rig {
   const privateDir = path.join(tempDir('nep-setup-mechanics-'), 'private');
-  fs.mkdirSync(path.join(privateDir, 'config.local'), { recursive: true });
+  fs.mkdirSync(path.join(privateDir, 'config'), { recursive: true });
   fs.writeFileSync(configFile(privateDir), JSON.stringify({ bot: { name: 'kept' }, ...config }));
   writeKeysFile(privateDir, { subharness: { backends, key: null, modes: {} } });
   const r: Rig = {

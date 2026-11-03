@@ -599,8 +599,9 @@ test('a local config that grants task.run to her still grants her errand.run aft
   const { grantedSkillNames } = await import('../src/tools/discovery.ts');
   const { skillRegistry } = await import('../src/tools/registry.ts');
   const privateDir = tempDir('nep-boundary-private-');
+  fs.mkdirSync(path.join(privateDir, 'config'));
   fs.writeFileSync(
-    path.join(privateDir, 'config.local.json'),
+    path.join(privateDir, 'config', 'config.json'),
     JSON.stringify({
       bot: { owners: ['o1'], access: { 'task.run': { everyone: false, roles: [], users: ['self-1'] } } },
     })

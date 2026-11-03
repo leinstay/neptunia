@@ -24,11 +24,11 @@ A run that fails before step 6 files no task, writes no report and leaves `repor
 
 ## The watcher folder
 
-`watcher.dir` (default `.agents/watcher`, relative to the checkout or absolute) holds `reports/`, which the watcher writes. The folder is private to the deployment and never tracked. `reports/` holds `<YYYY-MM-DD>.md` files and the `<YYYY-MM-DD>.failed` markers. Every reader ignores any other name.
+`data/agents/watcher/reports/` beneath the selected persona directory holds the watcher reports. The folder is private to the deployment and never tracked. `reports/` holds `<YYYY-MM-DD>.md` files and the `<YYYY-MM-DD>.failed` markers. Every reader ignores any other name.
 
 ## The brief
 
-`buildBrief` (`src/watcher/brief.ts`) joins the selected prompt text, the line `<day>YYYY-MM-DD</day>` and the last seven reports before that day, oldest first, each inside `<report day="YYYY-MM-DD">`. So the agent sees its own last week. Shared definitions and prompts live at `agents/watcher/profile.json` and `agents/watcher/prompt.md`. The command entry resolves persona profile overrides and passes `<dataDir>/agents/watcher/<prompt>` before the shared candidate to `runWatcher`. Each run reads the prompt files afresh. A personal prompt needs no personal profile. Neither the private credentials directory nor `watcher.dir` selects it. Existing reports return before prompt reads. The definition has no model role; backend, model and effort remain the subharness selections.
+`buildBrief` (`src/watcher/brief.ts`) joins the selected prompt text, the line `<day>YYYY-MM-DD</day>` and the last seven reports before that day, oldest first, each inside `<report day="YYYY-MM-DD">`. So the agent sees its own last week. Shared definitions and prompts live at `agents/watcher/profile.json` and `agents/watcher/prompt.md`. The command entry resolves persona profile overrides and passes `<dataDir>/agents/watcher/<prompt>` before the shared candidate to `runWatcher`. Each run reads the prompt files afresh. A personal prompt needs no personal profile. Existing reports return before prompt reads. The definition has no model role; backend, model and effort remain the subharness selections.
 
 ## The report
 
@@ -60,7 +60,7 @@ The agent ends its answer with at most one block:
 
 `fileTasks` (`src/watcher/tasks.ts`) files each draft with `task.add` as the principal `watcher`, in the `dev` lane. The evidence is the description and `metadata.evidence`, the done-criterion is the acceptance, and `metadata.kind` is the kind. It lists the watcher's own tasks first and skips a draft whose evidence, compared without case and extra spaces, belongs to a task that is not `done`, `failed` or `cancelled`, or that was created on the UTC day of the run or the day before. The same evidence twice in one answer is filed once. The watcher never triages, claims, runs or reviews a task.
 
-The principal `watcher` is a client of `clients.json` with the board role `watcher`, made with `node scripts/client-token.ts add watcher --kind agent --roles watcher`. That role reads the board and calls `task.add`, and the board refuses it everything else (see [The task board](board.md#roles)). `neptunia watcher run` connects as the client named by `NEPTUNIA_TASK_CLIENT`, default `watcher`, with the token of `NEPTUNIA_TASK_TOKEN` or `<private>/clients/watcher.token`.
+The principal `watcher` is a client of `clients.json` with the board role `watcher`, made with `node scripts/client-token.ts add watcher --kind agent --roles watcher`. That role reads the board and calls `task.add`, and the board refuses it everything else (see [The task board](board.md#roles)). `neptunia watcher run` connects as the client named by `NEPTUNIA_TASK_CLIENT`, default `watcher`, with the token of `NEPTUNIA_TASK_TOKEN` or `<dataDir>/clients/watcher.token`.
 
 ## Her selfimprovement wake
 
@@ -82,6 +82,5 @@ The principal `watcher` is a client of `clients.json` with the board role `watch
 |---|---|---|
 | `watcher.enabled` | `false` | Whether the deployment runs the watcher. Only `true` counts, and while it is off her selfimprovement wake carries no report |
 | `watcher.at` | `00:00` | The time of the daily run, `HH:MM` UTC, rendered into the timer by `neptunia setup` |
-| `watcher.dir` | `.agents/watcher` | The folder containing `reports/` |
 
 `settings.ts` reads the three settings, `read.ts` finds and reads the reports, `news.ts` gives her wake the newest report, `brief.ts` builds the brief, `report.ts` checks and writes a report, `tasks.ts` splits the answer and files the tasks, and `run.ts` joins them. `bin/markdown.ts` and `bin/report.ts` are the console's side.

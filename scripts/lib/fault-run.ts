@@ -248,13 +248,10 @@ async function until(check: () => boolean, what: string, ms = 8000): Promise<voi
 async function withLiveCore<T>(options: LiveOptions, body: (live: Live) => Promise<T>): Promise<T> {
   // Short folders: a Unix socket path is limited to 108 bytes.
   const root = mkdtempSync(join(tmpdir(), 'fr-'));
-  const privateDir = join(root, 'p');
   const dataDir = join(root, 'd');
-  mkdirSync(join(privateDir, 'config.local'), { recursive: true });
-  writeFileSync(
-    join(privateDir, 'config.local', 'config.json'),
-    JSON.stringify(merged(BASE_CONFIG, options.config ?? {}))
-  );
+  const privateDir = dataDir;
+  mkdirSync(join(privateDir, 'config'), { recursive: true });
+  writeFileSync(join(privateDir, 'config', 'config.json'), JSON.stringify(merged(BASE_CONFIG, options.config ?? {})));
   const ledger = options.ledger ?? createLedger();
   const adapter = createFakeAdapter({ selfId: SELF.id });
   adapter.seedConversation(conversationInfo(ROOM));

@@ -37,7 +37,9 @@ function loadWith(local: unknown) {
     // PR 7c: the tracked settings live in config/config.json.
     fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
     fs.copyFileSync(path.join(ROOT, 'config', 'config.json'), path.join(dir, 'config', 'config.json'));
-    if (local !== undefined) fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify(local));
+    // Role overrides use the canonical persona file.
+    fs.mkdirSync(path.join(dir, 'data', 'config'), { recursive: true });
+    if (local !== undefined) fs.writeFileSync(path.join(dir, 'data', 'config', 'config.json'), JSON.stringify(local));
     return readConfig(dir);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

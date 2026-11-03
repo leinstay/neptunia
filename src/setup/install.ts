@@ -53,7 +53,7 @@ export function systemctlOf(target: UnitTarget, ...args: Array<string>): [string
 /** `watcher.at` of the settings, null when they cannot be read (the timer then keeps the template's hour). */
 function watcherHour(target: UnitTarget): string | null {
   try {
-    return watcherSettings(readConfig(target.rootDir, { privateDir: target.privateDir })).at;
+    return watcherSettings(readConfig(target.rootDir, { privateDir: target.dataDir })).at;
   } catch {
     // A checkout without config/config.json or a broken local file: the template's hour stands.
     return null;
@@ -66,7 +66,7 @@ function watcherHour(target: UnitTarget): string | null {
  */
 export function unitText(target: UnitTarget, template: string, file: string): string {
   const agent = UNIT_AGENTS[file];
-  const { subharness } = readKeys(target.privateDir);
+  const { subharness } = readKeys(target.dataDir);
   const vars: UnitVars = { ...target, backends: subharness.backends };
   const watcherAt = watcherHour(target);
   if (watcherAt !== null) vars.watcherAt = watcherAt;

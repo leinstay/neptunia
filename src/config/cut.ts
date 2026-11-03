@@ -15,6 +15,7 @@ type Tree = Record<string, unknown>;
 
 /** The keys that became a named constant in their reader, with the production value of 2026-10-31. */
 const CONSTANTS: Readonly<Record<string, unknown>> = {
+  'watcher.dir': 'agents/watcher',
   'llm.temperature': 1,
   'llm.safetyMargin': 0.9,
   'llm.cache.profilesTtl': '1h',

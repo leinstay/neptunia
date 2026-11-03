@@ -507,7 +507,6 @@ Settings for the daily watcher. See [The watcher](watcher.md).
 |---|---|---|---|---|
 | `watcher.enabled` | boolean | `false` | Whether the deployment runs the daily watcher, which only `true` turns on. `neptunia setup` asks. While it is off the selfimprovement wake carries no watcher report | `src/watcher/settings.ts` |
 | `watcher.at` | string | `"00:00"` | The time of the watcher's daily run, `HH:MM` of the UTC day: the `OnCalendar=` of `neptunia-watcher.timer` that `neptunia setup` renders. A value that is no `HH:MM` reads as the default | `src/watcher/settings.ts` |
-| `watcher.dir` | string | `".agents/watcher"` | Folder of the daily watcher, `prompt.md` and `reports/`; relative to the checkout or absolute | `src/watcher/read.ts` |
 
 ## `selfimprovement`
 

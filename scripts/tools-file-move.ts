@@ -6,7 +6,7 @@
 //   node scripts/tools-file-move.ts --dry-run [--dir <private dir>]
 //   node scripts/tools-file-move.ts --apply [--dir <private dir>]
 //
-// The private directory is `--dir`, else `NEPTUNIA_PRIVATE_DIR`, else the checkout (src/paths.ts). Three things move:
+// The private directory is `--dir`, else `NEPTUNIA_PRIVATE_DIR`, else the checkout. Three things move:
 //
 //   1. prompts.local/skills.json (the owner's tool texts) to config.local/tools.json, the entry `skills.describe`
 //      renamed `tools.describe` on the way.
@@ -24,7 +24,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { CliError, parseFlags, privateDirOf, runCli } from './lib/cli.ts';
+import { CliError, parseFlags, runCli } from './lib/cli-args.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
 const USAGE = 'usage: node scripts/tools-file-move.ts --dry-run|--apply [--dir <private dir>]';
@@ -299,7 +299,8 @@ function move(argv: Array<string>): string {
   });
   if (flags['--dry-run'] === flags['--apply'])
     throw new CliError(`give exactly one of --dry-run and --apply\n${USAGE}`);
-  const dir = typeof flags['--dir'] === 'string' ? path.resolve(flags['--dir']) : privateDirOf(process.cwd());
+  const source = typeof flags['--dir'] === 'string' ? flags['--dir'] : process.env.NEPTUNIA_PRIVATE_DIR?.trim();
+  const dir = path.resolve(process.cwd(), source || '.');
   const { steps, refusals } = planMove(dir);
   if (refusals.length > 0) throw new CliError(`refused, nothing was changed:\n${refusals.join('\n')}`);
   if (steps.length === 0) return 'nothing to move\n';

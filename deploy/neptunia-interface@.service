@@ -28,15 +28,15 @@ Group=neptunia
 # exits with code 1, and systemd starts it again.
 Restart=always
 RestartSec=5
-Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc
+Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/data
 Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
-EnvironmentFile=-/opt/neptunia/etc/clients/%i.env
+EnvironmentFile=-/opt/neptunia/data/clients/%i.env
 
 # Writes only its own data folder, and the core's files stay out of reach.
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/opt/neptunia/data/interfaces/%i
-InaccessiblePaths=-/opt/neptunia/etc/.env -/opt/neptunia/data/memory.db -/opt/neptunia/data/guilds
+InaccessiblePaths=-/opt/neptunia/data/.env -/opt/neptunia/data/memory.db -/opt/neptunia/data/guilds
 PrivateTmp=true
 
 StandardOutput=journal

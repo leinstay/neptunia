@@ -53,9 +53,10 @@ const PRIVATE_CONFIG = {
 function folders() {
   const root = mkdtempSync(join(tmpdir(), 'ci-'));
   const dataDir = join(root, 'd');
-  const privateDir = join(root, 'p');
-  mkdirSync(privateDir);
-  writeFileSync(join(privateDir, 'config.local.json'), JSON.stringify(PRIVATE_CONFIG));
+  // Runtime privateDir aliases the prepared persona data root.
+  const privateDir = dataDir;
+  mkdirSync(join(privateDir, 'config'), { recursive: true });
+  writeFileSync(join(privateDir, 'config', 'config.json'), JSON.stringify(PRIVATE_CONFIG));
   return { root, dataDir, privateDir };
 }
 

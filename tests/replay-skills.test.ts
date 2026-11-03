@@ -1370,7 +1370,7 @@ test('skillRequestEstimate: up to two requests per decision -- a run, or every t
 
 // ---- prompt layers: --prompts and --pair-prompts ------------------------------------
 
-test('replay --skills --prompts: the directory is laid over a copy of prompts.local/; a file in it replaces, labels.json merges; nothing live changes', () => {
+test('replay --skills --prompts: the directory is laid over a copy of data/prompts/; a file in it replaces, labels.json merges; nothing live changes', () => {
   const root = tempDir('nep-replay-skills-');
   const tmpDir = tempDir('nep-replay-skills-layers-');
   const write = (rel: string, text: string) => {
@@ -1386,9 +1386,9 @@ test('replay --skills --prompts: the directory is laid over a copy of prompts.lo
     JSON.stringify({ model: { transcript: { author: '{name}' }, task: { queued: 'tracked queued' } }, owner: {} })
   );
   const localLabels = JSON.stringify({ task: { queued: 'local queued', queuedOthers: 'local others' } });
-  write('prompts.local/reply.md', 'local réply');
-  write('prompts.local/format.md', 'local format');
-  write('prompts.local/labels.json', localLabels);
+  write('data/prompts/reply.md', 'local réply');
+  write('data/prompts/format.md', 'local format');
+  write('data/prompts/labels.json', localLabels);
   write('side-a/reply.md', 'réply A');
   write('side-a/labels.json', JSON.stringify({ task: { queued: 'queued A' } }));
   write('side-b/format.md', 'format B');
@@ -1419,8 +1419,8 @@ test('replay --skills --prompts: the directory is laid over a copy of prompts.lo
     opened.push(diary);
     assert.deepEqual(asRecord(diary.hot).prompts.labels.task, { queued: 'queued A' });
     // The live layer is untouched.
-    assert.equal(fs.readFileSync(path.join(root, 'prompts.local', 'labels.json'), 'utf8'), localLabels);
-    assert.equal(fs.readFileSync(path.join(root, 'prompts.local', 'reply.md'), 'utf8'), 'local réply');
+    assert.equal(fs.readFileSync(path.join(root, 'data', 'prompts', 'labels.json'), 'utf8'), localLabels);
+    assert.equal(fs.readFileSync(path.join(root, 'data', 'prompts', 'reply.md'), 'utf8'), 'local réply');
     assert.throws(
       () => overlayPromptsHot(createHot, root, 'missing', { mergeJson: deepMerge, tmpDir }),
       /missing is not a directory/
@@ -1460,13 +1460,15 @@ function linkDir(target: string, link: string) {
   return null;
 }
 
-test('replay --skills --prompts: a prompts.local/ that links to the live layer is read through the link and copied; nothing is linked into or written to it', (t) => {
+test('replay --skills --prompts: a data/prompts/ that links to the live layer is read through the link and copied; nothing is linked into or written to it', (t) => {
   const root = tempDir('nep-replay-skills-');
   const live = tempDir('nep-replay-skills-live-');
   const tmpDir = tempDir('nep-replay-skills-layers-');
   const opened = [];
   try {
-    if (!linkDir(live, path.join(root, 'prompts.local'))) {
+    // The same read-only layer-copy control uses the canonical persona prompt location.
+    fs.mkdirSync(path.join(root, 'data'));
+    if (!linkDir(live, path.join(root, 'data', 'prompts'))) {
       t.skip('this platform makes no directory link without privileges');
       return;
     }
@@ -1494,7 +1496,7 @@ test('replay --skills --prompts: a prompts.local/ that links to the live layer i
         asRecord(side.hot).prompts.labels.task,
         mergeJson ? { queued: 'queued A', queuedOthers: 'live others' } : { queued: 'queued A' }
       );
-      const local = path.join(side.dir, 'prompts.local');
+      const local = path.join(side.dir, 'data', 'prompts');
       assert.equal(fs.lstatSync(local).isSymbolicLink(), false, 'the scratch layer is a copy, not a link');
       for (const name of fs.readdirSync(local))
         assert.equal(fs.lstatSync(path.join(local, name)).isSymbolicLink(), false, name);
@@ -1508,7 +1510,7 @@ test('replay --skills --prompts: a prompts.local/ that links to the live layer i
       fs.rmSync(side.dir, { recursive: true, force: true });
     }
     // The link first, so removing the root never reaches into the live directory.
-    const link = path.join(root, 'prompts.local');
+    const link = path.join(root, 'data', 'prompts');
     if (fs.existsSync(link) && fs.lstatSync(link).isSymbolicLink()) fs.unlinkSync(link);
     for (const dir of [root, live, tmpDir]) fs.rmSync(dir, { recursive: true, force: true });
   }

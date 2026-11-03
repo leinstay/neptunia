@@ -161,15 +161,13 @@ function compared(
 /** The fate of each key the cut took out, for its `dropped` line. */
 const FATE_OF = new Map(CUT_KEYS.map((row) => [row.key, row.becomes]));
 
-/** The Discord package's private settings file, as the report names it. */
-const DISCORD_FILE = `${LOCAL_CONFIG_DIR}/interfaces/discord.json`;
-
 /**
  * The private file of the Discord package beside the settings file `file`: `config.local/interfaces/discord.json`
  * under the private directory, whose `config.local/` holds the file of the new layout or sits beside the old one.
  */
 function discordFileOf(file: string): string {
   const dir = path.dirname(file);
+  if (path.basename(dir) === 'config') return path.join(path.dirname(dir), 'interfaces', 'discord', 'config.json');
   const localDir = path.basename(dir) === LOCAL_CONFIG_DIR ? dir : path.join(dir, LOCAL_CONFIG_DIR);
   return path.join(localDir, 'interfaces', 'discord.json');
 }
@@ -184,7 +182,10 @@ function leafKeys(tree: Record<string, unknown>, prefix: string = ''): Array<str
 }
 
 /** The config cut of a moved layer (src/config/cut.ts): the cut layer, its report lines and the Discord keys. */
-function cutReport(moved: Record<string, unknown>): {
+function cutReport(
+  moved: Record<string, unknown>,
+  discordFile: string
+): {
   config: Record<string, unknown>;
   cutLines: Array<string>;
   discord: Record<string, unknown>;
@@ -201,7 +202,7 @@ function cutReport(moved: Record<string, unknown>): {
       (one) => `${one.key} differs: live ${JSON.stringify(one.live)}, constant ${JSON.stringify(one.constant)}`
     ),
     ...renamed.map((one) => `${one.from} -> ${one.to}`),
-    ...leafKeys(discord).map((key) => `${key} -> ${DISCORD_FILE}`),
+    ...leafKeys(discord).map((key) => `${key} -> ${discordFile}`),
   ];
   return { config, cutLines, discord };
 }
@@ -229,7 +230,7 @@ const KEY_SETTINGS = ['keyByRole', 'keys'];
  */
 function privateDirOfFile(file: string): string {
   const dir = path.dirname(file);
-  return path.basename(dir) === LOCAL_CONFIG_DIR ? path.dirname(dir) : dir;
+  return [LOCAL_CONFIG_DIR, 'config'].includes(path.basename(dir)) ? path.dirname(dir) : dir;
 }
 
 /**
@@ -292,7 +293,8 @@ function migrate(argv: Array<string>): string {
     throw new CliError(`${file} must hold a JSON object; nothing was changed`);
   const diaryMirror = hasDiaryMirror(flags['--db']);
   const { config: movedConfig, moved, shadowed, dropped, toDatabase } = moveConfigKeys(parsed, { diaryMirror });
-  const { config: cutConfig, cutLines, discord } = cutReport(movedConfig);
+  const destination = path.relative(privateDirOfFile(file), discordFileOf(file));
+  const { config: cutConfig, cutLines, discord } = cutReport(movedConfig, destination);
   const { config, lines: keyLines, note } = keySettings(cutConfig, file);
   const lines = [
     ...moved.map((move) => `${move.from} -> ${move.to}`),
