@@ -193,7 +193,8 @@ export function createHandleMessage({
       const selfId = selfIdOf();
       // lineOf gives the normalized line of a message event.
       const normalized = lineOf(event) as Line;
-      const guildId = event.conversation.communityId;
+      // A served community is a string: the door refuses any other shape, and the gate above admits only those.
+      const guildId = event.conversation.communityId as string;
 
       // 5. Its own message: only bookkeeping. Also (re)opens/extends the
       // follow-up window for this channel -- see noteFollowUpSend above. A

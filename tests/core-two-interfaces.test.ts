@@ -71,7 +71,7 @@ async function withTwoInterfaces(
         dataDir: join(dataDir, 'interfaces', name),
         env: {},
         config: () => ({}),
-        onConfigChange: () => {},
+        onConfigChange: () => () => {},
         log,
       },
       { adapter: createFakeAdapter({ iface: name, selfId: SELF.id }), self: SELF, communities }
