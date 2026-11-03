@@ -15,7 +15,7 @@ import { collectReadableLinks } from '../media/classify.ts';
 import type { ConversationInfo, ConversationRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import { fetchSpan, recordMessages, runConversationRead } from '../tools/conversation-read.ts';
-import type { HandleRefs, ReadMessage } from '../tools/conversation-read.ts';
+import type { ReadMessage } from '../tools/conversation-read.ts';
 import {
   firstLinkIn,
   lookPerTurn,
@@ -26,7 +26,7 @@ import {
   runWebSearch,
 } from '../tools/tools.ts';
 import type { LookDescriber, RecallClient, WebLookup } from '../tools/tools.ts';
-import type { InTurnCall } from '../tools/executors.ts';
+import type { InTurnCall, ResolvedMessageRef } from '../tools/executors.ts';
 import type { Obj } from '../tools/types.ts';
 import type { PluginCallContext } from '../plugins/registry.ts';
 import type { ToolAnswer } from '../protocol/plugin.ts';
@@ -87,6 +87,52 @@ export type InTurnDraft = NonNullable<Parameters<DrawGif['drawTool']>[1]['draft'
 
 /** A message of the turn's history, as a tool finds it by its id. */
 type HistoryMessage = Obj & { id?: unknown; content?: unknown };
+
+/** Resolve cached content within the identity supplied by the executor. */
+function cachedMessage(
+  ref: ResolvedMessageRef | undefined,
+  messageId: string,
+  refs: SearchRefs | undefined,
+  history: ReadonlyArray<HistoryMessage>,
+  current: ConversationRef
+): HistoryMessage | null {
+  // Registered message payloads originate in the same history and quote readers.
+  const payload = (value: unknown): HistoryMessage | null =>
+    value && typeof value === 'object' && !Array.isArray(value) ? (value as HistoryMessage) : null;
+  if (ref?.kind === 'stored') return payload(refs?.bySourceId?.get(ref.stored.sourceId)?.message);
+  if (ref?.kind === 'native') {
+    const native = ref.native;
+    const matches = new Map<string, HistoryMessage>();
+    for (const entry of refs?.byNumber.values() ?? []) {
+      const locator = entry.stored
+        ? entry.stored.native
+        : {
+            iface: current.iface,
+            conversationId: entry.channelId ?? current.conversationId,
+            messageId: String(entry.id),
+          };
+      if (
+        locator?.iface !== native.iface ||
+        locator.conversationId !== native.conversationId ||
+        locator.messageId !== native.messageId
+      )
+        continue;
+      const message = payload(entry.message);
+      if (message) {
+        const key = entry.stored
+          ? JSON.stringify(['stored', entry.stored.sourceId])
+          : JSON.stringify(['native', locator.iface, locator.conversationId, locator.messageId]);
+        matches.set(key, message);
+      }
+    }
+    if (matches.size > 0) return matches.size === 1 ? [...matches.values()][0] : null;
+    if (current.iface !== native.iface || current.conversationId !== native.conversationId) return null;
+    const found = history.filter((message) => String(message.id) === native.messageId);
+    return found.length === 1 ? found[0] : null;
+  }
+  const found = history.filter((message) => String(message.id) === messageId);
+  return found.length === 1 ? found[0] : null;
+}
 
 export type InTurnArgs = {
   channel: ConversationInfo;
@@ -156,9 +202,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     // The second looks this turn took (media.look): every step of the loop shares the count.
     let looks = 0;
     const where = { channel, guildId, trigger, triggerKind, selfName, draft, mode, plain };
-    // A message the turn's history lacks but one of its memory.search results quoted.
-    const quotedMessage = (messageId: string): HistoryMessage | null =>
-      (draft?.searchRefs?.byId.get(String(messageId))?.message as HistoryMessage | undefined) ?? null;
+    const messageOf = (messageId: string, call?: InTurnCall): HistoryMessage | null =>
+      cachedMessage(call?.messageRef, messageId, draft?.searchRefs, history ?? [], conversationOf(channel));
     // Each tool a plugin registered runs in the turn like a core tool: the plugin's answer is the call's result.
     const pluginTools: Record<string, (args: Obj, call?: InTurnCall) => unknown> = Object.fromEntries(
       (plugins?.tools() ?? []).map((tool) => [
@@ -178,7 +223,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       ...(mode === 'diary' ? diaryVoiceTool({ speech, held: draft as InTurnDraft }) : {}),
       'web.search': (args) =>
         runWebSearch({ lookup: lookup ?? null, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId, args }),
-      'web.read': (args) =>
+      'web.read': (args, call) =>
         runWebRead({
           lookup: lookup ?? null,
           config: hot.config,
@@ -186,20 +231,18 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           guildId,
           args,
           linkOf: (messageId) => {
-            const message =
-              (history ?? []).find((item) => String(item?.id) === String(messageId)) ?? quotedMessage(messageId);
+            const message = messageOf(messageId, call);
             return message ? (firstReadableLink(message) ?? firstLinkIn(message.content)) : null;
           },
         }),
-      'media.look': (args) =>
+      'media.look': (args, call) =>
         runMediaLook({
           describer: describer ?? null,
           config: hot.config,
           labels: hot.prompts?.labels ?? {},
           guildId,
           args,
-          mediaOf: (messageId) =>
-            (history ?? []).find((item) => String(item?.id) === String(messageId)) ?? quotedMessage(messageId),
+          mediaOf: (messageId) => messageOf(messageId, call),
           takeTurnSlot: () => {
             if (looks >= lookPerTurn()) return false;
             looks += 1;
@@ -209,7 +252,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
         }),
       'media.find': (args) =>
         runMediaFind({ store, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId, args }),
-      'memory.search': (args) =>
+      'memory.search': (args, call) =>
         runMemorySearch({
           recall,
           store,
@@ -226,10 +269,11 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           decorate: (lines: Array<object>) => linkCalls(lines, { channel, snapshot, guildId }),
           asker: trigger?.authorId ?? null,
           memoryContext: turnContextOf(draft, channel),
+          resolvedAnchor: call?.memoryAnchor,
           args,
           now: clock(),
           // The registry takes the quoted lines the search hands it, as the read's own handles.
-          ...(draft ? { refs: searchHandles(draft) as HandleRefs } : {}),
+          ...(draft ? { refs: searchHandles(draft) } : {}),
         }),
       'conversation.read': (args) => readConversation({ args, channel, snapshot, guildId, partner, selfName, draft }),
     };
@@ -326,7 +370,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
         };
       },
       // The registry takes the lines the read hands it, as the read's own handles.
-      refs: draft ? (searchHandles(draft) as HandleRefs) : null,
+      refs: draft ? searchHandles(draft) : null,
       now: clock(),
       timezone,
       maxChars: settings?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars,

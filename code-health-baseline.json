@@ -1,7 +1,7 @@
 {
   "files": {
     "scripts/replay.ts": 7361,
-    "src/behavior/recall-run.ts": 2111,
+    "src/behavior/recall-run.ts": 2107,
     "src/behavior/recall.ts": 2375,
     "src/behavior/sandbox.ts": 2063,
     "tests/admin.test.ts": 3698,
@@ -252,7 +252,7 @@
     },
     "src/behavior/recall-run.ts": {
       "createRecall": {
-        "function-length": 1717
+        "function-length": 1714
       },
       "createRecall>findPeople": {
         "complexity": 36
@@ -720,7 +720,7 @@
     },
     "src/tools/tools.ts": {
       "memorySearchText": {
-        "complexity": 35
+        "complexity": 34
       },
       "runMediaLook": {
         "complexity": 36

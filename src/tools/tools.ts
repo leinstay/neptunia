@@ -23,6 +23,9 @@
 // would be a new background job) and returns the library's handles, which post exactly as the
 // `<gifs>` block's do.
 
+import type { ResolvedRecallAnchor, StoredSourceRef } from '../memory/db/recall.ts';
+import type { SearchRef } from '../turn/calls.ts';
+import type { CreateRecallResult } from '../behavior/recall-run-types.ts';
 import { hasRecallContext } from '../behavior/recall-reads.ts';
 import { fill } from '../format.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
@@ -75,12 +78,19 @@ export type Quote = {
 };
 
 /** One line of a stretch with what the handle registry needs. */
-export type QuoteEntry = { id: unknown; text: string; authorId?: unknown; self?: unknown; message?: unknown };
+export type QuoteEntry = {
+  stored?: StoredSourceRef;
+  id: unknown;
+  text: string;
+  authorId?: unknown;
+  self?: unknown;
+  message?: unknown;
+};
 
 /** The recall runner as the tools use it. */
 export type RecallClient = {
-  run?: (input: Obj) => Promise<unknown>;
-  window?: (input: Obj) => Promise<unknown>;
+  run?: (input: Parameters<CreateRecallResult['run']>[0]) => Promise<unknown>;
+  window?: (input: Parameters<CreateRecallResult['window']>[0]) => Promise<unknown>;
   available?: () => boolean;
 };
 
@@ -261,6 +271,18 @@ export function webReadText(
   return lines.join('\n');
 }
 
+function quoteReference(entry: QuoteEntry & { n: number }, channelId: string | null | undefined): SearchRef {
+  return {
+    n: entry.n,
+    id: plain(entry.id),
+    channelId: channelId ?? null,
+    authorId: entry.authorId == null ? null : plain(entry.authorId),
+    self: entry.self === true,
+    message: entry.message,
+    stored: entry.stored,
+  };
+}
+
 /**
  * The text of a memory.search result (`quotes`: recall's stretches, `{ channelName, startTs,
  * lines }`): `labels.tools.tools.memory.source`, then per stretch `.window` (`{date}`: its first
@@ -304,11 +326,13 @@ export function memorySearchText(
   let counter = refs ? refs.next() : 0;
   const numbered = (quote: Quote): Array<QuoteEntry & { n: number; shown: string }> | null => {
     if (!refs || !Array.isArray(quote.entries) || quote.entries.length === 0) return null;
-    const list = quote.entries.map((entry) => ({ ...entry, n: counter++, shown: `#${counter - 1} ${entry.text}` }));
+    const entries: ReadonlyArray<QuoteEntry> = quote.entries;
+    const list = entries.map((entry) => ({ ...entry, n: counter++, shown: `#${counter - 1} ${entry.text}` }));
     return list;
   };
   let handled = false;
-  const shown = (Array.isArray(quotes) ? quotes : []).filter(
+  const candidates: ReadonlyArray<Quote> = Array.isArray(quotes) ? quotes : [];
+  const shown = candidates.filter(
     (quote) => typeof quote.lines === 'string' && quote.lines.trim() && Number.isFinite(quote.startTs)
   );
   if (shown.length === 0) {
@@ -316,7 +340,7 @@ export function memorySearchText(
     if (hidden && l.hidden) lines.push(l.hidden);
     return lines.join('\n');
   }
-  const kept: Array<{ block: Array<string>; where: string; size: number; stayed: Array<Obj> }> = [];
+  const kept: Array<{ block: Array<string>; where: string; size: number; stayed: Array<SearchRef> }> = [];
   const left: Array<string> = [];
   let used = lines.join('\n').length;
   const bounded = Number.isFinite(maxChars) && maxChars > 0;
@@ -329,19 +353,12 @@ export function memorySearchText(
     const quoted = cutWindowLines(entries ? entries.map((entry) => entry.shown).join('\n') : quote.lines, windowChars);
     block.push(quoted.text);
     // The entries still in the text: whole entries from the top, up to the lines that stayed.
-    const stayed: Array<Obj> = [];
+    const stayed: Array<SearchRef> = [];
     if (entries) {
       let remaining = quoted.text.split('\n').length;
       for (const entry of entries) {
         if (remaining <= 0) break;
-        stayed.push({
-          n: entry.n,
-          id: entry.id,
-          channelId: quote.channelId ?? null,
-          authorId: entry.authorId,
-          self: entry.self,
-          message: entry.message,
-        });
+        stayed.push(quoteReference(entry, quote.channelId));
         remaining -= entry.shown.split('\n').length;
       }
     }
@@ -536,6 +553,11 @@ export async function runWebRead({
   }
 }
 
+function memoryTimezone(config: unknown): string {
+  const zone = objOf(objOf(config).bot).timezone;
+  return typeof zone === 'string' ? zone : 'UTC';
+}
+
 /**
  * One memory.search: her `question`, `people`, `when` and `terms` as memorySearchPlan reads them
  * (the stored profiles for the names, `recall.maxForms`, `bot.timezone`, read now), her
@@ -569,6 +591,7 @@ export async function runMemorySearch({
   refs = null,
   asker = null,
   memoryContext = null,
+  resolvedAnchor,
 }: {
   recall: RecallClient | null;
   store?: { listUserProfiles?: (guildId: string) => unknown } | null;
@@ -587,6 +610,7 @@ export async function runMemorySearch({
   refs?: HandleRefs | null;
   asker?: string | null;
   memoryContext?: unknown;
+  resolvedAnchor?: ResolvedRecallAnchor;
 }): Promise<ToolResult> {
   try {
     if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available()))
@@ -594,11 +618,10 @@ export async function runMemorySearch({
     if (!hasRecallContext({ guildId, channel, partnerId, memoryContext }))
       return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const settings = recallSettings(objOf(config));
-    const zone = objOf(objOf(config).bot).timezone;
-    const timezone = typeof zone === 'string' ? zone : 'UTC';
+    const timezone = memoryTimezone(config);
     const given = objOf(args);
     // An `anchor` makes the call a window read: the lines up or down from that message, no search.
-    if (text(given.anchor)) {
+    if (resolvedAnchor || text(given.anchor)) {
       if (typeof recall.window !== 'function') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
       const count = (value: unknown): number | null =>
         Number.isInteger(value) && (value as number) > 0 ? (value as number) : null;
@@ -609,8 +632,9 @@ export async function runMemorySearch({
           channel,
           partnerId,
           selfName,
-          history,
+          history: [...history],
           anchor: text(given.anchor),
+          resolvedAnchor,
           move: text(given.move) === 'down' ? 'down' : 'up',
           messages: count(given.messages),
           minutes: count(given.minutes),
@@ -659,7 +683,7 @@ export async function runMemorySearch({
         partnerId,
         selfId,
         selfName,
-        history,
+        history: [...history],
         candidate,
         server: plan,
         decorate,

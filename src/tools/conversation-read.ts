@@ -17,6 +17,7 @@ import { oneLine } from '../memory/clamp.ts';
 import { CODE } from './codes.ts';
 import { lineOf } from '../behavior/line-of.ts';
 import { idText, isObj, listOf, objOf } from './types.ts';
+import type { SearchRef } from '../turn/calls.ts';
 import type { Obj } from './types.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { ConversationRef, HistoryQuery } from '../protocol/adapter.ts';
@@ -41,7 +42,7 @@ export type Span = { slice: Array<ReadMessage>; enough: boolean };
 type TranscriptItem = { id: unknown; index: number; ts: number; text: string };
 
 /** The handle registry of the turn: the next number, and where the lines shown are registered. */
-export type HandleRefs = { next(): number; take(shown: Array<Obj>): void };
+export type HandleRefs = { next(): number; take(shown: Iterable<SearchRef>): void };
 /** The newest messages a read without `last` returns, and the most one read may return. */
 export const READ_LAST_DEFAULT = 20;
 export const READ_LAST_MAX = 60;

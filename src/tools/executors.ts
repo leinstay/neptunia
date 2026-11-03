@@ -14,6 +14,7 @@
 // never retried), `partial`, `failed`. Codes are kebab-case; no wording here: the persona reads a
 // result through `labels.tools.result`.
 
+import type { NativeMessageLocator, ResolvedRecallAnchor, StoredSourceRef } from '../memory/db/recall.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { channelCore, matchChannel, occursAsWholeWord } from '../memory/mentions.ts';
 import { foldText } from '../memory/recent.ts';
@@ -28,6 +29,8 @@ import type { Reads } from '../interface/reads.ts';
 
 /** A message of this turn's transcript as the view finds it by its number. */
 export type ViewLine = {
+  stored?: StoredSourceRef;
+  native?: NativeMessageLocator;
   id: string;
   conversationId: string;
   authorId?: string | null;
@@ -37,6 +40,7 @@ export type ViewLine = {
 
 /** What the server knows of the turn that resolves a call: the skills, the names it may resolve and the transcript. */
 export type CallView = {
+  currentIface?: string;
   skills?: SkillMap;
   conversations?: ReadonlyArray<{ id: unknown; name?: unknown }>;
   channelHandles?: ReadonlyMap<string, string> | null;
@@ -51,8 +55,14 @@ export type CallView = {
   deletedIds?: ReadonlySet<string>;
 };
 
+/** The trusted identity selected for cached message contents. */
+export type ResolvedMessageRef =
+  Readonly<{ kind: 'stored'; stored: StoredSourceRef }> | Readonly<{ kind: 'native'; native: NativeMessageLocator }>;
+
 /** A call resolved to the arguments of its operation. */
 export type Resolved = {
+  memoryAnchor?: ResolvedRecallAnchor;
+  messageRef?: ResolvedMessageRef;
   ok: true;
   skill: string;
   args: Obj;
@@ -317,6 +327,57 @@ function fileMayGo(task: Obj, channelId: string, view: CallView | undefined): bo
   return [task.goal, view?.triggerText].some((text) => namesChannel(text, channelId, names, handles));
 }
 
+/** Select trusted memory identity or refuse an unroutable live reference. */
+function referenceOf(
+  name: string,
+  option: string,
+  line: ViewLine,
+  view: CallView | undefined
+): Pick<Resolved, 'memoryAnchor' | 'messageRef'> | null {
+  const native = line.stored
+    ? line.stored.native
+    : (line.native ??
+      (view?.currentIface
+        ? {
+            iface: view.currentIface,
+            conversationId: line.conversationId,
+            messageId: line.id,
+          }
+        : undefined));
+  if (name === 'memory.search' && option === 'anchor') {
+    if (line.stored) return { memoryAnchor: { kind: 'source', sourceId: line.stored.sourceId } };
+    return native ? { memoryAnchor: { kind: 'native', locator: native } } : null;
+  }
+  if ((name === 'web.read' || name === 'media.look') && option === 'message') {
+    if (line.stored) return { messageRef: { kind: 'stored', stored: line.stored } };
+    return native ? { messageRef: { kind: 'native', native } } : {};
+  }
+  if (line.stored && (!native || native.iface !== view?.currentIface)) return null;
+  return {};
+}
+
+function transcriptReference({
+  n,
+  name,
+  option,
+  view,
+}: {
+  n: number;
+  name: string;
+  option: string;
+  view: CallView | undefined;
+}): { line: ViewLine; identity: Pick<Resolved, 'memoryAnchor' | 'messageRef'> } | Refusal {
+  let line = typeof view?.messageAt === 'function' ? view.messageAt(n) : null;
+  if (!line) return refused(CODE.UNKNOWN_MESSAGE, option);
+  if (line.deleted === true) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
+  const identity = referenceOf(name, option, line, view);
+  if (!identity) return refused(CODE.UNKNOWN_MESSAGE, option);
+  if (line.stored?.native)
+    line = { ...line, id: line.stored.native.messageId, conversationId: line.stored.native.conversationId };
+  if (line.deleted === true) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
+  return { line, identity };
+}
+
 /**
  * One call of the persona (`{ skill, args }`: a native tool call or a `<tool_call>` block, already
  * arguments by name) as the arguments of the command behind the skill (`view.skills`: the
@@ -360,6 +421,7 @@ export function resolveCall(
   }
 
   const args: Obj = {};
+  const references: Pick<Resolved, 'memoryAnchor' | 'messageRef'> = {};
   const lines: Record<string, ViewLine> = {};
   const linked: Record<string, string> = {}; // option -> the channel id of the message link it was given
   const errandFiles: Array<Obj> = []; // the errands whose files the call carries
@@ -424,6 +486,20 @@ export function resolveCall(
           isMessage && view?.deletedIds instanceof Set && view.deletedIds.has(id);
         if (link) {
           if (deletedHere(link.messageId)) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
+          const identity = referenceOf(
+            name,
+            option,
+            {
+              id: link.messageId,
+              conversationId: link.channelId,
+              native: view?.currentIface
+                ? { iface: view.currentIface, conversationId: link.channelId, messageId: link.messageId }
+                : undefined,
+            },
+            view
+          );
+          if (!identity) return refused(CODE.UNKNOWN_MESSAGE, `args.${option}`);
+          Object.assign(references, identity);
           if (option === MEDIA_OPTION) {
             args[option] = mediaRef(link.channelId, link.messageId);
             break;
@@ -437,9 +513,10 @@ export function resolveCall(
           args[option] = raw;
           break;
         }
-        const line = typeof view?.messageAt === 'function' ? view.messageAt(n) : null;
-        if (!line) return refused(CODE.UNKNOWN_MESSAGE, option);
-        if (line.deleted === true) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
+        const selected = transcriptReference({ n, name, option, view });
+        if ('ok' in selected) return selected;
+        const { line, identity } = selected;
+        Object.assign(references, identity);
         if (option === MEDIA_OPTION) {
           // A picture of hers to post again: its own channel is where to fetch it, never where it goes.
           if (name === 'message.create' && !isOwnLine(line, view?.selfId))
@@ -492,7 +569,15 @@ export function resolveCall(
     for (const task of errandFiles)
       if (!fileMayGo(task, idText(args.channel), view)) return refused(CODE.FILE_ELSEWHERE, 'channel');
   }
-  return { ok: true, skill: name, args, dispatch, repliedAuthorId, ...(channelFixed ? { channelFixed: true } : {}) };
+  return {
+    ok: true,
+    skill: name,
+    args,
+    dispatch,
+    repliedAuthorId,
+    ...references,
+    ...(channelFixed ? { channelFixed: true } : {}),
+  };
 }
 
 /** The calls where the message's own channel wins over a `channel` that does not hold it. */
@@ -559,10 +644,14 @@ function fromPort(answer: unknown): CallResult {
 }
 
 /** What an in-turn tool is told about the call it answers: who asked, where, and the call's key. */
-function inTurnCallOf(deps: ExecuteDeps): InTurnCall {
+function inTurnCallOf(deps: ExecuteDeps, resolved: Resolved): InTurnCall {
   const asked = deps.envelope?.requester ?? null;
   const channelId = deps.opContext?.channelId;
   return {
+    ...(resolved.skill === 'memory.search' && resolved.memoryAnchor ? { memoryAnchor: resolved.memoryAnchor } : {}),
+    ...((resolved.skill === 'web.read' || resolved.skill === 'media.look') && resolved.messageRef
+      ? { messageRef: resolved.messageRef }
+      : {}),
     requester: asked === null ? null : { id: asked.id ?? null, roleIds: [...(asked.roleIds ?? [])] },
     conversationId: typeof channelId === 'string' ? channelId : null,
     idempotencyKey: deps.envelope?.idempotencyKey ?? deps.envelope?.invocationId ?? null,
@@ -608,7 +697,10 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
       if (!mapped.args || mapped.op !== resolved.skill)
         return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
       const answered = objOf(
-        await withTimeout(Promise.resolve(tool(mapped.args, inTurnCallOf(deps))), deps.timeoutMs ?? CALL_TIMEOUT_MS)
+        await withTimeout(
+          Promise.resolve(tool(mapped.args, inTurnCallOf(deps, resolved))),
+          deps.timeoutMs ?? CALL_TIMEOUT_MS
+        )
       );
       if (answered.timedOut === true)
         return {
@@ -843,6 +935,8 @@ export type CallEnvelope = {
 
 /** What an in-turn tool is told about the call it answers: who asked, where, and the call's key. */
 export type InTurnCall = {
+  memoryAnchor?: ResolvedRecallAnchor;
+  messageRef?: ResolvedMessageRef;
   requester: { id: string | null; roleIds: Array<string> } | null;
   conversationId: string | null;
   idempotencyKey: string | null;

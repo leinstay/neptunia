@@ -5,6 +5,7 @@
 // the exported ones through its re-exports.
 
 import { randomUUID } from 'node:crypto';
+import type { StoredSourceRef } from '../memory/db/recall.ts';
 
 import { parseToolCallBlocks } from '../llm/tool-text.ts';
 import { REPLY_REQUEST } from '../llm/openrouter.ts';
@@ -63,6 +64,7 @@ export function requesterOf(
 
 /** A line a memory.search of the turn quoted, as its handle resolves it. */
 export type SearchRef = {
+  stored?: StoredSourceRef;
   n: number;
   id: string | number;
   channelId?: string | null;
@@ -78,6 +80,7 @@ export type SearchRefs = {
   next: number;
   byNumber: Map<number, SearchRef>;
   byId: Map<string, SearchRef>;
+  bySourceId?: Map<string, SearchRef>;
 };
 
 /** A store of the memory, as far as a call view reads it. */
@@ -106,6 +109,7 @@ type ViewStore = {
 // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5a, a pure move
 export function callViewOf({
   channel,
+  currentIface,
   snapshot = null,
   guildId,
   idByIndex,
@@ -123,6 +127,7 @@ export function callViewOf({
   searchRefs = null,
 }: {
   channel: { id: string | number; name?: unknown; communityId?: string | null };
+  currentIface?: string;
   snapshot?: Snapshot | null;
   guildId?: string | null;
   idByIndex?: ReadonlyMap<number, string> | null;
@@ -159,6 +164,7 @@ export function callViewOf({
   // The request's handle maps and the record's deleted ids hold strings: handle -> id, and message ids.
   return {
     currentConversationId: String(channel.id),
+    currentIface,
     conversations,
     channelHandles: channelHandles instanceof Map ? (channelHandles as Map<string, string>) : null,
     memberHandles: memberHandles instanceof Map ? (memberHandles as Map<string, string>) : null,
@@ -168,7 +174,17 @@ export function callViewOf({
       if (found)
         return {
           id: String(found.id),
-          conversationId: String(found.channelId ?? channel.id),
+          stored: found.stored,
+          native:
+            found.stored?.native ??
+            (!found.stored && currentIface
+              ? {
+                  iface: currentIface,
+                  conversationId: String(found.channelId ?? channel.id),
+                  messageId: String(found.id),
+                }
+              : undefined),
+          conversationId: found.stored?.native?.conversationId ?? String(found.channelId ?? channel.id),
           authorId: found.authorId ?? null,
           self: found.self === true,
           ...(found.deleted === true ? { deleted: true } : {}),
@@ -178,6 +194,9 @@ export function callViewOf({
       const line = (lines ?? []).find((entry) => entry.id === id);
       return {
         id: String(id),
+        native: currentIface
+          ? { iface: currentIface, conversationId: String(pulledIds?.get(id) ?? channel.id), messageId: String(id) }
+          : undefined,
         conversationId: String(pulledIds?.get(id) ?? channel.id),
         authorId: line?.authorId ?? null,
         self: line?.self === true,
@@ -216,12 +235,13 @@ export function searchHandles(draft: { searchRefs?: SearchRefs; handleFloor?: nu
   advance(n: number): void;
   take(shown: Iterable<SearchRef>): void;
 } {
-  const registry = () =>
+  const registry = (): SearchRefs =>
     (draft.searchRefs ??= {
       base: (draft.handleFloor ?? 0) + SEARCH_HANDLE_GAP + 1,
       next: (draft.handleFloor ?? 0) + SEARCH_HANDLE_GAP + 1,
       byNumber: new Map(),
       byId: new Map(),
+      bySourceId: new Map(),
     });
   return {
     next: () => registry().next,
@@ -233,7 +253,13 @@ export function searchHandles(draft: { searchRefs?: SearchRefs; handleFloor?: nu
       const refs = registry();
       for (const ref of shown) {
         refs.byNumber.set(ref.n, ref);
-        refs.byId.set(String(ref.id), ref);
+        const sameId = [...refs.byNumber.values()].filter((entry) => String(entry.id) === String(ref.id));
+        const identities = new Set(
+          sameId.map((entry) => entry.stored?.sourceId ?? JSON.stringify([entry.channelId, entry.id]))
+        );
+        if (identities.size === 1) refs.byId.set(String(ref.id), ref);
+        else refs.byId.delete(String(ref.id));
+        if (ref.stored) (refs.bySourceId ??= new Map()).set(ref.stored.sourceId, ref);
         refs.next = Math.max(refs.next, ref.n + 1);
       }
     },

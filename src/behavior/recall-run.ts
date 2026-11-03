@@ -107,7 +107,16 @@ import { dbSettings, quotesOf, search as searchRows, window as windowRows } from
 import { channelPlaceId, personId } from '../memory/db/ids.ts';
 import { isIssuedInternalContext, issueContext } from '../memory/db/scope.ts';
 import { LEGACY_IFACE } from '../memory/db/legacy-namespace.ts';
-import { hasRecallContext, hitFrom, inCommunity, linesOf, searchQueryOf, untilAborted } from './recall-reads.ts';
+import {
+  hasRecallContext,
+  hitFrom,
+  inCommunity,
+  linesOf,
+  searchQueryOf,
+  summaryFailure,
+  summaryPrompt,
+  untilAborted,
+} from './recall-reads.ts';
 import { isFiniteNumber, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
 import type {
@@ -377,17 +386,7 @@ function traceLine(trace: RecallTrace, out: Untyped) {
   };
 }
 
-/** The kind of a failed summary request: `timeout` for a request cut at its limit, else `failed`. */
-function summaryFailure(err: Untyped) {
-  return err?.name === 'TimeoutError' ? 'timeout' : 'failed';
-}
-
-/**
- * One stretch of a channel the recall found. `startTs` is the time of its first kept line. `lines` is the window
- * rendered without `#n` indices (captions included, matched lines marked), cut to `recall.stretchChars` by whole
- * lines from its far ends, never a matched one.
- */
-export type RecallStretch = { channelId: string; channelName: string | null; startTs: number; lines: string };
+export type { RecallStretch } from './recall-run-types.ts';
 
 /**
  * The recall runner for the turn (task R2 wires it beside the web search).
@@ -412,11 +411,6 @@ export function createRecall({
   function capSpent() {
     return typeof llm?.capLeft === 'function' && llm.capLeft() <= 0;
   }
-  /** The summary prompt, or null when it is missing or blank. */
-  function summaryPrompt() {
-    const prompt = hot.prompts?.['recall-summary'];
-    return typeof prompt === 'string' && prompt.trim() ? prompt : null;
-  }
 
   /**
    * Whether a run could search now: the switch on, the summary prompt
@@ -426,7 +420,7 @@ export function createRecall({
   function available(): boolean {
     try {
       const settings = recallSettings(hot.config);
-      return Boolean(settings) && summaryPrompt() !== null && !capSpent();
+      return Boolean(settings) && summaryPrompt(hot.prompts) !== null && !capSpent();
     } catch {
       return false;
     }
@@ -1083,6 +1077,7 @@ export function createRecall({
     selfName = '',
     history = [],
     anchor,
+    resolvedAnchor,
     move = 'up',
     messages = null,
     minutes = null,
@@ -1111,6 +1106,7 @@ export function createRecall({
       const found = dbWindow(db, {
         ctx: reader.ctx,
         anchor,
+        resolvedAnchor,
         move,
         messages,
         minutes,
@@ -1695,7 +1691,7 @@ export function createRecall({
       traceMaxLines = settings.traceMaxLines;
       if (!hasRecallContext({ guildId, channel, partnerId, memoryContext })) return skip('private-chat');
       if (!asksServer(server)) return skip('no-query');
-      const prompt = summaryPrompt();
+      const prompt = summaryPrompt(hot.prompts);
       if (!prompt && !quotes) return skip('no-prompt');
       if (capSpent()) return skip('daily-cap');
       await op?.started();
