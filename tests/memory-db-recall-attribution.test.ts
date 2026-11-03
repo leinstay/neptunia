@@ -203,3 +203,90 @@ test('a source retains its native author ID after its exact account retires with
     env.done();
   }
 });
+
+test('a retired account keeps its native identity without displaying its retired name', () => {
+  const env = fixture();
+  try {
+    attributionAccount(env, 'discord:42', 'discord', '42', 'Retired stored author');
+    env.say({ native: 'retired-only', author: '42', at: NOW - DAY, text: 'το κουνέλι retained evidence' });
+    env.db.prepare('UPDATE accounts SET retired_at = ? WHERE id = ?').run(new Date(NOW).toISOString(), 'discord:42');
+    env.stem();
+    const message = run(env, ['κουνέλι']).windows[0].messages[0];
+    assert.equal(message.authorId, '42');
+    assert.notEqual(message.authorName, 'Retired stored author');
+    assert.equal(message.content, 'το κουνέλι retained evidence');
+  } finally {
+    env.done();
+  }
+});
+
+test('a source with no account retains its text and reports no author identity', () => {
+  const env = fixture();
+  try {
+    env.say({ native: 'missing-account', author: 'missing', at: NOW - DAY, text: 'το κουνέλι unattributed evidence' });
+    env.stem();
+    const message = run(env, ['κουνέλι']).windows[0].messages[0];
+    assert.equal(message.authorId, null);
+    assert.equal(message.content, 'το κουνέλι unattributed evidence');
+  } finally {
+    env.done();
+  }
+});
+
+for (const snapshot of [false, true]) {
+  test(`a named group uses ${snapshot ? 'its native snapshot identity' : 'its stored name without a snapshot callback'}`, () => {
+    const env = fixture();
+    try {
+      const place = channelPlaceId('discord', 'room');
+      insertRows(env.db, {
+        places: [
+          {
+            id: place,
+            iface: 'discord',
+            kind: 'channel',
+            native_id: 'room',
+            scope_kind: 'group',
+            name: 'Stored group',
+          },
+        ],
+      });
+      env.say({ native: 'named-group', place, at: NOW - DAY, text: 'το κουνέλι named group evidence' });
+      env.stem();
+      const found = run(
+        env,
+        ['κουνέλι'],
+        snapshot ? { channelNameOf: (id: unknown) => (id === 'room' ? 'Snapshot group' : null) } : {}
+      );
+      assert.equal(found.windows[0].channelName, snapshot ? 'Snapshot group' : 'Stored group');
+      assert.equal(found.windows[0].messages[0].content, 'το κουνέλι named group evidence');
+    } finally {
+      env.done();
+    }
+  });
+}
+
+test('a normalized DM place hides its name independently of an allowed source audience', () => {
+  const env = fixture();
+  try {
+    const place = dmPlaceId('discord', BOB);
+    insertRows(env.db, {
+      places: [
+        {
+          id: place,
+          iface: 'discord',
+          kind: 'dm',
+          native_id: BOB,
+          conversation: 'dm',
+          name: 'Private normalized place',
+        },
+      ],
+    });
+    env.say({ native: 'readable-private-place', place, at: NOW - DAY, text: 'το κουνέλι allowed evidence' });
+    env.stem();
+    const found = run(env, ['κουνέλι'], { channelNameOf: () => 'Private snapshot place' });
+    assert.equal(found.windows[0].channelName, null);
+    assert.equal(found.windows[0].messages[0].content, 'το κουνέλι allowed evidence');
+  } finally {
+    env.done();
+  }
+});
