@@ -192,7 +192,7 @@ test("the principal's acknowledged seq is kept in ingest_cursor", async () => {
   });
 });
 
-test('after a dropped link the fake reconnects, resends what was not acknowledged, and no turn runs twice', async () => {
+test('after a dropped link the fake resends what was not acknowledged, kept as history with no turn over the backlog', async () => {
   await withFolders(async (dirs, llm) => {
     const rig = await boot(dirs, llm);
     try {
@@ -205,10 +205,15 @@ test('after a dropped link the fake reconnects, resends what was not acknowledge
       void rig.live.emit(m2);
       await rig.live.reconnect();
 
-      await until(() => rig.posted().length === 2);
+      // Changed: the owner's no-catch-up policy of 2026-11-02. The message resent after the lost link is kept as
+      // history and starts no turn, so a backlog is never answered by itself.
+      await until(() => query(dirs, `SELECT 1 FROM sources WHERE kind = 'seen'`).length === 2);
       await settle();
-      assert.equal(llm.requests.length, 2, 'one turn for each message');
-      assert.deepEqual(rig.posted(), [ANSWER, ANSWER]);
+      assert.equal(llm.requests.length, 1, 'one turn, for the message that arrived while connected');
+      assert.deepEqual(rig.posted(), [ANSWER]);
+      const m3 = deliver(rig.live.adapter, { id: 'm3', text: 'and now', at: Date.now(), mention: true });
+      assert.equal(await rig.live.emit(m3), 'ok');
+      await until(() => rig.posted().length === 2);
       // The catalog retains native message IDs while sources.native_id stores an opaque family key.
       const seen = query(
         dirs,
@@ -219,7 +224,7 @@ test('after a dropped link the fake reconnects, resends what was not acknowledge
       );
       assert.deepEqual(
         seen.map((row) => row.native_id),
-        ['m1', 'm2']
+        ['m1', 'm2', 'm3']
       );
     } finally {
       await rig.core.stop();

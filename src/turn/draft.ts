@@ -64,6 +64,8 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'diary'>
   guildId?: string;
   channelId?: string;
   privateUserId?: string | null;
+  /** A restriction this turn inherited from deferred work, read by `turnBoundary` (src/tools/publication.ts). */
+  publicationBoundary?: unknown;
   mode?: string | null;
   // The journal's ids, while features.journal follows the attempt.
   started?: Started;

@@ -3,7 +3,7 @@
 // planned calls made in segments. createTurnRunner (src/behavior/turn.ts) builds it once per runner with
 // createSkillCalls; the tool round and the attempt call its functions.
 
-import { publicationBoundaryOf } from '../tools/publication.ts';
+import { turnBoundary } from '../tools/publication.ts';
 import type { ConversationRef } from '../protocol/adapter.ts';
 import type { Context } from '../memory/db/scope.ts';
 import { DESTINATION_REQUIRED } from '../behavior/inner-output.ts';
@@ -647,7 +647,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         // A destructive call counts from its dispatch, whatever comes back.
         if (resolvedCall.dispatch && (skills ?? defaultSkills()).get(skill)?.effects === 'destructive')
           destructiveRuns.set(`${skill}:${envelope.originChannelId}`, clock());
-        const publicationBoundary = publicationBoundaryOf(draft?.memoryContext, conversationOf(channel));
+        const publicationBoundary = turnBoundary(draft, conversationOf(channel));
         result = await executeCall(resolvedCall, {
           publicationBoundary,
           port: iface,

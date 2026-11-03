@@ -239,6 +239,7 @@ const handlers = perEnv((env) => {
       channelId: context?.channelId ? idText(context.channelId) : null,
       scope: inPrivate(context) ? 'dm' : 'group',
       participants: participantsOf(context),
+      ...(context?.publicationBoundary ? { publicationBoundary: context.publicationBoundary } : {}),
       // The engine's stamp: what her heartbeat turn creates (the wake kind comes from the envelope, never from her words).
       origin: persona && context?.wakeKind === HEARTBEAT_ORIGIN ? HEARTBEAT_ORIGIN : null,
     };

@@ -117,3 +117,55 @@ test('her skill tools exist with a required name and the tracked config grants n
   assert.equal(grantedToPersona(tracked, SELF_ID, 'skill.read'), false);
   assert.equal(grantedToPersona(tracked, SELF_ID, 'skill.disable'), false);
 });
+
+test('skill.run runs the activated version only, with the credentials its script declares', async () => {
+  // Bug: `skill.run` runs a newer edit, a script nobody declared, or hands a script every credential.
+  const dataDir = tempDir('nep-skill-tool-');
+  const skillDir = path.join(dataDir, 'skills', 'echoer');
+  const hash = 'h1';
+  const snapshot = path.join(skillDir, '.versions', hash);
+  fs.mkdirSync(path.join(snapshot, 'scripts'), { recursive: true });
+  fs.writeFileSync(
+    path.join(snapshot, 'setup.json'),
+    JSON.stringify({
+      settings: [],
+      scripts: {
+        'say.cjs': { args: { q: { type: 'string', required: true } }, credentials: ['token'] },
+        'bare.cjs': { args: {} },
+      },
+    })
+  );
+  const echo = `console.log(JSON.stringify({ok:true,text:String(process.env.SKILL_TOKEN)+'/'+String(process.env.SKILL_OTHER)}))`;
+  fs.writeFileSync(path.join(snapshot, 'scripts', 'say.cjs'), echo);
+  fs.writeFileSync(path.join(snapshot, 'scripts', 'bare.cjs'), echo);
+  fs.mkdirSync(path.join(skillDir, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(skillDir, 'scripts', 'say.cjs'), `console.log(JSON.stringify({ok:true,text:'edited'}))`);
+  fs.writeFileSync(path.join(skillDir, 'credentials.json'), JSON.stringify({ token: 'abc', other: 'nope' }));
+  const skills = {
+    show: () => ({
+      row: { active: { versionId: 'v1', tools: ['skill.run'], contentHash: hash }, disabled: false },
+      text: 'x',
+    }),
+  };
+  const env = { ...envOf(skills as unknown as SkillsPort), dataDir };
+  const run = async (args: Record<string, unknown>) => {
+    const { result } = await withCapturedLogs(() =>
+      runOpPrechecked('skill.run', args, {
+        env,
+        guildId: 'g1',
+        channelId: 'c1',
+        userId: null,
+        roleIds: [],
+        actor: 'persona',
+      })
+    );
+    return result as Result;
+  };
+  const said = await run({ name: 'echoer', script: 'say.cjs', args: JSON.stringify({ q: 'hi' }) });
+  assert.equal(said.status, 'ok');
+  assert.equal(said.summary, 'abc/undefined');
+  const bare = await run({ name: 'echoer', script: 'bare.cjs' });
+  assert.equal(bare.summary, 'undefined/undefined');
+  assert.equal((await run({ name: 'echoer', script: 'other.cjs' })).status, 'invalid');
+  assert.equal((await run({ name: 'echoer', script: 'say.cjs', args: '[1]' })).status, 'invalid');
+});

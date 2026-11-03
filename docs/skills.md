@@ -6,7 +6,7 @@ A skill is a written procedure over her tools. It adds no ability: an activated 
 
 ## Where skills live
 
-The tracked skills are `skills/<name>/SKILL.md` in the checkout. A deployment's own are `skills.local/<name>/SKILL.md` in its private layer, which git ignores. A plugin ships skills in the `skills/` folder of its own package ([Plugins](plugins.md#skills-a-plugin-ships)), read while the plugin is enabled. A plugin's skill replaces a tracked skill of the same name, and a local skill replaces both. `src/skills/load.ts` reads the folders at each call, never from a cache, so a file written a moment ago is seen at the next read. A file that does not parse, or whose `name` differs from its folder, is no skill and never stops the others. `/skills list` names its folder and the reason.
+A deployment's skills are `data/skills/<name>/SKILL.md`, whether the owner or an agent wrote them. The engine ships none. A plugin ships skills in the `skills/` folder of its own package ([Plugins](plugins.md#skills-a-plugin-ships)), read while the plugin is enabled. A plugin's skill replaces a tracked skill of the same name, and a local skill replaces both. `src/skills/load.ts` reads the folders at each call, never from a cache, so a file written a moment ago is seen at the next read. A file that does not parse, or whose `name` differs from its folder, is no skill and never stops the others. `/skills list` names its folder and the reason.
 
 ## Versions and activation
 
@@ -15,6 +15,12 @@ The registry is the tables `skills`, `skill_versions` and `skill_uses` of the me
 A sync turns each new text into a `candidate` version and retires an older candidate of the same skill. It never touches an active version. A skill whose file is gone becomes `stale` and keeps its active version, and it is `active` again when the file returns. Nothing activates by itself: an agent or the owner activates the newest candidate of a skill, the first version included, and the version it replaces is kept for a rollback. A rollback makes the previous active version active again and can be repeated back to the first. A rejected candidate is retired, and the same text does not come back as a candidate. Every activation records who made it (`agent:<name>`, `owner`) and when.
 
 A switch is separate from the versions. `skill.disable` (hers) and `/skills disable` set it, `/skills enable` clears it, and a disabled skill keeps its active version.
+
+## Executable skills
+
+A skill may carry scripts: `data/skills/<name>/scripts/` beside its `SKILL.md`, and a `setup.json` whose `scripts` map declares each script's `args` (name, `type`, `required`) and the `credentials` it needs, and whose `settings` list is the module contract of `docs/setup.md`. The skill must name `skill.run` among its tools. The content hash covers the text, the contract and the script bytes, so an edited script is a new candidate version, and `snapshotPackage` in `src/skills/package.ts` keeps an immutable copy per hash under `.versions/`. `skill.run { name, script, args }` runs the activated version's copy, whoever wrote the skill. An undeclared script or argument is refused.
+
+`runSkillScript` in `src/skills/run.ts` starts one process with the JSON arguments on stdin. It answers `{ ok, text, data, error, files }` on stdout. Its working directory is `data/skills/<name>/state/`, where it keeps its own state, and a later question can read that state without calling the outside service again. `SKILL_OUT_DIR` is its folder for files it returns, and each comes back as a handle `skill:<name>/<run>/<file>` that `message.create` takes in `file`: a script's result posts nothing by itself. Its environment holds the host's `PATH`, `HOME`, `TMPDIR` and locale plus `SKILL_<KEY>` for the credentials it declares, nothing of the engine. A directory is no sandbox: a script runs with the rights of the installing user, so only an activated version runs. `skills.run.timeoutMs` (default `60000`) ends the whole process group and reports the outcome as `unknown`, and `skills.run.maxOutputBytes` (default `1000000`) stops a flood. No run is stored as pending, so a restart repeats nothing, and each call is journalled like any tool call.
 
 ## What she sees
 

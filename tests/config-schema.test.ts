@@ -33,7 +33,6 @@ import { participationPickSettings } from '../src/behavior/participation-pick.ts
 import { routeSettings } from '../src/behavior/route.ts';
 import { pullSettings } from '../src/behavior/pull.ts';
 import { setSettings } from '../src/behavior/diary.ts';
-import { catchUpSettings } from '../src/behavior/catch-up.ts';
 import { elsewhereSettings } from '../src/behavior/elsewhere.ts';
 import { splitSettings } from '../src/behavior/split.ts';
 import { gifPickSettings } from '../src/behavior/gif-pick.ts';
@@ -172,7 +171,6 @@ const READERS: ReadonlyArray<{ name: string; group: CutGroup; read: (config: Tre
   { name: 'boardSettings', group: 'the rest', read: (config) => boardSettings(config) },
   { name: 'routeSettings', group: 'the rest', read: (config) => routeSettings(config) },
   { name: 'splitSettings', group: 'the rest', read: (config) => splitSettings(config) },
-  { name: 'catchUpSettings', group: 'the rest', read: (config) => catchUpSettings(config) },
   { name: 'elsewhereSettings', group: 'the rest', read: (config) => elsewhereSettings(config) },
   { name: 'missedSettings', group: 'the rest', read: (config) => missedSettings(config) },
   { name: 'paceSettings', group: 'the rest', read: (config) => paceSettings(config) },

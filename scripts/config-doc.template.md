@@ -188,12 +188,6 @@ Settings for missed-answer recovery.
 
 <!-- settings: missed -->
 
-## `offlineCatchUp`
-
-Messages posted while the bot was down, read once at start, and the messages that arrived while it was paused, handed back on resume (`src/behavior/core-pause.ts`). The same window decides which of them are answered.
-
-<!-- settings: offlineCatchUp -->
-
 ## `typing`
 
 <!-- settings: typing -->

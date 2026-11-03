@@ -303,15 +303,6 @@ Settings for missed-answer recovery.
 | `missed.expireMinutes` | number | `5` | Minutes before a candidate expires. A question mark uses `questionExpireMinutes` | `src/behavior/missed.ts` |
 | `missed.maxOutputTokens` | number | `2000` | Max output tokens for the analyzer | `src/behavior/missed.ts` |
 
-## `offlineCatchUp`
-
-Messages posted while the bot was down, read once at start, and the messages that arrived while it was paused, handed back on resume (`src/behavior/core-pause.ts`). The same window decides which of them are answered.
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `offlineCatchUp.windowMinutes` | number | `15` | Only a call younger than this is answered. `0` answers none | `src/behavior/catch-up.ts` |
-| `offlineCatchUp.maxMessages` | number | `50` | Newest messages fetched per channel (1 to 100) | `src/behavior/catch-up.ts` |
-
 ## `typing`
 
 | Key | Type | Default | What it does | Read by |
@@ -499,6 +490,8 @@ Settings for her `SKILL.md` skills. See [Skills](skills.md).
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `skills.reviewDays` | number | `30` | Days an active skill may go unread before `/skills` marks it for review; nothing is deleted | `src/skills/settings.ts` |
+| `skills.run.timeoutMs` | number | `60000` | How long one `skill.run` script may run; past it the process group is killed and the outcome is unknown | `src/skills/settings.ts` |
+| `skills.run.maxOutputBytes` | number | `1000000` | How much one `skill.run` script may write to stdout before it is stopped | `src/skills/settings.ts` |
 
 ## `watcher`
 

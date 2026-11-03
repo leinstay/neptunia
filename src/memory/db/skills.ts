@@ -285,6 +285,7 @@ export type VersionView = {
   task: string | null;
   createdAt: string;
   source: string;
+  contentHash: string;
   uses: UseCounts;
 };
 
@@ -319,6 +320,7 @@ function viewOf(db: Db, versionId: string): VersionView | null {
     task: typeof row.origin_work_id === 'string' ? row.origin_work_id : null,
     createdAt: String(row.created_at),
     source: typeof row.source === 'string' ? row.source : '',
+    contentHash: String(row.content_hash),
     uses: usesOfVersion(db, String(row.id)),
   };
 }

@@ -254,7 +254,7 @@
       "channel": "Target #handle.",
       "reply": "#N or link to reply to.",
       "text": "Message text.",
-      "file": "file:<task-id>/<name>.",
+      "file": "file:<task-id>/<name>, or skill:<skill>/<run>/<name> from a skill's result.",
       "gif": "Library GIF handle.",
       "diary": "true writes to your diary, not a channel. No channel or reply."
     }
@@ -354,6 +354,16 @@
     "whenNotToUse": "Not for your own memory or your own skills.",
     "args": {
       "day": "YYYY-MM-DD. Leave it out for the latest report."
+    }
+  },
+  "skill.run": {
+    "title": "Run a skill's script",
+    "whenToUse": "A skill from your list has a script that does its work: an outside site, a file, a result it keeps. Read the skill first, then run the script it names. A result that returns files gives you handles to post with message.create.",
+    "whenNotToUse": "Not for a skill that names no script. A script's result is yours to use: it posts nothing by itself.",
+    "args": {
+      "name": "The skill's name as listed.",
+      "script": "The script's file name, as the skill names it.",
+      "args": "The script's arguments as one JSON object."
     }
   },
   "skill.disable": {

@@ -599,8 +599,6 @@ export const KEPT: ReadonlyArray<string> = [
   'mention.followUpMaxOutputTokens',
   'missed.expireMinutes',
   'missed.maxOutputTokens',
-  'offlineCatchUp.windowMinutes',
-  'offlineCatchUp.maxMessages',
   'typing.reactionDelayMs',
   'typing.msPerChar',
   'typing.minMs',

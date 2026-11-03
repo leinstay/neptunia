@@ -152,10 +152,6 @@
     "expireMinutes": 5,
     "maxOutputTokens": 2000
   },
-  "offlineCatchUp": {
-    "windowMinutes": 15,
-    "maxMessages": 50
-  },
   "typing": {
     "reactionDelayMs": [800, 4000],
     "msPerChar": [35, 75],
@@ -318,7 +314,11 @@
     }
   },
   "skills": {
-    "reviewDays": 30
+    "reviewDays": 30,
+    "run": {
+      "timeoutMs": 60000,
+      "maxOutputBytes": 1000000
+    }
   },
   "watcher": {
     "enabled": false,

@@ -282,6 +282,7 @@ type CoreTurnSpec = {
   clientExtra?: Record<string, unknown>;
   setup?: ((port: Fake) => void) | null;
   inner?: Record<string, unknown> | null;
+  params?: Record<string, unknown>;
   spontaneous?: string | null;
   onAnswer?: ((index: number, history: Array<Record<string, unknown>>, port: Fake) => void) | null;
   withHot?: ((hot: ReturnType<typeof hotWith>) => void) | null;
@@ -320,6 +321,7 @@ export async function coreTurn({
   clientExtra = {},
   setup = null,
   inner = null,
+  params = {},
   spontaneous = null,
   onAnswer = null,
   withHot = null,
@@ -350,8 +352,8 @@ export async function coreTurn({
   const again = spontaneous
     ? () => turns.runTurn({ channel, mode: spontaneous })
     : inner
-    ? () => turns.runTurn({ channel, guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner: { wake: inner, shadow: false, mayAct: () => true } })
-    : () => turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(history[history.length - 1]), triggerKind });
+    ? () => turns.runTurn({ ...params, channel, guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner: { wake: inner, shadow: false, mayAct: () => true } })
+    : () => turns.runTurn({ ...params, channel, mode: 'reply', trigger: normalizedTrigger(history[history.length - 1]), triggerKind });
   const { result, logs } = await withCapturedLogs(again);
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: (call.args[0] as { conversationId: string }).conversationId, ...(call.args[1] as object) }));
   return { result, logs, llm, sends, hot, admin, again, port, turns };
