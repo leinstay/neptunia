@@ -16,6 +16,9 @@ import { tempDir } from './fixtures/tmp.ts';
 import { openTestMemory, openTestMemorySync } from './fixtures/memory-db/service.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
+import { nativeOfAny } from '../src/memory/db/ids.ts';
+import { legacyStorageKey } from '../src/memory/db/paths.ts';
+import type { StorageKey } from '../src/memory/db/storage-keys.ts';
 
 const DATA = path.join('fake-root', 'data');
 const DAY_D = Date.UTC(2026, 9, 13, 23, 59, 50);
@@ -59,9 +62,21 @@ function recordingMemory(lines: Array<Line>) {
   return {
     ...mem.memoryDb,
     writeUnit: (update: unknown) => {
-      const unit = wrongly<{ owner: string; lines?: Array<unknown> }>(update);
-      for (const line of unit.lines ?? [])
-        lines.push({ file: path.join(DATA, unit.owner), line: JSON.stringify(line) });
+      const unit = wrongly<{ key: StorageKey; lines?: Array<unknown> }>(update);
+      for (const line of unit.lines ?? []) {
+        // File labels are a test export projection. The real writer receives the original semantic update.
+        const privatePart =
+          unit.key.subject.type === 'account' ? ['private', present(nativeOfAny(unit.key.subject.id))] : [];
+        const rel = path.join(
+          'guilds',
+          present(nativeOfAny(unit.key.scopePlaceId)),
+          ...privatePart,
+          'journal',
+          `${unit.key.partition}.jsonl`
+        );
+        assert.deepEqual(legacyStorageKey(rel), unit.key);
+        lines.push({ file: path.join(DATA, rel), line: JSON.stringify(line) });
+      }
       return mem.memoryDb.writeUnit(update);
     },
   };

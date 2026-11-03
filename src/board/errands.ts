@@ -145,7 +145,7 @@ export function skippedErrandUnit(
 }
 
 /** The closing journal line of an errand save, as an op `lines` update of the memory writer. */
-export type ClosingLines = { owner: string; lines: Array<Record<string, unknown>>; iface: unknown };
+export type ClosingLines = { owner?: string; key?: object; lines: Array<Record<string, unknown>>; iface: unknown };
 
 /**
  * One op `errand` write of the memory writer (src/memory/db/unit-write.ts) on its connection, inside its transaction:
@@ -174,8 +174,12 @@ export function applyErrandUnit(
   let ended = false;
   saveErrand(boardDbOf(db), save, () => {
     ended = true;
-    if (closing !== null && filled(closing.owner) && isRecord(closing.line)) {
-      writeClosing({ owner: closing.owner, lines: [closing.line], iface: isRecord(update) ? update.iface : null });
+    if (closing !== null && (filled(closing.owner) || isRecord(closing.key)) && isRecord(closing.line)) {
+      writeClosing({
+        ...(isRecord(closing.key) ? { key: closing.key } : { owner: String(closing.owner) }),
+        lines: [closing.line],
+        iface: isRecord(update) ? update.iface : null,
+      });
     }
   });
   return { ended };

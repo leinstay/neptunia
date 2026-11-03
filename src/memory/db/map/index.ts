@@ -16,7 +16,9 @@ import * as errands from './errands.ts';
 import * as gifs from './gifs.ts';
 import * as guild from './guild.ts';
 import type { MapContext } from './common.ts';
-import type { Rows } from '../types.ts';
+import type { Db, Row, Rows } from '../types.ts';
+import { nativeOfAny, personId } from '../ids.ts';
+import type { StorageKey } from '../storage-keys.ts';
 import * as intentions from './intentions.ts';
 import * as journal from './journal.ts';
 import * as lore from './lore.ts';
@@ -38,11 +40,11 @@ import * as versions from './versions.ts';
  */
 export type Mapper = {
   toRows(rel: string, value: unknown, ctx: MapContext): Rows;
-  fromRows(rows: Rows): unknown;
+  fromRows(rows: Rows, ctx?: MapContext): unknown;
   appendRows?(
     rel: string,
     delta: never,
-    state: { previous: never; keys: Iterable<string>; iface?: string }
+    state: { previous: never; keys: Iterable<string>; iface?: string; privateUserId?: string | null }
   ): Rows | null;
 };
 
@@ -163,4 +165,111 @@ export function classify(rel: string): Classified | null {
   };
   if (guildId !== undefined) out.guildId = guildId;
   return out;
+}
+
+export function storageFormat(key: StorageKey): FileFormat {
+  if (key.kind === 'vectors') return 'vectors';
+  if (
+    ['record', 'journal', 'archive', 'recall_trace', 'archive_pending'].includes(key.kind) ||
+    (key.kind === 'intentions' && key.selector?.collection === 'archive') ||
+    (key.kind === 'errands' && key.selector?.collection === 'history')
+  )
+    return 'jsonl';
+  return key.kind === 'journal_running' ? 'text' : 'json';
+}
+
+/** The exact stored identity metadata, with the existing legacy spellings understood at the identity boundary. */
+function identityOf(
+  db: Db,
+  id: string,
+  table: 'accounts' | 'places'
+): { iface: string; native: string; person?: string } {
+  const row = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
+  const native = row?.native_id ?? row?.native_key ?? nativeOfAny(id);
+  const iface = row?.iface ?? id.split(':')[0];
+  if (typeof native !== 'string' || typeof iface !== 'string')
+    throw Object.assign(new Error('UNIT_IDENTITY'), { code: 'UNIT_IDENTITY' });
+  return { iface, native, ...(typeof row?.person_id === 'string' ? { person: row.person_id } : {}) };
+}
+
+/** Context passed to the existing field mappers for a semantic collection. */
+export function storageContext(db: Db, key: StorageKey): MapContext {
+  if (key.subject.type === 'persona') return {};
+  const subject = identityOf(db, key.subject.id, key.subject.type === 'account' ? 'accounts' : 'places');
+  const scope = key.scopePlaceId ? identityOf(db, key.scopePlaceId, 'places') : subject;
+  return {
+    iface: subject.iface,
+    guildId: scope.native,
+    subjectId: key.subject.id,
+    subjectNativeId: subject.native,
+    subjectPersonId: subject.person ?? personId(subject.iface, subject.native),
+    scopePlaceId: key.scopePlaceId,
+    collection: key.selector?.collection,
+    versionKind: key.selector?.versionKind,
+    itemId: key.selector?.itemId,
+    privateUserId: key.subject.type === 'account' && key.kind !== 'user' ? subject.native : null,
+  };
+}
+
+/** Owner conversion preserves legacy provenance only for the explicit importer. */
+function ownedRows(db: Db, rows: Rows, id: string, position: number | undefined, legacyOwner?: string): Rows {
+  for (const list of Object.values(rows))
+    for (const row of list) {
+      if (row.owner_file !== undefined) {
+        delete row.owner_file;
+        row.owner_key = id;
+      }
+      if (row.owner_key !== undefined) row.owner_key = id;
+      if (legacyOwner && row.owner_key !== undefined) row.owner_file = legacyOwner;
+      if (list === rows.operational) {
+        const existing = db
+          .prepare('SELECT owner FROM operational WHERE kind = ? AND owner_key = ? ORDER BY rowid LIMIT 1')
+          .get(row.kind, id);
+        if (existing && position === undefined) row.owner = existing.owner;
+      }
+    }
+  return rows;
+}
+
+/** Existing field conversion with semantic owner and context. */
+export function storageMapper(
+  db: Db,
+  key: StorageKey,
+  id: string,
+  legacyOwner?: string
+): { mapper: Mapper; kind: MapperKind; format: FileFormat } {
+  const kind: MapperKind = key.kind in MAPPERS ? (key.kind as MapperKind) : 'verbatim';
+  const original = MAPPERS[kind] as Mapper;
+  const base = storageContext(db, key);
+  const toRows = (_rel: string, value: unknown, ctx: MapContext): Rows => {
+    const context = {
+      ...ctx,
+      ...base,
+      position: ctx.position,
+      messageIdentity: ctx.messageIdentity,
+      hotClaimIds: ctx.hotClaimIds,
+    };
+    const rows =
+      kind === 'verbatim'
+        ? { operational: [verbatim.operationalRow(key.kind, id, value as Row, context)] }
+        : original.toRows(id, value, context);
+    return ownedRows(db, rows, id, context.position, legacyOwner);
+  };
+  return {
+    kind,
+    format: storageFormat(key),
+    mapper: {
+      ...original,
+      toRows,
+      ...(original.appendRows
+        ? {
+            appendRows: (rel, delta, state) => {
+              const rows = original.appendRows!(rel, delta, { ...state, privateUserId: base.privateUserId });
+              return rows ? ownedRows(db, rows, id, undefined, legacyOwner) : null;
+            },
+          }
+        : {}),
+      fromRows: (rows) => original.fromRows(rows, base),
+    },
+  };
 }

@@ -28,6 +28,9 @@ import { createUnitOutbox } from '../src/memory/db/unit-outbox.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { BOARD_MIGRATIONS } from '../src/board/schema.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
+import { guildPlaceId } from '../src/memory/db/ids.ts';
+import { listUnits } from '../src/memory/db/storage-units.ts';
+import { keyText, type StorageKey } from '../src/memory/db/storage-keys.ts';
 
 type Service = ReturnType<typeof createMemoryDb>;
 // The intentions of these tests carry only the fields the store writes, so each is read as the full shape by a cast.
@@ -376,10 +379,19 @@ test('a day of writes with the memory files gone writes every kind of unit to th
       // takes no write (it asserted the errands.jsonl lines in `work_events` before).
       assert.deepEqual(errandEvents(dbOf(right), 'find the café hours'), ['approved', 'in_progress', 'done']);
       assert.equal(count('SELECT COUNT(*) AS n FROM work') + count('SELECT COUNT(*) AS n FROM work_events'), 0);
+      // Runtime ownership follows the catalog's semantic collection, including scope and active/archive selection.
+      const place = guildPlaceId('discord', GUILD);
+      const units = listUnits(dbOf(right), {
+        kind: 'intentions',
+        subject: { type: 'place', id: place },
+        scopePlaceId: place,
+        selector: { collection: 'active' },
+      });
+      assert.equal(units.length, 1);
       assert.equal(
         count(
-          "SELECT COUNT(*) AS n FROM intentions WHERE owner_file = ? AND id LIKE '%i2%' AND retired_at IS NULL",
-          `guilds/${GUILD}/intentions.json`
+          "SELECT COUNT(*) AS n FROM intentions WHERE owner_key = ? AND id LIKE '%i2%' AND retired_at IS NULL",
+          units[0].id
         ),
         1
       );
@@ -491,13 +503,16 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
     await m.close();
     await service.close();
     assert.equal(fs.readdirSync(pendingDir).filter((name) => name.endsWith('.json')).length, 3);
+    // Pending runtime writes retain semantic keys rather than legacy filenames.
+    const place = guildPlaceId('discord', GUILD);
+    const loreKey: StorageKey = { kind: 'lore', subject: { type: 'place', id: place }, scopePlaceId: place };
     const lore = JSON.parse(
       fs.readFileSync(
-        path.join(pendingDir, `${createHash('sha1').update(`guilds/${GUILD}/lore.json`).digest('hex')}.json`),
+        path.join(pendingDir, `${createHash('sha1').update(keyText(loreKey)).digest('hex')}.json`),
         'utf8'
       )
     );
-    assert.deepEqual([lore.owner, lore.op, typeof lore.at], [`guilds/${GUILD}/lore.json`, 'value', 'string']);
+    assert.deepEqual([lore.key, lore.op, typeof lore.at], [loreKey, 'value', 'string']);
     assert.ok(log.out.some((entry) => entry.level === 'error' && entry.message === 'memory db: units kept pending'));
     assert.deepEqual(memoryFiles(data), [], 'still no memory file');
 

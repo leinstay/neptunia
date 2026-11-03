@@ -56,6 +56,9 @@
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
+import { journalKey } from './db/storage-keys.ts';
+import type { StorageKey } from './db/storage-keys.ts';
+
 import { log as defaultLog } from '../log.ts';
 import { clampText, oneLine } from './clamp.ts';
 import { memoryRootOf } from './root.ts';
@@ -629,7 +632,7 @@ export type Journal = {
   ): { turnId: string; attemptId: number; startedAt: string };
   turn(guildId: string, record: object): Promise<void>;
   action(guildId: string, record: object): Promise<void>;
-  actionLine(guildId: string, record: object): { owner: string; line: unknown };
+  actionLine(guildId: string, record: object): { key: StorageKey; line: unknown };
   memory(guildId: string, record: object): Promise<void>;
   system(guildId: string, record: object): Promise<void>;
   answer(guildId: string, record: object): Promise<void>;
@@ -858,18 +861,21 @@ export function createJournal({
   }
 
   /** @returns a line of `kind` in its envelope, and the unit of its day */
-  function lineOf(guildId: string, kind: string, fields: Untyped): { owner: string; line: unknown } {
+  function lineOf(guildId: string, kind: string, fields: Untyped): { key: StorageKey; line: unknown } {
     const { record, privateUserId } = envelope(guildId, kind, fields);
-    return { owner: root.relative(dayFile(guildId, record.occurredAt, privateUserId)), line: record };
+    return {
+      key: journalKey(memoryDb, guildId, String(record.occurredAt).slice(0, 10), privateUserId),
+      line: record,
+    };
   }
 
   async function write(guildId: string, kind: string, fields: Untyped) {
     try {
-      const { owner, line } = lineOf(guildId, kind, fields);
+      const { key, line } = lineOf(guildId, kind, fields);
       await unlocked();
       if (typeof memoryDb?.writeUnit !== 'function')
         throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
-      await memoryDb.writeUnit({ op: 'lines', owner, lines: [line] });
+      await memoryDb.writeUnit({ op: 'lines', key, lines: [line] });
     } catch (error) {
       log.warn('journal: append failed', { kind, code: propOf(error, 'code') ?? null, guildId: String(guildId) });
     }
@@ -939,15 +945,18 @@ export function createJournal({
   }
 
   /** The lines (text) of one day's unit in the database. */
-  function* dayLines(db: Untyped, file: string) {
-    for (const line of seam.run(() => journalLines(db, root.relative(file)))) yield line;
+  function* dayLines(db: Untyped, key: StorageKey) {
+    for (const line of seam.run(() => journalLines(db, key))) yield line;
   }
 
   async function read(guildId: string, { day, kind = null, n = DEFAULT_READ_N, privateUserId = null }: ReadQuery = {}) {
     const db = seam.db();
     const limit = isIntegerNumber(n) && n > 0 ? n : DEFAULT_READ_N;
     const out: Array<StoredRecord> = [];
-    for (const line of dayLines(db, dayFile(guildId, day, privateUserId))) {
+    for (const line of dayLines(
+      db,
+      journalKey(memoryDb, guildId, String(day).match(DAY_RE)?.[0] ?? utcDay(now()), privateUserId)
+    )) {
       let record;
       try {
         record = JSON.parse(line);
@@ -975,7 +984,7 @@ export function createJournal({
     const start = typeof from === 'number' && isFiniteNumber(from) ? Math.min(from, end) : end;
     const out: Array<{ at: number; kind: string; event: string | null }> = [];
     for (let day = Date.parse(`${utcDay(start)}T00:00:00Z`); day <= end; day += DAY_MS) {
-      for (const line of dayLines(db, dayFile(guildId, utcDay(day)))) {
+      for (const line of dayLines(db, journalKey(memoryDb, guildId, utcDay(day)))) {
         const head = ENVELOPE_HEAD_RE.exec(line);
         let kind: string | null = head?.[1] ?? null;
         let occurredAt: string | null = head?.[2] ?? null;
@@ -1367,15 +1376,9 @@ export function createJournal({
   }
 
   async function stats(guildId: string, { now: at = now() } = {}) {
-    const files = [at, at - DAY_MS].map((ms) => dayFile(guildId, new Date(ms).toISOString()));
-    const db = seam.db();
+    const keys = [at, at - DAY_MS].map((ms) => journalKey(memoryDb, guildId, utcDay(ms)));
     return {
-      lastWriteMs: seam.run(() =>
-        journalLastWrite(
-          db,
-          files.map((file) => root.relative(file))
-        )
-      ),
+      lastWriteMs: seam.run(() => journalLastWrite(seam.db(), keys)),
     };
   }
 

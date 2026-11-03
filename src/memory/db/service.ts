@@ -97,6 +97,10 @@ import { Worker } from 'node:worker_threads';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { communityKey, keyText } from './storage-keys.ts';
+
+import type { StorageKey } from './storage-keys.ts';
+
 import { importCoreJsonState } from './core-state-import.ts';
 import { lockPathOf, openMemoryDb } from './open.ts';
 import { channelPlaceId, guildPlaceId, nativeAuthorityOf } from './ids.ts';
@@ -390,11 +394,13 @@ function recordUnitOf(envelope: Row, where: Row | null): string | null {
   const guildId = where?.guildId;
   const day = /^\d{4}-\d{2}-\d{2}/.exec(asText(envelope?.occurredAt ?? ''))?.[0];
   if (typeof guildId !== 'string' || !guildId || !day) return null;
-  const layer =
-    typeof where.privateUserId === 'string' && where.privateUserId
-      ? `guilds/${guildId}/private/${where.privateUserId}`
-      : `guilds/${guildId}`;
-  return `${layer}/record/${day.slice(0, 7)}/${day}.jsonl`;
+  return keyText(
+    communityKey('record', guildId, {
+      iface: typeof envelope.iface === 'string' ? envelope.iface : LEGACY_IFACE,
+      privateUserId: typeof where?.privateUserId === 'string' ? where.privateUserId : null,
+      partition: day,
+    })
+  );
 }
 
 /** The pending files: [{ file, update }] (a file that does not parse is skipped and counted). */
@@ -415,23 +421,59 @@ function pendingWrites(pendingDir: string, log: Log): Array<{ file: string; upda
     try {
       const kept = (JSON.parse(fs.readFileSync(file, 'utf8')) ?? {}) as {
         owner?: unknown;
+        key?: StorageKey;
         op?: unknown;
         value?: unknown;
         lines?: unknown;
       };
-      const { owner, op } = kept;
-      if (typeof owner !== 'string' || (op !== 'value' && op !== 'lines' && op !== 'errand')) {
+      const { owner, op, key } = kept;
+      if ((!key && typeof owner !== 'string') || (op !== 'value' && op !== 'lines' && op !== 'errand')) {
         bad += 1;
         continue;
       }
       const lines = Array.isArray(kept.lines) ? kept.lines : [];
-      out.push({ file, update: op === 'lines' ? { op, owner, lines } : { op, owner, value: kept.value } });
+      const target = key ? { key } : { owner };
+      out.push({ file, update: op === 'lines' ? { op, ...target, lines } : { op, ...target, value: kept.value } });
     } catch {
       bad += 1;
     }
   }
   if (bad > 0) log.error('memory db: pending unreadable', { count: bad });
   return out;
+}
+
+function keepUnitPending(given: unknown, pendingDir: string, now: () => number): string {
+  const update = given as Row;
+  const key = update.key as StorageKey | undefined;
+  const owner = key ? keyText(key) : asText(update?.owner ?? '');
+  if (!owner || (update.op !== 'value' && update.op !== 'lines' && update.op !== 'errand'))
+    throw Object.assign(new Error('memory db: not a unit write'), { code: 'UNIT_BAD_OP' });
+  const file = path.join(pendingDir, `${createHash('sha1').update(owner).digest('hex')}.json`);
+  let lines: Array<unknown> | null = update.op === 'lines' ? (Array.isArray(update.lines) ? update.lines : []) : null;
+  if (lines) {
+    try {
+      const held = JSON.parse(fs.readFileSync(file, 'utf8')) as Row | null;
+      if (
+        ((key && held?.key && keyText(held.key as StorageKey) === owner) || held?.owner === owner) &&
+        held.op === 'lines' &&
+        Array.isArray(held.lines)
+      )
+        lines = [...(held.lines as Array<unknown>), ...lines];
+    } catch {
+      /* nothing kept yet */
+    }
+  }
+  const kept = {
+    ...(key ? { key } : { owner }),
+    op: update.op,
+    ...(lines ? { lines } : { value: update.value ?? null }),
+    at: new Date(now()).toISOString(),
+  };
+  fs.mkdirSync(pendingDir, { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(kept));
+  fs.renameSync(tmp, file);
+  return file;
 }
 
 /** What the daily backup has done and failed at. */
@@ -517,6 +559,7 @@ export type MemoryDbStatus = {
 
 /** What `createMemoryDb` gives its callers. */
 export type MemoryDbService = {
+  namespace(): string | null;
   open(): Promise<void>;
   tick(): Promise<void>;
   database(): Db | null;
@@ -758,7 +801,9 @@ export function createMemoryDb({
     // A diary post's destination is the place of the diary's first enabled mirror (mirrors.ts).
     if (
       (stamped.op === 'diary' ||
-        (stamped.op === 'value' && /^guilds\/[^/]+\/diary\.json$/.test(asText(stamped.owner ?? '')))) &&
+        (stamped.op === 'value' &&
+          ((stamped.key as StorageKey | undefined)?.kind === 'diary' ||
+            /^guilds\/[^/]+\/diary\.json$/.test(asText(stamped.owner ?? ''))))) &&
       stamped.destination === undefined
     ) {
       stamped.destination = readMirrors({ readHandle }, mirrorPlaces, [])[0]?.placeId ?? null;
@@ -766,42 +811,12 @@ export function createMemoryDb({
     return withLiveIface(stamped, iface);
   }
 
-  const pendingFileOf = (owner: string): string =>
-    path.join(pendingDir, `${createHash('sha1').update(String(owner)).digest('hex')}.json`);
-
   /**
    * Keeps a unit write that could not be made (unit-outbox.ts#keep, at shutdown) in `memory-pending/`, replayed at the
    * next open. A value replaces the one kept for its owner; lines are appended to the kept ones. Throws on an
    * I/O failure (the caller logs it). Returns the file's path.
    */
-  function keepPending(given: unknown): string {
-    const update = given as Row;
-    const owner = asText(update?.owner ?? '');
-    if (!owner || (update.op !== 'value' && update.op !== 'lines' && update.op !== 'errand'))
-      throw Object.assign(new Error('memory db: not a unit write'), { code: 'UNIT_BAD_OP' });
-    const file = pendingFileOf(owner);
-    let lines: Array<unknown> | null = update.op === 'lines' ? (Array.isArray(update.lines) ? update.lines : []) : null;
-    if (lines) {
-      try {
-        const held = JSON.parse(fs.readFileSync(file, 'utf8')) as Row | null;
-        if (held?.owner === owner && held.op === 'lines' && Array.isArray(held.lines))
-          lines = [...(held.lines as Array<unknown>), ...lines];
-      } catch {
-        /* nothing kept yet */
-      }
-    }
-    const kept = {
-      owner,
-      op: update.op,
-      ...(lines ? { lines } : { value: update.value ?? null }),
-      at: new Date(now()).toISOString(),
-    };
-    fs.mkdirSync(pendingDir, { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(kept));
-    fs.renameSync(tmp, file);
-    return file;
-  }
+  const keepPending = (given: unknown): string => keepUnitPending(given, pendingDir, now);
 
   /**
    * Replays the pending writes through the writer (at the open), each file deleted once its write resolved.
@@ -1674,6 +1689,7 @@ export function createMemoryDb({
   const waitBackup = () => backupRun ?? Promise.resolve();
 
   return {
+    namespace: () => iface(),
     open: readyOpen,
     tick,
     database,

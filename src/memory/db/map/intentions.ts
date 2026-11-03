@@ -40,7 +40,7 @@ const mappable = (record: Row) => isPlainObject(record) && typeof record.id === 
 
 export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const rows: Rows = {};
-  if (isArchivePath(rel)) {
+  if (ctx.collection === 'archive' || isArchivePath(rel)) {
     // A line that is not a record with an id cannot be keyed: it is kept as a record under a derived id.
     const record = mappable(value) ? value : { id: `archive-line-${ctx.position ?? 0}`, $raw: value };
     put(rows, 'intentions', rowOf(rel, record, ctx.position ?? 0, true));

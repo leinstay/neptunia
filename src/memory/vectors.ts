@@ -24,12 +24,16 @@
 // Logs carry counts, months and guild ids, never a row's contents.
 
 import path from 'node:path';
+import type { Db } from './db/types.ts';
+import { vectorAddresses, keyText } from './db/storage-keys.ts';
+
+import { listUnits } from './db/storage-units.ts';
+
 import { log as defaultLog } from '../log.ts';
 import { isoOf } from './record.ts';
 import { chunkKey } from './chunks.ts';
-import { memoryRootOf } from './root.ts';
 
-import { storedManifest, vectorMonthFiles, vectorMonthState, vectorMonthsAt } from './db/readers/vectors.ts';
+import { storedManifest, vectorMonthFiles, vectorMonthState } from './db/readers/vectors.ts';
 import { propOf, isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
 import type { MemoryDb, Untyped } from './types.ts';
 
@@ -287,14 +291,12 @@ function shapeError(month: string) {
  *   index or another process shows on the next call.
  */
 export function createVectors({
-  dataDir,
   log = defaultLog,
   now = Date.now,
   writerGate = null,
   maxCacheBytes = DEFAULT_CACHE_BYTES,
   memoryDb = null,
 }: VectorsDeps): Vectors {
-  const root = memoryRootOf(dataDir);
   const seam = readSeamOf(memoryDb, log, 'vectors');
   // The last months rebuilt from the database, by their stored state (a grown month is a new state).
   const rebuilt = new Map(); // owner -> { stamp, files }
@@ -311,39 +313,38 @@ export function createVectors({
     return run;
   }
 
-  const guildDir = root.guildDir;
-
-  function baseDir(guildId: string, privateUserId: string | null = null) {
-    return typeof privateUserId === 'string' && privateUserId
-      ? path.join(guildDir(guildId), 'private', privateUserId, 'vectors')
-      : path.join(guildDir(guildId), 'vectors');
-  }
+  const { baseDir, monthDir, vectorKey } = vectorAddresses(memoryDb);
 
   const genFile = (dir: string, gen: Untyped, ext: Untyped) => path.join(dir, `${gen}.${ext}`);
 
-  function months(base: Untyped, db: Untyped) {
-    return seam.run(() => vectorMonthsAt(db, root.relative(base)));
+  function months(base: string, db: Db) {
+    const key = vectorKey(base);
+    return seam.run(() =>
+      listUnits(db, { kind: 'vectors', subject: key.subject, scopePlaceId: key.scopePlaceId })
+        .map((unit) => unit.key.partition!)
+        .sort()
+    );
   }
 
   /** A month's files rebuilt from the database (the last few kept while their stored state is unchanged), or null. */
   function rebuiltMonth(db: Untyped, dir: string) {
-    const owner = root.relative(dir);
+    const owner = vectorKey(dir);
     return seam.run(() => {
       const state = vectorMonthState(db, owner);
       if (!state) return null;
       const stamp = `${state.evicted}|${state.value}`;
-      const held = rebuilt.get(owner);
+      const held = rebuilt.get(keyText(owner));
       if (held && held.stamp === stamp) return held.files;
       const files = vectorMonthFiles(db, owner, { checksum: monthChecksum });
-      rebuilt.delete(owner);
-      rebuilt.set(owner, { stamp, files });
+      rebuilt.delete(keyText(owner));
+      rebuilt.set(keyText(owner), { stamp, files });
       while (rebuilt.size > REBUILT_MAX) rebuilt.delete(rebuilt.keys().next().value);
       return files;
     });
   }
 
   function readManifest(dir: string, db: Untyped) {
-    const state = seam.run(() => vectorMonthState(db, root.relative(dir)));
+    const state = seam.run(() => vectorMonthState(db, vectorKey(dir)));
     if (!state) return null;
     return validManifest(state.evicted > 0 ? rebuiltMonth(db, dir)?.manifest : storedManifest(state.value));
   }
@@ -384,7 +385,7 @@ export function createVectors({
    */
   function loadMonth(base: Untyped, month: string, retried: Untyped, db: Untyped) {
     const key = `${base}|${month}`;
-    const dir = path.join(base, month);
+    const dir = monthDir(base, month);
     const manifest = readManifest(dir, db);
     if (!manifest || manifest.rows === 0) {
       dropCached(key);
@@ -449,7 +450,7 @@ export function createVectors({
   async function writeMonth(dir: string, payload: Untyped) {
     if (typeof memoryDb?.writeUnit !== 'function')
       throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
-    await memoryDb.writeUnit({ op: 'vectors', owner: root.relative(dir), ...payload });
+    await memoryDb.writeUnit({ op: 'vectors', key: vectorKey(dir), ...payload });
   }
 
   async function appendMonth(
@@ -460,7 +461,7 @@ export function createVectors({
     model: string | null,
     db: Untyped
   ) {
-    const dir = path.join(base, month);
+    const dir = monthDir(base, month);
     const current = readManifest(dir, db);
     let manifest = current ?? {
       v: MANIFEST_VERSION,
@@ -525,7 +526,7 @@ export function createVectors({
 
   /** Rewrite one month into a new generation with the rows `keep` accepts. */
   async function rewriteMonth(base: Untyped, month: string, keep: Untyped, db: Untyped) {
-    const dir = path.join(base, month);
+    const dir = monthDir(base, month);
     const manifest = readManifest(dir, db);
     if (!manifest || manifest.rows === 0) return { kept: 0, dropped: 0 };
     const data = readBytes(genFile(dir, manifest.gen, 'i8'), 0, manifest.bytes, db);
@@ -586,7 +587,7 @@ export function createVectors({
     keep: ((meta: object) => boolean) | null,
     db: Untyped
   ) {
-    const dir = path.join(base, month);
+    const dir = monthDir(base, month);
     const manifest = readManifest(dir, db);
     const kept = [];
     if (
@@ -725,7 +726,7 @@ export function createVectors({
     let rows = 0;
     let bytes = 0;
     for (const month of months(base, db)) {
-      const manifest = readManifest(path.join(base, month), db);
+      const manifest = readManifest(monthDir(base, month), db);
       if (!manifest) continue;
       count += 1;
       rows += manifest.rows;
@@ -737,7 +738,7 @@ export function createVectors({
   /** The row keys of one month: the cached set, or read whole. */
   function keysOf(base: Untyped, month: string, retried: Untyped, db: Untyped) {
     const key = `${base}|${month}`;
-    const dir = path.join(base, month);
+    const dir = monthDir(base, month);
     const manifest = readManifest(dir, db);
     if (!manifest || manifest.rows === 0) {
       keySets.delete(key);

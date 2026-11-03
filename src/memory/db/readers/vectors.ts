@@ -8,31 +8,22 @@
 // `checksum(i8, meta)`), so the month is still read whole. With no eviction the stored manifest is used as it is,
 // so a month whose files failed their checksum on the disk fails it here too.
 
+import { storageId } from '../storage-keys.ts';
+import type { StorageKey } from '../storage-keys.ts';
 import { unitRows } from '../export.ts';
 import { MAPPERS } from '../map/index.ts';
-import { childNames, ownersUnder } from './common.ts';
 import type { Db, Row } from '../types.ts';
 
-const MONTH_RE = /^\d{4}-\d{2}$/;
-
-/** The months (`YYYY-MM`) of the index directory `relBase` (`guilds/<g>/vectors`, or a private layer's), sorted. */
-export function vectorMonthsAt(dbGiven: unknown, relBase: string): Array<string> {
-  const db = dbGiven as Db;
-  return childNames(ownersUnder(db, 'operational', relBase, { kind: 'vectors' }), relBase).filter((name) =>
-    MONTH_RE.test(name)
-  );
-}
-
 /** The stored state of a month (`owner`: `guilds/<g>/vectors/<YYYY-MM>`): `{ value, evicted }` or null. */
-export function vectorMonthState(dbGiven: unknown, owner: string): { value: string; evicted: number } | null {
+export function vectorMonthState(dbGiven: unknown, owner: StorageKey): { value: string; evicted: number } | null {
   const db = dbGiven as Db;
   const row = db
-    .prepare("SELECT value FROM operational WHERE owner = ? AND kind = 'vectors' AND retired_at IS NULL")
-    .get(owner);
+    .prepare("SELECT value FROM operational WHERE owner_key = ? AND kind = 'vectors' AND retired_at IS NULL")
+    .get(storageId(owner));
   if (!row) return null;
   const evicted = db
-    .prepare('SELECT COUNT(*) AS n FROM vectors WHERE owner_file = ? AND bytes IS NULL AND retired_at IS NULL')
-    .get(owner)?.n as number;
+    .prepare('SELECT COUNT(*) AS n FROM vectors WHERE owner_key = ? AND bytes IS NULL AND retired_at IS NULL')
+    .get(storageId(owner))?.n as number;
   return { value: row.value as string, evicted };
 }
 
@@ -51,7 +42,7 @@ export function storedManifest(value: unknown): Row | null {
  */
 export function vectorMonthFiles(
   dbGiven: unknown,
-  owner: string,
+  owner: StorageKey,
   { checksum }: { checksum: (i8: Uint8Array, meta: Buffer) => unknown }
 ): { manifest: Row | undefined; meta: Buffer; i8: Buffer } | null {
   const db = dbGiven as Db;

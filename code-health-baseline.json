@@ -335,7 +335,7 @@
     },
     "src/errands/store.ts": {
       "createErrandStore": {
-        "function-length": 512
+        "function-length": 508
       }
     },
     "src/format.ts": {
@@ -479,7 +479,7 @@
     },
     "src/memory/db/service.ts": {
       "createMemoryDb": {
-        "function-length": 1083
+        "function-length": 1056
       },
       "createMemoryDb>sessionJob": {
         "complexity": 30
@@ -589,7 +589,7 @@
     },
     "src/memory/vectors.ts": {
       "createVectors": {
-        "function-length": 491
+        "function-length": 488
       },
       "createVectors>search": {
         "complexity": 35

@@ -130,9 +130,10 @@ function monthContext(
   manifest: Manifest,
   i8: Buffer,
   unique: (id: string) => string,
-  iface: string
+  iface: string,
+  privateUser: string | null | undefined = undefined
 ): MonthContext {
-  const user = privateUserOf(dir);
+  const user = privateUser ?? privateUserOf(dir);
   return {
     manifest,
     i8,
@@ -160,7 +161,7 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   if (lines === null || dims === null) {
     operational.raw = { meta, i8: i8.toString('base64') };
   } else {
-    const month = monthContext(dir, manifest, i8, uniqueIds(), iface);
+    const month = monthContext(dir, manifest, i8, uniqueIds(), iface, ctx.privateUserId);
     lines.forEach((line, index) => put(rows, 'vectors', lineRow(line, index, month)));
     const used = lines.length * dims;
     if (i8.length > used) operational.tailI8 = i8.subarray(used).toString('base64');
@@ -180,7 +181,12 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
 export function appendRows(
   rel: string,
   delta: MonthFiles,
-  { previous, keys, iface = LEGACY_IFACE }: { previous: Stored; keys: Iterable<string>; iface?: string }
+  {
+    previous,
+    keys,
+    iface = LEGACY_IFACE,
+    privateUserId,
+  }: { previous: Stored; keys: Iterable<string>; iface?: string; privateUserId?: string | null }
 ): Rows | null {
   const dir = monthDirOf(rel);
   const manifest = delta.manifest;
@@ -210,7 +216,7 @@ export function appendRows(
     seen.add(out);
     return out;
   };
-  const month = monthContext(dir, manifest, i8, unique, iface);
+  const month = monthContext(dir, manifest, i8, unique, iface, privateUserId);
   const rows: Rows = {};
   lines.forEach((line, index) => put(rows, 'vectors', lineRow(line, index, month)));
   const next: Stored = { manifest, gen: manifest.gen ?? null };

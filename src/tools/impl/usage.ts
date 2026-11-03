@@ -16,6 +16,8 @@
 
 import * as nodeFs from 'node:fs';
 import path from 'node:path';
+import { personaKey } from '../../memory/db/storage-keys.ts';
+
 import { createReadSeam, unitValue } from '../../memory/db/readers/common.ts';
 import type { MemoryDbService } from '../../memory/db/service.ts';
 import { MINUTE_MS, DAY_MS, utcDay, utcMinute } from '../../time.ts';
@@ -185,7 +187,7 @@ export function createUsage({
     try {
       parsed = memoryDb
         ? seam.run(() => {
-            const found = unitValue(seam.db(), USAGE_FILE);
+            const found = unitValue(seam.db(), personaKey('usage'));
             return found.found ? found.value : null;
           })
         : (JSON.parse(fs.readFileSync(file, 'utf8')) as unknown);
@@ -299,7 +301,7 @@ export function createUsage({
       ...(Object.keys(keyed).length > 0 ? { keys: keyed } : {}),
     };
     if (memoryDb) {
-      await memoryDb.writeUnit({ op: 'value', owner: USAGE_FILE, value });
+      await memoryDb.writeUnit({ op: 'value', key: personaKey('usage'), value });
       return;
     }
     const text = JSON.stringify(value);

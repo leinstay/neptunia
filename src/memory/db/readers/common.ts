@@ -1,27 +1,17 @@
-// The shared half of the database readers: how a module's read of a memory unit is answered from the database, and
-// the seam every memory module reads through.
-//
-// The memory files are units: one file (a record day, a journal day, an archive month, `intentions.json`) or one
-// directory (a month of vectors), and every row a unit's mapper wrote carries the unit's path as `owner_file`
-// (`guilds/<g>/record/2026-10/2026-10-20.jsonl`). A reader answers a file read with the unit rebuilt by the export
-// (export.ts#unitRows, #filesOfUnit, the mapper's `fromRows`), so a module reading through it parses the same lines,
-// in the same order, as from the disk, and keeps one copy of its own logic (filters, joins, ordering) for both
-// backends. A directory listing is the distinct `owner_file` values under the directory's path, sorted as bytes
-// (the same order as a sorted `readdir` of ASCII names). These are the core's own reads of the whole memory: no
-// audience, no execution context.
-//
-// The seam (`createReadSeam`): `db()` is the read connection of the service (`memoryDb.readHandle()`), or an error
-// with code `DB_CLOSED` when the database is not open (or no service is given). A failed database read is an error to
-// the caller, logged once with its code (`memory db: read failed`, fields `reader` and `code`). Logs carry codes only.
+// Shared semantic readers and the ready database seam. Core modules read complete values and ordered lines by
+// StorageKey. The explicit legacy export adapter understands historical owner strings. A closed service refuses
+// reads with DB_CLOSED; failures are logged once with their reader and code, without stored contents.
 
-import { rootStateKind } from '../paths.ts';
-import { filesOfUnit, unitRows } from '../export.ts';
+import { hasStorageUnits } from '../storage-units.ts';
+import { storageId } from '../storage-keys.ts';
+import type { StorageKey } from '../storage-keys.ts';
+import { legacyStorageKey, rootStateKind } from '../paths.ts';
+
+import { filesOfUnit, unitRows, storageValue, storageLines } from '../export.ts';
 import { classify } from '../map/index.ts';
 import type { MappedPath } from '../map/index.ts';
 import { asText } from '../types.ts';
 import type { Db, Log } from '../types.ts';
-
-const END = '￿';
 
 /** An Error with a code. */
 export function codedError(code: string, message = code): Error & { code: string } {
@@ -35,35 +25,6 @@ export function layerDir(guildId: string, privateUserId: unknown, sub: unknown):
       ? `guilds/${guildId}/private/${privateUserId}`
       : `guilds/${guildId}`;
   return sub ? `${layer}/${asText(sub)}` : layer;
-}
-
-/** The distinct `owner_file` values of the active rows of `table` under the directory `relDir`, sorted as bytes. */
-export function ownersUnder(
-  db: Db,
-  table: string,
-  relDir: unknown,
-  { kind = null }: { kind?: string | null } = {}
-): Array<string> {
-  const prefix = `${String(relDir).replace(/\/+$/, '')}/`;
-  const sql = `SELECT DISTINCT owner_file AS owner FROM "${table}" WHERE owner_file >= ? AND owner_file < ? AND retired_at IS NULL${kind ? ' AND kind = ?' : ''} ORDER BY owner_file`;
-  const args = kind ? [prefix, prefix + END, kind] : [prefix, prefix + END];
-  return db
-    .prepare(sql)
-    .all(...args)
-    .map((row) => String(row.owner));
-}
-
-/** The names directly under `relDir` among `owners` (the first path segment after it), distinct, sorted as bytes. */
-export function childNames(owners: ReadonlyArray<string>, relDir: unknown): Array<string> {
-  const prefix = `${String(relDir).replace(/\/+$/, '')}/`;
-  const names = new Set<string>();
-  for (const owner of owners) {
-    if (!owner.startsWith(prefix)) continue;
-    const rest = owner.slice(prefix.length);
-    const name = rest.split('/')[0];
-    if (name) names.add(name);
-  }
-  return [...names].sort(byBytes);
 }
 
 /** Sorts strings the way SQLite's BINARY collation and a sorted ASCII `readdir` do. */
@@ -84,8 +45,10 @@ const unitRelOf = (owner: string) => /^guilds\/[^/]+\/(.+)$/.exec(owner)?.[1] ??
  * The lines of a JSONL memory unit (`owner` its full path) rebuilt from the database, in file order, without their
  * newlines: what reading the file line by line gives. A unit the database holds no row of has no lines.
  */
-export function unitLines(dbGiven: unknown, owner: string): Array<string> {
+export function unitLines(dbGiven: unknown, key: StorageKey | string): Array<string> {
   const db = dbGiven as Db;
+  if (hasStorageUnits(db)) return storageLines(db, typeof key === 'string' ? legacyStorageKey(key) : key);
+  const owner = typeof key === 'string' ? key : storageId(key);
   const info = infoOf(owner, 'jsonl');
   const [out] = filesOfUnit(db, unitRelOf(owner), info, owner);
   const text = out ? out.data.toString('utf8') : '';
@@ -96,8 +59,16 @@ export function unitLines(dbGiven: unknown, owner: string): Array<string> {
  * The value of a JSON memory unit rebuilt from the database (what `JSON.parse` of the file gives), or not found when
  * the database holds no row of it (a missing file).
  */
-export function unitValue(dbGiven: unknown, ownerGiven: unknown): { found: true; value: unknown } | { found: false } {
+export function unitValue(
+  dbGiven: unknown,
+  ownerGiven: StorageKey | string
+): { found: true; value: unknown } | { found: false } {
   const db = dbGiven as Db;
+  if (hasStorageUnits(db)) {
+    const key = typeof ownerGiven === 'string' ? legacyStorageKey(ownerGiven) : ownerGiven;
+    const unit = db.prepare('SELECT 1 FROM storage_units WHERE id=? AND retired_at IS NULL').get(storageId(key));
+    return unit ? { found: true, value: storageValue(db, key) } : { found: false };
+  }
   const owner = ownerGiven as string;
   const kind = rootStateKind(owner);
   if (kind) {

@@ -25,6 +25,10 @@
 
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { communityKey, namespaceOf, keyText } from './db/storage-keys.ts';
+
+import type { StorageKey } from './db/storage-keys.ts';
+
 import { log as defaultLog } from '../log.ts';
 import { clampChars, clampWithEllipsis, oneLine } from './clamp.ts';
 import { memoryRootOf } from './root.ts';
@@ -424,11 +428,11 @@ export function createRecord({
     const write = seam.run(() => unitWriter());
     let written = 0;
     let duplicates = 0;
-    const flush = async (owner: Untyped, run: Untyped) => {
-      if (run.length === 0) return;
+    const flush = async (owner: string | null, run: Untyped) => {
+      if (!owner || run.length === 0) return;
       // The writer answers a lines unit with how many lines it wrote and how many it already held.
       const done = (await seam.run(() =>
-        write({ op: 'lines', owner, lines: run, ...(messages ? { messages } : {}) })
+        write({ op: 'lines', key: JSON.parse(owner) as StorageKey, lines: run, ...(messages ? { messages } : {}) })
       )) as StoredRecord | undefined;
       written += done?.written ?? 0;
       duplicates += done?.duplicates ?? 0;
@@ -438,7 +442,13 @@ export function createRecord({
     for (const raw of Array.isArray(lines) ? lines : []) {
       if (!raw || typeof raw !== 'object') continue;
       const line = stamped(guildId, raw, privateUserId);
-      const unit = root.relative(dayFile(guildId, line.occurredAt, privateUserId));
+      const unit = keyText(
+        communityKey('record', guildId, {
+          iface: namespaceOf(memoryDb),
+          privateUserId,
+          partition: String(line.occurredAt).slice(0, 10),
+        })
+      );
       if (unit !== owner) {
         await flush(owner, run);
         owner = unit;
@@ -482,9 +492,9 @@ export function createRecord({
     const fromDay = from ? dayOf(from) : '0000-00-00';
     const toDay = to ? dayOf(to) : '9999-99-99';
     const channels = Array.isArray(channelIds) ? new Set(channelIds) : null;
-    for (const month of seam.run(() => recordMonths(db, guildId, privateUserId))) {
+    for (const month of seam.run(() => recordMonths(db, guildId, privateUserId, namespaceOf(memoryDb)))) {
       if (!MONTH_RE.test(month) || month < fromDay.slice(0, 7) || month > toDay.slice(0, 7)) continue;
-      for (const unit of seam.run(() => recordDays(db, guildId, privateUserId, month))) {
+      for (const unit of seam.run(() => recordDays(db, guildId, privateUserId, month, namespaceOf(memoryDb)))) {
         const { day } = unit;
         if (day < fromDay || day > toDay) continue;
         for (const line of seam.run(() => recordLines(db, unit.owner))) {
@@ -508,14 +518,22 @@ export function createRecord({
     return serial(async () => {
       const db = seam.db();
       return seam.run(() =>
-        recordNewestRevision(db, guildId, privateUserId, dayOf(occurredAtIso).slice(0, 7), messageId, locator)
+        recordNewestRevision(
+          db,
+          guildId,
+          privateUserId,
+          dayOf(occurredAtIso).slice(0, 7),
+          messageId,
+          locator,
+          namespaceOf(memoryDb)
+        )
       );
     });
   }
 
   async function stats(guildId: string) {
     const db = seam.db();
-    return seam.run(() => recordStats(db, guildId));
+    return seam.run(() => recordStats(db, guildId, namespaceOf(memoryDb)));
   }
 
   return { append, dayFile, iterate, newestRevision, stats };

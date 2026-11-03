@@ -27,6 +27,11 @@
 //
 // Pure: no I/O.
 
+import { accountId, guildPlaceId, channelPlaceId } from './ids.ts';
+import { LEGACY_IFACE } from './legacy-namespace.ts';
+import { classify } from './map/index.ts';
+import { operationalKindOf } from './map/verbatim.ts';
+import type { StorageKey, StorageKind, StorageSelector, StorageSubject } from './storage-keys.ts';
 import { asText } from './types.ts';
 
 /** One pattern of the allowlist: the glob it documents and the expression that decides it. */
@@ -147,4 +152,61 @@ export function isCoreStatePath(owner: unknown): boolean {
     rootStateKind(owner) !== null ||
     (typeof owner === 'string' && /^guilds\/[^/]+\/(?:inner|missed|participation|gifs|media)\.json$/.test(owner))
   );
+}
+
+/** The semantic identity of a historical collection without merging its existing replacement boundary. */
+export function legacyStorageKey(owner: string, iface = LEGACY_IFACE): StorageKey {
+  const root = rootStateKind(owner);
+  if (root) return { kind: root as StorageKind, subject: { type: 'persona', id: 'persona:local' } };
+  const info = classify(/\/vectors\/\d{4}-\d{2}$/.test(owner) ? `${owner}/manifest.json` : owner);
+  if (!info || 'skipped' in info || !info.guildId)
+    throw Object.assign(new Error('UNIT_UNMAPPED'), { code: 'UNIT_UNMAPPED' });
+  const scopePlaceId = guildPlaceId(iface, info.guildId);
+  const kind: StorageKind = info.kind === 'verbatim' ? (operationalKindOf(info.unit) as StorageKind) : info.kind;
+  const rel = info.unit;
+  const selector = legacySelector(kind, rel);
+  const subject = legacySubject(kind, rel, iface, scopePlaceId, selector);
+  const partition =
+    kind === 'record' || kind === 'journal' || kind === 'requests'
+      ? /\d{4}-\d{2}-\d{2}/.exec(rel)?.[0]
+      : ['archive', 'vectors', 'record_ids', 'archive_ids'].includes(kind)
+        ? /\d{4}-\d{2}/.exec(rel)?.[0]
+        : undefined;
+  return { kind, subject, scopePlaceId, ...(partition ? { partition } : {}), ...(selector ? { selector } : {}) };
+}
+
+/** Selectors retain distinct legacy collections and individual request and version records. */
+function legacySelector(kind: StorageKind, rel: string): StorageSelector | undefined {
+  if (kind === 'intentions') return { collection: rel.endsWith('.jsonl') ? 'archive' : 'active' };
+  if (kind === 'errands') return { collection: rel.endsWith('.jsonl') ? 'history' : 'value' };
+  if (kind === 'requests') return { requestId: /([^/]+)\.json$/.exec(rel)![1] };
+  if (kind === 'versions') {
+    const [, versionKind, itemId] = /^versions\/([^/]+)\/(.+)\.json$/.exec(rel)!;
+    return { versionKind: versionKind as NonNullable<StorageSelector['versionKind']>, itemId };
+  }
+  if (['backfill', 'forgetting', 'request_tools', 'archive_pending'].includes(kind))
+    return {
+      itemId: rel
+        .split('/')
+        .pop()!
+        .replace(/\.jsonl?$/, ''),
+    };
+  return undefined;
+}
+
+/** A legacy wrapper's community scope stays separate from its exact account or place subject. */
+function legacySubject(
+  kind: StorageKind,
+  rel: string,
+  iface: string,
+  scope: string,
+  selector?: StorageSelector
+): StorageSubject {
+  const itemId = /([^/]+)\.json$/.exec(rel)?.[1];
+  if (kind === 'user' || kind === 'private') return { type: 'account', id: accountId(iface, itemId) };
+  if (kind === 'channel') return { type: 'place', id: channelPlaceId(iface, itemId) };
+  if (selector?.versionKind === 'users') return { type: 'account', id: accountId(iface, selector.itemId) };
+  if (selector?.versionKind === 'channels') return { type: 'place', id: channelPlaceId(iface, selector.itemId) };
+  const privateUser = /^private\/([^/]+)\//.exec(rel)?.[1];
+  return privateUser ? { type: 'account', id: accountId(iface, privateUser) } : { type: 'place', id: scope };
 }

@@ -22,8 +22,8 @@ export const privateIdOf = (rel: string): string => /([^/]+)\.json$/.exec(String
 
 export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const iface = ifaceOf(ctx);
-  const userId = privateIdOf(rel);
-  const person = personId(iface, userId);
+  const userId = ctx.subjectNativeId ?? privateIdOf(rel);
+  const person = ctx.subjectPersonId ?? personId(iface, userId);
   const rows: Rows = {};
   const { rest, affinity } = profileRows(rows, value, {
     rel,

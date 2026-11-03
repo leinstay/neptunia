@@ -101,7 +101,7 @@ function memoryRows(rel: string, line: Row, ctx: MapContext, privateUser: string
 
 export function toRows(rel: string, line: Row, ctx: MapContext = {}): Rows {
   const iface = ifaceOf(ctx);
-  const privateUser = privateUserOf(rel);
+  const privateUser = ctx.privateUserId ?? privateUserOf(rel);
   if (line.kind === 'memory') return memoryRows(rel, line, ctx, privateUser);
   const rows: Rows = {};
   const body = { ...line };
@@ -155,7 +155,7 @@ export function toRows(rel: string, line: Row, ctx: MapContext = {}): Rows {
   return rows;
 }
 
-export function fromRows(rows: Rows): Row {
+export function fromRows(rows: Rows, ctx: MapContext = {}): Row {
   const decision = rowsOf(rows, 'decisions')[0];
   if (decision) {
     const rest = parseExtra(decision.extra);
@@ -169,7 +169,12 @@ export function fromRows(rows: Rows): Row {
   }
   const day = rows.day[0];
   const rest = parseExtra(day.extra);
-  const scope = scopeFrom(day, rest, privateUserOf(String(day.owner_file)), ifaceOf(day, 'scope_iface'));
+  const scope = scopeFrom(
+    day,
+    rest,
+    ctx.privateUserId ?? privateUserOf(String(day.owner_file)),
+    ifaceOf(day, 'scope_iface')
+  );
   const line = join(day, rest, DAY_SPEC);
   if (scope !== undefined) line.scope = scope;
   const answer = rowsOf(rows, 'sources')[0];

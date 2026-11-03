@@ -26,7 +26,7 @@ export const channelIdOf = (rel: string): string => /([^/]+)\.json$/.exec(String
 
 export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const iface = ifaceOf(ctx);
-  const placeId = channelPlaceId(iface, channelIdOf(rel));
+  const placeId = ctx.subjectId ?? channelPlaceId(iface, channelIdOf(rel));
   const rows: Rows = {};
   const { cols, rest } = split(value, PLACE_SPEC);
   const scope = groupScope(iface);

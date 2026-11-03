@@ -8,13 +8,16 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { Config, Db, Log } from '../../../src/memory/db/types.ts';
+import { dbOf, type Config, type Log } from '../../../src/memory/db/types.ts';
 import type { MemoryDbService } from '../../../src/memory/db/service.ts';
 import { createMemoryDb } from '../../../src/memory/db/service.ts';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
 import { classify } from '../../../src/memory/db/map/index.ts';
 import { filesOfUnit } from '../../../src/memory/db/export.ts';
 import { seedUnits } from './seed.ts';
+import { legacyStorageKey } from '../../../src/memory/db/paths.ts';
+import { listUnits } from '../../../src/memory/db/storage-units.ts';
+import { unitValue, unitLines } from '../../../src/memory/db/readers/common.ts';
 
 const silent = { info() {}, debug() {}, warn() {}, error() {} };
 
@@ -100,11 +103,21 @@ export function openTestMemorySync({
 export function unitFile(memoryDb: Pick<MemoryDbService, 'readHandle'>, rel: string): string | null {
   const handle = memoryDb.readHandle();
   if (!handle) throw new Error('the memory database is not open');
-  const db = handle.db as Db;
+  const db = dbOf(handle);
   const info = classify(rel);
   if (!info || 'skipped' in info) return null;
   const full = info.guildId === undefined ? info.unit : `guilds/${info.guildId}/${info.unit}`;
-  if (!db.prepare('SELECT 1 AS ok FROM files WHERE path = ? AND gone_at IS NULL').get(full)) return null;
+  // This fixture accepts a legacy export label. Fresh semantic units need no provenance alias.
+  const key = legacyStorageKey(full);
+  if (listUnits(db, key).length === 0) return null;
+  if (info.format === 'jsonl') {
+    const lines = unitLines(db, key);
+    return lines.join('\n') + (lines.length ? '\n' : '');
+  }
+  if (info.format === 'json') {
+    const value = unitValue(db, key);
+    return value.found ? `${JSON.stringify(value.value, null, 2)}\n` : null;
+  }
   const [out] = filesOfUnit(db, info.unit, info, full);
   return out ? out.data.toString('utf8') : null;
 }

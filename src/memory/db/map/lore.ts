@@ -26,7 +26,7 @@ export function toRows(rel: string, entries: ReadonlyArray<Row>, ctx: MapContext
   const iface = ifaceOf(ctx);
   const rows: Rows = {};
   const uniq = uniqueIds();
-  const placeId = guildPlaceId(iface, ctx.guildId ?? 'unknown');
+  const placeId = ctx.scopePlaceId ?? guildPlaceId(iface, ctx.guildId ?? 'unknown');
   entries.forEach((entry: Row, position: number) => {
     const part = split(entry, SPEC);
     const wanted = typeof entry.id === 'string' && entry.id !== '' ? `${PREFIX}${entry.id}` : null;

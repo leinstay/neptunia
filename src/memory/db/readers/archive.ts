@@ -1,51 +1,53 @@
-// The archive's reads from the database (src/memory/archive.ts reads through them).
-// An archive month is the unit `<layer>/archive/<YYYY-MM>.jsonl` of `claim_versions` rows (map/archive.ts); the
-// lines come back rebuilt by the export, in file order. Pure functions over a read connection.
+// Archive collections are selected by semantic scope, subject and UTC month.
 
-import { byBytes, childNames, layerDir, ownersUnder, unitLines } from './common.ts';
+import { communityKey } from '../storage-keys.ts';
+import { listUnits } from '../storage-units.ts';
+import { storageContext } from '../map/index.ts';
+import { guildPlaceId } from '../ids.ts';
+import { LEGACY_IFACE } from '../legacy-namespace.ts';
+import { layerDir, unitLines } from './common.ts';
 import type { Db } from '../types.ts';
 
-const SEGMENT_RE = /^(\d{4}-\d{2})\.jsonl$/;
-const PRIVATE_ARCHIVE_RE = /^([^/]+)\/archive\//;
+/** The directory of the explicit legacy export adapter. */
+export const archiveDirOf = (guildId: unknown, privateUserId: string | null = null): string =>
+  layerDir(String(guildId), privateUserId, 'archive');
 
-/** The archive's directory of a layer. */
-export const archiveDirOf = (guildId: string, privateUserId: string | null = null): string =>
-  layerDir(guildId, privateUserId, 'archive');
-
-/** The months (`YYYY-MM`) with a segment in a layer's archive, sorted. */
-export function archiveMonths(db: Db, guildIdGiven: unknown, privateUserId: string | null = null): Array<string> {
-  const guildId = guildIdGiven as string;
-  const dir = archiveDirOf(guildId, privateUserId);
-  const out: Array<string> = [];
-  for (const name of childNames(ownersUnder(db, 'claim_versions', dir), dir)) {
-    const match = name.match(SEGMENT_RE);
-    if (match) out.push(match[1]);
-  }
-  return out;
+export function archiveMonths(
+  db: Db,
+  guildId: unknown,
+  privateUserId: string | null = null,
+  iface = LEGACY_IFACE
+): Array<string> {
+  const key = communityKey('archive', String(guildId), { iface, privateUserId });
+  return listUnits(db, { kind: key.kind, subject: key.subject, scopePlaceId: key.scopePlaceId })
+    .map((unit) => unit.key.partition!)
+    .filter(Boolean)
+    .sort();
 }
 
-/** The lines (JSON text) of one month segment of a layer's archive, in file order. */
 export function archiveLines(
   dbGiven: unknown,
   guildIdGiven: unknown,
   privateUserIdGiven: unknown,
-  monthGiven: unknown
+  monthGiven: unknown,
+  iface = LEGACY_IFACE
 ): Array<string> {
-  const db = dbGiven as Db;
-  const guildId = guildIdGiven as string;
-  const privateUserId = privateUserIdGiven as string | null;
-  const month = monthGiven as string;
-  return unitLines(db, `${archiveDirOf(guildId, privateUserId)}/${month}.jsonl`);
+  return unitLines(
+    dbGiven,
+    communityKey('archive', String(guildIdGiven), {
+      iface,
+      privateUserId: privateUserIdGiven as string | null,
+      partition: String(monthGiven),
+    })
+  );
 }
 
-/** The members with a private archive in the guild, sorted. */
-export function archiveLayers(db: Db, guildIdGiven: unknown): Array<string> {
-  const guildId = guildIdGiven as string;
-  const dir = layerDir(guildId, null, 'private');
-  const users = new Set<string>();
-  for (const owner of ownersUnder(db, 'claim_versions', dir)) {
-    const match = owner.slice(dir.length + 1).match(PRIVATE_ARCHIVE_RE);
-    if (match) users.add(match[1]);
-  }
-  return [...users].sort(byBytes);
+export function archiveLayers(db: Db, guildId: unknown, iface = LEGACY_IFACE): Array<string> {
+  return [
+    ...new Set(
+      listUnits(db, { kind: 'archive', scopePlaceId: guildPlaceId(iface, guildId) })
+        .filter((unit) => unit.key.subject.type === 'account')
+        .map((unit) => storageContext(db, unit.key).subjectNativeId!)
+    ),
+  ].sort();
 }

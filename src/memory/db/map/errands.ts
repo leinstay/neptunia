@@ -42,7 +42,7 @@ function workRow(rel: string, errand: Row, position: number) {
 
 export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const rows: Rows = {};
-  if (isEventsPath(rel)) {
+  if (ctx.collection === 'history' || isEventsPath(rel)) {
     const position = ctx.position ?? 0;
     put(rows, 'work_events', {
       id: `${asText(mappable(value) ? value.id : 'event')}:${num(value?.at) ?? ''}:${position}`,

@@ -67,7 +67,7 @@ export type CreateMissedInput = {
   getGuildId: () => string | null;
   getSelfName?: (guildId: string) => string;
   dataDir: string;
-  memoryDb?: Pick<MemoryDbService, 'readHandle' | 'writeUnit'>;
+  memoryDb?: Pick<MemoryDbService, 'readHandle' | 'writeUnit' | 'namespace'>;
   fs?: Pick<typeof nodeFs, 'mkdir' | 'writeFile' | 'rename' | 'readFile'>;
   now?: () => number;
   timers?: { set: (fn: () => void, ms: number) => Untyped; clear: (timer: Untyped) => void };

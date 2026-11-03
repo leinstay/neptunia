@@ -1,16 +1,13 @@
-// A memory unit rebuilt from the database alone (spec 2026-10-24-memory-store, section 6): what the memory modules read
-// (src/memory/db/readers/), in the shape the unit had as a file under data/.
-//
-// Which units exist comes from the `files` table (the writers record every unit they wrote, a month of vectors being
-// one unit; a unit that is gone is a tombstone, `gone_at`); what is in them comes from the rows whose `owner_file` is
-// the unit's full path (`guilds/<g>/users/<u>.json`) or that the unit shares with another guild (`co_owners`), and that
-// are not retired. A JSON unit is built the way the store writes it (2 spaces, no trailing newline), a JSONL unit one
-// line per row in its line order, vector bytes exactly, operational rows verbatim. A member's profile and private
-// layer also hold what her memory session wrote about the person (session-rows.ts#addSessionRows).
-//
-// exportOne(database, relPath) -> { found, value } | { found: false, reason }   (one JSON unit's value)
+// Semantic collections rebuilt from catalog-owned rows, shared ownership and protected session-written rows.
+// Unit values retain their existing mapper shapes and append order. Legacy file exports resolve historical
+// provenance explicitly; live readers use semantic keys and do not enumerate legacy paths.
 
-import { classify } from './map/index.ts';
+import { hasStorageUnits, unitById } from './storage-units.ts';
+import { storageId } from './storage-keys.ts';
+import type { StorageKey } from './storage-keys.ts';
+import { legacyStorageKey } from './paths.ts';
+import { storageMapper, classify } from './map/index.ts';
+
 import type { Mapper, MappedPath } from './map/index.ts';
 import { filesOf } from './map/vectors.ts';
 import { OWNED } from './upsert.ts';
@@ -46,13 +43,17 @@ const KEY_SQL = (table: string) =>
  * The active rows of one unit (`owner` is its full path): table -> rows (every table present), children included; a
  * member's unit with her session's rows about the person.
  */
-export function unitRows(db: Db, owner: string): Rows {
+export function unitRows(db: Db, key: StorageKey | string): Rows {
+  const current = hasStorageUnits(db);
+  const semantic = typeof key === 'string' ? (current ? (unitById(db, key)?.key ?? legacyStorageKey(key)) : null) : key;
+  const owner = semantic ? storageId(semantic) : typeof key === 'string' ? key : storageId(key);
+  const column = current ? 'owner_key' : 'owner_file';
   const rows: Rows = {};
   for (const table of Object.keys(OWNED)) {
     const order = HAS_POSITION.has(table) ? 'position, rowid' : 'rowid';
     rows[table] = db
       .prepare(
-        `SELECT * FROM "${table}" WHERE (owner_file = ? OR ${KEY_SQL(table)} IN (SELECT key FROM co_owners WHERE tbl = ? AND owner_file = ?)) AND retired_at IS NULL ORDER BY ${order}`
+        `SELECT * FROM "${table}" WHERE (${column} = ? OR ${KEY_SQL(table)} IN (SELECT key FROM co_owners WHERE tbl = ? AND ${column} = ?)) AND retired_at IS NULL ORDER BY ${order}`
       )
       .all(owner, table, owner)
       .map((row) => ({ ...row }));
@@ -61,12 +62,12 @@ export function unitRows(db: Db, owner: string): Rows {
     rows[child] = db
       .prepare(
         `SELECT c.* FROM "${child}" c JOIN "${parent}" p ON p.id = c."${link}"
-      WHERE (p.owner_file = ? OR p.id IN (SELECT key FROM co_owners WHERE tbl = ? AND owner_file = ?)) AND p.retired_at IS NULL AND c.retired_at IS NULL ORDER BY ${child === 'diary_mirrors' ? 'c.rowid' : 'c.position, c.rowid'}`
+      WHERE (p.${column} = ? OR p.id IN (SELECT key FROM co_owners WHERE tbl = ? AND ${column} = ?)) AND p.retired_at IS NULL AND c.retired_at IS NULL ORDER BY ${child === 'diary_mirrors' ? 'c.rowid' : 'c.position, c.rowid'}`
       )
       .all(owner, parent, owner)
       .map((row) => ({ ...row }));
   }
-  const classified = classify(owner);
+  const classified = semantic ? { kind: semantic.kind } : classify(owner);
   addSessionRows(db, classified && 'kind' in classified ? classified.kind : undefined, rows);
   return rows;
 }
@@ -121,6 +122,18 @@ function linesOf(kind: string, mapper: Mapper, rows: Rows): Array<unknown> {
   }
 }
 
+/** A semantic collection rebuilt without consulting a legacy alias or filename. */
+export function storageValue(db: Db, key: StorageKey): unknown {
+  const mapped = storageMapper(db, key, storageId(key));
+  return mapped.mapper.fromRows(unitRows(db, key));
+}
+
+/** Semantic append collections keep their mapper order and native source identity. */
+export function storageLines(db: Db, key: StorageKey): Array<string> {
+  const mapped = storageMapper(db, key, storageId(key));
+  return linesOf(mapped.kind, mapped.mapper, unitRows(db, key)).map((line) => JSON.stringify(line));
+}
+
 /** The files of one unit: [{ rel, data }] relative to the unit's guild directory. `unitFull` is the unit's full path. */
 export function filesOfUnit(
   db: Db,
@@ -161,7 +174,13 @@ export function exportOne(
   const info = classify(relPath);
   if (!info || 'skipped' in info || info.format !== 'json') return { found: false, reason: 'unmapped' };
   const full = info.guildId === undefined ? info.unit : `guilds/${info.guildId}/${info.unit}`;
-  const file = db.prepare('SELECT 1 AS ok FROM files WHERE path = ? AND gone_at IS NULL').get(full);
+  const file = hasStorageUnits(db)
+    ? db
+        .prepare(
+          'SELECT 1 FROM legacy_unit_aliases a JOIN storage_units u ON u.id=a.unit_id WHERE a.path=? AND u.retired_at IS NULL'
+        )
+        .get(full)
+    : db.prepare('SELECT 1 AS ok FROM files WHERE path = ? AND gone_at IS NULL').get(full);
   if (!file) return { found: false, reason: 'missing' };
   const [out] = filesOfUnit(db, info.unit, info, full);
   if (!out) return { found: false, reason: 'empty' };

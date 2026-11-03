@@ -36,6 +36,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { errandKey } from '../memory/db/storage-keys.ts';
+
 import { log as defaultLog } from '../log.ts';
 import { DAY_MS } from '../time.ts';
 import { agentCosts, costRecord, KEEP_DAYS } from './costs.ts';
@@ -122,6 +124,18 @@ function requesterKindOf(kind: unknown): RequesterKind {
 /** The state a runner's `status` closes an errand in: `done` and `cancelled` as they are, anything else `failed`. */
 function endStateOf(status: unknown): 'done' | 'failed' | 'cancelled' {
   return status === 'done' || status === 'cancelled' ? status : 'failed';
+}
+
+/** Normalize the older board records before the store exposes them. */
+function loadedErrands(records: Array<unknown>): Array<ErrandRecord> {
+  const errands = records.filter(isStoredErrand);
+  for (const errand of errands) {
+    // Records from before readAt: a seen one was read, an unseen one is still unread.
+    if (errand.readAt === undefined)
+      errand.readAt = errand.seen === true ? (errand.endedAt ?? errand.createdAt ?? 0) : null;
+    if (errand.resolvedAt === undefined) errand.resolvedAt = null;
+  }
+  return errands;
 }
 
 /** The values a store is built over; `memoryDb` is the memory database service (src/memory/db/). */
@@ -298,13 +312,7 @@ export function createErrandStore({
   /** Every errand of the guild, read once from the board (none without a `memoryDb`). */
   function load(): Array<ErrandRecord> {
     // The board rebuilds each errand exactly as this store wrote it (src/board/archive.ts#errandOf).
-    const errands = db ? (seam.run(() => errandsOf(db, String(guildId))) as Array<unknown>).filter(isStoredErrand) : [];
-    for (const errand of errands) {
-      // Records from before readAt: a seen one was read, an unseen one is still unread.
-      if (errand.readAt === undefined)
-        errand.readAt = errand.seen === true ? (errand.endedAt ?? errand.createdAt ?? 0) : null;
-      if (errand.resolvedAt === undefined) errand.resolvedAt = null;
-    }
+    const errands = loadedErrands(db ? seam.run(() => errandsOf(db, String(guildId))) : []);
     return errands;
   }
 
@@ -330,7 +338,7 @@ export function createErrandStore({
       log.warn('errands: tasks write failed', { guildId: String(guildId), code: 'DB_CLOSED' });
       return;
     }
-    outbox.value(`board/errands/${id}`, {
+    outbox.value(errandKey(memoryDb, String(guildId), id), {
       id,
       guildId: String(guildId),
       at: now(),
@@ -735,7 +743,9 @@ export function createErrandStore({
   function markDelivered(id: unknown): boolean {
     const key = idText(id);
     const errand = key ? find(key) : null;
-    const landing = Boolean(errand && !isOpenState(errand.state) && outbox?.holds(`board/errands/${key}`));
+    const landing = Boolean(
+      errand && !isOpenState(errand.state) && outbox?.holds(errandKey(memoryDb, String(guildId), key))
+    );
     if (!key || (!landing && !pendingEnds().some((end) => end.errandId === key))) return false;
     delivered.add(key);
     send(key, find(key));

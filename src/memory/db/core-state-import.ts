@@ -2,6 +2,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { hasStorageUnits, ensureUnit } from './storage-units.ts';
+import { legacyStorageKey } from './paths.ts';
+
 import { errorFields } from '../../error-fields.ts';
 import { isPlainObject } from './map/common.ts';
 import { applyUnitWrite, noteUnit } from './unit-write.ts';
@@ -67,10 +70,20 @@ export function importCoreJsonState(
       if (known.get(source.owner)) continue;
       const value = readState(path.join(dataDir, source.owner));
       if (value === undefined) continue;
-      if (source.rootKind) {
+      if (hasStorageUnits(db)) {
+        const key = legacyStorageKey(source.owner);
+        applyUnitWrite(units, { op: 'value', key, value, now });
+        const unitId = ensureUnit(db, key);
+        db.prepare('INSERT OR IGNORE INTO legacy_unit_aliases(path,unit_id) VALUES (?,?)').run(source.owner, unitId);
+        db.prepare('INSERT OR IGNORE INTO files(path,kind,synced_at) VALUES (?,?,?)').run(
+          source.owner,
+          'core-state-import',
+          at
+        );
+      } else if (source.rootKind) {
         root.run(source.rootKind, source.owner, JSON.stringify(value));
         noteUnit(db, source.owner, 'core-state-import', { at });
-      } else applyUnitWrite(units, { kind: 'unit', op: 'value', owner: source.owner, value });
+      } else applyUnitWrite(units, { kind: 'unit', op: 'value', owner: source.owner, value, now });
       imported += 1;
     }
     return { imported };

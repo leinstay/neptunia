@@ -67,6 +67,14 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { keyText, personaKey, storageId, communityKey, namespaceOf } from './db/storage-keys.ts';
+import type { StorageKey, StorageKind, StorageSelector } from './db/storage-keys.ts';
+
+import { listUnits } from './db/storage-units.ts';
+import type { UnitQuery } from './db/storage-units.ts';
+import { storageContext, classify } from './db/map/index.ts';
+import { accountId, channelPlaceId } from './db/ids.ts';
+
 import { isRecord, propOf, isFiniteNumber, isIntegerNumber, canWriteUnits, readSeamOf } from './types.ts';
 import { log } from '../log.ts';
 import { HOUR_MS, utcDay } from '../time.ts';
@@ -106,8 +114,7 @@ import { normalizeAvatar } from './avatars.ts';
 import { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR, memoryRootOf } from './root.ts';
 import { isCoreStatePath } from './db/paths.ts';
 import { unitValue } from './db/readers/common.ts';
-import { idsUnderDir } from './db/export.ts';
-import { classify } from './db/map/index.ts';
+
 import { createUnitOutbox } from './db/unit-outbox.ts';
 import type { StoredRecord, MemoryDb, Untyped } from './types.ts';
 
@@ -1582,7 +1589,7 @@ function buildStore({
   function entry(file: string, fallback: () => Untyped): CacheItem {
     let item = entries.get(file);
     // A profile an attitude move made stale (`noteAffinityMoves`) is read again once its own write has landed.
-    if (item?.stale && !item.dirty && !outbox?.holds(root.relative(file))) {
+    if (item?.stale && !item.dirty && !outbox?.holds(unitKeys.get(file) ?? root.relative(file))) {
       entries.delete(file);
       item = undefined;
     }
@@ -1591,7 +1598,9 @@ function buildStore({
       let value: Untyped;
       if (!place.file) {
         // A memory unit: the database's value; a unit it does not hold is new (and so is every unit without a database).
-        const found: Untyped = memoryDb ? seam.run(() => unitValue(seam.db(), place.rel)) : { found: false };
+        const found: Untyped = memoryDb
+          ? seam.run(() => unitValue(seam.db(), place.key ?? place.rel))
+          : { found: false };
         value = found.found ? found.value : fallback();
       } else {
         value = readJson(file, fallback());
@@ -1608,6 +1617,8 @@ function buildStore({
    * along with mapped memory units (`send`). Standalone operational state retains its file backend.
    */
   function dbPlace(file: string) {
+    const key = unitKeys.get(file);
+    if (key) return { rel: file, key, file: false, send: true };
     const rel = root.relative(file);
     if (isCoreStatePath(rel))
       return {
@@ -1631,7 +1642,10 @@ function buildStore({
       if (!memoryDb) return false;
       const db: Untyped = seam.db();
       return seam.run(
-        () => db.prepare('SELECT 1 AS ok FROM files WHERE path = ? AND gone_at IS NULL').get(place.rel) !== undefined
+        () =>
+          db
+            .prepare('SELECT 1 AS ok FROM storage_units WHERE id = ? AND retired_at IS NULL')
+            .get(place.key ? storageId(place.key) : place.rel) !== undefined
       );
     }
     return fs.existsSync(file);
@@ -1642,7 +1656,15 @@ function buildStore({
     const ids = new Set<string>();
     if (memoryDb) {
       const db = seam.db();
-      for (const id of seam.run(() => idsUnderDir(db, root.relative(dir))) ?? []) ids.add(id);
+      const query = directoryQueries.get(dir);
+      if (!query) return [];
+      const keys = [...seam.run(() => listUnits(db, query)).map((unit) => unit.key), ...unitKeys.values()];
+      for (const key of keys)
+        if (key.kind === query.kind && key.scopePlaceId === query.scopePlaceId) {
+          const native = storageContext(db, key).subjectNativeId;
+          if (native) ids.add(native);
+        }
+      return [...ids];
     }
     const prefix = dir + path.sep;
     for (const file of entries.keys()) {
@@ -1690,7 +1712,7 @@ function buildStore({
       log.warn('store: unit write failed', { code: 'DB_CLOSED' });
       return;
     }
-    outbox.value(rel, JSON.parse(JSON.stringify(item.value)));
+    outbox.value(unitKeys.get(rel) ?? rel, JSON.parse(JSON.stringify(item.value)));
     item.dirty = false;
   }
 
@@ -1707,25 +1729,69 @@ function buildStore({
   }
 
   const guildDir = root.guildDir;
-  const usersDir = (guildId: string) => path.join(guildDir(guildId), 'users');
-  const userFile = (guildId: string, userId: string) => path.join(usersDir(guildId), `${userId}.json`);
-  const guildFile = (guildId: string) => path.join(guildDir(guildId), 'guild.json');
-  const channelsDir = (guildId: string) => path.join(guildDir(guildId), 'channels');
-  const channelFile = (guildId: string, channelId: string) => path.join(channelsDir(guildId), `${channelId}.json`);
-  const mediaCacheFile = (guildId: string) => path.join(guildDir(guildId), 'media.json');
-  const loreFile = (guildId: string) => path.join(guildDir(guildId), 'lore.json');
-  const gifsFile = (guildId: string) => path.join(guildDir(guildId), 'gifs.json');
-  const privateDir = (guildId: string) => root.privateDir(guildId);
-  const privateFile = (guildId: string, userId: string) => path.join(privateDir(guildId), `${userId}.json`);
-  const recentFile = (guildId: string) => path.join(guildDir(guildId), 'recent.json');
-  const participationFile = (guildId: string) => path.join(guildDir(guildId), 'participation.json');
-  const diaryFile = (guildId: string) => path.join(guildDir(guildId), 'diary.json');
+  const unitKeys = new Map<string, StorageKey>();
+  const directoryQueries = new Map<string, UnitQuery>();
+  const namespace = () => namespaceOf(memoryDb);
+  function address(key: StorageKey, legacy: () => string): string {
+    if (!memoryDb) return legacy();
+    const address = keyText(key);
+    unitKeys.set(address, key);
+    return address;
+  }
+  function collection(kind: StorageKind, guildId: string, legacy: () => string): string {
+    if (!memoryDb) return legacy();
+    const key = communityKey(kind, guildId, { iface: namespace() });
+    const address = JSON.stringify({ kind, scopePlaceId: key.scopePlaceId });
+    directoryQueries.set(address, { kind, scopePlaceId: key.scopePlaceId });
+    return address;
+  }
+  function memberKey(kind: 'user' | 'private' | 'channel', guildId: string, id: string): StorageKey {
+    const key = communityKey(kind, guildId, { iface: namespace() });
+    return {
+      ...key,
+      subject:
+        kind === 'channel'
+          ? { type: 'place', id: channelPlaceId(namespace(), id) }
+          : { type: 'account', id: accountId(namespace(), id) },
+    };
+  }
+  const usersDir = (guildId: string) => collection('user', guildId, () => path.join(guildDir(guildId), 'users'));
+  const userFile = (guildId: string, userId: string) =>
+    address(memberKey('user', guildId, userId), () => path.join(usersDir(guildId), `${userId}.json`));
+  const guildFile = (guildId: string) =>
+    address(communityKey('guild', guildId, { iface: namespace() }), () => path.join(guildDir(guildId), 'guild.json'));
+  const channelsDir = (guildId: string) =>
+    collection('channel', guildId, () => path.join(guildDir(guildId), 'channels'));
+  const channelFile = (guildId: string, channelId: string) =>
+    address(memberKey('channel', guildId, channelId), () => path.join(channelsDir(guildId), `${channelId}.json`));
+  const communityFile = (kind: StorageKind, guildId: string) =>
+    address(communityKey(kind, guildId, { iface: namespace() }), () => path.join(guildDir(guildId), `${kind}.json`));
+  const mediaCacheFile = (guildId: string) => communityFile('media', guildId);
+  const loreFile = (guildId: string) => communityFile('lore', guildId);
+  const gifsFile = (guildId: string) => communityFile('gifs', guildId);
+  const privateDir = (guildId: string) => collection('private', guildId, () => root.privateDir(guildId));
+  const privateFile = (guildId: string, userId: string) =>
+    address(memberKey('private', guildId, userId), () => path.join(privateDir(guildId), `${userId}.json`));
+  const recentFile = (guildId: string) => communityFile('recent', guildId);
+  const participationFile = (guildId: string) => communityFile('participation', guildId);
+  const diaryFile = (guildId: string) => communityFile('diary', guildId);
   const recallTraceFile = (guildId: string) => path.join(guildDir(guildId), 'recall-trace.jsonl');
-  const versionsDir = (guildId: string) => path.join(guildDir(guildId), 'versions');
-  /** A lore id is the entry's title, turned into a safe file name (src/memory/lore.ts#loreVersionKey). */
-  const versionsFile = (guildId: string, kind: string, id: string) =>
-    path.join(versionsDir(guildId), kind, `${kind === 'lore' ? loreVersionKey(id) : String(id)}.json`);
-  const stateFile = root.stateFile;
+  const versionsFile = (guildId: string, kind: string, id: string) => {
+    const selector: StorageSelector = {
+      versionKind: kind as NonNullable<StorageSelector['versionKind']>,
+      itemId: kind === 'lore' ? loreVersionKey(id) : id,
+    };
+    const base =
+      kind === 'users'
+        ? memberKey('user', guildId, id)
+        : kind === 'channels'
+          ? memberKey('channel', guildId, id)
+          : communityKey('guild', guildId, { iface: namespace() });
+    return address({ ...base, kind: 'versions', selector }, () =>
+      path.join(guildDir(guildId), 'versions', kind, `${selector.itemId}.json`)
+    );
+  };
+  const stateFile = address(personaKey('state'), () => root.stateFile);
 
   const stateEntry = entry(stateFile, () => ({}));
 
@@ -3425,7 +3491,7 @@ function buildStore({
         if (file === stateFile) continue;
         // An entry whose write has not resolved stays, so no later read takes the older value.
         const place = dbPlace(file);
-        if (outbox?.holds(place.rel)) continue;
+        if (outbox?.holds(place.key ?? place.rel)) continue;
         entries.delete(file);
         dropped += 1;
       }
@@ -3440,7 +3506,7 @@ function buildStore({
       const place = dbPlace(stateFile);
       if (place.file) stateEntry.value = readJson(stateFile, {});
       else {
-        const found = seam.run(() => unitValue(seam.db(), place.rel));
+        const found = seam.run(() => unitValue(seam.db(), place.key ?? place.rel));
         stateEntry.value = found.found ? found.value : {};
       }
       stateEntry.dirty = false;
@@ -3472,10 +3538,9 @@ function buildStore({
         const userId = /^person:[^:]+:(.+)$/.exec(String(move?.personId ?? ''))?.[1];
         if (!userId) continue;
         for (const [file, item] of [...entries]) {
-          const parts = root.relative(file).split('/');
-          if (parts.length !== 4 || parts[0] !== 'guilds' || parts[2] !== 'users' || parts[3] !== `${userId}.json`)
-            continue;
-          if (!item.dirty && !outbox?.holds(parts.join('/'))) entries.delete(file);
+          const key = unitKeys.get(file);
+          if (!key || key.kind !== 'user' || storageContext(seam.db(), key).subjectPersonId !== move.personId) continue;
+          if (!item.dirty && !outbox?.holds(key)) entries.delete(file);
           else item.stale = true;
           taken += 1;
         }
