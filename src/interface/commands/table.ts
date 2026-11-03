@@ -265,6 +265,13 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('lore.list', 'the lore entries', [arg('query', false)]),
       sub('lore.show', 'one lore entry', [arg('id')]),
       sub('lore.remove', 'remove a lore entry', [arg('id')]),
+      sub(
+        'bind',
+        'one person, several accounts: bind <iface> <account> <iface> <account>, or bind <iface> <account> self',
+        [arg('iface'), arg('account'), arg('target'), arg('targetAccount', false)]
+      ),
+      sub('unbind', 'an account stops sharing its person', [arg('iface'), arg('account')]),
+      sub('accounts', 'the accounts of the person an account belongs to', [arg('iface'), arg('account')]),
       sub('aliases.add', "confirm a member's alias", [arg('user'), arg('name')]),
       sub('aliases.list', "a member's aliases", [arg('user')]),
       sub('aliases.remove', "remove a member's alias", [arg('user'), arg('name')]),

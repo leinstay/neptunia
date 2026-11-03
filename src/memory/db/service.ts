@@ -106,6 +106,7 @@ import { lockPathOf, openMemoryDb } from './open.ts';
 import { channelPlaceId, guildPlaceId, nativeAuthorityOf } from './ids.ts';
 import { LEGACY_IFACE, liveIface, withLiveIface } from './legacy-namespace.ts';
 import { contextRow, issueContext as issuePureContext } from './scope.ts';
+import { linkedDmScopes } from './person-links.ts';
 import { applyDiaryUpdate, createDiaryMedia } from './diary-media.ts';
 import { NEWEST_CLAIM_VERSION_SQL, applyMemoryWrite, writeTurnReadRows } from './session-write.ts';
 import { FOCUS_DEFAULTS, focusView, lastFocusDay, runFocusDay } from './focus.ts';
@@ -578,6 +579,8 @@ export type MemoryDbService = {
   keepPending(update: unknown): string;
   recordWake(update: unknown): Promise<unknown> | null;
   issueContext(spec?: Parameters<typeof issuePureContext>[0]): Context;
+  /** The owner's binding of an account to a person (person-links.ts). */
+  personLink(update: Row): Promise<Row>;
   observe(envelope: unknown, where?: Row | null): Promise<object> | null;
   observeMessage(envelope: unknown, where?: Row | null): Promise<object> | null;
   deleteMessage(input: unknown, where?: Row | null): Promise<object> | null;
@@ -622,6 +625,12 @@ export type MemoryDbOptions = {
   onBackupFailure?: ((failure: Row) => void) | null;
   iface?: () => string | null;
 };
+
+/** A DM reads the history of the person: the context carries the DMs of every account bound to this one. */
+function linkedContext(ctx: Context, read: Db | null): Context {
+  if (read === null || ctx.kind !== 'dm' || !ctx.iface || !ctx.person) return ctx;
+  return { ...ctx, linked: linkedDmScopes(read, ctx.iface, ctx.person) };
+}
 
 function databaseSettings(config: Config) {
   const given = config?.memoryDb ?? {};
@@ -1604,11 +1613,10 @@ export function createMemoryDb({
   }
 
   /**
-   * Issues an execution context for one turn, session or wake (scope.ts#issueContext), read through `audience_id`. While the database is open the context is recorded in `execution_contexts`,
-   * deferred through the writer (a failure is logged with a code); otherwise it is only the object.
+   * Issues an execution context for one turn, session or wake (scope.ts#issueContext); its row is written deferred.
    */
   function issueContext(spec: Parameters<typeof issuePureContext>[0] = {}): Context {
-    const ctx = issuePureContext({ ...spec, now });
+    const ctx = linkedContext(issuePureContext({ ...spec, now }), handle ? database() : null);
     if (!handle || closing) return ctx;
     const update = { kind: 'context', context: contextRow(ctx) };
     defer(() => {
@@ -1701,6 +1709,7 @@ export function createMemoryDb({
     keepPending,
     recordWake,
     issueContext,
+    personLink: (update: Row) => write({ ...update, kind: 'person-link' }),
     observe,
     ...messageWriters(observe),
     waitObservations,

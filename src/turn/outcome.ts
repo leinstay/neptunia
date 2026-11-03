@@ -7,6 +7,7 @@ import type { Context } from '../memory/db/scope.ts';
 import type { FactInput } from '../behavior/inner.ts';
 import { wakeInputs } from '../behavior/diary-turn.ts';
 import { portIface } from '../interface/capabilities.ts';
+import { withIface } from '../memory/db/current-iface.ts';
 import type { Reads } from '../interface/reads.ts';
 import { errorCodeOf } from '../llm/openrouter.ts';
 import { log } from '../log.ts';
@@ -289,7 +290,12 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   turn posted for real, stamps the calls of the ring it showed (stampShownCalls) -- every
    *   one but a routed turn's own call, which the caller stamps by this outcome.
    */
-  async function runTurn(params: TurnParams): Promise<TurnResult> {
+  function runTurn(params: TurnParams): Promise<TurnResult> {
+    // A turn taken from a queue runs under the interface of its own conversation, whatever event woke the queue.
+    return withIface(params?.conversation?.iface, () => runTurnHere(params));
+  }
+
+  async function runTurnHere(params: TurnParams): Promise<TurnResult> {
     // Every attempt that started in the journal (runTurnOnce), closed here, at the one exit.
     const attempts: Array<unknown> = [];
     // What every attempt posted in reply to and why it ended (runTurnOnce), for the end hook.
