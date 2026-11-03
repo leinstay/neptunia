@@ -3,6 +3,7 @@
 // inputs. createTurnRunner (src/behavior/turn.ts) builds it once per runner with createOutcome over its attempt
 // (runTurnOnce); the runner's facade hands out runTurn and the chain and idle functions.
 
+import type { PublicationBoundary } from '../tools/publication.ts';
 import type { Context } from '../memory/db/scope.ts';
 import type { FactInput } from '../behavior/inner.ts';
 import { wakeInputs } from '../behavior/diary-turn.ts';
@@ -36,6 +37,8 @@ type EndTrigger = {
 /** What a turn was asked to do, as its end reads it; the attempt reads the rest. */
 export type TurnParams = {
   memoryContext?: Context;
+  /** A restriction inherited from deferred work: the turn may publish only to its origin. */
+  publicationBoundary?: PublicationBoundary;
   conversation?: ConversationRef;
   guildId?: string | null;
   mode?: string | null;

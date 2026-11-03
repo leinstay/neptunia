@@ -25,6 +25,18 @@ export function publicationBoundaryOf(context: unknown, origin: ConversationRef)
   return { kind: 'internal-turn', origin: { ...origin } };
 }
 
+/**
+ * The restriction of a turn: the one it inherited from deferred work (a finished errand, a due intention), else the one
+ * its own internal context gives. An inherited label is a restriction, never a grant of memory authority.
+ */
+export function turnBoundary(
+  draft: { publicationBoundary?: unknown; memoryContext?: unknown } | null | undefined,
+  origin: ConversationRef
+): PublicationBoundary | undefined {
+  if (isPublicationBoundary(draft?.publicationBoundary)) return draft.publicationBoundary;
+  return publicationBoundaryOf(draft?.memoryContext, origin);
+}
+
 export function publicationRefusal(
   boundary: PublicationBoundary | null | undefined,
   destination: ConversationRef

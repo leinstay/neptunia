@@ -6,6 +6,8 @@
 // and sent once the completion committed (deliveries.ts). The start's recovery (recovery.ts) runs first. An errand an
 // inner turn handed off has its cost counted here when it ends. The tick (src/behavior/inner.ts) calls `drain`.
 
+import { isPublicationBoundary } from '../../tools/publication.ts';
+import type { PublicationBoundary } from '../../tools/publication.ts';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { onLog } from '../../log.ts';
 import { HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../time.ts';
@@ -69,6 +71,15 @@ const HELD: ReadonlySet<unknown> = new Set(['busy', 'paused']);
 
 /** The current channel of a turn, and the machine word for why it is that one. */
 export type CurrentChannel = { channelId: string | null; why: string | null };
+
+/** The restriction a wake inherits from the intentions it serves: an internal turn's label stays on its later turns. */
+function restrictedBy(records: ReadonlyArray<unknown>): { publicationBoundary?: PublicationBoundary } {
+  for (const record of records) {
+    const carried = objOf(objOf(record).provenance).publicationBoundary;
+    if (isPublicationBoundary(carried)) return { publicationBoundary: carried };
+  }
+  return {};
+}
 
 /**
  * The current channel of an inner turn for `group` (the coalesced wakes) and why it is that one,
@@ -817,7 +828,6 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   const claimed = await beginTurn(life, guildId, group, { at, channel, kind: anchor.kind });
   if (!claimed) return { deferred: 'claim' };
   const { turnId: turnKey, attempt } = claimed;
-  // The wake run: what this turn's view showed; the journal and the `day` rows stay as they are.
   const shownIds = [...shownFacts.map((fact) => fact.id), ...[...ownFactIds].map(asText)];
   startWakeRun(life, { turnKey, anchor, group, at, records }, shownIds, {
     channelId: current.channelId ?? null,
@@ -830,6 +840,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
         conversation: { iface: channel.iface, conversationId: channel.id },
         ...turn,
         guildId,
+        ...restrictedBy(records),
         mode: 'inner',
         triggerKind: 'inner',
         journalTurn: { turnId: turnKey, attemptId: attempt },

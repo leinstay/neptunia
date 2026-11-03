@@ -335,7 +335,7 @@
     },
     "src/errands/store.ts": {
       "createErrandStore": {
-        "function-length": 508
+        "function-length": 503
       }
     },
     "src/format.ts": {

@@ -106,6 +106,7 @@ function selfProvenance(input: SetInput): Parameters<typeof createIntention>[0][
     channelId: input.channelId ?? null,
     scope: input.scope,
     participants: input.participants,
+    ...(input.publicationBoundary ? { publicationBoundary: input.publicationBoundary } : {}),
   };
 }
 

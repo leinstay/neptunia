@@ -52,6 +52,7 @@ import { errorCode, idText, isFiniteNumber, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
 import type {
   AddInput,
+  ErrandOrigin,
   AddResult,
   AgentCosts,
   Budget,
@@ -282,6 +283,17 @@ function dailyCaps(agent: string, config: Untyped, agentPaths?: AgentPaths): { t
  *   through the outbox (see the head of this file). Without a `memoryDb` (tests) nothing is read or written: the list
  *   lives in memory only, and no end is ever pending.
  */
+/** The stored origin of an errand. What an internal turn asked for stays restricted to where it was asked. */
+function originOf(origin: AddInput['origin'] | undefined): ErrandOrigin {
+  return {
+    channelId: origin?.channelId ? String(origin.channelId) : null,
+    messageId: origin?.messageId ? String(origin.messageId) : null,
+    // The persona's turn whose accepted call this is (none for a command).
+    ...(origin?.turnId ? { turnId: String(origin.turnId) } : {}),
+    ...(origin?.publicationBoundary ? { publicationBoundary: origin.publicationBoundary } : {}),
+  };
+}
+
 export function createErrandStore({
   guildId,
   now = Date.now,
@@ -480,12 +492,7 @@ export function createErrandStore({
         userId: requester?.userId ? String(requester.userId) : null,
         kind: requesterKindOf(requester?.kind),
       },
-      origin: {
-        channelId: origin?.channelId ? String(origin.channelId) : null,
-        messageId: origin?.messageId ? String(origin.messageId) : null,
-        // The persona's turn whose accepted call this is (none for a command).
-        ...(origin?.turnId ? { turnId: String(origin.turnId) } : {}),
-      },
+      origin: originOf(origin),
       ...(key ? { idempotencyKey: key } : {}),
       scope: scope === 'dm' ? 'dm' : 'group',
       state: 'queued',

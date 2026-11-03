@@ -2,6 +2,7 @@
 // and the small value types between them. Types only, nothing runs here. src/errands/*.ts, the errand
 // operations (src/tools/impl/errand.ts) and the intention service (src/intentions/) import them.
 
+import type { PublicationBoundary } from '../tools/publication.ts';
 import type net from 'node:net';
 import type { AgentPaths } from '../agent-runner/profiles.ts';
 import type { Untyped } from '../tools/types.ts';
@@ -24,7 +25,12 @@ export type ErrandScope = 'dm' | 'group';
 export type RequesterKind = 'owner' | 'member' | 'persona';
 
 export type ErrandRequester = { userId: string | null; kind: RequesterKind };
-export type ErrandOrigin = { channelId: string | null; messageId: string | null; turnId?: string };
+export type ErrandOrigin = {
+  publicationBoundary?: PublicationBoundary;
+  channelId: string | null;
+  messageId: string | null;
+  turnId?: string;
+};
 
 /** One output file of a finished errand, as the runner lists it. */
 export type ErrandFile = { path?: string; name: string; contentType: string; bytes: number };
@@ -105,7 +111,12 @@ export type AddInput = {
   agent: string;
   goal: string;
   requester: { userId?: string | null; kind?: string };
-  origin: { channelId?: string | null; messageId?: string | null; turnId?: string | null };
+  origin: {
+    publicationBoundary?: PublicationBoundary;
+    channelId?: string | null;
+    messageId?: string | null;
+    turnId?: string | null;
+  };
   scope: ErrandScope;
   idempotencyKey?: string | null;
 };
