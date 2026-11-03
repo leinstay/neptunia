@@ -917,15 +917,14 @@ test('a standing task outlives the recurring limit, is skipped forward, and need
     now: T0,
     id: 's1',
   });
-  assert.equal(made.ok, true, wrongly(made.code));
+  if (!made.ok) throw new Error(made.code);
   const standing = made.intention;
   assert.equal(standing.standing, true);
   const later = T0 + 400 * DAY;
-  assert.equal(expireAt(standing, later).intention.status, standing.status, 'still open after 400 days');
-  const moved = advanceOccurrence(standing, { now: later, by: 'engine', outcome: 'done', code: 'done' });
-  assert.equal(moved.ok, true);
-  assert.ok(moved.intention.dueAt > later, 'the missed occurrences are skipped, none replayed');
-  assert.equal(moved.intention.expiresAt, STANDING_EXPIRES_AT);
+  assert.equal(expireAt(standing, later).intention?.status, standing.status, 'still open after 400 days');
+  const moved = advanceOccurrence(standing, { now: later, by: 'engine', code: 'done-occurrence' });
+  assert.ok((moved.intention?.dueAt ?? 0) > later, 'the missed occurrences are skipped, none replayed');
+  assert.equal(moved.intention?.expiresAt, STANDING_EXPIRES_AT);
   assert.equal(
     transition(standing, 'cancelled', { now: later, by: 'persona', code: 'cancelled' }).intention?.status,
     'cancelled'
@@ -939,5 +938,6 @@ test('a standing task outlives the recurring limit, is skipped forward, and need
     now: T0,
     id: 'o1',
   });
-  assert.equal(expireAt(ordinary.intention, later).intention.status, 'expired');
+  if (!ordinary.ok) throw new Error(ordinary.code);
+  assert.equal(expireAt(ordinary.intention, later).intention?.status, 'expired');
 });
