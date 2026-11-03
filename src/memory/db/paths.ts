@@ -158,6 +158,9 @@ export function isCoreStatePath(owner: unknown): boolean {
 export function legacyStorageKey(owner: string, iface = LEGACY_IFACE, legacyKind?: string): StorageKey {
   const root = rootStateKind(owner);
   if (root) return { kind: root as StorageKind, subject: { type: 'persona', id: 'persona:local' } };
+  // An earlier release kept this marker at the data root, and its retired row stays with the persona.
+  if (owner === 'journal/.running')
+    return { kind: 'journal_running', subject: { type: 'persona', id: 'persona:local' } };
   const canonical = currentUnitPath(owner);
   const info =
     classify(/\/vectors\/\d{4}-\d{2}$/.test(canonical) ? `${canonical}/manifest.json` : canonical) ??
