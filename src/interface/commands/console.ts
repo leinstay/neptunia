@@ -37,6 +37,7 @@ import { pluginsCommand } from './plugins.ts';
 import { skillsCommand } from './skills.ts';
 import { MODULE_ACTIONS, moduleCommand } from './module-setup.ts';
 import type { ModuleAction } from './module-setup.ts';
+import { accountLinks } from '../../memory/db/person-links.ts';
 import { serviceCommand } from '../../keys/services.ts';
 import { simulationCommand, subharnessCommand, subharnessDeps } from './subharness.ts';
 import { SUBHARNESS_AGENTS } from '../../subharness/control.ts';
@@ -95,6 +96,55 @@ export type ConsoleDeps = {
 
 /** The engine checkout, where the shipped interface packages and their setup contracts are. */
 const ENGINE_ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
+
+/** The commands answered by a module of their own, or null for any other. */
+function ownCommand(
+  dataDir: string,
+  memoryDb: unknown,
+  name: string,
+  args: Record<string, unknown>,
+  dialog: Dialog | null
+): Promise<Answer> | null {
+  if (name.startsWith('keys.service.')) return serviceCommand(dataDir, name, args, dialog);
+  if (name === 'memory.bind' || name === 'memory.unbind') return personLinkCommand(memoryDb, name, args);
+  if (name === 'memory.accounts') return Promise.resolve(accountsCommand(memoryDb, args));
+  const action = moduleActionOf(name);
+  return action === null ? null : moduleRun(dataDir, name, action, args, dialog);
+}
+
+/** `/memory accounts`: the accounts of one person, read through the memory database's read connection. */
+function accountsCommand(memoryDb: unknown, args: Record<string, unknown>): Answer {
+  const db = callMethod(memoryDb, 'database') as Parameters<typeof accountLinks>[0] | null;
+  if (db === null) return { text: 'the memory database is closed', status: 'failed' };
+  const word = (key: string) => (typeof args[key] === 'string' ? args[key] : '');
+  const { accounts } = accountLinks(db, word('iface'), word('account'));
+  return { text: accounts.map((one) => `${one.iface} ${one.native}`).join('\n'), status: 'ok' };
+}
+
+/** `/memory bind` and `/memory unbind`: the one way accounts come to share a person. */
+async function personLinkCommand(memoryDb: unknown, name: string, args: Record<string, unknown>): Promise<Answer> {
+  const word = (key: string) => (typeof args[key] === 'string' ? args[key] : '');
+  const target = word('target') === 'self' ? { self: true } : { iface: word('target'), native: word('targetAccount') };
+  if (name === 'memory.bind' && !('self' in target) && target.native === '')
+    return { text: 'name the other account: bind <iface> <account> <iface> <account>, or self', status: 'invalid' };
+  try {
+    await (callMethod(memoryDb, 'personLink', {
+      op: name === 'memory.bind' ? 'bind' : 'unbind',
+      iface: word('iface'),
+      native: word('account'),
+      target,
+    }) as Promise<unknown>);
+    return {
+      text: `${word('iface')} ${word('account')}: ${name === 'memory.bind' ? 'bound' : 'unbound'}`,
+      status: 'ok',
+    };
+  } catch (err) {
+    const code = (err as { code?: unknown }).code;
+    return code === 'UNKNOWN_ACCOUNT'
+      ? { text: 'she has not met that account yet; bind it after its first message', status: 'invalid' }
+      : { text: 'the binding could not be written', status: 'failed' };
+  }
+}
 
 /** Runs a command over a module's setup contract: `/skills` for a skill, `/interface` for an interface. */
 function moduleRun(
@@ -553,11 +603,10 @@ export function createConsole(deps: ConsoleDeps): {
     run: (name, args, requester, dialog = null) => {
       const routed = name === 'model.set' ? modelSetElsewhere(deps, args) : null;
       if (routed !== null) return routed;
-      if (name.startsWith('keys.service.')) return serviceCommand(deps.dataDir, name, args, dialog);
       if (deps.keys != null && (name.startsWith(KEYS_PREFIX) || (name === 'model.set' && deps.keys.enabled())))
         return deps.keys.run(name, args, dialog);
-      const action = moduleActionOf(name);
-      if (action !== null) return moduleRun(deps.dataDir, name, action, args, dialog);
+      const owned = ownCommand(deps.dataDir, deps.memoryDb, name, args, dialog);
+      if (owned !== null) return owned;
       if (name.startsWith(SKILLS_PREFIX)) return skillsCommand(deps.skills, name, args);
       if (name.startsWith(PLUGINS_PREFIX)) return pluginsCommand(deps.plugins, name, args);
       if (name.startsWith(SUBHARNESS_PREFIX)) return subharnessCommand(subharnessDeps(deps), name, args);

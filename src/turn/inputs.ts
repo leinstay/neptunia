@@ -121,13 +121,18 @@ export function createInputs(ctx: InputsContext): Inputs {
     let ctx: unknown = null;
     try {
       const isPrivate = !inCommunity(channel);
+      const channelIface = portIface(channel) || portIface(iface);
       const partner = isPrivate ? (draft.privateUserId ?? null) : null;
       if (!isPrivate || partner) {
         ctx =
           memoryContext(
             isPrivate
-              ? { kind: 'dm', person: personId(portIface(iface), String(partner)) }
-              : { kind: 'group', destination: channel?.id ? channelPlaceId(portIface(iface), channel.id) : null }
+              ? { iface: channelIface, kind: 'dm', person: personId(channelIface, String(partner)) }
+              : {
+                  iface: channelIface,
+                  kind: 'group',
+                  destination: channel?.id ? channelPlaceId(channelIface, channel.id) : null,
+                }
           ) ?? null;
       }
     } catch {

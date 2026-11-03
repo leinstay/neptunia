@@ -420,6 +420,10 @@ The board and her memory share the file, and `scripts/memory-db.ts restore-table
 
 You can copy `memory.db` and its `-wal` file while the bot runs (the copy will not be locked). Open the copy; a read-only open of the live file cannot apply the WAL.
 
+## One person, several accounts
+
+A person may hold any number of accounts on any interfaces, the owner and the persona included. Only the owner's `/memory bind <iface> <account> <iface> <account>` command links them, `bind <iface> <account> self` binds an account of the persona, and `/memory unbind` undoes a link; `/memory accounts` lists them. No model proposal, name match or claimed id links accounts (`src/memory/db/person-links.ts`). A DM context carries the other DMs of the same person in `linked`, so a DM reads the person's history, while each row keeps the audience of the DM it came from. Affinity is one score on the `people` row, and an affinity event keeps its scope. The same native id on two interfaces is two accounts until the owner binds them.
+
 ## Configuration
 
 The memory system reads these config groups from `config/config.json` (and `config.local/config.json`). The full reference of every key is in [configuration.md](configuration.md).

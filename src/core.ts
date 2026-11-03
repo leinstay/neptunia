@@ -111,6 +111,7 @@ import { createScheduler } from './behavior/scheduler.ts';
 import { boardSettings, boardTimings } from './board/board.ts';
 import { createBoardPort } from './board/writer.ts';
 import { createReactorStore, applyReactionChanged } from './behavior/reactor-store.ts';
+import { currentIface, withIface } from './memory/db/current-iface.ts';
 import { createReads } from './interface/reads.ts';
 import { createIntentionStores } from './intentions/store.ts';
 import { createIntentionService } from './intentions/service.ts';
@@ -337,7 +338,7 @@ async function buildCore(
     log,
     diaryMediaDeps: () => ({ port: iface, imageFetcher }),
     // The interface the unit writes name their rows with: the one of `hello`, known once the link is up.
-    iface: () => identity.iface || null,
+    iface: () => currentIface() ?? (identity.iface || null),
     embed: (texts: Untyped, options: Untyped) => embedder.embed(texts, options),
     selfName: () => getSelfName(getGuildId()),
     sessionLlm: () => sessionClient,
@@ -642,7 +643,12 @@ async function buildCore(
   const doorReady: PromiseWithResolvers<{ receive(value: unknown, from?: From): Promise<Envelope> }> =
     Promise.withResolvers();
   const linkDoor = {
-    receive: async (value: unknown, from: From | undefined) => (await doorReady.promise).receive(value, from),
+    receive: async (value: unknown, from: From | undefined) => {
+      const door = await doorReady.promise;
+      // Everything this event does to memory happens under the interface it came from.
+      const body = (value as { body?: { iface?: unknown }; iface?: unknown } | null) ?? null;
+      return withIface(body?.body?.iface ?? body?.iface, () => door.receive(value, from));
+    },
   };
   const linkOpened: PromiseWithResolvers<ReturnType<typeof openAdapterLink>> = Promise.withResolvers();
   // With the interfaces as units the core's adapter starts with no link: the first interface whose hello is taken
@@ -973,7 +979,7 @@ async function buildCore(
     // The memory rows a turn's request carried go to the database.
     memoryReads: (args: Untyped) => memoryDb.recordTurnReads(args),
     // One execution context per turn for its memory reads (recorded while the database is open).
-    memoryContext: (spec: Untyped) => memoryDb.issueContext({ iface: identity.iface, ...spec }),
+    memoryContext: (spec: Untyped) => memoryDb.issueContext({ iface: currentIface() ?? identity.iface, ...spec }),
     // Her attention, mirrored as leases in the memory database (attention.ts).
     attention: createLeasedAttention({ memoryDb, hot, holder: `core:${process.pid}`, log }),
     llm,
@@ -1192,6 +1198,7 @@ async function buildCore(
 
   const onMessage = createMessageHandler({
     isServedCommunity,
+    communitiesOf: (name: string) => [...servingName].filter(([, one]) => one === name).map(([id]) => id),
     hot,
     store,
     // The core's reads of the interface: the conversation a message is in, its history, a message by id, a member.

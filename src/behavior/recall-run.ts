@@ -104,8 +104,8 @@ import { fitExcerpts, focusHits, lanePlan, lexicalKeep, rankPrefetch } from './p
 import { indexWords } from '../memory/record-index.ts';
 import { CODE } from '../tools/codes.ts';
 import { dbSettings, quotesOf, search as searchRows, window as windowRows } from '../memory/db/recall.ts';
-import { channelPlaceId, personId } from '../memory/db/ids.ts';
-import { isIssuedInternalContext, issueContext } from '../memory/db/scope.ts';
+import { personId } from '../memory/db/ids.ts';
+import { isIssuedInternalContext, issueContext, readContextSpec } from '../memory/db/scope.ts';
 import { LEGACY_IFACE } from '../memory/db/legacy-namespace.ts';
 import {
   hasRecallContext,
@@ -921,9 +921,7 @@ export function createRecall({
    * An issued internal context spans every audience. Outward contexts must fit the destination's group or DM.
    */
   function readContext({ channel, privateUserId, asker, memoryContext = null }: ReadContextInput) {
-    const spec = privateUserId
-      ? { kind: 'dm' as const, person: personId(iface, privateUserId) }
-      : { kind: 'group' as const, destination: channel?.id ? channelPlaceId(iface, channel.id) : null };
+    const spec = readContextSpec(channel?.iface, iface, channel?.id, privateUserId);
     const fits =
       memoryContext &&
       typeof memoryContext === 'object' &&
@@ -938,8 +936,8 @@ export function createRecall({
       ? memoryContext
       : typeof memoryDb?.issueContext === 'function'
         ? memoryDb.issueContext(spec)
-        : issueContext({ iface, ...spec, now });
-    return privateUserId || !asker ? issued : { ...issued, asker: [personId(iface, String(asker))] };
+        : issueContext({ ...spec, now });
+    return privateUserId || !asker ? issued : { ...issued, asker: [personId(spec.iface, String(asker))] };
   }
 
   /** The stretches of db windows as `recall.run` returns them (decorated, captioned from the cache only, cut to `recall.stretchChars`). */

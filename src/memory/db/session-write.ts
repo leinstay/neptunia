@@ -77,6 +77,7 @@
 //   - every row written here is projected into the graph in the same transaction (graph.ts#projectRow).
 // Counts and codes only, never a text.
 
+import { applyPersonLinkWrite } from './person-links.ts';
 import { randomUUID } from 'node:crypto';
 import { ownershipSql } from './storage-units.ts';
 
@@ -766,6 +767,7 @@ function guard(update: Row): void {
 const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unknown>([
   ['wake-queue', applyWakeQueueWrite],
   ['board', applyBoardWrite],
+  ['person-link', applyPersonLinkWrite],
 ]);
 
 /** Applies one write on the writer connection; returns counts. */

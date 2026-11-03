@@ -31,7 +31,8 @@ async function withTwoInterfaces(
   writeFileSync(
     join(dataDir, 'config', 'config.json'),
     JSON.stringify({
-      bot: { timezone: 'UTC', owners: [], guildId: 'g1' },
+      bot: { timezone: 'UTC', owners: ['u1'], guildId: 'g1' },
+      private: { enabled: true, minAffinity: 0 },
       models: { base: { video: false } },
       interfaces: { mode: 'units', drainMs: 2000 },
       pace: { settleMs: 0, settleMaxMs: 0 },
@@ -154,6 +155,46 @@ test('a read of a community goes to the interface that serves it', async () => {
         );
       assert.notEqual(communityReads(other).length, 0);
       assert.equal(communityReads(fake).length, 0);
+    });
+  });
+});
+
+test('a DM on the second interface is answered there and kept in that account own DM scope', async () => {
+  // Bug: the turn's memory context names the home interface, so the DM lands in a person nobody can read it back as.
+  await withCapturedLogs(async () => {
+    await withTwoInterfaces(async ({ other, dataDir }) => {
+      other.adapter.seedConversation({ ...channelInfo('c1'), communityId: 'g3', iface: 'other' });
+      other.adapter.seedMember('g3', { id: 'u1', name: 'Eleni' });
+      const first = deliver(other.adapter, { id: 'm1', text: 'Nova, hello', at: Date.now(), mention: true });
+      await other.emit({ ...first, iface: 'other', conversation: { ...first.conversation, communityId: 'g3' } });
+      await until(() => other.adapter.messagesIn('c1').some((message) => message.authorId === SELF.id));
+
+      other.adapter.seedConversation({
+        ...channelInfo('d1'),
+        kind: 'dm',
+        communityId: null,
+        partnerId: 'u1',
+        iface: 'other',
+      });
+      const direct = deliver(other.adapter, { conversationId: 'd1', id: 'm2', text: 'hello', at: Date.now() });
+      await other.emit({
+        ...direct,
+        iface: 'other',
+        conversation: { id: 'd1', kind: 'dm', communityId: null, partnerId: 'u1', name: 'Eleni' },
+      });
+      await until(() => other.adapter.messagesIn('d1').some((message) => message.authorId === SELF.id));
+      const handle = openMemoryDb(join(dataDir, 'memory.db'), { readOnly: true });
+      try {
+        const rows = (handle.db as { prepare(sql: string): { all(): Array<{ audience_id: string }> } })
+          .prepare(`SELECT DISTINCT audience_id FROM sources WHERE scope_kind = 'dm'`)
+          .all();
+        assert.deepEqual(
+          rows.map((row) => row.audience_id),
+          ['aud:dm:other:dm:u1']
+        );
+      } finally {
+        handle.close();
+      }
     });
   });
 });

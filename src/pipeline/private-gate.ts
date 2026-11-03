@@ -42,6 +42,8 @@ export type PrivateContext = {
   reads: Reads;
   now: () => number;
   getGuildId: () => string | null;
+  /** Every community the interface `name` serves. */
+  communitiesOf?: (name: string) => ReadonlyArray<string>;
   selfIdOf: () => string;
   activity: { note: (channelId: string, authorId: string, at: number) => void } | null;
   turns: {
@@ -88,6 +90,7 @@ export function createPrivateGate({
   store,
   reads,
   getGuildId,
+  communitiesOf,
   selfIdOf,
   activity,
   turns,
@@ -130,9 +133,23 @@ export function createPrivateGate({
 
     const free = privateGate({ ...input, isMember: true });
     if (!free.ok) return { gate: free, isOwner };
-    const found = await reads.memberInfo({ communityId: guildId, memberId: String(authorId) });
-    const isMember = found?.member != null;
+    // A member of any community served through this person's interface, the home community as the fallback.
+    const served = communitiesOf?.(iface) ?? [];
+    let isMember = false;
+    for (const communityId of served.length > 0 ? served : [guildId]) {
+      const found = await reads.memberInfo({ communityId, memberId: String(authorId) });
+      if (found?.member != null) {
+        isMember = true;
+        break;
+      }
+    }
     return { gate: privateGate({ ...input, isMember }), isOwner };
+  }
+
+  /** The community a person's DM belongs to: the first served one that knows them, else the home community. */
+  function dmCommunityOf(iface: string, memberId: string): string | null {
+    const known = (communitiesOf?.(iface) ?? []).find((id) => store.getUser(id, memberId) != null);
+    return known ?? getGuildId();
   }
 
   // A recovery turn of the missed-answer registry in a DM passes the same gate.
@@ -171,7 +188,8 @@ export function createPrivateGate({
     // When the partner last wrote here (pace.settleMs); the persona's own messages never count.
     if (author.id !== selfId) activity?.note(event.conversation.id, author.id, event.message.at);
 
-    const guildId = getGuildId();
+    const partner = String(author.id === selfId ? (event.conversation?.partnerId ?? '') : author.id);
+    const guildId = dmCommunityOf(event.iface, partner);
     if (!guildId) return;
     // lineOf gives the normalized line of a message event.
     const normalized = lineOf(event) as PrivateLine;

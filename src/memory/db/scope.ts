@@ -15,7 +15,7 @@
 // every writer fills both from; `scopeOfAudience(id)` goes back. A malformed triple resolves to `aud:internal`.
 
 import { randomUUID } from 'node:crypto';
-import { dmPartnerOfPlace, dmPlaceOfPerson, personId } from './ids.ts';
+import { channelPlaceId, dmPartnerOfPlace, dmPlaceOfPerson, personId } from './ids.ts';
 import { LEGACY_IFACE } from './legacy-namespace.ts';
 
 /** The three scope columns of a row. */
@@ -36,6 +36,8 @@ export type Context = {
   policyVersion?: number;
   issuedAt?: string;
   asker?: Array<string>;
+  /** The other DMs of the same person, bound by the owner (person-links.ts). */
+  linked?: ReadonlyArray<{ iface: string; person: string; place: string | null }>;
   [key: string]: unknown;
 };
 /** Checks an issued internal context supplied by a trusted caller, never a protocol argument. */
@@ -88,6 +90,13 @@ export const dmContext = <P extends string, T extends string>(
   place: place ?? dmPlaceOfPerson(person, iface),
 });
 export const internalContext = (): Context => ({ internal: true });
+/** What a read's context is issued for: the DM of `privateUserId`, else the group of `channelId`, on the channel's interface. */
+export function readContextSpec(channelIface: unknown, home: unknown, channelId: unknown, privateUserId: unknown) {
+  const iface = String(typeof channelIface === 'string' && channelIface !== '' ? channelIface : home);
+  return privateUserId
+    ? { iface, kind: 'dm' as const, person: personId(iface, privateUserId) }
+    : { iface, kind: 'group' as const, destination: channelId ? channelPlaceId(iface, channelId) : null };
+}
 /** The context of the diary's entry: `none` and the groups of every interface; no direct chat, nothing internal. */
 export const groupsContext = (): Context => ({ groups: true });
 
@@ -134,7 +143,12 @@ export function allowed(value: unknown, ctx: unknown): boolean {
   if (kind === 'none') return true;
   if (ctx.groups === true) return kind === 'group' && isGroupInterface(row?.scope_iface);
   if (kind === 'group') return isGroupInterface(row?.scope_iface);
-  if (kind === 'dm') return ctx.kind === 'dm' && row?.scope_iface === ctx.iface && row?.scope_dm === ctx.person;
+  if (kind === 'dm')
+    return (
+      ctx.kind === 'dm' &&
+      ((row?.scope_iface === ctx.iface && row?.scope_dm === ctx.person) ||
+        (ctx.linked ?? []).some((one) => row?.scope_iface === one.iface && row?.scope_dm === one.person))
+    );
   return false;
 }
 
@@ -151,6 +165,10 @@ export function whereFor(ctx: unknown, alias = ''): { sql: string; params: Array
   if (ctx.groups !== true && ctx.kind === 'dm') {
     sql += ` OR (${p}scope_kind = 'dm' AND ${p}scope_iface = ? AND ${p}scope_dm = ?)`;
     params.push(ctx.iface ?? '', ctx.person ?? '');
+    for (const one of ctx.linked ?? []) {
+      sql += ` OR (${p}scope_kind = 'dm' AND ${p}scope_iface = ? AND ${p}scope_dm = ?)`;
+      params.push(one.iface, one.person);
+    }
   }
   return { sql: `${sql})`, params };
 }
@@ -275,11 +293,13 @@ export function scopeOfAudience(id: unknown, lookup: unknown = null): Scope {
   return partner ? dmScope(partner.person, partner.iface) : { ...SCOPE_INTERNAL };
 }
 
-/** The exact private audience of a DM context, absent in group and groups-only contexts. */
-function privateAudience(ctx: Context): string | null {
-  if (ctx.groups === true || ctx.kind !== 'dm') return null;
+/** The exact private audiences of a DM context, its own and the person's other DMs; none in group contexts. */
+function privateAudiences(ctx: Context): Array<string> {
+  if (ctx.groups === true || ctx.kind !== 'dm') return [];
   const place = filled(ctx.place) ? ctx.place : dmPlaceOfPerson(ctx.person, ctx.iface ?? '');
-  return place ? dmAudienceId(place) : null;
+  return [place, ...(ctx.linked ?? []).map((one) => one.place)]
+    .filter((one) => filled(one))
+    .map((one) => dmAudienceId(one));
 }
 
 /** `allowed` on `audience_id`: whether a row may be shown in a context. Throws without a valid context. */
@@ -292,8 +312,7 @@ export function allowedAudience(row: unknown, ctx: unknown): boolean {
     (typeof id === 'string' && id.startsWith(GROUP_PREFIX) && isGroupInterface(id.slice(GROUP_PREFIX.length)))
   )
     return true;
-  const dm = privateAudience(ctx);
-  return dm !== null && id === dm;
+  return typeof id === 'string' && privateAudiences(ctx).includes(id);
 }
 
 /** All valid group audiences, source-free rows and the context's exact DM audience, as SQL and parameters. */
@@ -303,8 +322,7 @@ export function audienceWhere(ctx: unknown, alias = ''): { sql: string; params: 
   const p = alias ? `${alias}.` : '';
   let sql = `(${p}audience_id = ? OR (substr(${p}audience_id, 1, ${GROUP_PREFIX.length}) = ? AND length(${p}audience_id) > ${GROUP_PREFIX.length} AND instr(${p}audience_id, char(0)) = 0)`;
   const params = [AUD_NONE, GROUP_PREFIX];
-  const dm = privateAudience(ctx);
-  if (dm !== null) {
+  for (const dm of privateAudiences(ctx)) {
     sql += ` OR ${p}audience_id = ?`;
     params.push(dm);
   }

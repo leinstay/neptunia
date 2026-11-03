@@ -135,6 +135,7 @@ export function createMessageHandler({
   tagHistory,
   getGuildId,
   isServedCommunity,
+  communitiesOf,
   getSelfName = () => 'bot',
   describer,
   llm,
@@ -162,6 +163,8 @@ export function createMessageHandler({
   getGuildId: () => string | null;
   /** A community some connected interface serves; the one community of `getGuildId` when absent. */
   isServedCommunity?: (communityId: string | null | undefined) => boolean;
+  /** Every community the interface `name` serves. */
+  communitiesOf?: (name: string) => ReadonlyArray<string>;
   getSelfName?: (guildId: string) => string;
   describer?: Untyped;
   lookup?: Untyped;
@@ -277,6 +280,7 @@ export function createMessageHandler({
   // Each stage declares `memory.observe` for the lines it hands over; the updater types it as the protocol message
   // (src/memory/update.ts#NormalizedMessage), which is what those lines are.
   const { afterPrivateTurn, checkPrivateGate, dropPrivate, onPrivateMessage } = createPrivateGate({
+    ...(communitiesOf === undefined ? {} : { communitiesOf }),
     hot,
     store,
     reads,
