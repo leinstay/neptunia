@@ -350,16 +350,8 @@ export function createTurnRunner({
   } = createParticipation({ hot, store, around, clock });
 
   const iface = port;
-  const {
-    turnContextOf,
-    stableFreezeOf,
-    conversationOf,
-    messageOf,
-    checkEffect,
-    errandsInputFor,
-    intentionsInputFor,
-    placesInputFor,
-  } = createInputs({ store, iface, memoryContext, errands, intentions, places });
+  const inputs = createInputs({ store, iface, memoryContext, errands, intentions, places });
+  const { turnContextOf, stableFreezeOf, conversationOf, messageOf, checkEffect } = inputs;
 
   const { facts, setFactsSource } = createFacts({ clock });
   // The channels known to be private chats (a deferred call names only its channel).
@@ -632,11 +624,7 @@ export function createTurnRunner({
     aroundInputFor,
     liveChannelName,
     recentInput,
-    turnContextOf,
-    stableFreezeOf,
-    errandsInputFor,
-    intentionsInputFor,
-    placesInputFor,
+    ...inputs,
     noteSeen,
     linkTriggers,
     linkCalls,

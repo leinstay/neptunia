@@ -131,7 +131,10 @@ export type PhaseContext = {
   Participation,
   'participationOn' | 'participationAudience' | 'aroundInputFor' | 'liveChannelName' | 'recentInput'
 > &
-  Pick<Inputs, 'turnContextOf' | 'stableFreezeOf' | 'errandsInputFor' | 'intentionsInputFor' | 'placesInputFor'> &
+  Pick<
+    Inputs,
+    'conversationOf' | 'turnContextOf' | 'stableFreezeOf' | 'errandsInputFor' | 'intentionsInputFor' | 'placesInputFor'
+  > &
   Pick<
     JournalNotes,
     | 'noteSeen'

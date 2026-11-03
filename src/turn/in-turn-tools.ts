@@ -270,6 +270,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           asker: trigger?.authorId ?? null,
           memoryContext: turnContextOf(draft, channel),
           resolvedAnchor: call?.memoryAnchor,
+          historyRef: conversationOf(channel),
           args,
           now: clock(),
           // The registry takes the quoted lines the search hands it, as the read's own handles.

@@ -717,7 +717,12 @@ test('recall.run: stored group stretches follow memory scope without a live inte
   const env = fixture();
   try {
     env.account(ALICE, ['Αλίκη']);
-    env.say({ native: 'r1', at: NOW - 3 * DAY, text: 'το σπιτι του δασκαλου', place: channelPlaceId('discord', 'c1') });
+    const ownSourceId = env.say({
+      native: 'r1',
+      at: NOW - 3 * DAY,
+      text: 'το σπιτι του δασκαλου',
+      place: channelPlaceId('discord', 'c1'),
+    });
     env.say({
       native: 'r2',
       at: NOW - 3 * DAY + 60000,
@@ -775,10 +780,21 @@ test('recall.run: stored group stretches follow memory scope without a live inte
       named.quotes.flatMap((quote) => quote.entries.map((entry) => entry.id)),
       ['r3']
     );
-    // The turn's own lines are left out.
+    // Generic stored rows require exact source identity for history exclusion, without an invented native route.
     const seen = await s.recaller.run({
       ...s.args,
-      history: [{ id: 'r1', channelId: 'c1', ts: NOW, self: false, bot: false, authorName: 'x', content: 'y' }],
+      history: [
+        {
+          id: 'r1',
+          channelId: 'c1',
+          ts: NOW,
+          self: false,
+          bot: false,
+          authorName: 'x',
+          content: 'y',
+          stored: { sourceId: ownSourceId, placeId: channelPlaceId('discord', 'c1'), iface: 'discord' },
+        },
+      ],
       server: { forms: ['σπιτι'], who: [], from: null, to: null },
       quotes: true,
     });
