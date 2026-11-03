@@ -6,7 +6,7 @@ import { labels } from './fixtures/labels.ts';
 
 function linesOf(enabled: boolean, searchAvailable: boolean, toolsGranted: Array<string>): Array<string> {
   const config = { web: { search: { enabled } } } as Parameters<typeof renderSenses>[0];
-  return sensesWhole(renderSenses(config, labels.senses, { searchAvailable, toolsGranted })).split('\n');
+  return sensesWhole(renderSenses(config, labels, { searchAvailable, toolsGranted })).split('\n');
 }
 
 test('she is told the way she has: quick alone, deep alone, both, or neither, and a known page stays readable', () => {
