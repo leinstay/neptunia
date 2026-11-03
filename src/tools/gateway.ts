@@ -82,14 +82,6 @@ function noRequesterRefusal(skill: Skill): Refusal | null {
 /** Whether `op` is one of the persona's own expressive operations (no requester's right asked). */
 const isSelfOwned = (op: string | null): boolean => op !== null && SELF_OWNED_OPS.includes(op);
 
-/** The rights of a plugin's tool (src/plugins/registry.ts: a dispatch and no operation) as an operation's, so a requester's grant and an owner-only tool are checked the same way. */
-function pluginOpOf(
-  skill: Skill
-): { name: string; rights: { kind: 'read' | 'write'; ownerOnly: boolean; member: boolean } } | null {
-  if (skill.dispatch === undefined || skill.opBacked === true) return null;
-  return { name: skill.name, rights: { kind: skill.kind, ownerOnly: skill.ownerOnly, member: skill.member === true } };
-}
-
 /**
  * Null when the requester may have this skill run for them, else the refusal (`requester-denied`
  * with the rights code). A skill on an owner's operation -- one backed by an operation (src/tools/definitions.ts)
@@ -123,7 +115,7 @@ function requesterRefusal(
   if (unasked) return unasked;
   if (isSelfOwned(skill.op)) return null;
   const getOp = context?.getOp ?? registryGetOp;
-  const op = skill.op ? getOp(skill.op) : pluginOpOf(skill);
+  const op = skill.op ? getOp(skill.op) : null;
   if (!op) return refused(CODE.REQUESTER_DENIED, 'no-operation');
   const code = rightsRefusal(op, {
     userId: requester?.id ?? null,

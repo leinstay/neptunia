@@ -337,10 +337,9 @@ export function createTurnRunner({
   // The memory rows a request carried (src/memory/db/service.js#recordTurnReads) and a turn's execution context (#issueContext, `(spec) => ctx`); null: none.
   memoryReads = null,
   memoryContext = null,
-  // Her attention, one turn at a time (src/behavior/attention.ts mirrors it as leases; a plain set without them), the model roles that are down (src/llm/role-health.ts, her tool roles route on it) and the plugins' registered tools (src/plugins/registry.ts); null: none.
+  // Her attention, one turn at a time (src/behavior/attention.ts mirrors it as leases; a plain set without them), the model roles that are down (src/llm/role-health.ts, her tool roles route on it); null: none.
   attention = new Set(),
   roleHealth = null,
-  plugins = null,
 }: CreateTurnRunnerInput): TurnRunner {
   const ifaceReads: Reads = readsDep;
   const busy = attention;
@@ -580,7 +579,6 @@ export function createTurnRunner({
     turnContextOf: (draft, channel) => turnContextOf(draft, channel),
     linkCalls,
     drawTool,
-    plugins,
   });
   const { classifierContext } = createRewatch({ hot });
   const { startPrefetch, recallAvailable, turnDirectory, privatePartner, maybeSplit } = createLookup({

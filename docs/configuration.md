@@ -30,7 +30,7 @@ A private directory laid out the old way keeps its settings in `config.local.jso
 
 ## Clients and their tokens
 
-`clients.json` in the private directory names every client that may connect to the core's socket, and `clients/<name>.token` holds each client's token. An entry has the client's `kind` (`interface`, `cli`, `plugin` or `agent`), the `iface` an interface's events must carry, the `tokenFile` relative to the private directory, and `permissions`. The core reads both files at every envelope (`src/interface/principals.ts`), so a change applies at once and a rotated or revoked token closes that client's link. Without `clients.json` the core makes one token at start for the interface it runs in its own process, and nothing else connects. A `clients.json` that is not valid JSON lets no client in. See [Interfaces](interfaces.md#clients-and-principals).
+`clients.json` in the private directory names every client that may connect to the core's socket, and `clients/<name>.token` holds each client's token. An entry has the client's `kind` (`interface`, `cli` or `agent`), the `iface` an interface's events must carry, the `tokenFile` relative to the private directory, and `permissions`. The core reads both files at every envelope (`src/interface/principals.ts`), so a change applies at once and a rotated or revoked token closes that client's link. Without `clients.json` the core makes one token at start for the interface it runs in its own process, and nothing else connects. A `clients.json` that is not valid JSON lets no client in. See [Interfaces](interfaces.md#clients-and-principals).
 
 An entry may also carry `boardRoles`, the client's roles on the task board: any of `owner`, `reviewer`, `worker`, `scheduler`, `persona`, `watcher` and `errand-runner`. The board reads them at every call (`src/board/board.ts`). An entry without `boardRoles`, a name outside that list and a client absent from the file get no right on the board. See [The core](core.md#the-task-board).
 
@@ -104,15 +104,6 @@ The settings hold the keys someone would change, the timeouts, budgets, retentio
 | `interfaces.*.enabled` | boolean | `true` | Whether the interface named in place of `*` may connect. The tracked settings name no interface, so each one is enabled until this key says `false`. A `hello` of a disabled interface is refused with `interface-disabled`, read at each `hello`. `/interface disable` writes `false` here in the private settings file | `src/core.ts` |
 
 With `mode: units` the core serves `bot.guildId`, which must be set. See [Interfaces](interfaces.md#interfaces-as-units).
-
-## `plugins`
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `plugins.callDeadlineMs` | number | `30000` | How long a call to a plugin's tool may take (milliseconds). Past it the core gives her the result `plugin-no-answer`, and an answer that arrives later is dropped. Read at each call | `src/plugins/settings.ts` |
-| `plugins.*.enabled` | boolean | `false` | Whether the plugin named in place of `*` is on. The tracked settings name no plugin, so each one is off until this key says `true`. A `hello` of a plugin that is off is refused with `plugin-disabled`, read at each `hello`. `/plugins enable` writes `true` here in the private settings file and `/plugins disable` writes `false` | `src/plugins/settings.ts` |
-
-The owner switches a plugin with `/plugins enable <name>` and `/plugins disable <name>`, which write `plugins.<name>.enabled` into `config.local/config.json`. See [Plugins](plugins.md).
 
 ## `bot`
 

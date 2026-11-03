@@ -22,7 +22,7 @@ import type { AgentMode, SubharnessAgent } from '../subharness/control.ts';
 import { subharnessPlace } from '../subharness/place.ts';
 import { isClockTime } from '../time.ts';
 
-/** The templates `setup` renders, by file name. The bot unit and the plugin template are not among them. */
+/** The templates `setup` renders, by file name. The bot unit is not among them. */
 export const UNIT_FILES: ReadonlyArray<string> = [
   'neptunia-core.service',
   'neptunia-interface@.service',

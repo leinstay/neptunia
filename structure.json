@@ -43,20 +43,6 @@
       "test": "none"
     },
     {
-      "path": "plugins/",
-      "purpose": "The tracked plugins: one folder per plugin with a package.json, a plugin.json, an index.ts, the skills it ships and a README, and the README that says how to write and connect one. A plugin imports only the protocol.",
-      "layer": "public",
-      "imports": ["node:*", "src/protocol/**"],
-      "test": "required"
-    },
-    {
-      "path": "plugins.local/",
-      "purpose": "A deployment's own plugins, one folder per plugin with its plugin.json and index.ts; a plugin here replaces the tracked plugin of the same name.",
-      "layer": "local",
-      "imports": [],
-      "test": "none"
-    },
-    {
       "path": "config.local.json",
       "purpose": "The old place of a deployment's settings, read until `scripts/config-files-move.ts` moves it into `config.local/`.",
       "layer": "local",
@@ -402,7 +388,6 @@
         "src/llm/**",
         "src/media/**",
         "src/memory/**",
-        "src/plugins/**",
         "src/protocol/**",
         "src/selfimprovement/**",
         "src/setup/**",
@@ -470,20 +455,6 @@
     {
       "path": "src/setup/",
       "purpose": "`neptunia setup`: the unit templates rendered for the installing user, the nine steps, the writing of the units, and the questions for her subharness backends, her self-development repository, her three mechanics and the watcher.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "required"
-    },
-    {
-      "path": "src/plugins/",
-      "purpose": "The plugin mechanism on the core's side: the manifest and the folders it is read from, the registry of the tools a plugin registers, the link of one plugin's connection, the wake that tells her of a new tool, and the owner's switch.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "required"
-    },
-    {
-      "path": "src/plugins/settings.ts",
-      "purpose": "The readers of `plugins.<name>.enabled` and `plugins.callDeadlineMs`.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
