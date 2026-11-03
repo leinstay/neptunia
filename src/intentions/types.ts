@@ -133,6 +133,8 @@ export type CreateInput = {
   dueAt?: number | null;
   every?: Every | null;
   expiresAt?: number | null;
+  /** A recurring task that lasts until it is cancelled. */
+  standing?: boolean;
   destination?: string | null;
   completionCondition?: string | null;
   chainId?: string | null;
