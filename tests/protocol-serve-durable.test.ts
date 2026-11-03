@@ -140,7 +140,9 @@ test('an emit resolves with the status of the ack of its own event', async () =>
   assert.equal(await status, 'ok');
 });
 
-test('a full outbox reports outbox-full, and once drained recovers the gap from history under the live id', async () => {
+test('a full outbox refuses an event and reads nothing back from the platform once it drains', async () => {
+  // Bug: a missed stretch is fetched and replayed on its own. Changed: the owner's no-catch-up policy of 2026-11-02
+  // retires the recovery of a gap from history, so the refused event stays lost and is only counted.
   const adapter = createFakeAdapter({ selfId: 'self-id' });
   adapter.seedConversation(channelInfo('c1'));
   const lines = [1000, 2000, 3000].map((at, index) =>
@@ -154,11 +156,9 @@ test('a full outbox reports outbox-full, and once drained recovers the gap from 
   assert.equal(rig.serving.status().outbox, 'outbox-full');
 
   rig.core.ack('fake:message:m2', 2);
-  await until(() => rig.core.events().length === 3);
-  const recovered = rig.core.events()[2];
-  assert.equal(recovered?.id, lines[2]?.id, 'the recovered event has the id live ingestion gave m3');
-  assert.equal(seqOf(recovered ?? envelope('event', {}, { id: 'none' })), 3);
-  assert.equal(rig.serving.status().outbox, 'ok');
+  await until(() => rig.serving.status().outbox === 'ok');
+  assert.equal(rig.core.events().length, 2);
+  assert.equal(adapter.calls.filter((call) => call.op === 'history').length, 0);
 });
 
 // The serving end with an injected clock and a hand-driven core end that sends actions.

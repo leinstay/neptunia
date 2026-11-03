@@ -303,15 +303,6 @@ Settings for missed-answer recovery.
 | `missed.expireMinutes` | number | `5` | Minutes before a candidate expires. A question mark uses `questionExpireMinutes` | `src/behavior/missed.ts` |
 | `missed.maxOutputTokens` | number | `2000` | Max output tokens for the analyzer | `src/behavior/missed.ts` |
 
-## `offlineCatchUp`
-
-Messages posted while the bot was down, read once at start, and the messages that arrived while it was paused, handed back on resume (`src/behavior/core-pause.ts`). The same window decides which of them are answered.
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `offlineCatchUp.windowMinutes` | number | `15` | Only a call younger than this is answered. `0` answers none | `src/behavior/catch-up.ts` |
-| `offlineCatchUp.maxMessages` | number | `50` | Newest messages fetched per channel (1 to 100) | `src/behavior/catch-up.ts` |
-
 ## `typing`
 
 | Key | Type | Default | What it does | Read by |
