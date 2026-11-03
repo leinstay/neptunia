@@ -14,7 +14,7 @@ import { createJournal, turnOfMessage, turnView } from '../src/memory/journal.ts
 import { executeCall, resolveCall } from '../src/tools/executors.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { journalTurnRecord } from '../src/behavior/turn.ts';
-import { openTestMemorySync } from './fixtures/memory-db/service.ts';
+import { openTestMemorySync, journalLabel } from './fixtures/memory-db/service.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
 
@@ -53,7 +53,7 @@ function recordingMemory(lines: Record<string, Untyped>) {
     ...mem.memoryDb,
     writeUnit: (update: Untyped) => {
       for (const line of update.lines ?? [])
-        lines.push({ file: path.join(DATA, update.owner), line: JSON.stringify(line) });
+        lines.push({ file: journalLabel(DATA, update.key), line: JSON.stringify(line) });
       return mem.memoryDb.writeUnit(update);
     },
   };

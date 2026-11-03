@@ -11,6 +11,7 @@ import { unitValue } from '../src/memory/db/readers/common.ts';
 import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
 import { buildDataDir, guildDir, GUILD, writeJson } from './fixtures/memory-db/datadir.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { legacyStorageKey } from '../src/memory/db/paths.ts';
 
 const ROOTS = ['state.json', 'usage.json', 'metrics.json'];
 const INNER = `guilds/${GUILD}/inner.json`;
@@ -34,14 +35,9 @@ function legacy() {
 }
 
 function stored(handle: MemoryHandle, owner: string): unknown {
-  if (!ROOTS.includes(owner)) {
-    const read = unitValue(dbOf(handle), owner);
-    return read.found ? read.value : undefined;
-  }
-  const value = dbOf(handle)
-    .prepare('SELECT value FROM operational WHERE kind = ? AND owner = ? AND owner_file IS NULL')
-    .get(owner.replace('.json', ''), owner)?.value;
-  return typeof value === 'string' ? JSON.parse(value) : undefined;
+  // This importer fixture reads semantic units through its explicit legacy export boundary.
+  const read = unitValue(dbOf(handle), legacyStorageKey(owner));
+  return read.found ? read.value : undefined;
 }
 
 function rows(handle: MemoryHandle) {
@@ -71,7 +67,8 @@ test('populated legacy state round-trips without losing root or guild values', (
         .prepare("SELECT path FROM files WHERE kind = 'core-state-import' ORDER BY path")
         .all()
         .map((row) => row.path),
-      ROOTS.toSorted()
+      // Import markers cover all accepted sources. The catalog owns their semantic kinds.
+      FILES.toSorted()
     );
     unchanged(fixture.dataDir, fixture.sources);
   } finally {
@@ -134,9 +131,7 @@ test('reopening skips completed imports instead of duplicating rows or overwriti
     assert.deepEqual(importCoreJsonState(handle, fixture), { imported: FILES.length });
     const current = { v: 1, stopped: true, queue: [] };
     applyUnitWrite(handle, { kind: 'unit', op: 'value', owner: INNER, value: current });
-    dbOf(handle)
-      .prepare("UPDATE operational SET value = ? WHERE kind = 'state' AND owner = 'state.json'")
-      .run('{"paused":false}');
+    applyUnitWrite(handle, { op: 'value', key: legacyStorageKey('state.json'), value: { paused: false } });
     const before = rows(handle);
     for (let opening = 0; opening < 2; opening += 1) {
       handle.close();

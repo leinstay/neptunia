@@ -16,7 +16,6 @@ import {
 // responsible for them.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
 import { resolveMentions, mentionDirectory, usableDestination, paceSettings } from '../src/behavior/turn.ts';
 import { between, typingMs } from '../src/behavior/random.ts';
 import { fillPromptTemplate, userText as textOf } from '../src/behavior/prompt.ts';
@@ -42,7 +41,7 @@ import type { TriggerKind } from '../src/turn/triggers.ts';
 import type { TurnParams } from '../src/turn/outcome.ts';
 import { createTurnRunner } from './fixtures/turn-runner.ts';
 import { snapshotOf } from '../src/behavior/snapshot.ts';
-import { openTestMemorySync } from './fixtures/memory-db/service.ts';
+import { openTestMemorySync, journalLabel } from './fixtures/memory-db/service.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import {
@@ -6786,7 +6785,8 @@ function journalOverMemory() {
   const memoryDb = {
     ...mem.memoryDb,
     writeUnit: (update: Untyped) => {
-      for (const line of update.lines ?? []) lines.push({ file: path.join('fake-data', update.owner), record: line });
+      // Legacy labels are fixture export projections of the actual semantic keys.
+      for (const line of update.lines ?? []) lines.push({ file: journalLabel('fake-data', update.key), record: line });
       return mem.memoryDb.writeUnit(update);
     },
   };

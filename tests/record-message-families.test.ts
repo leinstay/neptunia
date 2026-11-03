@@ -41,7 +41,7 @@ function envelope(room: string, text: string, edited = false) {
 }
 
 test('recording an observed edit enriches that exact revision without adding a source or incrementing again', async () => {
-  const memory = await openTestMemory({ now: () => NOW });
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
   try {
     const record = createRecord({ ...memory, now: () => NOW });
     observedId(await memory.memoryDb.observeMessage(envelope('room-a', 'Original'), { guildId: 'community' }));
@@ -70,7 +70,7 @@ test('recording an observed edit enriches that exact revision without adding a s
 });
 
 test('qualified records with one native ID retain separate revisions and actual conversation IDs', async () => {
-  const memory = await openTestMemory({ now: () => NOW });
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
   try {
     const record = createRecord({ ...memory, now: () => NOW });
     for (const [room, revision] of [
@@ -92,7 +92,7 @@ test('qualified records with one native ID retain separate revisions and actual 
 });
 
 test('a supplied source belonging to another conversation cannot receive record metadata', async () => {
-  const memory = await openTestMemory({ now: () => NOW });
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
   try {
     const record = createRecord({ ...memory, now: () => NOW });
     const foreignId = observedId(await memory.memoryDb.observeMessage(envelope('room-b', 'Foreign original')));
@@ -112,7 +112,7 @@ test('a supplied source belonging to another conversation cannot receive record 
 });
 
 test('exporting a normalized record restores native message and reply IDs rather than family keys', async () => {
-  const memory = await openTestMemory({ now: () => NOW });
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
   try {
     const record = createRecord({ ...memory, now: () => NOW });
     const child = envelope('room-a', 'Child');
@@ -150,7 +150,7 @@ test('exporting a normalized record restores native message and reply IDs rather
 });
 
 test('recording an observed deletion adopts its tombstone without inventing a revision', async () => {
-  const memory = await openTestMemory({ now: () => NOW });
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
   try {
     const record = createRecord({ ...memory, now: () => NOW });
     const deletedId = observedId(
