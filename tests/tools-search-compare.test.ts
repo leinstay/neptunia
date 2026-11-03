@@ -25,7 +25,7 @@ const ROWS = [
   { id: 'q1', query: 'weather in Lisboa today', asked: 'what is the weather in Lisboa today?' },
   { id: 'q2', query: 'café hours Porto' },
 ];
-const ENV = { BRAVE_SEARCH_API_KEY: 'brave-test-key' };
+const ENV = { brave: 'brave-test-key' };
 
 function hotFixture() {
   return {
@@ -124,6 +124,12 @@ async function quietly<TResult>(fn: () => Promise<TResult>): Promise<TResult> {
 function run(argv: Untyped, { dir, env = ENV }: Untyped) {
   const clock = { t: NOW };
   const f = fakes({ clock });
+  // Search credentials live in the prepared persona key store.
+  const dataDir = tempDir('nep-search-credentials-');
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(path.join(dataDir, 'keys.json'), JSON.stringify({ core: [], extra: {}, roles: {}, services: env }), {
+    mode: 0o600,
+  });
   const promise = quietly(() =>
     main(argv, {
       cwd: dir,
@@ -132,7 +138,7 @@ function run(argv: Untyped, { dir, env = ENV }: Untyped) {
       hot: wrongly<Hot>(hotFixture()),
       llmClient: f.llm,
       searches: f.searches,
-      env,
+      env: { NEPTUNIA_DATA_DIR: dataDir },
     })
   );
   return { promise, ...f };

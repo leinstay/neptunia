@@ -282,7 +282,7 @@ test('canonical prompts prefer the explicit data root and ignore private legacy 
   fs.writeFileSync(path.join(f.personal, 'prompt.md'), '\ufeff personal marker \n');
   const options = {
     ...f.options,
-    env: { NEPTUNIA_DATA_DIR: path.join(f.base, 'other-data'), NEPTUNIA_PRIVATE_DIR: privateDir },
+    env: { NEPTUNIA_DATA_DIR: path.join(f.base, 'other-data') },
     override: 'legacy.md',
   };
   const files = agents.promptFilesOf('scout', options);

@@ -162,7 +162,6 @@ function coreDown(): { dirs: Dirs; db: string; key: string; token: string } {
   addClient(dirs.privateDir, CLI_CLIENT);
   const key = 'sk-or-test-zeta-not-a-real-key';
   const keys = createKeyStore({ privateDir: dirs.dataDir });
-  keys.removeCore('core-1');
   keys.addCore({ name: 'core-1', value: key });
   mkdirSync(dirs.dataDir, { recursive: true });
   const db = join(dirs.dataDir, 'memory.db');

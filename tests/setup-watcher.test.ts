@@ -21,7 +21,7 @@ type Rig = {
   asked: Array<{ question: string; offered: string | null }>;
 };
 
-const configFile = (privateDir: string): string => path.join(privateDir, 'config.local', 'config.json');
+const configFile = (privateDir: string): string => path.join(privateDir, 'config', 'config.json');
 const watcherOf = (privateDir: string): Record<string, unknown> =>
   (JSON.parse(fs.readFileSync(configFile(privateDir), 'utf8')) as { watcher?: Record<string, unknown> }).watcher ?? {};
 
@@ -31,7 +31,7 @@ function rig(
   extra: { uses?: Record<string, Backend>; models?: Record<string, string> } = {}
 ): Rig {
   const privateDir = path.join(tempDir('nep-setup-watcher-'), 'private');
-  fs.mkdirSync(path.join(privateDir, 'config.local'), { recursive: true });
+  fs.mkdirSync(path.join(privateDir, 'config'), { recursive: true });
   fs.writeFileSync(
     configFile(privateDir),
     JSON.stringify({ bot: { name: 'kept' }, ...(watcher === null ? {} : { watcher }) })

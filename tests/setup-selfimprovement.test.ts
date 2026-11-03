@@ -29,13 +29,13 @@ type Rig = {
   ghFound: boolean;
 };
 
-const configFile = (privateDir: string): string => path.join(privateDir, 'config.local', 'config.json');
+const configFile = (privateDir: string): string => path.join(privateDir, 'config', 'config.json');
 const stored = (privateDir: string): Record<string, unknown> =>
   JSON.parse(fs.readFileSync(configFile(privateDir), 'utf8')) as Record<string, unknown>;
 
 function rig(selfimprovement: Record<string, unknown> | null): Rig {
   const privateDir = path.join(tempDir('nep-setup-selfimprovement-'), 'private');
-  fs.mkdirSync(path.join(privateDir, 'config.local'), { recursive: true });
+  fs.mkdirSync(path.join(privateDir, 'config'), { recursive: true });
   fs.writeFileSync(
     configFile(privateDir),
     JSON.stringify({ bot: { name: 'kept' }, ...(selfimprovement === null ? {} : { selfimprovement }) })

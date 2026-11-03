@@ -151,7 +151,9 @@ function deployment(local: Settings | null) {
       bot: { owners: [], access: {} },
     })
   );
-  if (local !== null) fs.writeFileSync(path.join(root, 'config.local.json'), JSON.stringify(local));
+  // Runtime key migration reads prepared persona config; explicit offline input fixtures stay legacy.
+  fs.mkdirSync(path.join(root, 'data', 'config'), { recursive: true });
+  if (local !== null) fs.writeFileSync(path.join(root, 'data', 'config', 'config.json'), JSON.stringify(local));
   return root;
 }
 
@@ -161,7 +163,9 @@ const warnings = (logs: Array<Record<string, unknown>>) => logs.filter((entry) =
 // settings under `skills.*` are the old keys this test still moves.
 test('lets an old key of the local file override the shipped default of its new name', async () => {
   const root = deployment({ skills: { safeMode: true, loop: { maxSteps: 7 } } });
-  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  const { result } = await withCapturedLogs(
+    () => readConfig(root, { privateDir: path.join(root, 'data') }) as Settings
+  );
   const tools = result.tools as Settings;
   assert.equal(tools.safeMode, true);
   assert.deepEqual(tools.loop, { maxSteps: 7, maxCallsPerStep: 4 });
@@ -174,7 +178,7 @@ test('says so in one warning line per load, however many keys moved', async () =
     features: { skills: true },
     bot: { access: { 'skills.describe': GRANT } },
   });
-  const { logs } = await withCapturedLogs(() => readConfig(root, { privateDir: root }));
+  const { logs } = await withCapturedLogs(() => readConfig(root, { privateDir: path.join(root, 'data') }));
   assert.equal(warnings(logs).length, 1);
 });
 
@@ -408,7 +412,7 @@ test('a production-shaped file moves every key once and a second pass finds noth
 
 test('says in its one warning line how many keys it dropped', async () => {
   const root = deployment({ bot: { access: { 'memory.refresh.user': GRANT } }, agents: { maxDownloadBytes: 1 } });
-  const { logs } = await withCapturedLogs(() => readConfig(root, { privateDir: root }));
+  const { logs } = await withCapturedLogs(() => readConfig(root, { privateDir: path.join(root, 'data') }));
   const lines = warnings(logs);
   assert.equal(lines.length, 1);
   assert.equal(lines[0]?.dropped, 2);
@@ -419,7 +423,9 @@ test('reads the grants and settings of an old local file under their new names a
     bot: { access: { 'task.run': GRANT } },
     agents: { maxOpen: 5, scout: { search: { provider: 'tavily' } } },
   });
-  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  const { result } = await withCapturedLogs(
+    () => readConfig(root, { privateDir: path.join(root, 'data') }) as Settings
+  );
   assert.deepEqual((result.bot as Settings).access, { 'errand.run': GRANT });
   assert.equal((result.errands as Settings).maxOpen, 5);
   assert.deepEqual((result.agents as Settings).scout, { searchProvider: 'tavily' });
@@ -467,7 +473,9 @@ test('lets llm.analyzerTimeoutMs win over llm.helperTimeoutMs and reports the ol
 
 test('reads an old llm.helperTimeoutMs of the local file as the analyzer timeout at load', async () => {
   const root = deployment({ llm: { helperTimeoutMs: 4321 } });
-  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  const { result } = await withCapturedLogs(
+    () => readConfig(root, { privateDir: path.join(root, 'data') }) as Settings
+  );
   assert.deepEqual(result.llm, { analyzerTimeoutMs: 4321 });
 });
 
@@ -698,13 +706,17 @@ test('lets selfimprovement.mode win over selfdev.mode and reports the old key as
 
 test('reads an old innerLife.heartbeat key of the local file under heartbeat at load', async () => {
   const root = deployment({ innerLife: { heartbeat: { everyMinutes: 360 } } });
-  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  const { result } = await withCapturedLogs(
+    () => readConfig(root, { privateDir: path.join(root, 'data') }) as Settings
+  );
   assert.deepEqual(result.heartbeat, { everyMinutes: 360 });
 });
 
 test('reads an old diary key of the local file under selfreflection at load', async () => {
   const root = deployment({ diary: { quietDayChance: 0.5 } });
-  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  const { result } = await withCapturedLogs(
+    () => readConfig(root, { privateDir: path.join(root, 'data') }) as Settings
+  );
   assert.deepEqual(result.selfreflection, { quietDayChance: 0.5 });
 });
 
@@ -713,13 +725,17 @@ test('reads old selfdev and innerLife.wakes.selfimprovement keys of the local fi
     selfdev: { repository: 'me/fork' },
     innerLife: { wakes: { selfimprovement: { everyDays: 2 } } },
   });
-  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  const { result } = await withCapturedLogs(
+    () => readConfig(root, { privateDir: path.join(root, 'data') }) as Settings
+  );
   assert.deepEqual(result.selfimprovement, { repository: 'me/fork', everyDays: 2 });
 });
 
 test('cuts an old diary.set and innerLife.heartbeat.people of the local file at load under their new names', async () => {
   const root = deployment({ diary: { world: true, set: { minPosted: 1 } }, innerLife: { heartbeat: { people: 4 } } });
-  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  const { result } = await withCapturedLogs(
+    () => readConfig(root, { privateDir: path.join(root, 'data') }) as Settings
+  );
   assert.deepEqual(result.selfreflection, { world: true });
   assert.equal(Object.hasOwn(result, 'heartbeat'), false);
   assert.equal(Object.hasOwn(result, 'diary') || Object.hasOwn(result, 'innerLife'), false);
@@ -727,7 +743,9 @@ test('cuts an old diary.set and innerLife.heartbeat.people of the local file at 
 
 test('reads an old innerLife.wakes.selfimprovement.tools of the local file as selfimprovement.tools at load', async () => {
   const root = deployment({ innerLife: { wakes: { selfimprovement: { tools: ['board.propose'] } } } });
-  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  const { result } = await withCapturedLogs(
+    () => readConfig(root, { privateDir: path.join(root, 'data') }) as Settings
+  );
   assert.deepEqual(result.selfimprovement, { tools: ['board.propose'] });
 });
 
@@ -755,7 +773,9 @@ test('writes features.innerLife as features.wakes', () => {
 
 test('reads old innerLife keys of the local file under wakes at load', async () => {
   const root = deployment({ innerLife: { mode: 'live', loop: { maxSteps: 6 }, wakes: { review: { maxActs: 1 } } } });
-  const { result } = await withCapturedLogs(() => readConfig(root, { privateDir: root }) as Settings);
+  const { result } = await withCapturedLogs(
+    () => readConfig(root, { privateDir: path.join(root, 'data') }) as Settings
+  );
   assert.deepEqual(result.wakes, { mode: 'live', loop: { maxSteps: 6 }, kinds: { review: { maxActs: 1 } } });
   assert.equal(Object.hasOwn(result, 'innerLife'), false);
 });

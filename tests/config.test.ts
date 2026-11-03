@@ -10,7 +10,9 @@ import { paceSettings } from '../src/behavior/turn.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 function tmpDir() {
-  return tempDir('nep-');
+  const root = tempDir('nep-');
+  fs.mkdirSync(path.join(root, 'data', 'config'), { recursive: true });
+  return root;
 }
 
 test('parseEnv: skips blank lines and full-line comments', () => {
@@ -102,13 +104,13 @@ test('deepMerge: does not mutate the base object', () => {
   assert.equal(base.a.x, 1);
 });
 
-test('readConfig: an empty config.local.json is treated as no override', () => {
+test('readConfig: an empty persona config/config.json is treated as no override', () => {
   const dir = tmpDir();
   try {
     // PR 7c: the tracked settings live in config/config.json.
     fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'config', 'config.json'), JSON.stringify({ bot: { timezone: 'UTC' } }));
-    fs.writeFileSync(path.join(dir, 'config.local.json'), '   \n  ');
+    fs.writeFileSync(path.join(dir, 'data', 'config', 'config.json'), '   \n  ');
     const cfg = readConfig(dir);
     assert.deepEqual(cfg, { bot: { timezone: 'UTC' } });
   } finally {
@@ -116,7 +118,7 @@ test('readConfig: an empty config.local.json is treated as no override', () => {
   }
 });
 
-test('readConfig: config.local.json is deep-merged over config.json', () => {
+test('readConfig: persona config/config.json is deep-merged over config.json', () => {
   const dir = tmpDir();
   try {
     fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
@@ -124,7 +126,7 @@ test('readConfig: config.local.json is deep-merged over config.json', () => {
       path.join(dir, 'config', 'config.json'),
       JSON.stringify({ bot: { timezone: 'UTC', owners: [] }, llm: { model: 'a' } })
     );
-    fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ bot: { owners: ['1'] } }));
+    fs.writeFileSync(path.join(dir, 'data', 'config', 'config.json'), JSON.stringify({ bot: { owners: ['1'] } }));
     const cfg = readConfig(dir);
     assert.deepEqual(cfg, { bot: { timezone: 'UTC', owners: ['1'] }, llm: { model: 'a' } });
   } finally {
@@ -192,7 +194,7 @@ test('readConfig: env references resolve after the merge; an unset name warns on
       JSON.stringify({ media: { video: { proxy: '' } }, other: '${env:NEP_TEST_UNSET_REF}' })
     );
     fs.writeFileSync(
-      path.join(dir, 'config.local.json'),
+      path.join(dir, 'data', 'config', 'config.json'),
       JSON.stringify({ media: { video: { proxy: '${env:NEP_TEST_PROXY_REF}' } } })
     );
     const { result: cfg, logs } = await withCapturedLogs(() => {

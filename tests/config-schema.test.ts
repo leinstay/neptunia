@@ -133,8 +133,8 @@ const schemaKeys = (): Set<string> => new Set(CONFIG_SCHEMA.map((entry) => entry
 /** The settings this checkout reads with `PRODUCTION_LAYER` as the private layer's settings file. */
 function productionConfig(): Tree {
   const dir = tempDir('nep-cut-');
-  fs.mkdirSync(path.join(dir, 'config.local'));
-  fs.writeFileSync(path.join(dir, 'config.local', 'config.json'), JSON.stringify(PRODUCTION_LAYER));
+  fs.mkdirSync(path.join(dir, 'config'));
+  fs.writeFileSync(path.join(dir, 'config', 'config.json'), JSON.stringify(PRODUCTION_LAYER));
   const config: unknown = readConfig(ROOT, { privateDir: dir });
   fs.rmSync(dir, { recursive: true, force: true });
   assert.ok(isTree(config));
