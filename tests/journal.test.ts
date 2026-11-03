@@ -926,8 +926,6 @@ test('journalLine: one short line per kind', async () => {
   );
 });
 
-/** An in-memory `fs/promises` stand-in: files by path, directories derived from them. */
-
 test('journal: withWriterLock flushes the store first and holds appends until fn resolves', async () => {
   const clock = { ms: DAY_D };
   const { journal, appendStore }: Record<string, Untyped> = journalAt(clock);
