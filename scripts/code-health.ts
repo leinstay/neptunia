@@ -1,10 +1,10 @@
 // The code-health ratchet and the structure check. Reads the tracked tree (`git ls-files`), parses every .js, .mjs
 // and .ts file with the TypeScript compiler API (syntax only, no type checker), and compares two things with
-// `code-health-baseline.json` at the repository root:
+// `scripts/config/code-health-baseline.json`:
 //
-//   size       a file over its line limit (2,000 unless its `structure.json` entry says otherwise) and a function
+//   size       a file over its line limit (2,000 unless its `scripts/config/structure.json` entry says otherwise) and a function
 //              over 300 lines, nesting 6 or cyclomatic complexity 20
-//   structure  a tracked file that matches no entry of `structure.json`, a tracked file in the local layer, an
+//   structure  a tracked file that matches no entry of `scripts/config/structure.json`, a tracked file in the local layer, an
 //              import its entry does not allow, a module of a `required` entry without a test
 //
 // A value above the baseline, or an offender the baseline lacks, fails the run. A value below the baseline fails it
@@ -15,7 +15,7 @@
 //
 //   node scripts/code-health.ts                check the tree (exit 0 or 1)
 //   node scripts/code-health.ts --update       rewrite the baseline; refuses while something grew
-//   node scripts/code-health.ts --docs         write docs/structure.md from structure.json
+//   node scripts/code-health.ts --docs         write docs/structure.md from scripts/config/structure.json
 //   node scripts/code-health.ts --check-docs   fail when docs/structure.md differs from what --docs writes
 //
 // `npm run health` and `npm run health:update` call it. The pure functions are exported for
@@ -30,8 +30,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const baselinePath = path.join(root, 'code-health-baseline.json');
-const manifestPath = path.join(root, 'structure.json');
+const baselinePath = path.join(root, 'scripts', 'config', 'code-health-baseline.json');
+const manifestPath = path.join(root, 'scripts', 'config', 'structure.json');
 const docPath = path.join(root, 'docs', 'structure.md');
 
 export const LIMITS = { fileLines: 2000, functionLines: 300, nesting: 6, complexity: 20 };
@@ -535,7 +535,7 @@ export function renderStructureDoc(entries: Array<Entry>): string {
     return `| \`${e.path}\` | ${e.layer} | ${e.purpose} | ${imports} | ${e.test} |`;
   });
   return [
-    '<!-- Generated from structure.json by `node scripts/code-health.ts --docs`. Do not edit by hand. -->',
+    '<!-- Generated from scripts/config/structure.json by `node scripts/code-health.ts --docs`. Do not edit by hand. -->',
     '',
     '# Repository structure',
     '',
@@ -609,7 +609,9 @@ function runDocs(write: boolean, docText: string): number {
   }
   const current = fs.existsSync(docPath) ? fs.readFileSync(docPath, 'utf8') : '';
   if (current === docText) return 0;
-  console.error('docs/structure.md differs from structure.json, run: node scripts/code-health.ts --docs');
+  console.error(
+    'docs/structure.md differs from scripts/config/structure.json, run: node scripts/code-health.ts --docs'
+  );
   return 1;
 }
 

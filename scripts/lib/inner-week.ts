@@ -7,7 +7,7 @@
 // lands on the scheduler's tick grid (`wakes.tickSeconds` from the start of the week), so the
 // scheduler sees what it would see live, at most one tick late.
 //
-// The fixture (scripts/fixtures/inner-week/*.json, `parseFixture`) scripts the week: the people's
+// The fixture (scripts/fixtures/*.json, `parseFixture`) scripts the week: the people's
 // messages (with times and channels; one addressed to her holds the one attention for
 // `turnSeconds`), floods of them, her own lines, intentions she sets, errands that end, analyzer
 // candidates, planted text, a restart, the kill switch. An intention may recur (`every`, as her
@@ -190,7 +190,7 @@ export function withChannelMap(fixture: Fixture, map: Record<string, { id: strin
 export function loadFixtures(dir: string): Array<Fixture> {
   return fs
     .readdirSync(dir)
-    .filter((file) => file.endsWith('.json'))
+    .filter((file) => file.endsWith('.json') && !file.endsWith('.example.json'))
     .sort()
     .map((file) => parseFixture(fs.readFileSync(path.join(dir, file), 'utf8'), { name: file.replace(/\.json$/, '') }));
 }

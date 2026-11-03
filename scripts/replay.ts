@@ -103,7 +103,7 @@
 // `--skills` also stops once what the provider reports spent (`usage.cost`,
 // else the estimate per request) reaches `--spend`.
 //
-// `--skills <file>`: a JSON array of scenarios (scripts/prompts/skill-scenarios.example.json
+// `--skills <file>`: a JSON array of scenarios (scripts/fixtures/skill-scenarios.example.json
 // shows the shape; parseScenarios checks it), each `{ id, channelId, before?,
 // author, text, grants, runs?, result?, discovery? }` (or `steps` or
 // `taskResult` for `author` and `text`, see below). For each one: the last
