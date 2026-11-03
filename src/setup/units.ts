@@ -87,7 +87,6 @@ function pathMap(vars: UnitVars): Array<[string, string]> {
     ['/opt/neptunia/data', vars.dataDir],
     ['/etc/neptunia', vars.dataDir],
     ['/opt/node/bin/node', vars.node],
-    ['/usr/bin/node', vars.node],
     ['/opt/node/bin', nodeDir],
     ['/home/neptunia', vars.home],
   ];

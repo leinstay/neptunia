@@ -21,7 +21,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/neptunia/app
-ExecStart=/usr/bin/node bin/neptunia.ts interface run %i
+ExecStart=/opt/node/bin/node bin/neptunia.ts interface run %i
 User=neptunia-%i-interface
 Group=neptunia
 # The runner opens the link again by itself. An interface that cannot (Discord)
