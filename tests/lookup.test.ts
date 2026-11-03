@@ -49,7 +49,14 @@ function fakeHot({
       web: {
         acceptLanguage: 'el,en;q=0.5',
         links: { maxOutputTokens: 300, fetchTimeoutMs: 10_000, ...web.links },
-        search: { enabled: true, maxOutputTokens: 400, cacheHours: 24, timeoutMs: 10_000, ...web.search },
+        search: {
+          enabled: true,
+          model: 'x/search',
+          maxOutputTokens: 400,
+          cacheHours: 24,
+          timeoutMs: 10_000,
+          ...web.search,
+        },
       },
       ...config,
     },
@@ -370,8 +377,9 @@ test('search: Brave results are condensed on the analyzer model; sources carry t
     messages[1].content,
     '1. Résultat un\nhttps://www.example.com/one\npremier extrait\n2 days ago\n\n2. Résultat deux\nhttps://news.example.org/two\nsecond extrait'
   );
-  assert.equal(options.model, 'x/reason', 'the analyzer role, its own model');
-  assert.equal(options.role, 'analyzer', 'routed as the helper');
+  // Changed: quick search has its own model setting and key binding, apart from the analyzer.
+  assert.equal(options.model, 'x/search', 'its own model');
+  assert.equal(options.role, 'search', 'its own key binding');
   assert.equal(options.maxOutputTokens, 400);
   assert.equal(options.skipCalibration, true);
   const key = Object.keys(store.getMediaCache('g1')).find((k) => k.startsWith('search:'));
@@ -593,8 +601,9 @@ test('search: engine openrouter -- one analyzer request with the Exa web plugin;
   assert.equal(messages[0].content, 'The query: Qui a gagné ?. Up to 900 characters.', 'the same system prompt');
   assert.equal(messages[1].content, 'Qui a gagné ?', 'the user content is the question');
   assert.deepEqual(options.plugins, [{ id: 'web', engine: 'exa', max_results: 5 }]);
-  assert.equal(options.model, 'x/reason');
-  assert.equal(options.role, 'analyzer');
+  // Changed: quick search has its own model setting and key binding, apart from the analyzer.
+  assert.equal(options.model, 'x/search');
+  assert.equal(options.role, 'search');
   assert.equal(options.purpose, 'search-summary');
   assert.equal(options.isRoleRequest, false, 'never hedged: the search is billed once');
   assert.ok(Object.keys(store.getMediaCache('g1')).some((k) => k.startsWith('search:')));
@@ -864,7 +873,8 @@ test('searchResults: engine openrouter -- one analyzer request (purpose web-sear
       options.isRoleRequest,
       options.countAgainstDailyCap,
     ],
-    ['x/reason', 'analyzer', 'web-search', 64, false, true]
+    // Changed: quick search has its own model setting and key binding, apart from the analyzer.
+    ['x/search', 'search', 'web-search', 64, false, true]
   );
 
   const none = engineSetup({ engine: 'openrouter' }, { braveApiKey: null });

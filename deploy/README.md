@@ -10,7 +10,6 @@ The systemd unit templates of the engine. `neptunia setup` renders them for the 
 | `neptunia-watcher.service`, `neptunia-watcher.timer` | The daily watcher, `neptunia watcher run`, started by the timer daily at `watcher.at` (default 00:00 UTC), which setup renders into it. See [The watcher](../docs/watcher.md). | yes |
 | `neptunia-selfimprovement.service`, `neptunia-selfimprovement.timer` | One beat of her self-development, `neptunia selfimprovement run`, in the dev checkout `selfimprovement.checkout` names, started by the timer every six hours UTC. See [Self-development](../docs/selfimprovement.md). | when `selfimprovement.checkout` names another checkout |
 | `neptunia-bot.service` | The core with the Discord interface in its process (`interfaces.mode: inprocess`). It conflicts with the core unit. | no |
-| `neptunia-plugin@.service` | One plugin, `neptunia plugin run %i`. See [Plugins](../docs/plugins.md). | no |
 
 ## How a template becomes a unit
 

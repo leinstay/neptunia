@@ -117,6 +117,7 @@ export const INTENT_PARAMS = Object.freeze({
     text: str(300),
     due: str(40),
     every: str(10),
+    standing: str(5),
     expires: str(40),
     errand: str(20),
     deadline: str(40),

@@ -37,7 +37,6 @@ The persona's inner life (heartbeat wakes, intentions, the diary) runs the same 
 | [Memory](memory.md) | Concepts, data model, write and read paths, the memory session, recall, scopes, configuration |
 | [Inner life](inner-life.md) | Heartbeat, daily review, the selfimprovement wake, intentions, inner turns, caps, the kill switch, the virtual-week harness |
 | [Skills](skills.md) | The `SKILL.md` skills: where they live, versions and activation, the index in her prompt, use counts, the commands |
-| [Plugins](plugins.md) | The plugin mechanism: the client and its link, the registry and the gateway, a call inside her turn, the wake that announces a tool, the `/plugins` commands |
 | [Diary](diary.md) | The diary feature |
 | [Errands](errands.md) | `errand.run`, errand agents, the runner, sandbox users, results returning as a turn |
 | [Development agents](development-agents.md) | The dev and thinker agents, profiles, the two run paths |

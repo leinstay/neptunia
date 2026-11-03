@@ -131,6 +131,7 @@ export const labels = {
     linksWatch: 'links show their site, title, snippet and address; a video-site link may come with a watch summary',
     linksWatchTool: 'links show their site, title, snippet and address; a video-site link may come with a watch summary; a link may show the opening of the page, and you can read it all',
     linksRead: 'links show their site, title, snippet and address; a link may come with an excerpt of the page, read first-hand',
+    deepSearchTool: 'test senses deep search',
     searchTool: 'call web.search yourself; results in <result>, snippets only',
     readTool: 'call web.read yourself; the page text in <result>, cut',
     recallTool: 'call memory.search yourself; messages quoted in <result>',

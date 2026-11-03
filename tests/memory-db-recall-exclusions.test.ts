@@ -558,7 +558,6 @@ test('the in-turn memory tool derives CLI history scope from its trusted convers
       turnContextOf: () => memoryContext,
       linkCalls: (lines) => lines,
       drawTool: () => Promise.reject(new Error('memory reads do not draw')),
-      plugins: null,
     });
     const handlers = tools.inTurnTools({
       channel: channelInfo('cli:dm:owner', { kind: 'dm', communityId: null, partnerId: 'owner-42', audience: null }),

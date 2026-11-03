@@ -201,7 +201,7 @@
     "src/behavior/inner/drain.ts": {
       "drain": {
         "complexity": 88,
-        "function-length": 379
+        "function-length": 377
       }
     },
     "src/behavior/inner/facts.ts": {
@@ -304,7 +304,7 @@
     },
     "src/behavior/turn.ts": {
       "createTurnRunner": {
-        "function-length": 457
+        "function-length": 455
       }
     },
     "src/behavior/wake.ts": {

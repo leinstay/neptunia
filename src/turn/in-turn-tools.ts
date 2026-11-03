@@ -3,7 +3,6 @@
 // the operation's command (src/tools/executors.ts#executeCall). createTurnRunner (src/behavior/turn.ts) builds it once
 // per runner with createInTurnTools; the attempt hands the tools to its calls.
 
-import { randomUUID } from 'node:crypto';
 import { diaryVoiceTool } from '../behavior/diary-turn.ts';
 import { pullPictures } from '../behavior/pull.ts';
 import { checkPull } from '../behavior/pull-fetch.ts';
@@ -29,8 +28,6 @@ import {
 import type { LookDescriber, RecallClient, WebLookup } from '../tools/tools.ts';
 import type { InTurnCall, ResolvedMessageRef } from '../tools/executors.ts';
 import type { Obj } from '../tools/types.ts';
-import type { PluginCallContext } from '../plugins/registry.ts';
-import type { ToolAnswer } from '../protocol/plugin.ts';
 import { searchHandles } from './calls.ts';
 import type { SearchRefs } from './calls.ts';
 import type { DrawGif } from './draw-gif.ts';
@@ -72,11 +69,6 @@ export type InTurnToolsContext = {
   turnContextOf: (draft: InTurnDraft | null | undefined, channel: ConversationInfo) => unknown;
   linkCalls: JournalNotes['linkCalls'];
   drawTool: DrawGif['drawTool'];
-  /** The registered tools of the plugins and the call to one (src/plugins/registry.ts); null: none. */
-  plugins: {
-    tools(): Array<string>;
-    call(tool: string, args: Obj, context: PluginCallContext): Promise<ToolAnswer>;
-  } | null;
 };
 
 /** What an attempt's draft holds that the in-turn tools read. */
@@ -172,7 +164,6 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     turnContextOf,
     linkCalls,
     drawTool,
-    plugins,
   } = ctx;
 
   /**
@@ -205,20 +196,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     const where = { channel, guildId, trigger, triggerKind, selfName, draft, mode, plain };
     const messageOf = (messageId: string, call?: InTurnCall): HistoryMessage | null =>
       cachedMessage(call?.messageRef, messageId, draft?.searchRefs, history ?? [], conversationOf(channel));
-    // Each tool a plugin registered runs in the turn like a core tool: the plugin's answer is the call's result.
-    const pluginTools: Record<string, (args: Obj, call?: InTurnCall) => unknown> = Object.fromEntries(
-      (plugins?.tools() ?? []).map((tool) => [
-        tool,
-        (args: Obj, call?: InTurnCall) =>
-          plugins?.call(tool, args, {
-            requester: call?.requester ?? null,
-            conversationId: call?.conversationId ?? null,
-            idempotencyKey: call?.idempotencyKey ?? randomUUID(),
-          }),
-      ])
-    );
     return {
-      ...pluginTools,
       'draw.create': (args) => routes.tool('drawing', (model) => drawTool(args, where, model)),
       // The attempt always hands its draft to a diary post's tools.
       ...(mode === 'diary' ? diaryVoiceTool({ speech, held: draft as InTurnDraft }) : {}),

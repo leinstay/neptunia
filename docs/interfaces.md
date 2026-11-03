@@ -202,7 +202,7 @@ At start `startCore` (`src/core.ts`) makes a random token with `crypto.randomByt
 
 ### Clients and principals
 
-Every client of the core is a principal: a `name`, a `kind` (`interface`, `cli`, `plugin` or `agent`), the `iface` an interface's events must carry, and `permissions`. `principalOfToken` in `src/interface/principals.ts` resolves a token to its principal from the private layer's `clients.json` and the token files beside it (see [Configuration](configuration.md#clients-and-their-tokens)), reading them at every call. With no `clients.json` the one principal is the boot principal: the token the core made at start, named after the interface it runs, and bound to the `iface` its `hello` names.
+Every client of the core is a principal: a `name`, a `kind` (`interface`, `cli` or `agent`), the `iface` an interface's events must carry, and `permissions`. `principalOfToken` in `src/interface/principals.ts` resolves a token to its principal from the private layer's `clients.json` and the token files beside it (see [Configuration](configuration.md#clients-and-their-tokens)), reading them at every call. With no `clients.json` the one principal is the boot principal: the token the core made at start, named after the interface it runs, and bound to the `iface` its `hello` names.
 
 `openAdapterLink` takes `principalOf` and resolves the token of `hello`, and again for every later envelope, so a rotated or revoked token closes the link at its next envelope. The principal decides what the connection may do, never what `hello` claims: the `kind` or an owner named in `hello` grants nothing. After `hello`, every envelope is checked with `validateEnvelope` by its type, and the link stays open whatever it answers:
 
@@ -219,8 +219,6 @@ Several interfaces connect to one core at once. `hello` names the first communit
 The namespace `cli` belongs to the owner's command line: a `cli` principal must say `hello` as `iface: 'cli'`, and any other principal that names `cli` is refused with `iface`. The namespace `agent` belongs to the development agents of the task board in the same way: an `agent` principal must say `hello` as `iface: 'agent'`, and no other principal may.
 
 `openAdapterLink` also takes `admit`, which the core passes to refuse a `hello` of an interface whose `interfaces.<name>.enabled` is `false`, with the reason `interface-disabled`. Every refused `hello` is logged as `link: hello refused` with its reason (`token`, `iface`, `hello-invalid` or `interface-disabled`), and the link closes.
-
-A plugin is a client of the same socket with its own link. A connection whose first envelope is a `hello` under the namespace `plugin` goes to `openPluginLink` (`src/plugins/link.ts`) and not to `openAdapterLink`. The two envelope types a plugin adds, `tool.register` and `tool.call`, and their bodies are described in [Plugins](plugins.md#envelopes).
 
 ### Starting an interface
 

@@ -158,6 +158,20 @@ export const DUE_JITTER_MINUTES = 20;
 export const dueJitterMinutes: (config?: Untyped) => number = () => DUE_JITTER_MINUTES;
 
 /**
+ * When a new record expires. A standing task lasts until it is cancelled (the owner's decision of 2026-11-02). Every record
+ * keeps an `expiresAt`, so its is the far end of the calendar and each clock comparison stays as it is.
+ */
+function expiryOf(standing: unknown, given: number | null | undefined, fallback: number): number {
+  if (standing === true) return STANDING_EXPIRES_AT;
+  return given ?? fallback;
+}
+
+const standingField = (standing: unknown): { standing?: true } => (standing === true ? { standing: true } : {});
+
+/** The `expiresAt` of a standing task: year 9999, so no clock reaches it. */
+export const STANDING_EXPIRES_AT = Date.UTC(9999, 0, 1);
+
+/**
  * The moment a record's due wake fires. An intention a heartbeat made (`origin: heartbeat`) is
  * shifted off its round clock time by an offset uniform in +-`jitterMinutes`, derived from a hash
  * of `id` and `dueAt` (the same item and due time always give the same offset, nothing stored).
@@ -300,7 +314,10 @@ function nextWallClock({
   timezone: string;
   after: number;
 }): number {
-  let day = fromDay;
+  // A standing task may come back after any absence: whole periods are skipped at once, so the walk below stays short.
+  const start = zonedEpoch(fromDay, hour, minute, timezone);
+  const skipped = Number.isFinite(start) ? Math.floor((after - start) / (stepDays * DAY_MS)) - 1 : 0;
+  let day = skipped > 0 ? addDays(fromDay, skipped * stepDays) : fromDay;
   for (let i = 0; i < 400; i += 1) {
     const at = zonedEpoch(day, hour, minute, timezone);
     if (!Number.isFinite(at)) return NaN;
@@ -613,6 +630,7 @@ export function createIntention({
   dueAt = null,
   every = null,
   expiresAt = null,
+  standing = false,
   destination = null,
   completionCondition = null,
   chainId = null,
@@ -639,7 +657,8 @@ export function createIntention({
   if (every && dueAt === null) return { ok: false, code: CODE.EVERY_WITHOUT_DUE };
   const ownDays = every ? (settings.recurringExpiresDays ?? DEFAULTS.recurringExpiresDays) : settings.expiresDays;
   const defaultExpiry = candidate ? now + settings.candidateExpiresHours * HOUR_MS : now + ownDays * DAY_MS;
-  const expires = expiresAt === null || expiresAt === undefined ? defaultExpiry : expiresAt;
+  if (standing === true && !every) return { ok: false, code: CODE.BAD_EVERY };
+  const expires = expiryOf(standing, expiresAt, defaultExpiry);
   if (!Number.isFinite(expires) || expires <= now) return { ok: false, code: CODE.BAD_EXPIRY };
   if (dueAt !== null && dueAt > expires) return { ok: false, code: CODE.DUE_AFTER_EXPIRY };
   const span = line(provenance.span, SPAN_CHARS);
@@ -682,6 +701,7 @@ export function createIntention({
     dueAt: dueAt ?? null,
     every: every ? { period: every.period, at: every.at ?? null } : null,
     expiresAt: expires,
+    ...standingField(standing),
     awaitingErrandId: null,
     waitDeadline: null,
     destination: idOrNull(destination),

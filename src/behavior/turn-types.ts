@@ -57,7 +57,6 @@ export type CreateTurnRunnerInput = {
   memoryContext?: Untyped;
   attention?: Set<string>;
   roleHealth?: Untyped;
-  plugins?: Untyped;
 };
 
 /** What `createTurnRunner` returns: the turn runner the pipeline, the inner life and the core drive. */

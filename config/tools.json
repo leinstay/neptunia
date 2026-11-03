@@ -458,6 +458,7 @@
       "text": "The purpose, up to 300 characters.",
       "channel": "Where it happens.",
       "every": "day, week, <n>h, <n>d.",
+      "standing": "true: with every, it lasts until you cancel it.",
       "expires": "When it lapses; time like due.",
       "errand": "Errand id to wait on.",
       "chain": "Links related intentions.",

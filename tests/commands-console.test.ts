@@ -50,11 +50,12 @@ const TABLE = [
   'memory',
   'rules',
   'tools',
-  'plugins',
   'skills',
   'interface',
   'keys',
   'subharness',
+  // Changed: `/search` holds quick search's targeted settings.
+  'search',
   'simulation',
   'help',
   'clear',
