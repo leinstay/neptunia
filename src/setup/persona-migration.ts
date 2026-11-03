@@ -4,7 +4,9 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { joinLabels, labelsFileOf, splitLabels } from './labels.ts';
+import { AgentProfileError, listAgents } from '../agent-runner/profiles.ts';
+import { watcherDir } from '../watcher/read.ts';
+import { joinLabels, labelsFileOf, splitLabels } from '../config/labels.ts';
 
 export type PersonaLayerOptions = { rootDir: string; privateDir: string; dataDir: string };
 export type PersonaLayerStep = { source: string; target: string; kind: 'copy' | 'split-labels' };
@@ -116,19 +118,48 @@ function targetFormat(target: string): Format {
   return target.endsWith('.json') ? 'object' : 'prompt';
 }
 
-function agentOverrides(root: string): Set<string> {
-  const overrides = new Set<string>();
+function agentOverrides(root: string): Map<string, Array<string>> {
+  const overrides = new Map<string, Array<string>>();
+  if (inspect(root, 'agents') === null) return overrides;
   for (const name of entries(root, 'agents')) {
-    const profile = `agents/${name}/profile.json`;
-    if (!inspect(root, `agents/${name}`)?.isDirectory() || inspect(root, profile) === null) continue;
+    const folder = `agents/${name}`;
+    if (!inspect(root, folder)?.isDirectory()) continue;
+    const profile = `${folder}/profile.json`;
     const value = parse(read(root, profile), profile, false);
-    if (value.override === undefined || value.override === null) continue;
-    if (typeof value.override !== 'string' || !relativeSafe(value.override)) {
-      throw new InspectionError(profile, 'unsafe-path');
+    for (const field of ['override', 'prompt']) {
+      const file = value[field];
+      if (typeof file === 'string' && (!relativeSafe(file) || /[\\/\0]/.test(file)))
+        throw new InspectionError(profile, 'unsafe-path');
     }
-    overrides.add(path.normalize(value.override));
+  }
+  try {
+    for (const agent of listAgents({ rootDir: root })) {
+      if (agent.override === null || agent.prompt === null) continue;
+      const targets = overrides.get(agent.override) ?? [];
+      targets.push(path.join('agents', agent.id, agent.prompt));
+      overrides.set(agent.override, targets);
+    }
+  } catch (error) {
+    if (error instanceof AgentProfileError)
+      throw new InspectionError(`agents/${error.agent}/profile.json`, 'invalid-shape');
+    throw error;
   }
   return overrides;
+}
+
+/** Select the watcher's legacy directory using the original engine root. */
+function watcherPrompt(options: PersonaLayerOptions, personal: unknown): string {
+  const trackedPath = 'config/config.json';
+  const tracked =
+    inspect(options.rootDir, trackedPath) === null ? {} : parse(read(options.rootDir, trackedPath), trackedPath, true);
+  const local = isObject(personal) ? personal : {};
+  const base = isObject(tracked.watcher) ? tracked.watcher : {};
+  const effective = Object.hasOwn(local, 'watcher')
+    ? isObject(local.watcher)
+      ? { ...base, ...local.watcher }
+      : local.watcher
+    : base;
+  return path.join(path.resolve(options.rootDir, watcherDir({ watcher: effective })), 'prompt.md');
 }
 
 function within(parent: string, child: string): boolean {
@@ -148,7 +179,9 @@ function inspection(options: PersonaLayerOptions): { plan: PersonaLayerPlan; mat
     }
   };
   const add = (source: string, target: string, format: Format): void => {
-    const bytes = read(options.privateDir, source);
+    const sourceRoot = path.isAbsolute(source) ? path.dirname(source) : options.privateDir;
+    const sourceFile = path.isAbsolute(source) ? path.basename(source) : source;
+    const bytes = read(sourceRoot, sourceFile);
     let value = decoded(bytes, source, format);
     let output = bytes;
     if (format === 'flat') {
@@ -191,14 +224,9 @@ function inspection(options: PersonaLayerOptions): { plan: PersonaLayerPlan; mat
             throw new InspectionError(source, 'legacy-tools');
           } else if (source === 'config.local/interfaces') {
             plan.held.push({ path: source, reason: 'interface-contract' });
-          } else if (
-            source.startsWith('prompts.local/') &&
-            (name.startsWith('agent-') ||
-              [...overrides].some((override) => {
-                const relative = path.relative('prompts.local', source);
-                return override === relative || override.startsWith(`${relative}${path.sep}`);
-              }))
-          ) {
+          } else if (folder === 'prompts.local' && overrides.has(name)) {
+            for (const target of overrides.get(name) ?? []) add(source, target, 'prompt');
+          } else if (source.startsWith('prompts.local/') && name.startsWith('agent-')) {
             plan.held.push({ path: source, reason: 'agent-contract' });
           } else if (source === 'config.local/config.json' || source === 'config.local.json') {
             add(source, 'config/config.json', 'settings');
@@ -217,6 +245,9 @@ function inspection(options: PersonaLayerOptions): { plan: PersonaLayerPlan; mat
       }
     };
     scan('');
+    const source = watcherPrompt(options, candidates.get('config/config.json')?.value);
+    if (inspect(path.dirname(source), path.basename(source)) !== null)
+      add(source, 'agents/watcher/prompt.md', 'prompt');
   });
   for (const material of candidates.values()) {
     attempt(() => {
