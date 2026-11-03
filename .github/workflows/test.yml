@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: No private files tracked
         run: |
-          bad=$(git ls-files -- CLAUDE.local.md .claude .opencode .agents .local.git .secrets references prompts.local skills.local plugins.local config.local.json config.local data .env '.env.*' | grep -vx '.env.example' || true)
+          bad=$(git ls-files -- CLAUDE.local.md .claude .opencode .agents .local.git .secrets references prompts.local skills.local plugins.local config.local.json config.local data .env '.env.*' | grep -vxE '\.env\.example|data/README\.md' || true)
           if [ -n "$bad" ]; then echo "::error::private files are tracked:"; echo "$bad"; exit 1; fi
       - name: No JavaScript tracked
         # The engine, its tests and its scripts are TypeScript run by Node's type stripping (allowJs is off).

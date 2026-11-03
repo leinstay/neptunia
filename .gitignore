@@ -9,8 +9,9 @@
 config.local.json
 config.local/
 
-# Persistent bot state: user memory, guild patterns, scheduler state
-/data/
+# The persona root: her memory, prompts, settings and keys. Only its generic README is public.
+/data/*
+!/data/README.md
 
 *.log
 *.bak
