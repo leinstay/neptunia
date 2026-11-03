@@ -6,6 +6,8 @@
 // (src/behavior/line-of.ts). `pictureGate` says whether the post may carry a picture, and
 // `diaryVoiceTool` keeps her voice message for the entry instead of posting it. Logs: none.
 
+import { diaryMetadataOf, diaryRestricted } from '../tools/publication.ts';
+import type { PublicationBoundary } from '../tools/publication.ts';
 import { randomUUID } from 'node:crypto';
 import {
   DEFAULT_GIST_CHARS,
@@ -191,6 +193,7 @@ export function recordEntry({
   staged,
   set,
   voice,
+  publicationBoundary,
   newId = () => `diary:${randomUUID()}`,
 }: {
   store: DiaryStore;
@@ -202,6 +205,7 @@ export function recordEntry({
   staged: ReadonlyArray<StagedPicture>;
   set: boolean;
   voice: HeldVoice | null;
+  publicationBoundary?: PublicationBoundary;
   newId?: () => string;
 }): {
   kind: string | null;
@@ -222,9 +226,11 @@ export function recordEntry({
     voice,
     id,
   });
+  if (publicationBoundary !== undefined) post.publicationBoundary = publicationBoundary;
   if (typeof store.appendDiaryPost === 'function') store.appendDiaryPost(guildId, post, { max: DEFAULT_HISTORY_POSTS });
   const entry: DiaryEntry = {
     id,
+    ...(publicationBoundary !== undefined ? { publicationBoundary } : {}),
     ...rendered,
     pictures: staged.map((item) => ({ buffer: item.buffer, mediaType: item.mediaType })),
     voice: voice?.ogg ? { ogg: voice.ogg, durationSecs: voice.durationSecs, waveform: voice.waveform ?? '' } : null,
@@ -242,7 +248,12 @@ export function recordEntry({
 
 /** The part of the diary's publisher a turn's diary messages use (src/behavior/mirror.ts). */
 type DiaryPublisher = {
-  holdDiary(turnId: string, guildId: string, message: HeldDiaryMessage): HeldDiary;
+  holdDiary(
+    turnId: string,
+    guildId: string,
+    message: HeldDiaryMessage,
+    options?: { publicationBoundary?: PublicationBoundary }
+  ): HeldDiary;
   takeDiary(turnId: string): HeldDiary | null;
   queueEntry(entry: DiaryEntry): Promise<void>;
   publishEntry(entry: DiaryEntry, options: { held: boolean }): Promise<unknown>;
@@ -253,6 +264,7 @@ function heldEntry(held: HeldDiary): DiaryEntry {
   const files = held.messages.flatMap((message, index) => message.files.map((file) => ({ message: index, ...file })));
   return {
     id: held.id,
+    ...(held.publicationBoundary !== undefined ? { publicationBoundary: held.publicationBoundary } : {}),
     messages: held.messages.map((message) => message.text),
     mentions: held.messages.map((message) => [...message.mentions]),
     ...(files.length > 0 ? { files } : {}),
@@ -287,6 +299,7 @@ export async function writeDiaryMessage({
   turnId,
   guildId,
   message,
+  publicationBoundary,
 }: {
   mirrors: unknown;
   store: unknown;
@@ -294,18 +307,31 @@ export async function writeDiaryMessage({
   turnId: string;
   guildId: string;
   message: HeldDiaryMessage;
+  publicationBoundary?: PublicationBoundary;
 }): Promise<void> {
   const publisher = mirrors as DiaryPublisher;
-  const held = publisher.holdDiary(turnId, guildId, message);
+  const held = publisher.holdDiary(turnId, guildId, message, { publicationBoundary });
   const speech = {
     texts: held.messages.map((one) => one.text),
     rendered: held.messages.map((one) => ({ text: one.text, userIds: [...one.mentions] })),
   };
-  const entry = { config, plan: { kind: null, search: null }, held: speech, staged: [], set: false, voice: null };
+  const entry = {
+    publicationBoundary: held.publicationBoundary,
+    config,
+    plan: { kind: null, search: null },
+    held: speech,
+    staged: [],
+    set: false,
+    voice: null,
+  };
   const diaryStore = store as DiaryStore;
   if (held.messages.length === 1)
     recordEntry({ ...entry, store: diaryStore, guildId, now: held.at, newId: () => held.id });
-  else replacePost(diaryStore, guildId, diaryPostOf({ ...entry, at: held.at, id: held.id }).post);
+  else
+    replacePost(diaryStore, guildId, {
+      ...diaryPostOf({ ...entry, at: held.at, id: held.id }).post,
+      ...(held.publicationBoundary !== undefined ? { publicationBoundary: held.publicationBoundary } : {}),
+    });
   await flushed(store);
   await publisher.queueEntry(heldEntry(held));
   log.info('diary: message held', { messages: held.messages.length });
@@ -415,9 +441,10 @@ function diaryMessages(db: Db, placeId: string | null, limit: number): Array<Dia
     "SELECT 1 AS gone FROM sources WHERE place_id = ? AND native_id = ? AND kind = 'deleted' AND retired_at IS NULL LIMIT 1"
   );
   const entries = db
-    .prepare('SELECT id, at_ms, text FROM diary WHERE retired_at IS NULL ORDER BY at_ms DESC, position DESC')
+    .prepare('SELECT id, at_ms, text, extra FROM diary WHERE retired_at IS NULL ORDER BY at_ms DESC, position DESC')
     .all();
   for (const entry of entries) {
+    if (diaryRestricted(diaryMetadataOf(entry.extra))) continue;
     if (out.length >= limit) break;
     const entryId = String(entry.id);
     const ids = messageIdsOf(db, entryId);

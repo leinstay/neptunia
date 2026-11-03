@@ -2,6 +2,14 @@
 
 The persona keeps a diary on its own, at random times, without anyone asking. The entries look like a personal feed: drawings, memes, reflections, retold news, curious facts, one-line moods. Before each entry the persona reviews its own recent history and picks something it has not done yet. Each entry is written into memory first and then posted to the diary's mirrors, the places the owner set up for it. The owner tunes the schedule through config (`selfreflection.windows`, `selfreflection.quietDayChance`).
 
+## Internal entries
+
+A diary entry produced by an issued internal turn retains its trusted origin interface and conversation in `publicationBoundary`. `src/behavior/diary-turn.ts` stores this descriptor beside the entry's send data. Repeated messages keep the restriction for the complete entry. Conflicting origins in one held entry are refused.
+
+`src/memory/db/map/diary.ts` assigns restricted entries internal scope. Their saved media inherit that scope through `src/memory/db/diary-media.ts`. When a stored entry becomes restricted, the row writer updates its existing media associations and graph visibility. An unrelated entry using the same file bytes retains its own audience. Internal owner reads retain access. Ordinary diary planning and selfreflection history exclude restricted entries before building a model request, including their fallback text and files.
+
+Mirror publication requires both the ordinary grant and the entry's restriction to permit the destination. `src/behavior/mirror.ts` checks the supplied entry before queueing and checks saved metadata before sending. `src/memory/db/publish.ts` enforces the saved restriction during preparation and recheck. An enabled mirror does not override it. A present malformed restriction refuses publication, including after a restart. Entries with absent metadata retain ordinary mirror behavior. This rule has no setting.
+
 ## Setup
 
 1. Create a channel on your server. The bot needs View Channel, Send Messages, Read Message History and Attach Files there.

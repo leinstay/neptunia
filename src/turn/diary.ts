@@ -3,6 +3,9 @@
 // createTurnRunner (src/behavior/turn.ts) builds it once per runner with createDiary; the attempt calls prepareDiary
 // before it builds a diary post's request, and runTurn asks diaryPictureGate before a forced picture kind.
 
+import { diaryRestricted } from '../tools/publication.ts';
+import { isIssuedInternalContext } from '../memory/db/scope.ts';
+import type { Context } from '../memory/db/scope.ts';
 import {
   DEFAULT_PICTURE_KINDS,
   DEFAULT_SEARCH_KINDS,
@@ -113,7 +116,12 @@ export type Diary = {
     now: number;
     params: DiaryParams;
     memoryOn: boolean;
-    draft?: (NonNullable<Parameters<JournalNotes['journalOp']>[0]> & { snapshot?: Snapshot | null }) | null;
+    draft?:
+      | (NonNullable<Parameters<JournalNotes['journalOp']>[0]> & {
+          snapshot?: Snapshot | null;
+          memoryContext?: Context;
+        })
+      | null;
   }) => Promise<DiaryPrepared>;
   diaryPictureGate: (config: DiaryConfig, channel: ConversationInfo, now: number) => PictureGate;
 };
@@ -171,7 +179,9 @@ export function createDiary(ctx: DiaryContext): Diary {
     const labels = prompts?.labels;
     const diaryCfg = config.selfreflection ?? {};
     const stored = typeof store.getDiary === 'function' ? store.getDiary(guildId) : null;
-    const posts = Array.isArray(stored?.posts) ? stored.posts : [];
+    const posts = (Array.isArray(stored?.posts) ? stored.posts : []).filter(
+      (post) => isIssuedInternalContext(draft?.memoryContext) || !diaryRestricted(post)
+    );
     const forcedKind = typeof params?.kind === 'string' && params.kind ? params.kind : null;
     const topic = diaryTopic(params?.topic);
     const pictureAllowed = diaryPictureGate(config, channel, now).allowed;

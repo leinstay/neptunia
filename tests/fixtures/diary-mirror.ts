@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { after } from 'node:test';
 import { channelPlaceId } from '../../src/memory/db/ids.ts';
 import { insertRows } from '../../src/memory/db/rows.ts';
+import type { Db } from '../../src/memory/db/types.ts';
 import type { createFakeAdapter } from '../../src/interface/fake.ts';
 import { openTestMemory } from './memory-db/service.ts';
 
@@ -24,9 +25,6 @@ type MirrorModule = {
   };
 };
 
-type Row = Record<string, unknown>;
-type Statement = { run(...params: Array<unknown>): unknown; all(...params: Array<unknown>): Array<Row> };
-type Db = { prepare(sql: string): Statement };
 type Fake = ReturnType<typeof createFakeAdapter>;
 /** The memory service of a test (what openTestMemory opened). */
 export type MemoryService = Awaited<ReturnType<typeof openTestMemory>>['memoryDb'];

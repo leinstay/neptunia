@@ -84,6 +84,7 @@ function diaryPort(env: Env, args: Obj, context: OpContext, real: Adapter): Adap
       turnId,
       guildId,
       message,
+      publicationBoundary: context.publicationBoundary,
     });
     return { status: 'ok', ref: null, parts: [], at: clock(), idempotencyKey: '', error: null };
   };

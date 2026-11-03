@@ -7,6 +7,10 @@
 // and a scripted model. Synthetic text only.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { issueContext, type Context } from '../src/memory/db/scope.ts';
+import { wakeInputs } from '../src/behavior/diary-turn.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import { walk } from '../src/memory/db/graph.ts';
 import { utcDay } from '../src/time.ts';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -119,11 +123,13 @@ async function turnOf(
     mode = 'reply',
     onAnswer = null,
     mirrors = core.mirrors,
+    memoryContext,
   }: {
     answers: Array<unknown>;
     mode?: 'reply' | 'inner' | 'diary';
     onAnswer?: ((index: number) => void) | null;
     mirrors?: Community['mirrors'];
+    memoryContext?: Context;
   }
 ) {
   const hot = diaryToolHot({ maxPerDay: MAX_PER_DAY });
@@ -193,14 +199,15 @@ async function turnOf(
     mode === 'inner'
       ? turns.runTurn({
           conversation,
+          memoryContext,
           guildId: GUILD,
           mode: 'inner',
           triggerKind: 'inner',
           inner: { wake: INTENTION_WAKE, shadow: false, mayAct: () => true },
         })
       : mode === 'diary'
-        ? turns.runTurn({ mode: 'diary', diary: { kind: 'status', forced: true }, guildId: GUILD })
-        : turns.runTurn({ conversation, mode: 'reply', triggerKind: 'mention', trigger });
+        ? turns.runTurn({ memoryContext, mode: 'diary', diary: { kind: 'status', forced: true }, guildId: GUILD })
+        : turns.runTurn({ memoryContext, conversation, mode: 'reply', triggerKind: 'mention', trigger });
   const { logs } = await withCapturedLogs(run);
   await core.store.flushSettled({});
   return { logs: logs as Array<Record<string, unknown>>, llm };
@@ -368,4 +375,180 @@ test("a diary entry whose turn stopped before it was published goes out once fro
   assert.equal(await restarted.drainQueued(), 2, 'one publication for each mirror');
   assert.equal(await restarted.drainQueued(), 0, 'sent once');
   assert.deepEqual([core.texts('d1'), core.texts('d2')], [['πριν σβήσει'], ['πριν σβήσει']]);
+});
+
+const PRIVATE_DIARY = 'private-diary-marker-731';
+const PUBLIC_DIARY = 'ordinary-diary-marker-942';
+const PRIVATE_BOUNDARY = { kind: 'internal-turn', origin: { iface: 'fake', conversationId: 'c1' } } as const;
+const internalDiaryContext = () => issueContext({ kind: 'internal', now: () => NOW, newId: () => 'ctx:private-diary' });
+
+function diaryDb(core: Community) {
+  const handle = core.memory.memoryDb.readHandle();
+  assert.ok(handle);
+  return dbOf(handle);
+}
+
+function seedRestrictedDiary(core: Community, metadata: unknown = PRIVATE_BOUNDARY): void {
+  // Public store writes reproduce restored metadata without granting a model control over it.
+  const post = {
+    at: NOW - 60000,
+    kind: 'status',
+    gist: PRIVATE_DIARY,
+    picture: null,
+    search: '',
+    text: PRIVATE_DIARY,
+    itemId: 'diary:restricted-seed',
+    publicationBoundary: metadata,
+    send: { messages: [PRIVATE_DIARY], mentions: [[]] },
+  };
+  core.store.appendDiaryPost(GUILD, post);
+}
+
+test('an internal turn keeps repeated diary messages private through storage and turn-end publication', async () => {
+  // Catches losing trusted provenance on the second message or treating a mirror grant as declassification.
+  const core = await community();
+  await turnOf(core, {
+    memoryContext: internalDiaryContext(),
+    answers: [
+      toolAnswer('<msg>private answer</msg>', [
+        call('message.create', { diary: 'true', text: PRIVATE_DIARY }),
+        call('message.create', { diary: 'true', text: 'second private line' }),
+      ]),
+      '<skip/>',
+    ],
+  });
+  assert.ok(core.texts('c1').includes('private answer'));
+  const [entry] = diaryRows(core.memory.memoryDb);
+  assert.equal(entry.text, `${PRIVATE_DIARY}\nsecond private line`);
+  const db = diaryDb(core);
+  const row = db.prepare('SELECT scope_kind, extra FROM diary WHERE id = ?').get(entry.id);
+  assert.equal(row?.scope_kind, 'internal');
+  const extra = JSON.parse(String(row?.extra)) as Record<string, unknown>;
+  assert.deepEqual(extra.publicationBoundary, PRIVATE_BOUNDARY);
+  assert.equal('memoryContext' in extra, false);
+  assert.deepEqual([core.texts('d1'), core.texts('d2')], [[], []]);
+});
+
+test('a restricted diary tool entry remains private after a publisher restart', async () => {
+  // Catches restrictions kept only in a live hold and lost when queued publications are restored.
+  const core = await community();
+  const stopped = {
+    ...core.mirrors,
+    publishEntry: (): Promise<Array<PublishOutcome>> => Promise.reject(new Error('stopped')),
+  };
+  await turnOf(core, {
+    memoryContext: internalDiaryContext(),
+    mirrors: stopped,
+    answers: [toDiary({ text: PRIVATE_DIARY }), '<skip/>'],
+  });
+  assert.equal(diaryRows(core.memory.memoryDb)[0].text, PRIVATE_DIARY);
+  const restarted = createMirrors({
+    memoryDb: core.memory.memoryDb,
+    port: () => core.adapter,
+    now: () => NOW,
+    dataDir: core.memory.dataDir,
+  });
+  assert.equal(await restarted.drainQueued(), 0);
+  assert.deepEqual([core.texts('d1'), core.texts('d2')], [[], []]);
+});
+
+for (const metadata of [PRIVATE_BOUNDARY, null, { kind: 'internal-turn', origin: {} }]) {
+  test(`restored ${metadata === PRIVATE_BOUNDARY ? 'valid' : metadata === null ? 'null' : 'malformed'} diary restriction hides the entry from outward reads`, async () => {
+    // Catches group-scoped diary rows exposing internal text after a mapper round trip.
+    const core = await community();
+    seedRestrictedDiary(core, metadata);
+    await core.store.flushSettled({});
+    const db = diaryDb(core);
+    const node = db
+      .prepare("SELECT id FROM graph_nodes WHERE kind = 'diary' AND row_id = ?")
+      .get('diary:restricted-seed');
+    assert.ok(node && typeof node.id === 'string');
+    const owner = walk(db, internalDiaryContext(), { from: node.id, maxDepth: 0 });
+    assert.ok(owner.rows.some((row) => row.rowId === 'diary:restricted-seed'));
+    const outward = issueContext({ kind: 'group', iface: 'fake', now: () => NOW });
+    assert.deepEqual(walk(db, outward, { from: node.id, maxDepth: 0 }).rows, []);
+    const restored = createStore({ dataDir: core.memory.dataDir, memoryDb: core.memory.memoryDb });
+    const post = restored.getDiary(GUILD).posts[0];
+    assert.ok(post && 'publicationBoundary' in post);
+    assert.deepEqual(post.publicationBoundary, metadata);
+  });
+}
+
+test('selfreflection history omits restricted stored diary text and retains ordinary entries', async () => {
+  // Catches the raw diary fallback leaking a private entry despite a correct graph audience.
+  const core = await community();
+  seedRestrictedDiary(core);
+  core.store.appendDiaryPost(GUILD, {
+    at: NOW - 120000,
+    kind: 'status',
+    gist: PUBLIC_DIARY,
+    picture: null,
+    search: '',
+    text: PUBLIC_DIARY,
+    itemId: 'diary:ordinary-seed',
+  });
+  await core.store.flushSettled({});
+  const inputs = await wakeInputs({
+    store: core.store,
+    conversationInfo: () => Promise.resolve(null),
+    iface: 'fake',
+    guildId: GUILD,
+    selfId: 'self-id',
+    selfName: 'Bot',
+    config: { context: { channelMessages: 50 } },
+  });
+  assert.equal(JSON.stringify(inputs.history).includes(PRIVATE_DIARY), false);
+  assert.ok(JSON.stringify(inputs.history).includes(PUBLIC_DIARY));
+});
+
+test('ordinary diary planning and writing omit restricted posts from the store', async () => {
+  // Catches the second diary history path feeding private gists to an outward planning model.
+  const core = await community();
+  seedRestrictedDiary(core);
+  core.store.appendDiaryPost(GUILD, {
+    at: NOW - 120000,
+    kind: 'status',
+    gist: PUBLIC_DIARY,
+    picture: null,
+    search: '',
+    text: PUBLIC_DIARY,
+    itemId: 'diary:ordinary-seed',
+  });
+  await core.store.flushSettled({});
+  const plan = JSON.stringify({ kind: 'status', brief: 'a quiet day', search: '', picture: false });
+  const { llm } = await turnOf(core, { mode: 'diary', answers: [plan, '<msg>ordinary entry</msg>'] });
+  assert.ok(llm.calls.length >= 2);
+  const prompts = JSON.stringify(llm.calls);
+  assert.ok(prompts.includes(PUBLIC_DIARY));
+  assert.equal(prompts.includes(PRIVATE_DIARY), false);
+});
+
+test('a diary-mode internal turn records restricted provenance on its held speech', async () => {
+  // Catches guarding diary tool calls while leaving the ordinary diary-mode producer unrestricted.
+  const core = await community();
+  const plan = JSON.stringify({ kind: 'status', brief: 'a private day', search: '', picture: false });
+  await turnOf(core, {
+    mode: 'diary',
+    memoryContext: internalDiaryContext(),
+    answers: [plan, `<msg>${PRIVATE_DIARY}</msg>`],
+  });
+  const [row] = diaryDb(core).prepare('SELECT text, scope_kind, extra FROM diary').all();
+  assert.equal(row.text, PRIVATE_DIARY);
+  assert.equal(row.scope_kind, 'internal');
+  const extra = JSON.parse(String(row.extra)) as Record<string, unknown>;
+  assert.ok(extra.publicationBoundary);
+});
+
+test('an internal diary attachment retains internal media scope without mirror upload', async () => {
+  // Catches text protection leaving a generated diary attachment readable or publishable as group media.
+  const core = await community();
+  await turnOf(core, {
+    memoryContext: internalDiaryContext(),
+    answers: [toDiary({ text: PRIVATE_DIARY, file: 'file:task/notes.txt' }), '<skip/>'],
+  });
+  assert.equal(diaryRows(core.memory.memoryDb)[0].text, PRIVATE_DIARY);
+  const media = diaryDb(core).prepare("SELECT scope_kind FROM media WHERE kind = 'diary' AND retired_at IS NULL").all();
+  assert.equal(media.length, 1);
+  assert.equal(media[0].scope_kind, 'internal');
+  assert.deepEqual([receivedIn(core, 'd1'), receivedIn(core, 'd2')], [[], []]);
 });

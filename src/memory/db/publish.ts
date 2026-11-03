@@ -35,6 +35,7 @@
 // uses preparePublication but the diary's mirrors (src/behavior/mirror.ts); the legacy diary posts derive their
 // `sent` publications on the diary's own write like the sync (unit-write.ts). Logs: none; a caller logs codes.
 
+import { diaryMetadataOf, diaryPublicationRefusal } from '../../tools/publication.ts';
 import { createHash } from 'node:crypto';
 import { legacyNativeKind, nativeAuthorityOf } from './ids.ts';
 import { contextRow } from './scope.ts';
@@ -117,6 +118,20 @@ export function grantFor(
   );
 }
 
+/** The saved diary restriction applies independently of caller metadata or publication grants. */
+export function storedDiaryPublicationRefusal(handle: Connection, rowId: unknown, destination: unknown): string | null {
+  const db = dbOf(handle);
+  const row = db.prepare('SELECT extra FROM diary WHERE id = ?').get(String(rowId));
+  const boundary = diaryMetadataOf(row?.extra).publicationBoundary;
+  if (boundary === undefined) return null;
+  const place = db.prepare('SELECT iface, native_id FROM places WHERE id = ?').get(String(destination));
+  const refusal = diaryPublicationRefusal(boundary, {
+    iface: typeof place?.iface === 'string' ? place.iface : '',
+    conversationId: typeof place?.native_id === 'string' ? place.native_id : '',
+  });
+  return refusal?.code ?? null;
+}
+
 /**
  * Whether the owner set up an enabled `diary` mirror of `destination` (schema v15): his standing grant for every diary
  * entry to that place. A disabled mirror, or a database before v15, grants nothing.
@@ -164,6 +179,10 @@ function sendRefusal(
   )
     return { code: 'not-outward' };
   if (!filled(destination) || (context as Context).destination !== destination) return { code: 'destination-mismatch' };
+  if (rowKind === 'diary') {
+    const restriction = storedDiaryPublicationRefusal(db, rowId, destination);
+    if (restriction) return { code: restriction };
+  }
   const produced = producedOf(producedIn);
   if (produced.outward === destination) return { code: null, grant: null };
   if (rowKind === 'diary' && mirroredTo(db, destination)) return { code: null, grant: null };
@@ -272,6 +291,10 @@ export function recheck(
   if (!context || context.mode !== 'outward' || context.internal === true || !filled(context.id))
     return refused('not-outward');
   if (context.destination !== row.destination_place_id) return refused('destination-mismatch');
+  if (row.row_kind === 'diary') {
+    const restriction = storedDiaryPublicationRefusal(handle, row.row_id, row.destination_place_id);
+    if (restriction) return refused(restriction);
+  }
   if (row.grant_id) {
     const grant = dbOf(handle)
       .prepare('SELECT revoked_at, content_hash FROM publication_grants WHERE id = ?')

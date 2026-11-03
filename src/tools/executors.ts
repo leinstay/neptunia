@@ -670,6 +670,13 @@ function callPublicationRefusal(
   if (boundary == null) return null;
   if (!['message.create', 'message.edit', 'message.react.add', 'draw.create', 'voice.say'].includes(resolved.skill))
     return null;
+  if (
+    resolved.skill === 'message.create' &&
+    resolved.args.diary === true &&
+    !resolved.args.channel &&
+    !resolved.args.replyTo
+  )
+    return null;
   const channel = resolved.args.channel;
   return publicationRefusal(boundary, deps.refOf(typeof channel === 'string' ? channel : deps.opContext?.channelId));
 }

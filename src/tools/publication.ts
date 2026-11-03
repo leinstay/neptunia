@@ -76,3 +76,25 @@ export function bindPublicationPort<TPort extends object>(
     },
   });
 }
+
+/** Persisted diary metadata fails closed when its JSON cannot be read. */
+export function diaryMetadataOf(value: unknown): Record<string, unknown> {
+  if (value === null || value === undefined) return {};
+  try {
+    const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return objOf(parsed);
+  } catch {
+    // Unreadable metadata cannot establish the absence of a restriction.
+  }
+  return { publicationBoundary: null };
+}
+
+export function diaryRestricted(post: unknown): boolean {
+  return objOf(post).publicationBoundary !== undefined;
+}
+
+export function diaryPublicationRefusal(value: unknown, destination: ConversationRef): PublicationRefusal | null {
+  if (value === undefined) return null;
+  if (isPublicationBoundary(value)) return publicationRefusal(value, destination);
+  return { status: 'denied', code: 'not-allowed', reason: 'publication-boundary' };
+}

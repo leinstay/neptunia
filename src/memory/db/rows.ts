@@ -515,6 +515,17 @@ export function ensureLinks(
   return count;
 }
 
+/** A restricted diary entry also restricts each of its retained media associations. */
+export function restrictDiaryMedia(db: Db, row: Row, at?: string): void {
+  if (row.audience_id !== AUD_INTERNAL) return;
+  const media = db.prepare("SELECT id FROM media WHERE kind = 'diary' AND owner = ?").all(row.id);
+  db.prepare(
+    `UPDATE media SET scope_kind = ?, scope_iface = ?, scope_dm = ?, audience_id = ?
+    WHERE kind = 'diary' AND owner = ?`
+  ).run('internal', null, null, AUD_INTERNAL, row.id);
+  for (const item of media) projectRow(db, 'media', { id: item.id }, { at });
+}
+
 // Tests only: REPLACE does not fire the FTS delete trigger without recursive_triggers, so no live writer may use it for sources.
 /**
  * Inserts (or replaces, by primary key) every row of a mapping (table -> its rows), with the v7 derived columns filled
@@ -537,6 +548,7 @@ export function insertRows(
       if (table === 'sources') ensureRelations(db, row, { at });
       else if (table === 'diary_mirrors') deriveMirrorPublication(db, row, { at });
       else projectRow(db, table, row, { at });
+      if (table === 'diary') restrictDiaryMedia(db, row, at);
     }
   }
   ensureLinks(db, mapping.accounts, { at });
