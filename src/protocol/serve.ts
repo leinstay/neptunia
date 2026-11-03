@@ -281,6 +281,7 @@ export function serveAdapter(options: {
   // Without an outbox an event goes out at once; with one, only once the core has answered hello.
   let welcomed = outbox === null;
   let lostKinds = 0;
+  const backlog = new Set((outbox?.pending() ?? []).map((entry) => entry.seq));
 
   function finish(): void {
     closed = true;
@@ -309,8 +310,10 @@ export function serveAdapter(options: {
     if (value.replyTo === helloId && !welcomed) {
       welcomed = true;
       // Everything the core has not taken goes again, in order, before anything new.
-      // Marked as replayed: the core keeps them as history and starts no turn over a backlog.
-      for (const entry of outbox?.pending() ?? []) sendEvent({ ...entry.event, replayed: true }, entry.seq);
+      // What an earlier connection left is a backlog: the core keeps it as history and starts no turn. An event of
+      // this connection that merely waited for the answer to hello goes as it is.
+      for (const entry of outbox?.pending() ?? [])
+        sendEvent(backlog.has(entry.seq) ? { ...entry.event, replayed: true } : entry.event, entry.seq);
     }
     const resolvers = waiting.get(value.replyTo ?? '');
     if (resolvers !== undefined) {
