@@ -4,6 +4,12 @@ What the persona perceives from the chat and what she can produce.
 
 Transcript lines carry media in brackets: pictures, GIFs, videos, stickers, custom emoji, voice messages, audio files, links. A `<senses>` block in each request tells the persona what is on and what is off under the current config; she trusts this block and never claims to have seen or heard anything beyond it.
 
+## Stored originals
+
+`src/memory/db/diary-media.ts` keeps diary image and audio originals under `data/media/diary/`. Each database media row records a path relative to `data/`, its byte count, MIME type, SHA-1 checksum and diary owner. Source references retain the interface attachment and message information when supplied. Descriptions remain separate from these file bytes.
+
+External GIF references use media kind `gif` and retain their URL through `src/memory/db/map/gifs.ts`. They are not local originals. The diary reader selects kind `diary`. The database backup in `src/memory/db/backup.ts` copies `media/diary/` and verifies its files against the backup manifest on restoration. That backup covers the database and diary media, rather than the entire persona directory.
+
 ## What she perceives
 
 ### Pictures
