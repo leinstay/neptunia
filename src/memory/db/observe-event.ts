@@ -16,6 +16,7 @@
 //   times     `occurredAt` the message's time, `observedAt` the event's.
 // Returns null for an event that is no observable line: a deletion, a partial edit, a malformed event.
 
+import { messageLocator } from './message-locator.ts';
 import { OBSERVATION_VERSION } from './observe.ts';
 import type { Envelope } from './observe.ts';
 import { isFiniteNumber } from './types.ts';
@@ -93,6 +94,22 @@ function placeOf(conversation: EventConversation | undefined, authority: string)
   return null;
 }
 
+function authorOf(author: NonNullable<EventMessage['author']>, self: boolean): Envelope['author'] {
+  return self
+    ? {
+        kind: 'self',
+        key: author.id,
+        account_kind: 'self',
+        ...(filled(author.name) ? { display: author.name } : {}),
+      }
+    : {
+        kind: 'account',
+        key: author.id,
+        account_kind: author.bot === true ? 'bot' : 'user',
+        ...(filled(author.name) ? { display: author.name } : {}),
+      };
+}
+
 /**
  * The observation envelope of a `message.received` event, or null (see the head of this file).
  * `event` is a validated `message.received` event (interfaces/<iface>'s `toEvent`). `selfId` is her own user id on the
@@ -123,22 +140,21 @@ export function observationOf(
   const place = placeOf(event.conversation as EventConversation | undefined, authority);
   const occurredAt = isoOf(message.at);
   if (!place || !occurredAt || typeof message.content !== 'string') return null;
+  const locator = messageLocator(
+    {
+      v: 1,
+      origin: 'protocol-message',
+      iface,
+      conversationId: (event.conversation as EventConversation).id,
+      messageId: message.id,
+    },
+    iface
+  );
+  if (!locator) return null;
   const observedAt = isoOf(event.at) ?? occurredAt;
   const edited = event.edit === true;
   const self = message.author.self === true || (filled(selfId) && message.author.id === selfId);
-  const author: Envelope['author'] = self
-    ? {
-        kind: 'self',
-        key: message.author.id,
-        account_kind: 'self',
-        ...(filled(message.author.name) ? { display: message.author.name } : {}),
-      }
-    : {
-        kind: 'account',
-        key: message.author.id,
-        account_kind: message.author.bot === true ? 'bot' : 'user',
-        ...(filled(message.author.name) ? { display: message.author.name } : {}),
-      };
+  const author = authorOf(message.author, self);
   const mentioned = [
     ...new Set(
       (Array.isArray((event.addressing as { mentionedUserIds?: unknown } | undefined)?.mentionedUserIds)
@@ -158,6 +174,7 @@ export function observationOf(
     v: OBSERVATION_VERSION,
     iface,
     authority,
+    messageLocator: locator,
     ...(filled(connection) ? { connection } : {}),
     native: {
       kind: 'message',

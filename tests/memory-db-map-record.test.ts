@@ -63,7 +63,8 @@ test('extra holds only the fields no column names', () => {
   const extra = JSON.parse(String(rows.sources[0].extra));
   assert.deepEqual(
     Object.keys(extra).sort(),
-    ['guildId', 'id', 'links', 'participants', 'sourceMessageIds', 'v', '$null'].sort()
+    // Versioned locator metadata is internal to the stored source and removed by the inverse mapper.
+    ['guildId', 'id', 'links', 'participants', 'sourceMessageIds', 'v', '$null', '$messageLocator'].sort()
   );
   assert.deepEqual(extra.$null, ['replyTo']);
 });
@@ -186,4 +187,18 @@ test('the generated fixtures with every key path of the live record round trip',
   for (const [index, line] of generated('record').entries()) {
     assertRoundTrip(mapper, REL, plain(line), {}, `generated record ${index}`);
   }
+});
+
+test('the record mapper derives its locator from the line and keeps internal metadata out of the round trip', () => {
+  const line = seen();
+  const { rows, back } = roundTrip(mapper, REL, line);
+  const extra = JSON.parse(String(rows.sources[0].extra)) as Record<string, unknown>;
+  assert.deepEqual(extra.$messageLocator, {
+    v: 1,
+    origin: 'record-v1',
+    iface: 'discord',
+    conversationId: CHANNEL,
+    messageId: line.messageId,
+  });
+  assert.deepEqual(back, line);
 });

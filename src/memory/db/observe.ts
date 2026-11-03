@@ -57,6 +57,8 @@
 // counted here).
 // Logs carry codes only (`log.debug?.()`).
 
+import { messageLocator } from './message-locator.ts';
+import type { MessageLocator } from './message-locator.ts';
 import { log as engineLog } from '../../log.ts';
 import {
   LEGACY_AUTHORITY,
@@ -246,6 +248,7 @@ export type Envelope = {
   relations?: Array<{ predicate: string; target: RelationTarget }> | null;
   capture?: CaptureRef | null;
   extra?: Row | null;
+  messageLocator?: MessageLocator;
 };
 
 /** Runs `fn` in the handle's transaction; a refusal becomes `{ ok: false, code }` (logged with its code only). */
@@ -302,6 +305,13 @@ function targetOk(iface: string, target: unknown): boolean {
   );
 }
 
+function nativeDetailsOk(envelope: Row, native: Row): boolean {
+  if (native.subtype !== undefined && native.subtype !== null && !filled(native.subtype)) return false;
+  if (envelope.messageLocator === undefined) return true;
+  const locator = messageLocator(envelope.messageLocator, envelope.iface);
+  return locator !== null && locator.origin === 'protocol-message' && native.kind === 'message';
+}
+
 /** The refusal code of an envelope, or null when it can be written. Pure. */
 export function checkEnvelope(envelope: unknown): string | null {
   const C = OBSERVE_CODES;
@@ -324,7 +334,7 @@ export function checkEnvelope(envelope: unknown): string | null {
     !filled(n.key) ||
     !optInt(n.generation, 1) ||
     !revisionOk ||
-    (n.subtype !== undefined && n.subtype !== null && !filled(n.subtype))
+    !nativeDetailsOk(e, n)
   )
     return C.BAD_NATIVE;
   const p = e.place;
@@ -837,6 +847,15 @@ function replayOf(
   return { ok: true, replayed: true, sourceId, ...(filled(owner) ? { revision: e.native.revision } : {}), written: 0 };
 }
 
+function sourceExtraOf(e: Envelope): Row {
+  const extra: Row = {};
+  if (e.messageLocator) extra.$messageLocator = messageLocator(e.messageLocator, e.iface);
+  if (e.native.subtype) extra.subtype = e.native.subtype;
+  if (e.author.kind === 'participant' && filled(e.author.display)) extra.display = e.author.display;
+  if (isObject(e.extra) && Object.keys(e.extra).length > 0) extra.extra = e.extra;
+  return extra;
+}
+
 function writeObservation(
   db: Db,
   given: Envelope,
@@ -879,10 +898,7 @@ function writeObservation(
   const place = placeOf(db, e, at);
   const author = authorOf(db, e, place, at);
   const { scope, audience } = audienceOfPlace(e.iface, place);
-  const extra: Row = {};
-  if (n.subtype) extra.subtype = n.subtype;
-  if (e.author.kind === 'participant' && filled(e.author.display)) extra.display = e.author.display;
-  if (isObject(e.extra) && Object.keys(e.extra).length > 0) extra.extra = e.extra;
+  const extra = sourceExtraOf(e);
   const kind = lineKindOf(e);
   // The native message a line replies to, in the line's own kind and authority (the legacy `reply_to` column).
   const reply = (e.relations ?? []).find(

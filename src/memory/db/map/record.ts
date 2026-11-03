@@ -8,6 +8,7 @@
 // toRows(rel, line, ctx) -> { sources: [row] }       ctx: { position?, guildId? }
 // fromRows(rows, ctx) -> the line
 
+import { messageLocator } from '../message-locator.ts';
 import { accountId, messageSourceId, nativeOfAny } from '../ids.ts';
 import { extraText, ifaceOf, join, parseExtra, split } from './common.ts';
 import type { OldScope } from './scope-parts.ts';
@@ -55,6 +56,20 @@ export function toRows(rel: string, line: Row, ctx: MapContext = {}): Rows {
   const iface = ifaceOf(ctx);
   const { cols, rest } = split(line, SPEC, iface);
   delete rest.scope;
+  delete rest.$messageLocator;
+  if (line.v === 1 && REVISIONED_KINDS.has(String(line.kind))) {
+    const locator = messageLocator(
+      {
+        v: 1,
+        origin: 'record-v1',
+        iface,
+        messageId: line.messageId,
+        conversationId: (line.scope as OldScope | undefined)?.channel,
+      },
+      iface
+    );
+    if (locator) rest.$messageLocator = locator;
+  }
   const scopeRest = {};
   const scope = scopeInto(scopeRest, line.scope as OldScope | undefined, privateUserOf(rel), iface);
   Object.assign(rest, scopeRest);
@@ -74,6 +89,7 @@ export function toRows(rel: string, line: Row, ctx: MapContext = {}): Rows {
 export function fromRows(rows: Rows): Row {
   const row = rows.sources[0];
   const rest = parseExtra(row.extra);
+  delete rest.$messageLocator;
   const scope = scopeFrom(row, rest, privateUserOf(String(row.owner_file)), ifaceOf(row));
   const line = join(row, rest, SPEC);
   if (scope !== undefined) line.scope = scope;

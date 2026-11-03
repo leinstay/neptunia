@@ -455,12 +455,12 @@
     },
     "src/memory/db/observe-event.ts": {
       "observationOf": {
-        "complexity": 29
+        "complexity": 26
       }
     },
     "src/memory/db/observe.ts": {
       "checkEnvelope": {
-        "complexity": 104
+        "complexity": 102
       },
       "participantOf": {
         "complexity": 25
@@ -469,14 +469,11 @@
         "complexity": 39
       },
       "writeObservation": {
-        "complexity": 41
+        "complexity": 36
       }
     },
     "src/memory/db/recall.ts": {
       "search": {
-        "complexity": 23
-      },
-      "window": {
         "complexity": 23
       }
     },
