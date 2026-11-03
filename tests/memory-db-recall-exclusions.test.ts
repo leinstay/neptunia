@@ -39,7 +39,8 @@ const run = (
 function objectOf(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value))
     throw new Error('tracked settings require an object');
-  return value;
+  // The guard establishes an object whose settings are read by string keys.
+  return value as Record<string, unknown>;
 }
 
 function runner(env: ReturnType<typeof fixture>) {
