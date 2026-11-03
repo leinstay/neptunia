@@ -1,6 +1,6 @@
 # Persona file migration
 
-The offline converter in `src/setup/persona-migration.ts` prepares personal files and credentials in an isolated persona root. This document is for operators staging a stopped installation. Runtime readers, writers and watchers continue to use their existing paths. The converter has no runtime setting.
+The offline converter in `src/setup/persona-migration.ts` prepares personal files and credentials in an isolated persona root. This document is for operators staging a stopped installation. The converter has no runtime setting.
 
 ## Invocation
 
@@ -8,7 +8,7 @@ The offline converter in `src/setup/persona-migration.ts` prepares personal file
 node scripts/persona-files-move.ts --root <engine-root> --private <source-root> --data <target-root> [--apply]
 ```
 
-Each required path resolves independently against the working directory. The default is a dry run. With `--apply`, the command inspects the files afresh and copies only missing destinations. It starts no services and makes no provider calls. Legacy credential conversion uses a private temporary key store during inspection and removes it afterwards. Use stopped or isolated roots. Source and target trees must be separate. The target may lie beneath the engine root, but it must not equal or contain that root.
+Each required path resolves independently against the working directory. A legacy `NEPTUNIA_PRIVATE_DIR` does not replace these explicit paths or prevent offline inspection. The default is a dry run. With `--apply`, the command inspects the files afresh and copies only missing destinations. It starts no services and makes no provider calls. Legacy credential conversion uses a private temporary key store during inspection and removes it afterwards. Use stopped or isolated roots. Source and target trees must be separate. The target may lie beneath the engine root, but it must not equal or contain that root.
 
 ## Supported files
 
@@ -59,3 +59,11 @@ New directories have mode `0700`. New files have mode `0600`, with source execut
 An application failure can leave earlier files complete. The operation is not a transaction across directories or a concurrent merge utility. Fix the reported filesystem condition and rerun. Matching completed files remain unchanged while missing files are copied. A process killed during staging can leave a temporary file in the destination directory.
 
 Source preservation supports preparation while the existing runtime remains active elsewhere. During a stopped clean reinstallation, originals belong in external backups. This converter establishes no permanent runtime fallback, receipt or drift monitor.
+
+## Runtime persona root
+
+`resolvePaths` selects one persona directory from `NEPTUNIA_DATA_DIR`, defaulting to `data/` beneath the engine checkout. Relative paths resolve against the checkout. Internal `privateDir` and `dataDir` fields both identify this directory. A conflicting `NEPTUNIA_PRIVATE_DIR` requires migration rather than selecting a second runtime layer.
+
+The checkout supplies shared defaults. Personal configuration, prompts, keys, skills, agents, interfaces and native backend homes live beneath the persona directory. Configuration writes and prompt watchers use those same paths. Recognized mixed legacy and canonical personal layouts require reconciliation before a write.
+
+The offline converter reads legacy source paths through its explicit `--private` argument. Those inputs do not create a runtime fallback. Watcher reports use `agents/watcher/reports` beneath the selected persona directory. Copying a prepared persona does not require the old private root.

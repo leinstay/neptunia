@@ -163,8 +163,12 @@ export function videoUrlCacheKey(url: string): string {
  * matching rule as videoSiteFor), else null -- an empty proxy or an empty
  * list turns it off. The value may carry credentials: never log it.
  */
-export function proxyFor(url: string, videoCfg?: { proxy?: string; proxySites?: Array<string> }): string | null {
-  const proxy = videoCfg?.proxy;
+export function proxyFor(
+  url: string,
+  videoCfg?: { proxy?: string; proxySites?: Array<string> },
+  credential?: string | null
+): string | null {
+  const proxy = videoCfg?.proxy === '${env:MEDIA_VIDEO_PROXY}' ? credential : videoCfg?.proxy;
   if (typeof proxy !== 'string' || !proxy) return null;
   return videoSiteFor(url, videoCfg?.proxySites) !== null ? proxy : null;
 }

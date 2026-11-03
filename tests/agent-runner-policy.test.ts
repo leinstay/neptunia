@@ -54,21 +54,15 @@ test('isWithheldPath: roots, name components and env files', () => {
 test('withheld roots and globs: the fixed ones, then the data directory and a private directory apart from the checkout', () => {
   const apart = resolvePaths({
     rootDir: '/srv/app',
-    env: { NEPTUNIA_PRIVATE_DIR: '/srv/site/etc', NEPTUNIA_DATA_DIR: '/srv/site/data' },
+    env: { NEPTUNIA_PRIVATE_DIR: '/srv/site/data', NEPTUNIA_DATA_DIR: '/srv/site/data' },
   });
   const roots = withheldRootsOf({ paths: apart });
-  assert.deepEqual(roots.slice(-2), ['/srv/site/data', '/srv/site/etc']);
+  // The private alias cannot select a second runtime root.
+  assert.equal(roots.at(-1), '/srv/site/data');
   assert.ok(roots.includes('/etc/neptunia'), '/etc/neptunia stays');
   assert.ok(!roots.some((root) => root.startsWith('/opt/neptunia')), 'no hard-coded deployment path');
   const globs = withheldGlobsOf({ paths: apart });
-  for (const glob of [
-    '/srv/site/data',
-    '/srv/site/data/**',
-    '/srv/site/etc',
-    '/srv/site/etc/**',
-    '/etc/neptunia/**',
-    '**/data/guilds/**',
-  ])
+  for (const glob of ['/srv/site/data', '/srv/site/data/**', '/etc/neptunia/**', '**/data/guilds/**'])
     assert.ok(globs.includes(glob), glob);
   assert.ok(!globs.some((glob) => glob.startsWith('/srv/app')), 'the checkout itself is not withheld');
 
@@ -76,7 +70,7 @@ test('withheld roots and globs: the fixed ones, then the data directory and a pr
   assert.deepEqual(
     withheldRootsOf({ paths: together }).at(-1),
     '/srv/app/data',
-    'default: <root>/data, the private directory is the checkout'
+    'default: both runtime aliases select <root>/data'
   );
   assert.ok(!withheldRootsOf({ paths: together }).includes('/srv/app'));
 

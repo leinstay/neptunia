@@ -16,7 +16,8 @@ function rig() {
   const base = tempDir('nep-install-');
   const unitDir = path.join(base, 'units');
   fs.mkdirSync(unitDir);
-  const privateDir = path.join(base, 'private');
+  // Setup's internal private alias selects the same canonical persona root as dataDir.
+  const privateDir = path.join(base, 'data');
   writeKeysFile(privateDir);
   const target: UnitTarget = {
     system: false,
@@ -118,8 +119,8 @@ test("the units take the backend from keys.json, so the agent units bind that ba
 test('the watcher timer takes watcher.at from the local config when the units are installed', async () => {
   // Catches: installUnits renders the timer without the setting, so the hour the owner chose in setup never applies.
   const { target, run, unitDir, privateDir } = rig();
-  fs.mkdirSync(path.join(privateDir, 'config.local'), { recursive: true });
-  fs.writeFileSync(path.join(privateDir, 'config.local', 'config.json'), JSON.stringify({ watcher: { at: '07:00' } }));
+  fs.mkdirSync(path.join(privateDir, 'config'), { recursive: true });
+  fs.writeFileSync(path.join(privateDir, 'config', 'config.json'), JSON.stringify({ watcher: { at: '07:00' } }));
   const done = await installUnits(target, run, ['neptunia-watcher.timer']);
   assert.equal(done.ok, true);
   const text = fs.readFileSync(path.join(unitDir, 'neptunia-watcher.timer'), 'utf8');

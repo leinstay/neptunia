@@ -64,6 +64,13 @@ function deploymentRootsOf(paths: { rootDir: string; privateDir: string; dataDir
   return paths.privateDir === paths.rootDir ? [paths.dataDir] : [paths.dataDir, paths.privateDir];
 }
 
+/** Denials include an explicit legacy root without selecting it as a runtime persona. */
+function defaultPaths(): { rootDir: string; privateDir: string; dataDir: string } {
+  const paths = resolvePaths({ rootDir: ROOT_DIR, env: { ...process.env, NEPTUNIA_PRIVATE_DIR: undefined } });
+  const legacy = process.env.NEPTUNIA_PRIVATE_DIR?.trim();
+  return { ...paths, privateDir: legacy ? path.resolve(ROOT_DIR, legacy) : paths.dataDir };
+}
+
 /**
  * Absolute paths whose content is withheld in `dm` and `group` (everything under them too): the
  * fixed ones, then the deployment's data and private directories (`paths`, by default this
@@ -71,7 +78,7 @@ function deploymentRootsOf(paths: { rootDir: string; privateDir: string; dataDir
  * sets). Pure but for reading the environment when `paths` is not given.
  */
 export function withheldRootsOf({
-  paths = resolvePaths({ rootDir: ROOT_DIR }),
+  paths = defaultPaths(),
 }: { paths?: { rootDir: string; privateDir: string; dataDir: string } } = {}): ReadonlyArray<string> {
   return Object.freeze([...new Set([...FIXED_ROOTS, ...deploymentRootsOf(paths)])]);
 }
@@ -132,7 +139,7 @@ const TRAILING_GLOBS = Object.freeze([
  * deployment's directories (`paths` as in `withheldRootsOf`), then the trailing ones.
  */
 export function withheldGlobsOf({
-  paths = resolvePaths({ rootDir: ROOT_DIR }),
+  paths = defaultPaths(),
 }: { paths?: { rootDir: string; privateDir: string; dataDir: string } } = {}): ReadonlyArray<string> {
   const deployment = deploymentRootsOf(paths).flatMap((dir) => [dir, `${dir}/**`]);
   return Object.freeze([...new Set([...FIXED_GLOBS, ...deployment, ...TRAILING_GLOBS])]);

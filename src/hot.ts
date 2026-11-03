@@ -1,68 +1,29 @@
-// Hot reload of everything the owner tunes while the bot is running:
-// config/ and config.local/ (the settings, the labels and the tool texts) and the two prompt layers (prompts/ and
-// prompts.local/). Callers never cache values — they read `hot.config` /
-// `hot.prompts` at the moment of use, so an edit takes effect on the very
-// next LLM request without a restart and without touching memory, history or
-// scheduler state under data/.
-//
-// prompts/ is the tracked, generic layer; prompts.local/ is a deployment's
-// own, gitignored overrides — it may be entirely absent. A local file
-// replaces the base file of the same name once it is non-empty; the JSON
-// layers are deep-merged instead of replaced, each under its own name in
-// `hot.prompts`: labels.json (config/ and config.local/, its `model` and `owner` sections joined into one flat object
-// by src/config/labels.ts) and tools.json, the persona's tool texts (config/ and config.local/,
-// src/tools/registry.ts). A file that fails to parse (half
-// -written JSON, editor temp state) is ignored on reload: the previous good
-// value stays live and the error is logged. On the very first load, invalid
-// JSON still throws so a broken deployment fails fast at startup.
-//
-// config/ and prompts/ live in the checkout (`rootDir`); config.local/ and prompts.local/
-// in the deployment's private directory (`privateDir`, src/paths.ts: NEPTUNIA_PRIVATE_DIR), which
-// is the checkout unless set. When the two differ a second directory watcher covers the private
-// one, so an edit there reloads exactly as an edit in the checkout does. A private layer laid out the old way
-// (config.local.json, a flat prompts.local/labels.json; src/config/files.ts) loads with one warning per start, and a
-// layer holding a file at both places refuses the start.
-//
-// prompts.local/preambles/ (a subfolder of the private layer only; no tracked default) holds the
-// errand agents' preambles, picked by agent and model (src/errands/preambles.ts): every `*.md`
-// directly in it is loaded under its base name into `hot.prompts.preambles` (`{}` without the
-// folder). Unlike the top-level files, a preamble file that reads empty (or whitespace only) loads
-// as '' at once, with no keep-the-previous-text guard: emptying a file is how the owner switches
-// a preamble off, and a deleted file is simply gone. The folder gets a watcher of its own while it
-// exists.
-//
-// `hot.hashes` names what is live: a short sha256 of the loaded prompts and of the loaded
-// config, computed at every load that took, so a journal record can say which wording and
-// which settings produced it.
+// Hot configuration and prompt layers combine engine defaults with data/config and data/prompts. Settings and
+// labels merge recursively; nonempty personal prompts replace complete shared files. Preambles live under
+// data/prompts/preambles. Reloads retain the previous good value after a partial write. Watchers follow both roots.
+// Legacy personal layouts refuse startup with offline migration guidance. Hashes describe the live layers.
 
 import fs from 'node:fs';
+import { resolvePaths } from './paths.ts';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { readConfig, deepMerge, isPlainObject } from './config.ts';
 import { log } from './log.ts';
-import {
-  CONFIG_DIR,
-  CONFIG_FILE,
-  LABELS_FILE,
-  LOCAL_CONFIG_DIR,
-  MOVE_TOOL,
-  OLD_LOCAL_CONFIG,
-  localFiles,
-} from './config/files.ts';
+import { CONFIG_DIR, CONFIG_FILE, LABELS_FILE, MOVE_TOOL, OLD_LOCAL_CONFIG, localFiles } from './config/files.ts';
 import { joinLabels, labelsFileOf } from './config/labels.ts';
 // A parsed JSON value or an argument no module types yet: the alias of src/tools/types.ts, restated so this leaf
 // imports nothing from src/tools/ (src/memory/ reaches it).
 type Untyped = ReturnType<typeof JSON.parse>;
 
 const DEBOUNCE_MS = 250;
-const LOCAL_PROMPTS_DIRNAME = 'prompts.local';
+const LOCAL_PROMPTS_DIRNAME = 'prompts';
 /** The subfolder of prompts.local/ holding the errand agents' preambles, loaded as `hot.prompts.preambles`. */
 const PREAMBLES_DIRNAME = 'preambles';
 /**
  * The JSON files of the prompt layers, by name, each with how it is computed from the checkout and the private
  * directory: the labels by `computeLabels`, the tool texts by `computeJsonLayer` over `config/tools.json` and
- * `config.local/tools.json`.
+ * `data/config/tools.json`.
  */
 const JSON_LAYERS: ReadonlyArray<{
   name: string;
@@ -72,12 +33,12 @@ const JSON_LAYERS: ReadonlyArray<{
   {
     name: 'tools',
     compute: (rootDir, privateDir) =>
-      computeJsonLayer({ name: 'tools', dir: CONFIG_DIR, localDir: LOCAL_CONFIG_DIR }, rootDir, privateDir),
+      computeJsonLayer({ name: 'tools', dir: CONFIG_DIR, localDir: CONFIG_DIR }, rootDir, privateDir),
   },
 ]);
 
 /** Where an earlier version kept the tool texts, which the start refuses to find (scripts/tools-file-move.ts moves it). */
-const OLD_TOOLS_FILE = path.join(LOCAL_PROMPTS_DIRNAME, 'skills.json');
+const OLD_TOOLS_FILE = path.join('prompts.local', 'skills.json');
 
 /**
  * Config keys a deployment may still carry that are no longer read, each with what is read
@@ -180,8 +141,8 @@ function stripText(raw: Untyped) {
 }
 
 /**
- * The local prompt files read under a newer name: `prompts.local/selfdev.md` (the brief of src/selfimprovement/ under
- * its older name) loads as `selfimprovement` while `prompts.local/selfimprovement.md` is absent.
+ * The local prompt files read under a newer name: `data/prompts/selfdev.md` (the brief of src/selfimprovement/ under
+ * its older name) loads as `selfimprovement` while `data/prompts/selfimprovement.md` is absent.
  */
 const LOCAL_PROMPT_MOVES: Readonly<Record<string, string>> = Object.freeze({ selfdev: 'selfimprovement' });
 
@@ -284,7 +245,7 @@ function computeJsonLayer(
 /** `{ model, owner }` of a parsed labels file, a missing section as `{}`. */
 /**
  * `{ value, source }` of the labels: `config/labels.json` joined (src/config/labels.ts), with the private labels
- * deep-merged over it, `config.local/labels.json` joined or a flat `prompts.local/labels.json` of the old layout.
+ * deep-merged over it, `data/config/labels.json` joined or a flat `data/prompts/labels.json` of the old layout.
  * Throws on invalid JSON, on a key in both sections and on a private labels file at both its places.
  */
 function computeLabels(rootDir: string, privateDir: string) {
@@ -303,7 +264,7 @@ export function readLabels(rootDir: string, privateDir: string): Record<string, 
 }
 
 /**
- * The `*.md` files directly under `dir` (prompts.local/preambles/) as `{ <base name>: text }`,
+ * The `*.md` files directly under `dir` (data/prompts/preambles/) as `{ <base name>: text }`,
  * `{}` when the folder is absent. An empty or whitespace-only file loads as '' right away (no
  * keep-the-previous-text guard, unlike computePromptFiles): an emptied preamble means none.
  */
@@ -405,7 +366,7 @@ function restartableWatch({
 
 /**
  * Create a live view over the config and the two prompt layers: config.json and prompts/ under
- * `rootDir`, config.local.json and prompts.local/ under `privateDir` (default `rootDir`).
+ * `rootDir`, config.local.json and data/prompts/ under `privateDir` (default `rootDir`).
  * Emits 'change' with `{ what: 'config' | 'prompts' }` after every successful reload;
  * `hot.onReload(listener)` subscribes to the same with the layer name alone.
  * `hot.hashes` is `{ promptsHash, configHash }`: the first 16 hex characters of the sha256 of
@@ -416,7 +377,7 @@ function restartableWatch({
  */
 export function createHot({
   rootDir,
-  privateDir = rootDir,
+  privateDir = resolvePaths({ rootDir }).dataDir,
   watchImpl = fs.watch,
 }: {
   rootDir: string;
@@ -427,7 +388,7 @@ export function createHot({
   const localPromptsDir = path.join(privateDir, LOCAL_PROMPTS_DIRNAME);
   const preamblesDir = path.join(localPromptsDir, PREAMBLES_DIRNAME);
   const toolsDir = path.join(rootDir, CONFIG_DIR);
-  const localToolsDir = path.join(privateDir, LOCAL_CONFIG_DIR);
+  const localToolsDir = path.join(privateDir, CONFIG_DIR);
   // The properties of `Hot` are all assigned below, before `hot` leaves this function.
   const hot = new EventEmitter() as Hot;
   const watchers: Array<Untyped> = [];
@@ -620,11 +581,11 @@ export function createHot({
   const localToolsWatch = restartableWatch({ watchImpl, dir: localToolsDir, watchers, onEvent: onConfigDirEntry });
 
   /** An entry of the private directory changed: config.local.json (the old layout) reloads the config;
-   * prompts.local/ and config.local/ appearing or going away start or drop their watchers. */
+   * data/prompts/ and data/config/ appearing or going away start or drop their watchers. */
   function onPrivateEntry(name: string) {
     if (name === OLD_LOCAL_CONFIG) {
       schedule('config', hot.reloadConfig);
-    } else if (name === LOCAL_CONFIG_DIR) {
+    } else if (name === CONFIG_DIR) {
       if (!fs.existsSync(localToolsDir)) {
         localToolsWatch.stop();
         schedule('config', hot.reloadConfig);
@@ -676,7 +637,7 @@ export function createHot({
     watchers.push(baseWatcher);
     attachErrorHandler(baseWatcher);
 
-    // The settings, the labels and the tool texts: config/ under the checkout, config.local/ under the private
+    // The settings, the labels and the tool texts: config/ under the checkout, data/config/ under the private
     // directory (either may be absent).
     if (fs.existsSync(toolsDir)) toolsWatch.start();
     if (fs.existsSync(localToolsDir)) localToolsWatch.start();

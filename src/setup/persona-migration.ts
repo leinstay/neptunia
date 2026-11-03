@@ -6,7 +6,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { AgentProfileError, listSharedAgents } from '../agent-runner/profiles.ts';
-import { watcherDir } from '../watcher/read.ts';
 import { joinLabels, labelsFileOf, splitLabels } from '../config/labels.ts';
 import { deepMerge, parseEnv } from '../config.ts';
 import { CUT_KEYS, cutConfigKeys } from '../config/cut.ts';
@@ -158,7 +157,11 @@ function watcherPrompt(options: PersonaLayerOptions, personal: unknown): string 
       ? { ...base, ...local.watcher }
       : local.watcher
     : base;
-  return path.join(path.resolve(options.rootDir, watcherDir({ watcher: effective })), 'prompt.md');
+  const dir =
+    isObject(effective) && typeof effective.dir === 'string' && effective.dir.trim() !== ''
+      ? effective.dir.trim()
+      : '.agents/watcher';
+  return path.join(path.resolve(options.rootDir, dir), 'prompt.md');
 }
 
 function within(parent: string, child: string): boolean {

@@ -1,21 +1,13 @@
-// The one way a tool lays extra prompt directories over the bot's prompts for a run
-// (scripts/replay.ts --pair, --diary and --skills): a scratch root holding a copy of the bot's
-// config files (config/ from the checkout, config.local/ and the private settings file from the private directory:
-// NEPTUNIA_PRIVATE_DIR, else the checkout; scripts/lib/cli.ts#privateDirOf) and its tracked prompts/, with the given
-// directories copied into prompts.local/ in order, read by src/hot.ts exactly as the bot reads its own layers. A
-// layer's labels.json is flat, as an old prompts.local/labels.json is: once the layers are laid, the flat labels are
-// split by the tracked config/labels.json into config.local/labels.json (src/config/labels.ts), so the scratch root
-// has the layout src/hot.ts reads without a warning and the labels it joins are the ones the flat file holds.
-// Nothing in the checkout changes; the caller closes the hot view and removes the scratch root. A
-// layer that is a link (a separate checkout whose prompts.local/ links to the live one) is read
-// through it and copied as files: nothing in the scratch root links back, so nothing written there
-// reaches the source.
+// Runtime tools compose prompt overlays in a temporary engine and persona data directory. Shared config and prompts
+// come from the engine; personal config and prompts are copied from the selected persona. Extra prompt layers retain
+// whole-file precedence, with optional JSON merging. Credentials remain in the original selected persona. Closing
+// the hot view and removing the scratch root changes no source files.
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CliError, privateDirOf } from './cli.ts';
-import { CONFIG_DIR, CONFIG_FILE, LABELS_FILE, LOCAL_CONFIG_DIR, localFiles } from '../../src/config/files.ts';
+import { CONFIG_DIR, CONFIG_FILE, LABELS_FILE, localFiles } from '../../src/config/files.ts';
 import { joinLabels, labelsFileOf, splitLabels } from '../../src/config/labels.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import type { Hot } from '../../src/hot.ts';
@@ -28,7 +20,7 @@ const JSON_LAYER_FILES = ['labels.json', 'tools.json'] as const;
 type LayerFile = (typeof JSON_LAYER_FILES)[number];
 
 /** The folder of the scratch root a layer's JSON file ends in: the tool texts go to `config.local/`, the labels to `prompts.local/`. */
-const LOCAL_DIR_OF = Object.freeze({ 'labels.json': 'prompts.local', 'tools.json': 'config.local' });
+const LOCAL_DIR_OF = Object.freeze({ 'labels.json': 'prompts', 'tools.json': 'config' });
 
 /** The JSON value of `file`, or a CliError naming it. */
 function readJson(file: string) {
@@ -44,9 +36,9 @@ function readJson(file: string) {
  * over the private split labels already there when `mergeJson` is given, in their place otherwise.
  */
 function settleLabels(dir: string, mergeJson: ((base: Rec, override: Rec) => Rec) | null) {
-  const flatFile = path.join(dir, 'prompts.local', LABELS_FILE);
+  const flatFile = path.join(dir, 'data', 'prompts', LABELS_FILE);
   if (!fs.existsSync(flatFile)) return;
-  const splitFile = path.join(dir, LOCAL_CONFIG_DIR, LABELS_FILE);
+  const splitFile = path.join(dir, 'data', CONFIG_DIR, LABELS_FILE);
   const flatFileValue: unknown = readJson(flatFile);
   const flat = labelsFileOf({ model: flatFileValue }).model;
   const splitValue: unknown = typeof mergeJson === 'function' && fs.existsSync(splitFile) ? readJson(splitFile) : {};
@@ -73,7 +65,7 @@ function settleLabels(dir: string, mergeJson: ((base: Rec, override: Rec) => Rec
  * @param root The bot's checkout.
  */
 export function promptLayersHot(
-  createHot: (options: { rootDir: string }) => Hot,
+  createHot: (options: { rootDir: string; privateDir?: string }) => Hot,
   root: string,
   layers: Array<string>,
   {
@@ -104,18 +96,19 @@ export function promptLayersHot(
         dereference: true,
       });
     }
-    const local = path.join(dir, 'prompts.local');
+    const persona = path.join(dir, 'data');
+    const local = path.join(persona, 'prompts');
     fs.mkdirSync(local, { recursive: true });
-    fs.mkdirSync(path.join(dir, LOCAL_CONFIG_DIR), { recursive: true });
-    if (fs.existsSync(path.join(privateDir, LOCAL_CONFIG_DIR))) {
-      fs.cpSync(fs.realpathSync(path.join(privateDir, LOCAL_CONFIG_DIR)), path.join(dir, LOCAL_CONFIG_DIR), {
+    fs.mkdirSync(path.join(persona, CONFIG_DIR), { recursive: true });
+    if (fs.existsSync(path.join(privateDir, CONFIG_DIR))) {
+      fs.cpSync(fs.realpathSync(path.join(privateDir, CONFIG_DIR)), path.join(persona, CONFIG_DIR), {
         recursive: true,
         dereference: true,
       });
     }
-    if (found.config !== null) fs.copyFileSync(found.config, path.join(dir, LOCAL_CONFIG_DIR, CONFIG_FILE));
+    if (found.config !== null) fs.copyFileSync(found.config, path.join(persona, CONFIG_DIR, CONFIG_FILE));
     /** Where the layer file `name` rests in the scratch root. */
-    const placed = (name: LayerFile) => path.join(dir, LOCAL_DIR_OF[name], name);
+    const placed = (name: LayerFile) => path.join(persona, LOCAL_DIR_OF[name], name);
     for (const source of sources) {
       // With mergeJson, a JSON layer file meeting one already laid down is merged over it: the one
       // there is read before the copy and the merge written after it.
@@ -137,9 +130,46 @@ export function promptLayersHot(
       }
     }
     settleLabels(dir, mergeJson);
-    return { hot: createHot({ rootDir: dir }), dir };
+    return { hot: createHot({ rootDir: dir, privateDir: persona }), dir };
   } catch (err) {
     fs.rmSync(dir, { recursive: true, force: true });
     throw err;
   }
+}
+
+/**
+ * The prompt layers of a `--diary --prompts <dir>` run, for promptLayersHot:
+ * the live data/prompts/ (when the private directory has one: NEPTUNIA_DATA_DIR, else the
+ * checkout; scripts/lib/cli.ts#privateDirOf), then `promptsDir`. The live layer is named
+ * `data/prompts` when it is in the checkout, by its absolute path when it is apart.
+ */
+export function diaryPromptLayers(
+  root: string,
+  promptsDir: string,
+  env: Record<string, string | undefined> = process.env
+): Array<string> {
+  const privateDir = privateDirOf(root, env);
+  const local = path.join(privateDir, 'prompts');
+  return fs.existsSync(path.resolve(root, local)) ? [local, promptsDir] : [promptsDir];
+}
+
+/**
+ * A hot view whose private layer is a copy of the live data/prompts/ with `promptsDir` laid over
+ * it (diaryPromptLayers, then scripts/lib/prompt-layers.ts): a file of the directory replaces the
+ * private one of the same name, the rest stay. `mergeJson` (src/config.js#deepMerge) merges the
+ * directory's labels.json / tools.json over the private ones as src/hot.js merges its layers
+ * (`--skills --prompts` and `--pair-prompts`); without it they replace them whole (`--diary
+ * --prompts`). The live data/prompts/ is only read. Returns `{ hot, dir }`: the caller closes
+ * the view and removes `dir`.
+ */
+export function overlayPromptsHot(
+  createHot: (options: { rootDir: string }) => Hot,
+  root: string,
+  promptsDir: string,
+  { mergeJson = null, tmpDir }: { mergeJson?: ((...args: Array<Untyped>) => Untyped) | null; tmpDir?: string } = {}
+): { hot: Hot; dir: string } {
+  return promptLayersHot(createHot, root, diaryPromptLayers(root, promptsDir), {
+    mergeJson,
+    ...(tmpDir ? { tmpDir } : {}),
+  });
 }

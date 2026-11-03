@@ -1,6 +1,6 @@
 {
   "files": {
-    "scripts/replay.ts": 7361,
+    "scripts/replay.ts": 7333,
     "src/behavior/recall-run.ts": 2102,
     "src/behavior/recall.ts": 2375,
     "src/behavior/sandbox.ts": 2063,
@@ -122,18 +122,18 @@
         "complexity": 42
       },
       "runDiary": {
-        "complexity": 52
+        "complexity": 51
       },
       "runDiaryDay": {
-        "complexity": 32
+        "complexity": 31
       },
       "runInner": {
-        "complexity": 63,
-        "function-length": 392
+        "complexity": 62,
+        "function-length": 391
       },
       "runMain": {
-        "complexity": 154,
-        "function-length": 758
+        "complexity": 153,
+        "function-length": 757
       },
       "runRecall": {
         "complexity": 64,
@@ -512,7 +512,7 @@
     },
     "src/memory/describe.ts": {
       "buildDescriber": {
-        "function-length": 1276
+        "function-length": 1268
       },
       "buildDescriber>fetchVideoMedia": {
         "complexity": 21

@@ -11,6 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { applyPersonaLayers } from '../src/setup/persona-migration.ts';
 import { createHot } from '../src/hot.ts';
 import { layer, moveTool } from './fixtures/private-layer.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -19,7 +20,10 @@ type Hot = { prompts: { tools: Record<string, Record<string, string>> }; close: 
 
 /** The engine's live view over a checkout and a private layer, closed at once: only what it loaded is read. */
 function load(rootDir: string, privateDir: string): Hot {
-  const hot = createHot({ rootDir, privateDir }) as unknown as Hot;
+  // Runtime loading follows explicit persona preparation while offline source formats remain unchanged.
+  const dataDir = tempDir('nep-tools-prepared-');
+  assert.deepEqual(applyPersonaLayers({ rootDir, privateDir, dataDir }).conflicts, []);
+  const hot = createHot({ rootDir, privateDir: dataDir }) as unknown as Hot;
   hot.close();
   return hot;
 }
@@ -262,8 +266,14 @@ test('gives the same effective tool texts after the move: the override on top of
 test('refuses a start with the old file in place, in one line that names the move tool', () => {
   const home = layer();
   home.write(OLD, { 'message.create': SEND });
+  const rootDir = checkout();
+  // Persona preparation retains the specific retired-tools refusal; runtime rejects the unprepared legacy layout.
+  assert.deepEqual(
+    applyPersonaLayers({ rootDir, privateDir: home.dir, dataDir: tempDir('nep-unprepared-') }).conflicts,
+    [{ path: OLD, code: 'legacy-tools' }]
+  );
   assert.throws(
-    () => load(checkout(), home.dir),
+    () => createHot({ rootDir, privateDir: home.dir }),
     (error: Error) => error.message.includes('scripts/tools-file-move.ts') && !error.message.includes('\n')
   );
 });

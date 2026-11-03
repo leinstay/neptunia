@@ -1,8 +1,6 @@
-// `interface token set <iface>`: the owner gives an interface its platform token from the chat. The token is asked once
-// through the chat's secret prompt (src/interface/commands/dialogs.ts) and written as `<VARIABLE>=<token>` into
-// `<private>/clients/<iface>.env`, the environment file the interface's unit reads (deploy/neptunia-interface@.service).
-// The file is mode 600, written whole to a temp file and renamed over the old one; its other lines are kept. The
-// console (src/interface/commands/console.ts) routes the command here. No answer and no log line holds the token.
+// The owner supplies a platform token through a secret dialog. The setter atomically writes the interface's
+// data/interfaces/<name>/credentials.json at mode 0600, preserving other fields. Runtime interface startup reads
+// the same file. Responses and logs contain paths and interface names, never token values.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,17 +15,16 @@ export function tokenVariableOf(iface: string): string {
   return `${iface.toUpperCase().replaceAll('-', '_')}_TOKEN`;
 }
 
-/** The lines of an existing environment file without the ones that set `variable`. */
-function otherLines(file: string, variable: string): Array<string> {
-  let text: string;
+/** Preserve independent fields when the owner rotates a platform token. */
+function otherCredentials(file: string): Record<string, unknown> {
   try {
-    text = fs.readFileSync(file, 'utf8');
+    const value: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid credentials');
+    return value as Record<string, unknown>;
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {};
     throw err;
   }
-  const own = new RegExp(`^\\s*(export\\s+)?${variable}\\s*=`);
-  return text.split('\n').filter((line) => line.trim() !== '' && !own.test(line));
 }
 
 /** Writes `text` over `file` at mode 600 through a temp file, so a reader never sees half a file. */
@@ -68,21 +65,24 @@ export async function setInterfaceToken({
       text: '/interface token set: a token is not blank and holds no whitespace; nothing is written',
       status: 'invalid',
     };
-  const dir = path.join(privateDir, 'clients');
-  const file = path.join(dir, `${iface}.env`);
+  const dir = path.join(privateDir, 'interfaces', iface);
+  const file = path.join(dir, 'credentials.json');
   try {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    writePrivate(file, `${[...otherLines(file, variable), `${variable}=${token}`].join('\n')}\n`);
+    writePrivate(file, `${JSON.stringify({ ...otherCredentials(file), token }, null, 2)}\n`);
   } catch (err) {
     log.warn('interface: the token file could not be written', {
       iface,
       code: (err as NodeJS.ErrnoException).code ?? null,
     });
-    return { text: `/interface token set: clients/${iface}.env could not be written`, status: 'failed' };
+    return {
+      text: `/interface token set: interfaces/${iface}/credentials.json could not be written`,
+      status: 'failed',
+    };
   }
   log.info('interface: token set', { iface, variable });
   return {
-    text: `${variable} is saved in clients/${iface}.env; the interface's unit reads it when it next starts.`,
+    text: `The token is saved in interfaces/${iface}/credentials.json; the interface reads it when it next starts.`,
     status: 'ok',
   };
 }

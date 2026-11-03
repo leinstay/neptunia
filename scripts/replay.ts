@@ -520,7 +520,18 @@ import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 // CliError: an operator-facing failure, printed as is, exit code `exitCode` (1 unless the spend gate refused: 2).
 import { createAnswersDir, withAnswersDir } from './lib/answers-dir.ts';
-import { simKey, CliError, REFUSED_EXIT, defaultDataDir, privateDirOf, resolveGuildId, spendGate } from './lib/cli.ts';
+import {
+  serviceKeys,
+  serviceKey,
+  platformToken,
+  simKey,
+  CliError,
+  REFUSED_EXIT,
+  defaultDataDir,
+  privateDirOf,
+  resolveGuildId,
+  spendGate,
+} from './lib/cli.ts';
 import {
   diaryDayEstimate,
   fixtureImagesFetch,
@@ -530,7 +541,8 @@ import {
   seededRng,
 } from './lib/diary-day.ts';
 import { pairOrder, parseTriggers, renderSheet } from './lib/pair.ts';
-import { promptLayersHot } from './lib/prompt-layers.ts';
+import { promptLayersHot, overlayPromptsHot, diaryPromptLayers } from './lib/prompt-layers.ts';
+export { diaryPromptLayers, overlayPromptsHot } from './lib/prompt-layers.ts';
 import { readOnlyMemory } from './lib/memory-read.ts';
 import {
   conversationRef,
@@ -1679,43 +1691,6 @@ export function diaryTurnParams(
 }
 
 /**
- * The prompt layers of a `--diary --prompts <dir>` run, for promptLayersHot:
- * the live prompts.local/ (when the private directory has one: NEPTUNIA_PRIVATE_DIR, else the
- * checkout; scripts/lib/cli.ts#privateDirOf), then `promptsDir`. The live layer is named
- * `prompts.local` when it is in the checkout, by its absolute path when it is apart.
- */
-export function diaryPromptLayers(
-  root: string,
-  promptsDir: string,
-  env: Record<string, string | undefined> = process.env
-): Array<string> {
-  const privateDir = privateDirOf(root, env);
-  const local = privateDir === path.resolve(root) ? 'prompts.local' : path.join(privateDir, 'prompts.local');
-  return fs.existsSync(path.resolve(root, local)) ? [local, promptsDir] : [promptsDir];
-}
-
-/**
- * A hot view whose private layer is a copy of the live prompts.local/ with `promptsDir` laid over
- * it (diaryPromptLayers, then scripts/lib/prompt-layers.ts): a file of the directory replaces the
- * private one of the same name, the rest stay. `mergeJson` (src/config.js#deepMerge) merges the
- * directory's labels.json / tools.json over the private ones as src/hot.js merges its layers
- * (`--skills --prompts` and `--pair-prompts`); without it they replace them whole (`--diary
- * --prompts`). The live prompts.local/ is only read. Returns `{ hot, dir }`: the caller closes
- * the view and removes `dir`.
- */
-export function overlayPromptsHot(
-  createHot: (options: { rootDir: string }) => Hot,
-  root: string,
-  promptsDir: string,
-  { mergeJson = null, tmpDir }: { mergeJson?: ((...args: Array<Untyped>) => Untyped) | null; tmpDir?: string } = {}
-): { hot: Hot; dir: string } {
-  return promptLayersHot(createHot, root, diaryPromptLayers(root, promptsDir), {
-    mergeJson,
-    ...(tmpDir ? { tmpDir } : {}),
-  });
-}
-
-/**
  * Whether a live turn's web search could run (`<senses>`'s search line): the
  * lookup's own `hasSearch()` for the configured `web.search.engine`, wired as
  * src/index.js wires it (`brave` needs BRAVE_SEARCH_API_KEY, `exa` and
@@ -1742,7 +1717,7 @@ export function searchAvailableOf({
     store: { getMediaCache: refuse, markMediaCacheDirty: refuse },
     llm: { complete: async () => refuse() },
     searches,
-    keys: { brave: env.BRAVE_SEARCH_API_KEY || null, exa: env.EXA_API_KEY || null },
+    keys: serviceKeys({ env }),
   });
   return lookup.hasSearch() === true;
 }
@@ -1950,7 +1925,8 @@ export function diaryTurnRunner(
     imageFetcher,
     videoFetcher: mods.createVideoFetcher(),
     state,
-    youtubeApiKey: process.env.YOUTUBE_API_KEY || null,
+    youtubeApiKey: serviceKey('youtube'),
+    videoProxy: serviceKey('videoProxy'),
   });
   const lookup = mods.createLookup({
     hot,
@@ -1959,7 +1935,7 @@ export function diaryTurnRunner(
     state,
     pageFetcher: mods.createPageFetcher(),
     searches: { brave: mods.createBraveSearch(), exa: mods.createExaSearch() },
-    keys: { brave: process.env.BRAVE_SEARCH_API_KEY || null, exa: process.env.EXA_API_KEY || null },
+    keys: serviceKeys(),
   });
   // The Discord interface over `client`: its adapter reads for the turn and writes unless a port is given.
   const discord = mods.createDiscordInterface({ client, config: () => hot.config });
@@ -2005,8 +1981,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     throw new CliError('replay-cli: --out may not be under data/');
 
   loadDotEnv(privateDirOf(root));
-  const discordToken = process.env.DISCORD_TOKEN;
-  if (!discordToken) throw new CliError('replay-cli: DISCORD_TOKEN is not set (.env)');
+  const discordToken = platformToken('discord', { rootDir: root });
   const openrouterKey = simKey('replay-cli');
 
   let layered = null;
@@ -2605,8 +2580,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, loadDotEnv,
     throw new CliError('replay-cli: --out may not be under data/');
 
   loadDotEnv(privateDirOf(root));
-  const discordToken = process.env.DISCORD_TOKEN;
-  if (!discordToken) throw new CliError('replay-cli: DISCORD_TOKEN is not set (.env)');
+  const discordToken = platformToken('discord', { rootDir: root });
   const openrouterKey = simKey('replay-cli');
 
   let layered = null;
@@ -3098,8 +3072,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, loadDotEnv, log, si
   }
 
   loadDotEnv(privateDirOf(root));
-  const discordToken = process.env.DISCORD_TOKEN;
-  if (!discordToken) throw new CliError('replay-cli: DISCORD_TOKEN is not set (.env)');
+  const discordToken = platformToken('discord', { rootDir: root });
   const openrouterKey = diaryDayKey(args.draw!);
 
   let client = null;
@@ -6464,7 +6437,7 @@ async function loopDepsOf({
     llm: refusing,
   });
   const searches = { brave: createBraveSearch(), exa: createExaSearch() };
-  const keys = { brave: process.env.BRAVE_SEARCH_API_KEY || null, exa: process.env.EXA_API_KEY || null };
+  const keys = serviceKeys();
   const discord = createDiscordInterface().capabilities;
   // The interface's reads over this guild's client, GET only as the rest of the replay is: the history conversation.read
   // asks for.
@@ -6725,8 +6698,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
   }
 
   loadDotEnv(privateDirOf(root));
-  const discordToken = process.env.DISCORD_TOKEN;
-  if (!discordToken) throw new CliError('replay-cli: DISCORD_TOKEN is not set (.env)');
+  const discordToken = platformToken('discord', { rootDir: root });
   const keyNeeded = args.showRequestTurn === null && !args.dry;
   const openrouterKey = keyNeeded ? simKey('replay-cli') : undefined;
   const searchAvailable = searchAvailableOf({

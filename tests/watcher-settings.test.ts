@@ -5,10 +5,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { watcherSettings } from '../src/watcher/settings.ts';
 
-test('the switch, the hour and the folder are read as the config gives them', () => {
+test('the switch and hour are configured while the report folder is canonical', () => {
   // Catches: the setup step writes watcher.at and the renderer reads another key, so the timer never moves.
   const settings = watcherSettings({ watcher: { enabled: true, at: '05:30', dir: '/srv/watch' } });
-  assert.deepEqual([settings.enabled, settings.at, settings.dir], [true, '05:30', '/srv/watch']);
+  // The selected data root supplies report placement, so watcher.dir cannot select another persona root.
+  assert.deepEqual([settings.enabled, settings.at, settings.dir], [true, '05:30', 'agents/watcher']);
 });
 
 test('an hour that is no HH:MM reads as no hour set', () => {

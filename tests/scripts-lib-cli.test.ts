@@ -1,5 +1,5 @@
 // scripts/lib/cli.ts#simKey: the key every paid script spends. It comes from the simulation section of keys.json in the
-// private dir the environment names (NEPTUNIA_PRIVATE_DIR), and a script refuses with one CliError line while the
+// private dir the environment names (NEPTUNIA_DATA_DIR), and a script refuses with one CliError line while the
 // simulation is off. The old variable OPENROUTER_SIM_KEY has no say.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,7 +13,7 @@ const SIM = 'sk-or-v1-sim-secret-0123456789';
 function envWith(simulation: { key: string | null }): Record<string, string> {
   const dir = tempDir('nep-simkey-');
   writeKeysFile(dir, { extra: { sim: SIM }, simulation });
-  return { NEPTUNIA_PRIVATE_DIR: dir };
+  return { NEPTUNIA_DATA_DIR: dir };
 }
 
 test('simKey returns the simulation key of the private dir the environment names', () => {

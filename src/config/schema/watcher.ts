@@ -19,11 +19,4 @@ export const WATCHER: ReadonlyArray<SchemaEntry> = [
     'text':
       "The time of the watcher's daily run, `HH:MM` of the UTC day: the `OnCalendar=` of `neptunia-watcher.timer` that `neptunia setup` renders. A value that is no `HH:MM` reads as the default",
   },
-  {
-    'key': 'watcher.dir',
-    'types': ['string'],
-    'reader': 'src/watcher/read.ts',
-    'default': '.agents/watcher',
-    'text': 'Folder of the daily watcher, `prompt.md` and `reports/`; relative to the checkout or absolute',
-  },
 ];

@@ -16,7 +16,8 @@ const VARS: UnitVars = {
   group: 'alice',
   home: '/home/alice',
   rootDir: '/srv/engine',
-  privateDir: '/srv/engine-private',
+  // UnitVars retains privateDir as an alias of the canonical data root.
+  privateDir: '/srv/engine-data',
   dataDir: '/srv/engine-data',
   node: '/home/alice/.nvm/bin/node',
 };
@@ -40,11 +41,21 @@ const AGENTS = ['neptunia-agent-scout.service', 'neptunia-agent-server.service']
 for (const field of ['rootDir', 'privateDir', 'dataDir'] as const) {
   test(`rendering preserves ${field} when its replacement contains a legacy home prefix`, () => {
     // Catches replacement values being rewritten as though they were still template paths.
-    const vars: UnitVars = { ...VARS, home: '/home/installer', [field]: `/home/neptunia/worktree/${field}` };
+    const selected = `/home/neptunia/worktree/${field}`;
+    const vars: UnitVars = {
+      ...VARS,
+      home: '/home/installer',
+      [field]: selected,
+      ...(field === 'privateDir' ? { dataDir: selected } : {}),
+    };
     const text = renderUnit(template('neptunia-core.service'), 'user', vars);
     assert.deepEqual(valuesOf(text, 'WorkingDirectory'), [vars.rootDir]);
     const env = valuesOf(text, 'Environment');
-    assert.ok(env.includes(`NEPTUNIA_PRIVATE_DIR=${vars.privateDir}`));
+    assert.ok(
+      env
+        .filter((value) => value.startsWith('NEPTUNIA_PRIVATE_DIR='))
+        .every((value) => value === `NEPTUNIA_PRIVATE_DIR=${vars.dataDir}`)
+    );
     assert.ok(env.includes(`NEPTUNIA_DATA_DIR=${vars.dataDir}`));
     const dirs = (env.find((value) => value.startsWith('PATH=')) ?? '').slice(5).split(':');
     assert.ok(dirs.includes(`${vars.home}/.local/bin`));
@@ -93,7 +104,12 @@ for (const scope of ['user', 'system'] as const) {
       assert.ok(valuesOf(text, 'ExecStart')[0]?.startsWith(`${VARS.node} `), name);
       assert.deepEqual(valuesOf(text, 'WorkingDirectory'), [VARS.rootDir], name);
       const env = valuesOf(text, 'Environment');
-      assert.ok(env.includes(`NEPTUNIA_PRIVATE_DIR=${VARS.privateDir}`), name);
+      assert.ok(
+        env
+          .filter((value) => value.startsWith('NEPTUNIA_PRIVATE_DIR='))
+          .every((value) => value === `NEPTUNIA_PRIVATE_DIR=${VARS.dataDir}`),
+        name
+      );
       assert.ok(env.includes(`NEPTUNIA_DATA_DIR=${VARS.dataDir}`), name);
     }
   });
@@ -257,7 +273,7 @@ const covers = (entries: ReadonlyArray<string>, dir: string): boolean =>
 const userHomesIn = (text: string): Array<string> =>
   linesOf(text).filter((line) => line.includes(`${VARS.home}/.codex`) || line.includes(`${VARS.home}/.claude`));
 
-const placeOf = (backend: string, privateDir = VARS.privateDir): string => path.join(privateDir, 'subharness', backend);
+const placeOf = (backend: string, privateDir = VARS.dataDir): string => path.join(privateDir, 'subharness', backend);
 
 for (const scope of ['user', 'system'] as const) {
   test(`${scope} agent units in read and write may write her backend's folder, nothing above it, and no ~/.codex`, () => {
@@ -270,7 +286,7 @@ for (const scope of ['user', 'system'] as const) {
           const text = renderUnit(template(name), scope, { ...VARS, backends: [backend], mode });
           const label = `${name} ${backend} ${mode}`;
           assert.ok(covers(writableEntriesOf(text), placeOf(backend)), label);
-          assert.equal(covers(writableEntriesOf(text), path.join(VARS.privateDir, 'keys.json')), false, label);
+          assert.equal(covers(writableEntriesOf(text), path.join(VARS.dataDir, 'keys.json')), false, label);
           assert.deepEqual(userHomesIn(text), [], label);
         }
   });
@@ -281,7 +297,13 @@ test('agent units bind her backend folder when the private folder lies under the
   const privateDir = `${VARS.home}/.neptunia`;
   for (const name of AGENTS) {
     // Changed for spec 2026-11-02 PR 5 "Several subharnesses": UnitVars carries the list `backends`.
-    const text = renderUnit(template(name), 'user', { ...VARS, privateDir, backends: ['codex'], mode: 'write' });
+    const text = renderUnit(template(name), 'user', {
+      ...VARS,
+      privateDir,
+      dataDir: privateDir,
+      backends: ['codex'],
+      mode: 'write',
+    });
     const bound = valuesOf(text, 'BindPaths')
       .flatMap((one) => one.split(/\s+/))
       .map((one) => one.replace(/^-/, '').split(':')[0] ?? '');

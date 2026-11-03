@@ -7,10 +7,11 @@
 // connection, because the core holds the writer lock. The link socket sits at `<data>/run/core.sock`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createKeyStore } from '../src/keys/store.ts';
 import { startCore } from '../src/core.ts';
 import { start } from '../src/interface/fake-interface.ts';
 import { lockPathOf, openMemoryDb } from '../src/memory/db/open.ts';
@@ -64,9 +65,11 @@ async function until(check: () => boolean, ms = 8000): Promise<void> {
 function folders(extra: Record<string, unknown> = {}) {
   const root = mkdtempSync(join(tmpdir(), 'cs-'));
   const dataDir = join(root, 'd');
-  const privateDir = join(root, 'p');
-  mkdirSync(privateDir);
-  writeFileSync(join(privateDir, 'config.local.json'), JSON.stringify({ ...PRIVATE_CONFIG, ...extra }));
+  // The runtime private alias and all prepared persona files use the selected data root.
+  const privateDir = dataDir;
+  mkdirSync(join(dataDir, 'config'), { recursive: true });
+  writeFileSync(join(dataDir, 'config', 'config.json'), JSON.stringify({ ...PRIVATE_CONFIG, ...extra }));
+  createKeyStore({ privateDir: dataDir }).addCore({ name: 'core-1', value: 'test-key' });
   return { root, dataDir, privateDir, paths: { rootDir: REPO, privateDir, dataDir } };
 }
 
@@ -91,7 +94,7 @@ async function withCore(
   let running: Running | null = null;
   const core = await startCore({
     paths: dirs.paths,
-    env: { OPENROUTER_CORE_KEY: 'test-key' },
+    env: {},
     interfaces: [
       {
         name: 'fake',
@@ -207,21 +210,33 @@ test('stop closes the memory database, releases its lock and removes the socket 
   );
 });
 
-test('a private directory that does not exist rejects the start with an error and never exits the process', async () => {
+test('an absent canonical data directory is created and the fresh core shuts down cleanly', async () => {
   const dirs = folders();
+  const dataDir = join(dirs.root, 'missing');
+  const rootDir = join(dirs.root, 'engine');
+  mkdirSync(rootDir);
+  for (const folder of ['config', 'prompts', 'agents'])
+    cpSync(join(REPO, folder), join(rootDir, folder), { recursive: true });
+  writeFileSync(join(rootDir, 'config', 'config.json'), JSON.stringify(PRIVATE_CONFIG));
+  assert.equal(existsSync(dataDir), false);
   try {
-    await withCapturedLogs(() =>
-      assert.rejects(
-        startCore({
-          paths: { ...dirs.paths, privateDir: join(dirs.root, 'missing') },
-          env: { OPENROUTER_CORE_KEY: 'test-key' },
-          interfaces: [],
-          llm: scriptedLlm(),
-          embedder: { embed: () => Promise.resolve([]) },
-        }),
-        /private directory/
-      )
-    );
+    await withCapturedLogs(async () => {
+      // Fresh persona storage bootstraps without a pre-existing private layer.
+      const core = await startCore({
+        paths: { rootDir, privateDir: dataDir, dataDir },
+        env: {},
+        interfaces: [],
+        llm: scriptedLlm(),
+        embedder: { embed: () => Promise.resolve([]) },
+      });
+      try {
+        assert.equal(existsSync(dataDir), true);
+      } finally {
+        await core.stop();
+      }
+      assert.equal(existsSync(join(dataDir, 'run', 'core.sock')), false);
+      assert.equal(existsSync(lockPathOf(join(dataDir, 'memory.db'))), false);
+    });
   } finally {
     rmSync(dirs.root, { recursive: true, force: true });
   }

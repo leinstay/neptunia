@@ -67,7 +67,7 @@ const p = (dirs: Dirs, line: string): ReturnType<typeof runCli> => runCli(dirs, 
 
 /** The private layer's config.local.json as it is on disk now. */
 function localConfig(dirs: Dirs): Settings {
-  const parsed: unknown = JSON.parse(readFileSync(join(dirs.privateDir, 'config.local.json'), 'utf8'));
+  const parsed: unknown = JSON.parse(readFileSync(join(dirs.privateDir, 'config', 'config.json'), 'utf8'));
   assert.ok(isRecord(parsed));
   return parsed;
 }
@@ -278,11 +278,11 @@ test('/tools grant with a user target grants that person and not her', async () 
 test('/tools grant fails and writes nothing while no interface has said who she is', async () => {
   await withRig({}, async ({ dirs, llm, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
-    const before = digestOf(join(dirs.privateDir, 'config.local.json'));
+    const before = digestOf(join(dirs.privateDir, 'config', 'config.json'));
     const run = await p(dirs, '/tools grant web.search');
     assert.equal(run.code, 1);
     assert.ok((run.stdout + run.stderr).includes('web.search'), 'the refusal names the tool');
-    assert.equal(digestOf(join(dirs.privateDir, 'config.local.json')), before);
+    assert.equal(digestOf(join(dirs.privateDir, 'config', 'config.json')), before);
   });
 });
 
@@ -327,11 +327,11 @@ test('/config unset removes the key from the local layer', async () => {
 test('/config set without a value exits 1 and leaves the local layer as it was', async () => {
   await withRig({}, async ({ dirs, llm, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
-    const before = digestOf(join(dirs.privateDir, 'config.local.json'));
+    const before = digestOf(join(dirs.privateDir, 'config', 'config.json'));
     const run = await p(dirs, '/config set pace.settleMaxMs');
     assert.equal(run.code, 1);
     assert.notEqual(run.stderr.trim(), '', 'a refused parse says why on stderr');
-    assert.equal(digestOf(join(dirs.privateDir, 'config.local.json')), before);
+    assert.equal(digestOf(join(dirs.privateDir, 'config', 'config.json')), before);
   });
 });
 

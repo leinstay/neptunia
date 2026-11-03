@@ -42,7 +42,7 @@ The units start the node that `nodeOf` (`src/setup/run.ts`) finds: the absolute 
 
 ## After the steps
 
-Setup prints one line per step with its state, then the commands that come next, and opens the chat with `/keys core add` typed. The order after setup is `keys core add`, `interface token set discord` (it asks the bot token without echo and writes `DISCORD_TOKEN` to `<private>/clients/discord.env` at mode 0600, the environment file of the interface unit), `interface enable discord`, then `model set` for the optional roles, `subharness enable` and `simulation enable`. `/help` lists every command. `neptunia doctor` carries a `features` check that warns while the subharness or the simulation is off and names the command that turns it on.
+Setup prints one line per step with its state, then the commands that come next, and opens the chat with `/keys core add` typed. The order after setup is `keys core add`, `interface token set discord` (it asks the bot token without echo and writes `token` to `data/interfaces/discord/credentials.json` at mode `0600`, which interface startup reads), `interface enable discord`, then `model set` for the optional roles, `subharness enable` and `simulation enable`. `/help` lists every command. `neptunia doctor` carries a `features` check that warns while the subharness or the simulation is off and names the command that turns it on.
 
 ## Subharness backends
 

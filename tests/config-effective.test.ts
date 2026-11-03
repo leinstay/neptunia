@@ -25,7 +25,7 @@ function tool(flags: Array<string>): { code: number | null; out: string; err: st
 /** A private layer of the new layout whose settings file sets the recall timeout. */
 function recallLayer(timeoutMs: number): Layer {
   const target = layer();
-  target.write('config.local/config.json', { recall: { timeoutMs } });
+  target.write('config/config.json', { recall: { timeoutMs } });
   return target;
 }
 
@@ -58,7 +58,7 @@ test('finds no difference against a snapshot of the same layer', () => {
 test('names a derived setting that changed and exits 1', () => {
   const target = recallLayer(25000);
   const file = snapshot(target);
-  target.write('config.local/config.json', { recall: { timeoutMs: 9000 } });
+  target.write('config/config.json', { recall: { timeoutMs: 9000 } });
   const run = tool(['--compare', file, '--private', target.dir]);
   assert.equal(run.code, 1);
   assert.ok(run.out.split('\n').includes('settings.recallSettings.timeoutMs: before 25000, after 9000'), run.out);

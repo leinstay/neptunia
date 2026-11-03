@@ -1,5 +1,5 @@
 // Tests for src/hot.ts: the live config/prompts view. Never depends on
-// fs.watch timing -- reload methods are called directly.
+// fs.watch timing. Personal fixtures use root/data, matching the canonical runtime contract.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -22,6 +22,7 @@ function makeRoot({ config = { bot: { timezone: 'UTC' } }, prompts = {} } = {}) 
   const dir = tempDir('nep-hot-');
   // PR 7c: the tracked settings live in config/config.json.
   fs.mkdirSync(path.join(dir, 'config'));
+  fs.mkdirSync(path.join(dir, 'data', 'config'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'config', 'config.json'), JSON.stringify(config));
   fs.mkdirSync(path.join(dir, 'prompts'));
   for (const [name, text] of Object.entries(prompts)) {
@@ -74,11 +75,11 @@ test('reloadConfig: keeps the previous config on invalid JSON and returns false'
   }
 });
 
-test('reloadConfig: config.local.json is merged in on reload too', () => {
+test('reloadConfig: data/config/config.json is merged in on reload too', () => {
   const dir = makeRoot(wrongly({ config: { a: 1, b: 1 } }));
   const hot = createHot({ rootDir: dir });
   try {
-    fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ b: 2 }));
+    fs.writeFileSync(path.join(dir, 'data', 'config', 'config.json'), JSON.stringify({ b: 2 }));
     hot.reloadConfig();
     assert.deepEqual(hot.config, { a: 1, b: 2 });
   } finally {
@@ -194,21 +195,21 @@ test('createHot: non-.md files in prompts/ are ignored', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Two prompt layers: prompts/ (base, tracked) + prompts.local/ (untracked)
+// Two prompt layers: prompts/ (base, tracked) + data/prompts/ (untracked)
 // ---------------------------------------------------------------------------
 
-function writeLocalPrompt(dir: string, name: string, text: string) {
-  const localDir = path.join(dir, 'prompts.local');
+function writeLocalPrompt(dir: string, name: string, text: string, dataDir = path.join(dir, 'data')) {
+  const localDir = path.join(dataDir, 'prompts');
   fs.mkdirSync(localDir, { recursive: true });
   fs.writeFileSync(path.join(localDir, `${name}.md`), text);
 }
 
-// PR 7c: the tracked labels live in config/labels.json under `model`; a flat prompts.local/labels.json still loads.
+// Both label layers use explicit model and owner sections under their respective config directories.
 function writeLabels(dir: string, layer: string, value: string) {
-  const target = layer === 'base' ? path.join(dir, 'config') : path.join(dir, 'prompts.local');
+  const target = layer === 'base' ? path.join(dir, 'config') : path.join(dir, 'data', 'config');
   fs.mkdirSync(target, { recursive: true });
   let text = value;
-  if (layer === 'base') {
+  {
     try {
       const model = JSON.parse(value);
       text = JSON.stringify({ model, owner: {} });
@@ -219,7 +220,7 @@ function writeLabels(dir: string, layer: string, value: string) {
   fs.writeFileSync(path.join(target, 'labels.json'), text);
 }
 
-test('createHot: a prompts.local file replaces the base file of the same name', () => {
+test('createHot: a data/prompts file replaces the base file of the same name', () => {
   const dir = makeRoot({ prompts: { rules: 'base text' } });
   writeLocalPrompt(dir, 'rules', 'local text');
   const hot = createHot({ rootDir: dir });
@@ -278,7 +279,7 @@ test('reloadPrompts: deleting a local file falls back to the base text', () => {
   const hot = createHot({ rootDir: dir });
   try {
     assert.equal(hot.prompts.rules, 'local text');
-    fs.rmSync(path.join(dir, 'prompts.local', 'rules.md'));
+    fs.rmSync(path.join(dir, 'data', 'prompts', 'rules.md'));
     const ok = hot.reloadPrompts();
     assert.equal(ok, true);
     assert.equal(hot.prompts.rules, 'base text');
@@ -319,12 +320,11 @@ test('createHot: labels.json deep-merges the local layer over the base one, sour
   }
 });
 
-// The tool texts moved from skills.json in prompts/ and prompts.local/ to tools.json in config/ and config.local/ (the key
-// of `hot.prompts` followed); what the layer does is what it did.
+// Both JSON tool-text layers keep merge and reload behavior in their respective config directories.
 test('createHot: tools.json is a JSON layer like labels.json: deep-merged, {} when absent, kept on a bad reload', () => {
   const dir = makeRoot();
   const write = (layer: string, value: string) => {
-    const target = layer === 'base' ? path.join(dir, 'config') : path.join(dir, 'config.local');
+    const target = layer === 'base' ? path.join(dir, 'config') : path.join(dir, 'data', 'config');
     fs.mkdirSync(target, { recursive: true });
     fs.writeFileSync(path.join(target, 'tools.json'), value);
   };
@@ -415,7 +415,7 @@ test('reloadPrompts: invalid base labels.json on reload keeps the previous merge
 });
 
 // ---------------------------------------------------------------------------
-// prompts.local/ deleted and recreated while running (an rsync of the
+// data/prompts/ deleted and recreated while running (an rsync of the
 // directory): its watcher is dropped and a new one starts. A fake fs.watch
 // stands in, so no test depends on real watcher timing.
 // ---------------------------------------------------------------------------
@@ -436,22 +436,22 @@ function fakeWatch() {
   return watch;
 }
 
-test('watch: a prompts.local/ deleted and recreated is watched again', () => {
+test('watch: a data/prompts/ deleted and recreated is watched again', () => {
   const dir = makeRoot({ prompts: { rules: 'base text' } });
   writeLocalPrompt(dir, 'rules', 'local text');
-  const localDir = path.join(dir, 'prompts.local');
+  const localDir = path.join(dir, 'data', 'prompts');
   const watch = fakeWatch();
   const hot = createHot({ rootDir: dir, watchImpl: wrongly(watch) }).watch();
   try {
-    const [root] = watch.of(dir);
+    const [root] = watch.of(path.join(dir, 'data'));
     assert.equal(watch.of(localDir).length, 1);
 
     fs.rmSync(localDir, { recursive: true, force: true });
-    root.listener('rename', 'prompts.local');
+    root.listener('rename', 'prompts');
     assert.equal(watch.of(localDir)[0].closed, true, 'the watcher of the deleted directory is closed');
 
     writeLocalPrompt(dir, 'rules', 'local again');
-    root.listener('rename', 'prompts.local');
+    root.listener('rename', 'prompts');
     assert.equal(watch.of(localDir).length, 2, 'the recreated directory gets a watcher of its own');
     assert.equal(watch.of(localDir)[1].closed, false);
   } finally {
@@ -460,20 +460,20 @@ test('watch: a prompts.local/ deleted and recreated is watched again', () => {
   }
 });
 
-test('watch: an error on the prompts.local/ watcher frees it, so the next root event starts a new one', async () => {
+test('watch: an error on the data/prompts/ watcher frees it, so the next root event starts a new one', async () => {
   const dir = makeRoot({ prompts: { rules: 'base text' } });
   writeLocalPrompt(dir, 'rules', 'local text');
-  const localDir = path.join(dir, 'prompts.local');
+  const localDir = path.join(dir, 'data', 'prompts');
   const watch = fakeWatch();
   const hot = createHot({ rootDir: dir, watchImpl: wrongly(watch) }).watch();
   try {
-    const [root] = watch.of(dir);
+    const [root] = watch.of(path.join(dir, 'data'));
     const [first] = watch.of(localDir);
     const { logs } = await withCapturedLogs(() => first.emit('error', new Error('EPERM')));
     assert.ok(logs.some((l) => l.msg === 'hot: watcher error'));
     assert.equal(first.closed, true);
 
-    root.listener('rename', 'prompts.local');
+    root.listener('rename', 'prompts');
     assert.equal(watch.of(localDir).length, 2);
   } finally {
     hot.close();
@@ -481,14 +481,14 @@ test('watch: an error on the prompts.local/ watcher frees it, so the next root e
   }
 });
 
-test('watch: close() closes every watcher, the prompts.local/ one included', () => {
+test('watch: close() closes every watcher, the data/prompts/ one included', () => {
   const dir = makeRoot();
   writeLocalPrompt(dir, 'rules', 'local text');
   const watch = fakeWatch();
   const hot = createHot({ rootDir: dir, watchImpl: wrongly(watch) }).watch();
   hot.close();
   try {
-    for (const target of [dir, path.join(dir, 'prompts'), path.join(dir, 'prompts.local')]) {
+    for (const target of [dir, path.join(dir, 'prompts'), path.join(dir, 'data', 'prompts')]) {
       assert.equal(watch.of(target)[0].closed, true, target);
     }
   } finally {
@@ -516,7 +516,10 @@ test('createHot: a config that still sets memory.voiceModel warns once at startu
         JSON.stringify({ llm: { model: 'x/voice' }, memory: { voiceModel: null } })
       );
       hot.reloadConfig(); // gone (null counts as unset)
-      fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ memory: { voiceModel: 'x/old-voice' } }));
+      fs.writeFileSync(
+        path.join(dir, 'data', 'config', 'config.json'),
+        JSON.stringify({ memory: { voiceModel: 'x/old-voice' } })
+      );
       hot.reloadConfig(); // back through the local layer
     });
     assert.equal(retired(reloads.logs).length, 1);
@@ -534,7 +537,7 @@ test('createHot: a config that still sets memory.voiceModel warns once at startu
 test('createHot: an old config that still sets features.vision or features.attachedDescriptions loads, warns once per key at startup and reads neither', async () => {
   const dir = makeRoot({ config: { bot: { timezone: 'UTC' } } });
   fs.writeFileSync(
-    path.join(dir, 'config.local.json'),
+    path.join(dir, 'data', 'config', 'config.json'),
     JSON.stringify({ features: { vision: false, attachedDescriptions: true } })
   );
   const retired = (logs: Record<string, Untyped>) =>
@@ -564,7 +567,10 @@ test('createHot: an old config that still sets features.vision or features.attac
 
 test('createHot: an old config that still sets wakes.loop.strayFollowUps loads and warns once at startup', async () => {
   const dir = makeRoot({ config: { bot: { timezone: 'UTC' } } });
-  fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ wakes: { loop: { strayFollowUps: 2 } } }));
+  fs.writeFileSync(
+    path.join(dir, 'data', 'config', 'config.json'),
+    JSON.stringify({ wakes: { loop: { strayFollowUps: 2 } } })
+  );
   const retired = (logs: Record<string, Untyped>) =>
     logs.filter(
       (entry: Record<string, Untyped>) =>
@@ -587,7 +593,7 @@ test('createHot: an old config that still sets wakes.loop.strayFollowUps loads a
 test('createHot: a config that still sets a dollar limit loads and warns once per key at startup', async () => {
   const dir = makeRoot({ config: { bot: { timezone: 'UTC' } } });
   fs.writeFileSync(
-    path.join(dir, 'config.local.json'),
+    path.join(dir, 'data', 'config', 'config.json'),
     JSON.stringify({
       wakes: { caps: { usdPerDay: 4 } },
       agents: { scout: { daily: { usd: 8 }, limits: { usd: 1 } } },
@@ -622,7 +628,7 @@ test('createHot: a config that still sets a dollar limit loads and warns once pe
 test('createHot: a config that still sets a per-day, per-hour or public-posts count cap loads and warns once per key', async () => {
   const dir = makeRoot({ config: { bot: { timezone: 'UTC' } } });
   fs.writeFileSync(
-    path.join(dir, 'config.local.json'),
+    path.join(dir, 'data', 'config', 'config.json'),
     JSON.stringify({ wakes: { caps: { perDay: 9, perHour: 2, perChain: 2, publicPostsPerDay: 1 } } })
   );
   const retired = (logs: Record<string, Untyped>) =>
@@ -651,11 +657,11 @@ test('createHot: a config that still sets a per-day, per-hour or public-posts co
   }
 });
 
-test('createHot: a config.local.json is read key by key: an old model key is not read, a reload keeps the previous config on bad JSON', async () => {
+test('createHot: a data/config/config.json is read key by key: an old model key is not read, a reload keeps the previous config on bad JSON', async () => {
   const dir = makeRoot(wrongly({ config: { models: { base: { analyzer: 'x/default' } } } }));
-  // PR 7c: the layout of a moved layer, as the old one draws the move warning this test counts.
-  fs.mkdirSync(path.join(dir, 'config.local'));
-  const localFile = path.join(dir, 'config.local', 'config.json');
+  // The canonical persona config keeps this warning test separate from legacy-layout refusal.
+  fs.mkdirSync(path.join(dir, 'data', 'config'), { recursive: true });
+  const localFile = path.join(dir, 'data', 'config', 'config.json');
   fs.writeFileSync(
     localFile,
     JSON.stringify({ classifier: { text: 'x/old-text' }, models: { base: { vision: 'x/new-vision' } } })
@@ -742,13 +748,14 @@ test('hot: onReload fires with the layer name', async () => {
 // The private layer apart from the checkout (src/paths.ts: NEPTUNIA_PRIVATE_DIR)
 // ---------------------------------------------------------------------------
 
-test('createHot: a privateDir apart from rootDir supplies config.local.json and prompts.local/, a writeLocalPath lands there, and its watcher reloads', async () => {
+test('createHot: a privateDir apart from rootDir supplies config/config.json and prompts/, a writeLocalPath lands there, and its watcher reloads', async () => {
   const dir = makeRoot(wrongly({ config: { a: 1, b: 1 }, prompts: { rules: 'base text', persona: 'base persona' } }));
   const privateDir = tempDir('nep-hot-private-');
-  fs.writeFileSync(path.join(privateDir, 'config.local.json'), JSON.stringify({ b: 2 }));
-  writeLocalPrompt(privateDir, 'rules', 'private text');
+  fs.mkdirSync(path.join(privateDir, 'config'));
+  fs.writeFileSync(path.join(privateDir, 'config', 'config.json'), JSON.stringify({ b: 2 }));
+  writeLocalPrompt(dir, 'rules', 'private text', privateDir);
   // A local layer left in the checkout is not read once the private directory is elsewhere.
-  fs.writeFileSync(path.join(dir, 'config.local.json'), JSON.stringify({ a: 9 }));
+  fs.writeFileSync(path.join(dir, 'data', 'config', 'config.json'), JSON.stringify({ a: 9 }));
   writeLocalPrompt(dir, 'persona', 'checkout persona');
   const watch = fakeWatch();
   const hot = createHot({ rootDir: dir, privateDir, watchImpl: wrongly(watch) }).watch();
@@ -758,36 +765,39 @@ test('createHot: a privateDir apart from rootDir supplies config.local.json and 
     assert.deepEqual(hot.config, { a: 1, b: 2 });
     assert.equal(hot.prompts.rules, 'private text');
     assert.equal(hot.prompts.persona, 'base persona');
-    assert.equal(hot.localPromptsDir, path.join(privateDir, 'prompts.local'));
+    assert.equal(hot.localPromptsDir, path.join(privateDir, 'prompts'));
 
     // The operations' config writer goes to the private directory and reloads.
     const env = createOpsEnv(wrongly({ discord: DISCORD, hot }));
     assert.equal(env.writeLocalPath('c', 3), true);
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(privateDir, 'config.local.json'), 'utf8')), { b: 2, c: 3 });
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'config.local.json'), 'utf8')), { a: 9 });
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(privateDir, 'config', 'config.json'), 'utf8')), {
+      b: 2,
+      c: 3,
+    });
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'config', 'config.json'), 'utf8')), { a: 9 });
     assert.deepEqual(hot.config, { a: 1, b: 2, c: 3 });
 
-    // One watcher per root directory, plus prompts/ and the private prompts.local/.
+    // One watcher per root directory, plus prompts/ and the private data/prompts/.
     assert.equal(watch.of(dir).length, 1);
     assert.equal(watch.of(privateDir).length, 1);
-    assert.equal(watch.of(path.join(privateDir, 'prompts.local')).length, 1);
-    assert.equal(watch.of(path.join(dir, 'prompts.local')).length, 0);
+    assert.equal(watch.of(path.join(privateDir, 'prompts')).length, 1);
+    assert.equal(watch.of(path.join(dir, 'data', 'prompts')).length, 0);
 
     // An edit in the private directory reloads; the same names in the checkout do not.
     const [rootWatcher] = watch.of(dir);
-    const [privateWatcher] = watch.of(privateDir);
-    const [localWatcher] = watch.of(path.join(privateDir, 'prompts.local'));
+    const [privateWatcher] = watch.of(path.join(privateDir, 'config'));
+    const [localWatcher] = watch.of(path.join(privateDir, 'prompts'));
     const seen: Array<Untyped> = [];
     hot.onReload((what) => seen.push(what));
     rootWatcher.listener('change', 'config.local.json');
-    rootWatcher.listener('rename', 'prompts.local');
+    rootWatcher.listener('rename', 'data');
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.deepEqual(seen, []);
-    assert.equal(watch.of(path.join(dir, 'prompts.local')).length, 0);
+    assert.equal(watch.of(path.join(dir, 'data', 'prompts')).length, 0);
 
-    fs.writeFileSync(path.join(privateDir, 'config.local.json'), JSON.stringify({ b: 5 }));
-    privateWatcher.listener('change', 'config.local.json');
-    writeLocalPrompt(privateDir, 'rules', 'private text, edited');
+    fs.writeFileSync(path.join(privateDir, 'config', 'config.json'), JSON.stringify({ b: 5 }));
+    privateWatcher.listener('change', 'config.json');
+    writeLocalPrompt(dir, 'rules', 'private text, edited', privateDir);
     localWatcher.listener('change', 'rules.md');
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.deepEqual(seen.sort(), ['config', 'prompts']);
@@ -803,13 +813,14 @@ test('createHot: a privateDir apart from rootDir supplies config.local.json and 
   }
 });
 
-test('createHot: without a privateDir it is the root, and no second root watcher is started', () => {
+test('createHot: without a privateDir the persona is root/data and each root is watched once', () => {
   const dir = makeRoot();
   const watch = fakeWatch();
   const hot = createHot({ rootDir: dir, watchImpl: wrongly(watch) }).watch();
   try {
-    assert.equal(hot.privateDir, dir);
+    assert.equal(hot.privateDir, path.join(dir, 'data'));
     assert.equal(watch.of(dir).length, 1);
+    assert.equal(watch.of(path.join(dir, 'data')).length, 1);
   } finally {
     hot.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -817,17 +828,17 @@ test('createHot: without a privateDir it is the root, and no second root watcher
 });
 
 // ---------------------------------------------------------------------------
-// prompts.local/preambles/: the errand agents' preambles, a subfolder of the
+// data/prompts/preambles/: the errand agents' preambles, a subfolder of the
 // private layer only, loaded by base name into `hot.prompts.preambles`, live.
 // ---------------------------------------------------------------------------
 
 function writePreamble(dir: string, name: string, text: string) {
-  const folder = path.join(dir, 'prompts.local', 'preambles');
+  const folder = path.join(dir, 'data', 'prompts', 'preambles');
   fs.mkdirSync(folder, { recursive: true });
   fs.writeFileSync(path.join(folder, `${name}.md`), text);
 }
 
-test('createHot: prompts.local/preambles/*.md load by base name into hot.prompts.preambles and reload live', () => {
+test('createHot: data/prompts/preambles/*.md load by base name into hot.prompts.preambles and reload live', () => {
   const dir = makeRoot({ prompts: { rules: 'base text' } });
   const plainDir = makeRoot();
   const plain = createHot({ rootDir: plainDir });
@@ -843,7 +854,7 @@ test('createHot: prompts.local/preambles/*.md load by base name into hot.prompts
   writePreamble(dir, 'all', '\uFEFFΚοινό.\r\n');
   writePreamble(dir, '@moonshotai-kimi-k3', 'Για το μοντέλο.');
   writePreamble(dir, 'scout', '');
-  fs.writeFileSync(path.join(dir, 'prompts.local', 'preambles', 'notes.txt'), 'not a prompt');
+  fs.writeFileSync(path.join(dir, 'data', 'prompts', 'preambles', 'notes.txt'), 'not a prompt');
   const hot = createHot({ rootDir: dir });
   try {
     assert.deepEqual(hot.prompts.preambles, { all: 'Κοινό.', '@moonshotai-kimi-k3': 'Για το μοντέλο.', scout: '' });
@@ -851,13 +862,13 @@ test('createHot: prompts.local/preambles/*.md load by base name into hot.prompts
     const before = hot.hashes.promptsHash;
 
     writePreamble(dir, 'scout', 'Ιστός.');
-    fs.rmSync(path.join(dir, 'prompts.local', 'preambles', '@moonshotai-kimi-k3.md'));
+    fs.rmSync(path.join(dir, 'data', 'prompts', 'preambles', '@moonshotai-kimi-k3.md'));
     writePreamble(dir, 'all', ''); // emptied: '' at once, no keep-the-previous guard
     assert.equal(hot.reloadPrompts(), true);
     assert.deepEqual(hot.prompts.preambles, { all: '', scout: 'Ιστός.' });
     assert.notEqual(hot.hashes.promptsHash, before, 'the preambles count in the prompts hash');
 
-    fs.rmSync(path.join(dir, 'prompts.local', 'preambles'), { recursive: true, force: true });
+    fs.rmSync(path.join(dir, 'data', 'prompts', 'preambles'), { recursive: true, force: true });
     hot.reloadPrompts();
     assert.deepEqual(hot.prompts.preambles, {}, 'the folder removed: none left');
   } finally {
@@ -866,10 +877,10 @@ test('createHot: prompts.local/preambles/*.md load by base name into hot.prompts
   }
 });
 
-test('watch: prompts.local/preambles/ gets a watcher of its own; created, edited and removed, it reloads', async () => {
+test('watch: data/prompts/preambles/ gets a watcher of its own; created, edited and removed, it reloads', async () => {
   const dir = makeRoot();
   writeLocalPrompt(dir, 'rules', 'local text');
-  const localDir = path.join(dir, 'prompts.local');
+  const localDir = path.join(dir, 'data', 'prompts');
   const preamblesDir = path.join(localDir, 'preambles');
   const watch = fakeWatch();
   const hot = createHot({ rootDir: dir, watchImpl: wrongly(watch) }).watch();
@@ -908,7 +919,7 @@ test('watch: prompts.local/preambles/ gets a watcher of its own; created, edited
 test('watch: a preambles/ folder present at start is watched; an error frees its watcher', async () => {
   const dir = makeRoot();
   writePreamble(dir, 'all', 'text');
-  const preamblesDir = path.join(dir, 'prompts.local', 'preambles');
+  const preamblesDir = path.join(dir, 'data', 'prompts', 'preambles');
   const watch = fakeWatch();
   const hot = createHot({ rootDir: dir, watchImpl: wrongly(watch) }).watch();
   try {
@@ -916,8 +927,8 @@ test('watch: a preambles/ folder present at start is watched; an error frees its
     assert.ok(first);
     await withCapturedLogs(() => first.emit('error', new Error('EPERM')));
     assert.equal(first.closed, true);
-    watch.of(path.join(dir, 'prompts.local'))[0].listener('rename', 'preambles');
-    assert.equal(watch.of(preamblesDir).length, 2, 'the next event on prompts.local/ starts a new one');
+    watch.of(path.join(dir, 'data', 'prompts'))[0].listener('rename', 'preambles');
+    assert.equal(watch.of(preamblesDir).length, 2, 'the next event on data/prompts/ starts a new one');
   } finally {
     hot.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -950,7 +961,7 @@ test('createHot: an emptied preamble file composes to nothing at once, while an 
 
     writePreamble(dir, 'scout', 'Ιστός.');
     hot.reloadPrompts();
-    fs.rmSync(path.join(dir, 'prompts.local', 'preambles', 'scout.md'));
+    fs.rmSync(path.join(dir, 'data', 'prompts', 'preambles', 'scout.md'));
     hot.reloadPrompts();
     assert.equal(scoutPreamble(), '', 'a deleted file is nothing');
   } finally {
@@ -959,7 +970,7 @@ test('createHot: an emptied preamble file composes to nothing at once, while an 
   }
 });
 
-test('createHot: prompts.local/agents.md is not a preamble and draws no warning', async () => {
+test('createHot: data/prompts/agents.md is not a preamble and draws no warning', async () => {
   const dir = makeRoot();
   writeLocalPrompt(dir, 'agents', 'OLD-PREAMBLE-TEXT');
   let hot = wrongly<Hot>(undefined);

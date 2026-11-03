@@ -96,9 +96,10 @@ type Dirs = {
 function folders(config: Settings = {}): Dirs {
   const root = mkdtempSync(join(tmpdir(), 'cp-'));
   const dataDir = join(root, 'd');
-  const privateDir = join(root, 'p');
-  mkdirSync(privateDir);
-  writeFileSync(join(privateDir, 'config.local.json'), JSON.stringify(merged(BASE_CONFIG, config)));
+  // Runtime privateDir aliases the prepared persona data root.
+  const privateDir = dataDir;
+  mkdirSync(join(privateDir, 'config'), { recursive: true });
+  writeFileSync(join(privateDir, 'config', 'config.json'), JSON.stringify(merged(BASE_CONFIG, config)));
   return { root, dataDir, privateDir, paths: { rootDir: REPO, privateDir, dataDir } };
 }
 
@@ -110,7 +111,7 @@ function addFakeClient(privateDir: string): void {
     {
       cwd: REPO,
       encoding: 'utf8',
-      env: { ...process.env, NEPTUNIA_PRIVATE_DIR: privateDir },
+      env: { ...process.env, NEPTUNIA_PRIVATE_DIR: privateDir, NEPTUNIA_DATA_DIR: privateDir },
     }
   );
   assert.equal(run.status, 0, `client-token add failed: ${run.stderr}`);
@@ -487,7 +488,7 @@ test('a core stopped cleanly lets the next start in at once', async () => {
 
 /** The private layer's settings as the file holds them. */
 const localConfig = (dirs: Dirs): Settings =>
-  JSON.parse(readFileSync(join(dirs.privateDir, 'config.local.json'), 'utf8')) as Settings;
+  JSON.parse(readFileSync(join(dirs.privateDir, 'config', 'config.json'), 'utf8')) as Settings;
 
 // Case 5 of PR C, the drain runs out.
 test('disable ends a send the interface holds past drainMs unknown, keeps the choice and refuses the reconnect', async () => {
@@ -569,11 +570,16 @@ test('a unit with the wrong token is refused and nothing it sends is taken', asy
   await withRig({}, async ({ dirs, llm, units, cores, logs }) => {
     const core = await startUnitsCore(dirs, llm);
     cores.push(core);
-    // The unit's own private folder, whose token file holds a token no client of the core has.
-    const strayPrivate = join(dirs.root, 'q');
-    mkdirSync(join(strayPrivate, 'clients'), { recursive: true });
-    writeFileSync(join(strayPrivate, 'clients', 'fake.token'), `${'0'.repeat(64)}\n`, { mode: 0o600 });
-    const unit = spawnUnit(dirs, strayPrivate);
+    // Both processes select one data root; the core's configured token file differs from the unit's invalid token.
+    const clientsFile = join(dirs.dataDir, 'clients.json');
+    const clients: unknown = JSON.parse(readFileSync(clientsFile, 'utf8'));
+    assert.ok(isRecord(clients) && isRecord(clients.fake));
+    const acceptedToken = join(dirs.dataDir, 'clients', 'accepted-fake.token');
+    writeFileSync(acceptedToken, readFileSync(join(dirs.dataDir, 'clients', 'fake.token')), { mode: 0o600 });
+    clients.fake.tokenFile = 'clients/accepted-fake.token';
+    writeFileSync(clientsFile, JSON.stringify(clients));
+    writeFileSync(join(dirs.dataDir, 'clients', 'fake.token'), `${'0'.repeat(64)}\n`, { mode: 0o600 });
+    const unit = spawnUnit(dirs);
     units.push(unit);
     await unit.told('started').catch(() => {});
     await until(() => helloRefused(logs, 'token'), 'the refusal of the wrong token');

@@ -449,6 +449,7 @@ type DescriberDeps = {
   videoFetcher?: Untyped;
   state?: { data: Untyped; markDirty: () => void };
   youtubeApiKey?: string | null;
+  videoProxy?: string | null;
 };
 
 /**
@@ -515,6 +516,11 @@ function mediaCacheAccess({ store, hot, now }: Pick<DescriberDeps, 'store' | 'ho
   return { dueForRecache, touchHit, readEntry };
 }
 
+/** The picture prompt is read at use so an owner reload takes effect on the next request. */
+function pictureBlockerOf(hot: DescriberDeps['hot']): 'no-prompt' | null {
+  return hot.prompts?.describe ? null : 'no-prompt';
+}
+
 function buildDescriber({
   hot,
   store,
@@ -523,6 +529,7 @@ function buildDescriber({
   imageFetcher = createImageFetcher(),
   videoFetcher = createVideoFetcher(),
   youtubeApiKey = null,
+  videoProxy = null,
 }: DescriberDeps) {
   /** Today's UTC date as `YYYY-MM-DD` from the injected clock: the daily counters and the prompts' `{{today}}`. */
   function todayDate() {
@@ -540,16 +547,7 @@ function buildDescriber({
 
   /** Whether pictures are described under the live prompts (the describe prompt is there). */
   function picturesOn() {
-    return pictureBlocker() === null;
-  }
-
-  /**
-   * Why pictures are not described under the live prompts, or null when
-   * they are: `no-prompt` (no describe prompt).
-   */
-  function pictureBlocker(): 'no-prompt' | null {
-    if (!hot.prompts?.describe) return 'no-prompt';
-    return null;
+    return pictureBlockerOf(hot) === null;
   }
 
   const { dueForRecache, touchHit, readEntry } = mediaCacheAccess({ store, hot, now });
@@ -610,7 +608,7 @@ function buildDescriber({
     guildId: string,
     item: MediaItem
   ): Promise<{ state: 'done' } | { state: 'failed' } | { state: 'unavailable'; reason: string }> {
-    const blocker = pictureBlocker();
+    const blocker = pictureBlockerOf(hot);
     if (blocker !== null) return { state: 'unavailable', reason: blocker };
     if (capSpent()) return { state: 'unavailable', reason: 'daily-cap' };
     const flightKey = `${guildId}:${item.itemId}`;
@@ -1174,7 +1172,7 @@ function buildDescriber({
       return got;
     }
     // Only the listed sites go through the proxy (media.video.proxySites).
-    const proxy = proxyFor(item.url, videoCfg);
+    const proxy = proxyFor(item.url, videoCfg, videoProxy);
     const { proxyRetryMinutes } = videoCfg;
     let probe = await videoFetcher.probeSite(item.url, { ytdlpPath, toolTimeoutMs, proxy, proxyRetryMinutes });
     // yt-dlp can be blocked by YouTube's bot check; the duration alone is
@@ -1771,12 +1769,12 @@ function buildDescriber({
 
   // Which link of the YouTube duration chain works on this host (src/memory/youtube-check.ts):
   // the same fetcher and key as a real link, no LLM call, nothing cached.
-  const checkYoutube = createYoutubeCheck({ hot, videoFetcher, youtubeApiKey });
+  const checkYoutube = createYoutubeCheck({ hot, videoFetcher, youtubeApiKey, videoProxy });
 
   return {
     describe,
     redescribe,
-    pictureBlocker,
+    pictureBlocker: () => pictureBlockerOf(hot),
     describeMany,
     cachedDescriptions,
     describeVideo,

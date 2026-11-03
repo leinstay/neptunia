@@ -32,12 +32,15 @@ function deployment(local: Settings) {
       errands: { maxOpen: 3 },
     })
   );
-  const file = path.join(root, 'config.local.json');
+  // The writer and loader share the canonical persona file while old key names retain their meaning.
+  const privateDir = path.join(root, 'data');
+  fs.mkdirSync(path.join(privateDir, 'config'), { recursive: true });
+  const file = path.join(privateDir, 'config', 'config.json');
   fs.writeFileSync(file, JSON.stringify(local));
-  const load = () => readConfig(root, { privateDir: root }) as Settings;
+  const load = () => readConfig(root, { privateDir }) as Settings;
   const hot: Settings & { config: Settings; reloadConfig: () => boolean } = {
     rootDir: root,
-    privateDir: root,
+    privateDir,
     config: load(),
     reloadConfig: () => {
       hot.config = load();

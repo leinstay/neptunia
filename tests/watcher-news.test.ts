@@ -1,7 +1,7 @@
 // src/watcher/news.ts: what the selfimprovement wake carries of the watcher (spec 2026-11-02, "`selfimprovement` daily,
 // after the watcher"): the newest report of the past day, its date and the bodies of its `## For the owner` and
 // `## Tasks filed` sections. Absent with no such report or with the watcher off. The reports folder is a temp dir
-// named by `watcher.dir`; the clock is injected. Each test names the bug it catches.
+// under data/agents/watcher; the clock is injected. Each test names the bug it catches.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -32,10 +32,11 @@ function report(owner: string, filed: string): string {
   ].join('\n');
 }
 
-/** A watcher folder with `reports` (day to text), and the config that names it. */
+/** The injected root is the selected persona data directory, containing the canonical watcher reports. */
 function rig(reports: Record<string, string>, enabled = true): { config: unknown; rootDir: string } {
   const rootDir = tempDir('nep-watcher-news-');
-  const dir = path.join(rootDir, 'watch');
+  // Reports belong to the canonical persona tree, independent of the retired watcher.dir override.
+  const dir = path.join(rootDir, 'agents', 'watcher');
   fs.mkdirSync(path.join(dir, 'reports'), { recursive: true });
   for (const [day, text] of Object.entries(reports)) fs.writeFileSync(path.join(dir, 'reports', `${day}.md`), text);
   return { config: { watcher: { enabled, dir } }, rootDir };

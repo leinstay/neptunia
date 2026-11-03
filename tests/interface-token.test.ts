@@ -1,5 +1,5 @@
 // src/interface/commands/interface-token.ts: `interface token set <iface>` asks the owner for the platform token through
-// the chat's secret prompt and writes `clients/<iface>.env`, the environment file the interface unit reads, at mode 600.
+// the chat's secret prompt and writes `interfaces/<iface>/credentials.json`, the private JSON the interface reads, at mode 600.
 // The token never reaches an answer or a log line. The private folder is a temp dir, the chat a scripted dialog.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,7 +16,9 @@ import { tempDir } from './fixtures/tmp.ts';
 
 const TOKEN = 'TOKENVALUE.Zm9vYmFy.abcdef-123456';
 
-const envFile = (privateDir: string, iface: string): string => path.join(privateDir, 'clients', `${iface}.env`);
+// Interface credentials use the prepared persona JSON contract, preserving other stored fields on rotation.
+const envFile = (privateDir: string, iface: string): string =>
+  path.join(privateDir, 'interfaces', iface, 'credentials.json');
 const modeOf = (file: string): number => fs.statSync(file).mode & 0o777;
 
 test('the token variable of an interface is its name in capitals with _TOKEN', () => {
@@ -25,7 +27,7 @@ test('the token variable of an interface is its name in capitals with _TOKEN', (
   assert.equal(tokenVariableOf('my-chat'), 'MY_CHAT_TOKEN');
 });
 
-test('the token is asked as a secret and written to clients/<iface>.env at mode 600', async () => {
+test('the token is asked as a secret and written to interfaces/<iface>/credentials.json at mode 600', async () => {
   // Catches: the token is echoed while typed, or the file is left readable by every user of the machine.
   const privateDir = tempDir('iface-token-');
   const { dialog, asked } = scriptedDialog([`${TOKEN}\n`]);
@@ -36,20 +38,26 @@ test('the token is asked as a secret and written to clients/<iface>.env at mode 
     [true]
   );
   const file = envFile(privateDir, 'discord');
-  assert.equal(fs.readFileSync(file, 'utf8').trim(), `DISCORD_TOKEN=${TOKEN}`);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { token: TOKEN });
   assert.equal(modeOf(file), 0o600);
 });
 
-test('a second set replaces the token line and keeps the other lines of the file', async () => {
-  // Catches: a rotation appends a second DISCORD_TOKEN line, or wipes a variable the owner put in the file by hand.
+test('a second set replaces the token and keeps the other credential fields', async () => {
+  // Catches: a rotation appends a second token, or wipes a credential field the owner put in the file by hand.
   const privateDir = tempDir('iface-token-');
-  fs.mkdirSync(path.join(privateDir, 'clients'), { recursive: true });
-  fs.writeFileSync(envFile(privateDir, 'discord'), 'DISCORD_TOKEN=old-one\nHTTPS_PROXY=http://proxy.test:3128\n', {
-    mode: 0o644,
-  });
+  fs.mkdirSync(path.dirname(envFile(privateDir, 'discord')), { recursive: true });
+  fs.writeFileSync(
+    envFile(privateDir, 'discord'),
+    JSON.stringify({ token: 'old-one', proxy: 'http://proxy.test:3128' }),
+    {
+      mode: 0o644,
+    }
+  );
   await setInterfaceToken({ privateDir, iface: 'discord', dialog: scriptedDialog([TOKEN]).dialog });
-  const lines = fs.readFileSync(envFile(privateDir, 'discord'), 'utf8').split('\n').filter(Boolean).sort();
-  assert.deepEqual(lines, [`DISCORD_TOKEN=${TOKEN}`, 'HTTPS_PROXY=http://proxy.test:3128']);
+  assert.deepEqual(JSON.parse(fs.readFileSync(envFile(privateDir, 'discord'), 'utf8')), {
+    token: TOKEN,
+    proxy: 'http://proxy.test:3128',
+  });
   assert.equal(modeOf(envFile(privateDir, 'discord')), 0o600);
 });
 
@@ -120,7 +128,7 @@ test('the console writes the token file for interface.token.set over its private
     scriptedDialog([TOKEN]).dialog
   );
   assert.equal(answer.status, 'ok');
-  assert.equal(fs.readFileSync(envFile(privateDir, 'discord'), 'utf8').trim(), `DISCORD_TOKEN=${TOKEN}`);
+  assert.deepEqual(JSON.parse(fs.readFileSync(envFile(privateDir, 'discord'), 'utf8')), { token: TOKEN });
 });
 
 test('the Discord setup points at interface token set, not at a section of deploy/README.md', async () => {

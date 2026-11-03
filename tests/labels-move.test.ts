@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { applyPersonaLayers } from '../src/setup/persona-migration.ts';
 import { createHot } from '../src/hot.ts';
 import { layer, moveTool } from './fixtures/private-layer.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -116,7 +117,10 @@ test("gives the engine the owner's wording over the shipped wording under the ne
   const home = layer();
   home.write(LABELS, { skills: { result: { reasons: { 'not-allowed': 'mine' } } } });
   moveTool(home, ['--apply']);
-  const hot = createHot({ rootDir: root, privateDir: home.dir }) as unknown as {
+  // Runtime readers consume the actual converter output rather than the legacy source layer.
+  const dataDir = tempDir('nep-labels-prepared-');
+  assert.deepEqual(applyPersonaLayers({ rootDir: root, privateDir: home.dir, dataDir }).conflicts, []);
+  const hot = createHot({ rootDir: root, privateDir: dataDir }) as unknown as {
     prompts: { labels: { tools: { result: { reasons: Record<string, string> } } } };
     close: () => void;
   };

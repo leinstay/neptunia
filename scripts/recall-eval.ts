@@ -101,8 +101,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { interfaceCredential } from '../src/config/files.ts';
 import type { Flags } from './lib/cli.ts';
-import { CliError, defaultDataDir, parseFlags, privateDirOf, resolveGuildId, runCli, simKey } from './lib/cli.ts';
+import {
+  serviceKeys,
+  CliError,
+  defaultDataDir,
+  parseFlags,
+  privateDirOf,
+  resolveGuildId,
+  runCli,
+  simKey,
+} from './lib/cli.ts';
 import { discordReads, recallScope } from './lib/platform-objects.ts';
 import {
   HIT_AT,
@@ -150,7 +160,8 @@ const REQUESTS_PER_QUESTION = 2;
 
 /** The web lookup's keys from `env`, as src/index.ts passes them: Brave's and Exa's, trimmed, null when blank. */
 export function webSearchKeys(env = process.env): { brave: string | null; exa: string | null } {
-  return { brave: (env.BRAVE_SEARCH_API_KEY || '').trim() || null, exa: (env.EXA_API_KEY || '').trim() || null };
+  const keys = serviceKeys({ env });
+  return { brave: keys.brave, exa: keys.exa };
 }
 
 /**
@@ -764,8 +775,8 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   let guild: Untyped;
   let self = { id: flags['--self-id'] ?? null, name: flags['--self-name'] ?? null };
   if (useDiscord) {
-    const token = process.env.DISCORD_TOKEN;
-    if (!token) throw new CliError('recall-eval: --discord needs DISCORD_TOKEN (.env)');
+    const token = interfaceCredential(hot.privateDir, 'discord');
+    if (!token) throw new CliError('recall-eval: --discord needs data/interfaces/discord/credentials.json');
     connection = await connectDiscord({ token, guildId });
     guild = connection.guild;
     self = { id: self.id ?? connection.self.id, name: self.name ?? connection.self.name };

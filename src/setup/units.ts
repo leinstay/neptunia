@@ -83,9 +83,9 @@ function pathMap(vars: UnitVars): Array<[string, string]> {
   const nodeDir = path.dirname(vars.node);
   return [
     ['/opt/neptunia/app', vars.rootDir],
-    ['/opt/neptunia/etc', vars.privateDir],
+    ['/opt/neptunia/etc', vars.dataDir],
     ['/opt/neptunia/data', vars.dataDir],
-    ['/etc/neptunia', vars.privateDir],
+    ['/etc/neptunia', vars.dataDir],
     ['/opt/node/bin/node', vars.node],
     ['/opt/node/bin', nodeDir],
     ['/home/neptunia', vars.home],
@@ -171,7 +171,7 @@ export function renderUnit(template: string, scope: 'user' | 'system', vars: Uni
   if (mode === 'sudo') for (const key of STOPS_SUDO) dropped.add(key);
   // The leading `-` lets the unit start before setup made the folder; the agent then fails `not-installed`.
   const backendDirs = AGENT_RUNNER.test(text)
-    ? (vars.backends ?? []).map((backend) => subharnessPlace(vars.privateDir, backend).dir)
+    ? (vars.backends ?? []).map((backend) => subharnessPlace(vars.dataDir, backend).dir)
     : [];
   const calendar =
     isClockTime(vars.watcherAt) && WATCHER_TIMER.test(text) ? `OnCalendar=*-*-* ${vars.watcherAt}:00 UTC` : null;

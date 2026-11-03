@@ -1,10 +1,5 @@
-// Where the settings and the labels are read from (PR 7c of stage 7). The checkout holds `config/config.json` and
-// `config/labels.json` (split into `model` and `owner`), the private layer `config.local/config.json` and
-// `config.local/labels.json`, each deep-merged over its tracked file. `hot.prompts.labels` is the two sections joined,
-// so a reader finds every label at the path it always had. A private layer laid out the old way
-// (`config.local.json`, a flat `prompts.local/labels.json`) still loads, with one warning per start that names
-// scripts/config-files-move.ts, and gives the same settings and labels as the moved layer. A layer holding a settings
-// file at both places refuses the start. Fake fs.watch, temporary folders, never the real local layer.
+// Canonical persona configuration and labels merge over engine defaults. Legacy layouts require offline migration.
+// Existing merge, targeted-write, watcher and interface precedence controls retain their values.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
@@ -16,11 +11,17 @@ import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { ROOT } from './fixtures/private-layer.ts';
+import { resolvePaths } from '../src/paths.ts';
+import { readConfig } from '../src/config.ts';
+import { applyPersonaLayers } from '../src/setup/persona-migration.ts';
+import { createKeyStore } from '../src/keys/store.ts';
+import { profileOf } from '../src/agent-runner/profiles.ts';
+import { fixture as agentFixture } from './fixtures/agent-overrides.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 type Tree = Record<string, unknown>;
 
-const MOVE_TOOL = 'scripts/config-files-move.ts';
+const MOVE_TOOL = 'scripts/persona-files-move.ts';
 
 const BASE_CONFIG = { pace: { settleMs: 500, settleMaxMs: 3000 }, llm: { retries: 2 } };
 const BASE_LABELS = {
@@ -42,11 +43,11 @@ function checkout(): string {
   return dir;
 }
 
-/** A private layer laid out after the move. */
+/** A canonical persona layer uses config/ for runtime reads, writes and watches. */
 function movedLayer(): string {
   const dir = tempDir('nep-cfgdir-new-');
-  write(dir, 'config.local/config.json', { pace: { settleMs: 900 } });
-  write(dir, 'config.local/labels.json', {
+  write(dir, 'config/config.json', { pace: { settleMs: 900 } });
+  write(dir, 'config/labels.json', {
     model: { transcript: { gap: 'my gap {duration}' } },
     owner: { status: { costs: { keyLead: 'my lead' } } },
   });
@@ -62,6 +63,14 @@ function oldLayer(): string {
     status: { costs: { keyLead: 'my lead' } },
   });
   return dir;
+}
+
+/** Runtime readers consume the offline converter's prepared result rather than falling back to legacy files. */
+function preparedLayer(rootDir: string): string {
+  const dataDir = tempDir('nep-cfgdir-prepared-');
+  const plan = applyPersonaLayers({ rootDir, privateDir: oldLayer(), dataDir });
+  assert.deepEqual(plan.conflicts, []);
+  return dataDir;
 }
 
 type Watcher = EventEmitter & { target: string; listener: (event: string, file: string) => void; close: () => void };
@@ -83,7 +92,7 @@ function fakeWatch(): {
 /** What these tests read of the live view (src/hot.ts). */
 type Hot = {
   config: Tree;
-  prompts: { labels: Tree };
+  prompts: Record<string, unknown> & { labels: Tree };
   reloadConfig: () => boolean;
   reloadPrompts: () => boolean;
   onReload: (listener: (what: string) => void) => () => void;
@@ -111,7 +120,7 @@ test('reads the tracked settings from config/config.json', () => {
   }
 });
 
-test('deep-merges config.local/config.json over the tracked settings', () => {
+test('deep-merges persona config/config.json over the tracked settings', () => {
   const hot = createHot({ rootDir: checkout(), privateDir: movedLayer() });
   try {
     assert.deepEqual(hot.config, { pace: { settleMs: 900, settleMaxMs: 3000 }, llm: { retries: 2 } });
@@ -132,7 +141,7 @@ test('gives the tracked labels as one flat object, each key at its path under it
   }
 });
 
-test("deep-merges config.local/labels.json over the tracked labels, the owner's strings included", () => {
+test("deep-merges persona config/labels.json over the tracked labels, the owner's strings included", () => {
   const hot = createHot({ rootDir: checkout(), privateDir: movedLayer() });
   try {
     assert.deepEqual(hot.prompts.labels, {
@@ -144,10 +153,10 @@ test("deep-merges config.local/labels.json over the tracked labels, the owner's 
   }
 });
 
-test('gives the same settings and labels from a layer laid out the old way as from the moved one', () => {
+test('gives the same settings and labels from a canonical layer and the converted legacy layer', () => {
   const root = checkout();
   const moved = createHot({ rootDir: root, privateDir: movedLayer() });
-  const old = createHot({ rootDir: root, privateDir: oldLayer() });
+  const old = createHot({ rootDir: root, privateDir: preparedLayer(root) });
   try {
     assert.deepEqual(old.config, moved.config);
     assert.deepEqual(old.prompts.labels, moved.prompts.labels);
@@ -157,9 +166,9 @@ test('gives the same settings and labels from a layer laid out the old way as fr
   }
 });
 
-test('gives the same settings and labels over the real tracked files from either layout', () => {
+test('gives the same settings and labels over tracked files after explicit legacy conversion', () => {
   const moved = createHot({ rootDir: ROOT, privateDir: movedLayer() });
-  const old = createHot({ rootDir: ROOT, privateDir: oldLayer() });
+  const old = createHot({ rootDir: ROOT, privateDir: preparedLayer(ROOT) });
   try {
     assert.deepEqual(old.config, moved.config);
     assert.deepEqual(old.prompts.labels, moved.prompts.labels);
@@ -171,16 +180,14 @@ test('gives the same settings and labels over the real tracked files from either
   }
 });
 
-test('warns once per start about a layer laid out the old way, reloads included', async () => {
+test('refuses an unconverted legacy layer with migration guidance instead of a warning', async () => {
   const root = checkout();
   const privateDir = oldLayer();
   const { logs } = await withCapturedLogs(() => {
-    const hot = createHot({ rootDir: root, privateDir });
-    hot.reloadConfig();
-    hot.reloadPrompts();
-    hot.close();
+    // Runtime legacy fallback is replaced by explicit preparatory migration.
+    assert.throws(() => createHot({ rootDir: root, privateDir }), /persona-files-move/);
   });
-  assert.equal(movedWarnings(logs), 1);
+  assert.equal(movedWarnings(logs), 0);
 });
 
 test('gives no move warning for a moved layer', async () => {
@@ -195,16 +202,16 @@ test('gives no move warning for a moved layer', async () => {
 test('refuses the start when the settings file is at both its old and its new place, naming the move tool', () => {
   const privateDir = movedLayer();
   write(privateDir, 'config.local.json', { pace: { settleMs: 100 } });
-  assert.throws(() => createHot({ rootDir: checkout(), privateDir }), /config-files-move/);
+  assert.throws(() => createHot({ rootDir: checkout(), privateDir }), /persona-files-move/);
 });
 
 test('refuses the start when the local labels are at both their old and their new place, naming the move tool', () => {
   const privateDir = movedLayer();
   write(privateDir, 'prompts.local/labels.json', { transcript: { gap: 'other' } });
-  assert.throws(() => createHot({ rootDir: checkout(), privateDir }), /config-files-move/);
+  assert.throws(() => createHot({ rootDir: checkout(), privateDir }), /persona-files-move/);
 });
 
-test('writes a setting into config.local/config.json in a moved layer, and the live config has it', () => {
+test('writes a setting into config/config.json in a canonical layer, and the live config has it', () => {
   const privateDir = movedLayer();
   const hot = createHot({ rootDir: checkout(), privateDir });
   try {
@@ -214,7 +221,7 @@ test('writes a setting into config.local/config.json in a moved layer, and the l
       store: { state: { data: {}, markDirty() {} } },
     });
     assert.equal(env.writeLocalPath('llm.retries', 5), true);
-    const written: unknown = JSON.parse(fs.readFileSync(path.join(privateDir, 'config.local', 'config.json'), 'utf8'));
+    const written: unknown = JSON.parse(fs.readFileSync(path.join(privateDir, 'config', 'config.json'), 'utf8'));
     assert.deepEqual(written, { pace: { settleMs: 900 }, llm: { retries: 5 } });
     assert.equal(fs.existsSync(path.join(privateDir, 'config.local.json')), false, 'no old-place file is made');
     assert.equal((hot.config.llm as Tree).retries, 5);
@@ -223,16 +230,16 @@ test('writes a setting into config.local/config.json in a moved layer, and the l
   }
 });
 
-test('reloads the settings when config.local/config.json changes', async () => {
+test('reloads the settings when persona config/config.json changes', async () => {
   const privateDir = movedLayer();
   const fake = fakeWatch();
   const hot = createHot({ rootDir: checkout(), privateDir, watchImpl: fake.watch }).watch();
   try {
     const seen: Array<string> = [];
     hot.onReload((what) => seen.push(what));
-    write(privateDir, 'config.local/config.json', { pace: { settleMs: 1234 } });
-    const watchers = fake.of(path.join(privateDir, 'config.local'));
-    assert.equal(watchers.length, 1, 'config.local/ is watched');
+    write(privateDir, 'config/config.json', { pace: { settleMs: 1234 } });
+    const watchers = fake.of(path.join(privateDir, 'config'));
+    assert.equal(watchers.length, 1, 'the persona config/ is watched');
     watchers[0]?.listener('change', 'config.json');
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.ok(seen.includes('config'));
@@ -270,24 +277,129 @@ test('the checkout keeps the settings and the labels only under config/', () => 
 });
 
 // ---- the settings of an interface (PR 7d) ---------------------------------------------------------------------------
-// `readInterfaceConfig` gives an interface its settings, the same in the core's process and in a unit: the core's
-// settings, then the package's own `interfaces/<name>/config.json`, then the keys of that package a layer not yet cut
-// still holds in `config.local/config.json`, then `config.local/interfaces/<name>.json`.
+// The prepared interface settings live in persona interfaces/<name>/config.json over the engine package defaults.
 
 test("gives an interface its package's defaults over the core settings and its local file over both", () => {
   const root = tempDir('nep-iface-root-');
   write(root, 'interfaces/discord/config.json', { discord: { intents: { presences: false, members: false } } });
   const dir = tempDir('nep-iface-private-');
-  write(dir, 'config.local/interfaces/discord.json', { discord: { intents: { members: true } } });
+  write(dir, 'interfaces/discord/config.json', { discord: { intents: { members: true } } });
   const settings = files.readInterfaceConfig({ rootDir: root, privateDir: dir, name: 'discord', base: BASE_CONFIG });
   assert.deepEqual(settings, { ...BASE_CONFIG, discord: { intents: { presences: false, members: true } } });
 });
 
-test('gives an interface the keys of its package that a layer not yet cut holds in its settings file', () => {
+test('gives an interface its extracted settings without unrelated core overrides', () => {
   const root = tempDir('nep-iface-root-');
   write(root, 'interfaces/discord/config.json', { discord: { intents: { presences: false, members: false } } });
   const dir = tempDir('nep-iface-private-');
-  write(dir, 'config.local/config.json', { discord: { intents: { presences: true } }, recall: { timeoutMs: 9 } });
+  // Interface keys are extracted before runtime while unrelated settings stay in the core persona layer.
+  write(dir, 'interfaces/discord/config.json', { discord: { intents: { presences: true } } });
+  write(dir, 'config/config.json', { recall: { timeoutMs: 9 } });
   const settings = files.readInterfaceConfig({ rootDir: root, privateDir: dir, name: 'discord', base: {} });
   assert.deepEqual(settings, { discord: { intents: { presences: true, members: false } } });
+});
+
+// A copied persona must retain its effective settings and identity after the original install disappears.
+test('a copied persona supplies configuration, prompts, keys and agent overrides without its original root', () => {
+  const original = agentFixture();
+  write(original.rootDir, 'config/config.json', { pace: { settleMs: 500, settleMaxMs: 3000 } });
+  write(original.rootDir, 'config/labels.json', { model: { copied: 'base label' }, owner: {} });
+  fs.mkdirSync(path.join(original.rootDir, 'prompts'));
+  fs.writeFileSync(path.join(original.rootDir, 'prompts/rules.md'), 'base rules');
+  write(original.dataDir, 'config/config.json', { pace: { settleMs: 900 } });
+  write(original.dataDir, 'config/labels.json', { model: { copied: 'personal label' }, owner: {} });
+  fs.mkdirSync(path.join(original.dataDir, 'prompts'));
+  fs.writeFileSync(path.join(original.dataDir, 'prompts/rules.md'), 'personal rules');
+  write(original.dataDir, 'keys.json', {
+    core: [{ name: 'core-1', value: 'synthetic-portable-key' }],
+    extra: {},
+    roles: {},
+  });
+  original.override({ limits: { steps: 6 } });
+  fs.writeFileSync(path.join(original.personal, 'prompt.md'), 'personal worker instructions');
+  const copied = tempDir('nep-persona-copied-');
+  const rootDir = path.join(copied, 'engine');
+  const dataDir = path.join(copied, 'persona');
+  fs.cpSync(original.rootDir, rootDir, { recursive: true });
+  fs.cpSync(original.dataDir, dataDir, { recursive: true });
+  fs.renameSync(original.base, `${original.base}-unavailable`);
+  const paths = resolvePaths({ rootDir, env: { NEPTUNIA_DATA_DIR: dataDir } });
+  assert.deepEqual(readConfig(rootDir, { privateDir: paths.privateDir }), {
+    pace: { settleMs: 900, settleMaxMs: 3000 },
+  });
+  const hot = createHot({ rootDir, privateDir: paths.privateDir });
+  try {
+    assert.equal(hot.prompts.rules, 'personal rules');
+    assert.deepEqual(hot.prompts.labels, { copied: 'personal label' });
+    assert.equal(createKeyStore({ privateDir: paths.privateDir }).valueOf('core-1'), 'synthetic-portable-key');
+    const profile = profileOf('scout', { rootDir, dataDir, env: {} });
+    assert.equal(profile?.defaultLimits.steps, 6);
+    assert.equal(profile?.promptFiles[0], path.join(dataDir, 'agents/scout/prompt.md'));
+  } finally {
+    hot.close();
+  }
+});
+
+// A setting written through the public operation and subsequent file edits must use the selected persona root.
+test('targeted writes and prompt watchers update the same canonical data directory', async () => {
+  const rootDir = checkout();
+  fs.writeFileSync(path.join(rootDir, 'prompts/rules.md'), 'engine rules');
+  const dataDir = tempDir('nep-canonical-live-');
+  write(dataDir, 'config/config.json', { pace: { settleMs: 900 } });
+  fs.mkdirSync(path.join(dataDir, 'prompts/preambles'), { recursive: true });
+  fs.writeFileSync(path.join(dataDir, 'prompts/rules.md'), 'personal rules');
+  fs.writeFileSync(path.join(dataDir, 'prompts/preambles/probe.md'), 'personal preamble');
+  const paths = resolvePaths({ rootDir, env: { NEPTUNIA_DATA_DIR: dataDir } });
+  const fake = fakeWatch();
+  const hot = createHot({ rootDir, privateDir: paths.privateDir, watchImpl: fake.watch }).watch();
+  try {
+    const env = createOpsEnv({ hot, store: { state: { data: {}, markDirty() {} } } });
+    assert.equal(env.writeLocalPath('llm.retries', 5), true);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'config/config.json'), 'utf8')), {
+      pace: { settleMs: 900 },
+      llm: { retries: 5 },
+    });
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(rootDir, 'config/config.json'), 'utf8')), BASE_CONFIG);
+    assert.equal(fs.existsSync(path.join(dataDir, 'config.local')), false);
+    assert.deepEqual(hot.prompts.preambles, { probe: 'personal preamble' });
+    const configWatch = fake.of(path.join(dataDir, 'config'));
+    const promptWatch = fake.of(path.join(dataDir, 'prompts'));
+    assert.equal(configWatch.length, 1);
+    assert.equal(promptWatch.length, 1);
+    const seen: Array<string> = [];
+    hot.onReload((what) => seen.push(what));
+    write(dataDir, 'config/config.json', { pace: { settleMs: 1234 }, llm: { retries: 5 } });
+    fs.writeFileSync(path.join(dataDir, 'prompts/rules.md'), 'edited personal rules');
+    configWatch[0]?.listener('change', 'config.json');
+    promptWatch[0]?.listener('change', 'rules.md');
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.deepEqual(seen.sort(), ['config', 'prompts']);
+    assert.deepEqual(hot.config, { pace: { settleMs: 1234, settleMaxMs: 3000 }, llm: { retries: 5 } });
+    assert.equal(hot.prompts.rules, 'edited personal rules');
+  } finally {
+    hot.close();
+  }
+});
+
+// Silent root precedence or mixed layouts can read one persona while writing another.
+test('conflicting root selections and mixed personal layouts refuse before a configuration write', () => {
+  const rootDir = checkout();
+  const dataDir = tempDir('nep-canonical-conflict-');
+  const oldRoot = tempDir('nep-legacy-conflict-');
+  assert.throws(
+    () => resolvePaths({ rootDir, env: { NEPTUNIA_DATA_DIR: dataDir, NEPTUNIA_PRIVATE_DIR: oldRoot } }),
+    /persona-files-move/
+  );
+  write(dataDir, 'config/config.json', { pace: { settleMs: 900 } });
+  write(dataDir, 'config.local/config.json', { pace: { settleMs: 700 } });
+  const before = fs.readFileSync(path.join(dataDir, 'config/config.json'), 'utf8');
+  assert.throws(() => {
+    const hot = createHot({ rootDir, privateDir: dataDir });
+    try {
+      createOpsEnv({ hot, store: { state: { data: {}, markDirty() {} } } }).writeLocalPath('llm.retries', 99);
+    } finally {
+      hot.close();
+    }
+  }, /persona-files-move/);
+  assert.equal(fs.readFileSync(path.join(dataDir, 'config/config.json'), 'utf8'), before);
 });

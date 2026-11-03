@@ -25,7 +25,7 @@ const ROWS = [
   { id: 'q1', query: 'weather in Lisboa today', asked: 'what is the weather in Lisboa today?' },
   { id: 'q2', query: 'café hours Porto' },
 ];
-const ENV = { BRAVE_SEARCH_API_KEY: 'brave-test-key' };
+const ENV = { brave: 'brave-test-key' };
 
 function hotFixture() {
   return {
@@ -121,9 +121,20 @@ async function quietly<TResult>(fn: () => Promise<TResult>): Promise<TResult> {
   }
 }
 
-function run(argv: Untyped, { dir, env = ENV }: Untyped) {
+type RunOptions = { dir: string; env?: Record<string, string>; selectedRoot?: string };
+
+function run(argv: Array<string>, { dir, env = ENV, selectedRoot = tempDir('nep-search-credentials-') }: RunOptions) {
   const clock = { t: NOW };
   const f = fakes({ clock });
+  // Search credentials live in the prepared persona key store.
+  fs.mkdirSync(selectedRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(selectedRoot, 'keys.json'),
+    JSON.stringify({ core: [], extra: {}, roles: {}, services: env }),
+    {
+      mode: 0o600,
+    }
+  );
   const promise = quietly(() =>
     main(argv, {
       cwd: dir,
@@ -132,7 +143,7 @@ function run(argv: Untyped, { dir, env = ENV }: Untyped) {
       hot: wrongly<Hot>(hotFixture()),
       llmClient: f.llm,
       searches: f.searches,
-      env,
+      env: { NEPTUNIA_DATA_DIR: selectedRoot },
     })
   );
   return { promise, ...f };
@@ -363,7 +374,7 @@ test('search-compare: --max-usd stops starting rows; --repeat records each run; 
 
   await assert.rejects(run([file], { dir }).promise, (err) => err instanceof CliError && /--out/.test(err.message));
   await assert.rejects(
-    run([file, '--out', 'data/x'], { dir }).promise,
+    run([file, '--out', 'data/x'], { dir, selectedRoot: path.join(dir, 'data') }).promise,
     (err) => err instanceof CliError && /under data/.test(err.message)
   );
   await assert.rejects(
