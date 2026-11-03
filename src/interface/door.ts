@@ -173,16 +173,16 @@ export function createEventDoor({
 
   function duplicateOf({ key, row, id }: { key: string; row: IngestRow | null; id: string }): SubmitResult | null {
     if (seen.has(key)) return { status: 'duplicate', id };
+    if (row && ingest?.seen(row.principal, id)) {
+      remember(key);
+      return { status: 'duplicate', id };
+    }
     const active = inFlight.get(key);
     if (active) {
       const state = active.state();
       if (state === 'pending' || state === 'failed') {
         return { status: 'failed', id, reason: state === 'pending' ? 'observation-pending' : 'observation-failed' };
       }
-      return { status: 'duplicate', id };
-    }
-    if (row && ingest?.seen(row.principal, id)) {
-      remember(key);
       return { status: 'duplicate', id };
     }
     return null;

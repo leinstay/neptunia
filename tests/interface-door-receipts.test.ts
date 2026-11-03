@@ -191,3 +191,29 @@ test('redelivery cannot start another handler while a timed-out observation is s
     await write;
   }
 });
+
+test('a durable receipt deduplicates redelivery before the observation callback settles', async () => {
+  const durable = deferred<void>();
+  const response = deferred<void>();
+  let calls = 0;
+  const env = fixture(async ({ receipt }) => {
+    calls += 1;
+    await receipt?.observe(async (row) => {
+      assert.ok(row);
+      env.committed.add(`${row.principal}:${row.eventId}`);
+      durable.resolve();
+      await response.promise;
+      return { ok: true, sourceId: 'durable-source', revision: 1 };
+    });
+  });
+  const first = env.door.submit(event('durable-retry'), { principal: 'adapter', seq: 1 });
+  try {
+    await durable.promise;
+    assert.equal((await env.door.submit(event('durable-retry'), { principal: 'adapter', seq: 1 })).status, 'duplicate');
+    assert.equal(calls, 1);
+    assert.deepEqual(env.standalone, []);
+  } finally {
+    response.resolve();
+    await first;
+  }
+});
