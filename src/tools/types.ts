@@ -2,6 +2,7 @@
 // narrow an `unknown` to one without a cast. Every module of src/tools/ reads untrusted data (the persona's arguments, the
 // owner's config, a label file) through these, so a wrong shape is an empty value and never an exception.
 
+import type { PublicationBoundary } from './publication.ts';
 import type { Env } from './impl/env.ts';
 import type { EffectClass } from './impl/effects.ts';
 import type { Given, Schema } from './definitions.ts';
@@ -106,6 +107,7 @@ export function idText(value: unknown): string {
  * than these.
  */
 export type OpContext = {
+  publicationBoundary?: PublicationBoundary;
   env: Env;
   guildId?: string | null;
   channelId?: string | null;

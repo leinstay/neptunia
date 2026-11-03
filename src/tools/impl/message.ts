@@ -29,10 +29,11 @@
 // With `diary` the post goes to her diary in place of a channel, everything above included (diaryPort).
 
 import fsp from 'node:fs/promises';
+import { bindPublicationPort, publicationRefusal } from '../publication.ts';
 import { messageRefOf, portAnswer, postingConversation } from './shared.ts';
 import { heldPort } from '../send-hold.ts';
 import { lineOf } from '../../behavior/line-of.ts';
-import { defineOp, perEnv, invalid } from './registry.ts';
+import { defineOp, perEnv, invalid, denied } from './registry.ts';
 import type { createMirrors } from '../../behavior/mirror.ts';
 import { writeDiaryMessage } from '../../behavior/diary-turn.ts';
 import { freshAttachmentUrl, gifPostUrl } from '../../media/gif-post.ts';
@@ -137,7 +138,12 @@ async function postOf(
   real: Adapter,
   post: (args: Obj, context: OpContext, p: Adapter) => Promise<unknown>
 ): Promise<unknown> {
-  if (args.diary !== true) return post(args, context, keyedPort(heldPort(real, context), context));
+  if (args.diary !== true)
+    return post(
+      args,
+      context,
+      keyedPort(heldPort(bindPublicationPort(real, context.publicationBoundary), context), context)
+    );
   return diaryAnswer(env, await post(args, context, diaryPort(env, args, context, real)));
 }
 
@@ -223,6 +229,12 @@ function gifEntry(env: Env, args: Obj, guildId: string | null): Untyped {
   return entry;
 }
 
+/** True when member `userId` turned pings off here. */
+function pingsOff(env: Env, { context, userId }: { context: OpContext; userId: unknown }): boolean {
+  if (!userId || typeof env.store?.isPingsOff !== 'function') return false;
+  return env.store.isPingsOff(env.resolvedGuildId(context), idText(userId)) === true;
+}
+
 const handlers = perEnv((env) => {
   const { store, spontaneous, turns, assertNotPaused, resolvedGuildId } = env;
   const { reads } = env;
@@ -230,16 +242,12 @@ const handlers = perEnv((env) => {
   const fetchImpl = typeof env.fetchImpl === 'function' ? env.fetchImpl : fetch;
   const clock = typeof env.now === 'function' ? env.now : Date.now;
 
-  /** True when member `userId` turned pings off here. */
-  function pingsOff(context: OpContext, userId: unknown): boolean {
-    if (!userId || typeof store?.isPingsOff !== 'function') return false;
-    return store.isPingsOff(resolvedGuildId(context), idText(userId)) === true;
-  }
-
   /** The members her rendered text mentions (`context.mentionUserIds`, her own calls only), less those with pings off. */
   function mentionedUsers(context: OpContext) {
     if (context?.actor !== 'persona' || !Array.isArray(context.mentionUserIds)) return [];
-    return (context.mentionUserIds as Array<unknown>).map(idText).filter((id) => id && !pingsOff(context, id));
+    return (context.mentionUserIds as Array<unknown>)
+      .map(idText)
+      .filter((id) => id && !pingsOff(env, { context, userId: id }));
   }
 
   /**
@@ -316,7 +324,7 @@ const handlers = perEnv((env) => {
     if (given && reply?.channelId && given !== reply.channelId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const channelId = await postTarget(env, p, context, given ?? reply?.channelId ?? null, reply !== null);
-    const repliedUser = Boolean(reply) && !pingsOff(context, context?.repliedAuthorId);
+    const repliedUser = Boolean(reply) && !pingsOff(env, { context, userId: context?.repliedAuthorId });
     const guildId = resolvedGuildId(context);
     const entry = gifEntry(env, args, guildId);
     const attachment = (await errandFile(env, args, context, channelId, p)) ?? (await mediaFile(args, context, p));
@@ -501,6 +509,7 @@ const handlers = perEnv((env) => {
     const text = textOf(args.text).trim();
     if (!text) throw invalid('text is required');
     const { channelId, messageId, ref } = await target(args, context, 'read', { last: true });
+    if (publicationRefusal(context.publicationBoundary, ref)) throw denied('publication-boundary', 'not-allowed');
     const users = mentionedUsers(context);
     const content = { text, ...(users.length > 0 ? { mentions: { users, repliedUser: false } } : {}) };
     return portAnswer('message.edit', await p.edit(ref, content), `edited message ${messageId} in ${channelId}`);

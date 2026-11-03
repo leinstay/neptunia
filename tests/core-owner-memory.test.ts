@@ -400,3 +400,38 @@ test('a live CLI query queued behind a blocked turn retains its own internal rea
     assert.equal(new Set(contexts.map((row) => row.id)).size, 2, 'each fresh authenticated event has its own context');
   });
 });
+
+test('an internal CLI turn retains its private answer and refuses a generated group publication', async () => {
+  await withRig({ config: CONFIG }, async ({ dirs, cores, clis, units, logs }) => {
+    seed(dirs);
+    const llm = script([
+      toolAnswer('', [call('memory.search', { question: 'κουνέλι', people: 'Benoit' })]),
+      toolAnswer(`<msg>${ANSWER} ${PRIVATE}</msg>`, [
+        call('message.create', { channel: '555', text: `outward ${PRIVATE}` }),
+      ]),
+      toolAnswer(`<msg>${ANSWER} ${PRIVATE}</msg>`),
+    ]);
+    cores.push(await startUnitsCore(dirs, llm, () => NOW));
+    const unit = await startedUnit(dirs);
+    units.push(unit);
+    await unit.ask({ op: 'seed-conversation', info: channelInfo('555') }, 'done');
+    await grantSearch(dirs);
+    const granted = await runCli(dirs, ['-p', '/tools grant message.create']);
+    assert.equal(granted.code, 0, granted.stdout + granted.stderr);
+    const chat = spawnCli(dirs, []);
+    clis.push(chat);
+    chat.type('Recall what Benoit said about κουνέλι and answer here.');
+    await until(
+      () => chat.stdout().includes(ANSWER),
+      () => JSON.stringify({ stderr: chat.stderr(), requestCount: llm.requests.length, logs: logs.slice(-20) })
+    );
+    assert.ok(toolText(llm.requests[1]).includes(PRIVATE));
+    assert.ok(chat.stdout().includes(PRIVATE));
+    assert.deepEqual(await unit.posted('555'), []);
+    assert.ok(
+      logs.some(
+        (entry) => entry.msg === 'skills: called' && entry.skill === 'message.create' && entry.status === 'denied'
+      )
+    );
+  });
+});

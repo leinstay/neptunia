@@ -18,6 +18,7 @@ import { deliveriesIn, deliveryFiles, deliveryOf } from '../../memory/db/wake-qu
 import type { Delivery, DeliveryInput, DeliveryState } from '../../memory/db/wake-queue.ts';
 import type { Delivery as Sent, ConversationRef } from '../../protocol/adapter.ts';
 import type { Content } from '../../protocol/actions.ts';
+import { isPublicationBoundary, publicationRefusal, refusedPublication } from '../../tools/publication.ts';
 import { createSendHold } from '../../tools/send-hold.ts';
 import type { HeldNote, SaidNote, SendHold } from '../../tools/send-hold.ts';
 import { errorCode, objOf } from '../../tools/types.ts';
@@ -38,13 +39,14 @@ export type DeliveryTurn = { turnId: string; chainId: string };
  * what the turn noted (the skill, her said line) with the turn's id and chain.
  */
 export function deliveriesOf(hold: SendHold | null | undefined, turn: DeliveryTurn): Array<DeliveryInput> {
-  return (hold?.sends ?? []).map(({ key, conversation, content, note }) => ({
+  return (hold?.sends ?? []).map(({ key, conversation, content, note, publicationBoundary }) => ({
     key,
     target: conversation.conversationId,
     payload: {
       conversation: { iface: conversation.iface, conversationId: conversation.conversationId },
       content: { text: content.text ?? '', replyTo: content.replyTo ?? null, mentions: content.mentions ?? null },
       ...turn,
+      ...(publicationBoundary ? { publicationBoundary } : {}),
       skill: note?.skill ?? null,
       privateChat: note?.privateChat === true,
       said: note?.said ?? null,
@@ -215,6 +217,13 @@ async function tellFailed(life: InnerContext, guildId: string, delivery: Deliver
   });
 }
 
+function deliveryPublicationRefused(payload: unknown, conversation: ConversationRef): boolean {
+  const value = objOf(payload);
+  if (!Object.hasOwn(value, 'publicationBoundary')) return false;
+  const boundary = value.publicationBoundary;
+  return !isPublicationBoundary(boundary) || publicationRefusal(boundary, conversation) !== null;
+}
+
 /**
  * One queued delivery sent: marked `sending`, sent under its key, then settled by the answer, recorded when it went
  * out and told to her when it did not. While her inner life is stopped, or when its files cannot be read, the row stays
@@ -236,7 +245,10 @@ async function sendOne(life: InnerContext, guildId: string, delivery: Delivery):
   if (op) await op.started();
   let answer: Sent;
   try {
-    answer = await port.send(conversation, content, { idempotencyKey: delivery.key });
+    const refused = deliveryPublicationRefused(delivery.payload, conversation);
+    answer = refused
+      ? refusedPublication(delivery.key)
+      : await port.send(conversation, content, { idempotencyKey: delivery.key });
   } catch (err) {
     // A throw after the call may have reached the interface: its outcome is not known.
     answer = { status: 'unknown', ref: null, parts: [], at: null, idempotencyKey: delivery.key, error: null };

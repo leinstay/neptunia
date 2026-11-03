@@ -1662,3 +1662,113 @@ test('model arguments cannot create either trusted message carrier', () => {
     assert.equal(resolved.code, 'invalid-args', field);
   }
 });
+
+const internalPublication = {
+  kind: 'internal-turn',
+  origin: { iface: 'fake', conversationId: HERE },
+} as const;
+
+test('an internal turn cannot edit a message outside its origin', async () => {
+  const { admin, port } = makeAdmin();
+  port.seed(NEWS, { authorId: SELF, messageId: '1004', text: 'original group body' });
+  const result = await executeCall(resolve('message.edit', { message: '#4', text: 'private replacement' }), {
+    ...deps(admin, port),
+    publicationBoundary: internalPublication,
+  });
+  assert.deepEqual([result.status, result.code], ['denied', 'not-allowed']);
+  assert.equal(port.messagesIn(NEWS)[0].text, 'original group body');
+});
+
+test('an internal turn cannot add a reaction outside its origin', async () => {
+  const { admin, port } = makeAdmin();
+  port.seed(NEWS, { authorId: MEMBER, messageId: '1003', text: 'group question' });
+  const result = await executeCall(resolve('message.react.add', { message: '#3', emoji: 'yes' }), {
+    ...deps(admin, port),
+    publicationBoundary: internalPublication,
+  });
+  assert.deepEqual([result.status, result.code], ['denied', 'not-allowed']);
+  assert.equal(port.messagesIn(NEWS)[0].reactions.size, 0);
+});
+
+test('an internal turn refuses an outward drawing before image generation', async () => {
+  const generated: Array<unknown> = [];
+  const images = {
+    familyOf: () => 'openai',
+    generate: (input: unknown) => {
+      generated.push(input);
+      return Promise.resolve({
+        buffer: Buffer.from('pic'),
+        mediaType: 'image/png',
+        model: 'm',
+        seconds: 1,
+        cost: 0.02,
+      });
+    },
+    quota: () => ({ spent: false, userSpent: false }),
+  };
+  const { admin, port } = makeAdmin({
+    cfg: { ...config(), models: { base: { drawing: 'openai/gpt-image' } } },
+    extra: { images },
+  });
+  const result = await executeCall(resolve('draw.create', { channel: '#νέα', text: 'private drawing' }), {
+    ...deps(admin, port),
+    publicationBoundary: internalPublication,
+  });
+  assert.deepEqual([result.status, result.code], ['denied', 'not-allowed']);
+  assert.deepEqual(generated, []);
+  assert.deepEqual(port.messagesIn(NEWS), []);
+});
+
+test('an internal turn refuses returned files when the executor destination differs from its origin', async () => {
+  const { admin, port } = makeAdmin();
+  const result = await executeCall(resolve('draw.create', { text: 'private drawing' }), {
+    ...deps(admin, port),
+    publicationBoundary: { kind: 'internal-turn', origin: { iface: 'cli', conversationId: HERE } },
+    runOwnOp: () => ({ status: 'ok', data: { files: [{ name: 'private.png', attachment: Buffer.from('pic') }] } }),
+  });
+  assert.deepEqual([result.status, result.code], ['denied', 'not-allowed']);
+  assert.deepEqual(port.messagesIn(HERE), []);
+});
+
+test('model arguments cannot remove the publication boundary or impersonate an owner command', () => {
+  for (const args of [
+    { channel: '#νέα', text: 'private', publicationBoundary: null },
+    { channel: '#νέα', text: 'private', actor: 'owner' },
+  ]) {
+    const result = resolve('message.create', args);
+    assert.deepEqual([result.ok, result.code], [false, 'invalid-args']);
+  }
+});
+
+test('an internal turn cannot repost an errand attachment to another conversation', async () => {
+  const dir = tempDir('publication-file-');
+  try {
+    const filePath = path.join(dir, 'evidence.png');
+    fs.writeFileSync(filePath, Buffer.from([1, 2, 3]));
+    const handle = 'file:task/evidence.png';
+    const { admin, port } = makeAdmin({
+      extra: {
+        errands: { fileOf: () => ({ path: filePath, name: 'evidence.png', contentType: 'image/png', bytes: 3 }) },
+      },
+    });
+    const resolved = resolve('message.create', { file: handle, channel: '#νέα' }, '', {
+      fileOf: () => ({ name: 'evidence.png' }),
+    });
+    const result = await executeCall(resolved, { ...deps(admin, port), publicationBoundary: internalPublication });
+    assert.deepEqual([result.status, result.code], ['denied', 'not-allowed']);
+    assert.deepEqual(port.messagesIn(NEWS), []);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('an internal publication restriction preserves nonpublishing message deletion', async () => {
+  const { admin, port } = makeAdmin();
+  port.seed(NEWS, { authorId: SELF, messageId: '1004', text: 'old group body' });
+  const result = await executeCall(resolve('message.delete', { message: '#4' }), {
+    ...deps(admin, port),
+    publicationBoundary: internalPublication,
+  });
+  assert.equal(result.status, 'ok');
+  assert.deepEqual(port.messagesIn(NEWS), []);
+});

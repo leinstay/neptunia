@@ -14,6 +14,7 @@
 // never retried), `partial`, `failed`. Codes are kebab-case; no wording here: the persona reads a
 // result through `labels.tools.result`.
 
+import type { PublicationBoundary } from './publication.ts';
 import type { NativeMessageLocator, ResolvedRecallAnchor, StoredSourceRef } from '../memory/db/recall.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { channelCore, matchChannel, occursAsWholeWord } from '../memory/mentions.ts';
@@ -21,6 +22,7 @@ import { foldText } from '../memory/recent.ts';
 import { SELF_OWNED_OPS } from './impl/effects.ts';
 import { CODE, INVALID_CODES, NOT_CONFIGURED_CODES, WHAT } from './codes.ts';
 import { nestedRefusal } from './access.ts';
+import { bindPublicationPort, publicationRefusal } from './publication.ts';
 import { heldPort } from './send-hold.ts';
 import { idText, isObj, listOf, objOf, textOf } from './types.ts';
 import type { Obj, Skill, SkillMap } from './types.ts';
@@ -658,6 +660,58 @@ function inTurnCallOf(deps: ExecuteDeps, resolved: Resolved): InTurnCall {
   };
 }
 
+/** Refuse a publishing call before an operation or in-turn generator runs. */
+function callPublicationRefusal(
+  resolved: Resolved,
+  deps: ExecuteDeps,
+  boundary: PublicationBoundary | null | undefined
+) {
+  if (!['message.create', 'message.edit', 'message.react.add', 'draw.create', 'voice.say'].includes(resolved.skill))
+    return null;
+  const channel = resolved.args.channel;
+  return publicationRefusal(boundary, deps.refOf(typeof channel === 'string' ? channel : deps.opContext?.channelId));
+}
+
+/** Post returned attachments through the turn's publication and hold checks. */
+async function postReturnedFiles(
+  resultData: Obj,
+  out: CallResult,
+  {
+    deps,
+    envelope,
+    wakeKind,
+    boundary,
+    text,
+  }: {
+    deps: ExecuteDeps;
+    envelope: CallEnvelope;
+    wakeKind: string | null;
+    boundary: PublicationBoundary | null | undefined;
+    text: string;
+  }
+): Promise<CallResult> {
+  const files: Array<unknown> = out.status === 'ok' && Array.isArray(resultData.files) ? resultData.files : [];
+  if (files.length === 0) return out;
+  // The post of the files is a post of hers: the wake envelope is asked again right where it happens.
+  const posting = nestedRefusal({ config: deps.config, wakeKind, capability: 'message.create' });
+  if (posting) return { status: 'denied', code: posting.reason, reason: posting.detail, data: { text } };
+  const attachments = files.map((entry) => {
+    const file = objOf(entry);
+    return { name: argText(file.name ?? 'file'), data: file.attachment };
+  });
+  // A wake turn's post of them is held for its end (src/tools/send-hold.ts), under the call's key.
+  const destination = deps.refOf(deps.opContext?.channelId);
+  const refusal = publicationRefusal(boundary, destination);
+  if (refusal) return refusal;
+  const port = heldPort(bindPublicationPort(deps.port, boundary), {
+    hold: deps.opContext?.hold,
+    idempotencyKey: envelope.idempotencyKey,
+    publicationBoundary: boundary,
+  });
+  const sent = fromPort(await port.send(destination, { attachments }));
+  return { ...sent, data: { text } };
+}
+
 /**
  * Runs one resolved call (`resolved`: resolveCall's) the gateway let pass; never throws (a throw is
  * `failed` with `error`). Her arguments with the command's fixed values, mapped by the command's
@@ -690,6 +744,9 @@ function inTurnCallOf(deps: ExecuteDeps, resolved: Resolved): InTurnCall {
 export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promise<CallResult> {
   try {
     const args: Obj = { ...resolved.args };
+    const boundary = deps.publicationBoundary ?? deps.opContext?.publicationBoundary;
+    const refusal = callPublicationRefusal(resolved, deps, boundary);
+    if (refusal) return refusal;
     const tool = deps.inTurn && Object.hasOwn(deps.inTurn, resolved.skill) ? deps.inTurn[resolved.skill] : null;
     if (typeof tool === 'function') {
       // The operation's own arguments, mapped by its command as for the owner's command.
@@ -748,6 +805,7 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
         Promise.resolve(
           run(call.op, call.args, {
             ...deps.opContext,
+            ...(boundary ? { publicationBoundary: boundary } : {}),
             userId: requester?.id ?? null,
             roleIds: Array.isArray(requester?.roleIds) ? [...requester.roleIds] : [],
             actor: 'persona',
@@ -795,19 +853,7 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
       ...(status === 'ok' && typeof taskId === 'string' ? { taskId } : {}),
       ...(status === 'ok' && typeof intentionId === 'string' ? { intentionId } : {}),
     };
-    const files: Array<unknown> = status === 'ok' && Array.isArray(resultData.files) ? resultData.files : [];
-    if (files.length === 0) return out;
-    // The post of the files is a post of hers: the wake envelope is asked again right where it happens.
-    const posting = nestedRefusal({ config: deps.config, wakeKind, capability: 'message.create' });
-    if (posting) return { status: 'denied', code: posting.reason, reason: posting.detail, data: { text } };
-    const attachments = files.map((entry) => {
-      const file = objOf(entry);
-      return { name: argText(file.name ?? 'file'), data: file.attachment };
-    });
-    // A wake turn's post of them is held for its end (src/tools/send-hold.ts), under the call's key.
-    const port = heldPort(deps.port, { hold: deps.opContext?.hold, idempotencyKey: envelope.idempotencyKey });
-    const sent = fromPort(await port.send(deps.refOf(deps.opContext?.channelId), { attachments }));
-    return { ...sent, data: { text } };
+    return await postReturnedFiles(resultData, out, { deps, envelope, wakeKind, boundary, text });
   } catch (err) {
     return { status: 'failed', code: CODE.ERROR, error: err };
   }
@@ -947,6 +993,7 @@ export type RunOperation = (op: string, args: Obj, context: Obj) => unknown;
 
 /** What `executeCall` needs from the turn. */
 export type ExecuteDeps = {
+  publicationBoundary?: PublicationBoundary;
   inTurn?: Record<string, (args: Obj, call?: InTurnCall) => unknown>;
   renderText?: (text: string) => string | { text?: unknown; userIds?: unknown };
   envelope?: CallEnvelope;

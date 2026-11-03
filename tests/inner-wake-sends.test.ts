@@ -50,6 +50,7 @@ type PauseFlags = { paused?: boolean; pausedAt?: string };
 
 /** What one start of the core is given: the model's answers in turn (the last repeats), and how it dies. */
 type Start = {
+  publicationBoundary?: unknown;
   answers: ReadonlyArray<unknown>;
   /** The memory write that leaves a delivery queued never answers: the process dies right after that commit. */
   dieAtCommit?: boolean;
@@ -261,7 +262,24 @@ async function core(
     const memoryDb = {
       readHandle: (): unknown => memory.memoryDb.readHandle(),
       memoryWrite: async (update: WakeQueueUpdate): Promise<unknown> => {
-        const answer: unknown = await memory.memoryDb.memoryWrite(update);
+        // The synthetic persisted completion models a restricted producer, including malformed stored metadata.
+        const stored =
+          update.op === 'finish-group' && Object.hasOwn(start, 'publicationBoundary')
+            ? {
+                ...update,
+                done: update.done.map((item) => ({
+                  ...item,
+                  deliveries: item.deliveries.map((delivery) => ({
+                    ...delivery,
+                    payload: {
+                      ...(delivery.payload && typeof delivery.payload === 'object' ? delivery.payload : {}),
+                      publicationBoundary: start.publicationBoundary,
+                    },
+                  })),
+                })),
+              }
+            : update;
+        const answer: unknown = await memory.memoryDb.memoryWrite(stored);
         if (committed.sends === null && queuedDeliveries(readHandleOf(memory)).length > 0) {
           committed.sends = sendsOf(port).length;
           if (life) start.atCommit?.(life);
@@ -621,3 +639,27 @@ test("a wake turn whose calls were not held asks the model what the same turn as
     await run.close();
   }
 });
+
+for (const publicationBoundary of [
+  { kind: 'internal-turn', origin: { iface: 'cli', conversationId: 'c1' } },
+  { kind: 'internal-turn', origin: { iface: '', conversationId: 'c1' } },
+]) {
+  test(`a persisted ${publicationBoundary.origin.iface ? 'foreign' : 'malformed'} publication restriction prevents live hold release`, async () => {
+    const run = await core({
+      answers: [toolAnswer('', [call('message.create', { text: 'restricted held content' })]), '<skip/>'],
+      publicationBoundary,
+    });
+    try {
+      dueIntention(run, T - MINUTE);
+      await run.life.tick();
+      assert.deepEqual(sendsOf(run.port), []);
+      const failed = deliveriesIn(readHandleOf(run.memory), 'failed');
+      assert.equal(failed.length, 1);
+      const payload: unknown = failed[0].payload;
+      assert.ok(payload && typeof payload === 'object' && 'publicationBoundary' in payload);
+      assert.deepEqual(payload.publicationBoundary, publicationBoundary);
+    } finally {
+      await run.close();
+    }
+  });
+}

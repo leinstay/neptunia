@@ -309,7 +309,7 @@
     },
     "src/behavior/turn.ts": {
       "createTurnRunner": {
-        "function-length": 458
+        "function-length": 457
       }
     },
     "src/behavior/wake.ts": {
@@ -621,7 +621,7 @@
     },
     "src/tools/executors.ts": {
       "executeCall": {
-        "complexity": 58
+        "complexity": 57
       },
       "outcomeDetail": {
         "complexity": 22
@@ -663,7 +663,7 @@
     },
     "src/tools/impl/message.ts": {
       "<anonymous>": {
-        "function-length": 308
+        "function-length": 305
       },
       "<anonymous>>mediaFile": {
         "complexity": 26
