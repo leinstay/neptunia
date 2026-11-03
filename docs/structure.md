@@ -39,7 +39,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `docs/` | public | How the engine works, one topic per file. | nothing | none |
 | `agents/` | public | The profile and prompt of each errand and development agent. | nothing | none |
 | `agents/scout/web-search.ts` | public | The scout's web search command, run by its wrapper `agents/scout/bin/web-search` on the agent's PATH. Its logic is `src/web/web-search.ts`, tested there. | `src/web/web-search.ts` | none |
-| `bin/` | public | Entry points that run as their own process. | `node:*`, `src/**` | none |
+| `bin/` | public | Entry points that run as their own process. | `cli/**`, `node:*`, `src/**` | none |
 | `deploy/` | public | The systemd unit templates that `neptunia setup` renders, and the description of what it does. | nothing | none |
 | `interfaces/README.md` | public | The overview of the interface packages. | nothing | none |
 | `interfaces/discord/` | public | The Discord interface: the only code that imports discord.js, translating between the platform and the protocol. It reads the core's media classifier and video-site matcher, pure modules, and classifies Discord's embeds and media addresses itself. | `node:*`, `discord.js`, `src/media/classify.ts`, `src/media/video-sites.ts`, `src/protocol/**`, `interfaces/discord/platform-types.ts`, `interfaces/discord/values.ts` | required |

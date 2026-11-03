@@ -241,7 +241,7 @@
       "path": "bin/",
       "purpose": "Entry points that run as their own process.",
       "layer": "public",
-      "imports": ["node:*", "src/**"],
+      "imports": ["cli/**", "node:*", "src/**"],
       "test": "none"
     },
     {

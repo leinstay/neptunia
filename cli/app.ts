@@ -170,6 +170,7 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
     });
   }
 
+  // health: allow complexity -- one table of the keys of the chat, and split up it would hide which key does what
   useInput((typed, key) => {
     if (key.ctrl && typed === 'c') {
       exit();
