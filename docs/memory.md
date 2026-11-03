@@ -1,6 +1,6 @@
 # Memory
 
-Everything the persona remembers lives in one SQLite file (`data/memory.db`). The engine uses Node's built-in `node:sqlite`, FTS5 for word and trigram search, and int8 vectors scanned in place. There are no npm dependencies for storage.
+Everything the persona remembers lives in one SQLite file (`data/memory.db`), and the same file holds the task board and the archive of every model request. The engine uses Node's built-in `node:sqlite`, FTS5 for word and trigram search, and int8 vectors scanned in place. Storage has no npm dependency. This document is for someone who runs the database, reads her memory, or changes `src/memory/`.
 
 Beside the database, her diary pictures and voice files sit under `data/media/diary/`.
 
@@ -10,7 +10,7 @@ Beside the database, her diary pictures and voice files sit under `data/media/di
 |---|---|---|
 | Source | One observed or produced line: a message she saw (`seen`), her own line (`said`), a deletion (`deleted`), a feeling (`felt`), a whole memory-session answer, a diary entry's text. Carries a native id, revision, place, author, two timestamps (`occurred_at` for when it happened, `observed_at` for when the engine saw it), text, word stems, media, mentions, audience | `sources`, `sources_fts` (word index), `sources_tri` (trigram index), `source_relations` |
 | Person | A human or the persona herself. An opaque id; her own row is `person:self` | `people`, `people_merges` |
-| Account | An identity on one interface (a Discord user, later a handle on another platform). Linked to a person by an explicit, evidenced link: proposed, verified or revoked. Two accounts are never the same person because a name or avatar matches | `accounts`, `account_person_links` |
+| Account | An identity on one interface (a Discord user, or a handle on another interface). Linked to a person by an explicit, evidenced link: proposed, verified or revoked. Two accounts are never the same person because a name or avatar matches, and only the owner's `/memory bind` joins them ([One person, several accounts](#one-person-several-accounts)) | `accounts`, `account_person_links` |
 | Participant | A poster known only inside a thread or site (a per-thread token, a display-name-only poster). Never a person unless her memory session promotes it | `participants`, `participant_links` |
 | Place | Where lines live: a server, a channel, a thread, a DM conversation | `places`, `memberships` |
 | Audience | Who may see a row: `none` (no source, visible everywhere), `group(<interface>)`, `dm(<DM place>)`, `internal` (never shown outward) | `audiences` |
@@ -18,7 +18,8 @@ Beside the database, her diary pictures and voice files sit under `data/media/di
 | Description | A living text about a subject and field (a person's character, style, relationship; a place's purpose, topics, tone), in her words, versioned | `descriptions`, `description_versions` |
 | Episode | A remembered moment between the persona and a person | `episodes`, `episode_sources` |
 | Affinity | Her attitude to a person: a number from -100 to 100, moved by her memory session with a reason and a capped delta | `people.affinity`, `affinity_events` |
-| Her day | Every turn, action, wake and system event | `day`, `decisions` |
+| Her day | Every turn, action, wake and system event. The journal's records of a turn hold its whole `<think>` | `day`, `decisions` |
+| Request | Every model request with its whole system text, messages, tools, answer, think and usage. Never read by a turn or by recall, and never pruned | `model_requests` |
 | Diary | Her diary entries (real or imagined), with media; interface posts are mirrors | `diary`, `diary_mirrors`, `publications`, `publication_grants`, `media` |
 | Intention, work | Her intentions, and her errands as tasks of the task board's errand lane | `intentions`, `board_tasks`, and the errand archive `work` and `work_events` |
 | Vector | A 1024-dimensional int8 embedding of a source or consolidated row (`text-embedding-3-large`) | `vectors`, `index_policy` |
@@ -38,15 +39,15 @@ her memory session ──────────▶ validated plan ─▶ sessi
 readers ◀─ read connection ◀─ execution context (audience filter)
 ```
 
-There is one writer: every write goes through a worker thread (`src/memory/db/writer-worker.ts`) that owns the database and holds one transaction per write. The engine's main loop never holds a write transaction. Readers use a separate read-only connection.
+The database has one writer. Every write goes through a worker thread (`src/memory/db/writer-worker.ts`) that owns the database and holds one transaction per write, so the engine's main loop never holds a write transaction. Readers use a separate read-only connection.
 
-The module seams stay as they were before the database: `record`, `journal`, `archive`, `vectors`, the intention and errand stores keep their public functions. Underneath they read and write the database. The store (`src/memory/store.ts`) keeps an in-memory cache of profiles, places, lore and other units; a dirty unit flushes as a whole value through its mapper into rows.
+`record`, `journal`, `archive`, `vectors` and the intention store expose public functions that read and write the database underneath. The store (`src/memory/store.ts`) keeps an in-memory cache of profiles, places, lore and other units, and a dirty unit flushes as a whole value through its mapper into rows.
 
 The explicit `importCoreJsonState(handle, { dataDir })` entry in `src/memory/db/core-state-import.ts` copies legacy core JSON through a writable database handle. Root `state.json`, `usage.json` and `metrics.json` values use `operational` with `core-state-import` provenance in `files`. Existing unit writers map guild `inner`, `missed`, `participation`, `gifs` and `media` JSON. Values and markers commit in one transaction. Repeated imports skip completed units, preserve newer database values and leave source bytes unchanged. The memory service invokes this entry on its writer connection before replaying pending writes and exposing readers. `memoryDb.open()` is a readiness barrier without maintenance jobs. Core startup awaits it before constructing durable stores.
 
 ## Data model
 
-Schema version 25 (`src/memory/db/schema.ts`; migrations appended, never edited). The task board keeps its own tables in the same file with a version of its own (see [The task board's tables](#the-task-boards-tables)). Version 14 renames the errand units (`guilds/<g>/tasks.json` and `tasks.jsonl` become `errands.json` and `errands.jsonl`) in every table that stores a unit path, and renames the errand fields of the open intention records. `currentUnitPath` in `src/memory/db/paths.ts` maps the old unit names on the way in, so a write that waited in `memory-pending/` across the upgrade lands in the current unit. Version 22 adds `skill_uses` and the `source` column of `skill_versions`, and deletes every row of `skill_evaluations`, `skill_versions` and `skills`, which only the engine's old tool registry had written.
+Schema version 26 (`src/memory/db/schema.ts`; migrations are appended, never edited). The task board keeps its own tables in the same file with a version of its own (see [The task board's tables](#the-task-boards-tables)). Version 26 adds `model_requests` ([The request archive](#the-request-archive)). Version 14 renames the errand units (`guilds/<g>/tasks.json` and `tasks.jsonl` become `errands.json` and `errands.jsonl`) in every table that stores a unit path, and renames the errand fields of the open intention records. `currentUnitPath` in `src/memory/db/paths.ts` maps the old unit names on the way in, so a write that waited in `memory-pending/` across the upgrade lands in the current unit. Version 22 adds `skill_uses` and the `source` column of `skill_versions`, and deletes every row of `skill_evaluations`, `skill_versions` and `skills`, which only the engine's old tool registry had written.
 
 `message_families` binds an interface, protocol conversation, message ID and generation to one observation family. `src/memory/db/message-families.ts` exposes `observeMessage` through the writer service. It validates the mapper's conversation descriptor and commits family allocation, observation and ingest receipt in one transaction. Generic `observe` retains its native tuple semantics. Core create and complete edit events use `observeMessage`, and deletion events use `deleteMessage`.
 
@@ -142,7 +143,7 @@ Version 20 rebuilds `deliveries` with three more states and a `receipt` column (
 | `skill_evaluations` | Evaluations of skill versions (append-only; no code writes it) |
 | `skill_uses` | How her turns used a skill: one row per skill, version, turn and kind (`discovered`, `read`, `tried`, `succeeded`, `corrected`, `declined`), append-only (schema v22) |
 | `index_policy` | The tier of each source line (`a`, `b`, `c`) and the touches that keep a vector alive (built, off by default) |
-| `operational` | State files kept verbatim (request dumps, buffers, queues) |
+| `operational` | State files kept verbatim: the root state, usage and metrics, buffers, queues, the recall trace, backfill state, and the rows of the old request dump files |
 | `ingest` | One row per event the core took from a client: the principal, its `seq`, the event id, kind and conversation, and when it was committed (schema v16). `source_id` names the exact normalized source committed with the receipt (schema v24). An event id and a `seq` are each unique within a principal. `held` keeps the event of a message the pause holds (schema v19) |
 | `ingest_cursor` | The contiguous watermark of numbered events acknowledged to each principal (schema v16) |
 | `wakes` | One row per wake of the inner life: its state, its lease, the turn id it runs under and its outcome (schema v18) |
@@ -191,7 +192,7 @@ The core issues an internal context for a live message authenticated as a CLI pr
 
 Database recall checks source audiences and requires the source's place to exist. Stored group evidence remains readable when its interface is offline or absent from the live conversation snapshot. Live interface searches and history pulls retain their own permission checks. Private place names remain hidden from ordinary outward reads, while group place names are visible across interfaces. These reads preserve source provenance and do not change the reply destination.
 
-An issued internal turn restricts direct generated publication to its exact origin interface and conversation. `src/tools/publication.ts` binds publishing adapter methods without changing the shared adapter. The executor checks publishing calls before their operations or generators run. Returned attachments and direct turn effects use the same restriction. Read tools, deletion, reaction removal and the private CLI answer remain available. An explicit owner message command starts an ordinary turn at its destination without forwarding the caller's private transcript.
+An issued internal turn restricts direct generated publication to its exact origin interface and conversation. `src/tools/publication.ts` binds publishing adapter methods without changing the shared adapter. The executor checks publishing calls before their operations or generators run. Returned attachments and direct turn effects use the same restriction. Read tools, deletion, reaction removal and the private CLI answer remain available. `conversation.read` in an issued internal turn passes every stored conversation and reads the record in that conversation's own community (`src/turn/in-turn-tools.ts`), while publication stays restricted to the origin. An explicit owner message command starts an ordinary turn at its destination without forwarding the caller's private transcript.
 
 `src/tools/send-hold.ts` checks the restriction before accepting a held send. The persisted delivery payload retains the restrictive descriptor, never the issued read context. `src/behavior/inner/deliveries.ts` validates a present descriptor before sending and marks malformed or foreign-origin deliveries failed. Records without a descriptor retain their existing delivery behavior. Diary mirrors intersect their standing grant with the entry’s saved publication restriction, as described in [Diary](diary.md). Deferred task provenance has a separate publication contract.
 
@@ -217,7 +218,7 @@ The event door hands the observation the event's `ingest` row, and `observe()` w
 
 ### 2. Her turn
 
-Her turn writes her `said` lines with turn and operation ids, her day events, participation episodes and the turn's read record. A diary turn writes her entry as a `diary` row with its full text before anything is posted, and the diary's mirrors (`src/behavior/mirror.ts`) write one `publications` row for each mirror they post it to, through the same writer (`memoryWrite`, kind `publication`).
+Her turn writes her `said` lines with turn and operation ids, her day events, participation episodes and the turn's read record. The journal record of the turn keeps the model's `<think>` whole, with no length cap, and the journal never shows it back to the model (`src/memory/journal.ts`). The request itself is archived in `model_requests` ([The request archive](#the-request-archive)). A diary turn writes her entry as a `diary` row with its full text before anything is posted, and the diary's mirrors (`src/behavior/mirror.ts`) write one `publications` row for each mirror they post it to, through the same writer (`memoryWrite`, kind `publication`).
 
 ### 3. The embedder
 
@@ -229,7 +230,7 @@ The embedder (`src/memory/embedder.ts`) sends new lines to the embedding model i
 
 ### 5. Affinity decay
 
-Every stored attitude drifts toward zero at 0.04 per day (`RELATIONSHIP_LIMITS.decayPerDay` in `src/memory/text-limits.ts`). The sweep runs hourly (`src/core.js`), but counts only the time the persona was running: a gap of more than two sweep intervals is treated as downtime, and the gap is skipped. The decay is applied to both public and private scores by `src/memory/store.ts#decayAffinities`.
+Every stored attitude drifts toward zero at 0.04 per day (`RELATIONSHIP_LIMITS.decayPerDay` in `src/memory/text-limits.ts`). The sweep runs hourly (`sweepAffinityDecay` in `src/core.ts`), does nothing while she is paused, and counts only the time the persona was running: a gap of more than two sweep intervals is treated as downtime, and the gap is skipped. The decay is applied to both public and private scores by `src/memory/store.ts#decayAffinities`.
 
 ### The store, the outbox and pending writes
 
@@ -245,7 +246,7 @@ The store's cached profile and her memory session (`src/memory/db/session-write.
 
 The catalog stores collection lifecycle and append positions (`src/memory/db/storage-units.ts`). Migration 25 preserves entity IDs and references while assigning neutral ownership keys. `legacy_unit_aliases` maps imported paths to catalog identities, and retained `owner_file` values describe historical provenance. They do not select active ownership.
 
-The profile the store reads (`export.js#unitRows`) holds the file's rows and, in the file's scope, the rows her session wrote about the person (`src/memory/db/session-rows.ts`): the claims she shows (truth `current` or `disputed`), her episodes and her attitude moves. The public profile takes the group of the person's interface, the private layer the DM with the person. Her claims and episodes follow the file's in the order she made them, and her moves join the file's history by time, each with its event id as the `itemId`. A description shows the version its `current_version` names.
+The profile the store reads (`unitRows` in `src/memory/db/export.ts`) holds the file's rows and, in the file's scope, the rows her session wrote about the person (`src/memory/db/session-rows.ts`): the claims she shows (truth `current` or `disputed`), her episodes and her attitude moves. The public profile takes the group of the person's interface, the private layer the DM with the person. Her claims and episodes follow the file's in the order she made them, and her moves join the file's history by time, each with its event id as the `itemId`. A description shows the version its `current_version` names.
 
 A person's attitude and a description keep columns of both writers. Her last move of an attitude is her newest `affinity_events` row about the person, and the profile names it as `affinity.moveId`. A file that names an older move was read before her later ones. Its write keeps her reason, and its score is the file's score plus her later moves, clamped to -100..100, so a decay tick in the cache and her move both count. A file that names no move leaves her score, reason and decay stamp as they are. When a description's current version is a review, it stays current while the file brings the review's text or its own earlier text. A file that brings a new text makes its own version current again.
 
@@ -253,9 +254,9 @@ When her session moves someone's attitude, `noteAffinityMoves` in the store drop
 
 ## Her memory session
 
-There is no model role that decides what the persona remembers. She decides herself.
+No helper model decides what the persona remembers. She decides herself, in a session of her own that runs on the `memory` model role.
 
-The session runs on its own model role (`memory`). While `keys.json` exists its key is the one the key ring routes `memory` to, the extra key the role is bound to or the core key in use ([Keys](keys.md#the-core-keys-and-the-ring)). Without the store the key is the `.env` variable that `llm.keyByRole.memory` names. Without a key, the session refuses to run.
+While `keys.json` exists its key is the one the key ring routes `memory` to, the extra key the role is bound to or the core key in use ([Keys](keys.md#the-core-keys-and-the-ring)). Without the store the key is the `.env` variable that `llm.keyByRole.memory` names. Without a key, the session refuses to run.
 
 ### The writer's path
 
@@ -292,11 +293,7 @@ Her own system text (card, rules), then `prompts/memory-session.md`, then her se
 
 ### What she may answer
 
-- Claims: add, confirm, revise, retire.
-- Episodes.
-- Attitude moves (a delta with a reason and sources).
-- Description flags (flag a description for review).
-- `people:add` (promote an account or participant that spoke with her on two days, in a DM, or that she wants to remember).
+Her answer holds claims to add, confirm, revise or retire, episodes, attitude moves (a delta with a reason and sources), flags that send a description to review, and `people:add`, which promotes an account or participant that spoke with her on two days, in a DM, or that she wants to remember.
 
 ### Validation
 
@@ -334,18 +331,18 @@ Cached `web.read` and `media.look` calls in `src/turn/in-turn-tools.ts` select t
 |---|---|
 | Words | The plan's forms as stems (learned from the database's own text by `src/memory/db/stems.ts`, the same stemmer that stamped `sources.stems`) through `sources_fts`. A one-word form is a word match; a longer form is a phrase match. Ranked by BM25 |
 | Trigrams | A form the word stream finds nothing for, searched as a substring through `sources_tri`. Catches typos and stems the learned endings did not cover |
-| Meaning | The stored vectors within the context's scope. A plain scan with cosine similarity on the int8 rows (the question's embedding is the caller's). Candidates limited to 40 (`RECALL_DEFAULTS.db.candidates` in `src/behavior/recall.js`) |
+| Meaning | The stored vectors within the context's scope. A plain scan with cosine similarity on the int8 rows (the question's embedding is the caller's). Candidates limited to 40 (`RECALL_DEFAULTS.db.candidates` in `src/behavior/recall.ts`) |
 | People | The lines of the members the plan's name forms point at |
 
 The streams are fused by reciprocal rank (k=60). A relevance gate drops hits far below the best. The rest are ranked by closeness to the plan's date range when one exists; without a date, by what terms a hit holds.
 
-**Stretches:** around the best hits, a window is built: the reply chain, context lines on each side, then the conversation followed forward while it continues (24 lines, up to the first silence longer than five minutes: `RECALL_DEFAULTS.followMessages` and `followGapMinutes`). Windows that share a line are merged.
+Around the best hits the search builds a window of the reply chain, context lines on each side, then the conversation followed forward while it continues (`RECALL_DEFAULTS.followMessages`, 24 lines, up to the first silence longer than `followGapMinutes`, five minutes). Windows that share a line are merged.
 
-**The hidden marker:** a group context that has a better match only in the querier's own DM gets a `hidden` marker and nothing else: no text, no count.
+A group context that has a better match only in the querier's own DM gets a `hidden` marker and nothing else, with no text and no count.
 
 ### Prefetch
 
-The automatic prefetch (`src/behavior/prefetch.js`) runs before a turn the persona will answer. It searches the record and the meaning index with the triggering message, without any model choosing the query. The terms come from the message's rarest words and phrases (by document frequency in the record). Short or deictic triggers also pick up the lines just before them. Trivial triggers (a greeting, a bare "ok") are not searched.
+The automatic prefetch (`src/behavior/prefetch.ts`) runs before a turn the persona will answer. It searches the record and the meaning index with the triggering message, without any model choosing the query. The terms come from the message's rarest words and phrases (by document frequency in the record). Short or deictic triggers also pick up the lines just before them. Trivial triggers (a greeting, a bare "ok") are not searched.
 
 The prefetch keeps only hits that pass a relevance threshold (a rare phrase, two distinctive terms, or one term confirmed by its cosine score), fuses the lanes by reciprocal rank, and returns a few excerpts under a token cap.
 
@@ -353,7 +350,17 @@ The prefetch keeps only hits that pass a relevance threshold (a rare phrase, two
 
 There is no forget path, no wipe command, no way to delete memory rows through the engine. Precision falls through tiers: the context window is the most precise, then word search, then meaning search, then the journal. Rows leave hot memory through caps, but the archive (`src/memory/archive.ts`) keeps a copy before anything is removed, and the record (`src/memory/record.ts`) holds every line for good.
 
-A retired row keeps its history. `removeLore` (`/memory lore remove`) takes one lorebook entry out on the owner's word; that is the only removal.
+A retired row keeps its history. The owner's command line edits three small lists by hand: `/memory lore remove` takes one lorebook entry out, `/memory aliases remove` one alias of a member, and `/memory lessons remove` one lesson. Nothing in the engine removes a claim, an episode, a line or a request.
+
+## The request archive
+
+Every model request is a row of `model_requests` (`src/memory/db/request-archive.ts`), kept for later review and never read by a turn or by recall. No setting governs it and nothing prunes it: the table keeps every request, and the daily backup and `restore-tables --part memory` carry it with the rest of the file.
+
+`archivedLlm` in `src/llm/archive.ts` wraps the core's chat client and the memory writer's client. That covers her turns and their tool steps, the memory session on either path, the analyzer, quick search, the media describer, routing, participation and speech preparation. The wrapper writes the row as `pending` before the request goes out and waits for the write, so a request the provider saw is on disk. The row holds the whole system text, the messages, the tools and the tool choice, the role, model and purpose, and the turn, attempt and step that `withRequestMeta` opens for each turn. The wrapper then closes the row `ok` with the answer, its `<think>` block, the tool calls and the usage, or `failed` with an error code. A failed archive write is logged and the call goes on.
+
+A picture in a message is stored as an `image_marker` with its message id and byte size, and the media tables hold what was kept of the picture. Embeddings and picture generation do not pass the chat client and are not archived. A subharness agent's run keeps its native session under `<private>/subharness/<backend>/home/` instead.
+
+When the database opens, a row a dead process left `pending` becomes `unknown`, so no answer is invented and nothing is sent again. The old request dump files under `journal/requests/` are read in once, each by its path, with `source` set to `dump`. A dump whose shared tools file is gone keeps its row with the error code `tools-file-missing`, and an unreadable dump is counted and skipped (`importRequestDumps`). The files are inputs of that import only, and no module writes them. A live row has `source` `live`.
 
 ## What stays as files
 
@@ -363,7 +370,7 @@ The remaining operational files are listed by `OPERATIONAL_PATTERNS` in `src/mem
 
 - Per-guild `state.json`, `usage.json` and `metrics.json`, and private operational state
 - `recall-trace.jsonl`
-- `journal/.running` (the running marker) and `journal/requests/` (request dumps)
+- `journal/.running` (the running marker) and `journal/requests/` (the old request dump files, read once into `model_requests` and never written again)
 - The backfill folders and `record/backfill.json`
 - `archive/pending*.jsonl` (the archive's pending queue)
 - `vault/`, `snapshots/`
@@ -378,7 +385,7 @@ Everything else (profiles, places, channels, lore, the record's day files, the j
 
 The graph (`graph_nodes`, `graph_edges`, `node_access`) is entirely derived from the typed tables. The manifest (`src/memory/db/graph-manifest.ts`) names every node kind and every edge predicate, and says which typed table and columns each comes from. Every write transaction projects the affected rows into the graph at the same time.
 
-The graph is rebuildable: `scripts/memory-db.ts rebuild` drops and rebuilds it from the typed tables. An edge retired because its source row no longer produces it is history the typed tables do not hold; a rebuild does not bring it back.
+`scripts/memory-db.ts rebuild` drops the graph and builds it again from the typed tables. An edge retired because its source row no longer produces it is history the typed tables do not hold; a rebuild does not bring it back.
 
 Each edge carries the audience of the row it came from. `node_access` holds one witness per (node, audience, evidence): a node with its own audience (a source, a claim) witnesses itself; every live edge witnesses both of its ends. `src/memory/db/graph.ts` applies `audienceWhere` independently to each edge and to node witnesses. A graph walk follows only readable edges and reaches only nodes with a readable witness. A visible node does not expose its private edges.
 
@@ -390,7 +397,7 @@ Each edge carries the audience of the row it came from. `node_access` holds one 
 
 ### Restore
 
-`scripts/memory-db.ts restore --from <backup> --db <target>`: checks every file in the backup against its manifest, copies the database (which must not exist, nor its WAL or SHM files), copies the diary media under the data directory, and checks the restored file's schema version and row counts.
+`scripts/memory-db.ts restore --from <backup> --db <target>` checks every file in the backup against its manifest, copies the database (which must not exist, nor its WAL or SHM files), copies the diary media under the data directory, and checks the restored file's schema version and row counts.
 
 ### Restoring one part
 
@@ -398,7 +405,7 @@ The board and her memory share the file, and `scripts/memory-db.ts restore-table
 
 ### Restore test
 
-`scripts/memory-db.ts restore-test --from <backup>`: proves a backup in a temporary directory by restoring it and verifying everything matches.
+`scripts/memory-db.ts restore-test --from <backup>` proves a backup in a temporary directory by restoring it and verifying that everything matches.
 
 ### Inspection
 
@@ -422,18 +429,25 @@ You can copy `memory.db` and its `-wal` file while the bot runs (the copy will n
 
 ## One person, several accounts
 
-A person may hold any number of accounts on any interfaces, the owner and the persona included. Only the owner's `/memory bind <iface> <account> <iface> <account>` command links them, `bind <iface> <account> self` binds an account of the persona, and `/memory unbind` undoes a link; `/memory accounts` lists them. No model proposal, name match or claimed id links accounts (`src/memory/db/person-links.ts`). A DM context carries the other DMs of the same person in `linked`, so a DM reads the person's history, while each row keeps the audience of the DM it came from. Affinity is one score on the `people` row, and an affinity event keeps its scope. The same native id on two interfaces is two accounts until the owner binds them.
+A person may hold any number of accounts on any interfaces, the owner and the persona included. Four subcommands of `/memory` in the owner's command line manage them (`src/interface/commands/console.ts`):
+
+- `/memory bind <iface> <account> <iface> <account>` joins the first account to the person of the second.
+- `/memory bind <iface> <account> self` joins an account to the persona herself, `person:self`.
+- `/memory unbind <iface> <account>` closes the account's link and gives the account back its own person, `person:<iface>:<account>`.
+- `/memory accounts <iface> <account>` lists the verified accounts of the person that account belongs to.
+
+A binding is a verified `account_person_links` row with the reason `owner command`, written through the memory writer (`applyPersonLinkWrite` in `src/memory/db/person-links.ts`). Each account named must be one she has met. For an unknown account the command refuses and says to bind it after its first message. No model proposal, name match or claimed id links accounts. A DM context carries the person's other DMs in `linked` (`linkedDmScopes`), so a DM reads the person's history while each row keeps the audience of the DM it came from. Affinity is one score on the `people` row, and an affinity event keeps its scope. The same native id on two interfaces is two accounts until the owner binds them.
 
 ## Configuration
 
-The memory system reads these config groups from `config/config.json` (and `config.local/config.json`). The full reference of every key is in [configuration.md](configuration.md).
+The memory system reads these config groups from `config/config.json` and `config.local/config.json`. [Configuration](configuration.md) lists every key.
 
 | Group | What it controls |
 |---|---|
-| `memoryDb` | The database file, session schedule, backups, observation timeout |
+| `memoryDb` | The database file, the session's schedule and limits, backups, the observation timeout, how long receipts are kept |
 | `recall` | The search's timeout, output and memory tokens, record days, the `db` subgroup (vector days, touch days, eviction, re-embedding), the `prefetch` subgroup (deadline, tokens, word lists) |
 | `embed` | Embedding dimensions |
-| `memory` | The vault directory and the main channels |
+| `memory` | The vault directory, the main channels and the memory probe's interval `probeMinutes` (default 30) |
 
 The other measures of memory are constants in the module that reads them: the capture's `CAPTURE_DEFAULTS` in `src/memory/db/observe.ts`, the graph walk's `DEFAULTS` in `src/memory/db/graph.ts`, `FOCUS_DEFAULTS` in `src/memory/db/focus.ts`, the embedding queue's in `src/memory/embedder.ts`, and `MEMORY_LIMITS`, `RELATIONSHIP_LIMITS` and `LORE_LIMITS` in `src/memory/text-limits.ts`.
 
@@ -450,7 +464,7 @@ Two switches gate memory behaviour:
 |---|---|---|
 | Vector eviction (drop bytes of old, uncited vectors) | `recall.db.vectorEviction` | Built, off |
 | Re-embedding on touch | `recall.db.reembed` | Built, off |
-| Foreign capture (threads, boards) | Live in schema; no adapter emits capture events yet | Built, no adapter |
+| Foreign capture (threads, boards) | The schema holds the capture tables, and no adapter emits capture events | Built, no adapter |
 
 ## Appendix: who may read each table
 
@@ -458,18 +472,16 @@ Every table of the memory database (`data/memory.db`, schema `src/memory/db/sche
 A read of the persona's memory always names a context (a group of an interface, one DM conversation, or internal);
 the class says how a row's visibility in that context is decided.
 
-- **audience-scoped**: the row carries its own audience (`audience_id`, and the scope columns `scope_kind`,
-  `scope_iface`, `scope_dm` that it replaces). Group and DM contexts read `aud:none` and every valid `aud:group:<interface>`.
-  A DM context also reads `aud:dm:<its DM place>`. Only the trusted internal context reads `aud:internal`. The groups
-  context of the diary's entry (`groupsContext` in `src/memory/db/scope.ts`) reads source-free and group rows.
-- **inherits from &lt;parent&gt;**: the row has no audience of its own and is read only through its parent row, with
-  the parent's audience.
-- **internal-only**: never shown in an outward context (a group or a DM); the persona's own bookkeeping.
-- **structural**: identity and bookkeeping that holds no remembered content by itself (ids, names of namespaces,
-  file signatures). Where a structural row has a name a context may not see, the reader says so below.
+An audience-scoped row carries its own audience (`audience_id`, and the scope columns `scope_kind`, `scope_iface` and `scope_dm` that it replaces). Group and DM contexts read `aud:none` and every valid `aud:group:<interface>`. A DM context also reads `aud:dm:<its DM place>`, and only the trusted internal context reads `aud:internal`. The groups context of the diary's entry (`groupsContext` in `src/memory/db/scope.ts`) reads source-free and group rows.
+
+A row that inherits from a parent has no audience of its own and is read only through its parent row, with the parent's audience.
+
+An internal-only row is never shown in an outward context, a group or a DM. It is the persona's own bookkeeping.
+
+A structural row is identity or bookkeeping that holds no remembered content by itself, such as ids, names of namespaces and file signatures. Where a structural row has a name a context may not see, the table below says so.
 
 The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belong to `sources_fts` and `sources_tri`.
-`tests/memory-db-v7.test.js` reads the table below and fails on any table of the schema it does not list.
+`tests/memory-db-v7.test.ts` reads the table below and fails on any table of the schema it does not list.
 
 | Table | Class | Note |
 |---|---|---|
@@ -514,7 +526,8 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `skill_evaluations` | internal-only | the tests, trials, outcome reviews and audience checks of each skill version, with the hashes they evaluated (append-only); the evidence they name keeps its own audience |
 | `skill_uses` | internal-only | which skill of her index a turn showed, read, tried, finished or set aside, by turn id (append-only) |
 | `capture_watches` | internal-only | when a bundle is looked at again, and how that went |
-| `operational` | internal-only | state files kept verbatim (request dumps, buffers, queues) |
+| `operational` | internal-only | state files kept verbatim (root state, usage and metrics, buffers, queues, the recall trace, backfill state, the rows of the old request dump files) |
+| `model_requests` | internal-only | every model request: its whole system text, messages and tools, the answer, its think, the tool calls, the usage and the outcome; no index reaches recall |
 | `board_schema_version` | internal-only | the version of the task board's tables |
 | `board_tasks` | internal-only | one row per task of the board |
 | `board_dependencies` | internal-only | which task waits on which, and how |
@@ -549,7 +562,3 @@ The full-text tables' own storage tables (`sources_fts_*`, `sources_tri_*`) belo
 | `graph_nodes` | structural | one node per typed row of a node kind (derived, rebuildable); whether a context may see a node is `node_access`'s answer |
 | `graph_edges` | audience-scoped | the edges between nodes, each with the audience of the typed row it came from (derived, rebuildable); a walk follows only edges the context may read |
 | `node_access` | internal-only | which audiences may see each node, one witness row per node, audience and evidence (derived, rebuildable); the walks read it, nothing shows it |
-
-## The request archive
-
-Every model request is a row of `model_requests` (`src/memory/db/request-archive.ts`), kept for later review and never read by a turn or by recall. `archivedLlm` in `src/llm/archive.ts` wraps the core's chat client and the memory writer's client, which covers her turns and their tool steps, the memory session on either path, the analyzer, quick search, the media describer, routing, participation and speech preparation. It writes the row as `pending` before the request goes out, with the whole system text, the messages, the tools, the role, the model, the purpose, and the turn, attempt and step, and closes it `ok` or `failed` with the answer, its full `<think>`, the tool calls and the usage. A failed archive write is logged and the call goes on. A picture stays a marker with its size. At open, a row a dead process left `pending` becomes `unknown`: no answer is invented and nothing is sent again, and the old dump files are read in once with `source` set to `dump`, a missing shared tools file named as `tools-file-missing`. Embeddings hold no prose request and are not archived. A subharness agent's run keeps its native session under `data/subharness/<backend>/home/` instead.

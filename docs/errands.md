@@ -8,13 +8,13 @@ Two errand agents ship with the engine. Each is a worker: a standalone process d
 
 ### scout
 
-Internet errands: web searches, reading pages, looking at images, downloading files. Reaches the public internet through a residential proxy. Cannot touch the server's filesystem beyond its own output folder and a private `/tmp/opencode` where OpenCode saves fetched files.
+The scout runs internet errands: it searches the web, reads pages, looks at images and downloads files. It reaches the public internet through a residential proxy, and it cannot touch the server's filesystem beyond its own output folder and a private `/tmp/opencode` where OpenCode saves fetched files.
 
-The scout searches with `web-search <query> [--count N]` (`agents/scout/bin/web-search`), a wrapper that sends one OpenRouter request with the Exa web plugin. OpenCode's own `websearch` tool stays hidden.
+The scout searches with `web-search <query> [--count N]` (`agents/scout/bin/web-search`), a wrapper that sends one OpenRouter request with the Exa web plugin on the model `web.search.model` and prints the results as numbered lines, eight by default. OpenCode's own `websearch` tool stays hidden.
 
 **Shell.** The `bash` tool is limited to `web-search` for searches, `curl`/`wget`/`yt-dlp`/`ffmpeg`/`ffprobe` for downloads, and everyday text tools: `ls`, `cat`, `head`, `tail`, `grep`, `sed -n --sandbox`, `wc`, `sort`, `uniq`, `cut`, `tr`, `jq`, `file`, `stat`, `mkdir`, `pwd`, `which`, `echo`, `cp`/`mv`/`rm` (on its own folder and `/tmp/opencode` only, no recursive flag). `yt-dlp` runs only as `yt-dlp --ignore-config ...`, so a config file planted in its folder is never loaded; the options `--exec`, `--netrc-cmd`, `--config-locations` and `--plugin-dirs` are denied.
 
-**Tools:** `websearch`, `webfetch`, `read`, `glob`, `list`, `bash`.
+The scout's profile lists the tools `websearch`, `webfetch`, `read`, `glob`, `list` and `bash`.
 
 ### server
 
@@ -24,7 +24,7 @@ Read-only questions about this machine: reads files and runs read-only shell com
 
 `sed` runs only as `sed -n --sandbox`. There is no `awk`. `rg --pre` and `sort --compress-program` are denied.
 
-**Tools:** `read`, `grep`, `glob`, `list`, `bash`.
+The server agent's profile lists the tools `read`, `grep`, `glob`, `list` and `bash`.
 
 Drawing is not an errand. It is a built-in ability of the core, see [Media](media.md#drawings).
 
@@ -96,7 +96,7 @@ Caps enforced at queuing:
 
 Each worker runs as a systemd service (`deploy/neptunia-agent-scout.service`, `deploy/neptunia-agent-server.service`), as the user that installed the engine, so the core reaches the socket. The service starts `neptunia errand-runner --profile <name>` (see [The neptunia command](cli.md#the-errand-runner)). The runner listens on a Unix socket (the profile's `socket`, overridable under `agents.<profile>.socket`); the core connects and sends tasks as JSON, one object per line.
 
-One task is one run of the subharness's backend in a fresh working directory under the profile's output folder. The profile's prompt, the preamble, the goal and the context make the brief, and the files the agent leaves there are the result's files.
+One task is one run of the subharness's backend in a fresh working directory under the profile's output folder. The profile's prompt, the preamble, the goal and the context make the brief, and the files the agent leaves there are the result's files. The context carries the last six lines of the origin channel (`DEFAULT_RECENT_LINES` in `src/errands/service.ts`) as author and text cut to 200 characters each, and an errand asked in a private chat carries none.
 
 The core and command entry pass the resolved engine and persona data roots into the errand client, service, stores and engine. Shared definitions under `agents/<name>/profile.json` receive partial overrides from `<dataDir>/agents/<name>/profile.json`, with `config.agents.<name>` applied last. Prompt candidates are `<dataDir>/agents/<name>/<prompt>` followed by the shared file. `override` is migration metadata, with no runtime `prompts.local` fallback. The engine reads the current definition and prompt for each task and prompt check. The command entry rebuilds default limits for each run. Invalid personal definitions stop execution before the backend and close an accepted errand as failed. Backend, model and effort remain selected by the subharness.
 
@@ -209,7 +209,7 @@ The status card (`/status full`) shows errand agents' models in `models.errands`
 
 1. Create `agents/<id>/` with a `profile.json` and, for a worker, a `prompt.md`.
 2. If it needs a new model role, add it to `src/llm/roles.ts` and to `models.errands` in `config/config.json`.
-3. For a worker: fill in the profile's `enabled`, `cost`, `limits`, `daily`, `socket` and `out`, add a systemd unit like `deploy/neptunia-agent-scout.service`, and the agent's name in `TASK_AGENTS` (`src/tools/impl/catalog.ts`) and who may ask for it in `src/tools/impl/errand.ts`.
+3. For a worker, fill in the profile's `enabled`, `cost`, `limits`, `daily`, `socket` and `out`, add a systemd unit like `deploy/neptunia-agent-scout.service`, add the agent's name to `TASK_AGENTS` in `src/tools/impl/catalog.ts` and say who may ask for it in `src/tools/impl/errand.ts`.
 4. If no existing shell class fits, that is a code change in `src/agent-runner/profiles.ts`.
 5. Run `tests/agent-runner-profiles.test.ts`.
 
