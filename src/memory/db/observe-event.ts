@@ -94,17 +94,25 @@ function placeOf(conversation: EventConversation | undefined, authority: string)
   return null;
 }
 
-function authorOf(author: NonNullable<EventMessage['author']>, self: boolean): Envelope['author'] {
+function authorOf({
+  author,
+  id,
+  self,
+}: {
+  author: NonNullable<EventMessage['author']>;
+  id: string;
+  self: boolean;
+}): Envelope['author'] {
   return self
     ? {
         kind: 'self',
-        key: author.id,
+        key: id,
         account_kind: 'self',
         ...(filled(author.name) ? { display: author.name } : {}),
       }
     : {
         kind: 'account',
-        key: author.id,
+        key: id,
         account_kind: author.bot === true ? 'bot' : 'user',
         ...(filled(author.name) ? { display: author.name } : {}),
       };
@@ -154,7 +162,7 @@ export function observationOf(
   const observedAt = isoOf(event.at) ?? occurredAt;
   const edited = event.edit === true;
   const self = message.author.self === true || (filled(selfId) && message.author.id === selfId);
-  const author = authorOf(message.author, self);
+  const author = authorOf({ author: message.author, id: message.author.id, self });
   const mentioned = [
     ...new Set(
       (Array.isArray((event.addressing as { mentionedUserIds?: unknown } | undefined)?.mentionedUserIds)
