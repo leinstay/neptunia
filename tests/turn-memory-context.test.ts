@@ -107,12 +107,13 @@ for (const replacement of ['author', 'shorter'] as const) {
   test(`a delayed merge queues its message when a replacement chain has ${replacement === 'author' ? 'a different author' : 'fewer parts'}`, async () => {
     const decision = Promise.withResolvers<{ text: string }>();
     const pending: PendingQueue = { list: [] };
+    const incomingText = 'delayed-followup-evidence';
     const incoming: Line = {
       id: 'late-followup',
       channelId: 'c1',
       authorId: 'u1',
       authorName: 'Member',
-      content: 'delayed-followup-evidence',
+      content: incomingText,
       ts: NOW,
       replyToId: null,
       mentionedUserIds: [],
@@ -202,7 +203,7 @@ for (const replacement of ['author', 'shorter'] as const) {
       ['late-followup']
     );
     assert.equal(
-      llm.calls.talk.some((request) => taskOf(request).includes(incoming.content)),
+      llm.calls.talk.some((request) => taskOf(request).includes(incomingText)),
       false
     );
   });
@@ -292,8 +293,10 @@ test('a triggerless private inner turn writes its completed turn only to its par
     const groupTurns = await journal.read('g1', { day, kind: 'turn' });
     assert.equal(groupTurns.length, 0);
     assert.equal(privateTurns.length, 1);
-    assert.equal(privateTurns[0].mode, 'inner');
-    assert.deepEqual(privateTurns[0].scope, { user: 'u1', private: true });
+    const privateTurn = privateTurns[0];
+    assert.ok('mode' in privateTurn && 'scope' in privateTurn);
+    assert.equal(privateTurn.mode, 'inner');
+    assert.deepEqual(privateTurn.scope, { user: 'u1', private: true });
   } finally {
     await memory.close();
   }
