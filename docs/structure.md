@@ -16,6 +16,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `plugins.local/` | local | A deployment's own plugins, one folder per plugin with its plugin.json and index.ts; a plugin here replaces the tracked plugin of the same name. | nothing | none |
 | `config.local.json` | local | The old place of a deployment's settings, read until `scripts/config-files-move.ts` moves it into `config.local/`. | nothing | none |
 | `config.local/` | local | A deployment's settings, labels and tool texts, each laid over its tracked file, and the settings of each interface it runs. | nothing | none |
+| `cli/` | public | The interactive presentation of the chat: Ink, written with createElement, importing nothing of the engine. | `ink`, `react`, `node:*`, `cli/**` | none |
 | `data/README.md` | public | The one public file of the persona root: what its folders hold. | nothing | none |
 | `data/` | local | A deployment memory, state and logs. | nothing | none |
 | `config/` | public | The tracked default settings, the labels code inserts (split into model and owner) and the texts of the persona's tools. | nothing | none |
@@ -43,7 +44,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `interfaces/README.md` | public | The overview of the interface packages. | nothing | none |
 | `interfaces/discord/` | public | The Discord interface: the only code that imports discord.js, translating between the platform and the protocol. It reads the core's media classifier and video-site matcher, pure modules, and classifies Discord's embeds and media addresses itself. | `node:*`, `discord.js`, `src/media/classify.ts`, `src/media/video-sites.ts`, `src/protocol/**`, `interfaces/discord/platform-types.ts`, `interfaces/discord/values.ts` | required |
 | `interfaces/discord/setup.ts` | public | The setup of the Discord interface, which refuses until the neptunia CLI runs it. No behaviour to test. | nothing | none |
-| `tests/` | public | The node:test files, one per module. | `discord.js`, `eslint`, `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `bin/**`, `tests/**` | none |
+| `tests/` | public | The node:test files, one per module. | `cli/`, `discord.js`, `eslint`, `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `bin/**`, `tests/**` | none |
 | `tests/fixtures/` | public | Fakes, harnesses and sample data the tests share. | `discord.js`, `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `bin/**`, `tests/**` | none |
 | `scripts/` | public | Scripts for development and measurement, never run by the engine. | `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `typescript`, `discord.js`, `eslint`, `estree` | none |
 | `scripts/lib/` | public | What the scripts under `scripts/` share. | `node:*`, `src/**`, `interfaces/**`, `scripts/**` | none |

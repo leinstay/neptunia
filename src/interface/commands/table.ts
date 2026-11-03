@@ -112,7 +112,10 @@ export const COMMANDS: ReadonlyArray<Command> = [
     name: 'status',
     help: 'the short summary; full: every section of the status card',
     args: [],
-    subcommands: [sub('full', 'every section of the status card, with the models and the costs of the day')],
+    subcommands: [
+      sub('brief', "what the chat's status line reads, as JSON: link, core, memory, interfaces"),
+      sub('full', 'every section of the status card, with the models and the costs of the day'),
+    ],
   },
   {
     name: 'doctor',

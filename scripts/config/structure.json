@@ -71,6 +71,13 @@
       "test": "none"
     },
     {
+      "path": "cli/",
+      "purpose": "The interactive presentation of the chat: Ink, written with createElement, importing nothing of the engine.",
+      "layer": "public",
+      "imports": ["ink", "react", "node:*", "cli/**"],
+      "test": "none"
+    },
+    {
       "path": "data/README.md",
       "purpose": "The one public file of the persona root: what its folders hold.",
       "layer": "public",
@@ -277,7 +284,17 @@
       "path": "tests/",
       "purpose": "The node:test files, one per module.",
       "layer": "public",
-      "imports": ["discord.js", "eslint", "node:*", "src/**", "interfaces/**", "scripts/**", "bin/**", "tests/**"],
+      "imports": [
+        "cli/",
+        "discord.js",
+        "eslint",
+        "node:*",
+        "src/**",
+        "interfaces/**",
+        "scripts/**",
+        "bin/**",
+        "tests/**"
+      ],
       "test": "none"
     },
     {
