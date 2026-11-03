@@ -62,7 +62,7 @@ function databaseOnly() {
 }
 
 /** The memory modules over `data`, as src/index.ts builds them (the clock fixed, no network, no model). */
-function engine(data: string, log = quiet) {
+async function engine(data: string, log = quiet) {
   const config = {
     features: { record: true, journal: true, archive: true, intentions: true },
     memoryDb: { session: { mode: 'off' } },
@@ -71,6 +71,8 @@ function engine(data: string, log = quiet) {
   };
   const hot = { config, prompts: {} };
   const memoryDb = createMemoryDb({ hot, dataDir: data, log, now: () => NOW, worker: false });
+  // Eager state readers require the database before store construction.
+  await memoryDb.open();
   const archiveAppendStore = createAppendStore({ fsyncMs: 0, log });
   const record = createRecord({ dataDir: data, log, now: () => NOW, memoryDb });
   const vectors = createVectors({ dataDir: data, log, now: () => NOW, memoryDb });
@@ -126,7 +128,7 @@ test('the memory starts from memory.db and the operational files alone, writes o
       warn: (message: string, fields: Record<string, Untyped>) => warnings.push({ message, ...fields }),
       error: (message: string, fields: Record<string, Untyped>) => warnings.push({ message, ...fields }),
     };
-    const first = engine(data, log);
+    const first = await engine(data, log);
     await first.memoryDb.tick();
     assert.equal(first.memoryDb.status().open, true);
 
@@ -206,7 +208,7 @@ test('the memory starts from memory.db and the operational files alone, writes o
     );
 
     // A fresh start reads the new writes back from the database.
-    const second = engine(data);
+    const second = await engine(data);
     await second.memoryDb.tick();
     try {
       assert.equal(
