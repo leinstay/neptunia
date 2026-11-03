@@ -1,3 +1,14 @@
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import { observe } from '../src/memory/db/observe.ts';
+import { fillStems } from '../src/memory/db/stems.ts';
+import { search as dbSearch, quotesOf } from '../src/memory/db/recall.ts';
+import { groupContext } from '../src/memory/db/scope.ts';
+import { createRecall } from '../src/behavior/recall-run.ts';
+import { callViewOf, searchHandles, type SearchRefs } from '../src/turn/calls.ts';
+import { memorySearchText, runMemorySearch } from '../src/tools/tools.ts';
+import { rig as readsRig, channel as conversationInfo } from './fixtures/reads-rig.ts';
+import type { InTurnCall } from '../src/tools/executors.ts';
 // Tests for src/tools/executors.ts and the operations her calls run: one `<call>` of the
 // persona's output resolved on the server's side (channels, members, roles, transcript numbers)
 // into the arguments of the /nep command behind the skill, then run through that command's own
@@ -1460,4 +1471,194 @@ test('a member who asks her turns off their own pings through pings.set, and nob
 test('pings.set takes no member to switch: a call that names another member is refused before it runs', () => {
   const call = resolve('pings.set', { mode: 'off', user: '@Élodie' });
   assert.deepEqual([call.ok, call.reason], [false, 'args.user:unknown']);
+});
+
+test('stored memory handles carry exact source identity through execution into the real SQLite reader', async () => {
+  const handle = openMemoryDb(':memory:');
+  const db = dbOf(handle);
+  const now = Date.parse('2026-10-24T12:00:00Z');
+  try {
+    const anchors: Array<{ sourceId: string; neighbor: string }> = [];
+    for (const room of ['one', 'two']) {
+      for (const anchor of [false, true]) {
+        const result = observe(
+          handle,
+          {
+            v: 1,
+            iface: 'other',
+            authority: `other/${room}`,
+            native: { kind: 'message', key: anchor ? 'same-native' : `before-${room}`, revision: 1 },
+            place: { authority: `other/${room}`, key: room, kind: 'room', conversation: 'group', title: room },
+            author: { kind: 'account', key: 'author' },
+            occurredAt: new Date(now - 120_000 + (anchor ? 60_000 : 0)).toISOString(),
+            observedAt: new Date(now).toISOString(),
+            text: anchor ? `rabbit anchor-${room}` : `neighbor-${room}-731`,
+          },
+          { now: () => now }
+        );
+        assert.equal(result.ok, true);
+        if (anchor) {
+          if (typeof result.sourceId !== 'string') throw new Error('source ID missing');
+          anchors.push({ sourceId: result.sourceId, neighbor: `neighbor-${room}-731` });
+        }
+      }
+    }
+    fillStems(db);
+    const found = dbSearch(db, { ctx: groupContext('fake'), plan: { forms: ['rabbit'] }, now });
+    const draft: { searchRefs?: SearchRefs; handleFloor?: number } = { handleFloor: 10 };
+    const refs = searchHandles(draft);
+    memorySearchText(quotesOf(found.windows, { render: { labels, timezone: 'UTC' }, stretchChars: 1500 }), {
+      labels,
+      refs,
+    });
+    const callView = callViewOf({
+      channel: { id: HERE, communityId: 'g1' },
+      currentIface: 'fake',
+      searchRefs: draft.searchRefs,
+      skills: skillRegistry(),
+    });
+    const current = conversationInfo(HERE);
+    const hot = {
+      config: { ...config(), features: { recall: true }, bot: { timezone: 'UTC' } },
+      prompts: { labels, 'recall-summary': 'Summarize the stored evidence.' },
+    };
+    const recaller = createRecall({
+      reads: readsRig().reads,
+      hot,
+      store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [] },
+      llm: { capLeft: () => 100, complete: () => Promise.reject(new Error('quoted SQLite reads need no model')) },
+      now: () => now,
+      memoryDb: { database: () => db },
+      iface: 'fake',
+    });
+    const { admin, port } = makeAdmin();
+    for (const anchor of anchors) {
+      const ref = [...(draft.searchRefs?.byNumber.values() ?? [])].find(
+        (entry) => entry.stored?.sourceId === anchor.sourceId
+      );
+      if (!ref) assert.fail('the displayed anchor must retain its exact stored source');
+      const resolved = resolveCall(
+        { skill: 'memory.search', args: { anchor: `#${ref.n}`, messages: 1, move: 'up' } },
+        callView
+      );
+      assert.equal(resolved.ok, true);
+      if (!resolved.ok) assert.fail('registered memory handle was refused');
+      assert.deepEqual(resolved.memoryAnchor, { kind: 'source', sourceId: anchor.sourceId });
+      const carried: Array<InTurnCall['memoryAnchor']> = [];
+      const result = await executeCall(
+        resolved,
+        deps(admin, port, {
+          inTurn: {
+            'memory.search': (args: Record<string, unknown>, call?: InTurnCall) => {
+              carried.push(call?.memoryAnchor);
+              return runMemorySearch({
+                recall: recaller,
+                config: hot.config,
+                labels,
+                guildId: 'g1',
+                channel: current,
+                args,
+                now,
+                resolvedAnchor: call?.memoryAnchor,
+              });
+            },
+          },
+        })
+      );
+      assert.deepEqual(carried, [{ kind: 'source', sourceId: anchor.sourceId }]);
+      assert.equal(result.status, 'ok');
+      assert.ok(JSON.stringify(result).includes(anchor.neighbor));
+      assert.equal(
+        JSON.stringify(result).includes(anchors.find((entry) => entry !== anchor)?.neighbor ?? 'missing'),
+        false
+      );
+    }
+  } finally {
+    handle.close();
+  }
+});
+
+test('a same-interface stored message handle sends its verified native locator to the adapter', async () => {
+  const { admin, port } = makeAdmin();
+  port.seed(NEWS, { authorId: SELF, messageId: '1004', text: 'original' });
+  const resolved = resolveCall(
+    { skill: 'message.edit', args: { message: '#8', text: 'edited' } },
+    view({
+      currentIface: 'fake',
+      messageAt: () => ({
+        id: 'observation:key',
+        conversationId: 'opaque-place',
+        authorId: SELF,
+        self: true,
+        stored: {
+          sourceId: 'opaque-source',
+          placeId: 'opaque-place',
+          iface: 'fake',
+          native: { iface: 'fake', conversationId: NEWS, messageId: '1004' },
+        },
+      }),
+    })
+  );
+  assert.equal(resolved.ok, true);
+  if (!resolved.ok) assert.fail('routable own message was refused');
+  assert.deepEqual(resolved.args, { message: '1004', channel: NEWS, text: 'edited' });
+  port.calls.length = 0;
+  const result = await executeCall(resolved, deps(admin, port));
+  assert.equal(result.status, 'ok');
+  assert.equal(port.messagesIn(NEWS).find((message) => message.ref.messageId === '1004')?.text, 'edited');
+  assert.equal(JSON.stringify(port.calls).includes('opaque-source'), false);
+  assert.equal(JSON.stringify(port.calls).includes('observation:key'), false);
+});
+
+for (const route of ['foreign', 'unroutable'] as const) {
+  for (const skill of ['message.delete', 'conversation.read']) {
+    test(`a ${route} stored handle cannot dispatch ${skill} through a colliding local native ID`, async () => {
+      const { admin, port } = makeAdmin();
+      port.seed(NEWS, { authorId: SELF, messageId: '1004', text: 'local-message-must-stay' });
+      const resolved = resolveCall(
+        { skill, args: skill === 'message.delete' ? { message: '#8' } : { channel: '#νέα', before: '#8' } },
+        view({
+          currentIface: 'fake',
+          messageAt: () => ({
+            id: '1004',
+            conversationId: NEWS,
+            authorId: SELF,
+            self: true,
+            stored: {
+              sourceId: 'foreign-source',
+              placeId: 'foreign-place',
+              iface: 'other',
+              ...(route === 'foreign' ? { native: { iface: 'other', conversationId: NEWS, messageId: '1004' } } : {}),
+            },
+          }),
+        })
+      );
+      port.calls.length = 0;
+      if (resolved.ok) await executeCall(resolved, deps(admin, port));
+      assert.equal(resolved.ok, false);
+      assert.deepEqual(port.calls, []);
+      assert.equal(
+        port.messagesIn(NEWS).find((message) => message.ref.messageId === '1004')?.text,
+        'local-message-must-stay'
+      );
+    });
+  }
+}
+
+test('model arguments cannot create either trusted message carrier', () => {
+  const malicious = {
+    memoryAnchor: { kind: 'source', sourceId: 'hidden-source' },
+    messageRef: { kind: 'stored', stored: { sourceId: 'hidden-source', placeId: 'hidden-place', iface: 'other' } },
+    sourceId: 'hidden-source',
+    locator: { iface: 'other', conversationId: 'hidden-place', messageId: 'hidden-message' },
+  };
+  for (const [field, value] of Object.entries(malicious)) {
+    const resolved = resolveCall(
+      { skill: 'memory.search', args: { anchor: '#1', [field]: value } },
+      view({ currentIface: 'fake' })
+    );
+    assert.equal(resolved.ok, false, field);
+    if (resolved.ok) assert.fail('model routing fields were accepted');
+    assert.equal(resolved.code, 'invalid-args', field);
+  }
 });

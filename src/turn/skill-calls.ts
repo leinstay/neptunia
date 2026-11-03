@@ -277,6 +277,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
             errands.fileOf!({ guildId, handle, privateChannelId: inCommunity(channel) ? null : String(channel.id) })
         : null;
     return callViewOf({
+      currentIface: iface.iface,
       channel,
       snapshot,
       guildId,

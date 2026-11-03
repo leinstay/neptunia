@@ -103,3 +103,14 @@ export async function linesOf(
   const found = await reads.history({ iface: entry.iface, conversationId: entry.id }, query);
   return found === null ? null : found.events.map((event) => lineOf(event));
 }
+
+/** The summary prompt, or null when it is missing or blank. */
+export function summaryPrompt(prompts: unknown): string | null {
+  const prompt = objOf(prompts)['recall-summary'];
+  return typeof prompt === 'string' && prompt.trim() ? prompt : null;
+}
+
+/** The kind of a failed summary request. */
+export function summaryFailure(error: unknown): 'timeout' | 'failed' {
+  return objOf(error).name === 'TimeoutError' ? 'timeout' : 'failed';
+}

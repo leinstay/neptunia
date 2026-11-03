@@ -1,10 +1,17 @@
 // The types of the signatures in ./recall-run.ts: the inputs and results that are too long to read inline.
 
+import type { ResolvedRecallAnchor } from '../memory/db/recall.ts';
 import type { Context } from '../memory/db/scope.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { recallSettings } from './recall.ts';
 import type { Reads } from '../interface/reads.ts';
-import type { RecallStretch } from './recall-run.ts';
+
+/**
+ * One stretch of a channel the recall found. `startTs` is the time of its first kept line. `lines` is the window
+ * rendered without `#n` indices (captions included, matched lines marked), cut to `recall.stretchChars` by whole
+ * lines from its far ends, never a matched one.
+ */
+export type RecallStretch = { channelId: string; channelName: string | null; startTs: number; lines: string };
 
 export type EmptyStatsResult = {
   memory: number;
@@ -90,7 +97,7 @@ export type CreateRecallResult = {
   }>;
   available: () => boolean;
   prefetch: (args: Untyped) => Promise<PrefetchOutcome | null>;
-  window: (args: Untyped) => Promise<Record<string, unknown>>;
+  window: (args: WindowInput) => Promise<Record<string, unknown>>;
 };
 
 /**
@@ -301,7 +308,8 @@ export type WindowInput = {
   partnerId?: string | null;
   selfName?: string;
   history?: Array<Untyped>;
-  anchor: string;
+  anchor?: string;
+  resolvedAnchor?: ResolvedRecallAnchor;
   move?: string;
   messages?: number | null;
   minutes?: number | null;
