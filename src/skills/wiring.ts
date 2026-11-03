@@ -60,7 +60,7 @@ export function wireSkills(deps: SkillsWiringDeps): SkillsWiring {
     load: () =>
       loadSkills({
         trackedDir: path.join(deps.rootDir, 'skills'),
-        localDir: path.join(deps.privateDir, 'skills.local'),
+        localDir: path.join(deps.privateDir, 'skills'),
         pluginDirs: deps.pluginDirs?.() ?? [],
       }),
     granted: () => new Set(granted()),

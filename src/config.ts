@@ -1,15 +1,6 @@
-// Loads .env (simple KEY=VALUE parser — not the `dotenv` package) into
-// process.env without overriding already-set variables, and reads
-// config/config.json (+ the optional private settings file, deep-merged) for non-secret
-// settings. Secrets are read once at startup; the JSON config is re-read by
-// src/hot.ts whenever the files change, so nothing here caches it. Every string value of the merged config may reference an
-// environment variable as `${env:NAME}` (`resolveEnvRefs`), so a value that holds credentials
-// (e.g. `media.video.proxy`) can stay in .env.
-// config/config.json is read from the checkout; config.local/config.json (or config.local.json of the old layout,
-// src/config/files.ts) and .env from the deployment's private directory (src/paths.ts: NEPTUNIA_PRIVATE_DIR), which
-// is the root unless set.
-// Pure functions (parseEnv, applyEnv, deepMerge, resolveEnvRefs) are exported separately so they
-// can be unit-tested without touching the filesystem.
+// Configuration combines engine defaults with the canonical persona data/config layer. Targeted writes and hot
+// reload use the same paths. Environment parsing remains available to explicit migration and tooling callers;
+// runtime service credentials stay in keys.json. Proxy credential references reach only the video consumer.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,7 +8,14 @@ import { fileURLToPath } from 'node:url';
 import { log } from './log.ts';
 import { moveConfigKeys } from './config-moves.ts';
 import { cutConfigKeys } from './config/cut.ts';
-import { localFiles, trackedConfigPath } from './config/files.ts';
+import { resolvePaths } from './paths.ts';
+import {
+  assertPersonaLayout,
+  localFiles,
+  trackedConfigPath,
+  interfacePackageDir,
+  interfaceCredential,
+} from './config/files.ts';
 // A parsed JSON value or an argument no module types yet: the alias of src/tools/types.ts, restated so this leaf
 // imports nothing from src/tools/ (src/memory/ reaches it).
 type Untyped = ReturnType<typeof JSON.parse>;
@@ -166,10 +164,15 @@ export function loadDotEnv(privateDir: string = ROOT_DIR): void {
  */
 export function readConfig(
   rootDir: string = ROOT_DIR,
-  { privateDir = rootDir }: { privateDir?: string } = {}
+  { privateDir = resolvePaths({ rootDir }).dataDir }: { privateDir?: string } = {}
 ): Record<string, unknown> {
+  assertPersonaLayout(privateDir, rootDir);
   // The merged files are a plain object; resolveEnvRefs hands back the shape it was given.
-  return resolveEnvRefs(mergeConfigFiles(rootDir, privateDir), process.env, warnUnsetEnvRef) as Record<string, unknown>;
+  return resolveEnvRefs(
+    mergeConfigFiles(rootDir, privateDir),
+    { ...process.env, MEDIA_VIDEO_PROXY: '${env:MEDIA_VIDEO_PROXY}' },
+    warnUnsetEnvRef
+  ) as Record<string, unknown>;
 }
 
 /** `<rootDir>/config/config.json` deep-merged with the private settings file, env references unresolved. */
@@ -206,6 +209,14 @@ function movedLocal(local: unknown): unknown {
       migrate: 'scripts/config-migrate.ts',
     });
   return after.config;
+}
+
+/** Platform startup receives the selected package and only that interface's private token. */
+export function interfaceLaunch({ rootDir, dataDir, name }: { rootDir: string; dataDir: string; name: string }): {
+  packageDir: string;
+  token: string | null;
+} {
+  return { packageDir: interfacePackageDir(rootDir, dataDir, name), token: interfaceCredential(dataDir, name) };
 }
 
 export const env = process.env;

@@ -41,7 +41,7 @@ import type { Untyped } from '../src/tools/types.ts';
 
 const quietHot = createHot; // never watched: createHot watches only on .watch()
 
-/** A scratch checkout: config.json, prompts/ with two files and labels, prompts.local/ with one. */
+/** A scratch checkout: config.json, prompts/ with two files and labels, data/prompts/ with one. */
 function scratchRoot() {
   const root = tempDir('nep-replay-test-');
   // PR 7c: the tracked settings live in config/config.json.
@@ -58,8 +58,10 @@ function scratchRoot() {
     path.join(root, 'config', 'labels.json'),
     JSON.stringify({ model: { diary: { topic: 'Topic' } }, owner: {} })
   );
-  fs.mkdirSync(path.join(root, 'prompts.local'));
-  fs.writeFileSync(path.join(root, 'prompts.local', 'reply.md'), 'local réply');
+  // Replay layers read the prepared persona tree, separate from tracked engine prompts.
+  fs.mkdirSync(path.join(root, 'data', 'prompts'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'data', 'config'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'data', 'prompts', 'reply.md'), 'local réply');
   fs.mkdirSync(path.join(root, 'candidate'));
   fs.writeFileSync(path.join(root, 'candidate', 'diary-plan.md'), 'candidate plan');
   return root;
@@ -111,21 +113,21 @@ test('replay: --prompts layering is one helper shared by pair and diary', () => 
   const root = scratchRoot();
   const tmpDir = tempDir('nep-replay-layers-');
   try {
-    // --diary: the directory over prompts.local/, which stays under it.
+    // --diary: the directory over data/prompts/, which stays under it.
     const layers = diaryPromptLayers(root, 'candidate');
-    assert.deepEqual(layers, ['prompts.local', 'candidate']);
+    assert.deepEqual(layers, [path.join(root, 'data', 'prompts'), 'candidate']);
     const diary = promptLayersHot(quietHot, root, layers, { tmpDir });
     assert.equal(asRecord(diary.hot).prompts.reply, 'local réply');
     assert.equal(asRecord(diary.hot).prompts['diary-plan'], 'candidate plan');
     assert.equal(asRecord(diary.hot).prompts.labels.diary.topic, 'Topic');
     asRecord(diary.hot).close();
-    // --pair: one side's directory is prompts.local/ (the other layers do not show through).
+    // --pair: one side's directory is data/prompts/ (the other layers do not show through).
     const side = promptLayersHot(quietHot, root, ['candidate'], { tmpDir });
     assert.equal(asRecord(side.hot).prompts.reply, 'tracked reply');
     assert.equal(asRecord(side.hot).prompts['diary-plan'], 'candidate plan');
     asRecord(side.hot).close();
-    // No prompts.local/ in the checkout: the diary layers are the directory alone.
-    fs.rmSync(path.join(root, 'prompts.local'), { recursive: true });
+    // No data/prompts/ in the checkout: the diary layers are the directory alone.
+    fs.rmSync(path.join(root, 'data', 'prompts'), { recursive: true });
     assert.deepEqual(diaryPromptLayers(root, 'candidate'), ['candidate']);
     assert.throws(() => promptLayersHot(quietHot, root, ['missing'], { tmpDir }), /missing is not a directory/);
     // The checkout is untouched.
@@ -138,27 +140,37 @@ test('replay: --prompts layering is one helper shared by pair and diary', () => 
   // One implementation: replay.ts calls the lib helper for both modes and keeps no copy of its own.
   const source = fs.readFileSync(new URL('../scripts/replay.ts', import.meta.url), 'utf8');
   assert.ok(source.includes("from './lib/prompt-layers.ts'"));
-  assert.equal((source.match(/promptLayersHot\(/g) ?? []).length, 2, 'one call for --pair, one for --diary');
+  // The shared module owns the overlay wrapper, so its call remains part of the same two dispatch paths.
+  const shared = fs.readFileSync(new URL('../scripts/lib/prompt-layers.ts', import.meta.url), 'utf8');
+  assert.equal(
+    (source.match(/promptLayersHot\(/g) ?? []).length + (shared.match(/return promptLayersHot\(/g) ?? []).length,
+    2,
+    'one call for --pair, one for --diary'
+  );
   assert.ok(!/function sideHot\b/.test(source));
   assert.ok(!/fs\.cpSync\(/.test(source), 'no prompt copying outside the helper');
 });
 
-test('replay: with NEPTUNIA_PRIVATE_DIR apart, --diary and --pair take config.local.json and prompts.local/ from it', () => {
+test('replay: explicit data selection supplies canonical config and prompts to diary and pair', () => {
   const root = scratchRoot();
   const privateDir = tempDir('nep-replay-private-');
   const tmpDir = tempDir('nep-replay-layers-');
-  const env = { NEPTUNIA_PRIVATE_DIR: privateDir };
+  const env = { NEPTUNIA_DATA_DIR: privateDir };
   try {
     // The checkout keeps a stale local layer; the live one is in the private directory.
-    fs.writeFileSync(path.join(root, 'config.local.json'), JSON.stringify({ bot: { timezone: 'checkout' } }));
-    fs.writeFileSync(path.join(privateDir, 'config.local.json'), JSON.stringify({ bot: { timezone: 'private' } }));
-    fs.mkdirSync(path.join(privateDir, 'prompts.local'));
-    fs.writeFileSync(path.join(privateDir, 'prompts.local', 'reply.md'), 'private reply');
+    fs.writeFileSync(
+      path.join(root, 'data', 'config', 'config.json'),
+      JSON.stringify({ bot: { timezone: 'checkout' } })
+    );
+    fs.mkdirSync(path.join(privateDir, 'config'));
+    fs.writeFileSync(path.join(privateDir, 'config', 'config.json'), JSON.stringify({ bot: { timezone: 'private' } }));
+    fs.mkdirSync(path.join(privateDir, 'prompts'));
+    fs.writeFileSync(path.join(privateDir, 'prompts', 'reply.md'), 'private reply');
 
     const layers = diaryPromptLayers(root, 'candidate', env);
-    assert.deepEqual(layers, [path.join(privateDir, 'prompts.local'), 'candidate']);
+    assert.deepEqual(layers, [path.join(privateDir, 'prompts'), 'candidate']);
     const diary = promptLayersHot(quietHot, root, layers, { tmpDir, env });
-    assert.equal(asRecord(diary.hot).prompts.reply, 'private reply', 'the checkout prompts.local/ is not read');
+    assert.equal(asRecord(diary.hot).prompts.reply, 'private reply', 'the checkout data/prompts/ is not read');
     assert.equal(asRecord(diary.hot).prompts['diary-plan'], 'candidate plan');
     assert.equal(asRecord(diary.hot).config.bot.timezone, 'private');
     asRecord(diary.hot).close();
@@ -166,8 +178,8 @@ test('replay: with NEPTUNIA_PRIVATE_DIR apart, --diary and --pair take config.lo
     assert.equal(asRecord(side.hot).config.bot.timezone, 'private');
     assert.equal(asRecord(side.hot).prompts.reply, 'tracked reply');
     asRecord(side.hot).close();
-    // No prompts.local/ in the private directory: the checkout's is not taken instead.
-    fs.rmSync(path.join(privateDir, 'prompts.local'), { recursive: true });
+    // No data/prompts/ in the private directory: the checkout's is not taken instead.
+    fs.rmSync(path.join(privateDir, 'prompts'), { recursive: true });
     assert.deepEqual(diaryPromptLayers(root, 'candidate', env), ['candidate']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -179,14 +191,23 @@ test('replay: with NEPTUNIA_PRIVATE_DIR apart, --diary and --pair take config.lo
 test('replay: search availability follows web.search.engine through the lookup, not the Brave key alone', () => {
   const searches = { brave: createBraveSearch(), exa: createExaSearch() };
   const hotOf = (engine: string) => ({ config: { web: { search: { engine } } }, prompts: {} });
-  const available = (engine: string, env: unknown) =>
-    searchAvailableOf({ hot: hotOf(engine), createLookup, searches, env } as unknown as Parameters<
-      typeof searchAvailableOf
-    >[0]);
+  // Service secrets come from keys.json in the selected data root.
+  const available = (engine: string, services: Record<string, string>) => {
+    const dataDir = tempDir('nep-replay-service-');
+    fs.writeFileSync(path.join(dataDir, 'keys.json'), JSON.stringify({ core: [], extra: {}, roles: {}, services }), {
+      mode: 0o600,
+    });
+    return searchAvailableOf({
+      hot: hotOf(engine),
+      createLookup,
+      searches,
+      env: { NEPTUNIA_DATA_DIR: dataDir },
+    });
+  };
   assert.equal(available('openrouter', {}), true, 'openrouter needs no Brave key');
   assert.equal(available('exa', {}), true, 'exa needs no key');
   assert.equal(available('brave', {}), false, 'brave without its key cannot search');
-  assert.equal(available('brave', { BRAVE_SEARCH_API_KEY: 'k' }), true);
+  assert.equal(available('brave', { brave: 'k' }), true);
 });
 
 // ---- --diary-day -------------------------------------------------------------------

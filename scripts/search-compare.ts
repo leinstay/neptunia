@@ -47,7 +47,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CliError, defaultDataDir, parseFlags, privateDirOf, runCli, simKey } from './lib/cli.ts';
+import { serviceKeys, CliError, defaultDataDir, parseFlags, privateDirOf, runCli, simKey } from './lib/cli.ts';
 import { costOf } from './lib/recall-eval.ts';
 import { outcomeOf, parseQueries, renderBlind, renderSummary, summarize } from './lib/search-compare.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -94,10 +94,6 @@ function keyOf(name: string | undefined, env: Record<string, string | undefined>
 }
 
 /** An env value trimmed, or null when unset or blank. */
-function envValue(env: Record<string, string | undefined>, name: string) {
-  const value = env[name];
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
 
 /** The `--engines` list: known engines, each once, in the given order. */
 function enginesOf(value: Untyped, known: Untyped) {
@@ -206,7 +202,7 @@ export async function main(
       const { loadDotEnv } = await import('../src/config.ts');
       loadDotEnv(privateDirOf(rootDir, env));
     }
-    const keys = { brave: envValue(env, 'BRAVE_SEARCH_API_KEY'), exa: envValue(env, 'EXA_API_KEY') };
+    const keys = serviceKeys({ env });
 
     /**
      * One search on `engine` through a fresh lookup: its own state and an empty media cache (no

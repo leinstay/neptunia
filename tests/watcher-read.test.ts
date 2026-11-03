@@ -64,6 +64,6 @@ test('createReportReader binds a folder: read() is the latest and read(day) is t
   assert.equal(one.ok && one.report.text, 'ONE');
 });
 
-test('the reports folder of a deployment is .agents/watcher/reports under its root', () => {
-  assert.equal(reportsDirOf('/srv/x'), path.join('/srv/x', '.agents', 'watcher', 'reports'));
+test('the reports folder is agents/watcher/reports under the selected persona data directory', () => {
+  assert.equal(reportsDirOf('/srv/x'), path.join('/srv/x', 'agents', 'watcher', 'reports'));
 });

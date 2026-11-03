@@ -21,7 +21,7 @@
 # prompts.local/ and data/ next to the code) deletes the two Environment= lines
 # below, points EnvironmentFile= at /opt/neptunia/app/.env and restores the old
 # write paths:
-#   ReadWritePaths=/opt/neptunia/app/data /opt/neptunia/app/prompts.local /opt/neptunia/app/config.local
+#   ReadWritePaths=/opt/neptunia/app/data /opt/neptunia/data/prompts /opt/neptunia/data/config
 
 [Unit]
 Description=neptunia-bot — SillyTavern-inspired Discord pseudo-user engine
@@ -35,9 +35,9 @@ ExecStart=/usr/bin/node src/index.ts
 User=neptunia-bot
 Restart=on-failure
 RestartSec=5
-Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc
+Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/data
 Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
-EnvironmentFile=-/opt/neptunia/etc/.env
+EnvironmentFile=-/opt/neptunia/data/.env
 
 # Hardening: the process needs write access only to its own data and
 # per-deployment overrides (/config set writes config.local/config.json, /rules add
@@ -45,7 +45,7 @@ EnvironmentFile=-/opt/neptunia/etc/.env
 # stays read-only.
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/opt/neptunia/data /opt/neptunia/etc
+ReadWritePaths=/opt/neptunia/data
 # strict leaves /tmp read-only too; the video fetcher cuts its clips under the
 # temporary directory, so the service gets a private writable one.
 PrivateTmp=true

@@ -36,7 +36,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CliError, defaultDataDir, privateDirOf, resolveGuildId, runCli, simKey } from './lib/cli.ts';
+import { interfaceCredential } from '../src/config/files.ts';
+import { serviceKey, CliError, defaultDataDir, privateDirOf, resolveGuildId, runCli, simKey } from './lib/cli.ts';
 import {
   ORIGIN,
   describeOne,
@@ -250,7 +251,7 @@ export async function main(
       guildId = resolveGuildId(dataDir, args.guild ?? configuredGuild);
       const cache = readJson(path.join(dataDir, 'guilds', guildId, 'media.json'), {});
       const picked = pickFromCache(cache, { n: args.fromCache, kinds: args.kinds });
-      const token = (process.env.DISCORD_TOKEN || '').trim() || null;
+      const token = interfaceCredential(hot.privateDir, 'discord');
       const resolved = await resolveFromCache({ picked, dataDir, guildId, hot, nowMs: now(), token });
       items = resolved.items;
       source = `media cache, ${picked.length} picked`;
@@ -292,7 +293,7 @@ export async function main(
     });
     const imageFetcher = createImageFetcher();
     const videoFetcher = createVideoFetcher();
-    const youtubeApiKey = (process.env.YOUTUBE_API_KEY || '').trim() || null;
+    const youtubeApiKey = serviceKey('youtube');
 
     const outcome = await runComparison({
       items,
@@ -309,6 +310,7 @@ export async function main(
           imageFetcher,
           videoFetcher,
           youtubeApiKey,
+          videoProxy: serviceKey('videoProxy'),
           now,
         }),
       onCell: (entry, cell, index) =>

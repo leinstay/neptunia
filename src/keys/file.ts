@@ -46,6 +46,18 @@ export type MemoryPathRecord = { backend: MemoryBackend; model: string; effort: 
 /** The file's name inside the private directory. */
 export const KEYS_FILE = 'keys.json';
 
+/** Optional service credentials stay in the persona's key file and reach only their consumer. */
+export function serviceCredential(dataDir: string, name: 'youtube' | 'brave' | 'exa' | 'videoProxy'): string | null {
+  try {
+    const value: unknown = JSON.parse(fs.readFileSync(path.join(dataDir, KEYS_FILE), 'utf8'));
+    if (!isRecord(value) || !isRecord(value.services)) return null;
+    const key = value.services[name];
+    return typeof key === 'string' && key.trim() !== '' ? key.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 

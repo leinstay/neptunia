@@ -38,6 +38,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { interfaceCredential } from '../src/config/files.ts';
 import {
   CliError,
   REFUSED_EXIT,
@@ -256,8 +257,9 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
   const { loadDotEnv } = await load('config.ts');
   const { createHot } = await load('hot.ts');
   loadDotEnv(privateDirOf(ROOT));
-  const token = process.env.DISCORD_TOKEN;
-  if (!token) throw new CliError('inner-week: DISCORD_TOKEN is not set (.env)');
+  const token = interfaceCredential(privateDirOf(ROOT), 'discord');
+  if (!token)
+    throw new CliError('inner-week: the Discord credential is not set in data/interfaces/discord/credentials.json');
   const apiKey = simKey('inner-week');
   const dataDir = args.data ? path.resolve(args.data) : defaultDataDir(ROOT);
   if (!fs.existsSync(dataDir)) throw new CliError(`inner-week: no data directory at ${dataDir}`);

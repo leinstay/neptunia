@@ -50,10 +50,10 @@ Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin
 # and, when apart from the checkout, NEPTUNIA_PRIVATE_DIR
 # (src/agent-runner/policy.ts); it writes under neither. A deployment that
 # keeps everything in the checkout deletes both lines.
-Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/etc
+Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/data
 Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
 # Optional override for the opencode backend (the leading '-': the file may be absent).
-EnvironmentFile=-/etc/neptunia/agent-server.env
+EnvironmentFile=-/opt/neptunia/data/clients/agent-server.env
 Restart=on-failure
 RestartSec=5
 

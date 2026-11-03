@@ -162,7 +162,7 @@ function compared(
 const FATE_OF = new Map(CUT_KEYS.map((row) => [row.key, row.becomes]));
 
 /** The Discord package's private settings file, as the report names it. */
-const DISCORD_FILE = `${LOCAL_CONFIG_DIR}/interfaces/discord.json`;
+const DISCORD_FILE = 'interfaces/discord/config.json';
 
 /**
  * The private file of the Discord package beside the settings file `file`: `config.local/interfaces/discord.json`
@@ -170,6 +170,7 @@ const DISCORD_FILE = `${LOCAL_CONFIG_DIR}/interfaces/discord.json`;
  */
 function discordFileOf(file: string): string {
   const dir = path.dirname(file);
+  if (path.basename(dir) === 'config') return path.join(path.dirname(dir), 'interfaces', 'discord', 'config.json');
   const localDir = path.basename(dir) === LOCAL_CONFIG_DIR ? dir : path.join(dir, LOCAL_CONFIG_DIR);
   return path.join(localDir, 'interfaces', 'discord.json');
 }
@@ -229,7 +230,7 @@ const KEY_SETTINGS = ['keyByRole', 'keys'];
  */
 function privateDirOfFile(file: string): string {
   const dir = path.dirname(file);
-  return path.basename(dir) === LOCAL_CONFIG_DIR ? path.dirname(dir) : dir;
+  return [LOCAL_CONFIG_DIR, 'config'].includes(path.basename(dir)) ? path.dirname(dir) : dir;
 }
 
 /**

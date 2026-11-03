@@ -36,7 +36,8 @@ function rig(overrides: Partial<SetupOptions> = {}): Rig {
     group: 'alice',
     home,
     rootDir: ROOT,
-    privateDir: path.join(base, 'private'),
+    // Runtime setup has one persona root; privateDir is its internal alias.
+    privateDir: path.join(base, 'data'),
     dataDir: path.join(base, 'data'),
     node: '/usr/bin/node',
     xdgConfigHome: path.join(base, 'xdg'),
@@ -98,8 +99,8 @@ test('a fresh user setup creates the private folders at 0700 whatever the umask'
     await runSetup(options, deps);
     for (const dir of [
       options.privateDir,
-      path.join(options.privateDir, 'config.local'),
-      path.join(options.privateDir, 'prompts.local'),
+      path.join(options.privateDir, 'config'),
+      path.join(options.privateDir, 'prompts'),
       path.join(options.privateDir, 'clients'),
       options.dataDir,
     ])
@@ -151,7 +152,12 @@ test('the rendered core unit names the checkout, the two directories and no User
   const { options, deps, unitDir } = rig();
   await runSetup(options, deps);
   const text = fs.readFileSync(path.join(unitDir, 'neptunia-core.service'), 'utf8');
-  assert.ok(text.includes(`NEPTUNIA_PRIVATE_DIR=${options.privateDir}`));
+  // A retained private environment alias must select the same canonical data root.
+  assert.ok(
+    unitValues(text, 'Environment')
+      .filter((value) => value.startsWith('NEPTUNIA_PRIVATE_DIR='))
+      .every((value) => value === `NEPTUNIA_PRIVATE_DIR=${options.dataDir}`)
+  );
   assert.ok(text.includes(`NEPTUNIA_DATA_DIR=${options.dataDir}`));
   assert.equal(/^User=/m.test(text), false);
 });
@@ -338,7 +344,7 @@ test('neptunia setup with an unknown option exits 2 and creates nothing', () => 
     env: {
       PATH: process.env.PATH ?? '',
       HOME: dir,
-      NEPTUNIA_PRIVATE_DIR: path.join(dir, 'p'),
+      NEPTUNIA_PRIVATE_DIR: path.join(dir, 'd'),
       NEPTUNIA_DATA_DIR: path.join(dir, 'd'),
     },
     encoding: 'utf8',
@@ -410,10 +416,10 @@ test('nodeOf falls back to execPath when argv0 is bare and not on PATH, or PATH 
 // The selfimprovement units (spec 2026-11-02, follow-up 7): setup renders neptunia-selfimprovement.service and its timer only when
 // `selfimprovement.checkout` names a dev checkout, so the beat never runs on the deployed checkout.
 
-/** Writes `selfimprovement` into the private layer's config.local/config.json before setup runs. */
+/** Writes `selfimprovement` into the private layer's config/config.json before setup runs. */
 function withSelfimprovement(privateDir: string, selfimprovement: Record<string, unknown>): void {
-  fs.mkdirSync(path.join(privateDir, 'config.local'), { recursive: true });
-  fs.writeFileSync(path.join(privateDir, 'config.local', 'config.json'), JSON.stringify({ selfimprovement }));
+  fs.mkdirSync(path.join(privateDir, 'config'), { recursive: true });
+  fs.writeFileSync(path.join(privateDir, 'config', 'config.json'), JSON.stringify({ selfimprovement }));
 }
 
 const unitValues = (text: string, key: string): Array<string> =>
@@ -443,7 +449,7 @@ test('setup writes the selfimprovement service and timer over the checkout selfi
   const service = fs.readFileSync(path.join(unitDir, 'neptunia-selfimprovement.service'), 'utf8');
   assert.deepEqual(unitValues(service, 'WorkingDirectory'), [checkout]);
   assert.match(unitValues(service, 'ExecStart')[0] ?? '', /^\S+ bin\/neptunia\.ts selfimprovement run$/);
-  assert.ok(unitValues(service, 'Environment').includes(`NEPTUNIA_PRIVATE_DIR=${options.privateDir}`));
+  assert.ok(unitValues(service, 'Environment').includes(`NEPTUNIA_DATA_DIR=${options.dataDir}`));
   assert.equal(service.includes('/opt/neptunia'), false);
   const timer = fs.readFileSync(path.join(unitDir, 'neptunia-selfimprovement.timer'), 'utf8');
   assert.deepEqual(unitValues(timer, 'Unit'), ['neptunia-selfimprovement.service']);
@@ -488,7 +494,7 @@ test('a refused self-development step leaves the run ok, stores no repository an
   assert.equal(report.ok, true);
   assert.equal(report.steps.find((step) => step.step === 'selfimprovement')?.state, 'refused');
   assert.deepEqual(chat, ['/keys core add']);
-  const local = JSON.parse(fs.readFileSync(path.join(options.privateDir, 'config.local', 'config.json'), 'utf8')) as {
+  const local = JSON.parse(fs.readFileSync(path.join(options.privateDir, 'config', 'config.json'), 'utf8')) as {
     selfimprovement: Record<string, unknown>;
   };
   assert.equal('repository' in local.selfimprovement || 'mode' in local.selfimprovement, false);

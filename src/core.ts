@@ -15,6 +15,8 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { serviceCredential } from './keys/file.ts';
+import { assertPersonaLayout } from './config/files.ts';
 
 import { localConfigPath, readInterfaceConfig } from './config/files.ts';
 import { createHot } from './hot.ts';
@@ -179,18 +181,6 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
-/**
- * The variable `key` of `env`, or a friendly startup failure when it is missing or empty.
- */
-function needOrFail(env: Readonly<Record<string, string | undefined>>, key: string): string {
-  const value = env[key];
-  if (value === undefined || value === '')
-    fail(
-      `index: missing required environment variable ${key} — copy .env.example to .env and fill in the real values.`
-    );
-  return value;
-}
-
 /** The chat client as the core hands it on. */
 type ChatClient = Omit<ReturnType<typeof createLlm>, 'complete'> & {
   complete: (messages: Untyped, options?: Untyped) => Promise<Untyped>;
@@ -250,32 +240,31 @@ async function buildCore(
   cleanups: Array<() => unknown>
 ): ReturnType<typeof startCore> {
   const { paths, env, interfaces } = options;
+  if (path.resolve(paths.privateDir) !== path.resolve(paths.dataDir))
+    fail('privateDir must match dataDir: prepare the persona with scripts/persona-files-move.ts');
+  assertPersonaLayout(paths.dataDir, paths.rootDir);
   const clock = options.now ?? Date.now;
-  // The three directories (src/paths.ts): the checkout, the private layer (config.local/, prompts.local/) and the
-  // data directory. Logged once, paths only.
+  // The checkout and canonical persona data root are logged once. privateDir aliases dataDir.
   log.info('index: paths', { rootDir: paths.rootDir, privateDir: paths.privateDir, dataDir: paths.dataDir });
-  if (!fs.existsSync(paths.privateDir))
-    fail(`index: the private directory ${paths.privateDir} does not exist (NEPTUNIA_PRIVATE_DIR).`);
   if (interfaces.length > 1) fail(`index: the core starts one interface at most, got ${interfaces.length}.`);
   // No interface in this process: they run as units, and the community comes from the settings.
   const asUnits = interfaces.length === 0;
 
-  // The model keys: `keys.json` of the private layer when it exists (the key ring, read at each request), else the
-  // `.env` variables `llm.keyByRole` names (scripts/keys-import.ts moves them). A deployment with a key store needs no
-  // key in `.env` to start: without a core key she is paused until `/keys core add`.
+  // The persona key ring is read for each request; an empty store remains available to the keys commands.
   const keyStore = createKeyStore({ privateDir: paths.privateDir });
   const keyRing = createKeyRing({ store: keyStore, failover: createKeyFailover({ now: clock }) });
-  const ringNow = () => (keysFileExists(paths.privateDir) ? keyRing : null);
+  const ringNow = () => keyRing;
   /** The key of `role` in the key store, null while there is none (`.env` serves then), '' when the store has no key for it. */
-  const keyOf: KeyOf = (role) => ringNow()?.route(role)?.value ?? (ringNow() === null ? null : '');
-  const openrouterKey = ringNow() === null ? needOrFail(env, 'OPENROUTER_CORE_KEY') : (env.OPENROUTER_CORE_KEY ?? '');
+  const keyOf: KeyOf = (role) => keyRing.route(role)?.value ?? '';
+  const openrouterKey = '';
   // Optional: without it a YouTube duration comes from the watch page only.
-  const youtubeApiKey = env.YOUTUBE_API_KEY || null;
+  const youtubeApiKey = serviceCredential(paths.dataDir, 'youtube');
   // Optional: without it the `brave` search engine never runs (the web lookup still reads links). Never logged.
-  const braveApiKey = env.BRAVE_SEARCH_API_KEY || null;
+  const braveApiKey = serviceCredential(paths.dataDir, 'brave');
   // Optional: the `exa` engine runs keyless; with a key it is sent as a bearer header. Never logged.
-  const exaApiKey = env.EXA_API_KEY || null;
+  const exaApiKey = serviceCredential(paths.dataDir, 'exa');
 
+  fs.mkdirSync(paths.dataDir, { recursive: true });
   const hot = createHot({ rootDir: paths.rootDir, privateDir: paths.privateDir }).watch();
   cleanups.push(() => hot.close());
 
@@ -568,6 +557,7 @@ async function buildCore(
     videoFetcher,
     state: store.state,
     youtubeApiKey,
+    videoProxy: serviceCredential(paths.dataDir, 'videoProxy'),
   });
   // The web lookup (features.webLookup, off by default): link reader + search on a question.
   // state: the daily web counter lives next to the LLM client's daily counter.
@@ -1109,7 +1099,7 @@ async function buildCore(
     // skills with their use counts, her proposals and her outbox rows on the board, and the watcher's newest report.
     selfimprovement: {
       ...skillsWiring.selfimprovement,
-      watcher: (now) => watcherNews({ config: hot.config, rootDir: paths.rootDir, now }),
+      watcher: (now) => watcherNews({ config: hot.config, rootDir: paths.dataDir, now }),
     },
     log,
   });
@@ -1238,7 +1228,7 @@ async function buildCore(
     // Her skill tools (src/tools/impl/skill.ts): `skill.read` and `skill.disable`.
     skills: skillsWiring.access,
     // Her tool `watcher.read` (src/tools/impl/watcher.ts): the reports folder follows `watcher.dir` at each read.
-    watcher: createReportReader(() => reportsDirOf(paths.rootDir, watcherDir(hot.config))),
+    watcher: createReportReader(() => reportsDirOf(paths.dataDir, watcherDir(hot.config))),
     roleHealth,
     // The operations' `env.reads`: the conversation they post in, a message's event.
     reads,
@@ -1304,7 +1294,7 @@ async function buildCore(
     usage,
     // /nep status: the simulator key's limit line (one GET) and each key's activity for its last 7 and 30 days (GETs
     // only), with the two keys read from keys.json, else .env, at the moment of the card. Never logged.
-    cardKeys: () => statusCardKeys(paths.privateDir, env),
+    cardKeys: () => statusCardKeys(paths.privateDir, {}),
     // /nep memory snapshot: the data directory it copies.
     dataDir,
   });
@@ -1320,15 +1310,8 @@ async function buildCore(
   // removal, `memory-down` after a failed memory probe. Each lifts only its own pause, and an owner's pause given over
   // one of them becomes his.
   const pauseControl = reasonedPause({ run: ownerOp, store });
-  // The key the memory role goes out on now: the ring's route while keys.json exists, else the `.env` variable
-  // `llm.keyByRole.memory` names. Never logged.
-  const memoryRoute = (): { name: string; value: string } | null => {
-    const ring = ringNow();
-    if (ring !== null) return ring.route('memory');
-    const name = objOf(objOf(objOf(hot.config).llm).keyByRole).memory;
-    const value = typeof name === 'string' ? env[name] : undefined;
-    return typeof name === 'string' && typeof value === 'string' && value.trim() !== '' ? { name, value } : null;
-  };
+  // The memory role uses the persona's live key ring.
+  const memoryRoute = (): { name: string; value: string } | null => keyRing.route('memory');
   // One run of the installed codex or claude for a check: the subharness's `/subharness` checks and the memory probe.
   const runSubharnessBackend = (backend: 'codex' | 'claude', brief: string, model?: string, effort?: EffortLevel) =>
     createInstalledBackend(backend, paths.privateDir).run(brief, {
@@ -1419,7 +1402,7 @@ async function buildCore(
       // `/plugins` (src/interface/commands/plugins.ts).
       plugins: pluginControl,
       // `/keys` and the checked `/model set` (src/keys/commands.ts), over the key store.
-      keys: { enabled: () => ringNow() !== null, run: (name, args, dialog) => keysCommands.run(name, args, dialog) },
+      keys: { enabled: () => true, run: (name, args, dialog) => keysCommands.run(name, args, dialog) },
       // `/subharness enable` checks with one run of the backend or one GET of the key (src/subharness/control.ts); a
       // mode change goes into the agent's unit (src/setup/install.ts).
       subharness: {

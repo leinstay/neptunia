@@ -321,8 +321,7 @@
   },
   "watcher": {
     "enabled": false,
-    "at": "00:00",
-    "dir": ".agents/watcher"
+    "at": "00:00"
   },
   "selfimprovement": {
     "enabled": true,

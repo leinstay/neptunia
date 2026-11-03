@@ -1,18 +1,13 @@
-// Where the settings and the labels live. The checkout holds `config/config.json` and `config/labels.json`, the
-// private layer `config.local/config.json` and `config.local/labels.json`. A private layer laid out the old way, with
-// `config.local.json` and a flat `prompts.local/labels.json`, still loads until scripts/config-files-move.ts moves it,
-// and a layer holding a file at both places is refused. The loader (src/config.ts, src/hot.ts), the writer of
-// `/config set` (src/tools/impl/env.ts), the console's `/config show` and `/config check` and `neptunia doctor` ask this
-// module which file to read. An interface's settings (`readInterfaceConfig`) are the core's with the package's own
-// `interfaces/<name>/config.json` and the private `config.local/interfaces/<name>.json` over them.
+// Runtime personal settings and labels use data/config. Interface settings use data/interfaces/<name>/config.json.
+// The engine supplies shared config defaults. Legacy layout constants serve explicit offline conversion tools;
+// runtime readers and targeted writers refuse those layouts with migration guidance.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { cutConfigKeys } from './cut.ts';
 
 /** The tracked folder of the settings, the labels and the tool texts, under the checkout. */
 export const CONFIG_DIR = 'config';
-/** The private folder of the same three files, under the private directory. */
+/** The legacy private configuration folder, used by explicit offline converters. */
 export const LOCAL_CONFIG_DIR = 'config.local';
 /** The settings file's name in both folders. */
 export const CONFIG_FILE = 'config.json';
@@ -35,46 +30,31 @@ export type LocalFiles = {
   old: boolean;
 };
 
-/** Throws, naming the move tool, when both `oldRel` and `newRel` exist under `privateDir`. */
-function refuseBoth(privateDir: string, oldRel: string, newRel: string): void {
-  if (fs.existsSync(path.join(privateDir, oldRel)) && fs.existsSync(path.join(privateDir, newRel)))
-    throw new Error(
-      `${oldRel} and ${newRel} are both in ${privateDir}: run node ${MOVE_TOOL} --private <dir> --apply, ` +
-        'which keeps one when they agree and names the one to resolve when they differ'
-    );
+/** Refuse recognized legacy layers before canonical runtime readers or writers use the persona. */
+export function assertPersonaLayout(privateDir: string, rootDir?: string): void {
+  const legacy = ['config.local', 'config.local.json', 'prompts.local', 'skills.local'];
+  for (const root of new Set([privateDir, ...(rootDir ? [rootDir] : [])])) {
+    const found = legacy.find((name) => fs.existsSync(path.join(root, name)));
+    if (found) throw new Error(`${path.join(root, found)} requires migration with scripts/persona-files-move.ts`);
+  }
 }
 
-/** Which private settings and labels files `privateDir` holds. Throws when a file is at both its places. */
+/** Runtime configuration and labels belong to the canonical persona data root. */
 export function localFiles(privateDir: string): LocalFiles {
-  const newConfig = path.join(LOCAL_CONFIG_DIR, CONFIG_FILE);
-  const newLabels = path.join(LOCAL_CONFIG_DIR, LABELS_FILE);
-  refuseBoth(privateDir, OLD_LOCAL_CONFIG, newConfig);
-  refuseBoth(privateDir, OLD_LOCAL_LABELS, newLabels);
-  const at = (rel: string): string | null =>
-    fs.existsSync(path.join(privateDir, rel)) ? path.join(privateDir, rel) : null;
-  const oldConfig = at(OLD_LOCAL_CONFIG);
-  const oldLabels = at(OLD_LOCAL_LABELS);
-  const splitLabels = at(newLabels);
+  assertPersonaLayout(privateDir);
+  const at = (file: string): string | null => (fs.existsSync(file) ? file : null);
+  const labels = at(path.join(privateDir, CONFIG_DIR, LABELS_FILE));
   return {
-    config: at(newConfig) ?? oldConfig,
-    labels:
-      splitLabels !== null
-        ? { file: splitLabels, shape: 'split' }
-        : oldLabels !== null
-          ? { file: oldLabels, shape: 'flat' }
-          : null,
-    old: oldConfig !== null || oldLabels !== null,
+    config: at(path.join(privateDir, CONFIG_DIR, CONFIG_FILE)),
+    labels: labels ? { file: labels, shape: 'split' } : null,
+    old: false,
   };
 }
 
-/**
- * The private settings file `/config set` writes: the one the loader reads, else `config.local/config.json`. Unlike
- * `localFiles` it never throws, so a write names the file the start would refuse.
- */
+/** The targeted writer uses exactly the same canonical settings file as the reader. */
 export function localConfigPath(privateDir: string): string {
-  const oldFile = path.join(privateDir, OLD_LOCAL_CONFIG);
-  const newFile = path.join(privateDir, LOCAL_CONFIG_DIR, CONFIG_FILE);
-  return !fs.existsSync(newFile) && fs.existsSync(oldFile) ? oldFile : newFile;
+  assertPersonaLayout(privateDir);
+  return path.join(privateDir, CONFIG_DIR, CONFIG_FILE);
 }
 
 /** The absolute path of the tracked settings file under the checkout `rootDir`. */
@@ -106,12 +86,32 @@ function readTree(file: string | null): Tree {
 
 /** The private file of the interface `name`, under the private directory. */
 export function localInterfacePath(privateDir: string, name: string): string {
-  return path.join(privateDir, LOCAL_CONFIG_DIR, 'interfaces', `${name}.json`);
+  assertPersonaLayout(privateDir);
+  return path.join(privateDir, 'interfaces', name, CONFIG_FILE);
 }
 
-/** `base`, then <rootDir>/interfaces/<name>/config.json, then the package's keys a layer not yet cut holds in its
- * settings file (cutConfigKeys(local).interfaces[name]), then <privateDir>/config.local/interfaces/<name>.json.
- * `packageDir` names the package's folder when it is not under `<rootDir>/interfaces`. */
+/** Authored persona packages replace the matching engine package when they have an entry point. */
+export function interfacePackageDir(rootDir: string, dataDir: string, name: string): string {
+  const personal = path.join(dataDir, 'interfaces', name);
+  return ['index.ts', 'index.js'].some((file) => fs.existsSync(path.join(personal, file)))
+    ? personal
+    : path.join(rootDir, 'interfaces', name);
+}
+
+/** One interface receives only its own platform token, independently of core model credentials. */
+export function interfaceCredential(dataDir: string, name: string): string | null {
+  try {
+    const value: unknown = JSON.parse(
+      fs.readFileSync(path.join(dataDir, 'interfaces', name, 'credentials.json'), 'utf8')
+    );
+    if (!value || typeof value !== 'object' || !('token' in value)) return null;
+    return typeof value.token === 'string' && value.token !== '' ? value.token : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Core settings, then package defaults, then the canonical personal interface file. */
 export function readInterfaceConfig(args: {
   rootDir: string;
   privateDir: string;
@@ -120,9 +120,8 @@ export function readInterfaceConfig(args: {
   packageDir?: string;
 }): Record<string, unknown> {
   const { rootDir, privateDir, name, base } = args;
-  const own = readTree(path.join(args.packageDir ?? path.join(rootDir, 'interfaces', name), CONFIG_FILE));
-  const uncut = cutConfigKeys(readTree(localFiles(privateDir).config)).interfaces[name];
+  const own = readTree(path.join(args.packageDir ?? interfacePackageDir(rootDir, privateDir, name), CONFIG_FILE));
   const local = readTree(localInterfacePath(privateDir, name));
-  const merged = [own, uncut, local].reduce<unknown>((into, layer) => layered(into, layer), base);
+  const merged = [own, local].reduce<unknown>((into, layer) => layered(into, layer), base);
   return isTree(merged) ? merged : {};
 }

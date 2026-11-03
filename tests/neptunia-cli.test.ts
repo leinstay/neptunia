@@ -5,6 +5,7 @@
 // the `cli` interface: its one conversation is `cli:dm:owner`, of kind `dm`. A line starting with `/` is a command
 // whose answer is printed for the owner and never reaches her memory or a request. The tests assert what is printed by
 // the data they put in (an interface name, a key value), the exit codes and the memory rows, never a label's wording.
+import { createKeyStore } from '../src/keys/store.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -155,12 +156,14 @@ function checksOf(stdout: string): Map<string, string> {
 
 const digestOf = (file: string): string => createHash('sha256').update(readFileSync(file)).digest('hex');
 
-/** Folders with the cli client, a `.env` holding a key, and a memory database written and closed: no core runs. */
+/** Folders with the cli client, a canonical key store holding a key, and a memory database written and closed: no core runs. */
 function coreDown(): { dirs: Dirs; db: string; key: string; token: string } {
   const dirs = folders({});
   addClient(dirs.privateDir, CLI_CLIENT);
   const key = 'sk-or-test-zeta-not-a-real-key';
-  writeFileSync(join(dirs.privateDir, '.env'), `OPENROUTER_CORE_KEY=${key}\n`, { mode: 0o600 });
+  const keys = createKeyStore({ privateDir: dirs.dataDir });
+  keys.removeCore('core-1');
+  keys.addCore({ name: 'core-1', value: key });
   mkdirSync(dirs.dataDir, { recursive: true });
   const db = join(dirs.dataDir, 'memory.db');
   openMemoryDb(db, { context: { dataDir: dirs.dataDir } }).close();
@@ -240,7 +243,7 @@ test('errand-runner starts the scout runner on the socket of the local layer and
   const socket = join(dirs.root, 's.sock');
   const out = join(dirs.root, 'out');
   // The socket and the output folder come from the private layer the runner is pointed at, never the checkout's.
-  writeFileSync(join(dirs.privateDir, 'config.local.json'), JSON.stringify({ agents: { scout: { socket, out } } }));
+  writeFileSync(join(dirs.dataDir, 'config', 'config.json'), JSON.stringify({ agents: { scout: { socket, out } } }));
   const runner = spawnCli(dirs, ['errand-runner', '--profile', 'scout']);
   try {
     await until(() => existsSync(socket) || runner.child.exitCode !== null, 'the runner socket');

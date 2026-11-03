@@ -16,6 +16,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createKeyStore } from '../../src/keys/store.ts';
 import { startCore } from '../../src/core.ts';
 import { onLog } from '../../src/log.ts';
 import { openMemoryDb } from '../../src/memory/db/open.ts';
@@ -77,13 +78,15 @@ export type Dirs = {
   paths: { rootDir: string; privateDir: string; dataDir: string };
 };
 
-/** Fresh folders, the private layer's config.local.json the base merged with `config`. Short: a socket path is limited. */
+/** Fresh folders, the canonical config/config.json the base merged with `config`. Short: a socket path is limited. */
 export function folders(config: Settings = {}): Dirs {
   const root = mkdtempSync(join(tmpdir(), 'nc-'));
   const dataDir = join(root, 'd');
-  const privateDir = join(root, 'p');
-  mkdirSync(privateDir);
-  writeFileSync(join(privateDir, 'config.local.json'), JSON.stringify(merged(BASE_CONFIG, config)));
+  // The prepared persona configuration, credentials and runtime state share one selected data root.
+  const privateDir = dataDir;
+  mkdirSync(join(dataDir, 'config'), { recursive: true });
+  writeFileSync(join(dataDir, 'config', 'config.json'), JSON.stringify(merged(BASE_CONFIG, config)));
+  createKeyStore({ privateDir: dataDir }).addCore({ name: 'core-1', value: 'test-key' });
   return { root, dataDir, privateDir, paths: { rootDir: REPO, privateDir, dataDir } };
 }
 
@@ -109,7 +112,7 @@ export function addClient(privateDir: string, client: Client): void {
   const run = spawnSync(process.execPath, args, {
     cwd: REPO,
     encoding: 'utf8',
-    env: { ...process.env, NEPTUNIA_PRIVATE_DIR: privateDir },
+    env: { ...process.env, NEPTUNIA_PRIVATE_DIR: privateDir, NEPTUNIA_DATA_DIR: privateDir },
   });
   assert.equal(run.status, 0, `client-token add ${client.name} failed: ${run.stderr}`);
 }
@@ -140,7 +143,7 @@ export function scriptedLlm(): Llm {
 export function startUnitsCore(dirs: Dirs, llm: Llm, now?: () => number): Promise<Core> {
   return startCore({
     paths: dirs.paths,
-    env: { OPENROUTER_CORE_KEY: 'test-key' },
+    env: {},
     interfaces: [],
     llm,
     embedder: { embed: () => Promise.resolve([]) },

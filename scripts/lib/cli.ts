@@ -8,6 +8,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePaths } from '../../src/paths.ts';
 import { simulationKey } from '../../src/simulation/key.ts';
+import { serviceCredential } from '../../src/keys/file.ts';
+import { interfaceCredential } from '../../src/config/files.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 
 /** An object read by key whose values are not typed yet. */
@@ -30,6 +32,38 @@ export function flagText(flags: Flags, name: string): string | undefined {
 
 /** The checkout this file belongs to. */
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+/** A tool receives one named service credential from the original selected persona. */
+export function serviceKey(
+  name: 'youtube' | 'brave' | 'exa' | 'videoProxy',
+  { env = process.env, dataDir }: { env?: Record<string, string | undefined>; dataDir?: string } = {}
+): string | null {
+  return serviceCredential(dataDir ?? privateDirOf(ROOT, env), name);
+}
+
+/** Web lookup receives only its own optional credentials, independently of scratch prompt layers. */
+export function serviceKeys(options: { env?: Record<string, string | undefined>; dataDir?: string } = {}): {
+  brave: string | null;
+  exa: string | null;
+} {
+  return { brave: serviceKey('brave', options), exa: serviceKey('exa', options) };
+}
+
+/** A tool that requires platform access reads only the selected interface's own credential. */
+export function platformToken(
+  name: string,
+  {
+    rootDir = ROOT,
+    env = process.env,
+  }: {
+    rootDir?: string;
+    env?: Record<string, string | undefined>;
+  } = {}
+): string {
+  const token = interfaceCredential(privateDirOf(rootDir, env), name);
+  if (!token) throw new CliError(`missing data/interfaces/${name}/credentials.json token`);
+  return token;
+}
 
 /**
  * The OpenRouter key a tool spends: the simulation's key of `<private dir>/keys.json` (src/simulation/key.ts), the
