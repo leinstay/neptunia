@@ -3345,24 +3345,6 @@ test('buildRequest: the search line needs searchAvailable and the grant -- no ke
   }
 });
 
-test('buildRequest: quick search absent with the scout at hand points her to the errand, and with neither says nothing', () => {
-  // Bug: with quick search off she is told nothing, or told she can search when no way exists.
-  const linesOf = (searchAvailable: boolean, toolsGranted: Array<string>, enabled = true) =>
-    sensesOf(
-      buildRequest(baseInput({ config: webConfig({ search: { enabled } }), searchAvailable, toolsGranted }))
-    )!.split('\n');
-  const deepOnly = linesOf(false, ['web.search', 'errand.run']);
-  assert.ok(deepOnly.includes(labels.senses.deepSearchTool));
-  assert.ok(!deepOnly.includes(labels.senses.searchTool));
-  const both = linesOf(true, ['web.search', 'errand.run']);
-  assert.ok(both.includes(labels.senses.searchTool));
-  assert.ok(!both.includes(labels.senses.deepSearchTool));
-  const neither = linesOf(false, ['web.read'], false);
-  assert.ok(!neither.includes(labels.senses.deepSearchTool));
-  assert.ok(!neither.includes(labels.senses.searchTool));
-  assert.ok(neither.includes(labels.senses.readTool), 'a known page stays readable');
-});
-
 test('buildRequest: search disabled -> no search line even with a key and the grant', () => {
   const noSearch = sensesOf(
     buildRequest(

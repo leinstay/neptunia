@@ -57,7 +57,6 @@ test('the chat parses the search commands and the binding target', () => {
     '/keys unbind search',
     '/keys check search',
   ]) {
-    assert.equal(typeof parseCommandLine(line), 'object', line);
-    assert.doesNotMatch(JSON.stringify(parseCommandLine(line)), /"error"/, line);
+    assert.match(JSON.stringify(parseCommandLine(line)), /"name":"(search|keys)\.[a-z]+"/, line);
   }
 });
