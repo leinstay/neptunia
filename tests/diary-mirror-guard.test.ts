@@ -301,11 +301,17 @@ function handlerOver(core: Community) {
   return { handler, asked };
 }
 
-/** The lines memory holds of the message `messageId`. */
-const linesOf = (core: Community, messageId: string) =>
+// The catalog owns native IDs. Include unmatched rows so an orphan duplicate fails the same text assertion.
+const linesOf = (core: Community, conversationId: string, messageId: string) =>
   dbOf(core.memory.memoryDb)
-    .prepare('SELECT kind, text FROM sources WHERE native_id = ?')
-    .all(messageId)
+    .prepare(
+      `SELECT s.kind, s.text FROM sources s
+      LEFT JOIN message_families f ON f.iface = s.iface AND f.authority_id = s.authority_id
+        AND f.native_kind = s.native_kind AND f.native_key = s.native_id AND f.generation = s.generation
+      WHERE s.iface = 'fake' AND s.native_kind = 'message'
+        AND ((f.conversation_id = ? AND f.message_id = ?) OR f.native_key IS NULL)`
+    )
+    .all(conversationId, messageId)
     .map((row) => ({ kind: row.kind, text: row.text }));
 
 test('a mention in a mirror place opens no turn, and its line is in memory', async () => {
@@ -313,7 +319,7 @@ test('a mention in a mirror place opens no turn, and its line is in memory', asy
   const { handler, asked } = handlerOver(core);
   await handler(mention(MIRROR));
   assert.deepEqual(asked, [], 'no turn of hers');
-  assert.deepEqual(linesOf(core, `e-${MIRROR}`), [{ kind: 'seen', text: 'καλημέρα, τι γράφεις;' }]);
+  assert.deepEqual(linesOf(core, MIRROR, `e-${MIRROR}`), [{ kind: 'seen', text: 'καλημέρα, τι γράφεις;' }]);
 });
 
 // ---- a send aimed at a mirror place -----------------------------------------------------------------------------
