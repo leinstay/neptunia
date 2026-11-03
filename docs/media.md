@@ -14,7 +14,7 @@ External GIF references use media kind `gif` and retain their URL through `src/m
 
 ### Pictures
 
-The persona does not receive images directly in her own request. A picture reaches her as a one-line caption in the transcript, written by a vision-capable model on the `vision` role (`models.base.vision`, default `google/gemini-3.8-flash`). The prompt is `prompts/describe.md`.
+The persona does not receive images directly in her own request. A picture reaches her as a one-line caption in the transcript, written by a vision-capable model on the `vision` role (`models.base.vision`, which ships `null`, so the role is off until a deployment sets a model, for example `google/gemini-3.8-flash`). The prompt is `prompts/describe.md`. The picture's bytes are not archived with the request: `model_requests` keeps an `image_marker` with the message id and the byte size ([The request archive](memory.md#the-request-archive)).
 
 Successful media descriptions and their versions are stored in the memory database through `src/memory/store.ts` and its writer. The active cache holds at most 5,000 entries (`MEDIA_CACHE_ENTRIES` in `src/web/cache.ts`). On a cache miss, the describer reads the stored description before calling a model. Eviction and restart preserve the description. A failed refresh of a stale caption keeps its last successful version and the existing retry delay. A failed description is cached as a miss for one hour, except when the daily request cap (`llm.maxRequestsPerDay`) is spent: then nothing is downloaded or cached as a miss, so pictures from the last hours are still described after midnight UTC.
 
@@ -36,11 +36,11 @@ Reactions on the persona's messages are visible to her. The reactor store (`src/
 
 ### Video
 
-A video attached to a message, or a link to a known video site, is watched by a model on the `video` role (`models.base.video`, default `google/gemini-3.8-flash`). The model must accept both video and audio input through OpenRouter. The prompt is `prompts/describe-video.md`.
+A video attached to a message, or a link to a known video site, is watched by a model on the `video` role (`models.base.video`, which ships `null` and is off until a deployment sets a model). The model must accept both video and audio input through OpenRouter. The prompt is `prompts/describe-video.md`.
 
-The known video sites (from `media.video.sites`): YouTube, TikTok, VK, X/Twitter, Reddit, Twitch.
+The known video sites come from `media.video.sites`: YouTube, TikTok, VK, X and Twitter, Reddit and Twitch.
 
-Attachments and downloaded site videos are capped at 300 seconds and 14,500,000 bytes (`VIDEO_FIXED` in `src/memory/describe.ts`). Over-size files are re-encoded to 360p at a capped bitrate; a clip still too large after re-encoding is refused. Public-URL videos from `youtube.com` and `youtu.be` up to 3,600 seconds are sent by URL to the pinned provider (the `agentic` URL processing of `VIDEO_FIXED`). Longer videos take the download route (the first 300 seconds via yt-dlp).
+Attachments and downloaded site videos are capped at 300 seconds and 14,500,000 bytes (`VIDEO_FIXED` in `src/memory/describe.ts`). Over-size files are re-encoded to 360p at a capped bitrate; a clip still too large after re-encoding is refused. Public-URL videos from `youtube.com` and `youtu.be` up to 3,600 seconds are sent by URL to the provider that `media.video.provider` pins (the `agentic` URL processing of `VIDEO_FIXED`). Longer videos take the download route (the first 300 seconds via yt-dlp).
 
 At most five new videos per turn (`VIDEOS_PER_TURN` in `src/turn/phases/request/stages.ts`). Results are cached alongside picture descriptions.
 
@@ -52,9 +52,7 @@ An optional proxy (`media.video.proxy`) routes yt-dlp downloads for sites listed
 
 A video model told nothing about the sound tends to invent it for a silent clip. To prevent this, the fetcher measures each clip with a read-only ffmpeg `silencedetect` pass (`src/media/audio-map.ts`) and the describer adds a measured note to the video model's system prompt:
 
-- `none`: no audio stream, or the entire track is silence.
-- `map`: a list of audible stretches in `m:ss-m:ss` format.
-- `full`: sound throughout.
+A clip with no audio stream, or a track that is silence throughout, gets the note `none`. A clip with silent stretches gets `map`, a list of audible stretches in `m:ss-m:ss` format. A clip with sound throughout gets `full`.
 
 The note uses the label from `labels.videoAudio.none` or `labels.videoAudio.map`. A failed measurement is logged and the note omitted, never treated as a failed fetch. GIF clips are silent by design and skip the audio measurement.
 
@@ -70,7 +68,7 @@ Model role: `video`.
 
 Links in the transcript are fetched and shown. The reader is `src/web/lookup.ts`, and its measures are constants there.
 
-A link (http/https, private addresses refused, video-site links and the media hosts of `SKIP_SITES` excluded) is fetched through an SSRF-guarded page fetcher (at most 1,500,000 bytes, `LINK_MAX_BYTES`, with the timeout `web.links.fetchTimeoutMs`). The link's transcript tag carries the opening of the page's extracted text, cut at 700 characters (`LINK_PREVIEW_CHARS`), with no model request. A page that fails to load or has no text is cached as a miss.
+A link is read when it is an `http` or `https` URL that names no private address, no video site and no media host of `SKIP_SITES`. It is fetched through an SSRF-guarded page fetcher (at most 1,500,000 bytes, `LINK_MAX_BYTES`, with the timeout `web.links.fetchTimeoutMs`). The link's transcript tag carries the opening of the page's extracted text, cut at 700 characters (`LINK_PREVIEW_CHARS`), with no model request. A page that fails to load or has no text is cached as a miss.
 
 The first link of each arriving message is read as the message arrives, so the next turn finds it cached (`src/pipeline/media-prefill.ts`). During a turn, at most two new links are fetched (`LINKS_PER_TURN` in `src/turn/phases/request/lookup.ts`). The persona reads further by calling her own `web.read` tool.
 
@@ -88,7 +86,7 @@ A classifier on the `analyzer` role picks a GIF from the library to replace a sh
 
 At first startup the engine reads the last 500 messages of every readable channel to seed the library, and the top 20 get captions right away (`BACKFILL_MESSAGES` and `BACKFILL_DESCRIBE` in `src/memory/gif-backfill.ts`).
 
-Model roles: `video` (GIF watch), `analyzer` (GIF picker).
+The GIF watch runs on the `video` role and the GIF picker on the `analyzer` role.
 
 ### Custom emoji
 
@@ -106,11 +104,11 @@ The persona can edit and delete her own messages through her tools (`message.edi
 
 ### Drawings
 
-The persona can draw pictures. She calls the `draw.create` tool with a scene description, and the engine generates one picture through OpenRouter's Images API on the `drawing` role (`models.base.drawing`, default `openai/gpt-image-2.5-flare`). The picture is posted as a file attachment in a separate message before her speech goes out. If the picture fails, her speech for that step is held so she does not claim a picture that does not exist.
+The persona can draw pictures. She calls the `draw.create` tool with a scene description, and the engine generates one picture through OpenRouter's Images API on the `drawing` role (`models.base.drawing`, which ships `null` and is off until a deployment sets a model, for example `openai/gpt-image-2.5-flare`). The picture is posted as a file attachment in a separate message before her speech goes out. If the picture fails, her speech for that step is held so she does not claim a picture that does not exist.
 
 The drawing prompt is `prompts/draw.md`. The scene text is clamped to `image.maxPromptChars` (default 1600) characters. When the persona is in the picture (`self: true` in the call) and `image.reference` is `'avatar'`, the bot's Discord avatar is sent as a visual reference so the model knows what she looks like.
 
-Image requests do not count against `llm.maxRequestsPerDay`. They are paid with the key `llm.keyByRole.drawing` names and show in the `costs.base` field of the status card. A single request is cut off after `image.timeoutMs`.
+Image requests do not count against `llm.maxRequestsPerDay`. They are paid with the key the key ring routes `drawing` to, or, without a `keys.json`, the variable `llm.keyByRole.drawing` names, and they show in the `costs.base` field of the status card. A single request is cut off after `image.timeoutMs`.
 
 Pricing depends on the provider. The provider's `usage.cost` is reported by `draw.create` and logged (model and counts only, never the prompt). A generation the provider rejects for content policy costs nothing.
 
@@ -124,9 +122,9 @@ The persona can send a voice message (it needs the system `ffmpeg`). She calls t
 
 1. A preparation pass on the `analyzer` role (`prompts/speech-prepare.md`): dropped letters restored, stress marked on ambiguous words, bracketed directions rewritten as short audio tags. The pass may add marks and rewrite brackets, never touch a word. When its answer changes even one word (checked by `sameWords`), or the pass times out, errors or answers nothing, the call fails with `speech-prepare-failed` (the reason is in the result): nothing is synthesized or sent, and she learns of it in her turn.
 
-2. Synthesis through OpenRouter's speech endpoint on the `speech` role (`models.base.speech`, default `elevenlabs/eleven-v4`) with the voice named in `speech.voice` (default `jessica`). The key is the one `llm.keyByRole.speech` names (the main key without one).
+2. Synthesis through OpenRouter's speech endpoint on the `speech` role (`models.base.speech`, which ships `null` and is off until a deployment sets a model, for example `elevenlabs/eleven-v4`) with the voice named in `speech.voice` (default `jessica`). The key is the one the key ring routes `speech` to, or, without a `keys.json`, the one `llm.keyByRole.speech` names, and the main key when it names none.
 
-3. Conversion to OGG/Opus at 48 kHz mono with ffmpeg, producing the audio file, its duration in seconds and the 256-byte waveform Discord draws.
+3. Conversion to OGG with the Opus codec at 48 kHz mono with ffmpeg, producing the audio file, its duration in seconds and the 256-byte waveform Discord draws.
 
 The result is posted as a Discord voice message (no text, with the voice flag). At most `speech.maxChars` (default 1500) characters per message.
 
@@ -134,7 +132,7 @@ The result tells her the duration, the characters, the estimated cost and the te
 
 With the `speech` role down, the synthesis goes to the core model or the call answers `ability-unavailable` (see [When a model role is down](#when-a-model-role-is-down)). The pronunciation pass stays on the `analyzer`.
 
-Model roles: `analyzer` (pronunciation pass), `speech` (synthesis).
+The pronunciation pass runs on the `analyzer` role and the synthesis on the `speech` role.
 
 ## When a model role is down
 

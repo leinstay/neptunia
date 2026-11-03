@@ -20,7 +20,7 @@ The review's `<wake>` also tells her which of her intentions expired untouched s
 
 ### The heartbeat
 
-A wake with no outside reason. It runs on its own timer: `heartbeat.everyMinutes` (default 180) moved by up to `jitterMinutes` (default 60) either way, around the clock. The moment is kept in the state and drawn again after each run.
+A wake with no outside reason. It runs while `heartbeat.enabled` is `true` (the default), on its own timer: `heartbeat.everyMinutes` (default 180) moved by up to `jitterMinutes` (default 60) either way, around the clock. The moment is kept in the state and drawn again after each run.
 
 The heartbeat is never coalesced with another wake and goes before others in the queue. A running turn holds it to the next tick. Its chain is its own, so no chain cap of another kind touches it.
 
@@ -48,7 +48,7 @@ The heartbeat accepts only memory reads and intention calls: `memory.search`, `m
 
 The prompt asks her to follow a memory thread before choosing. The wake finishes with one successful `intention.set`, `intention.update` or `intention.cancel`, or `<skip/>`. The first successful change ends the turn without another model request. A second intention call in the same step is refused. Posts, reactions, web reads and errands are refused `heartbeat-only`. A refusal or failed read may be corrected within the loop limits.
 
-With the switch `false`, the heartbeat can act freely; the origin and caps below still apply.
+Beyond that fixed list, every inner turn's call is checked against the envelope of its wake kind (`wakeEnvelope` in `src/tools/access.ts`): `wakes.kinds.<kind>.tools` (`"*"` or a list of tool names, where `family.*` names a family), `maxActs` (the most calls that change something in one turn) and `maxTasks` (the most errands). The heartbeat and the selfimprovement wake read the same keys from their own sections, `heartbeat.tools`, `heartbeat.maxActs` and `heartbeat.maxTasks`, and `selfimprovement.tools`, `selfimprovement.maxActs` and `selfimprovement.maxTasks`. The default is `"*"` with no cap. A nested capability counts too: a picture or a voice message is a post, so an envelope that forbids `message.create` forbids both. A refusal is `not-allowed` with the refusing key as its reason. `inputTokens` sits in the envelope as the declared input budget, and no check compares a request with it. Every wake run records the envelope's policy version.
 
 **Origin.** An intention a heartbeat turn creates carries `origin: heartbeat`, stamped by the engine from the wake kind. Updates keep it. It changes no priority and no schedule.
 
@@ -86,19 +86,22 @@ The diary is a wake of its own, `selfreflection`. Its day plan runs on the sched
 
 When a turn ends, some of what she did may not have gone through. The engine keeps each of these as a durable fact in the state and tells her at the first opportunity.
 
-The scheduler collects facts from a turn's result:
+The scheduler collects these facts from a turn's result.
 
-- `callFailed`: a call whose status was not `ok` (failed, partial, invalid, denied, not_configured, refused, unknown, timeout).
-- `doneWithoutDelivery`: an intention closed as done while no delivery call ran in that turn.
-- `loopCut`: the loop ended on its step or time bound with calls dropped.
-- `diagnostic`: a parser diagnostic of her output that no later step showed her.
-- `turnFailed`: the turn ended `error` or `refused`.
-- `wakeDropped`: a wake that ended without a turn (stopped, overflow, stale, no-channel, and others).
-- `wakeHeld`: a wake held on a cap, with the local midnight it waits for.
-- `memoryFailed`: a memory batch whose answer could not be applied.
-- `interrupted`: an inner turn that a restart cut off, with its known outcomes.
+| Fact | Recorded when |
+|---|---|
+| `callFailed` | A call's status was not `ok` (failed, partial, invalid, denied, not_configured, refused, unknown, timeout) |
+| `doneWithoutDelivery` | An intention closed as done while no delivery call ran in that turn |
+| `loopCut` | The loop ended on its step or time bound with calls dropped |
+| `diagnostic` | The parser flagged her output and no later step showed her |
+| `turnFailed` | The turn ended `error` or `refused` |
+| `wakeDropped` | A wake ended without a turn (stopped, overflow, stale, no-channel and others) |
+| `wakeHeld` | A wake is held on a cap, with the local midnight it waits for |
+| `memoryFailed` | A memory batch's answer could not be applied |
+| `interrupted` | A restart cut off an inner turn, with its known outcomes |
+| `stateLost` | The inner state could not be read and she started empty |
 
-An addressed turn records facts the same way: `sendFailed` when a `<msg>` did not go out, `loopCut`, `callFailed` for a call whose result she never read.
+An addressed turn records `sendFailed` when a `<msg>` did not go out, `loopCut`, and `callFailed` for a call whose result she never read.
 
 Facts that remain after a turn queue one `feedback` wake in the turn's chain. A feedback wake is never held by a cap, never coalesced with another wake, and its turn does not count against the chain. A feedback turn's own facts queue no second wake.
 
@@ -124,13 +127,7 @@ At startup, `src/behavior/inner/recovery.ts` marks old queued and running wakes 
 
 ## The inner turn
 
-The same voice, memory prefetch and tools as any turn, with nobody's message in front of her. The request carries:
-
-- `<wake>`: why she is awake, with each wake's intention, the current channel and why it was chosen, her budget lines (the turns left on this thread and the week's core turns against what the core keys' credit allows, [The core](core.md#keys)), and the places page.
-- The last 30 messages of the conversation (`INNER_DEFAULTS.chatMessages`).
-- `<retrieved>`: the prefetch, searched with the purposes of the wake's intentions.
-- Her `<intentions>` and `<errands>`.
-- The task prompt `prompts/inner.md`; on a heartbeat wake, `prompts/heartbeat.md` instead.
+The same voice, memory prefetch and tools as any turn, with nobody's message in front of her. The `<wake>` block says why she is awake: each wake's intention, the current channel and why it was chosen, her budget lines (the turns left on this thread, and the week's core turns against what the core keys' credit allows, [The core](core.md#keys)) and the places page. The last 30 messages of the conversation follow (`INNER_DEFAULTS.chatMessages`). `<retrieved>` holds the prefetch, searched with the purposes of the wake's intentions, and her `<intentions>` and `<errands>` come after. The task prompt is `prompts/inner.md`, and `prompts/heartbeat.md` on a heartbeat wake instead.
 
 Her `<msg>`, `<gif>` and `<react>` act in the current channel. Without a current channel these tags are refused; `message.create` with a channel argument is the way to post elsewhere or when there is no current channel. `<react>` needs a `to="#N"` target. She may also call her tools (`web.search`, `web.read`, `memory.search`, `intention.*`, `errand.run`, and the rest) or end silent (`<skip/>`).
 
@@ -140,7 +137,7 @@ When a step's `message.create` went through and one of the wake's intentions has
 
 ## Shadow and live modes
 
-**Shadow mode** (`wakes.mode: "shadow"`, the default): reads run normally (`web.search`, `web.read`, `memory.search`, `intention.list`); every other call is proposed and never executed. Journalled with `shadow: true`, nothing marked seen. A stretch of shadow shows what she would have done.
+**Shadow mode** (`wakes.mode: "shadow"`, the default): calls whose effect is `read` run normally (`web.search`, `web.read`, `memory.search`, `intention.list`); every other call is proposed and never executed. Journalled with `shadow: true`, nothing marked seen. A stretch of shadow shows what she would have done.
 
 **Live mode** (`"live"`): calls go through the gateway and take effect. The kill switch is checked before each action.
 
@@ -162,11 +159,11 @@ Things she means to do later, kept across restarts.
 
 ### Where they come from
 
-**Her own call.** `intention.set` with the purpose as the body. Options: `due` (a delay, a date, a clock time, or a weekday and time in `bot.timezone`), `every` (day, week, or an interval), `expires`, `channel` (where it is meant to land), `chain`, `condition` (when it counts as done), and `errand` plus `deadline` to wait for an errand. `attend=<place>` makes it an attention instead (see "Her attention" above).
+**Her own call.** `intention.set` with the purpose as the body. Options: `due` (a delay, a date, a clock time, or a weekday and time in `bot.timezone`), `every` (day, week, or an interval), `standing` (see "Standing tasks"), `expires`, `channel` (where it is meant to land), `chain`, `condition` (when it counts as done), and `errand` plus `deadline` to wait for an errand. `attend=<place>` makes it an attention instead (see "Her attention" above).
 
-**The memory analyzer.** A guild batch also returns candidates from her own lines (a promise, a thing to come back to, a question for someone later). Code keeps a candidate only when its quoted words appear in one of her lines of the batch and in nobody else's. A candidate is `proposed`: it does nothing until she accepts it (`intention.update state=pending`) or rejects it (`intention.cancel`). Untouched, it expires after `intentions.candidateExpiresHours` (default 48) hours. Each carries its origin: `own`, or `external` when its words came from outside material (a web page, a memory-search result, an errand's output).
+**Candidates.** An intention in `proposed` is a candidate. It does nothing until she accepts it (`intention.update state=pending`) or rejects it (`intention.cancel`), and untouched it expires after `intentions.candidateExpiresHours` (default 48) hours. `addCandidates` in `src/intentions/service.ts` stores candidates from the `intentions` field of an analyzer batch. It keeps one only when its quoted words appear in one of her lines of the batch and in nobody else's, with at most five candidates open at once (`DEFAULTS.maxCandidates` in `src/intentions/model.ts`). No module calls `addCandidates`, and the memory session's answer has no `intentions` field, so nothing creates a candidate. The rules below govern a candidate that exists. Each carries its origin: `own`, or `external` when its words came from outside material (a web page, a memory-search result, an errand's output).
 
-**The owner.** `/intentions` lists the open intentions and `/intentions cancel <id>` cancels one, through `intention.list` and `intention.cancel`.
+**The owner.** `/intentions list` lists the open intentions, `/intentions show <id>` shows one and `/intentions cancel <id>` cancels one, through `intention.list` and `intention.cancel`.
 
 ### Candidate origins and acceptance
 
@@ -185,7 +182,7 @@ Who may accept a candidate:
 
 Every intention has an expiry (`intentions.expiresDays`, default 14). An intention with no due time and no wait never wakes her; it only expires, and its `<intentions>` line says so. One of hers that expires untouched is told once in her next daily review. An attention is `pending` while open and keeps a daily counter of attend wakes.
 
-At most `intentions.maxOpen` (default 20) open at once, and five candidates (`DEFAULTS.maxCandidates` in `src/intentions/model.ts`).
+At most `intentions.maxOpen` (default 20) are open at once.
 
 `intention.update state=dropped reason=...` lets go of an open intention. `intention.set state=dropped reason=...` records one considered and let go at once. A reason is required. A dropped record never wakes her and is not counted as open.
 
@@ -222,7 +219,7 @@ A feedback wake is never held, never joined to another wake, and does not count 
 
 ## The kill switch
 
-`/wakes stop` stops the inner life (`inner.stop`). It drops every queued wake and refuses every further action of a running inner turn with `inner-stopped`, and the stop is kept across restarts. `/wakes start` releases it (`inner.start`), and `/wakes` shows the switch, the mode, the queue, the day's review and the caps used (`inner.status`). The persona cannot stop or start it herself.
+`/wakes stop` stops the inner life (`inner.stop`). It drops every queued wake and refuses every further action of a running inner turn with `inner-stopped`, and the stop is kept across restarts. `/wakes start` releases it (`inner.start`), and `/wakes list` shows the switch, the mode, the queue, the day's review and the caps used (`inner.status`). The persona cannot stop or start it herself.
 
 ## When a provider call fails
 
@@ -232,24 +229,16 @@ Three error codes are retried: `provider-limit`, `provider-error` and `timeout`.
 
 On a retried run that succeeds, each wake in `<wake>` carries a line noting how many minutes late it is and why. A failed attempt does not count against the daily caps.
 
-## What she found goes to her memory
-
-What she reads on her own in an inner turn joins the memory analyzer's path. When an inner turn ends and at least one read returned something, or the turn has something to answer for (a call, a call that failed, text outside a call, a loop cut), the turn hands an episode to the analyzer: lines of hers, in the first person. One line with her thinking, her executed calls, proposed or refused ones, and what did not go through. One line per read in `wakes.memory.tools` (by default `web.search`, `web.read`, `memory.search`, `errand.status`, `errand.list`), at most `wakes.memory.maxFindings`, with the query, the result cut to `wakes.memory.resultChars`, and links as sources.
-
-Each line is marked with provenance `inner`. Where it belongs decides where it goes: a server inner turn buffers it with the server's lines; one in a private chat buffers it in that member's private layer only. The record keeps chat only, so these lines never reach it.
-
-Shadow turns count. A shadow turn's reads really ran, so what they found enters her memory the same way, marked `shadow`. What it only proposed is listed as not done, never as done.
-
 ## State and journal
 
 The queue, handled wake ids and interrupted turn evidence live in the memory database's `wakes` table (see [memory.md](memory.md)). `src/behavior/inner/queue.ts` keeps one persona state under `personaKey('inner')`. The stop flag, review clock, heartbeat, selfimprovement clocks and counters are shared across conversation contexts. Facts and review channel snapshots retain their originating context. Loading another community does not create another inner life or reset its clocks. All durable writes use the memory database writer.
 
-The journal's `inner` records carry: wakes, turns (outcome, actions, loop, feedback, cost), cap refusals, overflows, stale drops, slept wakes, the review, recurring advances, restarts, the stop/start. The inner turn is a turn of the journal with mode `inner`.
+The journal's `inner` records carry: wakes, turns (outcome, actions, loop, feedback, cost), cap refusals, overflows, stale drops, slept wakes, the review, recurring advances, restarts and the stop and start of the kill switch. The inner turn is a turn of the journal with mode `inner`.
 
 ## Checking it before going live
 
 ```
-node scripts/replay.ts --inner <intention_due|errand_deadline|review> [--intention <id> | --review]
+node scripts/replay.ts --inner <intention_due|errand_deadline|review|heartbeat> [--intention <id> | --review]
 ```
 
 Builds and runs one inner turn against the live data, read only and in shadow: nothing is posted, nothing is written. Prints the request's blocks and the actions she proposed.
@@ -268,4 +257,4 @@ Each inner turn is recorded as a wake run in the memory database with its action
 
 ## Standing tasks
 
-`intention.set` with `standing` true and an `every` makes a recurring task that lasts until it is cancelled (`createIntention` in `src/intentions/model.ts`). Its `expiresAt` is the far end of the calendar, so every clock comparison stays as it is. Missed occurrences are skipped, after any length of absence, and nothing interrupted is replayed. Ordinary intentions keep `intentions.expiresDays`, and ordinary recurring ones `intentions.recurringExpiresDays`.
+`intention.set` with `standing` true and an `every` makes a recurring task that lasts until it is cancelled (`createIntention` in `src/intentions/model.ts`). `standing` without `every` is refused `bad-every`. Its `expiresAt` is the far end of the calendar, so every clock comparison stays as it is. Missed occurrences are skipped, after any length of absence, and nothing interrupted is replayed. Ordinary intentions keep `intentions.expiresDays`, and ordinary recurring ones `intentions.recurringExpiresDays`.

@@ -30,6 +30,13 @@ test('a chat role sends one short completion with the key and reports model, key
   assert.ok(Number(calls[0]?.body?.max_tokens) <= 8, 'the probe asks for a few tokens at most');
 });
 
+test('the quick search role is probed as a chat', async () => {
+  // Bug: `/search model` tells the owner to run `/keys check search`, which answered that the role has no probe.
+  const { fetch } = fakeFetch(() => ({ status: 200, body: { choices: [{ message: { content: 'ok' } }], usage: {} } }));
+  const result = await checkRole({ ...input, fetch, role: 'search', model: 'x/quick' });
+  assert.equal(result.ok, true);
+});
+
 test('the embedding role is probed on the embeddings endpoint, not as a chat', async () => {
   const { fetch, calls } = fakeFetch();
   const result = await checkRole({ ...input, fetch, role: 'embedding', model: 'x/embed' });

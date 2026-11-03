@@ -8,6 +8,21 @@ The board (`src/board/`) is a set of `board_*` tables in `memory.db`, beside her
 
 The core is the only process that opens the board for writing. Every board write is a write of the memory writer, so the board is up exactly while the core runs.
 
+## Settings
+
+| Key | Default | What it does |
+|---|---|---|
+| `board.leaseTtlMinutes` | 30 | Minutes a claim holds a task when the claim or the heartbeat names no lease of its own |
+| `board.reapSeconds` | 60 | Seconds between two beats of the reaper, which returns each task whose lease expired to `approved` |
+| `board.briefWaitMs` | 1800000 | Milliseconds `task.next` holds back a task whose answer no reviewer has acted on yet |
+| `board.autoTriage.role` | `dev` | The role `task.add` with `auto` fills in when the caller left it out |
+| `board.autoTriage.budget` | 4 | The budget in USD that `auto` fills in |
+| `board.autoTriage.steps` | 80 | The step cap that `auto` fills in |
+| `board.autoTriage.estimate` | 30 | The estimate in minutes that `auto` fills in |
+| `board.projects` | `{}` | Per project, an `autoTriage` that overrides the board-wide one field by field, and `ci: false` for a project without CI |
+
+The board reads these settings at every call (`src/board/board.ts`). `task.add` with `auto` triages and approves the task in the same transaction, through the machine's own rules, and fills only the fields the caller left out. With a `reviewer` among the clients of `clients.json`, a `dev` task that a caller without that role files with `auto` stops at `triaged` to wait for its brief, unless the call carries `no_brief`. A task of a project with `ci: false` is merged by a reviewer on recorded passing tests, because no CI result will come.
+
 ## Roles
 
 A principal's roles come from its `boardRoles` in the private directory's `clients.json`, read at every call. The core adds builtin principals of its own, `persona`, `core` and `selfimprovement`, whatever `clients.json` says of those names. `selfimprovement` holds `reviewer` and `worker`. `selfdev` holds the same two roles, because a deployment whose only token file is `clients/selfdev.token` connects the service under that name. The self-development service ([Self-development](selfimprovement.md)) triages her fix proposals, works them as the holder and closes them when their pull request merges.

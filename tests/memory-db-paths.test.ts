@@ -14,6 +14,7 @@ import {
   isOperational,
   pathClass,
 } from '../src/memory/db/paths.ts';
+import { legacyStorageKey } from '../src/memory/db/paths.ts';
 import { MAPPERS, classify } from '../src/memory/db/map/index.ts';
 import { operationalJsonPath } from '../src/memory/store.ts';
 import { GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
@@ -196,4 +197,12 @@ test("allowlist: the store's operational JSON files (what /nep resume checks und
     if (toolOutput.test(rel)) continue;
     assert.equal(operationalJsonPath(rel), isOperational(rel), rel);
   }
+});
+
+test('a retired journal marker at the data root keeps a storage key, so an old database still migrates', () => {
+  // Bug: one such row of an earlier release made migration refuse a real database with UNIT_UNMAPPED.
+  assert.deepEqual(legacyStorageKey('journal/.running'), {
+    kind: 'journal_running',
+    subject: { type: 'persona', id: 'persona:local' },
+  });
 });
