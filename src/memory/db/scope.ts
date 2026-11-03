@@ -91,7 +91,12 @@ export const dmContext = <P extends string, T extends string>(
 });
 export const internalContext = (): Context => ({ internal: true });
 /** What a read's context is issued for: the DM of `privateUserId`, else the group of `channelId`, on the channel's interface. */
-export function readContextSpec(channelIface: unknown, home: unknown, channelId: unknown, privateUserId: unknown) {
+export function readContextSpec(
+  channelIface: unknown,
+  home: unknown,
+  channelId: unknown,
+  privateUserId: unknown
+): { iface: string; kind: 'dm'; person: string } | { iface: string; kind: 'group'; destination: string | null } {
   const iface = String(typeof channelIface === 'string' && channelIface !== '' ? channelIface : home);
   return privateUserId
     ? { iface, kind: 'dm' as const, person: personId(iface, privateUserId) }
