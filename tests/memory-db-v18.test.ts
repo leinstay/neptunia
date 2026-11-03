@@ -144,12 +144,27 @@ test('a second open of the imported database changes no wake and imports nothing
   assert.equal(fs.readFileSync(inner, 'utf8'), file1, 'the state file is left as the first open left it');
 });
 
-test('the imported in-flight wake is queued again by the recovery of the next start', () => {
+test('recovery interrupts imported running and queued wakes while retaining their evidence', () => {
   const { dataDir, file } = upgradeable();
   const handle = openMemoryDb(file, { context: { dataDir } });
   try {
-    assert.deepEqual(recoverWakes(handle, { now: STARTED + 10 * MINUTE }), { requeued: 1, slept: 0 });
-    assert.equal(wakeOf(handle, RUNNING.id)?.state, 'queued');
+    const ids = [RUNNING.id, QUEUED.id];
+    const evidence = () =>
+      ids.map((id) => {
+        const wake = wakeOf(handle, id);
+        return [wake?.id, wake?.kind, wake?.payload, wake?.turnId];
+      });
+    const retained = evidence();
+    // Imported actions are historical evidence, not permission to execute after restart.
+    assert.deepEqual(recoverWakes(handle, { now: STARTED + 10 * MINUTE }), { interrupted: 2, slept: 0 });
+    assert.deepEqual(
+      ids.map((id) => [wakeOf(handle, id)?.state, wakeOf(handle, id)?.outcome]),
+      [
+        ['handled', 'interrupted'],
+        ['handled', 'interrupted'],
+      ]
+    );
+    assert.deepEqual(evidence(), retained);
   } finally {
     handle.close();
   }

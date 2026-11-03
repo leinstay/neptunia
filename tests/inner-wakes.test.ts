@@ -10,11 +10,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createInnerLife } from '../src/behavior/inner.ts';
+import { createInnerLife, emptyState } from '../src/behavior/inner.ts';
 import type { InnerTurnParams } from '../src/behavior/inner/types.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
+import { communityKey, personaKey } from '../src/memory/db/storage-keys.ts';
+import { guildPlaceId } from '../src/memory/db/ids.ts';
+import { unitValue } from '../src/memory/db/readers/common.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
 import { leaseOf, wakeOf } from '../src/memory/db/wake-queue.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -66,11 +72,10 @@ function hotOf() {
  * keeps across a restart (the clock, the intentions, the store's pause flags). `restart()` closes the database and
  * opens a new one and a new inner life over the same directory, as a new process would.
  */
-async function core() {
+async function core(dataDir = tempDir('nep-inner-wakes-')) {
   world().channel({ id: 'c1', name: 'chan-c1', guildId: GUILD, permissions: { send: true } });
   const clock = { t: T };
   const hot = hotOf();
-  const dataDir = tempDir('nep-inner-wakes-');
   const flags: PauseFlags = {};
   const store = { state: { data: flags } };
   const service = createIntentionService({
@@ -84,6 +89,7 @@ async function core() {
   const open = async () => {
     const memory = await openTestMemory({
       dataDir,
+      iface: () => 'fake',
       config: { context: { turnLeaseMs: LEASE_MS } },
       now: () => clock.t,
     });
@@ -205,10 +211,11 @@ test('no transaction is open on the writer while the turn asks the model', async
   }
 });
 
-test('a wake cut off by a restart runs again after its lease expired, under the turn id of its first run', async () => {
+test('a wake cut off by a restart is interrupted without another model call', async () => {
   const run = await core();
   try {
-    dueIntention(run, T - MINUTE);
+    const { wakeId } = dueIntention(run, T - MINUTE);
+    const unfinished = structuredClone(run.service.list(GUILD, { all: true }));
     let started: () => void = () => {};
     const asked = new Promise<void>((resolve) => (started = resolve));
     // The first process dies inside the model call: its turn never answers.
@@ -223,14 +230,19 @@ test('a wake cut off by a restart runs again after its lease expired, under the 
     run.turns.answer = skipped;
     await run.life.tick();
     const ids = run.turns.calls.map((call) => call.journalTurn.turnId);
-    assert.equal(ids.length, 2, 'the cut-off wake runs once more');
-    assert.equal(ids[1], ids[0], 'the same turn id, so the same effect keys');
+    // Restart retains evidence but never authorizes replay of an unfinished action.
+    assert.equal(ids.length, 1, 'the cut-off wake never asks the model again');
+    const kept = wakeOf(readHandleOf(run.memory), wakeId);
+    assert.equal(kept?.state, 'handled');
+    assert.equal(kept?.outcome, 'interrupted');
+    assert.equal(kept?.turnId, ids[0], 'the original turn identity remains evidence');
+    assert.deepEqual(run.service.list(GUILD, { all: true }), unfinished, 'restart retains unfinished work exactly');
   } finally {
     await run.close();
   }
 });
 
-test('a wake that fell due while the core was down sleeps and never runs, and one due before the downtime runs', async () => {
+test('restart abandons an already queued wake while a wake due during downtime sleeps', async () => {
   const run = await core();
   try {
     const before = dueIntention(run, T - MINUTE);
@@ -244,10 +256,11 @@ test('a wake that fell due while the core was down sleeps and never runs, and on
     await run.life.tick();
     run.clock.t += MINUTE;
     await run.life.tick();
-    assert.deepEqual(
-      run.turns.calls.map((call) => call.inner.wake.items.flatMap((item) => item.intentionIds)),
-      [[before.id]]
-    );
+    // Queued actions need a fresh model decision after restart, just like interrupted running actions.
+    assert.deepEqual(run.turns.calls, []);
+    const abandoned = wakeOf(readHandleOf(run.memory), before.wakeId);
+    assert.equal(abandoned?.state, 'handled');
+    assert.equal(abandoned?.outcome, 'interrupted');
     const slept = wakeOf(readHandleOf(run.memory), during.wakeId);
     assert.equal(slept?.state, 'slept');
     assert.equal(slept?.handledAt, T + 2 * HOUR);
@@ -350,6 +363,103 @@ test('inner stop state saved through the writer survives reopening without inner
     await run.restart();
     assert.equal(run.life.status(GUILD).stopped, true);
     assert.equal(fs.existsSync(file), false);
+  } finally {
+    await run.close();
+  }
+});
+
+// Separate community caches must not overwrite the persona's clocks or another conversation's evidence.
+test('legacy inner states consolidate into one persistent life with scoped facts and review views', async () => {
+  const dataDir = tempDir('nep-global-inner-');
+  const firstKey = communityKey('inner', GUILD, { iface: 'fake' });
+  const secondKey = communityKey('inner', 'g2', { iface: 'fake' });
+  const first = {
+    ...emptyState(),
+    stopped: true,
+    stoppedAt: T - MINUTE,
+    stoppedBy: 'owner',
+    heartbeat: { lastAt: T - 3 * MINUTE, nextAt: T + 5 * MINUTE },
+    selfimprovement: { lastAt: T - MINUTE, raisedAt: T - 4 * MINUTE },
+    review: { day: '2026-10-31', at: T + MINUTE, done: true, channels: ['c1'], lines: 2 },
+    facts: [
+      { id: 'f1', kind: 'turnFailed', channelId: 'c1', privateChat: false, at: T - MINUTE, told: false as const },
+    ],
+    turns: [{ at: T - MINUTE, chainId: 'one', usd: 1, outcome: 'skip', kinds: ['review'] }],
+    spend: [{ at: T - MINUTE, usd: 1 }],
+    turnIds: ['turn-one'],
+  };
+  const second = {
+    ...emptyState(),
+    heartbeat: { lastAt: T - 2 * MINUTE, nextAt: T + 3 * MINUTE },
+    selfimprovement: { lastAt: T - 2 * MINUTE, raisedAt: T - 3 * MINUTE },
+    review: { day: '2026-10-31', at: T + 2 * MINUTE, done: false, channels: ['c2'], lines: 3 },
+    facts: [{ id: 'f2', kind: 'turnFailed', channelId: 'c2', privateChat: false, at: T, told: false as const }],
+    turns: [{ at: T, chainId: 'two', usd: 2, outcome: 'skip', kinds: ['review'] }],
+    spend: [{ at: T, usd: 2 }],
+    turnIds: ['turn-two'],
+  };
+  // Legacy units precede the first service open. An existing persona state always wins subsequent opens.
+  const legacy = openMemoryDb(path.join(dataDir, 'memory.db'));
+  try {
+    applyUnitWrite(legacy, { op: 'value', key: firstKey, value: first });
+    applyUnitWrite(legacy, { op: 'value', key: secondKey, value: second });
+  } finally {
+    legacy.close();
+  }
+  const run = await core(dataDir);
+  try {
+    const state = run.life.state(GUILD);
+    assert.equal(run.life.state('g2').stopped, true, 'the stop applies across community contexts');
+    assert.deepEqual(run.life.state('g2').heartbeat, { lastAt: T - 2 * MINUTE, nextAt: T + 5 * MINUTE });
+    assert.deepEqual(state.heartbeat, { lastAt: T - 2 * MINUTE, nextAt: T + 5 * MINUTE });
+    assert.deepEqual(state.selfimprovement, { lastAt: T - MINUTE, raisedAt: T - 3 * MINUTE });
+    assert.equal(state.review?.day, '2026-10-31');
+    assert.equal(state.review?.done, true);
+    assert.deepEqual(state.reviewViews, {
+      [guildPlaceId('fake', GUILD)]: { day: '2026-10-31', channels: ['c1'], lines: 2 },
+      [guildPlaceId('fake', 'g2')]: { day: '2026-10-31', channels: ['c2'], lines: 3 },
+    });
+    assert.equal(state.stopped, true);
+    assert.equal(state.stoppedBy, 'owner');
+    assert.deepEqual(state.turnIds.toSorted(), ['turn-one', 'turn-two']);
+    assert.deepEqual(
+      state.turns.map((turn): [string, unknown] => [turn.chainId, Reflect.get(turn, 'scopePlaceId')]).toSorted(),
+      [
+        ['one', guildPlaceId('fake', GUILD)],
+        ['two', guildPlaceId('fake', 'g2')],
+      ]
+    );
+    assert.deepEqual(
+      state.spend.map(({ at, usd }) => ({ at, usd })),
+      [...first.spend, ...second.spend]
+    );
+    assert.deepEqual(
+      run.life.facts.pending(GUILD, { channelId: 'c1' }).map((fact) => fact.id),
+      ['f1']
+    );
+    assert.deepEqual(
+      run.life.facts.pending('g2', { channelId: 'c2' }).map((fact) => fact.id),
+      ['f2']
+    );
+    run.life.facts.add('g2', { kind: 'turnFailed', channelId: 'c2', text: 'retained after reopen' });
+    await run.life.release();
+    const handle = run.memory.memoryDb.readHandle();
+    assert.ok(handle);
+    const db = dbOf(handle);
+    assert.deepEqual(unitValue(db, firstKey), { found: true, value: first });
+    assert.deepEqual(unitValue(db, secondKey), { found: true, value: second });
+    const persisted = unitValue(db, personaKey('inner'));
+    assert.equal(persisted.found, true);
+    await run.memory.memoryDb.writeUnit({ op: 'value', key: firstKey, value: { ...first, stopped: false } });
+    await run.restart();
+    assert.equal(run.life.state('g2').stopped, true, 'historical source units never overwrite existing persona state');
+    const reopened = run.memory.memoryDb.readHandle();
+    assert.ok(reopened);
+    assert.deepEqual(unitValue(dbOf(reopened), personaKey('inner')), persisted);
+    assert.deepEqual(
+      run.life.facts.pending('g2', { channelId: 'c2' }).map((fact) => fact.text ?? fact.id),
+      ['f2', 'retained after reopen']
+    );
   } finally {
     await run.close();
   }

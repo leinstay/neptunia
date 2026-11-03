@@ -1,14 +1,13 @@
-// The wake queue and its store: the state of one guild's inner life (read on first use, pruned and written after every
-// change), the door's handler of `inner.wake`, the wakes an intention gives and how queued wakes coalesce into one
-// turn. The queue, the handled wakes and the in-flight mark are kept in the memory database's `wakes`
-// (src/behavior/inner/wake-store.ts keeps the state's view of them in step); the rest of the state is
-// the database unit `guilds/<id>/inner.json`, written through the same service. The other modules of src/behavior/inner/ read and
-// change the state only through these functions, over the `life` context that src/behavior/inner.ts builds.
+// One persona state holds shared clocks and scoped conversation evidence. The wake tables supply its queue,
+// handled outcomes and in-flight view. Persona state writes and wake transitions share the memory writer chain.
+// Community arguments select conversation context, not separate state objects. Standalone file-backed fixtures
+// retain the explicit legacy file adapter.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { communityKey, namespaceOf } from '../../memory/db/storage-keys.ts';
+import { personaKey } from '../../memory/db/storage-keys.ts';
 
+import { guildPlaceId } from '../../memory/db/ids.ts';
 import { createReadSeam, unitValue } from '../../memory/db/readers/common.ts';
 import { writeJsonAtomic } from '../../memory/index.ts';
 import { DAY_MS } from '../../time.ts';
@@ -74,6 +73,7 @@ export function emptyState(): InnerState {
     queue: [],
     handled: {},
     review: null,
+    reviewViews: {},
     heartbeat: null,
     selfimprovement: null,
     turns: [],
@@ -136,6 +136,7 @@ export function normalizeState(value: unknown): InnerState {
     queue: storedWakes(raw.queue, WAKE_KINDS) as Array<Wake>,
     handled: objOf(raw.handled) as Record<string, Handled>,
     review: raw.review && typeof review.day === 'string' ? (review as Review) : null,
+    reviewViews: objOf(raw.reviewViews) as InnerState['reviewViews'],
     heartbeat: heartbeatOf(raw.heartbeat),
     selfimprovement: selfimprovementOf(raw.selfimprovement),
     turns: listOf(raw.turns).filter((turn) => isFiniteNumber(objOf(turn).at)) as Array<TurnRecord>,
@@ -268,6 +269,7 @@ export function coalesceGroup(queue: ReadonlyArray<Wake>, isHeld: (wake: Wake) =
     const first = feedback[0];
     return feedback.filter(
       (wake) =>
+        wake.scopePlaceId === first.scopePlaceId &&
         wake.channelId === first.channelId &&
         Boolean(wake.privateChat) === Boolean(first.privateChat) &&
         retryKey(wake) === retryKey(first)
@@ -282,7 +284,9 @@ export function coalesceGroup(queue: ReadonlyArray<Wake>, isHeld: (wake: Wake) =
   const anchor = sorted.find((wake) => wake.kind !== 'review') ?? null;
   // A retried wake runs only with the wakes of its own failed group (the same attempt and first failure); a fresh one never joins them.
   const key = retryKey(anchor ?? sorted[0]);
-  const same = sorted.filter((wake) => retryKey(wake) === key);
+  const same = sorted.filter(
+    (wake) => retryKey(wake) === key && wake.scopePlaceId === (anchor ?? sorted[0]).scopePlaceId
+  );
   if (!anchor) return same;
   return same.filter((wake) =>
     wake.kind === 'review'
@@ -294,11 +298,29 @@ export function coalesceGroup(queue: ReadonlyArray<Wake>, isHeld: (wake: Wake) =
 /** What tells retried wakes of one failed group from fresh ones: '' for a fresh wake. */
 const retryKey = (wake: Wake | undefined): string => (wake?.retry ? `${wake.retry}:${wake.firstFailedAt ?? ''}` : '');
 
-/** The state of one guild, read from the ready database on first use when a service is supplied. */
+/** Capture the community and native conversation alongside inner evidence. */
+export function contextOf(
+  life: InnerContext,
+  guildId: string | null | undefined,
+  channelId?: unknown
+): Pick<Fact, 'scopePlaceId' | 'conversation'> {
+  const iface = life.iface();
+  return {
+    scopePlaceId: guildId ? guildPlaceId(iface, guildId) : null,
+    conversation: typeof channelId === 'string' && channelId ? { iface, conversationId: channelId } : null,
+  };
+}
+
+/** Only wakes captured in this community enter its drain. */
+export function inScope(life: InnerContext, guildId: string, wake: Wake): boolean {
+  return !wake.scopePlaceId || wake.scopePlaceId === contextOf(life, guildId).scopePlaceId;
+}
+
+/** The persona state, read once from the ready database with a global wake view. */
 export function stateOf(life: InnerContext, guildId: unknown): InnerState {
   const { states } = life;
   const key = String(guildId);
-  const known = states.get(key);
+  const known = states.get('persona');
   const keepSince = life.now() - CHAIN_KEEP_MS;
   if (known) {
     loadView(life, key, known, keepSince);
@@ -311,9 +333,7 @@ export function stateOf(life: InnerContext, guildId: unknown): InnerState {
   try {
     if (life.memoryDb) {
       const seam = stateSeam(life);
-      const found = seam.run(() =>
-        unitValue(seam.db(), communityKey('inner', key, { iface: namespaceOf(life.memoryDb) }))
-      );
+      const found = seam.run(() => unitValue(seam.db(), personaKey('inner')));
       raw = found.found ? found.value : null;
     } else raw = JSON.parse(fs.readFileSync(fileOf(life, key), 'utf8'));
   } catch (err) {
@@ -321,7 +341,7 @@ export function stateOf(life: InnerContext, guildId: unknown): InnerState {
     if (errorCode(err) !== 'ENOENT') lost = errorCode(err) ?? 'parse';
   }
   const state = normalizeState(raw);
-  states.set(key, state);
+  states.set('persona', state);
   if (lost !== null) loseState(life, key, state, lost);
   loadView(life, key, state, keepSince);
   return state;
@@ -355,7 +375,7 @@ export function loseState(life: InnerContext, key: string, state: InnerState, co
   }
 }
 
-/** The guild's state pruned in place and written before the queue changes on the same chain. */
+/** Prune the shared state in place and persist it before the current conversation queue changes. */
 export function save(life: InnerContext, guildId: unknown): InnerState {
   const { hot, now } = life;
   const key = String(guildId);
@@ -387,7 +407,7 @@ function persistState(life: InnerContext, key: string, state: InnerState): void 
       throw Object.assign(new Error('DB_WRITE_UNAVAILABLE'), { code: 'DB_WRITE_UNAVAILABLE' });
     const write = life.memoryDb.writeUnit.bind(life.memoryDb);
     const snapshot: unknown = JSON.parse(JSON.stringify(value));
-    const keyOfState = communityKey('inner', key, { iface: namespaceOf(life.memoryDb) });
+    const keyOfState = personaKey('inner');
     life.writes = life.writes.then(() => write({ op: 'value', key: keyOfState, value: snapshot })).catch(failed);
     return;
   }
@@ -445,7 +465,11 @@ export function paused(life: InnerContext): boolean {
 export function addFact(life: InnerContext, state: InnerState, fact: FactInput): Fact {
   const { now } = life;
   const at = isFiniteNumber(fact.at) ? fact.at : now();
-  return addFactTo(state, { ...fact, at }, `f${at.toString(36)}-${++life.factSeq}`);
+  return addFactTo(
+    state,
+    { ...contextOf(life, life.getGuildId(), fact.channelId), ...fact, at },
+    `f${at.toString(36)}-${++life.factSeq}`
+  );
 }
 
 /** The purpose of intention `id` in the guild's store ('' when unknown). Never throws. */
@@ -470,6 +494,7 @@ export function wakeFact(
 ): FactInput {
   const intentionId = listOf(wake.intentionIds).map(String)[0] ?? null;
   return {
+    ...contextOf(life, guildId, wake.channelId),
     kind,
     wakeId: wake.id,
     wake: wake.kind,
@@ -565,7 +590,7 @@ export function onWake(life: InnerContext, event: unknown): WakeAnswer {
   if (state.handled[id] || state.queue.some((queued) => queued.id === id)) return { status: 'duplicate' };
   const at = now();
   // The wake is the scheduler's own record (enqueue), handed back by the door.
-  const queued = { ...wake, id, queuedAt: at } as Wake;
+  const queued = { ...contextOf(life, asText(guildId), wake.channelId), ...wake, id, queuedAt: at } as Wake;
   const key = asText(guildId);
   if (state.queue.length >= innerSettings(hot.config).queueMax) {
     markHandled(life, state, [queued], 'overflow', at, { guildId: key });

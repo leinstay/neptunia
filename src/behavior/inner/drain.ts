@@ -24,6 +24,8 @@ import { committedSelfimprovement, selfimprovementFacts } from './selfimprovemen
 import type { SelfimprovementFacts } from '../selfimprovement-view.ts';
 import { attendFactsOf, placeNameOf, placesInWakeOf } from './places.ts';
 import {
+  contextOf,
+  inScope,
   addFact,
   channelless,
   coalesceGroup,
@@ -594,6 +596,7 @@ async function beginTurn(
     wakeIds: group.map((wake) => wake.id),
     kind,
     startedAt: at,
+    ...contextOf(life, guildId, where.channelId),
     ...where,
   };
   save(life, guildId);
@@ -605,6 +608,7 @@ function dropSpentFeedback(life: InnerContext, guildId: string, state: InnerStat
   const untold = new Set(state.facts.filter((fact) => !fact.told).map((fact) => fact.id));
   const spent = state.queue.filter(
     (wake) =>
+      inScope(life, guildId, wake) &&
       wake.kind === 'feedback' &&
       listOf(wake.factIds).length > 0 &&
       !listOf(wake.factIds).some((id) => untold.has(asText(id)))
@@ -613,6 +617,30 @@ function dropSpentFeedback(life: InnerContext, guildId: string, state: InnerStat
   markHandled(life, state, spent, 'told', at, { guildId });
   save(life, guildId);
   return spent.length;
+}
+
+/** Retire only this community's wakes whose intentions have ended. */
+function dropStale(life: InnerContext, guildId: string, state: InnerState, at: number): number {
+  const { intentions } = life;
+  const openOf = (id: string) => openRecordOf(life, guildId, id);
+  const stale = state.queue.filter(
+    (wake) =>
+      inScope(life, guildId, wake) &&
+      wake.kind !== 'review' &&
+      wake.intentionIds.length > 0 &&
+      wake.intentionIds.every((id) => !openOf(id))
+  );
+  if (stale.length > 0) {
+    // Why it is stale: the status the intention ended in; one that is gone or never began is `forgotten`.
+    const staleWhy = (wake: Wake) => {
+      const status = intentions?.store?.(guildId)?.get?.(wake.intentionIds[0])?.status;
+      return status === 'done' || status === 'cancelled' || status === 'expired' ? status : 'forgotten';
+    };
+    markHandled(life, state, stale, 'stale', at, { guildId, why: staleWhy });
+    save(life, guildId);
+    for (const wake of stale) note(life, guildId, { event: 'stale', wake: wakeFields(wake) });
+  }
+  return stale.length;
 }
 
 /** What drain answers: why nothing ran, or the turn that did. */
@@ -647,20 +675,8 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
 
   // An intention closed since its wake was queued (done, cancelled, expired): the wake is stale.
   const openOf = (id: string) => openRecordOf(life, guildId, id);
-  const stale = state.queue.filter(
-    (wake) => wake.kind !== 'review' && wake.intentionIds.length > 0 && wake.intentionIds.every((id) => !openOf(id))
-  );
-  if (stale.length > 0) {
-    // Why it is stale: the status the intention ended in; one that is gone or never began is `forgotten`.
-    const staleWhy = (wake: Wake) => {
-      const status = intentions?.store?.(guildId)?.get?.(wake.intentionIds[0])?.status;
-      return status === 'done' || status === 'cancelled' || status === 'expired' ? status : 'forgotten';
-    };
-    markHandled(life, state, stale, 'stale', at, { guildId, why: staleWhy });
-    save(life, guildId);
-    for (const wake of stale) note(life, guildId, { event: 'stale', wake: wakeFields(wake) });
-    if (state.queue.length === 0) return { dropped: stale.length };
-  }
+  const dropped = dropStale(life, guildId, state, at);
+  if (dropped > 0 && state.queue.length === 0) return { dropped };
 
   const told = dropSpentFeedback(life, guildId, state, at);
   if (told > 0 && state.queue.length === 0) return { told };
@@ -683,6 +699,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   const heldFresh: Record<string, number> = {};
   const freshHolds: Array<{ wake: Wake; fact: Fact }> = [];
   for (const wake of state.queue) {
+    if (!inScope(life, guildId, wake)) continue;
     const cap = holdOf(wake);
     if (!cap) {
       // The day rolled: a wake held by a cap is released.
@@ -707,7 +724,9 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   for (const cap of freshCaps) log.info('inner: capped', { guildId, cap, wakes: heldFresh[cap] });
   if (freshCaps.length > 0) save(life, guildId);
   // A wake of a failed turn waits for its retry time (`notBefore`).
-  const eligible = state.queue.filter((wake) => isEligible(wake, { held, at, settings }));
+  const eligible = state.queue.filter(
+    (wake) => inScope(life, guildId, wake) && isEligible(wake, { held, at, settings })
+  );
   if (eligible.length === 0) {
     if (held.length === 0) return { deferred: 'retry' };
     // No turn is coming to carry the new holds of an intention's wake: a feedback wake in its conversation tells her.
@@ -771,6 +790,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   // The facts a feedback wake carries, and the other facts this conversation may be shown (not told yet).
   const ownFactIds = new Set(group.filter((wake) => wake.kind === 'feedback').flatMap((wake) => listOf(wake.factIds)));
   const shownFacts = pendingFactsOf(state, {
+    ...contextOf(life, guildId, String(channel.id)),
     channelId: String(channel.id),
     privateChat: channel.communityId === null,
     anywhere: true,
@@ -849,6 +869,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   const errorCode =
     outcome === 'error' ? (typeof result.reason === 'string' && result.reason ? result.reason : CODE.ERROR) : null;
   after.turns.push({
+    ...contextOf(life, guildId, String(channel.id)),
     at: ended,
     chainId,
     usd: measured.usd,
@@ -865,7 +886,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   const turnId = inner.turnId ?? result.turnId ?? null;
   if (turnId) after.turnIds.push(asText(turnId));
   // The facts this turn showed are told once a model answer carried them (not after an error).
-  if (outcome !== 'error') markFactsTold(after, shownIds, ended);
+  if (outcome !== 'error') markFactsTold(after, shownIds, ended, contextOf(life, guildId));
   const retry =
     errorCode && RETRY_CODES.has(errorCode) && !after.stopped ? planRetry(group, ended, settings, errorCode) : null;
   // A wake of hers that comes back (a retry, or the one more try of a one-off) carries the facts of this turn.

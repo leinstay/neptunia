@@ -1,16 +1,7 @@
-// What the inner life does when it starts and while it sleeps. The start's recovery runs once per guild before the
-// first tick lists anything: a turn a restart cut off (its wakes `running` under another holder) is resolved from the
-// journal, then its wakes run again under their first turn id or are handled `interrupted`; the wakes that fell due
-// while the core was down sleep; the handled wakes older than 30 days are deleted; the `core:alive` lease is renewed,
-// as it is at every tick after, until a clean stop lets it go (`releaseAlive`); and the deliveries a completed wake left
-// unsent are settled and sent (deliveries.ts#resumeDeliveries).
-//
-// Sleep (the owner's answer of 2026-10-27): a wake that fell due during a downtime or a pause is `slept` and never
-// runs. The downtime runs from the last `core:alive` renewal to the start, a pause from its `pausedAt` (else the first
-// paused tick) to the first tick after the resume. A wake listed late, after the interval it fell due in, sleeps too.
-// For an intention the wake was for, the intention service's `sleep` cancels a one-off with a `sleptAt` mark and moves
-// a recurring one past the occurrence that slept. Nothing about it becomes a fact or a wake; the status counts the
-// wakes slept since the start. Called through src/behavior/inner.ts and src/behavior/inner/drain.ts.
+// Startup abandons persisted queued and running actions while preserving their recorded turn and work evidence.
+// Journal reconciliation records known effects without authorizing another turn. Held deliveries are retired or
+// reconciled without sending. Recovery runs once for the persona; core and wake leases fence previous holders.
+// Pause and listed-late sleep policy remains scoped to the current community.
 
 import { DAY_MS, utcDay } from '../../time.ts';
 import { ALIVE_LEASE, leaseOf, listWakes } from '../../memory/db/wake-queue.ts';
@@ -19,7 +10,7 @@ import { errorCode as codeOf, listOf, objOf } from '../../tools/types.ts';
 import type { Obj } from '../../tools/types.ts';
 import { resumeDeliveries } from './deliveries.ts';
 import { asText } from './facts.ts';
-import { addFact, enqueue, markHandled, note, paused, save, stateOf, wakeFields } from './queue.ts';
+import { contextOf, addFact, enqueue, markHandled, note, paused, save, stateOf, inScope, wakeFields } from './queue.ts';
 import { backendOf, dbSend, dbWrite, renewClaims, turnLeaseMs } from './wake-store.ts';
 import type { Inflight, InnerContext, Wake } from './types.ts';
 
@@ -35,13 +26,7 @@ const opLabel = (op: Obj): string =>
       : asText(op.name ?? 'operation')
   ).trim();
 
-/**
- * An in-flight mark left behind by a process that died in a turn (`state.inflight`): resolved from the journal
- * once its start-up reconciliation is done. If any operation of that turn went out (a persona's post reconciled as
- * sent or a call that executed; one that may have run and cannot be told counts too), its wakes are handled, not run
- * again, and an `interrupted` fact tells her what was done; if nothing went out (or the journal cannot say), the mark
- * is cleared and the wakes run again as before. Never throws.
- */
+/** Resolve known journal effects of a cut-off turn and mark its wakes interrupted without advancing work. */
 export async function resolveInflight(life: InnerContext, guildId: string): Promise<void> {
   const { journal, ready, now, log } = life;
   const state = stateOf(life, guildId);
@@ -80,19 +65,18 @@ export async function resolveInflight(life: InnerContext, guildId: string): Prom
   const wakes = state.queue.filter((wake) => ids.has(wake.id));
   const at = now();
   state.inflight = null;
-  if (done.length > 0 && wakes.length > 0) {
-    markHandled(life, state, wakes, 'interrupted', at, {
-      guildId,
-      named: wakes.flatMap((wake) => listOf(wake.intentionIds)),
-    });
-    addFact(life, state, {
-      at,
-      kind: 'interrupted',
-      wake: mark.kind,
-      done: done.join('; '),
-      channelId: mark.channelId,
-      privateChat: mark.privateChat,
-    });
+  if (wakes.length > 0) {
+    markHandled(life, state, wakes, 'interrupted', at);
+    if (done.length > 0)
+      addFact(life, state, {
+        at,
+        kind: 'interrupted',
+        ...contextOf(life, guildId, mark.channelId),
+        wake: mark.kind,
+        done: done.join('; '),
+        channelId: mark.channelId,
+        privateChat: mark.privateChat,
+      });
   }
   save(life, guildId);
   log.warn('inner: a turn was cut off by a restart', {
@@ -100,14 +84,14 @@ export async function resolveInflight(life: InnerContext, guildId: string): Prom
     turnId: mark.turnId,
     wakes: wakes.length,
     done: done.length,
-    rerun: !(done.length > 0 && wakes.length > 0),
+    rerun: false,
   });
   note(life, guildId, {
     event: 'interrupted',
     turnId: mark.turnId,
     wakes: wakes.map(wakeFields),
     done: done.length,
-    handled: done.length > 0 && wakes.length > 0,
+    handled: wakes.length > 0,
   });
 }
 
@@ -178,50 +162,54 @@ function sleepQueued(life: InnerContext, guildId: string, at: number): void {
   markSlept(
     life,
     guildId,
-    state.queue.filter((wake) => !life.running.has(wake.id) && sleptThrough(life, wake.dueAt)),
+    state.queue.filter(
+      (wake) => inScope(life, guildId, wake) && !life.running.has(wake.id) && sleptThrough(life, wake.dueAt)
+    ),
     at
   );
 }
 
-/** The start's recovery (see the head of this file), run once per guild; a database not open yet is tried again. */
+/** Startup runs once for the persona; an unopened database is tried again. */
 export function startUp(life: InnerContext, guildId: string): Promise<void> {
-  const known = life.started.get(guildId);
+  const known = life.started.get('persona');
   if (known) return known;
   const run = startUpNow(life, guildId);
-  life.started.set(guildId, run);
+  life.started.set('persona', run);
   return run;
 }
 
 async function startUpNow(life: InnerContext, guildId: string): Promise<void> {
   const state = stateOf(life, guildId);
   const read = backendOf(life).read();
-  if (!read || !life.viewLoaded.has(guildId)) {
-    life.started.delete(guildId);
+  if (!read || !life.viewLoaded.has('persona')) {
+    life.started.delete('persona');
     return;
   }
   const at = life.now();
   const alive = leaseOf(read, ALIVE_LEASE);
   if (alive && alive.holder !== life.holder && alive.renewedAt < at) life.sleep.windows.push([alive.renewedAt, at]);
-  const cutOff = listWakes(read, { community: guildId, states: ['running'] }).filter(
-    (row) => row.leaseHolder !== life.holder && !life.running.has(row.id)
+  const cutOff = listWakes(read, { states: ['running'] }).filter(
+    (row) => life.oldWakes.has(row.id) && row.leaseHolder !== life.holder && !life.running.has(row.id)
   );
   if (cutOff.length > 0) {
-    await dbWrite(life, { kind: 'wake-queue', op: 'requeue', ids: cutOff.map((row) => row.id), now: at }).catch(
-      () => null
-    );
     for (const mark of cutOffMarks(cutOff)) {
       state.inflight = mark;
-      await resolveInflight(life, guildId);
+      await resolveInflight(life, cutOff.find((row) => row.id === mark.wakeIds[0])?.community ?? guildId);
     }
   }
-  sleepQueued(life, guildId, at);
-  await dbWrite(life, { kind: 'wake-queue', op: 'recover', now: at }).catch(() => null);
+  await dbWrite(life, { kind: 'wake-queue', op: 'recover', now: at, ids: [...life.oldWakes] }).catch(() => null);
+  for (const wake of state.queue) {
+    if (life.oldWakes.has(wake.id)) state.handled[wake.id] = { at, outcome: 'interrupted' };
+  }
+  state.queue = state.queue.filter((wake) => !life.oldWakes.has(wake.id));
+  for (const synced of life.synced.values()) for (const id of life.oldWakes) synced.delete(id);
+  save(life, guildId);
   // A handled id is kept as long as the state file kept it (queue.ts, CHAIN_KEEP_MS), so a due item never wakes her twice.
   dbSend(life, { kind: 'wake-queue', op: 'prune', before: at - HANDLED_KEEP_MS, dataDir: life.dataDir });
   renewAlive(life, at);
-  // What a completed wake left to send when the process stopped: settled and sent before the first tick lists anything.
+  // Held sends are settled before the first tick lists anything.
   await life.writes;
-  await resumeDeliveries(life, guildId);
+  await resumeDeliveries(life);
 }
 
 /** `core:alive` renewed by this life, until the core stops. */

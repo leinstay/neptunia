@@ -7,6 +7,7 @@
 import { ensureUnit, hasStorageUnits, unitById, listUnits } from './storage-units.ts';
 import { storageMapper, classify } from './map/index.ts';
 import { legacyStorageKey, currentUnitPath } from './paths.ts';
+import { personaKey } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { messageLocator } from './message-locator.ts';
 import type { MessageLocator } from './message-locator.ts';
@@ -19,6 +20,7 @@ import { parseExtra } from './map/common.ts';
 import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
 import { hotClaimIds, linkVectors, qualify, retireAbsent, writeMapping } from './upsert.ts';
 import { unitRows } from './export.ts';
+import { unitValue } from './readers/common.ts';
 import { assignDiaryDestination } from './publish.ts';
 import { graphPending, projectPending } from './graph.ts';
 import { fillStems, markStemsPending, stemsPending } from './stems.ts';
@@ -514,11 +516,89 @@ function project(handle: MemoryHandle, update: Row, at: string): { units: number
   return out;
 }
 
+/** Numeric clocks from historical communities share their latest recorded bounds. */
+function mergeClock(previous: unknown, incoming: unknown): Row | null {
+  if (!previous && !incoming) return null;
+  const left = previous && typeof previous === 'object' ? (previous as Row) : {};
+  const right = incoming && typeof incoming === 'object' ? (incoming as Row) : {};
+  const out = { ...left, ...right };
+  for (const name of new Set([...Object.keys(left), ...Object.keys(right)])) {
+    const values = [left[name], right[name]].filter(isFiniteNumber);
+    if (values.length) out[name] = Math.max(...values);
+  }
+  return out;
+}
+
+/** Preserve review snapshots by community while sharing the latest day's draw and completion. */
+function mergeReview(value: Row, source: Row, scope: string): void {
+  const incoming = source.review as Row | null;
+  if (!incoming || typeof incoming.day !== 'string') return;
+  const views = value.reviewViews as Row;
+  views[scope] = { day: incoming.day, channels: incoming.channels ?? [], lines: incoming.lines ?? 0 };
+  const known = value.review as Row | null;
+  if (!known || String(known.day) < incoming.day) value.review = { ...incoming, channels: [], lines: 0 };
+  else if (known.day === incoming.day) {
+    known.done = known.done === true || incoming.done === true;
+    known.at = mergeClock({ at: known.at }, { at: incoming.at })?.at ?? null;
+  }
+}
+
+/** Historical evidence keeps its original community when the persona state is consolidated. */
+function mergeInner(value: Row, source: Row, scope: string): void {
+  if (source.stopped === true)
+    Object.assign(value, { stopped: true, stoppedAt: source.stoppedAt, stoppedBy: source.stoppedBy });
+  for (const field of ['heartbeat', 'selfimprovement']) value[field] = mergeClock(value[field], source[field]);
+  for (const field of ['facts', 'turns', 'spend']) {
+    const items = Array.isArray(source[field]) ? (source[field] as Array<Row>) : [];
+    value[field] = [
+      ...(value[field] as Array<Row>),
+      ...items.map((item) => ({ ...item, scopePlaceId: item.scopePlaceId ?? scope })),
+    ];
+  }
+  value.turnIds = [
+    ...new Set([
+      ...(value.turnIds as Array<string>),
+      ...(Array.isArray(source.turnIds) ? (source.turnIds as Array<string>) : []),
+    ]),
+  ];
+  mergeReview(value, source, scope);
+}
+
+/** Consolidate historical community state once through the same writer that persists the persona's state. */
+export function consolidateInnerState(handle: MemoryHandle, { now }: { now: number }): { consolidated: number } {
+  return handle.transaction(() => {
+    const db = dbOf(handle);
+    const key = personaKey('inner');
+    if (unitValue(db, key).found) return { consolidated: 0 };
+    const units = listUnits(db, { kind: 'inner' }).filter((unit) => unit.key.subject.type !== 'persona');
+    const value: Row = {
+      v: 1,
+      stopped: false,
+      review: null,
+      reviewViews: {},
+      heartbeat: null,
+      selfimprovement: null,
+      facts: [],
+      turns: [],
+      spend: [],
+      turnIds: [],
+    };
+    for (const unit of units) {
+      const stored = unitValue(db, unit.key);
+      if (stored.found && stored.value && typeof stored.value === 'object')
+        mergeInner(value, stored.value as Row, unit.key.scopePlaceId ?? unit.key.subject.id);
+    }
+    writeValue(db, { key, value }, isoOf(now));
+    return { consolidated: units.length };
+  });
+}
+
 /**
 
  * One write of an append-like memory unit (see the head of this file). `handle` is the writer.
  */
 export function applyUnitWrite(handle: MemoryHandle, update: Row): unknown {
+  if (update?.op === 'consolidate-inner') return consolidateInnerState(handle, { now: Number(update.now) });
   const at = isoOf(update?.now);
   const op = update?.op;
   if (op === 'project') return project(handle, update, at);

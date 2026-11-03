@@ -1,14 +1,10 @@
-// The inner life's wake queue in the memory database (src/memory/db/wake-queue.ts). The state's `queue`, `handled`
-// and `inflight` are a view: read back from `wakes` the first time a guild's state is used, then kept in step by
-// `syncQueue`, which every save of the state calls (a new queued wake is written, a changed one rewritten, one taken
-// off the queue written handled or removed). The turn's own steps are explicit and awaited: `claimTurn` claims the
-// group's wakes with fenced leases before the turn asks the model, and `finishTurn` completes the handled ones, with
-// the deliveries of the turn's held sends, and releases the rest after it. Every write goes through one chain, in
-// order, through the memory database's writer (`memoryWrite`); with no memory database the queue lives in one
-// in-memory database per data directory for the life of the process, opened with the same migrations, so the v18
-// import reads the guild files there too.
+// The persona wake view is loaded once from the memory database. Each queued wake retains its community and
+// native conversation. Saves synchronize the selected community without changing another community's queued work.
+// Claims and completions use fenced leases and the same writer chain as persona state. Standalone callers use
+// one in-memory database per data directory with the existing legacy queue import.
 
 import path from 'node:path';
+import { guildPlaceId } from '../../memory/db/ids.ts';
 import { openMemoryDb } from '../../memory/db/open.ts';
 import { applyWakeQueueWrite, listWakes } from '../../memory/db/wake-queue.ts';
 import type { DeliveryInput, Handle, StoredWake, TurnMark, WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
@@ -98,33 +94,41 @@ function handledOfRow(row: StoredWake): Handled {
 }
 
 /**
- * The guild's view read back from `wakes` once: the queued and running wakes, and the handled and slept ones since
+ * The persona's view read back from `wakes` once: the queued and running wakes, and the handled and slept ones since
  * `keepSince`. A wake the state already held that the table lacks stays, and the next save writes it.
  */
 export function loadView(life: InnerContext, guildId: string, state: InnerState, keepSince: number): void {
-  if (life.viewLoaded.has(guildId)) return;
+  if (life.viewLoaded.has('persona')) return;
   const read = backendOf(life).read();
   if (!read) return;
-  life.viewLoaded.add(guildId);
-  const rows = listWakes(read, { community: guildId, states: ['queued', 'running'] });
-  const synced = new Map<string, string>();
+  life.viewLoaded.add('persona');
+  const rows = listWakes(read, { states: ['queued', 'running'] });
   const ids = new Set(rows.map((row) => row.id));
-  const queue = wakesOfRows(rows);
-  for (const wake of queue) synced.set(wake.id, JSON.stringify(wake));
+  const queue = rows.flatMap((row) =>
+    wakesOfRows([row]).map((wake) => {
+      const community = row.community ?? guildId;
+      const scoped = { scopePlaceId: guildPlaceId(life.iface(), community), ...wake };
+      const synced = life.synced.get(community) ?? new Map<string, string>();
+      life.synced.set(community, synced);
+      synced.set(wake.id, JSON.stringify(scoped));
+      return scoped;
+    })
+  );
   state.queue = [...queue, ...state.queue.filter((wake) => !ids.has(wake.id))];
-  const handled = listWakes(read, { community: guildId, states: ['handled', 'slept'], handledSince: keepSince });
+  life.oldWakes = new Set(state.queue.map((wake) => wake.id));
+  const handled = listWakes(read, { states: ['handled', 'slept'], handledSince: keepSince });
   state.handled = { ...state.handled, ...Object.fromEntries(handled.map((row) => [row.id, handledOfRow(row)])) };
-  life.synced.set(guildId, synced);
 }
 
 /** The table brought in step with the guild's queue view (see the head of this file). Never throws. */
 export function syncQueue(life: InnerContext, guildId: string, state: InnerState): void {
-  if (!life.viewLoaded.has(guildId)) return;
+  if (!life.viewLoaded.has('persona')) return;
   const synced = life.synced.get(guildId) ?? new Map<string, string>();
   life.synced.set(guildId, synced);
   const now = life.now();
   const seen = new Set<string>();
   for (const wake of state.queue) {
+    if (wake.scopePlaceId && wake.scopePlaceId !== guildPlaceId(life.iface(), guildId)) continue;
     seen.add(wake.id);
     const json = JSON.stringify(wake);
     const was = synced.get(wake.id);

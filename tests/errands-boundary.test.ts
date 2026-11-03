@@ -502,7 +502,7 @@ async function tick(dataDir: string) {
   return { run, inner, calls };
 }
 
-test('the queued errand_deadline wake that carried taskId runs once and names its errand as errandId; the handled one never runs', async () => {
+test('the imported errand_deadline wake retains its renamed errand evidence without replay', async () => {
   const dataDir = seededDataDir();
   const { run, inner, calls } = await tick(dataDir);
   try {
@@ -511,16 +511,18 @@ test('the queued errand_deadline wake that carried taskId runs once and names it
     assert.equal(queued?.errandId, 't0000000c');
     assert.equal(Object.hasOwn(queued ?? {}, 'taskId'), false, 'the old field is dropped');
     await inner.tick();
-    assert.equal(calls.length, 1, 'one turn');
+    assert.equal(calls.length, 1, 'only a fresh due intention runs');
+    // Imported queued actions retain their normalized evidence without authorizing another execution.
+    assert.equal(inner.state(GUILD).handled[String(queued?.id)]?.outcome, 'interrupted');
     const wake = calls[0]?.inner.wake;
     assert.deepEqual(
       wake?.items.filter((item) => item.kind === 'errand_deadline').map((item) => [item.intentionIds, item.errandId]),
-      [[['i-wait'], 't0000000c']]
+      []
     );
     const mentioned = (wake?.items ?? []).flatMap((item) => item.intentionIds as Array<string>);
     assert.equal(mentioned.includes('i-late'), false, 'its wake was handled before the deploy');
-    // The same wake with one item, once as the turn got it and once as the seeded values give it.
-    const item = wake?.items.find((entry) => entry.kind === 'errand_deadline');
+    // The retained imported payload renders the same errand identity as the seeded semantic fields.
+    const item = queued;
     const shown = wakeBlockText({ ...wake, timezone: 'UTC', items: [item] }, SHIPPED_LABELS);
     const seeded = wakeBlockText(
       {
