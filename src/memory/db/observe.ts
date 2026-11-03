@@ -229,6 +229,13 @@ type RelationTarget = {
   revision?: number;
 };
 
+export type MessageConversation = Readonly<{
+  id: string;
+  chatType: 'channel' | 'thread' | 'group_dm' | 'dm';
+  partnerId?: string;
+  parentId?: string;
+}>;
+
 /** The observation envelope (see the head of this file), as `checkEnvelope` accepts it. */
 export type Envelope = {
   v: number;
@@ -249,6 +256,7 @@ export type Envelope = {
   capture?: CaptureRef | null;
   extra?: Row | null;
   messageLocator?: MessageLocator;
+  messageConversation?: MessageConversation;
 };
 
 /** Runs `fn` in the handle's transaction; a refusal becomes `{ ok: false, code }` (logged with its code only). */

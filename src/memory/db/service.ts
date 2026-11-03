@@ -105,6 +105,7 @@ import { utcDay } from '../../time.ts';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { indexSettings, reembedTouched } from './index-policy.ts';
+import { observeMessage as observeMessageEnvelope } from './message-families.ts';
 import { observe as observeEnvelope } from './observe.ts';
 import { graphPending } from './graph.ts';
 import { stemsPending } from './stems.ts';
@@ -453,7 +454,21 @@ type SessionState = {
 type ReadJob = { run: () => Promise<void>; done: Promise<void> | null };
 
 /** An observation waiting for the writer: the envelope, the record unit it belongs to and the tries so far. */
-type ObserveItem = { envelope: Row; owner: string | null; attempts: number };
+type ObserveItem = { type: 'observe' | 'observeMessage'; envelope: Row; owner: string | null; attempts: number };
+
+/** Sends either observation operation through the same worker or local writer boundary. */
+function dispatchObservation(
+  item: ObserveItem,
+  engine: Engine | null,
+  opened: () => MemoryHandle,
+  now: () => number,
+  log: Log
+): Promise<Row> {
+  const { envelope, owner } = item;
+  if (engine) return engine.call(item.type, { envelope, now: now(), owner });
+  const write = item.type === 'observeMessage' ? observeMessageEnvelope : observeEnvelope;
+  return Promise.resolve().then(() => write(opened(), envelope, { now, log, owner }));
+}
 
 /** The state of the memory database for the status card (see `status`). */
 export type MemoryDbStatus = {
@@ -497,6 +512,7 @@ export type MemoryDbService = {
   recordWake(update: unknown): Promise<unknown> | null;
   issueContext(spec?: Parameters<typeof issuePureContext>[0]): Context;
   observe(envelope: unknown, where?: Row | null): Promise<object> | null;
+  observeMessage(envelope: unknown, where?: Row | null): Promise<object> | null;
   waitObservations(): Promise<number>;
   focusPeople(options?: {
     iface?: string;
@@ -863,12 +879,7 @@ export function createMemoryDb({
   }
 
   function sendObservation(item: ObserveItem): Promise<Row | null> {
-    const { envelope, owner } = item;
-    const done = (
-      engine
-        ? engine.call('observe', { envelope, now: now(), owner })
-        : Promise.resolve().then(() => observeEnvelope(opened(), envelope, { now, log, owner }))
-    )
+    const done = dispatchObservation(item, engine, opened, now, log)
       .then((result: Row) => {
         if (result && result.ok === false) log.warn('memory db: observe refused', { code: result.code ?? null });
         return result;
@@ -890,9 +901,13 @@ export function createMemoryDb({
     return done;
   }
 
-  function observe(envelope: unknown, where: Row | null = null): Promise<object> | null {
+  function observe(
+    envelope: unknown,
+    where: Row | null = null,
+    type: ObserveItem['type'] = 'observe'
+  ): Promise<object> | null {
     if (!observeOn(envelope)) return null;
-    const item = { envelope, owner: recordUnitOf(envelope, where), attempts: 0 };
+    const item = { type, envelope, owner: recordUnitOf(envelope, where), attempts: 0 };
     if (!handle) {
       if (closed) {
         dropObservation('closed');
@@ -1619,6 +1634,7 @@ export function createMemoryDb({
     recordWake,
     issueContext,
     observe,
+    observeMessage: (envelope, where) => observe(envelope, where, 'observeMessage'),
     waitObservations,
     focusPeople,
     status,

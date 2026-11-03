@@ -8,6 +8,7 @@
 //
 // There is no `now` table and no `states` table: the owner dropped both.
 
+import { migrateMessageFamilies } from './message-family-catalog.ts';
 import { assignDiaryDestination, deriveAllMirrorPublications } from './publish.ts';
 import { pastEntries } from './diary-past.ts';
 import { repairSessionRows } from './session-repair.ts';
@@ -1260,6 +1261,7 @@ export const MIGRATIONS: Array<Migration> = [
   V20,
   V21,
   V22,
+  migrateMessageFamilies,
 ];
 
 /** Every table schema v8 adds. */

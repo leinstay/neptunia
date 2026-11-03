@@ -23,6 +23,7 @@ import { insertTurnReads, turnReadRows } from './service.ts';
 import { applyDiaryUpdate } from './diary-media.ts';
 import { applyMemoryWrite } from './session-write.ts';
 import { runFocusDay } from './focus.ts';
+import { observeMessage } from './message-families.ts';
 import { observe } from './observe.ts';
 import { dbOf } from './types.ts';
 import type { Config, MemoryHandle, Row } from './types.ts';
@@ -81,6 +82,13 @@ const handlers: Record<string, (message: Row) => unknown> = {
   },
   focus({ now, config }) {
     return runFocusDay(opened(), { now: now as number, config: config as Config });
+  },
+  observeMessage({ envelope, now, owner }) {
+    return observeMessage(opened(), envelope, {
+      now: () => now as number,
+      log,
+      owner: (owner as string | null) ?? null,
+    });
   },
   observe({ envelope, now, owner }) {
     return observe(opened(), envelope, { now: () => now as number, log, owner: (owner as string | null) ?? null });

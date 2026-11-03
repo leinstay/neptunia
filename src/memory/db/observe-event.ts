@@ -18,12 +18,27 @@
 
 import { messageLocator } from './message-locator.ts';
 import { OBSERVATION_VERSION } from './observe.ts';
-import type { Envelope } from './observe.ts';
+import type { Envelope, MessageConversation } from './observe.ts';
 import { isFiniteNumber } from './types.ts';
 import type { Row } from './types.ts';
 
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
 const isoOf = (ms: unknown): string | null => (isFiniteNumber(ms) ? new Date(ms).toISOString() : null);
+
+/** Retains protocol conversation identity independently of the mapped partner place. */
+function messageConversationOf(
+  id: string,
+  place: Envelope['place'],
+  conversation?: EventConversation
+): MessageConversation {
+  return {
+    id,
+    // placeOf accepts exactly the four normalized conversation kinds.
+    chatType: place.kind as MessageConversation['chatType'],
+    ...(filled(conversation?.partnerId) ? { partnerId: conversation.partnerId } : {}),
+    ...(filled(conversation?.parentId) ? { parentId: conversation.parentId } : {}),
+  };
+}
 
 /** The parts of a `message.received` event this module reads. */
 type EventMessage = {
@@ -145,7 +160,9 @@ export function observationOf(
   )
     return null;
   const authority = `${iface}/global`;
-  const place = placeOf(event.conversation as EventConversation | undefined, authority);
+  // The protocol conversation is narrowed by placeOf before its descriptor is emitted.
+  const conversation = event.conversation as EventConversation | undefined;
+  const place = placeOf(conversation, authority);
   const occurredAt = isoOf(message.at);
   if (!place || !occurredAt || typeof message.content !== 'string') return null;
   const locator = messageLocator(
@@ -183,6 +200,7 @@ export function observationOf(
     iface,
     authority,
     messageLocator: locator,
+    messageConversation: messageConversationOf(locator.conversationId, place, conversation),
     ...(filled(connection) ? { connection } : {}),
     native: {
       kind: 'message',

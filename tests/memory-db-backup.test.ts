@@ -8,6 +8,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { openMemoryDb, schemaVersion, MIGRATIONS } from '../src/memory/db/open.ts';
+import { observeMessage } from '../src/memory/db/message-families.ts';
+import { observe, type ObserveResult } from '../src/memory/db/observe.ts';
+import { observationOf } from '../src/memory/db/observe-event.ts';
+import { window } from '../src/memory/db/recall.ts';
+import { internalContext } from '../src/memory/db/scope.ts';
+import { dbOf } from '../src/memory/db/types.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { startRun } from '../src/memory/db/wakes.ts';
 import { backupDatabase, main, restoreDatabase, tableHashes } from '../scripts/memory-db.ts';
@@ -156,5 +162,90 @@ test('restore-test: the backup restored into an isolated db service hashes as th
     assert.deepEqual(restoreScratch(), scratchBefore);
   } finally {
     env.done();
+  }
+});
+
+test('backup restores normalized families with stable source IDs and conversation routing', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'message-family-backup-'));
+  const original = openMemoryDb(path.join(root, 'original.db'));
+  const options = { now: () => NOW, log: quiet };
+  const envelope = (conversationId: string, messageId: string, at: number) => {
+    const mapped = observationOf({
+      iface: 'synthetic',
+      at: NOW,
+      conversation: { id: conversationId, kind: 'channel', chatType: 'channel' },
+      message: { id: messageId, at, content: `${conversationId} ${messageId}`, author: { id: 'member' } },
+    });
+    assert.ok(mapped);
+    return { ...mapped, messageConversation: { id: conversationId, chatType: 'channel' as const } };
+  };
+  const sourceId = (result: ObserveResult): string => {
+    assert.equal(result.ok, true, JSON.stringify(result));
+    if (typeof result.sourceId !== 'string') throw new Error('observation has no source ID');
+    return result.sourceId;
+  };
+  try {
+    const anchors = new Map<string, string>();
+    for (const room of ['room-a', 'room-b']) {
+      sourceId(
+        observeMessage(original, envelope(room, 'before', NOW - 120_000), {
+          ...options,
+          newKey: () => `${room}-before-family`,
+        })
+      );
+      anchors.set(
+        room,
+        sourceId(
+          observeMessage(original, envelope(room, 'same-message', NOW - 60_000), {
+            ...options,
+            newKey: () => `${room}-anchor-family`,
+          })
+        )
+      );
+    }
+    const generic = envelope('generic-room', 'same-message', NOW - 60_000);
+    const genericId = sourceId(observe(original, generic, options));
+    const catalog = dbOf(original).prepare('SELECT * FROM message_families ORDER BY native_key').all();
+    const sources = dbOf(original).prepare('SELECT * FROM sources ORDER BY id').all();
+    const backup = path.join(root, 'backup');
+    const manifest = backupDatabase({ db: path.join(root, 'original.db'), to: backup, data: root });
+    assert.equal(manifest.rows?.message_families, 4);
+    const target = path.join(root, 'restored', 'memory.db');
+    restoreDatabase({ from: backup, db: target });
+    const restored = openMemoryDb(target);
+    try {
+      const db = dbOf(restored);
+      assert.deepEqual(db.prepare('SELECT * FROM message_families ORDER BY native_key').all(), catalog);
+      assert.deepEqual(db.prepare('SELECT * FROM sources ORDER BY id').all(), sources);
+      for (const [room, anchor] of anchors) {
+        const replay = observeMessage(restored, envelope(room, 'same-message', NOW - 60_000), {
+          ...options,
+          newKey: () => {
+            throw new Error('restored family allocated again');
+          },
+        });
+        assert.equal(sourceId(replay), anchor);
+        assert.equal(replay.replayed, true);
+        const result = window(db, {
+          ctx: internalContext(),
+          resolvedAnchor: { kind: 'source', sourceId: anchor },
+          move: 'up',
+          messages: 1,
+        });
+        assert.equal(result.unknown, false);
+        assert.deepEqual(
+          result.windows.flatMap((entry) => entry.messages).map((message) => message.stored?.native),
+          [{ iface: 'synthetic', conversationId: room, messageId: 'before' }]
+        );
+      }
+      assert.equal(sourceId(observe(restored, generic, options)), genericId);
+      assert.deepEqual(db.prepare('SELECT * FROM message_families ORDER BY native_key').all(), catalog);
+      assert.deepEqual(db.prepare('SELECT * FROM sources ORDER BY id').all(), sources);
+    } finally {
+      restored.close();
+    }
+  } finally {
+    original.close();
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
