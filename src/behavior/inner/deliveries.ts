@@ -1,20 +1,11 @@
-// A wake's sends after its completion (docs/inner-life.md "A wake's sends"). A live wake turn of a life that has a
-// port gets a hold (src/tools/send-hold.ts): her posts wait in it, and the wake's fenced completion records each as a
-// `deliveries` row under its effect key (wake-store.ts#finishTurn). After the completion commits, `sendDeliveries`
-// sends the turn's rows through the port in order, each marked `sending` before the port is called and `sent`,
-// `unknown` or `failed` by its answer. At a start, `resumeDeliveries` settles what a crash left: a row still `sending`
-// lost its answer, so it is reconciled through the adapter (src/interface/reconcile.ts) and never sent blindly (found:
-// `sent`; known not sent: `queued` again; the adapter cannot tell: `unknown`, never sent again), then every `queued`
-// row is sent once. Nothing is sent while her inner life is stopped (`mayAct`, asked before each send): the row stays
-// `queued`. A sent post of `message.create` is recorded as a sent post of a message turn is
-// (src/turn/journal-notes.ts#recordSaid): a `post` operation of the turn in the journal around the send, and her
-// `said` line in the record with the turn's id. A send that did not go out (`failed` or `unknown`) is a `callFailed`
-// fact in its conversation, and one `feedback` wake there carries it to her next turn; it is never sent again. The
-// drain (drain.ts) and the start's recovery (recovery.ts) call it; logs carry counts and codes, never text.
+// Live wake turns hold sends until their fenced completion commits, then send them through the guarded port.
+// Startup retires queued deliveries and reconciles sending deliveries without sending again. Confirmed posts keep
+// their originating wake community and native conversation in the record. Live send failures create feedback;
+// startup recovery creates no action. Logs carry counts and codes.
 
 import { reconcileUnknown } from '../../interface/reconcile.ts';
 import { toRecordLine } from '../../memory/record.ts';
-import { deliveriesIn, deliveryFiles, deliveryOf } from '../../memory/db/wake-queue.ts';
+import { wakeOf, deliveriesIn, deliveryFiles, deliveryOf } from '../../memory/db/wake-queue.ts';
 import type { Delivery, DeliveryInput, DeliveryState } from '../../memory/db/wake-queue.ts';
 import type { Delivery as Sent, ConversationRef } from '../../protocol/adapter.ts';
 import type { Content } from '../../protocol/actions.ts';
@@ -278,31 +269,32 @@ export async function sendDeliveries(life: InnerContext, guildId: string, keys: 
   }
 }
 
-/**
- * The deliveries a crash left, settled at a start: each `sending` one reconciled by its key (found: `sent`; known not
- * sent: `queued`; not known: `unknown`), then each `queued` one sent once, in the order they were recorded.
- */
-export async function resumeDeliveries(life: InnerContext, guildId: string): Promise<void> {
+/** Retire queued deliveries and reconcile uncertain sends without issuing a send or a feedback wake. */
+export async function resumeDeliveries(life: InnerContext): Promise<void> {
   const { port, log } = life;
   const read = backendOf(life).read();
-  if (!port || !read) return;
+  if (!read) return;
   const lost = deliveriesIn(read, 'sending');
   for (const delivery of lost) {
     const conversation = conversationOf(delivery);
-    // A read that throws says nothing: the row stays `sending` for the next start.
-    const found = conversation
-      ? await reconcileUnknown(port, { conversation, idempotencyKey: delivery.key }).catch(() => null)
-      : ({ status: 'unknown', ref: null, parts: [], at: null, idempotencyKey: delivery.key, error: null } as const);
-    if (found === null) continue;
-    const to: DeliveryState = found.status === 'ok' ? 'sent' : found.status === 'failed' ? 'queued' : 'unknown';
-    await move(life, delivery.key, ['sending'], to, to === 'queued' ? null : receiptOf(found));
-    // A send the reconcile found went out under the dead process, which never recorded it.
-    const messageId = found.ref?.messageId ?? null;
-    if (to === 'sent') recordSaid(life, guildId, delivery, { messageId, at: found.at, opId: null });
-    if (to === 'unknown') await tellFailed(life, guildId, delivery, found);
+    await move(life, delivery.key, ['sending'], 'unknown', { code: 'not-reconcilable' });
+    const found =
+      port && conversation
+        ? await reconcileUnknown(port, { conversation, idempotencyKey: delivery.key }).catch(() => null)
+        : null;
+    if (!found || found.status === 'unknown') continue;
+    const to = found.status === 'ok' ? 'sent' : 'failed';
+    await move(life, delivery.key, ['unknown'], to, to === 'failed' ? { code: 'not-sent' } : receiptOf(found));
+    const parent = wakeOf(read, delivery.wakeId);
+    if (to === 'sent' && parent?.community)
+      recordSaid(life, parent.community, delivery, {
+        messageId: found.ref?.messageId ?? null,
+        at: found.at,
+        opId: null,
+      });
   }
   const queued = deliveriesIn(backendOf(life).read() ?? read, 'queued');
-  for (const delivery of queued) await sendOne(life, guildId, delivery);
+  for (const delivery of queued) await move(life, delivery.key, ['queued'], 'failed', { code: 'interrupted' });
   if (lost.length + queued.length > 0)
-    log.info('inner: deliveries resumed', { lost: lost.length, queued: queued.length });
+    log.info('inner: interrupted deliveries settled', { lost: lost.length, queued: queued.length });
 }

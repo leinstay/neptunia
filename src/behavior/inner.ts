@@ -101,6 +101,8 @@ import { attendWakes, places, refreshPlaces } from './inner/places.ts';
 import { admitListed, beforeTick, releaseAlive } from './inner/recovery.ts';
 import type { PlacesQuery } from './inner/places.ts';
 import {
+  contextOf,
+  inScope,
   addFact,
   deadlineWakes,
   enqueue,
@@ -233,7 +235,7 @@ export type InnerLife = {
   start: (guildId?: string | null, options?: SwitchOptions) => SwitchAnswer;
   status: (guildId?: string | null) => InnerStatus;
   places: (guildId?: string | null, options?: PlacesQuery) => PlacesPage;
-  state: (guildId: unknown) => InnerState;
+  state: (guildId?: unknown) => InnerState;
   facts: FactsApi;
   /** The clean stop's end of `core:alive` (recovery.ts#releaseAlive). */
   release: () => Promise<void>;
@@ -361,6 +363,7 @@ export function createInnerLife({
         if (wake.kind === 'attend') {
           const older = state.queue.filter(
             (queued) =>
+              inScope(life, guildId, queued) &&
               queued.kind === 'attend' &&
               queued.intentionIds?.[0] === wake.intentionIds[0] &&
               !life.running.has(queued.id)
@@ -397,18 +400,18 @@ export function createInnerLife({
     add(guildId, fact) {
       const key = guildId ?? getGuildId();
       if (!key) return null;
-      const stored = addFact(life, stateOf(life, key), fact);
+      const stored = addFact(life, stateOf(life, key), { ...contextOf(life, key, fact.channelId), ...fact });
       save(life, key);
       return stored;
     },
     pending(guildId, scope) {
       const key = guildId ?? getGuildId();
-      return key ? pendingFactsOf(stateOf(life, key), scope) : [];
+      return key ? pendingFactsOf(stateOf(life, key), { ...contextOf(life, key, scope?.channelId), ...scope }) : [];
     },
     markTold(guildId, ids) {
       const key = guildId ?? getGuildId();
       if (!key) return;
-      markFactsTold(stateOf(life, key), ids, now());
+      markFactsTold(stateOf(life, key), ids, now(), contextOf(life, key));
       save(life, key);
     },
   };

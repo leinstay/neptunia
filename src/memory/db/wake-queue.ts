@@ -4,8 +4,8 @@
 // the core was down or paused, and never runs). The claim is one transaction that moves the row to `running` and
 // grants the lease with a new token; the completion is another that checks the token and records the turn's
 // deliveries `queued` under their effect keys, so a holder whose lease was taken over writes nothing. A lease token
-// rises with every grant of its name and is never reused. Recovery at a start puts a running wake whose lease expired
-// back to `queued` under its first turn id, or makes it `slept` when it fell due after the last `core:alive` renewal.
+// rises with every grant of its name and is never reused. Startup marks persisted queued and running wakes
+// interrupted, retaining their first turn id and fencing previous holders.
 // A delivery (schema v20) is `queued` from the completion, `sending` while the inner life's port call is out, then
 // `sent`, `unknown` or `failed` with its receipt (src/behavior/inner/deliveries.ts); its files are `media` rows of kind
 // `delivery` under `media/deliveries/`, written by the completion and deleted with the delivery when it is pruned.
@@ -206,14 +206,14 @@ export function listWakes(
     community,
     states,
     handledSince = null,
-  }: { community: string; states: ReadonlyArray<WakeState>; handledSince?: number | null }
+  }: { community?: string; states: ReadonlyArray<WakeState>; handledSince?: number | null }
 ): Array<StoredWake> {
   const marks = states.map(() => '?').join(', ');
   return dbOf(handle)
     .prepare(
-      `SELECT * FROM wakes WHERE community = ? AND state IN (${marks}) AND (? IS NULL OR handled_at IS NULL OR handled_at >= ?) ORDER BY queued_at, id`
+      `SELECT * FROM wakes WHERE (? IS NULL OR community = ?) AND state IN (${marks}) AND (? IS NULL OR handled_at IS NULL OR handled_at >= ?) ORDER BY queued_at, id`
     )
-    .all(community, ...states, handledSince, handledSince)
+    .all(community ?? null, community ?? null, ...states, handledSince, handledSince)
     .map(wakeOfRow);
 }
 
@@ -582,11 +582,6 @@ export function moveDelivery(handle: Handle, { key, from, to, now, receipt }: De
   });
 }
 
-/** The moment the core was last known up (the `core:alive` renewal), or null when no start renewed it yet. */
-function lastAlive(db: Db): number | null {
-  return numberOrNull(db.prepare('SELECT renewed_at FROM leases WHERE name = ?').get(ALIVE_LEASE)?.renewed_at);
-}
-
 /** Wake `id` (queued, or running under a lease that expired) made `slept` at `now`. */
 function sleepIn(db: Db, id: string, now: number): boolean {
   const changed = db
@@ -598,31 +593,23 @@ function sleepIn(db: Db, id: string, now: number): boolean {
   return Number(changed) > 0;
 }
 
-/**
- * The recovery of a start: every running wake whose lease expired by `now` goes back to `queued` under its first turn
- * id, or becomes `slept` when it fell due after the last `core:alive` renewal (the core was down then). Recovery never
- * marks a wake handled: only a completion does, so a running wake never completed.
- */
-export function recoverWakes(handle: Handle, { now }: { now: number }): { requeued: number; slept: number } {
+/** Old queued and running actions become terminal at startup, retaining their turn and fencing old holders. */
+export function recoverWakes(handle: Handle, { now }: { now: number }): { interrupted: number; slept: number } {
   return inWrite(handle, (db) => {
-    const alive = lastAlive(db);
-    const expired = db
-      .prepare(
-        "SELECT id, due_at FROM wakes WHERE state = 'running' AND (lease_expires_at IS NULL OR lease_expires_at <= ?)"
-      )
-      .all(now);
-    let requeued = 0;
-    let slept = 0;
-    for (const row of expired) {
-      const due = numberOrNull(row.due_at);
-      if (alive !== null && due !== null && due > alive && due <= now && sleepIn(db, String(row.id), now)) {
-        slept += 1;
-        continue;
-      }
-      requeueIn(db, String(row.id));
-      requeued += 1;
+    const rows = db.prepare("SELECT id FROM wakes WHERE state IN ('queued', 'running')").all();
+    for (const row of rows) {
+      db.prepare('UPDATE leases SET token = token + 1, expires_at = ? WHERE name = ?').run(
+        now,
+        `wake:${String(row.id)}`
+      );
     }
-    return { requeued, slept };
+    const changed = db
+      .prepare(
+        `UPDATE wakes SET state = 'handled', handled_at = ?, outcome = 'interrupted',
+       lease_holder = NULL, lease_expires_at = NULL WHERE state IN ('queued', 'running')`
+      )
+      .run(now).changes;
+    return { interrupted: Number(changed), slept: 0 };
   });
 }
 

@@ -32,6 +32,7 @@ import { localHour } from '../src/format.ts';
 import { HOUR_MS, MINUTE_MS, DAY_MS, zonedEpoch } from '../src/time.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
+import { personaKey } from '../src/memory/db/storage-keys.ts';
 import {
   GUILD,
   NOW,
@@ -129,7 +130,6 @@ test("inner: wakes of one conversation and the day's review coalesce into one tu
   const turn = run.journal.find((r) => r.event === 'turn');
   assert.equal(present(turn).coalesced.length, 3, 'the coalesced ids are journalled');
 });
-
 test("coalesceGroup: a private chat's wake never takes the review; only reviews go alone", () => {
   const dm = partialWake({ id: 'a', kind: 'intention_due', channelId: 'd1', privateChat: true, dueAt: 1 });
   const review = reviewWake('2026-10-19', 2);
@@ -142,7 +142,6 @@ test("coalesceGroup: a private chat's wake never takes the review; only reviews 
     [review.id]
   );
 });
-
 test('inner: while a turn holds the attention or a ping waits the wake keeps its due time, then runs once free', async () => {
   let waiting = true;
   const run = setup({ records: [intention('i1', { dueAt: NOW - 5 * MINUTE_MS })], peopleWaiting: () => waiting });
@@ -159,15 +158,13 @@ test('inner: while a turn holds the attention or a ping waits the wake keeps its
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 1);
 });
-
 test('inner: a turn held back by the runner (busy) leaves its wakes queued', async () => {
   const turns = fakeTurns({ answer: () => ({ outcome: 'busy' }) });
   const run = setup({ records: [intention('i1')], turns });
   await run.inner.tick();
   assert.equal(run.inner.status(GUILD).queue.length, 1);
 });
-
-test('inner: the queue, the handled wakes and the stop survive a restart; missed ticks coalesce into the first one after it', async () => {
+test('inner: restart interrupts queued actions, retains their evidence and preserves the stop', async () => {
   const dataDir = tempDir('nep-inner-restart-');
   const records = [intention('i1', { dueAt: NOW - HOUR_MS }), intention('i2', { dueAt: NOW - 30 * MINUTE_MS })];
   const first = setup({ records, dataDir });
@@ -178,8 +175,15 @@ test('inner: the queue, the handled wakes and the stop survive a restart; missed
   const second = setup({ records, dataDir });
   assert.equal(second.inner.status(GUILD).queue.length, 2);
   await second.inner.tick();
-  assert.equal(second.turns.calls.length, 1, 'one turn for both');
-  assert.equal(second.turns.calls[0].inner.wake.items.length, 2);
+  // Restart retains queued actions as evidence and requires a fresh decision before running them.
+  assert.equal(second.turns.calls.length, 0);
+  assert.deepEqual(
+    Object.entries(second.inner.state(GUILD).handled).map(([id, mark]) => [id, mark.outcome]),
+    records.map((record) => [
+      wakeOfDue({ intention: record, reason: 'due', at: present(record.dueAt) }).id,
+      'interrupted',
+    ])
+  );
   const third = setup({ records, dataDir });
   await third.inner.tick();
   assert.equal(third.turns.calls.length, 0);
@@ -188,7 +192,6 @@ test('inner: the queue, the handled wakes and the stop survive a restart; missed
   assert.equal(fourth.inner.status(GUILD).stopped, true);
   assert.deepEqual(await fourth.inner.tick(), { ran: false, reason: 'stopped' });
 });
-
 test('drawReviewAt: a seeded draw falls in an hour she speaks in, never before notBefore; none left is null', () => {
   const timezone = 'Europe/Athens';
   const weights = new Array(24).fill(0);
@@ -223,7 +226,6 @@ test('drawReviewAt: a seeded draw falls in an hour she speaks in, never before n
     drawReviewAt({ day: '2026-10-19', weights, timezone, rng: seeded(9) })
   );
 });
-
 test('hourWeights: only her own lines count, by local hour', () => {
   const lines = [
     { kind: 'said', occurredAt: '2026-10-18T17:10:00Z' },
@@ -499,7 +501,6 @@ test('inner: the journal records the wake and the turn with its outcome, actions
   assert.equal(run.inner.onTaskFinished({ id: 'k2', origin: { turnId: 'other' }, usage: { usd: 0.5 } }, GUILD), false);
   assert.equal(run.inner.status(GUILD).spentUsd, 0.62);
 });
-
 test("wakeOfDue: a wait past its deadline names its errand; the chain is the intention's", () => {
   const wake = wakeOfDue(
     wrongly({
@@ -513,7 +514,6 @@ test("wakeOfDue: a wait past its deadline names its errand; the chain is the int
   assert.equal(wake.chainId, 'chain:k');
   assert.equal(wakeOfDue({ intention: intention('i2'), reason: 'due', at: 7 }).chainId, 'intention:i2');
 });
-
 test('inner: one drain persists its stale wake, held chain and facts in the database', async () => {
   const dataDir = tempDir('nep-inner-drain-');
   const records = [
@@ -534,7 +534,8 @@ test('inner: one drain persists its stale wake, held chain and facts in the data
   await run.inner.release();
   const handle = db.memoryDb.readHandle();
   assert.ok(handle);
-  const saved = unitValue(handle.db, `guilds/${GUILD}/inner.json`);
+  // Inner facts and clocks belong to the persona across all community contexts.
+  const saved = unitValue(handle.db, personaKey('inner'));
   assert.ok(saved.found);
   const facts: unknown = Reflect.get(Object(saved.value), 'facts');
   assert.ok(Array.isArray(facts));
@@ -564,7 +565,6 @@ test('inner: one drain persists its stale wake, held chain and facts in the data
     ['stale']
   );
 });
-
 test('inner: a state file that cannot be read is moved aside, journalled and told as a stateLost fact, never a silent empty start', async () => {
   const dataDir = tempDir('nep-inner-lost-');
   const dir = path.join(dataDir, 'guilds', GUILD);
@@ -2350,7 +2350,6 @@ test('inner: the turn in flight is on disk while the turn runs and gone once it 
     [1, 'intention_due', 'c1', true, 1]
   );
   assert.equal(present(db.wake(present(during).running[0].id)).state, 'handled', 'gone once it ended');
-
   const held = setup({
     records: [intention('i2')],
     turns: fakeTurns({ answer: () => ({ outcome: 'busy' }) }),
@@ -2360,8 +2359,7 @@ test('inner: the turn in flight is on disk while the turn runs and gone once it 
   assert.equal(held.inner.state(GUILD).inflight, null);
   assert.equal(held.inner.state(GUILD).queue.length, 1, 'the wake waits');
 });
-
-test('inner: a mark left behind with the journal off (or one that cannot say) runs the wake again and tells nothing', async () => {
+test('inner: an unfinished mark with the journal off is interrupted without replay', async () => {
   const dataDir = tempDir('nep-inner-flight-');
   const records = [intention('i1')];
   const wake = wakeOfDue({ intention: records[0], reason: 'due', at: present(records[0].dueAt) });
@@ -2385,7 +2383,9 @@ test('inner: a mark left behind with the journal off (or one that cannot say) ru
   );
   const run = setup({ records, dataDir, hot: hotWith() });
   await run.inner.tick();
-  assert.equal(run.turns.calls.length, 1, 'the wake ran again');
+  // An unavailable journal cannot authorize replay of the unfinished action.
+  assert.equal(run.turns.calls.length, 0);
+  assert.equal(run.inner.state(GUILD).handled[wake.id]?.outcome, 'interrupted');
   assert.equal(run.inner.state(GUILD).inflight, null);
   assert.deepEqual(
     run.inner.state(GUILD).facts.filter((fact) => fact.kind === 'interrupted'),

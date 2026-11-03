@@ -721,8 +721,8 @@ export function createMemoryDb({
         importCoreJsonState(handle, { dataDir, now: now() });
       }
       // The writes a shutdown left pending go in before anything reads (synchronous without a worker).
-      const replay = replayPending();
-      if (replay) await replay;
+      await replayPending();
+      await writeUnit({ op: 'consolidate-inner', now: now() });
       openedAt = now();
       openErrors.clear();
       log.info('memory db: opened', { file });

@@ -6,7 +6,7 @@ import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../time.ts'
 import { localHour } from '../../format.ts';
 import { errorCode, isFiniteNumber, objOf } from '../../tools/types.ts';
 import type { Obj } from '../../tools/types.ts';
-import { markHandled, note, save, stateOf, timezoneOf } from './queue.ts';
+import { contextOf, markHandled, note, save, stateOf, timezoneOf } from './queue.ts';
 import { innerSettings } from './settings.ts';
 import type { InnerContext, InnerSettings, Wake } from './types.ts';
 
@@ -138,7 +138,8 @@ export async function reviewDue(
       // An earlier day's review still queued (held by a cap) gives way to today's.
       const older = current.queue.filter((wake) => wake.kind === 'review' && wake.id !== reviewWake(day, 0).id);
       if (older.length > 0) markHandled(life, current, older, 'superseded', at);
-      current.review = { day, at: reviewAt, done: reviewAt === null, channels, lines: lines.length };
+      current.review = { day, at: reviewAt, done: reviewAt === null, channels: [], lines: 0 };
+      current.reviewViews[contextOf(life, guildId).scopePlaceId!] = { day, channels, lines: lines.length };
       save(life, guildId);
       log.info('inner: review drawn', { guildId, day, at: reviewAt, lines: lines.length });
       note(life, guildId, { event: 'review-drawn', day, at: reviewAt, lines: lines.length });
@@ -152,7 +153,7 @@ export async function reviewDue(
 /** The channels a review or a heartbeat turn may run in: where she spoke lately (the review's remembered ones, else the record's). */
 export async function recentChannels(life: InnerContext, guildId: string): Promise<Array<string>> {
   const { hot } = life;
-  const known = stateOf(life, guildId).review?.channels ?? [];
+  const known = stateOf(life, guildId).reviewViews[contextOf(life, guildId).scopePlaceId!]?.channels ?? [];
   if (known.length > 0) return known;
   const channels: Array<string> = [];
   const lines = await ownLines(life, guildId, innerSettings(hot.config).review.historyDays);
@@ -167,6 +168,6 @@ export async function recentChannels(life: InnerContext, guildId: string): Promi
 /** The channel names of the review's recent channels, for `<wake>`. */
 export function channelNames(life: InnerContext, guildId: string): Array<string> {
   const { conversationName } = life;
-  const ids = stateOf(life, guildId).review?.channels ?? [];
+  const ids = stateOf(life, guildId).reviewViews[contextOf(life, guildId).scopePlaceId!]?.channels ?? [];
   return ids.map((id) => conversationName(String(id))).filter((name): name is string => Boolean(name));
 }

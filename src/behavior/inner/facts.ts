@@ -132,11 +132,19 @@ const factsOf = (state: { facts?: Array<Fact> } | null | undefined): Array<Fact>
 /** The state's facts that `scope` may see and that are not told yet, oldest first (the callers cut them to FACTS_SHOWN_MAX). `scope`: `{ channelId, privateChat, anywhere }`. */
 export function pendingFactsOf(
   state: { facts?: Array<Fact> } | null | undefined,
-  { channelId = null, privateChat = false, anywhere = false }: FactScope = {}
+  { channelId = null, privateChat = false, anywhere = false, scopePlaceId, conversation }: FactScope = {}
 ): Array<Fact> {
   const here = idOrNull(channelId);
   return factsOf(state).filter((fact) => {
     if (fact.told) return false;
+    if (scopePlaceId && fact.scopePlaceId !== scopePlaceId) return false;
+    if (
+      fact.conversation &&
+      conversation &&
+      (fact.conversation.iface !== conversation.iface ||
+        (privateChat && fact.conversation.conversationId !== conversation.conversationId))
+    )
+      return false;
     if (privateChat === true) return fact.privateChat === true && here !== null && fact.channelId === here;
     if (fact.privateChat === true) return false;
     return anywhere || fact.channelId === null || fact.channelId === here;
@@ -159,13 +167,21 @@ export function addFactTo(state: { facts?: Array<Fact> }, fact: FactInput, id: s
 }
 
 /** The facts of `ids` marked told at `at`. */
-export function markFactsTold(state: { facts?: Array<Fact> } | null | undefined, ids: unknown, at: number): void {
+export function markFactsTold(
+  state: { facts?: Array<Fact> } | null | undefined,
+  ids: unknown,
+  at: number,
+  scope: FactScope = {}
+): void {
   const set = new Set(listOf(ids).map(String));
-  for (const fact of factsOf(state)) if (set.has(fact.id) && !fact.told) fact.told = at;
+  for (const fact of factsOf(state)) {
+    if (scope.scopePlaceId && fact.scopePlaceId !== scope.scopePlaceId) continue;
+    if (set.has(fact.id) && !fact.told) fact.told = at;
+  }
 }
 
 /** The fields of a kept fact that are its bookkeeping, not its payload. */
-const BOOKKEEPING = ['id', 'channelId', 'privateChat', 'at', 'told'] as const;
+const BOOKKEEPING = ['scopePlaceId', 'conversation', 'id', 'channelId', 'privateChat', 'at', 'told'] as const;
 
 /** A fact as the prompt shows it: its payload without the bookkeeping. */
 export function factPayload(fact: Fact): FactPayload {

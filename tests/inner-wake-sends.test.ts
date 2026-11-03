@@ -395,71 +395,76 @@ test("a wake turn's message.create is held until the completion, then the port g
   }
 });
 
-test('a crash after the completion and before the send: the next start sends the held message once, and a second start sends nothing', async () => {
+test('a crash after completion abandons the held message across repeated starts', async () => {
   const run = await core({ answers: ['<msg>καλησπέρα</msg>', '<skip/>'], dieAtCommit: true });
   try {
     dueIntention(run, T - MINUTE);
     const tick = run.life.tick().then(() => 'ended' as const);
     assert.equal(await Promise.race([run.dead, tick]), 'died', 'the completion recorded the held send');
     assert.deepEqual(sendsOf(run.port), [], 'the process died before anything was sent');
+    const [held] = queuedDeliveries(readHandleOf(run.memory));
+    assert.ok(held, 'completion retained the exact payload and effect key');
     await run.restart({ answers: ['<skip/>'] });
     run.clock.t = T + 10 * MINUTE;
     await run.life.tick();
-    assert.deepEqual(sendsOf(run.port), ['καλησπέρα'], 'the start sent what the completion recorded');
-    const [key] = keysOf(run.port);
-    assert.ok(key, 'the send carries the key of its delivery');
-    assert.equal(deliveryOf(readHandleOf(run.memory), key)?.state, 'sent');
+    // Restart retains the held action as evidence without authorizing its delivery.
+    assert.deepEqual(sendsOf(run.port), []);
+    const interrupted = deliveryOf(readHandleOf(run.memory), held.key);
+    assert.equal(interrupted?.state, 'failed');
+    assert.deepEqual(interrupted?.payload, held.payload);
+    assert.equal(Reflect.get(Object(interrupted?.receipt), 'code'), 'interrupted');
+    assert.equal(run.calls.length, 1, 'recovery creates no feedback turn');
     await run.restart({ answers: ['<skip/>'] });
     run.clock.t += MINUTE;
     await run.life.tick();
-    assert.deepEqual(sendsOf(run.port), ['καλησπέρα'], 'a second start sends nothing again');
+    assert.deepEqual(sendsOf(run.port), [], 'a second start leaves the abandoned action terminal');
+    assert.equal(deliveryOf(readHandleOf(run.memory), held.key)?.state, 'failed');
+    assert.equal(run.calls.length, 1);
   } finally {
     await run.close();
   }
 });
 
-test('a start whose send of a recorded delivery lost its answer: the next start reconciles it and sends nothing again', async () => {
-  const run = await core({ answers: ['<msg>καλησπέρα</msg>', '<skip/>'], dieAtCommit: true });
+test('a live send that lost its answer is reconciled at restart without another send', async () => {
+  const world_ = world().port;
+  let reached: () => void = () => {};
+  const sent = new Promise<void>((resolve) => (reached = resolve));
+  const reconcilable: Fake = { ...world_, capabilities: () => ({ ...world_.capabilities(), reconcile: true }) };
+  const losing: Fake = {
+    ...reconcilable,
+    send: (conversation, content, options) => {
+      void world_.send(conversation, content, options).then(reached);
+      return new Promise(() => {});
+    },
+  };
+  // A live completion may send. Recovery may only reconcile that already attempted send.
+  const run = await core({ answers: ['<msg>καλησπέρα</msg>', '<skip/>'], port: losing });
   try {
     dueIntention(run, T - MINUTE);
-    const tick = run.life.tick().then(() => 'ended' as const);
-    assert.equal(await Promise.race([run.dead, tick]), 'died', 'the completion recorded the held send');
-    // The second start's send reaches the interface, and the process dies before its answer comes back.
-    const world_ = run.port;
-    let reached: () => void = () => {};
-    const sent = new Promise<'sent'>((resolve) => (reached = () => resolve('sent')));
-    const reconcilable: Fake = { ...world_, capabilities: () => ({ ...world_.capabilities(), reconcile: true }) };
-    const losing: Fake = {
-      ...reconcilable,
-      send: (conversation, content, options) => {
-        void world_.send(conversation, content, options).then(reached);
-        return new Promise(() => {});
-      },
-    };
-    await run.restart({ answers: ['<skip/>'], port: losing });
-    run.clock.t = T + 10 * MINUTE;
     void run.life.tick();
     await sent;
     assert.deepEqual(sendsOf(run.port), ['καλησπέρα']);
-    await run.restart({ answers: ['<skip/>'], port: reconcilable });
-    run.clock.t += MINUTE;
-    await run.life.tick();
-    assert.deepEqual(sendsOf(run.port), ['καλησπέρα'], 'the lost answer is reconciled, never sent again blindly');
     const [key] = keysOf(run.port);
     assert.ok(key);
+    assert.equal(deliveryOf(readHandleOf(run.memory), key)?.state, 'sending');
+    await run.restart({ answers: ['<skip/>'], port: reconcilable });
+    run.clock.t = T + 10 * MINUTE;
+    await run.life.tick();
+    assert.deepEqual(sendsOf(run.port), ['καλησπέρα'], 'the lost answer is reconciled without replay');
     assert.equal(deliveryOf(readHandleOf(run.memory), key)?.state, 'sent', 'the reconcile found it posted');
+    assert.equal(run.calls.length, 1, 'reconciliation creates no feedback turn');
   } finally {
     await run.close();
   }
 });
 
-test('a crash before the completion sends nothing, and the wake reruns under the turn id of its first run', async () => {
+test('a crash before completion retains the original turn without rerunning or sending', async () => {
   // A read beside the post leaves her something to read, so the turn asks the model again, and dies there.
   const run = await core({
     answers: [toolAnswer('', [call('message.create', { text: 'πρώτη' }), call('lore.list', {})]), DIES],
   });
   try {
-    dueIntention(run, T - MINUTE);
+    const { wakeId } = dueIntention(run, T - MINUTE);
     void run.life.tick();
     await run.dead;
     assert.deepEqual(sendsOf(run.port), [], 'the held send never left');
@@ -468,9 +473,13 @@ test('a crash before the completion sends nothing, and the wake reruns under the
     run.clock.t = T + 10 * MINUTE;
     await run.life.tick();
     const ids = run.calls.map((params) => params.journalTurn.turnId);
-    assert.equal(ids.length, 2, 'the cut-off wake runs once more');
-    assert.equal(ids[1], ids[0], 'under the turn id of its first run');
-    assert.deepEqual(sendsOf(run.port), ['δεύτερη'], "only the rerun's completion sends");
+    // An unfinished turn is evidence, not permission to repeat its actions after restart.
+    assert.equal(ids.length, 1, 'the cut-off wake never runs again');
+    assert.deepEqual(sendsOf(run.port), []);
+    const kept = wakeOf(readHandleOf(run.memory), wakeId);
+    assert.equal(kept?.state, 'handled');
+    assert.equal(kept?.outcome, 'interrupted');
+    assert.equal(kept?.turnId, ids[0]);
   } finally {
     await run.close();
   }

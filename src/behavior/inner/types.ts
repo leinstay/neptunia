@@ -38,6 +38,8 @@ export type AttendInfo = {
  * split into one variant per kind.
  */
 export type Wake = {
+  scopePlaceId?: string | null;
+  conversation?: ConversationRef | null;
   id: string;
   kind: string;
   reason: string;
@@ -86,6 +88,8 @@ export type FactPayload = Obj & {
 
 /** A fact as the state keeps it: the payload, its id, where it may be shown, when it happened and when she was told. */
 export type Fact = FactPayload & {
+  scopePlaceId?: string | null;
+  conversation?: ConversationRef | null;
   id: string;
   channelId: string | null;
   privateChat: boolean;
@@ -94,10 +98,23 @@ export type Fact = FactPayload & {
 };
 
 /** What a caller hands in to keep a fact: its kind, its payload and where it may be shown. */
-export type FactInput = Obj & { kind: string; channelId?: unknown; privateChat?: unknown; at?: unknown };
+export type FactInput = Obj & {
+  scopePlaceId?: string | null;
+  conversation?: ConversationRef | null;
+  kind: string;
+  channelId?: unknown;
+  privateChat?: unknown;
+  at?: unknown;
+};
 
 /** Where a fact may be shown: the conversation, whether it is a private chat, and whether any server place will do. */
-export type FactScope = { channelId?: unknown; privateChat?: boolean; anywhere?: boolean };
+export type FactScope = {
+  scopePlaceId?: string | null;
+  conversation?: ConversationRef | null;
+  channelId?: unknown;
+  privateChat?: boolean;
+  anywhere?: boolean;
+};
 
 /** The facts of the turns that are not inner turns, kept in the inner life's state (or in process). */
 export type FactsApi = {
@@ -115,6 +132,8 @@ export type Review = { day: string; at: number | null; done: boolean; channels: 
 
 /** One inner turn that ran, as the state keeps it for the day's counts. */
 export type TurnRecord = {
+  scopePlaceId?: string | null;
+  conversation?: ConversationRef | null;
   at: number;
   chainId: string;
   usd: number;
@@ -126,6 +145,8 @@ export type TurnRecord = {
 
 /** The mark of a turn in flight: what a restart finds when the process died in it. */
 export type Inflight = {
+  scopePlaceId?: string | null;
+  conversation?: ConversationRef | null;
   turnId: string;
   wakeIds: Array<string>;
   kind: string;
@@ -144,6 +165,7 @@ export type InnerState = {
   queue: Array<Wake>;
   handled: Record<string, Handled>;
   review: Review | null;
+  reviewViews: Record<string, { day: string; channels: Array<string>; lines: number }>;
   heartbeat: { nextAt: number | null; lastAt: number | null } | null;
   // The selfimprovement wake's clock: when its last wake committed and when a failure cause last raised one.
   selfimprovement: { lastAt: number | null; raisedAt: number | null } | null;
