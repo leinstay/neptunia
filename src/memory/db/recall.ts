@@ -816,9 +816,38 @@ function originalMessage(message: RecallMessage, windows: Array<RecallWindow>): 
   return message;
 }
 
+/** Resolve duplicate suppression to exact current source identities once per read. */
+function excludedSources(
+  db: Db,
+  ctx: Context,
+  exclusions: ReadonlyArray<ResolvedRecallAnchor> | undefined,
+  legacy: unknown
+): Set<unknown> {
+  const ids = new Set<unknown>();
+  if (exclusions !== undefined) {
+    if (!Array.isArray(exclusions)) return ids;
+    const selections: ReadonlyArray<ResolvedRecallAnchor> = exclusions;
+    for (const exclusion of selections) {
+      const row = sourceForAnchor(db, ctx, '', exclusion);
+      if (row) ids.add(row.id);
+    }
+    return ids;
+  }
+  if (!locatorText(ctx.iface)) return ids;
+  const values = legacy instanceof Set ? [...legacy] : Array.isArray(legacy) ? legacy : [];
+  for (const value of values) {
+    if (!locatorText(value)) continue;
+    const rows = db
+      .prepare(`SELECT s.id FROM sources s WHERE s.iface = ? AND s.native_id = ? AND ${CURRENT}`)
+      .all(ctx.iface, value);
+    if (rows.length === 1) ids.add(rows[0].id);
+  }
+  return ids;
+}
+
 /** A window (the recall runner's shape) of source rows. */
 function windowOf(rows: ReadonlyArray<Row>, hitIds: Iterable<unknown>, read: Reader): RecallWindow {
-  const messages = rows.filter((row) => !read.exclude.has(row.native_id)).map((row) => messageOf(row, read));
+  const messages = rows.filter((row) => !read.exclude.has(row.id)).map((row) => messageOf(row, read));
   const channelId = messages[0]?.channelId ?? null;
   return {
     source: 'db',
@@ -892,6 +921,7 @@ export function search(
     vector = null,
     settings = null,
     exclude = null,
+    exclusions,
     nameOf = null,
     selfName = '',
     channelNameOf = null,
@@ -905,6 +935,7 @@ export function search(
     vector?: ArrayLike<number> | null;
     settings?: DbSettings | null;
     exclude?: unknown;
+    exclusions?: ReadonlyArray<ResolvedRecallAnchor>;
     nameOf?: unknown;
     selfName?: string;
     channelNameOf?: unknown;
@@ -982,8 +1013,8 @@ export function search(
 
   const lists = [words, trigram, meaning, talk].map((list) => list.map((row) => row.rowid));
   const weights = [1, 1, 1, terms.length > 0 ? PEOPLE_WEIGHT_WITH_FORMS : 1];
-  const skip: Set<unknown> = exclude instanceof Set ? exclude : new Set(Array.isArray(exclude) ? exclude : []);
-  const shown = (row: Row): boolean => !skip.has(row.native_id);
+  const skip = excludedSources(db, context, exclusions, exclude);
+  const shown = (row: Row): boolean => !skip.has(row.id);
   const visible = fuseRanks(lists, { k: RRF_K, weights }).filter((entry) => shown(rowsOf.get(entry.id) as Row));
   const target = targetOf(scopeArgs, now);
   const dated = scopeArgs.from !== null || scopeArgs.to !== null;
@@ -1167,6 +1198,7 @@ export function window(
     selfName = '',
     channelNameOf = null,
     exclude = null,
+    exclusions,
     allowPlace = null,
   }: {
     ctx?: Context;
@@ -1180,6 +1212,7 @@ export function window(
     selfName?: string;
     channelNameOf?: unknown;
     exclude?: unknown;
+    exclusions?: ReadonlyArray<ResolvedRecallAnchor>;
     allowPlace?: unknown;
   } = {}
 ): { windows: Array<RecallWindow>; unknown: boolean; stopped: 'hidden' | 'edge' | null } {
@@ -1205,7 +1238,7 @@ export function window(
     minutes: span,
   });
   const rows = move === 'down' ? read.rows : [...read.rows].reverse();
-  const skip: Set<unknown> = exclude instanceof Set ? exclude : new Set(Array.isArray(exclude) ? exclude : []);
+  const skip = excludedSources(db, context, exclusions, exclude);
   const shown = windowOf(rows, new Set(), readerOf(db, context, { nameOf, selfName, channelNameOf, exclude: skip }));
   return { windows: shown.messages.length > 0 ? [shown] : [], unknown: false, stopped: read.stopped };
 }

@@ -298,6 +298,10 @@ Recall is the search behind the persona's `memory.search` tool and the automatic
 
 The turn registry in `src/turn/calls.ts` keeps the exact stored source behind each displayed `#N` handle. `src/tools/executors.ts` carries that identity separately from model arguments into anchor reads. The recall runner applies the current audience rules again when opening the source. Lines removed by quote limits receive no usable handle.
 
+SQLite recall removes visible history by exact source identity or a verified interface, conversation and message locator. `src/behavior/recall-run.ts` derives these exclusions for group, private and CLI turns. Stored metadata takes precedence over native metadata. Ordinary history uses the trusted conversation reference supplied by the turn. Malformed metadata excludes nothing and cannot fall back to an unqualified message ID.
+
+The database reader resolves exclusions once per read. An explicit exclusion list replaces the compatibility native-ID set, including when the list is empty. Compatibility IDs require exactly one current source in the execution context's interface. Internal contexts ignore unqualified exclusions. `src/turn/lookup.ts` separates prefetch results by both the conversation reference and the execution context ID. The legacy record search retains its separate exclusion contract.
+
 Cached `web.read` and `media.look` calls in `src/turn/in-turn-tools.ts` select the quoted source by its exact ID. They never substitute a current conversation message with the same native ID. Native references match the interface, conversation and message together and refuse ambiguous matches. Live message actions require a verified locator on the current interface. A stored source without that route remains readable as memory but cannot name a live action.
 
 **Four search streams:**

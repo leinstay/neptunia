@@ -183,6 +183,7 @@ export async function setupRequest(
   // The inputs retain the context issued by the core or the per-turn issuer.
   const memoryContext = turnContextOf(draft, channel) as Context | null;
   const prefetching = startPrefetch({
+    historyRef: ctx.conversationOf(channel),
     memoryContext,
     config,
     channel,

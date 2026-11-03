@@ -23,6 +23,7 @@
 // would be a new background job) and returns the library's handles, which post exactly as the
 // `<gifs>` block's do.
 
+import type { ConversationRef } from '../protocol/adapter.ts';
 import type { ResolvedRecallAnchor, StoredSourceRef } from '../memory/db/recall.ts';
 import type { SearchRef } from '../turn/calls.ts';
 import type { CreateRecallResult } from '../behavior/recall-run-types.ts';
@@ -592,6 +593,7 @@ export async function runMemorySearch({
   asker = null,
   memoryContext = null,
   resolvedAnchor,
+  historyRef,
 }: {
   recall: RecallClient | null;
   store?: { listUserProfiles?: (guildId: string) => unknown } | null;
@@ -611,6 +613,7 @@ export async function runMemorySearch({
   asker?: string | null;
   memoryContext?: unknown;
   resolvedAnchor?: ResolvedRecallAnchor;
+  historyRef?: ConversationRef;
 }): Promise<ToolResult> {
   try {
     if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available()))
@@ -635,6 +638,7 @@ export async function runMemorySearch({
           history: [...history],
           anchor: text(given.anchor),
           resolvedAnchor,
+          historyRef,
           move: text(given.move) === 'down' ? 'down' : 'up',
           messages: count(given.messages),
           minutes: count(given.minutes),
@@ -684,6 +688,7 @@ export async function runMemorySearch({
         selfId,
         selfName,
         history: [...history],
+        historyRef,
         candidate,
         server: plan,
         decorate,

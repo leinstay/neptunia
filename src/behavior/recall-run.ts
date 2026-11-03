@@ -109,6 +109,8 @@ import { isIssuedInternalContext, issueContext } from '../memory/db/scope.ts';
 import { LEGACY_IFACE } from '../memory/db/legacy-namespace.ts';
 import {
   hasRecallContext,
+  historyExclusions,
+  recallDatabase,
   hitFrom,
   inCommunity,
   linesOf,
@@ -872,17 +874,6 @@ export function createRecall({
     return { judged, sourceOf, privateUserId, allowEntry, allowLine };
   }
 
-  /**
-   * The memory database to read, or null while it is not open (memoryDb.database()). Read at the moment of use.
-   */
-  function dbOf() {
-    try {
-      return typeof memoryDb?.database === 'function' ? (memoryDb.database() ?? null) : null;
-    } catch {
-      return null;
-    }
-  }
-
   function profilesFor(guildId: string | null): Array<Untyped> {
     if (!guildId || typeof store.listUserProfiles !== 'function') return [];
     return store.listUserProfiles(guildId) ?? [];
@@ -982,6 +973,7 @@ export function createRecall({
     partnerId,
     selfName,
     history,
+    historyRef,
     candidate,
     server,
     decorate,
@@ -1020,7 +1012,7 @@ export function createRecall({
         }
       }
     }
-    const own = inCommunity(channel) && Array.isArray(history) ? history.filter((m) => m?.id).map((m) => m.id) : [];
+    const exclusions = historyExclusions({ history, historyRef, context: reader.ctx, channel });
     const found = dbSearch(db, {
       ctx: reader.ctx,
       plan: server,
@@ -1028,7 +1020,7 @@ export function createRecall({
       now: now(),
       vector,
       settings: dbSettings(config),
-      exclude: new Set(own),
+      exclusions,
       nameOf: reader.nameOf,
       selfName,
       channelNameOf: reader.channelNameOf,
@@ -1076,6 +1068,7 @@ export function createRecall({
     partnerId = null,
     selfName = '',
     history = [],
+    historyRef,
     anchor,
     resolvedAnchor,
     move = 'up',
@@ -1097,12 +1090,12 @@ export function createRecall({
     try {
       const config = hot.config;
       const settings = recallSettings(config);
-      const db = dbOf();
+      const db = recallDatabase(memoryDb);
       if (!settings || !db) return out({ outcome: { kind: 'not-configured' } });
       if (!hasRecallContext({ guildId, channel, partnerId, memoryContext }))
         return out({ outcome: { kind: 'not-configured' } });
       const reader = dbReader({ db, config, snapshot, guildId, channel, partnerId, asker, memoryContext });
-      const own = inCommunity(channel) && Array.isArray(history) ? history.filter((m) => m?.id).map((m) => m.id) : [];
+      const exclusions = historyExclusions({ history, historyRef, context: reader.ctx, channel });
       const found = dbWindow(db, {
         ctx: reader.ctx,
         anchor,
@@ -1114,7 +1107,7 @@ export function createRecall({
         nameOf: reader.nameOf,
         selfName,
         channelNameOf: reader.channelNameOf,
-        exclude: new Set(own),
+        exclusions,
         allowPlace: reader.allowPlace,
       });
       if (found.unknown) return out({ outcome: { kind: 'unknown-anchor' } });
@@ -1640,6 +1633,7 @@ export function createRecall({
     selfId,
     selfName,
     history = [],
+    historyRef,
     context = null,
     contextDescriptions,
     candidate = null,
@@ -1698,7 +1692,7 @@ export function createRecall({
 
       // The persona's own search over the memory database: no message search, no summary.
       if (quotes) {
-        const db = dbOf();
+        const db = recallDatabase(memoryDb);
         if (!db) {
           if (op) await op.failed(CODE.NOT_CONFIGURED);
           return finish(empty({ outcome: { kind: 'not-configured' } }));
@@ -1713,6 +1707,7 @@ export function createRecall({
           partnerId,
           selfName,
           history,
+          historyRef,
           candidate,
           server,
           decorate,
@@ -1818,6 +1813,7 @@ export function createRecall({
     selfId,
     selfName,
     history = [],
+    historyRef,
     lanes = [],
     at = null,
     decorate = null,
@@ -1858,8 +1854,6 @@ export function createRecall({
       const signal = controller.signal;
       const scope = scopeOf({ config, snapshot, channel, partnerId });
       const { sourceOf, privateUserId, allowEntry, allowLine } = scope;
-      const own = inCommunity(channel) && Array.isArray(history) ? history.filter((m) => m?.id) : [];
-      const ownIds = new Set(own.map((m) => m.id));
       const profiles = profilesFor(guildId);
       const nameOf = namesFor(guildId, profiles);
       const channelNameOf = (id: Untyped) => snapshot?.get(id)?.name ?? null;
@@ -1916,7 +1910,7 @@ export function createRecall({
         });
       };
       // The database answers the words and the meaning of every lane (while it is not open, the stored memory alone).
-      const db = dbOf();
+      const db = recallDatabase(memoryDb);
       const dbMeaning = Boolean(db) && typeof embed === 'function';
       // One embedding request for every lane's text.
       const laneVectors = dbMeaning
@@ -1966,6 +1960,7 @@ export function createRecall({
         // hits. A word hit is relevant by lexicalKeep (its terms and phrases, its cosine when the meaning search found
         // it); a meaning hit by the same floors the vector files use, with a term of the lane or a strong cosine.
         const reader = dbReader({ db, config, snapshot, guildId, channel, partnerId, asker, memoryContext });
+        const exclusions = historyExclusions({ history, historyRef, context: reader.ctx, channel });
         list.forEach((lane, i) => {
           const plan = plans[i];
           const forms = plan ? [...plan.phrases, ...plan.forms] : [];
@@ -1983,7 +1978,7 @@ export function createRecall({
                     now: until,
                     vector,
                     settings: { ...dbSettings(config), candidates: p.candidates },
-                    exclude: ownIds,
+                    exclusions,
                     nameOf,
                     selfName,
                     channelNameOf,

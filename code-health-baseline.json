@@ -1,7 +1,7 @@
 {
   "files": {
     "scripts/replay.ts": 7361,
-    "src/behavior/recall-run.ts": 2107,
+    "src/behavior/recall-run.ts": 2102,
     "src/behavior/recall.ts": 2375,
     "src/behavior/sandbox.ts": 2063,
     "tests/admin.test.ts": 3698,
@@ -252,13 +252,13 @@
     },
     "src/behavior/recall-run.ts": {
       "createRecall": {
-        "function-length": 1714
+        "function-length": 1707
       },
       "createRecall>findPeople": {
         "complexity": 36
       },
       "createRecall>prefetch": {
-        "complexity": 36
+        "complexity": 34
       },
       "createRecall>recallWith": {
         "complexity": 74,
@@ -309,7 +309,7 @@
     },
     "src/behavior/turn.ts": {
       "createTurnRunner": {
-        "function-length": 470
+        "function-length": 458
       }
     },
     "src/behavior/wake.ts": {
@@ -474,7 +474,7 @@
     },
     "src/memory/db/recall.ts": {
       "search": {
-        "complexity": 23
+        "complexity": 21
       }
     },
     "src/memory/db/rows.ts": {

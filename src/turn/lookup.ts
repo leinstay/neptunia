@@ -13,7 +13,7 @@ import { roleModel } from '../llm/roles.ts';
 import { isIssuedInternalContext } from '../memory/db/scope.ts';
 import type { Context } from '../memory/db/scope.ts';
 import { log } from '../log.ts';
-import type { MemberInfo } from '../protocol/adapter.ts';
+import type { ConversationRef, MemberInfo } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import type { JournalNotes } from './journal-notes.ts';
 import type { journalled } from './journal.ts';
@@ -79,11 +79,29 @@ type Channel = { id: string; communityId?: string | null };
 type Lane = { kind: string; text: string; words: string };
 type Prefetching = { lanes: Array<Lane>; pending: Promise<unknown> };
 
+function prefetchKey({
+  memoryContext,
+  historyRef,
+  triggerKey,
+}: {
+  memoryContext?: Context | null;
+  historyRef?: ConversationRef;
+  triggerKey: string;
+}): string {
+  return JSON.stringify([
+    memoryContext?.id ?? null,
+    historyRef?.iface ?? null,
+    historyRef?.conversationId ?? null,
+    triggerKey,
+  ]);
+}
+
 /** The request's `lookup` input: the web search's result, with what the server search found. */
 export type LookupInput = Record<string, unknown> | null;
 
 export type Lookup = {
   startPrefetch: (args: {
+    historyRef?: ConversationRef;
     memoryContext?: Context | null;
     config: LookupConfig;
     channel: Channel;
@@ -159,6 +177,7 @@ export function createLookup(ctx: LookupContext): Lookup {
     journalStep,
     wake = null,
     memoryContext,
+    historyRef,
   }: Parameters<Lookup['startPrefetch']>[0]): Prefetching | null {
     if (
       !prefetchOn(config) ||
@@ -192,7 +211,7 @@ export function createLookup(ctx: LookupContext): Lookup {
     const triggerKey = purposes
       ? `${channel.id}:inner:${lanes[0]?.text ?? ''}`
       : `${channel.id}:${trigger?.id}:${candidate?.content ?? ''}`;
-    const key = JSON.stringify([memoryContext?.id ?? null, triggerKey]);
+    const key = prefetchKey({ memoryContext, historyRef, triggerKey });
     const memo = prefetchMemo.get(key);
     if (prefetchMemo.has(key) && memo) return { lanes, pending: memo };
     const basis = lanes.map((lane) => lane.kind);
@@ -206,6 +225,7 @@ export function createLookup(ctx: LookupContext): Lookup {
         const found = await recall.prefetch!({
           guildId,
           memoryContext,
+          historyRef,
           snapshot,
           channel,
           partnerId: partner?.id ?? null,

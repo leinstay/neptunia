@@ -301,3 +301,20 @@ test('a triggerless private inner turn writes its completed turn only to its par
     await memory.close();
   }
 });
+
+test('automatic prefetch receives the turn conversation identity', async () => {
+  const reads: Array<unknown> = [];
+  const recall = {
+    available: () => true,
+    prefetch: (args: Record<string, unknown>) => {
+      reads.push(args.historyRef);
+      return Promise.resolve({ status: 'ok', basis: ['message'], excerpts: [], ms: 0 });
+    },
+  };
+  await runSplitTurn({ extra: { recall } });
+  assert.ok(reads.length > 0, 'the turn must perform prefetch');
+  assert.deepEqual(
+    reads,
+    reads.map(() => ({ iface: 'discord', conversationId: 'c1' }))
+  );
+});

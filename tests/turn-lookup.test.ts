@@ -73,3 +73,57 @@ for (const direction of ['ordinary-first', 'internal-first'] as const) {
     assert.deepEqual(contexts, [first, second]);
   });
 }
+
+test('prefetch memoization retains qualified history identity as well as the issued context', async () => {
+  const context = issueContext({ kind: 'internal', newId: () => 'ctx:qualified-history', now: () => NOW });
+  const loaded: Array<unknown> = [];
+  const lookup = createLookup({
+    hot: { prompts: { labels } },
+    store: {},
+    llm: { complete: () => Promise.reject(new Error('prefetch does not classify')) },
+    clock: () => NOW,
+    recall: {
+      prefetch: (args) => {
+        loaded.push(args.historyRef);
+        return Promise.resolve({ status: 'ok', excerpts: [`load-${loaded.length}`] });
+      },
+    },
+    membersOf: null,
+    selfIdOf: () => 'self',
+    ifaceReads: rig().reads,
+    classifierContext: () => {
+      throw new Error('prefetch does not classify');
+    },
+    linkCalls: () => {
+      throw new Error('the recording loader does not decorate');
+    },
+  });
+  const start = (historyRef: { iface: string; conversationId: string }) => {
+    const pending = lookup.startPrefetch({
+      config: config(),
+      channel: { id: 'same-room', communityId: 'g1' },
+      guildId: 'g1',
+      guild: { id: 'g1' },
+      trigger: { id: 'same-trigger', authorId: 'asker' },
+      candidate: { content: 'θυμάσαι το κουνέλι στον κήπο', authorId: 'asker' },
+      triggerKind: 'mention',
+      mode: 'reply',
+      history: [],
+      selfId: 'self',
+      selfName: 'Synthetic persona',
+      memoryContext: context,
+      historyRef,
+    });
+    if (!pending) throw new Error('valid prefetch did not start');
+    return pending.pending;
+  };
+  const first = { iface: 'first', conversationId: 'same-room' };
+  const otherInterface = { iface: 'second', conversationId: 'same-room' };
+  const otherConversation = { iface: 'second', conversationId: 'different-room' };
+  assert.deepEqual(await start(first), { status: 'ok', excerpts: ['load-1'] });
+  assert.deepEqual(await start(first), { status: 'ok', excerpts: ['load-1'] });
+  assert.deepEqual(await start(otherInterface), { status: 'ok', excerpts: ['load-2'] });
+  assert.deepEqual(await start(otherConversation), { status: 'ok', excerpts: ['load-3'] });
+  assert.deepEqual(await start(otherConversation), { status: 'ok', excerpts: ['load-3'] });
+  assert.deepEqual(loaded, [first, otherInterface, otherConversation]);
+});
