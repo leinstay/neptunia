@@ -1279,6 +1279,13 @@ function sharedAgents(rootDir: string): ReadonlyArray<AgentDefinition> {
     });
 }
 
+/** Shared definitions for migration and compatibility snapshots, without reading a persona tree. */
+export function listSharedAgents({
+  rootDir = ROOT_DIR,
+}: Pick<AgentPaths, 'rootDir'> = {}): ReadonlyArray<AgentDefinition> {
+  return Object.freeze(sharedAgents(path.resolve(rootDir)));
+}
+
 /** Enumerates only configured personal directories. Ordinary root files do not define agents. */
 function personalAgents(dataDir: string, shared: ReadonlyArray<AgentDefinition>): ReadonlySet<string> {
   const folder = path.join(dataDir, AGENTS_DIRNAME);
@@ -1321,7 +1328,7 @@ function personalDefinition(definition: AgentDefinition, dataDir: string): Agent
 /** Reads and validates the current shared and personal definitions, sorted by agent id. */
 export function listAgents(options: AgentPaths = {}): ReadonlyArray<AgentDefinition> {
   const { rootDir, dataDir } = agentPaths(options);
-  const shared = sharedAgents(rootDir);
+  const shared = listSharedAgents({ rootDir });
   const personal = personalAgents(dataDir, shared);
   return Object.freeze(
     shared.map((definition) => (personal.has(definition.id) ? personalDefinition(definition, dataDir) : definition))
@@ -1524,7 +1531,7 @@ function userPathOf(key: 'socket' | 'out', name: string, env: Record<string, str
 }
 
 /** Shared worker snapshots for compatibility. Fresh path-aware consumers use loadProfiles or profileOf. */
-export const PROFILES = profilesFrom(sharedAgents(ROOT_DIR), agentPaths({ rootDir: ROOT_DIR }));
+export const PROFILES = profilesFrom(listSharedAgents(), agentPaths({ rootDir: ROOT_DIR }));
 
 /** The `scout` profile: internet errands through OpenCode's web tools and a curl/ffmpeg download shell. */
 export const SCOUT = PROFILES.scout ?? null;

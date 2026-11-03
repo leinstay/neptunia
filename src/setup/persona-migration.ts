@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { AgentProfileError, listAgents } from '../agent-runner/profiles.ts';
+import { AgentProfileError, listSharedAgents } from '../agent-runner/profiles.ts';
 import { watcherDir } from '../watcher/read.ts';
 import { joinLabels, labelsFileOf, splitLabels } from '../config/labels.ts';
 
@@ -133,7 +133,7 @@ function agentOverrides(root: string): Map<string, Array<string>> {
     }
   }
   try {
-    for (const agent of listAgents({ rootDir: root })) {
+    for (const agent of listSharedAgents({ rootDir: root })) {
       if (agent.override === null || agent.prompt === null) continue;
       const targets = overrides.get(agent.override) ?? [];
       targets.push(path.join('agents', agent.id, agent.prompt));

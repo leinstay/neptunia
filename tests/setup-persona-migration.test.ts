@@ -824,3 +824,31 @@ test('writes only the declared destination when copying an agent override', () =
     'selected instructions\n'
   );
 });
+
+test('agent prompt migration uses shared declarations despite unrelated process persona edits', () => {
+  const options = fixture();
+  declareAgent(options.rootDir, 'agent-probe.md');
+  const bytes = 'synthetic legacy worker instructions\n';
+  write(options.privateDir, 'prompts.local/agent-probe.md', bytes);
+  const unrelated = path.join(path.dirname(options.rootDir), 'unrelated-process-persona');
+  write(unrelated, 'agents/probe/profile.json', '{"prompt":"unrelated.md"}');
+  const before = process.env.NEPTUNIA_DATA_DIR;
+  process.env.NEPTUNIA_DATA_DIR = unrelated;
+  try {
+    const plan = planPersonaLayers(options);
+    assert.deepEqual(plan.conflicts, []);
+    assert.deepEqual(plan.steps, [
+      { source: 'prompts.local/agent-probe.md', target: 'agents/probe/prompt.md', kind: 'copy' },
+    ]);
+    assert.deepEqual(snapshot(options.dataDir), {});
+    write(unrelated, 'agents/probe/profile.json', '{"limits":{"seconds":0}}');
+    const applied = applyPersonaLayers(options);
+    assert.deepEqual(applied.conflicts, []);
+    assert.equal(fs.readFileSync(path.join(options.dataDir, 'agents/probe/prompt.md'), 'utf8'), bytes);
+    assert.equal(fs.existsSync(path.join(options.dataDir, 'agents/probe/unrelated.md')), false);
+    assert.equal(fs.readFileSync(path.join(options.privateDir, 'prompts.local/agent-probe.md'), 'utf8'), bytes);
+  } finally {
+    if (before === undefined) delete process.env.NEPTUNIA_DATA_DIR;
+    else process.env.NEPTUNIA_DATA_DIR = before;
+  }
+});
