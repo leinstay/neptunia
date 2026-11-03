@@ -18,7 +18,17 @@ export const isPlainObject = (value: unknown): value is Row =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /** What a mapper is told about the file it maps: the interface, the guild and the position it holds in its unit. */
+export type ResolvedRecordIdentity = Readonly<{
+  sourceId: string;
+  authority: string;
+  nativeKind: string;
+  familyKey: string;
+  generation: number;
+  revision: number | null;
+}>;
+
 export type MapContext = {
+  messageIdentity?: ResolvedRecordIdentity;
   iface?: string;
   guildId?: string;
   position?: number;

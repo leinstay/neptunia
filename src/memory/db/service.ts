@@ -105,7 +105,10 @@ import { utcDay } from '../../time.ts';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { indexSettings, reembedTouched } from './index-policy.ts';
-import { observeMessage as observeMessageEnvelope } from './message-families.ts';
+import {
+  deleteMessage as deleteMessageEnvelope,
+  observeMessage as observeMessageEnvelope,
+} from './message-families.ts';
 import { observe as observeEnvelope } from './observe.ts';
 import { graphPending } from './graph.ts';
 import { stemsPending } from './stems.ts';
@@ -454,7 +457,12 @@ type SessionState = {
 type ReadJob = { run: () => Promise<void>; done: Promise<void> | null };
 
 /** An observation waiting for the writer: the envelope, the record unit it belongs to and the tries so far. */
-type ObserveItem = { type: 'observe' | 'observeMessage'; envelope: Row; owner: string | null; attempts: number };
+type ObserveItem = {
+  type: 'observe' | 'observeMessage' | 'deleteMessage';
+  envelope: Row;
+  owner: string | null;
+  attempts: number;
+};
 
 /** Sends either observation operation through the same worker or local writer boundary. */
 function dispatchObservation(
@@ -466,8 +474,22 @@ function dispatchObservation(
 ): Promise<Row> {
   const { envelope, owner } = item;
   if (engine) return engine.call(item.type, { envelope, now: now(), owner });
-  const write = item.type === 'observeMessage' ? observeMessageEnvelope : observeEnvelope;
+  const writers = {
+    observe: observeEnvelope,
+    observeMessage: observeMessageEnvelope,
+    deleteMessage: deleteMessageEnvelope,
+  };
+  const write = writers[item.type];
   return Promise.resolve().then(() => write(opened(), envelope, { now, log, owner }));
+}
+
+function messageWriters(
+  write: (envelope: unknown, where?: Row | null, type?: ObserveItem['type']) => Promise<object> | null
+) {
+  return {
+    observeMessage: (envelope: unknown, where?: Row | null) => write(envelope, where, 'observeMessage'),
+    deleteMessage: (envelope: unknown, where?: Row | null) => write(envelope, where, 'deleteMessage'),
+  };
 }
 
 /** The state of the memory database for the status card (see `status`). */
@@ -513,6 +535,7 @@ export type MemoryDbService = {
   issueContext(spec?: Parameters<typeof issuePureContext>[0]): Context;
   observe(envelope: unknown, where?: Row | null): Promise<object> | null;
   observeMessage(envelope: unknown, where?: Row | null): Promise<object> | null;
+  deleteMessage(input: unknown, where?: Row | null): Promise<object> | null;
   waitObservations(): Promise<number>;
   focusPeople(options?: {
     iface?: string;
@@ -1634,7 +1657,7 @@ export function createMemoryDb({
     recordWake,
     issueContext,
     observe,
-    observeMessage: (envelope, where) => observe(envelope, where, 'observeMessage'),
+    ...messageWriters(observe),
     waitObservations,
     focusPeople,
     status,

@@ -58,6 +58,7 @@
 // Logs carry codes only (`log.debug?.()`).
 
 import { messageLocator } from './message-locator.ts';
+import type { NativeMessageLocator } from './recall.ts';
 import type { MessageLocator } from './message-locator.ts';
 import { log as engineLog } from '../../log.ts';
 import {
@@ -257,6 +258,7 @@ export type Envelope = {
   extra?: Row | null;
   messageLocator?: MessageLocator;
   messageConversation?: MessageConversation;
+  messageReply?: NativeMessageLocator;
 };
 
 /** Runs `fn` in the handle's transaction; a refusal becomes `{ ok: false, code }` (logged with its code only). */
@@ -536,8 +538,10 @@ function accountOf(
   return { id, person_id: null };
 }
 
+export type ObservationPlaceInput = Pick<Envelope, 'iface' | 'authority' | 'place' | 'occurredAt'>;
+
 /** The partner account of a DM envelope (created when missing) and the person it is linked to. */
-function partnerOf(db: Db, envelope: Envelope, at: string): { account: string; person: unknown } | null {
+function partnerOf(db: Db, envelope: ObservationPlaceInput, at: string): { account: string; person: unknown } | null {
   const p = envelope.place;
   if (p.conversation !== 'dm' || !isObject(p.partner)) return null;
   const account = accountOf(
@@ -553,7 +557,7 @@ function partnerOf(db: Db, envelope: Envelope, at: string): { account: string; p
 /** The place of an envelope, created when missing; its conversation filled or checked. Returns its row. */
 function placeOf(
   db: Db,
-  envelope: Envelope,
+  envelope: ObservationPlaceInput,
   at: string
 ): { id: string; conversation: string | null; partner_person: unknown } {
   const p = envelope.place;
@@ -633,6 +637,15 @@ function placeOf(
   if (legacy) addKey(db, LEGACY_AUTHORITY, 'place', placeId, placeId, { at });
   projectRow(db, 'places', { id: placeId }, { at });
   return { id: placeId, conversation: declared, partner_person: row.partner_person };
+}
+
+/** Resolves the same validated place for message observations and authorless deletions. */
+export function resolveObservationPlace(
+  db: Db,
+  envelope: ObservationPlaceInput,
+  at: string
+): { id: string; conversation: string | null; partner_person: unknown } {
+  return placeOf(db, envelope, at);
 }
 
 /** The observation key of a post (its native identity without the revision): what a weak token is keyed by. */
@@ -737,7 +750,7 @@ function authorOf(
 }
 
 /** The scope triple and audience of a line in a place: the place's conversation, else internal (fail closed). */
-function audienceOfPlace(
+export function observationAudience(
   iface: string,
   place: { id: string; conversation: string | null; partner_person: unknown }
 ): { scope: Scope; audience: string } {
@@ -766,7 +779,7 @@ const lineKindOf = (envelope: Envelope): string =>
  * The source id of an envelope's native tuple (its revision given): the legacy importer's spelling when the tuple is
  * one it writes (ids.ts#legacySourceIdOf), else the hash of the tuple.
  */
-export function observedSourceId(envelope: Envelope): string {
+export function observedSourceId(envelope: Pick<Envelope, 'authority' | 'native'>): string {
   const n = envelope.native;
   return (
     legacySourceIdOf({
@@ -857,6 +870,7 @@ function replayOf(
 
 function sourceExtraOf(e: Envelope): Row {
   const extra: Row = {};
+  if (e.messageReply) extra.$messageReply = e.messageReply;
   if (e.messageLocator) extra.$messageLocator = messageLocator(e.messageLocator, e.iface);
   if (e.native.subtype) extra.subtype = e.native.subtype;
   if (e.author.kind === 'participant' && filled(e.author.display)) extra.display = e.author.display;
@@ -905,7 +919,7 @@ function writeObservation(
   }
   const place = placeOf(db, e, at);
   const author = authorOf(db, e, place, at);
-  const { scope, audience } = audienceOfPlace(e.iface, place);
+  const { scope, audience } = observationAudience(e.iface, place);
   const extra = sourceExtraOf(e);
   const kind = lineKindOf(e);
   // The native message a line replies to, in the line's own kind and authority (the legacy `reply_to` column).

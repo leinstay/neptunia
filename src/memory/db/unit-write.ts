@@ -42,6 +42,14 @@
 // An unmapped owner is refused with `UNIT_UNMAPPED`, an unknown op with `UNIT_BAD_OP`. Counts and codes only, never a
 // text.
 
+import { messageLocator } from './message-locator.ts';
+import type { MessageLocator } from './message-locator.ts';
+import type { MapContext } from './map/common.ts';
+import { resolveMessageFamily } from './message-families.ts';
+import { familyError } from './message-family-catalog.ts';
+import { observedSourceId } from './observe.ts';
+import { parseExtra } from './map/common.ts';
+import type { ResolvedRecordIdentity } from './map/common.ts';
 import { currentUnitPath } from './paths.ts';
 import { classify } from './map/index.ts';
 import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
@@ -172,6 +180,166 @@ function transitionHeld(db: Db, owner: string, line: unknown): boolean {
   );
 }
 
+function recordLocator(hint: Row, line: Row): MessageLocator {
+  const raw = hint.locator;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw familyError('BAD_NATIVE');
+  const locator = messageLocator({ ...raw, v: 1, origin: 'record-v1' }, 'iface' in raw ? raw.iface : null);
+  const scope = line.scope;
+  if (
+    !locator ||
+    locator.messageId !== line.messageId ||
+    !scope ||
+    typeof scope !== 'object' ||
+    !('channel' in scope) ||
+    scope.channel !== locator.conversationId
+  )
+    throw familyError('BAD_PLACE');
+  return locator;
+}
+
+function recordReference(update: Row, line: Row): { hint: Row; locator: MessageLocator } | undefined {
+  if (update.messages === undefined) return undefined;
+  if (!Array.isArray(update.messages)) throw familyError('BAD_NATIVE');
+  const matching = update.messages.filter(
+    (value: unknown): value is Row =>
+      value !== null &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      'lineId' in value &&
+      value.lineId === line.id
+  );
+  if (matching.length === 0 && !['seen', 'said', 'deleted'].includes(asText(line.kind))) return undefined;
+  if (matching.length !== 1 || line.v !== 1 || !filled(line.id)) throw familyError('BAD_NATIVE');
+  const hint = matching[0];
+  const locator = recordLocator(hint, line);
+  return { hint, locator };
+}
+
+function recordIdentity(db: Db, update: Row, line: Row): (ResolvedRecordIdentity & { iface: string }) | undefined {
+  const reference = recordReference(update, line);
+  if (!reference) return undefined;
+  const { hint, locator } = reference;
+  const family = resolveMessageFamily(db, { locator, authority: `${locator.iface}/global` });
+  const revision =
+    line.kind === 'deleted' ? null : isWholeNumber(line.revision) && line.revision > 0 ? line.revision : 1;
+  const found =
+    hint.observedSourceId === undefined
+      ? db
+          .prepare(
+            'SELECT * FROM sources WHERE authority_id = ? AND native_kind = ? AND native_id = ? AND generation = ? AND revision IS ? AND kind = ?'
+          )
+          .get(family.authority_id, family.native_kind, family.native_key, family.generation, revision, line.kind)
+      : db.prepare('SELECT * FROM sources WHERE id = ?').get(hint.observedSourceId);
+  if (
+    hint.observedSourceId !== undefined &&
+    (!found ||
+      found.authority_id !== family.authority_id ||
+      found.native_kind !== family.native_kind ||
+      found.native_id !== family.native_key ||
+      found.generation !== family.generation ||
+      found.revision !== revision ||
+      found.kind !== line.kind)
+  )
+    throw familyError('BAD_NATIVE');
+  const native = {
+    kind: family.native_kind,
+    key: family.native_key,
+    generation: family.generation,
+    revision,
+    subtype: String(line.kind),
+  };
+  return {
+    iface: locator.iface,
+    sourceId: typeof found?.id === 'string' ? found.id : observedSourceId({ authority: family.authority_id, native }),
+    authority: family.authority_id,
+    nativeKind: family.native_kind,
+    familyKey: family.native_key,
+    generation: family.generation,
+    revision,
+  };
+}
+
+function recordReply(db: Db, source: Row, line: Row, identity: ResolvedRecordIdentity): void {
+  if (!filled(line.replyTo)) return;
+  const extra = parseExtra(source.extra);
+  const locator = messageLocator(extra.$messageLocator, source.iface);
+  if (!locator) throw familyError('BAD_NATIVE');
+  const reply = { iface: locator.iface, conversationId: locator.conversationId, messageId: line.replyTo };
+  const parent = resolveMessageFamily(db, { locator: reply, authority: identity.authority });
+  source.reply_to = parent.native_key;
+  source.extra = JSON.stringify({ ...extra, $messageReply: reply });
+}
+
+function adoptedRecord(source: Row, found: Row): Row {
+  const adopted: Row = {
+    ...found,
+    owner_file: source.owner_file,
+    position: source.position,
+    origin: source.origin,
+    extra: JSON.stringify({
+      ...parseExtra(source.extra),
+      ...parseExtra(found.extra),
+      ...Object.fromEntries(Object.entries(parseExtra(source.extra)).filter(([key]) => !key.startsWith('$'))),
+    }),
+  };
+  delete adopted.rowid;
+  return adopted;
+}
+
+function duplicateLine(
+  db: Db,
+  unit: Unit,
+  line: Row,
+  identity: ResolvedRecordIdentity | undefined,
+  found: Row | undefined
+): boolean {
+  if (unit.kind === 'record' && !identity && recordDuplicate(db, unit.full, line)) {
+    return true;
+  }
+  if (unit.kind === 'errands' && transitionHeld(db, unit.full, line)) {
+    return true;
+  }
+  if (found && found.origin !== 'observation' && found.retired_at === null) {
+    return true;
+  }
+  return false;
+}
+
+function writeLine(
+  db: Db,
+  {
+    update,
+    unit,
+    line,
+    ctx,
+    position,
+    at,
+    archive,
+  }: { update: Row; unit: Unit; line: Row; ctx: MapContext; position: number; at: string; archive: boolean }
+) {
+  const identity = unit.kind === 'record' ? recordIdentity(db, update, line) : undefined;
+  const mapping = unit.mapper.toRows(unit.rel, line, {
+    ...ctx,
+    position,
+    ...(identity ? { iface: identity.iface, messageIdentity: identity } : {}),
+  });
+  let source = unit.kind === 'record' ? mapping.sources?.[0] : null;
+  if (source && identity) recordReply(db, source, line, identity);
+  const found = source ? db.prepare('SELECT * FROM sources WHERE id = ?').get(source.id) : undefined;
+  if (duplicateLine(db, unit, line, identity, found)) return { written: 0, duplicates: 1, adopted: 0, advance: 0 };
+  if (source && identity && found) {
+    source = adoptedRecord(source, found);
+    mapping.sources[0] = source;
+  }
+  // The live observation wrote the line first: the line takes the row over, its place in the unit stays.
+  const keep =
+    found && found.origin === 'observation' && found.owner_file === unit.full && Number.isInteger(found.position);
+  // A row is looked up only for a source line, so `keep` holds only with one.
+  if (keep) (source as Row).position = found.position;
+  writeMapping(db, qualify(mapping, unit), unit.full, { at, ignoreClaims: archive });
+  return { written: 1, duplicates: 0, adopted: found?.origin === 'observation' ? 1 : 0, advance: keep ? 0 : 1 };
+}
+
 function writeLines(db: Db, update: Row, at: string): { written: number; duplicates: number; adopted: number } {
   const unit = unitOf(update.owner);
   if (unit.format !== 'jsonl' || !LINE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
@@ -186,32 +354,11 @@ function writeLines(db: Db, update: Row, at: string): { written: number; duplica
     ? { guildId: unit.guildId, iface: ifaceOf(update), hotClaimIds: hotClaimIds(db) }
     : { guildId: unit.guildId, iface: ifaceOf(update) };
   for (const line of lines) {
-    const mapping = unit.mapper.toRows(unit.rel, line, { ...ctx, position });
-    const source = unit.kind === 'record' ? mapping.sources?.[0] : null;
-    const found = source
-      ? db.prepare('SELECT owner_file, position, origin, retired_at FROM sources WHERE id = ?').get(source.id)
-      : undefined;
-    if (unit.kind === 'record' && recordDuplicate(db, unit.full, line)) {
-      result.duplicates += 1;
-      continue;
-    }
-    if (unit.kind === 'errands' && transitionHeld(db, unit.full, line)) {
-      result.duplicates += 1;
-      continue;
-    }
-    if (found && found.origin !== 'observation' && found.retired_at === null) {
-      result.duplicates += 1;
-      continue;
-    }
-    // The live observation wrote the line first: the line takes the row over, its place in the unit stays.
-    const keep =
-      found && found.origin === 'observation' && found.owner_file === unit.full && Number.isInteger(found.position);
-    // A row is looked up only for a source line, so `keep` holds only with one.
-    if (keep) (source as Row).position = found.position;
-    writeMapping(db, qualify(mapping, unit), unit.full, { at, ignoreClaims: archive });
-    if (found && found.origin === 'observation') result.adopted += 1;
-    result.written += 1;
-    if (!keep) position += 1;
+    const done = writeLine(db, { update, unit, line, ctx, position, at, archive });
+    result.written += done.written;
+    result.duplicates += done.duplicates;
+    result.adopted += done.adopted;
+    position += done.advance;
   }
   noteUnit(db, unit.full, unit.kind, { lines: position, at });
   if (result.written > 0) markStemsPending(db);

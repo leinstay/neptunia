@@ -133,6 +133,21 @@ function authorOf({
       };
 }
 
+function replyDescriptor(
+  message: EventMessage,
+  locator: NonNullable<Envelope['messageLocator']>
+): Pick<Envelope, 'messageReply'> {
+  return filled(message.replyToId)
+    ? {
+        messageReply: {
+          iface: locator.iface,
+          conversationId: locator.conversationId,
+          messageId: message.replyToId,
+        },
+      }
+    : {};
+}
+
 /**
  * The observation envelope of a `message.received` event, or null (see the head of this file).
  * `event` is a validated `message.received` event (interfaces/<iface>'s `toEvent`). `selfId` is her own user id on the
@@ -200,6 +215,7 @@ export function observationOf(
     iface,
     authority,
     messageLocator: locator,
+    ...replyDescriptor(message, locator),
     messageConversation: messageConversationOf(locator.conversationId, place, conversation),
     ...(filled(connection) ? { connection } : {}),
     native: {
