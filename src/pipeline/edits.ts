@@ -228,10 +228,12 @@ export function createEdits({
         const done = await observed;
         if (!done || done.ok !== true || typeof done.revision !== 'number' || !Number.isInteger(done.revision)) return;
         if (typeof done.sourceId === 'string') {
-          await record!.append(guildId, [toRecordLine(slim, { revision: done.revision, now })], {
+          // The descriptor names the record line by the line's own id, which is no message id.
+          const line = toRecordLine(slim, { revision: done.revision, now }) as { id: string };
+          await record!.append(guildId, [line], {
             messages: [
               {
-                lineId: normalized.id,
+                lineId: line.id,
                 locator: { iface: event.iface, conversationId: event.conversation.id, messageId: normalized.id },
                 observedSourceId: done.sourceId,
               },
@@ -278,7 +280,7 @@ export function createEdits({
           ts: typeof message.at === 'number' && Number.isFinite(message.at) && message.at > 0 ? message.at : now(),
         },
         { kind: 'deleted', now }
-      );
+      ) as { id: string };
       // recordable holds only with a record.
       const observed = deleteLine?.(event, { guildId }, options?.acceptedEvent);
       const done = observed ? await observed : null;
@@ -290,7 +292,7 @@ export function createEdits({
           ? {
               messages: [
                 {
-                  lineId: String(id),
+                  lineId: line.id,
                   locator: { iface: event.iface, conversationId: event.conversation.id, messageId: String(id) },
                   observedSourceId: done.sourceId,
                 },
