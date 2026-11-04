@@ -22,10 +22,10 @@ export type ProcessIdentity = { pid: number; startId: string };
 /** Where runs are kept and the three things a run needs from outside. */
 export type RunStore = {
   dir: string;
-  now(): number;
-  newRunId(): string;
+  now: () => number;
+  newRunId: () => string;
   /** The start identity of the process `pid`, null when no such process lives. */
-  processStart(pid: number): string | null;
+  processStart: (pid: number) => string | null;
 };
 
 export type RunRecord = {

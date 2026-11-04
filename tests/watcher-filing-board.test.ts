@@ -24,7 +24,7 @@ const filing = () => import('../src/watcher/filing.ts');
 
 const DRAFT = { kind: 'fix', finding: 'rail', title: 'Retry rail', evidence: 'src/a.ts:1', done: 'It holds' };
 const OTHER = { kind: 'chore', finding: 'key', title: 'Unread key', evidence: 'config/b.json:2', done: 'It is gone' };
-const { finding: _dropped, ...PLAIN } = DRAFT;
+const PLAIN = { kind: DRAFT.kind, title: DRAFT.title, evidence: DRAFT.evidence, done: DRAFT.done };
 
 const never = (): Promise<never> => new Promise(() => {});
 const answering =
