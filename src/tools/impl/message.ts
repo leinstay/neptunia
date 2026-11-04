@@ -26,7 +26,6 @@
 // uploaded as a real file (never a link). Refused: another's message (`not-own-message`), an unknown or
 // deleted one (`unknown-message`, `message-deleted`), no such attachment (`no-media`), over the interface's
 // byte cap (`attachment-too-large`), a failed download (`file-unreadable`), or together with `file`/`gif`.
-// With `diary` the post goes to her diary in place of a channel, everything above included (diaryPort).
 
 import { skillOutputFile } from '../../skills/run.ts';
 import fsp from 'node:fs/promises';
@@ -35,67 +34,18 @@ import { messageRefOf, portAnswer, postingConversation } from './shared.ts';
 import { heldPort } from '../send-hold.ts';
 import { lineOf } from '../../behavior/line-of.ts';
 import { defineOp, perEnv, invalid, denied } from './registry.ts';
-import type { createMirrors } from '../../behavior/mirror.ts';
-import { writeDiaryMessage } from '../../behavior/diary-turn.ts';
 import { freshAttachmentUrl, gifPostUrl } from '../../media/gif-post.ts';
 import { CODE } from '../codes.ts';
 import { idText, objOf, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
-import type { Adapter, ConversationRef, Delivery } from '../../protocol/adapter.ts';
+import type { Adapter, ConversationRef } from '../../protocol/adapter.ts';
 import type { Content } from '../../protocol/actions.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { Env } from './env.ts';
 
-/** The conversation a diary post names where a channel post names its channel. */
-const DIARY_TARGET = 'diary';
-
-/** The ports that hold what is sent for her diary (diaryPort). */
-const DIARY_PORTS = new WeakSet<Adapter>();
-
-/** The diary hold of the mirrors' publisher (src/behavior/mirror.ts). */
-type DiaryHold = Pick<ReturnType<typeof createMirrors>, 'holdDiary' | 'heldDiary'>;
-
 /**
- * The port her post to her diary (`diary`) goes through: `real` whose `send` holds each message for the turn's one
- * entry (`env.mirrors`, src/behavior/mirror.ts#holdDiary), which the turn records and the mirrors publish when it ends
- * (src/behavior/diary-turn.ts#publishHeldDiary). Refused: a channel or a reply beside it (`invalid-args`).
- */
-function diaryPort(env: Env, args: Obj, context: OpContext, real: Adapter): Adapter {
-  if (args.channelId || args.replyTo) throw invalid('a diary message goes to your diary, with no channel or reply');
-  const hold = env.mirrors as DiaryHold | null | undefined;
-  const turnId = textOf(context.turnId);
-  const guildId = env.resolvedGuildId(context);
-  if (typeof hold?.holdDiary !== 'function' || !turnId || !guildId)
-    throw Object.assign(new Error('your diary is not available here'), { code: CODE.NOT_CONFIGURED });
-  // The live config, untyped in the env.
-  const config = objOf(env.hot as unknown).config;
-  const clock = typeof env.now === 'function' ? env.now : Date.now;
-  const held = Object.create(real) as Adapter;
-  // Each send is one message of the turn's entry, kept in memory before the call answers.
-  held.send = async (_to: ConversationRef, content: Content): Promise<Delivery> => {
-    // A file the port would fetch by its address has no bytes to keep: only files with their bytes go in.
-    const files = (content.attachments ?? []).flatMap((file) =>
-      file.data ? [{ name: file.name, data: file.data, contentType: file.contentType ?? null }] : []
-    );
-    const message = { text: content.text ?? '', mentions: [...(content.mentions?.users ?? [])], files };
-    await writeDiaryMessage({
-      mirrors: hold,
-      store: env.store as unknown,
-      config: objOf(config),
-      turnId,
-      guildId,
-      message,
-      publicationBoundary: context.publicationBoundary,
-    });
-    return { status: 'ok', ref: null, parts: [], at: clock(), idempotencyKey: '', error: null };
-  };
-  DIARY_PORTS.add(held);
-  return held;
-}
-
-/**
- * Where a post of hers through `p` goes: her diary for a diary port (no channel), else the conversation `channelId`
- * names, checked for what a post (a reply when `reply`) needs there (src/tools/impl/shared.ts#postingConversation).
+ * The conversation `channelId` names, checked for what a post (a reply when `reply`) needs there
+ * (src/tools/impl/shared.ts#postingConversation).
  */
 async function postTarget(
   env: Env,
@@ -104,11 +54,15 @@ async function postTarget(
   channelId: string | null,
   reply: boolean
 ): Promise<string> {
-  if (DIARY_PORTS.has(p)) return DIARY_TARGET;
-  const iface = p.iface;
-  const guildId = env.resolvedGuildId(context);
   const need = reply ? 'reply' : 'send';
-  return postingConversation({ reads: env.reads, iface, guildId, channelId, context, need });
+  return postingConversation({
+    reads: env.reads,
+    iface: p.iface,
+    guildId: env.resolvedGuildId(context),
+    channelId,
+    context,
+    need,
+  });
 }
 
 /**
@@ -129,35 +83,9 @@ function keyedPort(real: Adapter, context: OpContext): Adapter {
   return keyed;
 }
 
-/**
- * Her post through `real` (held for the end of a wake turn when the call carries the turn's hold, src/tools/send-hold.ts),
- * or with `diary` to her diary through its port (diaryPort), answered as diaryAnswer words it.
- */
-async function postOf(
-  env: Env,
-  args: Obj,
-  context: OpContext,
-  real: Adapter,
-  post: (args: Obj, context: OpContext, p: Adapter) => Promise<unknown>
-): Promise<unknown> {
-  if (args.diary !== true)
-    return post(
-      args,
-      context,
-      keyedPort(heldPort(bindPublicationPort(real, context.publicationBoundary), context), context)
-    );
-  return diaryAnswer(env, await post(args, context, diaryPort(env, args, context, real)));
-}
-
-/**
- * The answer of a post to her diary: a refusal or a failure as `post` gave it, else `ok` worded by
- * `labels.tools.result.diaryWritten` (no message is posted yet: the mirrors post the entry when the turn ends).
- */
-function diaryAnswer(env: Env, answer: unknown): unknown {
-  const given = objOf(answer);
-  if (typeof given.status === 'string' && given.status !== 'ok') return answer;
-  const result = objOf(objOf(objOf(objOf(objOf(env.hot as unknown).prompts).labels).tools).result);
-  return { text: textOf(result.diaryWritten) };
+/** The port of her post: `real` bound to the turn's boundary, held for a wake turn's end (src/tools/send-hold.ts), keyed. */
+function postPort(real: Adapter, context: OpContext): Adapter {
+  return keyedPort(heldPort(bindPublicationPort(real, context.publicationBoundary), context), context);
 }
 
 /** How far back `last` looks for her own message: the most messages one history read returns on the platform (100). */
@@ -435,7 +363,7 @@ const handlers = perEnv((env) => {
   /** `/nep message create [channel] [reply]`: her turn for a person, her own text when she acts. */
   async function cmdCreate(args: Obj, context: OpContext) {
     assertNotPaused();
-    return context?.actor === 'persona' ? postOf(env, args, context, requirePort(), post) : turn(args, context);
+    return context?.actor === 'persona' ? post(args, context, postPort(requirePort(), context)) : turn(args, context);
   }
 
   /** The port, or an Error naming what is missing. */

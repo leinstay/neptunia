@@ -21,18 +21,9 @@ import { createFakeAdapter } from '../src/interface/fake.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { dbOf, entryOf, seedMirror } from './fixtures/diary-mirror.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
-import { labels } from './fixtures/labels.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
-import {
-  DISCORD,
-  contentText,
-  fakeStore,
-  hotWith,
-  personaGrants,
-  rawMessage,
-  sequenceLlm,
-} from './fixtures/turn-harness.ts';
+import { DISCORD, fakeStore, hotWith, personaGrants, rawMessage, sequenceLlm } from './fixtures/turn-harness.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import '../src/tools/impl/index.ts';
@@ -343,32 +334,6 @@ test('a message, a picture and a voice from an ordinary turn elsewhere are refus
     'draw.create:failed/diary-mirror',
     'voice.say:failed/diary-mirror',
   ]);
-});
-
-// Stage 3 design, section 10: the refusal's label tells her she writes in her diary with `message.create` and its
-// argument `diary`. The test reads the code, the tool's name and the argument in the result she is shown, never the
-// wording.
-test('the refusal of a send to a mirror place carries diary-mirror and names message.create and diary', async () => {
-  const core = await community();
-  const answers = [toolAnswer('', [call('message.create', { channel: '#journal', text: 'από εδώ' })]), '<skip/>'];
-  const llm = sequenceLlm(answers);
-  const logs = await turnIn(core, { here: 'c1', answers, llm });
-  assert.deepEqual(calledOf(logs), ['message.create:failed/diary-mirror']);
-  // The scripted model keeps each request; the second carries the tool's result.
-  const results = (llm.calls[1] as Array<{ role: string; content: unknown }> | undefined) ?? [];
-  const shown = results
-    .filter((message) => message.role === 'tool')
-    .map((message) => {
-      const text: unknown = contentText(message.content);
-      return typeof text === 'string' ? text : '';
-    });
-  assert.equal(shown.length, 1, 'one tool result');
-  // The refusal's label in the labels fixture: it names the tool and its argument (their names only, not the wording).
-  const reasons = labels.tools.result.reasons as Record<string, string | undefined>;
-  const reason = reasons['diary-mirror'];
-  assert.ok(reason, 'the labels word the diary-mirror refusal');
-  assert.ok(reason.includes('message.create') && reason.includes('diary'), 'it names message.create and diary');
-  assert.ok(shown[0]?.includes(reason), 'she is shown that label');
 });
 
 test('her message and GIF in an intention turn that runs in a mirror place are refused diary-mirror', async () => {

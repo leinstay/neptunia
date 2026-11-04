@@ -25,7 +25,6 @@
 import { diaryMetadataOf, diaryPublicationRefusal, isPublicationBoundary } from '../tools/publication.ts';
 import type { PublicationBoundary } from '../tools/publication.ts';
 import fs from 'node:fs';
-import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { log } from '../log.ts';
 import { portLimit } from '../interface/capabilities.ts';
@@ -98,22 +97,6 @@ export type EntrySent = {
 export type MirrorPort = {
   iface: string;
   send(conversation: ConversationRef, content: Content, options?: SendOptions): Promise<Delivery>;
-};
-
-/** One message she wrote to her diary in a turn (`message.create` with `diary`), held until the turn ends. */
-export type HeldDiaryMessage = {
-  text: string;
-  mentions: ReadonlyArray<string>;
-  files: ReadonlyArray<{ name: string; data: Uint8Array; contentType: string | null }>;
-};
-
-/** What one turn wrote to her diary: its entry's id, when it began, the community and its messages, in order. */
-export type HeldDiary = {
-  publicationBoundary?: PublicationBoundary;
-  id: string;
-  at: number;
-  guildId: string;
-  messages: Array<HeldDiaryMessage>;
 };
 
 /** One mirror as `listMirrors` answers it. */
@@ -436,48 +419,8 @@ export function createMirrors({
   publishEntry(entry: DiaryEntry): Promise<Array<PublishOutcome>>;
   queueEntry(entry: DiaryEntry): Promise<void>;
   drainQueued(): Promise<number>;
-  holdDiary(
-    turnId: string,
-    guildId: string,
-    message: HeldDiaryMessage,
-    options?: { publicationBoundary?: PublicationBoundary }
-  ): HeldDiary;
-  heldDiary(turnId: string): number;
-  takeDiary(turnId: string): HeldDiary | null;
   keepEntryMedia(entry: DiaryEntry): Promise<void>;
 } {
-  // What each running turn wrote to her diary, by its turn id: one entry per turn, published when the turn ends.
-  const held = new Map<string, HeldDiary>();
-
-  /** Holds one diary message of the turn `turnId` (its entry gets its id with the first); answers what the turn holds. */
-  function holdDiary(
-    turnId: string,
-    guildId: string,
-    message: HeldDiaryMessage,
-    options: { publicationBoundary?: PublicationBoundary } = {}
-  ): HeldDiary {
-    const entry: HeldDiary = held.get(turnId) ?? { id: `diary:${randomUUID()}`, at: now(), guildId, messages: [] };
-    const boundary = options.publicationBoundary;
-    if (boundary !== undefined) {
-      if (!isPublicationBoundary(boundary) || diaryPublicationRefusal(entry.publicationBoundary, boundary.origin))
-        throw Object.assign(new Error('incompatible diary publication restriction'), { code: 'not-allowed' });
-      entry.publicationBoundary = { kind: boundary.kind, origin: { ...boundary.origin } };
-    }
-    held.set(turnId, entry);
-    entry.messages.push(message);
-    return entry;
-  }
-
-  /** How many diary messages the turn `turnId` holds. */
-  const heldDiary = (turnId: string): number => held.get(turnId)?.messages.length ?? 0;
-
-  /** What the turn `turnId` wrote to her diary, taken once (null when it wrote nothing). */
-  function takeDiary(turnId: string): HeldDiary | null {
-    const entry = held.get(turnId) ?? null;
-    held.delete(turnId);
-    return entry;
-  }
-
   function database(): Db | null {
     const handle = memoryDb.readHandle();
     return handle ? (handle.db as Db) : null; // the service's read connection is node:sqlite's
@@ -627,10 +570,7 @@ export function createMirrors({
       )
       .all() as Array<Publication>; // the columns selected above
     let sent = 0;
-    // An entry a turn here is still writing goes out when that turn ends.
-    const writing = new Set([...held.values()].map((entry) => entry.id));
     for (const publication of queued) {
-      if (writing.has(publication.row_id)) continue;
       const place = mirroredPlace(db, publication.destination_place_id);
       if (!place) continue;
       const entry = storedEntry(db, publication, dataDir);
@@ -644,9 +584,6 @@ export function createMirrors({
     publishEntry,
     queueEntry,
     drainQueued,
-    holdDiary,
-    heldDiary,
-    takeDiary,
     keepEntryMedia: keepMedia,
   };
 }

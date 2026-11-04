@@ -622,20 +622,6 @@ test('a same-origin restriction permits a mirror send without changing ordinary 
   assert.deepEqual(core.texts('d1'), [TEXT]);
 });
 
-test('a held diary entry retains its restriction when a later message omits the descriptor', async () => {
-  // Catches the second diary message downgrading the restriction on the complete held entry.
-  const core = await scene({ mirrors: [] });
-  const message = { text: TEXT, mentions: [], files: [] };
-  core.mirrors.holdDiary('restricted-turn', GUILD, message, { publicationBoundary: RESTRICTED_ENTRY });
-  core.mirrors.holdDiary('restricted-turn', GUILD, { ...message, text: 'second entry line' });
-  const held = core.mirrors.takeDiary('restricted-turn');
-  assert.deepEqual(held?.publicationBoundary, RESTRICTED_ENTRY);
-  assert.deepEqual(
-    held?.messages.map((part) => part.text),
-    [TEXT, 'second entry line']
-  );
-});
-
 test('a stored restriction refuses publication when its destination has no native route', async () => {
   // Catches interpreting a missing native destination as an unrestricted mirror.
   const core = await scene({ mirrors: [{ conversationId: 'd1' }] });

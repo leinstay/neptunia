@@ -23,7 +23,6 @@ import { createLimits } from '../llm/limits.ts';
 import { createThinkStore } from './previous-think.ts';
 import { turnRoutes } from './turn-ability-route.ts';
 import { chunkPictures } from './mirror.ts';
-import { publishHeldDiary } from './diary-turn.ts';
 import { loopSettings, paceSettings } from '../turn/settings.ts';
 import { scheduleTimer } from '../turn/timers.ts';
 import { postsPlain } from '../turn/triggers.ts';
@@ -330,7 +329,6 @@ export function createTurnRunner({
   around = null,
   reactors = null,
   errands = null,
-  mirrors = null,
   intentions = null,
   // The places view of the inner life (src/behavior/inner.ts#places): `<places>` on an addressed turn with `context.places` on.
   places = null,
@@ -693,7 +691,6 @@ export function createTurnRunner({
         }
       }
     } finally {
-      await publishHeldDiary({ mirrors, turnId: draft.turnKey?.turnId });
       // An attempt whose turn.start was written closes with its turn record at runTurn's exit,
       // whatever it returned (a throw counts as `error`).
       if (draft.started) phaseArgs.journalAttempts?.push({ draft, result: result ?? { outcome: 'error' } });

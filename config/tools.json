@@ -255,8 +255,7 @@
       "reply": "#N or link to reply to.",
       "text": "Message text.",
       "file": "file:<task-id>/<name>, or skill:<skill>/<run>/<name> from a skill's result.",
-      "gif": "Library GIF handle.",
-      "diary": "true writes to your diary, not a channel. No channel or reply."
+      "gif": "Library GIF handle."
     }
   },
   "message.edit": {

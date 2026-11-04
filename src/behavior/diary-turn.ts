@@ -18,9 +18,8 @@ import {
   setSettings,
 } from './diary.ts';
 import { lineOf } from './line-of.ts';
-import { log } from '../log.ts';
 import { diaryPlaces, readMirrors } from './mirror.ts';
-import type { DiaryEntry, DiaryPlace, EntryPicture, EntryVoice, HeldDiary, HeldDiaryMessage } from './mirror.ts';
+import type { DiaryEntry, DiaryPlace, EntryPicture, EntryVoice } from './mirror.ts';
 import { CODE } from '../tools/codes.ts';
 import type { ConversationInfo, ConversationRef, MessageEvent } from '../protocol/adapter.ts';
 
@@ -244,115 +243,6 @@ export function recordEntry({
     pictures: staged.length,
     entry,
   };
-}
-
-/** The part of the diary's publisher a turn's diary messages use (src/behavior/mirror.ts). */
-type DiaryPublisher = {
-  holdDiary(
-    turnId: string,
-    guildId: string,
-    message: HeldDiaryMessage,
-    options?: { publicationBoundary?: PublicationBoundary }
-  ): HeldDiary;
-  takeDiary(turnId: string): HeldDiary | null;
-  queueEntry(entry: DiaryEntry): Promise<void>;
-  publishEntry(entry: DiaryEntry, options: { held: boolean }): Promise<unknown>;
-};
-
-/** The entry of what a turn wrote to her diary: its messages as sent, their mentions and their files. */
-function heldEntry(held: HeldDiary): DiaryEntry {
-  const files = held.messages.flatMap((message, index) => message.files.map((file) => ({ message: index, ...file })));
-  return {
-    id: held.id,
-    ...(held.publicationBoundary !== undefined ? { publicationBoundary: held.publicationBoundary } : {}),
-    messages: held.messages.map((message) => message.text),
-    mentions: held.messages.map((message) => [...message.mentions]),
-    ...(files.length > 0 ? { files } : {}),
-  };
-}
-
-/** The post of the guild's diary with `post`'s `itemId` replaced by `post`; written with the store's next flush. */
-function replacePost(store: DiaryStore, guildId: string, post: Record<string, unknown>): void {
-  const posts = store.getDiary?.(guildId)?.posts ?? [];
-  const next = posts.map((one) => (one.itemId === post.itemId ? post : one));
-  store.setDiaryPosts?.(guildId, next, { max: DEFAULT_HISTORY_POSTS });
-}
-
-/** Waits for the store's writes to land in memory, when it has them. */
-async function flushed(store: unknown): Promise<void> {
-  const flush = (store as { flushSettled?: (opts: object) => Promise<unknown> } | null)?.flushSettled;
-  if (typeof flush === 'function') await flush.call(store, {});
-}
-
-/**
- * One message she wrote to her diary in the turn `turnId` (`message.create` with `diary`, src/tools/impl/message.ts),
- * kept in memory before the call answers: held by `mirrors` (src/behavior/mirror.ts#holdDiary) for the turn's one
- * entry, which the first message records (recordEntry: counted toward the day) and every later one extends
- * (its post replaced in the guild's diary); the store's writes awaited, then the entry queued to every enabled mirror with its files
- * kept as `media` rows (mirror.ts#queueEntry). Nothing is sent: the turn's end sends it (publishHeldDiary), and after
- * a stop a new publisher's `drainQueued` does.
- */
-export async function writeDiaryMessage({
-  mirrors,
-  store,
-  config,
-  turnId,
-  guildId,
-  message,
-  publicationBoundary,
-}: {
-  mirrors: unknown;
-  store: unknown;
-  config: Config;
-  turnId: string;
-  guildId: string;
-  message: HeldDiaryMessage;
-  publicationBoundary?: PublicationBoundary;
-}): Promise<void> {
-  const publisher = mirrors as DiaryPublisher;
-  const held = publisher.holdDiary(turnId, guildId, message, { publicationBoundary });
-  const speech = {
-    texts: held.messages.map((one) => one.text),
-    rendered: held.messages.map((one) => ({ text: one.text, userIds: [...one.mentions] })),
-  };
-  const entry = {
-    publicationBoundary: held.publicationBoundary,
-    config,
-    plan: { kind: null, search: null },
-    held: speech,
-    staged: [],
-    set: false,
-    voice: null,
-  };
-  const diaryStore = store as DiaryStore;
-  if (held.messages.length === 1)
-    recordEntry({ ...entry, store: diaryStore, guildId, now: held.at, newId: () => held.id });
-  else
-    replacePost(diaryStore, guildId, {
-      ...diaryPostOf({ ...entry, at: held.at, id: held.id }).post,
-      ...(held.publicationBoundary !== undefined ? { publicationBoundary: held.publicationBoundary } : {}),
-    });
-  await flushed(store);
-  await publisher.queueEntry(heldEntry(held));
-  log.info('diary: message held', { messages: held.messages.length });
-}
-
-/**
- * What the turn `turnId` wrote to her diary (writeDiaryMessage), sent to every enabled mirror when the turn ends: its
- * queued publications, each message as its own send with its files. Nothing when the turn wrote nothing. Never throws:
- * a failure is logged, and the queued publications wait for the mirrors' `drainQueued`.
- */
-export async function publishHeldDiary({ mirrors, turnId }: { mirrors: unknown; turnId: unknown }): Promise<void> {
-  const publisher = mirrors as Partial<DiaryPublisher> | null;
-  if (typeof turnId !== 'string' || !turnId || typeof publisher?.takeDiary !== 'function') return;
-  const held = publisher.takeDiary(turnId);
-  if (!held || held.messages.length === 0 || typeof publisher.publishEntry !== 'function') return;
-  try {
-    await publisher.publishEntry(heldEntry(held), { held: true });
-    log.info('diary: written from a turn', { messages: held.messages.length });
-  } catch (err) {
-    log.warn('diary: not published from a turn', { error: err });
-  }
 }
 
 /** One message of her diary as memory holds it: a message of the platform's shape, and its addressing. */

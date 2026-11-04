@@ -420,7 +420,6 @@ export const labels = {
     result: {
       coerced: '{arg} read as {value}',
       untaggedNote: '{name} tagged nobody; handle @{handle}',
-      diaryWritten: 'written to the diary',
       ok: 'skill ok, data:',
       refused: 'skill refused: {reason}',
       failed: 'skill failed: {reason}',
@@ -451,7 +450,7 @@ export const labels = {
         'malformed-call': 'call unreadable',
         'truncated-call': 'call cut off',
         'diary-draw-only': 'a diary post takes only draw.create',
-        'diary-mirror': 'the diary\'s mirror: write to the diary with message.create and diary',
+        'diary-mirror': 'the diary\'s mirror',
         other: 'other failure',
       },
     },
