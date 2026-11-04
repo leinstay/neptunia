@@ -1,9 +1,9 @@
 // One inspection under one durable run (src/watcher/lifecycle.ts), started by `neptunia worker watcher`: the claim, the
 // brief (src/watcher/brief.ts), one agent run that gets the abort signal and the timeout, the checks on its answer
 // (src/watcher/report.ts, tasks.ts), the receipts and the board (src/watcher/filing.ts) and the commit of the report. A
-// cancel reaches the agent through the signal and is looked at between the phases, up to the commit: from the commit on the
+// cancel reaches the agent and a waiting board call through the signal and is looked at between the phases, up to the commit: from the commit on the
 // run has its report and ends as succeeded. The board is opened only when something is to be filed, and a board that cannot
-// be reached leaves a report with the filing deferred. Nothing the agent wrote reaches a run record, and an answer that
+// be reached or stops answering leaves a report with the filing deferred. Nothing the agent wrote reaches a run record, and an answer that
 // fails a check is kept nowhere, so a planted key is copied nowhere.
 
 import path from 'node:path';
@@ -48,6 +48,8 @@ export type InspectionDeps = {
   onPhase?: (phase: InspectionPhase, runId: string) => void;
   /** How often the run's record is read for a cancel (ms). */
   cancelPollMs?: number;
+  /** How long opening the board or one call to it may take before the filing is deferred (ms). */
+  boardTimeoutMs?: number;
 };
 
 export type InspectionResult = {
@@ -62,6 +64,7 @@ export type InspectionResult = {
 };
 
 const DEFAULT_CANCEL_POLL_MS = 1000;
+const DEFAULT_BOARD_TIMEOUT_MS = 30_000;
 
 /** A run that ends before its report, carrying how. */
 class RunEnd extends Error {
@@ -139,17 +142,37 @@ function validate(text: string): Extract<SplitAnswer, { ok: true }> {
   return split;
 }
 
-/** Files what this run and earlier ones left to file. An unreachable board defers it. */
+/** `work`, rejected when `ms` pass or the signal aborts. What it does later is dropped, and the receipts reconcile it. */
+function bounded<T>(work: () => T | PromiseLike<T>, ms: number, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const give = (): void => reject(new Error('the board gave no answer'));
+    const timer = setTimeout(give, ms);
+    if (signal.aborted) give();
+    signal.addEventListener('abort', give);
+    const end = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', give);
+    };
+    Promise.resolve().then(work).then(resolve, reject).finally(end);
+  });
+}
+
+/** Files what this run and earlier ones left to file. A board that cannot be reached or does not answer defers it. */
 async function file(deps: InspectionDeps, runId: string, watch: Watch): Promise<void> {
   const dir = deps.store.dir;
   if (!hasUnsettledFilings(dir)) return;
-  let board: BoardCaller;
+  const ms = deps.boardTimeoutMs ?? DEFAULT_BOARD_TIMEOUT_MS;
+  let opened: BoardCaller;
   try {
-    board = await deps.openBoard();
+    opened = await bounded(() => deps.openBoard(), ms, watch.signal);
   } catch {
     deferFilings(dir, runId);
     return;
   }
+  const board: BoardCaller = {
+    call: (principal, op, args, idempotency) =>
+      bounded(() => opened.call(principal, op, args, idempotency), ms, watch.signal),
+  };
   await retryFilings({ dir, board, now: () => deps.store.now(), stop: watch.asked });
   deferFilings(dir, runId);
 }

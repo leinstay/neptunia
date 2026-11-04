@@ -254,16 +254,26 @@ test('selfimprovementReason reads the reason of the selfimprovement item and not
   assert.equal(selfimprovementReason([]), null);
 });
 
-// The watcher's report (spec 2026-11-02, "`selfimprovement` daily, after the watcher"): one block under one label,
-// `watcher`, with `{day}`, `{forOwner}` and `{tasksFiled}`.
+// What the watcher filed (spec 2026-11-02, "`selfimprovement` daily, after the watcher"): one block under one label,
+// `watcher`, with `{day}` and `{findings}`, one `watcherFinding` per receipt.
+// Changed: the block carried owner sections, which may hold server evidence; it now carries only receipt titles.
 
-const WATCHER = { day: '2026-11-02', forOwner: 'Look at the retries.', tasksFiled: '- T3 fix: retries' };
-const WITH_WATCHER = { ...LABELS, watcher: 'WATCHER {day} | {forOwner} | {tasksFiled}' };
+const WATCHER = {
+  day: '2026-11-02',
+  runId: 'run-1',
+  findings: [{ title: 'Retries', state: 'filed' as const, taskId: 'T3' }],
+};
+const WITH_WATCHER = {
+  ...LABELS,
+  watcher: 'WATCHER {day} | {findings}',
+  watcherFinding: '{title} {state}{task}',
+  watcherTask: ' {task}',
+};
 
 test('a watcher report in the facts becomes one block filled from its label', () => {
   // Catches: the report reaches the facts but no line of the wake, or a placeholder is left unfilled.
   const lines = selfimprovementLines(facts({ watcher: WATCHER }), WITH_WATCHER, when, null);
-  assert.ok(lines.includes('WATCHER 2026-11-02 | Look at the retries. | - T3 fix: retries'), lines.join('\n'));
+  assert.ok(lines.includes('WATCHER 2026-11-02 | Retries filed T3'), lines.join('\n'));
 });
 
 test('with no watcher report the block is absent and the other lines stay', () => {

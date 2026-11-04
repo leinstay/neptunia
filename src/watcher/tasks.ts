@@ -1,10 +1,6 @@
 // The watcher's tasks: the agent ends its answer with one ```tasks block, a JSON array of { kind, title, evidence, done }
 // with an optional `finding`. `splitAnswer` takes the block out of the report and checks it; src/watcher/inspection.ts
-// calls it. `fileTasks` files each draft on the board as the principal `watcher` (role `watcher`, which may add a task and
-// nothing else) unless the same evidence is already on the board as an open task of the watcher's or was filed today or
-// yesterday. `normalized` is how src/watcher/filing.ts, which keeps receipts per draft, compares evidence too.
-
-import type { BoardCaller } from '../tools/impl/board.ts';
+// calls it, and src/watcher/filing.ts files the drafts. `normalized` is how filing compares evidence.
 
 export type TaskDraft = { kind: 'fix' | 'chore'; title: string; evidence: string; done: string; finding?: string };
 export type Filed = { id: string; kind: 'fix' | 'chore'; title: string };
@@ -13,9 +9,6 @@ export type SplitAnswer =
 
 /** The board principal the watcher files as. */
 export const WATCHER = 'watcher';
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-const CLOSED_FOR_WATCHER: ReadonlyArray<string> = ['done', 'failed', 'cancelled'];
 
 const bad = (detail: string): SplitAnswer => ({ ok: false, code: 'bad-tasks', detail });
 
@@ -75,60 +68,3 @@ export function splitAnswer(text: string): SplitAnswer {
 
 /** The evidence as compared: trimmed, lower case, runs of spaces as one. */
 export const normalized = (evidence: string): string => evidence.trim().toLowerCase().replace(/\s+/g, ' ');
-
-/** A board refusal in the middle of a batch, carrying the tasks the batch had already filed. */
-export class FilingError extends Error {
-  readonly filed: Array<Filed>;
-  constructor(cause: unknown, filed: Array<Filed>) {
-    super(cause instanceof Error ? cause.message : 'the board refused', { cause });
-    this.name = 'FilingError';
-    this.filed = filed;
-  }
-}
-
-/**
- * Files each draft with `task.add` as `watcher`: the evidence is the description and the metadata, the done-criterion
- * the acceptance. A draft is skipped when a task of the watcher with the same evidence is open (not done, failed or
- * cancelled) or was created on the UTC day of `now` or the day before, and when its evidence already came earlier in
- * the batch. A board refusal rejects with a `FilingError` that holds what was filed before it. Nothing here claims,
- * approves or runs a task.
- */
-export async function fileTasks(args: {
-  board: BoardCaller;
-  drafts: ReadonlyArray<TaskDraft>;
-  now: () => number;
-}): Promise<{ filed: Array<Filed>; skipped: Array<TaskDraft> }> {
-  const filed: Array<Filed> = [];
-  const skipped: Array<TaskDraft> = [];
-  if (args.drafts.length === 0) return { filed, skipped };
-  const since = Math.floor(args.now() / DAY_MS) * DAY_MS - DAY_MS;
-  try {
-    const known = await args.board.call(WATCHER, 'task.list', { requester: WATCHER });
-    const blocked = new Set<string>();
-    for (const task of known) {
-      const evidence = task.metadata?.evidence;
-      if (task.requester !== WATCHER || typeof evidence !== 'string') continue;
-      const open = !CLOSED_FOR_WATCHER.includes(task.status);
-      if (open || Date.parse(task.created_at) >= since) blocked.add(normalized(evidence));
-    }
-    for (const draft of args.drafts) {
-      const key = normalized(draft.evidence);
-      if (blocked.has(key)) {
-        skipped.push(draft);
-        continue;
-      }
-      blocked.add(key);
-      const added = await args.board.call(WATCHER, 'task.add', {
-        lane: 'dev',
-        title: draft.title,
-        description: draft.evidence,
-        acceptance: draft.done,
-        metadata: { kind: draft.kind, evidence: draft.evidence },
-      });
-      filed.push({ id: added.id, kind: draft.kind, title: draft.title });
-    }
-  } catch (error) {
-    throw new FilingError(error, filed);
-  }
-  return { filed, skipped };
-}

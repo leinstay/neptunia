@@ -159,18 +159,20 @@ function coveringRow(rows: ReadonlyArray<TaskRecord>, receipt: FilingReceipt, si
 /** What the outcome of a call to the board makes of a receipt: a refusal is final, anything else is an outage. */
 const stateOfError = (error: unknown): FilingState => (error instanceof BoardError ? 'failed' : 'deferred');
 
-/** One draft's turn: reconcile, compare, then add. */
+/** One draft's turn: reconcile, compare, then add. Whether the board stopped answering. */
 async function fileOne(
   args: { dir: string; board: BoardCaller; rows: Array<TaskRecord>; since: number },
   runId: string,
   index: number,
   receipt: FilingReceipt
-): Promise<void> {
+): Promise<boolean> {
   const { dir, board, rows, since } = args;
   const accepted = acceptedRow(rows, runId, receipt);
-  if (accepted !== undefined) return settle(dir, runId, index, 'filed', accepted.id);
-  const covering = coveringRow(rows, receipt, since);
-  if (covering !== undefined) return settle(dir, runId, index, 'duplicate', covering.id);
+  const covering = accepted ?? coveringRow(rows, receipt, since);
+  if (covering !== undefined) {
+    settle(dir, runId, index, accepted === undefined ? 'duplicate' : 'filed', covering.id);
+    return false;
+  }
   const key = createHash('sha256').update(`${runId}\n${receipt.finding}`).digest('hex').slice(0, 32);
   try {
     const added = await board.call(
@@ -193,15 +195,26 @@ async function fileOne(
     );
     rows.push(added);
     settle(dir, runId, index, 'filed', added.id);
+    return false;
   } catch (error) {
-    settle(dir, runId, index, stateOfError(error));
+    const state = stateOfError(error);
+    settle(dir, runId, index, state);
+    return state === 'deferred';
   }
+}
+
+/** Gives every unsettled draft of `files` the state a board that stopped answering leaves it in. */
+function settleAll(dir: string, files: ReadonlyArray<FilingFile>, state: FilingState): void {
+  for (const file of files)
+    file.receipts.forEach((one, index) => {
+      if (isUnsettled(one)) settle(dir, file.runId, index, state);
+    });
 }
 
 /**
  * Files everything unsettled, oldest run first, each draft once. `stop` is asked before each draft, and what it holds back
- * stays unsettled for the caller to decide. A board that answers nothing leaves the drafts deferred; nothing here throws
- * for the board's sake.
+ * stays unsettled for the caller to decide. The first call that gets no answer leaves every draft still unsettled deferred
+ * without a call each, so a dead link costs one timeout. Nothing here throws for the board's sake.
  */
 export async function retryFilings(args: {
   dir: string;
@@ -217,17 +230,17 @@ export async function retryFilings(args: {
   try {
     rows = [...(await board.call(WATCHER, 'task.list', { requester: WATCHER }))];
   } catch (error) {
-    for (const file of files)
-      file.receipts.forEach((one, index) => {
-        if (isUnsettled(one)) settle(dir, file.runId, index, stateOfError(error));
-      });
+    settleAll(dir, files, stateOfError(error));
     return;
   }
   for (const file of files) {
     for (const [index, receipt] of file.receipts.entries()) {
       if (!isUnsettled(receipt)) continue;
       if (args.stop?.() === true) return;
-      await fileOne({ dir, board, rows, since }, file.runId, index, receipt);
+      if (await fileOne({ dir, board, rows, since }, file.runId, index, receipt)) {
+        settleAll(dir, files, 'deferred');
+        return;
+      }
     }
   }
 }
