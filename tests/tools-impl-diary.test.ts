@@ -1,10 +1,5 @@
-// Her diary as a target of `message.create` (stage 3 design, section 10, "From now on"): with `diary: "true"` the call
-// writes in her diary in place of a channel, from any turn but the diary turn, with everything `message.create` carries
-// (text, a GIF, a file, a media repost). Every such call of one turn goes into that turn's one entry, recorded in memory
-// before anything is sent; when the turn ends, the diary's mirrors publish the entry once each. The turn's first diary
-// call counts toward `selfreflection.maxPerDay` and is refused `cap-diary` over it; `channel` or `reply` beside `diary` is
-// `invalid-args`. Real turn runner, admin, store and memory database over the fake interface, with two enabled mirrors
-// and a scripted model. Synthetic text only.
+// The diary turn's tools and the restriction a diary entry keeps through storage and reads. Real turn runner, admin,
+// store and memory database over the fake interface, with two enabled mirrors and a scripted model. Synthetic text only.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { issueContext, type Context } from '../src/memory/db/scope.ts';
@@ -242,88 +237,8 @@ const receivedIn = (core: Community, conversationId: string) =>
     files: message.attachments.map((attachment) => attachment.name),
   }));
 
-test('two diary calls of an ordinary turn make one entry, published to every mirror once when the turn ends', async () => {
-  const core = await community();
-  // Both calls in one answer, two tool calls of one step: a post is an effect, and an effect ends the turn's steps.
-  const { logs } = await turnOf(core, {
-    answers: [toDiary({ text: 'μια σκέψη' }, { text: 'και μια ακόμη' }), '<skip/>'],
-  });
-  assert.deepEqual(calledOf(logs), ['message.create:ok', 'message.create:ok']);
-  assert.deepEqual(
-    diaryRows(core.memory.memoryDb).map((row) => row.text),
-    ['μια σκέψη\nκαι μια ακόμη']
-  );
-  assert.deepEqual(
-    [core.texts('d1'), core.texts('d2')],
-    [
-      ['μια σκέψη', 'και μια ακόμη'],
-      ['μια σκέψη', 'και μια ακόμη'],
-    ]
-  );
-  assert.deepEqual(
-    diaryPublications(core.memory.memoryDb).map((row) => row.status),
-    ['sent', 'sent']
-  );
-});
-
-test('a diary call of an inner turn records one entry, published to every mirror once', async () => {
-  const core = await community();
-  const { logs } = await turnOf(core, { mode: 'inner', answers: [toDiary({ text: 'βράδυ' }), '<skip/>'] });
-  assert.deepEqual(calledOf(logs), ['message.create:ok']);
-  assert.deepEqual(
-    diaryRows(core.memory.memoryDb).map((row) => row.text),
-    ['βράδυ']
-  );
-  assert.deepEqual([core.texts('d1'), core.texts('d2')], [['βράδυ'], ['βράδυ']]);
-});
-
-test('a GIF written to her diary goes into the entry and is published with it', async () => {
-  const core = await community();
-  const { logs } = await turnOf(core, { answers: [toDiary({ text: 'χαχα', gif: 'g1' }), '<skip/>'] });
-  assert.deepEqual(calledOf(logs), ['message.create:ok']);
-  for (const mirror of ['d1', 'd2'])
-    assert.ok(
-      core.texts(mirror).some((text) => text.includes('https://media.example/g1.gif')),
-      `${mirror} has the GIF`
-    );
-});
-
-test('a file written to her diary goes into the entry and is published with it', async () => {
-  const core = await community();
-  const { logs } = await turnOf(core, {
-    answers: [toDiary({ text: 'οι σημειώσεις', file: 'file:t1/notes.txt' }), '<skip/>'],
-  });
-  assert.deepEqual(calledOf(logs), ['message.create:ok']);
-  for (const mirror of ['d1', 'd2'])
-    assert.ok(
-      receivedIn(core, mirror).some((message) => message.files.includes('notes.txt')),
-      `${mirror} has the file`
-    );
-});
-
-test('a media repost written to her diary goes into the entry and is published with it', async () => {
-  const core = await community();
-  const { logs } = await turnOf(core, { answers: [toDiary({ media: 'p-own' }), '<skip/>'] });
-  assert.deepEqual(calledOf(logs), ['message.create:ok']);
-  for (const mirror of ['d1', 'd2'])
-    assert.ok(
-      receivedIn(core, mirror).some((message) => message.files.includes('pier.png')),
-      `${mirror} has the picture`
-    );
-});
-
-test('a diary call with a channel or a reply is refused invalid-args and records nothing', async () => {
-  for (const given of [{ channel: '#general' }, { reply: 'm-c1' }]) {
-    const core = await community();
-    const { logs } = await turnOf(core, { answers: [toDiary({ text: 'x', ...given }), '<skip/>'] });
-    assert.deepEqual(calledOf(logs), ['message.create:invalid/invalid-args'], Object.keys(given)[0]);
-    assert.deepEqual(diaryRows(core.memory.memoryDb), []);
-    assert.deepEqual([core.texts('d1'), core.texts('d2')], [[], []]);
-  }
-});
-
 // The diary turn keeps its requests byte for byte (section 4): the tools its writer request offers, and how it answers
-// a `message.create` call with `diary`, are what the code of main gave for the same turn in the diary channel
+// a `message.create` call, are what the code of main gave for the same turn in the diary channel
 // (tests/fixtures/diary-tool.json, recorded under the same settings).
 test('the diary turn offers the tools and answers a diary call as the diary channel turn did', async () => {
   const recorded = JSON.parse(fs.readFileSync(new URL('./fixtures/diary-tool.json', import.meta.url), 'utf8')) as {
@@ -338,7 +253,7 @@ test('the diary turn offers the tools and answers a diary call as the diary chan
     mode: 'diary',
     answers: [
       plan,
-      toolAnswer('<msg>μια ήσυχη μέρα</msg>', [call('message.create', { diary: 'true', text: 'x' })]),
+      toolAnswer('<msg>μια ήσυχη μέρα</msg>', [call('message.create', { text: 'x' })]),
       '<msg>μια ήσυχη μέρα</msg>',
     ],
   });
@@ -347,34 +262,6 @@ test('the diary turn offers the tools and answers a diary call as the diary chan
   assert.equal('tools' in writer, recorded.writerHasTools);
   assert.deepEqual(offeredIn(writer), recorded.writerTools);
   assert.deepEqual(calledOf(logs), recorded.called);
-});
-
-// Section 10: the entry is in memory before anything is sent. A process that stops after her diary call answered and
-// before the turn's end published it leaves the entry and its queued publications; the next start sends them.
-test("a diary entry whose turn stopped before it was published goes out once from the next start's queue", async () => {
-  const core = await community();
-  // The same publisher, whose publication at the turn's end never happens: the process stopped first.
-  const stopped = {
-    ...core.mirrors,
-    publishEntry: (): Promise<Array<PublishOutcome>> => Promise.reject(new Error('the process stopped')),
-  };
-  const { logs } = await turnOf(core, { answers: [toDiary({ text: 'πριν σβήσει' }), '<skip/>'], mirrors: stopped });
-  assert.deepEqual(calledOf(logs).slice(0, 1), ['message.create:ok']);
-  assert.deepEqual(
-    diaryRows(core.memory.memoryDb).map((row) => row.text),
-    ['πριν σβήσει'],
-    'the entry is in memory'
-  );
-  assert.deepEqual([core.texts('d1'), core.texts('d2')], [[], []], 'nothing went out');
-  const restarted = createMirrors({
-    memoryDb: core.memory.memoryDb,
-    port: () => core.adapter,
-    now: () => NOW,
-    dataDir: core.memory.dataDir,
-  });
-  assert.equal(await restarted.drainQueued(), 2, 'one publication for each mirror');
-  assert.equal(await restarted.drainQueued(), 0, 'sent once');
-  assert.deepEqual([core.texts('d1'), core.texts('d2')], [['πριν σβήσει'], ['πριν σβήσει']]);
 });
 
 const PRIVATE_DIARY = 'private-diary-marker-731';
@@ -403,54 +290,6 @@ function seedRestrictedDiary(core: Community, metadata: unknown = PRIVATE_BOUNDA
   };
   core.store.appendDiaryPost(GUILD, post);
 }
-
-test('an internal turn keeps repeated diary messages private through storage and turn-end publication', async () => {
-  // Catches losing trusted provenance on the second message or treating a mirror grant as declassification.
-  const core = await community();
-  await turnOf(core, {
-    memoryContext: internalDiaryContext(),
-    answers: [
-      toolAnswer('<msg>private answer</msg>', [
-        call('message.create', { diary: 'true', text: PRIVATE_DIARY }),
-        call('message.create', { diary: 'true', text: 'second private line' }),
-      ]),
-      '<skip/>',
-    ],
-  });
-  assert.ok(core.texts('c1').includes('private answer'));
-  const [entry] = diaryRows(core.memory.memoryDb);
-  assert.equal(entry.text, `${PRIVATE_DIARY}\nsecond private line`);
-  const db = diaryDb(core);
-  const row = db.prepare('SELECT scope_kind, extra FROM diary WHERE id = ?').get(entry.id);
-  assert.equal(row?.scope_kind, 'internal');
-  const extra = JSON.parse(String(row?.extra)) as Record<string, unknown>;
-  assert.deepEqual(extra.publicationBoundary, PRIVATE_BOUNDARY);
-  assert.equal('memoryContext' in extra, false);
-  assert.deepEqual([core.texts('d1'), core.texts('d2')], [[], []]);
-});
-
-test('a restricted diary tool entry remains private after a publisher restart', async () => {
-  // Catches restrictions kept only in a live hold and lost when queued publications are restored.
-  const core = await community();
-  const stopped = {
-    ...core.mirrors,
-    publishEntry: (): Promise<Array<PublishOutcome>> => Promise.reject(new Error('stopped')),
-  };
-  await turnOf(core, {
-    memoryContext: internalDiaryContext(),
-    mirrors: stopped,
-    answers: [toDiary({ text: PRIVATE_DIARY }), '<skip/>'],
-  });
-  assert.equal(diaryRows(core.memory.memoryDb)[0].text, PRIVATE_DIARY);
-  const restarted = createMirrors({
-    memoryDb: core.memory.memoryDb,
-    port: () => core.adapter,
-    now: () => NOW,
-    dataDir: core.memory.dataDir,
-  });
-  assert.equal(await restarted.drainQueued(), 0);
-  assert.deepEqual([core.texts('d1'), core.texts('d2')], [[], []]);
-});
 
 for (const metadata of [PRIVATE_BOUNDARY, null, { kind: 'internal-turn', origin: {} }]) {
   test(`restored ${metadata === PRIVATE_BOUNDARY ? 'valid' : metadata === null ? 'null' : 'malformed'} diary restriction hides the entry from outward reads`, async () => {
@@ -537,18 +376,4 @@ test('a diary-mode internal turn records restricted provenance on its held speec
   assert.equal(row.scope_kind, 'internal');
   const extra = JSON.parse(String(row.extra)) as Record<string, unknown>;
   assert.ok(extra.publicationBoundary);
-});
-
-test('an internal diary attachment retains internal media scope without mirror upload', async () => {
-  // Catches text protection leaving a generated diary attachment readable or publishable as group media.
-  const core = await community();
-  await turnOf(core, {
-    memoryContext: internalDiaryContext(),
-    answers: [toDiary({ text: PRIVATE_DIARY, file: 'file:task/notes.txt' }), '<skip/>'],
-  });
-  assert.equal(diaryRows(core.memory.memoryDb)[0].text, PRIVATE_DIARY);
-  const media = diaryDb(core).prepare("SELECT scope_kind FROM media WHERE kind = 'diary' AND retired_at IS NULL").all();
-  assert.equal(media.length, 1);
-  assert.equal(media[0].scope_kind, 'internal');
-  assert.deepEqual([receivedIn(core, 'd1'), receivedIn(core, 'd2')], [[], []]);
 });
