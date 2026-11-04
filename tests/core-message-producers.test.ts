@@ -316,3 +316,23 @@ test('an unavailable partial edit preserves archived text and author without inv
     }
   });
 });
+
+test('an edit and a deletion reach the record and log no refused append', async () => {
+  // Bug: the record's descriptor named the message id, the line carries its own id, and each was refused BAD_NATIVE.
+  const { logs } = await withCapturedLogs(async () => {
+    const rig = await boot();
+    try {
+      assert.equal(await rig.send(event('original', 'room-a', 'Alpha original')), 'ok');
+      assert.equal(await rig.send(event('edit', 'room-a', 'Alpha edited', true)), 'ok');
+      const deletion: MessageEvent = { ...event('gone', 'room-a', ''), deleted: true, message: { id: NATIVE } };
+      assert.equal(await rig.send(deletion), 'ok');
+      await rig.stop();
+    } finally {
+      await rig.close();
+    }
+  });
+  assert.deepEqual(
+    logs.filter((entry) => entry.msg === 'events: record failed'),
+    []
+  );
+});
