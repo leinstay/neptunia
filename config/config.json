@@ -370,6 +370,10 @@
     "planMaxOutputTokens": 2000,
     "planTimeoutMs": 60000
   },
+  "mirrors": {
+    "claimLeaseMs": 600000,
+    "sendTimeoutMs": 120000
+  },
   "gifs": {
     "pick": {
       "maxOutputTokens": 60

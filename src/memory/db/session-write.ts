@@ -32,7 +32,10 @@
 //       Schema v11: handed to wakes.ts#applyWakeWrite, skills.ts#applySkillsWrite and index-policy.ts#applyIndexWrite.
 //       Bookkeeping of the database itself, not her memory: no mode.
 //   { kind: 'publication', op: 'prepare' | 'sent' | 'failed' | 'unknown', ... }
-//       The diary's mirrors (src/behavior/mirror.ts), handed to publish.ts#applyPublicationWrite.
+//       The diary's mirrors (src/behavior/mirror.ts), handed to publish.ts#applyPublicationWrite; the claim and the
+//       segments of a send (`claim`, `segment`, `settle` and the rest) to publication-delivery.ts#applyDeliveryWrite.
+//   { kind: 'mirror', op: 'add' | 'configure' | 'remove' | 'slot' | 'complete', ... }
+//       The owner's configuration of the mirrors, handed to mirror-config.ts#applyMirrorWrite.
 //   { kind: 'entry-media', id, items, dataDir }
 //       A diary entry's pictures and voice file, kept as files and `media` rows (diary-media.ts#applyEntryMedia).
 //   { kind: 'unit', op, ... }
@@ -91,6 +94,8 @@ import { applySkillsWrite } from './skills.ts';
 import { applyIndexWrite } from './index-policy.ts';
 import { applyUnitWrite } from './unit-write.ts';
 import { applyPublicationWrite } from './publish.ts';
+import { applyDeliveryWrite, isDeliveryOp } from './publication-delivery.ts';
+import { applyMirrorWrite } from './mirror-config.ts';
 import { applyEntryMedia } from './diary-media.ts';
 import { writeBackup } from './backup.ts';
 import { applyIngestWrite } from './ingest.ts';
@@ -770,6 +775,12 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['board', applyBoardWrite],
   ['person-link', applyPersonLinkWrite],
   ['request-archive', applyRequestArchiveWrite],
+  // The diary's mirrors: the state of a send, then the owner's configuration.
+  [
+    'publication',
+    (handle, update) => (isDeliveryOp(update.op) ? applyDeliveryWrite : applyPublicationWrite)(handle, update),
+  ],
+  ['mirror', applyMirrorWrite],
 ]);
 
 /** Applies one write on the writer connection; returns counts. */
@@ -784,7 +795,6 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
   if (kind === 'skills') return applySkillsWrite(handle, update);
   if (kind === 'index-policy' || kind === 'touch' || kind === 'reembed') return applyIndexWrite(handle, update);
   if (kind === 'unit') return applyUnitWrite(handle, update);
-  if (kind === 'publication') return applyPublicationWrite(handle, update);
   if (kind === 'entry-media') return applyEntryMedia(handle, update);
   // Schema v16: the event door's ingestion record (ingest.ts).
   if (kind === 'ingest' || kind === 'ingest-ack' || kind === 'ingest-release') return applyIngestWrite(handle, update);

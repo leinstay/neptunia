@@ -11,7 +11,8 @@
 // subcommand runs its `defaultSubcommand`, or itself when it has none, and a command marked `needsSubcommand`
 // refuses the bare line. An argument with `choices` takes only those values. An argument with a `flag` is written
 // `--key <word>` after the positional words, takes exactly one word, and is refused when its word is missing, when
-// the flag comes twice, when another flag is typed and when a bare word is left over. A command's `check` refuses
+// the flag comes twice, when another flag is typed and when a bare word is left over. A `bare` flag may stand alone, with
+// the word `true` as its value. A command's `check` refuses
 // what the table's shape cannot say. A leaf whose `secret` is `only` takes a secret through its question alone, so a
 // word past its arguments is refused and not echoed. A leaf with any `secret` takes `--secret-stdin` in the command
 // line. The parse is pure and never throws.
@@ -23,7 +24,14 @@ import { MODEL_SET_ROLES, ROUTE_ROLES } from '../../tools/impl/catalog.ts';
 import { isDay } from '../../watcher/read.ts';
 
 /** One argument of a command, in the order the line gives them. */
-export type CommandArg = { name: string; required: boolean; choices?: ReadonlyArray<string>; flag?: string };
+export type CommandArg = {
+  name: string;
+  required: boolean;
+  choices?: ReadonlyArray<string>;
+  flag?: string;
+  /** The flag may stand alone, with the word `true` as its value. */
+  bare?: boolean;
+};
 
 /** One subcommand: its name (two words joined by a dot for a nested one), its help line and its arguments. */
 export type Subcommand = {
@@ -70,6 +78,9 @@ const arg = (name: string, required = true, choices?: ReadonlyArray<string>): Co
 
 /** An argument typed as `--name <word>`, after the positional words. */
 const flagArg = (name: string, required: boolean): CommandArg => ({ name, required, flag: `--${name}` });
+
+/** An argument typed as `--name`, which needs no word: alone, its value is the word `true`. */
+const bareFlagArg = (name: string): CommandArg => ({ name, required: false, flag: `--${name}`, bare: true });
 
 const sub = (name: string, help: string, args: ReadonlyArray<CommandArg> = []): Subcommand => ({ name, help, args });
 
@@ -364,6 +375,34 @@ export const COMMANDS: ReadonlyArray<Command> = [
     otherwise: sub('command', "An interface's own subcommand", [arg('name'), arg('sub'), arg('rest', false)]),
   },
   {
+    name: 'mirror',
+    help: 'Choose where diary entries are published and settle what was delivered',
+    args: [],
+    defaultSubcommand: 'list',
+    subcommands: [
+      sub('list', 'Every mirror and whether it is enabled'),
+      sub('status', 'Each mirror with its queue, failures, uncertain sends and backfill'),
+      sub('add', 'Publish diary entries to a known place; --backfill true --every 4h also sends its old entries', [
+        arg('destination'),
+        flagArg('backfill', false),
+        flagArg('every', false),
+      ]),
+      sub('configure', 'Change a mirror: --enabled, --backfill or --every', [
+        arg('mirror'),
+        flagArg('enabled', false),
+        flagArg('backfill', false),
+        flagArg('every', false),
+      ]),
+      sub('disable', 'Stop publishing to a mirror and keep its configuration', [arg('mirror')]),
+      sub('remove', 'Take a mirror off the list and keep what it was sent', [arg('mirror')]),
+      sub(
+        'reconcile',
+        'Record entries as already published, or say with --absent that an uncertain send never arrived',
+        [arg('mirror'), flagArg('through', false), flagArg('entries', false), bareFlagArg('absent')]
+      ),
+    ],
+  },
+  {
     name: 'search',
     help: 'Configure quick web search, its engine and model',
     args: [],
@@ -477,7 +516,7 @@ function subcommandOf(command: Command, words: ReadonlyArray<string>): { found: 
 /** The usage of `name` with `args`, as the owner types it. */
 function usageOf(name: string, args: ReadonlyArray<CommandArg>): string {
   const words = args.map((one) => {
-    const word = one.flag === undefined ? `<${one.name}>` : `${one.flag} <${one.name}>`;
+    const word = one.flag === undefined ? `<${one.name}>` : one.bare === true ? one.flag : `${one.flag} <${one.name}>`;
     return one.required ? word : `[${word}]`;
   });
   return ['/' + name.replaceAll('.', ' '), ...words].join(' ');
@@ -502,6 +541,10 @@ function splitFlags(
     const known = args.find((one) => one.flag === word);
     if (known === undefined) return `${usageOf(name, args)}: ${word} is not an option`;
     const value = words[i + 1];
+    if (known.bare === true && (value === undefined || value.startsWith('--'))) {
+      flagged[known.name] = 'true';
+      continue;
+    }
     if (value === undefined || value.startsWith('--')) return `${usageOf(name, args)}: ${word} needs a value`;
     if (Object.hasOwn(flagged, known.name)) return `${usageOf(name, args)}: ${word} is given twice`;
     flagged[known.name] = value;

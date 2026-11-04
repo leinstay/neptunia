@@ -554,6 +554,27 @@
       "test": "required"
     },
     {
+      "path": "src/behavior/mirror-desk.ts",
+      "purpose": "What the owner's mirror commands read and change. Tested through the mirror command tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/mirror-drain.ts",
+      "purpose": "One drain of the diary's mirrors: expired claims, adapter lookups, lost entries, queued sends and backfill slots. Tested through the mirror delivery and backfill tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/behavior/mirror-stored.ts",
+      "purpose": "A diary entry rebuilt from memory for a publication that goes out after its turn. Tested through the mirror delivery tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/behavior/missed-types.ts",
       "purpose": "The long input and result types of the signatures of the missed-answer registry. Types only: nothing runs, so nothing is tested.",
       "layer": "public",
@@ -1310,6 +1331,13 @@
       "test": "required"
     },
     {
+      "path": "src/interface/commands/mirror.ts",
+      "purpose": "The owner's `/mirror` commands. Tested through the mirror command tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/keys/",
       "purpose": "The model keys of a deployment: the key store (`keys.json`), the core key list with its failover, the probes that check a key and a model, the owner's key commands and the one-time import of the old `.env` variables.",
       "layer": "public",
@@ -1370,6 +1398,20 @@
     {
       "path": "src/memory/db/diary-past.ts",
       "purpose": "Schema v15's data step that makes her past messages in a diary mirror's place entries. Tested through the v15 migration tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/mirror-config.ts",
+      "purpose": "The owner's configuration of the diary's mirrors, written by the one writer, and the scans of what a mirror still lacks. Tested through the mirror command and backfill tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/publication-delivery.ts",
+      "purpose": "The delivery state of a publication: its claim, its segment receipts and how each send ended. Tested through the mirror delivery tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

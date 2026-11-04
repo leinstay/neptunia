@@ -675,7 +675,7 @@ export type DiaryDeps = {
   };
   getGuildId: () => string | null;
   backfill?: ((args: BackfillArgs) => Promise<number>) | null;
-  mirrors?: { publishEntry(entry: unknown): Promise<unknown> } | null;
+  mirrors?: { publishEntry(entry: unknown): Promise<unknown>; beginEntry?(): () => void } | null;
   rng?: () => number;
   now?: () => number;
   delay?: (ms: number) => Promise<void>;
@@ -805,6 +805,21 @@ export function createDiary({
     { kind, topic = null, forced }: { kind: string | null; topic?: string | null; forced: boolean }
   ): Promise<unknown> {
     const diary = { kind: kind ?? null, ...(topic ? { topic } : {}), forced };
+    // While the turn writes its entry and until its publish, a drain leaves that entry to this path: its media is not kept yet.
+    const release = mirrors?.beginEntry?.();
+    try {
+      return await postEntry(guildId, diary, kind, forced);
+    } finally {
+      release?.();
+    }
+  }
+
+  async function postEntry(
+    guildId: string,
+    diary: { kind: string | null; topic?: string; forced: boolean },
+    kind: string | null,
+    forced: boolean
+  ): Promise<unknown> {
     const result = await turns.runTurn({ mode: 'diary', diary, guildId });
     const answer = objOf(result);
     const made = objOf(answer.diary);

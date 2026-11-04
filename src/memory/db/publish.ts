@@ -1,8 +1,8 @@
 // Publications (spec 2026-10-24-memory-schema-v7, sections 2 and 6; section 11 item 4 overrides them): every outward
 // send of something she made in her memory (a diary entry first) is a `publications` row with its exact rendered text,
 // the content hash of that text, the destination place, the execution context it is sent in, the grant that allowed it
-// (if one was needed), its state (`queued` | `sent` | `failed` | `unknown`), an idempotency key and the interface's
-// receipts. Schema v10.
+// (if one was needed), its state (`queued` | `sending` | `sent` | `failed` | `incomplete` | `unknown`), an idempotency key
+// and the interface's receipts. Schema v10 and v27; publication-delivery.ts holds the claim and the segments of a send.
 //
 // A `diary` row to a place with an enabled diary mirror (schema v15, `mirrors`) needs no grant row: the mirror the owner
 // set up is his standing grant for every entry to that place.
@@ -60,7 +60,8 @@ export const publicationKey = (rowKind: unknown, rowId: unknown, destination: un
   `${asText(rowKind)}:${asText(rowId)}:${asText(destination ?? '')}`;
 
 /** A publication id from its idempotency key (a mirror's publication keeps the mirror's id). */
-const idOfKey = (key: string): string => `pub:${createHash('sha256').update(key, 'utf8').digest('hex').slice(0, 32)}`;
+export const idOfKey = (key: string): string =>
+  `pub:${createHash('sha256').update(key, 'utf8').digest('hex').slice(0, 32)}`;
 
 const hasTable = new WeakMap<Db, boolean>();
 /** Whether the database has the publication tables (schema v10). */
@@ -280,8 +281,10 @@ export function preparePublication(
   );
 }
 
+const STILL_TO_SEND: ReadonlyArray<string> = ['queued', 'unknown', 'failed', 'incomplete'];
+
 /**
- * The checks of a queued (or unknown) publication again, at send time, in the context the sender holds now: the context
+ * The checks of a publication still to send (queued, unknown, or failed or incomplete and due again) again, at send time, in the context the sender holds now: the context
  * must still be outward for this destination, and a grant the row was queued under must still be unrevoked. Returns
  * `{ ok: true }` or `{ ok: false, code }` (`missing`, `not-pending`, `not-outward`, `destination-mismatch`, `grant-revoked`).
  */
@@ -293,7 +296,7 @@ export function recheck(
   const context = contextGiven as Row | null | undefined;
   const row = publicationOf(handle, id);
   if (!row) return refused('missing');
-  if (row.status !== 'queued' && row.status !== 'unknown') return refused('not-pending');
+  if (!STILL_TO_SEND.includes(row.status as string)) return refused('not-pending');
   if (!context || context.mode !== 'outward' || context.internal === true || !filled(context.id))
     return refused('not-outward');
   if (context.destination !== row.destination_place_id) return refused('destination-mismatch');
