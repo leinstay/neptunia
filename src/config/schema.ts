@@ -31,6 +31,7 @@ import { SKILLS } from './schema/skills.ts';
 import { WATCHER } from './schema/watcher.ts';
 import { SELFIMPROVEMENT } from './schema/selfimprovement.ts';
 import { SELFREFLECTION } from './schema/selfreflection.ts';
+import { MIRRORS } from './schema/mirrors.ts';
 import { GIFS } from './schema/gifs.ts';
 import { PRIVATE } from './schema/private.ts';
 import { ERRANDS } from './schema/errands.ts';
@@ -84,6 +85,7 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...WATCHER,
   ...SELFIMPROVEMENT,
   ...SELFREFLECTION,
+  ...MIRRORS,
   ...GIFS,
   ...PRIVATE,
   ...ERRANDS,

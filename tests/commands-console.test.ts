@@ -58,6 +58,8 @@ const TABLE = [
   // Changed: `/search` holds quick search's targeted settings.
   'search',
   'simulation',
+  // Changed: `/mirror` is the owner's family over the diary's mirrors.
+  'mirror',
   'help',
   'clear',
 ];
@@ -203,7 +205,8 @@ test('-p exits 2 for a line the table refuses', async () => {
   // A line the command table refuses is bad syntax, which exits 2 by the CLI's return codes; 1 is an operational failure.
   await withRig({}, async ({ dirs, llm, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
-    for (const line of ['/memory', '/usage 90d', '/health disks', '/mirror list']) {
+    // Changed: the last example was `/mirror list`, and `/mirror` is a table command.
+    for (const line of ['/memory', '/usage 90d', '/health disks', '/nosuchcommand list']) {
       const run = await p(dirs, line);
       assert.equal(run.code, 2, line);
       assert.notEqual(run.stderr.trim(), '', `${line}: the reason is on stderr`);

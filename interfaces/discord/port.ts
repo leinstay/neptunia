@@ -18,8 +18,9 @@
 // in the answer to the send, never on a message read later, so the adapter keeps the nonces of the messages it
 // posted in this process (the newest KEPT_NONCES), from both. `fetchMessages(conversation, ids, { idempotencyKey })`
 // reads those messages too, which lets the core reconcile a send whose answer was lost
-// (`capabilities().reconcile`, src/interface/reconcile.ts). A send from before the interface started is not
-// found and stays `unknown`.
+// (`capabilities().reconcile`, src/interface/reconcile.ts). A key this process never gave a nonce for is a send
+// from before the interface started: the read fails, so the send stays `unknown`. An empty answer means the
+// adapter issued the key and saw nothing posted under it.
 
 import { createHash } from 'node:crypto';
 import { AttachmentBuilder, MessageFlags } from 'discord.js';
@@ -203,6 +204,10 @@ function createNonceBook(client: unknown) {
       issued.add(nonce);
       trim(issued);
       return nonce;
+    },
+    /** Whether this process gave out a nonce for the send named `key`. */
+    knows(key: string) {
+      return issued.has(nonceOf(key, 0));
     },
     /** @param conversationId @param {string} key */
     postedUnder(conversationId: string, key: string) {
@@ -508,6 +513,8 @@ export function createDiscordAdapter({
       options: { idempotencyKey?: string } = {}
     ) {
       const key = typeof options?.idempotencyKey === 'string' ? options.idempotencyKey : null;
+      if (key !== null && !nonces.knows(key))
+        return Promise.resolve(lookupFailed(notOk('failed', CODE.UNKNOWN_MESSAGE)));
       const extra = key === null ? [] : nonces.postedUnder(conversation.conversationId, key);
       return reads.fetchMessages(conversation, [...(messageIds ?? []), ...extra]);
     },

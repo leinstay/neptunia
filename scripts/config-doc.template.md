@@ -142,6 +142,12 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 <!-- settings: selfreflection -->
 
+## mirrors
+
+The owner's `/mirror` commands choose the destinations and each destination's backfill interval, which live in memory. These two settings bound one delivery.
+
+<!-- settings: mirrors -->
+
 ## gifs
 
 <!-- settings: gifs -->
