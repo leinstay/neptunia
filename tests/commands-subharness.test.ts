@@ -266,3 +266,33 @@ test('inside the core a mode change is stored and the answer names neptunia setu
   assert.equal(readKeysFile(dir).subharness.modes.server, 'sudo');
   assert.ok(answer.text.includes('neptunia setup units'));
 });
+
+test('the models of /subharness enable are answered through the owner chat link until the backend is stored', async () => {
+  // Bug: the first answer came back "that question is closed", because the link's dialogs never knew the question.
+  const dir = tempDir('nep-enable-link-');
+  writeKeysFile(dir, {});
+  const consoleDeps = {
+    privateDir: dir,
+    subharness: {
+      asksModels: true,
+      runBackend: () => Promise.resolve({ ok: true, text: 'ok', exitCode: 0 }),
+      fetch: () => Promise.resolve(new Response('{}', { status: 200 })),
+    },
+  } as unknown as ConsoleDeps;
+  const desk = createCommandDesk({
+    console: createConsole(consoleDeps),
+    interfaces: { list: () => [], enable: () => undefined, disable: () => Promise.resolve({ drained: 0, unknown: 0 }) },
+    facts: () => {
+      throw new Error('not used');
+    },
+    guildId: () => null,
+    tasks: { command: () => Promise.resolve({ text: 'board', status: 'invalid' }) },
+  } as unknown as Parameters<typeof createCommandDesk>[0]);
+  const cli = { kind: 'cli', name: 'cli' } as const;
+  const event = eventOf('subharness.enable', { backend: 'claude' });
+  let answer = (await desk.run(event, cli)) as { status: string; dialogId?: string };
+  for (let asked = 0; answer.status === 'ask' && asked < 4; asked += 1)
+    answer = await desk.run({ ...event, dialogId: answer.dialogId, answer: 'opus' }, cli);
+  assert.equal(answer.status, 'ok');
+  assert.deepEqual(readKeysFile(dir).subharness.backends, ['claude']);
+});
