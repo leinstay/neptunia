@@ -147,7 +147,8 @@ test('the check of an opencode model asks OpenRouter for the id behind the backe
   const seen: EnableDeps = {
     ...deps,
     fetch: (_url, init) => {
-      const body = JSON.parse(String(init?.body)) as { model: string };
+      // The check sends its body as a JSON string.
+      const body = JSON.parse(init?.body as string) as { model: string };
       sent.push(body.model);
       return Promise.resolve(new Response('{}', { status: 200 }));
     },
