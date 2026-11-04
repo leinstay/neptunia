@@ -45,7 +45,9 @@ function imported() {
   assert.equal(seedUnits(handle, data, seedOptions).errors, 0);
   startRun(handle, { id: 'run-1', kind: 'heartbeat', startedAt: NOW });
   handle.close();
-  const files = fs.readdirSync(data, { recursive: true }).filter((rel) => fs.statSync(path.join(data, rel)).isFile());
+  const files = fs
+    .readdirSync(data, { recursive: true, encoding: 'utf8' })
+    .filter((rel) => fs.statSync(path.join(data, rel)).isFile());
   return { root, data, file, files, done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 

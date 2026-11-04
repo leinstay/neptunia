@@ -47,7 +47,9 @@ function prepared() {
   } finally {
     handle.close();
   }
-  const files = fs.readdirSync(data, { recursive: true }).filter((rel) => fs.statSync(path.join(data, rel)).isFile());
+  const files = fs
+    .readdirSync(data, { recursive: true, encoding: 'utf8' })
+    .filter((rel) => fs.statSync(path.join(data, rel)).isFile());
   return {
     root,
     data,
