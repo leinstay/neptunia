@@ -872,6 +872,7 @@ async function buildCore(
   }
   const errands = createErrandService({
     agentPaths,
+    privateDir: paths.privateDir,
     client: errandClient,
     stores: taskStores,
     hot,

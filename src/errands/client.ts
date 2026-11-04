@@ -347,7 +347,7 @@ export function createErrandClient({
     }
   }
 
-  async function run({ agent, id, goal, context = {}, limits = {}, secrets = null }: RunRequest): Promise<RunOutcome> {
+  async function run({ agent, id, goal, context = {}, limits = {}, secrets, route }: RunRequest): Promise<RunOutcome> {
     if (closed || !socketOf(agent, hot?.config, agentPaths)) return failed(CODE.NOT_CONFIGURED);
     if (pending.has(id)) return failed(CODE.DUPLICATE_ID);
     try {
@@ -372,7 +372,7 @@ export function createErrandClient({
       );
       timer?.unref?.();
       pending.set(id, { agent, resolve, timer });
-      const request: Record<string, unknown> = { op: 'run', id, goal, context };
+      const request: Record<string, unknown> = { op: 'run', id, goal, context, route };
       if (limits && Object.keys(limits).length > 0) request.limits = limits;
       if (secrets) request.secrets = secrets;
       const model = runModelFor(agent, hot?.config, agentPaths);

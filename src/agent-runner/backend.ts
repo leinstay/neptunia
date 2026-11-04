@@ -2,8 +2,8 @@
 // child process per run: the brief on stdin, a minimal environment (PATH, HOME, TMPDIR and the locale variables, plus
 // what the caller adds; nothing of the bot's own environment), its own process group so that a timeout kills what the
 // child spawned too. Which backend an agent runs on is the owner's switch, the subharness (src/subharness/): every
-// agent run goes through `runAgent` (src/subharness/run.ts), which reads the switch and the agent's mode at the moment
-// of the run, and runs the backend installed in the private layer (`createInstalledBackend`, src/subharness/place.ts),
+// agent run goes through `runAgent` (src/subharness/run.ts), which takes the path from the task's route, else reads the switch and the agent's
+// mode at the moment of the run, and runs the backend installed in the private layer (`createInstalledBackend`, src/subharness/place.ts),
 // never a CLI found on PATH. `createAgentEngine` gives the runner server (bin/neptunia.ts) its task engine: a runner that works a
 // task's brief in a fresh directory through that seam and delivers the files the agent leaves there. The log line of a
 // run carries the backend, the exit code, the duration and the tokens, never the brief or the text.
@@ -78,7 +78,15 @@ export type BackendRunOptions = {
 
 /** Why a run did not start or was stopped by us. */
 export type BackendError =
-  'backend-missing' | 'empty-brief' | 'timeout' | 'spawn' | 'cancelled' | 'subharness-off' | 'not-installed';
+  | 'backend-missing'
+  | 'empty-brief'
+  | 'timeout'
+  | 'spawn'
+  | 'cancelled'
+  | 'subharness-off'
+  | 'not-installed'
+  | 'bad-route'
+  | 'route-no-key';
 
 /** What a run gives back. */
 export type BackendResult = {
@@ -426,9 +434,11 @@ const FALLBACK_SECONDS = 300;
 /**
  * The task engine of a runner: it works the task's brief (the profile's prompt, the preamble, the goal and context)
  * in `<outDir>/<id>/` through `runAgent` (src/subharness/run.ts) and delivers the files left there. The agent runs as
- * the agent named like the profile, in the mode the owner set for it, and with `--search` when the profile asks. While
- * the subharness is off the task fails with `subharness-off`. A backend brings its own login: a task's `secrets` are
- * not passed on.
+ * the agent named like the profile, in the mode the owner set for it, and with `--search` when the profile asks. A
+ * task's `route` (the backend, model, effort and mode the core decided) is the path of the run and keys.json stays
+ * closed; without one, and while the subharness is off, the task fails with `subharness-off`. A backend brings its own
+ * login, so a task's `secrets` reach only opencode, and only its `openrouterKey`: it becomes that run's key
+ * (`routeKey`). A route that is not one fails `bad-route`, an opencode route with no key `route-no-key`.
  */
 export function createAgentEngine({ subharness, agentPaths, ...deps }: EngineDeps): Runner {
   const { outDir } = deps;
@@ -479,6 +489,8 @@ export function createAgentEngine({ subharness, agentPaths, ...deps }: EngineDep
         ...(maxSteps === undefined ? {} : { maxSteps }),
         search: profile.search,
         signal: task.signal,
+        ...(task.route === undefined ? {} : { route: task.route }),
+        ...(task.secrets === undefined ? {} : { routeKey: task.secrets.openrouterKey }),
       },
       subharness
     );

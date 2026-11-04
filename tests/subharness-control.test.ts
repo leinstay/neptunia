@@ -62,11 +62,12 @@ function rig(options: { result?: BackendResult; status?: number; throws?: boolea
   return { deps, dir, ran, fetched };
 }
 
-test('the tracked defaults are read for server and watcher, write for scout and dev, and there are four modes', () => {
+test('the tracked defaults are read for server and watcher, write for scout, dev and thinker, and there are four modes', () => {
   // Bug: a read-only agent defaulting to write, or an agent defaulting to an unsandboxed mode before the owner chose.
-  assert.deepEqual(DEFAULT_MODES, { scout: 'write', server: 'read', dev: 'write', watcher: 'read' });
+  // The thinker joined the agents as a role with its own backend, model and effort, so the expectation names it.
+  assert.deepEqual(DEFAULT_MODES, { scout: 'write', server: 'read', dev: 'write', watcher: 'read', thinker: 'write' });
   assert.deepEqual([...AGENT_MODES], ['read', 'write', 'full', 'sudo']);
-  assert.deepEqual([...SUBHARNESS_AGENTS].sort(), ['dev', 'scout', 'server', 'watcher']);
+  assert.deepEqual([...SUBHARNESS_AGENTS].sort(), ['dev', 'scout', 'server', 'thinker', 'watcher']);
 });
 
 test('a store with no subharness section reads as off with the default modes', async () => {
@@ -255,7 +256,13 @@ test('mode sets one agent and leaves the others at what they were', async () => 
   const result = await setAgentMode(dir, 'dev', 'sudo');
   assert.equal(result.ok, true);
   assert.equal(result.changed, true);
-  assert.deepEqual((await subharnessView(dir)).modes, { scout: 'read', server: 'read', dev: 'sudo', watcher: 'read' });
+  assert.deepEqual((await subharnessView(dir)).modes, {
+    scout: 'read',
+    server: 'read',
+    dev: 'sudo',
+    watcher: 'read',
+    thinker: 'write',
+  });
 });
 
 test('mode with no value reports the current mode and writes nothing', async () => {

@@ -9,11 +9,18 @@
 // lives in the core, the runner cannot read the bot's .env); a refusal names
 // only its code, never a value, and nothing here logs a message. A `run` may
 // also carry the deployment's shared preamble (the core reads it from its
-// private prompt layer; the runner never reads that layer itself).
+// private prompt layer; the runner never reads that layer itself). A `run` may carry the task's route, the backend,
+// model, effort and mode the core decided from keys.json at dispatch, because the runner's unit may hide that file.
 
 import { isPlainObject } from '../config.ts';
 import { objOf, scalarText } from '../tools/types.ts';
+import { EFFORT_LEVELS } from '../llm/roles.ts';
+import type { EffortLevel } from '../llm/roles.ts';
+import { AGENT_MODES } from '../subharness/control.ts';
+import type { AgentMode } from '../subharness/control.ts';
 import { SCOPES } from './policy.ts';
+import { BACKEND_NAMES } from './profiles.ts';
+import type { BackendName } from './profiles.ts';
 
 type Rec = Record<string, unknown>;
 /** `isPlainObject`, as a guard. */
@@ -24,6 +31,9 @@ export type RunContext = { scope?: unknown; recent?: Array<{ author: string; tex
 
 /** The secrets a `run` carries. */
 export type RunSecrets = { openrouterKey: string; proxy?: string; searchKey?: string };
+
+/** The path the core decided for a task: the backend, model, effort and mode it runs in. Null model and effort mean the backend's own default. */
+export type TaskRoute = { backend: BackendName; model: string | null; effort: EffortLevel | null; mode: AgentMode };
 
 /** A validated `run`. */
 export type RunRequest = {
@@ -38,6 +48,7 @@ export type RunRequest = {
   searchProvider?: string;
   secrets?: RunSecrets;
   preamble?: string;
+  route?: TaskRoute;
 };
 
 /** A validated request from the core. */
@@ -57,7 +68,7 @@ export type RunnerTask = Omit<RunRequest, 'op' | 'tools' | 'limits' | 'searchPro
 /** What the task engine gives back. */
 export type RunOutcome = {
   status: string;
-  result?: unknown;
+  result?: { text?: string; [key: string]: unknown };
   usage?: unknown;
   error?: string;
 };
@@ -120,6 +131,37 @@ function isPositive(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }
 
+/** The keys of a route, and no others. */
+const ROUTE_KEYS = Object.freeze(['backend', 'effort', 'mode', 'model']);
+/** The longest model name a route may carry (characters). */
+const MAX_ROUTE_MODEL_CHARS = 128;
+
+/** Whether `value` is the model of a route: null, or a name without whitespace that does not read as a flag. */
+function isRouteModel(value: unknown): value is string | null {
+  if (value === null) return true;
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= MAX_ROUTE_MODEL_CHARS &&
+    !/\s/.test(value) &&
+    !value.startsWith('-')
+  );
+}
+
+/** The route as a validated value, or null when it is not exactly the four keys with valid values. */
+export function parseRoute(value: unknown): TaskRoute | null {
+  if (!isRec(value)) return null;
+  const keys = Object.keys(value).sort();
+  if (keys.length !== ROUTE_KEYS.length || !keys.every((key, at) => key === ROUTE_KEYS[at])) return null;
+  const { backend, model, effort, mode } = value;
+  const knownBackend = BACKEND_NAMES.find((name) => name === backend);
+  const knownMode = AGENT_MODES.find((one) => one === mode);
+  if (knownBackend === undefined || knownMode === undefined || !isRouteModel(model)) return null;
+  if (effort === null) return { backend: knownBackend, model, effort: null, mode: knownMode };
+  const knownEffort = EFFORT_LEVELS.find((level) => level === effort);
+  return knownEffort === undefined ? null : { backend: knownBackend, model, effort: knownEffort, mode: knownMode };
+}
+
 /** Whether `value` is a non-negative finite number (a price in USD per million tokens). */
 function isPrice(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -153,6 +195,12 @@ export function httpProxyForm(url: unknown): string | null {
 /** `{ ok: false, error }`. */
 function refuse(error: string): { ok: false; error: string } {
   return { ok: false, error };
+}
+
+/** `run` with its route checked and kept. Only the code on a refusal: a value of the route never travels back in an error. */
+function withRoute(run: RunRequest, value: unknown): Checked {
+  const route = parseRoute(value);
+  return route === null ? refuse('bad-route') : { ok: true, message: { ...run, route } };
 }
 
 function validateRun(msg: Rec, id: string): Checked {
@@ -250,7 +298,7 @@ function validateRun(msg: Rec, id: string): Checked {
  * `proxy` in the http form, see httpProxyForm) and `preamble` (the deployment's
  * shared text put before the agent's prompt: a string, trimmed, at most
  * MAX_PREAMBLE_CHARS, else `bad-preamble` / `preamble-too-long`; a blank one
- * is dropped). A refusal carries its code
+ * is dropped) and `route` (`{ backend, model, effort, mode }`, exactly those keys, see parseRoute, else `bad-route`). A refusal carries its code
  * only, never a value of the message. `cancel` needs an id. `ping` may carry `ids` (task ids
  * the core still waits for). Unknown top-level keys are ignored.
  */
@@ -271,7 +319,8 @@ export function validateRequest(msg: unknown): Checked {
   }
   if (typeof msg.id !== 'string' || !TASK_ID.test(msg.id)) return refuse('bad-id');
   if (msg.op === 'cancel') return { ok: true, message: { op: 'cancel', id: msg.id } };
-  return validateRun(msg, msg.id);
+  const checked = validateRun(msg, msg.id);
+  return checked.ok && msg.route !== undefined ? withRoute(checked.message as RunRequest, msg.route) : checked;
 }
 
 /** Decode and validate one line from the core. */

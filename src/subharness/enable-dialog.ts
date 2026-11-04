@@ -7,9 +7,12 @@
 import { randomUUID } from 'node:crypto';
 import { askAnswer } from './ask.ts';
 import type { AskAnswer } from './ask.ts';
-import { SUBHARNESS_AGENTS, checkEnable, commitEnable } from './control.ts';
+import { checkEnable, commitEnable } from './control.ts';
 import type { Checked, EnableDeps, SubharnessResult } from './control.ts';
 import { checkModel, listModels } from './models.ts';
+
+/** The agents the dialog asks about, in order: the ones every deployment runs. The thinker is set with `model`. */
+const ASKED_AGENTS = ['scout', 'server', 'dev', 'watcher'] as const;
 
 /** One open dialog: what passed the check, the models given so far. */
 type Open = { checked: Checked; given: Record<string, string> };
@@ -22,7 +25,7 @@ const refusal = (message: string): SubharnessResult => ({ ok: false, code: 'dial
 
 /** The question of the agent at `index`, over the models the backend offers. */
 async function questionOf(deps: EnableDeps, dialogId: string, state: Open, note = ''): Promise<AskAnswer> {
-  const agent = SUBHARNESS_AGENTS[Object.keys(state.given).length] ?? '';
+  const agent = ASKED_AGENTS[Object.keys(state.given).length] ?? '';
   const choices = await listModels(deps, state.checked.name, state.checked.keyValue);
   const hint = choices.length === 0 ? ' Type the model name.' : ' Pick one or type another name.';
   return askAnswer({
@@ -60,13 +63,13 @@ export async function answerEnable(
   if (model === '') return questionOf(deps, dialogId, state, 'No model given. ');
   const failed = await checkModel(deps, state.checked.name, state.checked.keyValue, model);
   if (failed !== null) return questionOf(deps, dialogId, state, `${failed.message}. `);
-  const agent = SUBHARNESS_AGENTS[Object.keys(state.given).length] ?? '';
+  const agent = ASKED_AGENTS[Object.keys(state.given).length] ?? '';
   state.given[agent] = model;
-  if (Object.keys(state.given).length < SUBHARNESS_AGENTS.length) return questionOf(deps, dialogId, state);
+  if (Object.keys(state.given).length < ASKED_AGENTS.length) return questionOf(deps, dialogId, state);
   open.delete(dialogId);
   const done = commitEnable(deps.privateDir, state.checked, state.given);
   return {
     ...done,
-    message: `${done.message}; ${SUBHARNESS_AGENTS.map((one) => `${one} on ${state.given[one] ?? ''}`).join(', ')}`,
+    message: `${done.message}; ${ASKED_AGENTS.map((one) => `${one} on ${state.given[one] ?? ''}`).join(', ')}`,
   };
 }
