@@ -9,9 +9,11 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import { readConfig } from '../config.ts';
 import { readKeys } from '../keys/file.ts';
 import { modeOf } from '../subharness/control.ts';
+import { isInstalled } from '../subharness/place.ts';
 import { watcherSettings } from '../watcher/settings.ts';
 import { SELFIMPROVEMENT_UNIT_FILES, UNIT_AGENTS, renderUnit } from './units.ts';
 import type { UnitVars } from './units.ts';
@@ -61,13 +63,17 @@ function watcherHour(target: UnitTarget): string | null {
 }
 
 /**
- * The text of one unit as the scope, the owner's modes, the backends connected in keys.json and the hour of the
+ * The text of one unit as the scope, the owner's modes, the backends connected in keys.json or installed in the private layer and the hour of the
  * watcher's run (`watcher.at` of the settings) want it.
  */
 export function unitText(target: UnitTarget, template: string, file: string): string {
   const agent = UNIT_AGENTS[file];
   const { subharness } = readKeys(target.dataDir);
-  const vars: UnitVars = { ...target, backends: subharness.backends };
+  // Connected or installed: a role moved to an installed backend finds its folder bound before keys.json says so.
+  const backends = BACKEND_NAMES.filter(
+    (name) => subharness.backends.includes(name) || isInstalled(target.dataDir, name)
+  );
+  const vars: UnitVars = { ...target, backends };
   const watcherAt = watcherHour(target);
   if (watcherAt !== null) vars.watcherAt = watcherAt;
   if (agent !== undefined) vars.mode = modeOf(subharness.modes, agent);

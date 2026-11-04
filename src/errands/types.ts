@@ -5,6 +5,7 @@
 import type { PublicationBoundary } from '../tools/publication.ts';
 import type net from 'node:net';
 import type { AgentPaths } from '../agent-runner/profiles.ts';
+import type { TaskRoute } from '../agent-runner/protocol.ts';
 import type { Untyped } from '../tools/types.ts';
 
 /** A logger of a module that reports errors too. */
@@ -205,6 +206,8 @@ export type RunRequest = {
   context?: Partial<RunContext>;
   limits?: Limits;
   secrets?: RunSecrets | null;
+  /** the path the core decided from keys.json at dispatch; absent while no backend is connected for the agent */
+  route?: TaskRoute;
 };
 
 /** The shape `run` resolves. */
@@ -276,6 +279,8 @@ export type ErrandClientOptions = {
 /** What `createErrandService` is given. */
 export type ErrandServiceOptions = {
   agentPaths?: AgentPaths;
+  /** where keys.json is; the route of each errand is read from it at dispatch */
+  privateDir?: string;
   client: Partial<ErrandClient>;
   stores: ErrandStores;
   hot: Untyped;

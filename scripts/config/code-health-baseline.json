@@ -328,11 +328,6 @@
         "complexity": 26
       }
     },
-    "src/errands/service.ts": {
-      "createErrandService": {
-        "function-length": 301
-      }
-    },
     "src/errands/store.ts": {
       "createErrandStore": {
         "function-length": 503

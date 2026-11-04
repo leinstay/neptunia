@@ -33,7 +33,10 @@ import { log as defaultLog } from '../log.ts';
 import { loadProfiles, agentSettings, profileOf } from '../agent-runner/profiles.ts';
 import type { AgentPaths } from '../agent-runner/profiles.ts';
 import { roleApiKey } from '../llm/openrouter.ts';
+import { hasExtraKey, readKeys } from '../keys/file.ts';
+import { routeOfAgent } from '../subharness/control.ts';
 import { MAX_RECENT_ENTRIES, RECENT_CHARS, httpProxyForm } from '../agent-runner/protocol.ts';
+import type { TaskRoute } from '../agent-runner/protocol.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
 import { isOpenState } from './store.ts';
 import { CODE } from '../tools/codes.ts';
@@ -56,6 +59,7 @@ import type {
   Logger,
   PingAnswer,
   RunContext,
+  RunRequest,
   RunSecrets,
   SubmitInput,
 } from './types.ts';
@@ -81,17 +85,19 @@ function limitsFor(agent: string, config: Untyped, agentPaths?: AgentPaths): Lim
 
 /**
  * The secrets an errand of `agent` carries to its runner: `{ openrouterKey, proxy?, searchKey? }`,
- * or null when the agent's role has no key of its own (never the main key: none is passed).
+ * or null when the agent's role has no key of its own (never the main key: none is passed). `keyOverride`
+ * replaces the role's key: an opencode route spends the extra key keys.json names, not the role's.
  */
 function secretsFor(
   agent: string,
   config: Untyped,
   env: Record<string, string | undefined>,
-  agentPaths?: AgentPaths
+  agentPaths?: AgentPaths,
+  keyOverride: string | null = null
 ): RunSecrets | null {
   const profile = objOf(profileOf(agent, agentPaths));
   // The main key is never passed (an empty one: a role without a key of its own gets none).
-  const openrouterKey = profile.modelRole ? roleApiKey(config, env, profile.modelRole, '') : null;
+  const openrouterKey = keyOverride ?? (profile.modelRole ? roleApiKey(config, env, profile.modelRole, '') : null);
   if (typeof openrouterKey !== 'string' || !openrouterKey) return null;
   const secrets: RunSecrets = { openrouterKey };
   if (profile.name === 'scout') {
@@ -101,6 +107,33 @@ function secretsFor(
     if (searchKey) secrets.searchKey = searchKey;
   }
   return secrets;
+}
+
+/** What the core decides for one errand at dispatch: its route, the key an opencode route spends, or why it cannot go. */
+type Dispatch = { route: TaskRoute | null; key: string | null; error?: string };
+
+/**
+ * The route and the key of `agent`'s errand, read from keys.json now, since the runner's unit may hide that file.
+ * `route: null` while the agent has no backend (the runner then refuses with `subharness-off`), and an `error`
+ * code when keys.json cannot be read or an opencode route has no key to spend.
+ */
+function dispatchOf(privateDir: string | undefined, agent: string, log: Logger): Dispatch {
+  if (privateDir === undefined) return { route: null, key: null };
+  let route: TaskRoute | null;
+  let key: string | null = null;
+  try {
+    route = routeOfAgent(privateDir, agent);
+    if (route?.backend === 'opencode') {
+      const store = readKeys(privateDir);
+      const name = store.subharness.key;
+      key = name !== null && hasExtraKey(store, name) ? (store.extra[name] ?? null) : null;
+    }
+  } catch (err) {
+    log.warn('errands: keys.json unreadable, the errand is not sent', { agent, error: err });
+    return { route: null, key: null, error: 'keys-unreadable' };
+  }
+  if (route?.backend === 'opencode' && !key) return { route, key: null, error: 'route-no-key' };
+  return { route, key };
 }
 
 /**
@@ -143,6 +176,19 @@ function dispatchContext(errand: ErrandRecord, recent: RunContext['recent']): Ru
   };
 }
 
+/** The `run` of one dispatched errand: who it is for, its context and limits, and the secrets and route when it has them. */
+function runRequestOf(
+  errand: ErrandRecord,
+  recent: RunContext['recent'],
+  limits: Limits,
+  secrets: RunSecrets | null,
+  route: TaskRoute | null
+): RunRequest {
+  const { agent, id, goal } = errand;
+  const context = dispatchContext(errand, recent);
+  return { agent, id, goal, context, limits, ...(secrets ? { secrets } : {}), ...(route ? { route } : {}) };
+}
+
 /**
  * `hot` holds the live config. `env` is the parsed environment (src/config.ts#env): the keys and the proxy a run
  * carries. `memory` gives the channel's newest lines, oldest first (src/index.ts reads them from the memory
@@ -155,6 +201,7 @@ export function createErrandService({
   hot,
   env = {},
   agentPaths,
+  privateDir,
   memory = null,
   getGuildId = () => null,
   onFinished = null,
@@ -221,7 +268,6 @@ export function createErrandService({
   }
 
   const limitsOf = (agent: string): Limits => limitsFor(agent, hot.config, agentPaths);
-  const secretsOf = (agent: string): RunSecrets | null => secretsFor(agent, hot.config, env, agentPaths);
   const recentOf = (guildId: string, channelId: string | null, scope: ErrandScope): RunContext['recent'] =>
     recentLinesOf({ memory, log }, guildId, channelId, scope);
 
@@ -233,17 +279,13 @@ export function createErrandService({
     if (!errand) return null;
     let outcome: FinishOutcome;
     try {
-      const secrets = secretsOf(errand.agent);
-      const limits = limitsOf(errand.agent);
-      outcome = await client.run!({
-        // `run` is always on the core's client; a fake without it throws into the catch
-        agent: errand.agent,
-        id: errand.id,
-        goal: errand.goal,
-        context: dispatchContext(errand, recent),
-        limits,
-        ...(secrets ? { secrets } : {}),
-      });
+      const { route, key, error } = dispatchOf(privateDir, errand.agent, log);
+      const secrets = secretsFor(errand.agent, hot.config, env, agentPaths, key);
+      outcome =
+        error !== undefined
+          ? { status: 'failed', error }
+          : // `run` is always on the core's client; a fake without it throws into the catch
+            await client.run!(runRequestOf(errand, recent, limitsOf(errand.agent), secrets, route));
     } catch (err) {
       log.warn('errands: run failed', { id: errand.id, agent: errand.agent, error: err });
       outcome = { status: 'failed', error: 'client-error' };
