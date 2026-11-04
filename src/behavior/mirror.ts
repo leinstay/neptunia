@@ -20,6 +20,11 @@
 // a restart goes out whole, and a row whose file is gone holds as `incomplete` with nothing posted
 // (src/behavior/mirror-stored.ts).
 //
+// What may reach a place is read from the stored row at queue time and again right before a send, never from the entry a
+// turn held: `storedDiaryPublicationRefusal` (src/memory/db/publish.ts) intersects the trusted restrictions with the
+// audience she chose (src/memory/db/diary-audience.ts). A mirror an entry's audience leaves out gets no row, and a row
+// queued before a narrowing ends `failed` with `audience-excluded`.
+//
 // The reads of the mirrors (`mirrorPlaces`, `diaryPlaces`, `isMirrorPlace`, `diaryConversationIds`) live with the memory
 // database (src/memory/db/mirrors.ts) and are passed on from here to the behaviour modules. A mirror place is not hers
 // to write in (the owner, 2026-10-27): `guardMirrorPort` is the core's outbound port, which refuses every send
@@ -33,6 +38,7 @@ import { log } from '../log.ts';
 import { portLimit } from '../interface/capabilities.ts';
 import { issueContext } from '../memory/db/scope.ts';
 import { storedDiaryPublicationRefusal, recheck } from '../memory/db/publish.ts';
+import { NO_PLACES, publicationPlaces } from '../memory/db/diary-audience.ts';
 import { setSettings } from './diary.ts';
 import {
   diaryConversationIds,
@@ -364,7 +370,7 @@ export function viewDiaryIds(view: unknown): Array<string> {
   return typeof read === 'function' ? (read as () => Array<string>)() : [];
 }
 
-export { diaryConversationIds, diaryPlaces, isMirrorPlace, mirrorPlaces, readMirrors };
+export { NO_PLACES, diaryConversationIds, diaryPlaces, isMirrorPlace, mirrorPlaces, publicationPlaces, readMirrors };
 export type { DiaryPlace };
 
 /**
@@ -614,14 +620,12 @@ export function createMirrors({
 
   /** The entry's `queued` publication to one place, or the code that refuses it; `pending` when it has no content yet. */
   async function prepareFor(db: Db, entry: DiaryEntry, place: DiaryPlace, pending: boolean): Promise<Prepared> {
-    if (
-      diaryPublicationRefusal(entry.publicationBoundary, {
-        iface: place.iface,
-        conversationId: place.conversationId,
-      }) ||
-      storedDiaryPublicationRefusal(db, entry.id, place.placeId)
-    )
-      return { ok: false, code: 'not-allowed' };
+    const carried = diaryPublicationRefusal(entry.publicationBoundary, {
+      iface: place.iface,
+      conversationId: place.conversationId,
+    });
+    const refusal = carried?.code ?? storedDiaryPublicationRefusal(db, entry.id, place.placeId);
+    if (refusal) return { ok: false, code: refusal };
     const context: Context = issueContext({ kind: 'group', iface: place.iface, destination: place.placeId, now });
     const rendered = entryText(entry);
     const input = { context, rowKind: 'diary', rowId: entry.id, rendered, destination: place.placeId, pending };

@@ -313,7 +313,14 @@
       "plan": "Plan for this post:",
       "found": "What the search found. Retell it in your own words; no links, no quoting.",
       "seeds": "Random seeds (place; setting; detail; activity; subject; twist):",
-      "topic": "The owner asked for this subject:"
+      "topic": "The owner asked for this subject:",
+      "publicationPlaces": "Who may read this post. With no <audience> tag it goes to every mirror of your diary, mirrors added later included. To hold it back, add one <audience> tag beside your messages: the one tag a diary post adds to your output. Its body is the word unrestricted, or one token from this list without the name after it. An interface token covers everything on that interface. A place token covers that place and everything under it. A token that is not listed keeps the post in your diary and publishes it nowhere. Material from a private source stays restricted whatever you choose.",
+      "audienceRefused": "Your post of {date} ({gist}) stays in your diary and went to no mirror, because its audience tag could not be read: {reason}.",
+      "audienceReasons": {
+        "audience-unknown-place": "the place it named is not in your publication places",
+        "audience-unknown-interface": "the interface it named is not in your publication places",
+        "audience-malformed": "it held something other than one listed token, or two different ones"
+      }
     },
     "memory": {
       "privateChannel": "private chat",
