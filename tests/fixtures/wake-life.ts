@@ -25,7 +25,7 @@ export type WakeLife = {
   life: ReturnType<typeof createInnerLife>;
   calls: Array<WakeCall>;
   /** The outcome the next turns answer with. */
-  next: { outcome: string };
+  next: { outcome: string; reason?: string };
 };
 
 export function wakeLife(
@@ -71,13 +71,13 @@ export function wakeLife(
     log: SILENT,
   });
   const calls: Array<WakeCall> = [];
-  const next = { outcome: 'skip' };
+  const next: WakeLife['next'] = { outcome: 'skip' };
   const turns = {
     isAnyBusy: () => false,
     runTurn: async (params: WakeCall) => {
       calls.push(params);
       await onTurn?.(params);
-      return { outcome: next.outcome, reason: 'nothing-to-do', inner: { actions: [], turnId: `t-${calls.length}` } };
+      return { outcome: next.outcome, reason: next.reason ?? 'nothing-to-do', inner: { actions: [], turnId: `t-${calls.length}` } };
     },
   };
   const journal = { inner: () => Promise.resolve(), read: () => [] };
@@ -117,7 +117,6 @@ export function wakeLife(
       ackOutbox: (seqs: ReadonlyArray<number>) => ackOutbox(caller, seqs),
       landed: async () => (await landedFor(caller)).landed,
     },
-    record,
     rng,
     now: () => clock.t,
     log: SILENT,

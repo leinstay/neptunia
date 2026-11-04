@@ -155,3 +155,54 @@ test('guard: with the heartbeat off the selfimprovement wake keeps its own sched
   assert.equal(callsOf(run, 'selfimprovement').length, 1);
   assert.deepEqual(callsOf(run, 'heartbeat'), []);
 });
+
+test('a heartbeat that shares its moment with the selfimprovement wake runs at the next tick, once', async (t) => {
+  // Bug: the selfimprovement wake goes first in the queue, and the heartbeat behind it is starved or lost.
+  const world = selfimprovementWorld(t);
+  const run = wakeLife(world.caller, {
+    start: at('2026-11-03T00:30:00Z'),
+    heartbeat: { enabled: true, everyMinutes: 150, jitterMinutes: 0 },
+  });
+  await run.life.tick();
+  run.clock.t = at('2026-11-03T03:01:00Z');
+  await run.life.tick();
+  assert.deepEqual(
+    run.calls.map((call) => call.inner.wake.kind),
+    ['selfimprovement']
+  );
+  run.clock.t = at('2026-11-03T03:02:00Z');
+  await run.life.tick();
+  assert.deepEqual(
+    run.calls.map((call) => call.inner.wake.kind),
+    ['selfimprovement', 'heartbeat']
+  );
+  run.clock.t = at('2026-11-03T03:03:00Z');
+  await run.life.tick();
+  assert.equal(run.calls.length, 2, 'neither runs twice');
+});
+
+test('a selfimprovement wake waiting for its retry does not hold back the heartbeat, and comes back after it', async (t) => {
+  // Bug: a provider failure keeps the selfimprovement wake at the head of the queue, and no heartbeat runs while it retries.
+  const world = selfimprovementWorld(t);
+  const run = wakeLife(world.caller, {
+    start: at('2026-11-03T00:30:00Z'),
+    heartbeat: { enabled: true, everyMinutes: 150, jitterMinutes: 0 },
+  });
+  await run.life.tick();
+  run.next.outcome = 'error';
+  run.next.reason = 'provider-error';
+  run.clock.t = at('2026-11-03T03:01:00Z');
+  await run.life.tick();
+  run.next.outcome = 'skip';
+  delete run.next.reason;
+  // The first retry waits a minute: this tick falls inside that wait.
+  run.clock.t = at('2026-11-03T03:01:30Z');
+  await run.life.tick();
+  assert.deepEqual(
+    run.calls.map((call) => call.inner.wake.kind),
+    ['selfimprovement', 'heartbeat']
+  );
+  run.clock.t = at('2026-11-03T03:03:00Z');
+  await run.life.tick();
+  assert.equal(callsOf(run, 'selfimprovement').length, 2, 'the failed wake is not lost');
+});

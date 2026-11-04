@@ -90,7 +90,7 @@ test('board.cancel cancels her task with her reason', async (t) => {
   const one = await filed(world);
   await world.caller.call('persona', 'task.comment', { id: one.id, text: 'A revision moved.' });
   const answer = await herCalls(world.caller)('board.cancel', { id: one.id, reason: 'I no longer need it.' });
-  assert.equal(answer.status, 'ok', answer.summary);
+  assert.equal(answer.status, 'ok', answer.summary ?? '');
   const { task } = await show(world, one.id);
   assert.equal(task.status, 'cancelled');
   assert.equal(task.close_reason, 'I no longer need it.');
@@ -114,7 +114,7 @@ test('board.comment writes her comment and leaves the status', async (t) => {
   const world = selfimprovementWorld(t);
   const { id } = await asked(world);
   const answer = await herCalls(world.caller)('board.comment', { id, text: 'Use the smaller plan.' });
-  assert.equal(answer.status, 'ok', answer.summary);
+  assert.equal(answer.status, 'ok', answer.summary ?? '');
   const view = await show(world, id);
   assert.equal(view.task.status, 'needs_answer');
   assert.equal(view.comments.at(-1)?.text, 'Use the smaller plan.');
@@ -126,7 +126,7 @@ test('board.answer accepts the proposal: the question is answered and the holder
   const world = selfimprovementWorld(t);
   const { id } = await asked(world);
   const answer = await herCalls(world.caller)('board.answer', { id, text: 'Accepted.' });
-  assert.equal(answer.status, 'ok', answer.summary);
+  assert.equal(answer.status, 'ok', answer.summary ?? '');
   const view = await show(world, id);
   assert.equal(view.task.status, 'in_progress');
   assert.equal(view.questions[0]?.answer, 'Accepted.');

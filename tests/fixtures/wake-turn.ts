@@ -234,7 +234,7 @@ export async function wakeTurn({
   const tools = (options[0]?.tools ?? []) as Array<{ function: { name: string } }>;
   const turn = result as { inner?: { actions?: Array<Record<string, string | null | undefined>> } };
   return {
-    result,
+    result: result as Record<string, Untyped>,
     logs,
     requests,
     offered: tools.map((tool) => tool.function.name),
