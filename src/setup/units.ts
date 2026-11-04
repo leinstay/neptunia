@@ -10,7 +10,7 @@
 // A subharness backend lives in `<private>/subharness/<backend>/` (src/subharness/place.ts), binary and home. The core
 // writes it through the private folder of its `ReadWritePaths=`, and the watcher has no mount sandbox. An agent unit in
 // `read` or `write` hides the home (`ProtectHome=tmpfs`) and sees the private folder read-only, so the folder of every
-// backend connected in keys.json is bound writable into it, and nothing above it: keys.json stays out of the agent's
+// backend connected in keys.json or installed there is bound writable into it, and nothing above it: keys.json stays out of the agent's
 // reach.
 //
 // The watcher's timer fires at `watcher.at` when the render is given that hour; the other timers keep their lines.
@@ -66,7 +66,7 @@ export type UnitVars = {
   node: string;
   /** the mode of the agent the unit runs; absent keeps the template's own sandbox */
   mode?: AgentMode;
-  /** the connected backends of keys.json; an agent unit binds the folder of each in the private layer writable */
+  /** the backends connected in keys.json or installed in the private layer; an agent unit binds the folder of each in the private layer writable */
   backends?: ReadonlyArray<BackendName>;
   /** `watcher.at` (`HH:MM`, UTC): the watcher's timer fires then; absent keeps the template's `OnCalendar=` */
   watcherAt?: string;

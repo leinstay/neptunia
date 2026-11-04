@@ -4,11 +4,14 @@
 //
 // An agent runs through the backend `subharness.uses` names for it, else through the first connected one. A run is
 // refused with `subharness-off` while no backend is connected, when the named backend is not connected, or when
-// opencode is on a key that has left the store, and with `not-installed` while the backend is not in `<private>/subharness/<backend>/` (src/subharness/place.ts),
+// opencode is on a key that has left the store, with `bad-route` for a route that is not one, and with `not-installed` while the backend is not in `<private>/subharness/<backend>/` (src/subharness/place.ts),
 // whose binary every run starts with that folder's home in its environment. Otherwise the agent's mode (src/subharness/control.ts) becomes the backend's sandbox, and the child gets a
 // PATH on which `sudo` refuses unless the mode is `sudo`: a stand-in named `sudo` in a folder of its own comes first.
-// OpenCode gets the one extra key it was enabled with as OPENROUTER_API_KEY and nothing else key-like; codex and
-// claude bring their own login and get no key. A run in `full` or `sudo` writes one log line before it starts, with
+// OpenCode gets one extra key as OPENROUTER_API_KEY and nothing else key-like: the one it was enabled with, or with a
+// route the one the task brought (`routeKey`, a run without it fails `route-no-key`); codex and claude bring their own
+// login and get no key. A run with a `route` (src/agent-runner/protocol.ts#TaskRoute) is the runner's: the core decided
+// the backend, model, effort and mode when it dispatched the task, because a runner unit may hide keys.json. Such a
+// run uses exactly the route and never opens keys.json. A run in `full` or `sudo` writes one log line before it starts, with
 // the agent and the mode and never the brief, so the log shows who worked without a sandbox.
 
 import fs from 'node:fs';
@@ -17,9 +20,12 @@ import path from 'node:path';
 import { createInstalledBackend } from '../agent-runner/backend.ts';
 import type { Backend, BackendResult, BackendRunOptions } from '../agent-runner/backend.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
+import { parseRoute } from '../agent-runner/protocol.ts';
+import type { TaskRoute } from '../agent-runner/protocol.ts';
 import { log } from '../log.ts';
 import { backendOfAgent, modeOf } from './control.ts';
 import type { AgentMode } from './control.ts';
+import type { EffortLevel } from '../llm/roles.ts';
 import { hasExtraKey, readKeys } from '../keys/file.ts';
 
 /** One agent run. */
@@ -36,6 +42,10 @@ export type AgentRun = {
   /** codex: pictures handed to the agent */
   images?: ReadonlyArray<string>;
   signal?: AbortSignal;
+  /** the path the core decided; with it the run reads nothing from keys.json */
+  route?: TaskRoute;
+  /** the key an opencode route spends; it comes with the task and is never read from keys.json */
+  routeKey?: string;
 };
 
 /** What `runAgent` takes besides the run. */
@@ -100,8 +110,25 @@ function opencodeSteps(maxSteps: number): Record<string, string> {
   return { OPENCODE_CONFIG_CONTENT: JSON.stringify({ agent: { build: { steps: maxSteps } } }) };
 }
 
-/** Runs one agent through its backend, in the mode the owner gave it. Resolves with `subharness-off` while it has none. */
-export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendResult> {
+/** The refusal of a run that cannot start, with the code and no child. */
+const refusedRun = (error: 'bad-route' | 'route-no-key'): BackendResult => ({
+  ok: false,
+  text: '',
+  exitCode: null,
+  error,
+});
+
+/** What a run starts with once its path is settled. */
+type Path = {
+  name: BackendName;
+  mode: AgentMode;
+  model: string | null;
+  effort: EffortLevel | null;
+  keyValue: string | null;
+};
+
+/** The path of a run from keys.json, or the refusal. */
+function pathFromStore(run: AgentRun, deps: RunDeps): Path | BackendResult {
   let store;
   try {
     store = readKeys(deps.privateDir);
@@ -116,8 +143,32 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
   const name = backendOfAgent(store.subharness, run.agent);
   if (name === null) return off();
   if (name === 'opencode' && (key === null || !hasExtraKey(store, key))) return off();
-  const mode = modeOf(store.subharness.modes, run.agent);
-  const keyValue = name === 'opencode' && key !== null ? (store.extra[key] ?? '') : null;
+  return {
+    name,
+    mode: modeOf(store.subharness.modes, run.agent),
+    model: Object.hasOwn(models, run.agent) ? (models[run.agent] ?? null) : null,
+    effort: Object.hasOwn(efforts, run.agent) ? (efforts[run.agent] ?? null) : null,
+    keyValue: name === 'opencode' && key !== null ? (store.extra[key] ?? '') : null,
+  };
+}
+
+/** The path of a run from the route the task carried, or the refusal. */
+function pathFromRoute(run: AgentRun, route: unknown): Path | BackendResult {
+  const checked = parseRoute(route);
+  if (checked === null) return refusedRun('bad-route');
+  if (checked.backend !== 'opencode') return { ...checked, name: checked.backend, keyValue: null };
+  if (run.routeKey === undefined || run.routeKey === '') return refusedRun('route-no-key');
+  return { ...checked, name: checked.backend, keyValue: run.routeKey };
+}
+
+/**
+ * Runs one agent through its backend, in the mode the owner gave it. With a route the path is the route's and
+ * keys.json stays closed; without one it resolves `subharness-off` while keys.json connects no backend for the agent.
+ */
+export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendResult> {
+  const settled = run.route === undefined ? pathFromStore(run, deps) : pathFromRoute(run, run.route);
+  if ('ok' in settled) return settled;
+  const { name, mode, model, effort, keyValue } = settled;
   const env = envOf(deps, mode, keyValue);
   if (mode === 'full' || mode === 'sudo') log.info('subharness: run without a sandbox', { agent: run.agent, mode });
   const options: BackendRunOptions = {
@@ -125,8 +176,8 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
     timeoutMs: run.timeoutMs,
     sandbox: sandboxOfMode(mode),
     env: name === 'opencode' && run.maxSteps !== undefined ? { ...env, ...opencodeSteps(run.maxSteps) } : env,
-    ...(Object.hasOwn(models, run.agent) ? { model: models[run.agent] } : {}),
-    ...(Object.hasOwn(efforts, run.agent) ? { effort: efforts[run.agent] } : {}),
+    ...(model === null ? {} : { model }),
+    ...(effort === null ? {} : { effort }),
     ...(run.maxSteps === undefined ? {} : { maxSteps: run.maxSteps }),
     ...(run.search === undefined ? {} : { search: run.search }),
     ...(run.images === undefined ? {} : { images: run.images }),

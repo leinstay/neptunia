@@ -5,10 +5,10 @@
 # agents/server/profile.json): it reads files and runs read-only shell commands
 # to answer the owner's questions about the machine. The backend runs from
 # <private>/subharness/<backend>/, which holds its binary and its login.
-# Its network reaches only the local resolver and Cloudflare's ranges, where
-# chatgpt.com, api.openai.com and auth.openai.com sit (IPAddressAllow;
-# everything else denied), and it writes only its own out dir and the backend's
-# folder. The
+# Its network reaches only the local resolver, Cloudflare's ranges, where
+# chatgpt.com, api.openai.com and auth.openai.com sit, and Anthropic's own
+# ranges for the claude backend (IPAddressAllow; everything else denied), and
+# it writes only its own out dir and the backend's folder. The
 # read-only guarantee is this unit (ProtectSystem=strict, no write paths) plus
 # Codex's read-only sandbox, not a command filter. What it may DISCLOSE is cut
 # by the engine per scope (src/agent-runner/policy.ts), not by the OS here.
@@ -60,13 +60,16 @@ RestartSec=5
 # No capability beyond the one the bounding set names, and none ambient.
 CapabilityBoundingSet=CAP_DAC_READ_SEARCH
 
-# Network only to the local resolver stub and to the model API (chatgpt.com,
-# api.openai.com and OpenRouter sit behind Cloudflare; these are Cloudflare's
-# published IPv4 ranges, and the addresses of those hosts fall inside them). Everything
-# else, the private ranges and the cloud metadata address included, is denied.
+# Network only to the local resolver stub and to the model APIs. chatgpt.com,
+# api.openai.com and OpenRouter sit behind Cloudflare; the first range line is
+# Cloudflare's published IPv4 ranges, which hold the addresses of those hosts.
+# api.anthropic.com sits in Anthropic's own ranges, 160.79.104.0/23 and
+# 2607:6bc0::/48. Everything else, the private ranges and the cloud metadata
+# address included, is denied.
 IPAddressDeny=any
 IPAddressAllow=127.0.0.53/32
 IPAddressAllow=173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22
+IPAddressAllow=160.79.104.0/23 2607:6bc0::/48
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
 # The whole system is read-only; the agent writes only its own state (out) dir,

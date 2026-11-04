@@ -8,6 +8,7 @@
 // the check fails. No result, log line or status text carries a key value, only a key's name.
 
 import type { BackendResult } from '../agent-runner/backend.ts';
+import type { TaskRoute } from '../agent-runner/protocol.ts';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { log } from '../log.ts';
@@ -21,8 +22,8 @@ import { subharnessPlace } from './place.ts';
 export const AGENT_MODES = ['read', 'write', 'full', 'sudo'] as const;
 export type AgentMode = (typeof AGENT_MODES)[number];
 
-/** The agents that have a mode: the two errand agents, the development agents and the watcher. */
-export const SUBHARNESS_AGENTS = ['scout', 'server', 'dev', 'watcher'] as const;
+/** The agents that have a mode: the two errand agents, the development agents, the watcher and the thinker. */
+export const SUBHARNESS_AGENTS = ['scout', 'server', 'dev', 'watcher', 'thinker'] as const;
 export type SubharnessAgent = (typeof SUBHARNESS_AGENTS)[number];
 
 /** The model roles that have no subharness path: their requests run on the direct path alone. */
@@ -34,6 +35,7 @@ export const DEFAULT_MODES: Readonly<Record<SubharnessAgent, AgentMode>> = {
   server: 'read',
   dev: 'write',
   watcher: 'read',
+  thinker: 'write',
 };
 
 /** The mode of an agent the table does not list. */
@@ -312,6 +314,23 @@ export function backendOfAgent(
   const named = Object.hasOwn(stored.uses, agent) ? stored.uses[agent] : undefined;
   if (named !== undefined) return stored.backends.includes(named) ? named : null;
   return stored.backends[0] ?? null;
+}
+
+/**
+ * The path the core puts inside a task for `agent`: the backend it runs through, its model and effort (null where the
+ * owner set none) and its mode, as keys.json holds them now. Null while no backend is connected for the agent. Throws
+ * when keys.json cannot be read.
+ */
+export function routeOfAgent(privateDir: string, agent: string): TaskRoute | null {
+  const stored = readKeys(privateDir).subharness;
+  const backend = backendOfAgent(stored, agent);
+  if (backend === null) return null;
+  return {
+    backend,
+    model: Object.hasOwn(stored.models, agent) ? (stored.models[agent] ?? null) : null,
+    effort: Object.hasOwn(stored.efforts, agent) ? (stored.efforts[agent] ?? null) : null,
+    mode: modeOf(stored.modes, agent),
+  };
 }
 
 /** Disconnects one backend; removing opencode clears its key, removing the last one turns the subharness off. The modes stay. */
