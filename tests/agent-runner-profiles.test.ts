@@ -1602,14 +1602,14 @@ test('the scout unit: runs the scout profile with the state and runtime dirs the
   const unit = fs.readFileSync(path.join(ROOT, 'deploy', 'neptunia-agent-scout.service'), 'utf8');
   const line = (key: string) => unit.split('\n').find((text) => text.startsWith(`${key}=`));
   // Expectation changed on the owner's decision of 2026-11-02: the agents run through Codex, whose only login on this
-  // server belongs to the user `neptunia`, so the unit no longer has a user of its own.
+  // The service uses the persona user; its environment belongs with the other local client files.
   assert.equal(line('User'), 'User=neptunia');
   // Stage 4 PR D ("PR D in detail", the errand runner): both errand units call the new entry, named as the interface
   // unit names it (deploy/neptunia-interface@.service).
   assert.ok(loose(line('ExecStart')).endsWith('bin/neptunia.ts errand-runner --profile scout'));
   assert.equal(line('StateDirectory'), 'StateDirectory=neptunia-agent-scout');
   assert.equal(line('RuntimeDirectory'), 'RuntimeDirectory=neptunia-agent-scout');
-  assert.equal(line('EnvironmentFile'), 'EnvironmentFile=-/opt/neptunia/data/agent-scout.env');
+  assert.equal(line('EnvironmentFile'), 'EnvironmentFile=-/opt/neptunia/data/clients/agent-scout.env');
   assert.equal(SCOUT.defaultSocket, '/run/neptunia-agent-scout/sock');
   assert.equal(SCOUT.defaultOut, '/var/lib/neptunia-agent-scout/out');
 });
