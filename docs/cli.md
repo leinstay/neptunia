@@ -8,6 +8,8 @@ neptunia -p "/status"
 neptunia doctor
 ```
 
+## Access
+
 The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. This trusted owner connection can inspect stored memory across interfaces and private conversations. Talking to the owner in a Discord group does not give that conversation the CLI's memory access.
 
 ## Chat controls
