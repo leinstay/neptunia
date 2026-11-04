@@ -92,8 +92,8 @@ test('the route of an errand is read from keys.json at each dispatch, and no rou
   assert.equal(Object.hasOwn(runs[2] ?? {}, 'route'), false);
 });
 
-test("an opencode route carries no credential: the task's secrets hold its key and the store's key stays in the core", async () => {
-  // Catches: the extra key of keys.json is sent to the runner, so the secrets the scout unit hides leave the core after all.
+test("an opencode route carries no credential: the task's secrets hold the extra key it spends, and the role's key stays in the core", async () => {
+  // Catches: an opencode errand silently spends the role's key instead of the key it was enabled with.
   const privateDir = tempDir('nep-errands-route-');
   writeKeysFile(privateDir, {
     extra: { oc: 'sk-store-SECRET' },
@@ -103,8 +103,11 @@ test("an opencode route carries no credential: the task's secrets hold its key a
   errands.submit(ask);
   await errands.idle();
   assert.deepEqual(runs[0]?.route, { backend: 'opencode', model: null, effort: null, mode: 'write' });
-  assert.equal(runs[0]?.secrets?.openrouterKey, 'sk-agent-SECRET');
-  assert.ok(!JSON.stringify(runs[0]).includes('sk-store-SECRET'));
+  // An opencode route spends the extra key `subharness.key` names, the key it spent before routes existed, and the
+  // route itself holds no credential.
+  assert.equal(runs[0]?.secrets?.openrouterKey, 'sk-store-SECRET');
+  assert.ok(!JSON.stringify(runs[0]?.route).includes('sk-store-SECRET'));
+  assert.ok(!JSON.stringify(runs[0]).includes('sk-agent-SECRET'));
 });
 
 test('an errand fails without being sent when the core cannot read keys.json for its route', async () => {
