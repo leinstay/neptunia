@@ -58,4 +58,6 @@ The journal preserves recorded activity, while learned memory interprets selecte
 
 The [archive wrapper](../src/llm/archive.ts) awaits writes around model calls. If an archive write fails, it logs the failure and allows the call to continue, so the archive can have a gap. Embedded image bytes become markers; preserved originals and descriptions use the media storage paths. Do not treat the request archive as a byte-for-byte backup of every external media file.
 
+Recall diagnostics also stay in the database, with a bounded recent history.
+
 Successful media descriptions persist across cache eviction and restart. [Media](media.md) explains reuse and rewatching; [diary](diary.md) explains the originals kept under `data/media/`. Back up the whole persona using [persona migration](persona-migration.md#backup-and-restore).

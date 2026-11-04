@@ -350,6 +350,7 @@ function writeLines(db: Db, update: Row, at: string): { written: number; duplica
   const unit = updateUnit(db, update);
   if (unit.key?.kind === 'versions' && unit.key.selector?.versionKind === 'media')
     return writeMediaDescriptions(db, unit, update.lines, at);
+  if (unit.key?.kind === 'recall_trace') return writeRecallTrace(db, unit, update, at);
   if (unit.format !== 'jsonl' || !LINE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
   const lines = (Array.isArray(update.lines) ? (update.lines as Array<unknown>) : []).filter(
     (line): line is Row => line !== null && typeof line === 'object' && !Array.isArray(line)
@@ -371,6 +372,26 @@ function writeLines(db: Db, update: Row, at: string): { written: number; duplica
   noteUnit(db, unit.full, unit.kind, { lines: position, at });
   if (result.written > 0) markStemsPending(db);
   return result;
+}
+
+/** Recall diagnostics use the existing unit writer and keep only the requested recent history. */
+function writeRecallTrace(db: Db, unit: Unit, update: Row, at: string) {
+  let position = nextPosition(db, unit.full);
+  let written = 0;
+  for (const item of Array.isArray(update.lines) ? (update.lines as Array<Row>) : []) {
+    if (!item.record || typeof item.record !== 'object' || Array.isArray(item.record)) throw coded('UNIT_BAD_OP');
+    const cap = isWholeNumber(item.maxLines) && item.maxLines > 0 ? item.maxLines : 500;
+    const mapping = unit.mapper.toRows(unit.rel, item.record, { position });
+    writeMapping(db, qualify(mapping, unit), unit.full, { at });
+    db.prepare(
+      `DELETE FROM operational WHERE kind = 'recall_trace' AND owner_key = ? AND rowid NOT IN
+       (SELECT rowid FROM operational WHERE kind = 'recall_trace' AND owner_key = ? ORDER BY rowid DESC LIMIT ?)`
+    ).run(unit.full, unit.full, cap);
+    position += 1;
+    written += 1;
+  }
+  noteUnit(db, unit.full, unit.kind, { lines: position, at });
+  return { written, duplicates: 0, adopted: 0 };
 }
 
 /** Media generations append independently of the active cache's replacement writes. */
