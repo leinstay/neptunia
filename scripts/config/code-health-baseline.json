@@ -394,7 +394,7 @@
     },
     "src/llm/parse.ts": {
       "parseOutput": {
-        "complexity": 27
+        "complexity": 24
       }
     },
     "src/media/classify.ts": {

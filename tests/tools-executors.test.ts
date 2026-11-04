@@ -1234,7 +1234,7 @@ test("message.create gif=: the text went out and the GIF did not -- partial, gif
   assert.deepEqual(outcomeDetail(result), { kind: 'gif-failed', code: 'gif-failed', arg: null });
 });
 
-test('resolveCall: the channel of a #N message wins over a channel that does not hold it, for the five message calls only (conversation.read still refuses)', () => {
+test('resolveCall: the channel of a #N message wins over a channel that does not hold it, for the four message calls only (conversation.read still refuses)', () => {
   const fixedChannelCalls: Array<[string, Record<string, unknown>]> = [
     ['message.react.add', { message: '#3', emoji: '🎉' }],
     ['message.react.remove', { message: '#3', emoji: '🎉' }],
@@ -1246,8 +1246,9 @@ test('resolveCall: the channel of a #N message wins over a channel that does not
   }
   const edit = resolve('message.edit', { message: '#4', channel: '#γενικά' }, 'νέο');
   assert.deepEqual([edit.ok, edit.args.channel], [true, NEWS]);
+  // Contract change: message.create no longer takes the reply's channel over a destination she named. That substitution posted a reply in another channel than the one she chose. A mismatch is refused unknown-message (conversation), nothing sent; react, edit and delete keep the rule because their channel only locates the message they act on.
   const reply = resolve('message.create', { reply: '#3', channel: '#γενικά' }, 'ναι');
-  assert.deepEqual([reply.ok, reply.args.channel, reply.repliedAuthorId], [true, NEWS, MEMBER]);
+  assert.deepEqual([reply.ok, reply.reason], [false, 'conversation']);
   assert.equal(
     resolve('message.react.add', { message: '#3', emoji: '🎉', channel: '#💖νέα' }).channelFixed,
     undefined,

@@ -36,6 +36,10 @@ The active skill index contains descriptions; `skill.read` retrieves the procedu
 
 The conversation parser recognizes `<think>`, `<msg>`, `<react>`, `<gif>` and `<skip/>`. A message can name a reply target, and a reaction names its target message. Native tool calls arrive separately; textual tool calls are extracted before the conversation parser runs.
 
+`parseOutput` in `src/llm/parse.ts` reads the `<msg>` tags outside inline code and fences, so a tag example in code stays literal text. An opening `<msg>` while a message is open ends that message there. A last `<msg>` that is never closed ends at the first `<react>`, `<gif>` or `<skip/>` after it, or with the output. Its words go out when the answer stopped on its own. The caller passes `cutOff` for an answer cut at the output cap, as `src/turn/phases/response.ts` does for the finish reason `length`, and that last message is dropped. A `</msg>` with no open message is never sent.
+
+An output with such a breach yields one `{ kind: 'msgMalformed', nested, unclosed, stray }` diagnostic, placed before any `messagesMerged`. It holds counts and no contents, and a message dropped by `cutOff` is not counted. The persona reads it through `labels.tools.diagnostics.msgMalformed`, whose `{count}` is the sum of the three counts.
+
 Think text is private planning, not a public chat message. An unfinished think block produces silence rather than publishing its contents. The request archive retains available response text and parsed think text for later inspection.
 
 ### Diary audience

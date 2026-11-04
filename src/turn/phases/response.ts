@@ -167,7 +167,9 @@ export async function responsePhase(
     // Every answer of a diary turn counts: an audience said beside a draw call holds for the messages of the next answer.
     const spoken = diaryPrep ? takeAudience(split.speechText) : { text: split.speechText, audience: [] };
     draft.diaryAudience = [...(draft.diaryAudience ?? []), ...spoken.audience];
-    const shaped = shapeOutput(parseOutput(spoken.text, { limits: draft.limits }));
+    const shaped = shapeOutput(
+      parseOutput(spoken.text, { limits: draft.limits, cutOff: answered?.finishReason === 'length' })
+    );
     noteDiagnostics(draft, shaped, answered);
     noteThink(draft, shaped);
     const resolved: Parsed = Object.assign(shaped, { gif: resolveGif(guildId, shaped.gif, channel.id) });
