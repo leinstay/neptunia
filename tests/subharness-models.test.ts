@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { checkModel } from '../src/subharness/models.ts';
 import { subharnessCommand } from '../src/interface/commands/subharness.ts';
 import {
   SUBHARNESS_AGENTS,
@@ -136,4 +137,21 @@ test('the runner passes the stored model of the agent and none for an agent with
     seen.map((one) => one.model),
     ['gpt-x', undefined]
   );
+});
+
+test('the check of an opencode model asks OpenRouter for the id behind the backend prefix', async () => {
+  // Bug: the name opencode runs, openrouter/<id>, went to OpenRouter whole and came back HTTP 400, so no usable model
+  // of opencode could pass the check of /subharness enable.
+  const sent: Array<string> = [];
+  const { deps } = rig([]);
+  const seen: EnableDeps = {
+    ...deps,
+    fetch: (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { model: string };
+      sent.push(body.model);
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    },
+  };
+  assert.equal(await checkModel(seen, 'opencode', SECRET, 'openrouter/vendor/model'), null);
+  assert.deepEqual(sent, ['vendor/model']);
 });

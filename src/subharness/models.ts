@@ -92,7 +92,8 @@ export async function checkModel(
       method: 'POST',
       headers: { Authorization: `Bearer ${keyValue}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model,
+        // Opencode names a model by its provider, openrouter/<id>; OpenRouter itself knows the id alone.
+        model: model.replace(/^openrouter\//, ''),
         messages: [{ role: 'user', content: CHECK_BRIEF }],
         max_tokens: 8,
         ...(effort === undefined ? {} : { reasoning: { effort } }),
