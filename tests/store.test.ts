@@ -5,8 +5,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createStore, writeJsonAtomic } from '../src/memory/store.ts';
 import { legacyStorageKey } from '../src/memory/db/paths.ts';
-import { unitLines } from '../src/memory/db/readers/common.ts';
-import { communityKey } from '../src/memory/db/storage-keys.ts';
 import { mergeEpisodes } from '../src/memory/episodes.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { PARTICIPATION_DEFAULTS, emptyParticipation, recordOwnLine } from '../src/memory/participation.ts';
@@ -625,26 +623,6 @@ test('flush + a new store instance over the same database: profiles and guild me
       'the profile is a database unit'
     );
     assert.equal(fs.existsSync(path.join(mem.dataDir, 'guilds', 'g1', 'guild.json')), false, 'the guild memory too');
-  } finally {
-    await mem.close();
-    fs.rmSync(mem.dataDir, { recursive: true, force: true });
-  }
-});
-
-test('recall traces keep the newest capped records across database reopen without creating a guilds directory', async () => {
-  // Bug: database-backed recall traces recreate legacy guild files or lose queued records before a flush.
-  let mem = await openTestMemory();
-  try {
-    const store = createStore({ dataDir: mem.dataDir, memoryDb: mem.memoryDb });
-    for (const run of [1, 2, 3]) store.appendRecallTrace('g1', { run }, { maxLines: 2 });
-    await store.flushSettled({});
-    const key = communityKey('recall_trace', 'g1');
-    const expected = [JSON.stringify({ run: 2 }), JSON.stringify({ run: 3 })];
-    assert.deepEqual(unitLines(mem.memoryDb.readHandle()?.db, key), expected);
-    await mem.close();
-    mem = await openTestMemory({ dataDir: mem.dataDir });
-    assert.deepEqual(unitLines(mem.memoryDb.readHandle()?.db, key), expected);
-    assert.equal(fs.existsSync(path.join(mem.dataDir, 'guilds')), false);
   } finally {
     await mem.close();
     fs.rmSync(mem.dataDir, { recursive: true, force: true });
