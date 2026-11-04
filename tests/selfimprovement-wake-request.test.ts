@@ -22,7 +22,7 @@ import { wakeBlockText } from '../src/behavior/wake.ts';
 import { joinLabels } from '../src/config/labels.ts';
 import { createHot } from '../src/hot.ts';
 import { createCalibrator } from '../src/llm/tokens.ts';
-import { briefFrom } from '../src/selfimprovement/service.ts';
+import { briefFrom } from '../src/development/brief.ts';
 import { buildRequest } from './fixtures/built-request.ts';
 import { selfimprovementWorld } from './fixtures/selfimprovement-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';

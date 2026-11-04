@@ -364,13 +364,6 @@ test('the watcher timer rendered with no hour keeps the template line', () => {
   assert.deepEqual(valuesOf(text, 'OnCalendar'), valuesOf(template('neptunia-watcher.timer'), 'OnCalendar'));
 });
 
-test("the watcher's hour changes no other timer", () => {
-  // Catches: every OnCalendar line is rewritten, and the hourly selfimprovement beat turns into a daily one.
-  const selfimprovement = template('neptunia-selfimprovement.timer');
-  const text = renderUnit(selfimprovement, 'user', { ...VARS, watcherSchedule: { kind: 'at', at: ['05:30'] } });
-  assert.deepEqual(valuesOf(text, 'OnCalendar'), valuesOf(selfimprovement, 'OnCalendar'));
-});
-
 test('the scout unit replaces the persona folder with an empty one and shows only its agents and backends', () => {
   // Bug: InaccessiblePaths on the folder is mode 000, so the runner died on data/agents and could not reach its backend.
   const vars = { ...VARS, backends: ['opencode' as const] };

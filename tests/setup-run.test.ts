@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SETUP_STEPS, SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/run.ts';
 import type { RunResult, SetupDeps, SetupOptions } from '../src/setup/run.ts';
-import { SELFIMPROVEMENT_UNIT_FILES, UNIT_FILES } from '../src/setup/units.ts';
+import { DEVELOPMENT_UNIT_FILES, UNIT_FILES } from '../src/setup/units.ts';
 import { keysPath, readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
@@ -433,8 +433,8 @@ test('nodeOf falls back to execPath when argv0 is bare and not on PATH, or PATH 
   );
 });
 
-// The selfimprovement units (spec 2026-11-02, follow-up 7): setup renders neptunia-selfimprovement.service and its timer only when
-// `selfimprovement.checkout` names a dev checkout, so the beat never runs on the deployed checkout.
+// The development worker's unit: setup renders neptunia-development.service only when `selfimprovement.checkout` names a
+// dev checkout, so the worker never runs on the deployed checkout.
 
 /** Writes `selfimprovement` into the private layer's config/config.json before setup runs. */
 function withSelfimprovement(privateDir: string, selfimprovement: Record<string, unknown>): void {
@@ -448,56 +448,38 @@ const unitValues = (text: string, key: string): Array<string> =>
     .filter((line) => line.startsWith(`${key}=`))
     .map((line) => line.slice(key.length + 1));
 
-test('setup writes no selfimprovement unit while selfimprovement.checkout is unset', async () => {
-  // Catches: the beat is installed on every deployment and works on the deployed checkout itself.
+test('setup writes no development unit while selfimprovement.checkout is unset', async () => {
+  // Catches: the worker is installed on every deployment and works on the deployed checkout itself.
   const { options, deps, unitDir } = rig();
   await runSetup({ ...options, only: 'units' }, deps);
-  for (const name of SELFIMPROVEMENT_UNIT_FILES) assert.equal(fs.existsSync(path.join(unitDir, name)), false, name);
+  for (const name of DEVELOPMENT_UNIT_FILES) assert.equal(fs.existsSync(path.join(unitDir, name)), false, name);
 });
 
-test('setup writes the selfimprovement service and timer over the checkout selfimprovement.checkout names', async () => {
-  // Catches: the selfimprovement service runs in the deployed checkout, or the timer starts a unit of another name.
+test('setup writes the development unit over the checkout selfimprovement.checkout names', async () => {
+  // Catches: the worker runs in the deployed checkout.
   const { options, deps, unitDir } = rig();
   const checkout = path.join(path.dirname(options.privateDir), 'dev-checkout');
   withSelfimprovement(options.privateDir, { checkout });
   const report = await runSetup({ ...options, only: 'units' }, deps);
   assert.equal(report.ok, true);
-  assert.deepEqual([...SELFIMPROVEMENT_UNIT_FILES].sort(), [
-    'neptunia-selfimprovement.service',
-    'neptunia-selfimprovement.timer',
-  ]);
-  const service = fs.readFileSync(path.join(unitDir, 'neptunia-selfimprovement.service'), 'utf8');
+  // Changed: the worker is long-lived and woken by board events, so one unit ships and no timer.
+  assert.deepEqual([...DEVELOPMENT_UNIT_FILES], ['neptunia-development.service']);
+  const service = fs.readFileSync(path.join(unitDir, 'neptunia-development.service'), 'utf8');
   assert.deepEqual(unitValues(service, 'WorkingDirectory'), [checkout]);
-  // Changed: `neptunia selfimprovement run` is retired as a public form, and the unit starts the internal worker.
-  assert.match(unitValues(service, 'ExecStart')[0] ?? '', /^\S+ bin\/neptunia\.ts worker selfimprovement$/);
+  // Changed: `worker selfimprovement` ran one beat and is retired; the unit starts the long-lived worker.
+  assert.match(unitValues(service, 'ExecStart')[0] ?? '', /^\S+ bin\/neptunia\.ts worker development$/);
   assert.ok(unitValues(service, 'Environment').includes(`NEPTUNIA_DATA_DIR=${options.dataDir}`));
   assert.equal(service.includes('/opt/neptunia'), false);
-  const timer = fs.readFileSync(path.join(unitDir, 'neptunia-selfimprovement.timer'), 'utf8');
-  assert.deepEqual(unitValues(timer, 'Unit'), ['neptunia-selfimprovement.service']);
   const core = fs.readFileSync(path.join(unitDir, 'neptunia-core.service'), 'utf8');
   assert.deepEqual(unitValues(core, 'WorkingDirectory'), [options.rootDir]);
 });
 
-test('setup schedules the selfimprovement executor every six hours UTC without downtime catch-up', async () => {
-  // Catches an hourly executor default or persistence that starts missed work after downtime.
-  const { options, deps, unitDir } = rig({ only: 'units' });
-  const checkout = path.join(path.dirname(options.privateDir), 'dev-checkout');
-  withSelfimprovement(options.privateDir, { checkout });
-  const report = await runSetup(options, deps);
-  assert.equal(report.ok, true);
-  const timer = fs.readFileSync(path.join(unitDir, 'neptunia-selfimprovement.timer'), 'utf8');
-  assert.deepEqual(unitValues(timer, 'OnCalendar'), ['*-*-* 00,06,12,18:00:00 UTC']);
-  assert.equal(unitValues(timer, 'Persistent').includes('true'), false);
-  const service = fs.readFileSync(path.join(unitDir, 'neptunia-selfimprovement.service'), 'utf8');
-  assert.deepEqual(unitValues(service, 'Type'), ['oneshot']);
-});
-
-test('setup writes no selfimprovement unit when selfimprovement.checkout is the deployed checkout itself', async () => {
-  // Catches: a checkout setting copied from the deployment makes the beat edit and push the code that is running.
+test('setup writes no development unit when selfimprovement.checkout is the deployed checkout itself', async () => {
+  // Catches: a checkout setting copied from the deployment makes the worker edit and push the code that is running.
   const { options, deps, unitDir } = rig();
   withSelfimprovement(options.privateDir, { checkout: options.rootDir });
   await runSetup({ ...options, only: 'units' }, deps);
-  for (const name of SELFIMPROVEMENT_UNIT_FILES) assert.equal(fs.existsSync(path.join(unitDir, name)), false, name);
+  for (const name of DEVELOPMENT_UNIT_FILES) assert.equal(fs.existsSync(path.join(unitDir, name)), false, name);
 });
 
 // The self-development step (spec 2026-11-02, PR 5 "Forks"): last, after the core, and optional, so a refusal of it

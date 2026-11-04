@@ -9,7 +9,6 @@ import { openMemoryDb } from '../../src/memory/db/open.ts';
 import { openBoard } from '../../src/board/board.ts';
 import type { Board, BoardOp, BoardResults } from '../../src/board/board.ts';
 import type { BoardDb } from '../../src/board/schema.ts';
-import type { SelfimprovementDeps } from '../../src/selfimprovement/service.ts';
 import type { RepositoryCheck } from '../../src/selfimprovement/repository.ts';
 import { runOpPrechecked } from '../../src/tools/impl/index.ts';
 import { createOpsEnv } from '../../src/tools/impl/env.ts';
@@ -39,7 +38,6 @@ export type CheckState = 'SUCCESS' | 'FAILURE' | 'PENDING';
 export type SelfimprovementWorld = {
   board: Board;
   caller: BoardCaller;
-  deps: SelfimprovementDeps;
   repoDir: string;
   worktreeRoot: string;
   /** What happened, in order: `git worktree add`, `run`, `tests`, `git push`, `gh pr create`, `board <write op>`. */
@@ -114,11 +112,6 @@ function boardOf(t: { after: (fn: () => void) => void }, order: Array<string>) {
   return { board, caller };
 }
 
-const flagOf = (args: ReadonlyArray<string>, name: string): string | null => {
-  const at = args.indexOf(name);
-  return at < 0 ? null : (args[at + 1] ?? null);
-};
-
 export function selfimprovementWorld(t: { after: (fn: () => void) => void }): SelfimprovementWorld {
   const order: Array<string> = [];
   const { board, caller } = boardOf(t, order);
@@ -146,98 +139,6 @@ export function selfimprovementWorld(t: { after: (fn: () => void) => void }): Se
     testRun: { code: 0, stdout: PASSING_TAP },
     create: { code: 0, stderr: '', title: null, body: null, base: null, head: null },
     pr: { state: 'OPEN', title: null, files: null, checks: ['SUCCESS'], mergeCode: 0, ready: false },
-    deps: undefined as unknown as SelfimprovementDeps,
-  };
-  world.deps = {
-    board: caller,
-    run: (request) => {
-      order.push('run');
-      world.runs.push(request);
-      return Promise.resolve({ ...world.agent });
-    },
-    git: (file, args, options) => {
-      world.git.push({ args, cwd: options.cwd });
-      const stdout = (() => {
-        switch (args[0]) {
-          case 'worktree':
-            order.push('git worktree add');
-            fs.mkdirSync(String(args[4]), { recursive: true });
-            return '';
-          case 'status':
-            return world.changed.map((one) => ` M ${one}`).join('\n');
-          case 'diff':
-            return world.changed.join('\n');
-          case 'push':
-            order.push('git push');
-            return '';
-          case 'commit':
-            order.push('git commit');
-            return '';
-          default:
-            return '';
-        }
-      })();
-      return Promise.resolve({ code: 0, stdout, stderr: '' });
-    },
-    gh: (file, args, options) => {
-      world.gh.push({ args, cwd: options.cwd });
-      if (args[0] === 'pr' && args[1] === 'create') {
-        order.push('gh pr create');
-        world.create.title = flagOf(args, '--title');
-        world.create.body = flagOf(args, '--body');
-        world.create.base = flagOf(args, '--base');
-        world.create.head = flagOf(args, '--head');
-        const failed = world.create.code !== 0;
-        return Promise.resolve({
-          code: world.create.code,
-          stdout: failed ? '' : `${PR_URL}\n`,
-          stderr: world.create.stderr,
-        });
-      }
-      if (args[0] === 'pr' && args[1] === 'view') {
-        return Promise.resolve({
-          code: 0,
-          stdout: JSON.stringify({
-            number: 12,
-            state: world.pr.state,
-            title: world.pr.title ?? world.create.title ?? 'untitled',
-            headRefName: world.create.head,
-            files: (world.pr.files ?? world.changed).map((one) => ({ path: one })),
-            statusCheckRollup: world.pr.checks.map((state, n) => ({
-              name: `check-${n}`,
-              status: state === 'PENDING' ? 'IN_PROGRESS' : 'COMPLETED',
-              conclusion: state === 'PENDING' ? '' : state,
-            })),
-          }),
-          stderr: '',
-        });
-      }
-      if (args[0] === 'pr' && args[1] === 'ready') {
-        world.pr.ready = true;
-        return Promise.resolve({ code: 0, stdout: '', stderr: '' });
-      }
-      if (args[0] === 'pr' && args[1] === 'merge') {
-        if (world.pr.mergeCode === 0) world.pr.state = 'MERGED';
-        return Promise.resolve({ code: world.pr.mergeCode, stdout: '', stderr: world.pr.mergeCode === 0 ? '' : 'refused' });
-      }
-      return Promise.resolve({ code: 1, stdout: '', stderr: `unexpected gh ${args.join(' ')}` });
-    },
-    tests: (file, args, options) => {
-      order.push('tests');
-      world.tests.push({ file, args, cwd: options.cwd });
-      return Promise.resolve({ code: world.testRun.code, stdout: world.testRun.stdout, stderr: '' });
-    },
-    brief: (task) => `BRIEF ${task.id}: ${task.title}\n${task.evidence}`,
-    settings: () => ({ mode: world.mode, base: world.base, repository: world.repository }),
-    check: () => {
-      world.checks += 1;
-      return Promise.resolve(world.check);
-    },
-    triage: () => ({ role: 'dev', budget: 4, steps: 80, estimate: 30 }),
-    journal: (line) => world.journal.push(line),
-    fileExists: (_dir, relative) => world.existing.has(relative),
-    repoDir,
-    worktreeRoot,
   };
   return world;
 }

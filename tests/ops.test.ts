@@ -33,6 +33,7 @@ const AGREED = new Set([
   'board.cancel',
   'board.comment',
   'board.answer',
+  'board.unblock',
   'skill.read',
   'skill.disable',
   'skill.run',

@@ -84,6 +84,8 @@ export type DevelopmentWorld = {
   /** The pull request on the fake GitHub; `created` counts every `gh pr create`. */
   pr: FakePullRequest | null;
   created: number;
+  /** What `gh pr create` fails with; null lets it succeed. */
+  createError: string | null;
   mergeCode: number;
   scripts: Record<AgentName, AgentScript>;
   skillPackages: Array<{ task: TaskRecord; tree: string }>;
@@ -125,6 +127,57 @@ function viewJson(pr: FakePullRequest, fields: ReadonlyArray<string>, files: Rea
     })),
   };
   return JSON.stringify(Object.fromEntries(fields.map((field) => [field, all[field]])));
+}
+
+type GitAnswer = { code: number; stdout: string; stderr: string };
+
+/** `git worktree list` and `git worktree add -b <branch> <tree> <start>` or `add <tree> <branch>`; null for any other. */
+function fakeWorktreeCall(world: DevelopmentWorld, args: ReadonlyArray<string>): GitAnswer | null {
+  if (args[0] !== 'worktree') return null;
+  if (args[1] === 'list') {
+    return ok([...world.trees].map(([tree, branch]) => `worktree ${tree}\nbranch refs/heads/${branch}\n`).join('\n'));
+  }
+  if (args[1] !== 'add') return null;
+  world.order.push('git worktree add');
+  const hasB = args[2] === '-b';
+  const branch = String(args[3]);
+  const tree = String(hasB ? args[4] : args[2]);
+  if (world.trees.has(tree)) return refused(`fatal: '${tree}' already exists`);
+  if (hasB && world.branches.has(branch)) return refused(`fatal: a branch named '${branch}' already exists`);
+  if (!hasB && !world.branches.has(branch)) return refused(`fatal: invalid reference: ${branch}`);
+  fs.mkdirSync(tree, { recursive: true });
+  world.branches.add(branch);
+  world.trees.set(tree, branch);
+  return ok();
+}
+
+/** `git rev-parse`, `git show-ref` and `git branch --list` over the branches the world knows; null for any other. */
+function fakeRefCall(world: DevelopmentWorld, args: ReadonlyArray<string>): GitAnswer | null {
+  const [first, second] = args;
+  if (first === 'rev-parse' && args.includes('HEAD')) return ok(`${world.head}\n`);
+  if (first === 'rev-parse' || first === 'show-ref') {
+    const name = String(args.at(-1)).replace('refs/heads/', '');
+    return world.branches.has(name) ? ok(`${world.head}\n`) : refused('fatal: not a valid ref');
+  }
+  if (first === 'branch' && second === '--list') {
+    const name = String(args[2]);
+    return ok(world.branches.has(name) ? `  ${name}\n` : '');
+  }
+  return null;
+}
+
+/** What is left of git: `status` and `diff` answer the changed paths, and a push moves the head of its open pull request. */
+function fakeTreeCall(world: DevelopmentWorld, args: ReadonlyArray<string>): GitAnswer {
+  const [first] = args;
+  if (first === 'status') return ok(world.changed.map((one) => ` M ${one}`).join('\n'));
+  if (first === 'diff') return ok(world.changed.join('\n'));
+  if (first === 'push') {
+    world.order.push('git push');
+    if (world.pr?.state === 'OPEN' && args.includes(world.pr.branch) && !args.includes('--delete')) {
+      world.pr.head = world.head;
+    }
+  }
+  return ok();
 }
 
 export function developmentWorld(t: { after: (fn: () => void | Promise<void>) => void }): DevelopmentWorld {
@@ -190,6 +243,7 @@ export function developmentWorld(t: { after: (fn: () => void | Promise<void>) =>
     head: HEAD,
     pr: null,
     created: 0,
+    createError: null,
     mergeCode: 0,
     scripts: { thinker: () => undefined, dev: () => undefined },
     skillPackages: [],
@@ -244,48 +298,14 @@ export function developmentWorld(t: { after: (fn: () => void | Promise<void>) =>
           task.task.title,
           task.task.description ?? '',
           ...task.questions.map((question) => `answer: ${String(question.answer)}`),
+          ...task.comments.map((comment) => `comment: ${comment.text}`),
         ].join('\n'),
       agentEnv(agent, taskId): Record<string, string> {
         return agent === 'thinker' ? { NEPTUNIA_TASK_CLIENT: WORKER, TASK_ID: taskId } : {};
       },
       git(_file, args, options) {
         world.git.push({ args, cwd: options.cwd });
-        const [first, second] = args;
-        if (first === 'worktree' && second === 'list') {
-          const rows = [...world.trees].map(([tree, branch]) => `worktree ${tree}\nbranch refs/heads/${branch}\n`);
-          return Promise.resolve(ok(rows.join('\n')));
-        }
-        if (first === 'worktree' && second === 'add') {
-          world.order.push('git worktree add');
-          // `worktree add -b <branch> <tree> <start>` or `worktree add <tree> <branch>`.
-          const hasB = args[2] === '-b';
-          const branch = String(args[3]);
-          const tree = String(hasB ? args[4] : args[2]);
-          if (world.trees.has(tree)) return Promise.resolve(refused(`fatal: '${tree}' already exists`));
-          if (hasB && world.branches.has(branch)) {
-            return Promise.resolve(refused(`fatal: a branch named '${branch}' already exists`));
-          }
-          if (!hasB && !world.branches.has(branch)) {
-            return Promise.resolve(refused(`fatal: invalid reference: ${branch}`));
-          }
-          fs.mkdirSync(tree, { recursive: true });
-          world.branches.add(branch);
-          world.trees.set(tree, branch);
-          return Promise.resolve(ok());
-        }
-        if (first === 'rev-parse' && args.includes('HEAD')) return Promise.resolve(ok(`${world.head}\n`));
-        if (first === 'rev-parse' || first === 'show-ref') {
-          const name = String(args.at(-1)).replace('refs/heads/', '');
-          return Promise.resolve(world.branches.has(name) ? ok(`${world.head}\n`) : refused('fatal: not a valid ref'));
-        }
-        if (first === 'branch' && second === '--list') {
-          const name = String(args[2]);
-          return Promise.resolve(ok(world.branches.has(name) ? `  ${name}\n` : ''));
-        }
-        if (first === 'status') return Promise.resolve(ok(world.changed.map((one) => ` M ${one}`).join('\n')));
-        if (first === 'diff') return Promise.resolve(ok(world.changed.join('\n')));
-        if (first === 'push') world.order.push('git push');
-        return Promise.resolve(ok());
+        return Promise.resolve(fakeWorktreeCall(world, args) ?? fakeRefCall(world, args) ?? fakeTreeCall(world, args));
       },
       gh(_file, args, options) {
         world.gh.push({ args, cwd: options.cwd });
@@ -294,6 +314,7 @@ export function developmentWorld(t: { after: (fn: () => void | Promise<void>) =>
         if (args[1] === 'create') {
           world.order.push('gh pr create');
           world.created += 1;
+          if (world.createError !== null) return Promise.resolve(refused(world.createError));
           const number = 12;
           world.pr = {
             number,
