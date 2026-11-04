@@ -94,7 +94,7 @@ export type CommandDeps = {
   guildId(): string | null;
   /** The board's `task.*` commands, run under a principal's name. */
   tasks: { command(principal: string, name: string, args: Record<string, unknown>): Promise<TaskAnswer> };
-  /** Her skills: an agent lists the pending versions and activates one (`skill.*`); absent, those commands fail. */
+  /** Her skills: an agent lists the pending versions and files a package (`skill.pending`); absent, the command fails. */
   skills?: SkillsAccess | null;
 };
 

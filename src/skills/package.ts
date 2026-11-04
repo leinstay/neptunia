@@ -63,6 +63,30 @@ export function snapshotPackage(skillDir: string, text: string, hash: string): v
   fs.renameSync(temp, target);
 }
 
+export type PackageCode = 'bad-setup' | 'missing-script' | 'undeclared-script';
+
+/**
+ * The first thing that keeps a package from running, or null: `setup.json` that does not parse, a declared script with
+ * no file, or a script file `skill.run` would refuse because `setup.json` does not declare it. A helper in a subfolder
+ * of `scripts/` is not a script. A package of `SKILL.md` alone is complete.
+ */
+export function packageProblem(skillDir: string): PackageCode | null {
+  const onDisk = filesUnder(path.join(skillDir, SCRIPTS_DIR)).filter((file) => !file.includes('/'));
+  const file = path.join(skillDir, SETUP_FILE);
+  let declared: Array<string> = [];
+  if (fs.existsSync(file)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as { scripts?: Record<string, unknown> } | null;
+      declared = Object.keys(parsed?.scripts ?? {});
+    } catch {
+      return 'bad-setup';
+    }
+  }
+  if (declared.some((name) => !onDisk.includes(name))) return 'missing-script';
+  if (onDisk.some((name) => !declared.includes(name))) return 'undeclared-script';
+  return null;
+}
+
 /** What `setup.json` declares for one script of a snapshot, or null when it declares no such script. */
 export function scriptManifest(packageDir: string, script: string): ScriptManifest | null {
   const file = path.join(packageDir, SETUP_FILE);

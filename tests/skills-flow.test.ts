@@ -1,8 +1,8 @@
 // A chain she repeated becomes a skill she uses, end to end (PR 7e's done-criterion), over the real pieces and no
 // network: three turns of hers call web.search, web.read and message.create; the `selfimprovement` view lists that
 // shape with the count 3; her scripted answer files `board.propose` of kind `skill` with the example turns; a fake
-// agent principal claims the task, writes `skills.local/<name>/SKILL.md` and submits, then activates the version
-// itself; `/skills` shows the activation; a later turn of the same shape carries the skill in `<skills>`, her
+// agent principal claims the task, writes `skills.local/<name>/SKILL.md` and submits, the owner activates the version
+// (his decision of 2026-11-04: an agent never does); `/skills` shows the activation; a later turn of the same shape carries the skill in `<skills>`, her
 // `skill.read` returns its text, and `skill_uses` holds discovered, read, tried and succeeded. Then the guards: a
 // SKILL.md nobody activated is not in her index, activation grants no tool, and her own switch takes a skill out of
 // the index until the owner enables it. The scripted model is the list of tool calls each turn makes.
@@ -19,7 +19,6 @@ import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { useCountsBySkill } from '../src/memory/db/skills.ts';
-import { skillCommand } from '../src/skills/agent-commands.ts';
 import { skillIndexBlock } from '../src/skills/index-block.ts';
 import type { ActiveSkill } from '../src/skills/index-block.ts';
 import { skillUsesOfTurn } from '../src/skills/uses.ts';
@@ -225,11 +224,11 @@ test('a chain she repeated becomes a skill she uses: view, proposal, agent, acti
   assert.ok(pending.text.includes('look-it-up') && pending.text.includes(taskId), pending.text);
   assert.equal(skillIndexBlock(rig.port.active(), LABELS), '');
 
-  // 5. The agent activates it itself; `/skills` shows the activation with who made it.
-  const agent = skillCommand(rig.port, { name: 'hand' }, 'skill.activate', { name: 'look-it-up' });
-  assert.equal(agent.status, 'ok');
+  // 5. The owner activates it; `/skills` shows the activation with who made it. Changed from the agent's own
+  // activation by the owner's decision of 2026-11-04.
+  assert.equal((await owner('/skills activate look-it-up')).status, 'ok');
   const listed = (await owner('/skills list')).text.split('\n').find((line) => line.includes('look-it-up')) ?? '';
-  assert.ok(listed.includes('agent:hand'), listed);
+  assert.ok(listed.includes('owner'), listed);
 
   // 6. A later turn of the same shape: the index carries the skill, `skill.read` returns its text.
   const block = skillIndexBlock(rig.port.active(), LABELS);
@@ -264,7 +263,7 @@ test('an activation grants no tool: the skill is unavailable until the owner gra
   const rig = skillsRig(t);
   rig.writeLocal('ping-someone', skillText('ping-someone', 'I ping when asked', ['pings.set']));
   const grantedBefore = [...rig.granted].sort();
-  skillCommand(rig.port, { name: 'hand' }, 'skill.activate', { name: 'ping-someone' });
+  rig.port.activate('ping-someone', 'owner');
   const line =
     (await ownerConsole(rig)('/skills list')).text.split('\n').find((one) => one.includes('ping-someone')) ?? '';
   assert.ok(line.includes('pings.set') && line.includes('not-granted'), line);
@@ -279,7 +278,7 @@ test('her own switch takes a skill out of the index and the owner brings it back
   const her = herCalls(null, rig);
   const owner = ownerConsole(rig);
   rig.writeLocal('look-it-up', skillText('look-it-up', 'I search and read first', ['web.search']));
-  skillCommand(rig.port, { name: 'hand' }, 'skill.activate', { name: 'look-it-up' });
+  rig.port.activate('look-it-up', 'owner');
   assert.ok(skillIndexBlock(rig.port.active(), LABELS).includes('look-it-up'));
   assert.equal((await her('skill.disable', { name: 'look-it-up' })).status, 'ok');
   assert.equal(skillIndexBlock(rig.port.active(), LABELS), '');

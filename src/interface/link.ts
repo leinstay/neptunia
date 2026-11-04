@@ -148,6 +148,8 @@ export const AGENT_IFACE = 'agent';
 
 /** The prefix of the only commands an agent principal sends: the board's (src/board/commands.ts). */
 const TASK_PREFIX = 'task.';
+/** The one skill command an agent may send: it files a package, and activation stays the owner's. */
+const SKILL_FILING = 'skill.pending';
 
 /** Whether `principal` may send `command.requested`: the owner's command line or an agent, never an interface. */
 export const mayCommand = (principal: Principal): boolean => principal.kind === 'cli' || principal.kind === 'agent';
@@ -157,7 +159,8 @@ function eventRefusal(body: Record<string, unknown>, iface: string, principal: P
   if (body.iface !== iface) return 'body.iface:foreign';
   if (principal.kind === 'agent') {
     if (body.kind !== 'command.requested') return 'body.kind:not-allowed';
-    if (typeof body.name !== 'string' || !body.name.startsWith(TASK_PREFIX)) return 'body.name:not-allowed';
+    if (typeof body.name !== 'string') return 'body.name:not-allowed';
+    if (!body.name.startsWith(TASK_PREFIX) && body.name !== SKILL_FILING) return 'body.name:not-allowed';
     return null;
   }
   if (body.kind === 'command.requested' && !mayCommand(principal)) return 'body.kind:not-allowed';
