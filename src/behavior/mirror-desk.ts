@@ -16,6 +16,7 @@ import {
   unknownEntry,
 } from '../memory/db/mirror-config.ts';
 import type { BackfillChange, MirrorRow } from '../memory/db/mirror-config.ts';
+import { storedDiaryPublicationRefusal } from '../memory/db/publish.ts';
 import { publicationFor, stateOfRow } from '../memory/db/publication-delivery.ts';
 import type { PublicationState } from '../memory/db/publication-delivery.ts';
 import type { Db } from '../memory/db/types.ts';
@@ -115,6 +116,10 @@ export function createMirrorDesk({
     return db ? mirrorRows(db).map(brief) : [];
   };
 
+  /** Whether `entryId` went out to `placeId` and its audience has since left that place out: no edit takes the copy back. */
+  const outsideAudience = (db: Db, status: unknown, entryId: unknown, placeId: unknown): boolean =>
+    status === 'sent' && storedDiaryPublicationRefusal(db, entryId, placeId) === 'audience-excluded';
+
   function statusOf(db: Db, mirror: MirrorRow): MirrorStatus {
     const rows = db
       .prepare(
@@ -137,7 +142,9 @@ export function createMirrorDesk({
       })),
       incomplete: having('incomplete').map((row) => ({ entryId: String(row.row_id), code: code(row.code) })),
       uncertain: having('unknown').map((row) => ({ entryId: String(row.row_id) })),
-      deliveredOutsideAudience: [],
+      deliveredOutsideAudience: rows
+        .filter((row) => outsideAudience(db, row.status, row.row_id, mirror.placeId))
+        .map((row) => ({ entryId: String(row.row_id) })),
       backfill: { ...mirror.backfill, remaining, blocked },
     };
   }
@@ -168,7 +175,7 @@ export function createMirrorDesk({
     publicationState(entryId, placeId) {
       const db = database();
       const row = db ? publicationFor(db, entryId, placeId) : null;
-      return row ? stateOfRow(row) : null;
+      return db && row ? stateOfRow(row, outsideAudience(db, row.status, entryId, placeId)) : null;
     },
 
     async addMirror({ destination, by, backfill }) {

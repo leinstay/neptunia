@@ -4,6 +4,7 @@
 
 import { DEFAULT_HISTORY_POSTS, renderDiaryBlock } from '../../behavior/diary.ts';
 import { fillPromptTemplate } from './text.ts';
+import type { KnownPlaces } from '../../tools/publication.ts';
 import type { Labels, Prompts, RequestConfig, RequestInput } from './types.ts';
 
 /** A diary post's plan (src/turn/diary.ts): its kind, its brief, whether it has a picture and the owner's topic. */
@@ -13,6 +14,7 @@ export type DiaryInput = {
   readonly plan?: DiaryPlan | null;
   readonly found?: unknown;
   readonly seeds?: unknown;
+  readonly publicationPlaces?: KnownPlaces;
 };
 
 export type DiaryPlan = {
@@ -68,6 +70,27 @@ export function planBody(plan: DiaryPlan | null | undefined, labels: Labels): st
   return [labels.diary?.plan, JSON.stringify(line)].filter(Boolean).join('\n');
 }
 
+/**
+ * The `<publication_places>` block's body: `labels.diary.publicationPlaces`, which carries the `<audience>` output
+ * contract, then one `interface:<iface>` line per interface and one `place:<place id> <name>` line per place, a place
+ * indented under its parent. '' when memory knows no place, so she has nothing to name.
+ */
+export function publicationPlacesBody(known: KnownPlaces | undefined, labels: Labels): string {
+  if (!known || known.places.length === 0) return '';
+  const ids = new Set(known.places.map((place) => place.id));
+  const under = Map.groupBy(known.places, (place) =>
+    place.parentId !== null && ids.has(place.parentId) ? place.parentId : null
+  );
+  const lines = (parent: string | null, depth: number): Array<string> =>
+    (under.get(parent) ?? []).flatMap((place) => [
+      `${'  '.repeat(depth)}place:${place.id}${place.name ? ` ${place.name}` : ''}`,
+      ...lines(place.id, depth + 1),
+    ]);
+  return [labels.diary?.publicationPlaces, ...known.interfaces.map((iface) => `interface:${iface}`), ...lines(null, 0)]
+    .filter(Boolean)
+    .join('\n');
+}
+
 /** A diary post's blocks: the world, the past posts with their intro, the plan, what the search found, the seeds. */
 export type DiaryParts = {
   worldItem: string;
@@ -76,7 +99,8 @@ export type DiaryParts = {
   planText: string;
   foundText: string;
   seedsText: string;
-  diaryParts: { intro: string; plan: string; seeds: string } | null;
+  publicationPlacesText: string;
+  diaryParts: { intro: string; plan: string; seeds: string; publicationPlaces: string } | null;
 };
 
 /**
@@ -100,6 +124,9 @@ export function diaryOf(given: RequestInput & { labels: Labels }): DiaryParts {
       : '';
   // A set post's seed combinations (already rendered by src/behavior/diary.ts#renderSeedsBlock).
   const seedsText = diaryInput && typeof diaryInput.seeds === 'string' ? diaryInput.seeds.trim() : '';
-  const diaryParts = diaryMode ? { intro: diaryIntro, plan: planText, seeds: seedsText } : null;
-  return { worldItem, diaryLines, diaryIntro, planText, foundText, seedsText, diaryParts };
+  const publicationPlacesText = publicationPlacesBody(diaryInput?.publicationPlaces, labels);
+  const diaryParts = diaryMode
+    ? { intro: diaryIntro, plan: planText, seeds: seedsText, publicationPlaces: publicationPlacesText }
+    : null;
+  return { worldItem, diaryLines, diaryIntro, planText, foundText, seedsText, publicationPlacesText, diaryParts };
 }

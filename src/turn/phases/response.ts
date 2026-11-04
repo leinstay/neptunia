@@ -7,7 +7,7 @@ import { DIARY_MAX_MESSAGES, stripUrls } from '../../behavior/diary.ts';
 import { resolveReactionEmoji } from '../../behavior/emoji.ts';
 import { innerOutputCalls } from '../../behavior/inner-output.ts';
 import { thinkMissing } from '../../behavior/tool-step.ts';
-import { parseOutput } from '../../llm/parse.ts';
+import { parseOutput, takeAudience } from '../../llm/parse.ts';
 import { log } from '../../log.ts';
 import { countDashes, stripDashes } from '../../memory/clamp.ts';
 import { answerOf, defaultSkills } from '../calls.ts';
@@ -161,7 +161,10 @@ export async function responsePhase(
       step: number,
       registry: skills ?? defaultSkills(),
     });
-    const shaped = shapeOutput(parseOutput(split.speechText, { limits: draft.limits }));
+    // Every answer of a diary turn counts: an audience said beside a draw call holds for the messages of the next answer.
+    const spoken = diaryPrep ? takeAudience(split.speechText) : { text: split.speechText, audience: [] };
+    draft.diaryAudience = [...(draft.diaryAudience ?? []), ...spoken.audience];
+    const shaped = shapeOutput(parseOutput(spoken.text, { limits: draft.limits }));
     noteDiagnostics(draft, shaped, answered);
     noteThink(draft, shaped);
     const resolved: Parsed = Object.assign(shaped, { gif: resolveGif(guildId, shaped.gif, channel.id) });

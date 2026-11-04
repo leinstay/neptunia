@@ -54,13 +54,14 @@ export function headSections(
   const { labels, privateChat, nameOf, timezone, frozen, loreOn, system, nowText, chatItems } = given;
   const { directoryText, channelDirectoryText, fittedTask, senses, toolsText, inventoryText } = given;
   const { skillIndexText } = given;
-  const { planText, seedsText, diaryIntro, foundText, peopleNowFixed, interlocutorShown } = given;
+  const { planText, seedsText, publicationPlacesText, diaryIntro, foundText, peopleNowFixed, interlocutorShown } =
+    given;
   const { errandsText, intentionsText, wakeText, placesText, previousThinkText } = given;
   const { caps, cost, limit, offeredNeighbors, pulledChannelIds, readOnlyIds } = given;
   const fixedSection: Section = {
     name: 'fixed',
     required: true,
-    // Her tools in text (the text transport), the index of her skills, the channel and people directories, a diary post's plan, its seeds, its `<diary>` intro, the
+    // Her tools in text (the text transport), the index of her skills, the channel and people directories, a diary post's plan, its seeds, its publication places, its `<diary>` intro, the
     // interlocutor's `<people_now>` entry, her errands' blocks and her intentions are never cut.
     items: [
       system,
@@ -75,6 +76,7 @@ export function headSections(
         directoryText,
         planText,
         seedsText,
+        publicationPlacesText,
         diaryIntro,
         peopleNowFixed,
         errandsText.list,

@@ -14,7 +14,7 @@ Configuration and delivery history live apart. `/mirror remove` marks the `mirro
 
 ## Delivery
 
-`createMirrors` in `src/behavior/mirror.ts` gives each entry one `publications` row per enabled mirror, keyed `diary:<entry id>:<place id>`. The publisher claims the row through the writer before anything reaches the interface, so the timer's drain, the reconnect's drain and the turn's own publish send it once between them. A claim holds a claimant and a time (`src/memory/db/publication-delivery.ts`).
+`createMirrors` in `src/behavior/mirror.ts` gives each entry one `publications` row per enabled mirror its [audience](#audience) allows, keyed `diary:<entry id>:<place id>`. The publisher claims the row through the writer before anything reaches the interface, so the timer's drain, the reconnect's drain and the turn's own publish send it once between them. A claim holds a claimant and a time (`src/memory/db/publication-delivery.ts`).
 
 | Status | Meaning |
 |---|---|
@@ -36,6 +36,24 @@ A retryable failure goes out again at the next drain, while a certain refusal st
 A send that answers `unknown`, throws, or runs past `mirrors.sendTimeoutMs` is uncertain, and so is a claim that outlives `mirrors.claimLeaseMs` with no word from its publisher. The later segments stay pending and nothing is sent again without proof. Three things settle it. A receipt that arrives late is kept. An adapter that declares `capabilities().reconcile` looks the segment up by its key, which either finds it (`sent`) or proves it absent (it goes out once more), and a lookup that fails leaves it uncertain. The owner settles what no adapter can: `/mirror reconcile --entries` records it as published, and `/mirror reconcile --absent --entries` says it never arrived and queues it again, with the owner's name kept on the row.
 
 Exactly-once delivery holds only as far as the platform can prove it. Between a platform's accepting a message and the core's writing its receipt, a crash leaves the send uncertain, and a platform with no lookup leaves that to the owner. A Discord interface finds only the sends of its current process, so a send from before its restart stays uncertain.
+
+## Audience
+
+The persona chooses who may read an entry. The writer request carries a `<publication_places>` block with one `interface:<iface>` token per interface and one `place:<place id>` token per known group place, followed by its name and indented under its parent. `publicationPlaces` in `src/memory/db/diary-audience.ts` reads the block's contents from memory, so they leave out private conversations and stay the same whichever mirrors exist. She answers with at most one `<audience>` tag, and `recordEntry` in `src/behavior/diary-turn.ts` stores the result on the post as `publicationAudience`, in the `extra` column of the `diary` row.
+
+| Stored `publicationAudience` | Reaches |
+|---|---|
+| `{ kind: 'unrestricted' }` | Every mirror, mirrors added later included. Leaving the tag out records this. |
+| `{ kind: 'interface', iface }` | Every mirror on that interface. |
+| `{ kind: 'place', placeId }` | The place and its descendants through `parent_id`. |
+
+Places compare by their interface-qualified id, so the same native id on two interfaces stays two places. An unknown or malformed value keeps the entry in memory and publishes it nowhere. The turn's `result.diary.audience` answers `{ ok: false, code }` with `audience-unknown-place`, `audience-unknown-interface` or `audience-malformed`, the post stores `{ kind: 'invalid', code }`, and each mirror's outcome is `failed` with `audience-invalid`. Two different values in one turn are malformed, and the tag counts from every answer of the turn.
+
+`storedDiaryPublicationRefusal` in `src/memory/db/publish.ts` reads the stored row in four places: when the publisher queues, in the writer's `prepare`, in a backfill scan and right before a send. A mirror the entry leaves out gets no row, and its outcome is `failed` with `audience-excluded`. A row queued before a narrowing ends `failed` with the same code and sends nothing, and a backfill passes over such an entry without blocking the ones after it.
+
+The audience only narrows the trusted restrictions. A saved `publicationBoundary` applies first, and an entry that is neither group material nor under a boundary reaches nothing, whatever it names. A row with no `publicationAudience` predates the choice and stays as it is. An old group entry goes only to its own `scope_iface`. An old entry with no interface, an internal scope or a private scope goes nowhere unless a saved boundary allows its origin.
+
+No edit recalls a copy that already went out. `/mirror status` lists such an entry as delivered outside its audience (`deliveredOutsideAudience`), and `publicationState` answers `outsideAudience: true`, apart from the rows the audience stops.
 
 ## Backfill
 

@@ -14,6 +14,52 @@ export type PublicationRefusal = Readonly<{
   reason: 'publication-boundary';
 }>;
 
+/** Who may read a diary entry, as she chose it: a post's `publicationAudience`. */
+export type PublicationAudience = Readonly<
+  { kind: 'unrestricted' } | { kind: 'interface'; iface: string } | { kind: 'place'; placeId: string }
+>;
+/** What a post's audience comes to when she named no valid one. */
+export type AudienceProblem = 'audience-unknown-place' | 'audience-unknown-interface' | 'audience-malformed';
+/** What her `<audience>` tags come to: an audience, or the concrete reason none could be read. */
+export type AudienceChoice = { ok: true; audience: PublicationAudience } | { ok: false; code: AudienceProblem };
+/** The places she can name in `<audience>` (src/memory/db/diary-audience.ts#publicationPlaces). */
+export type KnownPlaces = Readonly<{
+  interfaces: ReadonlyArray<string>;
+  places: ReadonlyArray<Readonly<{ id: string; name: string | null; parentId: string | null }>>;
+}>;
+
+export const UNRESTRICTED: PublicationAudience = { kind: 'unrestricted' };
+
+/** A stored `publicationAudience` that can be acted on. Anything else, a recorded failure included, publishes nowhere. */
+export function isPublicationAudience(value: unknown): value is PublicationAudience {
+  const audience = objOf(value);
+  if (audience.kind === 'unrestricted') return true;
+  if (audience.kind === 'interface') return typeof audience.iface === 'string' && audience.iface !== '';
+  return audience.kind === 'place' && typeof audience.placeId === 'string' && audience.placeId !== '';
+}
+
+/**
+ * The audience the bodies of her `<audience>` tags name, over the places she can name. No tag is an unrestricted entry;
+ * two different values are malformed, since either could be the narrower thing she meant. Pure.
+ */
+export function audienceChoice(words: ReadonlyArray<string>, known: KnownPlaces): AudienceChoice {
+  const said = [...new Set(words.map((word) => word.trim()))];
+  const [word] = said;
+  if (word === undefined) return { ok: true, audience: UNRESTRICTED };
+  if (said.length > 1) return { ok: false, code: 'audience-malformed' };
+  if (word === 'unrestricted') return { ok: true, audience: UNRESTRICTED };
+  const named = /^(interface|place):(\S+)$/.exec(word);
+  const value = named?.[2];
+  if (value === undefined) return { ok: false, code: 'audience-malformed' };
+  if (named?.[1] === 'interface')
+    return known.interfaces.includes(value)
+      ? { ok: true, audience: { kind: 'interface', iface: value } }
+      : { ok: false, code: 'audience-unknown-interface' };
+  return known.places.some((place) => place.id === value)
+    ? { ok: true, audience: { kind: 'place', placeId: value } }
+    : { ok: false, code: 'audience-unknown-place' };
+}
+
 export function isPublicationBoundary(value: unknown): value is PublicationBoundary {
   const boundary = objOf(value);
   const origin = objOf(boundary.origin);
