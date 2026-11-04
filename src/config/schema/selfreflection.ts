@@ -12,6 +12,14 @@ export const SELFREFLECTION: ReadonlyArray<SchemaEntry> = [
       'Whether her diary posts on its day plan. Off, the scheduler plans and posts nothing; a forced post still runs',
   },
   {
+    'key': 'selfreflection.schedule',
+    'types': ['string', 'null'],
+    'reader': 'src/behavior/diary.ts',
+    'default': null,
+    'text':
+      'Exact UTC slots of the diary, `at 09:00,21:00` or `every 6h` laid from the start of the UTC day, which replace `windows` and its quiet days. A change moves the slots ahead on the current day. Null: the windows draw the day',
+  },
+  {
     'key': 'selfreflection.channelId',
     'types': ['string'],
     'reader': 'src/memory/db/service.ts',

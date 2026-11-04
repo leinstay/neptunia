@@ -23,7 +23,12 @@ const count = (text: string, part: string): number => text.split(part).length - 
 /** Values the table's `check` of a leaf requires, for a leaf whose free sample it would refuse. */
 const SAMPLES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   logs: { options: 'errors' },
-  report: { day: '2026-11-03' },
+  // Changed: `report` is retired. A setup leaf takes one mode, so its sample names the flags it uses.
+  'service.heartbeat.setup': { every: '6h', jitter: '30m' },
+  'service.selfreflection.setup': { every: '6h' },
+  'service.selfimprovement.setup': { at: '03:00' },
+  'service.watcher.setup': { at: '00:00,12:00' },
+  'service.watcher.report': { target: '2026-11-03' },
   'tools.grant': { target: 'everyone' },
   'tools.revoke': { target: 'everyone' },
 };
@@ -31,7 +36,10 @@ const SAMPLES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
 /** One leaf: its dotted name, a representative argv and the arguments that argv must parse into. */
 type Leaf = { name: string; argv: Array<string>; args: Record<string, string> };
 
-function leafOf(name: string, args: ReadonlyArray<CommandArg>): Leaf {
+function leafOf(name: string, every: ReadonlyArray<CommandArg>): Leaf {
+  // A flag the leaf's sample leaves out is not typed: the modes of `service <name> setup` exclude each other.
+  const named = SAMPLES[name];
+  const args = every.filter((one) => one.flag === undefined || named === undefined || Object.hasOwn(named, one.name));
   const sample = (one: CommandArg): string => SAMPLES[name]?.[one.name] ?? one.choices?.[0] ?? `sample-${one.name}`;
   return {
     name,

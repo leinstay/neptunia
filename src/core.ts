@@ -97,6 +97,7 @@ import {
 } from './interface/link.ts';
 import { createCommandDesk, createCommandIntake, coreStatusFacts } from './interface/neptunia-cli.ts';
 import { createConsole } from './interface/commands/console.ts';
+import { wakeClockOf } from './service/commands.ts';
 import { isPausedIn, resumeHeld } from './behavior/core-pause.ts';
 import { configuredInterfaces, drainMs, interfaceEnabled } from './interface/mode.ts';
 import { loadPrincipals, principalOfToken } from './interface/principals.ts';
@@ -1332,6 +1333,7 @@ async function buildCore(
       memoryDb,
       usage,
       metrics,
+      wakeClock: (name) => wakeClockOf(name, { guildId: getGuildId(), now: clock(), inner, diary }),
       conversationLines: (conversationId, count) => {
         const guildId = getGuildId();
         return guildId ? recentChannelLines(guildId, conversationId, count) : [];

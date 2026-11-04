@@ -9,14 +9,14 @@ export const WATCHER: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/watcher/settings.ts',
     'default': false,
     'text':
-      'Whether the deployment runs the daily watcher, which only `true` turns on. `neptunia setup` asks. While it is off the selfimprovement wake carries no watcher report',
+      'Whether the deployment runs the watcher, which only `true` turns on. `neptunia service watcher enable` and `disable` move it with the timer. While it is off the selfimprovement wake carries no watcher report',
   },
   {
-    'key': 'watcher.at',
+    'key': 'watcher.schedule',
     'types': ['string'],
     'reader': 'src/watcher/settings.ts',
-    'default': '00:00',
+    'default': 'at 00:00',
     'text':
-      "The time of the watcher's daily run, `HH:MM` of the UTC day: the `OnCalendar=` of `neptunia-watcher.timer` that `neptunia setup` renders. A value that is no `HH:MM` reads as the default",
+      'When the watcher runs: daily UTC times such as `at 00:00,12:00`, or `every 6h`. `neptunia service watcher setup` writes it and renders `neptunia-watcher.timer`, and a value that means nothing reads as the default',
   },
 ];

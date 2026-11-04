@@ -1117,6 +1117,8 @@ test('status: the channel, the day plan and the history size', async () => {
     hunger: [0],
     quietStreak: 0,
     history: 2,
+    // The status also names the newest slot that spoke, for `service selfreflection status`.
+    lastPosted: null,
   });
 });
 

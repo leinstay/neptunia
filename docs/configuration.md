@@ -349,19 +349,19 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `watcher.enabled` | boolean | `false` | Whether the deployment runs the daily watcher, which only `true` turns on. `neptunia setup` asks. While it is off the selfimprovement wake carries no watcher report | `src/watcher/settings.ts` |
-| `watcher.at` | string | `"00:00"` | The time of the watcher's daily run, `HH:MM` of the UTC day: the `OnCalendar=` of `neptunia-watcher.timer` that `neptunia setup` renders. A value that is no `HH:MM` reads as the default | `src/watcher/settings.ts` |
+| `watcher.enabled` | boolean | `false` | Whether the deployment runs the watcher, which only `true` turns on. `neptunia service watcher enable` and `disable` move it with the timer. While it is off the selfimprovement wake carries no watcher report | `src/watcher/settings.ts` |
+| `watcher.schedule` | string | `"at 00:00"` | When the watcher runs: daily UTC times such as `at 00:00,12:00`, or `every 6h`. `neptunia service watcher setup` writes it and renders `neptunia-watcher.timer`, and a value that means nothing reads as the default | `src/watcher/settings.ts` |
 
 ## selfimprovement
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `selfimprovement.enabled` | boolean | `true` | Whether the selfimprovement wake falls due and the beat of `neptunia selfimprovement run` works. Off, neither starts | `src/selfimprovement/settings.ts` |
+| `selfimprovement.enabled` | boolean | `true` | Whether the selfimprovement wake falls due and the beat of the executor works. Off, neither starts | `src/selfimprovement/settings.ts` |
 | `selfimprovement.mode` | string | `"approve"` | Who merges a pull request she opened for her own code: `approve` waits for the owner once CI is green, `auto` has the engine merge it when CI is green | `src/selfimprovement/settings.ts` |
 | `selfimprovement.base` | string | `"main"` | The branch her worktrees start from and her pull requests target | `src/selfimprovement/settings.ts` |
 | `selfimprovement.checkout` | string, null | `null` | The absolute path of the dev checkout that `neptunia setup` renders `neptunia-selfimprovement.service` and its timer over, so the beat works there. Setup renders no selfimprovement units while it is unset, relative or the deployed checkout itself | `src/setup/run.ts` |
 | `selfimprovement.repository` | string, null | `null` | The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when her gh login can push there. While it is unset every selfimprovement beat pauses | `src/selfimprovement/settings.ts` |
-| `selfimprovement.at` | string | `"03:00"` | The time of the daily selfimprovement wake, `HH:MM` of the UTC day, after the watcher's run so the wake carries its report. `neptunia setup` asks for it, and a value that is no `HH:MM` reads as the default | `src/behavior/inner/settings.ts` |
+| `selfimprovement.schedule` | string | `"at 03:00"` | When the selfimprovement wake falls due: daily UTC times such as `at 03:00` or `every 6h`, after the watcher's run so the wake carries its report. `neptunia service selfimprovement setup` writes it, and a value that means nothing reads as the default | `src/behavior/inner/settings.ts` |
 | `selfimprovement.failuresPerShape` | number | `3` | How many chains of one shape must fail in a UTC day to raise a selfimprovement wake with that cause | `src/behavior/inner/settings.ts` |
 | `selfimprovement.tools` | string, array | `"*"` | The tools a selfimprovement wake may call: `"*"` for every granted tool or a list of tool names | `src/tools/access.ts` |
 | `selfimprovement.maxActs` | number, null | `null` | The most actions a selfimprovement wake may take; null: no cap | `src/tools/access.ts` |
@@ -373,6 +373,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `selfreflection.enabled` | boolean | `true` | Whether her diary posts on its day plan. Off, the scheduler plans and posts nothing; a forced post still runs | `src/behavior/diary.ts` |
+| `selfreflection.schedule` | string, null | `null` | Exact UTC slots of the diary, `at 09:00,21:00` or `every 6h` laid from the start of the UTC day, which replace `windows` and its quiet days. A change moves the slots ahead on the current day. Null: the windows draw the day | `src/behavior/diary.ts` |
 | `selfreflection.channelId` | string | `""` | The seed of the diary's first mirror: schema v15 makes this channel's place a `diary` mirror, and `scripts/config-migrate.ts --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it | `src/memory/db/service.ts` |
 | `selfreflection.world` | boolean | `false` | Include `prompts/world.md` as a `<world>` block in diary requests | `src/behavior/prompt.ts` |
 | `selfreflection.windows` | array | `[{ "from": 7, "to": 11, "posts": [0, 0] }, { "from": 12, "to": 16, "posts": [0, 1] }, { "from": 18, "to": 1, "posts": [0, 2] }, { "from": 1, "to": 5, "posts": [0, 1] }]` | Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]` | `src/behavior/diary.ts` |
@@ -461,8 +462,8 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `heartbeat.enabled` | boolean | `true` | Whether she has a periodic heartbeat wake | `src/behavior/inner/heartbeat.ts` |
-| `heartbeat.everyMinutes` | number | `180` | Heartbeat interval (minutes) | `src/behavior/inner/heartbeat.ts` |
-| `heartbeat.jitterMinutes` | number | `60` | Jitter on the heartbeat interval | `src/behavior/inner/heartbeat.ts` |
+| `heartbeat.schedule` | string | `"every 3h"` | When the heartbeat falls due: `every 3h`, `every 90m` or daily UTC times such as `at 06:00,18:00`. `neptunia service heartbeat setup` writes it, and a value that means nothing reads as the default | `src/behavior/inner/settings.ts` |
+| `heartbeat.jitterMinutes` | number | `60` | Minutes an interval of the heartbeat moves either way; daily times stay exact | `src/behavior/inner/heartbeat.ts` |
 | `heartbeat.historyDays` | number | `14` | Days of the record read for each person's last contact | `src/behavior/inner/settings.ts` |
 | `heartbeat.maxTokens` | number | `2500` | Token cap of the whole heartbeat block. `0` turns the cap off | `src/behavior/inner/settings.ts` |
 | `heartbeat.tools` | string, array | `"*"` | The tools a heartbeat wake may call: `"*"` for every granted tool or a list of tool names | `src/tools/access.ts` |
