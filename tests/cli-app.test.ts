@@ -142,3 +142,79 @@ test('clearing the display sends nothing to the core', async () => {
   });
   assert.deepEqual(sent, []);
 });
+
+test('panel navigation toggles a setting, edits another value and returns to chat without sending either to the model', async () => {
+  // Bug: Enter only filters a text panel, or a settings edit is sent as conversation text.
+  const changed: Array<string> = [];
+  const { env, sent } = envOf({
+    panelOf: () =>
+      Promise.resolve({
+        title: 'Config',
+        lines: [],
+        rows: [
+          {
+            id: 'enabled',
+            label: 'Enabled',
+            detail: 'Run the feature',
+            group: 'General',
+            edit: { kind: 'boolean', value: 'false' },
+            apply: (value: string) => {
+              changed.push(value);
+              return Promise.resolve({ status: 'ok', text: 'saved' });
+            },
+          },
+          {
+            id: 'name',
+            label: 'Name',
+            detail: 'A display name',
+            group: 'General',
+            edit: { kind: 'text', value: '' },
+            apply: (value: string) => {
+              changed.push(value);
+              return Promise.resolve({ status: 'ok', text: 'saved' });
+            },
+          },
+        ],
+      }),
+  });
+  await withChat(env, async (rig) => {
+    rig.type('/config');
+    await pause();
+    rig.type('\r');
+    await pause(100);
+    rig.type('\r');
+    await pause(100);
+    rig.type('\u001b[B');
+    await pause();
+    rig.type('\r');
+    await pause();
+    rig.type('new name');
+    await pause();
+    rig.type('\r');
+    await pause(100);
+    rig.type('\u001b');
+    await pause();
+  });
+  assert.deepEqual(changed, ['true', 'new name']);
+  assert.deepEqual(sent, []);
+});
+
+test('setup choices use arrows and Enter, while secret answers never appear in terminal output', async () => {
+  // Bug: setup loses the selected option, or its independent secret dialog echoes a key.
+  const { askQuestion } = await import('../cli/question.ts');
+  const rig = terminal();
+  const streams = { stdin: rig.stdin as never, stdout: rig.stdout as never };
+  const choice = askQuestion('Enable heartbeat?', 'off', { choices: ['on', 'off'] }, streams);
+  await pause();
+  rig.type('\u001b[A');
+  await pause();
+  rig.type('\r');
+  assert.equal(await choice, 'on');
+  const secret = askQuestion('Service key', null, { secret: true }, streams);
+  await pause();
+  rig.type('private-value');
+  await pause();
+  rig.type('\r');
+  assert.equal(await secret, 'private-value');
+  assert.equal(rig.frames().includes('private-value'), false);
+});
