@@ -63,7 +63,7 @@ export function submit(state: InputState, { secret }: { secret: boolean }): { li
 
 /** The commands a line starting with `/` can still become, whose name or help holds what was typed. */
 export function menuOf(text: string, commands: ReadonlyArray<MenuCommand>): Array<MenuCommand> {
-  if (!text.startsWith('/') || /\s/.test(text)) return [];
+  if (!text.startsWith('/')) return [];
   const asked = text.slice(1).toLowerCase();
   const byName = commands.filter((command) => command.name.startsWith(asked));
   const rest = commands.filter(

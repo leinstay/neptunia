@@ -50,7 +50,7 @@ test('history comes back newest first, and a secret never enters it', () => {
   assert.deepEqual(secret.next.history, ['two']);
 });
 
-test('the slash menu lists names first, then a match in the help, and closes on a space', () => {
+test('the slash menu completes nested commands and leaves arguments alone', () => {
   // Bug: the menu stays open over an argument, or finds nothing for a word of a command's description.
   const commands = [
     { name: 'status', help: 'the short summary' },
@@ -62,6 +62,10 @@ test('the slash menu lists names first, then a match in the help, and closes on 
     ['status', 'skills', 'keys']
   );
   assert.deepEqual(menuOf('/status x', commands), []);
+  assert.deepEqual(
+    menuOf('/skills se', [{ name: 'skills setup', help: 'configure a skill' }]).map((one) => one.name),
+    ['skills setup']
+  );
   assert.deepEqual(menuOf('hello', commands), []);
 });
 

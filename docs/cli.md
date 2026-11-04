@@ -26,6 +26,14 @@ The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. 
 
 The header shows connection, core and memory state. A missing or old health report is shown as unknown or stale, rather than as a successful connection. `/status` opens the detailed view. `NEPTUNIA_REDUCED_MOTION=1` stops the galaxy animation.
 
+## Settings and setup panels
+
+`/config` opens settings grouped into tabs. Use Left and Right or Tab to change tabs, Up and Down to select a row, and Enter to toggle a boolean or edit a value. Typing filters settings across all tabs. In an editor, Enter saves through the normal command handler, Ctrl+U clears the input and Esc cancels.
+
+`/setup` offers core and extra keys, service credentials, interface setup, skill setup and search configuration. Opening it performs no installation or provider check. Selecting an action uses its existing command and any required secret dialog. Model and backend actions prepare the targeted command in the input for you to complete.
+
+`/help` provides searchable command rows. Enter puts the selected command into the input. Command completion includes subcommands such as `/skills setup`.
+
 ## Commands
 
 Start with `/help`. It is generated from the command table, so it includes the arguments supported by the installed revision. The slash menu provides completion.

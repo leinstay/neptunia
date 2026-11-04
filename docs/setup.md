@@ -2,6 +2,8 @@
 
 `neptunia setup` configures the installation belonging to the current user. Run it at a terminal to answer questions. A full run starts the core; when restoring a persona, restore its files before that step. Follow [getting started](getting-started.md#first-run) for the client tokens and interface startup that setup does not create for you.
 
+Interactive setup uses a keyboard selector for `on` or `off` and `yes` or `no` questions. Other answers use a text field with the offered default. Secret fields are masked, and Esc cancels setup. Run it again to continue. The owner chat also provides a `/setup` panel for later configuration.
+
 ## Individual steps
 
 Run `neptunia setup <step>` to repeat one part without starting the rest.
