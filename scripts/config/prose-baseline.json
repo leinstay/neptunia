@@ -11,15 +11,6 @@
     "slash": 1
   },
   "docs/configuration.md": {
-    "label": 4,
     "slash": 1
-  },
-  "docs/interfaces.md": {
-    "label": 1
-  },
-  "docs/prompt-contract.md": {
-    "dash": 15,
-    "label": 31,
-    "slash": 8
   }
 }
