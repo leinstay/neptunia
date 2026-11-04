@@ -292,7 +292,7 @@ test('the models of /subharness enable are answered through the owner chat link 
   const event = eventOf('subharness.enable', { backend: 'claude' });
   let answer = (await desk.run(event, cli)) as { status: string; dialogId?: string };
   for (let asked = 0; answer.status === 'ask' && asked < 4; asked += 1)
-    answer = (await desk.run({ ...event, dialogId: answer.dialogId, answer: 'opus' }, cli)) as typeof answer;
+    answer = await desk.run({ ...event, dialogId: answer.dialogId, answer: 'opus' }, cli);
   assert.equal(answer.status, 'ok');
   assert.deepEqual(readKeysFile(dir).subharness.backends, ['claude']);
 });
