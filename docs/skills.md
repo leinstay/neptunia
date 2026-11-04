@@ -64,7 +64,7 @@ Scripts run with the installing user's operating-system permissions. The working
 
 ## Review and use
 
-A new or edited package becomes a candidate version. The owner reviews and activates it through `/skills`. The active snapshot includes `SKILL.md`, `setup.json` and the script bytes, so editing the working files does not silently change the version that runs.
+A new or edited package becomes a candidate version. A development agent files the complete package with `neptunia task skill-pending <name>`. Filing rejects an incomplete package and grants no activation right. The owner reviews it with `/skills review <name>` and activates it with `/skills activate <name>`. The active snapshot includes `SKILL.md`, `setup.json` and the script bytes, so editing the working files does not silently change the version that runs.
 
 The prompt lists usable active skills by name and description. `skill.read` opens the procedure; `skill.run` executes a declared script. Required tools must already be registered and granted. Activation grants no additional tool access.
 
