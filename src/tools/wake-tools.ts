@@ -1,7 +1,7 @@
 // What a heartbeat and a selfimprovement wake accept and offer (docs/inner-life.md "Heartbeat and selfimprovement"). Both
 // let her read her memory first and end in one decision: a heartbeat records one intention or a skip, a selfimprovement
 // wake files one task or a skip. A call outside the wake's set is refused with the wake's own code, and the model is
-// offered the same set. `board.cancel`, `board.comment` and `board.answer` belong to the selfimprovement wake alone, on
+// offered the same set. `board.cancel`, `board.comment`, `board.answer` and `board.unblock` belong to the selfimprovement wake alone, on
 // every other turn too. Pure: the kind comes from the turn, the names from the registry.
 
 import { CODE } from './codes.ts';
@@ -25,7 +25,12 @@ export const HEARTBEAT_READ_SKILLS = Object.freeze([
   'tools.describe',
 ]);
 /** Her answers on a task of hers: they do not end the wake, and only this wake has them. */
-const TASK_ANSWER_SKILLS: ReadonlyArray<string> = Object.freeze(['board.cancel', 'board.comment', 'board.answer']);
+const TASK_ANSWER_SKILLS: ReadonlyArray<string> = Object.freeze([
+  'board.cancel',
+  'board.comment',
+  'board.answer',
+  'board.unblock',
+]);
 /** The call a selfimprovement wake decides with. */
 const FILING = 'board.propose';
 

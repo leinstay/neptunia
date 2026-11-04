@@ -1,5 +1,5 @@
 // What a merged fix shows in her wake: the pull request's title and its paths, once. The facts are the undelivered rows
-// of her outbox (`persona:self`, kind `done`) whose task carries `metadata.landed`, which src/selfimprovement/service.ts writes
+// of her outbox (`persona:self`, kind `done`) whose task carries `metadata.landed`, which src/development/worker.ts writes
 // when the pull request merges. The selfimprovement wake shows them, and marks them through its outbox rows once it
 // committed (src/behavior/inner/selfimprovement.ts), so a merge reaches her once. A heartbeat neither shows nor marks
 // them. Read as `persona`; the diff and the evidence text never leave the board.

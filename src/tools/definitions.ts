@@ -243,6 +243,7 @@ export const API_NAMES: Readonly<Record<string, string>> = Object.freeze({
   'board.cancel': 'board_cancel',
   'board.comment': 'board_comment',
   'board.answer': 'board_answer',
+  'board.unblock': 'board_unblock',
   'skill.read': 'skill_read',
   'skill.disable': 'skill_disable',
   'skill.run': 'skill_run',
@@ -710,6 +711,12 @@ const ENTRIES: Array<Definition> = [
     body: 'text',
     effects: 'write',
     toArgs: (a) => ({ id: val(a, 'id'), text: val(a, 'text') }),
+  }),
+  def('board.unblock', {
+    params: obj({ id: str(), note: str(2000) }, ['id', 'note']),
+    body: 'note',
+    effects: 'write',
+    toArgs: (a) => ({ id: val(a, 'id'), note: val(a, 'note') }),
   }),
   def('skill.read', {
     params: obj({ name: str(60) }, ['name']),

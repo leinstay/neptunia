@@ -29,6 +29,7 @@ import { SPEECH } from './schema/speech.ts';
 import { TOOLS } from './schema/tools.ts';
 import { SKILLS } from './schema/skills.ts';
 import { WATCHER } from './schema/watcher.ts';
+import { DEVELOPMENT } from './schema/development.ts';
 import { SELFIMPROVEMENT } from './schema/selfimprovement.ts';
 import { SELFREFLECTION } from './schema/selfreflection.ts';
 import { MIRRORS } from './schema/mirrors.ts';
@@ -84,6 +85,7 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...SKILLS,
   ...WATCHER,
   ...SELFIMPROVEMENT,
+  ...DEVELOPMENT,
   ...SELFREFLECTION,
   ...MIRRORS,
   ...GIFS,

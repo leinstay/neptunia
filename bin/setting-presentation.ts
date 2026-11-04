@@ -26,6 +26,7 @@ const WORDS: Record<string, string> = {
   skills: 'Skills',
   watcher: 'Project watcher',
   selfimprovement: 'Self-development',
+  development: 'Development worker',
   selfreflection: 'Diary',
   gifs: 'GIF selection',
   private: 'Direct messages',
