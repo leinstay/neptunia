@@ -9,6 +9,7 @@
 // transport's `<tool_call>` blocks are cut out before this parser sees the text
 // (src/llm/tool-text.ts). A leftover `<call>` or draw tag (her history still holds some; a picture is the `draw.create` tool now) is cut
 // out wherever it stands outside code, never run, and told as a `retiredTag` diagnostic.
+// `<audience>`, a diary post's alone, is taken out before this parser runs (`takeAudience`, src/turn/phases/response.ts).
 // The parser is forgiving: a missing tag wrapper falls back to a single plain
 // message (`untagged`), an unterminated <think> (output cut by max_tokens) means
 // silence (`thinkOpen`, its text so far kept in `think` for the journal). It also accounts for
@@ -130,6 +131,30 @@ function readMessages(text: string, cutOff: boolean) {
     deliver(open, open.actionAt ?? text.length);
   }
   return { bodies, ...count };
+}
+
+/** What `takeAudience` leaves alone: a think block and code, where a tag is only being talked about. */
+const AUDIENCE_EXEMPT_RE = /(<think>[\s\S]*?(?:<\/think>|$)|```[\s\S]*?(?:```|$)|`[^`\n]*`)/i;
+
+/**
+ * A diary answer without its `<audience>` tags, and their bodies in order. A stray opening or closing tag counts as an
+ * empty body: the caller reads that as malformed, so a tag she failed to close never reads as no restriction.
+ */
+export function takeAudience(raw: string): { text: string; audience: Array<string> } {
+  const audience: Array<string> = [];
+  const parts = raw.split(AUDIENCE_EXEMPT_RE).map((part, i) => {
+    if (i % 2 === 1) return part;
+    return part
+      .replace(/<audience\b[^>]*>([\s\S]*?)<\/audience\s*>/gi, (_all, body: string) => {
+        audience.push(body);
+        return '';
+      })
+      .replace(/<\/?audience\b[^>]*>/gi, () => {
+        audience.push('');
+        return '';
+      });
+  });
+  return { text: parts.join(''), audience };
 }
 
 function parseIndex(value: string | undefined): number | null {

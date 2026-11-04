@@ -63,7 +63,7 @@ A secret question hides its answer and excludes it from input history. History l
 | Command | What it does |
 |---|---|
 | `/mirror list` | Every mirror and whether it is enabled. This is the bare `/mirror`. |
-| `/mirror status` | Each mirror with its interface, queue, failed, incomplete and uncertain entries, and its backfill. |
+| `/mirror status` | Each mirror with its interface, queue, failed, incomplete, uncertain and blocked entries, the copies delivered outside their audience, and its backfill. |
 | `/mirror add <destination> [--backfill true\|false] [--every <duration>]` | Registers a known place. Adding it again reuses the mirror. |
 | `/mirror configure <mirror> [--enabled true\|false] [--backfill true\|false] [--every <duration>]` | Changes a mirror. `--backfill true` needs an interval, given now or earlier. |
 | `/mirror disable <mirror>` | Stops sending and keeps the configuration. |

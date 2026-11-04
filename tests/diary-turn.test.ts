@@ -654,6 +654,22 @@ test('diary turn: the gist is cut to selfreflection.gistChars', async () => {
   assert.ok(store.appended[0].post.gist.length <= 200);
 });
 
+test('diary turn: an audience named beside a call holds when her messages come in a later answer', async () => {
+  // Catches: only the last answer's tag being read, so the restriction she named first falls open to unrestricted.
+  const llm = fakeLlm({ kind: 'selfPicture', brief: 'a pier', search: '', picture: true }, [
+    drawAnswer('<audience>interface:nowhere</audience><msg>brume</msg>'),
+    '<msg>brume sans image</msg>',
+  ]);
+  const images = fakeImages({ fail: new ImageGenError('error') });
+  const result = await runner({ llm, store: fakeStore(), images }).runTurn({
+    channel: diaryChannel(),
+    mode: 'diary',
+    diary: {},
+  });
+  const { audience } = (result as { diary: { audience: unknown } }).diary;
+  assert.deepEqual(audience, { ok: false, code: 'audience-unknown-interface' });
+});
+
 test('diary turn: a failed drawing is a result she reads before anything is posted; the post goes out without the picture', async () => {
   const llm = fakeLlm({ kind: 'selfPicture', brief: 'a pier', search: '', picture: true }, [
     drawAnswer('<msg>brume</msg>'),
@@ -793,6 +809,8 @@ test('diary: a single picture is staged while the post is composed, then posted 
     search: false,
     messages: 1,
     pictures: 1,
+    // The outcome also names her audience (plan section 5): no tag in the answer reads as unrestricted.
+    audience: { ok: true, audience: { kind: 'unrestricted' } },
     entry: entryOf(result),
   });
   assert.equal(store.appended[0].post.picture, 'a pier at night');
@@ -853,6 +871,8 @@ test('diary set: six draw.create calls in one answer are generated before anythi
     search: false,
     messages: 2,
     pictures: 6,
+    // The outcome also names her audience (plan section 5): no tag in the answer reads as unrestricted.
+    audience: { ok: true, audience: { kind: 'unrestricted' } },
     entry: entryOf(result),
   });
   const { post } = store.appended[0];
