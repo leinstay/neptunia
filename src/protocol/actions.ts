@@ -85,7 +85,8 @@ export type Port = Adapter & {
  * the token stands for) with `text`, optional `files`, whether only the requester sees it and the command's `status`
  * (`ok` when it ran, another word when it did not). The status `ask` is a question: it carries the `dialogId` to answer
  * by, the `prompt`, whether the answer is `secret` (typed unseen) and, for a closed question, the `choices`; the `text`
- * is the prompt too, for a client that knows no dialog.
+ * is the prompt too, for a client that knows no dialog. The owner's command line also gets one per line it sent, its
+ * `replyRef` the line's message id, when the turn over that line ended (src/interface/neptunia-cli.ts).
  */
 export type Action =
   | { action: 'message.send'; conversation: ConversationRef; content: Content }

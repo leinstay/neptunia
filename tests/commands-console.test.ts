@@ -198,12 +198,13 @@ test('/search status names the engine the shipped settings choose when the perso
   });
 });
 
-test('-p exits 1 for a line the table refuses', async () => {
+test('-p exits 2 for a line the table refuses', async () => {
+  // A line the command table refuses is bad syntax, which exits 2 by the CLI's return codes; 1 is an operational failure.
   await withRig({}, async ({ dirs, llm, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
     for (const line of ['/memory', '/usage 90d', '/health disks', '/mirror list']) {
       const run = await p(dirs, line);
-      assert.equal(run.code, 1, line);
+      assert.equal(run.code, 2, line);
       assert.notEqual(run.stderr.trim(), '', `${line}: the reason is on stderr`);
     }
   });
@@ -335,12 +336,13 @@ test('/config unset removes the key from the local layer', async () => {
   });
 });
 
-test('/config set without a value exits 1 and leaves the local layer as it was', async () => {
+test('/config set without a value exits 2 and leaves the local layer as it was', async () => {
+  // A line the command table refuses is bad syntax, which exits 2 by the CLI's return codes; 1 is an operational failure.
   await withRig({}, async ({ dirs, llm, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
     const before = digestOf(join(dirs.privateDir, 'config', 'config.json'));
     const run = await p(dirs, '/config set pace.settleMaxMs');
-    assert.equal(run.code, 1);
+    assert.equal(run.code, 2);
     assert.notEqual(run.stderr.trim(), '', 'a refused parse says why on stderr');
     assert.equal(digestOf(join(dirs.privateDir, 'config', 'config.json')), before);
   });

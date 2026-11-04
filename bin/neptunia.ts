@@ -3,9 +3,11 @@
 // of an installation, the errand runner and the interface runner that the systemd units start, and the units
 // themselves.
 //
-//   neptunia                                     the chat
-//   neptunia -p "<command>"                      one command; its answer on stdout, exit 0 when it ran
-//   neptunia doctor [--live] [--json]            the checks of the installation, with the core up or down
+//   neptunia                                     the chat, at a terminal
+//   neptunia <command> [args]                    one command of the chat's table, its words kept as argv gives them
+//   neptunia -p "/<command> [args]"              one command as a typed line
+//   neptunia -p "<text>"                         one turn with the persona; her reply on stdout
+//   neptunia doctor [live] [--live] [--json]     the checks of the installation, with the core up or down
 //   neptunia errand-runner --profile <name>      the errand runner of one agent (deploy/neptunia-agent-<name>.service)
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
 //   neptunia service start|stop|restart|status [<unit> ...]   the units, through systemctl
@@ -31,9 +33,14 @@
 // history is kept in `<private>/cli/history`. The end of the input ends the chat with exit 0, once the answers of the
 // commands still running have arrived.
 //
-// `-p` sends one command the same way and prints its answer alone. It exits 0 when the command ran, 1 for a line the
-// table refuses (the reason on stderr), for any other answer than `ok`, or when no core listens for a command that
-// needs one. Log lines of the chat and of `-p` go to stderr.
+// The direct form and `-p` with a slash send one command the same way and print its answer alone. Exit 0 is an answer
+// `ok` on stdout with stderr empty, 1 any other answer or no core (the reason on stderr, stdout empty), and 2 a line the
+// table refuses, a word the table does not know, or a request that needs a terminal (bin/neptunia-request.ts), each
+// with no connection. A question with no terminal to ask at exits 1 and names itself on stderr; `--secret-stdin` on a
+// leaf that asks for a secret answers that one question from stdin. `-p` with text is a `message.received` line like
+// one typed in the chat: it waits for the `command.result` that names the line's message id, which the core sends when
+// the turn over the line ended (src/interface/neptunia-cli.ts), and prints her reply. A chat with no terminal explains
+// itself and exits 2 unless `NEPTUNIA_PLAIN_CHAT=1` asks for the chat over the pipes. Log lines go to stderr.
 //
 // `watcher run` reads the watcher's folder (`watcher.dir`, default `.agents/watcher`: `prompt.md` and `reports/`), asks
 // the watcher agent once (src/watcher/run.ts) and writes `reports/<UTC date>.md`. It files the tasks the agent asks for
@@ -92,6 +99,7 @@ import type { EnableDeps } from '../src/subharness/control.ts';
 import { installSubharness, rollbackSubharness, updateSubharness } from '../src/subharness/install.ts';
 import type { InstallRun } from '../src/subharness/install.ts';
 import { loginCommand } from '../src/subharness/place.ts';
+import type { LoginCommand } from '../src/subharness/place.ts';
 import { SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/run.ts';
 import type { SetupReport } from '../src/setup/run.ts';
 import { featureRows } from '../src/subharness/summary.ts';
@@ -133,6 +141,17 @@ import { serveAdapter } from '../src/protocol/serve.ts';
 import { runSelfimprovement } from './selfimprovement.ts';
 import { runTask, openBoardCaller } from './neptunia-task.ts';
 import { reportAnswer } from './report.ts';
+import {
+  COMMANDS_LINE,
+  COMMAND_NAMES,
+  UnansweredQuestion,
+  panelRefusal,
+  parseLineRequest,
+  parseRequest,
+  secretFromStdin,
+  unansweredText,
+} from './neptunia-request.ts';
+import type { Request } from './neptunia-request.ts';
 import { createAnswers, mutableOutput } from './secret-prompt.ts';
 import type { Answers } from './secret-prompt.ts';
 import { reportsDirOf, watcherDir } from '../src/watcher/read.ts';
@@ -143,9 +162,11 @@ import { MAX_FRAME_BYTES, connectSocket } from '../src/protocol/wire.ts';
 import type { Transport } from '../src/protocol/wire.ts';
 
 const USAGE = [
-  'usage: neptunia                      the chat',
-  '       neptunia -p "<command>"       one command, its answer on stdout',
-  '       neptunia doctor [--live] [--json]',
+  'usage: neptunia                      the chat, at a terminal',
+  '       neptunia <command> [args]     one command, its answer on stdout',
+  '       neptunia -p "/<command> [args]"   the same as a typed line',
+  '       neptunia -p "<text>"          one turn with the persona, her reply on stdout',
+  '       neptunia doctor [live] [--live] [--json]',
   '       neptunia errand-runner --profile <name>',
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
   '       neptunia service start|stop|restart|status [<unit> ...]',
@@ -154,6 +175,7 @@ const USAGE = [
   '       neptunia task <command> [options]   (neptunia task help)',
   '       neptunia selfimprovement run',
   '       neptunia watcher run',
+  COMMANDS_LINE,
 ].join('\n');
 
 /** The first wait before a new connection, and the longest. */
@@ -397,6 +419,8 @@ const quiet: Logger = { info() {}, warn() {}, error() {} };
 /** The command line's link to the core: its events, and the answers of its commands by their `replyRef`. */
 type CliLink = {
   say(text: string): Promise<string>;
+  /** Sends a line and waits for the end of the turn over it. */
+  turn(text: string): Promise<Answer>;
   /** Sends a command; a question it asks goes to `answers`, and without them the command is refused. */
   ask(command: Command, answers?: Answers): Promise<Answer>;
   closed: Promise<void>;
@@ -442,6 +466,16 @@ async function openCliLink(print: ((text: string) => void) | null): Promise<CliL
       keep(transcript, event);
       return served.emit(event);
     },
+    async turn(text) {
+      const event = lineEvent(text, Date.now());
+      keep(transcript, event);
+      const replyRef = event.message.id;
+      const ended = new Promise<Reply>((resolve) => waiting.set(replyRef, resolve));
+      const acked = await served.emit(event);
+      if (acked === 'ok') return ended;
+      waiting.delete(replyRef);
+      return { text: `the core did not take the line (${acked})`, status: acked };
+    },
     async ask(command, answers) {
       /** One request and the reply to it: a result, or a question. */
       async function send(dialog: { dialogId: string; answer: string } | null): Promise<Reply> {
@@ -454,10 +488,16 @@ async function openCliLink(print: ((text: string) => void) | null): Promise<CliL
       }
       let reply = await send(null);
       while (reply.ask != null) {
-        if (answers === undefined)
-          return { text: 'This command asks a question: run it in the chat.', status: 'invalid' };
         const { dialogId, prompt, secret } = reply.ask;
-        reply = await send({ dialogId, answer: await answers.ask(prompt, secret) });
+        if (answers === undefined) return { text: unansweredText(prompt, secret), status: 'invalid' };
+        let answer: string;
+        try {
+          answer = await answers.ask(prompt, secret);
+        } catch (err) {
+          if (err instanceof UnansweredQuestion) return { text: err.message, status: 'invalid' };
+          throw err;
+        }
+        reply = await send({ dialogId, answer });
       }
       return { text: reply.text, status: reply.status };
     },
@@ -565,37 +605,93 @@ async function runLocal(command: Command, ask: ((command: Command) => Promise<An
   return { text: checkLines(checks), status: checks.some((check) => check.status === 'fail') ? 'failed' : 'ok' };
 }
 
-async function runOne(argv: ReadonlyArray<string>): Promise<void> {
-  const [line, ...rest] = argv;
-  if (line === undefined || rest.length > 0) usage();
-  const parsed = parseCommandLine(line);
-  if (!parsed.ok) {
-    console.error(`neptunia: ${parsed.reason}`);
-    process.exit(1);
+/** Ends the process with a line the table refused or a request that needs a terminal: exit 2, the reason on stderr. */
+function refuseSyntax(reason: string): never {
+  console.error(`neptunia: ${reason}`);
+  process.exit(2);
+}
+
+/** Ends the process with one answer: `ok` on stdout and exit 0, anything else on stderr and exit 1. */
+function finish(answer: Answer): never {
+  if (answer.status === 'ok') {
+    if (answer.text !== '') printBlock(answer.text);
+    process.exit(0);
   }
+  console.error(`neptunia: ${answer.text === '' ? answer.status : answer.text}`);
+  process.exit(1);
+}
+
+/** The `cli` client's link for one request; no core listening ends the process with exit 1. */
+async function requireCliLink(print: ((text: string) => void) | null): Promise<CliLink> {
+  try {
+    return await openCliLink(print);
+  } catch (err) {
+    return die(
+      `no core listens (${(err as NodeJS.ErrnoException).code ?? 'error'}); start it with neptunia service start`
+    );
+  }
+}
+
+/** One parsed command to its answer: the direct form and `-p` with a slash. */
+async function runCommand({ parsed, secretStdin }: Request): Promise<never> {
+  if (!parsed.ok) return refuseSyntax(parsed.reason);
   const command = { name: parsed.name, args: parsed.args };
-  const print = (answer: Answer): never => {
-    if (answer.text !== '') process.stdout.write(answer.text.endsWith('\n') ? answer.text : `${answer.text}\n`);
-    process.exit(answer.status === 'ok' ? 0 : 1);
-  };
   if (LOCAL_COMMANDS.has(command.name)) {
     const link = command.name === 'doctor.live' ? await tryCliLink() : null;
     const answer = await runLocal(command, link === null ? null : (asked) => link.ask(asked));
     link?.close();
-    print(answer);
+    // The doctor's lines are its result even when a check failed, as `neptunia doctor` prints them; the exit code says so.
+    if (command.name.startsWith('doctor') && answer.status !== 'ok') {
+      printBlock(answer.text);
+      process.exit(1);
+    }
+    return finish(answer);
   }
-  let link: CliLink;
-  try {
-    link = await openCliLink(null);
-  } catch (err) {
-    die(`no core listens (${(err as NodeJS.ErrnoException).code ?? 'error'}); start it with neptunia service start`);
-  }
+  const link = await requireCliLink(null);
   // A command that asks a question (a key value) reads the answer from the terminal when there is one.
-  const questions = process.stdin.isTTY === true ? openQuestions() : null;
-  const answer = await link.ask(command, questions?.answers);
+  const questions = !secretStdin && process.stdin.isTTY === true ? openQuestions() : null;
+  const answers = secretStdin ? secretFromStdin(process.stdin) : questions?.answers;
+  const answer = await link.ask(command, answers);
   questions?.close();
   link.close();
-  print(answer);
+  return finish(answer);
+}
+
+/** The longest `-p` waits for the end of a turn (ms), so a line that never gets a turn still ends; decided 2026-11-04. */
+const TURN_WAIT_MS = 15 * 60 * 1000;
+
+/** `-p` with text: one line in the chat, her reply on stdout once the turn over it ended. Silence is an empty reply. */
+async function runPrompt(text: string): Promise<never> {
+  const said: Array<string> = [];
+  const link = await requireCliLink((part) => said.push(part));
+  const late = new Promise<Answer>((resolve) => {
+    setTimeout(
+      () => resolve({ text: `no end of her turn in ${TURN_WAIT_MS / 60_000} minutes`, status: 'failed' }),
+      TURN_WAIT_MS
+    );
+  });
+  const answer = await Promise.race([link.turn(text), late]);
+  link.close();
+  return finish(answer.status === 'ok' ? { text: said.join('\n'), status: 'ok' } : answer);
+}
+
+/** `-p "<text>"`: a leading slash is a command, anything else is one turn with her. */
+async function runPrint(argv: ReadonlyArray<string>): Promise<never> {
+  const [text, ...rest] = argv;
+  if (text === undefined || rest.length > 0 || text.trim() === '') return usage();
+  const line = text.trim();
+  if (!line.startsWith('/')) return runPrompt(text);
+  if (line === '/setup') return refuseSyntax(panelRefusal('/setup'));
+  if (line === '/clear' && process.stdout.isTTY !== true) return refuseSyntax(panelRefusal('/clear'));
+  return runCommand(parseLineRequest(line));
+}
+
+/** `neptunia <words...>`: a word of the table is a command, read as argv gives it; any other opens no connection. */
+async function runDirect(words: ReadonlyArray<string>): Promise<never> {
+  if (!COMMAND_NAMES.includes(words[0] ?? '')) return usage();
+  if (words.length === 1 && words[0] === 'clear' && process.stdout.isTTY !== true)
+    return refuseSyntax(panelRefusal('clear'));
+  return runCommand(parseRequest(words));
 }
 
 /** The terminal's questions for one command: its readline interface (muted while a secret is typed) and the answers over it. */
@@ -1049,8 +1145,8 @@ async function doctorChecks(
 
 async function runDoctor(argv: ReadonlyArray<string>): Promise<void> {
   const json = argv.includes('--json');
-  const live = argv.includes('--live');
-  if (argv.some((arg) => arg !== '--json' && arg !== '--live')) usage();
+  const live = argv.includes('--live') || argv.includes('live');
+  if (argv.some((arg) => arg !== '--json' && arg !== '--live' && arg !== 'live')) usage();
   const where = paths();
   const link = live ? await tryCliLink() : null;
   const checks = await doctorChecks(
@@ -1253,6 +1349,16 @@ async function changeSubharnessVersion(backend: BackendName, flag: string, value
   if (outcome.state === 'failed') process.exitCode = 1;
 }
 
+/** The `--help` of the binary `login` starts, empty when it did not run. */
+function installedHelp(login: LoginCommand): string {
+  const run = spawnSync(login.command, ['--help'], {
+    env: { PATH: process.env.PATH ?? '', HOME: os.homedir(), ...login.env },
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
+  return run.error === undefined ? run.stdout : '';
+}
+
 /**
  * `setup subharness <backend> [--from <path>]`: the backend installed into the private layer, then the login line the
  * owner types at this terminal. opencode is copied from `--from`, else from `errands.opencodePath`.
@@ -1286,15 +1392,9 @@ async function runSubharnessSetup(argv: ReadonlyArray<string>): Promise<void> {
     console.log(`next, in the chat: subharness enable ${backend} --key <name>`);
     process.exit(0);
   }
-  // The login subcommand of claude differs between releases: the installed binary's help names the one it has.
-  const help =
-    backend === 'claude'
-      ? spawnSync(plain.command, ['--help'], {
-          env: { PATH: process.env.PATH ?? '', HOME: os.homedir(), ...plain.env },
-          encoding: 'utf8',
-          timeout: 30_000,
-        }).stdout
-      : undefined;
+  // The login subcommand of claude differs between releases: the installed binary's help names the one it has. A help
+  // that names none, or a binary that did not run, throws here and `fault` prints the diagnostic with exit 1.
+  const help = backend === 'claude' ? installedHelp(plain) : undefined;
   const login = loginCommand(where.privateDir, backend, help) ?? plain;
   console.log(`log in at this terminal: ${login.text}`);
   console.log(`then, in the chat: subharness enable ${backend}`);
@@ -1615,12 +1715,15 @@ const [group, ...rest] = process.argv.slice(2);
 const fault = (err: unknown): never => die(err instanceof Error ? err.message : String(err));
 switch (group) {
   case undefined:
+    // A chat over pipes is asked for by name: nobody may be writing to them, and Ink cannot draw on them.
+    if ((process.stdin.isTTY !== true || process.stdout.isTTY !== true) && process.env.NEPTUNIA_PLAIN_CHAT !== '1')
+      refuseSyntax(panelRefusal('the chat'));
     logToStderr();
     await runChat().catch(fault);
     break;
   case '-p':
     logToStderr();
-    await runOne(rest).catch(fault);
+    await runPrint(rest).catch(fault);
     break;
   case 'doctor':
     logToStderr();
@@ -1636,7 +1739,13 @@ switch (group) {
     await runSetupCommand(rest).catch(fault);
     break;
   case 'interface':
-    await runInterface(rest).catch(fault);
+    // `interface run` is the runner a unit starts; the other forms are the table's management family.
+    if (rest[0] === 'run') {
+      await runInterface(rest).catch(fault);
+    } else {
+      logToStderr();
+      await runDirect([group, ...rest]).catch(fault);
+    }
     break;
   case 'task':
     process.exit(await runTask(rest).catch(fault));
@@ -1649,5 +1758,6 @@ switch (group) {
     process.exit(0);
     break;
   default:
-    usage();
+    logToStderr();
+    await runDirect([group, ...rest]).catch(fault);
 }

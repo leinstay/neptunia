@@ -19,6 +19,12 @@
 // acknowledged at once and run on the desk, and its answer goes back as a `command.result` action over the same link;
 // every other envelope goes through the door. It also remembers the link of the owner's chat that sent the last line,
 // where the core sends her replies in `cli:dm:owner` (`chat()`).
+//
+// `neptunia -p` with text waits for the end of the turn over its line, which the link has no event for. The intake
+// keeps the link of each line of the command line, and `turnEnded` answers it with a `command.result` whose `replyRef`
+// is the line's message id: status `ok` when she spoke or chose silence, else the turn's outcome, and the turn's reason
+// as the text. A line taken while the core is paused has no turn yet, so it is answered `paused` at once. A client
+// waiting for no such result ignores it.
 
 import fs from 'node:fs';
 import { roleModel } from '../llm/roles.ts';
@@ -366,13 +372,49 @@ export function coreStatusFacts(core: {
 /** The desk the intake runs commands on, null until the core built it. */
 type Desk = ReturnType<typeof createCommandDesk>;
 
+/** The most lines of the command line kept waiting for their turn: the owner's, and a pending call may never run. */
+const KEPT_LINES = 64;
+
+/** The turn outcomes that are an answer to the line: she spoke, or chose silence. */
+const ANSWERED: ReadonlySet<string> = new Set(['spoke', 'skip']);
+
 export function createCommandIntake(deps: {
   door: LinkDoor;
   ready(): Promise<unknown>;
   desk(): Desk | null;
+  /** Whether the core holds a new line instead of starting a turn over it; absent, it never does. */
+  linesHeld?(): boolean;
   log: Logger;
-}): { doorOf(link: () => AdapterLink): LinkDoor; chat(): Adapter | null } {
+}): {
+  doorOf(link: () => AdapterLink): LinkDoor;
+  chat(): Adapter | null;
+  turnEnded(end: { trigger: { id: string | null } | null; outcome: string; reason: string | null }): void;
+} {
   let chatLink: AdapterLink | null = null;
+  const lines = new Map<string, AdapterLink>();
+
+  /** Answers the line `id` once, on the link that sent it. */
+  function answerLine(id: string, status: string, text: string): void {
+    const link = lines.get(id);
+    if (!lines.delete(id) || link === undefined) return;
+    void link
+      .answerCommand({ replyRef: id, text, status })
+      .catch((err: unknown) => deps.log.warn('commands: end of turn not sent', { error: err }));
+  }
+
+  /** One line of the command line through the door, its link kept for the end of its turn. */
+  async function takeLine(link: AdapterLink, value: unknown, body: Loose, from?: From): Promise<Envelope> {
+    const id = looseOf(body.message).id;
+    if (typeof id !== 'string') return deps.door.receive(value, from);
+    lines.set(id, link);
+    for (const oldest of lines.keys()) {
+      if (lines.size <= KEPT_LINES) break;
+      lines.delete(oldest);
+    }
+    const ack = await deps.door.receive(value, from);
+    if (deps.linesHeld?.() === true) answerLine(id, 'paused', 'the core is paused: the line waits for /resume');
+    return ack;
+  }
 
   async function take(link: AdapterLink, value: Envelope, body: Loose): Promise<Envelope> {
     await deps.ready();
@@ -396,7 +438,10 @@ export function createCommandIntake(deps: {
           const envelope = looseOf(value);
           const body = envelope.type === 'event' ? looseOf(envelope.body) : {};
           const current = link();
-          if (body.kind === 'message.received' && current.principal()?.kind === 'cli') chatLink = current;
+          if (body.kind === 'message.received' && current.principal()?.kind === 'cli') {
+            chatLink = current;
+            return takeLine(current, value, body, from);
+          }
           // The link hands the door only envelopes it parsed and authenticated.
           if (body.kind === 'command.requested') return take(current, value as Envelope, body);
           return deps.door.receive(value, from);
@@ -404,5 +449,11 @@ export function createCommandIntake(deps: {
       };
     },
     chat: () => (chatLink !== null && !chatLink.isClosed() ? chatLink.adapter : null),
+    turnEnded(end) {
+      const id = end.trigger?.id;
+      if (typeof id !== 'string') return;
+      if (ANSWERED.has(end.outcome)) answerLine(id, 'ok', '');
+      else answerLine(id, end.outcome, `her turn ended ${end.outcome}${end.reason === null ? '' : `: ${end.reason}`}`);
+    },
   };
 }
