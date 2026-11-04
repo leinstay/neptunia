@@ -65,6 +65,91 @@ function statusLines(mirror: MirrorStatus): Array<string> {
   return lines;
 }
 
+/** What every handler reads: the desk, the words, who asks, and how a refusal or a change is answered. */
+type Call = {
+  desk: MirrorDesk;
+  args: Readonly<Record<string, unknown>>;
+  by: string;
+  mirror: string;
+  refused(why: string): Answer;
+  changed(answer: { ok: boolean; code?: string }, done: string): Answer;
+};
+
+function list({ desk }: Call): Answer {
+  const mirrors = desk.listMirrors();
+  if (mirrors.length === 0) return { text: 'no mirror', status: 'ok' };
+  const lines = mirrors.map((one) => `${one.placeId}  ${one.enabled ? 'enabled' : 'disabled'}`);
+  return { text: lines.join('\n'), status: 'ok' };
+}
+
+function status({ desk }: Call): Answer {
+  const mirrors = desk.mirrorStatus();
+  return { text: mirrors.length === 0 ? 'no mirror' : mirrors.flatMap(statusLines).join('\n'), status: 'ok' };
+}
+
+async function add({ desk, args, by, refused, changed }: Call): Promise<Answer> {
+  const backfill = backfillOf(args);
+  if (typeof backfill === 'string') return refused(backfill);
+  const destination = word(args, 'destination') ?? '';
+  const answer = await desk.addMirror({ destination, by, ...(backfill ? { backfill } : {}) });
+  return changed(
+    answer,
+    answer.ok && answer.reused ? `${answer.mirror.placeId}: already a mirror` : `${destination}: added`
+  );
+}
+
+async function configure({ desk, args, by, mirror, refused, changed }: Call): Promise<Answer> {
+  const backfill = backfillOf(args);
+  if (typeof backfill === 'string') return refused(backfill);
+  const enabled = word(args, 'enabled');
+  if (enabled !== undefined && enabled !== 'true' && enabled !== 'false')
+    return refused(`--enabled is true or false, not "${enabled}"`);
+  if (enabled === undefined && !backfill) return refused('name what changes: --enabled, --backfill or --every');
+  const answer = await desk.configureMirror({
+    mirror,
+    by,
+    ...(enabled === undefined ? {} : { enabled: enabled === 'true' }),
+    ...(backfill ? { backfill } : {}),
+  });
+  return changed(answer, `${mirror}: changed`);
+}
+
+async function reconcile({ desk, args, by, mirror, refused }: Call): Promise<Answer> {
+  const listed = word(args, 'entries');
+  const through = word(args, 'through');
+  if (args.absent !== undefined && args.absent !== 'true') return refused('--absent takes no value');
+  const answer = await desk.reconcileReceipts({
+    mirror,
+    by,
+    ...(through === undefined ? {} : { through }),
+    ...(listed === undefined ? {} : { entries: listed.split(',').filter((id) => id !== '') }),
+    absent: args.absent === 'true',
+  });
+  if (!answer.ok) {
+    const named = answer.entryId === undefined ? '' : ` (${answer.entryId})`;
+    return refused(`${WHY[answer.code] ?? answer.code}${named}`);
+  }
+  return {
+    text:
+      args.absent === 'true'
+        ? `${mirror}: ${answer.requeued} queued again`
+        : `${mirror}: ${answer.recorded} recorded as published, ${answer.kept} already had receipts`,
+    status: 'ok',
+  };
+}
+
+const HANDLERS: Readonly<Record<string, (call: Call) => Answer | Promise<Answer>>> = {
+  'mirror.list': list,
+  'mirror.status': status,
+  'mirror.add': add,
+  'mirror.configure': configure,
+  'mirror.disable': async ({ desk, by, mirror, changed }) =>
+    changed(await desk.disableMirror({ mirror, by }), `${mirror}: disabled, its configuration kept`),
+  'mirror.remove': async ({ desk, by, mirror, changed }) =>
+    changed(await desk.removeMirror({ mirror, by }), `${mirror}: removed, its delivery history kept`),
+  'mirror.reconcile': reconcile,
+};
+
 /** One `/mirror` command for `requester`. */
 export async function mirrorCommand(
   desk: MirrorDesk | null | undefined,
@@ -73,77 +158,18 @@ export async function mirrorCommand(
   requester: { id: string }
 ): Promise<Answer> {
   if (!desk) return { text: 'the diary publisher is not running', status: 'failed' };
-  const by = requester.id;
   const typed =
     `/mirror ${name.slice('mirror.'.length)} ${word(args, 'destination') ?? word(args, 'mirror') ?? ''}`.trim();
   const refused = (why: string): Answer => ({ text: `${typed}: ${why}`, status: 'invalid' });
-  const changed = (answer: { ok: boolean; code?: string }, done: string): Answer =>
-    answer.ok ? { text: done, status: 'ok' } : refused(WHY[answer.code ?? ''] ?? answer.code ?? 'refused');
-  const mirror = word(args, 'mirror') ?? '';
-  switch (name) {
-    case 'mirror.list': {
-      const mirrors = desk.listMirrors();
-      if (mirrors.length === 0) return { text: 'no mirror', status: 'ok' };
-      const lines = mirrors.map((one) => `${one.placeId}  ${one.enabled ? 'enabled' : 'disabled'}`);
-      return { text: lines.join('\n'), status: 'ok' };
-    }
-    case 'mirror.status': {
-      const mirrors = desk.mirrorStatus();
-      return { text: mirrors.length === 0 ? 'no mirror' : mirrors.flatMap(statusLines).join('\n'), status: 'ok' };
-    }
-    case 'mirror.add': {
-      const backfill = backfillOf(args);
-      if (typeof backfill === 'string') return refused(backfill);
-      const destination = word(args, 'destination') ?? '';
-      const answer = await desk.addMirror({ destination, by, ...(backfill ? { backfill } : {}) });
-      return changed(
-        answer,
-        answer.ok && answer.reused ? `${answer.mirror.placeId}: already a mirror` : `${destination}: added`
-      );
-    }
-    case 'mirror.configure': {
-      const backfill = backfillOf(args);
-      if (typeof backfill === 'string') return refused(backfill);
-      const enabled = word(args, 'enabled');
-      if (enabled !== undefined && enabled !== 'true' && enabled !== 'false')
-        return refused(`--enabled is true or false, not "${enabled}"`);
-      if (enabled === undefined && !backfill) return refused('name what changes: --enabled, --backfill or --every');
-      const answer = await desk.configureMirror({
-        mirror,
-        by,
-        ...(enabled === undefined ? {} : { enabled: enabled === 'true' }),
-        ...(backfill ? { backfill } : {}),
-      });
-      return changed(answer, `${mirror}: changed`);
-    }
-    case 'mirror.disable':
-      return changed(await desk.disableMirror({ mirror, by }), `${mirror}: disabled, its configuration kept`);
-    case 'mirror.remove':
-      return changed(await desk.removeMirror({ mirror, by }), `${mirror}: removed, its delivery history kept`);
-    case 'mirror.reconcile': {
-      const listed = word(args, 'entries');
-      const through = word(args, 'through');
-      if (args.absent !== undefined && args.absent !== 'true') return refused('--absent takes no value');
-      const answer = await desk.reconcileReceipts({
-        mirror,
-        by,
-        ...(through === undefined ? {} : { through }),
-        ...(listed === undefined ? {} : { entries: listed.split(',').filter((id) => id !== '') }),
-        absent: args.absent === 'true',
-      });
-      if (!answer.ok) {
-        const named = answer.entryId === undefined ? '' : ` (${answer.entryId})`;
-        return refused(`${WHY[answer.code] ?? answer.code}${named}`);
-      }
-      return {
-        text:
-          args.absent === 'true'
-            ? `${mirror}: ${answer.requeued} queued again`
-            : `${mirror}: ${answer.recorded} recorded as published, ${answer.kept} already had receipts`,
-        status: 'ok',
-      };
-    }
-    default:
-      return refused('no such command; type /help');
-  }
+  const handler = HANDLERS[name];
+  if (!handler) return refused('no such command; type /help');
+  return handler({
+    desk,
+    args,
+    by: requester.id,
+    mirror: word(args, 'mirror') ?? '',
+    refused,
+    changed: (answer, done) =>
+      answer.ok ? { text: done, status: 'ok' } : refused(WHY[answer.code ?? ''] ?? answer.code ?? 'refused'),
+  });
 }
