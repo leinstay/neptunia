@@ -98,7 +98,7 @@ const ENGINE_ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
 
 /** The commands answered by a module of their own, or null for any other. */
 function ownCommand(
-  { dataDir, memoryDb, statusBrief: brief }: Pick<ConsoleDeps, 'dataDir' | 'memoryDb' | 'statusBrief'>,
+  { dataDir, memoryDb, runOp, statusBrief: brief }: Pick<ConsoleDeps, 'dataDir' | 'memoryDb' | 'runOp' | 'statusBrief'>,
   name: string,
   args: Record<string, unknown>,
   dialog: Dialog | null
@@ -106,7 +106,7 @@ function ownCommand(
   if (name.startsWith('keys.service.')) return serviceCommand(dataDir, name, args, dialog);
   if (name === 'status.brief') return Promise.resolve({ text: JSON.stringify(brief?.() ?? null), status: 'ok' });
   if (name.startsWith('search.')) return Promise.resolve(searchCommand(dataDir, name, args, ENGINE_ROOT));
-  if (name === 'memory.bind' || name === 'memory.unbind') return personLinkCommand(memoryDb, name, args);
+  if (name === 'memory.bind' || name === 'memory.unbind') return personLinkCommand(memoryDb, runOp, name, args);
   if (name === 'memory.accounts') return Promise.resolve(accountsCommand(memoryDb, args));
   const action = moduleActionOf(name);
   return action === null ? null : moduleRun(dataDir, name, action, args, dialog);
@@ -123,18 +123,36 @@ function accountsCommand(memoryDb: unknown, args: Record<string, unknown>): Answ
 }
 
 /** `/memory bind` and `/memory unbind`: the one way accounts come to share a person. */
-async function personLinkCommand(memoryDb: unknown, name: string, args: Record<string, unknown>): Promise<Answer> {
+async function personLinkCommand(
+  memoryDb: unknown,
+  runOp: ConsoleDeps['runOp'],
+  name: string,
+  args: Record<string, unknown>
+): Promise<Answer> {
   const word = (key: string) => (typeof args[key] === 'string' ? args[key] : '');
-  const target = word('target') === 'self' ? { self: true } : { iface: word('target'), native: word('targetAccount') };
-  if (name === 'memory.bind' && !('self' in target) && target.native === '')
-    return { text: 'name the other account: bind <iface> <account> <iface> <account>, or self', status: 'invalid' };
+  const named = word('target');
+  const target =
+    named === 'self'
+      ? { self: true }
+      : named === 'owner'
+        ? { owner: true }
+        : { iface: named, native: word('targetAccount') };
+  if (name === 'memory.bind' && 'native' in target && target.native === '')
+    return {
+      text: 'name the other account: bind <iface> <account> <iface> <account>, or self, or owner',
+      status: 'invalid',
+    };
   try {
-    await (callMethod(memoryDb, 'personLink', {
+    const written = (await (callMethod(memoryDb, 'personLink', {
       op: name === 'memory.bind' ? 'bind' : 'unbind',
       iface: word('iface'),
       native: word('account'),
       target,
-    }) as Promise<unknown>);
+    }) as Promise<unknown>)) as { person?: unknown } | null;
+    if (name === 'memory.bind' && 'owner' in target) {
+      const set = await runOp('config.set', { path: 'bot.ownerPerson', value: written?.person }, { asOwner: true });
+      if (set.status !== 'ok') return { text: `the owner person was not set: ${set.summary}`, status: 'failed' };
+    }
     return {
       text: `${word('iface')} ${word('account')}: ${name === 'memory.bind' ? 'bound' : 'unbound'}`,
       status: 'ok',

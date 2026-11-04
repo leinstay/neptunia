@@ -15,7 +15,16 @@ export const BOT: ReadonlyArray<SchemaEntry> = [
     'types': ['array'],
     'reader': 'src/behavior/core-pause.ts',
     'default': [],
-    'text': 'User IDs for owner commands',
+    'text':
+      'Native ids of the home interface that count as owners until `bot.ownerPerson` is set; the input of that migration',
+  },
+  {
+    'key': 'bot.ownerPerson',
+    'types': ['string'],
+    'reader': 'src/tools/impl/grants.ts',
+    'default': '',
+    'text':
+      'The person whose bound accounts are the owner, written by `/memory bind <iface> <account> owner`. See [One person, several accounts](memory.md#one-person-several-accounts)',
   },
   {
     'key': 'bot.nameTriggers',

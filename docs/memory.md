@@ -429,14 +429,17 @@ You can copy `memory.db` and its `-wal` file while the bot runs (the copy will n
 
 ## One person, several accounts
 
-A person may hold any number of accounts on any interfaces, the owner and the persona included. Four subcommands of `/memory` in the owner's command line manage them (`src/interface/commands/console.ts`):
+A person may hold any number of accounts on any interfaces, the owner and the persona included. Subcommands of `/memory` in the owner's command line manage them (`src/interface/commands/console.ts`):
 
 - `/memory bind <iface> <account> <iface> <account>` joins the first account to the person of the second.
 - `/memory bind <iface> <account> self` joins an account to the persona herself, `person:self`.
+- `/memory bind <iface> <account> owner` makes the person of that account the owner person: it stays on its person and writes that person's id to `bot.ownerPerson`.
 - `/memory unbind <iface> <account>` closes the account's link and gives the account back its own person, `person:<iface>:<account>`.
 - `/memory accounts <iface> <account>` lists the verified accounts of the person that account belongs to.
 
 A binding is a verified `account_person_links` row with the reason `owner command`, written through the memory writer (`applyPersonLinkWrite` in `src/memory/db/person-links.ts`). Each account named must be one she has met. For an unknown account the command refuses and says to bind it after its first message. No model proposal, name match or claimed id links accounts. A DM context carries the person's other DMs in `linked` (`linkedDmScopes`), so a DM reads the person's history while each row keeps the audience of the DM it came from. Affinity is one score on the `people` row, and an affinity event keeps its scope. The same native id on two interfaces is two accounts until the owner binds them.
+
+Owner rights come from these links. `isOwnerId` in `src/tools/impl/grants.ts` asks `createOwnerAccounts` in `src/memory/db/person-links.ts` whether the caller's account, on the interface of the current event or turn, is linked to `bot.ownerPerson` by this command. A link from an import or a memory session gives no rights, and nobody passes while the memory database is closed. The owner's `neptunia` chat keeps its rights either way. While `bot.ownerPerson` is empty, `bot.owners` lists the native ids that count as owners on the home interface, and an equal id on another interface does not. The migration is one command, `/memory bind <iface> <account> owner`. After it `bot.owners` stops counting, and `/config unset bot.ownerPerson` returns to it. Each further account of the owner joins with `/memory bind <iface> <account> <home iface> <home account>`.
 
 ## Configuration
 

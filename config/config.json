@@ -6,6 +6,7 @@
   "bot": {
     "timezone": "UTC",
     "owners": [],
+    "ownerPerson": "",
     "nameTriggers": [],
     "guildId": "",
     "access": {}

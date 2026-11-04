@@ -72,7 +72,7 @@ Setup writes the persona folder, the key store and the units, and starts the cor
    }
    ```
 
-   `interfaces.mode` defaults to `inprocess`, which starts Discord inside the core with a boot token that the core accepts only while `clients.json` does not exist. The chat needs `clients.json`, so a deployment with a chat runs `units`: the core starts no interface, and each interface runs as a unit of its own. In that mode the core refuses to start without `bot.guildId`. `bot.owners` lists the Discord user ids that count as owners when someone asks her to run an operation. The chat itself needs no entry, because it always runs as the owner.
+   `interfaces.mode` defaults to `inprocess`, which starts Discord inside the core with a boot token that the core accepts only while `clients.json` does not exist. The chat needs `clients.json`, so a deployment with a chat runs `units`: the core starts no interface, and each interface runs as a unit of its own. In that mode the core refuses to start without `bot.guildId`. `bot.owners` lists the Discord user ids that count as owners when someone asks her to run an operation, until `/memory bind discord <id> owner` moves the owner to a person (see [One person, several accounts](memory.md#one-person-several-accounts)). The chat itself needs no entry, because it always runs as the owner.
 
 3. Make the client tokens for the chat and for Discord:
 

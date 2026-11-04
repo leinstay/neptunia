@@ -1,6 +1,6 @@
 // Owner-managed access grants, keyed by operation name (src/tools/impl/registry.ts): a pure decision
 // over `config.bot.access`, the shape `/nep access grant|revoke|list` (src/tools/impl/access.ts) read
-// and write. An owner (`bot.owners`) always passes. Then the operation's own rights decide:
+// and write. An owner (`isOwnerId` below) always passes. Then the operation's own rights decide:
 // `ownerOnly` or `grantable: false` refuse everyone else whatever is stored, `*` included; a
 // `member` operation is open to every member while `features.memberCommands` is on; anything
 // else needs a grant stored on its exact name. A grant on a group (`memory`) or on `*` is never
@@ -20,18 +20,44 @@ function listsOwner(owners: unknown, userId: unknown): boolean {
   return listOf(owners).map(idText).includes(idText(userId));
 }
 
+/** What the owner check reads about the caller's account, on the interface of the current event or turn. */
+export type OwnerAccounts = {
+  /** True when the owner bound the account `native` to `person`. */
+  isBoundTo(person: string, native: string): boolean;
+  /** True when the caller is on the home interface, the only one `bot.owners` speaks for. */
+  onHomeInterface(): boolean;
+};
+
+let ownerAccounts: OwnerAccounts | null = null;
+
 /**
- * True when `userId` is one of `config.bot.owners`: the one owner check of the owner commands
- * (src/admin.ts, src/tools/impl/index.ts) and of `isAllowed` below. No user, no owner. `config` is the live merged
+ * Installs the reader behind the owner check and returns its removal. The core does this once, since the check runs
+ * under every operation, tool call and private-chat gate of the process, each of which knows only the live config.
+ */
+export function useOwnerAccounts(accounts: OwnerAccounts): () => void {
+  ownerAccounts = accounts;
+  return () => {
+    if (ownerAccounts === accounts) ownerAccounts = null;
+  };
+}
+
+/**
+ * The one owner check of the owner commands and the private-chat gate. With `bot.ownerPerson` set the caller is the
+ * owner when the owner bound the caller's account to that person, and nobody is while the accounts cannot be read.
+ * Before that, `bot.owners` lists native ids of the home interface. No user, no owner. `config` is the live merged
  * config (hot.config).
  */
 export function isOwnerId(config: unknown, userId: unknown): boolean {
-  return listsOwner(objOf(objOf(config).bot).owners, userId);
+  if (idText(userId) === '') return false;
+  const bot = objOf(objOf(config).bot);
+  const person = idText(bot.ownerPerson);
+  if (person !== '') return ownerAccounts?.isBoundTo(person, idText(userId)) === true;
+  return listsOwner(bot.owners, userId) && (ownerAccounts?.onHomeInterface() ?? true);
 }
 
 /**
  * True when the caller of an operation is an owner: the owner's console (`context.asOwner`, which only the command
- * desk sets, for the `cli` principal) or a user of `config.bot.owners`. The owner check of every operation that
+ * desk sets, for the `cli` principal) or a user `isOwnerId` accepts. The owner check of every operation that
  * shows or does more for an owner.
  */
 export function isOwnerCaller(
