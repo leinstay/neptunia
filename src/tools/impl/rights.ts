@@ -3,7 +3,7 @@
 // so she is never a way around the member's own rights). Pure over the live config the caller
 // reads at the moment of use; imports nothing that registers operations, so any module may use it.
 
-import { isAllowed } from './grants.ts';
+import { isAllowed, isOwnerId } from './grants.ts';
 import { listOf, objOf } from '../types.ts';
 import type { OpInfo } from '../types.ts';
 
@@ -11,9 +11,9 @@ import type { OpInfo } from '../types.ts';
 export type RightsRefusal = 'owner-only' | 'not-grantable' | 'not-granted';
 
 /**
- * Null when the caller may run `op`, else the refusal code: the owner's console (`asOwner`) always may, anyone else
- * by src/tools/impl/grants.ts#isAllowed over
- * `bot.owners` and `bot.access`. `owner-only` for an owner-only operation, `not-grantable` for one no grant opens,
+ * Null when the caller may run `op`, else the refusal code: the owner's console (`asOwner`) and the owner
+ * (src/tools/impl/grants.ts#isOwnerId) always may, anyone else by src/tools/impl/grants.ts#isAllowed over
+ * `bot.access`. `owner-only` for an owner-only operation, `not-grantable` for one no grant opens,
  * else `not-granted`.
  */
 export function rightsRefusal(
@@ -26,13 +26,12 @@ export function rightsRefusal(
   }: { userId?: unknown; roleIds?: ReadonlyArray<unknown>; config?: unknown; asOwner?: boolean } = {}
 ): RightsRefusal | null {
   // The owner's console runs as the owner (src/tools/types.ts#OpContext.asOwner).
-  if (asOwner) return null;
+  if (asOwner || isOwnerId(config, userId)) return null;
   const bot = objOf(objOf(config).bot);
   const allowed = isAllowed({
     op,
     member: { userId, roleIds: listOf(roleIds) },
     access: bot.access ?? {},
-    owners: bot.owners ?? [],
   });
   if (allowed) return null;
   const rights = op?.rights;
@@ -43,7 +42,7 @@ export function rightsRefusal(
 
 /**
  * The config keys that govern authorization or the persona's own controls: who is an owner and
- * who may do what (`bot.owners`, `bot.access`), her tools' settings, safe mode included (`tools.*`, and the name it
+ * who may do what (`bot.owners`, `bot.ownerPerson`, `bot.access`), her tools' settings, safe mode included (`tools.*`, and the name it
  * had before, `skills.*`, which a local file may still carry), the wakes' mode, caps and limits (`wakes.*`, and the
  * old name `innerLife.*`, which src/config-moves.ts reads as `wakes.*`, `heartbeat.*` and `selfimprovement.*`), and the
  * heartbeat's and the selfimprovement wake's own limits (`heartbeat.*`, `selfimprovement.*`).
@@ -52,6 +51,7 @@ export function rightsRefusal(
  */
 export const PERSONA_GOVERNED_CONFIG: ReadonlyArray<string> = Object.freeze([
   'bot.owners',
+  'bot.ownerPerson',
   'bot.access',
   'tools',
   'skills',

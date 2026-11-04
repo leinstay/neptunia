@@ -101,6 +101,7 @@ import { resumeHeld } from './behavior/core-pause.ts';
 import { configuredInterfaces, drainMs, interfaceEnabled } from './interface/mode.ts';
 import { loadPrincipals, principalOfToken } from './interface/principals.ts';
 import { claimCore } from './memory/db/open.ts';
+import { useOwnerAccounts } from './tools/impl/grants.ts';
 import { readLocalConfig, setPath, writeLocalConfig } from './tools/impl/shared.ts';
 import { moveConfigKeys } from './config-moves.ts';
 import { createIngestRecord } from './memory/db/ingest.ts';
@@ -112,6 +113,7 @@ import { boardSettings, boardTimings } from './board/board.ts';
 import { createBoardPort } from './board/writer.ts';
 import { createReactorStore, applyReactionChanged } from './behavior/reactor-store.ts';
 import { currentIface, withIface } from './memory/db/current-iface.ts';
+import { createOwnerAccounts } from './memory/db/person-links.ts';
 import { createReads } from './interface/reads.ts';
 import { createIntentionStores } from './intentions/store.ts';
 import { createIntentionService } from './intentions/service.ts';
@@ -336,6 +338,9 @@ async function buildCore(
   };
   const memoryDb = createMemoryDb(memoryDbOptions);
   cleanups.push(() => memoryDb.close());
+  cleanups.push(
+    useOwnerAccounts(createOwnerAccounts({ database: () => memoryDb.database(), home: () => identity.iface }))
+  );
   await memoryDb.open();
   // The speed figures of /nep status (src/tools/impl/metrics.ts): the durations the log lines carry,
   // kept for 24 h in the database metrics unit, written every minute and on shutdown.

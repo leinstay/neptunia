@@ -270,7 +270,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('lore.remove', 'remove a lore entry', [arg('id')]),
       sub(
         'bind',
-        'one person, several accounts: bind <iface> <account> <iface> <account>, or bind <iface> <account> self',
+        'one person, several accounts: bind <iface> <account> <iface> <account>, bind <iface> <account> self, or bind <iface> <account> owner',
         [arg('iface'), arg('account'), arg('target'), arg('targetAccount', false)]
       ),
       sub('unbind', 'an account stops sharing its person', [arg('iface'), arg('account')]),

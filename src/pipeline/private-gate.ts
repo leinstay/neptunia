@@ -12,6 +12,7 @@ import type { Reads } from '../interface/reads.ts';
 import { log } from '../log.ts';
 import type { ConversationInfo, ConversationRef } from '../protocol/adapter.ts';
 import { isOwnerId } from '../tools/impl/grants.ts';
+import { withIface } from '../memory/db/current-iface.ts';
 import type { TurnParams } from '../turn/outcome.ts';
 import type { MessageReadOptions } from './types.ts';
 import type { MessageEvent } from './edits.ts';
@@ -128,7 +129,7 @@ export function createPrivateGate({
   ): Promise<GateCheck> {
     if (iface === CLI_IFACE) return CLI_GATE;
     const profile = store.getUser(guildId, authorId);
-    const isOwner = isOwnerId(config, authorId);
+    const isOwner = withIface(iface, () => isOwnerId(config, authorId));
     const input = { config, profile, isOwner };
 
     const free = privateGate({ ...input, isMember: true });
