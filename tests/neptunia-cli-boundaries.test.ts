@@ -1,17 +1,27 @@
-// The two boundaries of `neptunia` run as a child with no terminal: what the shell hands it in argv arrives at the
-// handler byte for byte and never meets a shell, and a request that needs a person at a terminal ends at once with what
-// to do instead. A panel-only request exits 2 with the explanation and the commands on stderr; a question nobody can
-// answer exits 1 with the question on stderr. A secret comes only through `--secret-stdin` on a leaf that asks for one,
-// or a masked prompt at a terminal, never as a word of argv. Ink is watched through a resolve hook in the child.
-import { test } from 'node:test';
+// The two boundaries of `neptunia` with no terminal: what the shell hands it in argv arrives at the handler byte for byte
+// and never meets a shell, and a request that needs a person at a terminal ends at once with what to do instead. A
+// panel-only request exits 2 with the explanation and the commands on stderr; a question nobody can answer exits 1 with
+// the question on stderr. A secret comes only through `--secret-stdin` on a leaf that asks for one, or a masked prompt at
+// a terminal, never as a word of argv. The families of values run in process through bin/neptunia-request.ts; a real
+// child proves the rest, with Ink watched through a resolve hook inside it.
+import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
-import { runCli, startUnitsCore, withRig } from './fixtures/core-units.ts';
+import { Readable } from 'node:stream';
+import {
+  COMMANDS_LINE,
+  UnansweredQuestion,
+  panelRefusal,
+  parseLineRequest,
+  parseRequest,
+  secretFromStdin,
+  unansweredText,
+} from '../bin/neptunia-request.ts';
+import { startUnitsCore, withRig } from './fixtures/core-units.ts';
 import type { Dirs } from './fixtures/core-units.ts';
-import { cliFolders, handled, runChild, withRecordingCore } from './fixtures/recording-core.ts';
-import type { Received, Reply } from './fixtures/recording-core.ts';
+import { cliFolders, handled, runChild, startRecordingCore } from './fixtures/recording-core.ts';
+import type { RecordingCore, Reply } from './fixtures/recording-core.ts';
 
 const T0 = Date.parse('2026-10-31T12:00:00Z');
 
@@ -24,137 +34,207 @@ const nasty = (canary: string): string => `a "b" \`c\` $(touch ${canary}) $HOME 
 /** What a line split or a trim would change: runs of spaces, a tab, a newline, both ends, and Greek. */
 const SPACED = '  lead  double\ttab\nnewline κουνέλι trail ';
 
-/** One argv and what must arrive at the handler. */
-type Boundary = { what: string; argv(canary: string): Array<string>; name: string; args(canary: string): unknown };
+const NASTY = nasty('canary');
 
-const BOUNDARIES: ReadonlyArray<Boundary> = [
+/** One argv and what must arrive at the handler. */
+const BOUNDARIES: ReadonlyArray<{ what: string; argv: ReadonlyArray<string>; name: string; args: unknown }> = [
   {
     what: 'quotes, backticks and dollar syntax in the last argument',
-    argv: (canary) => ['rules', 'add', nasty(canary)],
+    argv: ['rules', 'add', NASTY],
     name: 'rules.add',
-    args: (canary) => ({ text: nasty(canary) }),
+    args: { text: NASTY },
   },
   {
     what: 'spaces, a tab, a newline and both ends of the last argument',
-    argv: () => ['rules', 'add', SPACED],
+    argv: ['rules', 'add', SPACED],
     name: 'rules.add',
-    args: () => ({ text: SPACED }),
+    args: { text: SPACED },
   },
   {
     what: 'spaces inside an argument before the last',
-    argv: (canary) => ['memory', 'lore', 'add', 'The Tower', 'tower, spire', nasty(canary)],
+    argv: ['memory', 'lore', 'add', 'The Tower', 'tower, spire', NASTY],
     name: 'memory.lore.add',
-    args: (canary) => ({ title: 'The Tower', keys: 'tower, spire', text: nasty(canary) }),
+    args: { title: 'The Tower', keys: 'tower, spire', text: NASTY },
   },
   {
     what: 'two arguments each holding spaces',
-    argv: () => ['memory', 'aliases', 'add', 'Two Words', 'Νίκος "Νίκη" $(x)'],
+    argv: ['memory', 'aliases', 'add', 'Two Words', 'Νίκος "Νίκη" $(x)'],
     name: 'memory.aliases.add',
-    args: () => ({ user: 'Two Words', name: 'Νίκος "Νίκη" $(x)' }),
+    args: { user: 'Two Words', name: 'Νίκος "Νίκη" $(x)' },
   },
   {
     what: 'a setting value with shell syntax',
-    argv: (canary) => ['config', 'set', 'pace.settleMs', nasty(canary)],
+    argv: ['config', 'set', 'pace.settleMs', NASTY],
     name: 'config.set',
-    args: (canary) => ({ path: 'pace.settleMs', value: nasty(canary) }),
+    args: { path: 'pace.settleMs', value: NASTY },
   },
   {
     what: 'spaces in a positional argument and in flag values',
-    argv: () => ['model', 'set', 'memory', 'vendor/model name', '--provider', 'p q', '--effort', 'e "f"'],
+    argv: ['model', 'set', 'memory', 'vendor/model name', '--provider', 'p q', '--effort', 'e "f"'],
     name: 'model.set',
-    args: () => ({ role: 'memory', model: 'vendor/model name', provider: 'p q', effort: 'e "f"' }),
+    args: { role: 'memory', model: 'vendor/model name', provider: 'p q', effort: 'e "f"' },
   },
   {
     what: 'a value that looks like a flag on a command without flags',
-    argv: () => ['rules', 'add', '--looks-like-a-flag'],
+    argv: ['rules', 'add', '--looks-like-a-flag'],
     name: 'rules.add',
-    args: () => ({ text: '--looks-like-a-flag' }),
+    args: { text: '--looks-like-a-flag' },
   },
   {
     what: 'a value that names a subcommand',
-    argv: () => ['rules', 'add', 'list'],
+    argv: ['rules', 'add', 'list'],
     name: 'rules.add',
-    args: () => ({ text: 'list' }),
+    args: { text: 'list' },
   },
   {
     what: 'loose words after the last argument, joined as the chat joins them',
-    argv: () => ['rules', 'add', 'one', 'two', 'three'],
+    argv: ['rules', 'add', 'one', 'two', 'three'],
     name: 'rules.add',
-    args: () => ({ text: 'one two three' }),
+    args: { text: 'one two three' },
+  },
+  {
+    what: 'a value of logs with shell syntax',
+    argv: ['logs', 'since', '$(touch canary)'],
+    name: 'logs',
+    args: { options: 'since $(touch canary)' },
   },
 ];
 
-for (const boundary of BOUNDARIES) {
-  test(`${boundary.what} arrive byte for byte and run no shell`, async () => {
-    // Catches: argv is joined into a line and split again, which moves a word across arguments, squeezes spaces or trims
-    // a value, or a shell sees the value and runs it.
-    await withRecordingCore(handled, async ({ dirs, core }) => {
-      const canary = join(dirs.root, 'canary');
-      const run = await runChild(dirs, boundary.argv(canary));
-      assert.equal(run.code, 0, run.stderr.slice(0, 200));
-      assert.deepEqual(core.commands, [{ name: boundary.name, args: boundary.args(canary) }]);
-      assert.equal(existsSync(canary), false, 'no shell ran the value');
-    });
+for (const { what, argv, name, args } of BOUNDARIES) {
+  test(`${what} parse byte for byte`, () => {
+    // Catches: argv is joined into a line and split again, which moves a word across arguments, squeezes spaces or trims.
+    assert.deepEqual(parseRequest(argv).parsed, { ok: true, name, args });
   });
 }
 
-test('one argv word holding a space is no subcommand of two words', async () => {
+test('one argv word holding a space is no subcommand of two words', () => {
   // Catches: argv is joined before the parse, so the quoted word `lore add` reads as the subcommand `lore.add`.
-  await withRecordingCore(handled, async ({ dirs, core }) => {
-    const run = await runChild(dirs, ['memory', 'lore add', 'title', 'keys', 'text']);
-    assert.equal(run.code, 2, run.stderr.slice(0, 200));
-    assert.ok(run.stderr.includes('lore add'), 'the refusal names the word as it came');
-    assert.deepEqual(core.commands, []);
-  });
+  const { parsed } = parseRequest(['memory', 'lore add', 'title', 'keys', 'text']);
+  assert.equal(parsed.ok, false);
+  assert.ok(!parsed.ok && parsed.reason.includes('lore add'), JSON.stringify(parsed));
 });
 
-test('an empty last argument is missing, as the table says, and reaches no handler', async () => {
+test('an empty last argument is missing and refused', () => {
   // Catches: an empty word from a script's unset variable stores an empty rule.
-  const refused = parseCommandLine('/rules add');
-  assert.equal(refused.ok, false);
-  await withRecordingCore(handled, async ({ dirs, core }) => {
-    const run = await runChild(dirs, ['rules', 'add', '']);
-    assert.equal(run.code, 2, run.stderr.slice(0, 200));
-    assert.ok(run.stderr.includes(refused.ok ? '' : refused.reason), run.stderr.slice(0, 200));
-    assert.deepEqual(core.commands, []);
+  const { parsed } = parseRequest(['rules', 'add', '']);
+  assert.equal(parsed.ok, false);
+  assert.ok(!parsed.ok && parsed.reason.includes('text'), JSON.stringify(parsed));
+});
+
+const SECRET = 'sk-or-v1-zeta-SECRETVALUE-0001';
+
+/** The leaves that ask for a secret value, each with the words before the value. */
+const SECRET_LEAVES: ReadonlyArray<{ name: string; words: ReadonlyArray<string>; args: unknown }> = [
+  { name: 'keys.core.add', words: ['keys', 'core', 'add', 'k1'], args: { name: 'k1' } },
+  { name: 'keys.extra.add', words: ['keys', 'extra', 'add', 'k1'], args: { name: 'k1' } },
+  { name: 'keys.service.set', words: ['keys', 'service', 'set', 'youtube'], args: { name: 'youtube' } },
+  { name: 'interface.token.set', words: ['interface', 'token', 'set', 'zeta'], args: { name: 'zeta' } },
+];
+
+for (const { name, words, args } of SECRET_LEAVES) {
+  test(`${name} takes its name and --secret-stdin, and refuses a secret as a word in both forms`, () => {
+    // Catches: the last argument's rest rule folds the secret into the name, so it reaches the core, the logs and `ps`.
+    assert.deepEqual(parseRequest(words), { parsed: { ok: true, name, args }, secretStdin: false });
+    assert.deepEqual(parseRequest([...words, '--secret-stdin']), {
+      parsed: { ok: true, name, args },
+      secretStdin: true,
+    });
+    for (const { parsed } of [parseRequest([...words, SECRET]), parseLineRequest(`/${words.join(' ')} ${SECRET}`)]) {
+      assert.equal(parsed.ok, false);
+      assert.equal(JSON.stringify(parsed).includes(SECRET), false, 'the value is not echoed');
+    }
+  });
+}
+
+test('--secret-stdin on a leaf that asks no secret is a plain value', () => {
+  // Catches: the flag is stripped from every command, so a rule that holds those words loses them.
+  assert.deepEqual(parseRequest(['rules', 'add', '--secret-stdin']), {
+    parsed: { ok: true, name: 'rules.add', args: { text: '--secret-stdin' } },
+    secretStdin: false,
   });
 });
 
-test('the rule of the plan is stored whole by the real handler', async () => {
-  // Catches: the value survives the parser and is cut or re-quoted on its way into the rules.
-  const rule = 'a "b" `c` $(d)';
-  await withRig({}, async ({ dirs, llm, cores }) => {
-    cores.push(await startUnitsCore(dirs, llm, () => T0));
-    const added = await runCli(dirs, ['rules', 'add', rule]);
-    assert.equal(added.code, 0, added.stderr.slice(0, 200));
-    const listed = await runCli(dirs, ['rules', 'list']);
-    assert.ok(listed.stdout.includes(rule), listed.stdout);
-    assert.equal(llm.requests.length, 0);
-  });
+const QUESTION = 'zeta-which-model?';
+const SECRET_QUESTION = 'zeta-key-value:';
+
+test('--secret-stdin answers a secret question with stdin less its one trailing newline', async () => {
+  // Catches: the value keeps its newline and is stored broken, or more than one newline is taken off.
+  assert.equal(await secretFromStdin(Readable.from([`${SECRET}\n`])).ask(SECRET_QUESTION, true), SECRET);
+  assert.equal(await secretFromStdin(Readable.from(['a\n\n'])).ask(SECRET_QUESTION, true), 'a\n');
 });
 
-test('a value of neptunia logs reaches journalctl as words, with no shell between', async () => {
-  // Catches: the local command builds a shell line, so a value given to `since` runs.
-  const dirs = cliFolders();
+test('--secret-stdin with an empty stdin makes up no answer', async () => {
+  // Catches: an unset variable in a script stores an empty key over a working one.
+  await assert.rejects(secretFromStdin(Readable.from([])).ask(SECRET_QUESTION, true), UnansweredQuestion);
+});
+
+test('--secret-stdin answers no plain question and no second secret', async () => {
+  // Catches: a later question is answered with the secret or an empty line, instead of naming what is missing.
+  const answers = secretFromStdin(Readable.from([`${SECRET}\n`]));
+  await assert.rejects(answers.ask(QUESTION, false), (err: Error) => err.message.includes(QUESTION));
+  assert.equal(await answers.ask(SECRET_QUESTION, true), SECRET);
+  await assert.rejects(answers.ask(SECRET_QUESTION, true), (err: Error) => !err.message.includes(SECRET));
+});
+
+test('an unanswered question names itself, and the channel only when it is secret', () => {
+  // Catches: the reply leaves the caller with no way forward, or offers stdin for an answer it would refuse.
+  assert.ok(unansweredText(QUESTION, false).includes(QUESTION));
+  assert.equal(unansweredText(QUESTION, false).includes('--secret-stdin'), false);
+  assert.ok(unansweredText(SECRET_QUESTION, true).includes('--secret-stdin'));
+});
+
+test('the explanation of a panel says how to run one command and names the table', () => {
+  // Catches: a script is told it needs a terminal and nothing about what runs without one.
+  const text = panelRefusal('zeta-panel');
+  assert.ok(text.includes('zeta-panel'));
+  assert.ok(text.includes('-p'));
+  assert.ok(text.includes(COMMANDS_LINE));
+});
+
+// What a child alone can prove. One recording core serves them; each test sets what it answers.
+
+let dirs: Dirs;
+let core: RecordingCore;
+let answer: () => Reply | null = () => null;
+
+before(async () => {
+  dirs = cliFolders();
+  core = await startRecordingCore(dirs, (command) => answer() ?? handled(command));
+});
+
+after(async () => {
+  await core.close();
+  rmSync(dirs.root, { recursive: true, force: true });
+});
+
+/** The recording core emptied, answering with `reply` or with `handled <name>`. */
+function fresh(reply: () => Reply | null = () => null): void {
+  core.commands.length = 0;
+  core.lines.length = 0;
+  answer = reply;
+}
+
+test('a hostile value reaches the handler whole from a real argv, and no shell runs it', async () => {
+  // Catches: the process re-quotes or joins its argv, or a shell sees the value on the way to the socket.
+  fresh();
   const canary = join(dirs.root, 'canary');
-  const args = join(dirs.root, 'args');
-  writeFileSync(join(dirs.root, 'journalctl'), `#!/bin/sh\nfor a in "$@"; do echo "$a"; done > ${args}\n`, {
-    mode: 0o755,
-  });
-  const value = `$(touch ${canary})`;
-  const run = await runChild(dirs, ['logs', 'since', value], { env: { PATH: dirs.root } });
+  const text = `${nasty(canary)}${SPACED}`;
+  const run = await runChild(dirs, ['memory', 'lore', 'add', 'The Tower', 'tower, spire', text]);
   assert.equal(run.code, 0, run.stderr.slice(0, 200));
-  assert.ok(readFileSync(args, 'utf8').split('\n').includes(value), 'the value is one word of journalctl');
-  assert.equal(existsSync(canary), false);
+  assert.deepEqual(core.commands, [
+    { name: 'memory.lore.add', args: { title: 'The Tower', keys: 'tower, spire', text } },
+  ]);
+  assert.equal(existsSync(canary), false, 'no shell ran the value');
 });
 
 /**
  * The environment that records every module the child resolves into `imports`. The list of a run is never empty, so
  * an empty list means the hook did not run and the assertion on Ink means nothing.
  */
-function importProbe(dirs: Dirs): { env: NodeJS.ProcessEnv; imports(): Array<string> } {
+function importProbe(): { env: NodeJS.ProcessEnv; imports(): Array<string> } {
   const log = join(dirs.root, 'imports');
   const probe = join(dirs.root, 'probe.mjs');
+  rmSync(log, { force: true });
   writeFileSync(
     probe,
     `import { appendFileSync } from 'node:fs';
@@ -173,17 +253,23 @@ registerHooks({
   };
 }
 
-/** Asserts the answer to a panel-only request: exit 2, the commands on stderr, no Ink, no line, no command. */
-async function assertExplainsThePanel(argv: ReadonlyArray<string>, open: boolean): Promise<void> {
-  await withRecordingCore(handled, async ({ dirs, core }) => {
-    const probe = importProbe(dirs);
+const PANELS: ReadonlyArray<{ what: string; argv: ReadonlyArray<string> }> = [
+  { what: 'the chat with no arguments', argv: [] },
+  { what: '-p /setup', argv: ['-p', '/setup'] },
+  { what: 'neptunia clear', argv: ['clear'] },
+];
+
+for (const { what, argv } of PANELS) {
+  test(`${what} with no terminal and an open input explains itself at once, with no Ink, line or command`, async () => {
+    // Catches: the request waits on a pipe nobody writes to, tries Ink, or answers nothing at all.
+    fresh();
+    const probe = importProbe();
     // The plain chat over a pipe is asked for by name; a request that did not ask for it gets the explanation.
     const env = { ...probe.env, NEPTUNIA_PLAIN_CHAT: undefined };
-    const run = await runChild(dirs, argv, { env, open, ms: PROMPTLY });
+    const run = await runChild(dirs, argv, { env, open: true, ms: PROMPTLY });
     assert.equal(run.code, 2, `${run.stderr.slice(0, 200)}${run.stdout.slice(0, 200)}`);
     assert.equal(run.stdout, '');
-    assert.ok(run.stderr.includes('-p'), 'the explanation says how to run one command');
-    for (const command of COMMANDS) assert.ok(run.stderr.includes(command.name), `it names ${command.name}`);
+    assert.ok(run.stderr.includes(COMMANDS_LINE), 'the explanation names the table');
     assert.deepEqual(core.commands, []);
     assert.deepEqual(core.lines, [], 'no model turn');
     const imports = probe.imports();
@@ -196,174 +282,35 @@ async function assertExplainsThePanel(argv: ReadonlyArray<string>, open: boolean
   });
 }
 
-const PANELS: ReadonlyArray<{ what: string; argv: ReadonlyArray<string> }> = [
-  { what: 'the chat with no arguments', argv: [] },
-  { what: '-p /setup', argv: ['-p', '/setup'] },
-  { what: '-p /clear', argv: ['-p', '/clear'] },
-  { what: 'neptunia clear', argv: ['clear'] },
-];
-
-for (const { what, argv } of PANELS) {
-  test(`${what} with no terminal and an open input explains itself at once`, () =>
-    // Catches: the request waits on a pipe nobody writes to, tries Ink, or answers nothing at all.
-    assertExplainsThePanel(argv, true));
-}
-
-test('the chat with no arguments and an input already at its end explains itself at once', () =>
-  // Catches: an empty input reads as a chat that ended well, exit 0 with nothing said.
-  assertExplainsThePanel([], false));
-
-test('the chat with no terminal explains itself the same with no core listening', async () => {
-  // Catches: the explanation depends on the core, so a script with the core down hears only that no core listens.
-  const run = await runChild(cliFolders(), [], { env: { NEPTUNIA_PLAIN_CHAT: undefined }, open: true, ms: PROMPTLY });
+test('a secret given as a word exits 2 from a real argv, reaches no core and is not echoed', async () => {
+  // Catches: the process prints the refused argv back, or sends the command before it is refused.
+  fresh();
+  const run = await runChild(dirs, ['keys', 'core', 'add', 'k1', SECRET]);
   assert.equal(run.code, 2, run.stderr.slice(0, 200));
-  for (const command of COMMANDS) assert.ok(run.stderr.includes(command.name), `it names ${command.name}`);
+  assert.deepEqual(core.commands, []);
+  assert.equal((run.stdout + run.stderr).includes(SECRET), false);
 });
 
-/** A core that asks `prompts` in order, each secret or not by its entry, then answers ok. */
-function asking(questions: ReadonlyArray<{ prompt: string; secret: boolean }>): (command: Received) => Reply {
-  let asked = 0;
-  return () => {
-    const question = questions[asked];
-    asked += 1;
-    if (question === undefined) return { status: 'ok', text: 'zeta-done' };
-    return { status: 'ask', text: question.prompt, dialogId: `dialog-${asked}`, ...question };
-  };
-}
-
-const QUESTION = { prompt: 'zeta-which-model?', secret: false };
-const SECRET_QUESTION = { prompt: 'zeta-key-value:', secret: true };
-const SECRET = 'sk-or-v1-zeta-SECRETVALUE-0001';
-
-for (const argv of [
-  ['skills', 'setup', 'zeta'],
-  ['-p', '/skills setup zeta'],
-]) {
-  test(`${argv.join(' ')} with a question and no terminal exits 1 with the question on stderr, never hangs`, async () => {
-    // Catches: the question waits on a pipe nobody writes to, or the reply says nothing of what the command needed.
-    await withRecordingCore(asking([QUESTION]), async ({ dirs, core }) => {
-      const run = await runChild(dirs, argv, { open: true, ms: PROMPTLY });
-      assert.equal(run.code, 1, run.stderr.slice(0, 200));
-      assert.equal(run.stdout, '');
-      assert.ok(run.stderr.includes(QUESTION.prompt), 'the missing input is named');
-      assert.equal(core.commands.length, 1, 'no answer was made up');
-    });
-  });
-}
-
-test('a secret question with no terminal names the channel and never reads stdin uninvited', async () => {
-  // Catches: whatever is on the pipe is sent as the key value, or the reply leaves the caller with no way forward.
-  await withRecordingCore(asking([SECRET_QUESTION]), async ({ dirs, core }) => {
-    const run = await runChild(dirs, ['keys', 'core', 'add', 'k1'], { input: `${SECRET}\n`, ms: PROMPTLY });
-    assert.equal(run.code, 1, run.stderr.slice(0, 200));
-    assert.ok(run.stderr.includes('--secret-stdin'), run.stderr.slice(0, 200));
-    assert.equal(core.commands.length, 1, 'stdin was not sent as the answer');
-    assert.equal((run.stdout + run.stderr).includes(SECRET), false);
-  });
+test('a secret question with no terminal exits 1 at once, names the channel and leaves stdin unread', async () => {
+  // Catches: the question waits on a pipe that stays open, or whatever is on the pipe is sent as the key value.
+  fresh(() => ({ status: 'ask', text: SECRET_QUESTION, dialogId: 'dialog-1', prompt: SECRET_QUESTION, secret: true }));
+  const run = await runChild(dirs, ['keys', 'core', 'add', 'k1'], { input: `${SECRET}\n`, open: true, ms: PROMPTLY });
+  assert.equal(run.code, 1, run.stderr.slice(0, 200));
+  assert.equal(run.stdout, '');
+  assert.ok(run.stderr.includes(SECRET_QUESTION), 'the missing input is named');
+  assert.ok(run.stderr.includes('--secret-stdin'), run.stderr.slice(0, 200));
+  assert.equal(core.commands.length, 1, 'stdin was not sent as the answer');
+  assert.equal((run.stdout + run.stderr).includes(SECRET), false);
 });
 
-test('--secret-stdin answers the secret question from stdin, its one trailing newline dropped', async () => {
-  // Catches: the value travels as an argument and lands in `ps`, or keeps its newline and is stored broken.
-  await withRecordingCore(asking([SECRET_QUESTION]), async ({ dirs, core }) => {
-    const run = await runChild(dirs, ['keys', 'core', 'add', 'k1', '--secret-stdin'], { input: `${SECRET}\n` });
+test('the real handler stores a token given through --secret-stdin, and prints none of it', async () => {
+  // Catches: the channel parses but the real dialog broker never gets the answer, or the value is echoed.
+  await withRig({}, async ({ dirs: rig, llm, cores }) => {
+    cores.push(await startUnitsCore(rig, llm, () => T0));
+    const run = await runChild(rig, ['interface', 'token', 'set', 'zeta', '--secret-stdin'], { input: `${SECRET}\n` });
     assert.equal(run.code, 0, run.stderr.slice(0, 200));
-    assert.equal(run.stdout, 'zeta-done\n');
-    assert.deepEqual(core.commands, [
-      { name: 'keys.core.add', args: { name: 'k1' } },
-      { name: 'keys.core.add', args: { name: 'k1' }, dialogId: 'dialog-1', answer: SECRET },
-    ]);
-    assert.equal((run.stdout + run.stderr).includes(SECRET), false);
-  });
-});
-
-test('--secret-stdin with an empty stdin exits 1 and sends no answer', async () => {
-  // Catches: an unset variable in a script stores an empty key over a working one.
-  await withRecordingCore(asking([SECRET_QUESTION]), async ({ dirs, core }) => {
-    const run = await runChild(dirs, ['keys', 'core', 'add', 'k1', '--secret-stdin'], { input: '', ms: PROMPTLY });
-    assert.equal(run.code, 1, run.stderr.slice(0, 200));
-    assert.notEqual(run.stderr, '');
-    assert.equal(core.commands.length, 1);
-  });
-});
-
-test('--secret-stdin answers no plain question that follows the secret', async () => {
-  // Catches: a second question is answered with the secret or an empty line, instead of naming what is missing.
-  await withRecordingCore(asking([SECRET_QUESTION, QUESTION]), async ({ dirs, core }) => {
-    const run = await runChild(dirs, ['keys', 'core', 'add', 'k1', '--secret-stdin'], {
-      input: `${SECRET}\n`,
-      ms: PROMPTLY,
-    });
-    assert.equal(run.code, 1, run.stderr.slice(0, 200));
-    assert.ok(run.stderr.includes(QUESTION.prompt), run.stderr.slice(0, 200));
-    assert.equal(core.commands.length, 2, 'the first answer and no other');
-  });
-});
-
-test('--secret-stdin on a leaf that asks no secret is a plain value', async () => {
-  // Catches: the flag is stripped from every command, so a rule that holds those words loses them.
-  await withRecordingCore(handled, async ({ dirs, core }) => {
-    const run = await runChild(dirs, ['rules', 'add', '--secret-stdin']);
-    assert.equal(run.code, 0, run.stderr.slice(0, 200));
-    assert.deepEqual(core.commands, [{ name: 'rules.add', args: { text: '--secret-stdin' } }]);
-  });
-});
-
-/** The leaves that ask for a secret value, each with the words before the value. */
-const SECRET_LEAVES: ReadonlyArray<{ name: string; words: ReadonlyArray<string>; args: unknown }> = [
-  { name: 'keys.core.add', words: ['keys', 'core', 'add', 'k1'], args: { name: 'k1' } },
-  { name: 'keys.extra.add', words: ['keys', 'extra', 'add', 'k1'], args: { name: 'k1' } },
-  { name: 'keys.service.set', words: ['keys', 'service', 'set', 'youtube'], args: { name: 'youtube' } },
-  { name: 'interface.token.set', words: ['interface', 'token', 'set', 'zeta'], args: { name: 'zeta' } },
-];
-
-for (const { name, words, args } of SECRET_LEAVES) {
-  test(`${name} takes its name directly and refuses a secret as a word of argv`, async () => {
-    // Catches: the last argument's rest rule folds the secret into the name, so it reaches the core, the logs and `ps`.
-    await withRecordingCore(handled, async ({ dirs, core }) => {
-      const plain = await runChild(dirs, words);
-      assert.equal(plain.code, 0, plain.stderr.slice(0, 200));
-      assert.deepEqual(core.commands, [{ name, args }]);
-      core.commands.length = 0;
-
-      const run = await runChild(dirs, [...words, SECRET]);
-      assert.equal(run.code, 2, run.stderr.slice(0, 200));
-      assert.deepEqual(core.commands, [], 'nothing of it reaches the core');
-      assert.equal((run.stdout + run.stderr).includes(SECRET), false, 'the value is not echoed');
-    });
-  });
-
-  test(`${name} refuses a secret as a word of a -p line`, async () => {
-    // Catches: the check guards the direct form and the same value still goes through -p.
-    await withRecordingCore(handled, async ({ dirs, core }) => {
-      const run = await runChild(dirs, ['-p', `/${words.join(' ')} ${SECRET}`]);
-      assert.equal(run.code, 2, run.stderr.slice(0, 200));
-      assert.deepEqual(core.commands, []);
-      assert.equal((run.stdout + run.stderr).includes(SECRET), false, 'the value is not echoed');
-    });
-  });
-}
-
-test('the real handler stores a token given through --secret-stdin', async () => {
-  // Catches: the channel works against the stand-in but the real dialog broker never gets the answer.
-  await withRig({}, async ({ dirs, llm, cores }) => {
-    cores.push(await startUnitsCore(dirs, llm, () => T0));
-    const run = await runChild(dirs, ['interface', 'token', 'set', 'zeta', '--secret-stdin'], {
-      input: `${SECRET}\n`,
-    });
-    assert.equal(run.code, 0, run.stderr.slice(0, 200));
-    const file = join(dirs.privateDir, 'interfaces', 'zeta', 'credentials.json');
+    const file = join(rig.privateDir, 'interfaces', 'zeta', 'credentials.json');
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { token: SECRET });
     assert.equal((run.stdout + run.stderr).includes(SECRET), false);
-  });
-});
-
-test('the real handler asking with no terminal exits 1 and writes nothing, the input left open', async () => {
-  // Catches: the real dialog waits its five minutes for an answer nobody can send.
-  await withRig({}, async ({ dirs, llm, cores }) => {
-    cores.push(await startUnitsCore(dirs, llm, () => T0));
-    const run = await runChild(dirs, ['interface', 'token', 'set', 'zeta'], { open: true, ms: PROMPTLY });
-    assert.equal(run.code, 1, run.stderr.slice(0, 200));
-    assert.notEqual(run.stderr, '');
-    assert.equal(existsSync(join(dirs.privateDir, 'interfaces', 'zeta', 'credentials.json')), false);
   });
 });

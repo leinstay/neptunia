@@ -112,9 +112,9 @@ export async function withRecordingCore(
 export type Run = Exit & { stdout: string; stderr: string };
 
 /**
- * One `neptunia` child to its end. Its stdin gets `input` and closes, or with `open: true` stays an open pipe nobody
- * writes to, as a process started by an agent has it. A child still running after `ms` is killed and fails the test,
- * which is how a test sees a hang.
+ * One `neptunia` child to its end. Its stdin gets `input` and closes, or with `open: true` stays an open pipe, as a
+ * process started by an agent has it. A child still running after `ms` is killed and fails the test, which is how a test
+ * sees a hang.
  */
 export async function runChild(
   dirs: Dirs,
@@ -123,10 +123,8 @@ export async function runChild(
 ): Promise<Run> {
   const ms = options.ms ?? 30_000;
   const cli = spawnCli(dirs, argv, options.env ?? {});
-  if (options.open !== true) {
-    if (options.input !== undefined) cli.child.stdin?.write(options.input);
-    cli.end();
-  }
+  if (options.input !== undefined) cli.child.stdin?.write(options.input);
+  if (options.open !== true) cli.end();
   const timer = setTimeout(() => void cli.kill(), ms);
   const exit = await cli.exited;
   clearTimeout(timer);
