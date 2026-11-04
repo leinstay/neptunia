@@ -138,6 +138,10 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 <!-- settings: selfimprovement -->
 
+## development
+
+<!-- settings: development -->
+
 ## selfreflection
 
 <!-- settings: selfreflection -->

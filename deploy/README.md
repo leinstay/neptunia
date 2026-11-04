@@ -8,12 +8,12 @@ The systemd unit templates of the engine. `neptunia setup` renders them for the 
 | `neptunia-interface@.service` | One interface, `neptunia interface run %i`. | yes |
 | `neptunia-agent-scout.service`, `neptunia-agent-server.service` | The errand agents, `neptunia errand-runner --profile <name>`. See [Errands](../docs/errands.md#the-subharness). | yes |
 | `neptunia-watcher.service`, `neptunia-watcher.timer` | The watcher, `neptunia worker watcher`, started by the timer on `watcher.schedule` (default `at 00:00`, UTC), which setup and `neptunia service watcher setup` render into it. See [The watcher](../docs/watcher.md). | yes |
-| `neptunia-selfimprovement.service`, `neptunia-selfimprovement.timer` | One beat of her self-development, `neptunia worker selfimprovement`, in the dev checkout `selfimprovement.checkout` names, started by the timer every six hours UTC. See [Self-development](../docs/selfimprovement.md). | when `selfimprovement.checkout` names another checkout |
+| `neptunia-development.service` | The long-lived development worker, `neptunia worker development`, in the dev checkout `selfimprovement.checkout` names. Setup writes it and never enables it; the owner's step is in [Self-development](../docs/selfimprovement.md#enabling-the-worker). | when `selfimprovement.checkout` names another checkout |
 | `neptunia-bot.service` | The core with the Discord interface in its process (`interfaces.mode: inprocess`). It conflicts with the core unit. | no |
 
 ## How a template becomes a unit
 
-The templates keep the paths of the first deployment (`/opt/neptunia/app`, `/opt/neptunia/etc`, `/opt/neptunia/data`, `/opt/node/bin/node`, `/home/neptunia`). `renderUnit` in `src/setup/units.ts` maps them onto the checkout, the private folder, the data folder, the node binary and the home of the installing user. The selfimprovement units map `/opt/neptunia/app` onto the dev checkout of `selfimprovement.checkout` instead. The render is pure, so a rerun renders the same text and writes only the units whose text changed.
+The templates keep the paths of the first deployment (`/opt/neptunia/app`, `/opt/neptunia/etc`, `/opt/neptunia/data`, `/opt/node/bin/node`, `/home/neptunia`). `renderUnit` in `src/setup/units.ts` maps them onto the checkout, the private folder, the data folder, the node binary and the home of the installing user. The development unit maps `/opt/neptunia/app` onto the dev checkout of `selfimprovement.checkout` instead. The render is pure, so a rerun renders the same text and writes only the units whose text changed.
 
 The node binary is the one `neptunia setup` was started with, as it was typed or found on `PATH` and never resolved through a link, so a unit names `/opt/node/bin/node` when `/opt/node` is a link to a versioned folder. `neptunia setup --node <path>` names another one.
 

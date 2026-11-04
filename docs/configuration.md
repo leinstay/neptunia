@@ -356,17 +356,25 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `selfimprovement.enabled` | boolean | `true` | Whether the selfimprovement wake falls due and the beat of the executor works. Off, neither starts | `src/selfimprovement/settings.ts` |
+| `selfimprovement.enabled` | boolean | `true` | Whether the selfimprovement wake falls due. A task already filed goes on, because the development worker depends on the board alone | `src/selfimprovement/settings.ts` |
 | `selfimprovement.mode` | string | `"approve"` | Who merges a pull request she opened for her own code: `approve` waits for the owner once CI is green, `auto` has the engine merge it when CI is green | `src/selfimprovement/settings.ts` |
 | `selfimprovement.base` | string | `"main"` | The branch her worktrees start from and her pull requests target | `src/selfimprovement/settings.ts` |
-| `selfimprovement.checkout` | string, null | `null` | The absolute path of the dev checkout that `neptunia setup` renders `neptunia-selfimprovement.service` and its timer over, so the beat works there. Setup renders no selfimprovement units while it is unset, relative or the deployed checkout itself | `src/setup/run.ts` |
-| `selfimprovement.repository` | string, null | `null` | The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when her gh login can push there. While it is unset every selfimprovement beat pauses | `src/selfimprovement/settings.ts` |
+| `selfimprovement.checkout` | string, null | `null` | The absolute path of the dev checkout that `neptunia setup` renders `neptunia-development.service` over, so the development worker runs there. Setup renders no development unit while it is unset, relative or the deployed checkout itself | `src/setup/run.ts` |
+| `selfimprovement.repository` | string, null | `null` | The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when her gh login can push there, so someone else's installation names a fork. While it is unset a filed task blocks with that reason | `src/selfimprovement/settings.ts` |
 | `selfimprovement.schedule` | string | `"at 03:00"` | When the selfimprovement wake falls due: daily UTC times such as `at 03:00` or `every 6h`, after the watcher's run so the wake carries its report. `neptunia service selfimprovement setup` writes it, and a value that means nothing reads as the default | `src/behavior/inner/settings.ts` |
 | `selfimprovement.failuresPerShape` | number | `3` | How many chains of one shape must fail in a UTC day to raise a selfimprovement wake with that cause | `src/behavior/inner/settings.ts` |
 | `selfimprovement.tools` | string, array | `"*"` | The tools a selfimprovement wake may call: `"*"` for every granted tool or a list of tool names | `src/tools/access.ts` |
 | `selfimprovement.maxActs` | number, null | `null` | The most actions a selfimprovement wake may take; null: no cap | `src/tools/access.ts` |
 | `selfimprovement.maxTasks` | number, null | `null` | The most errands a selfimprovement wake may start; null: no cap | `src/tools/access.ts` |
 | `selfimprovement.inputTokens` | number, null | `null` | The input token budget of a selfimprovement wake; null: the loop budget | `src/tools/access.ts` |
+
+## development
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `development.thinkerTurns` | number | `12` | The most thinker turns on one task. Past it the task blocks with that reason, and her unblock or the owner's gives it new turns | `src/development/settings.ts` |
+| `development.lookEveryMs` | number | `120000` | How often the development worker looks at GitHub while a pull request is watched, in milliseconds, at least 10000. With none watched it waits for board events and sets no clock | `src/development/settings.ts` |
+| `development.startedAt` | string, null | `null` | The moment the development worker first started, an ISO time it writes itself. A task approved before it waits for the owner: `neptunia worker development held` lists them, and `neptunia task update <id> --meta admitted=yes` lets one run | `src/development/settings.ts` |
 
 ## selfreflection
 

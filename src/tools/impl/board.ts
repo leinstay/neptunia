@@ -1,9 +1,9 @@
-// Operations `board.propose`, `board.status`, `board.cancel`, `board.comment` and `board.answer`: her side of the task
+// Operations `board.propose`, `board.status`, `board.cancel`, `board.comment`, `board.answer` and `board.unblock`: her side of the task
 // board (src/board/). `board.propose` files a `dev` task in `proposed` with her evidence as its description,
 // `persona:self` as its requester and subscriber, so the owner or a reviewer decides whether it is done, and refuses a
 // title she already has open (`duplicate-task`, naming that task); `board.status` reads back every task filed for her
-// with its questions and its reviews. The other three act on a task of hers: cancel it, comment on it, answer the open
-// question addressed to her. All run against the board the core gives the operations' environment (`env.board`,
+// with its questions and its reviews. The others act on a task of hers: cancel it, comment on it, answer the open
+// question addressed to her, lift its block. A question addressed to her is hers to answer whoever filed its task. All run against the board the core gives the operations' environment (`env.board`,
 // src/board/writer.ts#createBoardPort) as the builtin principal `persona`, whose only board role is `persona`: she
 // files, reads and answers, and never approves, reviews or merges. Every member may use the first two while
 // `features.memberCommands` is on (rights.member); none is granted to her in the tracked config. A board refusal is
@@ -204,20 +204,41 @@ const handlers = perEnv((env) => {
     });
   }
 
-  /** `board.answer { id, text }`: her answer to the open question addressed to her on task `id`, so its holder goes on. */
+  /** The open question on task `id` addressed to her. */
+  async function openQuestionOn(board: BoardCaller, id: string): Promise<string> {
+    const { questions } = await board.call(PERSONA, 'task.show', { id });
+    const open = questions.find((question) => !question.answered_at && question.to_whom === SELF);
+    if (open === undefined) throw new BoardError('not-found', `${id} has no question for her`);
+    return String(open.id);
+  }
+
+  /**
+   * `board.answer { id, text }` or `board.answer { question_id, text }`: her answer to the open question addressed to
+   * her on task `id`, or to that question, so its holder goes on. The board refuses a question addressed to anyone else.
+   */
   function cmdAnswer(args: Obj) {
-    const id = required(args, 'id');
+    const questionId = textOf(args.question_id).trim();
+    const id = questionId ? '' : required(args, 'id');
     const text = required(args, 'text');
     return guarded(async (board) => {
-      const { questions } = await herTask(board, id);
-      const open = questions.find((question) => !question.answered_at && question.to_whom === SELF);
-      if (open === undefined) throw new BoardError('not-found', `${id} has no question for her`);
-      const { task } = await board.call(PERSONA, 'task.answer', { question_id: String(open.id), text });
+      const question_id = questionId || (await openQuestionOn(board, id));
+      const { task } = await board.call(PERSONA, 'task.answer', { question_id, text });
       return { status: 'ok', code: CODE.OK, summary: `task ${task.id}: ${task.status}`, data: { task } };
     });
   }
 
-  return { cmdPropose, cmdStatus, cmdCancel, cmdComment, cmdAnswer };
+  /** `board.unblock { id, note }`: her task back to approved, with what she decided as a comment for whoever goes on. */
+  function cmdUnblock(args: Obj) {
+    const id = required(args, 'id');
+    const note = required(args, 'note');
+    return guarded(async (board) => {
+      await herTask(board, id);
+      const moved = await board.call(PERSONA, 'task.unblock', { id, note });
+      return { status: 'ok', code: CODE.OK, summary: `task ${moved.id}: ${moved.status}`, data: { task: moved } };
+    });
+  }
+
+  return { cmdPropose, cmdStatus, cmdCancel, cmdComment, cmdAnswer, cmdUnblock };
 });
 
 defineOp({
@@ -244,4 +265,9 @@ defineOp({
   name: 'board.answer',
   rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdAnswer(args),
+});
+defineOp({
+  name: 'board.unblock',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdUnblock(args),
 });

@@ -17,7 +17,7 @@
 //                    (src/setup/mechanics.ts)
 //   watcher          the watcher on or off, `watcher.schedule`, its backend and its model (src/setup/watcher.ts)
 //   units            the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ; the
-//                    selfimprovement units too when `selfimprovement.checkout` names a checkout other than this one
+//                    development unit too when `selfimprovement.checkout` names a checkout other than this one
 //   linger           `loginctl enable-linger` for the user, so the user units run without a login (user units only)
 //   core             `enable --now neptunia-core.service`, the one unit setup starts
 //
@@ -45,7 +45,7 @@ import { subharnessStep } from './subharness.ts';
 import type { SubharnessStepDeps } from './subharness.ts';
 import { watcherStep } from './watcher.ts';
 import type { InstallRun } from '../subharness/install.ts';
-import { SELFIMPROVEMENT_UNIT_FILES, UNIT_FILES } from './units.ts';
+import { DEVELOPMENT_UNIT_FILES, UNIT_FILES } from './units.ts';
 
 export type { RunResult };
 
@@ -202,28 +202,27 @@ function keysFileStep(options: SetupOptions): Outcome {
 }
 
 /**
- * The dev checkout the selfimprovement units run in, or why there are none: `selfimprovement.checkout` unset, or naming this checkout,
- * where a beat would edit and push the code that is running.
+ * The dev checkout the development unit runs in, or why there is none: `selfimprovement.checkout` unset, or naming this checkout,
+ * where the worker would edit and push the code that is running.
  */
-function selfimprovementCheckoutOf(options: SetupOptions): { checkout: string } | { why: string } {
+function developmentCheckoutOf(options: SetupOptions): { checkout: string } | { why: string } {
   const { checkout } = selfimprovementSettings(readConfig(options.rootDir, { privateDir: options.privateDir }));
-  if (checkout === null) return { why: 'no selfimprovement units: selfimprovement.checkout is unset' };
+  if (checkout === null) return { why: 'no development unit: selfimprovement.checkout is unset' };
   if (path.resolve(checkout) === path.resolve(options.rootDir))
     return {
-      why: 'no selfimprovement units: selfimprovement.checkout is the deployed checkout, and the beat works on a dev checkout',
+      why: 'no development unit: selfimprovement.checkout is the deployed checkout, and the worker works on a dev checkout',
     };
   return { checkout };
 }
 
 async function unitsStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
-  const selfimprovement = selfimprovementCheckoutOf(options);
-  const files = 'checkout' in selfimprovement ? [...UNIT_FILES, ...SELFIMPROVEMENT_UNIT_FILES] : UNIT_FILES;
-  const target =
-    'checkout' in selfimprovement ? { ...options, selfimprovementCheckout: selfimprovement.checkout } : options;
+  const development = developmentCheckoutOf(options);
+  const files = 'checkout' in development ? [...UNIT_FILES, ...DEVELOPMENT_UNIT_FILES] : UNIT_FILES;
+  const target = 'checkout' in development ? { ...options, developmentCheckout: development.checkout } : options;
   const result = await installUnits(target, (command, args) => deps.run(command, args), files);
   if (!result.ok) return failed(result.reason);
   const where = unitDirOf(options);
-  const note = 'why' in selfimprovement ? `; ${selfimprovement.why}` : '';
+  const note = 'why' in development ? `; ${development.why}` : '';
   return result.written.length === 0
     ? already(`${files.length} units are in ${where}${note}`)
     : done(`${result.written.length} units written to ${where}${note}`);
