@@ -1353,7 +1353,7 @@ async function buildCore(
     guildId: getGuildId,
     // The agents' board commands (src/board/commands.ts), each run in the memory writer.
     tasks: board,
-    // The agents' `skill.pending` and `skill.activate` (src/skills/agent-commands.ts).
+    // The agents' `skill.pending` (src/skills/agent-commands.ts).
     skills: skillsWiring.access,
     facts: () =>
       coreStatusFacts({

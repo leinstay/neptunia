@@ -1,17 +1,18 @@
 // Loads the skills from disk at the moment of use: `<trackedDir>/<name>/SKILL.md` for the tracked layer and
 // `<localDir>/<name>/SKILL.md` for the local one, each call reading the folders anew. A local skill replaces the
 // tracked skill of the same name whole. A folder without a `SKILL.md`, a README and any loose file are ignored; a
-// file that does not parse, or whose `name` differs from its folder, is a problem and no skill, and never stops the
-// others. The skills port (port.ts) is the caller.
+// file that does not parse, one whose `name` differs from its folder, or a package that cannot run (package.ts) is a
+// problem and no skill, and never stops the others. The skills port (port.ts) is the caller.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseSkillFile } from './format.ts';
-import { packageHash, snapshotPackage } from './package.ts';
+import { packageHash, packageProblem, snapshotPackage } from './package.ts';
+import type { PackageCode } from './package.ts';
 import type { ParsedSkill, SkillFileCode } from './format.ts';
 
 export type LoadedSkill = ParsedSkill & { layer: 'tracked' | 'local'; dir: string };
-export type SkillProblem = { dir: string; code: SkillFileCode | 'name-mismatch' | 'unreadable' };
+export type SkillProblem = { dir: string; code: SkillFileCode | PackageCode | 'name-mismatch' | 'unreadable' };
 
 const FILE = 'SKILL.md';
 
@@ -45,6 +46,11 @@ function readLayer(
     else if (parsed.skill.name !== entry.name) problems.push({ dir: entry.name, code: 'name-mismatch' });
     else {
       const skillDir = path.join(root, entry.name);
+      const incomplete = packageProblem(skillDir);
+      if (incomplete !== null) {
+        problems.push({ dir: entry.name, code: incomplete });
+        continue;
+      }
       const contentHash = packageHash(skillDir, text, parsed.skill.contentHash);
       if (contentHash !== parsed.skill.contentHash) snapshotPackage(skillDir, text, contentHash);
       skills.push({ ...parsed.skill, contentHash, layer, dir: entry.name });
