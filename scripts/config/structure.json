@@ -389,6 +389,13 @@
       "test": "none"
     },
     {
+      "path": "src/rules-list.ts",
+      "purpose": "The rules list of the rules prompt file: its bullets, and the rule that the file reaches a request only while the list holds one.",
+      "layer": "public",
+      "imports": [],
+      "test": "required"
+    },
+    {
       "path": "src/process-errors.ts",
       "purpose": "What the core does with an uncaught error: an idle HTTP/2 stream's close is logged and survived, and any other ends the process with exit 1.",
       "layer": "public",

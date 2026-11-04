@@ -26,7 +26,8 @@ const OLD = 'Ada likes café mornings and quiet talk. She plays chess privately.
 const prompts = {
   'system-prompt': 'SYSTEM {{name}}',
   'character-card': 'CARD {{name}}',
-  rules: 'RULES',
+  // The rules text holds a list item: a rules file with an empty list reaches no system text (src/rules-list.ts).
+  rules: '- RULES',
   format: 'FORMAT',
   'description-draft': 'DRAFT PROMPT',
   'description-check': 'CHECK PROMPT',
@@ -161,8 +162,8 @@ test('two calls on the memory role: the draft sees claims and evidence but not t
     }
     assert.equal(first.options.purpose, 'description-draft');
     assert.equal(second.options.purpose, 'description-check');
-    assert.equal(first.messages[0].content, 'SYSTEM Nep\n\nCARD Nep\n\nRULES\n\nFORMAT\n\nDRAFT PROMPT');
-    assert.equal(second.messages[0].content, 'SYSTEM Nep\n\nCARD Nep\n\nRULES\n\nFORMAT\n\nCHECK PROMPT');
+    assert.equal(first.messages[0].content, 'SYSTEM Nep\n\nCARD Nep\n\n- RULES\n\nFORMAT\n\nDRAFT PROMPT');
+    assert.equal(second.messages[0].content, 'SYSTEM Nep\n\nCARD Nep\n\n- RULES\n\nFORMAT\n\nCHECK PROMPT');
     // call 1
     const draftUser = first.messages[1].content;
     const order = ['<subject>', '<claims>', '<evidence>', '<samples>'].map((tag) => draftUser.indexOf(tag));

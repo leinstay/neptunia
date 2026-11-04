@@ -44,6 +44,7 @@ import { concernsMember, isOpen } from '../../intentions/model.ts';
 import { ROLE_KEY_NAME } from '../../llm/openrouter.ts';
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.ts';
 import { estimateMessages } from '../../llm/tokens.ts';
+import { rulesPromptOf } from '../../rules-list.ts';
 import { memoryPathText } from '../../subharness/memory-path.ts';
 import type { MemoryPath } from '../../subharness/memory-path.ts';
 import { exportOne } from './export.ts';
@@ -231,7 +232,13 @@ export function refusalOf(
 /** The system text her turns get (system prompt, card, rules, format), then `extra` (a prompt of the memory family). */
 export function systemTextOf(prompts: Row | null | undefined, selfName: unknown, extra: unknown): string {
   const fill = (text: string) => fillPromptTemplate(text, { name: selfName });
-  return [prompts?.['system-prompt'], prompts?.['character-card'], prompts?.rules, prompts?.format, extra]
+  return [
+    prompts?.['system-prompt'],
+    prompts?.['character-card'],
+    rulesPromptOf(prompts?.rules),
+    prompts?.format,
+    extra,
+  ]
     .map((text) => (typeof text === 'string' ? fill(text) : ''))
     .filter(Boolean)
     .join('\n\n');

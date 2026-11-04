@@ -47,7 +47,7 @@ import {
 test('buildRequest: system message is system-prompt + character-card + rules + format, joined', () => {
   const request = buildRequest(baseInput());
   assert.equal(request.messages[0].role, 'system');
-  assert.equal(request.messages[0].content, 'SYSTEM_TEXT for Nept\n\nCARD_TEXT\n\nRULES_TEXT\n\nFORMAT_TEXT');
+  assert.equal(request.messages[0].content, 'SYSTEM_TEXT for Nept\n\nCARD_TEXT\n\n- RULES_TEXT\n\nFORMAT_TEXT');
 });
 
 test('buildRequest: a reply in <chat> quotes its parent cut at a word to 80 characters', () => {

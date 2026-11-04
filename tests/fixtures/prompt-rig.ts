@@ -31,7 +31,8 @@ export function fakePrompts(overrides: Record<string, unknown> = {}): Record<str
   return {
     'system-prompt': 'SYSTEM_TEXT for {{name}}',
     'character-card': 'CARD_TEXT',
-    rules: 'RULES_TEXT',
+    // The rules text holds a list item: a rules file with an empty list reaches no system text (src/rules-list.ts).
+    rules: '- RULES_TEXT',
     format: 'FORMAT_TEXT',
     reply: 'Called by {{author}}, they {{trigger}}. Answer {{target}} as {{name}}. Target: {{target}}.',
     interject: 'INTERJECT_TASK for {{name}}',

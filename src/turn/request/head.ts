@@ -18,6 +18,7 @@ import { mergeProfiles } from '../../behavior/private.ts';
 import { isPlainObject } from '../../config.ts';
 import { formatTranscript } from '../../format.ts';
 import { requestTokenLimit, sectionCost } from '../../llm/budget.ts';
+import { rulesPromptOf } from '../../rules-list.ts';
 import { cacheTtlMs } from '../../llm/openrouter.ts';
 import { gifHandleMap, normalizeGifs } from '../../memory/index.ts';
 import { memberIdOf } from '../../memory/recent.ts';
@@ -249,7 +250,7 @@ export function requestHead(given: RequestInput): Base {
   const system = [
     nameFill(prompts['system-prompt']),
     nameFill(prompts['character-card']),
-    nameFill(prompts.rules),
+    nameFill(rulesPromptOf(prompts.rules)),
     formatFill(prompts.format),
   ]
     .filter(Boolean)
