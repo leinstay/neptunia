@@ -24,15 +24,12 @@ const SETUP = { scripts: { 'say.mjs': { args: {}, credentials: [] } } };
 function writePackage(
   dir: string,
   name: string,
-  {
-    setup = JSON.stringify(SETUP) as string | null,
-    script = SCRIPT as string | null,
-    text = null as string | null,
-  } = {}
+  options: { setup?: string | null; script?: string | null; text?: string } = {}
 ): void {
+  const { setup = JSON.stringify(SETUP), script = SCRIPT, text = skillText(name, 'd', ['skill.run']) } = options;
   const root = path.join(dir, name);
   fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'SKILL.md'), text ?? skillText(name, 'd', ['skill.run']));
+  fs.writeFileSync(path.join(root, 'SKILL.md'), text);
   if (setup !== null) fs.writeFileSync(path.join(root, 'setup.json'), setup);
   if (script !== null) fs.writeFileSync(path.join(root, 'scripts', 'say.mjs'), script, { mode: 0o755 });
 }
