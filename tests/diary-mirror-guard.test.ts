@@ -21,18 +21,9 @@ import { createFakeAdapter } from '../src/interface/fake.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { dbOf, entryOf, seedMirror } from './fixtures/diary-mirror.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
-import { labels } from './fixtures/labels.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
-import {
-  DISCORD,
-  contentText,
-  fakeStore,
-  hotWith,
-  personaGrants,
-  rawMessage,
-  sequenceLlm,
-} from './fixtures/turn-harness.ts';
+import { DISCORD, fakeStore, hotWith, personaGrants, rawMessage, sequenceLlm } from './fixtures/turn-harness.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import '../src/tools/impl/index.ts';

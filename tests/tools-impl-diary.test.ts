@@ -10,13 +10,12 @@ import { utcDay } from '../src/time.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createMirrors, guardMirrorPort } from '../src/behavior/mirror.ts';
-import type { PublishOutcome } from '../src/behavior/mirror.ts';
 import { createTurnRunner } from '../src/behavior/turn.ts';
 import { createAdmin } from '../src/admin.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createStore } from '../src/memory/store.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
-import { diaryPublications, diaryRows, seedMirror } from './fixtures/diary-mirror.ts';
+import { seedMirror } from './fixtures/diary-mirror.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
@@ -117,13 +116,11 @@ async function turnOf(
     answers,
     mode = 'reply',
     onAnswer = null,
-    mirrors = core.mirrors,
     memoryContext,
   }: {
     answers: Array<unknown>;
     mode?: 'reply' | 'inner' | 'diary';
     onAnswer?: ((index: number) => void) | null;
-    mirrors?: Community['mirrors'];
     memoryContext?: Context;
   }
 ) {
@@ -137,8 +134,6 @@ async function turnOf(
     getGuildId: () => GUILD,
     port: core.port,
     reads: core.reads,
-    // The diary's publisher: an entry she writes goes to every enabled mirror.
-    mirrors,
     errands: core.errands,
     // The download of her own picture a media repost takes.
     fetchImpl: () =>
@@ -167,7 +162,6 @@ async function turnOf(
     getSelfName: () => 'Bot',
     skills: skillRegistry(),
     journal: null,
-    mirrors,
     // Her errands' files, which a post may carry.
     errands: core.errands,
     runOp: admin.runSkillOp,
@@ -222,20 +216,6 @@ const offeredIn = (options: unknown): Array<string> =>
   ((options as { tools?: Array<{ function: { name: string } }> } | undefined)?.tools ?? []).map(
     (tool) => tool.function.name
   );
-
-/** One answer of hers with `message.create` calls to her diary, each with `args`. */
-const toDiary = (...args: Array<Record<string, unknown>>) =>
-  toolAnswer(
-    '',
-    args.map((given) => call('message.create', { diary: 'true', ...given }))
-  );
-
-/** The messages each mirror received, its text and the names of its attachments. */
-const receivedIn = (core: Community, conversationId: string) =>
-  core.adapter.messagesIn(conversationId).map((message) => ({
-    text: message.text,
-    files: message.attachments.map((attachment) => attachment.name),
-  }));
 
 // The diary turn keeps its requests byte for byte (section 4): the tools its writer request offers, and how it answers
 // a `message.create` call, are what the code of main gave for the same turn in the diary channel

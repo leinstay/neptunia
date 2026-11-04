@@ -38,7 +38,7 @@ import { freshAttachmentUrl, gifPostUrl } from '../../media/gif-post.ts';
 import { CODE } from '../codes.ts';
 import { idText, objOf, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
-import type { Adapter, ConversationRef, Delivery } from '../../protocol/adapter.ts';
+import type { Adapter, ConversationRef } from '../../protocol/adapter.ts';
 import type { Content } from '../../protocol/actions.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { Env } from './env.ts';

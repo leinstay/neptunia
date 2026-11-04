@@ -329,7 +329,6 @@ export function createTurnRunner({
   around = null,
   reactors = null,
   errands = null,
-  mirrors = null,
   intentions = null,
   // The places view of the inner life (src/behavior/inner.ts#places): `<places>` on an addressed turn with `context.places` on.
   places = null,

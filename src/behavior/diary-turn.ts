@@ -18,7 +18,6 @@ import {
   setSettings,
 } from './diary.ts';
 import { lineOf } from './line-of.ts';
-import { log } from '../log.ts';
 import { diaryPlaces, readMirrors } from './mirror.ts';
 import type { DiaryEntry, DiaryPlace, EntryPicture, EntryVoice } from './mirror.ts';
 import { CODE } from '../tools/codes.ts';

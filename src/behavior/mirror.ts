@@ -25,7 +25,6 @@
 import { diaryMetadataOf, diaryPublicationRefusal, isPublicationBoundary } from '../tools/publication.ts';
 import type { PublicationBoundary } from '../tools/publication.ts';
 import fs from 'node:fs';
-import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { log } from '../log.ts';
 import { portLimit } from '../interface/capabilities.ts';
