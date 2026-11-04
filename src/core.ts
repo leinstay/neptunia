@@ -1160,7 +1160,6 @@ async function buildCore(
     intentions,
     // /nep task inner: the inner life's kill switch and status.
     inner,
-    // Her message.create to her diary: held for the turn's entry by the diary's publisher.
     spontaneous,
     calibrator,
     getGuildId,
