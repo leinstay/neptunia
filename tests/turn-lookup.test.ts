@@ -152,7 +152,7 @@ test('the owner chat fetches no partner from the community', async () => {
     linkCalls: () => {
       throw new Error('no links here');
     },
-  } as unknown as Parameters<typeof createLookup>[0]);
+  });
   const partner = await lookup.privatePartner({ iface: 'cli', guildId: 'g1', userId: 'owner', config: {} });
   assert.equal(partner, null);
   assert.deepEqual(asked, []);
