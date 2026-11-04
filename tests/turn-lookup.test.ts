@@ -127,3 +127,35 @@ test('prefetch memoization retains qualified history identity as well as the iss
   assert.deepEqual(await start(otherConversation), { status: 'ok', excerpts: ['load-3'] });
   assert.deepEqual(loaded, [first, otherInterface, otherConversation]);
 });
+
+test('the owner chat fetches no partner from the community', async () => {
+  // Bug: a chat turn asked the platform for the member `owner`, which got an http-400 and a warning on every line.
+  const asked: Array<unknown> = [];
+  const lookup = createLookup({
+    hot: { prompts: { labels } },
+    store: {},
+    llm: { complete: () => Promise.reject(new Error('no model here')) },
+    clock: () => NOW,
+    recall: null,
+    membersOf: null,
+    selfIdOf: () => 'self',
+    ifaceReads: {
+      ...rig().reads,
+      memberInfo: (member: unknown) => {
+        asked.push(member);
+        return Promise.resolve(null);
+      },
+    },
+    classifierContext: () => {
+      throw new Error('no classifier here');
+    },
+    linkCalls: () => {
+      throw new Error('no links here');
+    },
+  } as unknown as Parameters<typeof createLookup>[0]);
+  const partner = await lookup.privatePartner({ iface: 'cli', guildId: 'g1', userId: 'owner', config: {} });
+  assert.equal(partner, null);
+  assert.deepEqual(asked, []);
+  await lookup.privatePartner({ iface: 'discord', guildId: 'g1', userId: 'u1', config: {} });
+  assert.equal(asked.length, 1);
+});

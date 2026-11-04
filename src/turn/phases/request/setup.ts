@@ -2,6 +2,7 @@
 // indicator while it prepares, the community's listing, the history with its reply parents, the memory prefetch and a
 // diary post's plan. The request phase (src/turn/phases/request.ts) runs it first; the later steps read what it made.
 
+import { isCliOwner } from '../../../behavior/core-pause.ts';
 import { forcedPictureRefusal } from '../../../behavior/diary-turn.ts';
 import { refreshEmojiIfOn } from '../../../behavior/emoji-index.ts';
 import { takeSnapshot } from '../../../behavior/snapshot.ts';
@@ -134,7 +135,7 @@ export async function setupRequest(
   // A private chat's partner as a guild member (private.likeServer), fetched beside
   // the history; null on a server turn, with the switch off or when the fetch fails.
   const partnerPending = isPrivate
-    ? privatePartner({ guildId, userId: trigger?.authorId ?? channel.partnerId ?? null, config })
+    ? privatePartner({ iface: channel.iface, guildId, userId: trigger?.authorId ?? channel.partnerId ?? null, config })
     : Promise.resolve(null);
   // The groups the requester holds in the community, read once: the rights of her calls are checked against them.
   const requesterPending =
@@ -143,7 +144,8 @@ export async function setupRequest(
       : Promise.resolve(null);
   // The community's listing, once for the attempt (neighbours, pulls, routing, places, audience rails); a private
   // chat is listed for its partner's sake.
-  const partnerHint = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
+  const partnerId = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
+  const partnerHint = isCliOwner(channel.iface, partnerId) ? null : partnerId;
   const snapshotPending = takeSnapshot(ifaceReads, guildId, partnerHint ? [String(partnerHint)] : []);
   const emojiPending = refreshEmojiIfOn(emoji);
   const historyStartedAt = clock();
