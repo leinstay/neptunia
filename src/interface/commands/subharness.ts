@@ -15,6 +15,7 @@ import {
   subharnessView,
   useBackend,
 } from '../../subharness/control.ts';
+import type { Dialog } from '../../keys/commands.ts';
 import { answerEnable, startEnable } from '../../subharness/enable-dialog.ts';
 import { memoryPath, memoryPathText, setMemoryPath } from '../../subharness/memory-path.ts';
 import type { EnableDeps, SubharnessAgent, SubharnessResult } from '../../subharness/control.ts';
@@ -84,7 +85,8 @@ async function agentModel(
 async function enable(
   deps: EnableDeps,
   name: string,
-  args: Readonly<Record<string, unknown>>
+  args: Readonly<Record<string, unknown>>,
+  dialog: Dialog | null
 ): Promise<SubharnessAnswer> {
   const key = text(args.key);
   try {
@@ -95,7 +97,14 @@ async function enable(
       given === ''
         ? await startEnable(deps, text(args.backend), key === '' ? undefined : key)
         : await answerEnable(deps, given, text(args.answer));
-    return 'dialogId' in next ? next : answerOf(name, args, next);
+    if (dialog === null) return 'dialogId' in next ? next : answerOf(name, args, next);
+    // The link's dialog carries the questions: an answer of the chat reaches the command waiting here.
+    let step = next;
+    while ('dialogId' in step) {
+      const answer = await dialog.ask(step.prompt, step.choices === undefined ? {} : { choices: step.choices });
+      step = await answerEnable(deps, step.dialogId, answer);
+    }
+    return answerOf(name, args, step);
   } catch {
     return failed(name, args, 'the check cannot run here: this core has no backend runner');
   }
@@ -129,7 +138,8 @@ async function memoryWriterPath(
 export async function subharnessCommand(
   deps: EnableDeps | null | undefined,
   name: string,
-  args: Readonly<Record<string, unknown>>
+  args: Readonly<Record<string, unknown>>,
+  dialog: Dialog | null = null
 ): Promise<SubharnessAnswer> {
   if (deps == null) return failed(name, args, 'the subharness is not available here');
   const privateDir = deps.privateDir;
@@ -139,7 +149,7 @@ export async function subharnessCommand(
     case 'subharness.memory':
       return memoryWriterPath(deps, name, args);
     case 'subharness.enable':
-      return enable(deps, name, args);
+      return enable(deps, name, args, dialog);
     case 'subharness.model':
       return agentModel(deps, name, args);
     case 'subharness.use':

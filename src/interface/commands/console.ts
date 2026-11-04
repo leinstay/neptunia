@@ -624,7 +624,7 @@ export function createConsole(deps: ConsoleDeps): {
       const owned = ownCommand(deps, name, args, dialog);
       if (owned !== null) return owned;
       if (name.startsWith(SKILLS_PREFIX)) return skillsCommand(deps.skills, name, args);
-      if (name.startsWith(SUBHARNESS_PREFIX)) return subharnessCommand(subharnessDeps(deps), name, args);
+      if (name.startsWith(SUBHARNESS_PREFIX)) return subharnessCommand(subharnessDeps(deps), name, args, dialog);
       if (name.startsWith(SIMULATION_PREFIX)) return simulationCommand(deps.privateDir, name, args);
       if (name === 'interface.token.set')
         return setInterfaceToken({ privateDir: deps.privateDir, iface: text(args.name), dialog });
