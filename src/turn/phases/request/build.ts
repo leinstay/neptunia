@@ -71,12 +71,15 @@ export function buildTurnRequest(
   const { destination, recent, prompts } = gathered;
   const { factsText, tasks, guildMemory, taggedCall, offPeriods, skillIndex } = told;
   const pulled2 = pulledList;
-  // Her tools, the same for every turn kind and pinned for this one (a grant removed meanwhile is still caught at each call):
-  // the skills granted to her and the carried-over ones, as native tool definitions (or `<tools>` text). A diary post
-  // has the same tools; only `draw.create` runs there (runSteps).
-  draft.toolNames = exposedSkillNames({ config, selfId, registry: skills ?? defaultSkills() });
-  draft.tools = buildTools(draft.toolNames, {
-    registry: skills ?? defaultSkills(),
+  // Her tools, pinned for this turn (a grant removed meanwhile is still caught at each call): the skills granted to her
+  // and the carried-over ones, as native tool definitions (or `<tools>` text), within a wake's own set
+  // (src/tools/wake-tools.ts). `toolNames` feeds `<senses>` and stays the same for every turn kind, so a wake shares the
+  // stable part of the request. A diary post has the same tools; only `draw.create` runs there (runSteps).
+  const registry = skills ?? defaultSkills();
+  draft.toolNames = exposedSkillNames({ config, selfId, registry });
+  const wakeKind = draft.inner?.wake?.kind ?? null;
+  draft.tools = buildTools(exposedSkillNames({ config, selfId, registry, wakeKind }), {
+    registry,
     texts: prompts?.tools,
     fill: { drawChars: config.image?.maxPromptChars ?? 1600 },
   });

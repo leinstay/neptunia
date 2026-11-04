@@ -15,6 +15,7 @@ import { CARRIED_OVER, NOT_GRANTABLE_TO_PERSONA, grantedToPersona, safeModeOn } 
 import { describeSkill, skillNames } from './registry.ts';
 import { CODE } from './codes.ts';
 import { objOf } from './types.ts';
+import { wakeAccepts } from './wake-tools.ts';
 import { roleOn } from '../llm/roles.ts';
 import type { DescribedSkill, Skill } from './types.ts';
 
@@ -92,17 +93,19 @@ export function exposedSkillNames({
   config,
   selfId = null,
   registry = null,
+  wakeKind = null,
 }: {
   config: unknown;
   selfId?: string | null;
   registry?: ReadonlyMap<string, Skill> | null;
+  wakeKind?: string | null;
 }): Array<string> {
   if (!(registry instanceof Map)) return [];
   const names = safeModeOn(config)
     ? [...CARRIED_OVER]
     : [...grantedSkillNames({ config, selfId, registry }), ...CARRIED_OVER];
   return [...new Set(names)]
-    .filter((name) => registry.has(name) && !servedByOffRole(config, name))
+    .filter((name) => registry.has(name) && !servedByOffRole(config, name) && wakeAccepts(wakeKind, name))
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 

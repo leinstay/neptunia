@@ -514,7 +514,7 @@ export function createTurnRunner({
     keptPulls,
     spokeSaw,
   });
-  const { callView, planToolCall, heartbeatOnly, heartbeatChanged, runCalls } = createSkillCalls({
+  const { callView, planToolCall, runCalls } = createSkillCalls({
     hot,
     store,
     skills,
@@ -552,8 +552,6 @@ export function createTurnRunner({
     conversationOf,
     callView,
     planToolCall,
-    heartbeatOnly,
-    heartbeatChanged,
     runCalls,
     typingWhileCalls,
     holdSpeech,

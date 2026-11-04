@@ -1,9 +1,9 @@
 // The `selfimprovement` wake: on `selfimprovement.schedule` (by default once a day, after the watcher's run),
 // and with a cause when one chain shape fails
 // `selfimprovement.failuresPerShape` times in a UTC day, at most one such cause a day. Its turn carries
-// the facts of src/behavior/selfimprovement-view.ts, and her answer is `board.propose`. The clock is
-// `state.selfimprovement = { lastAt, raisedAt, schedule }`: `schedule` is what the clock counts for, `lastAt` moves when a wake's completion committed (and the outbox rows
-// it showed are marked delivered), `raisedAt` when a failure cause raised a wake. The tick (src/behavior/inner.ts) asks
+// the facts of src/behavior/selfimprovement-view.ts, and she answers with one `board.propose` or a skip. The clock is
+// `state.selfimprovement = { lastAt, raisedAt, schedule }`: `schedule` is what the clock counts for, `lastAt` moves when a wake's completion committed, to the moment its view was read (and the outbox rows
+// it showed are marked delivered, exactly those), `raisedAt` when a failure cause raised a wake. The tick (src/behavior/inner.ts) asks
 // `selfimprovementDue`; the drain (src/behavior/inner/drain.ts) asks `selfimprovementFacts` for its turn and
 // `committedSelfimprovement` once the turn committed. `scheduledWake` and `failureCause` are the rules, pure. The facts
 // carry the newest watcher report the source gives for the wake's time (src/watcher/news.ts).
@@ -171,20 +171,27 @@ export async function selfimprovementFacts(
 }
 
 /**
- * Once a selfimprovement turn's completion committed (its outcome is not an error): the wake's time is the last one,
- * and the outbox rows its view showed are marked delivered. A failing mark is logged and leaves the rows for the next
- * wake. Does nothing for a turn of another kind. Never throws.
+ * Once a selfimprovement turn's completion committed (its outcome is not an error): `improvementReadAt`, the moment its
+ * view was read, is the last time (the wake's due moment when no view was read), and the outbox rows the view showed are marked
+ * delivered. A question made before that moment was in the view, so the next wake does not repeat it. A failing mark is
+ * logged and leaves the rows for the next wake. Does nothing for a turn of another kind. Never throws.
  */
 export async function committedSelfimprovement(
   life: InnerContext,
   guildId: string,
-  turn: { wake: Wake | null; facts: SelfimprovementFacts | null; outcome: unknown }
+  turn: {
+    improvementWake: Wake | null;
+    selfimprovement: SelfimprovementFacts | null;
+    improvementReadAt: number;
+    outcome: unknown;
+  }
 ): Promise<void> {
-  const { wake, facts, outcome } = turn;
+  const { improvementWake: wake, selfimprovement: facts, improvementReadAt: readAt, outcome } = turn;
   if (wake === null || outcome === 'error') return;
   const state = stateOf(life, guildId);
-  const at = isFiniteNumber(wake.dueAt) ? wake.dueAt : life.now();
-  state.selfimprovement = { ...state.selfimprovement, lastAt: at, raisedAt: state.selfimprovement?.raisedAt ?? null };
+  const due = isFiniteNumber(wake.dueAt) ? wake.dueAt : readAt;
+  const lastAt = Math.max(facts === null ? due : readAt, state.selfimprovement?.lastAt ?? 0);
+  state.selfimprovement = { ...state.selfimprovement, lastAt, raisedAt: state.selfimprovement?.raisedAt ?? null };
   save(life, guildId);
   const seqs = facts?.outboxSeqs ?? [];
   if (seqs.length === 0 || !life.selfimprovementSources.ackOutbox) return;

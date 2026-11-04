@@ -103,7 +103,8 @@ const NOT_BUILT = {
   // Built inside the createMessageHandler closure of src/behavior/pipeline.ts (buildFollowUpRequest),
   // which fetches its own history: no seam reaches it (owner decision O-9).
   address: 'built inside the src/behavior/pipeline.ts closure (O-9)',
-  selfimprovement: 'filled by src/selfimprovement/service.ts#briefFrom, a dev run reads it', // tests/selfimprovement-service
+  // The executor's brief moved to executor-brief.md; selfimprovement.md is her wake, loaded below.
+  'executor-brief': 'filled by src/selfimprovement/service.ts#briefFrom, a dev run reads it', // tests/selfimprovement-service
   // Split into families and drawn from line by line (src/behavior/diary.ts#pickSeeds): the plan request carries a few random lines in <seeds>, never the file whole.
   'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.ts#pickSeeds), never sent whole',
   // Her memory session and the description review build their requests over the memory database, not from a turn:
@@ -162,6 +163,7 @@ const LOADS = {
   diary: [...SYSTEM, 'diary', 'world'],
   inner: [...SYSTEM, 'inner'],
   heartbeat: [...SYSTEM, 'heartbeat'],
+  selfimprovement: [...SYSTEM, 'selfimprovement'],
   diaryPlan: ['diary-plan', 'world'],
   describe: ['describe'],
   avatar: ['avatar'],
@@ -1263,15 +1265,12 @@ test('buildRequest: an inner turn fills system-prompt, character-card, rules, fo
   assert.ok(text.includes('ask Ana how the tomatoes are doing'));
 });
 
+/** The input of an inner turn woken by a wake of `wakeKind`. */
+const wakeInput = (wakeKind: string) =>
+  turnInput({ mode: 'inner', trigger: null, triggerKind: 'inner', interlocutor: null, wake: '', wakeKind });
+
 test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in place of inner.md; a review keeps inner.md', async () => {
-  const beat = await turnInput({
-    mode: 'inner',
-    trigger: null,
-    triggerKind: 'inner',
-    interlocutor: null,
-    wake: '',
-    wakeKind: 'heartbeat',
-  });
+  const beat = await wakeInput('heartbeat');
   const beatRequest = buildRequest(beat);
   const beatText = assertFilled(beatRequest.messages, { files: LOADS.heartbeat, blocks: ['task'] }, 'heartbeat turn');
   assert.ok(
@@ -1283,30 +1282,27 @@ test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in pla
     'silence in an anchor channel is not heartbeat tempo'
   );
   assert.ok(!carries(beatText, 'inner'), 'inner.md is not sent as well');
-  const review = await turnInput({
-    mode: 'inner',
-    trigger: null,
-    triggerKind: 'inner',
-    interlocutor: null,
-    wake: '',
-    wakeKind: 'review',
-  });
+  const review = await wakeInput('review');
   const reviewText = assertFilled(
     buildRequest(review).messages,
     { files: LOADS.inner, blocks: ['chat', 'task'] },
     'review turn'
   );
   assert.ok(!carries(reviewText, 'heartbeat'), 'heartbeat.md is not sent on a review');
-  const missing = await turnInput({
-    mode: 'inner',
-    trigger: null,
-    triggerKind: 'inner',
-    interlocutor: null,
-    wake: '',
-    wakeKind: 'heartbeat',
-  });
+  const missing = await wakeInput('heartbeat');
   missing.prompts = { ...SHIPPED.prompts, heartbeat: '  ' } as typeof SHIPPED.prompts;
   assertFilled(buildRequest(missing).messages, { files: LOADS.inner }, 'heartbeat with no heartbeat.md');
+});
+
+test('buildRequest: an inner turn woken by the selfimprovement wake fills selfimprovement.md in place of inner.md', async () => {
+  const wake = await wakeInput('selfimprovement');
+  const text = assertFilled(
+    buildRequest(wake).messages,
+    { files: LOADS.selfimprovement, blocks: ['task'] },
+    'wake turn'
+  );
+  assert.ok(!carries(text, 'inner'), 'inner.md is not sent as well');
+  assert.ok(!carries(text, 'executor-brief'), 'the executor brief is not sent to her');
 });
 
 test('buildRequest: a diary post fills system-prompt, character-card, rules, format, diary.md and world.md', async () => {

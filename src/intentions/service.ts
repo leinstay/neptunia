@@ -107,7 +107,22 @@ function selfProvenance(input: SetInput): Parameters<typeof createIntention>[0][
     scope: input.scope,
     participants: input.participants,
     ...(input.publicationBoundary ? { publicationBoundary: input.publicationBoundary } : {}),
+    ...(input.callKey ? { callKey: input.callKey } : {}),
   };
+}
+
+/**
+ * A restarted turn's same `set` call answers with what the first one made, whatever the call says this time and before
+ * any cap is checked. Any other call goes to `make`.
+ */
+function setOnce<TAnswer>(
+  store: IntentionStore | null,
+  input: SetInput,
+  make: () => TAnswer
+): TAnswer | { ok: true; intention: Intention } {
+  const key = input.callKey;
+  const made = key ? store?.list().find((record) => record.provenance?.callKey === key) : null;
+  return made ? { ok: true, intention: made } : make();
 }
 
 /** What a call that needs an open record answers on a closed one: `slept` when the engine cancelled it as she slept. */
@@ -853,7 +868,7 @@ export function createIntentionService({
   }
 
   return {
-    set,
+    set: (guildId, input) => setOnce(storeOf(guildId), input, () => set(guildId, input)),
     update,
     cancel,
     list,

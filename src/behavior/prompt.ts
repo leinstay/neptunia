@@ -452,10 +452,10 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  * @param [input.wake]  An inner turn's `<wake>` body (src/behavior/wake.ts, rendered
  *   by the turn; mode `inner`, docs/inner-life.md): in the tail right after `<intentions>`, paid for
  *   with the fixed part and never cut; '' or null leaves it out, so every other turn is as it was.
- *   The task of mode `inner` is `prompts.inner`, like any mode's; on a heartbeat wake (`input.wakeKind`)
- *   it is `prompts.heartbeat` when that file is present and non-blank.
- * @param [input.wakeKind]  An inner turn's wake kind (`heartbeat`, ...): a heartbeat takes
- *   `prompts.heartbeat` as its task text in place of `prompts.inner`; null or any other kind keeps the mode's.
+ *   The task of mode `inner` is `prompts.inner`, like any mode's; on a heartbeat or a selfimprovement wake
+ *   (`input.wakeKind`) it is the wake's own file when that is present and non-blank.
+ * @param [input.wakeKind]  An inner turn's wake kind: `heartbeat` and `selfimprovement` take the prompt of that name as
+ *   their task text in place of `prompts.inner`; null or any other kind keeps the mode's.
  * @param [input.places]  An addressed turn's `<places>` body (src/behavior/wake.ts#placesBlockText,
  *   rendered by the turn with `context.places` on; an inner turn carries the page inside `<wake>`):
  *   in the tail right after `<wake>`, paid for with the fixed part and never cut; '' or null leaves it out.
@@ -512,9 +512,9 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   journal's turn record.
  */
 export function buildRequest(input: BuildRequestInput): BuildRequestResult {
-  // The transport anchor is not a heartbeat's current conversation. Memory and its wake remain available.
-  const heartbeat = input.mode === 'inner' && input.wakeKind === 'heartbeat';
-  if (heartbeat) input = { ...input, history: [], neighbors: [], pulled: null, currentChannelId: null };
+  // The transport anchor is not the conversation of a wake of her own time. Memory and its wake remain available.
+  const ownTime = input.mode === 'inner' && (input.wakeKind === 'heartbeat' || input.wakeKind === 'selfimprovement');
+  if (ownTime) input = { ...input, history: [], neighbors: [], pulled: null, currentChannelId: null };
   const { forced = false, channels = [], currentChannelId = null, lookup = null } = input;
   // Every input, named once: the block builders of src/turn/request/ read theirs from it.
   const given = {
@@ -590,7 +590,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   // On a routed turn the call is not in this chat: its silence is measured to now, and its
   // last line being the persona's own is no sign that nobody answered the persona.
   const tempo = computeTempo(given.history, given.now, view.routed ? null : given.trigger);
-  const tempoText = heartbeat ? '' : renderTempo(view.routed ? { ...tempo, lastIsOwn: false } : tempo, labels);
+  const tempoText = ownTime ? '' : renderTempo(view.routed ? { ...tempo, lastIsOwn: false } : tempo, labels);
   const task = taskOf({ ...given, ...base, ...view });
   const senses = sensesOf({ ...given, ...base, ...views });
   const diary = diaryOf({ ...given, labels });
@@ -663,7 +663,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     kept: fit.kept,
     tempoText,
     task: taskText,
-    chatItems: heartbeat ? null : keptChat,
+    chatItems: ownTime ? null : keptChat,
     diary: diary.diaryParts,
     errands: own.errandsText,
     intentions: own.intentionsText,

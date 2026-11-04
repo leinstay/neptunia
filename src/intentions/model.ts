@@ -624,6 +624,9 @@ function boundaryOf(provenance: { publicationBoundary?: unknown }): { publicatio
   return isPublicationBoundary(carried) ? { publicationBoundary: carried } : {};
 }
 
+/** The key of the call that set a record, when it has one. */
+const callKeyOf = ({ callKey }: { callKey?: string }): { callKey?: string } => (callKey ? { callKey } : {});
+
 export function createIntention({
   purpose,
   provenance,
@@ -680,6 +683,7 @@ export function createIntention({
       ...(participants.length > 0 ? { participants } : {}),
       // A restriction from the internal turn that set it, kept through updates and recurrence.
       ...boundaryOf(provenance),
+      ...callKeyOf(provenance),
       // A candidate's origin (candidatesFromAnswer): `external` when its words came from outside
       // material, which only her explicit accept in a later ordinary turn activates (acceptRefusal).
       ...(candidate ? { origin: bornOrigin } : {}),
@@ -753,6 +757,7 @@ function createDropped({
       ...(span ? { span } : {}),
       scope: provenance.scope === 'dm' ? 'dm' : 'group',
       ...(participants.length > 0 ? { participants } : {}),
+      ...callKeyOf(provenance),
     },
     status: 'dropped',
     createdAt: now,
