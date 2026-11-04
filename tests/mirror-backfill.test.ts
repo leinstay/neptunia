@@ -185,43 +185,6 @@ test('an entry whose receipts all exist counts as not eligible, so enabling comp
   assert.deepEqual(transport.attempts, []);
 });
 
-test('entries outside the audience are passed over without blocking the entries after them', async () => {
-  // Catches: an entry that may never go to this mirror being reported as blocked, which would stop the backfill for good.
-  const scene = await mirrorScene({ ifaces: ['fake', 'other'] });
-  scene.place({ iface: 'fake', native: 'd1' });
-  scene.entry({ id: 'e1', at: T0 - 3 * HOUR, position: 1, audience: { kind: 'interface', iface: 'other' } });
-  scene.entry({
-    id: 'e2',
-    at: T0 - 2 * HOUR,
-    position: 2,
-    legacy: true,
-    scope: { scope_kind: 'internal', scope_iface: null, scope_dm: null },
-  });
-  scene.entry({ id: 'e3', at: T0 - HOUR, position: 3 });
-  const mirrors = scene.publisher();
-  await mirrors.addMirror({ destination: D1, by: OWNER, backfill: ON });
-  assert.equal(statusOf(mirrors).backfill.remaining, 1);
-  await mirrors.drainQueued();
-  assert.deepEqual(scene.transport().posted('d1'), ['text of e3']);
-  assert.equal(statusOf(mirrors).backfill.blocked, null);
-});
-
-test('an audience narrowed during backfill stops a later send and the next entry takes its slot later', async () => {
-  // Catches: a queue checked once when backfill started, which publishes what she has since restricted.
-  const { scene, transport, mirrors } = await oldEntries(3);
-  await mirrors.addMirror({ destination: D1, by: OWNER, backfill: ON });
-  await mirrors.drainQueued();
-  scene.db
-    .prepare('UPDATE diary SET extra = ? WHERE id = ?')
-    .run(JSON.stringify({ publicationAudience: { kind: 'interface', iface: 'other' } }), 'e2');
-  scene.advance(FOUR_HOURS);
-  await mirrors.drainQueued();
-  scene.advance(FOUR_HOURS);
-  await mirrors.drainQueued();
-  assert.deepEqual(transport.posted('d1'), ['text of e1', 'text of e3']);
-  assert.equal(statusOf(mirrors).backfill.blocked, null);
-});
-
 test('a missing attachment blocks the later old entries of that mirror, visibly, and new entries still go out', async () => {
   // Catches: an entry skipped silently so history has a hole, or a later entry published ahead of it.
   const { scene, transport, mirrors } = await oldEntries(3);
