@@ -98,6 +98,8 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'diary'>
   sendFailure?: Record<string, unknown>;
   gifFailure?: unknown;
   diaryVoice?: unknown;
+  /** The bodies of her `<audience>` tags over every answer of a diary turn (src/llm/parse.ts#takeAudience). */
+  diaryAudience?: Array<string>;
   innerActions?: Array<unknown>;
   innerIntentIds?: Iterable<string>;
 };

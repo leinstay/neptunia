@@ -1468,6 +1468,13 @@
       "test": "none"
     },
     {
+      "path": "src/memory/db/diary-audience.ts",
+      "purpose": "The audience of a diary entry over the memory database: the places she can name and whether a stored entry may reach a place. Tested through the mirror audience tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/memory/db/mirror-config.ts",
       "purpose": "The owner's configuration of the diary's mirrors, written by the one writer, and the scans of what a mirror still lacks. Tested through the mirror command and backfill tests.",
       "layer": "public",

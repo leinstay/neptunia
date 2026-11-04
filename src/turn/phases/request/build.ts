@@ -3,7 +3,7 @@
 // and what of the window the journal names as seen. The request phase (src/turn/phases/request.ts) runs it last.
 
 import { buildRequest } from '../../../behavior/prompt.ts';
-import { diaryConversationIds } from '../../../behavior/mirror.ts';
+import { NO_PLACES, diaryConversationIds, publicationPlaces, readMirrors } from '../../../behavior/mirror.ts';
 import { turnRequestInput } from '../../../behavior/turn-input.ts';
 import { wakeBlockText } from '../../../behavior/wake.ts';
 import { budgetDrops } from '../../../llm/budget.ts';
@@ -190,7 +190,13 @@ export function buildTurnRequest(
     diaryChannel: diaryChannelName(guildId, config, snapshot, finalMode === 'diary' ? channel : null),
     // A diary post: its past posts, its plan and what its search found.
     diary: diaryPrep
-      ? { posts: diaryPrep.posts, plan: diaryPrep.plan, found: diaryPrep.found, seeds: diaryPrep.seeds ?? '' }
+      ? {
+          posts: diaryPrep.posts,
+          plan: diaryPrep.plan,
+          found: diaryPrep.found,
+          seeds: diaryPrep.seeds ?? '',
+          publicationPlaces: readMirrors(store, publicationPlaces, NO_PLACES),
+        }
       : null,
     offPeriods,
     // The skills catalogue text is never filled by a turn: her tools are the native definitions below.
