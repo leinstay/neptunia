@@ -74,7 +74,8 @@ test('all three on with the checks passed stores each switch and the hour of the
   assert.equal(config.heartbeat?.enabled, true);
   assert.equal(config.selfreflection?.enabled, true);
   assert.equal(config.selfimprovement?.enabled, true);
-  assert.equal(config.selfimprovement?.at, '04:30');
+  // Changed: `selfimprovement.at` became the one setting `selfimprovement.schedule`.
+  assert.equal(config.selfimprovement?.schedule, 'at 04:30');
 });
 
 test("storing the switches keeps the owner's other settings, her repository among them", async () => {
@@ -127,7 +128,8 @@ test('an hour that is no HH:MM is asked again and the valid answer is stored', a
   const r = rig();
   r.answers = ['on', 'on', 'on', '25:00', '05:15'];
   await mechanicsStep(r.options, r.deps);
-  assert.equal(local(r.options.privateDir).selfimprovement?.at, '05:15');
+  // Changed: `selfimprovement.at` became the one setting `selfimprovement.schedule`.
+  assert.equal(local(r.options.privateDir).selfimprovement?.schedule, 'at 05:15');
 });
 
 test('selfimprovement on with no connected backend is refused and stored off, the other two still stored', async () => {

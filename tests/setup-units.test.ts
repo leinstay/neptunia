@@ -349,8 +349,12 @@ test('agent units bind the folder of every connected backend', () => {
 });
 
 test('the watcher timer fires at the hour it is rendered with', () => {
-  // Catches: watcher.at is stored but the timer keeps the template's midnight, so the watcher runs after her wake.
-  const text = renderUnit(template('neptunia-watcher.timer'), 'user', { ...VARS, watcherAt: '05:30' });
+  // Catches: watcher.schedule is stored but the timer keeps the template's midnight, so the watcher runs after her wake.
+  // Changed: the render takes the parsed schedule, since `watcher.at` became `watcher.schedule`.
+  const text = renderUnit(template('neptunia-watcher.timer'), 'user', {
+    ...VARS,
+    watcherSchedule: { kind: 'at', at: ['05:30'] },
+  });
   assert.deepEqual(valuesOf(text, 'OnCalendar'), ['*-*-* 05:30:00 UTC']);
 });
 
@@ -363,7 +367,7 @@ test('the watcher timer rendered with no hour keeps the template line', () => {
 test("the watcher's hour changes no other timer", () => {
   // Catches: every OnCalendar line is rewritten, and the hourly selfimprovement beat turns into a daily one.
   const selfimprovement = template('neptunia-selfimprovement.timer');
-  const text = renderUnit(selfimprovement, 'user', { ...VARS, watcherAt: '05:30' });
+  const text = renderUnit(selfimprovement, 'user', { ...VARS, watcherSchedule: { kind: 'at', at: ['05:30'] } });
   assert.deepEqual(valuesOf(text, 'OnCalendar'), valuesOf(selfimprovement, 'OnCalendar'));
 });
 

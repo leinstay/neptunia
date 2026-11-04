@@ -13,14 +13,15 @@
 // backend connected in keys.json or installed there is bound writable into it, and nothing above it: keys.json stays out of the agent's
 // reach.
 //
-// The watcher's timer fires at `watcher.at` when the render is given that hour; the other timers keep their lines.
+// The watcher's timer takes `watcher.schedule` when the render is given it: one `OnCalendar=` per daily time, or an
+// interval counted from the timer's own activation and then from the last run. The other timers keep their lines.
 
 import path from 'node:path';
 import { UNIT_SCOPE_ENV } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import type { AgentMode, SubharnessAgent } from '../subharness/control.ts';
 import { subharnessPlace } from '../subharness/place.ts';
-import { isClockTime } from '../time.ts';
+import type { ServiceSchedule } from '../service/schedule.ts';
 
 /** The templates `setup` renders, by file name. The bot unit is not among them. */
 export const UNIT_FILES: ReadonlyArray<string> = [
@@ -68,8 +69,8 @@ export type UnitVars = {
   mode?: AgentMode;
   /** the backends connected in keys.json or installed in the private layer; an agent unit binds the folder of each in the private layer writable */
   backends?: ReadonlyArray<BackendName>;
-  /** `watcher.at` (`HH:MM`, UTC): the watcher's timer fires then; absent keeps the template's `OnCalendar=` */
-  watcherAt?: string;
+  /** `watcher.schedule`: what the watcher's timer fires on; absent keeps the template's `OnCalendar=` */
+  watcherSchedule?: ServiceSchedule;
 };
 
 /** The directives of the mount sandbox: gone in the modes `full` and `sudo`. */
@@ -119,6 +120,12 @@ function visibleHomePaths(vars: UnitVars, bound: ReadonlyArray<string>): Array<s
   return kept;
 }
 
+/** The timer lines of a schedule. `OnUnitActiveSec=` alone never fires before the worker's first run. */
+function timerLines(schedule: ServiceSchedule): Array<string> {
+  if (schedule.kind === 'at') return schedule.at.map((slot) => `OnCalendar=*-*-* ${slot}:00 UTC`);
+  return [`OnActiveSec=${schedule.everyMinutes}min`, `OnUnitActiveSec=${schedule.everyMinutes}min`];
+}
+
 /** The key of a `Key=value` line, or null. */
 const keyOf = (line: string): string | null => /^([A-Za-z]+)=/.exec(line)?.[1] ?? null;
 
@@ -131,17 +138,17 @@ type LineRules = {
   isInterface: boolean;
   /** the backends' folders bound after the unit's `ProtectHome=` line, none when the unit binds none */
   backendDirs: ReadonlyArray<string>;
-  /** the `OnCalendar=` line of the watcher's timer, null for any other unit or with no hour given */
-  calendar: string | null;
+  /** the lines of the watcher's timer that replace `OnCalendar=`, null for any other unit or with no schedule given */
+  timer: ReadonlyArray<string> | null;
 };
 
-/** The lines the backends' binds and the watcher's hour make of `line`, or null when they leave it alone. */
+/** The lines the backends' binds and the watcher's schedule make of `line`, or null when they leave it alone. */
 function renderedLines(line: string, key: string | null, rules: LineRules): Array<string> | null {
   if (rules.backendDirs.length > 0 && key === 'ProtectHome')
     return [line, ...rules.backendDirs.map((dir) => `BindPaths=-${dir}`)];
   // The runner reads agents/ at its start, so a persona folder emptied for the unit shows that folder.
   if (key === 'TemporaryFileSystem') return [line, `BindReadOnlyPaths=-${path.join(rules.vars.dataDir, 'agents')}`];
-  if (rules.calendar !== null && key === 'OnCalendar') return [rules.calendar];
+  if (rules.timer !== null && key === 'OnCalendar') return [...rules.timer];
   return null;
 }
 
@@ -182,8 +189,8 @@ export function renderUnit(template: string, scope: 'user' | 'system', vars: Uni
   const backendDirs = AGENT_RUNNER.test(text)
     ? (vars.backends ?? []).map((backend) => subharnessPlace(vars.dataDir, backend).dir)
     : [];
-  const calendar =
-    isClockTime(vars.watcherAt) && WATCHER_TIMER.test(text) ? `OnCalendar=*-*-* ${vars.watcherAt}:00 UTC` : null;
+  const timer =
+    vars.watcherSchedule !== undefined && WATCHER_TIMER.test(text) ? timerLines(vars.watcherSchedule) : null;
   const rules: LineRules = {
     scope,
     vars,
@@ -191,7 +198,7 @@ export function renderUnit(template: string, scope: 'user' | 'system', vars: Uni
     keepsHome: !dropped.has('ProtectHome') && /^ProtectHome=tmpfs$/m.test(text),
     isInterface: /^ExecStart=.*\binterface run\b/m.test(text),
     backendDirs,
-    calendar,
+    timer,
   };
   return text
     .split('\n')

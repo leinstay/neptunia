@@ -8,8 +8,7 @@ export const SELFIMPROVEMENT: ReadonlyArray<SchemaEntry> = [
     'types': ['boolean'],
     'reader': 'src/selfimprovement/settings.ts',
     'default': true,
-    'text':
-      'Whether the selfimprovement wake falls due and the beat of `neptunia selfimprovement run` works. Off, neither starts',
+    'text': 'Whether the selfimprovement wake falls due and the beat of the executor works. Off, neither starts',
   },
   {
     'key': 'selfimprovement.mode',
@@ -43,12 +42,12 @@ export const SELFIMPROVEMENT: ReadonlyArray<SchemaEntry> = [
       'The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when her gh login can push there. While it is unset every selfimprovement beat pauses',
   },
   {
-    'key': 'selfimprovement.at',
+    'key': 'selfimprovement.schedule',
     'types': ['string'],
     'reader': 'src/behavior/inner/settings.ts',
-    'default': '03:00',
+    'default': 'at 03:00',
     'text':
-      "The time of the daily selfimprovement wake, `HH:MM` of the UTC day, after the watcher's run so the wake carries its report. `neptunia setup` asks for it, and a value that is no `HH:MM` reads as the default",
+      "When the selfimprovement wake falls due: daily UTC times such as `at 03:00` or `every 6h`, after the watcher's run so the wake carries its report. `neptunia service selfimprovement setup` writes it, and a value that means nothing reads as the default",
   },
   {
     'key': 'selfimprovement.failuresPerShape',

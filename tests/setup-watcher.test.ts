@@ -58,14 +58,18 @@ test('on stores the switch and the hour in the settings and the backend and mode
   const outcome = await watcherStep(r.options, r.deps);
   const keys = readKeysFile(r.options.privateDir).subharness;
   assert.equal(outcome.state, 'done');
-  assert.deepEqual([watcherOf(r.options.privateDir).enabled, watcherOf(r.options.privateDir).at], [true, '01:30']);
+  // Changed: `watcher.at` became the one setting `watcher.schedule`.
+  assert.deepEqual(
+    [watcherOf(r.options.privateDir).enabled, watcherOf(r.options.privateDir).schedule],
+    [true, 'at 01:30']
+  );
   assert.equal(keys.uses?.watcher, 'claude');
   assert.equal(keys.models?.watcher, 'model-a');
 });
 
 test('off stores false and asks nothing more', async () => {
   // Catches: an off watcher still asks for an hour and a backend, or off is not written and the timer keeps running.
-  const r = rig({ enabled: true, at: '00:00' });
+  const r = rig({ enabled: true, schedule: 'at 00:00' });
   r.answers = ['off'];
   await watcherStep(r.options, r.deps);
   assert.equal(watcherOf(r.options.privateDir).enabled, false);
@@ -95,7 +99,8 @@ test('an hour that is no HH:MM is asked again and the valid answer is stored', a
   const r = rig();
   r.answers = ['on', '24:00', '06:45', 'codex', ''];
   await watcherStep(r.options, r.deps);
-  assert.equal(watcherOf(r.options.privateDir).at, '06:45');
+  // Changed: `watcher.at` became the one setting `watcher.schedule`.
+  assert.equal(watcherOf(r.options.privateDir).schedule, 'at 06:45');
 });
 
 test('on with no connected backend is refused and stored off', async () => {
@@ -119,7 +124,10 @@ test('a backend that is not connected is refused and stored nowhere', async () =
 
 test('a rerun that keeps every value is already done and rewrites neither file', async () => {
   // Catches: each setup rewrites keys.json and the local config, so the step never reports already.
-  const r = rig({ enabled: true, at: '02:00' }, ['codex'], { uses: { watcher: 'codex' }, models: { watcher: 'm' } });
+  const r = rig({ enabled: true, schedule: 'at 02:00' }, ['codex'], {
+    uses: { watcher: 'codex' },
+    models: { watcher: 'm' },
+  });
   const before = [
     fs.readFileSync(configFile(r.options.privateDir), 'utf8'),
     fs.readFileSync(keysPath(r.options.privateDir), 'utf8'),
@@ -127,7 +135,8 @@ test('a rerun that keeps every value is already done and rewrites neither file',
   r.answers = ['', '', '', ''];
   const outcome = await watcherStep(r.options, r.deps);
   assert.equal(outcome.state, 'already');
-  assert.equal(r.asked[1]?.offered, '02:00');
+  // Changed: `watcher.at` became the one setting `watcher.schedule`.
+  assert.equal(r.asked[1]?.offered, 'at 02:00');
   assert.deepEqual(
     [
       fs.readFileSync(configFile(r.options.privateDir), 'utf8'),

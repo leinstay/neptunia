@@ -3,6 +3,7 @@
 // (src/behavior/inner.ts) builds over them. Types only, nothing runs here. src/behavior/inner/*.ts, the heartbeat view
 // (src/behavior/heartbeat-view.ts), the `<wake>` block (src/behavior/wake.ts) and the turn runner's JavaScript read them.
 
+import type { ServiceSchedule } from '../../service/schedule.ts';
 import type { StorageKey } from '../../memory/db/storage-keys.ts';
 import type { Obj } from '../../tools/types.ts';
 import type { Due, Intention } from '../../intentions/types.ts';
@@ -166,7 +167,7 @@ export type InnerState = {
   reviewViews: Record<string, { day: string; channels: Array<string>; lines: number }>;
   heartbeat: { nextAt: number | null; lastAt: number | null } | null;
   // The selfimprovement wake's clock: when its last wake committed and when a failure cause last raised one.
-  selfimprovement: { lastAt: number | null; raisedAt: number | null } | null;
+  selfimprovement: { lastAt: number | null; raisedAt: number | null; schedule?: string } | null;
   turns: Array<TurnRecord>;
   spend: Array<{ at: number; usd: number }>;
   turnIds: Array<string>;
@@ -183,7 +184,7 @@ export type InnerSettings = {
   review: { historyDays: number; expiredMax: number };
   heartbeat: {
     enabled: boolean;
-    everyMinutes: number;
+    schedule: ServiceSchedule;
     jitterMinutes: number;
     dueJitterMinutes: number;
     people: number;
@@ -200,8 +201,8 @@ export type InnerSettings = {
   caps: { perChain: number };
   /** `selfimprovement.enabled`: false only when the config says so; the wake then never falls due. */
   selfimprovement: { enabled: boolean };
-  /** `at`: the daily wake's time of the UTC day, `HH:MM` (`selfimprovement.at`). */
-  wakes: { selfimprovement: { at: string; failuresPerShape: number } };
+  /** `schedule`: when the wake falls due (`selfimprovement.schedule`). */
+  wakes: { selfimprovement: { schedule: ServiceSchedule; failuresPerShape: number } };
   attention: {
     settleSeconds: number;
     perDayDefault: number;

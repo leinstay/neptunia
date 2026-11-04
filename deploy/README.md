@@ -7,8 +7,8 @@ The systemd unit templates of the engine. `neptunia setup` renders them for the 
 | `neptunia-core.service` | The core with no interface of its own (`interfaces.mode: units`). The one unit setup starts. | yes |
 | `neptunia-interface@.service` | One interface, `neptunia interface run %i`. | yes |
 | `neptunia-agent-scout.service`, `neptunia-agent-server.service` | The errand agents, `neptunia errand-runner --profile <name>`. See [Errands](../docs/errands.md#the-subharness). | yes |
-| `neptunia-watcher.service`, `neptunia-watcher.timer` | The daily watcher, `neptunia watcher run`, started by the timer daily at `watcher.at` (default 00:00 UTC), which setup renders into it. See [The watcher](../docs/watcher.md). | yes |
-| `neptunia-selfimprovement.service`, `neptunia-selfimprovement.timer` | One beat of her self-development, `neptunia selfimprovement run`, in the dev checkout `selfimprovement.checkout` names, started by the timer every six hours UTC. See [Self-development](../docs/selfimprovement.md). | when `selfimprovement.checkout` names another checkout |
+| `neptunia-watcher.service`, `neptunia-watcher.timer` | The watcher, `neptunia worker watcher`, started by the timer on `watcher.schedule` (default `at 00:00`, UTC), which setup and `neptunia service watcher setup` render into it. See [The watcher](../docs/watcher.md). | yes |
+| `neptunia-selfimprovement.service`, `neptunia-selfimprovement.timer` | One beat of her self-development, `neptunia worker selfimprovement`, in the dev checkout `selfimprovement.checkout` names, started by the timer every six hours UTC. See [Self-development](../docs/selfimprovement.md). | when `selfimprovement.checkout` names another checkout |
 | `neptunia-bot.service` | The core with the Discord interface in its process (`interfaces.mode: inprocess`). It conflicts with the core unit. | no |
 
 ## How a template becomes a unit

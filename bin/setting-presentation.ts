@@ -63,6 +63,7 @@ const WORDS: Record<string, string> = {
   ttl: 'Cache lifetime',
   msPerChar: 'Typing time per character (milliseconds)',
   everyMinutes: 'Interval (minutes)',
+  schedule: 'Schedule',
   jitterMinutes: 'Timing variation (minutes)',
   minMs: 'Minimum duration (milliseconds)',
   maxMs: 'Maximum duration (milliseconds)',
