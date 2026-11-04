@@ -15,6 +15,8 @@ type When = (ts: unknown) => string;
 
 /** The prefix of a failure cause's reason (src/behavior/inner/selfimprovement.ts). */
 const CAUSE_PREFIX = 'failures:';
+/** How many repeated needs and how many kinds of failure the wake lists, the most frequent ones. */
+const NEEDS_SHOWN = 10;
 
 /** A shape's steps as one text: each tool with its argument names, joined by `join`. */
 const stepsText = (shape: Shape, join: string): string =>
@@ -42,6 +44,28 @@ function shapeLines(facts: SelfimprovementFacts, l: Obj, when: When): Array<stri
     })
   );
   return facts.moreShapes > 0 ? [...lines, word(l, 'moreShapes', { count: String(facts.moreShapes) })] : lines;
+}
+
+/** The lines of the repeated needs the shapes above leave out, and of the failed calls. */
+function needLines(facts: SelfimprovementFacts, l: Obj): Array<string> {
+  const shown = new Set(facts.shapes.map((shape) => shape.key));
+  const repeated = facts.repeated.filter((need) => !shown.has(need.key)).slice(0, NEEDS_SHOWN);
+  const failures = facts.failures.slice(0, NEEDS_SHOWN);
+  return [
+    ...(repeated.length > 0 ? [word(l, 'repeated')] : []),
+    ...repeated.map((need) =>
+      word(l, 'repeatedItem', { steps: need.key, count: String(need.count), turns: need.turnIds.join(', ') })
+    ),
+    ...(failures.length > 0 ? [word(l, 'failures')] : []),
+    ...failures.map((failure) =>
+      word(l, 'failure', {
+        tool: failure.tool,
+        code: failure.code ?? word(l, 'failureNoCode'),
+        count: String(failure.count),
+        turns: failure.turnIds.join(', '),
+      })
+    ),
+  ];
 }
 
 /** The lines of her skills with their use counts. */
@@ -76,6 +100,13 @@ function proposalLines(facts: SelfimprovementFacts, l: Obj): Array<string> {
         title: oneLine(proposal.title),
         status: proposal.status,
         reason: reasonOf(l, proposal.closeReason),
+        blocked:
+          proposal.blocked === null
+            ? ''
+            : word(l, 'proposalBlocked', {
+                reason: oneLine(proposal.blocked.reason),
+                unblocks: oneLine(proposal.blocked.unblocks),
+              }),
       })
     ),
   ];
@@ -118,7 +149,7 @@ function newsLines(facts: SelfimprovementFacts, l: Obj): Array<string> {
 }
 
 /**
- * The lines of the facts: the cause, the window, the shapes, the tools never called, the skills, the proposals, the
+ * The lines of the facts: the cause, the window, the shapes, the repeated needs and failed calls, the tools never called, the skills, the proposals, the
  * news and the watcher's newest report (one block under `watcher`, left out without the report or the label).
  */
 export function selfimprovementLines(
@@ -134,6 +165,7 @@ export function selfimprovementLines(
     cause === '' ? '' : word(l, 'cause', { shape: oneLine(cause) }),
     fill(l.header, { days: String(facts.days) }),
     ...shapeLines(facts, l, when),
+    ...needLines(facts, l),
     facts.unusedTools.length > 0 ? word(l, 'unused', { tools: facts.unusedTools.join(', ') }) : '',
     ...skillLines(facts, l),
     ...proposalLines(facts, l),
@@ -155,8 +187,8 @@ const LANDED_FILES_SHOWN = 8;
 
 /**
  * The lines of the fixes of her own code that merged: the header, then one `item` per fix (`{task}`, `{title}`,
- * `{who}`: `ownerMerged` or `autoMerged`, `{files}`: up to eight paths and `filesMore` for the rest). The heartbeat
- * and the selfimprovement wake both carry them; one that both carry is listed once. Nothing without the header label.
+ * `{who}`: `ownerMerged` or `autoMerged`, `{files}`: up to eight paths and `filesMore` for the rest). One fix given
+ * twice is listed once. Nothing without the header label.
  */
 export function landedLines(groups: ReadonlyArray<ReadonlyArray<Landed> | undefined>, labels: unknown): Array<string> {
   const l = objOf(labels);

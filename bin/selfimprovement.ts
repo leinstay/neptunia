@@ -8,7 +8,7 @@
 // holds the edges the service takes as arguments: git and gh as child processes with no shell, gh under her own gh
 // home (`GH_CONFIG_DIR`, src/selfimprovement/repository.ts), the test runner with a minimal environment, and the dev
 // run over the subharness seam (src/subharness/run.ts, the mode of `dev`). The settings are read from the config at
-// each use, the brief from `prompts/selfimprovement.md` (or its local copy, `prompts.local/selfdev.md` too). Exit 0 when the beat ran, paused or is off, 1
+// each use, the brief from `prompts/executor-brief.md` (or its local copy, `prompts.local/selfdev.md` too). Exit 0 when the beat ran, paused or is off, 1
 // when the board could not be reached.
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -97,7 +97,7 @@ export async function runSelfimprovement(argv: ReadonlyArray<string>): Promise<n
   }
   try {
     const hot = createHot({ rootDir: where.rootDir, privateDir: where.privateDir });
-    const template = typeof hot.prompts.selfimprovement === 'string' ? hot.prompts.selfimprovement : '';
+    const template = typeof hot.prompts['executor-brief'] === 'string' ? hot.prompts['executor-brief'] : '';
     const worktreeRoot = path.join(where.dataDir, 'selfimprovement');
     fs.mkdirSync(worktreeRoot, { recursive: true });
     const service = createSelfimprovement({

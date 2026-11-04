@@ -68,6 +68,7 @@ export const ERROR_CODES = [
   'invalid',
   'blocked',
   'board-unavailable',
+  'duplicate',
 ] as const;
 export type BoardErrorCode = (typeof ERROR_CODES)[number];
 

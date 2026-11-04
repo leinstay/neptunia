@@ -21,7 +21,7 @@ import type { ConversationInfo } from '../../protocol/adapter.ts';
 import type { HeartbeatFacts } from '../heartbeat-view.ts';
 import { deliveriesOf, holdFor, sendDeliveries } from './deliveries.ts';
 import { asText, factPayload, feedbackFacts, idOrNull, markFactsTold, pendingFactsOf } from './facts.ts';
-import { committedHeartbeat, heartbeatFacts, logHeartbeatOutcome } from './heartbeat.ts';
+import { heartbeatFacts, logHeartbeatOutcome } from './heartbeat.ts';
 import { committedSelfimprovement, selfimprovementFacts } from './selfimprovement.ts';
 import type { SelfimprovementFacts } from '../selfimprovement-view.ts';
 import { attendFactsOf, placeNameOf, placesInWakeOf } from './places.ts';
@@ -467,7 +467,11 @@ async function wakeInfoOf(
     ...(heartbeat ? { heartbeat } : {}),
     ...(selfimprovement ? { selfimprovement } : {}),
     // The current channel: where her output tags act, and why it is that one (`<wake>`).
-    here: here.channelId ? { channel: placeNameOf(life, guildId, here.channelId), why: here.why } : null,
+    here: selfimprovement
+      ? undefined
+      : here.channelId
+        ? { channel: placeNameOf(life, guildId, here.channelId), why: here.why }
+        : null,
   };
 }
 
@@ -482,22 +486,6 @@ async function turnsBudgetOf(life: InnerContext): Promise<TurnsBudget | null> {
   }
 }
 
-/** Once the turn committed: the facts of the wake kinds that carry their own view are marked as told. */
-async function committedFacts(
-  life: InnerContext,
-  guildId: string,
-  turn: {
-    heartbeat: HeartbeatFacts | null;
-    improvementWake: Wake | null;
-    selfimprovement: SelfimprovementFacts | null;
-    outcome: unknown;
-  }
-): Promise<void> {
-  const { heartbeat, improvementWake, selfimprovement, outcome } = turn;
-  await committedSelfimprovement(life, guildId, { wake: improvementWake, facts: selfimprovement, outcome });
-  await committedHeartbeat(life, guildId, { facts: heartbeat, outcome });
-}
-
 /** The facts of the wake kinds that carry their own view: the heartbeat's and the selfimprovement wake's, each null for a group without it. */
 async function kindFacts(
   life: InnerContext,
@@ -508,14 +496,18 @@ async function kindFacts(
   heartbeat: HeartbeatFacts | null;
   selfimprovement: SelfimprovementFacts | null;
   improvementWake: Wake | null;
+  improvementReadAt: number;
 }> {
   const improvementWake = group.find((wake) => wake.kind === 'selfimprovement') ?? null;
+  // Taken before the read: a row made during it shows again in the next wake and is never lost.
+  const improvementReadAt = life.now();
   return {
     heartbeat: group.some((wake) => wake.kind === 'heartbeat')
       ? await heartbeatFacts(life, guildId, when.settings, when.at)
       : null,
     selfimprovement: improvementWake ? await selfimprovementFacts(life, guildId, when.at) : null,
     improvementWake,
+    improvementReadAt,
   };
 }
 
@@ -804,7 +796,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   })
     .filter((fact) => !ownFactIds.has(fact.id))
     .slice(0, FACTS_SHOWN_MAX);
-  const { heartbeat, selfimprovement, improvementWake } = await kindFacts(life, guildId, group, { settings, at });
+  const kinds = await kindFacts(life, guildId, group, { settings, at });
   const info = await wakeInfoOf(life, guildId, group, {
     anchor,
     at,
@@ -816,8 +808,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
     isReview,
     chain,
     shownFacts,
-    heartbeat,
-    selfimprovement,
+    ...kinds,
     here: current,
   });
   // The turn's wakes are claimed before it runs: a process that dies in it leaves them running (recovery.ts).
@@ -827,7 +818,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   const shownIds = [...shownFacts.map((fact) => fact.id), ...[...ownFactIds].map(asText)];
   startWakeRun(life, { turnKey, anchor, group, at, records }, shownIds, {
     channelId: current.channelId ?? null,
-    heartbeat: Boolean(heartbeat),
+    heartbeat: Boolean(kinds.heartbeat),
   });
   let measured: Measured;
   try {
@@ -994,7 +985,7 @@ export async function drain(life: InnerContext, guildId: string): Promise<DrainA
   save(life, guildId);
   const recorded = await finishTurn(life, guildId, group, after, deliveriesOf(hold, { turnId: turnKey, chainId }));
   await sendDeliveries(life, guildId, recorded);
-  await committedFacts(life, guildId, { heartbeat, improvementWake, selfimprovement, outcome });
+  await committedSelfimprovement(life, guildId, { ...kinds, outcome });
   let feedbackWakeId: string | null = null;
   if (feedback.length > 0 && !isFeedback && !comesBack) {
     feedbackWakeId = `inner.wake:feedback:${asText(turnId ?? ended)}`;
