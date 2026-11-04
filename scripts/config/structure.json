@@ -389,6 +389,13 @@
       "test": "none"
     },
     {
+      "path": "src/process-errors.ts",
+      "purpose": "What the core does with an uncaught error: an idle HTTP/2 stream's close is logged and survived, and any other ends the process with exit 1.",
+      "layer": "public",
+      "imports": [],
+      "test": "tests/process-errors.test.ts"
+    },
+    {
       "path": "src/core.ts",
       "purpose": "The composition root: `startCore` builds the core over the paths, the environment and the interfaces it is given. Proved by the slice test. It imports no Discord.",
       "layer": "public",
