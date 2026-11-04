@@ -106,7 +106,8 @@ test('task heartbeat without --generation is refused invalid, and with the gener
 test('with the core paused, task commands still answer', async () => {
   await withCore(async (dirs) => {
     const id = await added(dirs, 'while paused');
-    const pause = await runCli(dirs, ['-p', 'pause']);
+    // A `-p` text without a slash is one turn with the persona, so the command takes its slash.
+    const pause = await runCli(dirs, ['-p', '/pause']);
     assert.equal(pause.code, 0, pause.stderr);
     const list = await task(dirs, 'boss', ['list']);
     assert.equal(list.code, 0, list.stderr);

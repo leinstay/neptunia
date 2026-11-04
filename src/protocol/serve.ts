@@ -16,8 +16,8 @@
 // `failed` with `deadline-passed` and never reaches the adapter; one that started in time keeps its result. A
 // `cancel` envelope naming an action that has not started ends it `cancelled`; once started, its result stands.
 //
-// A `command.result` action goes to `onCommandResult` with the command's `replyRef`, `text` and `status`, and is
-// answered `ok`; without it the action is `unsupported`. A `command.requested` event never enters the outbox: it goes
+// A `command.result` action goes to `onCommandResult` with the `replyRef` of its command (for the owner's command line,
+// also of a line whose turn ended), `text` and `status`, and is answered `ok`; without it the action is `unsupported`. A `command.requested` event never enters the outbox: it goes
 // out at once, and on a closed link it is answered `failed`.
 
 import type { Adapter, Capabilities } from './adapter.ts';

@@ -2,7 +2,8 @@
 // run through, each installed into her place (src/subharness/install.ts) and connected after one check
 // (src/subharness/control.ts). The owner names none, one or several. For `codex` and `claude` not yet connected the
 // step shows the login line of her own binary (src/subharness/place.ts#loginCommand), waits until the owner has run
-// it, then checks one reply; `opencode` is copied in from a path the owner gives and connected to one extra key after
+// it, then checks one reply. When the installed claude's help names no login, the step tells the owner to read that
+// help and guesses nothing; `opencode` is copied in from a path the owner gives and connected to one extra key after
 // the key's check. A backend whose install or check fails is not stored, and the ones connected before it stay. No
 // detail holds a key value. The step never runs the login itself.
 
@@ -13,7 +14,7 @@ import { enableSubharness } from '../subharness/control.ts';
 import type { EnableDeps } from '../subharness/control.ts';
 import { installSubharness } from '../subharness/install.ts';
 import type { InstallRun } from '../subharness/install.ts';
-import { isInstalled, loginCommand } from '../subharness/place.ts';
+import { helpOfInstalled, isInstalled, loginCommand, subharnessPlace } from '../subharness/place.ts';
 import type { Ask } from './mechanics.ts';
 
 export type SubharnessStepDeps = {
@@ -51,6 +52,18 @@ function namesOf(answer: string): Array<BackendName> | { unknown: string } {
   return names;
 }
 
+/** The instruction of the login step: the login line the installed binary names, or how to find it in its own help. */
+async function loginStep(privateDir: string, name: BackendName): Promise<string> {
+  try {
+    const help = name === 'claude' ? await helpOfInstalled(privateDir, name) : undefined;
+    return `Log in at this terminal, then press Enter: ${loginCommand(privateDir, name, help)?.text ?? name}`;
+  } catch {
+    // `claude login` on a release without the command is a prompt to the model, so nothing is guessed.
+    const { binary } = subharnessPlace(privateDir, name);
+    return `Read the login of ${name} in its own help (${binary} --help), log in at this terminal, then press Enter:`;
+  }
+}
+
 /** Installs and connects one backend; `already` when it was installed and connected and nothing ran. */
 async function setUpOne(privateDir: string, name: BackendName, deps: SubharnessStepDeps): Promise<Result> {
   const wasInstalled = isInstalled(privateDir, name);
@@ -71,8 +84,7 @@ async function setUpOne(privateDir: string, name: BackendName, deps: SubharnessS
     const answer = (await deps.ask('The name of the extra key opencode runs on:', stored)).trim();
     key = answer === '' ? (stored ?? '') : answer;
   } else {
-    const login = loginCommand(privateDir, name);
-    await deps.ask(`Log in at this terminal, then press Enter: ${login?.text ?? name}`, null);
+    await deps.ask(await loginStep(privateDir, name), null);
   }
   const enableDeps: EnableDeps = {
     privateDir,
