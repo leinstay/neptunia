@@ -67,7 +67,7 @@ export type PackageCode = 'bad-setup' | 'missing-script' | 'undeclared-script';
 
 /**
  * The first thing that keeps a package from running, or null: `setup.json` that does not parse, a declared script with
- * no file, or a script file `skill.run` would refuse because `setup.json` does not declare it. A helper in a subfolder
+ * no file, or a script file `skill.run` would refuse because `setup.json` does not declare it. A file in a subfolder
  * of `scripts/` is not a script. A package of `SKILL.md` alone is complete.
  */
 export function packageProblem(skillDir: string): PackageCode | null {
