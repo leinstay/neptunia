@@ -31,6 +31,8 @@ const TABLE = [
   // Changed: `/search` holds quick search's targeted settings.
   'search',
   'simulation',
+  // Changed: `/mirror` is the owner's family over the diary's mirrors.
+  'mirror',
   'help',
   'clear',
 ];
@@ -46,7 +48,8 @@ test('every command of the table has a help line', () => {
 });
 
 test('a line of a command the table does not hold is refused', () => {
-  assert.equal(parseCommandLine('/mirror list').ok, false);
+  // Changed: the refused example was `/mirror list`, and `/mirror` is a table command.
+  assert.equal(parseCommandLine('/nosuchcommand list').ok, false);
 });
 
 test('a subcommand the command does not have is refused', () => {

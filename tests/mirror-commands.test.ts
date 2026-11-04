@@ -369,3 +369,75 @@ test('the owner settles an uncertain delivery by reconciling it, and it is not s
   await mirrors.drainQueued();
   assert.deepEqual(scene.transport().posted('d1'), ['one']);
 });
+
+test('reconcile --absent queues an uncertain send again, names the owner and sends it once', async () => {
+  // Catches: an uncertain send the platform cannot look up staying stuck when the owner knows it never arrived.
+  const { scene, place, mirrors, run } = await fiveOld();
+  scene.transport().behave = () => 'never-sent';
+  await mirrors.publishEntry({ id: 'e1', messages: ['one'] });
+  assert.equal(mirrors.publicationState('e1', place)?.status, 'uncertain');
+  scene.transport().behave = () => 'deliver';
+  assert.deepEqual(parseRequest(['mirror', 'reconcile', D1, '--absent', '--entries', 'e1']).parsed, {
+    ok: true,
+    name: 'mirror.reconcile',
+    args: { mirror: D1, absent: 'true', entries: 'e1' },
+  });
+  const answer = await run('reconcile', D1, '--absent', '--entries', 'e1');
+  assert.equal(answer.status, 'ok', answer.text);
+  const queued = mirrors.publicationState('e1', place);
+  assert.deepEqual([queued?.status, queued?.reconciledBy], ['queued', OWNER]);
+  assert.deepEqual(mirrors.mirrorStatus()[0]?.uncertain, []);
+  assert.equal(await mirrors.drainQueued(), 1);
+  assert.equal(await mirrors.drainQueued(), 0);
+  assert.deepEqual(scene.transport().posted('d1'), ['one']);
+  assert.equal(mirrors.publicationState('e1', place)?.status, 'sent');
+});
+
+test('reconcile --absent refuses an entry that is not uncertain and queues nothing', async () => {
+  // Catches: the owner's word resending an entry that was delivered, which is a duplicate on the channel.
+  const { scene, place, mirrors } = await fiveOld();
+  await mirrors.publishEntry({ id: 'e1', messages: ['one'] });
+  scene.transport().behave = () => 'lost-answer';
+  await mirrors.publishEntry({ id: 'e2', messages: ['two'] });
+  scene.transport().behave = () => 'deliver';
+  assert.deepEqual(await mirrors.reconcileReceipts({ mirror: place, by: OWNER, entries: ['e2', 'e1'], absent: true }), {
+    ok: false,
+    code: 'not-uncertain',
+    entryId: 'e1',
+  });
+  assert.equal(mirrors.publicationState('e1', place)?.status, 'sent');
+  assert.equal(
+    mirrors.publicationState('e2', place)?.status,
+    'uncertain',
+    'a refused list changes none of its entries'
+  );
+  assert.deepEqual(
+    await mirrors.reconcileReceipts({ mirror: place, by: OWNER, entries: ['e3'], absent: true }),
+    { ok: false, code: 'not-uncertain', entryId: 'e3' },
+    'an entry with no publication here'
+  );
+  assert.equal(await mirrors.drainQueued(), 0);
+  assert.deepEqual(scene.transport().posted('d1'), ['one', 'two']);
+});
+
+test('re-enabling a disabled mirror posts nothing written while it was off, unless backfill takes it', async () => {
+  // Catches: the crash recovery of unpublished entries reading a disabled stretch as a crash, and flooding the channel.
+  const { scene, place, mirrors, run } = await known();
+  await run('add', D1);
+  await run('disable', D1);
+  scene.advance(FOUR_HOURS);
+  scene.entry({ id: 'off', position: 1 });
+  await mirrors.publishEntry({ id: 'off', messages: ['text of off'] });
+  scene.advance(FOUR_HOURS);
+  await run('configure', D1, '--enabled', 'true');
+  assert.equal(await mirrors.drainQueued(), 0);
+  assert.deepEqual(scene.transport().attempts, []);
+  assert.equal(mirrors.publicationState('off', place), null);
+  scene.advance(1000);
+  scene.entry({ id: 'on', position: 2 });
+  assert.equal(await mirrors.drainQueued(), 1, 'an entry written after the re-enable is new');
+  assert.deepEqual(scene.transport().posted('d1'), ['text of on']);
+  assert.equal((await run('configure', D1, '--backfill', 'true', '--every', '4h')).status, 'ok');
+  await mirrors.drainQueued();
+  assert.deepEqual(scene.transport().posted('d1'), ['text of on', 'text of off']);
+});

@@ -136,14 +136,22 @@ test('a new entry goes out at once during backfill, moves neither the due time n
   assert.equal(statusOf(mirrors).backfill.enabled, false);
 });
 
-test('an entry written after the start is not historical and does not extend the backfill', async () => {
-  // Catches: a scan that re-reads the newest entry at each slot instead of the mark it captured.
-  const { scene, transport, mirrors } = await oldEntries(1);
+test('an entry stored after the start with no publication goes out as new, past the mark and outside the slots', async () => {
+  // Catches: an entry lost to a crash before its publish, or one that takes a historical slot and moves the finish line.
+  const { scene, transport, mirrors } = await oldEntries(2);
   await mirrors.addMirror({ destination: D1, by: OWNER, backfill: ON });
-  scene.entry({ id: 'later', at: T0 + HOUR, position: 9 });
   await mirrors.drainQueued();
-  assert.deepEqual(transport.posted('d1'), ['text of e1']);
-  assert.equal(statusOf(mirrors).backfill.enabled, false);
+  scene.setTime(T0 + HOUR);
+  scene.entry({ id: 'later', at: T0 + HOUR, position: 9 });
+  const restarted = scene.publisher();
+  assert.equal(await restarted.drainQueued(), 1);
+  assert.deepEqual(transport.posted('d1'), ['text of e1', 'text of later']);
+  const during = statusOf(restarted).backfill;
+  assert.deepEqual([during.highWater, during.nextDueAt, during.remaining], ['e2', T0 + FOUR_HOURS, 1]);
+  scene.setTime(T0 + FOUR_HOURS);
+  assert.equal(await restarted.drainQueued(), 1);
+  assert.deepEqual(transport.posted('d1'), ['text of e1', 'text of later', 'text of e2']);
+  assert.equal(statusOf(restarted).backfill.enabled, false);
 });
 
 test('backfill turns itself off when the bounded queue is done', async () => {
@@ -233,7 +241,7 @@ test('a missing attachment blocks the later old entries of that mirror, visibly,
     scene.advance(FOUR_HOURS);
     await mirrors.drainQueued();
   }
-  assert.deepEqual(transport.attempts, [], 'nothing goes past it');
+  assert.equal(transport.attempts.length, 0, 'nothing goes past it');
   assert.equal(statusOf(mirrors).backfill.enabled, true);
   scene.entry({ id: 'new', position: 9 });
   await mirrors.publishEntry({ id: 'new', messages: ['new one'] });
@@ -326,7 +334,7 @@ test('progress survives a disable and a restart, with no repeat and no burst', a
 });
 
 test('turning backfill off keeps the progress and turning it on again continues without a new mark', async () => {
-  // Catches: a re-enable capturing a new high-water mark, which pulls entries written meanwhile into history.
+  // Catches: a re-enable capturing a new high-water mark, or an entry written meanwhile waiting on the backfill.
   const { scene, transport, mirrors } = await oldEntries(2);
   await mirrors.addMirror({ destination: D1, by: OWNER, backfill: ON });
   await mirrors.drainQueued();
@@ -334,12 +342,15 @@ test('turning backfill off keeps the progress and turning it on again continues 
   scene.advance(FOUR_HOURS);
   assert.equal(await mirrors.drainQueued(), 0);
   scene.entry({ id: 'later', at: scene.now(), position: 9 });
+  assert.equal(await mirrors.drainQueued(), 1, 'a new entry needs no backfill');
+  assert.deepEqual(transport.posted('d1'), ['text of e1', 'text of later']);
+  assert.equal(statusOf(mirrors).backfill.highWater, 'e2');
   await mirrors.configureMirror({ mirror: D1, by: OWNER, backfill: { enabled: true } });
   assert.equal(statusOf(mirrors).backfill.highWater, 'e2');
-  await mirrors.drainQueued();
+  assert.equal(await mirrors.drainQueued(), 1);
   scene.advance(FOUR_HOURS);
-  await mirrors.drainQueued();
-  assert.deepEqual(transport.posted('d1'), ['text of e1', 'text of e2']);
+  assert.equal(await mirrors.drainQueued(), 0);
+  assert.deepEqual(transport.posted('d1'), ['text of e1', 'text of later', 'text of e2']);
 });
 
 test('a second writer attempting the same due slot sends nothing extra', async () => {

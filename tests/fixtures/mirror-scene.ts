@@ -141,7 +141,8 @@ export async function mirrorScene({
   ifaces = ['fake'],
   reconcile = false,
   start = T0,
-}: { ifaces?: ReadonlyArray<string>; reconcile?: boolean; start?: number } = {}) {
+  sendTimeoutMs = LEASE,
+}: { ifaces?: ReadonlyArray<string>; reconcile?: boolean; start?: number; sendTimeoutMs?: number } = {}) {
   let at = start;
   const now = (): number => at;
   const memory = await openTestMemory({ now });
@@ -177,7 +178,7 @@ export async function mirrorScene({
       },
       now,
       dataDir: memory.dataDir,
-      config: () => ({ mirrors: { claimLeaseMs: LEASE } }),
+      config: () => ({ mirrors: { claimLeaseMs: LEASE, sendTimeoutMs } }),
     });
 
   /** One place row; answers its id. */

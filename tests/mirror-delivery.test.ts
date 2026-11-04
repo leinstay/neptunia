@@ -442,3 +442,93 @@ test('zero mirrors publishes nothing, fails nothing and keeps the entry', async 
   assert.deepEqual(scene.transport().attempts, []);
   assert.equal(diaryRows(scene.memory.memoryDb).length, 1);
 });
+
+/** `work`, or a failure when it has not ended within five seconds: how a test sees a hang. */
+async function ended<T>(work: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const stuck = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('still running after 5 s')), 5000);
+  });
+  try {
+    return await Promise.race([work, stuck]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+test('a send that hangs ends at the send timeout as uncertain and is not sent again', async () => {
+  // Catches: one stalled interface holding the publisher and every mirror after it until a restart.
+  const scene = await mirrorScene({ sendTimeoutMs: 20 });
+  const { placeId } = seedMirror(scene.memory.memoryDb, { iface: 'fake', conversationId: 'd1', at: T0 });
+  const second = seedMirror(scene.memory.memoryDb, { iface: 'fake', conversationId: 'd2', at: T0 + 1 }).placeId;
+  scene.entry({ id: 'e1' });
+  const transport = scene.transport();
+  transport.behave = (attempt, index) =>
+    attempt.conversationId === 'd1' && index === 1 ? 'hang-after-delivery' : 'deliver';
+  const mirrors = scene.publisher();
+  await ended(mirrors.publishEntry(THREE));
+  const state = mirrors.publicationState('e1', placeId);
+  assert.equal(state?.status, 'uncertain');
+  assert.deepEqual(
+    state?.segments.map((one) => one.status),
+    ['sent', 'uncertain', 'pending']
+  );
+  assert.deepEqual(transport.posted('d2'), ['a', 'b', 'c'], 'the next mirror is not held up');
+  assert.equal(mirrors.publicationState('e1', second)?.status, 'sent');
+  transport.behave = () => 'deliver';
+  assert.equal(await ended(mirrors.drainQueued()), 0);
+  assert.deepEqual(transport.posted('d1'), ['a', 'b']);
+});
+
+test('beginEntry keeps a drain away from an entry whose media is not yet kept', async () => {
+  // Catches: the tick that takes a just-stored entry for a crash and posts its text with no pictures.
+  const { scene, place, transport } = await oneMirror();
+  const mirrors = scene.publisher();
+  const other = scene.publisher();
+  scene.advance(1000);
+  const release = mirrors.beginEntry();
+  scene.entry({ id: 'e2' });
+  assert.equal(await mirrors.drainQueued(), 0);
+  assert.equal(mirrors.publicationState('e2', place), null);
+  assert.deepEqual(
+    transport.attempts.filter((attempt) => attempt.text === 'text of e2'),
+    []
+  );
+  await mirrors.publishEntry({ id: 'e2', messages: ['two'], pictures: [PICTURE] });
+  release();
+  assert.equal(await mirrors.drainQueued(), 0);
+  assert.deepEqual(
+    transport.attempts.filter((attempt) => attempt.files === 1 || attempt.text === 'two').map((one) => one.files),
+    [0, 1],
+    'the entry went out whole, once'
+  );
+  assert.equal(await other.drainQueued(), 0);
+});
+
+test('an entry whose turn ended without a publish is queued by the next drain after the release', async () => {
+  // Catches: a begun entry left out for good when its turn fails between the store and the publish.
+  const { scene, place, transport } = await oneMirror();
+  const mirrors = scene.publisher();
+  await mirrors.publishEntry(ONE);
+  scene.advance(1000);
+  const release = mirrors.beginEntry();
+  scene.entry({ id: 'e2' });
+  release();
+  release();
+  assert.equal(await mirrors.drainQueued(), 1);
+  assert.deepEqual(transport.posted('d1'), ['one', 'text of e2']);
+  assert.equal(mirrors.publicationState('e2', place)?.status, 'sent');
+});
+
+test('an entry a crash left with no publication is queued as new after a restart', async () => {
+  // Catches: memory holding an entry no mirror ever gets because the process died before its publish.
+  const { scene, place, transport } = await oneMirror();
+  await scene.publisher().publishEntry(ONE);
+  scene.advance(1000);
+  scene.entry({ id: 'e2' });
+  const restarted = scene.publisher();
+  assert.equal(await restarted.drainQueued(), 1);
+  assert.equal(await restarted.drainQueued(), 0);
+  assert.deepEqual(transport.posted('d1'), ['one', 'text of e2']);
+  assert.equal(restarted.publicationState('e2', place)?.status, 'sent');
+});
