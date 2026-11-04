@@ -858,10 +858,12 @@ test('journal: a .running marker left over at start writes an unclean-stop recor
   const clock = { ms: DAY_D };
   const { fsp, dataDir, appendStore, journal } = await realJournal(clock);
   try {
-    const running = path.join(dataDir, 'guilds', 'g1', 'journal', '.running');
+    // Runtime markers belong under run/ so starting the journal does not recreate legacy memory folders.
+    const running = path.join(dataDir, 'run', 'journal', 'discord', 'g1.running');
     // A clean first start: no leftover marker, no unclean-stop; the marker is written.
     assert.deepEqual(await journal.markRunning('g1'), { unclean: false });
     await fsp.stat(running);
+    await assert.rejects(fsp.stat(path.join(dataDir, 'guilds')), { code: 'ENOENT' });
     // A clean shutdown removes it.
     await journal.clearRunning('g1');
     await assert.rejects(fsp.stat(running), { code: 'ENOENT' });
