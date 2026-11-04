@@ -71,8 +71,8 @@ type Call = {
   args: Readonly<Record<string, unknown>>;
   by: string;
   mirror: string;
-  refused(why: string): Answer;
-  changed(answer: { ok: boolean; code?: string }, done: string): Answer;
+  refused: (why: string) => Answer;
+  changed: (answer: { ok: boolean; code?: string }, done: string) => Answer;
 };
 
 function list({ desk }: Call): Answer {
