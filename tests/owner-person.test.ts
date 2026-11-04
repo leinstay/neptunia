@@ -17,7 +17,7 @@ import { tempDir } from './fixtures/tmp.ts';
 type Handle = ReturnType<typeof openMemoryDb>;
 
 const OWNER_PERSON = 'person:discord:111';
-const OWNER_ONLY = { name: 'bot.pause', rights: { kind: 'write', ownerOnly: true } };
+const OWNER_ONLY = { name: 'bot.pause', rights: { kind: 'write' as const, ownerOnly: true } };
 
 function withAccounts(body: (handle: Handle) => void): void {
   const handle = openMemoryDb(path.join(tempDir('nep-owner-'), 'memory.db'));
