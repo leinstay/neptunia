@@ -772,8 +772,13 @@ async function buildCore(
     }
   );
   const iface = guardMirrorPort(routed, { memoryDb });
-  // The diary's mirrors (src/behavior/mirror.ts): each recorded entry published once to every enabled mirror.
-  const mirrors = createMirrors({ memoryDb, port: () => coreLink.adapter, now: Date.now, dataDir });
+  // The diary's mirrors (src/behavior/mirror.ts): each recorded entry published once to every enabled mirror, through
+  // the link of the mirror's own interface, or none while that link is closed.
+  const mirrorPort = (name: string) => {
+    const link = linksByName.get(name) ?? (coreLink.adapter.iface === name ? coreLink : null);
+    return link === null || link.current().isClosed() ? null : link.adapter;
+  };
+  const mirrors = createMirrors({ memoryDb, port: mirrorPort, now: Date.now, dataDir, config: () => hot.config });
 
   // The community the interface serves, or the configured one when the interfaces run as units.
   instance.guildId = asUnits ? configuredGuild : (hello?.community?.id ?? null);
@@ -1339,6 +1344,8 @@ async function buildCore(
         return guildId ? recentChannelLines(guildId, conversationId, count) : [];
       },
       now: Date.now,
+      // `/mirror` (src/interface/commands/mirror.ts).
+      mirrors,
       // `/skills` (src/interface/commands/skills.ts).
       skills: skillsWiring.access,
       // `/keys` and the checked `/model set` (src/keys/commands.ts), over the key store.

@@ -1303,6 +1303,55 @@ const V_REQUESTS = `CREATE TABLE model_requests (
 CREATE INDEX model_requests_started ON model_requests(started_at);
 CREATE INDEX model_requests_turn ON model_requests(turn_id, attempt_id, step);`;
 
+// Version 27 (the diary's publication state): the mirrors' configuration and the delivery state of a publication.
+//  - `mirrors` gains `registered_at` (ms, when the mirror began to take new entries; an existing mirror starts at this
+//    migration, so an old entry reaches it only through backfill), the removal marks and the backfill columns.
+//  - `publications` is rebuilt for its CHECK, since SQLite cannot change one in place: `status` also takes `sending` and
+//    `incomplete`, and the row gains `code`, `retryable`, the claim (`claimed_by`, `claimed_at`), `paced` (a row a
+//    historical slot sends, retried at the next slot alone), the owner's mark (`reconciled_by`, `reconciled_at`) and
+//    `delivery`, the segments and their receipts (publication-delivery.ts). No table references `publications`, and every
+//    row is copied as it is: receipts stay valid, `queued` and pending rows stay queued, and a stored `unknown` is what
+//    the publisher reports as uncertain. The copy runs in the migration's one transaction.
+const V27_PUBLICATION_COLUMNS =
+  'id, row_kind, row_id, content_hash, rendered, destination_place_id, context_id, grant_id, status, idempotency_key, receipts, created_at, sent_at, owner_file, retired_at, owner_key';
+
+function V27(db: Db): void {
+  db.exec(`ALTER TABLE mirrors ADD COLUMN registered_at INTEGER;
+    ALTER TABLE mirrors ADD COLUMN removed_at TEXT;
+    ALTER TABLE mirrors ADD COLUMN removed_by TEXT;
+    ALTER TABLE mirrors ADD COLUMN backfill_enabled INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE mirrors ADD COLUMN backfill_interval_ms INTEGER;
+    ALTER TABLE mirrors ADD COLUMN backfill_high_water TEXT;
+    ALTER TABLE mirrors ADD COLUMN backfill_next_due_at INTEGER;
+    ALTER TABLE mirrors ADD COLUMN backfill_completed_at INTEGER;`);
+  db.prepare('UPDATE mirrors SET registered_at = ?').run(Date.now());
+  db.exec(`CREATE TABLE publications_v27 (
+      id TEXT PRIMARY KEY, row_kind TEXT NOT NULL, row_id TEXT NOT NULL, content_hash TEXT, rendered TEXT,
+      destination_place_id TEXT REFERENCES places(id), context_id TEXT REFERENCES execution_contexts(id),
+      grant_id TEXT REFERENCES publication_grants(id),
+      status TEXT NOT NULL CHECK (status IN ('queued', 'sending', 'sent', 'failed', 'incomplete', 'unknown')),
+      idempotency_key TEXT NOT NULL UNIQUE, receipts JSON CHECK (receipts IS NULL OR (json_valid(receipts) AND json_type(receipts) = 'array')),
+      created_at TEXT NOT NULL, sent_at TEXT, owner_file TEXT, retired_at TEXT, owner_key TEXT REFERENCES storage_units(id),
+      code TEXT, retryable INTEGER, claimed_by TEXT, claimed_at INTEGER, paced INTEGER NOT NULL DEFAULT 0,
+      reconciled_by TEXT, reconciled_at TEXT, delivery JSON CHECK (delivery IS NULL OR json_valid(delivery)),
+      CHECK ((content_hash IS NULL) = (rendered IS NULL))
+    );
+    INSERT INTO publications_v27 (${V27_PUBLICATION_COLUMNS}) SELECT ${V27_PUBLICATION_COLUMNS} FROM publications;
+    DROP TABLE publications;
+    ALTER TABLE publications_v27 RENAME TO publications;
+    CREATE INDEX publications_row ON publications(row_kind, row_id);
+    CREATE INDEX publications_owner ON publications(owner_file);
+    CREATE INDEX publications_storage_owner ON publications(owner_key);
+    CREATE INDEX publications_unsettled ON publications(status) WHERE status IN ('queued', 'unknown');
+    CREATE INDEX publications_place ON publications(row_kind, destination_place_id, status);
+    CREATE TRIGGER publications_content_fixed BEFORE UPDATE OF rendered, content_hash ON publications
+      WHEN old.content_hash IS NOT NULL AND (new.content_hash IS NOT old.content_hash OR new.rendered IS NOT old.rendered)
+      BEGIN SELECT RAISE(ABORT, 'a publication keeps its content; an edit is a new publication'); END;
+    CREATE TRIGGER publications_key_fixed BEFORE UPDATE OF id, row_kind, row_id, idempotency_key ON publications
+      BEGIN SELECT RAISE(ABORT, 'a publication keeps its row and its key'); END;
+    ${APPEND_ONLY('publications', 'publications are never deleted').slice(1).join('\n    ')}`);
+}
+
 export const MIGRATIONS: Array<Migration> = [
   V1,
   V2,
@@ -1331,6 +1380,7 @@ export const MIGRATIONS: Array<Migration> = [
    CREATE INDEX ingest_source ON ingest(source_id) WHERE source_id IS NOT NULL;`,
   migrateStorageOwners,
   V_REQUESTS,
+  V27,
 ];
 
 /** Every table schema v8 adds. */

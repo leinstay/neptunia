@@ -1,40 +1,42 @@
-// The diary's mirrors (stage 3 design, section 5). A mirror is one place her diary entries are posted to, a `mirrors`
-// row of schema v15 the owner set up; there may be none or many. `createMirrors` (wired in src/core.ts) publishes a
-// recorded entry once to every enabled mirror: each mirror gets one `publications` row (src/memory/db/publish.ts), keyed
-// `diary:<entry id>:<place id>`, prepared `queued` under the mirror's standing grant, then sent through the interface
-// port and marked `sent` with the message ids as receipts, `failed` with the port's code, or `unknown` when the port
-// could not tell. A second publication of the same entry to the same place reuses the row and sends nothing. With no
-// interface connected (or the port of another interface) the row stays `queued`, and `drainQueued` sends it when the
-// interface connects and on the scheduler's tick. Every write goes through the memory service's writer
-// (`memoryWrite`, kind `publication`).
+// The diary's mirrors. A mirror is one place her diary entries are posted to, a `mirrors` row the owner set up
+// (src/memory/db/mirror-config.ts); there may be none or many. `createMirrors` (wired in src/core.ts) publishes a recorded
+// entry once to every enabled mirror: each mirror gets one `publications` row (src/memory/db/publish.ts), keyed
+// `diary:<entry id>:<place id>`, prepared `queued` under the mirror's standing grant, claimed through the writer so only
+// one publisher sends it (`sending`, src/memory/db/publication-delivery.ts), then sent through the port of its interface
+// and marked `sent` with the message ids as receipts, `failed` with the port's code, or `unknown` when nobody knows what
+// reached the platform. A second publication of the same entry to the same place reuses the row and sends nothing. While
+// its interface is not connected the row stays `queued`, and `drainQueued` (src/behavior/mirror-drain.ts) sends it when
+// the interface connects and on the scheduler's tick. Every write goes through the memory service's writer
+// (`memoryWrite`, kinds `publication` and `mirror`).
 //
-// An entry goes out in the order a diary post goes out from the turn: the voice message, her messages one by one, then
-// the pictures in messages of files (`sendEntry`). The turn's act path (src/behavior/turn.ts#act) splits a set with
-// the same `chunkPictures` and names its files with `pictureAttachments`; `voice.say` (src/tools/impl/voice.ts) builds
-// its file with `voiceAttachment`. Before any send the entry's pictures and voice file are kept in memory as files
-// under the data directory and `media` rows (memoryWrite kind `entry-media`, src/memory/db/diary-media.ts), so a row
-// still queued after a restart goes out whole: `drainQueued` rebuilds the entry from its `diary` row (`send`: her
-// messages as sent, their mentions, the set's byte limit) and its media.
+// An entry goes out as segments, in the order a diary post goes out from the turn: the voice message, her messages one by
+// one, then the pictures in messages of files (`entryPlan`). Each segment has its idempotency key and its receipt, kept as
+// it goes out, so a retry resumes at the segment that stopped under the same key. A send that throws, hangs past
+// `mirrors.sendTimeoutMs` or answers `unknown` makes the row `unknown` and nothing more goes out: only a receipt, an
+// adapter's lookup or the owner settles it. The turn's act path (src/behavior/turn.ts#act) splits a set with the same
+// `chunkPictures` and names its files with `pictureAttachments`; `voice.say` (src/tools/impl/voice.ts) builds its file
+// with `voiceAttachment`. Before any send the entry's pictures and voice file are kept in memory as files under the data
+// directory and `media` rows (memoryWrite kind `entry-media`, src/memory/db/diary-media.ts), so a row still queued after
+// a restart goes out whole, and a row whose file is gone holds as `incomplete` with nothing posted
+// (src/behavior/mirror-stored.ts).
 //
 // The reads of the mirrors (`mirrorPlaces`, `diaryPlaces`, `isMirrorPlace`, `diaryConversationIds`) live with the memory
 // database (src/memory/db/mirrors.ts) and are passed on from here to the behaviour modules. A mirror place is not hers
 // to write in (the owner, 2026-10-27): `guardMirrorPort` is the core's outbound port, which refuses every send
 // there with the code `diary-mirror`, and the message handler opens no turn for an event there (src/behavior/
-// pipeline.js). Logs carry counts and codes, never a text.
+// pipeline.js). The owner's commands read and change the mirrors through src/behavior/mirror-desk.ts. Logs carry counts
+// and codes, never a text.
 
-import { diaryMetadataOf, diaryPublicationRefusal, isPublicationBoundary } from '../tools/publication.ts';
+import { diaryPublicationRefusal } from '../tools/publication.ts';
 import type { PublicationBoundary } from '../tools/publication.ts';
-import fs from 'node:fs';
-import path from 'node:path';
 import { log } from '../log.ts';
 import { portLimit } from '../interface/capabilities.ts';
 import { issueContext } from '../memory/db/scope.ts';
-import { mirrorReceipts, storedDiaryPublicationRefusal, recheck } from '../memory/db/publish.ts';
+import { storedDiaryPublicationRefusal, recheck } from '../memory/db/publish.ts';
 import { setSettings } from './diary.ts';
 import {
   diaryConversationIds,
   diaryPlaces,
-  hasMirrors,
   isMirrorPlace,
   mirrorPlaces,
   placeOf,
@@ -42,10 +44,15 @@ import {
 } from '../memory/db/mirrors.ts';
 import type { DiaryPlace } from '../memory/db/mirrors.ts';
 import { CODE } from '../tools/codes.ts';
+import { createMirrorDesk } from './mirror-desk.ts';
+import type { MirrorDesk } from './mirror-desk.ts';
+import { createMirrorDrain } from './mirror-drain.ts';
+import { errorCode } from './mirror-stored.ts';
 import type { Attachment, Content } from '../protocol/actions.ts';
-import type { ConversationRef, Delivery, SendOptions } from '../protocol/adapter.ts';
+import type { Adapter, ConversationRef, Delivery, SendOptions } from '../protocol/adapter.ts';
 import type { Context } from '../memory/db/scope.ts';
 import type { Db, Row } from '../memory/db/types.ts';
+import type { StoredDelivery } from '../memory/db/publication-delivery.ts';
 
 /** One picture of an entry: its bytes and its media type. */
 export type EntryPicture = { buffer: Uint8Array; mediaType: string };
@@ -83,7 +90,8 @@ export type PostedMessage = {
 
 /**
  * What a send of an entry came to: every message posted, the attachment ids the port named, each message as posted,
- * and the code of the send that stopped it.
+ * and the code of the send that stopped it, with the segment it stopped at, whether a retry can help and the messages
+ * that segment had posted so far.
  */
 export type EntrySent = {
   status: 'sent' | 'failed' | 'unknown';
@@ -91,19 +99,29 @@ export type EntrySent = {
   messageIds: Array<string>;
   attachmentIds: Array<string>;
   posted: Array<PostedMessage>;
+  stoppedAt?: number;
+  retryable?: boolean;
+  stoppedMessageIds?: Array<string>;
 };
 
 /** The part of an interface port the publisher uses. */
 export type MirrorPort = {
   iface: string;
   send(conversation: ConversationRef, content: Content, options?: SendOptions): Promise<Delivery>;
+  /** What the adapter offers; `reconcile` says `fetchMessages` finds a send by its idempotency key. */
+  capabilities?: Adapter['capabilities'];
+  fetchMessages?: Adapter['fetchMessages'];
 };
 
 /** One mirror as `listMirrors` answers it. */
 export type Mirror = { id: string; placeId: string; enabled: boolean };
 
 /** What `publishEntry` answers for each enabled mirror: its place, the publication's state and the port's code. */
-export type PublishOutcome = { placeId: string; status: 'queued' | 'sent' | 'failed' | 'unknown'; code: string | null };
+export type PublishOutcome = {
+  placeId: string;
+  status: 'queued' | 'sending' | 'sent' | 'failed' | 'incomplete' | 'unknown';
+  code: string | null;
+};
 
 /** The part of the memory service the publisher uses: the read connection and the one writer. */
 export type MirrorMemory = {
@@ -111,17 +129,24 @@ export type MirrorMemory = {
   memoryWrite(update: Record<string, unknown>): Promise<unknown>;
 };
 
-type Publication = {
+/** A publication row as the publisher reads it (`SELECT *`). */
+export type Publication = {
   id: string;
   status: string;
   row_id: string;
   rendered: string | null;
   destination_place_id: string;
+  delivery?: string | null;
+  code?: string | null;
 };
 type Prepared = { ok: true; publication: Publication; reused: boolean } | { ok: false; code: string };
 
 // The files of one message when the adapter names no limit (`capabilities().maxFiles`).
 const DEFAULT_FILES_PER_MESSAGE = 10;
+
+// The shipped values of `mirrors.claimLeaseMs` and `mirrors.sendTimeoutMs`, for a publisher given no config.
+const DEFAULT_CLAIM_LEASE_MS = 600_000;
+const DEFAULT_SEND_TIMEOUT_MS = 120_000;
 
 /** How many files one message of `port` holds. */
 export function filesPerMessage(port: unknown): number {
@@ -191,23 +216,21 @@ export function entryText(entry: Pick<DiaryEntry, 'messages'>): string {
   return entry.messages.join('\n');
 }
 
+/** One segment of an entry: what one send carries and the entry's files in it, numbered as the entry keeps them. */
+export type EntrySegment = { content: Content; items: Array<number> };
+
 /**
- * Sends `entry` to `conversation` through `port`: the voice message, her messages one by one, then the pictures in
- * messages of files split by `chunkPictures` over `maxMessageBytes` and the port's `maxFiles`. Stops at the first send
- * that is not `ok`: `failed` with the port's code, or `unknown` when the port could not tell whether it went out.
- * `messageIds` holds every message posted, the parts of a split send included.
+ * The segments of `entry` in their order: the voice message, her messages one by one, then the pictures in messages of
+ * files split by `chunkPictures` over `maxMessageBytes` and the port's `maxFiles`.
  */
-export async function sendEntry(
+export function entryPlan(
   port: MirrorPort,
-  conversation: ConversationRef,
   entry: DiaryEntry,
   { maxMessageBytes, now }: { maxMessageBytes: number; now: () => number }
-): Promise<EntrySent> {
-  if (diaryPublicationRefusal(entry.publicationBoundary, conversation))
-    return { status: 'failed', code: 'not-allowed', messageIds: [], attachmentIds: [], posted: [] };
+): Array<EntrySegment> {
   // Each send with the entry's files it carries, numbered as the entry keeps them: the pictures, then the voice.
   const pictures = entry.pictures ?? [];
-  const sends: Array<{ content: Content; items: Array<number> }> = [];
+  const sends: Array<EntrySegment> = [];
   if (entry.voice)
     sends.push({ content: { attachments: [voiceAttachment(entry.voice, now())] }, items: [pictures.length] });
   // A message's own files go with it, numbered after the pictures and the voice file.
@@ -226,21 +249,102 @@ export async function sendEntry(
   for (const chunk of chunkPictures(pictures, maxMessageBytes, filesPerMessage(port))) {
     sends.push({ content: { attachments: pictureAttachments(chunk) }, items: chunk.map(() => next++) });
   }
+  return sends;
+}
+
+/** What a run over a plan does around each send. */
+export type PlanHooks = {
+  /** A segment that already went out, in an earlier attempt. */
+  done?: (segment: number) => boolean;
+  /** The idempotency key of a segment. */
+  keyOf?: (segment: number) => string;
+  /** Called once a segment went out, with its messages and attachments. Its failure stops the run. */
+  onSent?: (segment: number, messageIds: Array<string>, attachmentIds: Array<string>) => Promise<boolean>;
+  /** How long one send may take (ms); past it the result is `unknown`. */
+  timeoutMs?: number;
+};
+
+/** A send's answer when no port gave one: nobody knows what reached the platform. */
+const unknownDelivery = (code: string): Delivery => ({
+  status: 'unknown',
+  ref: null,
+  parts: [],
+  at: null,
+  idempotencyKey: '',
+  error: { code, retryable: false, retryAfterMs: null },
+});
+
+/** One send under its key. A send that throws or hangs past `timeoutMs` answers `unknown`. */
+async function attempt(
+  port: MirrorPort,
+  conversation: ConversationRef,
+  content: Content,
+  key: string | undefined,
+  timeoutMs: number | undefined
+): Promise<Delivery> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const sending = port.send(conversation, content, key === undefined ? undefined : { idempotencyKey: key });
+    if (timeoutMs === undefined) return await sending;
+    const hung = new Promise<Delivery>((resolve) => {
+      timer = setTimeout(() => resolve(unknownDelivery('send-timeout')), timeoutMs);
+      timer.unref?.();
+    });
+    // A send that rejects after its time is over is nobody's to hear.
+    sending.catch(() => {});
+    return await Promise.race([sending, hung]);
+  } catch (err) {
+    return unknownDelivery(errorCode(err, 'send-threw'));
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
+}
+
+/**
+ * Sends the segments of a plan one after another. Stops at the first send that is not `ok`: `failed` with the port's code,
+ * or `unknown` when the port could not tell whether it went out. `messageIds` holds every message posted in this run, the
+ * parts of a split send included.
+ */
+export async function sendPlan(
+  port: MirrorPort,
+  conversation: ConversationRef,
+  plan: ReadonlyArray<EntrySegment>,
+  hooks: PlanHooks = {}
+): Promise<EntrySent> {
   const out: EntrySent = { status: 'sent', code: null, messageIds: [], attachmentIds: [], posted: [] };
-  for (const { content, items } of sends) {
-    const sent = await port.send(conversation, content);
-    for (const part of sent.parts.length > 0 ? sent.parts : sent.ref ? [sent.ref] : [])
-      out.messageIds.push(part.messageId);
+  for (const [segment, { content, items }] of plan.entries()) {
+    if (hooks.done?.(segment) === true) continue;
+    const sent = await attempt(port, conversation, content, hooks.keyOf?.(segment), hooks.timeoutMs);
+    const ids = (sent.parts.length > 0 ? sent.parts : sent.ref ? [sent.ref] : []).map((part) => part.messageId);
+    out.messageIds.push(...ids);
     if (sent.status !== 'ok')
       return {
         ...out,
         status: sent.status === 'unknown' ? 'unknown' : 'failed',
         code: sent.error?.code ?? sent.status,
+        stoppedAt: segment,
+        retryable: sent.error?.retryable === true,
+        stoppedMessageIds: ids,
       };
     out.posted.push(postedOf(sent, content, items));
-    for (const file of sent.attachments ?? []) out.attachmentIds.push(file.attachmentId);
+    const attachments = (sent.attachments ?? []).map((file) => file.attachmentId);
+    out.attachmentIds.push(...attachments);
+    if (hooks.onSent && !(await hooks.onSent(segment, ids, attachments)))
+      return { ...out, status: 'unknown', code: 'claim-lost', stoppedAt: segment, stoppedMessageIds: [] };
   }
   return out;
+}
+
+/** Sends `entry` to `conversation` through `port`, unless its restriction refuses the place (`entryPlan`, `sendPlan`). */
+export async function sendEntry(
+  port: MirrorPort,
+  conversation: ConversationRef,
+  entry: DiaryEntry,
+  { maxMessageBytes, now }: { maxMessageBytes: number; now: () => number }
+): Promise<EntrySent> {
+  if (diaryPublicationRefusal(entry.publicationBoundary, conversation))
+    return { status: 'failed', code: 'not-allowed', messageIds: [], attachmentIds: [], posted: [] };
+  return sendPlan(port, conversation, entryPlan(port, entry, { maxMessageBytes, now }));
 }
 
 /** One send of an entry as posted: its message, its time, its text and the entry's files with the ids the port named. */
@@ -316,91 +420,43 @@ function mediaItems(entry: DiaryEntry): Array<MediaItem> {
   ];
 }
 
-/** The receipts of the attachments a publication posted: one `{ authority, kind: 'attachment', key }` per id. */
-function attachmentReceipts(
-  iface: string,
-  ids: ReadonlyArray<string>
-): Array<{ authority: string; kind: string; key: string }> {
-  const authority = mirrorReceipts(iface, ['x'])[0]?.authority ?? iface;
-  return ids.map((key) => ({ authority, kind: 'attachment', key }));
-}
-
 /** What an audio `media` row of an entry keeps of its voice message: its length and its waveform. */
 function voiceExtra(voice: EntryVoice): { durationSec: number; waveform: string } {
   return { durationSec: voice.durationSecs, waveform: voice.waveform };
 }
 
-/** The JSON object of `text`, or an empty object. */
-function objectOf(text: unknown): Row {
-  try {
-    const parsed: unknown = typeof text === 'string' ? JSON.parse(text) : null;
-    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? (parsed as Row) : {};
-  } catch {
-    // An unreadable extra holds nothing of the entry.
-    return {};
-  }
-}
-
-/** The number at the end of a media id (`media:diary:<entry>-<n>`): its place in the entry. */
-const mediaNumber = (id: unknown): number => Number(/-(\d+)$/.exec(String(id))?.[1] ?? 0);
-
-/**
- * The entry of a queued publication as memory holds it: its `diary` row's `send` (her messages as sent, their mentions,
- * the set's byte limit; the rendered text as one message when it has none) and its `media` rows with their files under
- * `dataDir` in their numbering: the pictures, the voice file, and the files of her messages (`extra.file` names the
- * message and the file's name). A file that cannot be read is left out.
- */
-function storedEntry(db: Db, publication: Publication, dataDir: string | null): DiaryEntry {
-  const row = db.prepare('SELECT extra FROM diary WHERE id = ?').get(publication.row_id);
-  const metadata = diaryMetadataOf(row?.extra);
-  const send = metadata.send as { messages?: unknown; mentions?: unknown; maxMessageBytes?: unknown } | undefined;
-  const messages = Array.isArray(send?.messages) ? (send.messages as Array<string>) : [publication.rendered ?? ''];
-  const entry: DiaryEntry = {
-    id: publication.row_id,
-    ...(isPublicationBoundary(metadata.publicationBoundary)
-      ? { publicationBoundary: metadata.publicationBoundary }
-      : {}),
-    messages,
-    ...(Array.isArray(send?.mentions) ? { mentions: send.mentions as Array<Array<string>> } : {}),
-    ...(typeof send?.maxMessageBytes === 'number' ? { maxMessageBytes: send.maxMessageBytes } : {}),
+/** The settings of the publisher, read at each use. */
+export function mirrorSettings(config: unknown): { claimLeaseMs: number; sendTimeoutMs: number } {
+  const section = (config as { mirrors?: { claimLeaseMs?: unknown; sendTimeoutMs?: unknown } } | null)?.mirrors;
+  const positive = (value: unknown, fallback: number): number =>
+    typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
+  const claimLeaseMs = positive(section?.claimLeaseMs, DEFAULT_CLAIM_LEASE_MS);
+  // A send outliving the lease would have its claim expire under it.
+  return {
+    claimLeaseMs,
+    sendTimeoutMs: Math.min(positive(section?.sendTimeoutMs, DEFAULT_SEND_TIMEOUT_MS), claimLeaseMs),
   };
-  const media = db
-    .prepare("SELECT id, path, mime, extra FROM media WHERE kind = 'diary' AND owner = ? AND retired_at IS NULL")
-    .all(publication.row_id)
-    .sort((a, b) => mediaNumber(a.id) - mediaNumber(b.id));
-  const pictures: Array<EntryPicture> = [];
-  const files: Array<EntryFile> = [];
-  for (const item of media) {
-    const file = dataDir && typeof item.path === 'string' ? path.join(dataDir, item.path) : null;
-    if (!file || !fs.existsSync(file)) continue;
-    const buffer = fs.readFileSync(file);
-    const mime = String(item.mime);
-    const own = objectOf(item.extra).file as { message?: unknown; name?: unknown } | undefined;
-    if (own && typeof own.message === 'number') {
-      files.push({
-        message: own.message,
-        name: typeof own.name === 'string' ? own.name : 'file',
-        data: buffer,
-        contentType: mime,
-      });
-      continue;
-    }
-    if (!mime.startsWith('audio/')) {
-      pictures.push({ buffer, mediaType: mime });
-      continue;
-    }
-    const extra = objectOf(item.extra);
-    const durationSecs = typeof extra.durationSec === 'number' ? extra.durationSec : 0;
-    entry.voice = { ogg: buffer, durationSecs, waveform: typeof extra.waveform === 'string' ? extra.waveform : '' };
-  }
-  return { ...entry, ...(pictures.length > 0 ? { pictures } : {}), ...(files.length > 0 ? { files } : {}) };
 }
 
+/** Every claimant this process makes differs, so a publisher whose claim expired can be told from its successor. */
+let claimants = 0;
+const nextClaimant = (): string => `publisher:${process.pid}:${(claimants += 1)}`;
+
+/** The publisher's whole surface: publishing, draining, and the owner's desk. */
+export type Mirrors = MirrorDesk & {
+  publishEntry(entry: DiaryEntry): Promise<Array<PublishOutcome>>;
+  queueEntry(entry: DiaryEntry): Promise<void>;
+  drainQueued(): Promise<number>;
+  keepEntryMedia(entry: DiaryEntry): Promise<void>;
+  /** A diary turn begins: until the answered function is called, a drain leaves entries with no publication alone. */
+  beginEntry(): () => void;
+};
+
 /**
- * The publisher of the diary's mirrors over the memory service `memoryDb` and the connected interface's port
- * (`port()`: null when none is connected). `dataDir` is the memory service's data directory, where the entries' media
- * files are kept (null: a queued entry goes out without them). `config()` is the live config, read at each send for an
- * entry that names no `maxMessageBytes` (`selfreflection.set.maxMessageBytes`).
+ * The publisher of the diary's mirrors over the memory service `memoryDb` and the port of each interface (`port(iface)`:
+ * null while that interface is not connected). `dataDir` is the memory service's data directory, where the entries' media
+ * files are kept. `config()` is the live config: `mirrors.claimLeaseMs`, `mirrors.sendTimeoutMs`, and
+ * `selfreflection.set.maxMessageBytes` for an entry that names no `maxMessageBytes`.
  */
 export function createMirrors({
   memoryDb,
@@ -410,30 +466,17 @@ export function createMirrors({
   config = () => ({}),
 }: {
   memoryDb: MirrorMemory;
-  port: () => MirrorPort | null;
+  port: (iface: string) => MirrorPort | null;
   now: () => number;
   dataDir?: string | null;
   config?: () => unknown;
-}): {
-  listMirrors(): Array<Mirror>;
-  publishEntry(entry: DiaryEntry): Promise<Array<PublishOutcome>>;
-  queueEntry(entry: DiaryEntry): Promise<void>;
-  drainQueued(): Promise<number>;
-  keepEntryMedia(entry: DiaryEntry): Promise<void>;
-} {
+}): Mirrors {
   function database(): Db | null {
     const handle = memoryDb.readHandle();
     return handle ? (handle.db as Db) : null; // the service's read connection is node:sqlite's
   }
 
-  function listMirrors(): Array<Mirror> {
-    const db = database();
-    if (!db || !hasMirrors(db)) return [];
-    return db
-      .prepare("SELECT id, place_id, enabled FROM mirrors WHERE row_kind = 'diary' ORDER BY created_at, id")
-      .all()
-      .map((row) => ({ id: String(row.id), placeId: String(row.place_id), enabled: row.enabled === 1 }));
-  }
+  const desk = createMirrorDesk({ memoryDb, database, port, now });
 
   /** The enabled mirror's place `placeId` as a diary place, or null when it is no longer an enabled mirror. */
   function mirroredPlace(db: Db, placeId: string): DiaryPlace | null {
@@ -462,38 +505,127 @@ export function createMirrors({
     if (items.length > 0) await memoryDb.memoryWrite({ kind: 'entry-media', id: entry.id, items });
   }
 
-  /** A queued publication sent to its place, when the port of its interface is connected; its outcome. */
-  async function send(publication: Publication, place: DiaryPlace, entry: DiaryEntry): Promise<PublishOutcome> {
+  /** A refusal or a hold with nothing sent: the row keeps its code, and a drain's next look at it writes nothing new. */
+  async function hold(
+    publication: Publication,
+    place: DiaryPlace,
+    status: 'failed' | 'incomplete',
+    code: string,
+    paced: boolean
+  ): Promise<PublishOutcome> {
+    if (publication.status !== status || publication.code !== code)
+      await write({ op: 'hold', id: publication.id, status, code, retryable: false, paced });
+    return { placeId: place.placeId, status, code };
+  }
+
+  /** The claimed row's segments sent one after another, each receipt written as it goes out; the row's end. */
+  async function sendClaimed(
+    publication: Publication,
+    place: DiaryPlace,
+    entry: DiaryEntry,
+    connected: MirrorPort,
+    plan: Array<EntrySegment>,
+    claimant: string,
+    delivery: StoredDelivery
+  ): Promise<PublishOutcome> {
+    const sent = await sendPlan(connected, { iface: place.iface, conversationId: place.conversationId }, plan, {
+      done: (segment) => delivery.segments[segment]?.status === 'sent',
+      keyOf: (segment) => delivery.segments[segment]?.key ?? `${publication.id}:${segment}`,
+      timeoutMs: mirrorSettings(config()).sendTimeoutMs,
+      onSent: async (segment, messageIds, attachmentIds) => {
+        const answer = (await write({
+          op: 'segment',
+          id: publication.id,
+          claimant,
+          segment,
+          messageIds,
+          attachmentIds,
+          now: now(),
+        })) as { held?: unknown };
+        return answer.held === true;
+      },
+    });
+    const { status } = sent;
+    if (status === 'sent') {
+      await write({ op: 'settle', id: publication.id, claimant, status, rendered: entryText(entry), now: now() });
+      // The entry is out: a lost write of its media ids costs a reference, never the publication.
+      await keepMedia(entry, sent).catch((err: unknown) =>
+        log.warn('mirror: media ids not kept', { code: errorCode(err, 'ERROR') })
+      );
+    } else if (sent.code !== 'claim-lost')
+      await write({
+        op: 'settle',
+        id: publication.id,
+        claimant,
+        status,
+        code: sent.code,
+        retryable: sent.retryable === true,
+        segment: sent.stoppedAt,
+        messageIds: sent.stoppedMessageIds ?? [],
+        now: now(),
+      });
+    log.info('mirror: published', { status, messages: sent.messageIds.length, code: sent.code });
+    return { placeId: place.placeId, status, code: sent.code };
+  }
+
+  /**
+   * One publication to its place, when the port of its interface is connected and nothing else holds it: rechecked,
+   * claimed through the writer, sent. `paced` is a historical slot's send; `missing` names an entry whose file is gone.
+   */
+  async function send(
+    publication: Publication,
+    place: DiaryPlace,
+    entry: DiaryEntry,
+    { paced = false, missing = false }: { paced?: boolean; missing?: boolean } = {}
+  ): Promise<PublishOutcome> {
     const db = database();
     const destination = { iface: place.iface, conversationId: place.conversationId };
     const context = issueContext({ kind: 'group', iface: place.iface, destination: place.placeId, now });
     const refusal = diaryPublicationRefusal(entry.publicationBoundary, destination);
     const checked = db ? recheck(db, publication.id, context) : { ok: false };
+    // Another publisher took the row since it was read.
+    if ('code' in checked && checked.code === 'not-pending')
+      return { placeId: place.placeId, status: 'sending', code: null };
     if (refusal || !checked.ok) {
-      await write({ op: 'failed', id: publication.id });
-      return {
-        placeId: place.placeId,
-        status: 'failed',
-        code: refusal?.code ?? ('code' in checked ? String(checked.code) : 'not-allowed'),
-      };
+      const code = refusal?.code ?? ('code' in checked ? String(checked.code) : 'not-allowed');
+      return hold(publication, place, 'failed', code, paced);
     }
-    const connected = port();
-    if (!connected || connected.iface !== place.iface) return { placeId: place.placeId, status: 'queued', code: null };
+    const connected = port(place.iface);
+    if (!connected || connected.iface !== place.iface)
+      return { placeId: place.placeId, status: publication.status as PublishOutcome['status'], code: null };
+    if (missing) return hold(publication, place, 'incomplete', 'media-missing', paced);
     const diary = (config() as { selfreflection?: unknown } | null)?.selfreflection ?? null;
-    const sent = await sendEntry(connected, { iface: place.iface, conversationId: place.conversationId }, entry, {
-      maxMessageBytes: entry.maxMessageBytes ?? setSettings(diary).maxMessageBytes,
-      now,
-    });
-    if (sent.status === 'sent') {
-      const receipts = [
-        ...mirrorReceipts(place.iface, sent.messageIds),
-        ...attachmentReceipts(place.iface, sent.attachmentIds),
-      ];
-      await write({ op: 'sent', id: publication.id, receipts, rendered: entryText(entry), now: now() });
-      await keepMedia(entry, sent);
-    } else await write({ op: sent.status, id: publication.id });
-    log.info('mirror: published', { status: sent.status, messages: sent.messageIds.length, code: sent.code });
-    return { placeId: place.placeId, status: sent.status, code: sent.code };
+    const maxMessageBytes = entry.maxMessageBytes ?? setSettings(diary).maxMessageBytes;
+    const plan = entryPlan(connected, entry, { maxMessageBytes, now });
+    const claimant = nextClaimant();
+    const claim = (await write({
+      op: 'claim',
+      id: publication.id,
+      claimant,
+      count: plan.length,
+      messages: entry.messages,
+      ...(entry.mentions ? { mentions: entry.mentions } : {}),
+      paced,
+      now: now(),
+    })) as { ok: true; delivery: StoredDelivery } | { ok: false };
+    if (!claim.ok) return { placeId: place.placeId, status: 'sending', code: null };
+    return sendClaimed(publication, place, entry, connected, plan, claimant, claim.delivery);
+  }
+
+  /** The entry's `queued` publication to one place, or the code that refuses it; `pending` when it has no content yet. */
+  async function prepareFor(db: Db, entry: DiaryEntry, place: DiaryPlace, pending: boolean): Promise<Prepared> {
+    if (
+      diaryPublicationRefusal(entry.publicationBoundary, {
+        iface: place.iface,
+        conversationId: place.conversationId,
+      }) ||
+      storedDiaryPublicationRefusal(db, entry.id, place.placeId)
+    )
+      return { ok: false, code: 'not-allowed' };
+    const context: Context = issueContext({ kind: 'group', iface: place.iface, destination: place.placeId, now });
+    const rendered = entryText(entry);
+    const input = { context, rowKind: 'diary', rowId: entry.id, rendered, destination: place.placeId, pending };
+    return (await write({ op: 'prepare', input, now: now() })) as Prepared;
   }
 
   /**
@@ -507,23 +639,9 @@ export function createMirrors({
     pending: boolean
   ): Promise<Array<{ place: DiaryPlace; prepared: Prepared }>> {
     const out: Array<{ place: DiaryPlace; prepared: Prepared }> = [];
-    for (const mirror of listMirrors().filter((one) => one.enabled)) {
+    for (const mirror of desk.listMirrors().filter((one) => one.enabled)) {
       const place = mirroredPlace(db, mirror.placeId);
-      if (!place) continue;
-      if (
-        diaryPublicationRefusal(entry.publicationBoundary, {
-          iface: place.iface,
-          conversationId: place.conversationId,
-        }) ||
-        storedDiaryPublicationRefusal(db, entry.id, place.placeId)
-      ) {
-        out.push({ place, prepared: { ok: false, code: 'not-allowed' } });
-        continue;
-      }
-      const context: Context = issueContext({ kind: 'group', iface: place.iface, destination: place.placeId, now });
-      const rendered = entryText(entry);
-      const input = { context, rowKind: 'diary', rowId: entry.id, rendered, destination: place.placeId, pending };
-      out.push({ place, prepared: (await write({ op: 'prepare', input, now: now() })) as Prepared });
+      if (place) out.push({ place, prepared: await prepareFor(db, entry, place, pending) });
     }
     return out;
   }
@@ -553,37 +671,49 @@ export function createMirrors({
       }
       const { publication } = prepared;
       if (publication.status !== 'queued') {
-        outcomes.push({ placeId: place.placeId, status: publication.status as PublishOutcome['status'], code: null });
+        const status = publication.status as PublishOutcome['status'];
+        outcomes.push({ placeId: place.placeId, status, code: publication.code ?? null });
         continue;
       }
-      outcomes.push(await send(publication, place, entry));
+      // One mirror's trouble stops none of the others: a failed write leaves its claim to the lease.
+      outcomes.push(
+        await send(publication, place, entry).catch((err: unknown): PublishOutcome => {
+          const code = errorCode(err, 'publish-failed');
+          log.warn('mirror: publish stopped', { code });
+          return { placeId: place.placeId, status: 'unknown', code };
+        })
+      );
     }
     return outcomes;
   }
 
-  async function drainQueued(): Promise<number> {
-    const db = database();
-    if (!db) return 0;
-    const queued = db
-      .prepare(
-        "SELECT id, status, row_id, rendered, destination_place_id FROM publications WHERE row_kind = 'diary' AND status = 'queued' AND retired_at IS NULL ORDER BY created_at, id"
-      )
-      .all() as Array<Publication>; // the columns selected above
-    let sent = 0;
-    for (const publication of queued) {
-      const place = mirroredPlace(db, publication.destination_place_id);
-      if (!place) continue;
-      const entry = storedEntry(db, publication, dataDir);
-      if ((await send(publication, place, entry)).status === 'sent') sent += 1;
-    }
-    return sent;
-  }
+  let writing = 0;
+  const drainQueued = createMirrorDrain({
+    database,
+    memoryDb,
+    port,
+    now,
+    dataDir,
+    leaseMs: () => mirrorSettings(config()).claimLeaseMs,
+    mirroredPlace,
+    prepareFor,
+    send,
+    entriesBeingWritten: () => writing,
+  });
 
   return {
-    listMirrors,
+    ...desk,
     publishEntry,
     queueEntry,
     drainQueued,
     keepEntryMedia: keepMedia,
+    beginEntry() {
+      writing += 1;
+      let released = false;
+      return () => {
+        if (!released) writing -= 1;
+        released = true;
+      };
+    },
   };
 }

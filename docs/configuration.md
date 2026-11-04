@@ -384,6 +384,15 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `selfreflection.planMaxOutputTokens` | number | `2000` | Max output tokens for the plan request | `src/turn/diary.ts` |
 | `selfreflection.planTimeoutMs` | number | `60000` | Timeout for the plan request (ms) | `src/turn/diary.ts` |
 
+## mirrors
+
+The owner's `/mirror` commands choose the destinations and each destination's backfill interval, which live in memory. These two settings bound one delivery.
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `mirrors.claimLeaseMs` | number | `600000` | How long a claimed diary publication stands with no word from its publisher. Past it the publisher counts as gone and the send as uncertain | `src/behavior/mirror.ts` |
+| `mirrors.sendTimeoutMs` | number | `120000` | How long one send of a diary publication may take before its result counts as uncertain, at most `mirrors.claimLeaseMs` | `src/behavior/mirror.ts` |
+
 ## gifs
 
 | Key | Type | Default | What it does | Read by |

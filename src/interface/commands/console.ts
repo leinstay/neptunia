@@ -32,6 +32,8 @@ import { ownValueAt, splitPath } from '../../tools/impl/shared.ts';
 import { skillRegistry } from '../../tools/registry.ts';
 import type { SkillsAccess } from '../../skills/port.ts';
 import type { ConsoleSubharness } from './subharness.ts';
+import { mirrorCommand } from './mirror.ts';
+import type { MirrorDesk } from '../../behavior/mirror-desk.ts';
 import { searchCommand } from './search.ts';
 import { skillsCommand } from './skills.ts';
 import { MODULE_ACTIONS, moduleCommand } from './module-setup.ts';
@@ -95,6 +97,8 @@ export type ConsoleDeps = {
    * nothing.
    */
   subharness?: ConsoleSubharness;
+  /** The diary's mirrors (src/behavior/mirror-desk.ts); `/mirror` fails while there is none. */
+  mirrors?: MirrorDesk | null;
   /** What the core knows of one of its wakes, for `/service <name> status`. */
   wakeClock?: (name: ServiceName) => WakeClock | null;
 };
@@ -652,6 +656,7 @@ export function createConsole(deps: ConsoleDeps): {
       if (routed !== null) return routed;
       if (deps.keys != null && (name.startsWith(KEYS_PREFIX) || (name === 'model.set' && deps.keys.enabled())))
         return deps.keys.run(name, args, dialog);
+      if (name.startsWith('mirror.')) return mirrorCommand(deps.mirrors, name, args, requester);
       const owned = ownCommand(deps, name, args, dialog);
       if (owned !== null) return owned;
       if (name.startsWith(SERVICE_PREFIX)) return serviceRun(deps, config, name, args);

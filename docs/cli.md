@@ -48,12 +48,31 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Choose credentials and models | `/keys`, `/model`, `/search` |
 | Configure a chat platform | `/interface` |
 | Link a person's accounts | `/memory bind`, `/memory accounts`, `/memory unbind` |
+| Choose where the diary is published | `/mirror` |
 | Review and activate a skill | `/skills` |
 | Configure agent execution | `/subharness` |
 | Schedule, switch and inspect the four scheduled mechanics | `/service` |
 | Read a watcher report | `/service watcher report` |
 
 A secret question hides its answer and excludes it from input history. History lives in `data/cli/`.
+
+## Mirrors
+
+`/mirror` manages the places her diary is published to, in the chat and as `neptunia mirror <subcommand>`. A mirror is named by its id or its place id. A bad value answers `invalid` and changes nothing. [Diary](diary.md#mirrors) describes delivery and backfill.
+
+| Command | What it does |
+|---|---|
+| `/mirror list` | Every mirror and whether it is enabled. This is the bare `/mirror`. |
+| `/mirror status` | Each mirror with its interface, queue, failed, incomplete and uncertain entries, and its backfill. |
+| `/mirror add <destination> [--backfill true\|false] [--every <duration>]` | Registers a known place. Adding it again reuses the mirror. |
+| `/mirror configure <mirror> [--enabled true\|false] [--backfill true\|false] [--every <duration>]` | Changes a mirror. `--backfill true` needs an interval, given now or earlier. |
+| `/mirror disable <mirror>` | Stops sending and keeps the configuration. |
+| `/mirror remove <mirror>` | Takes the mirror off the list and keeps its delivery history. |
+| `/mirror reconcile <mirror> --through <entry>` | Records every entry up to that one as already published, with the requester's name, and sends nothing. |
+| `/mirror reconcile <mirror> --entries <id,id>` | Records the named entries alone. A real receipt stays as it is, and an unknown id refuses the whole command. |
+| `/mirror reconcile <mirror> --absent --entries <id,id>` | Says uncertain sends never arrived and queues them again. An entry with no uncertain send refuses the whole command. |
+
+A duration is a whole number with `s`, `m`, `h` or `d`, such as `30m` or `4h`.
 
 ## One command from a shell
 
