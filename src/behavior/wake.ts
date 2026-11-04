@@ -788,7 +788,7 @@ export function wakeBlockText(
     lines.push(...heartbeatLines(wake.heartbeat, l.heartbeat, when, placesBlock, { handleBase, onRefs }));
   else lines.push(...placesBlock);
   lines.push(...selfimprovementLines(wake.selfimprovement, l.selfimprovement, when, selfimprovementReason(wake.items)));
-  lines.push(...landedLines([wake.heartbeat?.landed, wake.selfimprovement?.news.landed], l.landed));
+  lines.push(...landedLines([wake.selfimprovement?.news.landed], l.landed));
   lines.push(...budgetLines(wake.budgets ?? {}, l, when));
   return lines.join('\n');
 }

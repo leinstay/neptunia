@@ -28,18 +28,13 @@ import { coerceArgs, coversSpeech, toolResultText } from '../tools/tool-calls.ts
 import type { TurnCall } from '../skills/uses.ts';
 import type { NormalCall } from '../tools/tool-calls.ts';
 import type { Obj, SkillMap } from '../tools/types.ts';
+import { endsWake, oneDecisionCode } from '../tools/wake-tools.ts';
 import type { Act, ActArgs, ActOutcome, HeldSpeech, HoldArgs } from './act.ts';
 import { CALL_STATUS_NAMES, callTextOf, defaultSkills, ifaceOption, searchHandles, speechItemsOf } from './calls.ts';
 import type { CallEnvelope, SearchRefs } from './calls.ts';
 import { cutOffOf, untoldDiagnostics } from './journal.ts';
 import { snapshotOfDraft } from './routing.ts';
-import {
-  INNER_TERMINAL_SKILLS,
-  HEARTBEAT_INTENT_SKILLS,
-  LOOP_MIN_CALL_MS,
-  LOOP_WHY,
-  loopSettings,
-} from './settings.ts';
+import { INNER_TERMINAL_SKILLS, LOOP_MIN_CALL_MS, LOOP_WHY, loopSettings } from './settings.ts';
 import { resultCharsFor } from './settings.ts';
 import type {
   CallContext,
@@ -97,8 +92,6 @@ export type ToolRoundContext = {
   conversationOf: (channel: { id: string }) => ConversationRef;
   callView: SkillCalls['callView'];
   planToolCall: SkillCalls['planToolCall'];
-  heartbeatOnly: SkillCalls['heartbeatOnly'];
-  heartbeatChanged: SkillCalls['heartbeatChanged'];
   runCalls: SkillCalls['runCalls'];
   typingWhileCalls: Typing['typingWhileCalls'];
   holdSpeech: Act['holdSpeech'];
@@ -248,8 +241,6 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     conversationOf,
     callView,
     planToolCall,
-    heartbeatOnly,
-    heartbeatChanged,
     runCalls,
     typingWhileCalls,
     holdSpeech,
@@ -374,7 +365,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * keeps, and its speech is held unless it has no calls (an inner turn's one terminal call, if it went through,
    * lets it go out). The same goes for a request the time budget (`timeBudgetMs`, from the first call) or the room
    * of the request (the tokens: the results are cut to fit, 400 characters each at least) made the last. A heartbeat
-   * turn ends with its one intention change. Logs `skills: loop` (`steps`, `calls`, `ms`).
+   * turn ends with its one intention change, a selfimprovement wake with its one filing. Logs `skills: loop` (`steps`, `calls`, `ms`).
    *
    * Resolves `{ acts, cutOff, delivered }`: act's answers in order, whether a step was cut off with nothing complete,
    * and whether anything reached the chat (her speech, a post, a picture, an errand accepted).
@@ -412,6 +403,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     typing,
   }: RunStepsArgs & { typing: { stop: () => void; started: boolean } }): Promise<Stepped> {
     const inner = Boolean(draft.inner);
+    const wakeKind = draft.inner?.wake?.kind ?? null;
     // A diary post (draft.diary): only draw.create runs; its pictures are staged and posted with the messages.
     const diary = Boolean(draft.diary);
     const registry = skills ?? defaultSkills();
@@ -533,7 +525,10 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       // Only an inner turn's last answer still makes one call: a post or a change of an intention.
       const terminalAt =
         isFinal && inner
-          ? records.findIndex((record) => !record.problem && INNER_TERMINAL_SKILLS.includes(record.name))
+          ? records.findIndex(
+              (record) =>
+                !record.problem && (INNER_TERMINAL_SKILLS.includes(record.name) || endsWake(wakeKind, record.name))
+            )
           : -1;
       if (records.length > 0) {
         if (loopStartedAt === null) loopStartedAt = clock();
@@ -542,8 +537,8 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           typing.stop = typingWhileCalls(channel, triggerKind, draft);
         }
         const view = { ...viewOf(routed), links: await linksOfCalls(ifaceReads, records) };
-        // A heartbeat turn makes one intention change: the first intent call of a step is planned, a second one is refused.
-        let changePlanned = false;
+        // A wake with one decision (src/tools/wake-tools.ts): the first deciding call of a step is planned, a second one is refused.
+        let decisionPlanned = false;
         for (const record of records) {
           const preRefuse = preRefusalOf(record, {
             isFinal,
@@ -556,15 +551,15 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           const coercion = preRefuse
             ? { args: record.args, coerced: [] }
             : coerceArgs(record.args, registry.get(record.name)?.argsSchema);
-          const second =
-            !preRefuse && heartbeatOnly(draft) && HEARTBEAT_INTENT_SKILLS.includes(record.name) && changePlanned;
+          const deciding = !preRefuse && endsWake(wakeKind, record.name);
+          const second = deciding && decisionPlanned;
           if (second)
-            log.info('heartbeat: call refused', {
+            log.info(`${wakeKind}: call refused`, {
               skill: record.name,
-              code: CODE.HEARTBEAT_ONLY,
+              code: oneDecisionCode(wakeKind),
               reason: 'one-change',
             });
-          if (!preRefuse && heartbeatOnly(draft) && HEARTBEAT_INTENT_SKILLS.includes(record.name)) changePlanned = true;
+          if (deciding) decisionPlanned = true;
           const call: PlannedCall = {
             skill: record.name,
             // coerceArgs answers an object for the object a normalized call carries.
@@ -574,7 +569,9 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
             index: record.index,
             ...(coercion.coerced.length > 0 ? { coerced: coercion.coerced.map((item) => item.arg) } : {}),
             ...(preRefuse ? { preRefuse } : {}),
-            ...(second ? { refuse: { code: CODE.HEARTBEAT_ONLY, reason: 'heartbeat:one-change' } } : {}),
+            ...(second
+              ? { refuse: { code: String(oneDecisionCode(wakeKind)), reason: `${wakeKind}:one-change` } }
+              : {}),
           };
           const planned = await planToolCall({ call, channel, envelope: envelopeOf(call), draft, view });
           plans.push({ ...planned, record, coerced: coercion.coerced });
@@ -666,8 +663,8 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       const openAlone = openLine !== '' && !fresh && !openTaken && left.run && left.next !== 'none';
       // Under the full stop (features.tools off) she is silent: nothing more is asked of her.
       const stopped = results.some((result) => result.code === CODE.SKILLS_OFF);
-      const next: string =
-        isFinal || stopped || heartbeatChanged(draft, stepResults) ? 'none' : fresh || openAlone ? left.next : 'none';
+      const decided = stepResults.some((result) => result.status === 'ok' && endsWake(wakeKind, result.skill));
+      const next: string = isFinal || stopped || decided ? 'none' : fresh || openAlone ? left.next : 'none';
       if (next === 'none') {
         typing.stop();
         unseen = stepResults;

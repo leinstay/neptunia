@@ -1,10 +1,8 @@
-// What the heartbeat does with the merged fixes of her own code (src/behavior/heartbeat-view.ts,
-// src/behavior/inner/heartbeat.ts, src/behavior/selfimprovement-text.ts), and the two board changes they rest on: the
+// How her wake words and marks the merged fixes of her own code (src/behavior/selfimprovement-text.ts,
+// src/selfimprovement/landed.ts), and the two board changes they rest on: the
 // `merged` condition of the machine and `ack_seqs` of `outbox.pull`. Each test names the bug it catches.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.ts';
-import { committedHeartbeat } from '../src/behavior/inner/heartbeat.ts';
 import { proposalsOf } from '../src/behavior/selfimprovement-view.ts';
 import { landedLines } from '../src/behavior/selfimprovement-text.ts';
 import { BoardError, authorize } from '../src/board/machine.ts';
@@ -12,7 +10,6 @@ import type { Condition, Role } from '../src/board/machine.ts';
 import { ackLanded, landedFor } from '../src/selfimprovement/landed.ts';
 import type { Landed } from '../src/selfimprovement/landed.ts';
 import { landTaskDirectly, selfimprovementWorld } from './fixtures/selfimprovement-rig.ts';
-import type { InnerContext } from '../src/behavior/inner/types.ts';
 
 const ONE: Landed = {
   seq: 7,
@@ -30,45 +27,8 @@ const LABELS = {
   filesMore: '+{count}',
 };
 
-test('the heartbeat facts carry the landed fixes they were given, and none by default', async () => {
-  const withOne = await buildHeartbeatFacts({ guildId: 'g1', now: Date.UTC(2026, 10, 2), landed: [ONE] });
-  assert.deepEqual(
-    withOne.landed.map((one) => one.taskId),
-    ['T-1']
-  );
-  // Bug: a heartbeat without the source shows a stale or undefined list.
-  assert.deepEqual((await buildHeartbeatFacts({ guildId: 'g1', now: Date.UTC(2026, 10, 2) })).landed, []);
-});
-
-function lifeWith(ack: (seqs: ReadonlyArray<number>) => Promise<void>) {
-  const warned: Array<string> = [];
-  const life = {
-    heartbeatSources: { ackLanded: ack },
-    log: { warn: (message: string) => warned.push(message) },
-  } as unknown as InnerContext;
-  return { life, warned };
-}
-
-test('a committed heartbeat marks its landed rows delivered, and a turn that ended in an error marks none', async () => {
-  const acked: Array<ReadonlyArray<number>> = [];
-  const { life } = lifeWith((seqs) => {
-    acked.push(seqs);
-    return Promise.resolve();
-  });
-  const facts = await buildHeartbeatFacts({ guildId: 'g1', now: Date.UTC(2026, 10, 2), landed: [ONE] });
-  await committedHeartbeat(life, 'g1', { facts, outcome: 'error' });
-  // Bug: a failed turn consumes the news, and she never learns of the merge.
-  assert.deepEqual(acked, []);
-  await committedHeartbeat(life, 'g1', { facts, outcome: 'ok' });
-  assert.deepEqual(acked, [[7]]);
-});
-
-test('a heartbeat whose acknowledgement fails logs it and does not throw', async () => {
-  const { life, warned } = lifeWith(() => Promise.reject(new Error('board down')));
-  const facts = await buildHeartbeatFacts({ guildId: 'g1', now: Date.UTC(2026, 10, 2), landed: [ONE] });
-  await committedHeartbeat(life, 'g1', { facts, outcome: 'ok' });
-  assert.equal(warned.length, 1);
-});
+// The three tests of the heartbeat's landed facts and acknowledgement left here: landed results no longer belong to the
+// heartbeat, and tests/wake-separation.test.ts covers that it leaves them undelivered.
 
 test('acknowledging a landed row leaves the older outbox rows she was not shown', async (t) => {
   const world = selfimprovementWorld(t);

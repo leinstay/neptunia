@@ -61,6 +61,11 @@ const INVALID = new Set([
   'reason-required',
 ]);
 
+/** Her call's key: a restarted turn or wake that makes the same call answers with the record the first one made. */
+function callKeyOf(context: OpContext): string | null {
+  return context?.actor === 'persona' && typeof context.idempotencyKey === 'string' ? context.idempotencyKey : null;
+}
+
 const handlers = perEnv((env) => {
   const { hot, resolvedGuildId, now = Date.now } = env;
 
@@ -255,6 +260,7 @@ const handlers = perEnv((env) => {
     if (state !== undefined && state !== 'dropped') throw invalid('state must be dropped');
     const result = intentions().set(resolvedGuildId(context), {
       purpose,
+      callKey: callKeyOf(context),
       ...(state ? { state, reason: text(args, 'reason') ?? null } : {}),
       attend: place ? { place, ...(attendPatch(args) ?? {}) } : null,
       dueAt: moment(args, 'due') ?? null,

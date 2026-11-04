@@ -36,6 +36,9 @@ function facts(patch: Partial<SelfimprovementFacts> = {}): SelfimprovementFacts 
     days: 14,
     shapes: [],
     moreShapes: 0,
+    // The facts gained `repeated`, `failures` and `proposals[n].blocked` with the separated wake.
+    repeated: [],
+    failures: [],
     unusedTools: [],
     skills: [],
     proposals: [],
@@ -122,8 +125,15 @@ test('unused tools, skills with their counts, proposals and news each get their 
         { name: 'idle', active: false, counts: { ...counts, read: 0 } },
       ],
       proposals: [
-        { id: 't1', kind: 'skill', title: 'A skill', status: 'closed', closeReason: 'declined by owner' },
-        { id: 't2', kind: null, title: 'Plain', status: 'open', closeReason: null },
+        {
+          id: 't1',
+          kind: 'skill',
+          title: 'A skill',
+          status: 'closed',
+          closeReason: 'declined by owner',
+          blocked: null,
+        },
+        { id: 't2', kind: null, title: 'Plain', status: 'open', closeReason: null, blocked: null },
       ],
       news: {
         questions: [
@@ -207,7 +217,9 @@ test('board text with line breaks is folded to one line so it cannot start a lin
   // Catches a board title or note that carries a newline into <wake>, where it would read as a new fact.
   const lines = selfimprovementLines(
     facts({
-      proposals: [{ id: 't1', kind: 'fix', title: 'first\nSECOND LINE', status: 'open', closeReason: 'a\n\nb' }],
+      proposals: [
+        { id: 't1', kind: 'fix', title: 'first\nSECOND LINE', status: 'open', closeReason: 'a\n\nb', blocked: null },
+      ],
       news: {
         questions: [{ taskId: 't1', questionId: 'q', text: 'one\ntwo', answered: false }],
         reviews: [{ taskId: 't1', decision: 'rejected', scope: null, note: 'x\ny' }],

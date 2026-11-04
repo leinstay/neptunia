@@ -203,7 +203,8 @@ test('with the database closed the wake sources list no skills', (t) => {
   assert.deepEqual(r.wiring.selfimprovement.skills?.(0), []);
 });
 
-test('the board sources call as persona: proposals list her own tasks and ackOutbox acks the newest shown row', async (t) => {
+// The mark names the rows shown: a cursor at the newest also marked a row between them she never saw.
+test('the board sources call as persona: proposals list her own tasks and ackOutbox marks exactly the rows shown', async (t) => {
   const r = rig(t);
   const found = await r.wiring.selfimprovement.proposals?.();
   assert.deepEqual(found, { entries: [], outbox: [] });
@@ -212,7 +213,7 @@ test('the board sources call as persona: proposals list her own tasks and ackOut
   const ack = r.calls.at(-1);
   assert.equal(ack?.principal, 'persona');
   assert.equal(ack?.op, 'outbox.pull');
-  assert.equal(ack?.args?.ack, 7);
+  assert.deepEqual(ack?.args?.ack_seqs, [3, 7, 5]);
   const before = r.calls.length;
   await r.wiring.selfimprovement.ackOutbox?.([]);
   assert.equal(r.calls.length, before, 'no rows shown, no call');

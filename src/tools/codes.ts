@@ -65,6 +65,8 @@ export const CATALOGUE = Object.freeze({
   'heartbeat-only': skill('denied'),
   'heartbeat-cap': skill('denied'),
   'heartbeat-recurring-cap': skill('denied'),
+  'selfimprovement-only': skill('denied'),
+  'duplicate-task': skill('denied'),
   paused: skill('denied'),
   'diary-draw-only': skill('denied'),
 
