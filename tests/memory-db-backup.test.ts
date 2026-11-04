@@ -17,6 +17,7 @@ import { dbOf } from '../src/memory/db/types.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { startRun } from '../src/memory/db/wakes.ts';
 import { backupDatabase, main, restoreDatabase, tableHashes } from '../scripts/memory-db.ts';
+import type { BackupManifest } from '../src/memory/db/backup.ts';
 import { buildDataDir } from './fixtures/memory-db/datadir.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { sqlOf } from './fixtures/loose-types.ts';
@@ -44,7 +45,10 @@ function imported() {
   assert.equal(seedUnits(handle, data, seedOptions).errors, 0);
   startRun(handle, { id: 'run-1', kind: 'heartbeat', startedAt: NOW });
   handle.close();
-  return { root, data, file, done: () => fs.rmSync(root, { recursive: true, force: true }) };
+  const files = fs
+    .readdirSync(data, { recursive: true, encoding: 'utf8' })
+    .filter((rel) => fs.statSync(path.join(data, rel)).isFile());
+  return { root, data, file, files, done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
 const hashesOf = (file: Untyped) => {
@@ -63,18 +67,17 @@ test('backup and restore: the rehearsal gives a database whose every table hashe
     const to = path.join(env.root, 'backup');
     const backup = run('backup', '--db', env.file, '--to', to);
     assert.equal(backup.code, 0, backup.text);
-    const manifest = JSON.parse(fs.readFileSync(path.join(to, 'manifest.json'), 'utf8'));
+    // The public backup command writes this manifest.
+    const manifest = JSON.parse(fs.readFileSync(path.join(to, 'manifest.json'), 'utf8')) as BackupManifest;
     assert.equal(manifest.schemaVersion, MIGRATIONS.length);
-    assert.deepEqual(
-      manifest.files.map((file: Record<string, Untyped>) => file.path),
-      ['memory.db', 'media/diary/d-1-1.png', 'media/diary/d-1-2.ogg']
-    );
+    // The legacy import files belong to the complete persona alongside the database and diary media.
+    assert.deepEqual(manifest.files.map((file: Record<string, Untyped>) => file.path).sort(), [...env.files].sort());
     for (const file of manifest.files) {
       assert.match(file.sha256, /^[0-9a-f]{64}$/);
       assert.equal(file.size, fs.statSync(path.join(to, file.path)).size);
     }
-    assert.ok(manifest.rows.sources > 0);
-    assert.equal(manifest.rows.wake_runs, 1);
+    assert.ok((manifest.rows?.sources ?? 0) > 0);
+    assert.equal(manifest.rows?.wake_runs, 1);
     assert.deepEqual(hashesOf(path.join(to, 'memory.db')), source, 'VACUUM INTO hashes like its source');
 
     const target = path.join(env.root, 'restored', 'memory.db');
@@ -102,6 +105,69 @@ test('backup and restore: the rehearsal gives a database whose every table hashe
     assert.match(twice.text, /empty path/);
     // A backup into a directory that is not empty is refused.
     assert.throws(() => backupDatabase({ db: env.file, to }), /not empty/);
+  } finally {
+    env.done();
+  }
+});
+
+test('backup restores persona files and their permissions while excluding database sidecars and runtime files', () => {
+  const env = imported();
+  const personaFiles = [
+    ['prompts/character.md', 'A synthetic persona.', 0o600],
+    ['config/config.json', '{"synthetic":true}', 0o640],
+    ['keys/providers.json', '{"synthetic":"test-only"}', 0o600],
+    ['skills/example/run.sh', '#!/bin/sh\nexit 0\n', 0o750],
+    ['interfaces/example/state.json', '{"cursor":7}', 0o600],
+    ['agents/example/profile.json', '{"synthetic":true}', 0o640],
+    ['subharness/example/session.json', '{"session":"synthetic"}', 0o600],
+    ['media/uploads/example.bin', 'synthetic upload', 0o640],
+  ] as const;
+  const handle = openMemoryDb(env.file);
+  try {
+    for (const [rel, content, mode] of personaFiles) {
+      const file = path.join(env.data, rel);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, content);
+      fs.chmodSync(file, mode);
+    }
+    fs.mkdirSync(path.join(env.data, 'run'), { recursive: true });
+    fs.writeFileSync(path.join(env.data, 'run', 'core.pid'), '123');
+    fs.writeFileSync(`${env.file}.lock`, 'synthetic lock');
+    startRun(handle, { id: 'run-in-wal', kind: 'heartbeat', startedAt: NOW + 1 });
+    assert.equal(fs.existsSync(`${env.file}-wal`), true);
+    assert.equal(fs.existsSync(`${env.file}-shm`), true);
+
+    const to = path.join(env.root, 'backup');
+    const manifest = backupDatabase({ db: env.file, data: env.data, to });
+    const targetData = path.join(env.root, 'restored');
+    const target = path.join(targetData, 'memory.db');
+    restoreDatabase({ from: to, db: target });
+    for (const [rel, content, mode] of personaFiles) {
+      assert.equal(fs.readFileSync(path.join(targetData, rel), 'utf8'), content, rel);
+      assert.equal(fs.statSync(path.join(targetData, rel)).mode & 0o777, mode, rel);
+    }
+    for (const rel of ['memory.db-wal', 'memory.db-shm', 'memory.db.lock', 'run/core.pid']) {
+      assert.equal(
+        manifest.files.some((file) => file.path === rel),
+        false,
+        rel
+      );
+      assert.equal(fs.existsSync(path.join(to, rel)), false, rel);
+      assert.equal(fs.existsSync(path.join(targetData, rel)), false, rel);
+    }
+    assert.deepEqual(hashesOf(target), tableHashes(handle.db), 'the snapshot includes committed WAL rows');
+  } finally {
+    handle.close();
+    env.done();
+  }
+});
+
+test('backup refuses a destination inside the persona data directory before creating it', () => {
+  const env = imported();
+  try {
+    const to = path.join(env.data, 'backups', 'nested');
+    assert.throws(() => backupDatabase({ db: env.file, data: env.data, to }), /outside|inside|within/i);
+    assert.equal(fs.existsSync(to), false);
   } finally {
     env.done();
   }
@@ -144,12 +210,13 @@ test('restore-test: the backup restored into an isolated db service hashes as th
     });
     const text = lines.join('\n');
     assert.equal(code, 0, text);
-    assert.match(text, /restored: schema \d+, 3 files checked/);
+    // Restore rehearsals check the legacy import files as part of the complete persona.
+    assert.match(text, new RegExp(`restored: schema \\d+, ${env.files.length} files checked`));
     assert.match(text, /restore-test ok: every table of the restored database equals the backup's \(\d+ tables/);
     assert.deepEqual(restoreScratch(), scratchBefore, 'the temporary data directory is removed');
     // The backup itself is unchanged: it still restores and matches its manifest.
     const target = path.join(env.root, 'again', 'memory.db');
-    assert.equal(restoreDatabase({ from: to, db: target }).files.length, 3);
+    assert.equal(restoreDatabase({ from: to, db: target }).files.length, env.files.length);
 
     // A backup that does not match its manifest fails before any service opens, and leaves no scratch either.
     fs.appendFileSync(path.join(to, 'memory.db'), Buffer.from([0]));
@@ -167,7 +234,10 @@ test('restore-test: the backup restored into an isolated db service hashes as th
 
 test('backup restores normalized families with stable source IDs and conversation routing', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'message-family-backup-'));
-  const original = openMemoryDb(path.join(root, 'original.db'));
+  // A complete persona backup lives outside the data directory it copies.
+  const data = path.join(root, 'data');
+  fs.mkdirSync(data);
+  const original = openMemoryDb(path.join(data, 'original.db'));
   const options = { now: () => NOW, log: quiet };
   const envelope = (conversationId: string, messageId: string, at: number) => {
     const mapped = observationOf({
@@ -208,7 +278,7 @@ test('backup restores normalized families with stable source IDs and conversatio
     const catalog = dbOf(original).prepare('SELECT * FROM message_families ORDER BY native_key').all();
     const sources = dbOf(original).prepare('SELECT * FROM sources ORDER BY id').all();
     const backup = path.join(root, 'backup');
-    const manifest = backupDatabase({ db: path.join(root, 'original.db'), to: backup, data: root });
+    const manifest = backupDatabase({ db: path.join(data, 'original.db'), to: backup, data });
     assert.equal(manifest.rows?.message_families, 4);
     const target = path.join(root, 'restored', 'memory.db');
     restoreDatabase({ from: backup, db: target });

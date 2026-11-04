@@ -1,32 +1,7 @@
-// Backups of the memory database (spec 2026-10-24-memory-authority, section 6 items 4 and 8; stage W4): the exact
-// restore is the database, her diary media and the pinned application, schema and config, so a backup holds the first
-// two and names the other three.
-//
-//   writeBackup(handle, { to, dataDir, now, commit, configHash }) -> manifest
-//     `VACUUM INTO <to>/memory.db` on the given connection (the service passes its writer connection, so the copy is
-//     consistent and no WAL file is copied), a copy of `<dataDir>/media/diary/` under `<to>/media/diary/`, and
-//     `<to>/manifest.json`: `v` 1, `createdAt`, `schemaVersion`, `engineCommit` and `configHash` (when given), every
-//     file with its size and SHA-256 (the database first, then every diary media file in name order) and the row
-//     count of every table. `to` must be new or empty. Not inside a transaction (VACUUM refuses one).
-//   backupDatabase({ db, to, data, now, commit, configHash }) -> manifest
-//     the same from a database path, opened read-only (the tool's `backup`; the bot's lock is not needed).
-//   checkBackup(from) -> manifest
-//     every file of the backup against its manifest (size and SHA-256); throws on the first mismatch.
-//   restoreDatabase({ from, db, data }) -> manifest
-//     checks every file of the backup against its manifest, then copies the database to `db` (which must not exist,
-//     nor its -wal, -shm or lock) and the diary media under `data` (no file is overwritten), and checks the restored
-//     file's schema version and row counts against the manifest.
-//   configHash(config) -> hex     SHA-256 of the config as canonical JSON (keys sorted at every level)
-//   backupSettings(config, dataDir) -> { hour, dir, keep }   (the service's switch is `memoryDb.backup.enabled`)
-//     `memoryDb.backup.hour` (UTC, an integer 0-23, default 3), `memoryDb.backup.dir` resolved against the data
-//     directory (default `../backups/memory`: beside `data/`, never inside it), `memoryDb.backup.keep` (a whole number
-//     1 or more, default 7).
-//   backupName(ms) -> 'YYYY-MM-DD-HHMMSS-memory'     the folder of one backup (UTC; names sort by time)
-//   backupsIn(dir) -> names       the finished backups (folders with that name and a manifest), oldest first
-//   backupOn(dir, day) -> name|null      the newest finished backup of a UTC day
-//   pruneBackups(dir, keep) -> removed   deletes all but the newest `keep` finished backups, and every unfinished one
-//                                        (`<name>.partial`) but `except`; never anything else under `dir`
-// Paths only from the config and the data directory; nothing here logs.
+// Daily persona backups: a consistent SQLite snapshot plus the regular files under data/.
+// Runtime files under run/ and the database's WAL, SHM and writer lock are excluded.
+// The manifest records checksums and table counts; restoration verifies them before copying.
+// The scheduler keeps the configured number of finished backups and retries failed writes.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -128,17 +103,26 @@ export function writeBackup(
 ): BackupManifest {
   if (fs.existsSync(to) && fs.readdirSync(to).length > 0)
     throw Object.assign(new Error(`${to} is not empty`), { code: 'BACKUP_NOT_EMPTY' });
-  fs.mkdirSync(to, { recursive: true });
+  const relative = path.relative(path.resolve(dataDir), path.resolve(to));
+  if (!relative || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative)))
+    throw new Error('backup destination must be outside the data directory');
+  fs.mkdirSync(to, { recursive: true, mode: 0o700 });
+  fs.chmodSync(to, 0o700);
   dbOf(handle).prepare('VACUUM INTO ?').run(path.join(to, 'memory.db'));
+  fs.chmodSync(path.join(to, 'memory.db'), 0o600);
+  const databaseFiles = new Set(['', '-wal', '-shm', '.lock'].map((suffix) => path.resolve(handle.path + suffix)));
   const files = ['memory.db'];
-  for (const rel of filesUnder(path.join(dataDir, DIARY_MEDIA))) {
-    const out = path.join(to, DIARY_MEDIA, rel);
-    fs.mkdirSync(path.dirname(out), { recursive: true });
-    fs.copyFileSync(path.join(dataDir, DIARY_MEDIA, rel), out);
-    files.push(path.join(DIARY_MEDIA, rel));
+  for (const rel of filesUnder(dataDir)) {
+    const source = path.join(dataDir, rel);
+    if (rel.split(path.sep)[0] === 'run' || databaseFiles.has(path.resolve(source))) continue;
+    const out = path.join(to, rel);
+    fs.mkdirSync(path.dirname(out), { recursive: true, mode: 0o700 });
+    fs.copyFileSync(source, out);
+    files.push(rel);
   }
   const manifest = {
     v: 1,
+    scope: 'persona',
     createdAt: new Date(now()).toISOString(),
     schemaVersion: schemaVersion(dbOf(handle)),
     ...(typeof commit === 'string' && commit ? { engineCommit: commit } : {}),
@@ -150,7 +134,7 @@ export function writeBackup(
     })),
     rows: rowCounts(dbOf(handle)),
   };
-  fs.writeFileSync(path.join(to, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  fs.writeFileSync(path.join(to, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
   return manifest;
 }
 
@@ -211,16 +195,16 @@ export function restoreDatabase({
   for (const suffix of ['', '-wal', '-shm', '.lock'])
     if (fs.existsSync(`${dbPath}${suffix}`))
       throw new Error(`${dbPath}${suffix} exists; restore only into an empty path`);
-  const media = manifest.files.filter((file) => file.path !== 'memory.db');
-  for (const file of media) {
+  const personaFiles = manifest.files.filter((file) => file.path !== 'memory.db');
+  for (const file of personaFiles) {
     const out = path.join(data, ...String(file.path).split('/'));
     if (fs.existsSync(out)) throw new Error(`${out} exists; restore never overwrites a file`);
   }
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true, mode: 0o700 });
   fs.copyFileSync(path.join(from, 'memory.db'), dbPath, fs.constants.COPYFILE_EXCL);
-  for (const file of media) {
+  for (const file of personaFiles) {
     const out = path.join(data, ...String(file.path).split('/'));
-    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.mkdirSync(path.dirname(out), { recursive: true, mode: 0o700 });
     fs.copyFileSync(path.join(from, ...String(file.path).split('/')), out, fs.constants.COPYFILE_EXCL);
   }
   const handle = openMemoryDb(dbPath, { readOnly: true });

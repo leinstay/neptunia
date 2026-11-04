@@ -27,13 +27,13 @@
 //        Her diary media: each `media` row of kind diary is `present` when its file under the data directory exists
 //        with the stored size, else `missing`; every other row stays `unknown`. Prints the counts; --apply writes them.
 //   node scripts/memory-db.ts backup --db <file> --to <dir> [--data <dir>]
-//        `VACUUM INTO <dir>/memory.db`, a copy of `media/diary/` (from --data, default the database's directory) and
+//        `VACUUM INTO <dir>/memory.db`, the persona files (from --data, default the database's directory) and
 //        `<dir>/manifest.json`: every file with its size and SHA-256, the schema version, the engine commit and the row
 //        count of every table (src/memory/db/backup.ts; the bot's own daily backup, `memoryDb.backup`, also names the
 //        config's hash). The directory must be new or empty. Opens the database read-only.
 //   node scripts/memory-db.ts restore --from <dir> --db <file> [--data <dir>]
 //        Checks every file of the backup against its manifest, then restores the database to --db (which must not
-//        exist) and the diary media under --data (default the new database's directory; no file is overwritten), and
+//        exist) and the persona files under --data (default the new database's directory; no file is overwritten), and
 //        checks the schema version and the row counts of the restored file.
 //   node scripts/memory-db.ts restore-test --from <backup dir>
 //        The exact-restore rehearsal: `restore` of the backup into a new temporary data directory, the content hash of

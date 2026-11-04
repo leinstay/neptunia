@@ -13,6 +13,7 @@ import { createMemoryDb } from '../src/memory/db/service.ts';
 import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { backupName, backupSettings, configHash, restoreDatabase } from '../src/memory/db/backup.ts';
+import type { BackupManifest } from '../src/memory/db/backup.ts';
 import { buildDataDir } from './fixtures/memory-db/datadir.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { sqlOf } from './fixtures/loose-types.ts';
@@ -46,9 +47,13 @@ function prepared() {
   } finally {
     handle.close();
   }
+  const files = fs
+    .readdirSync(data, { recursive: true, encoding: 'utf8' })
+    .filter((rel) => fs.statSync(path.join(data, rel)).isFile());
   return {
     root,
     data,
+    files,
     backups: path.join(root, 'backups', 'memory'),
     done: () => fs.rmSync(root, { recursive: true, force: true }),
   };
@@ -120,17 +125,16 @@ test('the schedule under db: once a UTC day from the hour, through the writer, w
     const first = backupName(DAY1 + 3 * HOUR + 1000);
     assert.deepEqual(names(env.backups), [first]);
     const dir = path.join(env.backups, first);
-    const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
+    // The scheduled backup writes this manifest.
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) as BackupManifest;
     assert.equal(manifest.v, 1);
     assert.equal(manifest.schemaVersion, MIGRATIONS.length);
     assert.equal(manifest.engineCommit, COMMIT);
     assert.equal(manifest.configHash, configHash(config));
-    assert.deepEqual(
-      manifest.files.map((file: Record<string, Untyped>) => file.path),
-      ['memory.db', 'media/diary/d-1-1.png', 'media/diary/d-1-2.ogg']
-    );
+    // The legacy import files belong to the complete persona alongside the database and diary media.
+    assert.deepEqual(manifest.files.map((file: Record<string, Untyped>) => file.path).sort(), [...env.files].sort());
     for (const file of manifest.files) assert.equal(file.sha256, sha256(path.join(dir, file.path)), file.path);
-    assert.ok(manifest.rows.sources > 0);
+    assert.ok((manifest.rows?.sources ?? 0) > 0);
     assert.ok(!fs.existsSync(path.join(dir, 'memory.db-wal')), 'no WAL file copied');
     const status = service.status().backup;
     assert.deepEqual(

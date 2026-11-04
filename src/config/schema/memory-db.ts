@@ -37,7 +37,7 @@ export const MEMORY_DB: ReadonlyArray<SchemaEntry> = [
     'types': ['boolean'],
     'reader': 'src/memory/db/backup.ts',
     'default': false,
-    'text': 'Daily backup of the memory database. See the settings below',
+    'text': 'Daily backup of the persona data, including a consistent memory database snapshot',
   },
   {
     'key': 'memoryDb.backup.hour',
