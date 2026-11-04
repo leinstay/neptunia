@@ -15,7 +15,7 @@
 // post is looked for among the persona's last own messages of its channel by the message it
 // replied to and the first INTENT_CHARS characters of its text; nothing is ever sent again.
 //
-// A `.running` marker in the guild's journal directory (an operational file), written at start and
+// A `.running` marker under data/run/journal/<interface>/, written at start and
 // removed on a clean stop (`markRunning` / `clearRunning`), lets the next start record an `unclean-stop`.
 //
 // `withWriterLock(fn)` (`/nep memory snapshot`) holds every new line back while `fn` runs, after
@@ -48,7 +48,7 @@
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { journalKey } from './db/storage-keys.ts';
+import { journalKey, namespaceOf } from './db/storage-keys.ts';
 import type { StorageKey } from './db/storage-keys.ts';
 
 import { log as defaultLog } from '../log.ts';
@@ -679,6 +679,10 @@ type JournalDeps = {
   memoryDb: MemoryDb | null;
 };
 
+function runningMarker(dataDir: string, iface: string, community: string): string {
+  return path.join(dataDir, 'run', 'journal', encodeURIComponent(iface), `${encodeURIComponent(community)}.running`);
+}
+
 /**
  * Create the journal.
  *
@@ -743,7 +747,7 @@ export function createJournal({
       ? path.join(guildDir(guildId), 'private', privateUserId, 'journal')
       : path.join(guildDir(guildId), 'journal');
   }
-  const runningFile = (guildId: string) => path.join(journalDir(guildId), '.running');
+  const runningFile = (guildId: string) => runningMarker(dataDir, namespaceOf(memoryDb), guildId);
 
   function dayFile(guildId: string, dateIso: unknown, privateUserId: string | null = null) {
     const day = String(dateIso).match(DAY_RE)?.[0] ?? utcDay(now());
