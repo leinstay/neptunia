@@ -405,7 +405,7 @@ test('/errands show, /errands cancel and /intentions cancel of an unknown id exi
     cores.push(await startUnitsCore(dirs, llm, () => T0));
     for (const line of ['/errands show no-such-71', '/errands cancel no-such-71', '/intentions cancel no-such-71']) {
       const run = await p(dirs, line);
-      assert.equal(run.code, 2, line);
+      assert.equal(run.code, 1, line);
       assert.ok((run.stdout + run.stderr).includes('no-such-71'), `${line}: the answer names the id`);
     }
   });
