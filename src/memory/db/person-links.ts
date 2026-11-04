@@ -2,15 +2,24 @@
 // the persona included. Only the owner's `/memory bind` command writes here, through the memory writer, with `by` set
 // to `owner`: no model proposal, name match or claimed id creates a link. `linkedDmScopes` tells a DM context the DMs of
 // the same person, so a DM reads the person's history while each row keeps the scope of the conversation it came from.
-// One `people` row carries the shared affinity score. Called by session-write.ts (the writes), service.ts (the context)
+// One `people` row carries the shared affinity score. `createOwnerAccounts` answers the owner check over the same
+// links (src/tools/impl/grants.ts#isOwnerId). Called by session-write.ts (the writes), service.ts (the context), core.ts
 // and src/interface/commands/console.ts.
 
+import { currentIface } from './current-iface.ts';
 import { SELF_PERSON, dmPlaceOfPerson, personId } from './ids.ts';
 import type { Db, MemoryHandle } from './types.ts';
 import { dbOf } from './types.ts';
 
 type Row = Record<string, unknown>;
-type AccountRow = { id: string; iface: string; native: string; person_id: string | null };
+type AccountRow = {
+  id: string;
+  iface: string;
+  native: string;
+  person_id: string | null;
+  link: string | null;
+  linked_by: string | null;
+};
 export type LinkedDm = { iface: string; person: string; place: string | null };
 
 function coded(code: string): Error {
@@ -20,7 +29,7 @@ function coded(code: string): Error {
 function accountOf(db: Db, iface: unknown, native: unknown): AccountRow | undefined {
   return db
     .prepare(
-      `SELECT id, iface, COALESCE(native_key, native_id) AS native, person_id FROM accounts
+      `SELECT id, iface, COALESCE(native_key, native_id) AS native, person_id, link, linked_by FROM accounts
        WHERE iface = ? AND (native_key = ? OR native_id = ?) ORDER BY generation DESC LIMIT 1`
     )
     .get(iface, native, native) as AccountRow | undefined;
@@ -67,7 +76,13 @@ export function applyPersonLinkWrite(handle: MemoryHandle, update: Row): { ok: t
       link(db, account.id, own, at);
       return { ok: true as const, person: own };
     }
-    const target = update.target as { self?: boolean; iface?: unknown; native?: unknown };
+    const target = update.target as { self?: boolean; owner?: boolean; iface?: unknown; native?: unknown };
+    if (target.owner === true) {
+      // The owner names his own account: it keeps its person and its memory, and the link becomes his own word.
+      const own = personOf(db, account, at);
+      if (account.person_id) link(db, account.id, own, at);
+      return { ok: true as const, person: own };
+    }
     let person: string = SELF_PERSON;
     if (target.self !== true) {
       const other = accountOf(db, target.iface, target.native);
@@ -106,4 +121,27 @@ export function linkedDmScopes(db: Db, iface: string, dmPerson: string): Array<L
     .map((one) => ({ iface: one.iface, person: personId(one.iface, one.native) }))
     .filter((one) => one.person !== dmPerson)
     .map((one) => ({ ...one, place: dmPlaceOfPerson(one.person, one.iface) }));
+}
+
+/**
+ * The owner check's reader over a read connection. Only a link the owner wrote counts: a memory session proposes links
+ * and an import carries them, and neither hands out his rights. The interface is the current event's or turn's, the
+ * home interface on a wake. Closed memory passes nobody.
+ */
+export function createOwnerAccounts({ database, home }: { database: () => Db | null; home: () => string }): {
+  isBoundTo(person: string, native: string): boolean;
+  onHomeInterface(): boolean;
+} {
+  return {
+    isBoundTo(person, native) {
+      const db = database();
+      if (db === null) return false;
+      const account = accountOf(db, currentIface() ?? home(), native);
+      return account?.person_id === person && account.link === 'verified' && account.linked_by === 'owner';
+    },
+    onHomeInterface() {
+      const iface = currentIface();
+      return iface === null || iface === home();
+    },
+  };
 }
