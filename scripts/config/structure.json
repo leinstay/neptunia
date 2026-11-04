@@ -393,7 +393,7 @@
       "purpose": "What the core does with an uncaught error: an idle HTTP/2 stream's close is logged and survived, and any other ends the process with exit 1.",
       "layer": "public",
       "imports": [],
-      "test": "tests/process-errors.test.ts"
+      "test": "required"
     },
     {
       "path": "src/core.ts",
