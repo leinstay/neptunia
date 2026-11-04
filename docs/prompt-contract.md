@@ -17,7 +17,12 @@ Agent prompts use `agents/<name>/` and `data/agents/<name>/`. They are not loade
 | Tool descriptions and arguments | [tool texts](../config/tools.json), [tool registry](../src/tools/) |
 | Memory-session instructions | [memory implementation](../src/memory/), [session writes](../src/memory/db/session-write.ts) |
 | Turn context blocks | [request builders](../src/turn/request/) |
+| Heartbeat wake | [heartbeat prompt](../prompts/heartbeat.md), `<wake>` from [src/behavior/wake.ts](../src/behavior/wake.ts), its calls in [src/tools/wake-tools.ts](../src/tools/wake-tools.ts) |
+| Selfimprovement wake | [wake prompt](../prompts/selfimprovement.md) as `prompts.selfimprovement`, `<wake>` from [src/behavior/selfimprovement-text.ts](../src/behavior/selfimprovement-text.ts) with `labels.wake.selfimprovement`, its calls in [src/tools/wake-tools.ts](../src/tools/wake-tools.ts) |
+| Executor brief | [brief](../prompts/executor-brief.md) as `prompts['executor-brief']`, filled by `briefFrom` in [src/selfimprovement/service.ts](../src/selfimprovement/service.ts) |
 | Agent instructions | [profile loader](../src/agent-runner/profiles.ts) |
+
+The heartbeat and selfimprovement prompts are addressed to the persona and fill no placeholder. The executor brief is addressed to a coding agent and fills `{{id}}`, `{{title}}`, `{{evidence}}`, `{{examples}}`, `{{counterexamples}}`, `{{benefit}}`, `{{evaluation}}` and `{{acceptance}}`. A local `data/prompts/selfdev.md` loads as `executor-brief`.
 
 Read the actual template before editing it. A placeholder is an input supplied by its caller, not free prose. Preserve its spelling and inspect the caller when changing what it means. Model-facing phrases belong in the relevant prompt or label file rather than being embedded in runtime code.
 
@@ -86,6 +91,8 @@ The following table is generated from the code catalogue. Regenerate it with `no
 | `heartbeat-only` | denied | - | `tools.result.reasons.heartbeat-only` |
 | `heartbeat-cap` | denied | - | `tools.result.reasons.heartbeat-cap` |
 | `heartbeat-recurring-cap` | denied | - | `tools.result.reasons.heartbeat-recurring-cap` |
+| `selfimprovement-only` | denied | - | `tools.result.reasons.selfimprovement-only` |
+| `duplicate-task` | denied | - | `tools.result.reasons.duplicate-task` |
 | `paused` | denied | - | `tools.result.reasons.paused` |
 | `diary-draw-only` | denied | - | `tools.result.reasons.diary-draw-only` |
 | `invalid-args` | invalid | - | `tools.result.reasons.invalid-args` |
