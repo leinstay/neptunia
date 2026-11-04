@@ -274,15 +274,15 @@ export function wakeClockOf(
         inflight: { kind: string } | null;
       };
     };
-    diary: { status(): { slots: ReadonlyArray<number>; done: ReadonlyArray<number> } };
+    diary: { status(): { slots: ReadonlyArray<number>; done: ReadonlyArray<number>; lastPosted?: number | null } };
   }
 ): WakeClock | null {
   const { guildId, now, inner, diary } = sources;
   if (name === 'selfreflection') {
-    const { slots, done } = diary.status();
+    const { slots, done, lastPosted } = diary.status();
     return {
       running: null,
-      lastAt: done.at(-1) ?? null,
+      lastAt: lastPosted ?? null,
       nextAt: slots.find((slot) => slot > now && !done.includes(slot)) ?? null,
     };
   }

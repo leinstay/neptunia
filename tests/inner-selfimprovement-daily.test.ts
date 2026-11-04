@@ -63,8 +63,8 @@ test('the next day the wake is due again at the hour', () => {
 
 test('the hour of the setting is the one used, not a fixed one', () => {
   // Catches: the hour is read once or hard-coded, so selfimprovement.at changes nothing.
-  // Changed: `lastAt` is yesterday's 05:45. The schedule owes the newest slot missed, so an older one would owe that.
-  const lastAt = at('2026-11-01T05:45:00Z');
+  // A slot of yesterday missed before `lastAt` moved is no longer owed: downtime is sleep.
+  const lastAt = SLOT - DAY;
   assert.equal(
     scheduledWake({ now: at('2026-11-02T05:44:00Z'), schedule: { kind: 'at', at: ['05:45'] }, lastAt }),
     null

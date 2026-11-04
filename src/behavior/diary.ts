@@ -44,6 +44,8 @@ export type DayPlan = {
   posted: Array<number>;
   hunger: Array<number>;
   quietStreak: number;
+  /** The newest slot that spoke, on any day; a new day's plan carries it. */
+  lastPosted?: number;
 };
 
 /** The hunger a day plan starts with (nextHunger): one count per window, and the quiet days in a row. */
@@ -117,6 +119,7 @@ export type DiaryStatus = {
   hunger: Array<number>;
   quietStreak: number;
   history: number;
+  lastPosted: number | null;
 };
 
 /** The diary's scheduler (createDiary). */
@@ -802,6 +805,7 @@ export function createDiary({
     const hunger = nextHunger(stored, diaryCfg.windows, timezone, t, DEFAULT_GRACE_MINUTES);
     const fresh = planDay(diaryCfg, t, timezone, rng, hunger);
     const { plan, carried } = withCarriedSlots(fresh, stored, t, DEFAULT_GRACE_MINUTES);
+    if (typeof stored?.lastPosted === 'number') plan.lastPosted = stored.lastPosted;
     plans[guildId] = plan;
     store.state.markDirty();
     log.info('diary: plan', {
@@ -915,6 +919,7 @@ export function createDiary({
       } else if (outcome === 'spoke') {
         // Feeds the slot's window (nextHunger); force() never records here.
         plan.posted = [...(Array.isArray(plan.posted) ? plan.posted : []), slot];
+        plan.lastPosted = slot;
         store.state.markDirty();
       }
     } finally {
@@ -967,6 +972,7 @@ export function createDiary({
       hunger: Array.isArray(plan?.hunger) ? plan.hunger.map(countOf) : [],
       quietStreak: countOf(plan?.quietStreak),
       history,
+      lastPosted: typeof plan?.lastPosted === 'number' ? plan.lastPosted : null,
     };
   }
 

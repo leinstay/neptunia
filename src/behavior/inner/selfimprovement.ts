@@ -32,13 +32,15 @@ export function selfimprovementWake(at: number, reason: string): Wake {
 }
 
 /**
- * The wake `schedule` owes at `now`, whose `dueAt` (and so its id) is the newest slot since `lastAt`, reason `daily`, so
- * days overdue give one wake. Null while `lastAt` is unknown or nothing is due.
+ * The wake `schedule` owes at `now`, whose `dueAt` (and so its id) is the newest slot since `lastAt`, reason `daily`.
+ * Downtime is sleep: a calendar slot of an earlier UTC day is no longer owed. Null while `lastAt` is unknown or nothing
+ * is due.
  */
 export function scheduledWake(input: { now: number; schedule: ServiceSchedule; lastAt: number | null }): Wake | null {
   const { now, schedule, lastAt } = input;
   const { due } = evaluateSchedule({ schedule, enabled: true, now, last: lastAt });
-  return due === null ? null : selfimprovementWake(due, 'daily');
+  if (due === null || (schedule.kind === 'at' && utcDay(due) !== utcDay(now))) return null;
+  return selfimprovementWake(due, 'daily');
 }
 
 /**
