@@ -10,6 +10,7 @@ import { ROOT_DIR, env, readConfig, interfaceLaunch } from './config.ts';
 import { startCore } from './core.ts';
 import { interfaceMode } from './interface/mode.ts';
 import { log } from './log.ts';
+import { guardProcessErrors } from './process-errors.ts';
 import { resolvePaths } from './paths.ts';
 import type { InterfaceMode } from './interface/mode.ts';
 
@@ -72,5 +73,6 @@ const stopOnSignal = (signal: string) => {
 process.on('SIGINT', () => stopOnSignal('SIGINT'));
 process.on('SIGTERM', () => stopOnSignal('SIGTERM'));
 process.on('unhandledRejection', (err) => log.error('index: unhandled rejection', { error: err }));
+guardProcessErrors(log);
 
 await starting.catch((err) => die(err instanceof Error ? err.message : String(err)));
