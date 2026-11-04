@@ -30,7 +30,8 @@ import type { CallMark, JournalNotes } from './journal-notes.ts';
 import { untaggedNote } from './mentions.ts';
 import { inCommunity, snapshotOfDraft } from './routing.ts';
 import type { RenderedPost, Sends } from './sends.ts';
-import { HEARTBEAT_INTENT_SKILLS, HEARTBEAT_READ_SKILLS, INTENT_ID_SKILLS } from './settings.ts';
+import { wakeRefusalCode } from '../tools/wake-tools.ts';
+import { INTENT_ID_SKILLS } from './settings.ts';
 
 /** The live config, as far as the calls read it; the gateway and the executors read their own sections. */
 export type CallsConfig = { tools?: { callTimeoutMs?: number } | null };
@@ -214,11 +215,6 @@ export type SkillCalls = {
     draft: CallsDraft | null;
     view: CallView;
   }) => Promise<CallPlan>;
-  heartbeatOnly: (draft: CallsDraft | null | undefined) => boolean;
-  heartbeatChanged: (
-    draft: CallsDraft | null | undefined,
-    results: ReadonlyArray<{ status: string; skill: string }>
-  ) => boolean;
   innerVerdict: (
     inner: CallsInner,
     skill: string,
@@ -357,7 +353,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
    * for) planned before anything of its step is done: its journal operation (`skill`, by the persona) writes `proposed`
    * with the skill, the envelope's invocation id, the names of its arguments, its tool call id and the arguments that
    * were read in another type, then the call is checked in this order -- `preRefuse` (a call that cannot run: unreadable,
-   * unknown, cut off, past the step's cap), the heartbeat rule, `refuse` (an inner tag that cannot act), an inner turn's
+   * unknown, cut off, past the step's cap), the wake's rule (src/tools/wake-tools.ts), `refuse` (an inner tag that cannot act), an inner turn's
    * destination for a picture --, resolved on the server's side (`view`: callView's) and checked (checkCall). Resolves
    * `{ call, op, envelope, resolved, refusal }`: `resolved` null and `refusal` (`{ code, reason }`) when anything said
    * no -- logged `skill: refused`. Nothing runs here.
@@ -399,20 +395,14 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       });
       return { call, op, envelope, resolved: null, refusal: { ...call.preRefuse } };
     }
-    // A heartbeat may inspect memory before changing an intention; other calls are refused before resolution.
-    if (
-      heartbeatOnly(draft) &&
-      !HEARTBEAT_INTENT_SKILLS.includes(call.skill) &&
-      !HEARTBEAT_READ_SKILLS.includes(call.skill)
-    ) {
-      log.info('skill: refused', {
-        skill: call.skill,
-        code: CODE.HEARTBEAT_ONLY,
-        reason: 'heartbeat:only',
-        channel: channel.id,
-      });
-      log.info('heartbeat: call refused', { skill: call.skill, code: CODE.HEARTBEAT_ONLY });
-      return { call, op, envelope, resolved: null, refusal: { code: CODE.HEARTBEAT_ONLY, reason: 'heartbeat:only' } };
+    // A wake's own set: a call outside it, and a task answer outside the selfimprovement wake, are refused before resolution.
+    const wakeKind = draft?.inner?.wake?.kind ?? null;
+    const wakeRefusal = wakeRefusalCode(wakeKind, call.skill);
+    if (wakeRefusal !== null) {
+      const reason = `${String(wakeKind ?? 'selfimprovement')}:only`;
+      log.info('skill: refused', { skill: call.skill, code: wakeRefusal, reason, channel: channel.id });
+      log.info(`${String(wakeKind ?? 'selfimprovement')}: call refused`, { skill: call.skill, code: wakeRefusal });
+      return { call, op, envelope, resolved: null, refusal: { code: wakeRefusal, reason } };
     }
     // An inner turn's tag that cannot act (src/behavior/inner-output.ts): refused before anything is resolved or done.
     if (call.refuse) {
@@ -477,25 +467,6 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       resolved: verdict.ok ? resolved : null,
       refusal: verdict.ok ? null : { code: verdict.code, reason: verdict.reason },
     };
-  }
-
-  /** Whether this turn is a heartbeat, held to intention changes only. */
-  function heartbeatOnly(draft: CallsDraft | null | undefined): boolean {
-    return draft?.inner?.wake?.kind === 'heartbeat';
-  }
-
-  /**
-   * Whether `results` (the calls of one step) hold the intention change that ends a heartbeat turn held to
-   * intention changes only: an intent call that went through. Nothing is asked of the model after it.
-   */
-  function heartbeatChanged(
-    draft: CallsDraft | null | undefined,
-    results: ReadonlyArray<{ status: string; skill: string }>
-  ): boolean {
-    return (
-      heartbeatOnly(draft) &&
-      results.some((result) => result.status === 'ok' && HEARTBEAT_INTENT_SKILLS.includes(result.skill))
-    );
   }
 
   /** `labels.tools.result.heldUntilEnd`, read now: a held post goes out when the wake's turn ends. */
@@ -856,5 +827,5 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     return id;
   }
 
-  return { callView, planToolCall, heartbeatOnly, heartbeatChanged, innerVerdict, runCall, runCalls, intentionNamed };
+  return { callView, planToolCall, innerVerdict, runCall, runCalls, intentionNamed };
 }

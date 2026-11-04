@@ -1,7 +1,7 @@
 // Tests for src/llm/parse.ts: the model output tag parser and JSON extractor.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseOutput, parseJsonObject } from '../src/llm/parse.ts';
+import { parseOutput, parseJsonObject, takeAudience } from '../src/llm/parse.ts';
 
 test('parseOutput: a single <msg> with no reply', () => {
   const result = parseOutput('<msg>γεια</msg>');
@@ -273,4 +273,15 @@ test('parseOutput: a draw tag alone is cut out and is no plain-text fallback; no
   assert.deepEqual(retired.messages, []);
   assert.deepEqual(retired.diagnostics, [{ kind: 'retiredTag', tag: 'draw' }]);
   assert.equal(parseOutput('<tool_call>{"name":"x"}</tool_call>').skip, true);
+});
+
+test('takeAudience leaves a tag inside a think block or code where it stands', () => {
+  // Catches: an audience she only thought about, or quoted, restricting the entry or failing it closed.
+  const raw = '<think><audience>place:x</audience></think><msg>`<audience>place:y</audience>`</msg>';
+  assert.deepEqual(takeAudience(raw), { text: raw, audience: [] });
+});
+
+test('takeAudience reads a tag left open as an empty body', () => {
+  // Catches: an unclosed tag posted as text and read as no restriction, which publishes what she meant to hold back.
+  assert.deepEqual(takeAudience('<audience>place:x<msg>hi</msg>'), { text: 'place:x<msg>hi</msg>', audience: [''] });
 });

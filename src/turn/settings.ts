@@ -7,6 +7,7 @@ import { setSettings } from '../behavior/diary.ts';
 import { innerSettings } from '../behavior/inner/settings.ts';
 import { RECALL_DEFAULTS, recallSettings } from '../behavior/recall.ts';
 import { isPositive, objOf } from '../tools/types.ts';
+import { HEARTBEAT_INTENT_SKILLS } from '../tools/wake-tools.ts';
 
 /** `pace` when a key is missing: config.json's values. */
 const PACE_FALLBACK = Object.freeze({
@@ -80,33 +81,11 @@ const DIARY_LOOP_FALLBACK = Object.freeze({ maxSteps: 2, timeBudgetMs: 600000 })
 /** The least time one call of the tool loop gets, whatever is left of its budget. */
 export const LOOP_MIN_CALL_MS = 2000;
 /**
- * The calls a heartbeat turn accepts (docs/inner-life.md
- * "What a heartbeat may do"): memory inspection, then one change of an intention. Other calls are refused `heartbeat-only`;
- * `<skip/>` is no call.
- */
-export const HEARTBEAT_INTENT_SKILLS = Object.freeze(['intention.set', 'intention.update', 'intention.cancel']);
-/**
  * The terminal actions of an inner turn (docs/inner-life.md): the one call its last loop step
  * still runs -- a post, or a change of an intention of hers. A read or any other skill on the
  * last step is dropped as on every turn.
  */
 export const INNER_TERMINAL_SKILLS = Object.freeze(['message.create', ...HEARTBEAT_INTENT_SKILLS]);
-/** Memory inspection available while deciding a heartbeat; external reads and other effects remain deferred. */
-export const HEARTBEAT_READ_SKILLS = Object.freeze([
-  'memory.search',
-  'memory.profile.read',
-  'memory.affinity.read',
-  'memory.channel.read',
-  'memory.server.read',
-  'memory.recent.read',
-  'memory.archive.read',
-  'memory.journal.read',
-  'conversation.read',
-  'intention.list',
-  'lore.list',
-  'lore.show',
-  'tools.describe',
-]);
 /** An inner turn's loop end state when no tool loop ran (`inner.loop`). */
 export const NO_LOOP = Object.freeze({ steps: 0, cut: null, droppedCalls: 0 });
 /** Why a call of a step did not run (`loop-cap`): too many in one answer, or the steps, the time or the room spent. For the journal and the log. */

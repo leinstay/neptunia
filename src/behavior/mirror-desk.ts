@@ -16,6 +16,8 @@ import {
   unknownEntry,
 } from '../memory/db/mirror-config.ts';
 import type { BackfillChange, MirrorRow } from '../memory/db/mirror-config.ts';
+import { refusedEntries } from '../memory/db/diary-audience.ts';
+import { storedDiaryPublicationRefusal } from '../memory/db/publish.ts';
 import { publicationFor, stateOfRow } from '../memory/db/publication-delivery.ts';
 import type { PublicationState } from '../memory/db/publication-delivery.ts';
 import type { Db } from '../memory/db/types.ts';
@@ -43,6 +45,8 @@ export type MirrorStatus = Mirror & {
   incomplete: Array<{ entryId: string; code: string | null }>;
   uncertain: Array<{ entryId: string }>;
   deliveredOutsideAudience: Array<{ entryId: string }>;
+  /** Entries whose audience could not be read: on no mirror, each with why, until the owner changes the row. */
+  audienceBlocked: Array<{ entryId: string; code: 'audience-invalid'; reason: string }>;
   backfill: {
     enabled: boolean;
     intervalMs: number | null;
@@ -115,6 +119,10 @@ export function createMirrorDesk({
     return db ? mirrorRows(db).map(brief) : [];
   };
 
+  /** Whether `entryId` went out to `placeId` and its audience has since left that place out: no edit takes the copy back. */
+  const outsideAudience = (db: Db, status: unknown, entryId: unknown, placeId: unknown): boolean =>
+    status === 'sent' && storedDiaryPublicationRefusal(db, entryId, placeId) === 'audience-excluded';
+
   function statusOf(db: Db, mirror: MirrorRow): MirrorStatus {
     const rows = db
       .prepare(
@@ -137,7 +145,10 @@ export function createMirrorDesk({
       })),
       incomplete: having('incomplete').map((row) => ({ entryId: String(row.row_id), code: code(row.code) })),
       uncertain: having('unknown').map((row) => ({ entryId: String(row.row_id) })),
-      deliveredOutsideAudience: [],
+      deliveredOutsideAudience: rows
+        .filter((row) => outsideAudience(db, row.status, row.row_id, mirror.placeId))
+        .map((row) => ({ entryId: String(row.row_id) })),
+      audienceBlocked: refusedEntries(db).map((one) => ({ ...one, code: 'audience-invalid' })),
       backfill: { ...mirror.backfill, remaining, blocked },
     };
   }
@@ -168,7 +179,7 @@ export function createMirrorDesk({
     publicationState(entryId, placeId) {
       const db = database();
       const row = db ? publicationFor(db, entryId, placeId) : null;
-      return row ? stateOfRow(row) : null;
+      return db && row ? stateOfRow(row, outsideAudience(db, row.status, entryId, placeId)) : null;
     },
 
     async addMirror({ destination, by, backfill }) {

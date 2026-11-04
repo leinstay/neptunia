@@ -737,6 +737,13 @@
       "test": "required"
     },
     {
+      "path": "src/tools/wake-tools.ts",
+      "purpose": "What a heartbeat and a selfimprovement wake accept and offer, the one decision that ends each, and the key that keeps a restarted wake from repeating it. Tested through the wake completion tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/turn/settings.ts",
       "purpose": "The pace and tool loop settings a turn reads from the live config. Tested through the turn, config and inner turn tests.",
       "layer": "public",
@@ -1427,6 +1434,13 @@
     {
       "path": "src/memory/db/diary-past.ts",
       "purpose": "Schema v15's data step that makes her past messages in a diary mirror's place entries. Tested through the v15 migration tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/diary-audience.ts",
+      "purpose": "The audience of a diary entry over the memory database: the places she can name and whether a stored entry may reach a place. Tested through the mirror audience tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

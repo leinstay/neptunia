@@ -240,6 +240,9 @@ export const API_NAMES: Readonly<Record<string, string>> = Object.freeze({
   'errand.resolve': 'errand_resolve',
   'board.propose': 'board_propose',
   'board.status': 'board_status',
+  'board.cancel': 'board_cancel',
+  'board.comment': 'board_comment',
+  'board.answer': 'board_answer',
   'skill.read': 'skill_read',
   'skill.disable': 'skill_disable',
   'skill.run': 'skill_run',
@@ -691,6 +694,23 @@ const ENTRIES: Array<Definition> = [
     }),
   }),
   def('board.status', { params: EMPTY(), effects: 'read', toArgs: none }),
+  def('board.cancel', {
+    params: obj({ id: str(), reason: str(600) }, ['id', 'reason']),
+    effects: 'write',
+    toArgs: (a) => ({ id: val(a, 'id'), reason: val(a, 'reason') }),
+  }),
+  def('board.comment', {
+    params: obj({ id: str(), text: str(2000) }, ['id', 'text']),
+    body: 'text',
+    effects: 'write',
+    toArgs: (a) => ({ id: val(a, 'id'), text: val(a, 'text') }),
+  }),
+  def('board.answer', {
+    params: obj({ id: str(), text: str(2000) }, ['id', 'text']),
+    body: 'text',
+    effects: 'write',
+    toArgs: (a) => ({ id: val(a, 'id'), text: val(a, 'text') }),
+  }),
   def('skill.read', {
     params: obj({ name: str(60) }, ['name']),
     body: 'name',

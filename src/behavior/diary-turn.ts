@@ -6,8 +6,8 @@
 // (src/behavior/line-of.ts). `pictureGate` says whether the post may carry a picture, and
 // `diaryVoiceTool` keeps her voice message for the entry instead of posting it. Logs: none.
 
-import { diaryMetadataOf, diaryRestricted } from '../tools/publication.ts';
-import type { PublicationBoundary } from '../tools/publication.ts';
+import { UNRESTRICTED, diaryMetadataOf, diaryRestricted, refusedAudience } from '../tools/publication.ts';
+import type { AudienceChoice, PublicationBoundary } from '../tools/publication.ts';
 import { randomUUID } from 'node:crypto';
 import {
   DEFAULT_GIST_CHARS,
@@ -179,8 +179,10 @@ function diaryPostOf({
  * `selfreflection.historyPosts` (150) kept) with its gist and its first picture's scene cut to `selfreflection.gistChars` (200), her
  * full text, the entry's id as its `itemId`, its search query, how it is sent (`send`: her messages as sent, their
  * mentions, the set's byte limit) and, with a voice message, the text as voiced and its length; the day's diary post
- * counted. Every picture was counted when it was generated. Returns the outcome's `diary`
- * field: the counts and the entry the mirrors publish.
+ * counted. Every picture was counted when it was generated. `audience` is what her `<audience>` tags came to: the post
+ * keeps it as `publicationAudience`, and a failed choice is kept as a value that publishes nowhere
+ * (src/memory/db/diary-audience.ts). Returns the outcome's `diary` field: the counts, the audience and the entry the
+ * mirrors publish.
  */
 export function recordEntry({
   store,
@@ -193,6 +195,7 @@ export function recordEntry({
   set,
   voice,
   publicationBoundary,
+  audience = { ok: true, audience: UNRESTRICTED },
   newId = () => `diary:${randomUUID()}`,
 }: {
   store: DiaryStore;
@@ -205,6 +208,7 @@ export function recordEntry({
   set: boolean;
   voice: HeldVoice | null;
   publicationBoundary?: PublicationBoundary;
+  audience?: AudienceChoice;
   newId?: () => string;
 }): {
   kind: string | null;
@@ -212,6 +216,7 @@ export function recordEntry({
   search: boolean;
   messages: number;
   pictures: number;
+  audience: AudienceChoice;
   entry: DiaryEntry;
 } {
   const id = newId();
@@ -226,6 +231,7 @@ export function recordEntry({
     id,
   });
   if (publicationBoundary !== undefined) post.publicationBoundary = publicationBoundary;
+  post.publicationAudience = audience.ok ? audience.audience : { kind: 'invalid', code: audience.code };
   if (typeof store.appendDiaryPost === 'function') store.appendDiaryPost(guildId, post, { max: DEFAULT_HISTORY_POSTS });
   const entry: DiaryEntry = {
     id,
@@ -241,8 +247,31 @@ export function recordEntry({
     search: Boolean(plan.search),
     messages: held.texts.length,
     pictures: staged.length,
+    audience,
     entry,
   };
+}
+
+/**
+ * The refusals `posts` showed in a diary request (`<audience_refused>`), marked on their posts once she answered it, so
+ * she hears of each one once. A request that never got an answer marks nothing.
+ */
+export function markRefusalsTold(store: DiaryStore, guildId: string, posts: ReadonlyArray<object>): void {
+  const shown = new Set(
+    posts.flatMap((post) => {
+      const { itemId, publicationAudience } = post as { itemId?: unknown; publicationAudience?: unknown };
+      return refusedAudience(publicationAudience)?.told === false ? [itemId] : [];
+    })
+  );
+  if (shown.size === 0 || !store.getDiary || !store.setDiaryPosts) return;
+  const marked = store
+    .getDiary(guildId)
+    .posts.map((post) =>
+      shown.has(post.itemId)
+        ? { ...post, publicationAudience: { ...(post.publicationAudience as object), told: true } }
+        : post
+    );
+  store.setDiaryPosts(guildId, marked, { max: DEFAULT_HISTORY_POSTS });
 }
 
 /** One message of her diary as memory holds it: a message of the platform's shape, and its addressing. */

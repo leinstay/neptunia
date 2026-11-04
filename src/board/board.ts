@@ -26,6 +26,7 @@ import {
   normalizeField,
   num,
   pickFields,
+  refuseOpenTwin,
   str,
   text,
 } from './fields.ts';
@@ -904,9 +905,8 @@ function filingOf(
   args: Args
 ): { lane: 'dev' | 'errand'; requester: string; subscriber: string } {
   if (args.auto !== undefined && typeof args.auto !== 'boolean') throw invalid('auto must be true or false');
-  if (args.no_brief !== undefined && typeof args.no_brief !== 'boolean') {
+  if (args.no_brief !== undefined && typeof args.no_brief !== 'boolean')
     throw invalid('no_brief must be true or false');
-  }
   const lane = args.lane ?? 'dev';
   if (lane !== 'dev' && lane !== 'errand') throw invalid('lane must be dev or errand');
   const requester = str(args.requester, 'requester') ?? principal;
@@ -950,6 +950,7 @@ function addTask(board: Board, principal: string, args: Args): TaskRecord {
   const { lane, requester, subscriber } = filingOf(board, principal, args);
   const project = str(args.project, 'project');
   const row = newTaskFields(board, args, project);
+  if (args.unique_open_title === true) refuseOpenTwin(board.db, requester, String(row.title));
   const parent = args.parent === undefined || args.parent === null ? null : board.getTask(args.parent).id;
   const id = board.newId('T', 'board_tasks');
   const now = board.now();

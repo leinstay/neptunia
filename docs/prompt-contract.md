@@ -17,7 +17,12 @@ Agent prompts use `agents/<name>/` and `data/agents/<name>/`. They are not loade
 | Tool descriptions and arguments | [tool texts](../config/tools.json), [tool registry](../src/tools/) |
 | Memory-session instructions | [memory implementation](../src/memory/), [session writes](../src/memory/db/session-write.ts) |
 | Turn context blocks | [request builders](../src/turn/request/) |
+| Heartbeat wake | [heartbeat prompt](../prompts/heartbeat.md), `<wake>` from [src/behavior/wake.ts](../src/behavior/wake.ts), its calls in [src/tools/wake-tools.ts](../src/tools/wake-tools.ts) |
+| Selfimprovement wake | [wake prompt](../prompts/selfimprovement.md) as `prompts.selfimprovement`, `<wake>` from [src/behavior/selfimprovement-text.ts](../src/behavior/selfimprovement-text.ts) with `labels.wake.selfimprovement`, its calls in [src/tools/wake-tools.ts](../src/tools/wake-tools.ts) |
+| Executor brief | [brief](../prompts/executor-brief.md) as `prompts['executor-brief']`, filled by `briefFrom` in [src/selfimprovement/service.ts](../src/selfimprovement/service.ts) |
 | Agent instructions | [profile loader](../src/agent-runner/profiles.ts) |
+
+The heartbeat and selfimprovement prompts are addressed to the persona and fill no placeholder. The executor brief is addressed to a coding agent and fills `{{id}}`, `{{title}}`, `{{evidence}}`, `{{examples}}`, `{{counterexamples}}`, `{{benefit}}`, `{{evaluation}}` and `{{acceptance}}`. A local `data/prompts/selfdev.md` loads as `executor-brief`.
 
 Read the actual template before editing it. A placeholder is an input supplied by its caller, not free prose. Preserve its spelling and inspect the caller when changing what it means. Model-facing phrases belong in the relevant prompt or label file rather than being embedded in runtime code.
 
@@ -31,7 +36,21 @@ The active skill index contains descriptions; `skill.read` retrieves the procedu
 
 The conversation parser recognizes `<think>`, `<msg>`, `<react>`, `<gif>` and `<skip/>`. A message can name a reply target, and a reaction names its target message. Native tool calls arrive separately; textual tool calls are extracted before the conversation parser runs.
 
+`parseOutput` in `src/llm/parse.ts` reads the `<msg>` tags outside inline code and fences, so a tag example in code stays literal text. An opening `<msg>` while a message is open ends that message there. A last `<msg>` that is never closed ends at the first `<react>`, `<gif>` or `<skip/>` after it, or with the output. Its words go out when the answer stopped on its own. The caller passes `cutOff` for an answer cut at the output cap, as `src/turn/phases/response.ts` does for the finish reason `length`, and that last message is dropped. A `</msg>` with no open message is never sent.
+
+An output with such a breach yields one `{ kind: 'msgMalformed', nested, unclosed, stray }` diagnostic, placed before any `messagesMerged`. It holds counts and no contents, and a message dropped by `cutOff` is not counted. The persona reads it through `labels.tools.diagnostics.msgMalformed`, whose `{count}` is the sum of the three counts.
+
 Think text is private planning, not a public chat message. An unfinished think block produces silence rather than publishing its contents. The request archive retains available response text and parsed think text for later inspection.
+
+### Diary audience
+
+A diary writer request carries `<publication_places>` after `<plan>` and `<seeds>`, and the block is never cut. Its first line is `diary.publicationPlaces` from `config/labels.json`, which states the output contract, followed by one `interface:<iface>` line per interface and one `place:<place id> <name>` line per group place, indented under its parent. The block is absent when memory knows no place.
+
+The answer may add `<audience>unrestricted | interface:x | place:y</audience>`, one of the three, with the token alone. `takeAudience` in `src/llm/parse.ts` removes the tag from a diary answer before the conversation parser runs and leaves a think block and code alone. `audienceChoice` in `src/tools/publication.ts` reads the bodies into `result.diary.audience`, which is `{ ok: true, audience }` or `{ ok: false, code }` with `audience-unknown-place`, `audience-unknown-interface` or `audience-malformed`. No other mode reads the tag.
+
+A diary writer request after a refusal also carries `<audience_refused>`, right after `<publication_places>` and never cut, with one `diary.audienceRefused` line per post she has not heard of. The line fills `{date}`, `{gist}` and `{reason}`, and `{reason}` is the code's entry in `diary.audienceReasons`.
+
+The contract lives in the label because a nonempty `data/prompts/diary.md` replaces `prompts/diary.md` whole. A deployment with its own `diary.md` needs no change for the tag to work, and its `data/config/labels.json` may reword `diary.publicationPlaces`. [The diary](diary.md#audience) describes what the stored audience does.
 
 ### Mention handles
 
@@ -78,6 +97,8 @@ The following table is generated from the code catalogue. Regenerate it with `no
 | `heartbeat-only` | denied | - | `tools.result.reasons.heartbeat-only` |
 | `heartbeat-cap` | denied | - | `tools.result.reasons.heartbeat-cap` |
 | `heartbeat-recurring-cap` | denied | - | `tools.result.reasons.heartbeat-recurring-cap` |
+| `selfimprovement-only` | denied | - | `tools.result.reasons.selfimprovement-only` |
+| `duplicate-task` | denied | - | `tools.result.reasons.duplicate-task` |
 | `paused` | denied | - | `tools.result.reasons.paused` |
 | `diary-draw-only` | denied | - | `tools.result.reasons.diary-draw-only` |
 | `invalid-args` | invalid | - | `tools.result.reasons.invalid-args` |

@@ -276,12 +276,12 @@ export function coalesceGroup(queue: ReadonlyArray<Wake>, isHeld: (wake: Wake) =
         retryKey(wake) === retryKey(first)
     );
   }
-  // The heartbeat is never coalesced and never waits behind another wake (a running turn holds the whole drain, so it comes at the next tick): it goes alone, after the feedback wakes.
-  const beat = sorted.find((wake) => wake.kind === 'heartbeat');
-  if (beat) return [beat];
-  // The selfimprovement wake goes alone the same way, after the heartbeat that shares its moment.
+  // The selfimprovement wake and the heartbeat are never coalesced and go alone, after the feedback wakes (a running turn holds the whole drain, so the next one comes at the next tick).
+  // The day's selfimprovement wake goes first: a heartbeat that shares its moment waits one tick.
   const improvement = sorted.find((wake) => wake.kind === 'selfimprovement');
   if (improvement) return [improvement];
+  const beat = sorted.find((wake) => wake.kind === 'heartbeat');
+  if (beat) return [beat];
   const anchor = sorted.find((wake) => wake.kind !== 'review') ?? null;
   // A retried wake runs only with the wakes of its own failed group (the same attempt and first failure); a fresh one never joins them.
   const key = retryKey(anchor ?? sorted[0]);

@@ -2,7 +2,7 @@
 // chains (the tool calls of one turn, in order) of the last days are grouped by the ordered tool names with the names
 // of their arguments, and the most frequent shapes come with their counts, failures, retries, costs and turn ids. Beside
 // them the tools she holds and called in none of those chains, her skills with their use counts, her proposals with
-// their state, and what the board holds for her since the last wake: the questions put to her, the reviews (a rejection
+// their state, every shape she made at least twice, her failed calls by tool and code, and what the board holds for her since the last wake: the questions put to her, the reviews (a rejection
 // included), the outbox rows addressed to `persona:self` and the fixes that landed, each shown once. The view carries tool names, argument
 // names, codes, counts, ids, costs and the board's own titles and notes. `src/behavior/inner/selfimprovement.ts` asks
 // for the facts when the wake runs, and marks the outbox rows it showed delivered once the wake committed.
@@ -173,6 +173,29 @@ export function shapesOf(
   return { shapes: shapes.slice(0, options.shown), more: Math.max(0, shapes.length - options.shown) };
 }
 
+/** Calls that failed the same way. */
+export type CallFailure = { tool: string; code: string | null; count: number; turnIds: Array<string> };
+
+/** The failed calls of `chains` per tool and code, most frequent first, then by tool and code. */
+function failuresOf(chains: ReadonlyArray<Chain>): Array<CallFailure> {
+  const groups = new Map<string, CallFailure>();
+  for (const chain of [...chains].reverse()) {
+    for (const call of chain.calls) {
+      if (call.status !== 'failed') continue;
+      const key = `${call.tool}\n${call.code ?? ''}`;
+      const group = groups.get(key) ?? { tool: call.tool, code: call.code, count: 0, turnIds: [] };
+      group.count += 1;
+      if (group.turnIds.length < TURN_IDS_SHOWN && !group.turnIds.includes(chain.turnId))
+        group.turnIds.push(chain.turnId);
+      groups.set(key, group);
+    }
+  }
+  const textOfGroup = (group: CallFailure): string => `${group.tool}\n${group.code ?? ''}`;
+  return [...groups.values()].sort(
+    (a, b) => b.count - a.count || (textOfGroup(a) < textOfGroup(b) ? -1 : textOfGroup(a) > textOfGroup(b) ? 1 : 0)
+  );
+}
+
 /** One task she filed with the board's answers for it. */
 export type ProposalEntry = {
   task: {
@@ -181,6 +204,8 @@ export type ProposalEntry = {
     title: string;
     close_reason: string | null;
     metadata: Record<string, unknown> | null;
+    blocked_reason?: string | null;
+    unblocks?: string | null;
   };
   questions: ReadonlyArray<Readonly<Record<string, unknown>>>;
   reviews: ReadonlyArray<Readonly<Record<string, unknown>>>;
@@ -194,6 +219,10 @@ export type SelfimprovementFacts = {
   days: number;
   shapes: Array<Shape>;
   moreShapes: number;
+  /** Every shape made at least twice in the window, most frequent first, whatever `shown` cuts from `shapes`. */
+  repeated: Array<{ key: string; count: number; turnIds: Array<string> }>;
+  /** The failed calls per tool and code, most frequent first. */
+  failures: Array<CallFailure>;
   unusedTools: Array<string>;
   skills: Array<SkillUseRow>;
   proposals: Array<{
@@ -202,6 +231,8 @@ export type SelfimprovementFacts = {
     status: string;
     title: string;
     closeReason: string | null;
+    /** Why the task waits and what would let it go on, while it is blocked. */
+    blocked: { reason: string; unblocks: string } | null;
   }>;
   news: {
     questions: Array<{ taskId: string; questionId: string; text: string; answered: boolean }>;
@@ -307,6 +338,10 @@ export async function buildSelfimprovementFacts(input: {
     days,
     shapes,
     moreShapes: more,
+    repeated: allShapes(chains)
+      .filter((shape) => shape.count >= 2)
+      .map(({ key, count, turnIds }) => ({ key, count, turnIds })),
+    failures: failuresOf(chains),
     unusedTools: [...new Set(input.granted)].filter((tool) => !called.has(tool)).sort(),
     skills: [...input.skills],
     proposals: input.proposals.map(({ task }) => ({
@@ -315,6 +350,10 @@ export async function buildSelfimprovementFacts(input: {
       status: task.status,
       title: task.title,
       closeReason: task.close_reason,
+      blocked:
+        typeof task.blocked_reason === 'string'
+          ? { reason: task.blocked_reason, unblocks: asText(task.unblocks) }
+          : null,
     })),
     news: {
       questions: input.proposals.flatMap((entry) =>
@@ -361,6 +400,8 @@ export async function proposalsOf(
         title: view.task.title,
         close_reason: view.task.close_reason ?? null,
         metadata: isObj(view.task.metadata) ? view.task.metadata : null,
+        blocked_reason: view.task.blocked_reason,
+        unblocks: view.task.unblocks,
       },
       questions: view.questions,
       reviews: view.approvals,
@@ -370,8 +411,11 @@ export async function proposalsOf(
   return { entries, outbox };
 }
 
-/** Marks the rows she was shown delivered, as `persona`. The board marks only rows addressed to `persona:self`. */
+/**
+ * Marks the rows she was shown delivered, as `persona`: exactly those, so a row that arrived while the view was read
+ * stays undelivered. The board marks only rows addressed to `persona:self`.
+ */
 export async function ackOutbox(board: BoardCaller, seqs: ReadonlyArray<number>): Promise<void> {
   if (seqs.length === 0) return;
-  await board.call('persona', 'outbox.pull', { ack: Math.max(...seqs), limit: 0, to_whom: SELF });
+  await board.call('persona', 'outbox.pull', { ack_seqs: [...seqs], limit: 0, to_whom: SELF });
 }

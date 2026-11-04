@@ -4,6 +4,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { lateMediaTeller } from '../../behavior/turn-parts.ts';
+import { wakeCallKey } from '../../tools/wake-tools.ts';
 import { callEnvelope } from '../calls.ts';
 import type { Draft } from '../draft.ts';
 import type { Stepped } from '../tool-round.ts';
@@ -35,7 +36,7 @@ export async function toolRoundPhase(
   // Its key is the effect's record, `<turnId>:<effectIndex>:<target>` (the conversation it names, else the turn's),
   // with no attempt in it, so a later attempt of the turn carries the key a first one would have carried.
   const turnKey = (draft.turnKey ??= { turnId: draft.started?.turnId ?? randomUUID() });
-  const envelopeOf = (call: { args?: Record<string, unknown> }) => {
+  const envelopeOf = (call: { skill?: string; args?: Record<string, unknown> }) => {
     const index = draft.callCount ?? 0;
     draft.callCount = index + 1;
     const target = typeof call?.args?.channelId === 'string' ? call.args.channelId || channel.id : channel.id;
@@ -46,7 +47,10 @@ export async function toolRoundPhase(
       missed,
       requester: requesterParam,
       turnId: turnKey.turnId,
-      idempotencyKey: `${turnKey.turnId}:${index}:${target}`,
+      // A wake's one decision is keyed by its chain, so a restarted turn of the wake answers with what it already did.
+      idempotencyKey:
+        wakeCallKey(draft.inner?.wake?.kind, draft.inner?.wake?.chainId, call.skill ?? '') ??
+        `${turnKey.turnId}:${index}:${target}`,
       ownInitiative: Boolean(draft.inner) || draft.ownInitiative === true,
       chainId: draft.inner?.wake?.chainId ?? null,
       wakeKind: draft.inner?.wake?.kind ?? null,
