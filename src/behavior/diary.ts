@@ -3,7 +3,7 @@
 // module owns the diary's decisions: which local times of a day get a post
 // (configured windows in `bot.timezone`, quiet days, a minimum gap,
 // and the hunger that empty windows and quiet days carry into later
-// ones), which planned slot is due now (a slot missed by more than the grace
+// ones, or the exact UTC slots of `selfreflection.schedule` when it is set), which planned slot is due now (a slot missed by more than the grace
 // while the bot was down is dropped, never fired late in a burst), which kind
 // of post a plan names (validated against the weighted `selfreflection.kinds`, with a
 // weighted random fallback; while a post may not carry a picture the picture
@@ -21,7 +21,9 @@
 import { fill } from '../format.ts';
 import { log } from '../log.ts';
 import { oneLine, clampText, stripUrls } from '../memory/clamp.ts';
-import { MINUTE_MS, zonedDay, zonedEpoch, utcDay } from '../time.ts';
+import { parseSchedule, slotsOfDay } from '../service/schedule.ts';
+import type { ServiceSchedule } from '../service/schedule.ts';
+import { DAY_MS, MINUTE_MS, zonedDay, zonedEpoch, utcDay } from '../time.ts';
 import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
 import type { Reads } from '../interface/reads.ts';
@@ -42,6 +44,8 @@ export type DayPlan = {
   posted: Array<number>;
   hunger: Array<number>;
   quietStreak: number;
+  /** The newest slot that spoke, on any day; a new day's plan carries it. */
+  lastPosted?: number;
 };
 
 /** The hunger a day plan starts with (nextHunger): one count per window, and the quiet days in a row. */
@@ -115,6 +119,7 @@ export type DiaryStatus = {
   hunger: Array<number>;
   quietStreak: number;
   history: number;
+  lastPosted: number | null;
 };
 
 /** The diary's scheduler (createDiary). */
@@ -219,8 +224,16 @@ function windowSpan(window: unknown, dayKey: string, timezone: string): [number,
   return [start, end];
 }
 
+/** The named schedule of `selfreflection`, or null while the windows draw the day. */
+const namedSchedule = (cfg: unknown): ServiceSchedule | null => parseSchedule(objOf(cfg).schedule);
+
+/** The start of the UTC day of `moment`. */
+const utcDayStart = (moment: number): number => Math.floor(moment / DAY_MS) * DAY_MS;
+
 /**
- * The diary's plan for the local day of `nowMs`. With chance
+ * The diary's plan for the local day of `nowMs`. A named `schedule` replaces all of what follows: its plan is the UTC day
+ * of `nowMs`, its slots are exactly the schedule's (an interval laid from the start of that day), and it has no quiet
+ * day and no gap, so status never promises a time the dice then drop. Otherwise, with chance
  * `quietDayChance * quietCarry ** quietStreak` the day is quiet (no slots), so
  * every quiet day in a row makes the next one less likely. Otherwise every
  * window draws its count `min + floor(rng() * (max - min + 1))` from `posts:
@@ -246,9 +259,22 @@ export function planDay(
   carry: Partial<Carry> | null = {}
 ): DayPlan {
   const zone = timezone || 'UTC';
-  const day = localDayKey(nowMs, zone);
   const c = objOf(cfg);
   const windows = listOf(c.windows);
+  const named = namedSchedule(cfg);
+  if (named !== null) {
+    const slots = slotsOfDay(named, utcDayStart(nowMs));
+    return {
+      day: utcDay(nowMs),
+      slots,
+      quiet: false,
+      done: [],
+      posted: [],
+      hunger: windows.map(() => 0),
+      quietStreak: 0,
+    };
+  }
+  const day = localDayKey(nowMs, zone);
   const hunger = windows.map((_, i) => countOf(Array.isArray(carry?.hunger) ? carry.hunger[i] : 0));
   const quietStreak = countOf(carry?.quietStreak);
   const kept = { posted: [], hunger, quietStreak };
@@ -284,6 +310,19 @@ export function planDay(
     slots.push(slot);
   }
   return { day, slots, quiet: false, done: [], ...kept };
+}
+
+/**
+ * A stored plan of the current day after the schedule moved: what already ran or fell due stays, and what lies ahead is
+ * the new schedule's. A slot of the new schedule that already passed owes nothing. Null when the plan already holds it.
+ */
+function rescheduled(stored: DayPlan, schedule: ServiceSchedule, nowMs: number): DayPlan | null {
+  const passed = stored.slots.filter((slot) => slot <= nowMs);
+  const ahead = slotsOfDay(schedule, utcDayStart(nowMs)).filter((slot) => slot > nowMs);
+  const slots = [...passed, ...ahead];
+  if (stored.quiet !== true && slots.length === stored.slots.length && slots.every((s, i) => s === stored.slots[i]))
+    return null;
+  return { ...stored, slots, quiet: false };
 }
 
 /** The finite numbers of `value` when it is a list, else []. */
@@ -751,13 +790,22 @@ export function createDiary({
   function currentPlan(guildId: string, config: unknown, t: number): DayPlan {
     const timezone = zoneOf(config);
     const diaryCfg = sectionOf(config, 'selfreflection');
-    const day = localDayKey(t, timezone);
+    const named = namedSchedule(diaryCfg);
+    const day = named === null ? localDayKey(t, timezone) : utcDay(t);
     const plans = plansOf(store, true);
     const stored: DayPlan | undefined = plans[guildId];
-    if (stored && stored.day === day && Array.isArray(stored.slots)) return stored;
+    if (stored && stored.day === day && Array.isArray(stored.slots)) {
+      const moved = named === null ? null : rescheduled(stored, named, t);
+      if (moved === null) return stored;
+      plans[guildId] = moved;
+      store.state.markDirty();
+      log.info('diary: plan', { guildId, day, slots: moved.slots.length, quiet: false, rescheduled: true });
+      return moved;
+    }
     const hunger = nextHunger(stored, diaryCfg.windows, timezone, t, DEFAULT_GRACE_MINUTES);
     const fresh = planDay(diaryCfg, t, timezone, rng, hunger);
     const { plan, carried } = withCarriedSlots(fresh, stored, t, DEFAULT_GRACE_MINUTES);
+    if (typeof stored?.lastPosted === 'number') plan.lastPosted = stored.lastPosted;
     plans[guildId] = plan;
     store.state.markDirty();
     log.info('diary: plan', {
@@ -886,6 +934,7 @@ export function createDiary({
       } else if (outcome === 'spoke') {
         // Feeds the slot's window (nextHunger); force() never records here.
         plan.posted = [...(Array.isArray(plan.posted) ? plan.posted : []), slot];
+        plan.lastPosted = slot;
         store.state.markDirty();
       }
     } finally {
@@ -938,6 +987,7 @@ export function createDiary({
       hunger: Array.isArray(plan?.hunger) ? plan.hunger.map(countOf) : [],
       quietStreak: countOf(plan?.quietStreak),
       history,
+      lastPosted: typeof plan?.lastPosted === 'number' ? plan.lastPosted : null,
     };
   }
 

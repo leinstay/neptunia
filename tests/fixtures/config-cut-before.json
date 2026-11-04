@@ -260,7 +260,7 @@
     },
     "heartbeat": {
       "enabled": true,
-      "everyMinutes": 360,
+      "schedule": { "kind": "every", "everyMinutes": 360 },
       "jitterMinutes": 60,
       "dueJitterMinutes": 20,
       "people": 8,

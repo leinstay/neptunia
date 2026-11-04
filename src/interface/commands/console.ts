@@ -41,6 +41,10 @@ import type { ModuleAction } from './module-setup.ts';
 import { accountLinks } from '../../memory/db/person-links.ts';
 import { serviceCommand } from '../../keys/services.ts';
 import { simulationCommand, subharnessCommand, subharnessDeps } from './subharness.ts';
+import { serviceFamily } from '../../service/commands.ts';
+import type { WakeClock } from '../../service/commands.ts';
+import type { ServiceName } from '../../service/schedule.ts';
+import { spawnRun } from '../../setup/install.ts';
 import { SUBHARNESS_AGENTS } from '../../subharness/control.ts';
 import { callMethod, listOf, objOf } from '../../tools/types.ts';
 import type { Counters, DaysSum, RoleRow } from '../../tools/impl/usage.ts';
@@ -95,6 +99,8 @@ export type ConsoleDeps = {
   subharness?: ConsoleSubharness;
   /** The diary's mirrors (src/behavior/mirror-desk.ts); `/mirror` fails while there is none. */
   mirrors?: MirrorDesk | null;
+  /** What the core knows of one of its wakes, for `/service <name> status`. */
+  wakeClock?: (name: ServiceName) => WakeClock | null;
 };
 
 /** The engine checkout, where the shipped interface packages and their setup contracts are. */
@@ -190,6 +196,9 @@ function moduleActionOf(name: string): ModuleAction | null {
 
 /** The prefix of the `/skills` commands, which `skillsCommand` answers. */
 const SKILLS_PREFIX = 'skills.';
+
+/** The prefix of the `/service` commands, which `serviceFamily` answers. */
+const SERVICE_PREFIX = 'service.';
 
 /** The prefix of the `/keys` commands, which the key commands answer. */
 const KEYS_PREFIX = 'keys.';
@@ -336,6 +345,28 @@ function modelSetElsewhere(deps: ConsoleDeps, args: Record<string, unknown>): Pr
   const hasFlags = text(args.provider) !== '' || text(args.effort) !== '';
   if (hasFlags && deps.keys?.enabled() !== true) return refuse('--provider and --effort need the keys of keys.json');
   return null;
+}
+
+/** `/service`: the family's one handler, over the core's hot settings and its clocks. */
+function serviceRun(
+  deps: ConsoleDeps,
+  config: () => unknown,
+  name: string,
+  args: Record<string, unknown>
+): Promise<Answer> {
+  const { privateDir, dataDir, wakeClock } = deps;
+  const now = (): number => deps.now();
+  const given = {
+    rootDir: ENGINE_ROOT,
+    privateDir,
+    dataDir,
+    config,
+    now,
+    env: process.env,
+    run: spawnRun,
+    coreUp: true,
+  };
+  return serviceFamily(wakeClock === undefined ? given : { ...given, wakeClock }, name, args);
 }
 
 export function createConsole(deps: ConsoleDeps): {
@@ -628,6 +659,7 @@ export function createConsole(deps: ConsoleDeps): {
       if (name.startsWith('mirror.')) return mirrorCommand(deps.mirrors, name, args, requester);
       const owned = ownCommand(deps, name, args, dialog);
       if (owned !== null) return owned;
+      if (name.startsWith(SERVICE_PREFIX)) return serviceRun(deps, config, name, args);
       if (name.startsWith(SKILLS_PREFIX)) return skillsCommand(deps.skills, name, args);
       if (name.startsWith(SUBHARNESS_PREFIX)) return subharnessCommand(subharnessDeps(deps), name, args, dialog);
       if (name.startsWith(SIMULATION_PREFIX)) return simulationCommand(deps.privateDir, name, args);

@@ -1,5 +1,5 @@
 // The watcher's systemd units (deploy/neptunia-watcher.timer and .service), read as text, without systemd: the timer
-// fires at 00:00 UTC, and the service runs `neptunia watcher run` once, as a user of its own, with the node of the
+// fires at 00:00 UTC, and the service runs `neptunia worker watcher` once, as a user of its own, with the node of the
 // server. The two errand agent units (neptunia-agent-scout.service and neptunia-agent-server.service) are read the same
 // way: they run Codex as the user that holds its login. Each fact is a line a deployment would get wrong silently.
 import { test } from 'node:test';
@@ -56,10 +56,11 @@ test('the service is a oneshot, so the timer skips a day whose run is still goin
   assert.equal(one(parseUnit('neptunia-watcher.service'), 'Service', 'Type'), 'oneshot');
 });
 
-test("the service runs neptunia watcher run with the server's node, from the checkout", () => {
+// Changed: `neptunia watcher run` is retired as a public form, and the unit starts the internal worker.
+test("the service runs neptunia worker watcher with the server's node, from the checkout", () => {
   const service = parseUnit('neptunia-watcher.service');
   const start = one(service, 'Service', 'ExecStart') ?? '';
-  assert.match(start, /^\/opt\/node\/bin\/node\s+\S*bin\/neptunia\.ts\s+watcher\s+run$/);
+  assert.match(start, /^\/opt\/node\/bin\/node\s+\S*bin\/neptunia\.ts\s+worker\s+watcher$/);
   assert.ok((one(service, 'Service', 'WorkingDirectory') ?? '').startsWith('/'));
 });
 

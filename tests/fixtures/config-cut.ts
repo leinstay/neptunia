@@ -716,7 +716,7 @@ export const KEPT: ReadonlyArray<string> = [
   'wakes.tickSeconds',
   'wakes.review.historyDays',
   'heartbeat.enabled',
-  'heartbeat.everyMinutes',
+  'heartbeat.schedule',
   'heartbeat.jitterMinutes',
   'heartbeat.historyDays',
   'heartbeat.maxTokens',

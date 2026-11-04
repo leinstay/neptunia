@@ -468,7 +468,8 @@ test('setup writes the selfimprovement service and timer over the checkout selfi
   ]);
   const service = fs.readFileSync(path.join(unitDir, 'neptunia-selfimprovement.service'), 'utf8');
   assert.deepEqual(unitValues(service, 'WorkingDirectory'), [checkout]);
-  assert.match(unitValues(service, 'ExecStart')[0] ?? '', /^\S+ bin\/neptunia\.ts selfimprovement run$/);
+  // Changed: `neptunia selfimprovement run` is retired as a public form, and the unit starts the internal worker.
+  assert.match(unitValues(service, 'ExecStart')[0] ?? '', /^\S+ bin\/neptunia\.ts worker selfimprovement$/);
   assert.ok(unitValues(service, 'Environment').includes(`NEPTUNIA_DATA_DIR=${options.dataDir}`));
   assert.equal(service.includes('/opt/neptunia'), false);
   const timer = fs.readFileSync(path.join(unitDir, 'neptunia-selfimprovement.timer'), 'utf8');

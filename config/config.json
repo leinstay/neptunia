@@ -320,7 +320,7 @@
   },
   "watcher": {
     "enabled": false,
-    "at": "00:00"
+    "schedule": "at 00:00"
   },
   "selfimprovement": {
     "enabled": true,
@@ -328,7 +328,7 @@
     "base": "main",
     "checkout": null,
     "repository": null,
-    "at": "03:00",
+    "schedule": "at 03:00",
     "failuresPerShape": 3,
     "tools": "*",
     "maxActs": null,
@@ -337,6 +337,7 @@
   },
   "selfreflection": {
     "enabled": true,
+    "schedule": null,
     "channelId": "",
     "world": false,
     "windows": [
@@ -434,7 +435,7 @@
   },
   "heartbeat": {
     "enabled": true,
-    "everyMinutes": 180,
+    "schedule": "every 3h",
     "jitterMinutes": 60,
     "historyDays": 14,
     "maxTokens": 2500,

@@ -20,8 +20,8 @@
 import { BASE_ROLES, MEMORY_ROLE, SEARCH_ROLE } from '../../llm/roles.ts';
 import { BACKEND_NAMES } from '../../agent-runner/profiles.ts';
 import { AGENT_MODES, SUBHARNESS_AGENTS } from '../../subharness/control.ts';
+import { SERVICE_NAMES, setupRefusal } from '../../service/schedule.ts';
 import { MODEL_SET_ROLES, ROUTE_ROLES } from '../../tools/impl/catalog.ts';
-import { isDay } from '../../watcher/read.ts';
 
 /** One argument of a command, in the order the line gives them. */
 export type CommandArg = {
@@ -119,11 +119,42 @@ function checkLogs(_name: string, args: Readonly<Record<string, string>>): strin
   return null;
 }
 
-/** The date of `/report`: none (the latest report) or a real date written YYYY-MM-DD. */
-function checkReportDay(_name: string, args: Readonly<Record<string, string>>): string | null {
-  const day = args.day;
-  return day === undefined || isDay(day) ? null : `/report takes a date written YYYY-MM-DD, not "${day}"`;
+/** The flags of `service <name> setup`: one mode, a real schedule, and the jitter only where it means something. */
+function checkService(name: string, args: Readonly<Record<string, string>>): string | null {
+  const [, mechanic, action] = name.split('.');
+  if (action !== 'setup') return null;
+  const refused = setupRefusal(mechanic ?? '', args);
+  return refused === null ? null : `/service ${mechanic ?? ''} setup: ${refused}`;
 }
+
+/** The one service command's leaves: the four actions of each mechanic, and the operations of one watcher run. */
+const SERVICE_SUBCOMMANDS: ReadonlyArray<Subcommand> = [
+  ...SERVICE_NAMES.flatMap((name) => [
+    sub(`${name}.setup`, `Set when ${name} runs, leaving it on or off as it is`, [
+      flagArg('at', false),
+      flagArg('every', false),
+      ...(name === 'heartbeat' ? [flagArg('jitter', false)] : []),
+    ]),
+    sub(`${name}.enable`, `Permit scheduled runs of ${name}`),
+    sub(`${name}.disable`, `Prevent new runs of ${name}; one already running finishes`),
+    sub(`${name}.status`, `Show ${name}: enabled, running, ready, schedule, next time and last result`),
+  ]),
+  sub('watcher.trigger', 'Run one watcher inspection now'),
+  sub('watcher.cancel', 'Cancel the active watcher inspection, leaving the schedule as it is'),
+  sub('watcher.report', 'Read the latest watcher report, or the report of a date', [arg('target', false)]),
+];
+
+/** The commands the family replaced: the line each is refused with names the command to type instead. */
+const RETIRED_COMMANDS: Readonly<Record<string, string>> = {
+  report: 'service watcher report',
+  watcher: 'service watcher',
+  heartbeat: 'service heartbeat',
+  selfreflection: 'service selfreflection',
+  selfimprovement: 'service selfimprovement',
+};
+
+/** Whether `word` is a command the `service` family replaced. */
+export const isRetiredCommand = (word: string): boolean => Object.hasOwn(RETIRED_COMMANDS, word);
 
 /** The target of `/tools grant` and `/tools revoke`: none (her), `everyone`, `role <id>` or `user <id>`. */
 function checkTarget(name: string, args: Readonly<Record<string, string>>): string | null {
@@ -164,11 +195,12 @@ export const COMMANDS: ReadonlyArray<Command> = [
     check: checkLogs,
   },
   {
-    name: 'report',
-    help: 'Read the latest project watcher report or choose a date',
-    args: [arg('day', false)],
-    subcommands: [],
-    check: checkReportDay,
+    name: 'service',
+    help: 'Schedule, switch and inspect heartbeat, selfreflection, selfimprovement and the watcher',
+    args: [],
+    needsSubcommand: true,
+    check: checkService,
+    subcommands: SERVICE_SUBCOMMANDS,
   },
   {
     name: 'usage',
@@ -606,12 +638,18 @@ function leafOf(name: string): Subcommand | null {
 /** Whether the leaf of a parsed name takes `--secret-stdin` in the command line. */
 export const takesSecretStdin = (name: string): boolean => leafOf(name)?.secret !== undefined;
 
+/** What a word no command has is refused with: the command that replaced it, when one did. */
+const unknownWord = (word: string): string =>
+  isRetiredCommand(word)
+    ? `/${word} is retired: use neptunia ${RETIRED_COMMANDS[word] ?? 'service'}`
+    : `unknown command /${word}; type /help`;
+
 /** One command as words, none of them joined or split: its dotted name and arguments, or why it is refused. */
 export function parseCommandWords(words: ReadonlyArray<string>): Parsed {
   const [first, ...rest] = words;
   if (first === undefined) return refuse('an empty line is no command; type /help');
   const command = COMMANDS.find((one) => one.name === first);
-  if (command === undefined) return refuse(`unknown command /${first}; type /help`);
+  if (command === undefined) return refuse(unknownWord(first));
   let name = command.name;
   let args = command.args;
   let tail: ReadonlyArray<string> = rest;

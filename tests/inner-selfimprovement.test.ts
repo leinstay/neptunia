@@ -36,17 +36,24 @@ function chain(turnId: string, at: number, status: 'ok' | 'failed' = 'failed', t
 
 test('the wake kinds include selfimprovement and its settings default to 03:00 and three failures', () => {
   // Changed for spec 2026-11-02 "`selfimprovement` daily, after the watcher": the daily `at` replaces `everyDays`.
+  // Changed: `selfimprovement.at` became the one setting `selfimprovement.schedule`, read in its parsed form.
   assert.ok((WAKE_KINDS as ReadonlyArray<string>).includes('selfimprovement'));
-  assert.deepEqual(INNER_DEFAULTS.wakes.selfimprovement, { at: '03:00', failuresPerShape: 3 });
-  assert.deepEqual(innerSettings({}).wakes.selfimprovement, { at: '03:00', failuresPerShape: 3 });
+  assert.deepEqual(INNER_DEFAULTS.wakes.selfimprovement, {
+    schedule: { kind: 'at', at: ['03:00'] },
+    failuresPerShape: 3,
+  });
+  assert.deepEqual(innerSettings({}).wakes.selfimprovement, {
+    schedule: { kind: 'at', at: ['03:00'] },
+    failuresPerShape: 3,
+  });
 });
 
 test('the settings take an HH:MM and a positive whole number from selfimprovement and the default for anything else', () => {
   // Changed for spec 2026-11-02 "`selfimprovement` daily, after the watcher": the daily `at` replaces `everyDays`.
-  const set = innerSettings({ selfimprovement: { at: '05:15', failuresPerShape: 5 } });
-  assert.deepEqual(set.wakes.selfimprovement, { at: '05:15', failuresPerShape: 5 });
-  const bad = innerSettings({ selfimprovement: { at: '5pm', failuresPerShape: 'x' } });
-  assert.deepEqual(bad.wakes.selfimprovement, { at: '03:00', failuresPerShape: 3 });
+  const set = innerSettings({ selfimprovement: { schedule: 'at 05:15', failuresPerShape: 5 } });
+  assert.deepEqual(set.wakes.selfimprovement, { schedule: { kind: 'at', at: ['05:15'] }, failuresPerShape: 5 });
+  const bad = innerSettings({ selfimprovement: { schedule: '5pm', failuresPerShape: 'x' } });
+  assert.deepEqual(bad.wakes.selfimprovement, { schedule: { kind: 'at', at: ['03:00'] }, failuresPerShape: 3 });
 });
 
 test('a selfimprovement wake has its own chain, no place and an id by its time', () => {
@@ -142,7 +149,7 @@ function setup() {
       },
       heartbeat: { enabled: false },
       // Changed for spec 2026-11-02 "`selfimprovement` daily, after the watcher": the daily `at` replaces `everyDays`.
-      selfimprovement: { at: '03:00', failuresPerShape: 3 },
+      selfimprovement: { schedule: { kind: 'at', at: ['03:00'] }, failuresPerShape: 3 },
     },
   };
   const service = createIntentionService({

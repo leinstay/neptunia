@@ -2,7 +2,7 @@
 // the setup of Hermes (hermes_cli/setup.py) with a summary at the end (hermes_cli/setup_summary.py). Every step checks
 // first whether its work is done (`already`), so a rerun after a failure resumes where it stopped. A step that fails
 // stops the run, the steps after it are `skipped`, and no chat opens. The six steps that ask come before `units`, so
-// the units bind the backends just connected and the watcher's timer takes the hour just given; each is `skipped` with
+// the units bind the backends just connected and the watcher's timer takes the schedule just given; each is `skipped` with
 // no terminal. After the last step the owner's chat opens on `keys core add`, and the chat takes over.
 //
 //   folders          the private folder with `config.local`, `prompts.local`, `clients`, and the data folder, mode 0700
@@ -13,9 +13,9 @@
 //   subharness       the backends her agents run through, installed and connected (src/setup/subharness.ts)
 //   selfimprovement  the repository her pull requests go to, checked through her gh login
 //                    (src/setup/selfimprovement.ts); skipped while `selfimprovement.checkout` is unset
-//   mechanics        heartbeat, selfreflection and selfimprovement on or off, and `selfimprovement.at`
+//   mechanics        heartbeat, selfreflection and selfimprovement on or off, and `selfimprovement.schedule`
 //                    (src/setup/mechanics.ts)
-//   watcher          the watcher on or off, `watcher.at`, its backend and its model (src/setup/watcher.ts)
+//   watcher          the watcher on or off, `watcher.schedule`, its backend and its model (src/setup/watcher.ts)
 //   units            the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ; the
 //                    selfimprovement units too when `selfimprovement.checkout` names a checkout other than this one
 //   linger           `loginctl enable-linger` for the user, so the user units run without a login (user units only)

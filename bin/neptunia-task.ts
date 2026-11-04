@@ -9,7 +9,7 @@
 // client says hello under the agents' namespace `agent`, so its token must stand for an `agent` principal of
 // clients.json, and the board's roles of that client decide what it may do.
 //
-// `openBoardCaller` gives the watcher run (`neptunia watcher run`) the same link as a `BoardCaller`, so its filer calls
+// `openBoardCaller` gives the watcher run (`neptunia worker watcher`) the same link as a `BoardCaller`, so its filer calls
 // the board as the client of the token. The board decides what that client may do.
 //
 // Exit codes: 0 when the core answers `ok`; 1 for any other answer, with `<status>: <text>` on stderr, and when no

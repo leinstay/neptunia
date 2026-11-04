@@ -2,6 +2,8 @@
 // `innerSettings`, which checks every number of that section against them. The scheduler's modules
 // (src/behavior/inner/) and the turn runner (src/behavior/turn.ts) read them. Nothing here keeps state.
 
+import { parseSchedule } from '../../service/schedule.ts';
+import type { ServiceSchedule } from '../../service/schedule.ts';
 import { isClockTime } from '../../time.ts';
 import { isPositive, objOf } from '../../tools/types.ts';
 import type { InnerSettings } from './types.ts';
@@ -31,7 +33,7 @@ export const INNER_DEFAULTS = Object.freeze({
   review: Object.freeze({ historyDays: 14, expiredMax: 5 }),
   heartbeat: Object.freeze({
     enabled: true,
-    everyMinutes: 180,
+    schedule: Object.freeze({ kind: 'every', everyMinutes: 180 }),
     jitterMinutes: 60,
     people: 8,
     filteredShown: 10,
@@ -46,10 +48,15 @@ export const INNER_DEFAULTS = Object.freeze({
     dueJitterMinutes: 20,
   }),
   caps: Object.freeze({ perChain: 3 }),
-  // The selfimprovement wake: once a day at `at` (UTC, three hours after the watcher's default midnight run, owner
+  // The selfimprovement wake: by default once a day at 03:00 (UTC, three hours after the watcher's default midnight run, owner
   // 2026-11-02), and when one chain shape fails this many times in a UTC day (decision of 2026-10-24).
   selfimprovement: Object.freeze({ enabled: true }),
-  wakes: Object.freeze({ selfimprovement: Object.freeze({ at: '03:00', failuresPerShape: 3 }) }),
+  wakes: Object.freeze({
+    selfimprovement: Object.freeze({
+      schedule: Object.freeze({ kind: 'at', at: Object.freeze(['03:00']) }),
+      failuresPerShape: 3,
+    }),
+  }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
   loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
   retry: Object.freeze({ delaysMinutes: Object.freeze([1, 5, 15, 60]), maxHours: 6 }),
@@ -89,6 +96,23 @@ const positive = (value: unknown, fallback: number): number => (isPositive(value
 const isDelayList = (value: unknown): value is Array<number> =>
   Array.isArray(value) && value.length > 0 && value.every((m) => positive(m, 0) > 0);
 
+/** `heartbeat.schedule`, or the old `heartbeat.everyMinutes` of a config that did not pass the loader's moves. */
+function heartbeatSchedule(heartbeat: Record<string, unknown>): ServiceSchedule {
+  const everyMinutes = count(heartbeat.everyMinutes, 0);
+  return (
+    parseSchedule(heartbeat.schedule) ??
+    (everyMinutes > 0 ? { kind: 'every', everyMinutes } : INNER_DEFAULTS.heartbeat.schedule)
+  );
+}
+
+/** `selfimprovement.schedule`, or the old `selfimprovement.at` of a config that did not pass the loader's moves. */
+function improvementSchedule(improvement: Record<string, unknown>): ServiceSchedule {
+  return (
+    parseSchedule(improvement.schedule) ??
+    (isClockTime(improvement.at) ? { kind: 'at', at: [improvement.at] } : INNER_DEFAULTS.wakes.selfimprovement.schedule)
+  );
+}
+
 /**
  * The inner life's settings: INNER_DEFAULTS, with the keys the live config holds each checked against its default
  * (a missing or bad value takes the default). The heartbeat's keys are read from the `heartbeat` section and the
@@ -117,7 +141,7 @@ export function innerSettings(config: unknown): InnerSettings {
     },
     heartbeat: {
       enabled: heartbeat.enabled !== false,
-      everyMinutes: Math.max(1, count(heartbeat.everyMinutes, d.heartbeat.everyMinutes)),
+      schedule: heartbeatSchedule(heartbeat),
       jitterMinutes: count(heartbeat.jitterMinutes, d.heartbeat.jitterMinutes),
       dueJitterMinutes: d.heartbeat.dueJitterMinutes,
       people: d.heartbeat.people,
@@ -137,7 +161,7 @@ export function innerSettings(config: unknown): InnerSettings {
     selfimprovement: { enabled: improvement.enabled !== false },
     wakes: {
       selfimprovement: {
-        at: isClockTime(improvement.at) ? improvement.at : d.wakes.selfimprovement.at,
+        schedule: improvementSchedule(improvement),
         failuresPerShape: whole(improvement.failuresPerShape, d.wakes.selfimprovement.failuresPerShape),
       },
     },

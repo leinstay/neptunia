@@ -118,6 +118,7 @@ function selfimprovementOf(value: unknown): InnerState['selfimprovement'] {
   return {
     lastAt: isFiniteNumber(raw.lastAt) ? raw.lastAt : null,
     raisedAt: isFiniteNumber(raw.raisedAt) ? raw.raisedAt : null,
+    ...(typeof raw.schedule === 'string' ? { schedule: raw.schedule } : {}),
   };
 }
 
