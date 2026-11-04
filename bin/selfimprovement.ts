@@ -1,4 +1,4 @@
-// `neptunia selfimprovement run` (bin/neptunia.ts hands it `runSelfimprovement`): one beat of her self-improvement's
+// `neptunia worker selfimprovement` (bin/neptunia.ts hands it `runSelfimprovement`): one beat of her self-improvement's
 // hands (src/selfimprovement/service.ts, docs/selfimprovement.md). While `selfimprovement.enabled` is false it prints
 // that it is off and does nothing else. It connects to the core's socket as the client `NEPTUNIA_TASK_CLIENT` (default
 // `selfimprovement`, whose token is `NEPTUNIA_TASK_TOKEN` or `<private>/clients/selfimprovement.token`; a deployment
@@ -78,7 +78,7 @@ function subharness(where: { rootDir: string; privateDir: string }): SubharnessR
 
 export async function runSelfimprovement(argv: ReadonlyArray<string>): Promise<number> {
   if (argv.length !== 1 || argv[0] !== 'run') {
-    console.error('usage: neptunia selfimprovement run');
+    console.error('usage: neptunia worker selfimprovement');
     return 2;
   }
   const where = resolvePaths({ rootDir: ROOT_DIR });

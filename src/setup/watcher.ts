@@ -1,28 +1,30 @@
 // The watcher step of `neptunia setup` (src/setup/run.ts, docs/setup.md): whether the deployment's watcher runs, the
-// time of day of its daily run (`watcher.at`, UTC), the subharness backend it runs through and its model. The watcher
+// schedule of its runs (`watcher.schedule`, UTC), the subharness backend it runs through and its model. The watcher
 // is not one of the persona's mechanics, so it has a step of its own after hers (src/setup/mechanics.ts). The switch
-// and the hour go into `<private>/config.local/config.json`, the backend and the model into keys.json
+// and the schedule go into `<private>/config.local/config.json`, the backend and the model into keys.json
 // (`subharness.uses.watcher`, `subharness.models.watcher`). On with no connected backend, or with a backend that is
 // not connected, is `refused` and stored off. Nothing is written when no answer changes a value.
 
 import { readConfig } from '../config.ts';
-import { localConfigPath } from '../config/files.ts';
 import { readKeys, writeKeys } from '../keys/file.ts';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
-import { readLocalConfig, setPath, writeLocalConfig } from '../tools/impl/shared.ts';
+import { updateLocalSettings } from '../service/local-settings.ts';
+import { formatSchedule } from '../service/schedule.ts';
+import type { ServiceSchedule } from '../service/schedule.ts';
+import { setPath } from '../tools/impl/shared.ts';
 import { watcherSettings } from '../watcher/settings.ts';
-import { askHour, askSwitch } from './mechanics.ts';
+import { askSchedule, askSwitch } from './mechanics.ts';
 import type { Ask } from './mechanics.ts';
 
 export type WatcherStepDeps = { ask: Ask };
 export type WatcherStepOutcome = { state: 'done' | 'already' | 'refused'; detail: string };
 
-/** Writes `watcher.enabled` and `watcher.at` into the local config, every other key kept. */
-function storeSettings(privateDir: string, enabled: boolean, at: string): void {
-  const file = localConfigPath(privateDir);
-  const local = setPath(setPath(readLocalConfig(file), ['watcher', 'enabled'], enabled), ['watcher', 'at'], at);
-  writeLocalConfig(file, local);
+/** Writes `watcher.enabled` and `watcher.schedule` into the local config, every other key kept. */
+function storeSettings(privateDir: string, enabled: boolean, schedule: ServiceSchedule): void {
+  updateLocalSettings(privateDir, (local) =>
+    setPath(setPath(local, ['watcher', 'enabled'], enabled), ['watcher', 'schedule'], formatSchedule(schedule))
+  );
 }
 
 /** Writes the watcher's backend and model into keys.json when either differs; true when it wrote. */
@@ -54,17 +56,21 @@ export async function watcherStep(
   );
   if (!enabled) {
     if (!settings.enabled) return { state: 'already', detail: 'the watcher is off' };
-    storeSettings(options.privateDir, false, settings.at);
+    storeSettings(options.privateDir, false, settings.schedule);
     return { state: 'done', detail: 'the watcher is off' };
   }
-  const at = await askHour(deps.ask, "The time of the watcher's daily run, HH:MM UTC:", settings.at);
+  const schedule = await askSchedule(
+    deps.ask,
+    "The schedule of the watcher's runs, UTC (at 00:00,12:00 or every 6h):",
+    settings.schedule
+  );
   const { backends, uses, models } = readKeys(options.privateDir).subharness;
   const offeredBackend = uses.watcher ?? backends[0] ?? null;
   const backendAnswer = (await deps.ask('The subharness backend the watcher runs through:', offeredBackend)).trim();
   const named = backendAnswer === '' ? offeredBackend : backendAnswer;
   const backend: BackendName | undefined = BACKEND_NAMES.find((one) => one === named);
   if (backend === undefined || !backends.includes(backend)) {
-    storeSettings(options.privateDir, false, at);
+    storeSettings(options.privateDir, false, schedule);
     const why =
       backends.length === 0
         ? 'no subharness backend is connected (setup subharness)'
@@ -77,8 +83,8 @@ export async function watcherStep(
   ).trim();
   const model = modelAnswer === '' ? offeredModel : modelAnswer;
   const keysChanged = storeBackend(options.privateDir, backend, model);
-  const settingsChanged = !settings.enabled || at !== settings.at;
-  if (settingsChanged) storeSettings(options.privateDir, true, at);
-  const detail = `the watcher runs daily at ${at} UTC through ${backend}${model === null ? '' : ` on ${model}`}`;
+  const settingsChanged = !settings.enabled || formatSchedule(schedule) !== formatSchedule(settings.schedule);
+  if (settingsChanged) storeSettings(options.privateDir, true, schedule);
+  const detail = `the watcher runs ${formatSchedule(schedule)} UTC through ${backend}${model === null ? '' : ` on ${model}`}`;
   return { state: keysChanged || settingsChanged ? 'done' : 'already', detail };
 }

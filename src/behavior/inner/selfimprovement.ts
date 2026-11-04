@@ -1,13 +1,15 @@
-// The `selfimprovement` wake (PR 7e): once a day at `selfimprovement.at` of the UTC day, after the watcher's daily run,
+// The `selfimprovement` wake: on `selfimprovement.schedule` (by default once a day, after the watcher's run),
 // and with a cause when one chain shape fails
 // `selfimprovement.failuresPerShape` times in a UTC day, at most one such cause a day. Its turn carries
 // the facts of src/behavior/selfimprovement-view.ts, and her answer is `board.propose`. The clock is
-// `state.selfimprovement = { lastAt, raisedAt }`: `lastAt` moves when a wake's completion committed (and the outbox rows
+// `state.selfimprovement = { lastAt, raisedAt, schedule }`: `schedule` is what the clock counts for, `lastAt` moves when a wake's completion committed (and the outbox rows
 // it showed are marked delivered), `raisedAt` when a failure cause raised a wake. The tick (src/behavior/inner.ts) asks
 // `selfimprovementDue`; the drain (src/behavior/inner/drain.ts) asks `selfimprovementFacts` for its turn and
-// `committedSelfimprovement` once the turn committed. `dailyWake` and `failureCause` are the rules, pure. The facts
+// `committedSelfimprovement` once the turn committed. `scheduledWake` and `failureCause` are the rules, pure. The facts
 // carry the newest watcher report the source gives for the wake's time (src/watcher/news.ts).
 
+import { evaluateSchedule, formatSchedule } from '../../service/schedule.ts';
+import type { ServiceSchedule } from '../../service/schedule.ts';
 import { DAY_MS, utcDay } from '../../time.ts';
 import { errorCode, isFiniteNumber } from '../../tools/types.ts';
 import { buildSelfimprovementFacts, chainsOfJournal, readJournalLines, shapesOf } from '../selfimprovement-view.ts';
@@ -30,16 +32,13 @@ export function selfimprovementWake(at: number, reason: string): Wake {
 }
 
 /**
- * The daily wake at `at` (`HH:MM`, UTC, the server clock) of the UTC day of `now`: due once `now` reached that moment
- * and `lastAt` is before it; its `dueAt` (and so its id) is that moment, reason `daily`. Null while `lastAt` is
- * unknown, before the hour, or when the day's wake already ran.
+ * The wake `schedule` owes at `now`, whose `dueAt` (and so its id) is the newest slot since `lastAt`, reason `daily`, so
+ * days overdue give one wake. Null while `lastAt` is unknown or nothing is due.
  */
-export function dailyWake(input: { now: number; at: string; lastAt: number | null }): Wake | null {
-  const { now, at, lastAt } = input;
-  if (lastAt === null) return null;
-  const moment = Date.parse(`${utcDay(now)}T${at}:00Z`);
-  if (Number.isNaN(moment) || now < moment || lastAt >= moment) return null;
-  return selfimprovementWake(moment, 'daily');
+export function scheduledWake(input: { now: number; schedule: ServiceSchedule; lastAt: number | null }): Wake | null {
+  const { now, schedule, lastAt } = input;
+  const { due } = evaluateSchedule({ schedule, enabled: true, now, last: lastAt });
+  return due === null ? null : selfimprovementWake(due, 'daily');
 }
 
 /**
@@ -71,8 +70,9 @@ function journalOf(
 
 /**
  * The wakes this tick owes: nothing while `selfimprovement.enabled` is false, nothing on the first tick (it only starts
- * the clock, so a fresh install's first wake is the next `at`), the daily wake once its hour has come, else the wake
- * of a failure cause found in the day's chains. Never throws.
+ * the clock, so a fresh install's first wake is the next slot), the scheduled wake once its slot has come, else the wake
+ * of a failure cause found in the day's chains. A schedule the owner changed starts the clock again, so a slot of the
+ * new schedule that already passed owes nothing. Never throws.
  */
 export async function selfimprovementDue(
   life: InnerContext,
@@ -81,15 +81,22 @@ export async function selfimprovementDue(
   at: number
 ): Promise<Array<Wake>> {
   if (!settings.selfimprovement.enabled) return [];
-  const { at: hour, failuresPerShape } = settings.wakes.selfimprovement;
+  const { schedule, failuresPerShape } = settings.wakes.selfimprovement;
+  const counted = formatSchedule(schedule);
   const state = stateOf(life, guildId);
   if (state.selfimprovement === null) {
-    state.selfimprovement = { lastAt: at, raisedAt: null };
+    state.selfimprovement = { lastAt: at, raisedAt: null, schedule: counted };
     save(life, guildId);
     return [];
   }
-  const daily = dailyWake({ now: at, at: hour, lastAt: state.selfimprovement.lastAt });
-  if (daily !== null) return [daily];
+  if (state.selfimprovement.schedule !== counted) {
+    const isChanged = state.selfimprovement.schedule !== undefined;
+    const lastAt = isChanged ? at : state.selfimprovement.lastAt;
+    state.selfimprovement = { ...state.selfimprovement, lastAt, schedule: counted };
+    save(life, guildId);
+  }
+  const scheduled = scheduledWake({ now: at, schedule, lastAt: state.selfimprovement.lastAt });
+  if (scheduled !== null) return [scheduled];
   try {
     const lines = await readJournalLines(
       journalOf(life),
@@ -175,7 +182,7 @@ export async function committedSelfimprovement(
   if (wake === null || outcome === 'error') return;
   const state = stateOf(life, guildId);
   const at = isFiniteNumber(wake.dueAt) ? wake.dueAt : life.now();
-  state.selfimprovement = { lastAt: at, raisedAt: state.selfimprovement?.raisedAt ?? null };
+  state.selfimprovement = { ...state.selfimprovement, lastAt: at, raisedAt: state.selfimprovement?.raisedAt ?? null };
   save(life, guildId);
   const seqs = facts?.outboxSeqs ?? [];
   if (seqs.length === 0 || !life.selfimprovementSources.ackOutbox) return;

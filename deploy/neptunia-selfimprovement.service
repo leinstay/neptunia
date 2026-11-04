@@ -1,4 +1,4 @@
-# systemd unit for one beat of her self-development (src/selfimprovement/, docs/selfimprovement.md): `neptunia selfimprovement run` takes her
+# systemd unit for one beat of her self-development (src/selfimprovement/, docs/selfimprovement.md): `neptunia worker selfimprovement` takes her
 # fix proposals off the board, works each in a worktree under <data>/selfimprovement/, runs the tests and opens the pull request.
 #
 # The beat works on a dev checkout, never on the deployed one: `neptunia setup` renders this unit and its timer only
@@ -20,7 +20,7 @@ Wants=network-online.target
 Type=oneshot
 User=neptunia
 WorkingDirectory=/opt/neptunia/app
-ExecStart=/opt/node/bin/node bin/neptunia.ts selfimprovement run
+ExecStart=/opt/node/bin/node bin/neptunia.ts worker selfimprovement
 Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/data
 Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
 # git, gh and the agent backend's binary are found by name: the user's own tools and node's folder go on the PATH.

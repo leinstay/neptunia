@@ -9,7 +9,7 @@
 // It also turns a local wall time of an IANA zone into an instant and back
 // to a local date key (zonedEpoch / zonedDay), for dates a model writes in
 // the bot's time zone. `isClockTime` checks an `HH:MM` setting of a daily
-// moment (`selfimprovement.at`, `watcher.at`).
+// moment.
 
 /** One minute in milliseconds. */
 export const MINUTE_MS = 60_000;

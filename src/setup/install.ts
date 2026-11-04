@@ -13,6 +13,7 @@ import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import { readConfig } from '../config.ts';
 import { readKeys } from '../keys/file.ts';
 import { modeOf } from '../subharness/control.ts';
+import type { ServiceSchedule } from '../service/schedule.ts';
 import { isInstalled } from '../subharness/place.ts';
 import { watcherSettings } from '../watcher/settings.ts';
 import { SELFIMPROVEMENT_UNIT_FILES, UNIT_AGENTS, renderUnit } from './units.ts';
@@ -48,14 +49,14 @@ export function unitDirOf(target: UnitTarget): string {
 }
 
 /** The `systemctl` command line of the scope, behind `sudo` for the system. */
-export function systemctlOf(target: UnitTarget, ...args: Array<string>): [string, Array<string>] {
+export function systemctlOf(target: Pick<UnitTarget, 'system'>, ...args: Array<string>): [string, Array<string>] {
   return target.system ? ['sudo', ['systemctl', ...args]] : ['systemctl', ['--user', ...args]];
 }
 
-/** `watcher.at` of the settings, null when they cannot be read (the timer then keeps the template's hour). */
-function watcherHour(target: UnitTarget): string | null {
+/** `watcher.schedule` of the settings, null when they cannot be read (the timer then keeps the template's hour). */
+function watcherSchedule(target: UnitTarget): ServiceSchedule | null {
   try {
-    return watcherSettings(readConfig(target.rootDir, { privateDir: target.dataDir })).at;
+    return watcherSettings(readConfig(target.rootDir, { privateDir: target.dataDir })).schedule;
   } catch {
     // A checkout without config/config.json or a broken local file: the template's hour stands.
     return null;
@@ -64,7 +65,7 @@ function watcherHour(target: UnitTarget): string | null {
 
 /**
  * The text of one unit as the scope, the owner's modes, the backends connected in keys.json or installed in the private layer and the hour of the
- * watcher's run (`watcher.at` of the settings) want it.
+ * watcher's run (`watcher.schedule` of the settings) want it.
  */
 export function unitText(target: UnitTarget, template: string, file: string): string {
   const agent = UNIT_AGENTS[file];
@@ -74,8 +75,8 @@ export function unitText(target: UnitTarget, template: string, file: string): st
     (name) => subharness.backends.includes(name) || isInstalled(target.dataDir, name)
   );
   const vars: UnitVars = { ...target, backends };
-  const watcherAt = watcherHour(target);
-  if (watcherAt !== null) vars.watcherAt = watcherAt;
+  const schedule = watcherSchedule(target);
+  if (schedule !== null) vars.watcherSchedule = schedule;
   if (agent !== undefined) vars.mode = modeOf(subharness.modes, agent);
   if (SELFIMPROVEMENT_UNIT_FILES.includes(file) && target.selfimprovementCheckout)
     vars.rootDir = target.selfimprovementCheckout;

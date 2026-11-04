@@ -6,9 +6,11 @@ Its shared definition lives in `agents/watcher/`. Customize the prompt and suppo
 
 ## Configure and run
 
-Use `neptunia setup watcher` to choose whether it runs, its time, backend and model. Rerender units after changing the schedule and enable the watcher timer in the installation's systemd scope.
+`neptunia service watcher setup --at 00:00,12:00` or `--every 6h` sets `watcher.schedule` and renders `neptunia-watcher.timer`. `neptunia service watcher enable` and `disable` move `watcher.enabled` and the timer. The full `neptunia setup` asks for the same schedule, and for the backend and the model. See [the service commands](cli.md#scheduled-services).
 
-`neptunia watcher run` invokes the agent and can spend model allowance. `/report` reads a stored report. The persona's `watcher.read` tool uses stored reports rather than launching another inspection.
+The timer starts `neptunia worker watcher`, which invokes the agent and can spend model allowance, and exits at once while `watcher.enabled` is false. Enabling starts no worker. The timer keeps `Persistent=true`, so a machine that was off gets one catch-up inspection at its next start, however many slots passed. The unit is a oneshot, so a run that outlasts its interval is never started a second time.
+
+`neptunia service watcher report` reads a stored report. The persona's `watcher.read` tool uses stored reports rather than launching another inspection.
 
 ## Read the result
 

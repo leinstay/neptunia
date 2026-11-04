@@ -6,7 +6,8 @@
 // the three ticking mechanics (MECHANIC_MOVES): `innerLife.heartbeat.*` and `innerLife.wakes.heartbeat.*` under
 // `heartbeat`, `diary.*` under `selfreflection`, `selfdev.*` and `innerLife.wakes.selfimprovement.*` under
 // `selfimprovement`, the other `innerLife.wakes.<kind>.*` under `wakes.kinds`, and the rest of `innerLife.*` under
-// `wakes`. A local config written with the old keys keeps its meaning
+// `wakes`, then the old forms of a schedule (`watcher.at`, `selfimprovement.at`, `heartbeat.everyMinutes`) under
+// `<name>.schedule`, a value that is no schedule dropped and reported. A local config written with the old keys keeps its meaning
 // because `moveConfigKeys` writes each old key under its new name, and the loader (src/config.ts#readConfig) applies it to
 // the local file before that file is laid over config.json, so an old key overrides the shipped default of its new name.
 // `scripts/config-migrate.ts` writes the same moves into the file.
@@ -21,6 +22,8 @@
 //
 // The grants of `bot.access` stored under the keys of the old slash command (`memory.show`, `emoji.rescan`, ...) are
 // read by `legacyGrantOps`, which src/tools/impl/access.ts#migrateStoredGrants calls once per guild at start.
+
+import { formatSchedule, parseSchedule } from './service/schedule.ts';
 
 type Config = Record<string, unknown>;
 
@@ -285,6 +288,43 @@ function moveMechanics(config: Config, report: MovedConfig): void {
   }
 }
 
+/** The text a daily time holds as a schedule, null when it is no time. */
+const scheduleOfTime = (value: unknown): string | null => {
+  const schedule = typeof value === 'string' ? parseSchedule(`at ${value}`) : null;
+  return schedule === null ? null : formatSchedule(schedule);
+};
+
+/** The text a number of minutes holds as a schedule, null when it is no interval. */
+const scheduleOfMinutes = (value: unknown): string | null =>
+  typeof value === 'number' && Number.isInteger(value) && value > 0
+    ? formatSchedule({ kind: 'every', everyMinutes: value })
+    : null;
+
+/** The old keys of a schedule: each section, its key, and what its value means as a schedule. */
+const SCHEDULE_MOVES: ReadonlyArray<{ section: string; key: string; read: (value: unknown) => string | null }> = [
+  { section: 'watcher', key: 'at', read: scheduleOfTime },
+  { section: 'selfimprovement', key: 'at', read: scheduleOfTime },
+  { section: 'heartbeat', key: 'everyMinutes', read: scheduleOfMinutes },
+];
+
+/** Each old key of a schedule written as `<section>.schedule`; a junk value is dropped, a new schedule wins. */
+function moveSchedules(config: Config, report: MovedConfig): void {
+  for (const { section, key, read } of SCHEDULE_MOVES) {
+    const held = sectionOf(config, section, false);
+    if (held === null || !Object.hasOwn(held, key)) continue;
+    const schedule = read(held[key]);
+    const from = `${section}.${key}`;
+    delete held[key];
+    if (schedule === null) report.dropped.push(from);
+    else if (Object.hasOwn(held, 'schedule')) report.shadowed.push({ from, to: `${section}.schedule` });
+    else {
+      held.schedule = schedule;
+      report.moved.push({ from, to: `${section}.schedule` });
+    }
+    if (Object.keys(held).length === 0) delete config[section];
+  }
+}
+
 /** `selfreflection.channelId` removed once the memory database has the diary's mirror; a section it empties goes too. */
 function moveDiarySeed(config: Config, diaryMirror: boolean, report: MovedConfig): void {
   const section = sectionOf(config, 'selfreflection', false);
@@ -311,6 +351,7 @@ export function moveConfigKeys(config: Config, { diaryMirror = false }: { diaryM
   renameKey(report.config, 'features', 'innerLife', 'wakes', report);
   dropKeys(report.config, report);
   moveMechanics(report.config, report);
+  moveSchedules(report.config, report);
   moveDiarySeed(report.config, diaryMirror, report);
   return report;
 }

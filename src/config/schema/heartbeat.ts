@@ -11,18 +11,19 @@ export const HEARTBEAT: ReadonlyArray<SchemaEntry> = [
     'text': 'Whether she has a periodic heartbeat wake',
   },
   {
-    'key': 'heartbeat.everyMinutes',
-    'types': ['number'],
-    'reader': 'src/behavior/inner/heartbeat.ts',
-    'default': 180,
-    'text': 'Heartbeat interval (minutes)',
+    'key': 'heartbeat.schedule',
+    'types': ['string'],
+    'reader': 'src/behavior/inner/settings.ts',
+    'default': 'every 3h',
+    'text':
+      'When the heartbeat falls due: `every 3h`, `every 90m` or daily UTC times such as `at 06:00,18:00`. `neptunia service heartbeat setup` writes it, and a value that means nothing reads as the default',
   },
   {
     'key': 'heartbeat.jitterMinutes',
     'types': ['number'],
     'reader': 'src/behavior/inner/heartbeat.ts',
     'default': 60,
-    'text': 'Jitter on the heartbeat interval',
+    'text': 'Minutes an interval of the heartbeat moves either way; daily times stay exact',
   },
   {
     'key': 'heartbeat.historyDays',

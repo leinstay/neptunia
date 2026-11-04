@@ -1,7 +1,7 @@
-# systemd unit for the daily watcher (src/watcher/, docs/watcher.md): one run, one report.
+# systemd unit for the watcher (src/watcher/, docs/watcher.md): one run, one report.
 #
-# `neptunia watcher run` asks the watcher agent once, checks its answer, files the tasks it asks for on the board as the
-# client `watcher` and writes `<watcher.dir>/reports/<UTC date>.md`. neptunia-watcher.timer starts it at 00:00 UTC.
+# `neptunia worker watcher` asks the watcher agent once, checks its answer, files the tasks it asks for on the board as the
+# client `watcher` and writes `<watcher.dir>/reports/<UTC date>.md`. neptunia-watcher.timer starts it on `watcher.schedule`.
 # A start that finds a report for the day does nothing. The unit is a oneshot, so the timer skips a day whose run is
 # still going, and it never restarts itself after a failed run.
 #
@@ -11,12 +11,11 @@
 #
 # `neptunia setup` renders this service and its timer for the installing user (deploy/README.md) and does not start
 # them. The client token of the watcher is made once with scripts/client-token.ts (`add watcher --kind agent --roles
-# watcher`), and the timer is enabled with `systemctl enable --now neptunia-watcher.timer` (`--user` for a user unit).
-# Run now: systemctl start neptunia-watcher.service
+# watcher`), and `neptunia service watcher enable` enables the timer.
 # Logs:    journalctl -u neptunia-watcher
 
 [Unit]
-Description=neptunia watcher (one daily report)
+Description=neptunia watcher (one report)
 After=network-online.target
 Wants=network-online.target
 
@@ -24,7 +23,7 @@ Wants=network-online.target
 Type=oneshot
 User=neptunia
 WorkingDirectory=/opt/neptunia/app
-ExecStart=/opt/node/bin/node bin/neptunia.ts watcher run
+ExecStart=/opt/node/bin/node bin/neptunia.ts worker watcher
 # The bot's directories (deploy/neptunia-bot.service), set as in its unit.
 Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/data
 Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data

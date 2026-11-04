@@ -1,22 +1,23 @@
 // The mechanics step of `neptunia setup` (src/setup/run.ts, docs/setup.md): her three ticking mechanics, `heartbeat`,
 // `selfreflection` and `selfimprovement`, each switched on or off at the terminal, and the time of day of the daily
-// selfimprovement wake (`selfimprovement.at`). Each question offers the value in force, so an empty answer keeps it.
+// selfimprovement wake's schedule (`selfimprovement.schedule`). Each question offers the value in force, so an empty answer keeps it.
 // `selfimprovement` on needs a connected subharness backend, `selfimprovement.repository` and a push right to it
 // through her gh login (src/selfimprovement/repository.ts); without them it is stored off and the step is `refused`.
 // The answers go into `<private>/config.local/config.json`, every other key kept, and nothing is written when no
-// answer changes a value. The watcher step (src/setup/watcher.ts) asks through `askSwitch` and `askHour` of this file.
+// answer changes a value. The watcher step (src/setup/watcher.ts) asks through `askSwitch` and `askSchedule` of this file.
 
 import { readConfig } from '../config.ts';
-import { localConfigPath } from '../config/files.ts';
 import { readLabels } from '../hot.ts';
 import { readKeys } from '../keys/file.ts';
 import { innerSettings } from '../behavior/inner/settings.ts';
 import { checkRepository } from '../selfimprovement/repository.ts';
 import type { GhRunner } from '../selfimprovement/repository.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
-import { isClockTime } from '../time.ts';
+import { updateLocalSettings } from '../service/local-settings.ts';
+import { formatSchedule, parseSchedule } from '../service/schedule.ts';
+import type { ServiceSchedule } from '../service/schedule.ts';
 import { objOf } from '../tools/types.ts';
-import { readLocalConfig, setPath, writeLocalConfig } from '../tools/impl/shared.ts';
+import { setPath } from '../tools/impl/shared.ts';
 
 /** Asks the owner at the terminal; `offered` is shown as the default and an empty answer takes it. */
 export type Ask = (question: string, offered: string | null) => Promise<string>;
@@ -46,9 +47,15 @@ export async function askSwitch(ask: Ask, question: string, current: boolean): P
   return answer.toLowerCase() === 'on';
 }
 
-/** A time of day `HH:MM` from `00:00` to `23:59`; `current` after three answers that are none. */
-export function askHour(ask: Ask, question: string, current: string): Promise<string> {
-  return askValid(ask, question, current, isClockTime);
+/** What an answer to a schedule question means: `at 06:00,18:00`, `every 6h`, or the daily times alone. */
+const scheduleOfAnswer = (answer: string): ServiceSchedule | null =>
+  parseSchedule(answer) ?? parseSchedule(`at ${answer}`);
+
+/** A schedule with the validation of `neptunia service <name> setup`; `current` after three answers that are none. */
+export async function askSchedule(ask: Ask, question: string, current: ServiceSchedule): Promise<ServiceSchedule> {
+  const offered = formatSchedule(current);
+  const answer = await askValid(ask, question, offered, (one) => scheduleOfAnswer(one) !== null);
+  return scheduleOfAnswer(answer) ?? current;
 }
 
 /** What is missing for selfimprovement, in one line, or null when its checks pass. */
@@ -73,7 +80,7 @@ export async function mechanicsStep(
     heartbeat: objOf(config.heartbeat).enabled !== false,
     selfreflection: objOf(config.selfreflection).enabled !== false,
     selfimprovement: objOf(config.selfimprovement).enabled !== false,
-    at: innerSettings(config).wakes.selfimprovement.at,
+    schedule: innerSettings(config).wakes.selfimprovement.schedule,
   };
   const heartbeat = await askSwitch(
     deps.ask,
@@ -86,11 +93,16 @@ export async function mechanicsStep(
     'selfimprovement: her daily look at her own work and the fixes she files (on or off):',
     inForce.selfimprovement
   );
-  let at = inForce.at;
+  let schedule = inForce.schedule;
   let refusal: string | null = null;
   if (selfimprovement) {
     refusal = await selfimprovementMissing(options, config, deps.gh);
-    if (refusal === null) at = await askHour(deps.ask, 'The time of her daily selfimprovement wake, HH:MM UTC:', at);
+    if (refusal === null)
+      schedule = await askSchedule(
+        deps.ask,
+        'The schedule of her selfimprovement wake, UTC (at 03:00,15:00 or every 6h):',
+        schedule
+      );
     else selfimprovement = false;
   }
   const answers = { heartbeat, selfreflection, selfimprovement };
@@ -98,15 +110,14 @@ export async function mechanicsStep(
     heartbeat !== inForce.heartbeat ||
     selfreflection !== inForce.selfreflection ||
     selfimprovement !== inForce.selfimprovement ||
-    at !== inForce.at;
-  const summary = `heartbeat ${heartbeat ? 'on' : 'off'}, selfreflection ${selfreflection ? 'on' : 'off'}, selfimprovement ${selfimprovement ? `on at ${at} UTC` : 'off'}`;
-  if (changed) {
-    const file = localConfigPath(options.privateDir);
-    let local = readLocalConfig(file);
-    for (const [name, value] of Object.entries(answers)) local = setPath(local, [name, 'enabled'], value);
-    local = setPath(local, ['selfimprovement', 'at'], at);
-    writeLocalConfig(file, local);
-  }
+    formatSchedule(schedule) !== formatSchedule(inForce.schedule);
+  const summary = `heartbeat ${heartbeat ? 'on' : 'off'}, selfreflection ${selfreflection ? 'on' : 'off'}, selfimprovement ${selfimprovement ? `on, ${formatSchedule(schedule)} UTC` : 'off'}`;
+  if (changed)
+    updateLocalSettings(options.privateDir, (saved) => {
+      let local = saved;
+      for (const [name, value] of Object.entries(answers)) local = setPath(local, [name, 'enabled'], value);
+      return setPath(local, ['selfimprovement', 'schedule'], formatSchedule(schedule));
+    });
   if (refusal !== null) return { state: 'refused', detail: `${refusal}; ${summary}` };
   return changed ? { state: 'done', detail: summary } : { state: 'already', detail: summary };
 }

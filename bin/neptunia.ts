@@ -10,13 +10,15 @@
 //   neptunia doctor [live] [--live] [--json]     the checks of the installation, with the core up or down
 //   neptunia errand-runner --profile <name>      the errand runner of one agent (deploy/neptunia-agent-<name>.service)
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
-//   neptunia service start|stop|restart|status [<unit> ...]   the units, through systemctl
+//   neptunia service <name> setup|enable|disable|status   one of the four scheduled mechanics (src/service/commands.ts)
+//   neptunia service watcher trigger|cancel|report [<day>]   the operations of one watcher run
+//   neptunia service start|stop|restart|status [<unit> ...]   the units, through the scope's systemctl
 //   neptunia setup [--system] [--node <path>] [<step>]  the install of one user: folders, keys file, her subharness
 //                                                backends, the repository of her self-development, her mechanics,
-//                                                the watcher, units, linger, the core
+//                                                the watcher, units, linger, the core; a step of those last-named three
+//                                                alone is `neptunia service <name> setup`
 //   neptunia setup subharness <backend> [--from <path>]   one subharness backend into <private>/subharness/<backend>/
 //   neptunia task <command> [options]            the task board's command line (bin/neptunia-task.ts)
-//   neptunia watcher run                         one run of the daily watcher (deploy/neptunia-watcher.service)
 //
 // Every command reads `NEPTUNIA_PRIVATE_DIR` (the local layer) and `NEPTUNIA_DATA_DIR` (the data folder), as the core
 // does (src/paths.ts). A usage error exits 2.
@@ -27,7 +29,7 @@
 // her reply arrives as a send action and is printed. A line starting with `/` is parsed by the command table
 // (src/interface/commands/table.ts), which prints the reason of a line it refuses, and becomes a `command.requested`
 // event: its answer is printed for the owner and never reaches her memory or her requests. `/clear`, `/doctor`,
-// `/logs` (journalctl of the core's unit, from PATH) and `/report` (the watcher's report, rendered by bin/markdown.ts)
+// `/logs` (journalctl of the core's unit, from PATH) and `/service` (bin/neptunia-service.ts)
 // run here and ask the core nothing, but `/doctor live` asks it for the probes of the model roles. A line typed before the link is up waits in the input until it is. The chat opens with the core's
 // header and, above it, the picture in `<private>/cli/picture.txt` when that file exists. In a terminal the command
 // history is kept in `<private>/cli/history`. The end of the input ends the chat with exit 0, once the answers of the
@@ -42,13 +44,14 @@
 // the turn over the line ended (src/interface/neptunia-cli.ts), and prints her reply. A chat with no terminal explains
 // itself and exits 2 unless `NEPTUNIA_PLAIN_CHAT=1` asks for the chat over the pipes. Log lines go to stderr.
 //
-// `watcher run` reads the watcher's folder (`watcher.dir`, default `.agents/watcher`: `prompt.md` and `reports/`), asks
+// `worker` names what a unit starts, and the usage leaves it out: `worker watcher` (deploy/neptunia-watcher.service) ends
+// at once while `watcher.enabled` is false, and otherwise reads the watcher's folder (`watcher.dir`, default `.agents/watcher`: `prompt.md` and `reports/`), asks
 // the watcher agent once (src/watcher/run.ts) and writes `reports/<UTC date>.md`. It files the tasks the agent asks for
 // on the board over the core's socket as the client `NEPTUNIA_TASK_CLIENT` (default `watcher`, whose token is
 // `NEPTUNIA_TASK_TOKEN` or `<private>/clients/watcher.token`). It exits 0 for a report written or already there, and 1
 // for a run that failed, with the code on stderr.
 //
-// `selfimprovement run` runs one beat of her self-development (bin/selfimprovement.ts, docs/selfimprovement.md) as the client `selfimprovement`: her fix
+// `worker selfimprovement` (deploy/neptunia-selfimprovement.service) runs one beat of her self-development (bin/selfimprovement.ts, docs/selfimprovement.md) as the client `selfimprovement`: her fix
 // proposals are taken, each approved one is patched in a worktree and opened as a pull request, and the open ones are
 // looked at. It exits 0 for a beat that ran and 1 when the board is not reachable.
 //
@@ -118,7 +121,7 @@ import {
 import { cutConfigKeys } from '../src/config/cut.ts';
 import type { LocalFiles } from '../src/config/files.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
-import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
+import { COMMANDS, isRetiredCommand, parseCommandLine } from '../src/interface/commands/table.ts';
 import type { StatusBrief } from '../cli/index.ts';
 import { chatPanel } from './chat-panels.ts';
 import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
@@ -140,7 +143,14 @@ import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
 import { runSelfimprovement } from './selfimprovement.ts';
 import { runTask, openBoardCaller } from './neptunia-task.ts';
-import { reportAnswer } from './report.ts';
+import {
+  askSetup,
+  isServiceRequest,
+  prefersCore,
+  retiredSetupStep,
+  runServiceHere,
+  runUnitVerbs,
+} from './neptunia-service.ts';
 import {
   COMMANDS_LINE,
   COMMAND_NAMES,
@@ -155,6 +165,7 @@ import type { Request } from './neptunia-request.ts';
 import { createAnswers, mutableOutput } from './secret-prompt.ts';
 import type { Answers } from './secret-prompt.ts';
 import { reportsDirOf, watcherDir } from '../src/watcher/read.ts';
+import { watcherSettings } from '../src/watcher/settings.ts';
 import { runWatcher } from '../src/watcher/run.ts';
 import type { RunAgent } from '../src/watcher/run.ts';
 import type { CommandResult, Logger } from '../src/protocol/serve.ts';
@@ -169,12 +180,12 @@ const USAGE = [
   '       neptunia doctor [live] [--live] [--json]',
   '       neptunia errand-runner --profile <name>',
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
+  '       neptunia service <name> setup|enable|disable|status   (heartbeat, selfreflection, selfimprovement, watcher)',
+  '       neptunia service watcher trigger|cancel|report [<day>]',
   '       neptunia service start|stop|restart|status [<unit> ...]',
-  '       neptunia setup [--system] [--node <path>] [folders|keys-file|subharness|selfimprovement|mechanics|watcher|units|linger|core]',
+  '       neptunia setup [--system] [--node <path>] [folders|keys-file|interfaces|services|subharness|units|linger|core]',
   '       neptunia setup subharness codex|claude|opencode [--from <path>] [--version <version>] [--rollback]',
   '       neptunia task <command> [options]   (neptunia task help)',
-  '       neptunia selfimprovement run',
-  '       neptunia watcher run',
   COMMANDS_LINE,
 ].join('\n');
 
@@ -192,10 +203,6 @@ const CLI_CLIENT = 'cli';
 const CLI_IFACE = 'cli';
 const OWNER_ID = 'owner';
 const CHAT_ID = 'cli:dm:owner';
-
-/** The units `service` acts on when none is named: the core and the two errand runners (deploy/). */
-const DEFAULT_UNITS = ['neptunia-core.service', 'neptunia-agent-scout.service', 'neptunia-agent-server.service'];
-const SERVICE_VERBS = ['start', 'stop', 'restart', 'status'];
 
 type Settings = Record<string, unknown>;
 type InterfacePackage = { start(host: InterfaceHost): Promise<RunningInterface> };
@@ -515,8 +522,9 @@ type Answer = { text: string; status: string };
 /** What the core sent for one request: an answer, or a question to put to the owner (`ask`). */
 type Reply = Answer & { ask?: CommandResult['ask'] };
 
-/** The commands the command line runs itself, with no core: the doctor, the journal, the screen and the report. */
-const LOCAL_COMMANDS = new Set(['doctor', 'doctor.live', 'logs', 'clear', 'report']);
+/** The commands the command line runs itself, with no core: the doctor, the journal, the screen and the service family. */
+const LOCAL_COMMANDS = new Set(['doctor', 'doctor.live', 'logs', 'clear']);
+const runsHere = (name: string): boolean => LOCAL_COMMANDS.has(name) || isServiceRequest(name);
 
 /** The core's unit, whose journal `/logs` reads (deploy/neptunia-core.service). */
 const CORE_UNIT = 'neptunia-core.service';
@@ -594,12 +602,9 @@ function reportsDirIn(where: { rootDir: string; privateDir: string }): string {
 async function runLocal(command: Command, ask: ((command: Command) => Promise<Answer>) | null): Promise<Answer> {
   if (command.name === 'clear') return { text: '', status: 'ok' };
   if (command.name === 'logs') return readJournal(typeof command.args.options === 'string' ? command.args.options : '');
-  if (command.name === 'report') {
-    return reportAnswer({
-      reportsDir: reportsDirIn(paths()),
-      day: typeof command.args.day === 'string' ? command.args.day : undefined,
-      color: process.stdout.isTTY && !process.env.NO_COLOR,
-    });
+  if (isServiceRequest(command.name)) {
+    if (ask !== null && prefersCore(command.name)) return ask(command);
+    return runServiceHere(command, paths(), process.stdout.isTTY && !process.env.NO_COLOR);
   }
   const checks = await doctorChecks(paths(), command.name === 'doctor.live' ? { ask } : null);
   return { text: checkLines(checks), status: checks.some((check) => check.status === 'fail') ? 'failed' : 'ok' };
@@ -635,11 +640,15 @@ async function requireCliLink(print: ((text: string) => void) | null): Promise<C
 /** One parsed command to its answer: the direct form and `-p` with a slash. */
 async function runCommand({ parsed, secretStdin }: Request): Promise<never> {
   if (!parsed.ok) return refuseSyntax(parsed.reason);
-  const command = { name: parsed.name, args: parsed.args };
-  if (LOCAL_COMMANDS.has(command.name)) {
-    const link = command.name === 'doctor.live' ? await tryCliLink() : null;
+  const named = { name: parsed.name, args: parsed.args };
+  if (runsHere(named.name)) {
+    const isBareSetup =
+      named.name.endsWith('.setup') && isServiceRequest(named.name) && Object.keys(named.args).length === 0;
+    const command = isBareSetup && process.stdin.isTTY === true ? await askSetup(named, askAtTerminal) : named;
+    const link = command.name === 'doctor.live' || prefersCore(command.name) ? await tryCliLink() : null;
     const answer = await runLocal(command, link === null ? null : (asked) => link.ask(asked));
     link?.close();
+    if (isServiceRequest(command.name) && answer.status === 'invalid') return refuseSyntax(answer.text);
     // The doctor's lines are its result even when a check failed, as `neptunia doctor` prints them; the exit code says so.
     if (command.name.startsWith('doctor') && answer.status !== 'ok') {
       printBlock(answer.text);
@@ -647,6 +656,7 @@ async function runCommand({ parsed, secretStdin }: Request): Promise<never> {
     }
     return finish(answer);
   }
+  const command = named;
   const link = await requireCliLink(null);
   // A command that asks a question (a key value) reads the answer from the terminal when there is one.
   const questions = !secretStdin && process.stdin.isTTY === true ? openQuestions() : null;
@@ -688,7 +698,7 @@ async function runPrint(argv: ReadonlyArray<string>): Promise<never> {
 
 /** `neptunia <words...>`: a word of the table is a command, read as argv gives it; any other opens no connection. */
 async function runDirect(words: ReadonlyArray<string>): Promise<never> {
-  if (!COMMAND_NAMES.includes(words[0] ?? '')) return usage();
+  if (!COMMAND_NAMES.includes(words[0] ?? '') && !isRetiredCommand(words[0] ?? '')) return usage();
   if (words.length === 1 && words[0] === 'clear' && process.stdout.isTTY !== true)
     return refuseSyntax(panelRefusal('clear'));
   return runCommand(parseRequest(words));
@@ -769,7 +779,7 @@ async function runInkChat(where: { privateDir: string }, firstLine = ''): Promis
   };
   const historyFile = path.join(where.privateDir, 'cli', 'history');
   const run = (parsed: Command): Promise<Answer> =>
-    LOCAL_COMMANDS.has(parsed.name) ? runLocal(parsed, (asked) => link.ask(asked)) : link.ask(parsed, answers);
+    runsHere(parsed.name) ? runLocal(parsed, (asked) => link.ask(asked)) : link.ask(parsed, answers);
   await runInteractive({
     title: 'Project Neptunia',
     initialInput: firstLine,
@@ -878,7 +888,7 @@ async function runChat(firstLine?: string): Promise<void> {
         journalArgs(parsed.args.options).follow
       )
         track(followJournal(parsed.args.options, printBlock));
-      else if (LOCAL_COMMANDS.has(parsed.name))
+      else if (runsHere(parsed.name))
         track(runLocal(parsed, (asked) => link.ask(asked)).then((answer) => printBlock(answer.text)));
       else track(link.ask(parsed, answers).then((answer) => printBlock(answer.text)));
     } else {
@@ -1413,6 +1423,8 @@ function replyCheck(privateDir: string): EnableDeps['runBackend'] {
 }
 
 async function runSetupCommand(argv: ReadonlyArray<string>): Promise<void> {
+  const retired = retiredSetupStep(argv);
+  if (retired !== null) refuseSyntax(retired);
   if (argv[0] === 'subharness' && argv.length > 1) return runSubharnessSetup(argv.slice(1));
   let parsed: ReturnType<typeof parseSetupArgs>;
   try {
@@ -1452,17 +1464,6 @@ async function runSetupCommand(argv: ReadonlyArray<string>): Promise<void> {
     }
   );
   process.exit(report.ok ? 0 : 1);
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// service
-// ---------------------------------------------------------------------------------------------------------------
-
-function runService(argv: ReadonlyArray<string>): void {
-  const [verb, ...units] = argv;
-  if (verb === undefined || !SERVICE_VERBS.includes(verb)) usage();
-  const run = spawnSync('systemctl', [verb, ...(units.length > 0 ? units : DEFAULT_UNITS)], { stdio: 'inherit' });
-  process.exit(run.status ?? 1);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1676,10 +1677,13 @@ function watcherAgent(where: { rootDir: string; privateDir: string }): RunAgent 
   };
 }
 
-async function runWatcherCommand(argv: ReadonlyArray<string>): Promise<void> {
-  const [command, ...extra] = argv;
-  if (command !== 'run' || extra.length > 0) usage();
+/** The watcher's worker: a start while the flag is off runs nothing, so a timer a failed `disable` left on goes quiet. */
+async function runWatcherWorker(): Promise<void> {
   const where = paths();
+  if (!watcherSettings(readConfig(where.rootDir, { privateDir: where.privateDir })).enabled) {
+    console.log('watcher: off (watcher.enabled is false)');
+    return;
+  }
   const reportsDir = reportsDirIn(where);
   const agentPaths = { rootDir: where.rootDir, dataDir: where.dataDir, env: process.env };
   const definition = listAgents(agentPaths).find((agent) => agent.kind === 'watcher');
@@ -1733,7 +1737,9 @@ switch (group) {
     await runErrandRunner(rest).catch(fault);
     break;
   case 'service':
-    runService(rest);
+    runUnitVerbs(rest, refuseSyntax);
+    logToStderr();
+    await runDirect([group, ...rest]).catch(fault);
     break;
   case 'setup':
     await runSetupCommand(rest).catch(fault);
@@ -1750,11 +1756,11 @@ switch (group) {
   case 'task':
     process.exit(await runTask(rest).catch(fault));
     break;
-  case 'selfimprovement':
-    process.exit(await runSelfimprovement(rest).catch(fault));
-    break;
-  case 'watcher':
-    await runWatcherCommand(rest).catch(fault);
+  case 'worker':
+    if (rest.length !== 1) usage();
+    if (rest[0] === 'selfimprovement') process.exit(await runSelfimprovement(['run']).catch(fault));
+    if (rest[0] !== 'watcher') usage();
+    await runWatcherWorker().catch(fault);
     process.exit(0);
     break;
   default:
