@@ -42,7 +42,7 @@ const LINK_CLOSED = 'link-closed';
 const FORBIDDEN = 'http-403';
 
 /** What a read the interface did not answer makes of a row; a closed link asked nothing of the platform and logs nothing. */
-function refusedRow(code: string): 'closed' | 'forbidden' | 'failed' {
+function refusedRow(code: unknown, log: Log): 'closed' | 'forbidden' | 'failed' {
   if (code === LINK_CLOSED) return 'closed';
   log.warn('diary media: fetch failed', { code });
   return code === FORBIDDEN ? 'forbidden' : 'failed';
@@ -479,7 +479,7 @@ export function createDiaryMedia({
     const conversation = { iface: adapter.iface, conversationId: row.conversationId as string };
     const result = await adapter.fetchMessages(conversation, row.messageIds);
     if (result?.status !== 'ok' || !Array.isArray(result.messages)) {
-      return refusedRow(result?.error?.code ?? result?.status ?? 'ERROR');
+      return refusedRow(result?.error?.code ?? result?.status ?? 'ERROR', log);
     }
     const byId = new Map(result.messages.map((message): [string, FetchedMessage] => [message.messageId, message]));
     const present = row.messageIds
