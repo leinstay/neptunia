@@ -318,7 +318,8 @@ export type Cli = {
 export function spawnCli(dirs: Dirs, args: ReadonlyArray<string>, extraEnv: NodeJS.ProcessEnv = {}): Cli {
   const child = spawn(process.execPath, [BIN, ...args], {
     cwd: REPO,
-    env: { ...env(dirs), ...extraEnv },
+    // A chat over a pipe is asked for by name; without it the chat with no terminal explains itself and ends.
+    env: { ...env(dirs), NEPTUNIA_PLAIN_CHAT: '1', ...extraEnv },
     stdio: 'pipe',
   });
   let out = '';
