@@ -52,7 +52,7 @@ export const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototyp
 
 /** Config paths only an owner may change through `/nep set` and `/nep unset`: who is an owner and
  * who else may run which command. A path under one, or above one (unsetting `bot` drops both), counts. */
-export const OWNER_ONLY_CONFIG_PATHS = ['bot.owners', 'bot.access'];
+export const OWNER_ONLY_CONFIG_PATHS = ['bot.owners', 'bot.ownerPerson', 'bot.access'];
 
 /** The error of every guild-bound command before the served guild resolves. */
 export const NO_GUILD = 'no guild resolved yet';
