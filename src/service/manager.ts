@@ -1,6 +1,6 @@
 // The service manager as the watcher's commands reach it: which scope this installation uses, the argv of each call, the
-// reads of `status`, and the render of the one timer. The watcher's worker unit is never started or stopped here: enable
-// and disable move its timer, and status reads the worker with `is-active`. Every command goes through the injected
+// reads of `status`, and the render of the one timer. Enable and disable move the timer, status reads the worker with
+// `is-active`, and only `trigger` starts the worker, without waiting for its run. Every command goes through the injected
 // `run`, so no test touches systemd.
 
 import fs from 'node:fs';
@@ -54,6 +54,13 @@ export async function workerRunning(run: RunManager, env: Environment): Promise<
 export async function timerState(run: RunManager, env: Environment): Promise<string> {
   const word = await managerWord(run, env, 'is-enabled', WATCHER_TIMER);
   return word === '' ? 'unknown' : word;
+}
+
+/** Starts the worker without waiting for it, since a oneshot's start lasts its whole run; the reason when refused. */
+export async function startWorker(run: RunManager, env: Environment): Promise<string | null> {
+  const [command, args] = managerCall(env, 'start', '--no-block', WATCHER_WORKER);
+  const done = await run(command, args);
+  return done.code === 0 ? null : whyFailed(done);
 }
 
 /** Enables or disables the timer; the reason when the manager refused. */

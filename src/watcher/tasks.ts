@@ -1,11 +1,12 @@
-// The watcher's tasks: the agent ends its answer with one ```tasks block, a JSON array of { kind, title, evidence,
-// done }. `splitAnswer` takes the block out of the report and checks it; `fileTasks` files each draft on the board as
-// the principal `watcher` (role `watcher`, which may add a task and nothing else) unless the same evidence is already
-// on the board as an open task of the watcher's or was filed today or yesterday. src/watcher/run.ts calls both.
+// The watcher's tasks: the agent ends its answer with one ```tasks block, a JSON array of { kind, title, evidence, done }
+// with an optional `finding`. `splitAnswer` takes the block out of the report and checks it; src/watcher/inspection.ts
+// calls it. `fileTasks` files each draft on the board as the principal `watcher` (role `watcher`, which may add a task and
+// nothing else) unless the same evidence is already on the board as an open task of the watcher's or was filed today or
+// yesterday. `normalized` is how src/watcher/filing.ts, which keeps receipts per draft, compares evidence too.
 
 import type { BoardCaller } from '../tools/impl/board.ts';
 
-export type TaskDraft = { kind: 'fix' | 'chore'; title: string; evidence: string; done: string };
+export type TaskDraft = { kind: 'fix' | 'chore'; title: string; evidence: string; done: string; finding?: string };
 export type Filed = { id: string; kind: 'fix' | 'chore'; title: string };
 export type SplitAnswer =
   { ok: true; report: string; tasks: Array<TaskDraft> } | { ok: false; code: 'bad-tasks'; detail: string };
@@ -32,13 +33,21 @@ function draftOf(raw: unknown, index: number): TaskDraft | string {
     if (typeof value !== 'string' || value.trim() === '') return `task ${index + 1}: ${name} is empty`;
     fields.push(value.trim());
   }
-  return { kind, title: fields[0] ?? '', evidence: fields[1] ?? '', done: fields[2] ?? '' };
+  const { finding } = raw;
+  if (finding !== undefined && typeof finding !== 'string') return `task ${index + 1}: finding is a string`;
+  return {
+    kind,
+    title: fields[0] ?? '',
+    evidence: fields[1] ?? '',
+    done: fields[2] ?? '',
+    ...(finding === undefined || finding.trim() === '' ? {} : { finding: finding.trim() }),
+  };
 }
 
 /**
  * The report and the drafts of an answer. The one optional ```tasks block is cut out of the report; a second block,
- * an unclosed one, text that is not a JSON array and a draft with a kind other than fix or chore or a blank title,
- * evidence or done-criterion are `bad-tasks`.
+ * an unclosed one, text that is not a JSON array and a draft with a kind other than fix or chore, a blank title,
+ * evidence or done-criterion or a `finding` that is no string are `bad-tasks`. A blank `finding` counts as none.
  */
 export function splitAnswer(text: string): SplitAnswer {
   const lines = text.split('\n');
@@ -65,7 +74,7 @@ export function splitAnswer(text: string): SplitAnswer {
 }
 
 /** The evidence as compared: trimmed, lower case, runs of spaces as one. */
-const normalized = (evidence: string): string => evidence.trim().toLowerCase().replace(/\s+/g, ' ');
+export const normalized = (evidence: string): string => evidence.trim().toLowerCase().replace(/\s+/g, ' ');
 
 /** A board refusal in the middle of a batch, carrying the tasks the batch had already filed. */
 export class FilingError extends Error {

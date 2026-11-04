@@ -492,8 +492,22 @@
       "test": "none"
     },
     {
+      "path": "src/service/watcher.ts",
+      "purpose": "The watcher's `trigger`, `cancel`, `report` and status lines. Tested through `tests/watcher-service.test.ts`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/watcher/inspection.ts",
+      "purpose": "One inspection under one durable run. Tested through `tests/watcher-lifecycle.test.ts`, `tests/watcher-filing.test.ts` and `tests/watcher-versions.test.ts`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/watcher/",
-      "purpose": "The watcher: its settings, the brief, the report check and writer, the task filer, the reader of the reports, the newest report for her selfimprovement wake and the run that joins them. The agent backend is injected.",
+      "purpose": "The watcher: its settings, the brief, the report check and commit, the durable run, the filing receipts, the reader of the reports, the findings for her selfimprovement wake and the inspection that joins them. The agent backend is injected.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"

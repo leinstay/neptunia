@@ -56,6 +56,10 @@ The contract lives in the label because a nonempty `data/prompts/diary.md` repla
 
 People, channels and messages in the request have handles supplied by the formatters. The model must reuse these handles rather than inventing native IDs. The interface resolves outgoing references for its platform.
 
+## Watcher answer
+
+`agents/watcher/prompt.md` asks for the seven headings of `REPORT_HEADINGS` in [src/watcher/report.ts](../src/watcher/report.ts), each once and in order, then one optional fenced `tasks` block. The block is a JSON array of objects with the keys `kind`, `title`, `evidence`, `done` and `finding`. `kind` is `fix` or `chore`, and `title`, `evidence` and `done` are nonblank strings. `finding` is the stable key [src/watcher/filing.ts](../src/watcher/filing.ts) compares across runs. It is an optional string, and a missing or blank one falls back to the draft's evidence. `splitAnswer` in [src/watcher/tasks.ts](../src/watcher/tasks.ts) parses the block and fails the run with `bad-tasks` on anything else. The brief carries `<day>` and `<report day="...">`, with `run="..."` on an earlier report of the same day. The selfimprovement wake's labels `watcher`, `watcherFinding` and `watcherTask` take `{day}` and `{findings}`, `{title}`, `{state}` and `{task}`, and `{task}`, and nothing else of a report goes into them.
+
 ## Labels
 
 `config/labels.json` holds inserted wording and result explanations. Personal wording belongs in `data/config/labels.json`. Preserve every placeholder a label reader supplies. A result code and its label must remain aligned with the catalogue.

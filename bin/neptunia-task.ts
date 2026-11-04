@@ -19,6 +19,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { BoardError } from '../src/board/machine.ts';
 import { answerText } from '../src/board/text.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
 import { resolvePaths } from '../src/paths.ts';
@@ -672,8 +673,8 @@ export async function runTask(argv: ReadonlyArray<string>, env: NodeJS.ProcessEn
 
 /**
  * The board over the core's socket as the client of `env`'s token (`NEPTUNIA_TASK_TOKEN`, else the token file of
- * `NEPTUNIA_TASK_CLIENT`), or the reason it cannot be reached. A refusal of the board rejects the call with
- * `<status>: <text>`.
+ * `NEPTUNIA_TASK_CLIENT`), or the reason it cannot be reached. A refusal of the board rejects the call with a
+ * `BoardError` saying `<status>: <text>`, and a link that closed with a plain error of the same words.
  */
 export async function openBoardCaller(
   env: NodeJS.ProcessEnv = process.env
@@ -690,9 +691,16 @@ export async function openBoardCaller(
   }
   const board: BoardCaller = {
     // The answer is the JSON of the board's own result for the op, which the caller's generic type names.
-    call: (async (_principal: string, op: string, args: Readonly<Record<string, unknown>> = {}) => {
-      const answer = await link.ask({ name: op, args: { ...args, json: true } });
-      if (answer.status !== 'ok') throw new Error(`${answer.status}: ${answer.text}`);
+    call: (async (
+      _principal: string,
+      op: string,
+      args: Readonly<Record<string, unknown>> = {},
+      idempotency: string | null = null
+    ) => {
+      const key = idempotency === null ? {} : { idempotency };
+      const answer = await link.ask({ name: op, args: { ...args, ...key, json: true } });
+      if (answer.status === 'unavailable') throw new Error(`${answer.status}: ${answer.text}`);
+      if (answer.status !== 'ok') throw new BoardError('forbidden', `${answer.status}: ${answer.text}`);
       return JSON.parse(answer.text) as unknown;
     }) as BoardCaller['call'],
   };

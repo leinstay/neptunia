@@ -1,0 +1,245 @@
+// What the watcher files on the board, kept by run identity in `<watcher dir>/filings/<run id>.json`. An inspection writes
+// its validated drafts here as `pending` before it asks the board, and every answer of the board becomes that draft's
+// receipt, so a crash or an outage loses nothing and a later inspection finishes the job. A draft may have been accepted
+// with its answer lost, so before any `task.add` the rows on the board are searched for this run's finding, and the add
+// itself carries an idempotency key. Duplicates are found by the model's `finding` key, and a draft or a task that has
+// none by its evidence. Only the watcher's own tasks count, so her task about the same thing never silences it. A
+// `failed` receipt is a refusal of the board and is not retried; a `deferred` one is an outage and is.
+
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import type { TaskRecord } from '../board/board.ts';
+import { BoardError } from '../board/machine.ts';
+import { DAY_MS } from '../time.ts';
+import type { BoardCaller } from '../tools/impl/board.ts';
+import { WATCHER, normalized } from './tasks.ts';
+import type { TaskDraft } from './tasks.ts';
+
+export type FilingState = 'pending' | 'filed' | 'duplicate' | 'deferred' | 'failed' | 'cancelled';
+
+export type FilingReceipt = {
+  /** The model's key, or the normalized evidence of a draft with none. */
+  finding: string;
+  kind: TaskDraft['kind'];
+  title: string;
+  evidence: string;
+  done: string;
+  state: FilingState;
+  taskId: string | null;
+};
+
+type FilingFile = { runId: string; at: number; receipts: Array<FilingReceipt> };
+
+const CLOSED: ReadonlyArray<string> = ['done', 'failed', 'cancelled'];
+const SAFE_ID = /^[A-Za-z0-9_-]+$/;
+
+const filingsDir = (dir: string): string => path.join(dir, 'filings');
+const fileOf = (dir: string, runId: string): string => path.join(filingsDir(dir), `${runId}.json`);
+const isUnsettled = (receipt: FilingReceipt): boolean => receipt.state === 'pending' || receipt.state === 'deferred';
+const hasOwnKey = (receipt: FilingReceipt): boolean => receipt.finding !== normalized(receipt.evidence);
+
+function readFile(dir: string, runId: string): FilingFile | null {
+  if (!SAFE_ID.test(runId)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(fileOf(dir, runId), 'utf8')) as FilingFile;
+  } catch {
+    return null;
+  }
+}
+
+function writeFile(dir: string, file: FilingFile): void {
+  const target = fileOf(dir, file.runId);
+  fs.writeFileSync(`${target}.tmp`, JSON.stringify(file, null, 2));
+  fs.renameSync(`${target}.tmp`, target);
+}
+
+/** The receipts of one run, in the order of its drafts; none for a run that has no drafts. */
+export function readFilings(dir: string, runId: string): Array<FilingReceipt> {
+  return readFile(dir, runId)?.receipts ?? [];
+}
+
+/** Whether two receipts of one answer name the same finding. */
+function sameFinding(a: FilingReceipt, b: FilingReceipt): boolean {
+  if (hasOwnKey(a) && hasOwnKey(b)) return a.finding === b.finding;
+  return normalized(a.evidence) === normalized(b.evidence);
+}
+
+/** Saves a run's validated drafts as `pending`; a repeat inside the answer is a `duplicate` from the start. */
+export function saveDrafts(dir: string, runId: string, at: number, drafts: ReadonlyArray<TaskDraft>): void {
+  if (drafts.length === 0) return;
+  fs.mkdirSync(filingsDir(dir), { recursive: true });
+  const receipts: Array<FilingReceipt> = [];
+  for (const draft of drafts) {
+    const receipt: FilingReceipt = {
+      finding: draft.finding ?? normalized(draft.evidence),
+      kind: draft.kind,
+      title: draft.title,
+      evidence: draft.evidence,
+      done: draft.done,
+      state: 'pending',
+      taskId: null,
+    };
+    if (receipts.some((one) => sameFinding(one, receipt))) receipt.state = 'duplicate';
+    receipts.push(receipt);
+  }
+  writeFile(dir, { runId, at, receipts });
+}
+
+/** Moves one receipt on, unless another process settled it meanwhile. */
+function settle(dir: string, runId: string, index: number, state: FilingState, taskId: string | null = null): void {
+  const file = readFile(dir, runId);
+  const receipt = file?.receipts[index];
+  if (file === null || receipt === undefined || !isUnsettled(receipt)) return;
+  receipt.state = state;
+  receipt.taskId = taskId;
+  writeFile(dir, file);
+}
+
+/** Every run's file that still has something to file, oldest first. */
+function unsettledFiles(dir: string): Array<FilingFile> {
+  let names: Array<string> = [];
+  try {
+    names = fs.readdirSync(filingsDir(dir)).filter((name) => name.endsWith('.json'));
+  } catch {
+    // No filing yet.
+  }
+  return names
+    .flatMap((name) => {
+      const file = readFile(dir, name.slice(0, -'.json'.length));
+      return file !== null && file.receipts.some(isUnsettled) ? [file] : [];
+    })
+    .sort((a, b) => a.at - b.at);
+}
+
+export const hasUnsettledFilings = (dir: string): boolean => unsettledFiles(dir).length > 0;
+
+/** Whatever a run has not yet filed will never be: it was cancelled. */
+export function cancelFilings(dir: string, runId: string): void {
+  const file = readFile(dir, runId);
+  if (file === null || !file.receipts.some(isUnsettled)) return;
+  for (const receipt of file.receipts) if (isUnsettled(receipt)) receipt.state = 'cancelled';
+  writeFile(dir, file);
+}
+
+/** With no board to ask, what a run still has to file waits for a later inspection. */
+export function deferFilings(dir: string, runId: string): void {
+  const file = readFile(dir, runId);
+  if (file === null || !file.receipts.some((one) => one.state === 'pending')) return;
+  for (const receipt of file.receipts) if (receipt.state === 'pending') receipt.state = 'deferred';
+  writeFile(dir, file);
+}
+
+const metaText = (row: TaskRecord, key: string): string | null => {
+  const value = row.metadata?.[key];
+  return typeof value === 'string' ? value : null;
+};
+
+/** The task this very draft became, found by its run and finding. */
+function acceptedRow(rows: ReadonlyArray<TaskRecord>, runId: string, receipt: FilingReceipt): TaskRecord | undefined {
+  return rows.find(
+    (row) =>
+      row.requester === WATCHER &&
+      metaText(row, 'runId') === runId &&
+      (metaText(row, 'finding') ?? normalized(metaText(row, 'evidence') ?? '')) === receipt.finding
+  );
+}
+
+/** A task of the watcher's that already covers this finding: open, or created today or yesterday. */
+function coveringRow(rows: ReadonlyArray<TaskRecord>, receipt: FilingReceipt, since: number): TaskRecord | undefined {
+  return rows.find((row) => {
+    if (row.requester !== WATCHER) return false;
+    if (CLOSED.includes(row.status) && Date.parse(row.created_at) < since) return false;
+    const key = metaText(row, 'finding');
+    if (key !== null && hasOwnKey(receipt)) return key === receipt.finding;
+    return normalized(metaText(row, 'evidence') ?? '') === normalized(receipt.evidence);
+  });
+}
+
+/** What the outcome of a call to the board makes of a receipt: a refusal is final, anything else is an outage. */
+const stateOfError = (error: unknown): FilingState => (error instanceof BoardError ? 'failed' : 'deferred');
+
+/** One draft's turn: reconcile, compare, then add. */
+async function fileOne(
+  args: { dir: string; board: BoardCaller; rows: Array<TaskRecord>; since: number },
+  runId: string,
+  index: number,
+  receipt: FilingReceipt
+): Promise<void> {
+  const { dir, board, rows, since } = args;
+  const accepted = acceptedRow(rows, runId, receipt);
+  if (accepted !== undefined) return settle(dir, runId, index, 'filed', accepted.id);
+  const covering = coveringRow(rows, receipt, since);
+  if (covering !== undefined) return settle(dir, runId, index, 'duplicate', covering.id);
+  const key = createHash('sha256').update(`${runId}\n${receipt.finding}`).digest('hex').slice(0, 32);
+  try {
+    const added = await board.call(
+      WATCHER,
+      'task.add',
+      {
+        lane: 'dev',
+        title: receipt.title,
+        description: receipt.evidence,
+        acceptance: receipt.done,
+        metadata: {
+          kind: receipt.kind,
+          evidence: receipt.evidence,
+          origin: WATCHER,
+          runId,
+          ...(hasOwnKey(receipt) ? { finding: receipt.finding } : {}),
+        },
+      },
+      `watcher-${key}`
+    );
+    rows.push(added);
+    settle(dir, runId, index, 'filed', added.id);
+  } catch (error) {
+    settle(dir, runId, index, stateOfError(error));
+  }
+}
+
+/**
+ * Files everything unsettled, oldest run first, each draft once. `stop` is asked before each draft, and what it holds back
+ * stays unsettled for the caller to decide. A board that answers nothing leaves the drafts deferred; nothing here throws
+ * for the board's sake.
+ */
+export async function retryFilings(args: {
+  dir: string;
+  board: BoardCaller;
+  now: () => number;
+  stop?: () => boolean;
+}): Promise<void> {
+  const { dir, board } = args;
+  const files = unsettledFiles(dir);
+  if (files.length === 0) return;
+  const since = Math.floor(args.now() / DAY_MS) * DAY_MS - DAY_MS;
+  let rows: Array<TaskRecord>;
+  try {
+    rows = [...(await board.call(WATCHER, 'task.list', { requester: WATCHER }))];
+  } catch (error) {
+    for (const file of files)
+      file.receipts.forEach((one, index) => {
+        if (isUnsettled(one)) settle(dir, file.runId, index, stateOfError(error));
+      });
+    return;
+  }
+  for (const file of files) {
+    for (const [index, receipt] of file.receipts.entries()) {
+      if (!isUnsettled(receipt)) continue;
+      if (args.stop?.() === true) return;
+      await fileOne({ dir, board, rows, since }, file.runId, index, receipt);
+    }
+  }
+}
+
+/** The lines of a run's receipts for "Tasks filed", each with the key a later report repeats for the same problem. */
+export function filingLines(receipts: ReadonlyArray<FilingReceipt>): Array<string> {
+  return receipts.flatMap((one) => {
+    const title = one.title.replace(/\s+/g, ' ').trim();
+    const tag = hasOwnKey(one) ? `${one.kind}, ${one.finding}` : one.kind;
+    if (one.state === 'filed') return [`- ${one.taskId ?? ''} (${tag}): ${title}`];
+    if (one.state === 'deferred' || one.state === 'failed') return [`- ${one.state} (${tag}): ${title}`];
+    if (one.state === 'duplicate' && one.taskId !== null) return [`- already ${one.taskId} (${tag}): ${title}`];
+    return [];
+  });
+}

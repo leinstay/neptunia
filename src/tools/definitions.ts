@@ -729,9 +729,9 @@ const ENTRIES: Array<Definition> = [
     toArgs: (a) => ({ name: val(a, 'name') }),
   }),
   def('watcher.read', {
-    params: obj({ day: str(10) }),
+    params: obj({ day: str(10), run: str(80) }),
     effects: 'read',
-    toArgs: (a) => ({ day: opt(a, 'day') }),
+    toArgs: (a) => ({ day: opt(a, 'day'), run: opt(a, 'run') }),
   }),
   def('intention.set', {
     params: INTENT_PARAMS.set,
