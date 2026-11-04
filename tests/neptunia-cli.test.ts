@@ -116,11 +116,12 @@ test('-p prints the answer of one command alone and exits 0', async () => {
 });
 
 // Case 3 of PR D, the error path.
-test('-p exits 1 for a command the core does not know', async () => {
+test('-p exits 2 for a command the table does not know', async () => {
+  // A line the command table refuses is bad syntax, which exits 2 by the CLI's return codes; 1 is an operational failure.
   await withRig({}, async ({ dirs, llm, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
     const run = await runCli(dirs, ['-p', '/no-such-command']);
-    assert.equal(run.code, 1, run.stderr.slice(-2000));
+    assert.equal(run.code, 2, run.stderr.slice(-2000));
   });
 });
 
