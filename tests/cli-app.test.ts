@@ -115,6 +115,22 @@ test('the input stays at the terminal bottom when the conversation is empty and 
   });
 });
 
+test('expanding a long answer preserves its first and final lines in terminal output', async () => {
+  // Bug: clipping the conversation to terminal height discards the beginning of an expanded answer.
+  const { env, listeners } = envOf();
+  const lines = Array.from({ length: 40 }, (_, index) => `answer-line-${index + 1}`);
+  await withChat(env, async (rig) => {
+    listeners.entry?.({ who: 'her', text: lines.join('\n') });
+    await pause();
+    assert.ok(rig.screen().includes('answer-line-1'));
+    assert.equal(rig.screen().includes('answer-line-40'), false);
+    rig.type('\u000f');
+    await pause();
+    assert.ok(rig.screen().includes('answer-line-1'));
+    assert.ok(rig.screen().includes('answer-line-40'));
+  });
+});
+
 test('a slash opens its menu with descriptions, and a panel opens with its search', async () => {
   // Bug: the slash menu lists commands that do not exist, or `/help` goes to the model as a chat line.
   const { env, sent } = envOf();

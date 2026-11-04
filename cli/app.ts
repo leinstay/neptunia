@@ -221,14 +221,14 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
   const after = shown.slice(input.cursor);
   return h(
     Box,
-    { flexDirection: 'column', height: Math.max(10, rows) },
+    { flexDirection: 'column', minHeight: Math.max(10, rows) },
     h(Header, { env, line: statusLine(brief, { connected, polledAt, now: env.now() }) }),
     h(
       Box,
-      { flexDirection: 'column', flexGrow: 1, flexShrink: 1, overflow: 'hidden' },
+      { flexDirection: 'column', flexGrow: 1 },
       h(
         Box,
-        { flexDirection: 'column', flexGrow: 1, flexShrink: 1, justifyContent: 'flex-end', overflow: 'hidden' },
+        { flexDirection: 'column', flexGrow: 1, justifyContent: 'flex-end' },
         ...entries.map((entry, index) => h(Entry, { key: String(index), entry, expanded }))
       ),
       panel === null

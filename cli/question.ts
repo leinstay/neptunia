@@ -41,7 +41,7 @@ function QuestionView({ question, offered, options, answer }: Props): ReactEleme
   return h(
     Box,
     { flexDirection: 'column', borderStyle: 'round', borderColor: 'cyan', paddingX: 1 },
-    h(Text, { bold: true, color: 'cyan' }, 'neptunia · setup'),
+    h(Text, { bold: true, color: 'cyan' }, 'Project Neptunia · Setup'),
     h(Text, null, question),
     offered === null || options.secret === true ? null : h(Text, { dimColor: true }, `Default: ${offered}`),
     ...(choices.length > 0
