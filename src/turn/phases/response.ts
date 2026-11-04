@@ -161,7 +161,9 @@ export async function responsePhase(
       step: number,
       registry: skills ?? defaultSkills(),
     });
-    const shaped = shapeOutput(parseOutput(split.speechText, { limits: draft.limits }));
+    const shaped = shapeOutput(
+      parseOutput(split.speechText, { limits: draft.limits, cutOff: answered?.finishReason === 'length' })
+    );
     noteDiagnostics(draft, shaped, answered);
     noteThink(draft, shaped);
     const resolved: Parsed = Object.assign(shaped, { gif: resolveGif(guildId, shaped.gif, channel.id) });

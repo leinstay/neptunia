@@ -829,6 +829,7 @@
       "diagnostics": {
         "retiredTag": "A {tag} tag in your answer was cut out. That tag is no longer in use; call the tool directly.",
         "messageCut": "Your message was too long and lost its last {chars} characters",
+        "msgMalformed": "Message tags out of place in your answer: {count}. Your text was split or ended at those tags, and none of them was posted. Close each <msg> before you open the next.",
         "messagesMerged": "{count} of your messages were merged into the last one",
         "thinkUnclosed": "Your thinking was never closed, so nothing was posted"
       },
