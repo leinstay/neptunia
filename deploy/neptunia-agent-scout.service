@@ -54,16 +54,17 @@ RestartSec=5
 # Writes only its state (out) dir, the runtime socket dir and the backend's
 # folder <private>/subharness/<backend>/ (its sessions, logs and login), which
 # `neptunia setup` binds after ProtectHome= while a backend is on; the rest of
-# the home is an empty tmpfs, with ~/.local read-only; everything else is
-# read-only or inaccessible.
+# the home is an empty tmpfs, with ~/.local read-only; the persona folder is an
+# empty tmpfs that shows only agents/ read-only and the backend's folder, so her
+# memory and keys are out of reach; everything else is read-only.
 ProtectSystem=strict
 ProtectHome=tmpfs
-BindReadOnlyPaths=/home/neptunia/.local
+BindReadOnlyPaths=/home/neptunia/.local -/opt/neptunia/data/agents
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
-InaccessiblePaths=-/opt/neptunia/data -/opt/neptunia/data/.env
+TemporaryFileSystem=/opt/neptunia/data:ro
 StateDirectory=neptunia-agent-scout
 RuntimeDirectory=neptunia-agent-scout
 RuntimeDirectoryMode=0750

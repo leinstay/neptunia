@@ -366,3 +366,19 @@ test("the watcher's hour changes no other timer", () => {
   const text = renderUnit(selfimprovement, 'user', { ...VARS, watcherAt: '05:30' });
   assert.deepEqual(valuesOf(text, 'OnCalendar'), valuesOf(selfimprovement, 'OnCalendar'));
 });
+
+test('the scout unit replaces the persona folder with an empty one and shows only its agents and backends', () => {
+  // Bug: InaccessiblePaths on the folder is mode 000, so the runner died on data/agents and could not reach its backend.
+  const vars = { ...VARS, backends: ['opencode' as const] };
+  const unit = renderUnit(template('neptunia-agent-scout.service'), 'system', vars);
+  assert.deepEqual(valuesOf(unit, 'InaccessiblePaths'), []);
+  assert.deepEqual(valuesOf(unit, 'TemporaryFileSystem'), [`${vars.dataDir}:ro`]);
+  assert.ok(valuesOf(unit, 'BindReadOnlyPaths').join(' ').includes(`-${vars.dataDir}/agents`));
+  assert.ok(valuesOf(unit, 'BindPaths').join(' ').includes(`-${vars.dataDir}/subharness/opencode`));
+});
+
+test('the mode full drops the empty persona folder with the rest of the mount sandbox', () => {
+  // Bug: a scout in full keeps the tmpfs, so an agent the owner opened up still sees no persona folder.
+  const unit = renderUnit(template('neptunia-agent-scout.service'), 'system', { ...VARS, mode: 'full' });
+  assert.deepEqual(valuesOf(unit, 'TemporaryFileSystem'), []);
+});

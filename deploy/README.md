@@ -27,6 +27,8 @@ A system unit, written with `neptunia setup --system`, goes to `/etc/systemd/sys
 
 The unit of an agent follows the agent's mode (`subharness mode <agent> <mode>`, see [Errands](../docs/errands.md#modes)). In `read` and `write` the unit keeps every directive of the template. In `full` it drops the mount sandbox: `ProtectSystem`, `ProtectHome` and the write and bind paths. In `sudo` it also drops `NoNewPrivileges` and `CapabilityBoundingSet`, which would stop `sudo`. `subharness mode` in the chat stores the mode in `keys.json` and renders nothing, because the core runs under `NoNewPrivileges` and cannot use `sudo`. Its answer names `neptunia setup units`, which renders the unit again with the stored mode and reloads the manager, and the unit runs in the mode from its next start.
 
+The scout unit replaces the persona folder with an empty `TemporaryFileSystem=` that shows only `agents/` read-only and the backend's folder, so it reads neither her memory nor `keys.json`. The modes `full` and `sudo` drop it with the rest of the mount sandbox.
+
 A unit with `ProtectHome=tmpfs` still sees the checkout and the node binary when they lie under the home, because the renderer binds them read-only.
 
 In a user unit the agents' socket and out folder need no setting. `neptunia setup` adds `NEPTUNIA_UNIT_SCOPE=user` to every user unit, and `agentSettings` then puts the socket in the unit's `RuntimeDirectory` (`$XDG_RUNTIME_DIR/neptunia-agent-<name>/sock`) and the out folder in its `StateDirectory` (`$XDG_STATE_HOME/neptunia-agent-<name>/out`, by default under `~/.local/state`). The core runs from a user unit too, so it reads the same paths. A path named in `agents.<name>.socket` or `agents.<name>.out` still wins.
