@@ -7997,7 +7997,7 @@ test('skill call: a call alone is no skip; here it needs no grant and replies to
     here.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions.repliedUser]),
     [['c1', 'ναι', 'm1', true]]
   );
-  // A reply target outside the channel she named: the line's own channel wins, the call posts there, never refused.
+  // A reply target outside the channel she named. Contract change: message.create no longer takes the reply's channel over a destination she named. That substitution posted a reply in another channel than the one she chose. A mismatch is refused unknown-message (conversation), nothing sent; react, edit and delete keep the rule because their channel only locates the message they act on.
   const across = await callTurn({
     answers: [
       toolAnswer('', [call('message.create', { channel: '#νέα', reply: '#2', text: 'ναι' })]),
@@ -8007,7 +8007,7 @@ test('skill call: a call alone is no skip; here it needs no grant and replies to
   });
   assert.deepEqual(
     across.sends.map((send) => [send.to, send.text]),
-    [['c1', 'ναι']]
+    [['c1', 'όχι τελικά']]
   );
 });
 
