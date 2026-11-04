@@ -50,7 +50,7 @@ neptunia setup subharness codex
 neptunia setup subharness opencode --from /absolute/path/to/opencode
 ```
 
-Follow the printed login command, which selects the persona's backend home. Logging into your own separate CLI does not authenticate hers. Then connect it with `/subharness enable <backend>`; OpenCode also takes `--key <extra-key-name>`.
+Follow the printed login command, which selects the persona's backend home. For Claude Code the command comes from the commands the installed binary lists in its `--help`, `login` or else `auth login`. `neptunia setup subharness claude` exits `1` naming `claude --help` when that help lists neither, and the setup step asks you to read the backend's own login help when it cannot read one. Logging into your own separate CLI does not authenticate hers. Then connect it with `/subharness enable <backend>`; OpenCode also takes `--key <extra-key-name>`.
 
 Versions are recorded in `version.json`. A normal setup preserves the recorded choice. Updating is explicit:
 

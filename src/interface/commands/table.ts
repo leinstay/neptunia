@@ -4,13 +4,17 @@
 // the core. A command is added here and nowhere else.
 //
 // A line is the command, then its subcommand when it has them, then its arguments in order, split on spaces. The
-// last argument takes the rest of the line, so a rule or a lore text keeps its spaces. A subcommand may be two words
+// `neptunia <words...>` form hands the same parse the words of argv, which it never joins or splits, so a word keeps
+// its spaces, its quotes and its dollar signs. The last argument takes the rest of the words joined by one space, so a
+// rule or a lore text keeps its spaces. A subcommand may be two words
 // (`/memory lore add`), and its parsed name joins the words with dots (`memory.lore.add`). A command without a
 // subcommand runs its `defaultSubcommand`, or itself when it has none, and a command marked `needsSubcommand`
 // refuses the bare line. An argument with `choices` takes only those values. An argument with a `flag` is written
 // `--key <word>` after the positional words, takes exactly one word, and is refused when its word is missing, when
 // the flag comes twice, when another flag is typed and when a bare word is left over. A command's `check` refuses
-// what the table's shape cannot say. The parse is pure and never throws.
+// what the table's shape cannot say. A leaf whose `secret` is `only` takes a secret through its question alone, so a
+// word past its arguments is refused and not echoed. A leaf with any `secret` takes `--secret-stdin` in the command
+// line. The parse is pure and never throws.
 
 import { BASE_ROLES, MEMORY_ROLE, SEARCH_ROLE } from '../../llm/roles.ts';
 import { BACKEND_NAMES } from '../../agent-runner/profiles.ts';
@@ -22,7 +26,13 @@ import { isDay } from '../../watcher/read.ts';
 export type CommandArg = { name: string; required: boolean; choices?: ReadonlyArray<string>; flag?: string };
 
 /** One subcommand: its name (two words joined by a dot for a nested one), its help line and its arguments. */
-export type Subcommand = { name: string; help: string; args: ReadonlyArray<CommandArg> };
+export type Subcommand = {
+  name: string;
+  help: string;
+  args: ReadonlyArray<CommandArg>;
+  /** The leaf asks for a secret: `only` when the secret is its whole point, `offered` when a setting may turn out to be one. */
+  secret?: 'only' | 'offered';
+};
 
 /** One command of the table. */
 export type Command = {
@@ -63,11 +73,21 @@ const flagArg = (name: string, required: boolean): CommandArg => ({ name, requir
 
 const sub = (name: string, help: string, args: ReadonlyArray<CommandArg> = []): Subcommand => ({ name, help, args });
 
+/** A leaf whose one purpose is a secret, or one that may ask for a secret. */
+const secretSub = (one: Subcommand, secret: 'only' | 'offered'): Subcommand => ({ ...one, secret });
+
 /** The commands over the setup contract of a module (src/setup/modules.ts), the same for each kind. */
 const moduleSubcommands = (kind: string): ReadonlyArray<Subcommand> => [
-  sub('setup', `Set up a ${kind} step by step`, [arg('name')]),
+  secretSub(sub('setup', `Set up a ${kind} step by step`, [arg('name')]), 'offered'),
   sub('settings', `Show ${kind} settings with secrets hidden`, [arg('name')]),
-  sub('set', `Change a ${kind} setting, asking for secrets privately`, [arg('name'), arg('key'), arg('value', false)]),
+  secretSub(
+    sub('set', `Change a ${kind} setting, asking for secrets privately`, [
+      arg('name'),
+      arg('key'),
+      arg('value', false),
+    ]),
+    'offered'
+  ),
   sub('clear', `Clear a ${kind} setting`, [arg('name'), arg('key')]),
   sub('add', `Add an item to a ${kind} list setting`, [arg('name'), arg('key'), arg('value')]),
   sub('remove', `Remove an item from a ${kind} list setting`, [arg('name'), arg('key'), arg('value')]),
@@ -79,11 +99,11 @@ function checkLogs(_name: string, args: Readonly<Record<string, string>>): strin
   for (let i = 0; i < words.length; i += 1) {
     const word = words[i];
     if (word === 'errors' || word === 'follow') continue;
-    if (word === 'since' && words[i + 1] !== undefined) {
-      i += 1;
-      continue;
-    }
-    return word === 'since' ? '/logs since needs a value, such as "1 hour ago"' : `/logs does not take "${word}"`;
+    if (word !== 'since') return `/logs does not take "${word}"`;
+    // The value is every word up to the next keyword, as bin/neptunia.ts hands it to journalctl.
+    const start = i + 1;
+    while (i + 1 < words.length && words[i + 1] !== 'errors' && words[i + 1] !== 'follow') i += 1;
+    if (i < start) return '/logs since needs a value, such as "1 hour ago"';
   }
   return null;
 }
@@ -333,9 +353,12 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('list', 'Every interface, whether it is enabled and whether it is connected'),
       sub('enable', 'Enable an interface', [arg('name')]),
       sub('disable', 'Disable an interface', [arg('name')]),
-      sub('token.set', 'Save the platform token of an interface; the chat asks for it without showing it', [
-        arg('name'),
-      ]),
+      secretSub(
+        sub('token.set', 'Save the platform token of an interface; the chat asks for it without showing it', [
+          arg('name'),
+        ]),
+        'only'
+      ),
       ...moduleSubcommands('interface'),
     ],
     otherwise: sub('command', "An interface's own subcommand", [arg('name'), arg('sub'), arg('rest', false)]),
@@ -359,7 +382,10 @@ export const COMMANDS: ReadonlyArray<Command> = [
     args: [],
     needsSubcommand: true,
     subcommands: [
-      sub('core.add', 'Add a core key; the chat asks for the value without showing it', [arg('name')]),
+      secretSub(
+        sub('core.add', 'Add a core key; the chat asks for the value without showing it', [arg('name')]),
+        'only'
+      ),
       sub('core.remove', 'Remove a core key; the last one pauses her until the next add', [arg('name')]),
       sub('core.list', 'Show core keys with their last four characters, grants and the one in use'),
       sub('core.grant', 'Set the grant of a core key in USD and its reset day, or none to clear it', [
@@ -367,11 +393,17 @@ export const COMMANDS: ReadonlyArray<Command> = [
         arg('usd'),
         arg('day', false),
       ]),
-      sub('extra.add', 'Add an extra key; the chat asks for the value without showing it', [arg('name')]),
+      secretSub(
+        sub('extra.add', 'Add an extra key; the chat asks for the value without showing it', [arg('name')]),
+        'only'
+      ),
       sub('extra.remove', 'Remove an extra key no role is bound to', [arg('name')]),
       sub('extra.list', 'Show extra keys with the roles bound to them'),
       sub('service.list', 'Show optional service keys: YouTube, Brave, Exa and the video proxy, each masked'),
-      sub('service.set', 'Set one service key; the chat asks for it without showing it', [arg('name')]),
+      secretSub(
+        sub('service.set', 'Set one service key; the chat asks for it without showing it', [arg('name')]),
+        'only'
+      ),
       sub('service.clear', 'Clear one service key', [arg('name')]),
       sub('bind', 'Use a named extra key for one model role', [arg('role', true, KEY_ROLES), arg('name')]),
       sub('unbind', 'Remove a role’s extra-key binding and use its default credentials', [
@@ -511,13 +543,28 @@ function argsOf(
   return values;
 }
 
-/** One typed line (`/memory lore add Tower tower,spire The tower ...`) as its command's dotted name and arguments. */
-export function parseCommandLine(line: string): Parsed {
-  const words = line
+/** The words of a typed line: the leading slash dropped, split on spaces. */
+export function commandLineWords(line: string): Array<string> {
+  return line
     .trim()
     .replace(/^\//, '')
     .split(/\s+/)
     .filter((word) => word !== '');
+}
+
+/** The leaf a parsed name names, null for a command without subcommands. */
+function leafOf(name: string): Subcommand | null {
+  const [first, ...rest] = name.split('.');
+  const command = COMMANDS.find((one) => one.name === first);
+  const dotted = rest.join('.');
+  return command?.subcommands.find((one) => one.name === dotted) ?? null;
+}
+
+/** Whether the leaf of a parsed name takes `--secret-stdin` in the command line. */
+export const takesSecretStdin = (name: string): boolean => leafOf(name)?.secret !== undefined;
+
+/** One command as words, none of them joined or split: its dotted name and arguments, or why it is refused. */
+export function parseCommandWords(words: ReadonlyArray<string>): Parsed {
   const [first, ...rest] = words;
   if (first === undefined) return refuse('an empty line is no command; type /help');
   const command = COMMANDS.find((one) => one.name === first);
@@ -532,6 +579,11 @@ export function parseCommandLine(line: string): Parsed {
       name = `${command.name}.${picked.found.name}`;
       args = picked.found.args;
       tail = rest.slice(picked.used);
+      // The value itself stays out of the reason: this word may be the secret.
+      if (picked.found.secret === 'only' && tail.length > args.length)
+        return refuse(
+          `${usageOf(name, args)}: a secret never goes on the command line; answer the question or use --secret-stdin`
+        );
     } else if (rest.length === 0 && command.defaultSubcommand !== undefined) {
       const fallback = command.subcommands.find((one) => one.name === command.defaultSubcommand);
       name = `${command.name}.${command.defaultSubcommand}`;
@@ -549,4 +601,9 @@ export function parseCommandLine(line: string): Parsed {
   if (typeof values === 'string') return refuse(values);
   const refused = command.check?.(name, values) ?? null;
   return refused === null ? { ok: true, name, args: values } : refuse(refused);
+}
+
+/** One typed line (`/memory lore add Tower tower,spire The tower ...`) as its command's dotted name and arguments. */
+export function parseCommandLine(line: string): Parsed {
+  return parseCommandWords(commandLineWords(line));
 }

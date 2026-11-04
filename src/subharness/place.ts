@@ -77,27 +77,43 @@ const LOGIN_ARGS: Readonly<Partial<Record<BackendName, ReadonlyArray<string>>>> 
 const shellWord = (word: string): string =>
   /^[\w./:=@%+-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
 
-/** The first word of each line under the `Commands:` heading of a CLI's `--help`. */
+/**
+ * The commands a CLI's `--help` lists under its `Commands:` heading: the first word of each line at the column of the
+ * heading's first entry. A deeper line is a wrapped description, whatever word it starts with.
+ */
 function commandsOf(help: string): Array<string> {
   const lines = help.split('\n');
   const start = lines.findIndex((line) => /^commands:\s*$/i.test(line.trim()));
   if (start === -1) return [];
   const words: Array<string> = [];
+  let column = -1;
   for (const line of lines.slice(start + 1)) {
-    const word = /^\s+([a-z][\w-]*)/.exec(line)?.[1];
-    if (word === undefined) break;
-    words.push(word);
+    if (line.trim() === '') continue;
+    const indent = line.length - line.trimStart().length;
+    if (column === -1) column = indent;
+    if (indent === 0 || indent < column) break;
+    if (indent > column) continue;
+    const word = /^([a-z][\w-]*)/.exec(line.trimStart())?.[1];
+    if (word !== undefined) words.push(word);
   }
   return words;
 }
 
+/** The login arguments the installed claude's `help` names; throws for a help that names none. */
+function claudeLoginArgs(help: string): ReadonlyArray<string> {
+  const commands = commandsOf(help);
+  if (commands.includes('login')) return ['login'];
+  if (commands.includes('auth')) return ['auth', 'login'];
+  // On a release without the command, `claude login` is a prompt to the model: it spends a turn and logs nobody in.
+  throw new Error('claude --help names neither auth nor login; read its help to find how this release logs in');
+}
+
 /**
  * The login of `backend` in `privateDir`, or null for opencode, which takes a key. `help` is the installed claude's
- * `--help`: when it lists an `auth` command and no `login`, the login is `auth login`.
+ * `--help`, and the login is the one it lists: `login`, else `auth login`. A help that lists neither throws.
  */
 export function loginCommand(privateDir: string, backend: BackendName, help?: string): LoginCommand | null {
-  const commands = backend === 'claude' && help !== undefined ? commandsOf(help) : [];
-  const args = commands.includes('auth') && !commands.includes('login') ? ['auth', 'login'] : LOGIN_ARGS[backend];
+  const args = backend === 'claude' && help !== undefined ? claudeLoginArgs(help) : LOGIN_ARGS[backend];
   if (args === undefined) return null;
   const place = subharnessPlace(privateDir, backend);
   const env = { ...place.env };

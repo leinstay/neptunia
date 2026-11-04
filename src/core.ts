@@ -97,7 +97,7 @@ import {
 } from './interface/link.ts';
 import { createCommandDesk, createCommandIntake, coreStatusFacts } from './interface/neptunia-cli.ts';
 import { createConsole } from './interface/commands/console.ts';
-import { resumeHeld } from './behavior/core-pause.ts';
+import { isPausedIn, resumeHeld } from './behavior/core-pause.ts';
 import { configuredInterfaces, drainMs, interfaceEnabled } from './interface/mode.ts';
 import { loadPrincipals, principalOfToken } from './interface/principals.ts';
 import { claimCore } from './memory/db/open.ts';
@@ -662,7 +662,13 @@ async function buildCore(
   // memory or a turn. The desk exists once the admin does, below; a command that arrives sooner waits for the door.
   // The link of the owner's chat that sent the last line is where her replies in `cli:dm:owner` go.
   let commandDesk: ReturnType<typeof createCommandDesk> | null = null;
-  const intake = createCommandIntake({ door: linkDoor, ready: () => doorReady.promise, desk: () => commandDesk, log });
+  const intake = createCommandIntake({
+    door: linkDoor,
+    ready: () => doorReady.promise,
+    desk: () => commandDesk,
+    linesHeld: () => isPausedIn(store),
+    log,
+  });
   const linkServer = await listenSocket({
     path: LINK_SOCKET,
     maxFrameBytes: MAX_FRAME_BYTES,
@@ -1079,7 +1085,11 @@ async function buildCore(
     dataDir,
     memoryDb,
   });
-  turns.setOnTurnEnd((end) => missed.onTurnEnd(end));
+  turns.setOnTurnEnd((end) => {
+    missed.onTurnEnd(end);
+    // `neptunia -p` with text ends when the turn over its line ends.
+    intake.turnEnded(end);
+  });
   // The custom emoji ranking read from history (the interface's reads only, no model call): once at startup, again on /nep emoji rescan.
   const emojiBackfill = createEmojiBackfill({ store, reads, iface: () => identity.iface, log });
   // The GIF library read from history (the interface's reads; the describer captions the top ones): once at
