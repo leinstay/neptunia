@@ -16,6 +16,9 @@
 // KillMode takes the agents with the worker, the lease lapses, the reaper returns the task to approved, and the next
 // claim finds the branch, the worktree and the pull request in `metadata.development`.
 //
+// A request for changes on a submitted task takes its persisted head back and gives the thinker a new turn on the same
+// branch. The next push moves the same pull request, and the merge gate clears only a head the review did not refuse.
+//
 // `settings().startedAt` is the boundary of the first start: a task approved before it, or a proposal filed before it,
 // is listed in `heldBack` and never started, unless the worker began it already or the owner admitted it with
 // `metadata.admitted`.
@@ -119,6 +122,10 @@ type Development = {
   turns: number;
   /** The questions answered when the last thinker turn started. */
   answered: number;
+  /** The requests for changes the last thinker turn started under. */
+  reviewed: number;
+  /** The head a request for changes refused: the next pull request head must differ from it. */
+  refused: string | null;
 };
 
 /** A task this process holds the lease of: running an agent or waiting for its dev tasks. */
@@ -165,6 +172,8 @@ function developmentOf(task: TaskRecord): Development | null {
     head: typeof saved.head === 'string' ? saved.head : null,
     turns: typeof saved.turns === 'number' ? saved.turns : 0,
     answered: typeof saved.answered === 'number' ? saved.answered : 0,
+    reviewed: typeof saved.reviewed === 'number' ? saved.reviewed : 0,
+    refused: typeof saved.refused === 'string' ? saved.refused : null,
   };
 }
 
@@ -177,6 +186,29 @@ const childIdsOf = (view: TaskView): Array<string> =>
   view.dependents.filter((one) => one.type === 'parent-child').map((one) => String(one.task_id));
 
 const answeredIn = (view: TaskView): number => view.questions.filter((one) => Boolean(one.answered_at)).length;
+
+/** The owner's or a reviewer's requests for changes on a submitted task. */
+const changesIn = (view: TaskView): number =>
+  view.approvals.filter((one) => one.scope === 'merge' && (one.decision === 'changes' || one.decision === 'reject'))
+    .length;
+
+/**
+ * Whether a task with a pull request owes the reviewer another turn: a new request for changes, or a turn that started
+ * on one and ended in a crash, which it left with no head recorded.
+ */
+const owesRework = (view: TaskView, saved: Development): boolean =>
+  saved.pr !== null && (changesIn(view) > saved.reviewed || saved.head === null);
+
+const newDevelopment = (branch: string, worktree: string): Development => ({
+  branch,
+  worktree,
+  pr: null,
+  head: null,
+  turns: 0,
+  answered: 0,
+  reviewed: 0,
+  refused: null,
+});
 
 const isClosed = (status: TaskRecord['status']): boolean => CLOSED.includes(status);
 
@@ -482,7 +514,16 @@ class Worker {
       return;
     }
     entry.answered = answeredIn(view);
-    await this.rememberDevelopment(entry.id, { ...saved, turns: saved.turns + 1, answered: entry.answered });
+    const reviewed = changesIn(view);
+    // A request for changes takes the head back, so the gate at the merge has nothing to clear until a new one is pushed.
+    const taken = reviewed > saved.reviewed ? { head: null, refused: saved.head ?? saved.refused } : {};
+    await this.rememberDevelopment(entry.id, {
+      ...saved,
+      ...taken,
+      turns: saved.turns + 1,
+      answered: entry.answered,
+      reviewed,
+    });
     const brief: DevelopmentBrief = {
       agent: 'thinker',
       task: await this.show(entry.id),
@@ -568,9 +609,25 @@ class Worker {
     const proof = await this.runTests(entry.tree, files);
     if (proof !== null && !proof.isGreen) return await this.failAndDrop(entry, `tests-failed: ${proof.test.command}`);
     const head = firstLine((await this.git(['rev-parse', 'HEAD'], entry.tree)).stdout);
+    if (head === saved.refused) {
+      await this.call('task.block', {
+        id: entry.id,
+        generation: entry.generation,
+        reason: `changes-not-made: ${head} is the head the review refused`,
+        unblocks: 'board.unblock with a decision',
+      });
+      this.journal({ event: 'blocked', taskId: entry.id, reason: 'changes-not-made' });
+      return this.drop(entry);
+    }
     const pushed = await this.git(['push', '-u', remoteOf(this.repository()), entry.branch], entry.tree);
     if (pushed.code !== 0) return await this.failAndDrop(entry, `push-failed: ${firstLine(pushed.stderr)}`);
     const body = bodyOf(task, changed, proof?.test ?? null, uncovered);
+    if (saved.pr !== null) {
+      // The push moved the pull request already open on this branch.
+      await this.rememberDevelopment(entry.id, { ...saved, head, refused: null });
+      const url = `https://github.com/${this.repository()}/pull/${saved.pr}`;
+      return await this.submitChange(entry, { url, body, changed, proof, uncovered, pr: saved.pr });
+    }
     const opened = await this.pr('create', [
       '--draft',
       '--base',
@@ -587,9 +644,25 @@ class Worker {
     const number = Number(url.split('/').at(-1));
     if (!Number.isInteger(number)) return await this.failAndDrop(entry, 'gh-failed: no pull request url');
     await this.rememberDevelopment(entry.id, { ...saved, pr: number, head });
+    await this.submitChange(entry, { url, body, changed, proof, uncovered, pr: number });
+  }
+
+  /** The pull request's result and the handoff of a finished change, which leaves the task waiting on it. */
+  async submitChange(
+    entry: Held,
+    change: {
+      url: string;
+      body: string;
+      changed: ReadonlyArray<string>;
+      proof: { test: HandoffTest } | null;
+      uncovered: ReadonlyArray<string>;
+      pr: number;
+    }
+  ): Promise<void> {
+    const { url, body, changed, proof, uncovered, pr: number } = change;
     await this.call('task.result', { id: entry.id, generation: entry.generation, kind: 'pr', uri: url, body });
     const handoff = handoffOf(`Pull request ${url}`, {
-      evidence: changed,
+      evidence: [...changed],
       artifacts: [entry.branch, url],
       tests: proof === null ? [] : [proof.test],
       open_issues: uncovered.length === 0 ? [] : [`No test covers: ${uncovered.join(', ')}`],
@@ -612,10 +685,10 @@ class Worker {
     const { id, lease_generation: generation } = claimed;
     const saved = developmentOf(claimed);
     const name = this.repository();
-    if (saved?.pr != null) {
+    if (saved?.pr != null && !owesRework(await this.show(id), saved)) {
       return await this.submitFound(id, generation, `https://github.com/${name}/pull/${saved.pr}`);
     }
-    if (saved !== null) {
+    if (saved !== null && saved.pr === null) {
       const listed = await this.pr('list', [
         '--head',
         saved.branch,
@@ -643,7 +716,7 @@ class Worker {
       return;
     }
     if (saved === null) {
-      await this.rememberDevelopment(id, { branch, worktree: tree, pr: null, head: null, turns: 0, answered: 0 });
+      await this.rememberDevelopment(id, newDevelopment(branch, tree));
     }
     const entry = this.hold({
       id,
@@ -678,7 +751,7 @@ class Worker {
       return;
     }
     if (own === null) {
-      await this.rememberDevelopment(id, { branch, worktree: tree, pr: null, head: null, turns: 0, answered: 0 });
+      await this.rememberDevelopment(id, newDevelopment(branch, tree));
     }
     const generation = claimed.lease_generation;
     const entry = this.hold({ id, generation, agent: 'dev', parent: parentId, branch, tree, answered: 0 });
@@ -745,12 +818,13 @@ class Worker {
     }
   }
 
-  /** An answered question leaves its task in_progress with no run: the release hands it to one claim, of one worker. */
+  /** An answered question or a request for changes leaves its task in_progress with no run: the release hands it to one claim, of one worker. */
   async releaseAnswered(): Promise<void> {
     for (const task of await this.call('task.list', { lane: 'dev', status: 'in_progress' })) {
       const saved = developmentOf(task);
       if (this.held.has(task.id) || task.lease_owner !== PRINCIPAL || saved === null) continue;
-      if (answeredIn(await this.show(task.id)) <= saved.answered) continue;
+      const view = await this.show(task.id);
+      if (answeredIn(view) <= saved.answered && changesIn(view) <= saved.reviewed) continue;
       try {
         await this.call('task.release', { id: task.id, generation: task.lease_generation });
       } catch (error) {
@@ -798,6 +872,12 @@ class Worker {
     this.journal({ event: 'merged', taskId: task.id, pr: number, decidedBy: by, files: pull.files.length });
   }
 
+  /** The branch has no use once its pull request merged; a failure is journaled and not tried again. */
+  async dropRemoteBranch(task: TaskRecord, branch: string, number: number): Promise<void> {
+    const done = await this.git(['push', remoteOf(this.repository()), '--delete', branch], this.deps.repoDir);
+    if (done.code !== 0) this.journal({ event: 'branch-delete-failed', taskId: task.id, pr: number });
+  }
+
   /** Green at the persisted head: the draft goes ready, and with `auto` this file merges exactly that head. */
   async releaseGreen(task: TaskRecord, number: number, pull: PullRequest, head: string): Promise<void> {
     if (pull.isDraft) {
@@ -831,7 +911,10 @@ class Worker {
       return true;
     }
     if (pull.state === 'MERGED') {
-      await this.land(task, number, pull, task.metadata?.autoMerge === true ? 'auto' : 'owner');
+      const by = task.metadata?.autoMerge === true ? 'auto' : 'owner';
+      await this.land(task, number, pull, by);
+      // The engine's own merge deleted the branch with `--delete-branch`.
+      if (by === 'owner') await this.dropRemoteBranch(task, saved.branch, number);
       return false;
     }
     if (pull.state === 'CLOSED') {
