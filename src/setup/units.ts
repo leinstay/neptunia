@@ -73,7 +73,14 @@ export type UnitVars = {
 };
 
 /** The directives of the mount sandbox: gone in the modes `full` and `sudo`. */
-const MOUNT_SANDBOX = ['ProtectSystem', 'ProtectHome', 'ReadWritePaths', 'BindPaths', 'BindReadOnlyPaths'];
+const MOUNT_SANDBOX = [
+  'ProtectSystem',
+  'ProtectHome',
+  'ReadWritePaths',
+  'BindPaths',
+  'BindReadOnlyPaths',
+  'TemporaryFileSystem',
+];
 
 /** The directives that stop `sudo`: gone in the mode `sudo`. */
 const STOPS_SUDO = ['NoNewPrivileges', 'CapabilityBoundingSet'];
@@ -132,6 +139,8 @@ type LineRules = {
 function renderedLines(line: string, key: string | null, rules: LineRules): Array<string> | null {
   if (rules.backendDirs.length > 0 && key === 'ProtectHome')
     return [line, ...rules.backendDirs.map((dir) => `BindPaths=-${dir}`)];
+  // The runner reads agents/ at its start, so a persona folder emptied for the unit shows that folder.
+  if (key === 'TemporaryFileSystem') return [line, `BindReadOnlyPaths=-${path.join(rules.vars.dataDir, 'agents')}`];
   if (rules.calendar !== null && key === 'OnCalendar') return [rules.calendar];
   return null;
 }
