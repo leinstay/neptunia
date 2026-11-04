@@ -249,3 +249,33 @@ test('a diary past its last slot of the day names the first slot of tomorrow', a
   const fields = await statusOf('selfreflection', run.hot.config, now, read);
   assert.equal(fields.get('next due'), iso(at('2026-11-05T09:00:00Z')));
 });
+
+test('a diary slot dropped past its grace is no last result: only a slot that ran is', async () => {
+  // Catches: the dropped slot joins `done`, so status reports a post at a time when nothing was written.
+  const run = diaryWith('at 09:00,10:00', at('2026-11-04T08:00:00Z'));
+  await run.diary.tick();
+  run.clock.t = at('2026-11-04T09:05:00Z');
+  await run.diary.tick();
+  run.clock.t = at('2026-11-04T15:00:00Z');
+  await run.diary.tick();
+  const now = run.clock.t;
+  const read = (name: ServiceName) =>
+    wakeClockOf(name, { guildId: GUILD, now, inner: lifeWith({}, now).life, diary: run.diary });
+  const fields = await statusOf('selfreflection', run.hot.config, now, read);
+  assert.equal(fields.get('last result'), iso(at('2026-11-04T09:00:00Z')));
+});
+
+test("a diary's last result survives midnight", async () => {
+  // Catches: the clock reads only today's plan, so every new day reads "none" for a diary that posted last night.
+  const run = diaryWith('at 22:00', at('2026-11-04T21:00:00Z'));
+  await run.diary.tick();
+  run.clock.t = at('2026-11-04T22:05:00Z');
+  await run.diary.tick();
+  run.clock.t = at('2026-11-05T01:00:00Z');
+  await run.diary.tick();
+  const now = run.clock.t;
+  const read = (name: ServiceName) =>
+    wakeClockOf(name, { guildId: GUILD, now, inner: lifeWith({}, now).life, diary: run.diary });
+  const fields = await statusOf('selfreflection', run.hot.config, now, read);
+  assert.equal(fields.get('last result'), iso(at('2026-11-04T22:00:00Z')));
+});
