@@ -668,13 +668,15 @@ test('moves the whole innerLife.heartbeat section to heartbeat, a key of the con
   });
   assert.deepEqual(config, {
     wakes: { mode: 'live' },
-    heartbeat: { everyMinutes: 360, enabled: false, people: 4 },
+    // Changed: `heartbeat.everyMinutes` became the one setting `heartbeat.schedule`.
+    heartbeat: { schedule: 'every 6h', enabled: false, people: 4 },
   });
   assert.deepEqual(moved, [
     { from: 'innerLife.heartbeat.everyMinutes', to: 'heartbeat.everyMinutes' },
     { from: 'innerLife.heartbeat.enabled', to: 'heartbeat.enabled' },
     { from: 'innerLife.heartbeat.people', to: 'heartbeat.people' },
     { from: 'innerLife.mode', to: 'wakes.mode' },
+    { from: 'heartbeat.everyMinutes', to: 'heartbeat.schedule' },
   ]);
 });
 
@@ -709,7 +711,8 @@ test('reads an old innerLife.heartbeat key of the local file under heartbeat at 
   const { result } = await withCapturedLogs(
     () => readConfig(root, { privateDir: path.join(root, 'data') }) as Settings
   );
-  assert.deepEqual(result.heartbeat, { everyMinutes: 360 });
+  // Changed: `heartbeat.everyMinutes` became the one setting `heartbeat.schedule`.
+  assert.deepEqual(result.heartbeat, { schedule: 'every 6h' });
 });
 
 test('reads an old diary key of the local file under selfreflection at load', async () => {

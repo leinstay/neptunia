@@ -37,7 +37,8 @@ const TABLE = [
   'doctor',
   'health',
   'logs',
-  'report',
+  // Changed: `/report` is retired, the report reads as `/service watcher report`, so the one new command is `service`.
+  'service',
   'usage',
   'errands',
   'intentions',

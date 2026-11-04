@@ -2107,12 +2107,12 @@ test('drawHeartbeatAt: the interval with an even jitter either way, never less t
 test('innerSettings: the heartbeat defaults and a bad value taking the default', () => {
   const d = innerSettings({}).heartbeat;
   assert.deepEqual(
-    [d.enabled, d.everyMinutes, d.jitterMinutes, d.people, d.filteredShown, d.closedShown],
-    [true, 180, 60, 8, 10, 10]
+    [d.enabled, d.schedule, d.jitterMinutes, d.people, d.filteredShown, d.closedShown],
+    [true, { kind: 'every', everyMinutes: 180 }, 60, 8, 10, 10]
   );
-  // PR 7d: `heartbeat.people` (a key of the config cut) is a constant, so the live keys are the switch and the interval.
-  const set = innerSettings({ heartbeat: { enabled: false, everyMinutes: 'x' } }).heartbeat;
-  assert.deepEqual([set.enabled, set.everyMinutes], [false, 180]);
+  // PR 7d: `heartbeat.people` (a key of the config cut) is a constant, so the live keys are the switch and the interval, `heartbeat.schedule` since it replaced `everyMinutes`.
+  const set = innerSettings({ heartbeat: { enabled: false, schedule: 'x' } }).heartbeat;
+  assert.deepEqual([set.enabled, set.schedule], [false, { kind: 'every', everyMinutes: 180 }]);
 });
 
 test('heartbeat: the first tick draws the moment with the jitter and keeps it in the state; it survives a restart', async () => {
