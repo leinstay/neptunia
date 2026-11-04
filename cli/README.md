@@ -1,7 +1,7 @@
-# cli
+# Interactive CLI
 
-The interactive presentation of the `neptunia` chat, built with Ink and written with `React.createElement`, so nothing is built. `bin/neptunia.ts` calls `runInteractive` in a terminal. Without a terminal, `-p` and piped input stay in `bin/` with no animation and no control sequences.
+This workspace draws the owner chat and setup questions with Ink and React, using `createElement` so Node runs it without a build step. The entry point supplies the core connection and command handlers. This package imports no engine modules.
 
-`state.ts` and `galaxy.ts` are pure and hold the behaviour: the input, its history, the slash menu, folding and the status line. `app.ts` draws them. The package imports nothing of the engine: the commands, the link to the core and the status come in through `ChatEnv`.
+`app.ts` draws the conversation, rotating ASCII galaxy, status and command menu. `panel-view.ts` handles tabs, search, row selection and value editing. `question.ts` draws installation questions. `state.ts` holds input and status formatting. The public keyboard controls and commands are in [the CLI guide](../docs/cli.md).
 
-Enter sends, Alt+Enter or Ctrl+J adds a line, Up and Down walk the history or the menu, Tab completes a command, Esc cancels, Ctrl+O shows folded answers, and Ctrl+C leaves. `NEPTUNIA_REDUCED_MOTION=1`, `TERM=dumb` or `NO_COLOR` stills the galaxy.
+Panel actions are provided by `bin/chat-panels.ts` and call the existing core commands. Displaying a panel never probes a provider. A credential dialog masks input and saves no secret in history. `NEPTUNIA_REDUCED_MOTION=1` disables the galaxy animation, and `NEPTUNIA_PLAIN_CHAT=1` selects the plain chat.

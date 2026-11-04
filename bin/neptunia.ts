@@ -112,6 +112,7 @@ import type { LocalFiles } from '../src/config/files.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 import type { StatusBrief } from '../cli/index.ts';
+import { chatPanel } from './chat-panels.ts';
 import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
 import { BASE_ROLES, MEMORY_ROLE } from '../src/llm/roles.ts';
@@ -633,19 +634,23 @@ function printBlock(text: string): void {
   process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
 }
 
-/** The answer lines of a command for a panel: the commands that open one, with their own title. */
-const PANEL_COMMANDS: Readonly<Record<string, string>> = {
-  help: 'Help',
-  status: 'Status',
-  'status.full': 'Status',
-  'config.show': 'Config',
-};
-
 /**
  * The chat in a terminal (cli/): the same link, commands and handlers as the plain chat, only another presentation. It
  * asks the core `status.brief` for its status line, which reads what the core knows and calls no provider.
  */
-async function runInkChat(where: { privateDir: string }): Promise<void> {
+/** Interface names offered by setup, including persona-authored packages. */
+function interfaceNames(dataDir: string): Array<string> {
+  const names = new Set<string>();
+  for (const dir of [path.join(ROOT_DIR, 'interfaces'), path.join(dataDir, 'interfaces')]) {
+    if (!fs.existsSync(dir)) continue;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory() && fs.existsSync(path.join(dir, entry.name, 'setup.json'))) names.add(entry.name);
+    }
+  }
+  return [...names].sort();
+}
+
+async function runInkChat(where: { privateDir: string }, firstLine = ''): Promise<void> {
   const { runInteractive, reducedMotion } = await import('../cli/index.ts');
   let entry: (one: { who: 'owner' | 'her' | 'system'; text: string }) => void = () => {};
   let question: (asked: { question: string; secret: boolean; answer: (text: string) => void }) => void = () => {};
@@ -670,8 +675,18 @@ async function runInkChat(where: { privateDir: string }): Promise<void> {
   const run = (parsed: Command): Promise<Answer> =>
     LOCAL_COMMANDS.has(parsed.name) ? runLocal(parsed, (asked) => link.ask(asked)) : link.ask(parsed, answers);
   await runInteractive({
-    title: 'neptunia',
-    commands: COMMANDS.map((command) => ({ name: command.name, help: command.help })),
+    title: 'Project Neptunia',
+    initialInput: firstLine,
+    commands: [
+      { name: 'setup', help: 'Connect services, interfaces and skills' },
+      ...COMMANDS.flatMap((command) => [
+        { name: command.name, help: command.help },
+        ...command.subcommands.map((sub) => ({
+          name: `${command.name} ${sub.name.replaceAll('.', ' ')}`,
+          help: sub.help,
+        })),
+      ]),
+    ],
     history: readHistory(historyFile),
     still: reducedMotion(process.env),
     now: () => Date.now(),
@@ -688,12 +703,7 @@ async function runInkChat(where: { privateDir: string }): Promise<void> {
       const answer = await link.ask({ name: 'status.brief', args: {} });
       return answer.status === 'ok' ? (JSON.parse(answer.text) as StatusBrief | null) : null;
     },
-    panelOf: async (line) => {
-      const parsed = parseCommandLine(line);
-      const title = parsed.ok ? PANEL_COMMANDS[parsed.name] : undefined;
-      if (!parsed.ok || title === undefined) return null;
-      return { title, lines: (await run(parsed)).text.split('\n') };
-    },
+    panelOf: (line) => chatPanel(line, run, interfaceNames(where.privateDir)),
     send(line) {
       const text = line.trim();
       if (!text.startsWith('/')) {
@@ -718,7 +728,7 @@ async function runInkChat(where: { privateDir: string }): Promise<void> {
 async function runChat(firstLine?: string): Promise<void> {
   const where = paths();
   const terminal = process.stdin.isTTY === true && process.stdout.isTTY === true;
-  if (terminal && firstLine === undefined && process.env.NEPTUNIA_PLAIN_CHAT !== '1') return runInkChat(where);
+  if (terminal && process.env.NEPTUNIA_PLAIN_CHAT !== '1') return runInkChat(where, firstLine);
   let link: CliLink;
   try {
     link = await openCliLink(printBlock);
@@ -1179,6 +1189,16 @@ async function askAtTerminal(
   offered: string | null,
   options: { secret: boolean } = { secret: false }
 ): Promise<string> {
+  if (process.stdin.isTTY === true && process.stdout.isTTY === true && process.env.TERM !== 'dumb') {
+    const { askQuestion } = await import('../cli/question.ts');
+    const choices =
+      offered === 'on' || offered === 'off'
+        ? ['on', 'off']
+        : question.includes('(yes or no)')
+          ? ['yes', 'no']
+          : undefined;
+    return askQuestion(question, offered, { ...options, choices });
+  }
   const output = mutableOutput(process.stdout);
   const rl = readline.createInterface({ input: process.stdin, output, terminal: process.stdin.isTTY === true });
   try {

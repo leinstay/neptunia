@@ -50,7 +50,7 @@ test('history comes back newest first, and a secret never enters it', () => {
   assert.deepEqual(secret.next.history, ['two']);
 });
 
-test('the slash menu lists names first, then a match in the help, and closes on a space', () => {
+test('the slash menu completes nested commands and leaves arguments alone', () => {
   // Bug: the menu stays open over an argument, or finds nothing for a word of a command's description.
   const commands = [
     { name: 'status', help: 'the short summary' },
@@ -62,6 +62,10 @@ test('the slash menu lists names first, then a match in the help, and closes on 
     ['status', 'skills', 'keys']
   );
   assert.deepEqual(menuOf('/status x', commands), []);
+  assert.deepEqual(
+    menuOf('/skills se', [{ name: 'skills setup', help: 'configure a skill' }]).map((one) => one.name),
+    ['skills setup']
+  );
   assert.deepEqual(menuOf('hello', commands), []);
 });
 
@@ -73,15 +77,22 @@ test('a long answer folds with a count and expands whole', () => {
   assert.deepEqual(filterLines(['a key', 'b'], 'KEY'), ['a key']);
 });
 
-test('the status line separates link, core and memory, and marks what is lost or stale', () => {
-  // Bug: a dropped link or an old poll still reads as healthy, or the reason of a pause is hidden.
+test('the header separates core, memory and enabled interfaces, and marks what is lost or stale', () => {
+  // Bug: a dropped connection or an old poll still reads as healthy, or the reason of a pause is hidden.
+  // The header uses separate readable status lines and lists enabled interfaces only.
   const live = statusLine(BRIEF, { connected: true, polledAt: 1000, now: 2000 });
-  assert.equal(live, 'link: up · core: paused (memory-down) · memory: claude opus: failed · discord: down');
-  assert.match(statusLine(BRIEF, { connected: true, polledAt: 1000, now: 100_000 }), /· stale$/);
-  assert.match(statusLine(BRIEF, { connected: false, polledAt: 1000, now: 2000 }), /^link: lost · core: unknown/);
-  assert.match(statusLine(null, { connected: true, polledAt: null, now: 2000 }), /core: unknown/);
+  assert.match(live, /^Core: paused \(memory-down\)$/m);
+  assert.match(live, /^Memory: check failed · opus · claude$/m);
+  assert.match(live, /^Interfaces: Discord \(disconnected\)$/m);
+  assert.doesNotMatch(live, /telegram/i);
+  const stale = statusLine(BRIEF, { connected: true, polledAt: 1000, now: 100_000 });
+  assert.equal(stale.split('\n').filter((line) => line.endsWith(' (outdated)')).length, 3);
+  const lost = statusLine(BRIEF, { connected: false, polledAt: 1000, now: 2000 });
+  assert.equal(lost, 'Core: connection lost\nMemory: unknown\nInterfaces: unknown');
+  const checking = statusLine(null, { connected: true, polledAt: null, now: 2000 });
+  assert.equal(checking, 'Core: checking…\nMemory: checking…\nInterfaces: checking…');
   const recovered = { ...BRIEF, core: { state: 'running', reason: null } } as const;
-  assert.match(statusLine(recovered, { connected: true, polledAt: 1000, now: 2000 }), /core: running ·/);
+  assert.match(statusLine(recovered, { connected: true, polledAt: 1000, now: 2000 }), /^Core: running$/m);
 });
 
 test('the galaxy turns tick by tick, repeats, and stands still under reduced motion', () => {

@@ -8,23 +8,14 @@ import { createElement as h, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import { galaxyFrame } from './galaxy.ts';
-import {
-  backspace,
-  browse,
-  emptyInput,
-  filterLines,
-  foldedText,
-  insert,
-  menuOf,
-  moveCursor,
-  statusLine,
-  submit,
-} from './state.ts';
+import { PanelView } from './panel-view.ts';
+import type { Panel } from './panel.ts';
+export type { Panel } from './panel.ts';
+import { backspace, browse, emptyInput, foldedText, insert, menuOf, moveCursor, statusLine, submit } from './state.ts';
 import type { MenuCommand, StatusBrief } from './state.ts';
 
 export type ChatEntry = { who: 'owner' | 'her' | 'system'; text: string };
 export type Question = { question: string; secret: boolean; answer: (text: string) => void };
-export type Panel = { title: string; lines: ReadonlyArray<string> };
 export type ChatEnv = {
   title: string;
   commands: ReadonlyArray<MenuCommand>;
@@ -43,6 +34,7 @@ export type ChatEnv = {
   status: () => Promise<StatusBrief | null>;
   saveHistory: (history: ReadonlyArray<string>) => void;
   now: () => number;
+  initialInput?: string;
 };
 
 const GALAXY_MS = 200;
@@ -57,9 +49,14 @@ function Header({ env, line }: { env: ChatEnv; line: string }) {
   }, [env.still]);
   return h(
     Box,
-    { borderStyle: 'round', paddingX: 1, gap: 2 },
-    h(Text, null, galaxyFrame(tick).join('\n')),
-    h(Box, { flexDirection: 'column' }, h(Text, { bold: true }, env.title), h(Text, { wrap: 'wrap' }, line))
+    { paddingX: 1, gap: 2, marginBottom: 1 },
+    h(Text, { color: 'magenta' }, galaxyFrame(tick).join('\n')),
+    h(
+      Box,
+      { flexDirection: 'column' },
+      h(Text, { bold: true, color: 'cyan' }, env.title),
+      h(Text, { wrap: 'wrap' }, line)
+    )
   );
 }
 
@@ -79,38 +76,37 @@ function Menu({ items, selected }: { items: ReadonlyArray<MenuCommand>; selected
     Box,
     { flexDirection: 'column' },
     ...items
-      .slice(0, 10)
+      .slice(Math.max(0, selected - 7), Math.max(0, selected - 7) + 8)
       .map((item, index) =>
         h(
           Text,
-          { key: item.name, inverse: index === selected },
+          { key: item.name, inverse: index + Math.max(0, selected - 7) === selected },
           `/${item.name}  `,
-          h(Text, { dimColor: index !== selected }, item.help)
+          h(Text, { dimColor: index + Math.max(0, selected - 7) !== selected }, item.help)
         )
       )
   );
 }
 
-function PanelView({ panel, search }: { panel: Panel; search: string }) {
-  const { stdout } = useStdout();
-  const rows = Math.max(5, ((stdout as { rows?: number }).rows ?? 24) - 8);
-  return h(
-    Box,
-    { flexDirection: 'column', borderStyle: 'round', paddingX: 1 },
-    h(Text, { bold: true }, panel.title),
-    h(Text, { dimColor: true }, `search: ${search}  (esc closes)`),
-    h(Text, null, filterLines(panel.lines, search).slice(0, rows).join('\n'))
-  );
-}
-
 export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
   const { exit } = useApp();
+  const { stdout } = useStdout();
+  const [rows, setRows] = useState<number>((stdout as { rows?: number }).rows || 24);
+  useEffect(() => {
+    const resize = (): void => setRows((stdout as { rows?: number }).rows || 24);
+    stdout.on('resize', resize);
+    return () => {
+      stdout.off('resize', resize);
+    };
+  }, [stdout]);
   const [entries, setEntries] = useState<ReadonlyArray<ChatEntry>>([]);
-  const [input, setInput] = useState(() => emptyInput(env.history));
+  const [input, setInput] = useState(() => {
+    const state = emptyInput(env.history);
+    return { ...state, text: env.initialInput ?? '', cursor: env.initialInput?.length ?? 0 };
+  });
   const [selected, setSelected] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [panel, setPanel] = useState<Panel | null>(null);
-  const [search, setSearch] = useState('');
   const [question, setQuestion] = useState<Question | null>(null);
   const [connected, setConnected] = useState(true);
   const [brief, setBrief] = useState<StatusBrief | null>(null);
@@ -130,12 +126,15 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
   // A read of what the core already knows: no probe and no provider call for the display.
   useEffect(() => {
     const poll = (): void => {
-      void env.status().then((answer) => {
-        if (answer !== null) {
-          setBrief(answer);
-          setPolledAt(env.now());
-        }
-      });
+      void env
+        .status()
+        .then((answer) => {
+          if (answer !== null) {
+            setBrief(answer);
+            setPolledAt(env.now());
+          }
+        })
+        .catch(() => {});
     };
     poll();
     const timer = setInterval(poll, POLL_MS);
@@ -145,6 +144,14 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
   const items = question === null ? menuOf(input.text, env.commands) : [];
 
   function send(): void {
+    if (
+      question === null &&
+      items[selected] !== undefined &&
+      !env.commands.some((one) => input.text === `/${one.name}`)
+    ) {
+      setInput(emptyInputWith(input, `/${items[selected].name} `));
+      return;
+    }
     const secret = question?.secret === true;
     const { line, next } = submit(input, { secret });
     setInput(next);
@@ -161,13 +168,18 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       return;
     }
     setEntries((list) => [...list, { who: 'owner', text: line }]);
-    void env.panelOf(line.trim()).then((opened) => {
-      if (opened === null) env.send(line);
-      else {
-        setSearch('');
-        setPanel(opened);
-      }
-    });
+    void env
+      .panelOf(line.trim())
+      .then((opened) => {
+        if (opened === null) env.send(line);
+        else setPanel(opened);
+      })
+      .catch((error: unknown) =>
+        setEntries((old) => [
+          ...old,
+          { who: 'system', text: error instanceof Error ? error.message : 'The command failed.' },
+        ])
+      );
   }
 
   // health: allow complexity until 2027-04-01 -- one table of the keys of the chat, and split up it would hide which key does what
@@ -176,12 +188,7 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       exit();
       return;
     }
-    if (panel !== null) {
-      if (key.escape) setPanel(null);
-      else if (key.backspace || key.delete) setSearch((text) => text.slice(0, -1));
-      else if (!key.ctrl && !key.meta && typed !== '') setSearch((text) => text + typed);
-      return;
-    }
+    if (panel !== null && question === null) return;
     if (key.ctrl && typed === 'o') setExpanded((value) => !value);
     else if (key.ctrl && typed === 'd' && input.text === '') exit();
     else if (key.ctrl && typed === 'j') setInput((state) => insert(state, '\n'));
@@ -214,17 +221,46 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
   const after = shown.slice(input.cursor);
   return h(
     Box,
-    { flexDirection: 'column' },
+    { flexDirection: 'column', minHeight: Math.max(10, rows) },
     h(Header, { env, line: statusLine(brief, { connected, polledAt, now: env.now() }) }),
-    ...entries.map((entry, index) => h(Entry, { key: String(index), entry, expanded })),
-    panel === null ? null : h(PanelView, { panel, search }),
-    question === null ? null : h(Text, { bold: true }, question.question),
     h(
       Box,
-      { borderStyle: 'round', paddingX: 1 },
-      h(Text, null, '> ', before, h(Text, { inverse: true }, after[0] ?? ' '), after.slice(1))
+      { flexDirection: 'column', flexGrow: 1 },
+      h(
+        Box,
+        { flexDirection: 'column', flexGrow: 1, justifyContent: 'flex-end' },
+        ...entries.map((entry, index) => h(Entry, { key: String(index), entry, expanded }))
+      ),
+      panel === null
+        ? null
+        : h(PanelView, {
+            panel,
+            active: question === null,
+            close: () => setPanel(null),
+            prefill: (line: string) => {
+              setPanel(null);
+              setInput(emptyInputWith(input, line));
+            },
+          })
     ),
-    items.length > 0 ? h(Menu, { items, selected }) : null
+    h(
+      Box,
+      { flexDirection: 'column', flexShrink: 0 },
+      panel === null && items.length > 0 ? h(Menu, { items, selected }) : null,
+      question === null ? null : h(Text, { bold: true }, question.question),
+      h(
+        Box,
+        { borderStyle: 'round', paddingX: 1 },
+        h(Text, null, '> ', before, h(Text, { inverse: true }, after[0] ?? ' '), after.slice(1))
+      ),
+      h(
+        Text,
+        { dimColor: true },
+        question !== null
+          ? 'Enter continue · Esc cancel'
+          : '/ commands · /setup connections · /config settings · Ctrl+O expand'
+      )
+    )
   );
 }
 
