@@ -34,6 +34,19 @@ import { dbOf, asText, isFiniteNumber } from './types.ts';
 import type { Config, Db, Log, MemoryHandle, Row } from './types.ts';
 
 export const GAP_MS = 1000;
+
+/** A link that is down: nothing was asked of the platform. */
+const LINK_CLOSED = 'link-closed';
+
+/** The platform refused to show that conversation. */
+const FORBIDDEN = 'http-403';
+
+/** What a read the interface did not answer makes of a row; a closed link asked nothing of the platform and logs nothing. */
+function refusedRow(code: unknown, log: Log): 'closed' | 'forbidden' | 'failed' {
+  if (code === LINK_CLOSED) return 'closed';
+  log.warn('diary media: fetch failed', { code });
+  return code === FORBIDDEN ? 'forbidden' : 'failed';
+}
 const MEDIA_DIR = path.join('media', 'diary');
 const EXTENSIONS: Record<string, string> = {
   'image/png': 'png',
@@ -427,6 +440,8 @@ export function createDiaryMedia({
   let running: Promise<{ done: number; failed: number }> | null = null;
   let wake: (() => void) | null = null;
   const attempted = new Set<string>();
+  // The conversations the interface refused in this start: asked once, and their posts wait for the next start.
+  const forbidden = new Set<string>();
   const pause =
     sleep ??
     ((ms: number) =>
@@ -460,12 +475,11 @@ export function createDiaryMedia({
     { maxBytes, timeoutMs, audioMaxBytes }: { maxBytes: number; timeoutMs: number | undefined; audioMaxBytes: number },
     adapter: DiaryPort & Required<Pick<DiaryPort, 'fetchMessages'>>,
     fetcher: ImageFetcher
-  ): Promise<'done' | 'failed'> {
+  ): Promise<'done' | 'failed' | 'closed' | 'forbidden'> {
     const conversation = { iface: adapter.iface, conversationId: row.conversationId as string };
     const result = await adapter.fetchMessages(conversation, row.messageIds);
     if (result?.status !== 'ok' || !Array.isArray(result.messages)) {
-      log.warn('diary media: fetch failed', { code: result?.error?.code ?? result?.status ?? 'ERROR' });
-      return 'failed';
+      return refusedRow(result?.error?.code ?? result?.status ?? 'ERROR', log);
     }
     const byId = new Map(result.messages.map((message): [string, FetchedMessage] => [message.messageId, message]));
     const present = row.messageIds
@@ -568,20 +582,35 @@ export function createDiaryMedia({
       return counts;
     }
     let first = true;
+    let refused = 0;
     for (const row of rows) {
       if (stopped) break;
+      if (forbidden.has(row.conversationId as string)) {
+        attempted.add(row.id);
+        refused += 1;
+        continue;
+      }
       if (!first) await pause(GAP_MS);
       first = false;
       if (stopped) break;
       attempted.add(row.id);
       try {
-        counts[await handleRow(row, given, fetching, fetcher)] += 1;
+        const outcome = await handleRow(row, given, fetching, fetcher);
+        if (outcome === 'closed') {
+          // The link is not up yet: this post and the rest wait for a run with a link.
+          attempted.delete(row.id);
+          break;
+        }
+        if (outcome === 'forbidden') {
+          forbidden.add(row.conversationId as string);
+          refused += 1;
+        } else counts[outcome] += 1;
       } catch (error) {
         counts.failed += 1;
         log.warn('diary media: row failed', { code: codeOf(error) });
       }
     }
-    if (counts.done + counts.failed > 0) log.info('diary media: pass', counts);
+    if (counts.done + counts.failed + refused > 0) log.info('diary media: pass', { ...counts, refused });
     return counts;
   }
 

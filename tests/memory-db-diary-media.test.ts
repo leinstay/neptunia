@@ -621,3 +621,55 @@ test('the Discord adapter passes an attachment duration and waveform when Discor
     waveform: 'AAEC',
   });
 });
+
+/** What the two tests below read of `setup`. */
+type Scene = {
+  port: { calls: Array<{ op: string }>; failNext(op: string, result: unknown): void };
+  logs: Array<{ code?: string }>;
+  say(text: string): unknown;
+  writePosts(posts: unknown): void;
+  writeUnits(): void;
+  job(): { run(): Promise<unknown>; hasWork(): boolean };
+  row(id: string): { text: string | null };
+  done(): void;
+};
+
+test('a link that is not up yet leaves the post for the next run and logs nothing', async () => {
+  // Bug: every post of the start was asked of a closed link, written off until the next start and logged once each.
+  const env = setup(wrongly({ posts: [post('d-1', ['x'])] })) as unknown as Scene;
+  try {
+    const a = env.say('one');
+    const b = env.say('two');
+    env.writePosts([post('d-1', [a]), post('d-2', [b])]);
+    env.writeUnits();
+    const job = env.job();
+    env.port.failNext('fetchMessages', { status: 'failed', error: { code: 'link-closed', retryable: true } });
+    assert.deepEqual(await job.run(), { done: 0, failed: 0 });
+    assert.equal(env.port.calls.filter((one) => one.op === 'fetchMessages').length, 1);
+    assert.equal(env.logs.filter((entry) => entry.code === 'link-closed').length, 0);
+    assert.equal(job.hasWork(), true);
+    assert.deepEqual(await job.run(), { done: 2, failed: 0 });
+  } finally {
+    env.done();
+  }
+});
+
+test('a conversation the interface forbids is asked once in a start and logged once', async () => {
+  // Bug: a channel the persona may not read took one request and one warning per post at every start.
+  const env = setup(wrongly({ posts: [post('d-1', ['x'])] })) as unknown as Scene;
+  try {
+    const a = env.say('one');
+    const b = env.say('two');
+    env.writePosts([post('d-1', [a]), post('d-2', [b])]);
+    env.writeUnits();
+    const job = env.job();
+    env.port.failNext('fetchMessages', { status: 'failed', error: { code: 'http-403', retryable: false } });
+    assert.deepEqual(await job.run(), { done: 0, failed: 0 });
+    assert.equal(env.port.calls.filter((one) => one.op === 'fetchMessages').length, 1);
+    assert.equal(env.logs.filter((entry) => entry.code === 'http-403').length, 1);
+    assert.equal(job.hasWork(), false);
+    assert.equal(env.row('d-1').text, null);
+  } finally {
+    env.done();
+  }
+});
