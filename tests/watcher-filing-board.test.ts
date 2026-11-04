@@ -3,6 +3,7 @@
 // is a fake that keeps rows, and the clock is injected.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { BoardRefusal } from '../src/board/machine.ts';
 import type { BoardCaller } from '../src/tools/impl/board.ts';
 import { readReport } from '../src/watcher/read.ts';
 import {
@@ -111,6 +112,23 @@ test('a cancel reaches a run that waits on a board call, long before the bound',
   const result = await runInspection(inspectionDeps(rig, { runAgent: answering(DRAFT), boardTimeoutMs: 60_000 }));
   assert.equal(result.state, 'cancelled');
   assert.ok(Date.now() - started < 5_000);
+});
+
+test('a refusal over the socket is a failed filing and a closed link a deferred one', async () => {
+  // Bug: the socket's caller throws its refusals as plain errors, so live refusals read as an outage and retry for ever.
+  const { runInspection } = await inspection();
+  const { readFilings } = await filing();
+  for (const [thrown, state] of [
+    [new BoardRefusal('failed: the board refused'), 'failed'],
+    [new Error('unavailable: the link to the core closed'), 'deferred'],
+  ] as const) {
+    const board: BoardCaller = {
+      call: (_principal, op) => (op === 'task.list' ? ([] as never) : Promise.reject(thrown)),
+    };
+    const rig = inspectionRig(undefined, { board, rows: [], adds: [] });
+    const result = await runInspection(inspectionDeps(rig, { runAgent: answering(DRAFT) }));
+    assert.equal(readFilings(rig.dir, result.runId)[0]?.state, state);
+  }
 });
 
 // ---- what stops a draft from being filed again -------------------------------------------------------------------

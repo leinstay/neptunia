@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { TaskRecord } from '../board/board.ts';
-import { BoardError } from '../board/machine.ts';
+import { BoardError, BoardRefusal } from '../board/machine.ts';
 import { DAY_MS } from '../time.ts';
 import type { BoardCaller } from '../tools/impl/board.ts';
 import { WATCHER, normalized } from './tasks.ts';
@@ -157,7 +157,8 @@ function coveringRow(rows: ReadonlyArray<TaskRecord>, receipt: FilingReceipt, si
 }
 
 /** What the outcome of a call to the board makes of a receipt: a refusal is final, anything else is an outage. */
-const stateOfError = (error: unknown): FilingState => (error instanceof BoardError ? 'failed' : 'deferred');
+const stateOfError = (error: unknown): FilingState =>
+  error instanceof BoardError || error instanceof BoardRefusal ? 'failed' : 'deferred';
 
 /** One draft's turn: reconcile, compare, then add. Whether the board stopped answering. */
 async function fileOne(

@@ -145,14 +145,17 @@ function validate(text: string): Extract<SplitAnswer, { ok: true }> {
 /** `work`, rejected when `ms` pass or the signal aborts. What it does later is dropped, and the receipts reconcile it. */
 function bounded<T>(work: () => T | PromiseLike<T>, ms: number, signal: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const give = (): void => reject(new Error('the board gave no answer'));
-    const timer = setTimeout(give, ms);
-    if (signal.aborted) give();
-    signal.addEventListener('abort', give);
     const end = (): void => {
       clearTimeout(timer);
       signal.removeEventListener('abort', give);
     };
+    const give = (): void => {
+      end();
+      reject(new Error('the board gave no answer'));
+    };
+    const timer = setTimeout(give, ms);
+    signal.addEventListener('abort', give);
+    if (signal.aborted) give();
     Promise.resolve().then(work).then(resolve, reject).finally(end);
   });
 }

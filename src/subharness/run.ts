@@ -46,6 +46,8 @@ export type AgentRun = {
   route?: TaskRoute;
   /** the key an opencode route spends; it comes with the task and is never read from keys.json */
   routeKey?: string;
+  /** more of the child's environment; the PATH with its refusing `sudo` and the key the engine sets win over it */
+  env?: Readonly<Record<string, string>>;
 };
 
 /** What `runAgent` takes besides the run. */
@@ -169,7 +171,7 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
   const settled = run.route === undefined ? pathFromStore(run, deps) : pathFromRoute(run, run.route);
   if ('ok' in settled) return settled;
   const { name, mode, model, effort, keyValue } = settled;
-  const env = envOf(deps, mode, keyValue);
+  const env = { ...run.env, ...envOf(deps, mode, keyValue) };
   if (mode === 'full' || mode === 'sudo') log.info('subharness: run without a sandbox', { agent: run.agent, mode });
   const options: BackendRunOptions = {
     cwd: run.cwd,

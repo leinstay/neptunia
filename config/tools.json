@@ -358,12 +358,21 @@
     }
   },
   "board.answer": {
-    "title": "Answer a question on a task of yours",
-    "whenToUse": "A task of yours waits on a question or a proposal addressed to you. Your answer lets its holder go on.",
+    "title": "Answer a question put to you on a task",
+    "whenToUse": "A task waits on a question or a proposal addressed to you. Your answer lets its holder go on.",
     "whenNotToUse": "Not for a question put to the owner, which stays his.",
     "args": {
       "id": "The task's id, not the question's.",
       "text": "Your answer or your decision on the proposal."
+    }
+  },
+  "board.unblock": {
+    "title": "Let a blocked task of yours go on",
+    "whenToUse": "A task of yours is blocked, your wake shows why, and you know what it needs or what you decided.",
+    "whenNotToUse": "Not while the reason still holds, and not for a task you no longer want: board.cancel ends that one.",
+    "args": {
+      "id": "The task's id as your wake or board.status names it.",
+      "note": "What changed or what you decided, for whoever goes on."
     }
   },
   "skill.read": {

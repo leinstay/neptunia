@@ -48,9 +48,9 @@
 // at once while `watcher.enabled` is false, and otherwise runs one inspection under one run identity
 // (bin/neptunia-watcher.ts, docs/watcher.md).
 //
-// `worker selfimprovement` (deploy/neptunia-selfimprovement.service) runs one beat of her self-development (bin/selfimprovement.ts, docs/selfimprovement.md) as the client `selfimprovement`: her fix
-// proposals are taken, each approved one is patched in a worktree and opened as a pull request, and the open ones are
-// looked at. It exits 0 for a beat that ran and 1 when the board is not reachable.
+// `worker development` (deploy/neptunia-development.service) is the long-lived development worker (bin/development.ts,
+// docs/selfimprovement.md) as the client `development`: a filed task starts a thinker, and a finished one a pull request.
+// `worker development held` lists the tasks older than its boundary. It exits 1 when the board is not reachable.
 //
 // `doctor` writes nothing and asks the core nothing without `--live`: it checks Node, the binaries the engine runs, config.json and
 // config.local.json, the local layer, the key store's keys of the enabled roles, the client tokens, the features (the
@@ -138,7 +138,7 @@ import type {
 } from '../src/protocol/adapter.ts';
 import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
-import { runSelfimprovement } from './selfimprovement.ts';
+import { runDevelopment } from './development.ts';
 import { runTask } from './neptunia-task.ts';
 import { runWatcherWorker } from './neptunia-watcher.ts';
 import {
@@ -1687,9 +1687,9 @@ switch (group) {
     process.exit(await runTask(rest).catch(fault));
     break;
   case 'worker':
-    if (rest.length !== 1) usage();
-    if (rest[0] === 'selfimprovement') process.exit(await runSelfimprovement(['run']).catch(fault));
-    if (rest[0] !== 'watcher') usage();
+    if (rest[0] === 'development' && (rest.length === 1 || (rest.length === 2 && rest[1] === 'held')))
+      process.exit(await runDevelopment(rest.slice(1)).catch(fault));
+    if (rest.length !== 1 || rest[0] !== 'watcher') usage();
     process.exit(await runWatcherWorker(paths()).catch(fault));
     break;
   default:

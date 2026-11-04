@@ -1,6 +1,6 @@
 // The repository her pull requests go to (docs/selfimprovement.md#the-repository): `selfimprovement.repository`, and the check that
 // her gh login may push there. gh runs under her own config home, `<private>/subharness/gh`, so her pull requests are
-// never the installing user's. `checkRepository` runs before every beat (src/selfimprovement/service.ts) and in the
+// never the installing user's. `checkRepository` runs before a filed task claims work (src/development/worker.ts) and in the
 // self-development step of `neptunia setup` (src/setup/selfimprovement.ts). Its answer is a code and a line from
 // `labels.selfimprovement.check`; nothing gh printed reaches the line, the journal or the owner.
 

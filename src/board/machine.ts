@@ -39,8 +39,9 @@ export type Role = BoardRole | DerivedRole;
 
 // risk-low: the task's risk is low. errand: the task is on the errand lane. ci-green: metadata.ci is 'green'.
 // no-ci: the task's project has `ci: false` in `board.projects`. tests-pass: metadata.tests is 'pass'. merged: metadata.merged
-// is an object (the pull request was merged, by the owner or by a released class; src/selfimprovement/service.ts writes it).
-export const CONDITIONS = ['risk-low', 'errand', 'ci-green', 'no-ci', 'tests-pass', 'merged'] as const;
+// is an object (the pull request was merged, by the owner or by a released class; src/development/worker.ts writes it).
+// child: the task has a parent through a parent-child dependency.
+export const CONDITIONS = ['risk-low', 'errand', 'ci-green', 'no-ci', 'tests-pass', 'merged', 'child'] as const;
 export type Condition = (typeof CONDITIONS)[number];
 export type Via =
   | 'transition'
@@ -79,6 +80,9 @@ export class BoardError extends Error {
     this.code = code;
   }
 }
+
+/** A refusal of the board as a client over the socket hears it: the message is `<status>: <text>`, and no code travels. */
+export class BoardRefusal extends Error {}
 
 export type Rule = { from: Status; to: Status; via: ReadonlyArray<Via>; requires: ReadonlyArray<Requirement> };
 
@@ -121,9 +125,10 @@ const TRANSITIONS: ReadonlyArray<Transition> = [
   rule('approved', 'in_progress', ['claim'], [...any('owner', 'scheduler', 'worker'), RUNNER]),
   rule('in_progress', 'needs_answer', ['ask'], any('holder')),
   rule('needs_answer', 'in_progress', ['answer'], any('answerer', 'owner')),
-  // A holder that cannot go on blocks the task with what would unblock it; the owner or a reviewer unblocks it.
+  // A holder that cannot go on blocks the task with what would unblock it; the owner, a reviewer or the task's
+  // requester unblocks it.
   rule('in_progress', 'blocked', ['block'], any('holder')),
-  rule('blocked', 'approved', ['unblock'], any('owner', 'reviewer')),
+  rule('blocked', 'approved', ['unblock'], any('owner', 'reviewer', 'requester')),
   rule('in_progress', 'needs_validation', ['transition'], any('holder'), { requires: ['result'] }),
   // The reviewer merges at any risk once CI is green; on a project without CI its recorded passing tests stand in. A
   // task whose pull request is merged closes for a reviewer whatever CI said: the merge is the decision.
@@ -142,6 +147,8 @@ const TRANSITIONS: ReadonlyArray<Transition> = [
     requires: ['comment'],
   }),
   rule('in_progress', 'done', ['transition'], [RUNNER], { when: ['errand'] }),
+  // A dev task under a parent has no review of its own: its work reaches the parent's branch, and the parent is reviewed.
+  rule('in_progress', 'done', ['transition'], any('holder'), { when: ['child'] }),
   rule('in_progress', 'failed', ['transition'], [...any('holder', 'scheduler'), RUNNER], { requires: ['why'] }),
   ...OPEN.map((from) =>
     rule(from, 'cancelled', ['transition'], [...any('owner', 'reviewer', 'requester'), RUNNER], {

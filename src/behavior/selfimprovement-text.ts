@@ -142,7 +142,7 @@ function newsLines(facts: SelfimprovementFacts, l: Obj): Array<string> {
         task: row.taskId,
         kind: row.kind,
         status: row.status ?? '',
-        reason: reasonOf(l, row.closeReason),
+        reason: reasonOf(l, row.closeReason ?? row.blockedReason ?? null),
       })
     ),
   ];

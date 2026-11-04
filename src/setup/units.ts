@@ -35,13 +35,10 @@ export const UNIT_FILES: ReadonlyArray<string> = [
 ];
 
 /**
- * The selfimprovement beat's units: rendered over the dev checkout `selfimprovement.checkout` names, never over the deployed one, so
- * they are a list of their own (src/setup/run.ts).
+ * The development worker's unit: rendered over the dev checkout `selfimprovement.checkout` names, never over the deployed
+ * one, so it is a list of its own (src/setup/run.ts). Setup writes it and never enables it; that is the owner's step.
  */
-export const SELFIMPROVEMENT_UNIT_FILES: ReadonlyArray<string> = [
-  'neptunia-selfimprovement.service',
-  'neptunia-selfimprovement.timer',
-];
+export const DEVELOPMENT_UNIT_FILES: ReadonlyArray<string> = ['neptunia-development.service'];
 
 /** The `Unit=` line of the watcher's timer. */
 const WATCHER_TIMER = /^Unit=neptunia-watcher\.service$/m;

@@ -104,7 +104,7 @@ const NOT_BUILT = {
   // which fetches its own history: no seam reaches it (owner decision O-9).
   address: 'built inside the src/behavior/pipeline.ts closure (O-9)',
   // The executor's brief moved to executor-brief.md; selfimprovement.md is her wake, loaded below.
-  'executor-brief': 'filled by src/selfimprovement/service.ts#briefFrom, a dev run reads it', // tests/selfimprovement-service
+  'executor-brief': 'filled by src/development/brief.ts#briefFrom, an agent run of the development worker reads it',
   // Split into families and drawn from line by line (src/behavior/diary.ts#pickSeeds): the plan request carries a few random lines in <seeds>, never the file whole.
   'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.ts#pickSeeds), never sent whole',
   // Her memory session and the description review build their requests over the memory database, not from a turn:
