@@ -675,7 +675,7 @@ async function runInkChat(where: { privateDir: string }, firstLine = ''): Promis
   const run = (parsed: Command): Promise<Answer> =>
     LOCAL_COMMANDS.has(parsed.name) ? runLocal(parsed, (asked) => link.ask(asked)) : link.ask(parsed, answers);
   await runInteractive({
-    title: 'neptunia',
+    title: 'Project Neptunia',
     initialInput: firstLine,
     commands: [
       { name: 'setup', help: 'Connect services, interfaces and skills' },

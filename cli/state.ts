@@ -93,13 +93,23 @@ export function statusLine(
   brief: StatusBrief | null,
   { connected, polledAt, now }: { connected: boolean; polledAt: number | null; now: number }
 ): string {
-  if (!connected) return 'link: lost · core: unknown · memory: unknown';
-  if (brief === null || polledAt === null) return 'link: up · core: unknown · memory: unknown';
-  const stale = now - polledAt > STALE_AFTER_MS ? ' · stale' : '';
+  if (!connected) return 'Core: connection lost\nMemory: unknown\nInterfaces: unknown';
+  if (brief === null || polledAt === null) return 'Core: checking…\nMemory: checking…\nInterfaces: checking…';
+  const stale = now - polledAt > STALE_AFTER_MS ? ' (outdated)' : '';
   const reason = brief.core.reason === null ? '' : ` (${brief.core.reason})`;
-  const memory = `${brief.memory.path}${brief.memory.model === null ? '' : ` ${brief.memory.model}`}: ${brief.memory.probe}`;
+  const probe = { ok: 'ready', failed: 'check failed', unknown: 'not checked' }[brief.memory.probe];
+  const memory = [probe, brief.memory.model, brief.memory.path].filter(Boolean).join(' · ');
   const interfaces = brief.interfaces
     .filter((one) => one.enabled)
-    .map((one) => `${one.name}: ${one.connected ? 'up' : 'down'}`);
-  return [`link: up`, `core: ${brief.core.state}${reason}`, `memory: ${memory}`, ...interfaces].join(' · ') + stale;
+    .map(
+      (one) =>
+        `${one.name.charAt(0).toUpperCase()}${one.name.slice(1)} (${one.connected ? 'connected' : 'disconnected'})`
+    );
+  return [
+    `Core: ${brief.core.state}${reason}`,
+    `Memory: ${memory}`,
+    `Interfaces: ${interfaces.join(', ') || 'none enabled'}`,
+  ]
+    .map((line) => line + stale)
+    .join('\n');
 }

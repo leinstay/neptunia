@@ -17,6 +17,6 @@ export type Panel = { title: string; lines: ReadonlyArray<string>; rows?: Readon
 export function panelRows(panel: Panel, group: string, search: string): Array<PanelRow> {
   const asked = search.trim().toLowerCase();
   return (panel.rows ?? []).filter((row) =>
-    asked === '' ? row.group === group : `${row.label} ${row.detail}`.toLowerCase().includes(asked)
+    asked === '' ? row.group === group : `${row.id} ${row.label} ${row.detail}`.toLowerCase().includes(asked)
   );
 }
