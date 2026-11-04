@@ -2,6 +2,7 @@
 // holds several requests, and the directory and partner a turn's searches and mentions read. createTurnRunner
 // (src/behavior/turn.ts) builds it once per runner with createLookup; the attempt calls its functions.
 
+import { isCliOwner } from '../behavior/core-pause.ts';
 import { prefetchLanes, prefetchOn, wakeLanes } from '../behavior/prefetch.ts';
 import { fillPromptTemplate } from '../behavior/prompt.ts';
 import { recallSettings } from '../behavior/recall.ts';
@@ -123,6 +124,7 @@ export type Lookup = {
   recallAvailable: () => boolean;
   turnDirectory: (args: { guildId: string; memoryOn: boolean }) => () => ReturnType<typeof mentionDirectory>;
   privatePartner: (args: {
+    iface: string | undefined;
     guildId: string;
     userId: string | null | undefined;
     config: LookupConfig;
@@ -296,16 +298,18 @@ export function createLookup(ctx: LookupContext): Lookup {
   /**
    * A private chat's partner as a member of the served community (`memberInfo`), for a private chat that works
    * like a server turn on their behalf: features.privateLikeServer (read from `config`, the turn's live
-   * config; a missing key counts as on, only false turns it off). Null with the switch off or without a user id.
+   * config; a missing key counts as on, only false turns it off). Null with the switch off, without a user id or in
+   * the owner's chat.
    * A read the interface does not answer, an error answer and a user who is no member (the member left) are null
    * and log `turn: partner failed`. Never rejects.
    */
   async function privatePartner({
+    iface,
     guildId,
     userId,
     config,
   }: Parameters<Lookup['privatePartner']>[0]): Promise<MemberInfo | null> {
-    if (config.private?.likeServer === false || !userId) return null;
+    if (config.private?.likeServer === false || !userId || isCliOwner(iface, userId)) return null;
     const found = await ifaceReads.memberInfo({ communityId: guildId, memberId: String(userId) });
     if (found?.member) return found.member;
     log.warn('turn: partner failed', { guildId, userId });
