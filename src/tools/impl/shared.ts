@@ -6,6 +6,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { listRules, locateBullets } from '../../rules-list.ts';
 import { publicationRefusal } from '../publication.ts';
 import type { PublicationBoundary } from '../publication.ts';
 import { emptyAffinity, affinityBand, roundScore } from '../../memory/index.ts';
@@ -57,58 +58,14 @@ export const OWNER_ONLY_CONFIG_PATHS = ['bot.owners', 'bot.ownerPerson', 'bot.ac
 /** The error of every guild-bound command before the served guild resolves. */
 export const NO_GUILD = 'no guild resolved yet';
 
+export { listRules, locateBullets };
+
 /** The reply for an empty list, the same for every list command. */
 export const NONE = '(none)';
 
 // ---------------------------------------------------------------------------
 // Pure functions
 // ---------------------------------------------------------------------------
-
-/**
- * Locate the bullet lines (`- …`) that belong to the rules list: those under
- * the LAST `## ` heading of the file, in whatever language it is written.
- * When the file has no `## ` heading at all, every top-level bullet counts.
- */
-export function locateBullets(text: string): { lines: Array<string>; indices: Array<number> } {
-  const lines = text.split('\n');
-  let headingIdx = -1;
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    if (/^## /.test(lines[i] ?? '')) {
-      headingIdx = i;
-      break;
-    }
-  }
-
-  let start = 0;
-  let end = lines.length;
-
-  if (headingIdx !== -1) {
-    start = headingIdx + 1;
-    end = lines.length;
-    for (let i = start; i < lines.length; i += 1) {
-      if (/^#/.test(lines[i] ?? '')) {
-        end = i;
-        break;
-      }
-    }
-  }
-
-  const indices: Array<number> = [];
-  for (let i = start; i < end; i += 1) {
-    if (/^- /.test(lines[i] ?? '')) indices.push(i);
-  }
-  return { lines, indices };
-}
-
-/**
- * Bullet texts (lines starting with `- `) under the last `## ` heading of the
- * file, in order. When the file has no `## ` heading at all, every top-level
- * `- ` bullet in the file is returned instead.
- */
-export function listRules(rulesText: string | null | undefined): Array<string> {
-  const { lines, indices } = locateBullets(rulesText ?? '');
-  return indices.map((i) => (lines[i] ?? '').slice(2).trimEnd());
-}
 
 /**
  * Append `- <rule>` as the last line of `rulesText`. Newlines inside `rule`

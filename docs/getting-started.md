@@ -68,7 +68,7 @@ In the chat, `/status` shows the core and its connections. Ordinary text talks t
 
 ## Make it your persona
 
-Copy only the prompt files you want to replace into `data/prompts/`, keeping their names. Start with `character-card.md` and `rules.md`. A nonempty personal file replaces its default. Settings in `data/config/config.json` merge over the shipped defaults, with arrays replaced whole. Both layers reload while the core runs.
+Copy only the prompt files you want to replace into `data/prompts/`, keeping their names. Start with `character-card.md` and `rules.md`. A nonempty personal file replaces its default. The rules are the `- ` bullets under the last `## ` heading of `rules.md`: the file reaches a request whole while it holds a bullet, and adds nothing to a request while it holds none. Settings in `data/config/config.json` merge over the shipped defaults, with arrays replaced whole. Both layers reload while the core runs.
 
 Use [the prompt contract](prompt-contract.md) when editing files with placeholders or output tags. Keep engine defaults unchanged so an engine update does not overwrite your persona.
 
