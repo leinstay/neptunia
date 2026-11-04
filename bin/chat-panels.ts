@@ -4,6 +4,7 @@ import { CONFIG_SCHEMA, schemaDefaults } from '../src/config/schema.ts';
 import { deepMerge } from '../src/config.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 import type { Panel, PanelResult, PanelRow } from '../cli/panel.ts';
+import { settingPresentation } from './setting-presentation.ts';
 
 type Run = (command: { name: string; args: Record<string, unknown> }) => Promise<PanelResult>;
 const object = (value: unknown): Record<string, unknown> =>
@@ -19,9 +20,7 @@ function settingsRows(config: Record<string, unknown>, run: Run, prefix = ''): A
     return [
       {
         id,
-        label: id,
-        detail: schema?.text ?? 'Personal setting',
-        group: id.split('.')[0] ?? 'general',
+        ...settingPresentation(id, schema?.text ?? 'A personal setting for this feature.'),
         value: text,
         edit: { kind: typeof value === 'boolean' ? ('boolean' as const) : ('text' as const), value: text },
         apply: (next: string) => run({ name: 'config.set', args: { path: id, value: next } }),

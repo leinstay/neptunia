@@ -6,7 +6,7 @@
 
 import { createElement as h, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
-import { Box, Text, useApp, useInput } from 'ink';
+import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import { galaxyFrame } from './galaxy.ts';
 import { PanelView } from './panel-view.ts';
 import type { Panel } from './panel.ts';
@@ -90,6 +90,15 @@ function Menu({ items, selected }: { items: ReadonlyArray<MenuCommand>; selected
 
 export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
   const { exit } = useApp();
+  const { stdout } = useStdout();
+  const [rows, setRows] = useState<number>((stdout as { rows?: number }).rows || 24);
+  useEffect(() => {
+    const resize = (): void => setRows((stdout as { rows?: number }).rows || 24);
+    stdout.on('resize', resize);
+    return () => {
+      stdout.off('resize', resize);
+    };
+  }, [stdout]);
   const [entries, setEntries] = useState<ReadonlyArray<ChatEntry>>([]);
   const [input, setInput] = useState(() => {
     const state = emptyInput(env.history);
@@ -212,33 +221,45 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
   const after = shown.slice(input.cursor);
   return h(
     Box,
-    { flexDirection: 'column' },
+    { flexDirection: 'column', height: Math.max(10, rows) },
     h(Header, { env, line: statusLine(brief, { connected, polledAt, now: env.now() }) }),
-    ...entries.map((entry, index) => h(Entry, { key: String(index), entry, expanded })),
-    panel === null
-      ? null
-      : h(PanelView, {
-          panel,
-          active: question === null,
-          close: () => setPanel(null),
-          prefill: (line: string) => {
-            setPanel(null);
-            setInput(emptyInputWith(input, line));
-          },
-        }),
-    question === null ? null : h(Text, { bold: true }, question.question),
     h(
       Box,
-      { borderStyle: 'round', paddingX: 1 },
-      h(Text, null, '> ', before, h(Text, { inverse: true }, after[0] ?? ' '), after.slice(1))
+      { flexDirection: 'column', flexGrow: 1, flexShrink: 1, overflow: 'hidden' },
+      h(
+        Box,
+        { flexDirection: 'column', flexGrow: 1, flexShrink: 1, justifyContent: 'flex-end', overflow: 'hidden' },
+        ...entries.map((entry, index) => h(Entry, { key: String(index), entry, expanded }))
+      ),
+      panel === null
+        ? null
+        : h(PanelView, {
+            panel,
+            active: question === null,
+            close: () => setPanel(null),
+            prefill: (line: string) => {
+              setPanel(null);
+              setInput(emptyInputWith(input, line));
+            },
+          })
     ),
-    panel === null && items.length > 0 ? h(Menu, { items, selected }) : null,
     h(
-      Text,
-      { dimColor: true },
-      question !== null
-        ? 'Enter continue · Esc cancel'
-        : '/ commands · /setup connections · /config settings · Ctrl+O expand'
+      Box,
+      { flexDirection: 'column', flexShrink: 0 },
+      panel === null && items.length > 0 ? h(Menu, { items, selected }) : null,
+      question === null ? null : h(Text, { bold: true }, question.question),
+      h(
+        Box,
+        { borderStyle: 'round', paddingX: 1 },
+        h(Text, null, '> ', before, h(Text, { inverse: true }, after[0] ?? ' '), after.slice(1))
+      ),
+      h(
+        Text,
+        { dimColor: true },
+        question !== null
+          ? 'Enter continue · Esc cancel'
+          : '/ commands · /setup connections · /config settings · Ctrl+O expand'
+      )
     )
   );
 }

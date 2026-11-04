@@ -2,15 +2,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Writable, Readable } from 'node:stream';
+import { stripVTControlCharacters } from 'node:util';
 import { runInteractive } from '../cli/index.ts';
 import type { ChatEnv, ChatEntry, Question } from '../cli/index.ts';
 
 function terminal(columns = 80) {
   let frames = '';
+  let screen = '';
   const stdout = Object.assign(
     new Writable({
       write(chunk: Buffer | string, _encoding, done) {
         frames += String(chunk);
+        const visible = stripVTControlCharacters(String(chunk));
+        if (visible.includes('\n')) screen = visible;
         done();
       },
     }),
@@ -24,7 +28,7 @@ function terminal(columns = 80) {
     setEncoding: () => stdin,
   });
   const type = (text: string): void => void stdin.push(text);
-  return { stdout, stdin, type, frames: () => frames };
+  return { stdout, stdin, type, frames: () => frames, screen: () => screen.replace(/\n$/, '').split('\n') };
 }
 
 const pause = (ms = 60): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -80,7 +84,8 @@ test("the screen shows the galaxy, the status line, and a typed line reaches the
     assert.match(rig.frames(), /neptunia/);
     assert.match(rig.frames(), /@/);
     await pause();
-    assert.match(rig.frames(), /core: running/);
+    // The header presents each status on its own readable line.
+    assert.match(rig.frames(), /Core: running/);
     rig.type('γεια');
     await pause();
     rig.type('\r');
@@ -88,6 +93,26 @@ test("the screen shows the galaxy, the status line, and a typed line reaches the
   });
   assert.deepEqual(sent, ['γεια']);
   assert.deepEqual(saved.at(-1), ['γεια']);
+});
+
+test('the input stays at the terminal bottom when the conversation is empty and the terminal grows', async () => {
+  // Bug: an empty conversation leaves the input below the header instead of at the terminal bottom.
+  const { env } = envOf();
+  await withChat(env, async (rig) => {
+    rig.type('bottom-input');
+    await pause();
+    assert.equal(
+      rig.screen().findIndex((line) => line.includes('> bottom-input')),
+      rig.stdout.rows - 3
+    );
+    rig.stdout.rows = 32;
+    rig.stdout.emit('resize');
+    await pause();
+    assert.equal(
+      rig.screen().findIndex((line) => line.includes('> bottom-input')),
+      rig.stdout.rows - 3
+    );
+  });
 });
 
 test('a slash opens its menu with descriptions, and a panel opens with its search', async () => {
