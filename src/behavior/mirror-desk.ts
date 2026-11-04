@@ -16,6 +16,7 @@ import {
   unknownEntry,
 } from '../memory/db/mirror-config.ts';
 import type { BackfillChange, MirrorRow } from '../memory/db/mirror-config.ts';
+import { refusedEntries } from '../memory/db/diary-audience.ts';
 import { storedDiaryPublicationRefusal } from '../memory/db/publish.ts';
 import { publicationFor, stateOfRow } from '../memory/db/publication-delivery.ts';
 import type { PublicationState } from '../memory/db/publication-delivery.ts';
@@ -44,6 +45,8 @@ export type MirrorStatus = Mirror & {
   incomplete: Array<{ entryId: string; code: string | null }>;
   uncertain: Array<{ entryId: string }>;
   deliveredOutsideAudience: Array<{ entryId: string }>;
+  /** Entries whose audience could not be read: on no mirror, each with why, until the owner changes the row. */
+  audienceBlocked: Array<{ entryId: string; code: 'audience-invalid'; reason: string }>;
   backfill: {
     enabled: boolean;
     intervalMs: number | null;
@@ -145,6 +148,7 @@ export function createMirrorDesk({
       deliveredOutsideAudience: rows
         .filter((row) => outsideAudience(db, row.status, row.row_id, mirror.placeId))
         .map((row) => ({ entryId: String(row.row_id) })),
+      audienceBlocked: refusedEntries(db).map((one) => ({ ...one, code: 'audience-invalid' })),
       backfill: { ...mirror.backfill, remaining, blocked },
     };
   }

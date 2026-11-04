@@ -82,7 +82,7 @@ export function nowBlock(now: number, timezone: string, labels: Labels, periods:
  * `errands`: the `<errands>` and `<errand_result>` bodies
  * (buildRequest's `input.errands`), in the tail before `<people_now>`. `diary` (a diary post only): the
  * `<diary>` block's intro, shown above its kept lines, the `<plan>` body and
- * the `<seeds>` body (a set post's seed combinations, right after the plan), and the `<publication_places>` body after them.
+ * the `<seeds>` body (a set post's seed combinations, right after the plan), the `<publication_places>` body after them and the `<audience_refused>` body, a refused audience she has not heard of.
  */
 // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/prompt.ts in stage 5d, a pure move
 export function assembleUser({
@@ -117,7 +117,7 @@ export function assembleUser({
   tempoText: string;
   task: string;
   chatItems: Array<TranscriptItem> | null;
-  diary?: { intro: string; plan: string; seeds: string; publicationPlaces: string } | null;
+  diary?: { intro: string; plan: string; seeds: string; publicationPlaces: string; audienceRefused: string } | null;
   errands?: { list: string; result: string } | null;
   intentions?: string;
   wake?: string;
@@ -167,6 +167,7 @@ export function assembleUser({
     block('plan', diary?.plan ?? ''),
     block('seeds', diary?.seeds ?? ''),
     block('publication_places', diary?.publicationPlaces ?? ''),
+    block('audience_refused', diary?.audienceRefused ?? ''),
     block('found', (kept.found ?? []).join('\n')),
     // Right before the chat it answers a question from.
     block('lookup', (kept.lookup ?? []).join('\n')),

@@ -401,6 +401,12 @@ export const labels = {
     seeds: 'Random seeds (place; setting; detail; activity; subject; twist):',
     topic: 'Topic the owner asked for:',
     publicationPlaces: 'Who may read this post, and the audience tag:',
+    audienceRefused: 'not published {date}: {gist}: {reason}',
+    audienceReasons: {
+      'audience-unknown-place': 'that place is not listed',
+      'audience-unknown-interface': 'that interface is not listed',
+      'audience-malformed': 'that was no single listed token',
+    },
   },
   journal: {
     offLead: 'Your recent time away:',

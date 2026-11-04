@@ -7,6 +7,7 @@ import { DIARY_MAX_MESSAGES, stripUrls } from '../../behavior/diary.ts';
 import { resolveReactionEmoji } from '../../behavior/emoji.ts';
 import { innerOutputCalls } from '../../behavior/inner-output.ts';
 import { thinkMissing } from '../../behavior/tool-step.ts';
+import { markRefusalsTold } from '../../behavior/diary-turn.ts';
 import { parseOutput, takeAudience } from '../../llm/parse.ts';
 import { log } from '../../log.ts';
 import { countDashes, stripDashes } from '../../memory/clamp.ts';
@@ -99,6 +100,8 @@ export async function responsePhase(
   // The answer is in hand: the bar is met, and the typing imitation below (never shortened) takes over.
   bar.close();
   life.stopTyping();
+  // Her request is answered, so a refused audience it showed has reached her.
+  markRefusalsTold(store, guildId, diaryPrep?.posts ?? []);
 
   // The model's output as it is acted on: the feature switches drop parts of it first. The same
   // for the answer to every request after her calls.

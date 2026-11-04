@@ -44,6 +44,8 @@ A diary writer request carries `<publication_places>` after `<plan>` and `<seeds
 
 The answer may add `<audience>unrestricted | interface:x | place:y</audience>`, one of the three, with the token alone. `takeAudience` in `src/llm/parse.ts` removes the tag from a diary answer before the conversation parser runs and leaves a think block and code alone. `audienceChoice` in `src/tools/publication.ts` reads the bodies into `result.diary.audience`, which is `{ ok: true, audience }` or `{ ok: false, code }` with `audience-unknown-place`, `audience-unknown-interface` or `audience-malformed`. No other mode reads the tag.
 
+A diary writer request after a refusal also carries `<audience_refused>`, right after `<publication_places>` and never cut, with one `diary.audienceRefused` line per post she has not heard of. The line fills `{date}`, `{gist}` and `{reason}`, and `{reason}` is the code's entry in `diary.audienceReasons`.
+
 The contract lives in the label because a nonempty `data/prompts/diary.md` replaces `prompts/diary.md` whole. A deployment with its own `diary.md` needs no change for the tag to work, and its `data/config/labels.json` may reword `diary.publicationPlaces`. [The diary](diary.md#audience) describes what the stored audience does.
 
 ### Mention handles

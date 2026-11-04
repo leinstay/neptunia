@@ -6,7 +6,7 @@
 // (src/behavior/line-of.ts). `pictureGate` says whether the post may carry a picture, and
 // `diaryVoiceTool` keeps her voice message for the entry instead of posting it. Logs: none.
 
-import { UNRESTRICTED, diaryMetadataOf, diaryRestricted } from '../tools/publication.ts';
+import { UNRESTRICTED, diaryMetadataOf, diaryRestricted, refusedAudience } from '../tools/publication.ts';
 import type { AudienceChoice, PublicationBoundary } from '../tools/publication.ts';
 import { randomUUID } from 'node:crypto';
 import {
@@ -250,6 +250,28 @@ export function recordEntry({
     audience,
     entry,
   };
+}
+
+/**
+ * The refusals `posts` showed in a diary request (`<audience_refused>`), marked on their posts once she answered it, so
+ * she hears of each one once. A request that never got an answer marks nothing.
+ */
+export function markRefusalsTold(store: DiaryStore, guildId: string, posts: ReadonlyArray<object>): void {
+  const shown = new Set(
+    posts.flatMap((post) => {
+      const { itemId, publicationAudience } = post as { itemId?: unknown; publicationAudience?: unknown };
+      return refusedAudience(publicationAudience)?.told === false ? [itemId] : [];
+    })
+  );
+  if (shown.size === 0 || !store.getDiary || !store.setDiaryPosts) return;
+  const marked = store
+    .getDiary(guildId)
+    .posts.map((post) =>
+      shown.has(post.itemId)
+        ? { ...post, publicationAudience: { ...(post.publicationAudience as object), told: true } }
+        : post
+    );
+  store.setDiaryPosts(guildId, marked, { max: DEFAULT_HISTORY_POSTS });
 }
 
 /** One message of her diary as memory holds it: a message of the platform's shape, and its addressing. */

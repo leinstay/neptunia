@@ -60,6 +60,16 @@ export function audienceChoice(words: ReadonlyArray<string>, known: KnownPlaces)
     : { ok: false, code: 'audience-unknown-place' };
 }
 
+/**
+ * Why a stored `publicationAudience` publishes nowhere and whether she has heard of it, or null when it stands: no
+ * audience at all (an old row) or a readable one.
+ */
+export function refusedAudience(stored: unknown): { reason: string; told: boolean } | null {
+  if (stored === undefined || isPublicationAudience(stored)) return null;
+  const value = objOf(stored);
+  return { reason: typeof value.code === 'string' ? value.code : 'audience-malformed', told: value.told === true };
+}
+
 export function isPublicationBoundary(value: unknown): value is PublicationBoundary {
   const boundary = objOf(value);
   const origin = objOf(boundary.origin);

@@ -2,7 +2,9 @@
 // post's `<seeds>` and what its search found (`<found>`). buildRequest and buildDiaryPlanRequest
 // (src/behavior/prompt.ts) call them. None of it reaches a request of another mode.
 
-import { DEFAULT_HISTORY_POSTS, renderDiaryBlock } from '../../behavior/diary.ts';
+import { DEFAULT_HISTORY_POSTS, localDayKey, renderDiaryBlock } from '../../behavior/diary.ts';
+import { fill } from '../../format.ts';
+import { refusedAudience } from '../../tools/publication.ts';
 import { fillPromptTemplate } from './text.ts';
 import type { KnownPlaces } from '../../tools/publication.ts';
 import type { Labels, Prompts, RequestConfig, RequestInput } from './types.ts';
@@ -91,6 +93,30 @@ export function publicationPlacesBody(known: KnownPlaces | undefined, labels: La
     .join('\n');
 }
 
+/**
+ * The `<audience_refused>` block's body: one `labels.diary.audienceRefused` line per post of `posts` whose audience could
+ * not be read and that she has not heard of, its reason from `labels.diary.audienceReasons`. '' when there is none.
+ */
+export function audienceRefusedBody(posts: unknown, labels: Labels, timezone: string | undefined): string {
+  const template = labels.diary?.audienceRefused;
+  const reasons = (labels.diary?.audienceReasons ?? {}) as unknown as Readonly<Record<string, string | undefined>>;
+  if (typeof template !== 'string' || !Array.isArray(posts)) return '';
+  return (posts as ReadonlyArray<{ at?: unknown; gist?: unknown; publicationAudience?: unknown }>)
+    .flatMap((post) => {
+      const refused = refusedAudience(post.publicationAudience);
+      if (!refused || refused.told) return [];
+      const date = typeof post.at === 'number' ? localDayKey(post.at, timezone) : '';
+      return [
+        fill(template, {
+          date,
+          gist: typeof post.gist === 'string' ? post.gist : '',
+          reason: reasons[refused.reason] ?? '',
+        }),
+      ];
+    })
+    .join('\n');
+}
+
 /** A diary post's blocks: the world, the past posts with their intro, the plan, what the search found, the seeds. */
 export type DiaryParts = {
   worldItem: string;
@@ -100,7 +126,8 @@ export type DiaryParts = {
   foundText: string;
   seedsText: string;
   publicationPlacesText: string;
-  diaryParts: { intro: string; plan: string; seeds: string; publicationPlaces: string } | null;
+  audienceRefusedText: string;
+  diaryParts: { intro: string; plan: string; seeds: string; publicationPlaces: string; audienceRefused: string } | null;
 };
 
 /**
@@ -125,8 +152,25 @@ export function diaryOf(given: RequestInput & { labels: Labels }): DiaryParts {
   // A set post's seed combinations (already rendered by src/behavior/diary.ts#renderSeedsBlock).
   const seedsText = diaryInput && typeof diaryInput.seeds === 'string' ? diaryInput.seeds.trim() : '';
   const publicationPlacesText = publicationPlacesBody(diaryInput?.publicationPlaces, labels);
+  const audienceRefusedText = diaryInput ? audienceRefusedBody(diaryInput.posts, labels, config.bot?.timezone) : '';
   const diaryParts = diaryMode
-    ? { intro: diaryIntro, plan: planText, seeds: seedsText, publicationPlaces: publicationPlacesText }
+    ? {
+        intro: diaryIntro,
+        plan: planText,
+        seeds: seedsText,
+        publicationPlaces: publicationPlacesText,
+        audienceRefused: audienceRefusedText,
+      }
     : null;
-  return { worldItem, diaryLines, diaryIntro, planText, foundText, seedsText, publicationPlacesText, diaryParts };
+  return {
+    worldItem,
+    diaryLines,
+    diaryIntro,
+    planText,
+    foundText,
+    seedsText,
+    publicationPlacesText,
+    audienceRefusedText,
+    diaryParts,
+  };
 }

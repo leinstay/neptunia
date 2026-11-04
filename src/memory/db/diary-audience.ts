@@ -9,7 +9,7 @@
 // A row with no `publicationAudience` predates the audience and stays as it is: an old group entry stays on its own
 // `scope_iface`, and anything with no interface or a private scope reaches nothing. Pure reads. Logs: none.
 
-import { diaryMetadataOf, isPublicationAudience } from '../../tools/publication.ts';
+import { diaryMetadataOf, isPublicationAudience, refusedAudience } from '../../tools/publication.ts';
 import type { KnownPlaces, PublicationAudience } from '../../tools/publication.ts';
 import type { Db, Row } from './types.ts';
 
@@ -37,6 +37,20 @@ export function publicationPlaces(connection: unknown): KnownPlaces {
   };
 }
 
+/** The entries whose audience could not be read, oldest first, each with why: blocked on every mirror. */
+export function refusedEntries(db: Db): Array<{ entryId: string; reason: string }> {
+  return db
+    .prepare(
+      `SELECT id, extra FROM diary WHERE retired_at IS NULL AND extra LIKE '%publicationAudience%'
+        ORDER BY at_ms, COALESCE(position, 0), id`
+    )
+    .all()
+    .flatMap((row) => {
+      const refused = refusedAudience(diaryMetadataOf(row.extra).publicationAudience);
+      return refused ? [{ entryId: String(row.id), reason: refused.reason }] : [];
+    });
+}
+
 /** Whether `audience` covers the place `placeId`. */
 function covers(db: Db, audience: PublicationAudience, placeId: string): boolean {
   if (audience.kind === 'unrestricted') return true;
@@ -60,6 +74,7 @@ export function audienceRefusal(
   row: Row | undefined,
   placeId: string
 ): 'audience-excluded' | 'audience-invalid' | null {
+  // The live path publishes after `flushSettled`, so a row that is not there is no entry of hers to hold back.
   if (!row) return null;
   const metadata = diaryMetadataOf(row.extra);
   const bounded = metadata.publicationBoundary !== undefined;
