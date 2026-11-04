@@ -13,5 +13,10 @@ The persona root: everything that makes one deployment's persona, kept apart fro
 | `skills/<name>/` | Authored skills, their scripts and their state. |
 | `interfaces/<name>/` | The settings, credentials and technical state of one interface. |
 | `subharness/<backend>/` | The native homes, logins and sessions of the agent backends. |
+| `clients.json`, `clients/` | Local client authentication and service environment files. |
+| `cli/` | Owner CLI history. |
+| `run/` | Runtime sockets, recreated when services start. |
+
+SQLite also creates working sidecars beside `memory.db`; the writer holds `memory.db.lock` while running. These are runtime files, not additional memory stores.
 
 This README is the only file of the directory in the public repository.

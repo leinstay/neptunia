@@ -3327,6 +3327,8 @@ function buildStore({
     },
 
     /**
+     * With a database, queue the trace through its writer under a semantic key. The file path below is only
+     * the standalone backend.
      * Append one recall run's record (src/behavior/recall-run.js, `features.recallTrace`)
      * as one JSON line to data/guilds/<guildId>/recall-trace.jsonl, written at once (not
      * through the cache). The file keeps the newest `maxLines` lines (a missing or unusable
@@ -3336,6 +3338,14 @@ function buildStore({
      */
     appendRecallTrace(guildId: string, record: StoredRecord, { maxLines }: { maxLines?: number } = {}) {
       const cap = isFiniteNumber(maxLines) && maxLines >= 1 ? Math.floor(maxLines) : RECALL_TRACE_MAX_LINES;
+      if (memoryDb) {
+        if (!outbox) throw Object.assign(new Error('Memory writer unavailable'), { code: 'DB_CLOSED' });
+        outbox.lines(communityKey('recall_trace', guildId, { iface: namespace() }), [
+          { record: JSON.parse(JSON.stringify(record)) as StoredRecord, maxLines: cap },
+        ]);
+        void outbox.push();
+        return;
+      }
       const file = recallTraceFile(guildId);
       const line = JSON.stringify(record);
       let text = '';
