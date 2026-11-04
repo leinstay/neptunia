@@ -139,6 +139,8 @@ type LineRules = {
 function renderedLines(line: string, key: string | null, rules: LineRules): Array<string> | null {
   if (rules.backendDirs.length > 0 && key === 'ProtectHome')
     return [line, ...rules.backendDirs.map((dir) => `BindPaths=-${dir}`)];
+  // The runner reads agents/ at its start, so a persona folder emptied for the unit shows that folder.
+  if (key === 'TemporaryFileSystem') return [line, `BindReadOnlyPaths=-${path.join(rules.vars.dataDir, 'agents')}`];
   if (rules.calendar !== null && key === 'OnCalendar') return [rules.calendar];
   return null;
 }

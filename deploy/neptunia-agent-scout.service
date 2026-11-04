@@ -55,11 +55,12 @@ RestartSec=5
 # folder <private>/subharness/<backend>/ (its sessions, logs and login), which
 # `neptunia setup` binds after ProtectHome= while a backend is on; the rest of
 # the home is an empty tmpfs, with ~/.local read-only; the persona folder is an
-# empty tmpfs that shows only agents/ read-only and the backend's folder, so her
+# empty tmpfs that shows only agents/ read-only and the backend's folder, both
+# bound by `neptunia setup`, so her
 # memory and keys are out of reach; everything else is read-only.
 ProtectSystem=strict
 ProtectHome=tmpfs
-BindReadOnlyPaths=/home/neptunia/.local -/opt/neptunia/data/agents
+BindReadOnlyPaths=/home/neptunia/.local
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectKernelTunables=yes
