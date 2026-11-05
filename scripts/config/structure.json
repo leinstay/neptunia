@@ -1316,7 +1316,7 @@
       "test": "none"
     },
     {
-      "path": "src/pipeline/follow-up-window.ts",
+      "path": "src/pipeline/address-attention.ts",
       "purpose": "A channel's follow-up window, opened by the persona's post, kept in the state and closed by a run of `no` verdicts, and the checks in front of the address classifier. Tested through the events tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
@@ -1508,7 +1508,7 @@
     },
     {
       "path": "src/memory/db/media-backfill.ts",
-      "purpose": "The historical backfill of media over an interface's history. Tested through tests/media-memory-backfill.test.ts.",
+      "purpose": "The historical backfill of media over an interface's history. Tested through `tests/media-memory-backfill.test.ts`.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1543,14 +1543,16 @@
     },
     {
       "path": "src/memory/describe-audio.ts",
-      "purpose": "How the describer tells a voice message, an audio file and a text file. Tested through tests/media-memory-audio.test.ts.",
+      "purpose": "How the describer tells a voice message, an audio file and a text file. Tested through `tests/media-memory-audio.test.ts`.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
     },
     {
       "path": "src/memory/text-standard.ts",
-      "purpose": "The script check of a stored text form. Tested through tests/media-memory-standard.test.ts.",
+      "purpose": "The script check of a stored text form. Tested through `tests/media-memory-standard.test.ts`.",
+      "path": "src/memory/db/audit.ts",
+      "purpose": "The memory audit: counts of what breaks the rules of the stored rows, over a read connection. Tested through `tests/memory-audit.test.ts`.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

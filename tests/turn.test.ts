@@ -1,3 +1,4 @@
+// health: allow file-length until 2027-04-01 -- the standard counts widened two assertions; this file splits with the turn runner
 import {
   SPLIT_SYSTEM,
   SPLIT_TEXT,
@@ -3419,7 +3420,7 @@ test('runTurn: without labels.pull.header only the source is pulled, with cached
     quiet.turns.runTurn({ channel: quiet.channel, mode: 'reply', trigger: quiet.trigger, triggerKind: 'mention' })
   );
   assert.equal(
-    none.logs.some((l) => l.msg.startsWith('pull: ')),
+    none.logs.some((l) => l.msg.startsWith('pull: ') && l.reason !== 'no-label'), // plan B3: the runner has its hook
     false
   );
 });
@@ -5597,9 +5598,9 @@ test('runTurn: the splitter cuts the parts at its four tasks', async () => {
   assert.ok(taskOf(llm.calls.talk[0]).endsWith(partLabel(1, kept)));
 });
 
-test('runTurn: an overheard line or an unprompted turn never asks the splitter', async () => {
+test('runTurn: an overheard line asks the splitter and an unprompted turn never does', async () => {
   const overheard = await runSplitTurn({ triggerKind: 'overheard' });
-  assert.equal(overheard.llm.calls.split.length, 0);
+  assert.equal(overheard.llm.calls.split.length, 1); // plan 2026-11-04-cli-and-memory B2
   const llm = splitLlm();
   const channel = fakeTurnChannel({ historyMessages: [rawMessage({ id: 'm2', ts: NOW - 1000, content: SPLIT_TEXT })] });
   const turns = createTurnRunner({
@@ -6629,14 +6630,14 @@ test('runTurn: the pick classifier runs beside the turn and its pick reaches the
   });
   // PR 7d: participation.shown is the constant 4, so both stored episodes are shown whatever the pick says.
   const hot = fakeHot();
-  hot.prompts['participation-pick'] = 'Pick for {{name}}.';
-  const { llm, logs, result } = await runParticipationTurn({ hot, store, answers: ['1', '<msg>ναι</msg>'] });
+  hot.prompts['elsewhere-pick'] = 'Pick for {{name}}.'; // plan 2026-11-04-cli-and-memory B3: one pick, two fields
+  const { llm, logs, result } = await runParticipationTurn({ hot, store, answers: ['episodes: 1', '<msg>ναι</msg>'] });
   assert.equal(result.outcome, 'spoke');
   assert.equal(llm.calls.length, 2);
   assert.equal(llm.calls[0][0].content, 'Pick for Bot.');
   assert.ok(
     textOf(llm.calls[0][1].content).includes(
-      '<episodes>\n1 | #journal | Ana: μια ερώτηση | Bot: στο ράφι είναι\n2 | #jardin | Ana: μια ερώτηση | Bot: ωραία λουλούδια\n</episodes>\n<episode_ages>\n1 | 2 h\n2 | 30 min\n</episode_ages>'
+      '<episodes>\n1 | journal | Ana: μια ερώτηση | Bot: στο ράφι είναι\n2 | jardin | Ana: μια ερώτηση | Bot: ωραία λουλούδια\n</episodes>\n<episode_ages>\n1 | 2 h\n2 | 30 min\n</episode_ages>'
     ),
     textOf(llm.calls[0][1].content)
   );
@@ -6664,7 +6665,7 @@ test('runTurn: without the pick prompt the newest episodes are shown and the cla
   // PR 7d: participation.shown is the constant 4, so both episodes are shown, the newest first.
   assert.ok(user.includes('ωραία λουλούδια') && user.includes('στο ράφι είναι'));
   assert.ok(user.indexOf('ωραία λουλούδια') < user.indexOf('στο ράφι είναι'));
-  assert.equal(logs.find((l) => l.msg === 'participation: skipped')?.reason, 'no-prompt');
+  assert.equal(logs.find((l) => l.msg === 'elsewhere: skipped')?.reason, 'no-prompt');
 });
 
 test('runTurn: the model answered log line carries the user message segments, hashes only', async () => {
@@ -6867,7 +6868,19 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
   assert.equal(turn.attemptId, 1);
   assert.equal(turn.outcome, 'spoke');
   assert.equal(turn.reason, null);
-  assert.deepEqual(turn.format, { thinkMissing: 0, coerced: 0, malformed: 0, truncated: 0, capped: 0, held: 0 });
+  // Stage U adds the standard's counts, and this think is in Greek.
+  assert.deepEqual(turn.format, {
+    thinkMissing: 0,
+    coerced: 0,
+    malformed: 0,
+    truncated: 0,
+    thinkLeaked: 0,
+    leakEnded: 0,
+    tagInOutgoing: 0,
+    thinkOffScript: 1,
+    capped: 0,
+    held: 0,
+  });
   assert.equal(turn.steps, 0);
   assert.deepEqual(turn.seen, { messageIds: ['m0', 'm1'], parents: [], parts: { filePreviews: [] }, pulled: [] });
   assert.deepEqual(turn.sourceMessageIds, ['m0', 'm1']);
@@ -8203,7 +8216,8 @@ test("skill call: the next request shows a read's data as its tool message, a me
     'it came after the first request; the message itself is not rebuilt'
   );
   const [assistant, tool, note] = run.llm.calls[1].slice(2);
-  assert.equal(assistant.content, '<msg>κοιτάζω</msg>');
+  // Stage U: a reply with no think is handed on with an empty one.
+  assert.equal(assistant.content, '<think></think><msg>κοιτάζω</msg>');
   assert.ok(contentOf(tool).startsWith(labels.tools.result.ok), contentOf(tool));
   const noteText = contentOf(note);
   assert.ok(noteText.includes(labels.task.step.held), noteText);

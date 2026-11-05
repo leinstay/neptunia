@@ -681,8 +681,8 @@ test('recall: the run budget running out before the windows are read abandons it
   assert.equal(s.llmCalls.length, 0);
 });
 
-test('recall: a nothing answer gives no text and no stretch; a refused summary logs its rail code', async () => {
-  const s = scene({ lines: { c1: RABBIT_LINES }, answers: rabbitAnswers, answer: 'nothing' });
+test('recall: a none answer gives no text and no stretch; a refused summary logs its rail code', async () => {
+  const s = scene({ lines: { c1: RABBIT_LINES }, answers: rabbitAnswers, answer: 'none' }); // plan B4
   const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
   assert.deepEqual([result.text, result.stretch], [null, null]);
   const summary = logs.find((l) => l.msg === 'recall: summary');

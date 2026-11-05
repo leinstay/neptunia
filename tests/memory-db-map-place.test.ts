@@ -144,7 +144,10 @@ test('the guild file becomes a place, descriptions, claims of three kinds and an
   assert.deepEqual(kinds, ['injoke', 'injoke', 'self_fact', 'self_fact', 'lesson', 'lesson', 'lesson']);
   const selfFacts = rows.claims.filter((c) => c.kind === 'self_fact');
   for (const fact of selfFacts)
-    assert.deepEqual([fact.subject_kind, fact.subject_id, fact.scope_kind], ['self', 'person:self', 'none']);
+    assert.deepEqual(
+      [fact.subject_kind, fact.subject_id, fact.scope_kind],
+      ['self', 'person:self', 'group'] /* Stage V: a self fact takes the scope of the notes it stands in. */
+    );
   for (const joke of rows.claims.filter((c) => c.kind === 'injoke'))
     assert.deepEqual([joke.subject_kind, joke.scope_kind], ['place', 'group']);
   const lessons = rows.claims.filter((c) => c.kind === 'lesson');

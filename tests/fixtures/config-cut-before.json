@@ -26,9 +26,6 @@
     "shown": 4,
     "perChannel": 2,
     "episodeChars": 1800,
-    "contextMessages": 6,
-    "maxOutputTokens": 60,
-    "pickTimeoutMs": 1500,
     "earlierHours": 3,
     "earlierShown": 3
   },
@@ -160,16 +157,11 @@
     },
     "projects": {}
   },
-  "participationPickSettings": {
-    "contextMessages": 6,
-    "maxOutputTokens": 60,
-    "pickTimeoutMs": 1500
-  },
-  "routeSettings": {
-    "contextMessages": 20,
-    "maxChannels": 40,
-    "purposeChars": 80,
-    "maxOutputTokens": 120
+  "elsewherePickSettings": {
+    "maxPlaces": 40,
+    "maxEpisodes": 30,
+    "maxOutputTokens": 120,
+    "pickTimeoutMs": 3000
   },
   "pullSettings": {
     "windowMinutes": 60,

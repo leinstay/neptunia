@@ -2,16 +2,16 @@
 //
 //   places        the place, only when no row holds it yet: what the interface reported stays as stored
 //   descriptions  patterns, starters (subject: the place), one legacy version each
-//   claims        injokes (kind injoke, subject the place), self (kind self_fact, subject her, scope none),
+//   claims        injokes (kind injoke, subject the place), self (kind self_fact, subject her),
 //                 learned (kind lesson, how taught, `from_person` the teacher)
-//   A DM place's descriptions, in-jokes and lessons are scoped to that DM; every other place's to the groups.
+//   A DM place's descriptions, in-jokes, self facts and lessons are scoped to that DM; every other place's to the groups.
 //   operational   kind place: everything else (`learnedNextId`, emoji usage, notes stamps, the pings-off list, ...)
 //
 // toRows(rel, value, ctx) -> { places, descriptions, description_versions, claims, operational }     ctx: { subjectId }
 // fromRows(rows, ctx) -> the file's value
 
 import { SELF_PERSON, nativeOfAny, personId } from '../ids.ts';
-import { SCOPE_NONE, groupScope } from '../scope.ts';
+import { groupScope } from '../scope.ts';
 import { dmPlaceScope } from './scope-parts.ts';
 import { claimItems, claimRows } from './lists.ts';
 import type { ListDef } from './lists.ts';
@@ -116,7 +116,7 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
       subject_kind: self ? 'self' : 'place',
       subject_id: self ? SELF_PERSON : placeId,
       owner: self ? SELF_PERSON : placeId,
-      scope: self ? { ...SCOPE_NONE } : scope,
+      scope,
       how: def.how,
     });
     if (ok) {

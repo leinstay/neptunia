@@ -3,7 +3,6 @@
 // (turns.waitingParts) and their queued calls. createMessageHandler (src/behavior/pipeline.ts) builds it once with
 // createMerge; the live path and a private message hold through holdCall.
 
-import { SPAM_WINDOW_MS } from '../behavior/mention.ts';
 import { authorCalls, foldInto, parseMergeAnswer } from '../behavior/pending.ts';
 import { railReason, roleRequestOptions } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
@@ -35,7 +34,6 @@ export type MergeContext = {
   store: { state?: PipelineState } | null | undefined;
   now: () => number;
   turns: PipelineTurns;
-  tagHistory: { hit: (authorId: string, at: number, windowMs: number) => number };
   getSelfName: (placeId: string) => string;
   pending: PendingQueue;
   itemText: PendingQueueOps['itemText'];
@@ -52,7 +50,6 @@ export function createMerge({
   store,
   now,
   turns,
-  tagHistory,
   getSelfName,
   pending,
   itemText,
@@ -140,7 +137,6 @@ export function createMerge({
         folded = result.folded;
       }
       if (folded) {
-        if (kind !== 'private') tagHistory.hit(trigger.authorId, now(), SPAM_WINDOW_MS);
         return;
       }
     }

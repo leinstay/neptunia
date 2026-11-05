@@ -296,14 +296,13 @@ function scene({
     },
   };
   fetched.history = history;
-  const missed = createMissed({
+  const inner = createMissed({
     hot,
     store,
     journal,
     llm,
     turns,
     reads: world().reads,
-    iface: () => 'fake',
     partnerOf: (id: string) => partners.get(id) ?? null,
     getSelfName: () => 'Bot',
     dataDir,
@@ -312,6 +311,14 @@ function scene({
     timers,
     log,
   });
+  // Plan 2026-11-04-cli-and-memory B2: a fact, an activity and a turn's end name their interface, each caller does.
+  const missed = {
+    ...inner,
+    noteFact: (fact: Parameters<typeof inner.noteFact>[0]) => inner.noteFact({ iface: 'fake', ...fact }),
+    noteActivity: (placeId: string, at?: number) => inner.noteActivity(placeId, at, 'fake'),
+    onTurnEnd: (end: Parameters<typeof inner.onTurnEnd>[0]) => inner.onTurnEnd({ iface: 'fake', ...end }),
+    sweep: (placeId: string) => inner.sweep('fake', placeId),
+  };
   return { missed, clock, timers, log, store, journal, llm, turns, hot, fetched, dataDir, channel };
 }
 
@@ -658,7 +665,7 @@ test('createMissed: every fact source makes the right candidate, journaled with 
     outcome: 'error',
     reason: 'too-slow',
   });
-  missed.onTurnEnd({ conversationId: 'c1', trigger: trigger('m7'), triggerKind: 'name', outcome: 'not-now' });
+  missed.onTurnEnd({ conversationId: 'c1', trigger: trigger('m7'), triggerKind: 'reply', outcome: 'not-now' });
   const byId = Object.fromEntries(missed.candidates().map((c) => [c.messageId, c]));
   assert.deepEqual(
     Object.values(byId).map((c) => [c.messageId, c.reason, c.state]),
@@ -732,10 +739,11 @@ test('createMissed: a later turn of hers resolves the candidate, journaled resol
 
 test('createMissed: the registry is written atomically to data/places/<id>/missed.json', async () => {
   const { missed, dataDir } = scene();
-  await missed.start('g1');
+  // Plan 2026-11-04-cli-and-memory B2: a candidate lands under its own place, the conversation it was written in.
+  await missed.start('c1');
   missed.noteFact(fact('gate-failed', msg({ id: 'm1' })));
   await missed.save();
-  const file = path.join(dataDir, 'places', 'g1', 'missed.json');
+  const file = path.join(dataDir, 'places', 'c1', 'missed.json');
   const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.equal(saved.v, 1);
   assert.deepEqual(
@@ -1155,7 +1163,8 @@ test('reconcileFromRecords: facts of the last hour come back; later verdicts and
 test('createMissed: a restart loads missed.json, reconciles the journal of the last hour and arms the sweep', async () => {
   const dataDir = tmpData();
   const first = scene({ dataDir });
-  await first.missed.start('g1');
+  // Plan 2026-11-04-cli-and-memory B2: a candidate lands under its own place, and a stored fact names its interface.
+  await first.missed.start('c1');
   first.missed.noteFact(fact('gate-failed', msg({ id: 'm1' })));
   await first.missed.save();
 
@@ -1164,6 +1173,7 @@ test('createMissed: a restart loads missed.json, reconciles the journal of the l
     {
       kind: 'answer',
       event: 'fact',
+      iface: 'fake',
       occurredAt: at,
       scope: { channel: 'c1' },
       messageId: 'm2',
@@ -1182,7 +1192,7 @@ test('createMissed: a restart loads missed.json, reconciles the journal of the l
   ]);
   const second = scene({ dataDir, journal });
   second.clock.set(T0 + 2 * MIN);
-  await second.missed.start('g1');
+  await second.missed.start('c1');
   assert.deepEqual(
     second.missed.candidates().map((c) => [c.messageId, c.state]),
     [
@@ -1273,9 +1283,10 @@ test('missed candidates saved through the writer survive reopening without misse
   let memory = await openTestMemory({ now: () => T0 });
   const dataDir = memory.dataDir;
   let current = scene({ dataDir, memoryDb: memory.memoryDb });
-  const file = path.join(dataDir, 'places/g1/missed.json');
+  const file = path.join(dataDir, 'places/c1/missed.json');
   try {
-    await current.missed.start('g1');
+    // Plan 2026-11-04-cli-and-memory B2: a candidate lands under its own place.
+    await current.missed.start('c1');
     current.missed.noteFact(fact('gate-failed', msg({ id: 'persisted-candidate' })));
     await current.missed.save();
     assert.equal(fs.existsSync(file), false);
@@ -1283,7 +1294,7 @@ test('missed candidates saved through the writer survive reopening without misse
     await memory.close();
     memory = await openTestMemory({ dataDir, now: () => T0 });
     current = scene({ dataDir, memoryDb: memory.memoryDb });
-    await current.missed.start('g1');
+    await current.missed.start('c1');
     assert.deepEqual(
       current.missed.candidates().map((candidate) => [candidate.messageId, candidate.state]),
       [['persisted-candidate', 'pending']]

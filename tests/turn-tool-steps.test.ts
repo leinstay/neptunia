@@ -219,7 +219,8 @@ test('think discipline: a missing think is counted and the calls still run; an u
       '<think>t</think><msg>ναι</msg>',
     ],
   });
-  assert.deepEqual(called(open), ['lore.list:ok'], 'the call ran');
+  // Stage U: a leaked answer is dropped whole, so its calls do not run.
+  assert.deepEqual(called(open), [], 'the call did not run');
   assert.deepEqual(texts(open), ['ναι'], 'the speech inside the open think is silent');
   const alone = await coreTurn({ answers: ['<think>δεν κλείνει <msg>χαμένο</msg>'] });
   assert.equal(asRecord(alone.result).outcome, 'skip');

@@ -16,9 +16,10 @@ import { reasonText } from './tools/codes.ts';
 import { clipWithEllipsis, mediaLabelFor, stickerLabelFor } from './media/classify.ts';
 import { gifHandleOf } from './memory/index.ts';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from './time.ts';
-import { clampWithEllipsis, oneLine } from './memory/clamp.ts';
+import { clampText, clampWithEllipsis, oneLine } from './memory/clamp.ts';
 import { isWordChar, outsideUrls } from './memory/mentions.ts';
 import { untaggedNames, withUserHandles } from './handles-text.ts';
+import { LINK_EXCERPT_CHARS } from './web/cache.ts';
 // A parsed JSON value or an argument no module types yet: the alias of src/tools/types.ts, restated so this leaf
 // imports nothing from src/tools/ (src/memory/ reaches it).
 type Untyped = ReturnType<typeof JSON.parse>;
@@ -240,6 +241,11 @@ function storedWatch(item: unknown, videosOn: boolean): { state: 'watched'; text
 /** Whether an emoji comes from a stored line: it shows that the line holds it even before its text form. */
 const isStoredEmoji = (emoji: unknown): boolean => (emoji as { stored?: unknown } | null)?.stored === true;
 
+/** A link's read text as a line of chat shows it: a link she read with web.read holds up to a whole page, and a line shows what a preview shows. */
+function excerptOf(whole: string | undefined): string | null {
+  return whole === undefined ? null : clampText(oneLine(whole), LINK_EXCERPT_CHARS, { tolerance: 1 });
+}
+
 /** A part-watched tag whose label is blank, as its whole-video form; any other tag as it is. */
 function partFallback(tag: Untyped, labels: Untyped) {
   const plain = plainTagOf(tag, labels);
@@ -253,7 +259,6 @@ function partFallback(tag: Untyped, labels: Untyped) {
 }
 
 // health: allow complexity until 2027-04-01 -- one walk over every media field of a line; a stored item only adds its own text form
-
 function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}) {
   const unknownDuration = labels.transcript.unknownDuration ?? '?';
   const videosOn = Boolean(labels.transcript.videoWatched);
@@ -343,7 +348,7 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
     // gated this way.
     const canDescribe = link.kind !== 'link' || Boolean(labels.transcript.thumbnailDescribed);
     const description = canDescribe ? (context.descriptions?.get(link.id) ?? null) : null;
-    const read = readsOn ? (context.reads?.get(link.id) ?? null) : null;
+    const read = readsOn ? excerptOf(context.reads?.get(link.id)) : null;
     const gifHandle = handleOf(link, 'link');
     const answer = answerOf(link);
     pushLabel(

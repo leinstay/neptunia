@@ -66,6 +66,7 @@ export type PullArgs = {
   trigger: PullTrigger;
   candidate?: unknown;
   triggerKind?: TriggerKind | null;
+  mode?: string;
   source: { placeId: string; reason: 'routed' | 'noticed' } | null | undefined;
   selfName: string;
   config: PullsConfig;
@@ -193,6 +194,7 @@ export function createPulls(ctx: PullsContext): Pulls {
     trigger,
     candidate = trigger,
     triggerKind = null,
+    mode,
     source,
     selfName,
     config,
@@ -302,6 +304,7 @@ export function createPulls(ctx: PullsContext): Pulls {
         history: routedLines ?? history,
         trigger: candidate,
         triggerKind,
+        mode,
         selfName,
         config,
       });

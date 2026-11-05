@@ -215,12 +215,13 @@ test('a description mostly in another script is described again once, and the En
   assert.equal(descriptions.get('p1'), 'a lighthouse on a cliff');
 });
 
+// The mark's name follows the standards of stage U (src/memory/describe.ts): `offScript`.
 test('a description that fails twice is kept and marked, with no third request', async () => {
   const { describer, llm, store, item } = pictureRig([{ text: 'маяк на скале' }, { text: 'маяк на скале у моря' }]);
   const { descriptions } = await describer.describeMany('g1', [item]);
   assert.equal(llm.calls.length, 2);
   assert.equal(descriptions.get('p1'), 'маяк на скале у моря');
-  assert.equal((store.getMediaCache('g1') as Record<string, Row>).p1.offStandard, true);
+  assert.equal((store.getMediaCache('g1') as Record<string, Row>).p1.offScript, true);
 });
 
 test('text quoted in its own language is the standard: one request, no mark', async () => {
@@ -229,5 +230,5 @@ test('text quoted in its own language is the standard: one request, no mark', as
   const { descriptions } = await describer.describeMany('g1', [item]);
   assert.equal(llm.calls.length, 1);
   assert.equal(descriptions.get('p1'), quoted);
-  assert.equal((store.getMediaCache('g1') as Record<string, Row>).p1.offStandard, undefined);
+  assert.equal((store.getMediaCache('g1') as Record<string, Row>).p1.offScript, undefined);
 });

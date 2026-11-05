@@ -93,7 +93,7 @@ test('buildRequest: target is the #index of the trigger message in the transcrip
 test('buildRequest: triggerKind "followUp" falls back to labels.triggers.reply when labels.triggers.followUp is missing (an older labels.json)', () => {
   const olderLabels = {
     ...labels,
-    triggers: { mention: labels.triggers.mention, reply: labels.triggers.reply, name: labels.triggers.name },
+    triggers: { mention: labels.triggers.mention, reply: labels.triggers.reply },
   };
   const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
   const request = buildRequest(
@@ -145,7 +145,6 @@ test('buildRequest: a tagged reply, a reply without taggedCall, a mention and a 
     { triggerKind: 'reply', taggedCall: true },
     { triggerKind: 'reply' },
     { triggerKind: 'mention', taggedCall: false },
-    { triggerKind: 'name', taggedCall: false },
     { triggerKind: 'private', taggedCall: false },
   ];
   for (const extra of cases) {
@@ -4073,7 +4072,7 @@ test('buildRequest: tempo on a routed turn is measured to now and never says nob
 
 test('buildRequest: mode elsewhere uses prompts.elsewhere with channel and destination', () => {
   const prompts = fakePrompts({
-    elsewhere: 'ELSEWHERE_TASK {{name}} read {{channel}} and may speak in {{destination}}',
+    elsewhere: 'ELSEWHERE_TASK {{name}} read {{place}} and may speak in {{destination}}', // plan B3: `place`, not `channel`
   });
   const request = buildRequest(
     baseInput({

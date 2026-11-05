@@ -1,10 +1,9 @@
 {
   "files": {
-    "src/behavior/recall.ts": 2375,
+    "src/behavior/recall.ts": 2364,
     "tests/openrouter.test.ts": 3557,
-    "tests/prompt.test.ts": 6580,
-    "tests/recall.test.ts": 2419,
-    "tests/turn.test.ts": 8946
+    "tests/prompt.test.ts": 6579,
+    "tests/recall.test.ts": 2419
   },
   "functions": {
     "interfaces/discord/collect.ts": {
@@ -87,13 +86,13 @@
     },
     "scripts/recall-eval.ts": {
       "main": {
-        "complexity": 42
+        "complexity": 41
       },
       "main>askClassifier": {
         "complexity": 24
       },
       "traces": {
-        "complexity": 31
+        "complexity": 29
       }
     },
     "scripts/replay.ts": {
@@ -153,7 +152,7 @@
     },
     "scripts/search-policy-eval.ts": {
       "main": {
-        "complexity": 23
+        "complexity": 22
       }
     },
     "scripts/vision-compare.ts": {
@@ -209,18 +208,13 @@
     },
     "src/behavior/missed.ts": {
       "createMissed": {
-        "function-length": 645
+        "function-length": 638
       },
       "createMissed>onTurnEnd": {
         "complexity": 22
       },
       "reconcileFromRecords": {
         "complexity": 32
-      }
-    },
-    "src/behavior/participation-pick.ts": {
-      "createParticipationPicker>pickParticipation": {
-        "complexity": 21
       }
     },
     "src/behavior/prefetch.ts": {
@@ -274,11 +268,6 @@
         "complexity": 35
       }
     },
-    "src/behavior/route-channel.ts": {
-      "createChannelRouter>routeChannels": {
-        "complexity": 23
-      }
-    },
     "src/behavior/sandbox.ts": {
       "runSkillLoop": {
         "complexity": 41
@@ -316,9 +305,6 @@
     "src/format.ts": {
       "formatTranscript": {
         "complexity": 80
-      },
-      "mediaTags": {
-        "complexity": 22
       },
       "withCalls": {
         "complexity": 25
@@ -367,16 +353,6 @@
       },
       "createLlm>complete": {
         "complexity": 44
-      }
-    },
-    "src/media/classify.ts": {
-      "mediaLabelFor": {
-        "complexity": 41
-      }
-    },
-    "src/media/fetch-video.ts": {
-      "createVideoFetcher": {
-        "function-length": 697
       }
     },
     "src/memory/append-store.ts": {
@@ -431,12 +407,7 @@
         "complexity": 38
       },
       "writeObservation": {
-        "complexity": 36
-      }
-    },
-    "src/memory/db/recall.ts": {
-      "search": {
-        "complexity": 21
+        "complexity": 35
       }
     },
     "src/memory/db/rows.ts": {
@@ -458,9 +429,6 @@
       }
     },
     "src/memory/db/session.ts": {
-      "buildSessionRequest": {
-        "complexity": 29
-      },
       "runBatch": {
         "complexity": 25
       },
@@ -524,11 +492,6 @@
       },
       "searchRecordIndex": {
         "complexity": 21
-      }
-    },
-    "src/memory/record.ts": {
-      "toRecordLine": {
-        "complexity": 27
       }
     },
     "src/memory/vectors.ts": {
@@ -659,7 +622,7 @@
     },
     "src/web/lookup.ts": {
       "createLookup": {
-        "function-length": 512
+        "function-length": 509
       }
     },
     "src/web/readable.ts": {
@@ -696,7 +659,6 @@
       "interfaces/discord/port.ts",
       "src/behavior/pipeline.ts",
       "src/behavior/random.ts",
-      "src/behavior/route-channel.ts",
       "src/behavior/wake.ts",
       "src/errands/blocks.ts",
       "src/errands/turns.ts",

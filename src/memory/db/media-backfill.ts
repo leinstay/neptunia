@@ -477,3 +477,33 @@ export function createMediaBackfillDesk({
     },
   };
 }
+
+/** The desk over the running core: the memory writer, the interface's history reads and the describer. */
+export function mediaBackfillDesk({
+  memoryDb,
+  reads,
+  iface,
+  describer,
+  now,
+  log,
+}: {
+  memoryDb: { database(): unknown; memoryWrite(update: unknown): Promise<unknown> };
+  reads: { history(where: { iface: string; conversationId: string }, query: HistoryQuery): Promise<unknown> };
+  iface: () => string;
+  describer: { describeMany(placeId: string, items: Array<never>, options: { concurrency: number }): Promise<unknown> };
+  now: () => number;
+  log: { warn(message: string, fields?: Row): void };
+}): ReturnType<typeof createMediaBackfillDesk> {
+  return createMediaBackfillDesk({
+    database: () => memoryDb.database() as Db | null,
+    read: async (conversationId, query) => {
+      const found = (await reads.history({ iface: iface(), conversationId }, query)) as Row | null;
+      return found === null ? { status: 'failed' } : { status: 'ok', ...found };
+    },
+    write: (update) => memoryDb.memoryWrite(update),
+    // The backfill names items as the media collectors list them, which is what the describer reads.
+    describe: (placeId, items) => describer.describeMany(placeId, items as Array<never>, { concurrency: 1 }),
+    now,
+    log,
+  });
+}

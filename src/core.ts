@@ -65,11 +65,12 @@ import { ffmpegAvailable } from './speech/convert.ts';
 import { gifVectorModel } from './behavior/media-pick.ts';
 import { createTurnRunner } from './behavior/turn.ts';
 import { createActivity } from './behavior/activity.ts';
+import { ownerNamesOf } from './memory/db/people-read.ts';
+import { loadStemmer } from './memory/db/stems.ts';
 import { createMissed } from './behavior/missed.ts';
 import { createEmojiIndex } from './behavior/emoji-index.ts';
 import { ownMessagesOf } from './behavior/own-messages.ts';
 import { hasRequiredLabels } from './behavior/prompt.ts';
-import { createChannelRouter } from './behavior/route-channel.ts';
 import { createRecall } from './behavior/recall-run.ts';
 import { createSpontaneous } from './behavior/spontaneous.ts';
 import { createInnerLife, innerSettings } from './behavior/inner.ts';
@@ -90,7 +91,7 @@ import { createErrandStores } from './errands/store.ts';
 import { groupsContext } from './memory/db/scope.ts';
 import type { RetrievalInput } from './memory/retrieval-input.ts';
 import { createErrandService } from './errands/service.ts';
-import { channelPlaceId } from './memory/db/ids.ts';
+import { SELF_PERSON, channelPlaceId } from './memory/db/ids.ts';
 import { createMemberDirectory } from './interface/members.ts';
 import { createErrandTurns, errandDoneEvent } from './errands/turns.ts';
 import { createEventDoor } from './interface/door.ts';
@@ -114,7 +115,7 @@ import { createCheckpointDesk } from './development/checkpoint-desk.ts';
 import { WORKTREE_FOLDER } from './development/edges.ts';
 import { selfimprovementSettings } from './selfimprovement/settings.ts';
 import { conversationLines, recentGroupLines } from './memory/db/conversation-lines.ts';
-import { createMediaBackfillDesk } from './memory/db/media-backfill.ts';
+import { mediaBackfillDesk } from './memory/db/media-backfill.ts';
 import { mediaText } from './memory/db/media-store.ts';
 import { OWNER_CLIENT } from './setup/clients.ts';
 import { createConsole } from './interface/commands/console.ts';
@@ -861,8 +862,6 @@ async function buildCore(
   });
   // Who reacted to her messages, fed by `reaction.changed` (the door below) and by the `reactors` read.
   const reactors = createReactorStore();
-  // The route classifier: picks a channel the conversation is about for <channel_view>.
-  const routeChannels = createChannelRouter({ hot, store, llm });
   // The search of the server's own history beside the web search: the lookup's server part.
   // It reads the archive and the record too (read only), and with features.meaningSearch the meaning
   // index (one embedding of the question per run).
@@ -998,7 +997,6 @@ async function buildCore(
     memberOf: (placeId: string, accountId: string) => members.infoOf(nativeOfPlace(placeId), accountId),
     membersOf: (placeId: string) => members.list(nativeOfPlace(placeId)),
     conversationName: (conversationId: string) => directory.nameOf(conversationId),
-    routeChannels,
     activity,
     journal,
     record,
@@ -1164,7 +1162,6 @@ async function buildCore(
     llm,
     turns,
     reads,
-    iface: () => identity.iface,
     partnerOf: (conversationId) => directory.partnerOf(conversationId),
     getSelfName,
     dataDir,
@@ -1213,6 +1210,16 @@ async function buildCore(
     turns,
     memory,
     tagHistory,
+    // The alias gate reads the memory's learned stemmer; while the database is closed it matches whole words.
+    stemmer: () => {
+      const handle = memoryDb.readHandle();
+      return handle ? loadStemmer(handle.db as Parameters<typeof loadStemmer>[0]) : null;
+    },
+    // Her aliases: the names the owner gave her own person record, `/memory users names add person:self <name>`.
+    selfNames: () => {
+      const handle = memoryDb.readHandle();
+      return handle ? ownerNamesOf(handle.db as Parameters<typeof ownerNamesOf>[0], SELF_PERSON) : [];
+    },
     getSelfName,
     describer,
     // features.followUp: the address classifier's own, separate LLM call.
@@ -1456,18 +1463,7 @@ async function buildCore(
     // The owner's console (src/interface/commands/console.ts): the chat's table over the operations, run as the owner.
     console: createConsole({
       track: loopWatch.track,
-      mediaBackfill: createMediaBackfillDesk({
-        database: () => memoryDb.database(),
-        read: async (conversationId, query) => {
-          const found = await reads.history({ iface: identity.iface, conversationId }, query);
-          return found === null ? { status: 'failed' } : { status: 'ok', ...found };
-        },
-        write: (update) => memoryDb.memoryWrite(update),
-        // The backfill names items as the media collectors list them, which is what the describer reads.
-        describe: (placeId, items) => describer.describeMany(placeId, items as Array<never>, { concurrency: 1 }),
-        now: clock,
-        log,
-      }),
+      mediaBackfill: mediaBackfillDesk({ memoryDb, reads, iface: () => identity.iface, describer, now: clock, log }),
       statusBrief: () => ({
         core: {
           state: store.state.data.paused ? 'paused' : 'running',
@@ -1944,7 +1940,10 @@ async function buildCore(
 
   // The missed-answer registry: data/places/<id>/missed.json, reconciled with the journal of the
   // last hour; a sweep armed where a candidate waits.
-  await startupStep('missed.start', () => missed.start(store.placeHolding('missed') ?? PERSONA_ID));
+  await startupStep('missed.start', async () => {
+    const holders = store.placesHolding('missed');
+    for (const place of holders.length > 0 ? holders : [PERSONA_ID]) await missed.start(place);
+  });
 
   // The errands a restart left open: their runner can no longer answer this process, so they fail
   // (`restarted`) and show in her `<errands>` block as failed.

@@ -6,7 +6,7 @@ import { diaryConversationIds } from '../behavior/mirror.ts';
 import { log } from '../log.ts';
 import { participationSettings, recordFollowing } from '../memory/index.ts';
 import { MINUTE_MS } from '../time.ts';
-import type { Line, PipelineConfig, PipelineTurns, Thrown } from './types.ts';
+import type { Line, PipelineTurns, Thrown } from './types.ts';
 
 /** The participation store of src/memory/store.ts, as the following line writes it. */
 type ParticipationStore = {
@@ -23,7 +23,7 @@ export type FollowingContext = {
   now: () => number;
 };
 
-export type NoteFollowingLine = (placeId: string, normalized: Line, config: PipelineConfig) => void;
+export type NoteFollowingLine = (placeId: string, normalized: Line) => void;
 
 export function createFollowing({ store, turns, memoryDb, now }: FollowingContext): {
   noteFollowingLine: NoteFollowingLine;
@@ -37,10 +37,10 @@ export function createFollowing({ store, turns, memoryDb, now }: FollowingContex
    * missing key counts as on), in a place of her diary (src/behavior/mirror.ts#diaryConversationIds), or for a store
    * without the participation store. Never throws: `participation: failed` (`reason: 'following-error'`).
    */
-  function noteFollowingLine(placeId: string, normalized: Line, config: PipelineConfig): void {
+  function noteFollowingLine(placeId: string, normalized: Line): void {
     try {
       if (diaryConversationIds(memoryDb).has(String(normalized.placeId))) return;
-      const settings = participationSettings(config);
+      const settings = participationSettings();
       const lastOwn = typeof turns.lastPostAt === 'function' ? turns.lastPostAt(normalized.placeId) : 0;
       if (!(lastOwn > 0) || normalized.ts - lastOwn > settings.followMinutes * MINUTE_MS) return;
       if (typeof store?.getParticipation !== 'function' || typeof store.setParticipation !== 'function') return;

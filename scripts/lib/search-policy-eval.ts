@@ -161,14 +161,14 @@ export function rowChat(
 }
 
 /**
- * The classifier's decision from its parsed answer (src/behavior/recall.ts#parseLookupAnswer):
- * a `web:` query -> `fast`; a server part (`server:`, `who:` or a range) without `web:` ->
+ * The classifier's decision from its parsed answer (src/behavior/query-builder.ts#parseQueryPlan):
+ * a `web:` query -> `fast`; a history part (`history:`, `who:` or a range) without `web:` ->
  * `memory`; nothing -> `none`. The classifier never decides `agent` (it asks for no errand):
  * a row labelled `agent` counts as a miss.
  */
-export function decisionOf(parsed: { web?: string | null; server?: Rec | null } | null): 'none' | 'fast' | 'memory' {
+export function decisionOf(parsed: { web?: string | null; history?: Rec | null } | null): 'none' | 'fast' | 'memory' {
   if (parsed?.web) return 'fast';
-  if (parsed?.server) return 'memory';
+  if (parsed?.history) return 'memory';
   return 'none';
 }
 

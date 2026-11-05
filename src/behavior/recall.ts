@@ -1,6 +1,6 @@
 // The pure core of recall: the server's own history searched beside the web.
-// The lookup classifier (prompts/lookup.md) answers `none` or up to five
-// labelled lines -- `web:` a web query, `server:` word forms to look for in
+// The query builder (prompts/query-builder.md) answers `none` or up to five
+// labelled lines -- `web:` a web query, `history:` word forms to look for in
 // the server's messages, `who:` forms of a person's name, `when:` a date
 // range in the bot's time zone, `recent:` whether the question is a vague
 // "recently" -- and the old single unlabelled line still
@@ -46,7 +46,7 @@ import { isPlainObject } from '../config.ts';
 import { estimateTokens } from '../llm/tokens.ts';
 import { block, fillPromptTemplate } from './prompt.ts';
 import { fill, formatTranscript, GAP_MARKER_MINUTES, MAX_MESSAGE_CHARS, renderTranscript } from '../format.ts';
-import { clampText, oneLine } from '../memory/clamp.ts';
+import { oneLine } from '../memory/clamp.ts';
 import { episodeDate } from '../memory/index.ts';
 import {
   TEACHER_TOKEN_RE,
@@ -203,7 +203,7 @@ export const HIT_MARK = '>> ';
 const OLDEST_MIN_TOPIC = 2;
 /** The weight of a rare `form:` key in a cluster's topic score; a common one weighs 1 (clusterHits). */
 const RARE_WEIGHT = 2;
-/** The prefix of a query key that names the topic (a `server:` form), see queryKey. */
+/** The prefix of a query key that names the topic (a `history:` form), see queryKey. */
 const FORM_KEY = 'form:';
 /** The most messages one window may ask for (one page of a channel's history). */
 const MAX_WINDOW_MESSAGES = 100;
@@ -214,9 +214,9 @@ const FORM_MIN_CHARS = 2;
 const FORM_MAX_CHARS = 40;
 const FORM_MAX_WORDS = 3;
 
-// Protocol tokens of the lookup classifier (prompts/lookup.md), not wording.
+// Protocol tokens of the query builder (prompts/query-builder.md), not wording.
 const NONE_RE = /^none\b/i;
-const LABEL_RE = /^(?:[-*•>]\s*)*\**\s*(web|agent|server|who|when[-_ ]?role|when|recent)\s*\**\s*:\s*\**\s*(.*)$/i;
+const LABEL_RE = /^(?:[-*•>]\s*)*\**\s*(web|agent|history|who|when[-_ ]?role|when|recent)\s*\**\s*:\s*\**\s*(.*)$/i;
 const YES_RE = /^yes\b/i;
 const SCOPE_RE = /^scope\b/i;
 const LOCATOR_RE = /^locator\b/i;
@@ -225,7 +225,6 @@ const RANGE_SPLIT_RE = /\s*\.{2,}\s*/;
 const FORM_SPLIT_RE = /[,;，、]/;
 // Protocol tokens of the summary request (prompts/recall-summary.md).
 const STRETCH_RE = /^\**\s*stretch\s*\**\s*:\s*\**\s*(.*)$/i;
-const NOTHING_RE = /^nothing$/i;
 // Quotes and backticks a model may wrap a line in (straight, curly, guillemets).
 const QUOTES = new Set(['"', "'", '`', '“', '”', '‘', '’', '«', '»']);
 const TRAILING_PUNCTUATION = new Set(['.', ',', ';', ':', '!', '?', '…']);
@@ -499,7 +498,7 @@ function webQuery(value: Untyped) {
   return boundedLine(value, WEB_QUERY_CHARS);
 }
 
-/** The forms of one `server:` / `who:` value, cleaned (see parseLookupAnswer), appended to `into` up to `cap`. */
+/** The forms of one `history:` / `who:` value, cleaned (see parseLookupLines), appended to `into` up to `cap`. */
 function addForms(into: Untyped, value: Untyped, cap: Untyped) {
   for (const part of String(value ?? '').split(FORM_SPLIT_RE)) {
     if (into.length >= cap) return;
@@ -578,8 +577,8 @@ function parseRange(value: Untyped, timezone: Untyped, now: number | undefined) 
 }
 
 /**
- * The lookup classifier's answer (prompts/lookup.md). Labelled lines `web:`,
- * `server:`, `who:`, `when:` in any order and any letter case (a leading
+ * The query builder's answer (prompts/query-builder.md). Labelled lines `web:`,
+ * `history:`, `who:`, `when:` in any order and any letter case (a leading
  * list bullet or bold marks around the label are tolerated); a line without
  * a label is ignored once any line has one. Without any labelled line the
  * first non-empty line is the old answer: `none` (its first word, any case,
@@ -589,7 +588,7 @@ function parseRange(value: Untyped, timezone: Untyped, now: number | undefined) 
  * - `agent`: ignored. An old prompt's errand line is read as a label only so
  *   it is never taken for the unlabelled web query; the classifier never
  *   asks for an errand (only the persona's own `errand.run` call does).
- * - `server` / `who`: comma-separated forms, each trimmed, wrapping quotes
+ * - `history` / `who`: comma-separated forms, each trimmed, wrapping quotes
  *   and trailing punctuation stripped, whitespace collapsed, lower-cased,
  *   kept when 2..40 characters and at most 3 words, de-duplicated in order,
  *   at most `maxForms` per label (a missing or unusable value: RECALL_DEFAULTS.maxForms).
@@ -619,7 +618,7 @@ function parseRange(value: Untyped, timezone: Untyped, now: number | undefined) 
  * `inventory`, up to four known names, `none` or `invalid`) and an answer of
  * nothing else is `none`. Without one there is no `skills` key (none).
  */
-export function parseLookupAnswer(
+export function parseLookupLines(
   raw: unknown,
   {
     timezone = 'UTC',
@@ -635,7 +634,7 @@ export function parseLookupAnswer(
   return parsed.reason === 'empty' ? { ...parsed, reason: 'none', skills } : { ...parsed, skills };
 }
 
-/** parseLookupAnswer's reading of every line but the `skills:` ones. */
+/** parseLookupLines' reading of every line but the `skills:` ones. */
 /** A parsed classifier answer: the web query, the server part (forms, names and the range), and why there is none. */
 type SearchLines = {
   web: string | null;
@@ -695,7 +694,7 @@ function parseSearchLines(
       case 'web':
         web ??= webQuery(value);
         break;
-      case 'server':
+      case 'history':
         addForms(forms, value, cap);
         break;
       case 'who':
@@ -726,7 +725,7 @@ function parseSearchLines(
  * Whether a parsed server part is a vague "recently": its `when:` range starts
  * within the last `recordDays` days (at least one) before `now` and ends open
  * or within the last day; without a range, the classifier's `recent: yes`
- * (parseLookupAnswer's `recent: true`). A dated range that is not recent wins
+ * (parseLookupLines' `recent: true`). A dated range that is not recent wins
  * over the flag. Such a recall ranks by recency, the persona's own exchanges
  * first (matchMemory, matchRecord).
  */
@@ -1736,21 +1735,14 @@ export function buildRecallRequest({
 }
 
 /**
- * The summary's answer. A first non-empty line `stretch: <n>` (any
- * case) names the `<found>` section that answers the question: `n` within
- * `1..count` (a `#` before it tolerated) -> `stretch` n, `none` or anything
- * else -> null; that line is not part of the text. The rest, trimmed and
- * clamped with clampText to `answerChars` (soft, the prompt names the
- * limit), is the text; empty or the single word `nothing` (quotes and
- * trailing punctuation aside) gives text null and no stretch.
+ * A summary's answer split: a first non-empty line `stretch: <n>` (any case) names the section that answers the question,
+ * `n` within `1..count` (a `#` before it tolerated) being the stretch and anything else null, and `body` is the rest,
+ * trimmed. See src/behavior/summary-builder.ts#parseSummaryNote.
  */
-export function parseRecallAnswer(
-  raw: unknown,
-  { answerChars, count = 0 }: { answerChars?: number; count?: number } = {}
-): { text: string | null; stretch: number | null } {
-  const lines = String(raw ?? '').split(/\r?\n/);
+export function stretchLineOf(raw: string, count: number): { body: string; stretch: number | null } {
+  const lines = raw.split(/\r?\n/);
   const first = lines.findIndex((line) => line.trim());
-  if (first === -1) return { text: null, stretch: null };
+  if (first === -1) return { body: '', stretch: null };
   let stretch = null;
   let rest = lines.slice(first);
   const named = STRETCH_RE.exec(rest[0].trim());
@@ -1760,10 +1752,7 @@ export function parseRecallAnswer(
     if (Number.isSafeInteger(n) && n >= 1 && n <= count) stretch = n;
     rest = rest.slice(1);
   }
-  const body = rest.join('\n').trim();
-  if (!body || NOTHING_RE.test(stripLine(body))) return { text: null, stretch: null };
-  const text = clampText(body, intAtLeast(answerChars, RECALL_DEFAULTS.answerChars, 1));
-  return text ? { text, stretch } : { text: null, stretch: null };
+  return { body: rest.join('\n').trim(), stretch };
 }
 
 /**
@@ -2334,7 +2323,7 @@ const namedPlace = (placeId: unknown): { placeId?: string } =>
 
 /**
  * The server search the persona's own `memory.search` call asks for (src/tools/tools.ts): no model role, only the deterministic expansion -- her `terms` (exact
- * words or phrases, comma-separated) and `people` (names, comma-separated) cleaned as the classifier's `server:` and `who:` values are (2 to 40 characters, at most three words each, lowercased, each once), then what fallbackLookupPlan finds in her `question` (its long words,
+ * words or phrases, comma-separated) and `people` (names, comma-separated) cleaned as the builder's `history:` and `who:` values are (2 to 40 characters, at most three words each, lowercased, each once), then what fallbackLookupPlan finds in her `question` (its long words,
  * a stored member's name or alias), her own first, at most `maxForms` each. `when` is read as
  * a `when:` value (`YYYY-MM-DD`, `YYYY-MM-DD HH:MM`, `A..B` with either side open, in
  * `timezone`; a future side cut to `now`): it bounds the search (never a mere locator). Her

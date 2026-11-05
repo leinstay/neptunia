@@ -22,6 +22,10 @@ Agent prompts use `agents/<name>/` and `data/agents/<name>/`. They are not loade
 | Selfimprovement wake | [wake prompt](../prompts/selfimprovement.md) as `prompts.selfimprovement`, `<wake>` from [src/behavior/selfimprovement-text.ts](../src/behavior/selfimprovement-text.ts) with `labels.wake.selfimprovement`, its calls in [src/tools/wake-tools.ts](../src/tools/wake-tools.ts) |
 | Development brief | [brief](../prompts/executor-brief.md) as `prompts['executor-brief']`, filled by `briefFrom` in [src/development/brief.ts](../src/development/brief.ts), after the agent's `agents/<name>/prompt.md` in [bin/development.ts](../bin/development.ts) |
 | Agent instructions | [profile loader](../src/agent-runner/profiles.ts) |
+| Query builder | [prompt](../prompts/query-builder.md) as `prompts['query-builder']`, filling `{{name}}`, `{{today}}` and `{{skills}}`, with `<transcript>` and `<candidate>` from `lookupClassifierInput` in [src/turn/lookup-input.ts](../src/turn/lookup-input.ts). It answers `none` or the labelled lines `web:`, `history:`, `who:`, `when:`, `when-role:`, `recent:` and `skills:`, parsed by `parseQueryPlan` in [src/behavior/query-builder.ts](../src/behavior/query-builder.ts). A local `data/prompts/lookup.md` loads as `query-builder` |
+| Summary builder | [recall-summary](../prompts/recall-summary.md) and [search-summary](../prompts/search-summary.md), parsed by `parseSummaryNote` in [src/behavior/summary-builder.ts](../src/behavior/summary-builder.ts): a first line `stretch: <n>` for chat evidence, then the note, or the single word `none` |
+| Elsewhere pick | [prompt](../prompts/elsewhere-pick.md) as `prompts['elsewhere-pick']`, `{{name}}` filled, with `<places>` and `<episodes>` (each left out with no line), `<episode_ages>`, `<transcript>` and `<candidate>` from `buildElsewhereRequest` in [src/behavior/elsewhere-pick.ts](../src/behavior/elsewhere-pick.ts). It answers `place: <n>[ earlier] \| none` and `episodes: <n>, <n> \| none`, parsed by `parseElsewhereAnswer`. The turn prompt `prompts/elsewhere.md` is the persona's own turn in a read-only place and a different thing |
+| Address classifier | [prompt](../prompts/address.md) as `prompts.address`, `{{name}}` filled, with `<aliases>`, the names the owner gave her person record (`ownerNamesOf` in [src/memory/db/people-read.ts](../src/memory/db/people-read.ts); the same names open the door's alias gate), `<transcript>`, `<author>` and `<candidate>` from [src/pipeline/classifier-request.ts](../src/pipeline/classifier-request.ts). It answers `yes`, `overheard` or `no` for a line with or without the interface's flags, parsed by `parseAddressAnswer` in [src/behavior/mention.ts](../src/behavior/mention.ts) |
 
 The heartbeat and selfimprovement prompts are addressed to the persona and fill no placeholder. The development brief is addressed to a thinker or a dev and fills `{{id}}`, `{{title}}`, `{{branch}}`, `{{generation}}`, `{{evidence}}`, `{{examples}}`, `{{counterexamples}}`, `{{benefit}}`, `{{evaluation}}`, `{{acceptance}}`, `{{answers}}` and `{{children}}`. It carries no output tag: an agent acts on the task through the board. A local `data/prompts/selfdev.md` loads as `executor-brief`.
 
@@ -41,7 +45,25 @@ The conversation parser recognizes `<think>`, `<msg>`, `<react>` and `<skip/>`. 
 
 An output with such a breach yields one `{ kind: 'msgMalformed', nested, unclosed, stray }` diagnostic, placed before any `messagesMerged`. It holds counts and no contents, and a message dropped by `cutOff` is not counted. The persona reads it through `labels.tools.diagnostics.msgMalformed`, whose `{count}` is the sum of the three counts.
 
-Think text is private planning, not a public chat message. An unfinished think block produces silence rather than publishing its contents. The request archive retains available response text and parsed think text for later inspection.
+Think text is private planning, not a public chat message. The request archive keeps each response as it came in `response_text`, and its parsed think in `think`.
+
+## Standards of output and stored text
+
+These are rules of the project, held in the tracked prompts and in code, and no local layer sets them. No model checks them.
+
+Every reply of a turn carries one whole `<think>`, written in English, and it never reaches a sent message. Her replies are in any language. Every stored media text form is in English, with speech, captions and on-screen text quoted in their original language.
+
+`thinkMissing` in `src/behavior/tool-step.ts` counts a reply that does not open with its think. `shapedThink` in `src/llm/parse.ts` puts an empty `<think></think>` in front of a reply with text and no think tag, and the next request of the turn hands that shape on. A reply request's archive row holds `''` in `think`. Her words stay as they are.
+
+`parseOutput` names a broken think in `thinkLeak`: `unopened` for a closing tag with no opening, with the diagnostic `thinkUnopened`, and `unclosed` for an opening never closed, with `thinkOpen` and the diagnostic `thinkUnclosed`. A think tag in any other spelling, inside a message or a code span included, counts as broken. Such an answer has no action at all, and the parser never repairs it.
+
+`askUnleaked` in `src/turn/calls.ts` drops such an answer whole, its calls included, and sends the same request once more. A second one ends the turn with the outcome `skip` and the reason `think-leaked`, with nothing further sent and the fact `labels.tools.diagnostics.thinkLeaked` for her next request. What earlier steps of the turn posted stands. An unclosed think with the finish reason `length` is no leak and ends on the `cut-off` path with no second request.
+
+A `message.create` call whose text holds a think tag is refused with the code `think-in-text` and sends nothing.
+
+`isOffScript` in `src/memory/text-standard.ts` tells whether more than half of a text's letters are outside the Latin script, with closed pairs of quotes left out. A think that is off script is counted and acted on all the same. A description, a GIF watch or a video summary that is off script is described again once. The second answer stands with `redescribed` on the entry, and `offScript` too when it fails the standard again. A first answer whose second request failed stands with `offScript`.
+
+A turn's journal record counts these in `format`: `thinkMissing`, `thinkLeaked`, `leakEnded`, `tagInOutgoing` and `thinkOffScript`. `standardFacts` in `src/watcher/requests.ts` sums them with the marks on the descriptions for [the watcher](watcher.md#service-runs).
 
 A `<gif>` is a retired tag, like a call tag and a draw tag: `parseOutput` cuts it out and tells it as a `retiredTag` diagnostic, and an answer that holds nothing else is silence.
 
@@ -119,7 +141,7 @@ The brief carries `<day>`, `<observation from="..." to="..." day-from="..."/>`, 
 
 ## Media text forms
 
-A stored media text form is in English, with speech, captions and on-screen text quoted in their original language. A transcript and what she voiced are quoted speech as a whole. The transcript labels `voiceDescribed` and `audioDescribed` take `{duration}` and `{text}`, and `audioDescribed` also `{name}`. `fileUnreadable` and `stickerUnreadable` take `{name}` and state that no model can read the item. `senses.voiceHeard` replaces `senses.voice` while the `video` role is on. The prompt `describe-audio` takes `{{maxChars}}` and `{{today}}`. The memory session's `<batch>` shows a line's media with the same tags as the turn's chat, and numbers a line that holds only media.
+A transcript and what she voiced are quoted speech as a whole. The transcript labels `voiceDescribed` and `audioDescribed` take `{duration}` and `{text}`, and `audioDescribed` also `{name}`. `fileUnreadable` and `stickerUnreadable` take `{name}` and state that no model can read the item. `senses.voiceHeard` replaces `senses.voice` while the `video` role is on. The prompt `describe-audio` takes `{{maxChars}}` and `{{today}}`. The memory session's `<batch>` shows a line's media with the same tags as the turn's chat, and numbers a line that holds only media.
 
 ## Labels
 
@@ -227,6 +249,7 @@ When a result's `values.reason` has wording in `tools.result.params.reason`, `re
 | `loop-cap` | invalid | - | `tools.result.reasons.loop-cap` |
 | `malformed-call` | invalid | - | `tools.result.reasons.malformed-call` |
 | `truncated-call` | invalid | - | `tools.result.reasons.truncated-call` |
+| `think-in-text` | invalid | - | `tools.result.reasons.think-in-text` |
 | `not-configured` | not_configured | {feature} | `tools.result.reasons.not-configured` |
 | `unsupported` | not_configured | - | `tools.result.reasons.unsupported` |
 | `no-place` | not_configured | - | `tools.result.reasons.no-place` |

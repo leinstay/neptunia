@@ -18,7 +18,7 @@ import { createPullViews } from './pull-fetch.ts';
 import { fallbackLookupPlan } from './recall.ts';
 import { createImageFetcher } from '../media/fetch-image.ts';
 import { createOffPeriodsReader } from '../memory/index.ts';
-import { createParticipationPicker } from './participation-pick.ts';
+import { createElsewhereHooks } from './elsewhere-pick.ts';
 import { createLimits } from '../llm/limits.ts';
 import { createThinkStore } from './previous-think.ts';
 import { turnRoutes } from './turn-ability-route.ts';
@@ -166,8 +166,7 @@ export { fallbackLookupPlan };
  * never been asked. Parts in time: the turn sets its preparation aside and
  * runChain answers the parts one after another (see there).
  *
- * `routeChannels` (the route classifier's hook; src/index.ts passes
- * src/behavior/route-channel.ts#createChannelRouter's) is optional:
+ * `routeChannels` (the place pick's hook; by default src/behavior/elsewhere-pick.ts#createElsewhereHooks) is optional:
  * `({ placeId, channel, place, partner, history, trigger, triggerKind, selfName, config }) => Promise<string[]>`,
  * the ids of channels the conversation is about; `triggerKind` is the turn's
  * TriggerKind (null on a turn without a trigger), so the hook can decline
@@ -188,7 +187,7 @@ export { fallbackLookupPlan };
  * turn sends for real in a server channel is recorded in the place's participation store with
  * the history lines before it and the line it replies to (recordOwnParticipation). A server turn that builds a reply request (not a diary post) hands the
  * store to buildRequest as `<participation>`; beside its preparation the pick classifier
- * (src/behavior/participation-pick.ts) chooses which stored episodes
+ * (src/behavior/elsewhere-pick.ts) chooses which stored episodes
  * of other channels come first, under the same deadline -- late, the newest are shown.
  *
  * Everything a turn prepares before its reply request (the file previews, the
@@ -370,8 +369,17 @@ export function createTurnRunner({
   const spokeSaw = new Map<string, Set<string>>();
   // Whether the last turn that wanted prompts['follow-up'] found it missing: warned once each time (falls back to reply.md).
   const promptState = { followUpMissing: false };
-  // The participation pick classifier (src/behavior/participation-pick.ts): which exchanges `<participation>` shows first.
-  const pickParticipation = createParticipationPicker({ hot, store, llm, now: clock, schedule });
+  // The elsewhere pick (src/behavior/elsewhere-pick.ts): the place the pull phase shows and the exchanges `<participation>`
+  // shows first, one request for both. A runner given its own route hook keeps that for the place.
+  const elsewhere = createElsewhereHooks({
+    hot,
+    store,
+    llm,
+    now: clock,
+    schedule,
+    lastPostAt: (placeId) => lastPostAt.get(placeId) ?? null,
+  });
+  const pickParticipation = elsewhere.pickEpisodes;
   // The last view of each pulled channel shown in each channel, in process only: a channel
   // shown again says what of it is new since (createPullViews; `seenBefore` on the entry).
   const pullViews = createPullViews();
@@ -516,7 +524,7 @@ export function createTurnRunner({
     hot,
     store,
     describer,
-    routeChannels,
+    routeChannels: routeChannels ?? elsewhere.routeChannels,
     clock,
     ifaceReads,
     pullViews,

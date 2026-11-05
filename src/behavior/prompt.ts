@@ -315,7 +315,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   asked-about candidates for `<people>` (see `splitPeople`). No `labels.pull.header` -> no block.
  * @param [input.source]  The channel a
  *   routed call or a noticed comment comes from (it is among `pulled`). It fills the task's
- *   `{{channel}}` (its name) and `{{destination}}` (this channel's name: the one the chat's
+ *   `{{place}}` (its name) and `{{destination}}` (this channel's name: the one the chat's
  *   messages carry, else `elsewhereDestination`'s, else the channel map's, else ''). `routed`:
  *   the trigger is looked up in the pulled lines; when its line is shown, its index fills
  *   `{{target}}` and `labels.elsewhere.called` (`{channel}` `{destination}`, left out while the
@@ -365,7 +365,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   persona's own exchanges on other channels, rendered as `<participation>` right after
  *   `<recent>` (see `participationView`): `state` is the place's participation store
  *   (store.getParticipation), `pickedIds` the pick classifier's episode ids
- *   (src/behavior/participation-pick.ts; [] or omitted: the newest are shown), `audience` the
+ *   (src/behavior/elsewhere-pick.ts; [] or omitted: the newest are shown), `audience` the
  *   channels this turn may show them from (the `<recent>` and neighbour rule:
  *   context.pull.sameAudience), and `channelName` a channel's live name when its stored note has
  *   none. The selection happens here (src/memory/participation.js#selectEpisodes), so the

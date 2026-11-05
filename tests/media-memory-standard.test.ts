@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { createDescriber } from '../src/memory/describe.ts';
 import { lineMedia } from '../src/memory/db/media-store.ts';
 import { internalContext } from '../src/memory/db/scope.ts';
-import { offTextStandard } from '../src/memory/text-standard.ts';
+import { isOffScript } from '../src/memory/text-standard.ts';
 import { createStore } from '../src/memory/store.ts';
 import { fakeLlm, fakeState, fakeVideoFetcher } from './fixtures/describe-fakes.ts';
 import { fixture, kindNamed, observeLine, tell } from './fixtures/media-memory.ts';
@@ -16,10 +16,10 @@ import type { Rec } from './fixtures/describe-fakes.ts';
 const UNQUOTED = 'грибы рано в этом году, и дождь идёт каждый день';
 
 test('a text mostly in another script is off the standard, one that quotes it is not', () => {
-  assert.equal(offTextStandard(UNQUOTED), true);
-  assert.equal(offTextStandard(`she says "${UNQUOTED}"`), false);
-  assert.equal(offTextStandard(`a sign reads «${UNQUOTED}» on a wall`), false);
-  assert.equal(offTextStandard('1234 !!'), false, 'no letters, nothing to judge');
+  assert.equal(isOffScript(UNQUOTED), true);
+  assert.equal(isOffScript(`she says "${UNQUOTED}"`), false);
+  assert.equal(isOffScript(`a sign reads «${UNQUOTED}» on a wall`), false);
+  assert.equal(isOffScript('1234 !!'), false, 'no letters, nothing to judge');
 });
 
 test('a transcript with no quotation marks stays as heard: one request and no mark', async () => {
@@ -42,7 +42,7 @@ test('a transcript with no quotation marks stays as heard: one request and no ma
   const { descriptions } = await describer.describeMany('g1', [item]);
   assert.equal(descriptions.get('v1'), UNQUOTED);
   assert.equal(llm.calls.length, 1);
-  assert.equal((store.getMediaCache('g1') as Record<string, Rec>).v1.offStandard, undefined);
+  assert.equal((store.getMediaCache('g1') as Record<string, Rec>).v1.offScript, undefined);
 });
 
 test('what she voiced stays in its own language, origin voiced, with no later text form over it', () => {

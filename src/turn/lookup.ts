@@ -27,7 +27,7 @@ import type { TriggerKind } from './triggers.ts';
 
 /** The live config, as far as the lookup reads it; the settings functions read their own sections. */
 export type LookupConfig = ClassifierContextInput['config'] & {
-  bot?: { timezone?: string; nameTriggers?: Array<string> } | null;
+  bot?: { timezone?: string } | null;
   private?: { likeServer?: unknown } | null;
 };
 
@@ -205,7 +205,7 @@ export function createLookup(ctx: LookupContext): Lookup {
           settings,
           selfId,
           selfName,
-          selfNames: config.bot?.nameTriggers ?? [],
+          selfNames: [],
           nameOf,
         });
     if (skip) {

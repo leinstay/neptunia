@@ -18,6 +18,8 @@ import type { TriggerKind } from './triggers.ts';
  */
 export const SKIP_SILENCE = 'silence';
 export const SKIP_NOTHING_TO_DO = 'nothing-to-do';
+/** Two answers in a row broke their `<think>`, so the turn ended with no message (src/turn/calls.ts#askUnleaked). */
+export const SKIP_THINK_LEAKED = 'think-leaked';
 
 /** The mode a journal's `turn.start` names: a follow-up or an overheard line by its kind, else the turn's mode. */
 function journalMode(mode: string | null | undefined, triggerKind: TriggerKind | null | undefined): string | null {
@@ -335,20 +337,31 @@ export function cutOffOf(
   return { kept };
 }
 
-/** The format counts of a turn, as the step engine notes them. */
-type FormatCounts = Record<'thinkMissing' | 'coerced' | 'malformed' | 'truncated' | 'capped' | 'held', number>;
+/** The names of a turn's format counts. */
+const FORMAT_COUNTS = [
+  'thinkMissing',
+  'coerced',
+  'malformed',
+  'truncated',
+  'capped',
+  'held',
+  'thinkLeaked',
+  'leakEnded',
+  'tagInOutgoing',
+  'thinkOffScript',
+] as const;
 
-/** The format counts of a turn record: `thinkMissing`, `coerced`, `malformed`, `truncated`, `capped`, `held`, each a number (0 when unset). */
+/** The format counts of a turn, as the step engine notes them. */
+type FormatCounts = Record<(typeof FORMAT_COUNTS)[number], number>;
+
+/**
+ * The format counts of a turn record, each a number (0 when unset). `thinkLeaked` counts the answers dropped for a broken
+ * `<think>`, `leakEnded` the turn they ended, `tagInOutgoing` the `message.create` calls refused for a think tag in their
+ * text and `thinkOffScript` the thinks mostly in another script (src/memory/text-standard.ts).
+ */
 function formatCountsOf(format: Partial<Record<keyof FormatCounts, unknown>>): FormatCounts {
   const count = (value: unknown): number => (isFiniteNumber(value) && value > 0 ? Math.floor(value) : 0);
-  return {
-    thinkMissing: count(format.thinkMissing),
-    coerced: count(format.coerced),
-    malformed: count(format.malformed),
-    truncated: count(format.truncated),
-    capped: count(format.capped),
-    held: count(format.held),
-  };
+  return Object.fromEntries(FORMAT_COUNTS.map((name) => [name, count(format[name])])) as FormatCounts;
 }
 
 /** What a turn attempt notes in its draft for the journal's `turn` record. */

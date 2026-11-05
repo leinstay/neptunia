@@ -44,6 +44,7 @@ import path from 'node:path';
 import { accountCollection, keyText, personaKey, placeCollection, storageId } from './db/storage-keys.ts';
 import type { StorageKey, StorageKind, StorageSelector } from './db/storage-keys.ts';
 import { isMediaDescriptionEntry, mediaDescriptionOf } from './db/export.ts';
+import { linkedAttachmentIds } from './db/media-store.ts';
 import type { MediaDescriptionEntry } from './db/export.ts';
 
 import { listUnits } from './db/storage-units.ts';
@@ -2958,6 +2959,11 @@ function buildStore({
       const value = entry(file, () => ({})).value as StoredRecord;
       seedMedia(placeId, file, value);
       return value;
+    },
+
+    /** The attachment ids stored lines and diary posts link: what the media cache's cap leaves alone (src/web/cache.ts#trimCache). */
+    linkedMediaKeys(): ReadonlySet<string> {
+      return memoryDb ? seam.run(() => linkedAttachmentIds(seam.db())) : new Set<string>();
     },
 
     getMediaDescription: currentMedia,

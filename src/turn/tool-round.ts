@@ -17,6 +17,7 @@ import { callReason, fill, formatTranscript } from '../format.ts';
 import type { Reads } from '../interface/reads.ts';
 import { requestTokenLimit } from '../llm/budget.ts';
 import { REPLY_REQUEST } from '../llm/openrouter.ts';
+import { hasThinkTag } from '../llm/parse.ts';
 import { estimateMessages, estimateTools } from '../llm/tokens.ts';
 import { log } from '../log.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
@@ -30,7 +31,16 @@ import type { NormalCall } from '../tools/tool-calls.ts';
 import type { Obj, SkillMap } from '../tools/types.ts';
 import { endsWake, oneDecisionCode } from '../tools/wake-tools.ts';
 import type { Act, ActArgs, ActOutcome, HeldSpeech, HoldArgs } from './act.ts';
-import { CALL_STATUS_NAMES, callTextOf, defaultSkills, ifaceOption, searchHandles, speechItemsOf } from './calls.ts';
+import {
+  CALL_STATUS_NAMES,
+  answerLeaked,
+  askUnleaked,
+  callTextOf,
+  defaultSkills,
+  ifaceOption,
+  searchHandles,
+  speechItemsOf,
+} from './calls.ts';
 import type { CallEnvelope, SearchRefs } from './calls.ts';
 import { cutOffOf, untoldDiagnostics } from './journal.ts';
 import { TURN_CANCELLED } from './timers.ts';
@@ -120,6 +130,10 @@ type FormatCounts = {
   truncated: number;
   capped: number;
   held: number;
+  thinkLeaked: number;
+  leakEnded: number;
+  tagInOutgoing: number;
+  thinkOffScript: number;
 };
 
 /** What an attempt's draft holds that the steps read and write. */
@@ -213,6 +227,8 @@ export type Stepped = {
   delivered: boolean;
   /** Her last answer was a skip. */
   skipped: boolean;
+  /** A later request's two answers broke their `<think>`, which ended the steps. */
+  leakEnded: boolean;
 };
 
 type TranscriptOptions = {
@@ -445,6 +461,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     let openTaken = false;
     let delivered = false;
     let cutOff = false;
+    let leakEnded = false;
     let made = 0;
     // The results no request has followed yet, and the inner actions of the calls that gave them.
     let unseen: Array<CallOutcome> = [];
@@ -595,6 +612,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           if (record.problem === CODE.MALFORMED_CALL) draft.format.malformed += 1;
           if (record.problem === CODE.TRUNCATED_CALL) draft.format.truncated += 1;
           if (preRefuse?.code === CODE.LOOP_CAP) draft.format.capped += 1;
+          if (preRefuse?.code === CODE.THINK_IN_TEXT) draft.format.tagInOutgoing += 1;
         }
         for (const plan of plans) noteStep({ name: plan.record.name, detail: 'started' });
         const leftMs = settings.timeBudgetMs - (clock() - loopStartedAt);
@@ -766,13 +784,30 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       }
       let completion: StepCompletion;
       try {
-        completion = await llm.complete(sent, {
-          ...REPLY_REQUEST,
-          ...(draft.started ? { limits: draft.limits } : {}),
-          ...ifaceOption(draft),
-          ...tools,
-          ...(cancel === null ? {} : { signal: cancel }),
-        });
+        const asked = await askUnleaked(
+          () =>
+            llm.complete(sent, {
+              ...REPLY_REQUEST,
+              ...(draft.started ? { limits: draft.limits } : {}),
+              ...ifaceOption(draft),
+              ...tools,
+              ...(cancel === null ? {} : { signal: cancel }),
+            }),
+          (given) => answerLeaked(given as Parameters<typeof answerLeaked>[0], { transport, step: step + 2, registry }),
+          () => {
+            draft.format.thinkLeaked += 1;
+            log.info('turn: think leaked', { channel: channel.id, step: step + 1, leaks: draft.format.thinkLeaked });
+          }
+        );
+        completion = asked.completion;
+        if (asked.ended) {
+          // What the steps before it posted stands. Their results reached no answer, so they stay facts.
+          draft.format.leakEnded = 1;
+          (draft.diagnostics ??= []).push({ kind: 'thinkLeaked', told: false } as { told?: boolean });
+          leakEnded = true;
+          unseen = stepResults;
+          break;
+        }
       } catch (err) {
         log.warn('skills: follow-up failed', {
           channel: channel.id,
@@ -852,7 +887,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     // An inner turn's loop end state, for its result (`inner.loop`): the steps made, the bound that cut it with calls dropped, how many.
     if (inner)
       draft.innerLoop = { steps: step, cut: draft.loopCut?.reason ?? null, droppedCalls: draft.loopCut?.dropped ?? 0 };
-    return { acts, cutOff, delivered, skipped: Boolean(answer.parsed.skip) };
+    return { acts, cutOff, delivered, skipped: Boolean(answer.parsed.skip), leakEnded };
 
     /** Her speech of a step posted: the messages, reactions and picture through act, then an inner turn's lowered speech as calls. */
     async function postSpeech({
@@ -947,6 +982,9 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     // A diary post makes pictures, and may say one thing aloud; nothing else.
     if (diary && record.name !== 'draw.create' && record.name !== 'voice.say')
       return { code: CODE.DIARY_DRAW_ONLY, reason: record.name };
+    // A think tag never goes out, and nothing edits her words: the call is refused whole.
+    if (record.name === 'message.create' && hasThinkTag(JSON.stringify(record.args?.text ?? '')))
+      return { code: CODE.THINK_IN_TEXT, reason: '' };
     // A final step has its reason, and a step out of room its own or the time.
     const capped = (what: string | null | undefined): CallRefusal => ({ code: CODE.LOOP_CAP, reason: what as string });
     if (isFinal) return record.index === terminalAt ? null : capped(finalReason);

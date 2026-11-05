@@ -9,6 +9,7 @@ import type { StoredSourceRef } from '../memory/db/recall.ts';
 
 import { parseToolCallBlocks } from '../llm/tool-text.ts';
 import { REPLY_REQUEST } from '../llm/openrouter.ts';
+import { thinkLeakOf } from '../llm/parse.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { CallView } from '../tools/executors.ts';
@@ -386,6 +387,36 @@ export function answerOf(
     speechText: rawText,
     calls: normalizeCalls({ calls: completion?.toolCalls ?? [], transport, finishReason, step, registry }),
   };
+}
+
+/**
+ * Whether a completion is an answer whose `<think>` leaked (src/llm/parse.ts#thinkLeakOf), which is never acted on. An unclosed
+ * think cut at the output cap is no leak: that answer ends on the cut-off path.
+ */
+export function answerLeaked(
+  completion: Parameters<typeof answerOf>[0],
+  options: NonNullable<Parameters<typeof answerOf>[1]>
+): boolean {
+  const leak = thinkLeakOf(answerOf(completion, options).speechText);
+  return leak === 'unopened' || (leak === 'unclosed' && completion?.finishReason !== 'length');
+}
+
+/**
+ * One request of a turn under the think standard: `ask` runs once more when its answer leaked, with `onLeak` called per leak.
+ * `ended`: the second answer leaked too, so the turn ends here and nothing of `completion` is acted on.
+ */
+export async function askUnleaked<TCompletion>(
+  ask: () => Promise<TCompletion>,
+  leaked: (completion: TCompletion) => boolean,
+  onLeak: () => void
+): Promise<{ completion: TCompletion; ended: boolean }> {
+  const completion = await ask();
+  if (!leaked(completion)) return { completion, ended: false };
+  onLeak();
+  const again = await ask();
+  if (!leaked(again)) return { completion: again, ended: false };
+  onLeak();
+  return { completion: again, ended: true };
 }
 
 /** How many things her speech holds that a step may post or hold: messages, reactions, the picture, an inner turn's lowered calls. */

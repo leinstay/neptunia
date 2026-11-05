@@ -27,13 +27,6 @@ export const BOT: ReadonlyArray<SchemaEntry> = [
       'The person whose bound accounts are the owner, written by the first line of the command line on a raw install and by `/memory bind <iface> <account> owner`. See [Owner identity](memory.md#owner-identity)',
   },
   {
-    'key': 'bot.nameTriggers',
-    'types': ['array'],
-    'reader': 'src/behavior/sandbox.ts',
-    'default': [],
-    'text': 'Extra trigger strings besides @mention',
-  },
-  {
     'key': 'bot.access',
     'types': ['map'],
     'reader': 'src/behavior/sandbox.ts',

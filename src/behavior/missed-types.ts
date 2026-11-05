@@ -10,6 +10,7 @@ import type { Logger } from '../protocol/serve.ts';
 export type AddCandidateArg2 = {
   messageId: string;
   placeId: string;
+  iface?: string;
   authorId?: string | null;
   at: number;
   reason: string;
@@ -62,7 +63,6 @@ export type CreateMissedInput = {
   llm?: { complete: (...args: Array<Untyped>) => Untyped } | null;
   turns: Untyped;
   reads: Reads;
-  iface?: () => string;
   partnerOf?: (conversationId: string) => string | null;
   getSelfName?: (placeId: string) => string;
   dataDir: string;
@@ -76,11 +76,11 @@ export type CreateMissedInput = {
 export type CreateMissedResult = {
   start: (placeId: string) => Promise<void>;
   noteFact: (fact: Untyped) => void;
-  noteNotAddressed: (message: Untyped) => void;
+  noteNotAddressed: (message: Untyped, iface?: string) => void;
   setPrivateRecovery: (hooks: Untyped) => void;
   onTurnEnd: (end: Untyped) => void;
-  noteActivity: (placeId: string, at?: number) => void;
-  sweep: (placeId: string) => Promise<void>;
+  noteActivity: (placeId: string, at?: number, iface?: string) => void;
+  sweep: (iface: string, placeId: string) => Promise<void>;
   save: () => Promise<void>;
   stop: () => void;
   candidates: () => Array<Candidate>;
@@ -93,6 +93,8 @@ export type NoteFactInput = {
   replacedBy?: Untyped;
   failure?: Untyped;
   turnId?: Untyped;
+  /** The interface of the line; the candidate keeps it, so its sweep and its recovery turn run there. */
+  iface?: string;
 };
 
 /** What the analyzer's check of a list of candidates reads: the channel, its lines and the live config. */
@@ -102,6 +104,8 @@ export type ClassifyContext = { channel: Untyped; history: Untyped; config: Unty
 export type Candidate = {
   messageId: string;
   placeId: string;
+  /** The interface the conversation is on (absent only on a candidate stored before it was kept). */
+  iface?: string;
   authorId: string | null;
   at: number;
   reason: string;

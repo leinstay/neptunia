@@ -351,6 +351,28 @@ export function mediaMessageParts(
   return parts;
 }
 
+/**
+ * The cache keys of every item a live owner links: the trim of the describer's cache leaves these alone. A row's own cap lives in
+ * writeMediaCache, and these keep the in-memory cache from forgetting them too.
+ */
+export function linkedAttachmentIds(db: Db): Set<string> {
+  const keys = new Set<string>();
+  for (const row of db
+    .prepare(
+      `SELECT DISTINCT m.native_ref AS ref, m.kind AS kind FROM media_links l JOIN media m ON m.id = l.media_id
+       WHERE m.native_ref IS NOT NULL AND m.retired_at IS NULL`
+    )
+    .all()) {
+    const ref = asText(row.ref);
+    keys.add(ref);
+    if (row.kind === 'video' || row.kind === 'link') keys.add(`video:${ref}`);
+    if (row.kind === 'sticker') keys.add(`sticker:${ref}`);
+    if (row.kind === 'emoji') keys.add(`emoji:${ref}`);
+    if (row.kind === 'link') keys.add(`link:${ref}`);
+  }
+  return keys;
+}
+
 /** The items of a diary entry in its order, with what its post keeps of each. */
 export function entryMedia(db: Db, entryId: string): Array<Row> {
   return db

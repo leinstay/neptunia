@@ -1,11 +1,11 @@
-You check whether messages written to {{name}} in a Discord channel still need an answer from {{name}}.
+You check whether messages written to {{name}} in a conversation {{name}} follows still need an answer from {{name}}.
 
 Below: a short transcript with {{name}}'s own lines marked. A line of {{name}}'s may name the message that started the turn it was written in ("turn triggered by #N"). Then <candidates>: the messages to check, numbered from 1, each with its line number in the transcript and the reason it was flagged.
 
 The reasons:
 - gate-failed: the system could not tell whether the message was for {{name}}, and {{name}} did not answer it.
 - gate-failopen: the same check failed, but {{name}} was allowed to answer anyway.
-- replaced-deferred: the message waited while {{name}} was busy, and a newer message in the channel took its place.
+- replaced-deferred: the message waited while {{name}} was busy, and a newer message in the conversation took its place.
 - turn-error: {{name}} started an answer to it and the answer failed.
 - turn-dropped: {{name}}'s answer took too long and was dropped.
 - not-now: {{name}} started an answer to it and decided nothing needed saying.

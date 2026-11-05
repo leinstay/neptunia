@@ -23,8 +23,7 @@ import { DIARY_KINDS, SEED_SETS, parseSeedFamilies, pickSeeds, renderSeedsBlock 
 import { fill, formatDate } from '../src/format.ts';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
 import { createRecall as createRecallOf } from '../src/behavior/recall-run.ts';
-import { createChannelRouter as createChannelRouterOf } from '../src/behavior/route-channel.ts';
-import { createParticipationPicker as createParticipationPickerOf } from '../src/behavior/participation-pick.ts';
+import { createElsewhereHooks as createElsewhereHooksOf } from '../src/behavior/elsewhere-pick.ts';
 import { createTagHistory } from '../src/behavior/mention.ts';
 import { createMissed as createMissedOf } from '../src/behavior/missed.ts';
 import { createMessageHandler as createMessageHandlerOf } from '../src/behavior/pipeline.ts';
@@ -59,8 +58,7 @@ const createTurnRunner = onWorld(createRealTurnRunner as unknown as Parameters<t
 
 // The fakes of these tests carry the members a factory reads, so each factory takes its options as they are.
 const createRecall = loose(createRecallOf);
-const createChannelRouter = loose(createChannelRouterOf);
-const createParticipationPicker = loose(createParticipationPickerOf);
+const createElsewhereHooks = loose(createElsewhereHooksOf);
 const createMissed = loose(createMissedOf);
 const createMessageHandler = loose(createMessageHandlerOf);
 const createDescriber = loose(createDescriberOf);
@@ -117,7 +115,7 @@ const NOT_BUILT = {
   // PR 7d: her own tools are code, so these load only behind a call of hers (web.search, web.read, memory.search,
   // media.look), which no request built here makes; the tests of those tools check what they send.
   'rewatch-answer': 'loaded behind her media.look call (src/memory/describe.ts), which no turn here makes',
-  lookup: 'loaded behind her search calls (src/turn/phases/request), which no turn here makes',
+  'query-builder': 'loaded by the replay and the evaluation scripts; a live turn runs no planner (plan B4)',
   'search-summary': 'loaded behind her web.search call (src/web/lookup.ts), which no turn here makes',
   'recall-summary': 'loaded behind her memory.search call (src/behavior/recall-run.ts), which no turn here makes',
   // The errand agents' prompts are not here: they live in agents/<id>/prompt.md, read by the
@@ -178,11 +176,10 @@ const LOADS = {
   describeGif: ['describe-gif'],
   describeVideo: ['describe-video'],
   rewatchAnswer: ['rewatch-answer'],
-  lookup: ['lookup'],
+  lookup: ['query-builder'],
   searchSummary: ['search-summary'],
   recallSummary: ['recall-summary'],
-  routeChannel: ['route-channel'],
-  participationPick: ['participation-pick'],
+  elsewherePick: ['elsewhere-pick'],
   split: ['split'],
   merge: ['merge'],
   missed: ['missed'],
@@ -818,7 +815,7 @@ test('labels: every code of the catalogue has its words in the tracked labels.js
 // ---- the chat turn ----------------------------------------------------------------
 
 test('buildRequest: a reply fills system-prompt, character-card, rules, format and reply for every trigger kind', async () => {
-  for (const triggerKind of ['mention', 'reply', 'name', 'followUp']) {
+  for (const triggerKind of ['mention', 'reply', 'followUp']) {
     const request = buildRequest(await turnInput({ triggerKind }));
     // A follow-up takes the follow-up task instead of reply.md; a reply with no tagged state stays on reply.md.
     const files = triggerKind === 'followUp' ? LOADS.followUp : LOADS.reply;
@@ -1487,7 +1484,7 @@ test('createTurnRunner: a reply turn fills the describer and turn requests', asy
     'describe-video',
     'rewatch-answer',
     'describe',
-    'lookup',
+    'query-builder',
     'search-summary',
     'recall-summary',
     'system-prompt',
@@ -1498,7 +1495,7 @@ test('createTurnRunner: a reply turn fills the describer and turn requests', asy
     'rewatch-answer': 'all three oranges are bright orange',
     describe: 'a tomato plant covered in frost',
     rewatch: '1 | what colour are the oranges?',
-    lookup: 'web: tomato frost date\nserver: tomate, gelé',
+    lookup: 'web: tomato frost date\nhistory: tomate, gelé',
     'search-summary': 'Tomatoes die below zero degrees [1].',
     'recall-summary': 'stretch: 1\nNikos said in #jardin four days ago that the tomato froze.',
     'system-prompt': '<skip/>',
@@ -1582,41 +1579,6 @@ test('createTurnRunner: a reply turn fills the describer and turn requests', asy
   );
 });
 
-test('createChannelRouter: the route classifier fills route-channel.md', async () => {
-  const hot = shippedHot();
-  const channels = worldChannelsOf([
-    [GENERAL_INFO, generalRaws()],
-    [GARDEN_INFO, []],
-    [DIARY_INFO, []],
-  ]);
-  const store = { listChannels: () => CHANNELS, getUser: (id: string) => PROFILES[id] ?? null };
-  const llm = recordingLlm(() => 'none');
-  const router = createChannelRouter({ hot, store, llm, now: () => NOW });
-  const history = await generalHistory();
-  const snapshot = await takeSnapshot(world().reads, GUILD);
-  const { result } = await withCapturedLogs(() =>
-    router({
-      placeId: GUILD,
-      channel: channels[GENERAL].info,
-      snapshot,
-      // @ts-expect-error the normalized lines stand for the lines the router reads
-      history,
-      // @ts-expect-error a normalized message stands for the line the router reads
-      trigger: history.at(-1),
-      triggerKind: 'mention',
-      selfName: SELF_NAME,
-      config: hot.config,
-    })
-  );
-  assert.deepEqual(result, []);
-  assert.equal(llm.calls.length, 1, 'one route request');
-  assertFilled(
-    llm.calls[0].messages,
-    { files: LOADS.routeChannel, blocks: ['transcript', 'channels', 'candidate'] },
-    'route-channel'
-  );
-});
-
 /** The persona's stored exchanges: one in #jardin and one in #journal, both inside the window. */
 function participationState() {
   const own = (id: string, ts: number, text: string) => ({
@@ -1661,20 +1623,25 @@ function participationState() {
   };
 }
 
-test('createParticipationPicker: the pick classifier fills participation-pick.md', async () => {
+// Plan 2026-11-04-cli-and-memory B3: one pick fills one prompt with both lists.
+test('createElsewhereHooks: the elsewhere pick fills elsewhere-pick.md', async () => {
   const hot = shippedHot();
   const channels = worldChannelsOf([
     [GENERAL_INFO, generalRaws()],
     [GARDEN_INFO, []],
     [DIARY_INFO, []],
   ]);
-  const store = { getParticipation: () => participationState(), listChannels: () => CHANNELS };
-  const llm = recordingLlm(() => 'none');
-  const picker = createParticipationPicker({ hot, store, llm, now: () => NOW });
+  const store = {
+    getParticipation: () => participationState(),
+    listChannels: () => CHANNELS,
+    getUser: (id: string) => PROFILES[id] ?? null,
+  };
+  const llm = recordingLlm(() => 'place: none\nepisodes: none');
+  const hooks = createElsewhereHooks({ hot, store, llm, now: () => NOW });
   const history = await generalHistory();
   const snapshot = await takeSnapshot(world().reads, GUILD);
   const { result } = await withCapturedLogs(() =>
-    picker({
+    hooks.routeChannels({
       placeId: GUILD,
       channel: channels[GENERAL].info,
       snapshot,
@@ -1683,15 +1650,14 @@ test('createParticipationPicker: the pick classifier fills participation-pick.md
       triggerKind: 'mention',
       mode: 'reply',
       selfName: SELF_NAME,
-      audience: () => true,
     })
   );
   assert.deepEqual(result, []);
   assert.equal(llm.calls.length, 1, 'one pick request');
   assertFilled(
     llm.calls[0].messages,
-    { files: LOADS.participationPick, blocks: ['transcript', 'candidate', 'episodes'] },
-    'participation-pick'
+    { files: LOADS.elsewherePick, blocks: ['transcript', 'places', 'episodes', 'candidate'] },
+    'elsewhere-pick'
   );
 });
 
@@ -1851,7 +1817,6 @@ test('createMissed: the missed-answer check fills missed.md', async () => {
     llm,
     turns: { triggerOf: () => null },
     reads: world().reads,
-    iface: () => world().port.iface,
     isServedCommunity: (id: unknown) => id === GUILD,
     getSelfName: () => SELF_NAME,
     dataDir,
@@ -1860,8 +1825,8 @@ test('createMissed: the missed-answer check fills missed.md', async () => {
   });
   try {
     await withCapturedLogs(async () => {
-      missed.noteFact({ reason: 'gate-failed', message: candidate });
-      await missed.sweep(GENERAL);
+      missed.noteFact({ reason: 'gate-failed', message: candidate, iface: world().port.iface });
+      await missed.sweep(world().port.iface, GENERAL);
     });
     assert.equal(llm.calls.length, 1, 'one check for the channel');
     assertFilled(llm.calls[0].messages, { files: LOADS.missed, blocks: ['candidates'] }, 'missed');
@@ -1906,7 +1871,8 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
     waitingParts: () => [{ index: 2, text: 'regarde le canal du jardin' }],
     addToPart: (...args: Array<unknown>) => folded.push(args) > 0,
   };
-  const llm = recordingLlm(() => '1');
+  // Plan 2026-11-04-cli-and-memory B1: a flagged line asks the address classifier first.
+  const llm = recordingLlm((_messages, options) => (options.purpose === 'address' ? 'yes' : '1'));
   const handler = createMessageHandler({
     hot,
     store: { state: { data: {}, markDirty() {} }, getUser: () => null },
@@ -1930,9 +1896,9 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
     for (let i = 0; i < 20 && folded.length === 0; i += 1) await new Promise((resolve) => setImmediate(resolve));
   });
 
-  assert.equal(llm.calls.length, 1, 'one merge request');
-  assertFilled(llm.calls[0].messages, { files: LOADS.merge, blocks: ['waiting', 'candidate'] }, 'merge');
-  assert.equal(llm.calls[0].options.purpose, 'merge');
+  const merges = llm.calls.filter((call) => call.options.purpose === 'merge');
+  assert.equal(merges.length, 1, 'one merge request');
+  assertFilled(merges[0].messages, { files: LOADS.merge, blocks: ['waiting', 'candidate'] }, 'merge');
   assert.equal(folded.length, 1, 'folded into the waiting part');
 });
 
