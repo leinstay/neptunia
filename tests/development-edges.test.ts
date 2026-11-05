@@ -191,6 +191,8 @@ function installFakeClaude(dataDir: string, record: string, code = 0): void {
   fs.writeFileSync(
     binary,
     `#!/bin/sh
+# The engine reads the backend's help to learn its flags; that is no agent run.
+case "$1" in --help) exit 0;; esac
 {
   echo "home=\${GH_CONFIG_DIR-unset}"
   echo "token=\${GH_TOKEN-unset}"
