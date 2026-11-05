@@ -1,7 +1,6 @@
-// The models an agent can run on under each backend, and the one-reply check of a model before it is saved. The list
-// for `opencode` comes from OpenRouter's `/models` on the named extra key. `codex` and `claude` have no list to ask
-// for, so the names their CLIs accept (`codex exec -m`, `claude -p --model`) are fixed here, and the owner may type any
-// other name. A listing that cannot be read is an empty list: the owner types the name. Nothing here prints a key value.
+// The models an agent can run on under each backend, and the one-reply check of a model before it is saved. `codex` and
+// `claude` have no list to ask for, so the names their CLIs accept (`codex exec -m`, `claude -p --model`) are fixed here,
+// and the owner may type any other name. Nothing here prints a key value.
 
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { log } from '../log.ts';
@@ -42,30 +41,6 @@ const CHECK_BRIEF = 'Reply with the single word ok.';
 /** The URL of an endpoint under the provider's base. */
 const endpoint = (deps: Pick<EnableDeps, 'baseUrl'>, path: string): string =>
   `${(deps.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '')}${path}`;
-
-/** The model names offered for `backend`: the fixed list, or OpenRouter's for opencode on `keyValue`. Empty when unreadable. */
-export async function listModels(
-  deps: Pick<EnableDeps, 'fetch' | 'baseUrl'>,
-  backend: BackendName,
-  keyValue: string
-): Promise<Array<string>> {
-  if (backend !== 'opencode') return [...FIXED_MODELS[backend]];
-  try {
-    const response = await deps.fetch(endpoint(deps, '/models'), {
-      headers: { Authorization: `Bearer ${keyValue}` },
-      signal: AbortSignal.timeout(REQUEST_MS),
-    });
-    if (!response.ok) return [];
-    const body: unknown = await response.json();
-    const data: unknown = typeof body === 'object' && body !== null ? Reflect.get(body, 'data') : null;
-    if (!Array.isArray(data)) return [];
-    return data
-      .map((one: unknown): unknown => (typeof one === 'object' && one !== null ? Reflect.get(one, 'id') : null))
-      .filter((id): id is string => typeof id === 'string');
-  } catch {
-    return [];
-  }
-}
 
 const refused = (code: string, message: string): SubharnessResult => ({ ok: false, code, changed: false, message });
 

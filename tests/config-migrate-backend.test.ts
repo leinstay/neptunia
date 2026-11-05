@@ -15,11 +15,12 @@ test('the cut takes errands.backend out of a local layer and keeps its neighbour
   assert.deepEqual(config, { errands: { maxOpen: 5 } });
 });
 
-test('the migration names subharness enable on the line it drops errands.backend with', async () => {
+test('the migration names the account command on the line it drops errands.backend with', async () => {
   // Bug: the owner's choice of backend vanishes from the file and nothing says where to make it again.
   const file = path.join(tempDir('nep-migrate-'), 'config.json');
   fs.writeFileSync(file, JSON.stringify({ errands: { backend: 'claude' } }));
   const report = await main(['--dry-run', '--file', file]);
   const line = report.split('\n').find((one) => one.startsWith('errands.backend dropped'));
-  assert.ok(line?.includes('subharness enable'));
+  // Changed: a subharness has no enable step, its login makes it available.
+  assert.ok(line?.includes('subharness <codex|claude|opencode> login'));
 });

@@ -104,7 +104,8 @@ test('the runner starts the assigned backend when the old list omits it', async 
   );
   assert.equal(done.error, undefined);
   assert.equal(done.ok, true);
-  assert.equal(vendor.calls().length, 1);
+  // Changed: the installed backend reads its own --help before a run, which is no model run.
+  assert.equal(vendor.calls().filter((one) => one !== '--help').length, 1);
 });
 
 // The memory path

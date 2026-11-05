@@ -13,58 +13,32 @@ import type { CommandEvent } from '../src/interface/neptunia-cli.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
 import { deferModeToUnit } from '../src/setup/install.ts';
 import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
+import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const SECRET = 'sk-or-v1-oc-secret-0123456789';
 
-test('the table parses /subharness: a bare line is the status, enable takes a backend and an optional --key', () => {
-  // Bug: the --key flag is read as a positional word, so "opencode --key x" parses as backend "opencode --key x".
+test('the table parses /subharness: a bare line is the status', () => {
+  // Bug: the bare family word asks for a subcommand, so the owner cannot read what runs where.
+  // Changed: the enable and disable forms left the family.
   assert.deepEqual(parseCommandLine('/subharness'), { ok: true, name: 'subharness.status', args: {} });
   assert.deepEqual(parseCommandLine('/subharness status'), { ok: true, name: 'subharness.status', args: {} });
-  assert.deepEqual(parseCommandLine('/subharness enable codex'), {
-    ok: true,
-    name: 'subharness.enable',
-    args: { backend: 'codex' },
-  });
-  assert.deepEqual(parseCommandLine('/subharness enable opencode --key oc-1'), {
-    ok: true,
-    name: 'subharness.enable',
-    args: { backend: 'opencode', key: 'oc-1' },
-  });
-  // Changed for spec 2026-11-02 PR 5 "Several subharnesses": disable removes one named backend.
-  assert.deepEqual(parseCommandLine('/subharness disable codex'), {
-    ok: true,
-    name: 'subharness.disable',
-    args: { backend: 'codex' },
-  });
 });
 
-test('the table refuses a backend that is none, a --key with no value, an unknown flag and a bare key word', () => {
-  // Bug: "--key" with nothing after it enables opencode on the key named "--key"; a stray word becomes the key.
-  for (const line of [
-    '/subharness enable',
-    '/subharness enable codx',
-    '/subharness enable opencode --key',
-    '/subharness enable opencode --force',
-    '/subharness enable opencode oc-1',
-    '/subharness enable opencode --key a b',
-  ])
-    assert.equal(parseCommandLine(line).ok, false, line);
-});
-
-test('the table parses /subharness mode with an agent, an optional mode, and refuses other words', () => {
+test('the table parses /agent mode with an agent, an optional mode, and refuses other words', () => {
   // Bug: a mode outside the four reaches the handler, or an agent outside the four is accepted.
-  assert.deepEqual(parseCommandLine('/subharness mode dev sudo'), {
+  // Changed: the execution mode moved from `/subharness mode` to `/agent mode`.
+  assert.deepEqual(parseCommandLine('/agent mode dev sudo'), {
     ok: true,
-    name: 'subharness.mode',
+    name: 'agent.mode',
     args: { agent: 'dev', mode: 'sudo' },
   });
-  assert.deepEqual(parseCommandLine('/subharness mode watcher'), {
+  assert.deepEqual(parseCommandLine('/agent mode watcher'), {
     ok: true,
-    name: 'subharness.mode',
+    name: 'agent.mode',
     args: { agent: 'watcher' },
   });
-  for (const line of ['/subharness mode', '/subharness mode dev root', '/subharness mode editor read'])
+  for (const line of ['/agent mode', '/agent mode dev root', '/agent mode editor read'])
     assert.equal(parseCommandLine(line).ok, false, line);
 });
 
@@ -105,39 +79,33 @@ function rig() {
   return { dir, deps };
 }
 
-test('enable, status, mode and disable change keys.json and answer ok', async () => {
+test('a mode and the status change and read keys.json and answer ok', async () => {
   // Bug: the handler answers ok without writing, or writes without answering what it did.
+  // Changed: enable and disable are gone; the status still names opencode's key and holds no key value.
   const { dir, deps } = rig();
-  assert.equal(
-    (await subharnessCommand(deps, 'subharness.enable', { backend: 'opencode', key: 'opencode' })).status,
-    'ok'
-  );
-  assert.equal(readKeysFile(dir).subharness.key, 'opencode');
-  assert.equal((await subharnessCommand(deps, 'subharness.mode', { agent: 'dev', mode: 'sudo' })).status, 'ok');
+  const stored = readKeysFile(dir);
+  writeKeysFile(dir, { ...stored, subharness: { ...stored.subharness, key: 'opencode' } });
+  assert.equal((await subharnessCommand(deps, 'agent.mode', { agent: 'dev', mode: 'sudo' })).status, 'ok');
   assert.equal(readKeysFile(dir).subharness.modes.dev, 'sudo');
   const status = await subharnessCommand(deps, 'subharness.status', {});
   assert.equal(status.status, 'ok');
   assert.ok(status.text.includes('opencode') && status.text.includes('sudo'));
   assert.equal(status.text.includes(SECRET), false);
-  // Changed for spec 2026-11-02 PR 5 "Several subharnesses": disable names the backend, and a write keeps only the list.
-  assert.equal((await subharnessCommand(deps, 'subharness.disable', { backend: 'opencode' })).status, 'ok');
-  assert.deepEqual(readKeysFile(dir).subharness.backends, []);
 });
 
-test('a refused enable answers failed, starts with the command as typed, and writes nothing', async () => {
-  // Bug: a failed check answers ok, so the owner thinks the subharness is on.
+test('a refused opencode login answers failed, names the key and writes nothing', async () => {
+  // Bug: a failed check answers ok, so the owner thinks the source is on.
+  // Changed: the login of opencode is what names its key, in place of enable.
   const { dir, deps } = rig();
-  const answer = await subharnessCommand(deps, 'subharness.enable', { backend: 'opencode', key: 'nope' });
+  const answer = await subharnessCommand(deps, 'subharness.opencode.login', { key: 'nope' });
   assert.equal(answer.status, 'failed');
-  assert.ok(answer.text.startsWith('/subharness enable'));
-  // Changed for spec 2026-11-02 PR 5 "Several subharnesses": the connected backends are the list `backends`.
-  assert.deepEqual(readKeysFile(dir).subharness.backends ?? [], []);
+  assert.equal(readKeysFile(dir).subharness.key, null);
 });
 
 test('a mode line with no mode shows the current one and writes nothing', async () => {
   // Bug: the inspection form writes the default into keys.json.
   const { dir, deps } = rig();
-  const answer = await subharnessCommand(deps, 'subharness.mode', { agent: 'scout' });
+  const answer = await subharnessCommand(deps, 'agent.mode', { agent: 'scout' });
   assert.equal(answer.status, 'ok');
   assert.ok(answer.text.includes('write'));
   assert.deepEqual(readKeysFile(dir).subharness.modes, {});
@@ -181,19 +149,24 @@ test('the console runs the subharness and simulation commands over its private d
     runBackend: (name, brief) => deps.runBackend(name, brief),
     fetch: (url, init) => deps.fetch(url, init),
   });
-  assert.equal((await desk.run('subharness.mode', { agent: 'dev', mode: 'full' }, { id: 'owner' })).status, 'ok');
+  assert.equal((await desk.run('agent.mode', { agent: 'dev', mode: 'full' }, { id: 'owner' })).status, 'ok');
   assert.equal(readKeysFile(dir).subharness.modes.dev, 'full');
   assert.equal((await desk.run('simulation.enable', { key: 'sim' }, { id: 'owner' })).status, 'ok');
 });
 
-test('without the runner and fetch the console refuses enable and runs no process', async () => {
+test('without the runner and fetch the console refuses a model selection and runs no model', async () => {
   // Bug: a console built without the check dependencies falls back to the real codex or the real network.
+  // Changed: the selection is where a check runs, now that enable is gone.
   const { dir } = rig();
+  const vendor = fakeVendor(dir, 'codex', { loggedIn: true });
   const desk = consoleOver(dir, undefined);
-  const answer = await desk.run('subharness.enable', { backend: 'codex' }, { id: 'owner' });
+  const answer = await desk.run('model.set', { role: 'dev', model: 'gpt-6-sol', via: 'codex' }, { id: 'owner' });
   assert.equal(answer.status, 'failed');
-  // Changed for spec 2026-11-02 PR 5 "Several subharnesses": the connected backends are the list `backends`.
-  assert.deepEqual(readKeysFile(dir).subharness.backends ?? [], []);
+  assert.deepEqual(
+    vendor.calls().filter((one) => one !== 'login status'),
+    []
+  );
+  assert.equal(readKeysFile(dir).subharness.uses?.dev, undefined);
 });
 
 function deskOver() {
@@ -232,7 +205,7 @@ test("an agent's command to change a mode never reaches the console", async () =
   // Bug: a development agent whose report asks for sudo gets it, because its command is run as the owner's.
   const { desk, consoleCalls } = deskOver();
   for (const kind of ['agent', 'interface'] as const) {
-    const answer = await desk.run(eventOf('subharness.mode', { agent: 'dev', mode: 'sudo' }), { kind, name: 'dev' });
+    const answer = await desk.run(eventOf('agent.mode', { agent: 'dev', mode: 'sudo' }), { kind, name: 'dev' });
     assert.notEqual(answer.status, 'ok', kind);
   }
   assert.deepEqual(consoleCalls, []);
@@ -241,8 +214,8 @@ test("an agent's command to change a mode never reaches the console", async () =
 test('the same command from the owner chat reaches the console', async () => {
   // Bug: the guard is so wide that the owner's own chat cannot change a mode either.
   const { desk, consoleCalls } = deskOver();
-  await desk.run(eventOf('subharness.mode', { agent: 'dev', mode: 'sudo' }), { kind: 'cli', name: 'cli' });
-  assert.deepEqual(consoleCalls, ['subharness.mode']);
+  await desk.run(eventOf('agent.mode', { agent: 'dev', mode: 'sudo' }), { kind: 'cli', name: 'cli' });
+  assert.deepEqual(consoleCalls, ['agent.mode']);
 });
 
 test('/help from the owner chat lists /subharness and /simulation', async () => {
@@ -261,38 +234,8 @@ test('inside the core a mode change is stored and the answer names neptunia setu
   // Catches: the core wires the mode to a sudo re-render that NoNewPrivileges refuses, and the owner reads a failure.
   const { dir, deps } = rig();
   const inCore: EnableDeps = { ...deps, applyMode: (agent) => Promise.resolve(deferModeToUnit(agent)) };
-  const answer = await subharnessCommand(inCore, 'subharness.mode', { agent: 'server', mode: 'sudo' });
+  const answer = await subharnessCommand(inCore, 'agent.mode', { agent: 'server', mode: 'sudo' });
   assert.equal(answer.status, 'ok');
   assert.equal(readKeysFile(dir).subharness.modes.server, 'sudo');
   assert.ok(answer.text.includes('neptunia setup units'));
-});
-
-test('the models of /subharness enable are answered through the owner chat link until the backend is stored', async () => {
-  // Bug: the first answer came back "that question is closed", because the link's dialogs never knew the question.
-  const dir = tempDir('nep-enable-link-');
-  writeKeysFile(dir, {});
-  const consoleDeps = {
-    privateDir: dir,
-    subharness: {
-      asksModels: true,
-      runBackend: () => Promise.resolve({ ok: true, text: 'ok', exitCode: 0 }),
-      fetch: () => Promise.resolve(new Response('{}', { status: 200 })),
-    },
-  } as unknown as ConsoleDeps;
-  const desk = createCommandDesk({
-    console: createConsole(consoleDeps),
-    interfaces: { list: () => [], enable: () => undefined, disable: () => Promise.resolve({ drained: 0, unknown: 0 }) },
-    facts: () => {
-      throw new Error('not used');
-    },
-    guildId: () => null,
-    tasks: { command: () => Promise.resolve({ text: 'board', status: 'invalid' }) },
-  } as unknown as Parameters<typeof createCommandDesk>[0]);
-  const cli = { kind: 'cli', name: 'cli' } as const;
-  const event = eventOf('subharness.enable', { backend: 'claude' });
-  let answer = (await desk.run(event, cli)) as { status: string; dialogId?: string };
-  for (let asked = 0; answer.status === 'ask' && asked < 4; asked += 1)
-    answer = await desk.run({ ...event, dialogId: answer.dialogId, answer: 'opus' }, cli);
-  assert.equal(answer.status, 'ok');
-  assert.deepEqual(readKeysFile(dir).subharness.backends, ['claude']);
 });
