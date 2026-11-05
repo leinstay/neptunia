@@ -3,15 +3,11 @@
 // (config.mention.pendingSameChannel) or, with one turn at a time
 // (config.mention.oneAtATime), somewhere else; a private message waiting for
 // the same reason; a follow-up the address classifier said `yes` to, the
-// same way; a call from a channel the persona cannot write in, routed
-// to another conversation (its `destination`), whose turn found the attention
-// taken. Every call waits for its own answer: the queue keeps them all in
+// same way. Every call waits for its own answer: the queue keeps them all in
 // arrival order, several per channel and per author, and a newer call never
 // takes an older one's place (a deferred follow-up excepted: one per channel,
 // replaced in src/behavior/pipeline.ts). At most mention.maxPending entries overall; the
-// single oldest entry, of any channel, is evicted when full. A routed call
-// keeps the calls its settle wait grouped with it (`superseded`), so whatever
-// ends it -- the ignore roll letting it pass -- ends those too. A later message
+// single oldest entry, of any channel, is evicted when full. A later message
 // of an author about one of their waiting calls is folded into it (`added`)
 // instead of waiting as a call of its own: the decision is the merge
 // classifier's (src/behavior/pipeline.ts), parsed here (parseMergeAnswer).

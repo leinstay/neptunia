@@ -17,6 +17,7 @@ import {
 } from '../interfaces/discord/index.ts';
 import { lineOf } from '../src/behavior/line-of.ts';
 import type { MessageEvent } from '../src/protocol/adapter.ts';
+import { present } from './fixtures/loose-types.ts';
 
 type Raw = Record<string, unknown>;
 type Channel = Parameters<typeof fetchHistory>[0];
@@ -283,11 +284,11 @@ test('reads the lines before, after and around a message like the search helpers
   const { adapter, channel } = world();
   const stub = asChannel(channel);
   const before = eventsOf(await adapter.history(CHANNEL, { limit: 2, before: '1004' }));
-  assert.deepEqual(before.map(lineOf), (await fetchBefore(stub, '1004', 2, options)).map(inCoreWords));
+  assert.deepEqual(before.map(lineOf), present(await fetchBefore(stub, '1004', 2, options)).map(inCoreWords));
   const after = eventsOf(await adapter.history(CHANNEL, { limit: 2, after: '1002' }));
-  assert.deepEqual(after.map(lineOf), (await fetchAfter(stub, '1002', 2, options)).map(inCoreWords));
+  assert.deepEqual(after.map(lineOf), present(await fetchAfter(stub, '1002', 2, options)).map(inCoreWords));
   const around = eventsOf(await adapter.history(CHANNEL, { limit: 3, around: '1003' }));
-  assert.deepEqual(around.map(lineOf), (await fetchAround(stub, '1003', 3, options)).map(inCoreWords));
+  assert.deepEqual(around.map(lineOf), present(await fetchAround(stub, '1003', 3, options)).map(inCoreWords));
 });
 
 test('fails the history of a channel whose messages cannot be fetched', async () => {

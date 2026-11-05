@@ -122,7 +122,7 @@ function desk(privateDir: string, config: Record<string, unknown>): ReturnType<t
   const deps: ConsoleDeps = {
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null }),
     ownerReads: { lessons: () => '', aliases: () => '' },
-    placeId: () => 'g1',
+    places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config },
     privateDir,

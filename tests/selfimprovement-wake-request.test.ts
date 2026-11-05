@@ -190,7 +190,6 @@ const JOURNAL = {
 };
 const facts = () =>
   buildSelfimprovementFacts({
-    placeId: 'g1',
     now: WAKE_NOW,
     since: null,
     shown: 1,

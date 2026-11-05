@@ -943,7 +943,7 @@ test('inner: a review tells her once which intentions of hers expired untouched 
 function fakeRecord(lines: Array<Record<string, Untyped>>) {
   return {
     lines,
-    async *iterate(_guild: string, { from }: { from?: string | null } = {}) {
+    async *iterate({ from }: { from?: string | null } = {}) {
       const since = from ? Date.parse(from) : -Infinity;
       for (const line of lines) if (Date.parse(String(line.occurredAt)) >= since) yield line;
     },
@@ -1013,7 +1013,6 @@ function attentionSetup({
     iface: () => 'fake',
     submit: (event) => door.submit(event),
     store: { state: { data: {} } },
-    isServedCommunity: (id: unknown) => id === GUILD,
     meter: { run: async (fn) => ({ result: await fn(), usd: 0.1, requests: 1, voice: 1 }) },
     rng: seeded(3),
     now: () => clock.t,

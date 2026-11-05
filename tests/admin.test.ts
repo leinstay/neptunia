@@ -3479,7 +3479,7 @@ test('admin: memory restore re-inserts an episode and writes a restored event, i
     );
     const [old] = userOf(store, 'u1').episodes;
     store.addEpisodes(accountOf(store, 'u1'), [{ date: '2026-10-12', what: 'Κέρδισε στο σκάκι', weight: 3 }], opts);
-    await store.settleArchive('g1');
+    await store.settleArchive();
     assert.deepEqual(
       userOf(store, 'u1').episodes.map((ep: Untyped) => ep.what),
       ['Κέρδισε στο σκάκι'],

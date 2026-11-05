@@ -131,7 +131,6 @@ function makeEnv({
     client,
     stores,
     hot,
-    isServedCommunity: (id: unknown) => id === 'g1',
     now,
     onFinished: (task) => door.submit(errandDoneEvent(task, now)),
   });

@@ -192,7 +192,7 @@ test('a voice state with selfMute builds an event with muted true and the member
 });
 
 test('a voice state in no channel builds an event with conversationId null', () => {
-  const event = voiceEvent({ id: 'u1', guild: GUILD, placeId: null }, 1000);
+  const event = voiceEvent({ id: 'u1', guild: GUILD, channelId: null }, 1000);
   assert.equal(validateEvent(event).ok, true);
   assert.equal(event.conversationId, null);
 });

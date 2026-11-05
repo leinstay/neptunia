@@ -141,9 +141,9 @@ function fakeLlm(responseText: string) {
 
 /** The errand service as the turn sees it: `view` lists `tasks`, `markSeen` is recorded. */
 function fakeErrands(tasks = []) {
-  const seen: Array<{ placeId: string; ids: Array<string> }> = [];
-  const read: Array<{ placeId: string; ids: Array<string> }> = [];
-  const failed: Array<{ placeId: string; ids: Array<string> }> = [];
+  const seen: Array<{ ids: Array<string> }> = [];
+  const read: Array<{ ids: Array<string> }> = [];
+  const failed: Array<{ ids: Array<string> }> = [];
   return {
     tasks,
     seen,

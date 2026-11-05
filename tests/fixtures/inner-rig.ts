@@ -288,7 +288,6 @@ export function setup({
     conversationName: (id) => (id === 'd1' ? 'dm' : `chan-${id}`),
     submit: (event) => door.submit(event),
     store: { state: { data: {} } },
-    isServedCommunity: (id: unknown) => id === GUILD,
     peopleWaiting,
     meter: meter ?? {
       run: async (fn): Promise<Measured> => ({ result: await fn(), usd: meterUsd, requests: 1, voice: 1 }),

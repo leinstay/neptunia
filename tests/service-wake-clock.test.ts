@@ -43,7 +43,7 @@ async function statusOf(
   const desk = createConsole({
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null }),
     ownerReads: { lessons: () => '', aliases: () => '' },
-    placeId: () => GUILD,
+    places: () => [GUILD],
     selfId: () => 'self-1',
     hot: { config },
     privateDir: dir,

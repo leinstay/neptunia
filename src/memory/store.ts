@@ -3371,10 +3371,7 @@ function buildStore({
      * `deferred` how many went to the archive's pending queue instead (their items stay hot until
      * the drain archives them). An entry reported here is not reported again.
      */
-    async settleArchive(
-      placeId: string,
-      { from = 0, to = Infinity }: { from?: number; to?: number } = {}
-    ): Promise<{
+    async settleArchive({ from = 0, to = Infinity }: { from?: number; to?: number } = {}): Promise<{
       archived: Array<{ itemId: string; revisionId: string; itemKind: string; event: string }>;
       deferred: number;
     }> {

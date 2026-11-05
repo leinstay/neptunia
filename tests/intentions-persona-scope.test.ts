@@ -13,7 +13,7 @@ import type { Intention } from '../src/intentions/types.ts';
 import { listUnits } from '../src/memory/db/storage-units.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { hotWith } from './fixtures/inner-rig.ts';
-import { wrongly } from './fixtures/loose-types.ts';
+import { present, wrongly } from './fixtures/loose-types.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 
 const NOW = Date.parse('2026-11-05T12:00:00.000Z');
@@ -56,7 +56,7 @@ test('the service lists and answers what is due with no community named', () => 
   // Bug: `storeOf` answers null without a community, so a core with only DMs forgets every promise.
   const stores = createIntentionStores({ now: () => NOW, log: silent });
   const service = createIntentionService({ stores, hot: hotWith(), now: () => NOW, log: silent });
-  stores.get().add(made('i2'));
+  present(stores.get()).add(made('i2'));
   assert.deepEqual(
     service.list({ all: true }).map((one) => one.id),
     ['i2']

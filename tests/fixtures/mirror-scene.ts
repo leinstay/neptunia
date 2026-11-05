@@ -253,7 +253,7 @@ export async function mirrorScene({
     const deps: ConsoleDeps = {
       runOp: () => Promise.resolve({ status: 'failed', code: 'no-op', summary: '', data: null }),
       ownerReads: { lessons: () => '', aliases: () => '' },
-      placeId: () => 'g1',
+      places: () => ['g1'],
       selfId: () => 'self-1',
       hot: { config: { bot: { owners: [] } } },
       privateDir: memory.dataDir,

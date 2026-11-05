@@ -32,7 +32,7 @@ test('a word, a path or two words where a date goes read no file', async () => {
   const desk = createConsole({
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null }),
     ownerReads: { lessons: () => '', aliases: () => '' },
-    placeId: () => 'g1',
+    places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: {} },
     privateDir: dir,

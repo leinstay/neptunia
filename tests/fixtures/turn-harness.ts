@@ -110,6 +110,7 @@ type Profile = { id: string } & Record<string, unknown>;
 
 /** A store that holds only the `profiles` it is given. */
 type FakeStore = {
+  topPlaces: () => Array<string>;
   getPlace: () => object;
   getUser: (id: string) => Profile | null;
   getPrivate: () => null;

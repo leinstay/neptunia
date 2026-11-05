@@ -8468,7 +8468,7 @@ function endHookScene(answer = '<msg reply="#1">ναι</msg>') {
   });
   const ends: Array<{
     placeId: string | null;
-    placeId: string | null;
+    conversationId: string | null;
     privateChat: boolean;
     routed: boolean;
     mode: string | null;
@@ -8558,7 +8558,7 @@ test('createTurnRunner: a turn dropped at its bar reaches the end hook as an err
   });
   const ends: Array<{
     placeId: string | null;
-    placeId: string | null;
+    conversationId: string | null;
     privateChat: boolean;
     routed: boolean;
     mode: string | null;
@@ -8666,7 +8666,7 @@ function cutScene(answers: Untyped) {
   });
   const ends: Array<{
     placeId: string | null;
-    placeId: string | null;
+    conversationId: string | null;
     privateChat: boolean;
     routed: boolean;
     mode: string | null;

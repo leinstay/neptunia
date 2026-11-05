@@ -584,7 +584,7 @@ export type Journal = {
   system(record: object): Promise<void>;
   answer(placeId: string, record: object): Promise<void>;
   inner(placeId: string, record: object): Promise<void>;
-  read(placeId: string, query?: { day?: string; kind?: string | null; n?: number }): Promise<Array<object>>;
+  read(placeId: string | null, query?: { day?: string; kind?: string | null; n?: number }): Promise<Array<object>>;
   timeline(
     placeId: string,
     query?: { from?: number }

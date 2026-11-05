@@ -28,7 +28,7 @@ function cacheScene() {
   const draft: InTurnDraft = { handleFloor: 2 };
   const tools = createInTurnTools({
     hot,
-    store: {},
+    store: { listUserProfiles: () => [] },
     recall: null,
     speech: null,
     record: null,

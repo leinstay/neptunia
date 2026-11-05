@@ -109,7 +109,7 @@ test('the console writes the token file for interface.token.set over its private
   const deps: ConsoleDeps = {
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: '', data: null }),
     ownerReads: { lessons: () => '', aliases: () => '' },
-    placeId: () => null,
+    places: () => [],
     selfId: () => null,
     hot: { config: {} },
     privateDir,

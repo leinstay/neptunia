@@ -106,7 +106,7 @@ test('equal native ids on two interfaces keep two places and two sets of public 
 
 test('a DM on the interface that serves the configured community takes nothing of that community', async () => {
   // Bug: `dmCommunityOf` answers the home community, so the private units of a DM are scoped to a server.
-  await withFakes({ guildId: 'home', owners: ['u1'], names: ['one'] }, async (rig) => {
+  await withFakes({ owners: ['u1'], names: ['one'] }, async (rig) => {
     const one = await rig.connect('one', [{ id: 'home', name: 'Home' }]);
     seedPerson(one, 'home', 'u1', 'Eleni');
     await dmTurn(one, 'dm-2', 'u1', 'm1');

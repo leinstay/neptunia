@@ -301,7 +301,7 @@ async function day(m: Awaited<ReturnType<typeof modules>>) {
     result: { text: 'nine to five', sources: [], files: [] },
     usage: { input: 1, output: 1, usd: 0, steps: 1, seconds: 1 },
   });
-  await m.store.settleArchive(GUILD);
+  await m.store.settleArchive();
   await m.store.flushSettled({});
   await m.intentions().flush();
   await m.tasks().flush();

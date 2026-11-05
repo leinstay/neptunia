@@ -32,7 +32,7 @@ export type Rig = {
 };
 
 export async function withFakes(
-  settings: { guildId?: string; owners?: ReadonlyArray<string>; names: ReadonlyArray<string> },
+  settings: { owners?: ReadonlyArray<string>; names: ReadonlyArray<string> },
   body: (rig: Rig) => Promise<void>
 ): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), 'tf-'));
@@ -44,7 +44,7 @@ export async function withFakes(
       bot: {
         timezone: 'UTC',
         owners: settings.owners ?? [],
-        ...(settings.guildId === undefined ? {} : { guildId: settings.guildId }),
+
       },
       private: { enabled: true, minAffinity: 0 },
       models: { base: { video: false } },

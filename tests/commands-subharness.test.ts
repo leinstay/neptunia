@@ -127,7 +127,7 @@ function consoleOver(dir: string, subharness: ConsoleDeps['subharness']) {
   const deps: ConsoleDeps = {
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: '', data: null }),
     ownerReads: { lessons: () => '', aliases: () => '' },
-    placeId: () => 'g1',
+    places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] } } },
     privateDir: dir,

@@ -72,9 +72,8 @@ function keptRecord(): Record_ {
   const lines: Array<unknown> = [];
   return {
     lines,
-    // The turn runner names the place first and the inner life's persona record does not.
-    append: (first: unknown, second: unknown) => {
-      lines.push(...(Array.isArray(first) ? first : (second as Array<unknown>)));
+    append: (_placeId, appended) => {
+      lines.push(...appended);
       return Promise.resolve();
     },
     iterate: () => [],
@@ -313,7 +312,8 @@ async function core(
       },
       intentions: service,
       reads,
-      ...(record ? { record } : {}),
+      // The inner life's record names no place (src/behavior/inner/persona-sources.ts).
+      ...(record ? { record: { ...record, append: (lines: ReadonlyArray<unknown>) => record.append('', lines) } } : {}),
       iface: () => 'fake',
       conversationName: (id: string) => `chan-${id}`,
       submit: (event: object) => door.submit(event),
@@ -656,7 +656,6 @@ test("a wake turn whose calls were not held asks the model what the same turn as
       ...(params.conversation ? { conversation: params.conversation } : {}),
       ...(params.standIn ? { standIn: params.standIn } : {}),
       ...(params.reuseHistory ? { reuseHistory: params.reuseHistory } : {}),
-      placeId: params.placeId,
       mode: params.mode,
       triggerKind: params.triggerKind,
       journalTurn: params.journalTurn,

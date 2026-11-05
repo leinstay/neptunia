@@ -544,7 +544,7 @@ test('the in-turn memory tool derives CLI history scope from its trusted convers
     const memoryContext = issuedContext({ kind: 'internal', newId: () => 'ctx:handler-exclusion', now: () => NOW });
     const tools = createInTurnTools({
       hot: s.hot,
-      store: {},
+      store: { listUserProfiles: () => [] },
       recall: s.recaller,
       lookup: undefined,
       describer: undefined,
@@ -586,7 +586,7 @@ test('lookup prefetch forwards trusted CLI history identity into the real SQLite
     const memoryContext = issuedContext({ kind: 'internal', newId: () => 'ctx:lookup-exclusion', now: () => NOW });
     const lookup = createLookup({
       hot: s.hot,
-      store: {},
+      store: { listUserProfiles: () => [] },
       llm: { complete: () => Promise.reject(new Error('prefetch does not classify')) },
       clock: () => NOW,
       recall: { prefetch: (args) => s.recaller.prefetch(args) },
@@ -603,6 +603,7 @@ test('lookup prefetch forwards trusted CLI history identity into the real SQLite
       config: prefetchConfig(),
       channel: channelInfo('cli:dm:owner', { kind: 'dm', communityId: null, partnerId: 'owner-42', audience: null }),
       placeId: 'g1',
+      place: null,
       trigger: { id: 'current-cli-trigger', authorId: 'owner-42' },
       candidate: { content: 'θυμάσαι το "το κουνέλι" από την παλιά συζήτηση;', authorId: 'owner-42' },
       triggerKind: 'private',

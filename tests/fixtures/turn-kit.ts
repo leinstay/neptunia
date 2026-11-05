@@ -109,7 +109,7 @@ export function fakeLlm(responseText: unknown): { calls: Array<Untyped>; optionC
 /** The store a turn reads: the calls it made are kept, and a test hangs more members on it. */
 export type FakeStore = {
   guildCalls: Array<unknown>;
-  privateCalls: Array<{ placeId: string; userId: string }>;
+  privateCalls: Array<{ userId: string }>;
   state: { data: Record<string, unknown>; markDirty: () => void };
   [member: string]: Untyped;
 };
@@ -130,7 +130,7 @@ export function fakeStore({
   mediaCache?: Record<string, unknown>;
 } = {}): FakeStore {
   const guildCalls: Array<unknown> = [];
-  const privateCalls: Array<{ placeId: string; userId: string }> = [];
+  const privateCalls: Array<{ userId: string }> = [];
   return {
     guildCalls,
     topPlaces: () => ['g1'],

@@ -66,12 +66,12 @@ test('addPending: calls of one channel count toward the cap like any others', ()
   );
 });
 
-test('pending: a routed ping keeps its source channel, its destination and what its settle grouped', () => {
-  const main = { id: 'd1' };
+// The routed call and its destination are gone with the home place: what stays is that every call keeps its own channel.
+test('pending: a ping keeps its source channel beside a later call of the same channel', () => {
   let list = addPending([], ping('d1', 100), 6).list;
-  const routed = ping('s1', 200, { trigger: { id: 'call-1' }, destination: main, superseded: ['call-0'] });
-  ({ list } = addPending(list, routed, 6));
-  ({ list } = addPending(list, ping('s1', 300, { trigger: { id: 'call-2' }, destination: main }), 6));
+  const first = ping('s1', 200, { trigger: { id: 'call-1' } });
+  ({ list } = addPending(list, first, 6));
+  ({ list } = addPending(list, ping('s1', 300, { trigger: { id: 'call-2' } }), 6));
   assert.deepEqual(
     list.map((p) => [p.placeId, p.trigger.id]),
     [
@@ -81,13 +81,9 @@ test('pending: a routed ping keeps its source channel, its destination and what 
     ],
     "no call takes another one's place"
   );
-  assert.equal(list[1].destination, main);
   assert.equal(list[1].channel.id, 's1', 'the channel stays the source');
-  assert.deepEqual(list[1].superseded, ['call-0']);
-  assert.equal('superseded' in list[2], false, 'a newer arrival carries nothing it did not bring');
-
-  const { list: back } = requeuePending([], { ...routed, decided: true }, 6);
-  assert.equal(back[0].destination, main);
+  const { list: back } = requeuePending([], { ...first, decided: true }, 6);
+  assert.equal(back[0].channel.id, 's1');
 });
 
 test("addPending: a routed ping past maxPending evicts the oldest entry of any channel, its destination's included", () => {
@@ -157,9 +153,8 @@ test('requeuePending: mention.maxPending still applies -- the oldest entry overa
 
 test('requeuePending: keeps the extra fields carried on the ping', () => {
   const added = [{ id: 'f1', text: 'και;', ts: 150 }];
-  const { list } = requeuePending([], ping('c1', 100, { decided: true, superseded: ['call-0'], added }), 6);
+  const { list } = requeuePending([], ping('c1', 100, { decided: true, added }), 6);
   assert.equal(list[0].decided, true);
-  assert.deepEqual(list[0].superseded, ['call-0']);
   assert.deepEqual(list[0].added, added);
 });
 

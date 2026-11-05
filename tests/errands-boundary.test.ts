@@ -295,8 +295,8 @@ type ErrandStore = {
   fileOf(handle: string): { name: string; bytes: number } | null;
 };
 type IntentionApi = {
-  list(placeId: string, options: { all: boolean }): Array<Record13>;
-  reconcile(placeId: string): unknown;
+  list(options: { all: boolean }): Array<Record13>;
+  reconcile(): unknown;
 };
 type Called = Array<{ id: string; state: string }>;
 
@@ -314,7 +314,6 @@ async function start(dataDir: string) {
     client: {},
     stores,
     hot,
-    isServedCommunity: (id: unknown) => id === GUILD,
     onFinished: (task: { id: string; state: string }) => {
       finished.push({ id: task.id, state: task.state });
       stores.get()?.markSeen(task.id);
@@ -378,7 +377,7 @@ test('the <errands> and <intentions> texts of the migrated records equal the tex
     const seeded = errandsBlockText([READ, UNREAD, RUNNING].slice().reverse(), SHIPPED_LABELS, { now: NOW });
     assert.equal(live, seeded);
     assert.equal(live.includes('t0000000b'), true, 'the unread result is listed');
-    const records = run.intentions.list(GUILD, { all: true });
+    const records = run.intentions.list({ all: true });
     const byId = new Map(records.map((record) => [record.id, record]));
     const order = ['i-wait', 'i-late', 'i-miss'];
     const text = intentionsBlockText(
@@ -398,10 +397,10 @@ test('a restart fails the running errand once and moves its waiting intention to
   const dataDir = seededDataDir();
   const first = await start(dataDir);
   first.errands.start();
-  first.intentions.reconcile(GUILD);
+  first.intentions.reconcile();
   await first.settle();
   assert.equal(first.storeOf().get('t0000000c')?.state, 'failed');
-  const waited = first.intentions.list(GUILD, { all: true }).find((record) => record.id === 'i-wait');
+  const waited = first.intentions.list({ all: true }).find((record) => record.id === 'i-wait');
   assert.deepEqual(
     [waited?.status, waited?.note, (waited?.outcome as Settings | undefined)?.errandId],
     ['pending', 'errand-failed', 't0000000c']
@@ -412,7 +411,7 @@ test('a restart fails the running errand once and moves its waiting intention to
   const second = await start(dataDir);
   try {
     second.errands.start();
-    second.intentions.reconcile(GUILD);
+    second.intentions.reconcile();
     await second.settle();
     // PR 6d, errands on the board: the moves are the task's status events, board v3's import of the running line
     // and the one failure (they were `work_events` lines before).
@@ -451,7 +450,7 @@ test('the result turn that never ran is opened once, and a second start opens no
 async function tick(dataDir: string) {
   const run = await start(dataDir);
   run.errands.start();
-  run.intentions.reconcile(GUILD);
+  run.intentions.reconcile();
   await run.settle();
   world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
   const calls: Array<{ inner: { wake: { items: Array<Settings>; intentions: Array<Record13> } } }> = [];
@@ -490,7 +489,6 @@ async function tick(dataDir: string) {
     conversationName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
-    isServedCommunity: (id: unknown) => id === GUILD,
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
     // The open imported inner.json's queue into the database (stage 4 cut, the lead's decision 1): the life reads it there.
     memoryDb: run.memory.memoryDb,

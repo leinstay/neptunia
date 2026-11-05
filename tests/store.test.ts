@@ -1493,7 +1493,7 @@ test('applyProfileOps: tolerates garbage ops without throwing, leaves the profil
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   for (const garbage of [null, undefined, 'not an object', 42, { interests: 'nope', details: 5 }]) {
     assert.doesNotThrow(() =>
-      store.applyProfileOps(accountOf(store, 'u1'), garbage as unknown as Parameters<typeof store.applyProfileOps>[2], {
+      store.applyProfileOps(accountOf(store, 'u1'), garbage as unknown as Parameters<typeof store.applyProfileOps>[1], {
         now: 1000,
       })
     );
@@ -1881,7 +1881,7 @@ test('applyPrivateOps: relationship, interests and details land in the private f
       portrait: 'should not land',
       interests: { add: [{ topic: 'Chess', note: 'plays weekly' }] },
       details: { add: ['Owns a cat', 'Plays guitar'] },
-    } as unknown as Parameters<typeof store.applyPrivateOps>[2],
+    } as unknown as Parameters<typeof store.applyPrivateOps>[1],
     { fieldChars: 300, maxInterests: 12, topicChars: 40, noteChars: 120, maxDetails: 15, now: 1000 }
   );
 
@@ -1914,12 +1914,12 @@ test('applyPrivateOps: an empty relationship never blanks the stored one; garbag
   store.applyPrivateOps(accountOf(store, 'u1'), { relationship: 'Old friend' }, { fieldChars: 300 });
   store.applyPrivateOps(accountOf(store, 'u1'), { relationship: '   ' }, { fieldChars: 300 });
   assert.doesNotThrow(() =>
-    store.applyPrivateOps(accountOf(store, 'u1'), null as unknown as Parameters<typeof store.applyPrivateOps>[2], {})
+    store.applyPrivateOps(accountOf(store, 'u1'), null as unknown as Parameters<typeof store.applyPrivateOps>[1], {})
   );
   assert.doesNotThrow(() =>
     store.applyPrivateOps(accountOf(store, 'u1'), { interests: [], details: 'x' } as unknown as Parameters<
       typeof store.applyPrivateOps
-    >[2])
+    >[1])
   );
   assert.equal(asRecord(store.getPrivate(accountOf(store, 'u1'))).relationship, 'Old friend');
 });
@@ -3074,7 +3074,7 @@ test('store: an evicted episode is archived before the hot file on disk loses it
   off.addEpisodes(accountOf(off, 'u1'), [{ date: '2026-10-01', what: 'παλιό', weight: 1 }], opts);
   off.addEpisodes(accountOf(off, 'u1'), [{ date: '2026-10-04', what: 'νέο', weight: 3 }], opts);
   assert.deepEqual(whats(asRecord(off.getUser(accountOf(off, 'u1'))).episodes), ['νέο']);
-  assert.deepEqual(await off.settleArchive(placeOfCommunity(off, 'g1')), { archived: [], deferred: 0 });
+  assert.deepEqual(await off.settleArchive(), { archived: [], deferred: 0 });
   assert.equal(offArchive.appended.length, 0);
 });
 
@@ -3119,7 +3119,7 @@ test('store: a failing archive keeps every victim hot and queues them; drainPend
 
   // A later write drops the same victims again: nothing is queued twice.
   store.addEpisodes(accountOf(store, 'u1'), [{ date: '2026-10-06', what: 'βαριά τρία', weight: 3 }], opts);
-  await store.settleArchive(placeOfCommunity(store, 'g1'));
+  await store.settleArchive();
   assert.equal(archive.pending.length, 3, 'only the new victim is queued');
 
   const drained = await store.drainArchive();
@@ -3149,7 +3149,7 @@ test('store: a replace op archives the previous version with event replaced', as
     { interests: { update: [{ topic: 'σκάκι', note: 'παίζει online' }] } },
     { now: ID_NOW + 1000 }
   );
-  await store.settleArchive(placeOfCommunity(store, 'g1'));
+  await store.settleArchive();
   const [entry] = archive.appended.flatMap((call) => asRecord(call).entries);
   assert.deepEqual([entry.itemKind, entry.event, entry.itemId], ['interest', 'replaced', stored.itemId]);
   assert.deepEqual(entry.text, { topic: 'σκάκι', note: 'παίζει τα βράδια' }, 'the previous version');
@@ -3161,7 +3161,7 @@ test('store: a replace op archives the previous version with event replaced', as
 
   // A remove is a replace too: held until confirmed, then gone.
   store.applyProfileOps(accountOf(store, 'u1'), { interests: { remove: ['σκάκι'] } }, { now: ID_NOW + 2000 });
-  const settled = await store.settleArchive(placeOfCommunity(store, 'g1'));
+  const settled = await store.settleArchive();
   assert.deepEqual(
     settled.archived.map((item) => [item.itemKind, item.event, item.itemId]),
     [['interest', 'replaced', stored.itemId]]
@@ -3197,7 +3197,7 @@ test('store: a replaced note is not flushed to disk before its old version is ar
   assert.equal(noteOnDisk(), 'παίζει τα βράδια', 'the old note stays on disk until its copy is archived');
 
   archive.releases.shift()?.();
-  await store.settleArchive(placeOfCommunity(store, 'g1'));
+  await store.settleArchive();
   assert.equal(store.flush().held, 0);
   await settle();
   assert.equal(noteOnDisk(), 'παίζει online');
@@ -3246,7 +3246,7 @@ test('store: closed items are capped and archived as replaced', async () => {
     'the evicted one stays until archived'
   );
 
-  const settled = await store.settleArchive(placeOfCommunity(store, 'g1'));
+  const settled = await store.settleArchive();
   assert.deepEqual(
     settled.archived.map((item) => [item.itemKind, item.event]),
     [['interest', 'replaced']]
@@ -3302,7 +3302,7 @@ test('applyProfileOps: a realName that supersedes the stored one closes it into 
   store.applyProfileOps(accountOf(store, 'u1'), { realName: 'Léon' }, {
     now: ID_NOW,
     maxClosedStored: 1,
-  } as unknown as Parameters<typeof store.applyProfileOps>[3]);
+  } as unknown as Parameters<typeof store.applyProfileOps>[2]);
   const old = asRecord(store.getUser(accountOf(store, 'u1'))).realName;
   store.applyProfileOps(
     accountOf(store, 'u1'),
@@ -3310,7 +3310,7 @@ test('applyProfileOps: a realName that supersedes the stored one closes it into 
     {
       now: ID_NOW + 1000,
       maxClosedStored: 1,
-    } as unknown as Parameters<typeof store.applyProfileOps>[3]
+    } as unknown as Parameters<typeof store.applyProfileOps>[2]
   );
   const profile = store.getUser(accountOf(store, 'u1'));
   assert.equal(asRecord(profile).realName.name, 'Théo');
@@ -3330,9 +3330,9 @@ test('applyProfileOps: a realName that supersedes the stored one closes it into 
   store.applyProfileOps(accountOf(store, 'u1'), { realName: { name: 'Ilias', supersedes: 'théo' } }, {
     now: ID_NOW + 2000,
     maxClosedStored: 1,
-  } as unknown as Parameters<typeof store.applyProfileOps>[3]);
+  } as unknown as Parameters<typeof store.applyProfileOps>[2]);
   assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).realName.name, 'Ilias');
-  const settled = await store.settleArchive(placeOfCommunity(store, 'g1'));
+  const settled = await store.settleArchive();
   assert.deepEqual(
     settled.archived.map((item) => [item.itemKind, item.event]),
     [['realName', 'replaced']]

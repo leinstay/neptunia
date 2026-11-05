@@ -493,7 +493,6 @@ function boot(
     },
     stores,
     hot,
-    isServedCommunity: (id: unknown) => id === GUILD,
     log: SILENT,
     onFinished: (task) => (die ? null : taskTurns.onFinished(task)),
   });

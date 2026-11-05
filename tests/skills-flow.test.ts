@@ -137,7 +137,7 @@ function ownerConsole(rig: SkillsRig) {
   const deps: ConsoleDeps = {
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: '', data: null }),
     ownerReads: { lessons: () => '', aliases: () => '' },
-    placeId: () => 'g1',
+    places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] } } },
     privateDir: dir,
@@ -173,7 +173,6 @@ test('a chain she repeated becomes a skill she uses: view, proposal, agent, acti
   // 1. Three turns of the same shape, and the view of her `selfimprovement` wake lists it with the count 3.
   const records = ['t1', 't2', 't3'].flatMap((id, n) => journalOf(id, NOW - (3 - n) * DAY, LOOKUP_TURN));
   const facts = await buildSelfimprovementFacts({
-    placeId: 'g1',
     now: NOW,
     since: null,
     journal: journalReading(records),

@@ -98,13 +98,12 @@ function makeService(env: Untyped, { keyByRole }: { keyByRole?: Untyped } = {}) 
     journal,
     log,
   });
-  // @ts-expect-error: the stand-in's result carries only the text; the real client adds sources and files
   const errands = createErrandService({
+    // @ts-expect-error: the stand-in's result carries only the text; the real client adds sources and files
     client,
     stores,
     hot,
     env,
-    isServedCommunity: (id: unknown) => id === 'g1',
     log,
     defer: (fn) => fn(),
   });
@@ -253,7 +252,6 @@ test("errands service: a task carries context.recent, the origin channel's last 
     stores,
     hot,
     memory,
-    isServedCommunity: (id: unknown) => id === 'g1',
     log: fakeLog(),
     defer: (fn) => deferred.push(fn),
   });
@@ -435,7 +433,6 @@ test('errands service: view lists the open tasks, then the unread finished ones;
       client: fakeClient(),
       stores,
       hot,
-      isServedCommunity: (id: unknown) => id === 'g1',
       log: fakeLog(),
       defer: (fn) => fn(),
     });
@@ -481,7 +478,6 @@ test("errands service: a private chat's unread result is in the view only in tha
       client: fakeClient(),
       stores,
       hot,
-      isServedCommunity: (id: unknown) => id === 'g1',
       log: fakeLog(),
       defer: (fn) => fn(),
     });
@@ -554,7 +550,6 @@ test('errands service: at start the finished errands whose result turn never ran
       client: fakeClient(),
       stores,
       hot,
-      isServedCommunity: (id: unknown) => id === 'g1',
       log: fakeLog(),
       defer: (fn) => fn(),
       onFinished: (task) => reopened.push([task.id, task.origin?.placeId]),
@@ -592,7 +587,6 @@ test("errands service: the file of an expired task is a marker, not a path; a pr
       client: fakeClient(),
       stores,
       hot,
-      isServedCommunity: (id: unknown) => id === 'g1',
       log: fakeLog(),
       defer: (fn) => fn(),
     });
