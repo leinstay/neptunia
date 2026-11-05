@@ -118,18 +118,18 @@ type Dispatch = { route: TaskRoute | null; key: string | null; error?: string };
 
 /**
  * The route and the key of `agent`'s errand, read from keys.json now, since the runner's unit may hide that file.
- * The key is `subharness.key`'s extra key on an opencode route, and on any backend for an agent whose profile has
- * `pathDirs` (the scout's commands need it), where a missing key is no error. `route: null` while the agent has no
+ * The key is `subharness.key`'s extra key on an opencode route only: claude and codex agents search with their
+ * harness's own tools and carry none. `route: null` while the agent has no
  * source (the runner then refuses with `subharness-off`), and an `error` code when keys.json cannot be read or an
  * opencode route has no key to spend.
  */
-function dispatchOf(privateDir: string | undefined, agent: string, log: Logger, agentPaths?: AgentPaths): Dispatch {
+function dispatchOf(privateDir: string | undefined, agent: string, log: Logger): Dispatch {
   if (privateDir === undefined) return { route: null, key: null };
   let route: TaskRoute | null;
   let key: string | null = null;
   try {
     route = routeOfAgent(privateDir, agent);
-    if (route && (route.backend === 'opencode' || (profileOf(agent, agentPaths)?.pathDirs.length ?? 0) > 0)) {
+    if (route?.backend === 'opencode') {
       const store = readKeys(privateDir);
       const name = store.subharness.key;
       key = name !== null && hasExtraKey(store, name) ? (store.extra[name] ?? null) : null;
@@ -314,7 +314,7 @@ export function createErrandService({
     if (!errand) return null;
     let outcome: FinishOutcome;
     try {
-      const { route, key, error } = dispatchOf(privateDir, errand.agent, log, agentPaths);
+      const { route, key, error } = dispatchOf(privateDir, errand.agent, log);
       const secrets = secretsFor(errand.agent, hot.config, env, agentPaths, key, route !== null);
       outcome =
         error !== undefined

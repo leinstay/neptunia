@@ -231,8 +231,7 @@ function openrouterFailure(err: unknown): string {
 /**
  * The `url_citation` annotations of an answer (OpenRouter's web plugin) as `{ title, url, snippet }`,
  * http(s) urls only, each url once, in order; `title` and `snippet` (the annotation's `content`)
- * collapsed to one line, '' when absent. Shared with the scout agent's search command
- * (src/web/web-search.ts).
+ * collapsed to one line, '' when absent.
  */
 export function urlCitations(annotations: unknown): Array<{ title: string; url: string; snippet: string }> {
   const seen = new Set<string>();
@@ -335,7 +334,7 @@ function clampResults(value: unknown, fallback = 5): number {
 
 /**
  * The `plugins` of a request that searches through OpenRouter's web plugin, with no `engine` set so the plugin chooses:
- * the lookup's `openrouter` engine and the scout agent's search command (src/web/web-search.ts). `results` becomes
+ * the lookup's `openrouter` engine. `results` becomes
  * `max_results`, an integer in 1..10, `fallback` when not a number.
  */
 export function webSearchPlugins(results: unknown, fallback: number = 5): Array<{ id: 'web'; max_results: number }> {
