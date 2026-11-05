@@ -10,6 +10,8 @@ export type CommunityRoutes = {
   communitiesOf(iface: string): Array<string>;
   /** The interface that answers a read of `communityId`, null when none serves it or every link serving it is down. */
   ifaceOf(communityId: string, isUp: (iface: string) => boolean): string | null;
+  /** The home community as the current event or turn may use it: none for an interface that does not serve it. */
+  homeInScope(home: string | null): string | null;
 };
 
 export function createCommunityRoutes({ current }: { current: () => string | null }): CommunityRoutes {
@@ -27,6 +29,10 @@ export function createCommunityRoutes({ current }: { current: () => string | nul
       const own = current();
       if (own !== null && serving.includes(own)) return own;
       return serving.find(isUp) ?? null;
+    },
+    homeInScope(home) {
+      const own = current();
+      return own === null || home === null || served.get(own)?.has(home) === true ? home : null;
     },
   };
 }

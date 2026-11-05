@@ -3,6 +3,7 @@
 // (src/behavior/turn.ts) calls it before every other phase; what it opens, the later phases use and the attempt's
 // end closes.
 
+import { NO_COMMUNITY } from '../../memory/db/ids.ts';
 import { currentRequestMeta } from '../../llm/archive.ts';
 import { createPrepLedger } from '../../behavior/turn-parts.ts';
 import type { Ledger } from '../../behavior/turn-parts.ts';
@@ -80,12 +81,8 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
   }
   const channel = found.conversation;
   draft.info = channel;
-  // A conversation of a community carries it; a private chat is served on behalf of the pinned one.
-  const guildId = channel.communityId ?? guildIdParam;
-  if (!guildId) {
-    letGo();
-    throw new Error('runTurn: a private chat needs a guildId');
-  }
+  // A conversation of a community carries it; a private chat is kept under the community it was given, or under none.
+  const guildId = channel.communityId ?? guildIdParam ?? NO_COMMUNITY;
   const isPrivate = !inCommunity(channel);
   draft.privateUserId = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
   // The journal: the turn starts here, past the pause and

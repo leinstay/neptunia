@@ -13,6 +13,7 @@ import type { ConversationRef, Conversations } from './conversations.ts';
 import type { FollowUpWindows } from './follow-up-window.ts';
 import type { PendingQueueOps } from './pending-queue.ts';
 import { isDeferredFollowUp } from './pending-queue.ts';
+import { communityField } from './private-gate.ts';
 import type { PrivateGate } from './private-gate.ts';
 import type { Conv, PendingQueue, Ping, PipelineHot, PipelineState, PipelineTurns } from './types.ts';
 
@@ -28,7 +29,7 @@ export type DrainContext = {
   rng: () => number;
   sleep: (ms: number) => Promise<void>;
   turns: PipelineTurns;
-  getGuildId: () => string | null;
+  dmCommunityOf: PrivateGate['dmCommunityOf'];
   pending: PendingQueue;
   logPending: PendingQueueOps['logPending'];
   noteUnanswered: PendingQueueOps['noteUnanswered'];
@@ -56,7 +57,7 @@ export function createDrain({
   rng,
   sleep,
   turns,
-  getGuildId,
+  dmCommunityOf,
   pending,
   logPending,
   noteUnanswered,
@@ -199,14 +200,13 @@ export function createDrain({
         let stop = false; // set by requeueBusy while the turn that blocked this ping still runs
 
         // A private message is answered like a direct ping, without the
-        // ignore roll; the channel has no guild, so the pinned one is passed.
-        // The gate is checked again here: the switch or the profile may have
+        // ignore roll; the channel has no community, so the live path's answer for this person is passed, which may
+        // be none. The gate is checked again here: the switch or the profile may have
         // changed while the ping waited.
         if (ping.kind === 'private') {
-          const privateGuildId = getGuildId();
-          if (!privateGuildId) continue;
           try {
             const authorId = ping.trigger.authorId;
+            const privateGuildId = dmCommunityOf(ping.channel.iface, authorId);
             const check = await checkPrivateGate(config, privateGuildId, authorId, ping.channel.iface);
             if (!check.gate.ok) {
               dropPrivate(check);
@@ -214,7 +214,7 @@ export function createDrain({
             }
             const result = await turns.runTurn({
               conversation: refOf(ping.channel),
-              guildId: privateGuildId,
+              ...communityField(privateGuildId),
               mode: 'reply',
               trigger: ping.trigger,
               triggerKind: 'private',

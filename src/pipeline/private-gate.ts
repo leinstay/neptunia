@@ -13,6 +13,7 @@ import { log } from '../log.ts';
 import type { ConversationInfo, ConversationRef } from '../protocol/adapter.ts';
 import { isOwnerId } from '../tools/impl/grants.ts';
 import { withIface } from '../memory/db/current-iface.ts';
+import { NO_COMMUNITY } from '../memory/db/ids.ts';
 import type { TurnParams } from '../turn/outcome.ts';
 import type { MessageReadOptions } from './types.ts';
 import type { MessageEvent } from './edits.ts';
@@ -77,14 +78,25 @@ export type PrivateContext = {
 export type PrivateGate = {
   afterPrivateTurn: (
     channel: ConversationInfo,
-    guildId: string,
+    guildId: string | null,
     trigger: PrivateLine,
     result: TurnResultOf
   ) => Promise<void>;
-  checkPrivateGate: (config: PrivateConfig, guildId: string, authorId: string, iface?: string) => Promise<GateCheck>;
+  checkPrivateGate: (
+    config: PrivateConfig,
+    guildId: string | null,
+    authorId: string,
+    iface?: string
+  ) => Promise<GateCheck>;
+  dmCommunityOf: (iface: string, memberId: string) => string | null;
   dropPrivate: (check: GateCheck) => void;
   onPrivateMessage: (event: MessageEvent, config: PrivateConfig, options?: MessageReadOptions) => Promise<void>;
 };
+
+const memoryScopeOf = (guildId: string | null): string => guildId ?? NO_COMMUNITY;
+
+/** What a turn request says of its community: nothing when it has none. */
+export const communityField = (guildId: string | null): { guildId?: string } => (guildId === null ? {} : { guildId });
 
 export function createPrivateGate({
   hot,
@@ -108,7 +120,7 @@ export function createPrivateGate({
   /** After a private turn: a refusal is announced. */
   async function afterPrivateTurn(
     channel: ConversationInfo,
-    _guildId: string,
+    _guildId: string | null,
     trigger: PrivateLine,
     result: TurnResultOf
   ): Promise<void> {
@@ -123,13 +135,19 @@ export function createPrivateGate({
    */
   async function checkPrivateGate(
     config: PrivateConfig,
-    guildId: string,
+    guildId: string | null,
     authorId: string,
     iface: string = ''
   ): Promise<GateCheck> {
     if (iface === CLI_IFACE) return CLI_GATE;
-    const profile = store.getUser(guildId, authorId);
     const isOwner = withIface(iface, () => isOwnerId(config, authorId));
+    if (guildId === null) {
+      // No community to be a member of: the owner passes, and anyone else needs a profile through a link of the owner's.
+      const linked = withIface(iface, () => store.getUser(NO_COMMUNITY, authorId));
+      const profile = linked ?? (isOwner ? {} : null);
+      return { gate: privateGate({ config, profile, isOwner, isMember: true }), isOwner };
+    }
+    const profile = store.getUser(guildId, authorId);
     const input = { config, profile, isOwner };
 
     const free = privateGate({ ...input, isMember: true });
@@ -147,23 +165,27 @@ export function createPrivateGate({
     return { gate: privateGate({ ...input, isMember }), isOwner };
   }
 
-  /** The community a person's DM belongs to: the first served one that knows them, else the home community. */
+  /**
+   * The community a person's DM belongs to: the first one their interface serves that knows them, else the home community
+   * when that interface serves it, else none.
+   */
   function dmCommunityOf(iface: string, memberId: string): string | null {
-    const known = (communitiesOf?.(iface) ?? []).find((id) => store.getUser(id, memberId) != null);
-    return known ?? getGuildId();
+    const served = communitiesOf?.(iface);
+    const known = served?.find((id) => store.getUser(id, memberId) != null);
+    if (known !== undefined) return known;
+    const home = getGuildId();
+    return served === undefined || (home !== null && served.includes(home)) ? home : null;
   }
 
   // A recovery turn of the missed-answer registry in a DM passes the same gate.
   missed?.setPrivateRecovery?.({
-    allow: async (_channel: ConversationInfo, trigger: PrivateLine) => {
-      const guildId = getGuildId();
-      if (!guildId || hot.config.private?.enabled !== true) return false;
-      return (await checkPrivateGate(hot.config, guildId, trigger.authorId)).gate.ok === true;
+    allow: async (channel: ConversationInfo, trigger: PrivateLine) => {
+      if (hot.config.private?.enabled !== true) return false;
+      const guildId = dmCommunityOf(channel.iface, trigger.authorId);
+      return (await checkPrivateGate(hot.config, guildId, trigger.authorId, channel.iface)).gate.ok === true;
     },
-    after: async (channel: ConversationInfo, trigger: PrivateLine, result: TurnResultOf) => {
-      const guildId = getGuildId();
-      if (guildId) await afterPrivateTurn(channel, guildId, trigger, result);
-    },
+    after: (channel: ConversationInfo, trigger: PrivateLine, result: TurnResultOf) =>
+      afterPrivateTurn(channel, dmCommunityOf(channel.iface, trigger.authorId), trigger, result),
   });
 
   /** A DM the gate refused: dropped silently, the reason logged. */
@@ -191,7 +213,6 @@ export function createPrivateGate({
 
     const partner = String(author.id === selfId ? (event.conversation?.partnerId ?? '') : author.id);
     const guildId = dmCommunityOf(event.iface, partner);
-    if (!guildId) return;
     // lineOf gives the normalized line of a message event.
     const normalized = lineOf(event) as PrivateLine;
 
@@ -205,7 +226,7 @@ export function createPrivateGate({
       if (!partnerId || String(partnerId) === String(selfId)) return;
       // isLimitNotice reads the labels it is given, a missing labels file as none.
       if (isLimitNotice(hot.prompts?.labels as object, normalized.content)) return;
-      memory.observe(guildId, normalized, { private: partnerId });
+      memory.observe(memoryScopeOf(guildId), normalized, { private: partnerId });
       const observing = observeLine(
         event,
         false,
@@ -226,7 +247,7 @@ export function createPrivateGate({
     }
 
     // Observed like a direct call.
-    memory.observe(guildId, normalized, { direct: true, private: authorId });
+    memory.observe(memoryScopeOf(guildId), normalized, { direct: true, private: authorId });
     // A DM without a named partner is deliberately unobserved by the message mapper.
     const observing =
       event.conversation.partnerId != null
@@ -244,7 +265,7 @@ export function createPrivateGate({
     turns
       .runTurn({
         conversation: refOf(channel),
-        guildId,
+        ...communityField(guildId),
         mode: 'reply',
         trigger: normalized,
         triggerKind: 'private',
@@ -255,5 +276,5 @@ export function createPrivateGate({
       .catch((err: unknown) => log.error('private: turn failed', { channel: channel.id, error: err }));
   }
 
-  return { afterPrivateTurn, checkPrivateGate, dropPrivate, onPrivateMessage };
+  return { afterPrivateTurn, checkPrivateGate, dmCommunityOf, dropPrivate, onPrivateMessage };
 }

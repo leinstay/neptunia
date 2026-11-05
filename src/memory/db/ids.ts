@@ -18,6 +18,12 @@ import { LEGACY_IFACE } from './legacy-namespace.ts';
 
 export const SELF_PERSON = 'person:self';
 
+/**
+ * The storage scope of a direct chat with no community to belong to. A scope of units only: it names no place row, and a
+ * read of the interface under it answers nothing (src/interface/reads.ts).
+ */
+export const NO_COMMUNITY = 'no-community';
+
 type Row = Record<string, unknown>;
 type Db = {
   prepare(sql: string): { all(...params: Array<string>): Array<Row>; get(...params: Array<string>): Row | undefined };

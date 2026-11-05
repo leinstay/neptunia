@@ -295,8 +295,6 @@ async function buildCore(
   // The parts of the hot reload the one-core claim and the interfaces' switches read and write (src/hot.ts).
   const settings = hot;
   const configuredGuild: string | null = settings.config.bot?.guildId ?? null;
-  if (asUnits && !configuredGuild)
-    fail('index: bot.guildId must be set when the interfaces run as units (config.local/config.json).');
   // One core over this data directory, claimed before anything below touches it or the socket.
   fs.mkdirSync(dataDir, { recursive: true });
   let releaseCore: () => void = () => {};
@@ -750,7 +748,13 @@ async function buildCore(
   const hello = asUnits
     ? null
     : await coreLink.current().hello.catch((err) => fail(`index: the link to the interface failed: ${String(err)}`));
-  if (hello !== null) greet(hello);
+  if (hello !== null) {
+    greet(hello);
+    communityRoutes.note(
+      hello.iface,
+      [hello.community, ...(hello.communities ?? [])].flatMap((one) => (one ? [one.id] : []))
+    );
+  }
   // The around store tells a presence event from a voice one by what the interface declares in `hello`: whether it
   // reports presences at all (intents are fixed at login, the interface reads its own at its start).
   // The live glance at the voice channels and the scene's statuses: a snapshot in process memory,
@@ -786,7 +790,11 @@ async function buildCore(
   const reads = createReads(iface, log);
   // The custom emoji of the served community, read from the interface and kept 60 seconds: the turn lists them to her
   // and turns her `:name:` into the platform's markup through it.
-  const emoji = createEmojiIndex({ reads, communityId: () => instance.guildId, now: Date.now });
+  const emoji = createEmojiIndex({
+    reads,
+    communityId: () => communityRoutes.homeInScope(instance.guildId),
+    now: Date.now,
+  });
   // What each profiled member's avatar looks like (features.avatars, off by default): a throttled
   // background queue on the vision role, its daily counter next to the LLM client's. Each member is one read of the
   // interface; a member who left reads as gone.

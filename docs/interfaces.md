@@ -16,6 +16,8 @@ Every account and conversation belongs to an interface namespace. Preserve nativ
 
 A community id is native to its interface, so two interfaces may name the same one. [Community routes](../src/core-routing.ts) keep each interface's communities as its `hello` declares them. A read inside an event or a turn goes to that event's interface when it serves the community, and any other read goes to the first interface serving it whose link is up. Hello order, a reconnect and another interface's disconnect leave a route in place.
 
+A direct message needs no community and never borrows one. `dmCommunityOf` in `src/pipeline/private-gate.ts` answers the first community of the message's interface that knows the person, then the home community when that interface serves it, then none, and a queued message gets the same answer when `src/pipeline/drain.ts` takes it. With no community the private gate has no membership to check: the owner passes without a stored profile, a person with a profile through an owner's link passes on its score, and anyone else stays dropped. The core starts without `bot.guildId`.
+
 Account linking is performed by the owner's [memory commands](memory.md#one-person-several-accounts). An interface must not infer that matching names or native IDs on another platform refer to the same person.
 
 Delivery reports distinguish success, failure and unknown outcome. Preserve the idempotency key across split messages. After a connection loss, an uncertain delivery must not become an unconditional retry days later.
