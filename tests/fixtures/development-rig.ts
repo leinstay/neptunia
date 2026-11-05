@@ -170,7 +170,9 @@ function fakeRefCall(world: DevelopmentWorld, args: ReadonlyArray<string>): GitA
 function fakeTreeCall(world: DevelopmentWorld, args: ReadonlyArray<string>): GitAnswer {
   const [first] = args;
   if (first === 'status') return ok(world.changed.map((one) => ` M ${one}`).join('\n'));
-  if (first === 'diff') return ok(world.changed.join('\n'));
+  if (first === 'diff') {
+    return ok(args.includes('-z') ? world.changed.map((one) => `M\0${one}\0`).join('') : world.changed.join('\n'));
+  }
   if (first === 'push') {
     world.order.push('git push');
     if (world.pr?.state === 'OPEN' && args.includes(world.pr.branch) && !args.includes('--delete')) {

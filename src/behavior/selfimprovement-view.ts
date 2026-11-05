@@ -244,7 +244,7 @@ export type SelfimprovementFacts = {
       kind: string;
       status: string | null;
       closeReason: string | null;
-      /** Why the task stopped, on a row of kind `blocked`. */
+      /** Why the task stopped, on a row of kind `blocked`, or the code of why it waits, on a row of kind `risk`. */
       blockedReason?: string;
     }>;
     /** Fixes that merged: the pull request's title and paths (src/selfimprovement/landed.ts), each shown once. */
