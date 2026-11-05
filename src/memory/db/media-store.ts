@@ -15,7 +15,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { projectRow } from './graph.ts';
-import { groupScope, scopeWhere } from './scope.ts';
+import { audienceOf, groupScope, scopeWhere } from './scope.ts';
+import { ensureAudience } from './rows.ts';
 import { CURRENT_SOURCE } from './source-current.ts';
 import { safeFileName } from '../../media/classify.ts';
 import { mediaStamp } from './media-stems.ts';
@@ -771,10 +772,21 @@ export function writeMediaCache(
   const newCacheRow = (key: string): Row => {
     const { ref, kinds } = cacheKeyParts(key);
     const id = NEW_ID(iface, key);
+    const scope = audienceOf(groupOf);
+    ensureAudience(db, scope);
     db.prepare(
       `INSERT OR IGNORE INTO media (id, kind, native_ref, availability, extra, scope_kind, scope_iface, scope_dm, audience_id, owner_key)
        VALUES (?, ?, ?, 'unknown', '{}', ?, ?, ?, ?, ?)`
-    ).run(id, kinds?.[0] ?? 'image', ref, groupOf.scope_kind, groupOf.scope_iface, groupOf.scope_dm, null, owner);
+    ).run(
+      id,
+      kinds?.[0] ?? 'image',
+      ref,
+      scope.scope_kind,
+      scope.scope_iface,
+      scope.scope_dm,
+      scope.audience_id,
+      owner
+    );
     return db.prepare('SELECT * FROM media WHERE id = ?').get(id) as Row;
   };
   for (const [key, given] of Object.entries(value)) {

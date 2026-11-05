@@ -11,20 +11,27 @@
 //     (session-scopes.ts#dmScopeKey): the furthest cursor, because each of them read the whole audience up to its value;
 //   - a version whose owner the store deleted (a claim version of event `expired` by `store`, a description version of
 //     origin `legacy`) is retired with its bytes kept; a version with no such explanation stays a finding;
-//   - a name the owner gave a person, stored with no audience, takes the one the writer gives it (unit-write.ts).
+//   - a name the owner gave a person, stored with no audience, takes the one the writer gives it (unit-write.ts);
+//   - a media row of the groups, stored with no audience by the describer's cache, takes the audience of its groups.
 
 import { rescopeDmPlace } from '../src/memory/db/dm-rescope.ts';
 import { projectRow } from '../src/memory/db/graph.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { ensureAudience } from '../src/memory/db/rows.ts';
-import { dmAudienceId } from '../src/memory/db/scope.ts';
+import { audienceOf, dmAudienceId, groupScope } from '../src/memory/db/scope.ts';
 import { SCOPED_TABLES } from '../src/memory/db/schema.ts';
 import { dmScopeKey } from '../src/memory/db/session-scopes.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle, Row } from '../src/memory/db/types.ts';
 import { ownerNameScope } from '../src/memory/db/unit-write.ts';
 
-type Counts = { scopeRows: number; versionsRetired: number; cursorsMoved: number; aliases: number };
+type Counts = {
+  scopeRows: number;
+  versionsRetired: number;
+  cursorsMoved: number;
+  aliases: number;
+  mediaAudiences: number;
+};
 type MetaMove = { from: string; to: string; value: string };
 
 const ORPHAN_CLAIM_VERSIONS = `FROM claim_versions v WHERE v.retired_at IS NULL AND v.event = 'expired' AND v.by = 'store'
@@ -32,6 +39,7 @@ const ORPHAN_CLAIM_VERSIONS = `FROM claim_versions v WHERE v.retired_at IS NULL 
 const ORPHAN_DESCRIPTION_VERSIONS = `FROM description_versions v WHERE v.retired_at IS NULL AND v.origin = 'legacy'
   AND NOT EXISTS (SELECT 1 FROM descriptions d WHERE d.id = v.description_id)`;
 const UNSCOPED_NAMES = "FROM claims WHERE kind = 'alias' AND author = 'owner' AND audience_id IS NULL";
+const UNSCOPED_MEDIA = "FROM media WHERE scope_kind = 'group' AND audience_id IS NULL";
 const META_KEY = /^memory_session\.(cursor|pending)\.([^.]+)\.(.+)$/;
 
 const countOf = (db: Db, from: string): number => Number(db.prepare(`SELECT COUNT(*) AS n ${from}`).get()?.n);
@@ -102,6 +110,7 @@ function plan(db: Db): Counts {
     versionsRetired: countOf(db, ORPHAN_CLAIM_VERSIONS) + countOf(db, ORPHAN_DESCRIPTION_VERSIONS),
     cursorsMoved: metaMoves(db, places).length,
     aliases: countOf(db, UNSCOPED_NAMES),
+    mediaAudiences: countOf(db, UNSCOPED_MEDIA),
   };
 }
 
@@ -115,6 +124,17 @@ function repairNames(db: Db, at: string): void {
     ensureAudience(db, scope, { at });
     update.run(scope.scope_kind, scope.scope_iface, scope.scope_dm, scope.audience_id, name.id);
     projectRow(db, 'claims', { id: name.id }, { at });
+  }
+}
+
+function repairMedia(db: Db, at: string): void {
+  const rows = db.prepare(`SELECT id, scope_iface ${UNSCOPED_MEDIA}`).all();
+  const update = db.prepare('UPDATE media SET audience_id = ? WHERE id = ?');
+  for (const row of rows) {
+    const scope = audienceOf(groupScope(row.scope_iface as string | null));
+    ensureAudience(db, scope, { at });
+    update.run(scope.audience_id, row.id);
+    projectRow(db, 'media', { id: row.id }, { at });
   }
 }
 
@@ -137,6 +157,7 @@ function apply(handle: MemoryHandle, at: string): void {
       db.prepare(`UPDATE ${table} SET retired_at = ? WHERE id IN (SELECT v.id ${orphans})`).run(at);
     }
     repairNames(db, at);
+    repairMedia(db, at);
   });
 }
 
