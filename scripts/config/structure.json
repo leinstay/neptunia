@@ -1500,6 +1500,13 @@
       "test": "required"
     },
     {
+      "path": "src/memory/db/audit.ts",
+      "purpose": "The memory audit: counts of what breaks the rules of the stored rows, over a read connection. Tested through `tests/memory-audit.test.ts`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/memory/db/diary-past.ts",
       "purpose": "Schema v15's data step that makes her past messages in a diary mirror's place entries. Tested through the v15 migration tests.",
       "layer": "public",

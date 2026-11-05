@@ -318,7 +318,7 @@
         "complexity": 80
       },
       "mediaTags": {
-        "complexity": 22
+        "complexity": 21
       },
       "withCalls": {
         "complexity": 25
@@ -659,7 +659,7 @@
     },
     "src/web/lookup.ts": {
       "createLookup": {
-        "function-length": 512
+        "function-length": 511
       }
     },
     "src/web/readable.ts": {

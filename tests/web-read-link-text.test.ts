@@ -4,6 +4,7 @@
 // cache; no network. Synthetic text only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { formatTranscript } from '../src/format.ts';
 import { runWebRead } from '../src/tools/tools.ts';
 import { createLookup } from '../src/web/lookup.ts';
 import type { LookupDeps } from '../src/web/lookup.ts';
@@ -121,4 +122,14 @@ test('web.read of a message stores the text form of the link it found', async ()
   });
   assert.equal(result.status, 'ok');
   assert.equal(lookup.cachedReads(PLACE, [LINK]).get(LINK.id), WHOLE);
+});
+
+// Bug: a read page of 4000 characters rides on every later render of its line and crowds the chat out of the budget.
+test('a line of chat shows a read link cut at what a preview shows', () => {
+  const [line] = formatTranscript(
+    [{ id: 'm1', ts: NOW, authorId: 'u1', authorName: 'Zoë', content: URL_A, links: [LINK] }],
+    { labels, timezone: 'UTC', selfName: 'Bot', now: NOW, reads: new Map([[LINK.id, WHOLE]]) }
+  );
+  const shown = line.text.match(/mot/g)?.length ?? 0;
+  assert.ok(shown > 100 && shown <= 700 / 4, `${shown} words of the page`);
 });

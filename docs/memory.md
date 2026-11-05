@@ -56,6 +56,8 @@ The observation in `src/memory/db/observe.ts` keeps a conversation's containment
 
 A storage unit is named by its subject alone (`src/memory/db/storage-keys.ts`): `accountCollection` for a profile and a private layer, `placeCollection` for a place's notes, lore, emoji rails, media cache, recent lines, participation, record, journal and archive, and `personaKey` for the diary, the intentions, the errands, the inner state and the one GIF library. A direct chat's record, journal and archive are collections of its DM place, and its lines keep their DM audience. `store.accountOf`, `store.placeOfConversation` and `store.sharedPlaceOf` turn the native ids an interface gives into these ids, and an empty id is refused with `BAD_COLLECTION_ID`.
 
+The notes of a place are scoped together by `toRows` in `src/memory/db/map/place.ts`: its descriptions, in-jokes, self facts and lessons belong to the partner's DM on a DM place and to the groups on any other. `scripts/memory-repair-self-audience.ts --db <file> [--apply]` brings self facts stored under `aud:none` to that scope. Run it with the core stopped. A row whose place cannot be found becomes `aud:internal`, and a row with a live `decisions` row of the action `audience-none-kept` stays. Without `--apply` it prints the counts and writes nothing.
+
 Group recall can search stored group experience across interfaces. It excludes private conversations. A DM can retrieve the DM history associated with accounts the owner has linked to that person. Rows keep their original audiences and provenance.
 
 A DM context finds the person's other DMs in stored rows. `linkedDmScopes` in `src/memory/db/person-links.ts` joins the person's verified accounts to the places whose `partner_account` names them, after `personMembers` follows `people_merges`. An outward context follows only a merge whose `by` is `owner`, so a merge written by a memory session never widens it. An account that is unbound or moves to another person leaves the person: the next issued context stops reading its DM, the context already issued keeps what it was given, and the DM's rows keep their audience.
@@ -100,6 +102,22 @@ A `sources` row's `media` column holds only kinds. `observationOf` in `src/memor
 `stampOf` in `src/memory/db/stems.ts` adds the words of a line's known descriptions to `sources.stems` and leaves `sources.text` as written, so the word stream finds a picture by what it shows under the line's own audience. `fillStems` applies this at every stamp, and `restampAttachment` does it for rows already stamped when `writeMediaDescriptions` stores a description. A description narrower than the line adds nothing to it. `sources_tri` indexes `text` alone, so the part-of-a-word stream does not read descriptions, and a line without `extra.attachmentIds` keeps the stems of its text.
 
 An old source does not become unreachable merely because it is outside the recent-context window. Prompt budgets bound what is shown, not the age of everything stored. Review the relevant `memoryDb`, `recall` and `context` settings in [configuration](configuration.md).
+
+The media cache of a place keeps `MEDIA_CACHE_ENTRIES`, 5000, of the rows nothing links. `trimCache` in `src/web/cache.ts` leaves a row alone when a live line or a live diary picture links its attachment, as `linkedAttachmentIds` in `src/memory/db/line-media.ts` lists them, so a place with many linked rows stays over the cap. A line stored before `extra.attachmentIds` links nothing by that list until its echo brings the ids.
+
+## The memory audit
+
+`auditMemory` in `src/memory/db/audit.ts` counts what breaks the rules of the stored rows, over a read connection, and looks at live rows only. `scripts/memory-audit.ts --db <file>` prints its JSON, `{ findings, checks }`, and is safe on a running core. It exits `0` when clean, `1` with a finding and `2` when the database cannot be read. The output holds counts and no word, id or name of a row. The [watcher](watcher.md#service-runs) reads the same counts.
+
+| Check | What it counts |
+|---|---|
+| `placeExists` | Rows whose `place_id` is not in `places` |
+| `scopeMatchesPlace` | Rows of a DM place not scoped to a DM, and rows of another place scoped to one |
+| `audienceDerived` | Rows whose `audience_id` is missing or differs from what `resolveRow` in `src/memory/db/rows.ts` derives |
+| `danglingLinks` | Links from a live claim or episode to a missing or retired line, versions of a row that does not exist, and a description's missing current version |
+| `unexplainedNone` | Rows under `aud:none` with no live `decisions` row of the action `audience-none-kept` naming them |
+| `vectorManifests` | Months whose manifest disagrees with the rows they hold or their vector size, or cannot be read. A month kept raw is left out |
+| `linkedMediaKept` | Retired media rows that a live line or a live diary entry links |
 
 ## Entities and assertions
 

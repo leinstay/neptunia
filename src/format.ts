@@ -16,9 +16,10 @@ import { reasonText } from './tools/codes.ts';
 import { clipWithEllipsis, mediaLabelFor, stickerLabelFor } from './media/classify.ts';
 import { gifHandleOf } from './memory/index.ts';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from './time.ts';
-import { clampWithEllipsis, oneLine } from './memory/clamp.ts';
+import { clampText, clampWithEllipsis, oneLine } from './memory/clamp.ts';
 import { isWordChar, outsideUrls } from './memory/mentions.ts';
 import { untaggedNames, withUserHandles } from './handles-text.ts';
+import { LINK_EXCERPT_CHARS } from './web/cache.ts';
 // A parsed JSON value or an argument no module types yet: the alias of src/tools/types.ts, restated so this leaf
 // imports nothing from src/tools/ (src/memory/ reaches it).
 type Untyped = ReturnType<typeof JSON.parse>;
@@ -209,6 +210,11 @@ export function formatDuration(
 // The part-watched forms: their reason code reads labels.transcript.videoPartReason.
 const PART_KEYS = new Set(['videoWatchedPart', 'linkWatchedPart']);
 
+/** A link's read text as a line of chat shows it: a link she read with web.read holds up to a whole page, and a line shows what a preview shows. */
+function excerptOf(whole: string | undefined): string | null {
+  return whole === undefined ? null : clampText(oneLine(whole), LINK_EXCERPT_CHARS, { tolerance: 1 });
+}
+
 /** A part-watched tag whose label is blank, as its whole-video form; any other tag as it is. */
 function partFallback(tag: Untyped, labels: Untyped) {
   if (PART_KEYS.has(tag.key) && !labels.transcript[tag.key]) {
@@ -308,7 +314,7 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
     // gated this way.
     const canDescribe = link.kind !== 'link' || Boolean(labels.transcript.thumbnailDescribed);
     const description = canDescribe ? (context.descriptions?.get(link.id) ?? null) : null;
-    const read = readsOn ? (context.reads?.get(link.id) ?? null) : null;
+    const read = readsOn ? excerptOf(context.reads?.get(link.id)) : null;
     const gifHandle = handleOf(link, 'link');
     const answer = answerOf(link);
     pushLabel(

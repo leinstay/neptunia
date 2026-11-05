@@ -140,7 +140,7 @@ const DAMAGE: ReadonlyArray<Case> = [
         .get(DM);
       db.prepare(
         "UPDATE episodes SET scope_kind = 'dm', scope_iface = ?, scope_dm = ?, audience_id = ? WHERE id = 'episode:good'"
-      ).run(String(dm?.scope_iface), String(dm?.scope_dm), String(dm?.audience_id));
+      ).run(String(dm?.scope_iface), dm?.scope_dm === null ? null : String(dm?.scope_dm), String(dm?.audience_id));
     },
   },
   {
