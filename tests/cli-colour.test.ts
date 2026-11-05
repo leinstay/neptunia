@@ -3,18 +3,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 process.env.FORCE_COLOR = '3';
-const { KEY, chatEnv, pause, withChat } = await import('./fixtures/chat-rig.ts');
+const { KEY, chatEnv, press, shows, withChat } = await import('./fixtures/chat-rig.ts');
 
 test('the caret on an astral character styles the whole character', async () => {
   // Bug: the caret cell takes one UTF-16 unit, the style splits the surrogate pair and the terminal shows two broken cells.
   const { env } = chatEnv();
   await withChat(env, async (rig) => {
-    rig.type('🙂x');
-    await pause();
-    rig.type(KEY.left);
-    await pause();
-    rig.type(KEY.left);
-    await pause();
+    await press(rig, '🙂x', shows(rig, '> 🙂x'));
+    // The caret is only a style, so the plain screen cannot show a move: the styled frame changing does.
+    for (let move = 0; move < 2; move += 1) {
+      const before = rig.rawScreen();
+      await press(rig, KEY.left, () => rig.rawScreen() !== before);
+    }
     assert.equal(rig.rawScreen().includes('�'), false);
     assert.match(rig.rawScreen(), /🙂/);
   });
