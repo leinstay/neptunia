@@ -1,25 +1,30 @@
 // The paste path of the mounted chat: Ink's bracketed-paste parser, the one focus owner, and an exact turn on Enter.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { KEY, bracketed, chatEnv, pause, withChat } from './fixtures/chat-rig.ts';
+import { KEY, bracketed, chatEnv, pause, press, shows, until, withChat } from './fixtures/chat-rig.ts';
+import type { Rig } from './fixtures/chat-rig.ts';
 
 const LIMITS = { collapseLines: 3, collapseChars: 800 };
+const CHIP = /\[pasted \d+ lines\]/;
+const chips = (rig: Rig): number =>
+  (
+    rig
+      .screen()
+      .join('\n')
+      .match(/\[pasted \d+ lines\]/g) ?? []
+  ).length;
 
 test('a paste with embedded Enter sends nothing until the explicit submit, then the exact expanded text', async () => {
   // Bug: a newline inside a paste submits the first line, or the turn loses its trailing spaces.
   const { env, sent } = chatEnv({ composer: LIMITS });
   const payload = 'alpha  \n\nbeta\ngamma\ndelta   ';
   await withChat(env, async (rig) => {
-    rig.type('Review ');
-    await pause();
-    rig.type(bracketed(payload));
-    await pause();
-    rig.type(' for errors.');
-    await pause();
+    await press(rig, 'Review ', shows(rig, '> Review'));
+    await press(rig, bracketed(payload), shows(rig, CHIP));
+    await press(rig, ' for errors.', shows(rig, 'for errors.'));
     assert.deepEqual(sent, []);
     assert.equal(rig.screen().join('\n').includes('gamma'), false, 'the chip stands for the payload');
-    rig.type(KEY.enter);
-    await pause();
+    await press(rig, KEY.enter, () => sent.length === 1);
   });
   assert.deepEqual(sent, [`Review ${payload} for errors.`]);
 });
@@ -31,16 +36,14 @@ test('every single-byte split of a bracketed paste arrives as one paste with its
     const { env, sent } = chatEnv({ composer: { collapseLines: 1, collapseChars: 800 } });
     await withChat(env, async (rig) => {
       rig.type(bytes.subarray(0, at));
-      rig.type(bytes.subarray(at));
-      await pause(15);
+      await press(rig, bytes.subarray(at), shows(rig, CHIP));
       assert.deepEqual(sent, [], `split at ${at}`);
       assert.equal(
         rig.screen().join('\n').includes('aé'),
         false,
         `a chip, so the paste channel took it; split at ${at}`
       );
-      rig.type(KEY.enter);
-      await pause(15);
+      await press(rig, KEY.enter, () => sent.length === 1);
     });
     assert.deepEqual(sent, ['aé\nb'], `split at ${at}`);
   }
@@ -50,15 +53,13 @@ test('a paste whose escape prefix arrives a moment late is still one paste', asy
   // Bug: a delayed ESC reads as the Escape key, clears the draft and types the delimiter as text.
   const { env, sent } = chatEnv({ composer: { collapseLines: 1, collapseChars: 800 } });
   await withChat(env, async (rig) => {
-    rig.type('kept ');
-    await pause();
+    await press(rig, 'kept ', shows(rig, '> kept'));
     rig.type('\u001b');
+    // The gap is the scenario: the rest of the paste comes a moment after its escape prefix.
     await pause(5);
-    rig.type('[200~one\ntwo\u001b[201~');
-    await pause();
+    await press(rig, '[200~one\ntwo\u001b[201~', shows(rig, CHIP));
     assert.equal(rig.screen().join('\n').includes('one'), false, 'a chip, so the paste channel took it');
-    rig.type(KEY.enter);
-    await pause();
+    await press(rig, KEY.enter, () => sent.length === 1);
   });
   assert.deepEqual(sent, ['kept one\ntwo']);
 });
@@ -68,14 +69,10 @@ test('Backspace after a chip removes that paste alone and leaves the identical o
   const { env, sent } = chatEnv({ composer: LIMITS });
   const payload = 'a\nb\nc\nd';
   await withChat(env, async (rig) => {
-    rig.type(bracketed(payload));
-    await pause();
-    rig.type(bracketed(payload));
-    await pause();
-    rig.type(KEY.backspace);
-    await pause();
-    rig.type(KEY.enter);
-    await pause();
+    await press(rig, bracketed(payload), () => chips(rig) === 1);
+    await press(rig, bracketed(payload), () => chips(rig) === 2);
+    await press(rig, KEY.backspace, () => chips(rig) === 1);
+    await press(rig, KEY.enter, () => sent.length === 1);
   });
   assert.deepEqual(sent, [payload]);
 });
@@ -91,8 +88,7 @@ test('a draft with an unresolved paste is not sent and the failure shows while t
   });
   await withChat(env, async (rig) => {
     const shownBefore = rig.screen().join('\n');
-    rig.type(KEY.enter);
-    await pause();
+    await press(rig, KEY.enter, shows(rig, 'A pasted text is gone'));
     assert.deepEqual(sent, []);
     assert.match(rig.screen().join('\n'), /keep-me/);
     assert.notEqual(rig.screen().join('\n'), shownBefore, 'the failure shows');
@@ -106,19 +102,15 @@ test('a paste into a secret question reaches only that question, and the interru
   const { env, sent, saved, question } = chatEnv({ composer: LIMITS, now: () => clock });
   let answered = '';
   await withChat(env, async (rig) => {
-    rig.type('Keep this draft.');
-    await pause();
+    await press(rig, 'Keep this draft.', shows(rig, '> Keep this draft.'));
     question({ question: 'The key:', secret: true, answer: (text) => (answered = text) });
-    await pause();
-    rig.type(bracketed(secret));
-    await pause();
+    await until(shows(rig, 'The key:'));
+    await press(rig, bracketed(secret), shows(rig, '*'.repeat(secret.length)));
     assert.equal(rig.frames().includes(secret), false);
-    rig.type(KEY.enter);
-    await pause();
+    await press(rig, KEY.enter, () => answered !== '' && shows(rig, '> Keep this draft.')());
     assert.match(rig.screen().join('\n'), /Keep this draft\./);
     clock += 10_000;
-    rig.type(KEY.enter);
-    await pause();
+    await press(rig, KEY.enter, () => sent.length === 1);
   });
   assert.equal(answered, secret);
   assert.deepEqual(sent, ['Keep this draft.']);
@@ -130,21 +122,14 @@ test('a multiline draft comes back whole from the history, and an unfinished dra
   const { env, sent } = chatEnv({ composer: LIMITS });
   const payload = 'first\nsecond\nthird\nfourth';
   await withChat(env, async (rig) => {
-    rig.type(bracketed(payload));
-    await pause();
-    rig.type(KEY.enter);
-    await pause();
-    rig.type('unfinished');
-    await pause();
-    rig.type(KEY.up);
-    await pause();
-    rig.type(KEY.down);
-    await pause();
+    await press(rig, bracketed(payload), shows(rig, CHIP));
+    await press(rig, KEY.enter, () => sent.length === 1);
+    await press(rig, 'unfinished', shows(rig, '> unfinished'));
+    await press(rig, KEY.up, () => !rig.screen().join('\n').includes('> unfinished'));
+    await press(rig, KEY.down, shows(rig, '> unfinished'));
     assert.match(rig.screen().join('\n'), /> unfinished/);
-    rig.type(KEY.up);
-    await pause();
-    rig.type(KEY.enter);
-    await pause();
+    await press(rig, KEY.up, () => !rig.screen().join('\n').includes('> unfinished'));
+    await press(rig, KEY.enter, () => sent.length === 2);
   });
   assert.deepEqual(sent, [payload, payload]);
 });

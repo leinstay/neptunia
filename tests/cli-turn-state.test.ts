@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { activeTurn, emptyTurns, queuedTurns, reduceTurns, requestCancel, turnOf } from '../cli/turn-state.ts';
 import type { ClientTurnEvent, TurnsState } from '../cli/turn-state.ts';
-import { KEY, chatEnv, pause, withChat } from './fixtures/chat-rig.ts';
+import { KEY, chatEnv, pause, press, shows, until, withChat } from './fixtures/chat-rig.ts';
 
 const fold = (events: ReadonlyArray<ClientTurnEvent>, start: TurnsState = emptyTurns()): TurnsState =>
   events.reduce(reduceTurns, start);
@@ -137,11 +137,9 @@ test('Escape with text clears only the draft, and the running turn goes on', asy
   await withChat(env, async (rig) => {
     event(accepted('t1', 1));
     event(running('t1', 2));
-    await pause();
-    rig.type('a typo');
-    await pause();
-    rig.type(KEY.escape);
-    await pause();
+    await until(shows(rig, 'Her turn is running'));
+    await press(rig, 'a typo', shows(rig, '> a typo'));
+    await press(rig, KEY.escape, () => !rig.screen().join('\n').includes('a typo'));
     assert.equal(rig.screen().join('\n').includes('a typo'), false);
   });
   assert.deepEqual(cancels, []);
@@ -153,17 +151,18 @@ test('Escape on an empty draft asks the core once, and the chat shows running un
   await withChat(env, async (rig) => {
     event(accepted('t1', 1));
     event(running('t1', 2));
-    await pause();
+    await until(shows(rig, 'Her turn is running'));
     const runningScreen = rig.screen().join('\n');
+    await press(rig, KEY.escape, shows(rig, 'Cancelling her turn'));
     rig.type(KEY.escape);
-    await pause(60);
-    rig.type(KEY.escape);
+    // The second Escape changes nothing when the guard works, so only a fixed wait lets a second cancel show.
     await pause(60);
     assert.deepEqual(cancels, ['t1']);
     assert.notEqual(rig.screen().join('\n'), runningScreen, 'the request shows');
     event({ type: 'cancelled', turnId: 't1', seq: 3, at: AT });
-    await pause();
+    await until(shows(rig, 'was cancelled'));
     rig.type(KEY.escape);
+    // Nothing runs, so nothing changes; a fixed wait lets a stray cancel show.
     await pause(60);
     assert.deepEqual(cancels, ['t1'], 'nothing runs, nothing to cancel');
   });
@@ -174,6 +173,7 @@ test('with no turn running Escape asks nothing of the core', async () => {
   const { env, cancels } = turnChat();
   await withChat(env, async (rig) => {
     rig.type(KEY.escape);
+    // Nothing runs, so nothing changes; a fixed wait lets a stray cancel show.
     await pause(60);
   });
   assert.deepEqual(cancels, []);
@@ -182,10 +182,10 @@ test('with no turn running Escape asks nothing of the core', async () => {
 test('leaving the chat does not cancel the running turn', async () => {
   // Bug: closing the terminal aborts her reply.
   const { env, cancels, event } = turnChat();
-  await withChat(env, async () => {
+  await withChat(env, async (rig) => {
     event(accepted('t1', 1));
     event(running('t1', 2));
-    await pause();
+    await until(shows(rig, 'Her turn is running'));
   });
   assert.deepEqual(cancels, []);
 });
@@ -196,18 +196,17 @@ test('a line sent during a turn goes to the core, and shows as queued once the c
   await withChat(env, async (rig) => {
     event(accepted('t1', 1));
     event(running('t1', 2));
-    await pause();
-    rig.type('next line');
-    await pause();
+    await until(shows(rig, 'Her turn is running'));
+    await press(rig, 'next line', shows(rig, '> next line'));
+    await press(rig, KEY.enter, () => sent.length === 1);
     rig.type(KEY.enter);
-    await pause();
-    rig.type(KEY.enter);
+    // The second Enter finds an empty draft and changes nothing, so only a fixed wait lets a second send show.
     await pause();
     assert.deepEqual(sent, ['next line'], 'a second Enter on the empty draft sends nothing');
     const before = rig.screen().join('\n');
     event({ type: 'accepted', turnId: 't2', seq: 3, at: AT, text: 'next line' });
     event({ type: 'queued', turnId: 't2', seq: 4, at: AT });
-    await pause();
+    await until(shows(rig, '1 queued'));
     assert.notEqual(rig.screen().join('\n'), before, 'the queue shows');
   });
 });
@@ -219,14 +218,15 @@ test('a lost link says so, and the turn state stays what the core last said unti
     event(accepted('t1', 1));
     event(running('t1', 2));
     event(text('t1', 3, 'partial-words'));
-    await pause();
+    await until(shows(rig, 'partial-words'));
     listeners.connected?.(false);
+    // The words stay on the screen, so nothing changes to wait for; a fixed wait lets a wiped turn show.
     await pause();
     assert.match(rig.screen().join('\n'), /partial-words/);
     listeners.connected?.(true);
     event(text('t1', 3, 'partial-words'));
     event(text('t1', 4, ' and-more'));
-    await pause();
+    await until(shows(rig, 'and-more'));
     const shown = rig.screen().join('\n');
     assert.equal(shown.split('partial-words').length - 1, 1);
     assert.match(shown, /and-more/);

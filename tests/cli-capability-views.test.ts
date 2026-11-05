@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { capabilityPanel } from '../bin/chat-panels.ts';
 import { approvalPanel } from '../cli/approval-view.ts';
 import { contextLine } from '../cli/context-line.ts';
-import { KEY, chatEnv, pause, withChat } from './fixtures/chat-rig.ts';
+import { KEY, chatEnv, pause, press, shows, until, withChat } from './fixtures/chat-rig.ts';
 
 const GATE = {
   taskId: 'T1',
@@ -87,22 +87,19 @@ test('the mounted panel answers once on a double Enter, and Escape leaves it una
   });
   const { env, sent } = chatEnv({ panelOf: () => Promise.resolve(panel) });
   await withChat(env, async (rig) => {
-    rig.type('/approve');
-    await pause();
-    rig.type(KEY.enter);
-    await pause(100);
-    rig.type(KEY.escape);
-    await pause(100);
+    await press(rig, '/approve', shows(rig, '> /approve'));
+    await press(rig, KEY.enter, shows(rig, 'Read the new tag'));
+    await press(rig, KEY.escape, () => !rig.screen().join('\n').includes('Read the new tag'));
     assert.deepEqual(answers, []);
   });
   const again = chatEnv({ panelOf: () => Promise.resolve(panel) });
   await withChat(again.env, async (rig) => {
-    rig.type('/approve');
-    await pause();
-    rig.type(KEY.enter);
-    await pause(100);
+    await press(rig, '/approve', shows(rig, '> /approve'));
+    await press(rig, KEY.enter, shows(rig, 'Read the new tag'));
     rig.type(KEY.enter);
     rig.type(KEY.enter);
+    await until(() => answers.length >= 1);
+    // The second Enter changes nothing when the panel answers once, so only a fixed wait lets a second answer show.
     await pause(100);
   });
   assert.equal(answers.length, 1);
