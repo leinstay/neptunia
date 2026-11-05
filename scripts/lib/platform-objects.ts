@@ -66,13 +66,13 @@ export function guildListing(channel: unknown): {
 /** The replay's channel as the conversation info a skill is handed (the community when it has a guild). */
 export function conversationOfChannel(
   channel: unknown,
-  communityId: string
-): { id: string; name: string | null; communityId: string | null } {
+  placeId: string
+): { id: string; name: string | null; rootId: string | null } {
   const found = obj(channel);
   return {
     id: String(found.id),
     name: typeof found.name === 'string' ? found.name : null,
-    communityId: found.guild ? communityId : null,
+    rootId: found.guild ? placeId : null,
   };
 }
 
@@ -83,30 +83,30 @@ export function conversationOfChannel(
 export async function recallScope(
   reads: Reads,
   channel: unknown,
-  communityId: string
+  placeId: string
 ): Promise<{ channel: unknown; snapshot: unknown }> {
   const ref = conversationRef(channel);
   const [found, snapshot] = await Promise.all([
     reads.conversationInfo(ref, { audience: true }),
-    takeSnapshot(reads, communityId, []),
+    takeSnapshot(reads, placeId, []),
   ]);
-  return { channel: found?.conversation ?? conversationOfChannel(channel, communityId), snapshot };
+  return { channel: found?.conversation ?? conversationOfChannel(channel, placeId), snapshot };
 }
 
 /** The scope of a recall run, asked of the interface at the first call and kept: `() => Promise<scope>`. */
 export function lazyRecallScope(
   reads: Reads,
   channel: unknown,
-  communityId: string
+  placeId: string
 ): () => Promise<{ channel: unknown; snapshot: unknown }> {
   let scope: Promise<{ channel: unknown; snapshot: unknown }> | null = null;
-  return () => (scope ??= recallScope(reads, channel, communityId));
+  return () => (scope ??= recallScope(reads, channel, placeId));
 }
 
 /** The community's custom emoji as the turn lists them, read once through the interface. */
-export async function customEmojiOf(reads: Reads, communityId: string): Promise<Array<IndexedEmoji>> {
-  const index = createEmojiIndex({ reads, communityId: () => communityId, now: Date.now });
-  await index.refresh();
+export async function customEmojiOf(reads: Reads, placeId: string): Promise<Array<IndexedEmoji>> {
+  const index = createEmojiIndex({ reads, now: Date.now });
+  await index.refresh(placeId);
   return index.list();
 }
 
@@ -248,7 +248,7 @@ export function eventOfLine(line: unknown, iface: string): MessageEvent {
     conversation: {
       id: found.placeId,
       kind: 'channel',
-      communityId: null,
+      placeId: null,
       name: found.channelName,
       topic: found.channelTopic,
       category: found.channelCategory,
@@ -261,7 +261,7 @@ export function eventOfLine(line: unknown, iface: string): MessageEvent {
       system: false,
       at,
       replyToId: found.replyToId,
-      replyPingUserId: found.replyPingUserId,
+      replyPingAccountId: found.replyPingAccountId,
       forwardedFrom: found.forwardedFrom,
       attachments: found.attachments,
       links: found.links,
@@ -270,7 +270,7 @@ export function eventOfLine(line: unknown, iface: string): MessageEvent {
       emojis: found.emojis,
       reactions: found.reactions,
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
   };
   return event as unknown as MessageEvent;
 }
@@ -317,11 +317,11 @@ export function scriptedChatOf(
 /** The inner week's interface: the fixture's channels as conversations, writable or not, and the reads over them. */
 export function weekReads(
   channels: ReadonlyArray<{ id: string; name: string; writable?: boolean }>,
-  communityId: string,
+  placeId: string,
   log: Parameters<typeof createReads>[1]
 ): { reads: Reads; iface: string } {
   const adapter = createFakeAdapter({ iface: 'inner-week', selfId: 'self' });
-  const base = { kind: 'channel', communityId, chatType: 'channel', iface: adapter.iface } as const;
+  const base = { kind: 'channel', rootId: placeId, chatType: 'channel', iface: adapter.iface } as const;
   const rest = { topic: null, category: null, owner: null, lastMessageAt: null, voice: false, public: true } as const;
   for (const { id, name, writable } of channels) {
     const permissions = { read: true, send: writable !== false, attach: true, react: true };

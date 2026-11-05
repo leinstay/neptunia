@@ -151,16 +151,16 @@ type Context = ReturnType<typeof folders> & {
 
 const requestText = (ctx: Context, index: number): string => JSON.stringify(ctx.llm.requests[index]);
 
-function nicknameChange(userId: string, name: string, n: number): Row {
+function nicknameChange(accountId: string, name: string, n: number): Row {
   return {
     kind: 'membership.changed',
     iface: 'fake',
     at: Date.now(),
-    id: `fake:membership:g1:${userId}:updated:${n}`,
-    communityId: 'g1',
-    userId,
+    id: `fake:membership:g1:${accountId}:updated:${n}`,
+    placeId: 'g1',
+    accountId,
     change: 'updated',
-    member: { id: userId, name, bot: userId === SELF_ID },
+    member: { id: accountId, name, bot: accountId === SELF_ID },
   };
 }
 

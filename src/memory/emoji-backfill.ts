@@ -25,7 +25,7 @@ const CHUNK = 500;
 const BACKFILL_MESSAGES = 500;
 
 /**
- * The newest `limit` messages of every readable conversation of the community `communityId`, read one conversation
+ * The newest `limit` messages of every readable conversation of the community `placeId`, read one conversation
  * after another through the interface's `history` (it pages), as lines, without the persona's and other bots'
  * messages. A conversation whose read fails is logged (`<prefix>: channel read failed`) and skipped. The history read
  * of both backfills (this one and src/memory/gif-backfill.ts). Null when the interface lists no conversation of the community
@@ -34,11 +34,11 @@ const BACKFILL_MESSAGES = 500;
  */
 export async function readMemberHistory(
   reads: Reads,
-  communityId: string,
+  placeId: string,
   limit: number,
   { iface, log = defaultLog, prefix }: { iface: string; log?: Log; prefix: string }
 ): Promise<{ channels: number; messages: Array<StoredRecord> } | null> {
-  const listing = await reads.conversations({ communityId });
+  const listing = await reads.conversations({ placeId });
   if (listing === null) return null;
   const channels = listing.conversations.filter((entry) => isReadable(entry));
   if (channels.length === 0) return null;

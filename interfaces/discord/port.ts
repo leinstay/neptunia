@@ -356,7 +356,7 @@ export function createDiscordAdapter({
       iface: DISCORD_IFACE,
       conversationId,
       ...(messageId ? { messageId } : {}),
-      ...(memberId ? { memberId } : {}),
+      ...(memberId ? { accountId: memberId } : {}),
     };
   }
 

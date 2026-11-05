@@ -162,7 +162,7 @@ export type InnerLifeOptions = {
    */
   places?: (() => unknown) | null;
   /** A member's name for the `<wake>` lines (null: the id is shown). */
-  nameOf?: ((memberId: string) => unknown) | null;
+  nameOf?: ((accountId: string) => unknown) | null;
   journal?: InnerJournal | null;
   /** The core's reads of the interface: the conversation a turn runs in. */
   reads?: InnerContext['reads'];

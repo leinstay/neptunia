@@ -12,7 +12,7 @@ type AffinityOpts = Parameters<typeof applyDelta>[3];
 function buildStore() {
   const profiles = new Map<string, Rec>();
   const forgotten: Array<Untyped> = [];
-  const privates = new Map<string, Rec>(); // `${placeId}:${userId}` -> private layer
+  const privates = new Map<string, Rec>(); // `${placeId}:${accountId}` -> private layer
   const forgottenPrivate: Array<Untyped> = [];
   const lore = new Map<string, Array<Rec>>(); // placeId -> entries[]
   const channels = new Map<string, Rec>(); // `${placeId}:${placeId}` -> channel entry
@@ -58,8 +58,8 @@ function buildStore() {
     validate(this: { validateResult: Array<string> }) {
       return this.validateResult;
     },
-    getUser(userId: string) {
-      return profiles.get(`${userId}`) ?? null;
+    getUser(accountId: string) {
+      return profiles.get(`${accountId}`) ?? null;
     },
     getLore(placeId: string) {
       return lore.get(placeId) ?? [];
@@ -75,17 +75,17 @@ function buildStore() {
       lore.set(placeId, next);
       return next.length !== current.length;
     },
-    adjustAffinity(userId: string, delta: number, reason: string, opts: AffinityOpts) {
-      const key = `${userId}`;
-      const profile = profiles.get(key) ?? { id: String(userId), affinity: emptyAffinity() };
+    adjustAffinity(accountId: string, delta: number, reason: string, opts: AffinityOpts) {
+      const key = `${accountId}`;
+      const profile = profiles.get(key) ?? { id: String(accountId), affinity: emptyAffinity() };
       profile.affinity = applyDelta(profile.affinity ?? emptyAffinity(), delta, reason, opts);
       profiles.set(key, profile);
       return profile.affinity as Rec;
     },
     privates,
     forgottenPrivate,
-    getPrivate(userId: string) {
-      return privates.get(`${userId}`) ?? null;
+    getPrivate(accountId: string) {
+      return privates.get(`${accountId}`) ?? null;
     },
     listPrivate(placeId: string) {
       const prefix = `${placeId}:`;

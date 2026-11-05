@@ -47,14 +47,14 @@ function refusal(status: string, code: string, summary: string): OpResult {
 }
 
 /**
- * Null when the caller (`ctx.userId`, `ctx.roleIds`) may run `op`, else the `denied` result with
+ * Null when the caller (`ctx.accountId`, `ctx.roleIds`) may run `op`, else the `denied` result with
  * its code: src/tools/impl/rights.ts#rightsRefusal over `bot.owners`, `bot.access` and `features`, all
  * read now. `owner-only` for an owner-only operation, `not-grantable` for one no grant opens (a
  * member operation while `features.memberCommands` is off included), else `not-granted`.
  */
 function checkRights(op: { name: string; rights: Rights }, ctx: Partial<OpContext> | undefined): OpResult | null {
   const code = rightsRefusal(op, {
-    userId: ctx?.userId,
+    accountId: ctx?.accountId,
     roleIds: ctx?.roleIds,
     config: ctx?.env?.hot?.config,
     asOwner: ctx?.asOwner === true,
@@ -77,7 +77,7 @@ export function asResult(value: unknown): OpResult {
 /**
  * Runs `name` WITHOUT the rights check: for src/admin.ts#run, which the tests drive directly, and for
  * her own calls, whose grant the skill gateway checks. Same result shape as `runOp`; never throws.
- * `ctx` is `{ env, placeId, conversationId, userId, roleIds }`.
+ * `ctx` is `{ env, placeId, conversationId, accountId, roleIds }`.
  */
 export async function runOpPrechecked(name: string, args: Obj = {}, ctx: Partial<OpContext> = {}): Promise<OpResult> {
   const op = getOp(name);
@@ -96,7 +96,7 @@ export async function runOpPrechecked(name: string, args: Obj = {}, ctx: Partial
 /**
  * Runs one operation for a caller: rights first (see `checkRights`), then the operation.
  * Never throws: `{ status: 'ok'|'denied'|'approval_required'|'invalid'|'failed', code, summary, data }`.
- * `ctx` is `{ env, placeId, conversationId, userId, roleIds }`; `env` from src/tools/impl/env.ts#createOpsEnv.
+ * `ctx` is `{ env, placeId, conversationId, accountId, roleIds }`; `env` from src/tools/impl/env.ts#createOpsEnv.
  */
 export async function runOp(name: string, args: Obj = {}, ctx: Partial<OpContext> = {}): Promise<OpResult> {
   const op = getOp(name);

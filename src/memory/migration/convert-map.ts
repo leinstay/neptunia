@@ -82,7 +82,21 @@ export function personaDayPlan(state: Json): Json {
   return { ...state, diary: newest === null ? {} : { persona: newest } };
 }
 
-/** A stored JSON value with the old identifiers gone: no server named, `channelId` as `placeId`. */
+/** The old key of an identity in stored JSON, and the one name it has now. */
+const NEUTRAL_KEYS: Readonly<Record<string, string>> = {
+  channelId: 'placeId',
+  channelIds: 'placeIds',
+  communityId: 'rootId',
+  userId: 'accountId',
+  userIds: 'accountIds',
+  memberId: 'accountId',
+  memberIds: 'accountIds',
+  privateUserId: 'privateAccountId',
+  mentionedUserIds: 'mentionedAccountIds',
+  replyPingUserId: 'replyPingAccountId',
+};
+
+/** A stored JSON value with the old identifiers gone: no server named, each identity under its one name. */
 export function neutralJson(value: Json): Json {
   if (typeof value === 'string') return value === 'channelId' ? 'placeId' : value === 'channelIds' ? 'placeIds' : value;
   if (Array.isArray(value)) return value.map(neutralJson);
@@ -91,9 +105,7 @@ export function neutralJson(value: Json): Json {
   for (const [name, field] of Object.entries(value)) {
     if (name === 'guildId' || name === 'guildIds') continue;
     if (name === 'guild' && field === true) continue;
-    if (name === 'channelId') out.placeId = neutralJson(field);
-    else if (name === 'channelIds') out.placeIds = neutralJson(field);
-    else out[name] = neutralJson(field);
+    out[NEUTRAL_KEYS[name] ?? name] = neutralJson(field);
   }
   return out;
 }

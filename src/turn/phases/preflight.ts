@@ -73,7 +73,7 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
   if (inner && mode === 'inner') draft.inner = inner;
   // The turn a finished errand of her own opens (asked in an inner turn: requester kind
   // `persona`, no person behind it) is her own initiative too: her grants alone decide her calls.
-  if (taskResult?.requester?.kind === 'persona' && !taskResult.requester.userId) draft.ownInitiative = true;
+  if (taskResult?.requester?.kind === 'persona' && !taskResult.requester.accountId) draft.ownInitiative = true;
   // /nep pause: the owner is editing data/ by hand -- no new turn may start (a reply, an interject, an initiate,
   // or a forced turn) until /nep resume. A turn already in flight when the pause is requested is left to
   // finish naturally; admin.js's pause handler waits for it via waitIdle() below instead of aborting it here.
@@ -103,7 +103,7 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
   const reading = placesRead(store, channel.iface, placeId, isPrivate);
   // What one place can hold for the turn (its library, its media cache): the one it reads, else its own.
   const libraryPlace = reading.length === 1 ? (reading[0] ?? placeId) : placeId;
-  draft.privateUserId = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
+  draft.privateAccountId = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
   // The journal: the turn starts here, past the pause and
   // attention rails; a later attempt of the same turn (journalTurn) keeps its id.
   if (journalOn()) {

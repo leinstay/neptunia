@@ -18,7 +18,7 @@ import type { Db } from './db/types.ts';
 type ConversationNames = Parameters<typeof conversationPlaceKey>[0] & {
   iface?: string | null;
   authorityId?: string | null;
-  communityId?: string | null;
+  rootId?: string | null;
   id?: string | null;
 };
 
@@ -125,10 +125,10 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
 
     /** The place that holds what a conversation shares with its tree: the top of it; a DM is its own. */
     sharedPlaceOf(conversation: ConversationNames, iface?: string): string {
-      if (!memoryDb) return String(conversation?.communityId ?? conversation?.id ?? '');
+      if (!memoryDb) return String(conversation?.rootId ?? conversation?.id ?? '');
       const name = conversation?.iface ?? iface;
-      if (typeof conversation?.communityId === 'string' && conversation.communityId)
-        return placeOfCommunity(conversation.communityId, name);
+      if (typeof conversation?.rootId === 'string' && conversation.rootId)
+        return placeOfCommunity(conversation.rootId, name);
       const own = placeOfConversation(conversation, name);
       return rootPlaceOf(own) ?? own;
     },

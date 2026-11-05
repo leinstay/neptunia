@@ -31,8 +31,8 @@ test('record db reader: iterate answers every guild, layer, range and channel fr
       { from: '2026-10-21T00:00:00.000Z' },
       { from: '2026-10-20T09:00:00.000Z', to: '2026-10-21T08:05:00.000Z' },
       { placeIds: [CHANNEL_B] },
-      { privateUserId: MEMBER },
-      { privateUserId: MEMBER, from: '2026-10-21T00:00:00.000Z' },
+      { privateAccountId: MEMBER },
+      { privateAccountId: MEMBER, from: '2026-10-21T00:00:00.000Z' },
     ];
     const expected: Record<string, Array<Array<string>>> = {
       [GUILD]: [
@@ -80,7 +80,7 @@ test('record db reader: iterate answers every guild, layer, range and channel fr
     for (const placeId of [GUILD, GUILD_2]) {
       for (const [index, query] of queries.entries()) {
         // A DM place has no guild: the private queries run once, under the first guild.
-        if (placeId === GUILD_2 && 'privateUserId' in query) continue;
+        if (placeId === GUILD_2 && 'privateAccountId' in query) continue;
         const { placeId: holder, rest } = readAt(placeId, query);
         assert.deepEqual(
           (await all(record.iterate(holder, rest))).map(line),
@@ -112,8 +112,8 @@ test('record db reader: newestRevision for edited, single, deleted, private and 
       [GUILD, '400000000000000005', '2026-10-20T09:00:00.000Z', MEMBER, 1],
       [GUILD, '400000000000000001', '2026-09-20T09:00:00.000Z', null, null],
     ];
-    for (const [placeId, id, at, privateUserId, revision] of cases) {
-      const { placeId: holder } = readAt(placeId, { privateUserId });
+    for (const [placeId, id, at, privateAccountId, revision] of cases) {
+      const { placeId: holder } = readAt(placeId, { privateAccountId });
       assert.equal(await record.newestRevision(holder, id, at), revision, id);
     }
   } finally {

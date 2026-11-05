@@ -165,7 +165,7 @@ const runningTask = {
   state: 'running',
   createdAt: NOW - 7 * MINUTE,
   origin: { placeId: 'c1', messageId: 'm1' },
-  requester: { userId: 'u1', kind: 'member' },
+  requester: { accountId: 'u1', kind: 'member' },
   scope: 'group',
   result: null,
   error: null,
@@ -178,7 +178,7 @@ const doneTask = {
   state: 'done',
   createdAt: NOW - 3 * MINUTE,
   origin: { placeId: 'c1', messageId: 'm1' },
-  requester: { userId: 'u1', kind: 'member' },
+  requester: { accountId: 'u1', kind: 'member' },
   scope: 'group',
   result: {
     text: 'Found one on a public board; it is about cats and keyboards, posted this morning.',

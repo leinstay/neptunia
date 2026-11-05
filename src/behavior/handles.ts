@@ -196,14 +196,14 @@ export function renderDirectory(
  * (`@` + HANDLE_PREFIX + base-36 digits) the map does not hold stays as written and is counted in
  * `unknown`; any other `@word` (a name) stays as written. Pure.
  * @param ids  handle (without `@`) -> member id.
- * @returns `userIds`: the members
+ * @returns `accountIds`: the members
  *   mentioned, each once, in order (allowedMentions).
  */
 export function resolveHandles(
   text: string,
   ids: Map<string, string>
-): { text: string; userIds: Array<string>; unknown: number } {
-  const userIds: Array<string> = [];
+): { text: string; accountIds: Array<string>; unknown: number } {
+  const accountIds: Array<string> = [];
   let unknown = 0;
   const resolved = outsideUrls(String(text ?? ''), (part) =>
     part.replace(HANDLE_TOKEN_RE, (match, handle) => {
@@ -212,11 +212,11 @@ export function resolveHandles(
         unknown += 1;
         return match;
       }
-      if (!userIds.includes(String(id))) userIds.push(String(id));
+      if (!accountIds.includes(String(id))) accountIds.push(String(id));
       return `<@${id}>`;
     })
   );
-  return { text: resolved, userIds, unknown };
+  return { text: resolved, accountIds, unknown };
 }
 
 /**

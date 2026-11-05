@@ -42,7 +42,7 @@ test('reads a hit as a line of the clustering with no query yet attached', () =>
 
 test('tells a conversation of a community from a private chat', () => {
   assert.equal(inCommunity(channel('c1')), true);
-  assert.equal(inCommunity({ ...privateChannel('c4', []), communityId: null }), false);
+  assert.equal(inCommunity({ ...privateChannel('c4', []), rootId: null }), false);
   assert.equal(inCommunity(null), false);
 });
 

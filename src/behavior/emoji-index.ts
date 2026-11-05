@@ -1,7 +1,8 @@
-// The core's index of the community's custom emoji, kept from the interface's `emoji.list` read for 60 seconds. The
+// The core's index of the custom emoji of a place, kept from the interface's `emoji.list` read for 60 seconds. The
 // turn refreshes it before it builds a request; `byName`, `list` and `urlOf` then answer from what the last refresh
 // held, without waiting. An interface sends no event when an emoji changes, so the age of the list is the only thing
-// that brings a change in. A failed or unsupported read keeps the last list of the same community.
+// that brings a change in. A failed or unsupported read keeps the last list of the same place. A turn with no place in
+// a tree, a private chat or the persona's own, refreshes with null: the interface answers what it offers outside any.
 
 import type { EmojiInfo } from '../protocol/adapter.ts';
 import type { Reads } from '../interface/reads.ts';
@@ -14,8 +15,8 @@ const EMOJI_TTL_MS = 60_000;
 export type IndexedEmoji = { id: string; name: string; animated: boolean };
 
 export type EmojiIndex = {
-  /** Reads the list again when it is older than 60 seconds or belongs to another community. Never throws. */
-  refresh(): Promise<void>;
+  /** Reads the list again when it is older than 60 seconds or belongs to another place. Never throws. */
+  refresh(placeId: string | null): Promise<void>;
   /** The emoji called `name`: an exact match, else the only one that matches ignoring case. */
   byName(name: string): IndexedEmoji | null;
   list(): Array<IndexedEmoji>;
@@ -23,52 +24,43 @@ export type EmojiIndex = {
   urlOf(id: string): string | null;
 };
 
-/** Reads the community's custom emoji again when `features.customEmoji` is not off (the `<emoji>` block and her `:name:`). */
-export function refreshEmojiIfOn(emoji: EmojiIndex | null | undefined): Promise<void> {
-  return emoji ? emoji.refresh() : Promise.resolve();
+/** Reads the place's custom emoji again when `features.customEmoji` is not off (the `<emoji>` block and her `:name:`). */
+export function refreshEmojiIfOn(emoji: EmojiIndex | null | undefined, placeId: string | null): Promise<void> {
+  return emoji ? emoji.refresh(placeId) : Promise.resolve();
 }
 
-export function createEmojiIndex({
-  reads,
-  communityId,
-  now,
-}: {
-  reads: Reads;
-  communityId: () => string | null;
-  now: () => number;
-}): EmojiIndex {
+export function createEmojiIndex({ reads, now }: { reads: Reads; now: () => number }): EmojiIndex {
   let held: ReadonlyArray<EmojiInfo> = [];
-  let heldFor: string | null = null;
+  // Undefined until the first read: null is a place of its own, the one with no tree.
+  let heldFor: string | null | undefined;
   let readAt: number | null = null;
   let reading: Promise<void> | null = null;
+  let readingFor: string | null | undefined;
 
-  async function read(community: string): Promise<void> {
-    const answer = await reads.emoji({ communityId: community });
-    if (heldFor !== community) {
+  async function read(placeId: string | null): Promise<void> {
+    const answer = await reads.emoji({ placeId });
+    if (heldFor !== placeId) {
       held = [];
-      heldFor = community;
+      heldFor = placeId;
+      readAt = null;
     }
     if (answer === null) return;
     held = answer.emoji;
     readAt = now();
   }
 
+  function refresh(placeId: string | null): Promise<void> {
+    if (reading !== null) return readingFor === placeId ? reading : reading.then(() => refresh(placeId));
+    if (heldFor === placeId && readAt !== null && now() - readAt < EMOJI_TTL_MS) return Promise.resolve();
+    readingFor = placeId;
+    reading = read(placeId).finally(() => {
+      reading = null;
+    });
+    return reading;
+  }
+
   return {
-    refresh() {
-      if (reading !== null) return reading;
-      const community = communityId();
-      if (community === null) {
-        held = [];
-        heldFor = null;
-        readAt = null;
-        return Promise.resolve();
-      }
-      if (heldFor === community && readAt !== null && now() - readAt < EMOJI_TTL_MS) return Promise.resolve();
-      reading = read(community).finally(() => {
-        reading = null;
-      });
-      return reading;
-    },
+    refresh,
     byName: (name) => matchEmojiName(held, name),
     list: () => held.map(({ id, name, animated }) => ({ id, name, animated })),
     urlOf: (id) => held.find((emoji) => emoji.id === id)?.url ?? null,

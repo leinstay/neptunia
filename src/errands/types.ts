@@ -25,7 +25,7 @@ export type ErrandScope = 'dm' | 'group';
 /** Who asked for an errand. */
 export type RequesterKind = 'owner' | 'member' | 'persona';
 
-export type ErrandRequester = { userId: string | null; kind: RequesterKind };
+export type ErrandRequester = { accountId: string | null; kind: RequesterKind };
 export type ErrandOrigin = {
   publicationBoundary?: PublicationBoundary;
   placeId: string | null;
@@ -111,7 +111,7 @@ export type CostRecord = {
 export type AddInput = {
   agent: string;
   goal: string;
-  requester: { userId?: string | null; kind?: string };
+  requester: { accountId?: string | null; kind?: string };
   origin: {
     publicationBoundary?: PublicationBoundary;
     placeId?: string | null;

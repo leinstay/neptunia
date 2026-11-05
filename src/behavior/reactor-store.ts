@@ -19,11 +19,11 @@ function olderFirst(a: string, b: string): number {
 export type ReactorStore = {
   markOwn(messageId: string): void;
   isOwn(messageId: string): boolean;
-  add(messageId: string, emoji: string, userId: string): boolean;
-  remove(messageId: string, emoji: string, userId: string): boolean;
+  add(messageId: string, emoji: string, accountId: string): boolean;
+  remove(messageId: string, emoji: string, accountId: string): boolean;
   removeAll(messageId: string): boolean;
   removeEmoji(messageId: string, emoji: string): boolean;
-  set(messageId: string, emoji: string, userIds: ReadonlyArray<string>): boolean;
+  set(messageId: string, emoji: string, accountIds: ReadonlyArray<string>): boolean;
   reactors(messageId: string, emoji: string): Array<string> | null;
   attempted(messageId: string, emoji: string): boolean;
   markAttempted(messageId: string, emoji: string): void;
@@ -69,21 +69,21 @@ export function createReactorStore({
     isOwn(messageId: string): boolean {
       return messages.has(String(messageId));
     },
-    /** `userId` reacted `emoji` on her message `messageId` (appended once, in order). */
-    add(messageId: string, emoji: string, userId: string): boolean {
+    /** `accountId` reacted `emoji` on her message `messageId` (appended once, in order). */
+    add(messageId: string, emoji: string, accountId: string): boolean {
       const entry = entryOf(messageId);
-      if (!entry || !emoji || !userId) return false;
+      if (!entry || !emoji || !accountId) return false;
       const list = entry.emojis.get(emoji) ?? [];
-      if (list.includes(String(userId))) return false;
-      list.push(String(userId));
+      if (list.includes(String(accountId))) return false;
+      list.push(String(accountId));
       entry.emojis.set(emoji, list);
       return true;
     },
-    /** `userId` took back `emoji` on `messageId`. */
-    remove(messageId: string, emoji: string, userId: string): boolean {
+    /** `accountId` took back `emoji` on `messageId`. */
+    remove(messageId: string, emoji: string, accountId: string): boolean {
       const list = entryOf(messageId)?.emojis.get(emoji);
       if (!list) return false;
-      const at = list.indexOf(String(userId));
+      const at = list.indexOf(String(accountId));
       if (at < 0) return false;
       list.splice(at, 1);
       return true;
@@ -103,10 +103,10 @@ export function createReactorStore({
      * The reactors a read found for `emoji` on `messageId`: their order first, then the ones the store knew and the
      * read did not return (a live event that came meanwhile).
      */
-    set(messageId: string, emoji: string, userIds: ReadonlyArray<string>): boolean {
+    set(messageId: string, emoji: string, accountIds: ReadonlyArray<string>): boolean {
       const entry = entryOf(messageId);
       if (!entry || !emoji) return false;
-      const fetched = [...new Set(userIds.map(String))];
+      const fetched = [...new Set(accountIds.map(String))];
       const known = entry.emojis.get(emoji) ?? [];
       entry.emojis.set(emoji, [...fetched, ...known.filter((id) => !fetched.includes(id))]);
       return true;
@@ -134,26 +134,27 @@ export function createReactorStore({
 }
 
 /**
- * Applies one `reaction.changed` event to `store`. An event of another community, one with no message, the persona's own
+ * Applies one `reaction.changed` event to `store`. An event of a place no interface serves, one with no message, the persona's own
  * reaction and an event on a message that is not hers are ignored. A message whose author is known to be the persona
  * becomes hers in the store. `cleared` 'all' empties the message, 'emoji' one emoji of it.
  */
 export function applyReactionChanged(
   store: ReactorStore,
   event: ReactionChanged,
-  { communityId, selfId }: { communityId: string | null; selfId: string | null }
+  { isServed, selfId }: { isServed: (placeId: string) => boolean; selfId: string | null }
 ): 'applied' | 'ignored' {
   const messageId = event.messageId;
-  if (!messageId || !communityId || event.conversation.communityId !== communityId) return 'ignored';
-  const userId = event.userId ?? null;
+  const rootId = event.conversation.rootId;
+  if (!messageId || !rootId || !isServed(rootId)) return 'ignored';
+  const accountId = event.accountId ?? null;
   const emoji = event.emoji ? reactionKey(event.emoji) : null;
-  if (selfId && userId === selfId && event.cleared === undefined) return 'ignored';
+  if (selfId && accountId === selfId && event.cleared === undefined) return 'ignored';
   if (selfId && event.authorId === selfId) store.markOwn(messageId);
   if (!store.isOwn(messageId)) return 'ignored';
   if (event.cleared === 'all') return applied(store.removeAll(messageId));
   if (event.cleared === 'emoji') return applied(emoji !== null && store.removeEmoji(messageId, emoji));
-  if (!emoji || !userId) return 'ignored';
-  return applied(event.added ? store.add(messageId, emoji, userId) : store.remove(messageId, emoji, userId));
+  if (!emoji || !accountId) return 'ignored';
+  return applied(event.added ? store.add(messageId, emoji, accountId) : store.remove(messageId, emoji, accountId));
 }
 
 const applied = (changed: boolean): 'applied' | 'ignored' => (changed ? 'applied' : 'ignored');

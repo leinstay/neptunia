@@ -1026,8 +1026,8 @@ export function handleMentions(
   handles: Map<string, string> | null
 ): { mentions?: Array<string>; unknownHandles?: number } {
   if (!(handles instanceof Map)) return {};
-  const { userIds, unknown } = resolveHandles(text, handles);
-  return userIds.length > 0 || unknown > 0 ? { mentions: userIds, unknownHandles: unknown } : {};
+  const { accountIds, unknown } = resolveHandles(text, handles);
+  return accountIds.length > 0 || unknown > 0 ? { mentions: accountIds, unknownHandles: unknown } : {};
 }
 
 /** The operations whose `text` argument is a message she posts (src/tools/impl/message.ts). */
@@ -1066,8 +1066,9 @@ export function personaGrantsConfig(
   const copy = structuredClone(isPlainObject(config) ? config : {});
   copy.bot = isPlainObject(copy.bot) ? copy.bot : {};
   let access = isPlainObject(copy.bot.access) ? copy.bot.access : {};
-  for (const key of Object.keys(access)) access = accessRevoke(access, key, { userId: selfId });
-  for (const name of new Set(Array.isArray(names) ? names : [])) access = accessGrant(access, name, { userId: selfId });
+  for (const key of Object.keys(access)) access = accessRevoke(access, key, { accountId: selfId });
+  for (const name of new Set(Array.isArray(names) ? names : []))
+    access = accessGrant(access, name, { accountId: selfId });
   copy.bot.access = access;
   return copy;
 }
@@ -1857,13 +1858,14 @@ export function afterScenarioTurn({
     for (let i = 0; i < own.length; i += 1) if (own[i].id === id) own[i] = withOwnReaction(own[i], emoji);
   };
   const rendered = (text: string, handles: Untyped) => {
-    const resolved = handles instanceof Map ? resolveHandles(text, handles) : { text: String(text ?? ''), userIds: [] };
+    const resolved =
+      handles instanceof Map ? resolveHandles(text, handles) : { text: String(text ?? ''), accountIds: [] };
     // Her `#handle` links its channel as a live post does (the line keeps the `<#id>` and names the channel).
     const content = channelHandles instanceof Map ? linkChannels(resolved.text, [], channelHandles) : resolved.text;
     const placeIds = [...new Set(Array.from(content.matchAll(/<#(\d+)>/g), (match) => match[1]))];
     return {
       content,
-      mentionedUserIds: resolved.userIds,
+      mentionedAccountIds: resolved.accountIds,
       ...(placeIds.length > 0 ? { mentionedChannelIds: placeIds } : {}),
     };
   };
@@ -1953,7 +1955,7 @@ export function afterScenarioTurn({
  * `{ self }` or a burst item `{ self: true }`): `text` as if she had said it at `at` in
  * `channel`, no turn run for it. Shaped exactly as afterScenarioTurn shapes her live lines
  * (src/behavior/turn.ts#continuationHistory, `selfName` as author; its id a snowflake of its
- * moment), the text as given with `mentionedUserIds` the members its `<@id>` tags name
+ * moment), the text as given with `mentionedAccountIds` the members its `<@id>` tags name
  * (src/memory/mentions.ts#tokenIds) -- and, since no turn posted it, no link to a trigger and no
  * call mark. Pure.
  */
@@ -1971,7 +1973,7 @@ export function seededSelfLine({
     ts: at,
     authorId: String(selfId),
     content,
-    mentionedUserIds: tokenIds(content),
+    mentionedAccountIds: tokenIds(content),
     replyToId: null,
   };
   return continuationHistory({ history: [], own: [line], selfName })[0];
@@ -1985,7 +1987,7 @@ const MAX_PENDING = 6;
  * arrival order, all of one channel) come in a burst, as the live queue gives them
  * (src/behavior/pipeline.ts, src/behavior/pending.ts). How each message calls her is read as the
  * live pipeline reads it (src/behavior/mention.ts#detectTrigger, each input masked by its switch:
- * a tag of hers among `mentionedUserIds` with features.mentions on, a reply to a line of hers in
+ * a tag of hers among `mentionedAccountIds` with features.mentions on, a reply to a line of hers in
  * `history` or the burst with features.replies on, one of `bot.nameTriggers` as a whole word with
  * features.nameTriggers on -- a missing key counts as on); a message that does not call her is a
  * follow-up the address classifier said `yes` to (it is never asked here). The first message finds
@@ -2013,7 +2015,7 @@ export function burstTurns(
   );
   const kindOf = (line: Untyped) =>
     detectTrigger({
-      mentionsSelf: (line.mentionedUserIds ?? []).includes(self),
+      mentionsSelf: (line.mentionedAccountIds ?? []).includes(self),
       repliesToSelf: Boolean(line.replyToId) && herLines.has(line.replyToId),
       content: String(line.content ?? ''),
       nameTriggers,

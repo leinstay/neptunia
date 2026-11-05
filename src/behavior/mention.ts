@@ -43,14 +43,14 @@ export function strippedLength(content: string, selfName: string): number {
  * Remembers when each user called the persona, to spot repeated tags and spam.
  * Deliberately in-memory only: a restart forgiving everyone is fine.
  */
-export function createTagHistory(): { hit(userId: string, now: number, windowMs: Untyped): number } {
+export function createTagHistory(): { hit(accountId: string, now: number, windowMs: Untyped): number } {
   const times = new Map();
   return {
     /** Register a call and return how many calls this user made within `windowMs`, this one included. */
-    hit(userId: string, now: number, windowMs: Untyped) {
-      const recent = (times.get(userId) ?? []).filter((ts: Untyped) => now - ts <= windowMs);
+    hit(accountId: string, now: number, windowMs: Untyped) {
+      const recent = (times.get(accountId) ?? []).filter((ts: Untyped) => now - ts <= windowMs);
       recent.push(now);
-      times.set(userId, recent);
+      times.set(accountId, recent);
       return recent.length;
     },
   };
@@ -59,15 +59,15 @@ export function createTagHistory(): { hit(userId: string, now: number, windowMs:
 /**
  * Whether `normalized` (src/protocol/events.js#Message) tags the
  * persona for real: `selfId` is among its mentioned users and not only
- * because of the platform's reply ping (`replyPingUserId`). A reply to the
+ * because of the platform's reply ping (`replyPingAccountId`). A reply to the
  * persona that only carries the reply ping is untagged (decideMention).
  */
 export function isTaggedCall(
-  normalized: { mentionedUserIds?: Array<string>; replyPingUserId?: string | null },
+  normalized: { mentionedAccountIds?: Array<string>; replyPingAccountId?: string | null },
   selfId: string
 ): boolean {
-  const ids = normalized?.mentionedUserIds ?? [];
-  return ids.includes(selfId) && normalized.replyPingUserId !== selfId;
+  const ids = normalized?.mentionedAccountIds ?? [];
+  return ids.includes(selfId) && normalized.replyPingAccountId !== selfId;
 }
 
 // The call decision's measures. Production values, config cut of 2026-10-31.
@@ -146,17 +146,17 @@ export function isFollowUpOpen(
  * A mention of another member (not the persona) is always `no` before the
  * classifier is ever asked — see the prompt contract. A reply to another
  * member's message goes to the classifier like plain text; the reply ping
- * the platform adds for the replied-to author (`replyPingUserId`) is not a
+ * the platform adds for the replied-to author (`replyPingAccountId`) is not a
  * mention. `normalized` is the shape of src/protocol/events.js#Message.
  * @returns true = never the persona's: the answer is "no" without asking the model
  */
 export function followUpPreFilter(
-  normalized: { replyToId: string | null; mentionedUserIds: Array<string>; replyPingUserId?: string | null },
+  normalized: { replyToId: string | null; mentionedAccountIds: Array<string>; replyPingAccountId?: string | null },
   selfId: string
 ): boolean {
   const isReply = Boolean(normalized.replyToId);
-  const replyPing = isReply ? (normalized.replyPingUserId ?? null) : null;
-  return (normalized.mentionedUserIds ?? []).some((id) => id !== selfId && id !== replyPing);
+  const replyPing = isReply ? (normalized.replyPingAccountId ?? null) : null;
+  return (normalized.mentionedAccountIds ?? []).some((id) => id !== selfId && id !== replyPing);
 }
 
 // Protocol token of the address classifier (docs/prompt-contract.md), not

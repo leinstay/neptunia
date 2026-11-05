@@ -122,8 +122,8 @@ export function createPrivateGate({
     const served = communitiesOf?.(iface) ?? [];
     if (served.length === 0) return { gate: privateGate({ ...input, isMember: true }), isOwner };
     let isMember = false;
-    for (const communityId of served) {
-      const found = await withIface(iface, () => reads.memberInfo({ communityId, memberId: String(authorId) }));
+    for (const placeId of served) {
+      const found = await withIface(iface, () => reads.memberInfo({ placeId, accountId: String(authorId) }));
       if (found?.member != null) {
         isMember = true;
         break;

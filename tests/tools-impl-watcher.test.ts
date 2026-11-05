@@ -50,7 +50,7 @@ async function callOf(watcher: ReportReader | null, args: Record<string, unknown
       env,
       placeId: 'g1',
       conversationId: 'c1',
-      userId: null,
+      accountId: null,
       roleIds: [],
       actor: 'persona',
     })

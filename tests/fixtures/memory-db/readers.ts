@@ -25,12 +25,12 @@ export const placeOfGuild = (guild: string): string => legacyServerPlaceId('disc
  * The place a read of `guild` asks, and the rest of its query: a private layer is the member's DM place, so a query that
  * names one reads that place.
  */
-export function readAt<Query extends { privateUserId?: string | null }>(
+export function readAt<Query extends { privateAccountId?: string | null }>(
   guild: string,
   query: Query
-): { placeId: string; rest: Omit<Query, 'privateUserId'> } {
-  const { privateUserId, ...rest } = query;
-  return { placeId: privateUserId ? dmPlaceId('discord', privateUserId) : placeOfGuild(guild), rest };
+): { placeId: string; rest: Omit<Query, 'privateAccountId'> } {
+  const { privateAccountId, ...rest } = query;
+  return { placeId: privateAccountId ? dmPlaceId('discord', privateAccountId) : placeOfGuild(guild), rest };
 }
 export { GUILD_2 } from './datadir.ts';
 /** A third member, named by a few lines. */

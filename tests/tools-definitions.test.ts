@@ -146,7 +146,7 @@ test('the members a leaf needs are required: without one the arguments are null'
     'memory.private.read',
   ]) {
     assert.equal(BY_NAME.get(name)?.toArgs({ name: 'x' }), null, name);
-    assert.equal(BY_NAME.get(name)?.toArgs({ user: ID, name: 'x' })?.userId, ID, name);
+    assert.equal(BY_NAME.get(name)?.toArgs({ user: ID, name: 'x' })?.accountId, ID, name);
   }
 });
 

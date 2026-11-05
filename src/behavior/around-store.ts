@@ -17,7 +17,7 @@ import type { ConnectionChanged, PresenceChanged, PresenceSnapshot, VoiceChanged
 const MAX_ACTIVITIES = 3;
 
 export type VoiceRecord = {
-  memberId: string;
+  accountId: string;
   placeId: string;
   name: string | null;
   muted: boolean;
@@ -29,7 +29,7 @@ export type VoiceRecord = {
 };
 
 export type PresenceRecord = {
-  memberId: string;
+  accountId: string;
   name: string | null;
   status: 'online' | 'idle' | 'dnd' | 'offline' | 'unknown';
   activities: Array<{ kind: string; name: string; details: string; state: string }>;
@@ -42,14 +42,14 @@ export type AroundSnapshot = {
   presence: Map<string, PresenceRecord>;
 };
 
-type VoiceFields = Pick<VoiceChanged, 'userId' | 'name' | 'muted' | 'deafened' | 'streaming' | 'camera'>;
-type PresenceFields = Pick<PresenceChanged, 'userId' | 'name' | 'status' | 'activities'>;
+type VoiceFields = Pick<VoiceChanged, 'accountId' | 'name' | 'muted' | 'deafened' | 'streaming' | 'camera'>;
+type PresenceFields = Pick<PresenceChanged, 'accountId' | 'name' | 'status' | 'activities'>;
 
 const nameOf = (name: string | null | undefined): string | null => cleanText(name) || null;
 
 function voiceRecord(state: VoiceFields, placeId: string): VoiceRecord {
   return {
-    memberId: state.userId,
+    accountId: state.accountId,
     placeId,
     name: nameOf(state.name),
     muted: state.muted === true,
@@ -72,7 +72,7 @@ function presenceRecord(state: PresenceFields): PresenceRecord {
       state: cleanText(activity.state),
     });
   }
-  return { memberId: state.userId, name: nameOf(state.name), status: state.status, activities };
+  return { accountId: state.accountId, name: nameOf(state.name), status: state.status, activities };
 }
 
 /**
@@ -98,32 +98,32 @@ export function createAroundStore(options: { presences: boolean | (() => boolean
     // `joinedAt` with the event's time, a flag change keeps the one held (none after a snapshot).
     voiceChanged(event) {
       if (event.conversationId === null) {
-        voice.delete(event.userId);
+        voice.delete(event.accountId);
         return;
       }
       const record = voiceRecord(event, event.conversationId);
-      const held = voice.get(event.userId);
+      const held = voice.get(event.accountId);
       if (held?.placeId === record.placeId) {
         if (held.joinedAt !== undefined) record.joinedAt = held.joinedAt;
       } else if (Number.isFinite(event.at)) {
         record.joinedAt = event.at;
       }
-      voice.set(event.userId, record);
+      voice.set(event.accountId, record);
     },
     // Nothing is kept while the presences switch is off.
     presenceChanged(event) {
       if (!reportsPresences()) return;
-      presence.set(event.userId, presenceRecord(event));
+      presence.set(event.accountId, presenceRecord(event));
     },
     // Both maps are replaced by what the interface knows now.
     snapshot(event) {
       voice = new Map();
       for (const entry of event.voice) {
-        if (entry.conversationId !== null) voice.set(entry.userId, voiceRecord(entry, entry.conversationId));
+        if (entry.conversationId !== null) voice.set(entry.accountId, voiceRecord(entry, entry.conversationId));
       }
       presence = new Map();
       if (!reportsPresences()) return;
-      for (const entry of event.presence) presence.set(entry.userId, presenceRecord(entry));
+      for (const entry of event.presence) presence.set(entry.accountId, presenceRecord(entry));
     },
     connection(event) {
       stale = event.state === 'lost';

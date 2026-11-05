@@ -16,7 +16,7 @@ import { buildRequest, type Built, type Part } from './fixtures/built-request.ts
 
 const SELF = '100';
 const GUILD = '900';
-const served = { communityId: GUILD, selfId: SELF };
+const served = { isServed: (placeId: string) => placeId === GUILD, selfId: SELF };
 
 /**
  * A `reaction.changed` event of conversation `c1`: `kind` add, remove, removeEmoji or removeAll; `authorId` is the author
@@ -28,14 +28,14 @@ function reactionEvent(
     messageId = 'm1',
     authorId = SELF,
     emoji = { name: '😂' },
-    userId = '2',
-    communityId = GUILD,
+    accountId = '2',
+    rootId = GUILD,
   }: {
     messageId?: string;
     authorId?: string | null;
     emoji?: { name: string };
-    userId?: string;
-    communityId?: string | null;
+    accountId?: string;
+    rootId?: string | null;
   } = {}
 ) {
   return {
@@ -43,10 +43,10 @@ function reactionEvent(
     iface: 'fake',
     at: 1,
     id: `fake:reaction:${kind}:${messageId}`,
-    conversation: { id: 'c1', kind: 'channel' as const, communityId },
+    conversation: { id: 'c1', kind: 'channel' as const, rootId },
     messageId,
     emoji: kind === 'removeAll' ? null : emoji,
-    userId: kind === 'removeEmoji' || kind === 'removeAll' ? null : userId,
+    accountId: kind === 'removeEmoji' || kind === 'removeAll' ? null : accountId,
     added: kind === 'add',
     authorId,
     ...(kind === 'removeEmoji'
@@ -62,7 +62,7 @@ function feed(
   store: ReturnType<typeof createReactorStore>,
   kind: string,
   parts: Parameters<typeof reactionEvent>[1] = {},
-  where: { communityId: string | null; selfId: string } = served
+  where: { isServed: (placeId: string) => boolean; selfId: string } = served
 ) {
   return applyReactionChanged(store, reactionEvent(kind, parts), where);
 }
@@ -71,9 +71,9 @@ function feed(
 
 test('reactors store: an add on her message is kept in order, each user once', () => {
   const store = createReactorStore();
-  assert.equal(feed(store, 'add', { userId: '2' }), 'applied');
-  feed(store, 'add', { userId: '1' });
-  assert.equal(feed(store, 'add', { userId: '2' }), 'ignored');
+  assert.equal(feed(store, 'add', { accountId: '2' }), 'applied');
+  feed(store, 'add', { accountId: '1' });
+  assert.equal(feed(store, 'add', { accountId: '2' }), 'ignored');
   assert.deepEqual(store.reactors('m1', '😂'), ['2', '1']);
 });
 
@@ -86,9 +86,9 @@ test('reactors store: remove takes one user back, removeEmoji one emoji, removeA
     [':kek:', '4'],
   ]) {
     const parsed = emoji.startsWith(':') ? { id: '77', name: 'kek' } : { name: emoji };
-    feed(store, 'add', { emoji: parsed, userId: user });
+    feed(store, 'add', { emoji: parsed, accountId: user });
   }
-  feed(store, 'remove', { emoji: { name: '😂' }, userId: '1' });
+  feed(store, 'remove', { emoji: { name: '😂' }, accountId: '1' });
   assert.deepEqual(store.reactors('m1', '😂'), ['2']);
   feed(store, 'removeEmoji', { emoji: { name: '👍' } });
   assert.equal(store.reactors('m1', '👍'), null);
@@ -101,18 +101,18 @@ test('reactors store: remove takes one user back, removeEmoji one emoji, removeA
 
 test('reactors store: her own reaction is never a reactor', () => {
   const store = createReactorStore();
-  assert.equal(feed(store, 'add', { userId: SELF }), 'ignored');
+  assert.equal(feed(store, 'add', { accountId: SELF }), 'ignored');
   assert.equal(store.reactors('m1', '😂'), null);
 });
 
 test('reactors store: another community, another author and an unknown author are ignored', () => {
   const store = createReactorStore();
-  assert.equal(feed(store, 'add', { communityId: '901' }), 'ignored');
+  assert.equal(feed(store, 'add', { rootId: '901' }), 'ignored');
   assert.equal(feed(store, 'add', { messageId: 'm2', authorId: '5' }), 'ignored');
   assert.equal(feed(store, 'add', { messageId: 'm3', authorId: null }), 'ignored');
   assert.deepEqual(store.counts(), { messages: 0, reactors: 0 });
   // Not served yet (no community resolved): nothing.
-  assert.equal(feed(store, 'add', { messageId: 'm4' }, { communityId: null, selfId: SELF }), 'ignored');
+  assert.equal(feed(store, 'add', { messageId: 'm4' }, { isServed: () => false, selfId: SELF }), 'ignored');
 });
 
 test('reactors store: a message already known as hers takes live events whose author is unknown', () => {

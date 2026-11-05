@@ -25,7 +25,7 @@ function envelope(room: string, text: string, edit = false) {
     iface: 'discord',
     at: NOW,
     edit,
-    conversation: { id: room, kind: 'channel', chatType: 'channel', communityId: 'community' },
+    conversation: { id: room, kind: 'channel', chatType: 'channel', rootId: 'community' },
     message: { id: NATIVE, at: AT, content: text, author: { id: 'member', name: 'Member' } },
   });
   if (!value) throw new Error('synthetic normalized message was refused');

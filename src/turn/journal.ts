@@ -196,7 +196,7 @@ export function journalStartOf({
   mode,
   journalTurn,
 }: {
-  draft: { inner?: { wake?: { kind?: string | null } | null } | null; privateUserId?: string | null };
+  draft: { inner?: { wake?: { kind?: string | null } | null } | null; privateAccountId?: string | null };
   channel: { id: string };
   trigger: { id?: string | null; authorId?: string | null } | null | undefined;
   triggerKind: TriggerKind | null | undefined;
@@ -356,7 +356,7 @@ export type JournalDraft = {
   started: { turnId: string; attemptId: string; startedAt: number };
   seen?: { messageIds: Array<string>; parents: Array<unknown>; parts: { filePreviews: Array<unknown> } } | null;
   conversationId?: string;
-  privateUserId?: string | null;
+  privateAccountId?: string | null;
   mode?: string | null;
   reason?: string | null;
   participants?: Array<string> | null;

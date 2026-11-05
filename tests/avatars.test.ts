@@ -134,9 +134,9 @@ function view(id: string, hash: Untyped, extra = {}) {
  */
 function readsOf(members: Record<string, Member | 'failed'>, asked: Array<string> = []) {
   return fakeOf<Reads>({
-    memberInfo: ({ memberId }: { memberId: string }) => {
-      asked.push(memberId);
-      const found = members[memberId];
+    memberInfo: ({ accountId }: { accountId: string }) => {
+      asked.push(accountId);
+      const found = members[accountId];
       if (found === 'failed') return Promise.resolve(null);
       return Promise.resolve({
         member: found
@@ -175,7 +175,7 @@ function setup({
     now,
     log,
     isServedCommunity: (id: unknown) => id === GUILD,
-    servedCommunity: () => GUILD,
+    servedPlaces: () => [GUILD],
     selfId: () => SELF,
     paused: () => paused,
     reads: readsOf(members),
@@ -452,7 +452,7 @@ test('scan: a member whose read fails is counted gone and does not stop the othe
     now: clock(),
     log: fakeLog(),
     isServedCommunity: (id: unknown) => id === GUILD,
-    servedCommunity: () => GUILD,
+    servedPlaces: () => [GUILD],
     selfId: () => SELF,
     paused: () => false,
     reads: readsOf({ u1: 'failed', u2: view('u2', 'h2') }, resolved),

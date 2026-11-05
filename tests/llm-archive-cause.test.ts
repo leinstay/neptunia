@@ -184,7 +184,7 @@ test('a participation pick past its budget leaves the row aborted while the turn
     const { result } = await withCapturedLogs(async () => {
       const picking = picker({
         placeId: 'community',
-        channel: { id: 'c1', communityId: 'community' },
+        channel: { id: 'c1', rootId: 'community' },
         snapshot: snapshotOf('community', { conversations: [], groups: [] }),
         history: [candidate],
         trigger: candidate,

@@ -6,39 +6,31 @@
 export type CommunityRoutes = {
   /** Records what an interface's `hello` says it serves. A later hello of the same interface replaces its list. */
   note(iface: string, communities: ReadonlyArray<string>): void;
-  isServed(communityId: string): boolean;
+  isServed(nativeId: string): boolean;
   communitiesOf(iface: string): Array<string>;
-  /** The interface that answers a read of `communityId`, null when none serves it or every link serving it is down. */
-  ifaceOf(communityId: string, isUp: (iface: string) => boolean): string | null;
+  /** The interface that answers a read of `nativeId`, null when none serves it or every link serving it is down. */
+  ifaceOf(nativeId: string, isUp: (iface: string) => boolean): string | null;
   /** Every community some interface says it serves, with that interface. */
-  servedList(): Array<{ iface: string; communityId: string }>;
-  /** The community of the current event's interface; outside an event, the first any interface serves. */
-  inScope(): string | null;
+  servedList(): Array<{ iface: string; nativeId: string }>;
 };
 
 export function createCommunityRoutes({ current }: { current: () => string | null }): CommunityRoutes {
   const served = new Map<string, ReadonlySet<string>>();
-  const servingOf = (communityId: string): Array<string> =>
-    [...served].filter(([, communities]) => communities.has(communityId)).map(([iface]) => iface);
+  const servingOf = (nativeId: string): Array<string> =>
+    [...served].filter(([, communities]) => communities.has(nativeId)).map(([iface]) => iface);
   return {
     note(iface, communities) {
       served.set(iface, new Set(communities));
     },
-    isServed: (communityId) => servingOf(communityId).length > 0,
+    isServed: (nativeId) => servingOf(nativeId).length > 0,
     communitiesOf: (iface) => [...(served.get(iface) ?? [])],
-    ifaceOf(communityId, isUp) {
-      const serving = servingOf(communityId);
+    ifaceOf(nativeId, isUp) {
+      const serving = servingOf(nativeId);
       const own = current();
       if (own !== null && serving.includes(own)) return own;
       return serving.find(isUp) ?? null;
     },
     servedList: () =>
-      [...served].flatMap(([iface, communities]) => [...communities].map((communityId) => ({ iface, communityId }))),
-    inScope() {
-      const own = current();
-      const ofOwn = own === null ? undefined : served.get(own);
-      if (ofOwn) return [...ofOwn][0] ?? null;
-      return [...served.values()].flatMap((communities) => [...communities])[0] ?? null;
-    },
+      [...served].flatMap(([iface, communities]) => [...communities].map((nativeId) => ({ iface, nativeId }))),
   };
 }

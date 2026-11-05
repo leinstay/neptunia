@@ -132,7 +132,7 @@ type EmbedderDeps = {
   record: ReturnType<typeof createRecord>;
   log?: { info: Untyped; warn: Untyped };
   now?: () => number;
-  nameOf?: ((placeId: string, userId: string) => string | null) | null;
+  nameOf?: ((placeId: string, accountId: string) => string | null) | null;
   selfName?: ((placeId: string) => string) | null;
   paused?: () => boolean;
   memoryDb: MemoryDb | null;

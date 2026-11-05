@@ -435,7 +435,7 @@ test('errand.run in the loop: after a search she hands off the errand, it is que
     {
       placeId: 'g1',
       conversationId: 'c1',
-      userId: 'u1',
+      accountId: 'u1',
       roleIds: [],
       actor: 'persona',
       turnId: task.origin.turnId,
@@ -784,7 +784,7 @@ test('draw.create in the loop: the turn makes the picture from her scene and pos
     images,
   });
   assert.equal(images.calls.length, 1);
-  assert.equal(asRecord(images.calls[0]).userId, 'u1', "the asking member's rail");
+  assert.equal(asRecord(images.calls[0]).accountId, 'u1', "the asking member's rail");
   assert.match(asRecord(images.calls[0]).prompt, /Scene: ένας φάρος το σούρουπο$/);
   const picture = run.sends.find((send) => asRecord(send.attachments)?.length === 1);
   assert.equal(picture?.to, 'c1');
@@ -942,6 +942,6 @@ test('draw.create on a turn nobody asked (her own initiative): the picture is ch
     prompts: { ...DRAW_PROMPTS, inner: 'Do what the wake says.' },
   });
   assert.equal(images.calls.length, 1, JSON.stringify(run.logs.filter((l) => /skill/.test(l.msg))));
-  assert.equal(asRecord(images.calls[0]).userId, null, "nobody's rail");
+  assert.equal(asRecord(images.calls[0]).accountId, null, "nobody's rail");
   assert.equal(run.sends.filter((send) => asRecord(send.attachments)?.length === 1).length, 1);
 });

@@ -129,14 +129,14 @@ function journalled() {
 test("a wake's operation with a partner goes to that partner's DM", () => {
   // Bug: the delivery's partner is dropped on the way, and the operation lands in the journal every wake reads.
   const { holders, inner } = journalled();
-  inner.op({ placeId: 'dm-native', privateUserId: 'n1' });
+  inner.op({ placeId: 'dm-native', privateAccountId: 'n1' });
   assert.deepEqual(holders, ['place:dm-n1']);
 });
 
 test("a wake's operation in a held channel stays in the persona's journal", () => {
   // Bug: a fail-closed rule that hides her posts in a real channel from the wakes that read them.
   const { holders, inner } = journalled();
-  inner.op({ placeId: 'room', privateUserId: null });
+  inner.op({ placeId: 'room', privateAccountId: null });
   assert.deepEqual(holders, [PERSONA_ID]);
 });
 
@@ -153,7 +153,7 @@ function recorded() {
 test("a wake's said line with a partner goes to that partner's DM", () => {
   // Bug: `recordSaid` appends with no partner, and the line goes to the spelled channel place of the conversation.
   const { written, inner } = recorded();
-  inner.append([{ scope: { channel: 'dm-native' } }], { privateUserId: 'n1' });
+  inner.append([{ scope: { channel: 'dm-native' } }], { privateAccountId: 'n1' });
   assert.deepEqual(written, [['place:dm-n1', [{ scope: { channel: 'dm-native' } }]]]);
 });
 
@@ -176,14 +176,14 @@ const asking = (answer: unknown) => ({
 const CONVERSATION = { iface: 'fake', conversationId: 'c' };
 
 test("a delivery's partner comes from the conversation the interface describes", async () => {
-  // Bug: `privateUserId: null` on every delivery files a DM's line away from its partner.
-  const life = asking({ conversation: { communityId: null, partnerId: 'n1' } });
+  // Bug: `privateAccountId: null` on every delivery files a DM's line away from its partner.
+  const life = asking({ conversation: { rootId: null, partnerId: 'n1' } });
   assert.equal(await partnerOfDelivery(life as never, CONVERSATION), 'n1');
 });
 
 test("a community's conversation has no partner, whatever it names", async () => {
   // Bug: a channel with a stray partner field files a group's line under one person's DM.
-  const life = asking({ conversation: { communityId: 'g1', partnerId: 'n1' } });
+  const life = asking({ conversation: { rootId: 'g1', partnerId: 'n1' } });
   assert.equal(await partnerOfDelivery(life as never, CONVERSATION), null);
 });
 

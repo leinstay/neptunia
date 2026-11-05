@@ -196,7 +196,15 @@ function participantsOf(value: Untyped, text: Untyped, scope: Untyped, given: Un
         .filter((message: Untyped) => isRecord(message) && message.self !== true)
         .map((message: Untyped) => message.authorId)
     : [];
-  return idList(scope?.user, given, Array.isArray(value.who) ? value.who : [], named, teacher, authors, value.userId);
+  return idList(
+    scope?.user,
+    given,
+    Array.isArray(value.who) ? value.who : [],
+    named,
+    teacher,
+    authors,
+    value.accountId
+  );
 }
 
 /**

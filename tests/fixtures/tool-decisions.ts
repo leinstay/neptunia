@@ -331,7 +331,7 @@ export async function toolDecisions(): Promise<DecisionTable> {
           args: entry.there === true && hasChannel ? { ...args, channel: THERE } : args,
           principal: { kind: 'persona' },
           requester: entry.requester,
-          audience: { conversationId: HERE, memberIds: [MEMBER] },
+          audience: { conversationId: HERE, accountIds: [MEMBER] },
           context: { config: entry.config, selfId: SELF, registry, ...(entry.context ?? {}) },
         })
       );
@@ -358,8 +358,8 @@ export async function toolDecisions(): Promise<DecisionTable> {
       ),
     };
     const op = skill.op === null ? null : getOp(skill.op);
-    const rightsFor = (userId: string, cfg: Settings) =>
-      op === null ? 'no-operation' : (rightsRefusal(op, { userId, roleIds: [], config: cfg }) ?? 'ok');
+    const rightsFor = (accountId: string, cfg: Settings) =>
+      op === null ? 'no-operation' : (rightsRefusal(op, { accountId, roleIds: [], config: cfg }) ?? 'ok');
     const rights = {
       owner: rightsFor(OWNER, config),
       member: rightsFor(MEMBER, config),

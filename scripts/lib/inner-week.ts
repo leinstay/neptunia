@@ -678,7 +678,7 @@ export async function runWeek({
           name: channel.name,
           writable: channel.writable !== false,
         })),
-      nameOf: (id) => Object.entries(fixture.people).find(([, memberId]) => memberId === id)?.[0] ?? null,
+      nameOf: (id) => Object.entries(fixture.people).find(([, accountId]) => accountId === id)?.[0] ?? null,
       // `at` is the clock's; a record's own `at` (the review's drawn moment) is kept as `fieldAt`.
       journal: {
         inner: async (fields) =>

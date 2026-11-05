@@ -88,7 +88,7 @@ export type ToolRoundContext = {
   skills: SkillMap | null;
   ifaceReads: Reads;
   reactors: ReactorStore | null;
-  memberOf: (communityId: string, memberId: string) => { name: string; bot: boolean } | null;
+  memberOf: (placeId: string, accountId: string) => { name: string; bot: boolean } | null;
   selfIdOf: () => string;
   conversationOf: (channel: { id: string }) => ConversationRef;
   callView: SkillCalls['callView'];
@@ -225,7 +225,7 @@ type TranscriptOptions = {
 
 export type ToolRound = {
   readHistory: (
-    channel: { id: string; communityId?: string | null },
+    channel: { id: string; rootId?: string | null },
     config: ToolRoundConfig,
     options?: { inner?: boolean; draft?: ToolRoundDraft | null; placeId?: string | null }
   ) => Promise<Array<Line>>;
@@ -266,23 +266,23 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * Throws when the interface cannot read the history.
    */
   function readHistory(
-    channel: { id: string; communityId?: string | null },
+    channel: { id: string; rootId?: string | null },
     config: ToolRoundConfig,
     { inner = false, draft = null, placeId = null }: NonNullable<Parameters<ToolRound['readHistory']>[2]> = {}
   ): Promise<Array<Line>> {
     const namesOn = reactors;
-    const communityId = channel.communityId ?? placeId;
+    const place = placeId ?? channel.rootId ?? null;
     const names: ReactorNames | null = namesOn
       ? {
           store: reactors,
           budgetMs: config.context.reactions?.fetchTimeoutMs ?? 2000,
           fetchUsers: REACTION_FETCH_USERS,
-          known: (memberId) => (communityId ? memberOf(communityId, memberId) : null),
+          known: (accountId) => (place ? memberOf(place, accountId) : null),
           cache: draft
             ? (draft.reactorNames ??= new Map<string, { name: string; bot: boolean } | null>())
             : new Map<string, { name: string; bot: boolean } | null>(),
           selfId: selfIdOf(),
-          communityId: communityId ?? null,
+          placeId: place,
           log,
         }
       : null;

@@ -1372,6 +1372,50 @@ function refuseUnconverted(db: Db): void {
     CREATE INDEX wakes_state ON wakes (state, queued_at);`);
 }
 
+/** The old words of an account, a tree's top and a mention, as keys of stored JSON (plan 2026-11-04-cli-and-memory B0). */
+const V30_KEYS = [
+  ['communityId', 'rootId'],
+  ['userId', 'accountId'],
+  ['userIds', 'accountIds'],
+  ['memberId', 'accountId'],
+  ['memberIds', 'accountIds'],
+  ['privateUserId', 'privateAccountId'],
+  ['mentionedUserIds', 'mentionedAccountIds'],
+  ['replyPingUserId', 'replyPingAccountId'],
+] as const;
+const V30_COLUMNS = [
+  ['wakes', 'turn'],
+  ['deliveries', 'payload'],
+  ['work', 'record'],
+  ['ingest', 'held'],
+  ['operational', 'value'],
+  ['board_tasks', 'metadata'],
+] as const;
+
+/**
+ * Version 30: stored JSON the engine reads back carries its keys under the one name of each identity. The closing quote
+ * of the pattern keeps a value out: a quote inside a JSON string is escaped. The board's table does not exist yet on a
+ * new database, because its own migrations run after these.
+ */
+function renameStoredKeys(db: Db): void {
+  const tables = new Set(
+    db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+      .all()
+      .map((row) => String(row.name))
+  );
+  for (const [table, column] of V30_COLUMNS) {
+    if (!tables.has(table)) continue;
+    for (const [old, name] of V30_KEYS) {
+      db.prepare(`UPDATE ${table} SET ${column} = replace(${column}, ?, ?) WHERE ${column} LIKE ?`).run(
+        `"${old}"`,
+        `"${name}"`,
+        `%"${old}"%`
+      );
+    }
+  }
+}
+
 export const MIGRATIONS: Array<Migration> = [
   V1,
   V2,
@@ -1403,6 +1447,7 @@ export const MIGRATIONS: Array<Migration> = [
   V27,
   V_REQUEST_LINKS,
   refuseUnconverted,
+  renameStoredKeys,
 ];
 
 /** Every table schema v8 adds. */

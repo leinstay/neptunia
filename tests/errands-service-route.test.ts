@@ -58,7 +58,7 @@ function rig(privateDir: string) {
 const ask = {
   agent: 'scout',
   goal: 'find the changelog',
-  requester: { userId: '7', kind: 'member' },
+  requester: { accountId: '7', kind: 'member' },
   origin: { placeId: 'c1', messageId: 'm1' },
   scope: 'group' as const,
 };

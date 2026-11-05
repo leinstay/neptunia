@@ -119,7 +119,7 @@ export type RecallMessage = {
   content: string;
   ts: number;
   replyToId: string | null;
-  mentionedUserIds: Array<unknown>;
+  mentionedAccountIds: Array<unknown>;
   mentionedChannelIds: Array<unknown>;
   attachments: Array<Row>;
   links: Array<Row>;
@@ -272,7 +272,7 @@ function messageOf(row: Row, { authorOf, selfName }: Pick<Reader, 'authorOf' | '
     content: str(row.text),
     ts,
     replyToId: str(row.reply_to) || null,
-    mentionedUserIds: Array.isArray(mentions) ? (mentions as Array<unknown>) : [],
+    mentionedAccountIds: Array.isArray(mentions) ? (mentions as Array<unknown>) : [],
     mentionedChannelIds: [],
     attachments: (Array.isArray(media) ? (media as Array<unknown>) : [])
       .filter((kind) => typeof kind === 'string' && kind)

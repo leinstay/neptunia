@@ -215,9 +215,9 @@ const handlers = perEnv((env) => {
   /** The members of the call's conversation: who asked, whom her turn answered, whom she mentioned. */
   function participantsOf(context: OpContext) {
     const ids = [
-      context?.userId,
+      context?.accountId,
       context?.repliedAuthorId,
-      ...(Array.isArray(context?.mentionUserIds) ? context.mentionUserIds : []),
+      ...(Array.isArray(context?.mentionAccountIds) ? context.mentionAccountIds : []),
     ];
     return [...new Set(ids.filter((id) => (typeof id === 'string' && id) || typeof id === 'number').map(String))];
   }

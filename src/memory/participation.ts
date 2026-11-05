@@ -430,14 +430,17 @@ export function expireEpisodes(
 
 /**
  * The store without one member's messages, for a forget: every message whose
- * `authorId` is `userId` leaves every episode, and an episode left with no line
+ * `authorId` is `accountId` leaves every episode, and an episode left with no line
  * of the persona is dropped. Pure: `state` is never mutated; `nextId` is kept.
  * @returns `removed`: the
  *   messages taken out.
  */
-export function purgeParticipationFor(state: unknown, userId: string): { value: ParticipationState; removed: number } {
+export function purgeParticipationFor(
+  state: unknown,
+  accountId: string
+): { value: ParticipationState; removed: number } {
   const base = normalizeParticipation(state);
-  const id = idOf(userId);
+  const id = idOf(accountId);
   let removed = 0;
   const episodes = [];
   for (const ep of base.episodes) {

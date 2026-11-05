@@ -293,21 +293,21 @@
   },
   "episodes": [
    {
-    "userId": "episodes[].userId",
+    "accountId": "episodes[].userId",
     "itemId": null,
     "key": "episodes[].key",
     "what": "episodes[].what",
     "weight": 1
    },
    {
-    "userId": "episodes[].userId",
+    "accountId": "episodes[].userId",
     "itemId": "episodes[].itemId",
     "key": "episodes[].key",
     "what": "episodes[].what",
     "weight": 2
    },
    {
-    "userId": "episodes[].userId",
+    "accountId": "episodes[].userId",
     "itemId": "episodes[].itemId",
     "key": "episodes[].key",
     "what": "episodes[].what",
@@ -316,19 +316,19 @@
   ],
   "attitude": [
    {
-    "userId": "attitude[].userId",
+    "accountId": "attitude[].userId",
     "delta": 1,
     "applied": 1,
     "reason": "attitude[].reason"
    },
    {
-    "userId": "attitude[].userId",
+    "accountId": "attitude[].userId",
     "delta": 2,
     "applied": 2,
     "reason": "attitude[].reason"
    },
    {
-    "userId": "attitude[].userId",
+    "accountId": "attitude[].userId",
     "delta": 3,
     "applied": 3,
     "reason": "attitude[].reason"
@@ -1106,21 +1106,21 @@
   },
   "episodes": [
    {
-    "userId": "episodes[].userId",
+    "accountId": "episodes[].userId",
     "itemId": null,
     "key": "episodes[].key",
     "what": "episodes[].what",
     "weight": 1
    },
    {
-    "userId": "episodes[].userId",
+    "accountId": "episodes[].userId",
     "itemId": "episodes[].itemId",
     "key": "episodes[].key",
     "what": "episodes[].what",
     "weight": 2
    },
    {
-    "userId": "episodes[].userId",
+    "accountId": "episodes[].userId",
     "itemId": "episodes[].itemId",
     "key": "episodes[].key",
     "what": "episodes[].what",
@@ -1129,19 +1129,19 @@
   ],
   "attitude": [
    {
-    "userId": "attitude[].userId",
+    "accountId": "attitude[].userId",
     "delta": 1,
     "applied": 1,
     "reason": "attitude[].reason"
    },
    {
-    "userId": "attitude[].userId",
+    "accountId": "attitude[].userId",
     "delta": 2,
     "applied": 2,
     "reason": "attitude[].reason"
    },
    {
-    "userId": "attitude[].userId",
+    "accountId": "attitude[].userId",
     "delta": 3,
     "applied": 3,
     "reason": "attitude[].reason"
@@ -1919,21 +1919,21 @@
   },
   "episodes": [
    {
-    "userId": "episodes[].userId",
+    "accountId": "episodes[].userId",
     "itemId": null,
     "key": "episodes[].key",
     "what": "episodes[].what",
     "weight": 1
    },
    {
-    "userId": "episodes[].userId",
+    "accountId": "episodes[].userId",
     "itemId": "episodes[].itemId",
     "key": "episodes[].key",
     "what": "episodes[].what",
     "weight": 2
    },
    {
-    "userId": "episodes[].userId",
+    "accountId": "episodes[].userId",
     "itemId": "episodes[].itemId",
     "key": "episodes[].key",
     "what": "episodes[].what",
@@ -1942,19 +1942,19 @@
   ],
   "attitude": [
    {
-    "userId": "attitude[].userId",
+    "accountId": "attitude[].userId",
     "delta": 1,
     "applied": 1,
     "reason": "attitude[].reason"
    },
    {
-    "userId": "attitude[].userId",
+    "accountId": "attitude[].userId",
     "delta": 2,
     "applied": 2,
     "reason": "attitude[].reason"
    },
    {
-    "userId": "attitude[].userId",
+    "accountId": "attitude[].userId",
     "delta": 3,
     "applied": 3,
     "reason": "attitude[].reason"
@@ -2732,21 +2732,21 @@
   },
   "episodes": [
    {
-    "userId": "episodes[].userId",
+    "accountId": "episodes[].userId",
     "itemId": null,
     "key": "episodes[].key",
     "what": "episodes[].what",
     "weight": 1
    },
    {
-    "userId": "episodes[].userId",
+    "accountId": "episodes[].userId",
     "itemId": "episodes[].itemId",
     "key": "episodes[].key",
     "what": "episodes[].what",
     "weight": 2
    },
    {
-    "userId": "episodes[].userId",
+    "accountId": "episodes[].userId",
     "itemId": "episodes[].itemId",
     "key": "episodes[].key",
     "what": "episodes[].what",
@@ -2755,19 +2755,19 @@
   ],
   "attitude": [
    {
-    "userId": "attitude[].userId",
+    "accountId": "attitude[].userId",
     "delta": 1,
     "applied": 1,
     "reason": "attitude[].reason"
    },
    {
-    "userId": "attitude[].userId",
+    "accountId": "attitude[].userId",
     "delta": 2,
     "applied": 2,
     "reason": "attitude[].reason"
    },
    {
-    "userId": "attitude[].userId",
+    "accountId": "attitude[].userId",
     "delta": 3,
     "applied": 3,
     "reason": "attitude[].reason"

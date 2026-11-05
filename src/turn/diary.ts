@@ -65,7 +65,7 @@ export type DiaryStore = {
   getLore: (placeId: string) => Array<object>;
   topPlaces?: () => Array<string>;
   listUserProfiles: () => Array<object>;
-  getUser: (userId: string) => { names?: Array<string | null> } | null | undefined;
+  getUser: (accountId: string) => { names?: Array<string | null> } | null | undefined;
   state: { data: Parameters<typeof pictureGate>[0]['data'] };
 };
 
@@ -248,7 +248,7 @@ export function createDiary(ctx: DiaryContext): Diary {
         selfName,
         history,
         placeMemory: memoryOn
-          ? diaryPlaceNotes(store, tops, channel.communityId ? sharedPlaceOf(store, channel) : null)
+          ? diaryPlaceNotes(store, tops, channel.rootId ? sharedPlaceOf(store, channel) : null)
           : null,
         channels: memoryOn ? tops.flatMap((place) => store.listChannels(place)) : [],
         loreEntries: memoryOn ? tops.flatMap((place) => store.getLore(place)) : [],

@@ -52,13 +52,13 @@ export function readAction(operation: string, args: ReadonlyArray<unknown>): Fie
     case 'history':
       return { action: 'messages.history', conversation: target, ...definedOnly(second) };
     case 'memberInfo':
-      return { action: 'member.info', communityId: scope.communityId, memberId: scope.memberId };
+      return { action: 'member.info', placeId: scope.placeId, accountId: scope.accountId };
     case 'searchMessages':
-      return { action: 'messages.search', communityId: scope.communityId, ...definedOnly(second) };
+      return { action: 'messages.search', placeId: scope.placeId, ...definedOnly(second) };
     case 'searchMembers':
-      return { action: 'members.search', communityId: scope.communityId, prefix: options.prefix, limit: options.limit };
+      return { action: 'members.search', placeId: scope.placeId, prefix: options.prefix, limit: options.limit };
     case 'emoji':
-      return { action: 'emoji.list', communityId: scope.communityId };
+      return { action: 'emoji.list', placeId: scope.placeId };
     case 'parseLinks':
       return { action: 'links.parse', texts: target };
     case 'reactors':
@@ -144,7 +144,7 @@ function history(action: Fields): Problem | null {
 
 function messageSearch(action: Fields): Problem | null {
   return firstOf(
-    () => field(action.communityId, 'communityId', isId),
+    () => field(action.placeId, 'placeId', isId),
     () => field(action.text, 'text', (value) => typeof value === 'string', false),
     () => field(action.authorId, 'authorId', isId, false),
     () => field(action.after, 'after', Number.isFinite, false),
@@ -170,7 +170,7 @@ function linkTexts(action: Fields): Problem | null {
  */
 export function readActionProblem(given: unknown): Problem | null {
   const action: Fields = isObject(given) ? given : {};
-  const community = (): Problem | null => field(action.communityId, 'communityId', isId);
+  const community = (): Problem | null => field(action.placeId, 'placeId', isId);
   switch (action.action) {
     case 'conversation.info':
       return firstOf(
@@ -183,8 +183,8 @@ export function readActionProblem(given: unknown): Problem | null {
       return history(action);
     case 'member.info':
       return firstOf(
-        () => field(action.communityId, 'communityId', (value) => value === null || isId(value)),
-        () => field(action.memberId, 'memberId', isId)
+        () => field(action.placeId, 'placeId', (value) => value === null || isId(value)),
+        () => field(action.accountId, 'accountId', isId)
       );
     case 'messages.search':
       return messageSearch(action);
@@ -195,7 +195,7 @@ export function readActionProblem(given: unknown): Problem | null {
         () => field(action.limit, 'limit', isIntegerFrom(1, MAX_MEMBER_LIMIT))
       );
     case 'emoji.list':
-      return community();
+      return field(action.placeId, 'placeId', (value) => value === null || isId(value));
     case 'links.parse':
       return linkTexts(action);
     case 'message.reactors':

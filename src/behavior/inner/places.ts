@@ -323,11 +323,11 @@ export function placesInWakeOf(life: InnerContext, settings: InnerSettings): Pla
   return size > 0 ? places(life, { sort: 'recent', page: 1, pageSize: size }) : null;
 }
 
-/** The names of the places where `memberId` wrote within the lookback window, the busiest first. */
-export function activePlacesOf(life: InnerContext, memberId: unknown): Array<string> {
+/** The names of the places where `accountId` wrote within the lookback window, the busiest first. */
+export function activePlacesOf(life: InnerContext, accountId: unknown): Array<string> {
   const counts: Array<{ id: string; n: number }> = [];
   for (const [id, bucket] of placeIndexOf(life).places) {
-    const n = bucket.lines.filter((line) => line.by === String(memberId)).length;
+    const n = bucket.lines.filter((line) => line.by === String(accountId)).length;
     if (n > 0) counts.push({ id, n });
   }
   return counts.sort((a, b) => b.n - a.n || (a.id < b.id ? -1 : 1)).map((entry) => placeNameOf(life, entry.id));

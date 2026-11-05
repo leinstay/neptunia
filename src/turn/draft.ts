@@ -62,7 +62,7 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'diary'>
   info?: ConversationInfo;
   placeId?: string;
   conversationId?: string;
-  privateUserId?: string | null;
+  privateAccountId?: string | null;
   /** A restriction this turn inherited from deferred work, read by `turnBoundary` (src/tools/publication.ts). */
   publicationBoundary?: unknown;
   mode?: string | null;

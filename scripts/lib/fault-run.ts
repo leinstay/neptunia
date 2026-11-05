@@ -121,7 +121,7 @@ function conversationInfo(id: string): ConversationInfo {
   return {
     id,
     kind: 'channel',
-    communityId: COMMUNITY.id,
+    rootId: COMMUNITY.id,
     name: `room-${id}`,
     topic: null,
     category: null,
@@ -156,7 +156,7 @@ function messageEvent(
     iface: 'fake',
     at,
     id: `fake:message:${id}${how.edit === true ? `:edit:${at}` : how.deleted === true ? ':deleted' : ''}`,
-    conversation: { id: ROOM, kind: 'channel', communityId: COMMUNITY.id, name: `room-${ROOM}` },
+    conversation: { id: ROOM, kind: 'channel', rootId: COMMUNITY.id, name: `room-${ROOM}` },
     ...(how.edit === true ? { edit: true } : {}),
     ...(how.deleted === true ? { deleted: true } : {}),
     message: {
@@ -167,7 +167,7 @@ function messageEvent(
       system: false,
       at,
       replyToId: null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       attachments: [],
       links: [],
@@ -179,7 +179,7 @@ function messageEvent(
     addressing: {
       mentioned: mention,
       replyToSelf: false,
-      mentionedUserIds: mention ? [SELF.id] : [],
+      mentionedAccountIds: mention ? [SELF.id] : [],
       mentionedConversationIds: [],
     },
   };

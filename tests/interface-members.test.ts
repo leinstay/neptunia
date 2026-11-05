@@ -9,8 +9,8 @@ import type { MembershipChanged } from '../src/protocol/events.ts';
 let counter = 0;
 function changed(
   change: MembershipChanged['change'],
-  communityId: string,
-  userId: string,
+  placeId: string,
+  accountId: string,
   name: string | null
 ): MembershipChanged {
   counter += 1;
@@ -18,12 +18,12 @@ function changed(
     kind: 'membership.changed' as const,
     iface: 'discord',
     at: counter,
-    id: `discord:membership:${communityId}:${userId}:${change}:${counter}`,
-    communityId,
-    userId,
+    id: `discord:membership:${placeId}:${accountId}:${change}:${counter}`,
+    placeId,
+    accountId,
     change,
   };
-  return change === 'left' ? base : { ...base, member: { id: userId, name, bot: false } };
+  return change === 'left' ? base : { ...base, member: { id: accountId, name, bot: false } };
 }
 
 test('names a member after the join is applied', () => {

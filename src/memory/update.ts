@@ -46,9 +46,9 @@ export function recordAddressing(
   if (lines.length === 0) return 0;
   const uses = countAddressUses(lines, addressCandidates(store.listUserProfiles()));
   let recorded = 0;
-  for (const [userId, list] of uses) {
+  for (const [accountId, list] of uses) {
     if (
-      store.recordAddressUses(accountOf(store, userId), list, {
+      store.recordAddressUses(accountOf(store, accountId), list, {
         halfLifeDays: cfg?.addressHalfLifeDays ?? DEFAULT_ADDRESS_HALF_LIFE_DAYS,
       })
     )
@@ -123,7 +123,7 @@ export type NormalizedMessage = MediaPart & {
   content?: string;
   ts: number;
   replyToId?: string | null;
-  mentionedUserIds?: Array<string>;
+  mentionedAccountIds?: Array<string>;
   forwarded?: Array<MediaPart & { content?: string }>;
   forwardedFrom?: Untyped;
 };
@@ -181,8 +181,8 @@ export function slimMessage(normalized: Partial<NormalizedMessage>, direct: bool
     ts: normalized.ts,
     replyToId: normalized.replyToId,
     // The members the message mentions (the record's `mentions`); absent when none.
-    ...(Array.isArray(normalized.mentionedUserIds) && normalized.mentionedUserIds.length > 0
-      ? { mentionedUserIds: [...normalized.mentionedUserIds] }
+    ...(Array.isArray(normalized.mentionedAccountIds) && normalized.mentionedAccountIds.length > 0
+      ? { mentionedAccountIds: [...normalized.mentionedAccountIds] }
       : {}),
     ...slimMedia(normalized),
     // The link previews the record keeps (toRecordLine's `links`); absent when none.
@@ -204,12 +204,12 @@ function buildMemoryUpdater({ hot, store }: { hot: Pick<Hot, 'config'>; store: S
   function observe(
     placeId: string,
     normalized: NormalizedMessage,
-    { direct = false, private: privateUserId = null } = {}
+    { direct = false, private: privateAccountId = null } = {}
   ) {
     // /nep pause: nothing may make the store dirty while paused.
     if (store.state.data.paused) return;
     if (normalized.bot) return;
-    if (privateUserId) return;
+    if (privateAccountId) return;
     touchMemory(store, placeId, normalized, {
       ...hot.config.memory,
       ...MEMORY_LIMITS,

@@ -90,12 +90,12 @@ function makeEnv(memoryDb: MemoryDb | null): Rig {
 const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 /** What an answer says: its status, code, summary and data. */
-async function ask(env: Env, name: string, args: Obj, userId: string = MEMBER): Promise<Answer> {
+async function ask(env: Env, name: string, args: Obj, accountId: string = MEMBER): Promise<Answer> {
   const { status, code, summary, data } = await runOp(name, args, {
     env,
     placeId: 'g1',
     conversationId: 'c1',
-    userId,
+    accountId,
     roleIds: [],
   });
   return { status, code, summary, data };

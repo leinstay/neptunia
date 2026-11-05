@@ -1049,8 +1049,8 @@ export function createJournal({
     );
   }
 
-  /** The persona's last own messages of `placeId`, fetched once per reconciliation; null when the fetch failed. */
-  function ownMessagesOnce(fetches: Untyped, fetchOwnMessages: Untyped, placeId: string, conversationId: string) {
+  /** The persona's last own messages of a conversation, fetched once per reconciliation; null when the fetch failed. */
+  function ownMessagesOnce(fetches: Untyped, fetchOwnMessages: Untyped, conversationId: string) {
     if (!fetches.has(conversationId)) {
       const fetching = Promise.resolve()
         .then(() => fetchOwnMessages(conversationId, RECONCILE_FETCH))
@@ -1077,7 +1077,7 @@ export function createJournal({
       for (const key of OP_FIELDS) if (key !== 'placeId' && key in record) closing[key] = record[key];
       let match = null;
       if (record.name === 'post' && conversationId && record.intent && typeof fetchOwnMessages === 'function') {
-        const messages = await ownMessagesOnce(fetches, fetchOwnMessages, placeId, conversationId);
+        const messages = await ownMessagesOnce(fetches, fetchOwnMessages, conversationId);
         const startedAt = Date.parse(String(record.occurredAt));
         const replyTo = record.intent.replyTo ?? null;
         match =

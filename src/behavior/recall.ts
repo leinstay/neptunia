@@ -56,7 +56,7 @@ import {
   occursAsWordStem,
   tokenIds,
 } from '../memory/mentions.ts';
-import { foldText, memberIdOf } from '../memory/recent.ts';
+import { foldText, accountIdOf } from '../memory/recent.ts';
 import { DAY_MS, MINUTE_MS, utcDay, zonedDay, zonedEpoch } from '../time.ts';
 import { parseSkillsLines, takeSkillsLines } from '../tools/discovery.ts';
 import type { SkillsLines } from '../tools/discovery.ts';
@@ -746,7 +746,7 @@ export function isRecentCue(
 export function searchPlan({
   forms = [],
   who = [],
-  memberIds = [],
+  accountIds = [],
   from = null,
   to = null,
   maxForms,
@@ -766,7 +766,7 @@ export function searchPlan({
     }
   }
   const authors = [
-    ...new Set((Array.isArray(memberIds) ? memberIds : []).filter((id) => typeof id === 'string' && id)),
+    ...new Set((Array.isArray(accountIds) ? accountIds : []).filter((id) => typeof id === 'string' && id)),
   ];
   const plan: ReturnType<typeof searchPlan> = [
     ...contents.map((content) => ({
@@ -1276,7 +1276,7 @@ function memoryContext({ forms, who, profiles, from, to, timezone, anyway = fals
   const people = new Set();
   for (const profile of Array.isArray(profiles) ? profiles : []) {
     if (!profile || typeof profile !== 'object') continue;
-    const id = memberIdOf(profile.id);
+    const id = accountIdOf(profile.id);
     if (id === null || whoForms.length === 0) continue;
     const names = [
       ...(Array.isArray(profile.aliases) ? profile.aliases : []).map((alias: Untyped) => alias?.name),
@@ -1346,8 +1346,8 @@ function archivedItem(entry: Record<string, Untyped>, ctx: Untyped, { matched = 
   if (!text) return null;
   const date = observedDay(entry.observedAt, ctx.timezone);
   if (!ctx.dayInside(date)) return null;
-  const memberId = typeof entry.scope?.user === 'string' && entry.scope.user ? entry.scope.user : null;
-  const ids = [...(Array.isArray(entry.participants) ? entry.participants : []), ...(memberId ? [memberId] : [])];
+  const accountId = typeof entry.scope?.user === 'string' && entry.scope.user ? entry.scope.user : null;
+  const ids = [...(Array.isArray(entry.participants) ? entry.participants : []), ...(accountId ? [accountId] : [])];
   const searched = [...texts, neutral];
   const score = ctx.score(searched, ctx.namesPerson(searched, ids));
   if (score <= 0 && matched) return null;
@@ -1357,7 +1357,7 @@ function archivedItem(entry: Record<string, Untyped>, ctx: Untyped, { matched = 
     kind: `archived ${entry.itemKind}`,
     text,
     date,
-    memberId,
+    accountId,
     itemId: typeof entry.itemId === 'string' && entry.itemId ? entry.itemId : null,
     self,
     weight: Number.isFinite(entry.weight) ? entry.weight : NEUTRAL_WEIGHT,
@@ -1399,8 +1399,8 @@ export function matchMemory({
   };
 
   for (const profile of list(profiles)) {
-    const memberId = memberIdOf(profile.id);
-    if (memberId === null) continue;
+    const accountId = accountIdOf(profile.id);
+    if (accountId === null) continue;
     for (const ep of list(profile.episodes)) {
       const what = textOf(ep.what);
       if (!what) continue;
@@ -1412,13 +1412,13 @@ export function matchMemory({
         kind: 'episode',
         text: quote ? `${what} "${quote}"` : what,
         date,
-        memberId,
+        accountId,
         itemId: itemIdOf(ep),
         weight: Number.isFinite(ep.weight) ? ep.weight : NEUTRAL_WEIGHT,
         ts: date ? Date.parse(`${date}T00:00:00Z`) : -Infinity,
         ts2: isoMs(ep.addedAt),
       };
-      add(item, texts, people.has(memberId) || namesPerson(texts));
+      add(item, texts, people.has(accountId) || namesPerson(texts));
     }
   }
   // Lore and learned items carry no date: a range leaves them out.
@@ -1432,7 +1432,7 @@ export function matchMemory({
         kind: 'lore',
         text: title ? `${title}: ${text}` : text,
         date: null,
-        memberId: null,
+        accountId: null,
         itemId: itemIdOf(entry),
         weight: NEUTRAL_WEIGHT,
         ts: isoMs(entry.updatedAt || entry.createdAt),
@@ -1448,7 +1448,7 @@ export function matchMemory({
         kind: 'learned',
         text,
         date: null,
-        memberId: teacher,
+        accountId: teacher,
         itemId: itemIdOf(entry),
         weight: NEUTRAL_WEIGHT,
         ts: isoMs(entry.lastSeen),
@@ -1464,7 +1464,7 @@ export function matchMemory({
       kind: 'recent',
       text,
       date: zonedDay(line.at, timezone),
-      memberId: null,
+      accountId: null,
       itemId: itemIdOf(line),
       weight: NEUTRAL_WEIGHT,
       ts: line.at,
@@ -1529,11 +1529,11 @@ export function matchMemory({
       datedOrder: (a, b) => (boosted.get(b) ?? 0) - (boosted.get(a) ?? 0) || byPosition(a, b),
     });
   }
-  return picked.map(({ item: { kind, text, date, memberId, itemId, self, score }, share }) => ({
+  return picked.map(({ item: { kind, text, date, accountId, itemId, self, score }, share }) => ({
     kind,
     text,
     date,
-    memberId,
+    accountId,
     itemId,
     self,
     score,
@@ -1597,13 +1597,13 @@ export async function scanArchive(
  * The `<memory>` line of one matchMemory item: `kind | date | name | text`,
  * structural fields only -- `kind` the item's kind code (`archived <itemKind>`
  * for an archive entry), `date` its date or
- * `-`, `name` the display name `nameOf` gives its `memberId` or `-`, `text`
+ * `-`, `name` the display name `nameOf` gives its `accountId` or `-`, `text`
  * on one line with `<@id>` tokens resolved through `nameOf` (an unresolved
  * one stays as stored).
  */
 function memoryLine(item: Untyped, nameOf: Untyped) {
   const resolve = typeof nameOf === 'function' ? nameOf : () => null;
-  const name = item?.memberId ? oneLine(resolve(item.memberId) ?? '') : '';
+  const name = item?.accountId ? oneLine(resolve(item.accountId) ?? '') : '';
   const text = oneLine(fromTokens(String(item?.text ?? ''), resolve, 'chat'));
   return `${item?.kind} | ${item?.date || NO_FIELD} | ${name || NO_FIELD} | ${text}`;
 }
@@ -1907,7 +1907,7 @@ export function recordMessage(
     content: typeof line.text === 'string' ? line.text : '',
     ts: Date.parse(line.occurredAt),
     replyToId: typeof line.replyTo === 'string' && line.replyTo ? line.replyTo : null,
-    mentionedUserIds: Array.isArray(line.mentions) ? line.mentions : [],
+    mentionedAccountIds: Array.isArray(line.mentions) ? line.mentions : [],
     attachments: [],
     links: recordLinkItems(line),
     stickers: [],

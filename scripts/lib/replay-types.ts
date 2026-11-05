@@ -66,10 +66,10 @@ export type TriggerLine = {
   bot: boolean;
   content: string;
   ts: number;
-  mentionedUserIds: Array<string>;
+  mentionedAccountIds: Array<string>;
   mentionedChannelIds: Array<string>;
   replyToId: string | null;
-  replyPingUserId: string | null;
+  replyPingAccountId: string | null;
   forwardedFrom: string | null;
   attachments: Array<Rec>;
   links: Array<string>;

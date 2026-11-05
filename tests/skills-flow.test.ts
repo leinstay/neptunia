@@ -123,7 +123,7 @@ function herCalls(board: Board | null, rig: SkillsRig) {
         env,
         placeId: 'g1',
         conversationId: 'c1',
-        userId: null,
+        accountId: null,
         roleIds: [],
         actor: 'persona',
       })

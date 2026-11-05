@@ -18,7 +18,7 @@ function generalInfo(iface: string): ConversationInfo {
   return {
     id: 'c1',
     kind: 'channel',
-    communityId: 'g1',
+    rootId: 'g1',
     name: 'general',
     topic: null,
     category: null,
@@ -42,7 +42,7 @@ function messageEvent(iface: string, { id, authorId = 'u1', authorName = 'Alice'
     iface,
     at: ts,
     id: `${iface}:message:${id}`,
-    conversation: { id: 'c1', kind: 'channel', communityId: 'g1', name: 'general' },
+    conversation: { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' },
     message: {
       id,
       author: { id: authorId, name: authorName, self: false, bot: false },
@@ -51,7 +51,7 @@ function messageEvent(iface: string, { id, authorId = 'u1', authorName = 'Alice'
       system: false,
       at: ts,
       replyToId: null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       attachments: [],
       links: [],
@@ -60,7 +60,7 @@ function messageEvent(iface: string, { id, authorId = 'u1', authorName = 'Alice'
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
   };
 }
 

@@ -10,7 +10,7 @@ import {
   RECENT_EPISODES_PER_MEMBER,
   episodeKey,
   foldText,
-  memberIdOf,
+  accountIdOf,
   recentSettings,
   recentView,
 } from '../../memory/recent.ts';
@@ -507,7 +507,7 @@ export function anchorsView(
     !m.self &&
     !m.bot &&
     !answered.has(m.id) &&
-    ((selfId && (m.mentionedUserIds ?? []).includes(selfId)) || herIds.has(m.replyToId));
+    ((selfId && (m.mentionedAccountIds ?? []).includes(selfId)) || herIds.has(m.replyToId));
   const openStored = (episode: StoredEpisode, i: number) => {
     const m = episode.messages[i];
     return (
@@ -696,9 +696,9 @@ export function recentOf(given: RequestInput & Base & Room & InterlocutorBlocks 
     recentCfg && labels.recent?.header && labels.recent?.line && Array.isArray(given.recentLines)
   );
   const recentCap = caps.recent ?? 1200;
-  const interlocutorId = memberIdOf(interlocutor?.id);
+  const interlocutorId = accountIdOf(interlocutor?.id);
   const recentFocus = [trigger?.authorId, interlocutorId, ...askedAbout.map((profile) => profile?.id)]
-    .map(memberIdOf)
+    .map(accountIdOf)
     .filter((id): id is string => Boolean(id));
   const recentAudience =
     typeof given.recentAudience === 'function'

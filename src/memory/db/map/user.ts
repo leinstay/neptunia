@@ -41,7 +41,7 @@ const MEMBERSHIP_SPEC: Array<Spec> = [{ col: 'addressed_as', key: 'addressedAs',
 const FIELDS = ['character', 'style', 'relationship'];
 
 /** The member id in `users/<id>.json`. */
-export const userIdOf = (rel: string): string => /([^/]+)\.json$/.exec(String(rel))?.[1] ?? String(rel);
+export const nativeIdOf = (rel: string): string => /([^/]+)\.json$/.exec(String(rel))?.[1] ?? String(rel);
 
 const accountLinkOf = (ctx: MapContext, person: string): Row =>
   ctx.accountLink ?? { person_id: person, link: 'verified', linked_by: null, linked_at: null };
@@ -51,11 +51,11 @@ function putAccount(
   rows: Rows,
   rel: string,
   value: Row,
-  { iface, userId, ctx, link }: { iface: string; userId: string; ctx: MapContext; link: Row }
+  { iface, nativeId, ctx, link }: { iface: string; nativeId: string; ctx: MapContext; link: Row }
 ): Row {
   const account = split(value, ACCOUNT_SPEC);
   const left = account.rest;
-  const account_id = ctx.subjectId ?? accountId(iface, userId);
+  const account_id = ctx.subjectId ?? accountId(iface, nativeId);
   put(rows, 'accounts', {
     id: account_id,
     iface,
@@ -86,12 +86,12 @@ function putAccount(
 
 export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const iface = ifaceOf(ctx);
-  const userId = ctx.subjectNativeId ?? userIdOf(rel);
-  const person = ctx.subjectPersonId ?? personId(iface, userId);
+  const nativeId = ctx.subjectNativeId ?? nativeIdOf(rel);
+  const person = ctx.subjectPersonId ?? personId(iface, nativeId);
   const scope = groupScope(iface);
   const rows: Rows = {};
   if (ctx.accountOnly) {
-    putAccount(rows, rel, value, { iface, userId, ctx, link: accountLinkOf(ctx, person) });
+    putAccount(rows, rel, value, { iface, nativeId, ctx, link: accountLinkOf(ctx, person) });
     return rows;
   }
   const { rest, affinity } = profileRows(rows, value, {
@@ -112,7 +112,7 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   }
   const accountLeft = putAccount(rows, rel, left, {
     iface,
-    userId,
+    nativeId,
     ctx,
     link: accountLinkOf(ctx, person),
   });

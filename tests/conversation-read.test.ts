@@ -52,7 +52,7 @@ function message(id: string, hoursAgo: number, text: string, extra: Record<strin
     content: text,
     ts: NOW - hoursAgo * HOUR,
     replyToId: null,
-    mentionedUserIds: [],
+    mentionedAccountIds: [],
     mentionedChannelIds: [],
     attachments: [],
     links: [],

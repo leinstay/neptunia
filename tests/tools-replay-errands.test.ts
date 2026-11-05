@@ -344,7 +344,7 @@ test('scenarioTask: the errand as the store keeps a finished task; its files res
     [asRecord(task).agent, asRecord(task).state, asRecord(task).error, asRecord(task).scope, asRecord(task).seen],
     ['scout', 'done', null, 'group', false]
   );
-  assert.deepEqual(asRecord(task).requester, { userId: MEMBER, kind: 'member' });
+  assert.deepEqual(asRecord(task).requester, { accountId: MEMBER, kind: 'member' });
   assert.deepEqual(asRecord(task).origin, { placeId: HERE, messageId: null });
   assert.equal(
     asRecord(
@@ -404,7 +404,7 @@ test("replay --skills taskResult: the turn an errand's end opens; her message.cr
       bot: false,
       content: 'καλημέρα',
       ts: NOW,
-      mentionedUserIds: [],
+      mentionedAccountIds: [],
       replyToId: null,
       forwardedFrom: null,
       attachments: [],

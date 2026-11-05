@@ -26,7 +26,7 @@ function eventIn(conversation: Record<string, unknown>, id = 'm1'): Record<strin
       content: 'hello',
       at: NOW,
       replyToId: null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       attachments: [],
       links: [],
@@ -35,7 +35,7 @@ function eventIn(conversation: Record<string, unknown>, id = 'm1'): Record<strin
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
   };
 }
 
@@ -43,7 +43,7 @@ const placeOf = (conversation: Record<string, unknown>) => observationOf(eventIn
 
 test('the door refuses a parent kind or an authority that is not a name', () => {
   // Bug: a malformed declaration crosses the door and is stored as a place key.
-  const room = { id: 'c1', kind: 'channel', communityId: 'g1' };
+  const room = { id: 'c1', kind: 'channel', rootId: 'g1' };
   assert.equal(validateEvent(eventIn(room)).ok, true);
   for (const bad of [{ parentKind: 7 }, { parentKind: '' }, { authorityId: 7 }, { authorityId: '' }])
     assert.equal(validateEvent(eventIn({ ...room, ...bad })).ok, false, JSON.stringify(bad));
@@ -52,7 +52,7 @@ test('the door refuses a parent kind or an authority that is not a name', () => 
 
 test('a declared authority names the observed place, so one native id under two authorities is two places', () => {
   // Bug: the observation hard-codes `<iface>/global`, and two tenants of one interface share a place.
-  const room = { id: 'c1', kind: 'channel', communityId: 'g1' };
+  const room = { id: 'c1', kind: 'channel', rootId: 'g1' };
   assert.equal(observationOf(eventIn({ ...room, authorityId: 'other/tenant-a' }))?.authority, 'other/tenant-a');
   assert.equal(observationOf(eventIn({ ...room, authorityId: 'other/tenant-a' }))?.place.authority, 'other/tenant-a');
   assert.equal(observationOf(eventIn(room))?.authority, 'other/global');
@@ -116,7 +116,7 @@ test('a DM observed with no community stores no community place', () => {
   const handle = openMemoryDb(':memory:');
   try {
     const envelope = observationOf(
-      eventIn({ id: 'd1', kind: 'dm', chatType: 'dm', communityId: null, partnerId: 'u1', authorityId: 'other/x' })
+      eventIn({ id: 'd1', kind: 'dm', chatType: 'dm', rootId: null, partnerId: 'u1', authorityId: 'other/x' })
     );
     assert.equal(envelope?.authority, 'other/x');
     assert.equal(envelope?.place.parent, undefined);
@@ -151,6 +151,6 @@ test('the Discord adapter declares a category as a plain parent place and no com
 
   const direct = conversationOfChannel({ id: 'd1', type: ChannelType.DM, recipientId: 'u1', isThread: () => false });
   assert.equal(direct.kind, 'dm');
-  assert.equal(direct.communityId, null);
+  assert.equal(direct.rootId, null);
   assert.equal(direct.parentId, undefined);
 });

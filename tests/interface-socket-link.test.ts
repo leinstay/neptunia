@@ -100,7 +100,7 @@ test('carries one event in and one send out over the socket', async () => {
       conversation: { id: 'c1', kind: 'channel' },
       messageId: 'm1',
       emoji: { name: 'x' },
-      userId: 'u1',
+      accountId: 'u1',
       added: true,
     });
     assert.equal(status, 'ok');

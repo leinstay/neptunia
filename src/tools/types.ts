@@ -65,7 +65,7 @@ export type GrantEntry = {
 };
 
 /** The one thing a grant adds or takes away: everyone, one role or one user. */
-export type GrantTarget = { everyone?: boolean; roleId?: string | number; userId?: string | number };
+export type GrantTarget = { everyone?: boolean; roleId?: string | number; accountId?: string | number };
 
 /** The stored grants (`bot.access`): an operation name to its grant, as the config file holds them. */
 export type Access = Record<string, unknown>;
@@ -113,7 +113,7 @@ export type OpContext = {
   placeId?: string | null;
   /** The conversation it runs in, by its native id. */
   conversationId?: string | null;
-  userId?: string | null;
+  accountId?: string | null;
   roleIds?: ReadonlyArray<string>;
   /** `persona` for her own call, else the kind of caller (`owner`, `member`). */
   actor?: string;
@@ -121,7 +121,7 @@ export type OpContext = {
    * `bot.owners` says (src/tools/impl/grants.ts#isOwnerCaller). */
   asOwner?: boolean;
   privateChat?: boolean;
-  mentionUserIds?: ReadonlyArray<string>;
+  mentionAccountIds?: ReadonlyArray<string>;
   ownInitiative?: boolean;
   wakeKind?: string;
   [key: string]: unknown;
