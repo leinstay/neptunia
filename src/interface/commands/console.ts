@@ -49,6 +49,8 @@ import type { ServiceName } from '../../service/schedule.ts';
 import { spawnRun } from '../../setup/install.ts';
 import type { RunManager } from '../../service/manager.ts';
 import { SUBHARNESS_AGENTS } from '../../subharness/control.ts';
+import { DEFAULT_BASE_URL } from '../../subharness/models.ts';
+import { modelRoleRegistry, roleSources } from '../../subharness/model-capabilities.ts';
 import { callMethod, listOf, objOf } from '../../tools/types.ts';
 import type { Counters, DaysSum, RoleRow } from '../../tools/impl/usage.ts';
 
@@ -101,6 +103,8 @@ export type ConsoleDeps = {
    * and `applyMode`, which puts a mode into the agent's unit. Absent, a selection answers `failed` and saves nothing.
    */
   subharness?: ConsoleSubharness;
+  /** The name and value of the key a role's direct requests go out on (src/keys/ring.ts), for `/model sources`. */
+  roleKey?: (role: string) => { name: string; value: string } | null;
   /** The diary's mirrors (src/behavior/mirror-desk.ts); `/mirror` fails while there is none. */
   mirrors?: MirrorDesk | null;
   /** How `/services` and `/doctor server` reach the service manager, the machine's own when absent. A test always gives its own. */
@@ -374,6 +378,26 @@ function modelSetElsewhere(deps: ConsoleDeps, args: Record<string, unknown>): Pr
   const hasFlags = text(args.provider) !== '' || text(args.effort) !== '';
   if (hasFlags && deps.keys?.enabled() !== true) return refuse('--provider and --effort need the keys of keys.json');
   return null;
+}
+
+/** `/model sources`: what can serve a role, as JSON for the chooser. It sends no model request and no key value leaves. */
+async function modelSources(deps: ConsoleDeps, args: Record<string, unknown>): Promise<Answer> {
+  const role = text(args.role);
+  if (!modelRoleRegistry().some((one) => one.role === role))
+    return { text: `/model sources: ${role} is no model role`, status: 'invalid' };
+  const key = deps.roleKey?.(role) ?? null;
+  const read = await roleSources(
+    {
+      privateDir: deps.privateDir,
+      fetch: deps.subharness?.fetch ?? fetch,
+      baseUrl: deps.subharness?.baseUrl ?? DEFAULT_BASE_URL,
+      openRouterKey: key?.value ?? null,
+      openRouterKeyName: key?.name ?? null,
+      ...(deps.subharness?.helpOf === undefined ? {} : { helpOf: deps.subharness.helpOf }),
+    },
+    role
+  );
+  return { text: JSON.stringify(read), status: 'ok' };
 }
 
 /** `/services`: the family's one handler, over the core's hot settings and its clocks. */
@@ -681,6 +705,7 @@ export function createConsole(deps: ConsoleDeps): {
     run: (name, args, requester, dialog = null) => {
       const routed = name === 'model.set' ? modelSetElsewhere(deps, args) : null;
       if (routed !== null) return routed;
+      if (name === 'model.sources') return modelSources(deps, args);
       if (deps.keys != null && (name.startsWith(KEYS_PREFIX) || (name === 'model.set' && deps.keys.enabled())))
         return deps.keys.run(name, args, dialog);
       if (name.startsWith('mirror.')) return mirrorCommand(deps.mirrors, name, args, requester);

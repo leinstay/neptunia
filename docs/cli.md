@@ -43,6 +43,8 @@ Each slash command replaces the panel request before it. An answer of a request 
 
 `/setup` offers core and extra keys, service credentials, interface setup, skill setup and search configuration. Opening it performs no installation or provider check. Selecting an action uses its existing command and any required secret dialog. Model and backend actions prepare the targeted command in the input for you to complete.
 
+`/model` opens the nested model selector described in [Keys and models](keys.md#the-model-selector). `/model show` and `/model set` stay commands.
+
 `/help` provides searchable command rows. Enter puts the selected command into the input. Command completion includes subcommands such as `/skills setup`.
 
 ## Commands

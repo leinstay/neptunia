@@ -9,11 +9,11 @@ import type { BackendResult } from '../agent-runner/backend.ts';
 import type { TaskRoute } from '../agent-runner/protocol.ts';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
-import { EFFORT_LEVELS, isEffortLevel } from '../llm/roles.ts';
+import { EFFORT_LEVELS, isEffortLevel, isListedEffort } from '../llm/roles.ts';
 import type { EffortLevel } from '../llm/roles.ts';
 import { SUBHARNESS_AGENTS, readKeys, writeKeys } from '../keys/file.ts';
 import type { KeyStore, SubharnessAgent } from '../keys/file.ts';
-import { checkedSelection } from './selection.ts';
+import { checkedSelection, listsEffort } from './selection.ts';
 import { sourceState } from './sources.ts';
 import type { SourceState } from './sources.ts';
 
@@ -38,6 +38,9 @@ export const DEFAULT_MODES: Readonly<Record<SubharnessAgent, AgentMode>> = {
 
 /** The mode of an agent the table does not list. */
 export const FALLBACK_MODE: AgentMode = 'read';
+
+/** The effort word that drops the stored level, so the agent runs at its model's default. */
+const DEFAULT_EFFORT = 'default';
 
 /** How long the reply check of codex or claude may run (ms). */
 export const REPLY_CHECK_MS = 120_000;
@@ -108,7 +111,8 @@ const routeText = (store: KeyStore, agent: string): string => {
 /**
  * Sets the source, the model and the effort of one agent in one write, after one reply from that model at that effort
  * through that source. `via` absent keeps the source in force. An effort that is not given stays while the source stays,
- * and goes with a source that changes, because no reply checked it there. The key of opencode is the stored one.
+ * and goes with a source that changes, because no reply checked it there, and `default` drops it. A level past
+ * EFFORT_LEVELS is taken only from a backend whose help lists it. The key of opencode is the stored one.
  */
 export async function setAgentModel(
   deps: EnableDeps,
@@ -118,26 +122,30 @@ export async function setAgentModel(
   via?: string
 ): Promise<SubharnessResult> {
   if (!isAgent(agent)) return notAnAgent(agent);
-  if (effort !== undefined && !isEffortLevel(effort))
-    return refused('unknown-effort', `${effort} is no effort; use ${EFFORT_LEVELS.join(', ')}`);
+  const level = effort === DEFAULT_EFFORT ? undefined : effort;
+  const noEffort = (word: string): SubharnessResult =>
+    refused('unknown-effort', `${word} is no effort; use ${EFFORT_LEVELS.join(', ')}`);
+  if (level !== undefined && !isListedEffort(level)) return noEffort(level);
   const store = readKeys(deps.privateDir);
   const current = backendOfAgent(store.subharness, agent);
   const backend = via === undefined ? current : BACKEND_NAMES.find((one) => one === via);
   if (backend === undefined)
     return refused('unknown-backend', `${via ?? ''} is no backend; use ${BACKEND_NAMES.join(', ')}`);
+  if (level !== undefined && !isEffortLevel(level) && (backend === null || !(await listsEffort(deps, backend, level))))
+    return noEffort(level);
   if (backend === null)
     return refused('subharness-off', `${agent} has no source yet: /model set ${agent} <model> --via <backend>`);
   const { key } = store.subharness;
   const value = key === null ? '' : (store.extra[key] ?? '');
   return checkedSelection(
     deps,
-    { claim: agent, backend, keyValue: value, model, ...(effort === undefined ? {} : { effort }) },
+    { claim: agent, backend, keyValue: value, model, ...(level === undefined ? {} : { effort: level }) },
     () => routeText(readKeys(deps.privateDir), agent),
     () => {
       const fresh = readKeys(deps.privateDir);
       const { efforts } = fresh.subharness;
       const kept =
-        backend === fresh.subharness.uses[agent]
+        backend === fresh.subharness.uses[agent] && effort !== DEFAULT_EFFORT
           ? efforts
           : Object.fromEntries(Object.entries(efforts).filter(([role]) => role !== agent));
       writeKeys(deps.privateDir, {
@@ -146,10 +154,10 @@ export async function setAgentModel(
           ...fresh.subharness,
           uses: { ...fresh.subharness.uses, [agent]: backend },
           models: { ...fresh.subharness.models, [agent]: model },
-          efforts: effort === undefined ? kept : { ...kept, [agent]: effort },
+          efforts: level === undefined ? kept : { ...kept, [agent]: level },
         },
       });
-      const at = effort === undefined ? '' : ` at ${effort} effort`;
+      const at = level === undefined ? '' : ` at ${level} effort`;
       return done(`${agent} runs through ${backend} on ${model}${at} from its next run`);
     }
   );

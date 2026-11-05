@@ -273,6 +273,8 @@
       "imports": [
         "cli/",
         "discord.js",
+        "ink",
+        "react",
         "eslint",
         "node:*",
         "src/**",

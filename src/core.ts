@@ -1388,6 +1388,7 @@ async function buildCore(
       skills: skillsWiring.access,
       // `/keys` and the checked `/model set` (src/keys/commands.ts), over the key store.
       keys: { enabled: () => true, run: (name, args, dialog) => keysCommands.run(name, args, dialog) },
+      roleKey: (role) => keyRing.route(role),
       // `/model set --via` checks with one reply of the backend (src/subharness/selection.ts); a mode change goes into
       // the agent's unit (src/setup/install.ts).
       subharness: {

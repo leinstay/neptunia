@@ -1,5 +1,7 @@
 // The panel's data contract: bin/chat-panels.ts supplies rows and their existing command handlers. The renderer
 // knows only selection, editing and feedback, so a screen never writes settings or chooses credentials itself.
+import type { PickerEnv } from './model-picker.ts';
+
 export type PanelResult = { status: string; text: string; code?: string };
 export type PanelRow = {
   id: string;
@@ -15,6 +17,8 @@ export type Panel = {
   title: string;
   lines: ReadonlyArray<string>;
   rows?: ReadonlyArray<PanelRow>;
+  /** the panel is the nested model selector, over these reads and this commit */
+  picker?: PickerEnv;
 };
 
 /** Search spans every tab; without a search the selected tab supplies its rows. */

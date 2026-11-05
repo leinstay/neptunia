@@ -240,10 +240,18 @@ export function offRoles(config: unknown): Array<string> {
 
 /** The reasoning efforts a role or an agent runs at, OpenRouter's `reasoning.effort` levels that every backend takes. */
 export const EFFORT_LEVELS = ['low', 'medium', 'high'] as const;
-export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
+/** What keys.json can hold: EFFORT_LEVELS and the levels a CLI takes only when its own `--help` lists them. */
+export const LISTED_EFFORT_LEVELS = [...EFFORT_LEVELS, 'xhigh', 'max'] as const;
+export type EffortLevel = (typeof LISTED_EFFORT_LEVELS)[number];
 
 /** Whether `value` is one of EFFORT_LEVELS. */
-export const isEffortLevel = (value: unknown): value is EffortLevel => EFFORT_LEVELS.some((level) => level === value);
+export const isEffortLevel = (value: unknown): value is (typeof EFFORT_LEVELS)[number] =>
+  EFFORT_LEVELS.some((level) => level === value);
+
+/** Whether `value` is one of LISTED_EFFORT_LEVELS. */
+export const isListedEffort = (value: unknown): value is EffortLevel =>
+  LISTED_EFFORT_LEVELS.some((level) => level === value);
 
 /**
  * The base roles whose requests take OpenRouter's `reasoning.effort`: the chat completions other than the core's. The

@@ -1,6 +1,6 @@
 // The interactive chat's screen, written with `React.createElement`, so no build step appears: a header with the rotating
 // galaxy and the status line, the conversation with long answers folded, the input with its slash menu, and panels over
-// the chat for `/help`, `/status` and `/config` with a search. The commands and their
+// the chat for `/help`, `/status` and `/config` with a search, and the model selector for `/model`. The commands and their
 // answers come from the caller, this file knows no command's meaning. A question the core asks replaces the input and
 // keeps the draft it interrupted, a secret drawn as stars and kept out of the history, and a closed question is a selector
 // over its choices. Keys and a paste have one owner at a time (`focusOwner`), and the answer of a panel that was replaced
@@ -11,6 +11,7 @@ import { createElement as h, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import { galaxyFrame } from './galaxy.ts';
+import { ModelPicker } from './model-picker.ts';
 import { PanelView } from './panel-view.ts';
 import type { Panel } from './panel.ts';
 export type { Panel } from './panel.ts';
@@ -284,16 +285,23 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       ),
       panel === null
         ? null
-        : h(PanelView, {
-            key: String(panelRequest.current),
-            panel,
-            active: owner === 'panel',
-            close: () => setPanel(null),
-            prefill: (line: string) => {
-              setPanel(null);
-              setInput(emptyInputWith(input, line));
-            },
-          })
+        : panel.picker !== undefined
+          ? h(ModelPicker, {
+              key: String(panelRequest.current),
+              env: panel.picker,
+              active: owner === 'panel',
+              close: () => setPanel(null),
+            })
+          : h(PanelView, {
+              key: String(panelRequest.current),
+              panel,
+              active: owner === 'panel',
+              close: () => setPanel(null),
+              prefill: (line: string) => {
+                setPanel(null);
+                setInput(emptyInputWith(input, line));
+              },
+            })
     ),
     h(
       Box,
