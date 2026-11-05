@@ -1,7 +1,6 @@
 // Quick search as an optional module with a chosen engine: `brave`, `exa` or `openrouter`, no built-in engine or model.
 // An unset engine, or a chosen engine without what it needs, leaves quick search off with a reason the tool result
-// carries; a chosen engine that fails says why and nothing else answers in its place unless the owner listed a fallback,
-// and then the answer names the engine that gave it. `createLookup` runs over fake clients and a fake model client, and
+// carries; a chosen engine that fails says why and nothing else answers in its place. `createLookup` runs over fake clients and a fake model client, and
 // `runWebSearch` is the tool she calls. No network, no real settings of a deployment.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -264,16 +263,4 @@ test('the openrouter engine with no key for its role is off with the reason no-k
   assert.deepEqual(await lookup.searchResults('g1', QUERY), {
     failed: { code: 'not-configured', reason: 'no-key', engine: 'openrouter' },
   });
-});
-
-test('a listed fallback that answers is named in the answer, so the switch is never silent', async () => {
-  // Bug: the owner's chosen engine is down for days and every result quietly comes from another one.
-  const { lookup } = rig({
-    search: { engine: 'brave', fallback: ['exa'] },
-    keys: { brave: 'brave-key', exa: 'exa-key' },
-    brave: { ok: false, reason: 'timeout' },
-  });
-  const found = (await lookup.searchResults('g1', QUERY)) as { engine?: string; fallbackFrom?: string };
-  assert.equal(found.engine, 'exa');
-  assert.equal(found.fallbackFrom, 'brave');
 });
