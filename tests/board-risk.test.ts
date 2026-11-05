@@ -256,3 +256,31 @@ test('a parent keeps its level over a lower dev task, and a raise never comes do
   assert.equal(riskOf(world, parent), 'high');
   assert.equal(riskOf(world, child), 'normal');
 });
+
+test("a cancelled or failed high dev task still counts toward its parent's floor", (t) => {
+  // Catches: closing a high step clears the floor, though its work may already be merged into the parent's branch.
+  const world = developmentWorld(t);
+  const cancelledUnder = ownerTask(world, { risk: 'high' });
+  const cancelled = ownerTask(world, { parent: cancelledUnder, risk: 'high' });
+  world.board.call('boss', 'task.transition', {
+    id: cancelled,
+    status: 'cancelled',
+    close_reason: 'Not needed.',
+    revision: world.show(cancelled).task.revision,
+  });
+  const failedUnder = ownerTask(world, { risk: 'high' });
+  const failed = ownerTask(world, { parent: failedUnder, risk: 'high' });
+  world.board.call(WORKER, 'task.claim', { id: failed });
+  world.board.call(WORKER, 'task.transition', {
+    id: failed,
+    status: 'failed',
+    close_reason: 'The step broke.',
+    revision: world.show(failed).task.revision,
+  });
+  for (const parent of [cancelledUnder, failedUnder]) {
+    const { revision } = world.show(parent).task;
+    const code = outcome(() => world.board.call('boss', 'task.update', { id: parent, revision, risk: 'low' }));
+    assert.equal(code, 'risk-lowered');
+    assert.equal(riskOf(world, parent), 'high');
+  }
+});
