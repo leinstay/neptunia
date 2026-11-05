@@ -380,6 +380,7 @@ class Worker {
         cwd: entry.tree,
         timeoutMs: this.deps.runTimeoutMs,
         signal: entry.controller.signal,
+        runId: entry.id,
         env: this.deps.agentEnv(entry.agent, entry.id),
       });
       const closing = after(done);

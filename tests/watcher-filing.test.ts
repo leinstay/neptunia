@@ -202,7 +202,7 @@ test('a crash between acceptance and receipt reconciles after the claim is recov
     })
   );
   const running = runInspection(inspectionDeps(rig, { runAgent: answering(DRAFT) }));
-  await accepted;
+  await Promise.race([accepted, running]);
   rig.alive.delete(SELF.pid);
   assert.equal(currentRun(rig.store), null, 'the claim of the dead process is recovered');
   await retryFilings({ dir: rig.dir, board: rig.fake.board, now: rig.store.now });

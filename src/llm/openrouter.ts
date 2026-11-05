@@ -559,6 +559,12 @@ function lastTextPart(content: Array<unknown>): number {
   );
 }
 
+/** Who served an answer: the upstream provider, and the model the response names when it names one. */
+const servedBy = (json: { provider?: unknown; model?: unknown }): { provider: unknown; model?: string } => ({
+  provider: json.provider,
+  ...(typeof json.model === 'string' ? { model: json.model } : {}),
+});
+
 /** One tool call of an answer, normalised by `toolCallsOf`. */
 export type ParsedToolCall = {
   id: string | null;
@@ -1794,7 +1800,7 @@ export function createLlm({
         usage,
         estimated,
         finishReason,
-        provider: json.provider,
+        ...servedBy(json),
         promptTokens,
         ...(Array.isArray(annotations) && annotations.length ? { annotations } : {}),
         ...(tools ? { toolCalls: toolCallsOf(message.tool_calls) } : {}),

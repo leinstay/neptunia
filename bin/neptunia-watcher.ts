@@ -11,6 +11,7 @@ import { readConfig } from '../src/config.ts';
 import { readKeys } from '../src/keys/file.ts';
 import { backendOfAgent } from '../src/subharness/control.ts';
 import { defaultDenyDir, runAgent } from '../src/subharness/run.ts';
+import { installFacts } from '../src/watcher/install.ts';
 import { runInspection } from '../src/watcher/inspection.ts';
 import type { InspectionDeps } from '../src/watcher/inspection.ts';
 import {
@@ -69,9 +70,19 @@ export async function runWatcherWorker(where: Where): Promise<number> {
       timeoutMs: WATCHER_RUN_TIMEOUT_MS,
       promptFiles: promptFiles(where),
       selected: selectedOf(where.privateDir),
-      runAgent: (brief, { signal, timeoutMs }) =>
+      install: () => installFacts({ rootDir: where.rootDir, dataDir: where.dataDir }),
+      runAgent: (brief, { signal, timeoutMs, runId }) =>
         runAgent(
-          { agent: 'watcher', brief, cwd: where.rootDir, timeoutMs, signal },
+          {
+            agent: 'watcher',
+            brief,
+            cwd: where.rootDir,
+            timeoutMs,
+            signal,
+            runId,
+            // `service watcher evidence` under the agent reads the same layers as this worker.
+            env: { NEPTUNIA_PRIVATE_DIR: where.privateDir, NEPTUNIA_DATA_DIR: where.dataDir },
+          },
           { privateDir: where.privateDir, denyDir: defaultDenyDir() }
         ),
       openBoard: async () => {

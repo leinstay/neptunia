@@ -58,7 +58,36 @@ People, channels and messages in the request have handles supplied by the format
 
 ## Watcher answer
 
-`agents/watcher/prompt.md` asks for the seven headings of `REPORT_HEADINGS` in [src/watcher/report.ts](../src/watcher/report.ts), each once and in order, then one optional fenced `tasks` block. The block is a JSON array of objects with the keys `kind`, `title`, `evidence`, `done` and `finding`. `kind` is `fix` or `chore`, and `title`, `evidence` and `done` are nonblank strings. `finding` is the stable key [src/watcher/filing.ts](../src/watcher/filing.ts) compares across runs. It is an optional string, and a missing or blank one falls back to the draft's evidence. `splitAnswer` in [src/watcher/tasks.ts](../src/watcher/tasks.ts) parses the block and fails the run with `bad-tasks` on anything else. The brief carries `<day>` and `<report day="...">`, with `run="..."` on an earlier report of the same day. The selfimprovement wake's labels `watcher`, `watcherFinding` and `watcherTask` take `{day}` and `{findings}`, `{title}`, `{state}` and `{task}`, and `{task}`, and nothing else of a report goes into them.
+`agents/watcher/prompt.md` asks for one report in the exact template `checkTemplate` of [src/watcher/report.ts](../src/watcher/report.ts) enforces, and a text outside it fails the run with the code below.
+
+The report opens with the title `# Watcher report <day>`, then the metadata rows, each `- <label>: <value>`, in this order: `Observation interval`, `Run id`, `Selected backend`, `Model`, `Effort`, `Effective account`, `Available sources`, `Risk`, `New findings`. `Risk` is `none`, `critical`, `high`, `medium` or `low`, and `New findings` reads `<n>, repeats: <n>`. No other row may say `none`. The engine replaces the interval, run id, backend, model, effort, risk and counts with what it knows. It stamps `observation` and `backend` of the coverage block with the same facts.
+
+The sections of `REPORT_HEADINGS` follow at level two, in order, each once: `Her day`, `Service runs`, `Memory`, `Errors`, `Misunderstandings`, `Project`, `Modules and structure`, `Trash`, `The server`, `Wishes`, `Tasks filed`, `For the owner`. Each holds the subheadings of `REPORT_SUBHEADINGS` at level three, in order: `Observed defects`, `Suspicious evidence`, `Inspected without a finding`, `Unavailable checks`. An empty subsection says exactly `none`. A line under `Observed defects` or `Suspicious evidence` is `- [critical|high|medium|low] <finding-key>: <text>`, except under `Tasks filed`, where the engine writes its filing lines. `findingsOf` and `applyRiskRules` of [src/watcher/risk.ts](../src/watcher/risk.ts) read these lines, and a repeat is saved as `- [low] <finding-key>: <text> (repeat <n>, first <day>)`.
+
+The last thing in the report is one fenced `coverage` block, a JSON object that `checkCoverage` reads: `observation` with `from` and `to`, `backend`, `account`, `sources`, which is not empty, and the lists `defects`, `suspicious`, `inspected` and `unavailable`, which share no item.
+
+| Code | What the text did |
+|---|---|
+| `secret` | Holds a string shaped like a key |
+| `preamble` | Has text before the title |
+| `bad-title` | Has no title with a real date |
+| `bad-metadata` | Has a row missing, out of order, blank or with a value its row does not take |
+| `stray-text` | Has text after the metadata or before a section's first subheading |
+| `extra-heading` | Has a heading outside the template, or one twice |
+| `missing-heading` | Lacks a section or a subheading |
+| `heading-order` | Has its headings out of order |
+| `heading-level` | Has a heading at the wrong level, or below level three |
+| `empty-subsection` | Has nothing under a subheading |
+| `empty-word` | Says nothing in a word other than `none`, or writes `none` beside a finding |
+| `coverage-missing` | Has no coverage block |
+| `coverage-misplaced` | Has the block inside a section, or a second block |
+| `coverage-invalid` | Has a block that does not parse, or lacks a field, or names one item in two lists |
+| `trailing-content` | Has something after the block |
+| `bad-risk` | Has a finding line with no level and key, or a level on a line that takes none |
+
+One optional fenced `tasks` block may follow the report and is cut from it before the check. The block is a JSON array of objects with the keys `kind`, `title`, `evidence`, `done` and `finding`. `kind` is `fix` or `chore`, and `title`, `evidence` and `done` are nonblank strings. `finding` is the stable key [src/watcher/filing.ts](../src/watcher/filing.ts) compares across runs. It is an optional string, and a missing or blank one falls back to the draft's evidence. `splitAnswer` in [src/watcher/tasks.ts](../src/watcher/tasks.ts) parses the block and fails the run with `bad-tasks` on anything else.
+
+The brief carries `<day>`, `<observation from="..." to="..." day-from="..."/>`, `<install>` with the JSON of `installFacts` from [src/watcher/install.ts](../src/watcher/install.ts), and `<report day="...">`, with `run="..."` on an earlier report of the same day. The selfimprovement wake's labels `watcher`, `watcherFinding` and `watcherTask` take `{day}` and `{findings}`, `{title}`, `{state}` and `{task}`, and `{task}`, and nothing else of a report goes into them.
 
 ## Labels
 

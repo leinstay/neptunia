@@ -22,6 +22,10 @@ export type RunManager = (command: string, args: ReadonlyArray<string>) => Promi
 const userUnitDir = (env: Environment): string =>
   path.join(env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'systemd', 'user');
 
+/** The folder of the units of the scope in force. */
+export const unitFolder = (env: Environment): string =>
+  unitScope(env) === 'user' ? userUnitDir(env) : '/etc/systemd/system';
+
 /** `NEPTUNIA_UNIT_SCOPE` when it says, else the user manager when the watcher's timer is installed under it. */
 export function unitScope(env: Environment): 'user' | 'system' {
   const said = env[UNIT_SCOPE_ENV];

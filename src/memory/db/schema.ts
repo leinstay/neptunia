@@ -1290,6 +1290,15 @@ function migrateStorageOwners(db: Db): void {
     WHERE owner_file IS NULL AND kind IN ('state','usage','metrics') AND owner IN ('state.json','usage.json','metrics.json')`);
 }
 
+// Version 28 (the watcher's read of what the services asked): each request names its service, its backend and its run, and
+// carries what it led to. New columns only, each NULL on an existing row, which reads as unnamed and unlinked, so the
+// migration holds no lock longer than its statements on a live database. The index serves the read by finish time.
+const V_REQUEST_LINKS = `ALTER TABLE model_requests ADD COLUMN service TEXT;
+ALTER TABLE model_requests ADD COLUMN backend TEXT;
+ALTER TABLE model_requests ADD COLUMN run_id TEXT;
+ALTER TABLE model_requests ADD COLUMN outcome JSON;
+CREATE INDEX model_requests_finished ON model_requests(finished_at);`;
+
 /** Each entry moves the schema one version up: SQL text, or a function of the connection (and the opener's context)
  * for a step SQL cannot do. Never edit a shipped entry: append a new one. */
 // The durable record of every model request (src/memory/db/request-archive.ts). Its full system text stays per row: the
@@ -1381,6 +1390,7 @@ export const MIGRATIONS: Array<Migration> = [
   migrateStorageOwners,
   V_REQUESTS,
   V27,
+  V_REQUEST_LINKS,
 ];
 
 /** Every table schema v8 adds. */
