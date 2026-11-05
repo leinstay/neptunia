@@ -34,7 +34,7 @@ export const FIXED_MODELS: Readonly<Record<'codex' | 'claude', ReadonlyArray<str
   ],
 };
 
-const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
+export const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
 const REQUEST_MS = 30_000;
 const CHECK_BRIEF = 'Reply with the single word ok.';
 

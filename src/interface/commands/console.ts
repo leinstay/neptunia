@@ -49,6 +49,10 @@ import type { ServiceName } from '../../service/schedule.ts';
 import { spawnRun } from '../../setup/install.ts';
 import type { RunManager } from '../../service/manager.ts';
 import { SUBHARNESS_AGENTS } from '../../subharness/control.ts';
+import { DEFAULT_BASE_URL } from '../../subharness/models.ts';
+import { modelRoleRegistry, roleSources } from '../../subharness/model-capabilities.ts';
+import { usageLines } from '../../subharness/usage.ts';
+import type { BackendUsage } from '../../subharness/usage.ts';
 import { callMethod, listOf, objOf } from '../../tools/types.ts';
 import type { Counters, DaysSum, RoleRow } from '../../tools/impl/usage.ts';
 
@@ -101,6 +105,10 @@ export type ConsoleDeps = {
    * and `applyMode`, which puts a mode into the agent's unit. Absent, a selection answers `failed` and saves nothing.
    */
   subharness?: ConsoleSubharness;
+  /** What each backend's own account says (src/subharness/usage.ts), for `/usage`. A read starts no model run. */
+  backendUsage?: () => Promise<ReadonlyArray<BackendUsage>>;
+  /** The name and value of the key a role's direct requests go out on (src/keys/ring.ts), for `/model sources`. */
+  roleKey?: (role: string) => { name: string; value: string } | null;
   /** The diary's mirrors (src/behavior/mirror-desk.ts); `/mirror` fails while there is none. */
   mirrors?: MirrorDesk | null;
   /** How `/services` and `/doctor server` reach the service manager, the machine's own when absent. A test always gives its own. */
@@ -376,6 +384,42 @@ function modelSetElsewhere(deps: ConsoleDeps, args: Record<string, unknown>): Pr
   return null;
 }
 
+/** The native blocks of `/usage`. A failed read costs this section alone, and its error text can hold a value, so it stays out. */
+async function nativeUsage(deps: ConsoleDeps): Promise<Array<string>> {
+  if (deps.backendUsage === undefined) return [];
+  try {
+    return ['', 'backend accounts:', ...usageLines(await deps.backendUsage(), deps.now())];
+  } catch {
+    return ['', 'backend accounts: could not be read'];
+  }
+}
+
+/** `/model sources`: what can serve a role, as JSON for the chooser. It sends no model request and no key value leaves. */
+async function modelSources(deps: ConsoleDeps, args: Record<string, unknown>): Promise<Answer> {
+  const role = text(args.role);
+  if (!modelRoleRegistry().some((one) => one.role === role))
+    return { text: `/model sources: ${role} is no model role`, status: 'invalid' };
+  const key = deps.roleKey?.(role) ?? null;
+  const read = await roleSources(
+    {
+      privateDir: deps.privateDir,
+      fetch: deps.subharness?.fetch ?? fetch,
+      baseUrl: deps.subharness?.baseUrl ?? DEFAULT_BASE_URL,
+      openRouterKey: key?.value ?? null,
+      openRouterKeyName: key?.name ?? null,
+      ...(deps.subharness?.helpOf === undefined ? {} : { helpOf: deps.subharness.helpOf }),
+    },
+    role
+  );
+  return { text: JSON.stringify(read), status: 'ok' };
+}
+
+/** The answer of a `/model` command that has its own path, or null for the ones that go on down the console. */
+function modelCommand(deps: ConsoleDeps, name: string, args: Record<string, unknown>): Promise<Answer> | null {
+  if (name === 'model.sources') return modelSources(deps, args);
+  return name === 'model.set' ? modelSetElsewhere(deps, args) : null;
+}
+
 /** `/services`: the family's one handler, over the core's hot settings and its clocks. */
 function serviceRun(
   deps: ConsoleDeps,
@@ -484,7 +528,7 @@ export function createConsole(deps: ConsoleDeps): {
     return { text: parts.map((one) => one.text).join('\n\n'), status: status === 'fail' ? 'failed' : 'ok' };
   }
 
-  function usage(window: string, keys: string): Answer {
+  function usage(window: string, keys: string, native: ReadonlyArray<string>): Answer {
     const days = WINDOW_DAYS[window] ?? 1;
     const sum = deps.usage?.sumDays(days) ?? null;
     if (sum === null) return { text: 'no usage accumulator', status: 'failed' };
@@ -501,6 +545,7 @@ export function createConsole(deps: ConsoleDeps): {
         '',
         'key limits:',
         keys,
+        ...native,
       ].join('\n'),
       status: 'ok',
     };
@@ -641,7 +686,7 @@ export function createConsole(deps: ConsoleDeps): {
       case 'doctor.live':
         return doctorLive(requester);
       case 'usage':
-        return usage(text(args.window), await keyLimits(requester));
+        return usage(text(args.window), await keyLimits(requester), await nativeUsage(deps));
       case 'intentions.show':
         return intentionShow(name, args, requester);
       case 'config.get':
@@ -679,7 +724,7 @@ export function createConsole(deps: ConsoleDeps): {
   // command is answered above.
   return {
     run: (name, args, requester, dialog = null) => {
-      const routed = name === 'model.set' ? modelSetElsewhere(deps, args) : null;
+      const routed = modelCommand(deps, name, args);
       if (routed !== null) return routed;
       if (deps.keys != null && (name.startsWith(KEYS_PREFIX) || (name === 'model.set' && deps.keys.enabled())))
         return deps.keys.run(name, args, dialog);

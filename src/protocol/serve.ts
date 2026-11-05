@@ -152,6 +152,8 @@ export type CommandResult = {
   replyRef: string;
   text: string;
   status: string | null;
+  /** Why a refused command was refused, when the command names it. */
+  code?: string | null;
   /** The question of a status `ask`: its dialog, prompt, whether the answer is secret and its choices. */
   ask?: { dialogId: string; prompt: string; secret: boolean; choices: Array<string> | null } | null;
 };
@@ -199,6 +201,7 @@ function createActions(
           replyRef: body.replyRef as string,
           text: body.text as string,
           status: typeof body.status === 'string' ? body.status : null,
+          code: typeof body.code === 'string' ? body.code : null,
           ask: askOf(body),
         });
         return { status: 'ok' };

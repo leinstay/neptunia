@@ -14,7 +14,7 @@
 
 import { isPlainObject } from '../config.ts';
 import { objOf, scalarText } from '../tools/types.ts';
-import { EFFORT_LEVELS } from '../llm/roles.ts';
+import { LISTED_EFFORT_LEVELS } from '../llm/roles.ts';
 import type { EffortLevel } from '../llm/roles.ts';
 import { AGENT_MODES } from '../subharness/control.ts';
 import type { AgentMode } from '../subharness/control.ts';
@@ -158,7 +158,7 @@ export function parseRoute(value: unknown): TaskRoute | null {
   const knownMode = AGENT_MODES.find((one) => one === mode);
   if (knownBackend === undefined || knownMode === undefined || !isRouteModel(model)) return null;
   if (effort === null) return { backend: knownBackend, model, effort: null, mode: knownMode };
-  const knownEffort = EFFORT_LEVELS.find((level) => level === effort);
+  const knownEffort = LISTED_EFFORT_LEVELS.find((level) => level === effort);
   return knownEffort === undefined ? null : { backend: knownBackend, model, effort: knownEffort, mode: knownMode };
 }
 

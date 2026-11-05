@@ -13,7 +13,7 @@ import type { Dialog } from '../../keys/commands.ts';
 export const DIALOG_EXPIRY_MS = 5 * 60_000;
 
 /** A command's result: the text the owner reads and its outcome. */
-export type Result = { text: string; status: string };
+export type Result = { text: string; status: string; code?: string };
 
 /** A question to the owner: `text` is the prompt too, for a client that knows no dialog. */
 export type Question = {

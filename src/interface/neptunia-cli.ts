@@ -46,7 +46,7 @@ import type { BoardCaller } from '../tools/impl/board.ts';
 import type { SkillsAccess } from '../skills/port.ts';
 
 /** One command's answer: the text the owner reads and its outcome. */
-export type Answer = { text: string; status: string };
+export type Answer = { text: string; status: string; code?: string };
 
 /** A command as the event carries it. */
 export type CommandEvent = {

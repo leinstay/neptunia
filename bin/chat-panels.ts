@@ -4,6 +4,9 @@ import { CONFIG_SCHEMA, schemaDefaults } from '../src/config/schema.ts';
 import { deepMerge } from '../src/config.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 import type { Panel, PanelResult, PanelRow } from '../cli/panel.ts';
+import type { PickerEnv } from '../cli/model-picker.ts';
+import { modelRoleRegistry } from '../src/subharness/model-capabilities.ts';
+import type { RoleSources } from '../src/subharness/model-capabilities.ts';
 import { settingPresentation } from './setting-presentation.ts';
 
 type Run = (command: { name: string; args: Record<string, unknown> }) => Promise<PanelResult>;
@@ -128,9 +131,9 @@ function setupRows(run: Run, interfaces: ReadonlyArray<string>): Array<PanelRow>
     {
       id: 'models',
       label: 'Choose a model',
-      detail: 'Select a role and model with the targeted model command.',
+      detail: 'Open the selector: category, role, source, model and effort, saved after one checked reply.',
       group: 'Models',
-      prefill: '/model set ',
+      prefill: '/model',
     },
     {
       id: 'binding',
@@ -185,6 +188,29 @@ function setupRows(run: Run, interfaces: ReadonlyArray<string>): Array<PanelRow>
   ];
 }
 
+/**
+ * The model selector over the ordinary commands: its read is `/model sources`, its commit the checked `model.set`, and a
+ * setup detour is the typed command it lists. Opening runs nothing.
+ */
+function modelPicker(run: Run): PickerEnv {
+  return {
+    registry: modelRoleRegistry(),
+    async read(role) {
+      const answer = await run({ name: 'model.sources', args: { role } });
+      if (answer.status !== 'ok') throw new Error(answer.text);
+      // The console's own JSON.stringify of a RoleSources, one link away.
+      return JSON.parse(answer.text) as RoleSources;
+    },
+    commit: (command) => run(command),
+    async setup(command) {
+      const parsed = parseCommandLine(command);
+      if (!parsed.ok) return { ok: false, text: parsed.reason };
+      const answer = await run(parsed);
+      return { ok: answer.status === 'ok', text: answer.text };
+    },
+  };
+}
+
 /** A local presentation for a supported command, or null so the caller uses the normal command path. */
 export async function chatPanel(
   line: string,
@@ -192,6 +218,8 @@ export async function chatPanel(
   interfaces: ReadonlyArray<string> = ['discord']
 ): Promise<Panel | null> {
   if (line === '/setup') return { title: 'Setup', lines: [], rows: setupRows(run, interfaces) };
+  // Only the bare line: `/model show` and `/model set ...` stay commands, and the same word in a shell stays `show`.
+  if (line === '/model') return { title: 'Model', lines: [], picker: modelPicker(run) };
   const parsed = parseCommandLine(line);
   if (!parsed.ok) return null;
   if (parsed.name === 'config.show') {

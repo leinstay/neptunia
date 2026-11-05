@@ -23,17 +23,27 @@ The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. 
 | Alt+Enter or Ctrl+J | Insert a newline |
 | Up and Down | Browse command suggestions or input history |
 | Tab | Complete the selected command |
-| Esc | Close a panel or cancel input |
+| Esc | Close a panel, cancel a panel still loading, cancel a question or clear the input |
 | Ctrl+O | Expand folded answers |
 | Ctrl+C | Exit the CLI |
 
 The Project Neptunia header shows separate lines for the core, memory and enabled interfaces. Missing reports show a check in progress, and old reports are marked outdated. A lost core connection leaves memory and interface states unknown. The input stays at the bottom as the terminal resizes. `/status` opens the detailed view. `NEPTUNIA_REDUCED_MOTION=1` stops the galaxy animation.
+
+## Overlays and questions
+
+One screen element holds the keys and a paste at a time. A question from the core goes first, then an open panel, then the input. `focusOwner` in `cli/app.ts` decides, and a panel that loses the keys stays on the screen.
+
+A question replaces the input and keeps the unfinished line it interrupted. The line comes back after the answer or Esc, and an answer never joins it. A secret answer is drawn as stars and stays out of the input history. A question with choices opens the selector in `cli/selector.ts`. Typing or pasting narrows the list, Enter answers with the choice exactly as the core sent it, and a filter that matches nothing answers nothing. The plain chat prints the choices beside the prompt.
+
+Each slash command replaces the panel request before it. An answer of a request that was replaced or cancelled with Esc opens nothing and runs nothing. The same rule holds inside a selector, whose reducer compares the overlay id and the generation of every answer. Moving and filtering change no setting.
 
 ## Settings and setup panels
 
 `/config` opens settings with readable names and descriptions, grouped into tabs. Search accepts both these names and the underlying configuration keys. Use Left and Right or Tab to change tabs, Up and Down to select a row, and Enter to toggle a boolean or edit a value. Typing filters settings across all tabs. In an editor, Enter saves through the normal command handler, Ctrl+U clears the input and Esc cancels.
 
 `/setup` offers core and extra keys, service credentials, interface setup, skill setup and search configuration. Opening it performs no installation or provider check. Selecting an action uses its existing command and any required secret dialog. Model and backend actions prepare the targeted command in the input for you to complete.
+
+`/model` opens the nested model selector described in [Keys and models](keys.md#the-model-selector). `/model show` and `/model set` stay commands.
 
 `/help` provides searchable command rows. Enter puts the selected command into the input. Command completion includes subcommands such as `/skills setup`.
 
@@ -57,6 +67,19 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Read a watcher report | `/logs watcher` |
 
 A secret question hides its answer and excludes it from input history. History lives in `data/cli/`.
+
+## Backend usage
+
+`/usage` prints the engine's own accounting, then what each backend's account says of itself under `backend accounts:`. `readAllUsage` in `src/subharness/usage.ts` reads the four sources, and no read starts a model run. One source that fails leaves the others readable, and it prints its code after `not read:`.
+
+| Source | Read | What it shows |
+|---|---|---|
+| `codex` | `codex app-server` with `account/read`, `account/rateLimits/read` and `account/usage/read` under the persona's home | The email and plan, used percentage, reset time, window, lifetime and daily tokens |
+| `claude` | `claude auth status` | Whether the account can be read by hand. Its `/usage` is an interactive screen, so the block is `unsupported` and names the command to open it |
+| `opencode` | `opencode stats` under the persona's home | Sessions, messages, days, dollars and tokens, under the name of its extra key |
+| `openrouter` | `GET /key` on the core role's key | Spend, limit and what remains, under the key's name |
+
+Each block names its source, its account and its observation time. A value the source did not report prints `unknown`, never zero. Subscription tokens carry no price. A failed read of the same known account keeps the last numbers until the core restarts, each marked `(stale)` under its own observation time, and a logout or another account drops them. The blocks are never added together, because the `openrouter` spend of a key already holds what `opencode` spent on that key.
 
 ## Mirrors
 

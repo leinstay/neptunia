@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
-import { isEffortLevel } from '../llm/roles.ts';
+import { isListedEffort } from '../llm/roles.ts';
 import type { EffortLevel } from '../llm/roles.ts';
 
 /** A key of the core list; only the name is read here. */
@@ -91,7 +91,8 @@ function usesOf(sub: Record<string, unknown>): Record<string, BackendName> {
 /** The effort of each agent, entries whose value is no effort level dropped. */
 function effortsOf(value: unknown): Record<string, EffortLevel> {
   const efforts: Record<string, EffortLevel> = {};
-  for (const [agent, one] of Object.entries(isRecord(value) ? value : {})) if (isEffortLevel(one)) efforts[agent] = one;
+  for (const [agent, one] of Object.entries(isRecord(value) ? value : {}))
+    if (isListedEffort(one)) efforts[agent] = one;
   return efforts;
 }
 
@@ -106,7 +107,7 @@ function memoryOf(value: unknown): MemoryPathRecord | null {
   const { model } = value;
   const effort = value.effort ?? null;
   if (backend === undefined || typeof model !== 'string' || model.trim() === '') return null;
-  if (effort !== null && !isEffortLevel(effort)) return null;
+  if (effort !== null && !isListedEffort(effort)) return null;
   return { backend, model, effort };
 }
 
