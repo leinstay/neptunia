@@ -317,7 +317,8 @@ function messageIdsOf(db: Db, entryId: string): Array<string> {
 /** An entry's files as memory keeps them, by the message that carries each: the attachment as the platform names it. */
 function filesOf(db: Db, entryId: string): Map<string, Array<Row>> {
   const byMessage = new Map<string, Array<Row>>();
-  for (const row of entryMedia(db, entryId)) {
+  // This module's `Db` names the part of a connection it calls; every caller hands a whole one.
+  for (const row of entryMedia(db as unknown as Parameters<typeof entryMedia>[0], entryId)) {
     const held = (jsonOf(row.extra) ?? {}) as Row;
     const messageId = textOf(held.messageId);
     if (!messageId) continue;

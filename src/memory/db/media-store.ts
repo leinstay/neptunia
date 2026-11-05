@@ -519,6 +519,11 @@ export function tellFromCacheKey(
   return writeText(db, row, { text, origin: originOf(row.kind, watched), at }) ? 1 : 0;
 }
 
+/** Whether the item a describer's key names holds a text form on this interface. */
+export function itemTold(db: Db, iface: unknown, key: string): boolean {
+  return filled(rowOfCacheKey(db, iface, key)?.description);
+}
+
 const BARE_ID = (sourceId: unknown, position: number): string => `media:bare:${asText(sourceId)}:${position}`;
 const NEW_ID = (iface: unknown, ref: string): string => `media:${asText(iface ?? 'none')}:${ref}`;
 
@@ -589,11 +594,13 @@ function tellItem(db: Db, row: Row, item: MediaItem, at: unknown): number {
     return writeText(db, row, { text: item.description, origin: item.origin, at }) ? 1 : 0;
   // A cache row knew no kind: what it held of a video was a frame, of a voice its transcript, of a text its preview.
   const extra = parsedObject(row.extra);
-  if (!filled(row.description) || extra.textOrigin === undefined || row.kind === 'image' || row.kind === 'gif')
-    return 0;
+  if (!filled(row.description)) return 0;
+  const held = extra.textOrigin;
+  if (held === 'voiced' || held === 'embed' || held === 'page') return 0;
   const origin = originOf(row.kind, extra.watched === true);
-  if (extra.textOrigin === origin) return 0;
-  db.prepare('UPDATE media SET extra = ? WHERE id = ?').run(JSON.stringify({ ...extra, textOrigin: origin }), row.id);
+  if (held !== origin) {
+    db.prepare('UPDATE media SET extra = ? WHERE id = ?').run(JSON.stringify({ ...extra, textOrigin: origin }), row.id);
+  }
   return 0;
 }
 
@@ -629,12 +636,15 @@ export function writeLineMedia(
     let row: Row;
     if (placeholder && !named) {
       mergeItem(db, placeholder, item);
-      row = db.prepare('SELECT * FROM media WHERE id = ?').get(placeholder.id) as Row;
+      const id = item.nativeRef === null ? placeholder.id : NEW_ID(iface, item.nativeRef);
+      db.prepare('UPDATE media SET id = ? WHERE id = ?').run(id, placeholder.id);
+      db.prepare('UPDATE media_links SET media_id = ? WHERE media_id = ?').run(id, placeholder.id);
+      row = db.prepare('SELECT * FROM media WHERE id = ?').get(id) as Row;
     } else {
       row = itemRowFor(db, line, item, position);
     }
     link.run(ownerKind, line.id, position, row.id);
-    if (held && held.media_id !== row.id) {
+    if (held && placeholder && held.media_id !== row.id && named) {
       if (placeholder && filled(placeholder.description)) {
         const origin = (parsedObject(placeholder.extra).textOrigin as MediaOrigin | undefined) ?? 'retelling';
         writeText(db, row, { text: placeholder.description, origin, at });
@@ -949,7 +959,7 @@ export async function embedMedia({
 }: {
   db: Db;
   write: (update: Row) => Promise<unknown>;
-  embed: (texts: Array<string>, options: { config: unknown; purpose: string }) => Promise<ArrayLike<ArrayLike<number>>>;
+  embed: (texts: Array<string>, options: Row) => Promise<unknown>;
   config: unknown;
   now: number;
   quantize: (vector: Float32Array) => { bytes: Uint8Array | Int8Array; scale: number; norm: number };
@@ -958,10 +968,11 @@ export async function embedMedia({
 }): Promise<{ embedded: number; written: number; skipped: number; pending: number }> {
   const pending = pendingMediaEmbeds(db, limit);
   if (pending.length === 0) return { embedded: 0, written: 0, skipped: 0, pending: 0 };
-  const vectors = await embed(
+  // The embedding client answers one vector per text.
+  const vectors = (await embed(
     pending.map((row) => String(row.description)),
     { config, purpose: 'media' }
-  );
+  )) as ArrayLike<ArrayLike<number>>;
   const rows = pending.map((row, i) => {
     const vector = vectors[i];
     const floats = vector instanceof Float32Array ? vector : Float32Array.from(vector);
@@ -983,6 +994,10 @@ export async function embedMedia({
   return { embedded: rows.length, written: done?.written ?? 0, skipped: 0, pending: pending.length };
 }
 
+/** Whether a source row (`s`) shows an item with a text form, as SQL. */
+export const LINE_HOLDS_TOLD_MEDIA = `EXISTS (SELECT 1 FROM media_links l JOIN media m ON m.id = l.media_id
+  WHERE l.owner_kind = 'source' AND l.owner_id = s.id AND m.description IS NOT NULL)`;
+
 /** Whether a source row (`s`) shows any media, as SQL. */
 export const LINE_HOLDS_MEDIA =
   "EXISTS (SELECT 1 FROM media_links l WHERE l.owner_kind = 'source' AND l.owner_id = s.id)";
@@ -994,7 +1009,7 @@ export function applyMediaEmbed(connection: Connection, { rows }: Row): { writte
     let written = 0;
     for (const row of listOf(rows)) {
       const item = db.prepare('SELECT * FROM media WHERE id = ?').get(row.mediaId);
-      if (item?.description !== row.description) continue;
+      if (!item || item.description !== row.description) continue;
       const bytes = row.bytes as { buffer: ArrayBuffer; byteOffset: number; byteLength: number };
       db.prepare(
         `INSERT INTO vectors (source_rowid, item_id, chunk_key, model, dims, scale, norm, bytes, context, occurred_at, scope_kind, scope_iface, scope_dm, audience_id)
@@ -1513,7 +1528,8 @@ export function migrateMediaStore(db: Db): MediaMigration {
   const names = ['id', 'kind', 'path', 'availability', ...copied];
   const insert = db.prepare(`INSERT INTO media (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})`);
   const ensureInserted = (held: Held): void => {
-    const row = { ...held.row, extra: JSON.stringify(held.extra) };
+    const row: Row = { ...held.row, extra: JSON.stringify(held.extra) };
+    // A row read from the table holds only what a column can hold.
     insert.run(...names.map((name) => (row[name] ?? null) as string | number | null));
   };
   for (const held of all) ensureInserted(held);

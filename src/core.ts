@@ -114,6 +114,7 @@ import { createCheckpointDesk } from './development/checkpoint-desk.ts';
 import { WORKTREE_FOLDER } from './development/edges.ts';
 import { selfimprovementSettings } from './selfimprovement/settings.ts';
 import { conversationLines, recentGroupLines } from './memory/db/conversation-lines.ts';
+import { createMediaBackfillDesk } from './memory/db/media-backfill.ts';
 import { mediaText } from './memory/db/media-store.ts';
 import { OWNER_CLIENT } from './setup/clients.ts';
 import { createConsole } from './interface/commands/console.ts';
@@ -1455,6 +1456,18 @@ async function buildCore(
     // The owner's console (src/interface/commands/console.ts): the chat's table over the operations, run as the owner.
     console: createConsole({
       track: loopWatch.track,
+      mediaBackfill: createMediaBackfillDesk({
+        database: () => memoryDb.database(),
+        read: async (conversationId, query) => {
+          const found = await reads.history({ iface: identity.iface, conversationId }, query);
+          return found === null ? { status: 'failed' } : { status: 'ok', ...found };
+        },
+        write: (update) => memoryDb.memoryWrite(update),
+        // The backfill names items as the media collectors list them, which is what the describer reads.
+        describe: (placeId, items) => describer.describeMany(placeId, items as Array<never>, { concurrency: 1 }),
+        now: clock,
+        log,
+      }),
       statusBrief: () => ({
         core: {
           state: store.state.data.paused ? 'paused' : 'running',

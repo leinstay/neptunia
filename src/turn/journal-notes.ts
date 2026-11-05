@@ -99,6 +99,8 @@ type SaidArgs = {
   replyId?: string | null;
   repliedAuthorId?: string | null;
   accountIds: unknown;
+  /** What she voiced, when the post is a voice message. */
+  voiced?: string;
 };
 
 /** What createJournalNotes reads: the dependencies and the runner's state the notes keep. */
@@ -415,6 +417,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     replyId,
     repliedAuthorId,
     accountIds,
+    voiced,
   }: SaidArgs): void {
     if (!record) return;
     if (typeof posted?.id !== 'string' || !posted.id) return;
@@ -431,6 +434,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
         replyToId: replyId ?? null,
         replyToAuthorId: repliedAuthorId ?? null,
         mentionedAccountIds: accountIds,
+        ...(voiced ? { attachments: [{ kind: 'voice' }], voiced } : {}),
       },
       { kind: 'said', now: clock, turnId: draft?.started?.turnId ?? null, opId: op?.opId ?? null }
     );

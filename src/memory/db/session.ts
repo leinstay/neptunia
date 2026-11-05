@@ -50,7 +50,7 @@ import { storageValue } from './export.ts';
 import { accountCollection } from './storage-keys.ts';
 import { SELF_PERSON, shortHash } from './ids.ts';
 import { storedMediaTags } from '../../format.ts';
-import { lineMedia, mediaMessageParts } from './media-store.ts';
+import { LINE_HOLDS_TOLD_MEDIA, lineMedia, mediaMessageParts } from './media-store.ts';
 import { contextRow, internalContext, issueContext, scopeWhere } from './scope.ts';
 import { scopesOf } from './session-scopes.ts';
 import type { SweepScope } from './session-scopes.ts';
@@ -164,6 +164,8 @@ export type SessionSettings = {
   timeoutMs: number;
   descriptionMaxOutputTokens: number;
   retryLimit: number;
+  /** A bounded pass over old media lines the sessions never saw, once the backfill told them. Off until the owner's word. */
+  mediaPass: boolean;
 };
 
 /** The session settings of this moment, from the live config. */
@@ -202,6 +204,7 @@ export function sessionSettings(configGiven: unknown): SessionSettings {
     timeoutMs: posInt(given.timeoutMs, DEFAULTS.timeoutMs),
     descriptionMaxOutputTokens: posInt(given.descriptionMaxOutputTokens, DEFAULTS.descriptionMaxOutputTokens),
     retryLimit: posInt(given.retryLimit, DEFAULTS.retryLimit),
+    mediaPass: given.mediaPass === true,
   };
 }
 
@@ -325,11 +328,26 @@ export function batchOf(
     maxMessages,
     settleBefore,
     audienceId = null,
-  }: { cursor: number; since: string | null; maxMessages: number; settleBefore: number; audienceId?: string | null }
+    onlyMediaLines = false,
+    upTo = null,
+  }: {
+    cursor: number;
+    since: string | null;
+    maxMessages: number;
+    settleBefore: number;
+    audienceId?: string | null;
+    onlyMediaLines?: boolean;
+    upTo?: number | null;
+  }
 ): Array<BatchLine> {
   const db = dbGiven as Db;
   const where = ['s.rowid > ?'];
   const params: Array<unknown> = [cursor];
+  if (upTo !== null) {
+    where.push('s.rowid <= ?');
+    params.push(upTo);
+  }
+  if (onlyMediaLines) where.push(`TRIM(COALESCE(s.text, '')) = ''`, LINE_HOLDS_TOLD_MEDIA);
   if (typeof audienceId === 'string' && audienceId) {
     where.push('s.audience_id = ?');
     params.push(audienceId);
@@ -361,6 +379,27 @@ export function batchOf(
     out.push({ ...row, at: Number.isFinite(at) ? at : 0, rowid: row.rowid as number });
   }
   return out.sort((a, b) => a.at - b.at || a.rowid - b.rowid);
+}
+
+/**
+ * The lines an old cursor passed because they held no words: media-only lines with a text form, oldest first, after the pass's
+ * own cursor and up to the ordinary cursor, which this pass leaves where it is.
+ */
+export function mediaPassBatch(
+  db: Db,
+  scope: { scope: Scope; audienceId?: string | null },
+  { after, upTo, maxMessages, since }: { after: number; upTo: number; maxMessages: number; since: string | null }
+): Array<BatchLine> {
+  const lines = batchOf(db, scope.scope, {
+    cursor: after,
+    since,
+    maxMessages,
+    settleBefore: Infinity,
+    audienceId: scope.audienceId ?? null,
+    onlyMediaLines: true,
+    upTo,
+  });
+  return lines;
 }
 
 /** Whether a batch is written now, and the settled sessions it holds (see `joinOf`). */
@@ -1379,6 +1418,22 @@ export async function sweep(
     );
     if (batch.length < Math.min(settings.minMessages, maxMessages)) {
       runs.push({ scope: scope.key, outcome: 'quiet', lines: batch.length });
+      // A quiet scope reads old media lines it never saw, under the same daily cap.
+      if (
+        settings.mediaPass &&
+        (options.ignoreSweepCap ||
+          scopeSweepsToday(db, scope.key, started, settings.mode) < settings.sweepsPerScopePerDay)
+      ) {
+        const passKey = `${key}:media-pass`;
+        const passCursor = Number(metaOf(db, passKey) ?? 0);
+        const old = mediaPassBatch(db, scope, { after: passCursor, upTo: cursor, maxMessages, since: settings.since });
+        if (old.length > 0) {
+          ran += 1;
+          runs.push(
+            ...(await runBatch(ctx, { scope, batch: old, cursor: passCursor, key: passKey, sweepId, settings }))
+          );
+        }
+      }
       continue;
     }
     // Small sessions wait and join the next batch of their scope: no request, no run row, the cursor stays.

@@ -6,7 +6,7 @@
 import { isPlainObject } from '../../config.ts';
 import { fill } from '../../format.ts';
 import { gifWatchBlocker } from '../../memory/index.ts';
-import { ROLE_ABILITY, offRoles } from '../../llm/roles.ts';
+import { ROLE_ABILITY, offRoles, roleOn } from '../../llm/roles.ts';
 import { collectPictures, collectVideos } from '../../media/classify.ts';
 import { IN_TURN_TOOLS, byFamily } from '../../tools/discovery.ts';
 import type { Base } from './head.ts';

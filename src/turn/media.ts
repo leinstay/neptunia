@@ -3,7 +3,13 @@
 // newest first, and whether a direct call brought something to look at. src/behavior/turn.ts calls them while it
 // prepares a turn.
 
-import { collectEmojiItems, collectPictures, collectReadableLinks, isDescribable } from '../media/classify.ts';
+import {
+  collectAudio,
+  collectEmojiItems,
+  collectPictures,
+  collectReadableLinks,
+  isDescribable,
+} from '../media/classify.ts';
 
 export const REWATCH_SUMMARY_CHARS = 200;
 // Protocol tokens of the re-watch classifier (docs/prompt-contract.md), not wording:
@@ -80,7 +86,7 @@ export function gifRewatchItems(history: ReadonlyArray<MediaMessage>): Array<Pic
 export function describableCandidates(history: ReadonlyArray<MediaMessage>): Array<Picture | EmojiItem> {
   const out: Array<Picture | EmojiItem> = [];
   for (let i = history.length - 1; i >= 0; i -= 1) {
-    for (const item of [...collectPictures(history[i]), ...emojiItemsOf(history[i])]) {
+    for (const item of [...collectPictures(history[i]), ...collectAudio(history[i]), ...emojiItemsOf(history[i])]) {
       if (!isDescribable(item)) continue;
       out.push(item);
     }

@@ -545,7 +545,9 @@ export function insertRows(
   for (const [table, rows] of Object.entries(mapping)) {
     for (const given of rows) {
       const row = deriveRow(db, table, given, { log, at });
-      const cols = Object.keys(row);
+      // A record line's `media` names no column: its items are written beside the row.
+      const have = columnsOf(db, table) as Set<unknown>;
+      const cols = Object.keys(row).filter((col) => have.has(col));
       const sql = `INSERT OR REPLACE INTO ${quote(table)} (${cols.map(quote).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`;
       db.prepare(sql).run(...cols.map((col) => bind(row[col])));
       if (table === 'people' || table === 'accounts' || table === 'places') ensureNodeKeys(db, table, row, { at });

@@ -61,6 +61,7 @@ import type { audioMapSettings } from './audio-map.ts';
 import { classifyAudio, parseSilenceDetect, silenceDetectArgs } from './audio-map.ts';
 import {
   bareContentType,
+  ffmpegAudioArgs,
   ffmpegFitArgs,
   ffmpegGifArgs,
   ffmpegTrimArgs,
@@ -154,6 +155,19 @@ type VideoFetcherDeps = {
   probeProxy?: (proxyUrl: string) => Promise<boolean>;
 };
 
+/** What `fetchAudio` takes beside the address. */
+type AudioFileOptions = {
+  durationSec?: number | null;
+  maxSeconds: number;
+  maxBytes: number;
+  toolTimeoutMs: number;
+  ffmpegPath: string;
+  fetchTimeoutMs?: number;
+};
+/** An audio file as a clip, or why not. */
+type AudioFileResult =
+  { ok: true; dataUrl: string; seconds: number; bytes: number } | { ok: false; reason: string; [key: string]: unknown };
+
 /** A failure result: the reason alone. */
 type Failed<R extends string> = { ok: false; reason: R };
 
@@ -203,6 +217,7 @@ const isPositive = (value: unknown): value is number =>
 /** The video fetcher: each call resolves to a result object and never rejects. */
 export type VideoFetcher = {
   fetchAttachment: (url: string, options: AttachmentOptions) => Promise<AttachmentResult>;
+  fetchAudio: (url: string, options: AudioFileOptions) => Promise<AudioFileResult>;
   fetchGif: (url: string, options: GifOptions) => Promise<GifResult>;
   probeSite: (url: string, options: SiteProbeOptions) => Promise<SiteProbeResult>;
   fetchSiteClip: (url: string, options: SiteClipOptions) => Promise<SiteClipResult>;
@@ -762,6 +777,40 @@ export function createVideoFetcher(deps: VideoFetcherDeps = {}): VideoFetcher {
   }
 
   /**
+   * Download a voice message or an audio file and carry it as the short clip the `video` role reads
+   * (src/media/video-sites.ts#ffmpegAudioArgs). Over `maxBytes` once packaged is `size`; a file over `maxSeconds` is cut to it, as
+   * a long video is. A missing or failing ffmpeg is `tool`. Never rejects.
+   */
+  async function fetchAudio(url: string, options: AudioFileOptions): Promise<AudioFileResult> {
+    const { durationSec = null, maxSeconds, maxBytes, toolTimeoutMs, ffmpegPath, fetchTimeoutMs } = options;
+    let dir: string | null = null;
+    try {
+      dir = await makeWorkDir();
+      const inPath = path.join(dir, 'in');
+      const outPath = path.join(dir, 'out.mp4');
+      const got = await download(url, inPath, {
+        ceiling: maxBytes * DOWNLOAD_CEILING_FACTOR,
+        timeoutMs: finiteOr(fetchTimeoutMs, toolTimeoutMs),
+      });
+      if (!got.ok) return fail('audio', url, got.reason, got.extra);
+      const run = await runTool(ffmpegAudioArgs(inPath, outPath, { ffmpegPath, maxSeconds }), toolTimeoutMs);
+      if (runFailed(run)) return fail('audio', url, 'tool', { code: runCode(run) });
+      const { size } = await fs.stat(outPath);
+      if (size > maxBytes) return fail('audio', url, 'size');
+      return {
+        ok: true,
+        dataUrl: await asDataUrl(outPath, 'video/mp4'),
+        seconds: Math.min(finiteOr(durationSec, maxSeconds) ?? maxSeconds, maxSeconds),
+        bytes: size,
+      };
+    } catch (err) {
+      return fail('audio', url, 'download', { code: errorCode(err) });
+    } finally {
+      await removeWorkDir(dir);
+    }
+  }
+
+  /**
    * Download a GIF's animation -- a `.gif` file, or the mp4/webm a GIF site
    * (tenor, giphy) serves for it -- and convert it with ffmpeg into a short
    * mp4 (src/media/video-sites.ts#ffmpegGifArgs: the first `maxSeconds`, at
@@ -1003,5 +1052,5 @@ export function createVideoFetcher(deps: VideoFetcherDeps = {}): VideoFetcher {
     }
   }
 
-  return { fetchAttachment, fetchGif, probeSite, fetchSiteClip, probeYoutube };
+  return { fetchAttachment, fetchAudio, fetchGif, probeSite, fetchSiteClip, probeYoutube };
 }

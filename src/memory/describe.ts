@@ -114,6 +114,8 @@
 // a video); a refusal by the daily cap only serves the
 // old text. A stale watched GIF is never replaced by a one-frame caption.
 
+import { fetchTextPreview } from '../media/text-preview.ts';
+import { offTextStandard } from './text-standard.ts';
 import { isRecord, propOf, isFiniteNumber } from './types.ts';
 import { watchedLengths } from '../media/classify.ts';
 import { createImageFetcher, VISION_MAX_BYTES } from '../media/fetch-image.ts';
@@ -207,8 +209,14 @@ function gifAnimationSource(item: MediaItem) {
 
 /** The model role that describes `item`: a GIF or a video needs `video`, every other picture `vision`. */
 function mediaRoleOf(item: MediaItem): string {
-  return item.kind === 'gif' || item.kind === 'video' ? 'video' : 'vision';
+  return item.kind === 'gif' || item.kind === 'video' || isAudioItem(item) ? 'video' : 'vision';
 }
+
+/** A voice message or an audio file: the `video` role hears it. */
+const isAudioItem = (item: MediaItem): boolean => item.kind === 'voice' || item.kind === 'audio';
+
+/** The first characters of a text file kept as its text form, a preview's own length. */
+const TEXT_FORM_CHARS = 2000;
 
 /** Whether `item` is one collectVideos candidate (an attached video or a video-site link). */
 function isVideoCandidate(item: MediaItem) {
@@ -454,7 +462,23 @@ type DescriberDeps = {
   videoProxy?: string | null;
   /** The event loop watch's `track` (src/loop-watch.ts); a description is a named operation. */
   track?: Track;
+  /** Reads a text file's words: `{ ok, text }` or `{ ok: false, reason }`. */
+  fetchText?: (url: string) => Promise<{ ok: boolean; text?: string; reason?: string }>;
 };
+
+/** A text file's opening, over plain HTTP. */
+async function readTextForm(url: string): Promise<{ ok: boolean; text?: string; reason?: string }> {
+  const text = await fetchTextPreview(url, TEXT_FORM_CHARS);
+  return text === null ? { ok: false, reason: 'download' } : { ok: true, text };
+}
+
+/**
+ * How an audio file goes in a request: the one place its packaging lives. The `video` role takes a clip, so the file is
+ * carried as a `video_url` part holding what src/media/fetch-video.ts#fetchAudio made of it.
+ */
+function audioPart(dataUrl: string) {
+  return { type: 'video_url', video_url: { url: dataUrl } };
+}
 
 /**
  * The `video_url` part of a video request. A public URL (a pinned
@@ -536,6 +560,7 @@ function buildDescriber({
   youtubeApiKey = null,
   videoProxy = null,
   track = untracked,
+  fetchText = readTextForm,
 }: DescriberDeps) {
   /** Today's UTC date as `YYYY-MM-DD` from the injected clock: the daily counters and the prompts' `{{today}}`. */
   function todayDate() {
@@ -569,7 +594,8 @@ function buildDescriber({
     const cache = store.getMediaCache(placeId);
     const cached = readEntry(placeId, itemId);
     if (!cached) return null;
-    if (cached.miss) return now() - cached.ts < MISS_TTL_MS ? FRESH_MISS : null;
+    if (cached.miss)
+      return PERMANENT_VIDEO_MISSES.has(cached.reason) || now() - cached.ts < MISS_TTL_MS ? FRESH_MISS : null;
     touchHit(placeId, cache, itemId, cached);
     const result = { text: cached.text, usage: null, estimated: 0, cached: true };
     return { result, stale: dueForRecache(cached, MISS_TTL_MS), entry: cached };
@@ -656,6 +682,8 @@ function buildDescriber({
    * request) instead of a miss being cached.
    */
   async function describeNow(placeId: string, item: MediaItem, previous: Untyped = null) {
+    if (isAudioItem(item)) return hearAudio(placeId, item);
+    if (item.kind === 'text') return readTextFile(placeId, item);
     const promptText = hot.prompts?.describe;
     if (!promptText) return null;
     const mediaCfg = hot.config.media ?? {};
@@ -711,9 +739,8 @@ function buildDescriber({
     }
 
     const model = roleModel(hot.config, 'vision', 'describe');
-    let completion;
-    try {
-      completion = await llm.complete(
+    const ask = () =>
+      llm.complete(
         [
           {
             role: 'system',
@@ -733,6 +760,11 @@ function buildDescriber({
           }),
         }
       );
+    let completion;
+    try {
+      completion = await ask();
+      // A stored text form is in English, with speech and on-screen text quoted: one that is not is described again, once.
+      if (offTextStandard(String(completion.text ?? ''))) completion = await ask();
     } catch (err) {
       const reason = requestFailureReason(err);
       log.warn('describe: failed', {
@@ -762,11 +794,86 @@ function buildDescriber({
     const entry: Record<string, Untyped> = { text, ts, describedAt: ts, model };
     if (item.kind === 'gif') entry.gif = true;
     if (watchFailed) entry.watchFailed = entry.ts;
+    if (offTextStandard(text)) entry.offStandard = true;
     if (isMediaDescriptionEntry(entry)) store.rememberMediaDescription?.(placeId, item.itemId, entry);
     touchKey(cache, item.itemId, entry);
     trimCache(cache, MEDIA_CACHE_ENTRIES);
     store.markMediaCacheDirty(placeId);
     return { text, usage: completion.usage ?? null, estimated: completion.estimated ?? 0 };
+  }
+
+  /** A failed read of an audio or a text file: its cause kept on a miss, so a refused file is not tried again. */
+  function missWith(placeId: string, item: MediaItem, reason: unknown): null {
+    const cache = store.getMediaCache(placeId);
+    log.warn('describe: failed', { kind: item.kind, reason });
+    touchKey(cache, item.itemId, { miss: true, ts: now(), reason });
+    trimCache(cache, MEDIA_CACHE_ENTRIES);
+    store.markMediaCacheDirty(placeId);
+    return null;
+  }
+
+  /** A text form kept in the cache and the durable versions, as a picture's is. */
+  function keepTextForm(placeId: string, item: MediaItem, entry: Record<string, Untyped>): void {
+    const cache = store.getMediaCache(placeId);
+    if (isMediaDescriptionEntry(entry)) store.rememberMediaDescription?.(placeId, item.itemId, entry);
+    touchKey(cache, item.itemId, entry);
+    trimCache(cache, MEDIA_CACHE_ENTRIES);
+    store.markMediaCacheDirty(placeId);
+  }
+
+  /**
+   * A voice message or an audio file heard on the `video` role through `describe-audio`. What it comes to is a transcript, in
+   * the language spoken: quoted speech, so the script check of a picture's description does not apply.
+   */
+  async function hearAudio(placeId: string, item: MediaItem) {
+    const promptText = hot.prompts?.['describe-audio'];
+    if (!promptText) return null;
+    const videoCfg = videoSettingsOf(hot.config);
+    const clip = await videoFetcher.fetchAudio(item.url, {
+      durationSec: item.durationSec,
+      maxSeconds: videoCfg.maxSeconds,
+      maxBytes: videoCfg.maxBytes,
+      toolTimeoutMs: videoCfg.toolTimeoutMs,
+      ffmpegPath: videoCfg.ffmpegPath,
+    });
+    if (!clip.ok) return missWith(placeId, item, clip.reason);
+    const maxChars = videoCfg.summaryChars;
+    const model = roleModel(hot.config, 'video');
+    let completion;
+    try {
+      completion = await llm.complete(
+        [
+          { role: 'system', content: fillPromptTemplate(promptText, { maxChars, today: todayDate() }) },
+          { role: 'user', content: [audioPart(clip.dataUrl)] },
+        ],
+        {
+          ...videoRequestOptions(
+            videoCfg,
+            { seconds: clip.seconds },
+            { maxOutputTokens: videoCfg.maxOutputTokens, model }
+          ),
+          provider: videoCfg.provider,
+        }
+      );
+    } catch (err) {
+      const reason = requestFailureReason(err);
+      return reason === 'daily-cap' ? null : missWith(placeId, item, reason);
+    }
+    const text = clampText(String(completion.text ?? '').trim(), maxChars, { tolerance: 1 });
+    if (!text) return missWith(placeId, item, 'empty');
+    const ts = now();
+    keepTextForm(placeId, item, { text, ts, describedAt: ts, model });
+    return { text, usage: completion.usage ?? null, estimated: completion.estimated ?? 0 };
+  }
+
+  /** A text file's text form is the opening of its own words, with no model. */
+  async function readTextFile(placeId: string, item: MediaItem) {
+    const read = await fetchText(item.url);
+    if (!read.ok || !read.text) return missWith(placeId, item, read.reason ?? 'download');
+    const ts = now();
+    const text = read.text.trim().slice(0, TEXT_FORM_CHARS);
+    keepTextForm(placeId, item, { text, ts, describedAt: ts });
+    return { text, usage: null, estimated: 0 };
   }
 
   /**
@@ -999,7 +1106,8 @@ function buildDescriber({
     const on = picturesOn();
     const spent = on && capSpent();
     for (const item of on ? (items ?? []) : []) {
-      if (!item?.itemId || seen.has(item.itemId) || !roleOn(hot.config, mediaRoleOf(item))) continue;
+      if (!item?.itemId || seen.has(item.itemId) || item.kind === 'file') continue;
+      if (item.kind !== 'text' && !roleOn(hot.config, mediaRoleOf(item))) continue;
       seen.add(item.itemId);
       const hit = cachedPicture(placeId, item.itemId);
       if (hit === FRESH_MISS) continue;

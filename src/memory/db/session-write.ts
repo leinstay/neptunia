@@ -123,6 +123,8 @@ import { applyPublicationWrite } from './publish.ts';
 import { applyDeliveryWrite, isDeliveryOp } from './publication-delivery.ts';
 import { applyMirrorWrite } from './mirror-config.ts';
 import { applyEntryMedia } from './diary-media.ts';
+import { applyMediaBackfill } from './media-backfill.ts';
+import { applyMediaEmbed } from './media-store.ts';
 import { writeBackup } from './backup.ts';
 import { applyIngestWrite } from './ingest.ts';
 import { applyWakeQueueWrite } from './wake-queue.ts';
@@ -956,6 +958,8 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
   const handle = handleGiven as MemoryHandle;
   const update = updateGiven as Row;
   const kind = update?.kind;
+  if (kind === 'media-embed') return applyMediaEmbed(handle, update);
+  if (kind === 'media-backfill') return applyMediaBackfill(handle, update);
   if (kind === 'context') return writeContext(handle, update);
   if (kind === 'description') return writeDescription(handle, update);
   // Schema v11: the writers of wake runs, the skills registry and the index policy share this one writer path.

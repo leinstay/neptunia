@@ -96,6 +96,11 @@ export type ConsoleDeps = {
   usage: { byRole(): Array<RoleRow>; sumDays(days: number): DaysSum } | null;
   /** The speed figures (src/tools/impl/metrics.ts): `samples('reply', 24)` are the reply durations of the last day. */
   metrics: unknown;
+  /** The owner's media backfill, null where no interface can read history. */
+  mediaBackfill?: {
+    start(options: { dryRun: boolean }): Promise<unknown>;
+    status(): unknown;
+  } | null;
   /** A conversation's newest stored lines, oldest first. */
   conversationLines(conversationId: string, count: number): ReadonlyArray<{ author: string; text: string }>;
   now(): number;
@@ -606,6 +611,22 @@ export function createConsole(deps: ConsoleDeps): {
     return { text: JSON.stringify(found.value, null, 2) ?? 'null', status: 'ok' };
   }
 
+  /**
+   * The owner's media backfill (src/memory/db/media-backfill.ts): started once and resumable, with its counts readable while it
+   * runs and after it ends. `--dry-run` counts what it would do, with no read and no write.
+   */
+  async function memoryBackfillMedia(name: string, args: Record<string, unknown>): Promise<Answer> {
+    if (!deps.mediaBackfill) return refused(name, args, 'the media backfill is not available here', 'failed');
+    const mode = text(args.mode);
+    if (mode !== '' && mode !== '--dry-run' && mode !== 'status')
+      return refused(name, args, 'usage: backfill-media [--dry-run|status]');
+    const state =
+      mode === 'status'
+        ? deps.mediaBackfill.status()
+        : await deps.mediaBackfill.start({ dryRun: mode === '--dry-run' });
+    return { text: JSON.stringify(state), status: 'ok' };
+  }
+
   /** The owner's backup: on its own thread, because it copies the whole data folder (backup.ts). */
   async function memoryBackup(name: string, args: Record<string, unknown>): Promise<Answer> {
     const { dir } = backupSettings(config(), deps.dataDir);
@@ -741,6 +762,8 @@ export function createConsole(deps: ConsoleDeps): {
         return configGet(name, args);
       case 'memory.backup':
         return memoryBackup(name, args);
+      case 'memory.backfill-media':
+        return memoryBackfillMedia(name, args);
       case 'memory.conversation':
         return memoryConversation(args);
       case 'memory.lessons.list':
