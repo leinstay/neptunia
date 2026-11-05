@@ -36,6 +36,17 @@ export function storedManifest(value: unknown): Row | null {
   }
 }
 
+/** `manifest` counting `rows` rows of the bytes `i8` and the lines `meta`, with their checksum. */
+export function manifestOfFiles(
+  manifest: Row,
+  rows: number,
+  i8: Buffer,
+  meta: Buffer,
+  checksum: (i8: Uint8Array, meta: Buffer) => unknown
+): Row {
+  return { ...manifest, rows, bytes: i8.length, metaBytes: meta.length, checksum: checksum(i8, meta) };
+}
+
 /**
  * The three files of a month rebuilt from the database: `{ manifest, meta: Buffer, i8: Buffer }`, or null when the
  * database holds no such month.
@@ -58,13 +69,7 @@ export function vectorMonthFiles(
   if (evicted > 0 && manifest && typeof manifest === 'object') {
     const kept = rows.vectors.length;
     const dims = Number.isInteger(manifest.dims) ? (manifest.dims as number) : 0;
-    manifest = {
-      ...manifest,
-      rows: kept,
-      bytes: kept * dims,
-      metaBytes: meta.length,
-      checksum: checksum(i8.subarray(0, kept * dims), meta),
-    };
+    manifest = manifestOfFiles(manifest, kept, i8.subarray(0, kept * dims), meta, checksum);
   }
   return { manifest, meta, i8 };
 }
