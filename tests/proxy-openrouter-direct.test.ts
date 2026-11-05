@@ -65,8 +65,8 @@ test('a harness child started with the proxy gets openrouter.ai in NO_PROXY and 
     }),
   };
   await runAgent({ agent: 'dev', brief: 'look', cwd: '/tmp/x', timeoutMs: 1000, route: CLAUDE, proxy: PROXY }, deps);
-  for (const name of ['NO_PROXY', 'no_proxy'])
-    assert.ok(entriesOf(seen[0]?.env?.[name]).includes('openrouter.ai'), name);
+  const childEnv = seen[0]?.env;
+  for (const name of ['NO_PROXY', 'no_proxy']) assert.ok(entriesOf(childEnv?.[name]).includes('openrouter.ai'), name);
 });
 
 const closers: Array<() => void> = [];
@@ -96,8 +96,12 @@ function get(host: string, port: number): Promise<void> {
         port,
         path: '/api/v1/chat/completions',
         // Node asks for every address when it tries several families, and for one otherwise.
-        lookup: (_name: string, opts: { all?: boolean }, done: (...args: Array<unknown>) => void) =>
-          opts.all === true ? done(null, [{ address: '127.0.0.1', family: 4 }]) : done(null, '127.0.0.1', 4),
+        lookup: (_name, opts, done) =>
+          opts.all === true
+            ? (done as (err: null, all: Array<{ address: string; family: number }>) => void)(null, [
+                { address: '127.0.0.1', family: 4 },
+              ])
+            : done(null, '127.0.0.1', 4),
       },
       (res) => {
         res.resume();

@@ -737,7 +737,7 @@
       "repeated": 0
     },
     "tests/agent-backend-limits.test.ts": {
-      "deep": 2,
+      "deep": 1,
       "repeated": 0
     },
     "tests/agent-backend-opencode-provider.test.ts": {
@@ -1909,7 +1909,7 @@
       "repeated": 0
     },
     "tests/subharness-run-route.test.ts": {
-      "deep": 9,
+      "deep": 8,
       "repeated": 0
     },
     "tests/subharness-run.test.ts": {

@@ -154,11 +154,6 @@ function runEnvOf(run: AgentRun, engine: Record<string, string>): Record<string,
   return { ...Object.fromEntries(given), ...engine, ...proxyEnvOf(run.proxy ?? null) };
 }
 
-/** opencode has no step flag: its agent's `steps` comes in through its inline config. */
-function opencodeSteps(maxSteps: number): Record<string, string> {
-  return { OPENCODE_CONFIG_CONTENT: JSON.stringify({ agent: { build: { steps: maxSteps } } }) };
-}
-
 /** The refusal of a run that cannot start, with the code and no child. */
 const refusedRun = (error: 'bad-route' | 'route-no-key'): BackendResult => ({
   ok: false,
@@ -259,7 +254,7 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
     cwd: run.cwd,
     timeoutMs: run.timeoutMs,
     sandbox: sandboxOfMode(mode),
-    env: name === 'opencode' && run.maxSteps !== undefined ? { ...env, ...opencodeSteps(run.maxSteps) } : env,
+    env,
     ...(model === null ? {} : { model: modelOfBackend(name, model) }),
     ...(effort === null ? {} : { effort }),
     ...pinOf(provider),

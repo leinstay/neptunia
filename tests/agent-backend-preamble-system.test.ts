@@ -240,10 +240,10 @@ for (const name of BACKENDS) {
   });
 }
 
-test('opencode: the step cap stays in the config beside the prompt', async () => {
-  // Catches: writing the agent's prompt into OpenCode's config replaces the config that carried `steps`, so the scout's
-  // step cap stops being enforced.
+test('opencode: the config carries the prompt and no step cap', async () => {
+  // The expectation changed on the owner's word of 2026-11-05: OpenCode gets no step cap, because at the cap it appends
+  // an assistant turn that Gemini and Anthropic refuse. Catches: the scout's profile steps reach OpenCode's config.
   const { engine, seen, task } = rig('opencode');
   await engine.run(task('p4', PREAMBLE));
-  assert.equal(onlyChild(seen).steps, 5);
+  assert.equal(onlyChild(seen).steps, undefined);
 });

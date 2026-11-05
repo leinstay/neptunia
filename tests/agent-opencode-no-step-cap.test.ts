@@ -24,7 +24,8 @@ function depsIn(dir: string): RunDeps {
 /** What `steps` the OpenCode config content of a child carries, undefined when it has none. */
 function stepsIn(content: string | undefined): unknown {
   const inline = JSON.parse(content ?? '{}') as { agent?: { build?: { steps?: number } } };
-  return inline.agent?.build?.steps;
+  const build = inline.agent?.build;
+  return build?.steps;
 }
 
 test('an opencode child asked for a step count gets no steps cap in its inline config', async () => {

@@ -77,11 +77,10 @@ test('profileOf: scout, server, and nothing else', () => {
   assert.equal(profileOf('nope'), null);
 });
 
-test('scout config: agent prompt, model, cost, step cap, search absent from config', () => {
+test('scout config: agent prompt, model, cost, no step cap, search absent from config', () => {
   const cfg = SCOUT.buildConfig({
     systemPrompt: 'be careful',
     providerModel: 'openrouter/x-ai/grok-4.7',
-    steps: 25,
     scope: 'core',
     cost: { input: 2, output: 6 },
     toolResultChars: 6000,
@@ -89,7 +88,8 @@ test('scout config: agent prompt, model, cost, step cap, search absent from conf
   assert.equal(cfg.model, 'openrouter/x-ai/grok-4.7');
   const agent = cfg.agent['errand-scout'];
   assert.equal(agent.prompt, 'be careful');
-  assert.equal(agent.steps, 25);
+  // Changed on the owner's word of 2026-11-05: OpenCode gets no step cap, so the config never carries `steps`.
+  assert.equal('steps' in agent, false);
   assert.equal(agent.mode, 'primary');
   assert.deepEqual(loose(cfg.provider).openrouter.models['x-ai/grok-4.7'].cost, { input: 2, output: 6 });
   assert.equal(loose(cfg.tool_output).max_bytes, 6000);

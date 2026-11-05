@@ -10,7 +10,7 @@ The core chooses the requested agent profile and submits the work to an errand r
 
 Claude Code, Codex and OpenCode are supported execution backends. Install and authenticate them under the persona's own [subharness directory](setup.md#subharness-backends). The scout and server profiles live in `agents/`; personal prompt and profile overrides live in `data/agents/`.
 
-Each run has a time limit. Claude receives a model-turn limit and OpenCode receives an agent step limit. Codex execution is bounded by the timeout; its runner does not enforce an equivalent step count. Choose the backend with this distinction in mind.
+Each run has a time limit. Claude receives a model-turn limit. OpenCode and Codex get no step cap and only the timeout bounds them: at the cap OpenCode appends an assistant turn that Gemini and Anthropic refuse, so a capped run died with exit 1 instead of ending. Choose the backend with this distinction in mind.
 
 ### The route of an errand
 
@@ -28,7 +28,7 @@ The one reply that checks the selection goes out through the same provider, so a
 
 A run's system instructions are the deployment's preamble first and the agent's prompt after it, joined by a blank line. The prompt text of the run is the task alone, its goal and context. `composePreamble` in [src/errands/preambles.ts](../src/errands/preambles.ts) builds the preamble from the files of `prompts.local/preambles/` that match the run, `all.md`, `<agent>.md`, `@<model>.md` and `<agent>@<model>.md` in that order. Every matching file goes in whole, and the preamble has no length cap.
 
-The system instructions replace the backend's own. Claude Code reads them from the file `--system-prompt-file` names, Codex from `-c model_instructions_file=<path>`, and OpenCode as the `build` agent's `prompt` in the config file `OPENCODE_CONFIG` names (the file that also holds a provider pin), which OpenCode merges with the step cap of `OPENCODE_CONFIG_CONTENT`. [src/agent-runner/backend.ts](../src/agent-runner/backend.ts) writes each file mode `600` into a folder of the run's own and removes it when the run ends, whether the child succeeded, failed or never started.
+The system instructions replace the backend's own. Claude Code reads them from the file `--system-prompt-file` names, Codex from `-c model_instructions_file=<path>`, and OpenCode as the `build` agent's `prompt` in the config file `OPENCODE_CONFIG` names (the file that also holds a provider pin). [src/agent-runner/backend.ts](../src/agent-runner/backend.ts) writes each file mode `600` into a folder of the run's own and removes it when the run ends, whether the child succeeded, failed or never started.
 
 ### The proxy of an errand
 
