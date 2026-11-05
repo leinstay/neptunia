@@ -12,7 +12,7 @@
     "tests/prompt.test.ts": 6595,
     "tests/recall.test.ts": 2419,
     "tests/store.test.ts": 3169,
-    "tests/turn.test.ts": 9034
+    "tests/turn.test.ts": 9032
   },
   "functions": {
     "interfaces/discord/collect.ts": {

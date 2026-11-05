@@ -6,7 +6,7 @@
 import type { ObserveLine } from './observe.ts';
 import { lineOf } from '../behavior/line-of.ts';
 import { isLimitNotice } from '../behavior/limits.ts';
-import { CLI_GATE, CLI_IFACE, privateChatsOff } from '../behavior/core-pause.ts';
+import { CLI_GATE, CLI_IFACE, isCliOwner, privateChatsOff } from '../behavior/core-pause.ts';
 import { privateGate } from '../behavior/private.ts';
 import type { Reads } from '../interface/reads.ts';
 import { log } from '../log.ts';
@@ -40,7 +40,10 @@ type PrivateConfig = { readonly private?: { readonly enabled?: unknown } } & obj
 /** What createPrivateGate reads: the dependencies of createMessageHandler and the functions of its other parts. */
 export type PrivateContext = {
   hot: { readonly config: PrivateConfig; readonly prompts?: { readonly labels?: object } | null };
-  store: { getUser: (guildId: string, userId: string) => object | null };
+  store: {
+    getUser: (guildId: string, userId: string) => object | null;
+    getPrivate: (guildId: string, userId: string) => object | null;
+  };
   reads: Reads;
   now: () => number;
   getGuildId: () => string | null;
@@ -167,9 +170,16 @@ export function createPrivateGate({
 
   /**
    * The community a person's DM belongs to: the first one their interface serves that knows them, else the home community
-   * when that interface serves it, else none.
+   * when that interface serves it, else none. The owner's command line serves no community, and his private units may
+   * already sit under the home community, so his DM stays there while it holds any. The read names the interface because
+   * the drain asks outside the event's. TODO(plan 2026-11-04-cli-and-memory, task 5): the conversion removes this.
    */
   function dmCommunityOf(iface: string, memberId: string): string | null {
+    if (isCliOwner(iface, memberId)) {
+      const home = getGuildId();
+      const held = home !== null && withIface(CLI_IFACE, () => store.getPrivate(home, memberId)) !== null;
+      return held ? home : null;
+    }
     const served = communitiesOf?.(iface);
     const known = served?.find((id) => store.getUser(id, memberId) != null);
     if (known !== undefined) return known;
