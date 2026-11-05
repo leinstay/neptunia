@@ -23,7 +23,7 @@ import { hotClaimIds, linkVectors, qualify, retireAbsent, writeMapping } from '.
 import { unitRows, isMediaDescriptionEntry, mediaDescriptionId } from './export.ts';
 import { unitValue } from './readers/common.ts';
 import { assignDiaryDestination } from './publish.ts';
-import { graphPending, projectPending } from './graph.ts';
+import { graphPending, projectPending, projectRow } from './graph.ts';
 import { storeHeld } from './media-stems.ts';
 import { fillStems, markStemsPending, stemsPending } from './stems.ts';
 import {
@@ -38,7 +38,10 @@ import { applyErrandUnit, skippedErrandUnit } from '../../board/errands.ts';
 import { dbOf, asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
 import type { MappedPath } from '../migration/classify.ts';
-import { groupScope } from './scope.ts';
+import { SCOPE_INTERNAL, audienceOf, groupScope } from './scope.ts';
+import type { Scope } from './scope.ts';
+import { ensureAudience } from './rows.ts';
+import { legacyPersonNative } from './ids.ts';
 import { writeGifVector } from './gif-vectors.ts';
 import { storageContext } from './map/index.ts';
 
@@ -779,6 +782,20 @@ export function consolidateInnerState(handle: MemoryHandle, { now }: { now: numb
 }
 
 /**
+ * The scope of a name the owner gives a person: the groups of the person's interface, the scope a member's profile gives
+ * its aliases (map/user.ts). `iface` is the interface the command came from, for a person with no account and no spelled
+ * interface; with none of those the name is internal. Which interface of several makes no difference to who reads it:
+ * every group audience reads alike (scope.ts#allowedAudience).
+ */
+export function ownerNameScope(db: Db, personId: string, iface: unknown): Scope & { audience_id: string } {
+  const account = db
+    .prepare("SELECT iface FROM accounts WHERE person_id = ? AND link = 'verified' AND retired_at IS NULL ORDER BY id")
+    .get(personId)?.iface;
+  const found = account ?? legacyPersonNative(personId)?.iface ?? iface;
+  return audienceOf(typeof found === 'string' && found !== '' ? groupScope(found) : SCOPE_INTERNAL);
+}
+
+/**
  * A name the owner gave a person (`/memory users names add|remove`): an `alias` claim with `author` `owner`, added once or
  * retired. A name her memory session or the analyzer writes has another author, so the two never mix.
  */
@@ -792,14 +809,23 @@ function writeOwnerName(db: Db, update: Row, at: string): { personId: string; na
     )
     .get(personId, name) as { id?: string } | undefined;
   if (update.remove === true) {
-    if (live?.id) db.prepare('UPDATE claims SET retired_at = ? WHERE id = ?').run(at, live.id);
+    if (live?.id) {
+      db.prepare('UPDATE claims SET retired_at = ? WHERE id = ?').run(at, live.id);
+      projectRow(db, 'claims', { id: live.id }, { at });
+    }
     return { personId, name, stored: false };
   }
-  if (!live?.id)
+  if (!live?.id) {
+    const id = `claim:owner-name:${personId}:${name.toLowerCase()}:${at}`;
+    const scope = ownerNameScope(db, personId, update.iface);
+    ensureAudience(db, scope, { at });
     db.prepare(
       `INSERT INTO claims (id, subject_kind, subject_id, kind, text, weight, first_seen_at, last_seen_at, how, author,
-        truth, created_at) VALUES (?, 'person', ?, 'alias', ?, 1, ?, ?, 'owner', 'owner', 'current', ?)`
-    ).run(`claim:owner-name:${personId}:${name.toLowerCase()}:${at}`, personId, name, at, at, at);
+        truth, created_at, scope_kind, scope_iface, scope_dm, audience_id)
+        VALUES (?, 'person', ?, 'alias', ?, 1, ?, ?, 'owner', 'owner', 'current', ?, ?, ?, ?, ?)`
+    ).run(id, personId, name, at, at, at, scope.scope_kind, scope.scope_iface, scope.scope_dm, scope.audience_id);
+    projectRow(db, 'claims', { id }, { at });
+  }
   return { personId, name, stored: true };
 }
 

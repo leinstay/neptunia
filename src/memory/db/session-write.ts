@@ -103,9 +103,10 @@ import {
   audienceParts,
   canRead,
   dmContext,
+  dmContextPerson,
   groupContext,
   internalContext,
-  isOpaquePerson,
+  namesNoPlaceOn,
   narrowestAudience,
   scopeOfAudience,
   SCOPE_INTERNAL,
@@ -230,14 +231,18 @@ const scopeOfRow = (row: Row): Scope => ({
 function contextOf(scope: Scope | null | undefined, audienceColumn = false, audience: string | null = null): Context {
   let ctx = internalContext();
   if (scope?.scope_kind === 'group' && scope.scope_iface) ctx = groupContext(scope.scope_iface);
-  else if (scope?.scope_kind === 'dm' && scope.scope_iface && scope.scope_dm)
-    ctx = dmContext(scope.scope_dm, scope.scope_iface, audienceParts(audience)?.place_id ?? null);
+  else if (scope?.scope_kind === 'dm' && scope.scope_iface) {
+    const place = audienceParts(audience)?.place_id ?? null;
+    // A DM nobody linked names no partner: its place does, so its run reads that DM and never the whole memory.
+    if (scope.scope_dm) ctx = dmContext(scope.scope_dm, scope.scope_iface, place);
+    else if (place) ctx = dmContext(dmContextPerson(null, scope.scope_iface, place), scope.scope_iface, place);
+  }
   return audienceColumn === true ? { ...ctx, audienceColumn: true } : ctx;
 }
 
-/** The one stored DM place of an opaque partner on an interface; null for none and for several, which no triple can tell apart. */
+/** The one stored DM place of a partner its id spells none for; null for none and for several, which no triple can tell apart. */
 function onlyDmPlaceOf(db: Db, scope: Scope): string | null {
-  if (scope.scope_kind !== 'dm' || !isOpaquePerson(scope.scope_dm)) return null;
+  if (scope.scope_kind !== 'dm' || !namesNoPlaceOn(scope.scope_dm, scope.scope_iface)) return null;
   const places = db
     .prepare("SELECT id FROM places WHERE partner_person = ? AND iface = ? AND (kind = 'dm' OR conversation = 'dm')")
     .all(scope.scope_dm, scope.scope_iface);

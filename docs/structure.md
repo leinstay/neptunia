@@ -231,7 +231,8 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/memory/db/session-rows.ts` | public | Her memory session's rows beside the store's files: what a member's profile reads of them and what a unit write leaves as she wrote it. Tested through the two-writers tests. | `node:*`, `src/**` | none |
 | `src/memory/db/semantic-rows.ts` | public | What the semantic writer and reader share: the label and merge rows a version derives, and the versions a context selects at a cutoff. Tested through the semantic write and read tests. | `node:*`, `src/**` | none |
 | `src/memory/db/semantic-answer.ts` | public | The entities and assertions groups of a memory session's answer, checked and resolved to typed ids. Tested through the semantic session tests. | `node:*`, `src/**` | none |
-| `src/memory/db/session-scopes.ts` | public | The scopes a memory session sweeps: the groups of an interface, each DM alone, a DM of an opaque partner by its stored place. Tested through the session tests. | `node:*`, `src/**` | none |
+| `src/memory/db/session-scopes.ts` | public | The scopes a memory session sweeps: the groups of an interface, and each DM alone by the place its lines' audience names. Tested through the session tests. | `node:*`, `src/**` | none |
+| `src/memory/db/dm-rescope.ts` | public | Gives every row of a DM's audience the partner person its place names, with the audience unchanged. Tested through the DM scope tests. | `node:*`, `src/**` | none |
 | `src/memory/db/semantic-types.ts` | public | The shapes of semantic memory: references, arguments, candidates, resolved writes and the retrieval page. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |
 | `src/memory/db/map/` | public | The mapping of memory rows to records and back. | `node:*`, `src/**` | required |
 | `src/memory/db/readers/` | public | The read queries of the memory database. | `node:*`, `src/**` | required |
