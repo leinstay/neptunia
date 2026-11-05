@@ -76,10 +76,13 @@ export async function gatherRequest(
   // private chat); its read takes `timings.record`.
   timings.record = null;
   if (!isPrivate && record && typeof record.iterate === 'function') {
+    // The record holds the conversation's lines under the top of its tree, each marked with its channel.
+    const iterate = record.iterate as (
+      top: string,
+      range: { from: string; placeIds: Array<string> }
+    ) => AsyncIterable<Parameters<typeof withDeletedLines>[1][number] & { occurredAt: string }>;
     const found = await deletedLinesOf({
-      record: record as Parameters<typeof deletedLinesOf>[0]['record'],
-      placeId,
-      conversationId: channel.id,
+      readSince: (from) => iterate.call(record, placeId, { from, placeIds: [String(channel.id)] }),
       history,
       selfId,
       selfName,

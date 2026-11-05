@@ -183,7 +183,6 @@ export type RecordWindowsForInput = {
   ownIds: Untyped;
   selfName: string;
   signal: AbortSignal;
-  conversationId: string;
   meaning?: Array<Untyped>;
   locator?: Untyped;
 };

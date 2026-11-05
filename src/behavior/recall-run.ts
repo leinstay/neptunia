@@ -705,7 +705,6 @@ export function createRecall({
     ownIds,
     selfName,
     signal,
-    placeId: conversationId,
     meaning = [],
     locator = null,
   }: RecordWindowsForInput) {
@@ -761,7 +760,7 @@ export function createRecall({
       });
       return found.windows;
     } catch (err) {
-      log.warn('recall: record failed', { channel: conversationId, name: objOf(err).name ?? null });
+      log.warn('recall: record failed', { channel: placeId, name: objOf(err).name ?? null });
       return [];
     }
   }
@@ -1411,7 +1410,6 @@ export function createRecall({
       ownIds,
       selfName,
       signal,
-      conversationId,
       meaning: meaning?.record ?? [],
       locator,
     });

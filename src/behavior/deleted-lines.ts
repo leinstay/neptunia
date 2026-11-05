@@ -9,8 +9,9 @@
 export const DELETED_LINES_MAX = 10;
 
 /**
- * The deletions of `placeId` over the span of `history` (from its oldest line that is not a
- * reply parent) that the history does not hold: `{ placeholders, deletedIds, ms }`. A placeholder
+ * The deletions of the window's conversation over the span of `history` (from its oldest line that is not a
+ * reply parent) that the history does not hold, read through `readSince` (the caller's read of that one
+ * conversation's record from a time on): `{ placeholders, deletedIds, ms }`. A placeholder
  * is a message shaped like a normalized one with `deleted: true`, empty `content` and no media,
  * its author named by the history, else `nameOf(id)`, else the id; its time is the original
  * message's (the `seen` line of the same scan), else the `deleted` line's own `occurredAt`, which
@@ -30,6 +31,8 @@ type RecordLine = {
   occurredAt: string;
   by?: unknown;
   participants?: Array<string>;
+  /** The native channel the line was said in. */
+  scope?: { channel?: unknown };
 };
 
 /** A deleted message in the window: a normalized message with `deleted: true`, no text, no media. */
@@ -58,9 +61,7 @@ export type Placeholder = {
 export type DeletedLines = { placeholders: Array<Placeholder>; deletedIds: Set<string>; ms: number; failed?: boolean };
 
 export async function deletedLinesOf({
-  record,
-  placeId,
-  conversationId,
+  readSince,
   history,
   selfId = null,
   selfName = '',
@@ -68,11 +69,7 @@ export async function deletedLinesOf({
   max = DELETED_LINES_MAX,
   clock = Date.now,
 }: {
-  record: {
-    iterate: (placeId: string, range: { from: string; placeIds: Array<string> }) => AsyncIterable<RecordLine>;
-  };
-  placeId: string;
-  conversationId: string;
+  readSince: ((from: string) => AsyncIterable<RecordLine>) | null;
   history: Array<WindowLine>;
   selfId?: string | null;
   selfName?: string;
@@ -86,7 +83,7 @@ export async function deletedLinesOf({
     (message): message is WindowLine & { ts: number } =>
       message && message.replyParent !== true && Number.isFinite(message.ts)
   );
-  if (!record || typeof record.iterate !== 'function' || own.length === 0) return empty;
+  if (!readSince || own.length === 0) return empty;
   const oldest = Math.min(...own.map((message) => message.ts));
   const present = new Set((history ?? []).map((message) => String(message?.id)));
   const names = new Map<string, string>();
@@ -95,10 +92,7 @@ export async function deletedLinesOf({
   const seen = new Map<string, RecordLine>();
   const gone = new Map<string, RecordLine>();
   try {
-    for await (const line of record.iterate(placeId, {
-      from: new Date(oldest).toISOString(),
-      placeIds: [String(conversationId)],
-    })) {
+    for await (const line of readSince(new Date(oldest).toISOString())) {
       const id = typeof line?.messageId === 'string' ? line.messageId : '';
       if (!id || present.has(id)) continue;
       if (line.kind === 'deleted') gone.set(id, line);
@@ -121,7 +115,7 @@ export async function deletedLinesOf({
         (authorId ? String(authorId) : ''));
     all.push({
       id,
-      placeId: String(conversationId),
+      placeId: typeof line.scope?.channel === 'string' ? line.scope.channel : '',
       authorId: authorId ? String(authorId) : '',
       authorName: name,
       self,

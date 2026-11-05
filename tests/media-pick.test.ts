@@ -140,8 +140,8 @@ function rig({
 }
 
 const args = (fields: object = {}) => ({
+  // The conversation by its place alone (plan 2026-11-05 T.4).
   placeId: PLACE,
-  conversationId: 'c1',
   capability: LINK_FORMS,
   messages: REPLY,
   history: [SHORT_LINE],

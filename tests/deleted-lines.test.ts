@@ -43,6 +43,12 @@ function fakeRecord(lines: Untyped) {
   return record;
 }
 
+/** The turn's read of conversation c1 under g1, over `record` (plan 2026-11-05 T.4: the caller scopes the read). */
+const c1Of =
+  (record: { iterate(placeId: string, query: Untyped): AsyncIterable<Untyped> }) =>
+  (from: string): AsyncIterable<Untyped> =>
+    record.iterate('g1', { from, placeIds: ['c1'] });
+
 test('deletedLinesOf: a deleted message the history lacks becomes a placeholder at its own time, named by the history, the read bounded to the window and one channel', async () => {
   const history = [live('m1', T0), live('m3', T0 + 3000, { authorId: 'u2', authorName: 'Zoë' })];
   const record = fakeRecord([
@@ -51,7 +57,7 @@ test('deletedLinesOf: a deleted message the history lacks becomes a placeholder 
     deleted('m1', T0 + 9500),
     { kind: 'said', messageId: 'x', occurredAt: iso(T0) },
   ]);
-  const found = await deletedLinesOf({ record, placeId: 'g1', conversationId: 'c1', history });
+  const found = await deletedLinesOf({ readSince: c1Of(record), history });
   assert.deepEqual(record.queries, [{ placeId: 'g1', from: iso(T0), placeIds: ['c1'] }]);
   assert.deepEqual(
     found.placeholders.map((p) => [p.id, p.ts, p.authorName, p.deleted, p.content]),
@@ -62,9 +68,7 @@ test('deletedLinesOf: a deleted message the history lacks becomes a placeholder 
   assert.equal(typeof found.ms, 'number');
   // Without a seen line the deleted line's own time is used (the message's, as the door writes it); the persona's own deleted line reads as hers.
   const own = await deletedLinesOf({
-    record: fakeRecord([deleted('m9', T0 + 2000, 'self')]),
-    placeId: 'g1',
-    conversationId: 'c1',
+    readSince: c1Of(fakeRecord([deleted('m9', T0 + 2000, 'self')])),
     history,
     selfId: 'self',
     selfName: 'Nept',
@@ -79,9 +83,7 @@ test('deletedLinesOf: only the newest `max` placeholders stay, every id is still
   const history = [live('m1', T0)];
   const lines = [1, 2, 3, 4].flatMap((n) => [seen(`d${n}`, T0 + n * 1000), deleted(`d${n}`, T0 + 60_000)]);
   const found = await deletedLinesOf({
-    record: fakeRecord(lines),
-    placeId: 'g1',
-    conversationId: 'c1',
+    readSince: c1Of(fakeRecord(lines)),
     history,
     max: 2,
   });
@@ -95,7 +97,7 @@ test('deletedLinesOf: only the newest `max` placeholders stay, every id is still
       throw new Error('disk');
     },
   };
-  const failed = await deletedLinesOf({ record: broken, placeId: 'g1', conversationId: 'c1', history });
+  const failed = await deletedLinesOf({ readSince: c1Of(broken), history });
   assert.deepEqual([failed.placeholders, failed.deletedIds.size, failed.failed], [[], 0, true]);
 });
 

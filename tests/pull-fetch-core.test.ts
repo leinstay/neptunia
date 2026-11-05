@@ -358,7 +358,8 @@ async function pull(placeId: string, over: PullOver = {}): Promise<Result> {
   const snapshot = rest.snapshot ?? (await takeSnapshot(world().reads, GUILD_ID, viewers));
   return fetchPull({
     reads: world().reads,
-    placeId: GUILD_ID,
+    // The caption cache's place (plan 2026-11-05 T.4).
+    mediaPlaceId: GUILD_ID,
     conversationId: placeId,
     destination: snapshot?.get(MAIN_ID) ?? null,
     reason: 'mention',

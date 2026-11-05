@@ -404,7 +404,6 @@ export function createAct(ctx: ActContext): Act {
       pickOn
         ? mediaPick.pick({
             placeId: channel.id,
-            conversationId: channel.id,
             capability,
             messages: parsed.messages,
             history,

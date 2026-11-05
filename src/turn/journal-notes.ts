@@ -247,14 +247,9 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     return withTriggers(lines, triggerLinks);
   }
 
-  /**
-   * The key of the place a channel is (interface + server or private chat + channel).
-   */
-  function placeOf(channel: NotesChannel, placeId: string | null = null): string {
-    return placeKey({
-      placeId: inCommunity(channel) ? (placeId ?? channel.rootId ?? null) : null,
-      conversationId: channel.id,
-    });
+  /** The key of the place a channel is (interface + conversation). */
+  function placeOf(channel: NotesChannel): string {
+    return placeKey({ conversationId: channel.id });
   }
 
   /**
@@ -276,7 +271,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     mode: string | null | undefined;
   }): { text: string; relation: 'earlier'; ageMs: number } | null {
     if (draft.inner || mode === 'selfreflection') return null;
-    const picked = thinks.select(placeOf(channel, placeId), {
+    const picked = thinks.select(placeOf(channel), {
       now: clock(),
       minutes: PREVIOUS_THINK_MINUTES,
       isPrivate,
@@ -310,10 +305,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
       if (!channel) return;
       const failed = outcome === 'error' || outcome === 'refused';
       if (!failed && outcome !== 'spoke' && outcome !== 'skip') return;
-      const placeId = args.placeId ?? channel.rootId ?? null;
-      const delivered = [...(draft.deliveredIn ?? [])].map((id) =>
-        placeKey({ placeId: inCommunity(channel) ? placeId : null, conversationId: id })
-      );
+      const delivered = [...(draft.deliveredIn ?? [])].map((id) => placeKey({ conversationId: id }));
       thinks.record({
         turnId: draft.started?.turnId ?? draft.turnKey?.turnId ?? null,
         at: clock(),
@@ -321,7 +313,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
         failed,
         isPrivate: !inCommunity(channel),
         inner: Boolean(args.inner),
-        ran: placeOf(channel, placeId),
+        ran: placeOf(channel),
         delivered,
       });
     } catch (err) {
