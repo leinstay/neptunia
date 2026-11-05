@@ -71,8 +71,11 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
 ];
 
 const HELPER_ALLOWED: ReadonlyArray<Allowed> = [
-  // Git's own configuration key for its credential program, not a model.
-  { file: 'src/development/edges.ts', pattern: /credential\.https:\/\/github\.com\.helper/ },
+  {
+    file: 'src/development/edges.ts',
+    pattern: /credential\.https:\/\/github\.com\.helper/,
+    why: "git's own configuration key for its credential program, not a model",
+  },
   { file: 'src/llm/limits.ts', pattern: /'helper-(timeout|fallback)'/, why: 'limit kinds the journal stores' },
   { file: 'src/turn/phases/request/wait.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/behavior/participation-pick.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
