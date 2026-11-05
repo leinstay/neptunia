@@ -145,11 +145,11 @@ function shippedInput(overrides: Record<string, unknown>): object {
 }
 
 test('guard: the wake request carries recent memory the audience rule allows and leaves out what it refuses', () => {
-  const line = (id: number, channelId: string, text: string) => ({
+  const line = (id: number, placeId: string, text: string) => ({
     id,
     at: WAKE_NOW - 2 * HOUR,
     addedAt: iso(WAKE_NOW - HOUR),
-    channelId,
+    placeId,
     text,
     who: [],
     weight: 2,
@@ -157,7 +157,7 @@ test('guard: the wake request carries recent memory the audience rule allows and
   const request = buildRequest(
     shippedInput({
       recentLines: [line(1, 'c1', 'an eligible moment'), line(2, 'c2', 'a private moment')],
-      recentAudience: (channelId: string | null) => channelId === 'c1',
+      recentAudience: (placeId: string | null) => placeId === 'c1',
     })
   );
   const text = requestText(request.messages as never);
@@ -175,7 +175,7 @@ const operation = (turnId: string, tool: string, phase: 'succeeded' | 'failed', 
   ];
 };
 const JOURNAL = {
-  read: (_guild: string, query: { kind: string }) =>
+  read: (query: { kind: string }) =>
     query.kind !== 'action'
       ? []
       : [
@@ -190,7 +190,7 @@ const JOURNAL = {
 };
 const facts = () =>
   buildSelfimprovementFacts({
-    guildId: 'g1',
+    placeId: 'g1',
     now: WAKE_NOW,
     since: null,
     shown: 1,
@@ -264,7 +264,6 @@ test('a blocked task of hers shows why it waits and what would unblock it', asyn
   });
   const view = await proposalsOf(caller);
   const built = await buildSelfimprovementFacts({
-    guildId: 'g1',
     now: WAKE_NOW,
     since: null,
     journal: null,

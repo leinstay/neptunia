@@ -122,7 +122,7 @@ const CONFIG = {
   bot: {
     timezone: 'UTC',
     owners: ['u1'],
-    guildId: 'g1',
+    placeId: 'g1',
     access: { 'memory.search': { everyone: true, roles: [], users: [] } },
   },
   private: { enabled: true, likeServer: true, minAffinity: 0 },

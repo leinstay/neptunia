@@ -27,7 +27,7 @@ function event(eventId: string, room: string, text: string, edit = false): Messa
 
 async function boot(complete?: (messages: unknown, options?: unknown) => Promise<Completion>) {
   const dirs = folders({
-    bot: { timezone: 'UTC', guildId: 'g1', owners: ['u1'] },
+    bot: { timezone: 'UTC', placeId: 'g1', owners: ['u1'] },
     models: { base: { video: false } },
     gifs: { backfillMessages: 0 },
     features: {

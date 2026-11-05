@@ -61,7 +61,7 @@ function line(id: string, minutesAgo: number, content = `ligne ${id} à Zoé`) {
   return {
     id,
     ts: NOW - minutesAgo * MIN,
-    channelId: SRC,
+    placeId: SRC,
     channelName: 'journal-de-zoé',
     authorId: 'w1',
     authorName: 'Zoé',
@@ -76,7 +76,7 @@ function line(id: string, minutesAgo: number, content = `ligne ${id} à Zoé`) {
 /** The pulled record buildRequest reads (interfaces/discord/pull-fetch.ts#fetchPull's shape). */
 function pulledEntry(messages: Array<unknown>, extra: Record<string, unknown> = {}) {
   return {
-    channelId: SRC,
+    placeId: SRC,
     channelName: 'journal-de-zoé',
     readOnly: false,
     reason: 'mention',
@@ -101,11 +101,11 @@ function request(
     mode: 'reply',
     now: NOW,
     selfName: 'Nept',
-    history: [{ ...line('d1', 1), channelId: DEST, channelName: 'général' }],
+    history: [{ ...line('d1', 1), placeId: DEST, channelName: 'général' }],
     neighbors: [],
     trigger: null,
     triggerKind: null,
-    guildMemory: {},
+    placeMemory: {},
     interlocutor: null,
     otherProfiles: [],
     currentChannelId: DEST,
@@ -132,7 +132,7 @@ test('pull seen: a first view carries no seen line and reports its ids, hashes a
   const built = request(PAGE);
   assert.equal(viewOf(built)!.length, 4, 'the header and three lines, nothing else');
   const [shown] = built.pulledViews;
-  assert.equal(shown.channelId, SRC);
+  assert.equal(shown.placeId, SRC);
   assert.deepEqual([...shown.hashes.keys()], ['p4', 'p5', 'p6']);
   assert.equal(shown.oldestTs, NOW - 40 * MIN);
   assert.equal(shown.oldestId, 'p4', 'the oldest window line shown, for an earlier page to start before');

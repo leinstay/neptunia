@@ -56,7 +56,7 @@ const GUILD = '300000000000000001';
 function errandRaw(overrides = {}, scenario = {}) {
   return {
     id: 'errand-1',
-    channelId: HERE,
+    placeId: HERE,
     grants: [],
     taskResult: {
       agent: 'scout',
@@ -138,7 +138,7 @@ function scratchData(t: TestContext, tasksJson: unknown) {
           kind: 'unit',
           op: 'errand',
           owner: `board/errands/${errand.id}`,
-          value: { id: errand.id, guildId: GUILD, at: NOW, errand, delivered: false, closing: null },
+          value: { id: errand.id, placeId: GUILD, at: NOW, errand, delivered: false, closing: null },
           now: NOW,
         });
       }
@@ -178,7 +178,7 @@ function runTask({ config, tasks, agent = 'scout', author = OWNER }: Untyped) {
     view: callViewOf({
       channel,
       snapshot: guildListing(channel),
-      guildId: GUILD,
+      placeId: GUILD,
       idByIndex: new Map(),
       lines: [],
       pulledIds: new Map(),
@@ -215,7 +215,7 @@ test('replay --skills: errand.run passes the sandbox gateway under the live erra
   const tasks = sandboxErrandBudget({
     createErrandStore,
     memoryDb: MEMORY.get(dataDir),
-    guildId: GUILD,
+    placeId: GUILD,
     config: () => config,
     now: () => NOW,
   });
@@ -242,7 +242,7 @@ test('replay --skills: errand.run passes the sandbox gateway under the live erra
   const live = sandboxErrandBudget({
     createErrandStore,
     memoryDb: MEMORY.get(dataDir),
-    guildId: GUILD,
+    placeId: GUILD,
     config: () => lowered,
     now: () => NOW,
   });
@@ -255,7 +255,7 @@ test('replay --skills: errand.run passes the sandbox gateway under the live erra
   const busy = sandboxErrandBudget({
     createErrandStore,
     memoryDb: MEMORY.get(busyDir),
-    guildId: GUILD,
+    placeId: GUILD,
     config: () => config,
     now: () => NOW,
   });
@@ -269,7 +269,7 @@ test('replay --skills: errand.run passes the sandbox gateway under the live erra
   const empty = sandboxErrandBudget({
     createErrandStore,
     memoryDb: MEMORY.get(emptyDir),
-    guildId: GUILD,
+    placeId: GUILD,
     config: () => config,
     now: () => NOW,
   });
@@ -284,7 +284,7 @@ test('parseScenarios: a taskResult scenario takes the place of author and text; 
   const [scenario] = load([errandRaw({ text: undefined, files: undefined })]);
   assert.deepEqual(scenario, {
     id: 'errand-1',
-    channelId: HERE,
+    placeId: HERE,
     before: null,
     taskResult: {
       agent: 'scout',
@@ -345,7 +345,7 @@ test('scenarioTask: the errand as the store keeps a finished task; its files res
     ['scout', 'done', null, 'group', false]
   );
   assert.deepEqual(asRecord(task).requester, { userId: MEMBER, kind: 'member' });
-  assert.deepEqual(asRecord(task).origin, { channelId: HERE, messageId: null });
+  assert.deepEqual(asRecord(task).origin, { placeId: HERE, messageId: null });
   assert.equal(
     asRecord(
       scenarioTask(load([errandRaw({ state: 'failed' })])[0] as unknown as Parameters<typeof scenarioTask>[0], {
@@ -384,19 +384,19 @@ test("replay --skills taskResult: the turn an errand's end opens; her message.cr
     },
   };
   const store = {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
     state: { data: {} },
   };
-  const view = liveView({ hot, store, guildId: GUILD });
+  const view = liveView({ hot, store, placeId: GUILD });
   const here = { id: HERE, name: 'γενικά' };
   const history = [
     {
       id: '400000000000000001',
-      channelId: HERE,
+      placeId: HERE,
       channelName: 'γενικά',
       authorId: OWNER,
       authorName: 'Élodie',
@@ -421,7 +421,7 @@ test("replay --skills taskResult: the turn an errand's end opens; her message.cr
   const tasks = sandboxErrandBudget({
     createErrandStore,
     memoryDb: MEMORY.get(dataDir),
-    guildId: GUILD,
+    placeId: GUILD,
     config: () => config,
     now: () => NOW,
   });
@@ -461,7 +461,7 @@ test("replay --skills taskResult: the turn an errand's end opens; her message.cr
         view: callViewOf({
           channel,
           snapshot: guildListing(channel),
-          guildId: GUILD,
+          placeId: GUILD,
           idByIndex,
           lines,
           pulledIds: new Map(),
@@ -516,7 +516,7 @@ test("replay --skills taskResult: the turn an errand's end opens; her message.cr
     view: callViewOf({
       channel,
       snapshot: guildListing(channel),
-      guildId: GUILD,
+      placeId: GUILD,
       idByIndex: new Map(),
       lines: [],
       pulledIds: new Map(),

@@ -37,7 +37,7 @@ type Call = { inner: { wake: { kind: string; chainId: string } } };
 /** An inner life over the settings given, a clock of its own and a turn runner that records and answers skip. */
 function lifeWith(sections: Record<string, unknown>, start: number, rng: () => number = () => 0.5) {
   const clock = { t: start };
-  world().channel({ id: 'c1', name: 'chan-c1', guildId: GUILD, permissions: { send: true } });
+  world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
@@ -52,7 +52,6 @@ function lifeWith(sections: Record<string, unknown>, start: number, rng: () => n
   const service = createIntentionService({
     stores: createIntentionStores({ dataDir: tempDir('nep-svc-'), now: () => clock.t, log: SILENT }),
     hot,
-    getGuildId: () => GUILD,
     now: () => clock.t,
     log: SILENT,
   });
@@ -81,7 +80,6 @@ function lifeWith(sections: Record<string, unknown>, start: number, rng: () => n
     conversationName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
-    getGuildId: () => GUILD,
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
     selfimprovement: {
       granted: () => [],
@@ -106,10 +104,10 @@ test('heartbeat every 4h draws its moment on that interval, with the jitter of t
   const start = at('2026-11-04T05:00:00Z');
   const low = lifeWith({ heartbeat: { schedule: 'every 4h', jitterMinutes: 45 } }, start, () => 0);
   await low.life.tick();
-  assert.equal(low.life.state(GUILD).heartbeat?.nextAt, start + 4 * HOUR - 45 * MINUTE);
+  assert.equal(low.life.state().heartbeat?.nextAt, start + 4 * HOUR - 45 * MINUTE);
   const middle = lifeWith({ heartbeat: { schedule: 'every 4h', jitterMinutes: 45 } }, start, () => 0.5);
   await middle.life.tick();
-  assert.equal(middle.life.state(GUILD).heartbeat?.nextAt, start + 4 * HOUR);
+  assert.equal(middle.life.state().heartbeat?.nextAt, start + 4 * HOUR);
 });
 
 test('heartbeat at daily times takes the next slot exactly, with no jitter on it', async () => {
@@ -117,7 +115,7 @@ test('heartbeat at daily times takes the next slot exactly, with no jitter on it
   const start = at('2026-11-04T07:00:00Z');
   const run = lifeWith({ heartbeat: { schedule: 'at 06:00,18:00', jitterMinutes: 60 } }, start, () => 0);
   await run.life.tick();
-  assert.equal(run.life.state(GUILD).heartbeat?.nextAt, at('2026-11-04T18:00:00Z'));
+  assert.equal(run.life.state().heartbeat?.nextAt, at('2026-11-04T18:00:00Z'));
 });
 
 for (const schedule of ['every 4h', 'at 06:00,18:00']) {
@@ -132,10 +130,10 @@ for (const schedule of ['every 4h', 'at 06:00,18:00']) {
       run.clock.t += MINUTE;
     }
     assert.ok(wakesOf(run.calls, 'heartbeat').length <= 1, String(run.calls.length));
-    const next = run.life.state(GUILD).heartbeat?.nextAt ?? 0;
+    const next = run.life.state().heartbeat?.nextAt ?? 0;
     assert.ok(next > run.clock.t - 5 * MINUTE, 'the next moment is drawn from now, never from a missed slot');
     if (schedule === 'every 4h') {
-      const last = run.life.state(GUILD).heartbeat?.lastAt ?? 0;
+      const last = run.life.state().heartbeat?.lastAt ?? 0;
       assert.ok(next - last >= 4 * HOUR && next - last <= 4 * HOUR + 10 * MINUTE, String(next - last));
     } else assert.ok(['06:00', '18:00'].includes(new Date(next).toISOString().slice(11, 16)));
   });

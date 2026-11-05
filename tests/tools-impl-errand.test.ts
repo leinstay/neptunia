@@ -78,7 +78,7 @@ function makeEnv({ errandSettings = {}, agents = {}, configured = true } = {}) {
     client,
     stores,
     hot,
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     onFinished: (task: Untyped) => finished.push(task),
   } as unknown as Parameters<typeof createErrandService>[0]);
   const store = { state: { data: {}, markDirty() {} } };
@@ -89,7 +89,7 @@ function makeEnv({ errandSettings = {}, agents = {}, configured = true } = {}) {
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     errands,
   });
   return { env, client, errands, finished, stores };
@@ -97,8 +97,8 @@ function makeEnv({ errandSettings = {}, agents = {}, configured = true } = {}) {
 
 const ctx = (env: unknown, userId: string | null, extra = {}) => ({
   env,
-  guildId: 'g1',
-  channelId: 'c1',
+  placeId: 'g1',
+  conversationId: 'c1',
   userId,
   roleIds: [],
   ...extra,
@@ -117,9 +117,9 @@ test('errand.run: a member may run the scout agent; the answer is at once, the e
     assert.equal(state, 'queued');
     assert.match(result.summary, new RegExp(`^task ${id}: queued`));
     assert.equal(client.runs.length, 0, 'nothing was sent before the answer');
-    const task = stores.get('g1')?.get(id);
+    const task = stores.get()?.get(id);
     assert.deepEqual(task?.requester, { userId: MEMBER, kind: 'member' });
-    assert.deepEqual(task?.origin, { channelId: 'c1', messageId: 'm5' });
+    assert.deepEqual(task?.origin, { placeId: 'c1', messageId: 'm5' });
     assert.equal(task?.scope, 'group');
     await new Promise((r) => setImmediate(r));
     assert.equal(client.runs.length, 1);
@@ -130,10 +130,10 @@ test('errand.run: a member may run the scout agent; the answer is at once, the e
       'the profile defaults under agents.scout.limits'
     );
     assert.equal(Object.hasOwn(client.runs[0], 'model'), false, 'no model: the runner takes models.errands.scout');
-    assert.equal(stores.get('g1')?.get(id)?.state, 'running');
+    assert.equal(stores.get()?.get(id)?.state, 'running');
     client.end(id);
     await errands.idle();
-    assert.equal(stores.get('g1')?.get(id)?.state, 'done');
+    assert.equal(stores.get()?.get(id)?.state, 'done');
     assert.deepEqual(
       finished.map((t) => t.id),
       [id]
@@ -167,9 +167,7 @@ test('errand.run: a member may not run the server agent; an owner may', async ()
     const allowed = await runOp(
       'errand.run',
       { agent: 'server', goal: 'list the units' },
-      ctx(env, OWNER, { actor: 'persona', privateChat: true, channelId: 'dm1' }) as unknown as Parameters<
-        typeof runOp
-      >[2]
+      ctx(env, OWNER, { actor: 'persona', privateChat: true, placeId: 'dm1' }) as unknown as Parameters<typeof runOp>[2]
     );
     assert.equal(allowed.status, 'ok');
     await new Promise((r) => setImmediate(r));
@@ -248,7 +246,7 @@ test('errand.cancel: only the requester of the task or an owner', async () => {
     assert.equal(refused.code, 'not-requester');
     const own = await runOp('errand.cancel', { id: first }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2]);
     assert.equal(own.status, 'ok');
-    assert.equal(stores.get('g1')?.get(first)?.state, 'cancelled');
+    assert.equal(stores.get()?.get(first)?.state, 'cancelled');
     assert.deepEqual(
       client.cancels.map((t) => t.id),
       [first],
@@ -296,7 +294,7 @@ test("errand.status and errand.list: the open ones, one by id, a private chat's 
           await runOp(
             'errand.run',
             { agent: 'scout', goal: 'private errand' },
-            ctx(env, MEMBER, { privateChat: true, channelId: 'dm1' }) as unknown as Parameters<typeof runOp>[2]
+            ctx(env, MEMBER, { privateChat: true, placeId: 'dm1' }) as unknown as Parameters<typeof runOp>[2]
           )
         ).data
       ).task.id
@@ -421,7 +419,7 @@ test('errand.status without an id lists the open tasks and the finished ones not
     const read = await runOp('errand.read', { id: done }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2]);
     assert.equal(read.status, 'ok');
     assert.ok(read.summary.includes('the answer'));
-    assert.equal((stores.get('g1')?.get(done)?.readAt ?? 0) > 0, true);
+    assert.equal((stores.get()?.get(done)?.readAt ?? 0) > 0, true);
     assert.equal(
       (await runOp('errand.status', {}, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2])).summary,
       'no open tasks',
@@ -451,7 +449,7 @@ test('errand.read: pages of errands.resultMaxChars, the last page marks it read;
     assert.ok(first.includes(`file: file:${id}/a.png (image/png, 12 bytes)`));
     assert.ok(first.includes('result: characters 0-10 of 25'));
     assert.ok(first.includes('abcdefghij') && first.includes('next: from=10'));
-    assert.equal(stores.get('g1')?.get(id)?.readAt, null, 'not read until the last page');
+    assert.equal(stores.get()?.get(id)?.readAt, null, 'not read until the last page');
     const second = (
       await runOp('errand.read', { id, from: 10 }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2])
     ).summary.split('\n');
@@ -464,7 +462,7 @@ test('errand.read: pages of errands.resultMaxChars, the last page marks it read;
       await runOp('errand.read', { id, from: 20 }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2])
     ).summary.split('\n');
     assert.ok(last.includes('uvwxy') && !last.some((line) => line.startsWith('next:')));
-    assert.equal((stores.get('g1')?.get(id)?.readAt ?? 0) > 0, true);
+    assert.equal((stores.get()?.get(id)?.readAt ?? 0) > 0, true);
     assert.equal(
       (await runOp('errand.read', { id, from: 99 }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2])).status,
       'invalid'
@@ -508,7 +506,7 @@ test("errand.read: an expired file is marked and has no handle; a failed task sh
       (await runOp('errand.read', { id: 'tnope' }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2])).code,
       'not-found'
     );
-    const dm = await finishedTask(fixture, 'private', { text: 'secret' }, { privateChat: true, channelId: 'dm1' });
+    const dm = await finishedTask(fixture, 'private', { text: 'secret' }, { privateChat: true, placeId: 'dm1' });
     assert.equal(
       (await runOp('errand.read', { id: dm }, ctx(env, OTHER) as unknown as Parameters<typeof runOp>[2])).code,
       'not-found'
@@ -518,7 +516,7 @@ test("errand.read: an expired file is marked and has no handle; a failed task sh
         await runOp(
           'errand.read',
           { id: dm },
-          ctx(env, MEMBER, { channelId: 'dm1', privateChat: true }) as unknown as Parameters<typeof runOp>[2]
+          ctx(env, MEMBER, { placeId: 'dm1', privateChat: true }) as unknown as Parameters<typeof runOp>[2]
         )
       ).status,
       'ok'
@@ -534,7 +532,7 @@ test('errand.resolve: closes a finished task of her view so the list drops it; a
     const answer = await runOp('errand.resolve', { id }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2]);
     assert.equal(answer.status, 'ok');
     assert.equal(answer.summary, `task ${id}: resolved`);
-    assert.equal((stores.get('g1')?.get(id)?.resolvedAt ?? 0) > 0, true);
+    assert.equal((stores.get()?.get(id)?.resolvedAt ?? 0) > 0, true);
     assert.equal(
       (await runOp('errand.status', {}, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2])).summary,
       'no open tasks'

@@ -3,8 +3,8 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createVectors, dequantize, quantize } from '../src/memory/vectors.ts';
-import { classify } from '../src/memory/db/map/index.ts';
-import type { MappedPath } from '../src/memory/db/map/index.ts';
+import { MAPPERS } from '../src/memory/db/map/index.ts';
+import { placeCollection } from '../src/memory/db/storage-keys.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import { filesOfUnit } from '../src/memory/db/export.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
@@ -55,7 +55,7 @@ function meta(id: string, overrides: Record<string, unknown> = {}) {
     id,
     revision: 1,
     occurredAt: '2026-10-12T10:00:00.000Z',
-    channelId: 'c1',
+    placeId: 'c1',
     by: 'u1',
     participants: ['u1'],
     sourceIds: [id],
@@ -80,22 +80,20 @@ async function scene(options: Partial<Parameters<typeof createVectors>[0]> = {})
 type MemoryDb = Awaited<ReturnType<typeof scene>>['memoryDb'];
 
 /** The files a month of the index stands for (`manifest.json`, `<gen>.i8`, `<gen>.jsonl`), from the database: name -> bytes. */
-function monthFiles(memoryDb: MemoryDb, month: string, privateUserId: string | null = null) {
-  const rel = privateUserId
-    ? `guilds/g1/private/${privateUserId}/vectors/${month}/manifest.json`
-    : `guilds/g1/vectors/${month}/manifest.json`;
-  // The path is a vectors file, so it classifies as a mapped path.
-  const info = classify(rel) as MappedPath;
-  const full = `guilds/g1/${info.unit}`;
+function monthFiles(memoryDb: MemoryDb, month: string, placeId = 'g1') {
   const handle = memoryDb.readHandle();
   if (!handle) throw new Error('the memory database is not open');
+  const key = placeCollection('vectors', placeId, { partition: month });
+  const unit = `vectors/${month}`;
   return new Map(
-    filesOfUnit(handle.db as Db, info.unit, info, full).map((file) => [file.rel.split('/').at(-1) as string, file.data])
+    filesOfUnit(handle.db as Db, unit, { kind: 'vectors', mapper: MAPPERS.vectors, format: 'vectors', unit }, key).map(
+      (file) => [file.rel.split('/').at(-1) as string, file.data]
+    )
   );
 }
 
-function manifestOf(memoryDb: MemoryDb, month: string, privateUserId: string | null = null) {
-  return JSON.parse(monthFiles(memoryDb, month, privateUserId).get('manifest.json')?.toString('utf8') as string);
+function manifestOf(memoryDb: MemoryDb, month: string, placeId = 'g1') {
+  return JSON.parse(monthFiles(memoryDb, month, placeId).get('manifest.json')?.toString('utf8') as string);
 }
 
 const ids = (hits: ReadonlyArray<{ meta: object }>) => hits.map((hit) => (hit.meta as { id: string }).id);
@@ -187,13 +185,14 @@ test('vectors: a private layer is kept apart from the guild index and from other
   const rng = seeded(9);
   const q = randomVector(rng, 16);
   await vectors.append('g1', [{ meta: meta('guild'), vector: near(q, rng, 0.1) }]);
-  await vectors.append('g1', [{ meta: meta('dm-a'), vector: near(q, rng, 0.1) }], { privateUserId: 'u3' });
-  await vectors.append('g1', [{ meta: meta('dm-b'), vector: near(q, rng, 0.1) }], { privateUserId: 'u4' });
-  assert.equal(manifestOf(memoryDb, '2026-10', 'u3').rows, 1);
+  // A private chat is its own place, so its index is that place's.
+  await vectors.append('dm-u3', [{ meta: meta('dm-a'), vector: near(q, rng, 0.1) }]);
+  await vectors.append('dm-u4', [{ meta: meta('dm-b'), vector: near(q, rng, 0.1) }]);
+  assert.equal(manifestOf(memoryDb, '2026-10', 'dm-u3').rows, 1);
   assert.deepEqual(ids(await vectors.search('g1', q, { k: 10 })), ['guild']);
-  assert.deepEqual(ids(await vectors.search('g1', q, { k: 10, privateUserId: 'u3' })), ['dm-a']);
-  assert.deepEqual(ids(await vectors.search('g1', q, { k: 10, privateUserId: 'u4' })), ['dm-b']);
-  assert.equal((await vectors.stats('g1', { privateUserId: 'u4' })).rows, 1);
+  assert.deepEqual(ids(await vectors.search('dm-u3', q, { k: 10 })), ['dm-a']);
+  assert.deepEqual(ids(await vectors.search('dm-u4', q, { k: 10 })), ['dm-b']);
+  assert.equal((await vectors.stats('dm-u4')).rows, 1);
 });
 
 test('vectors: search time over 20 000 rows of 1024 dims (measured, not asserted)', async (t) => {
@@ -285,8 +284,8 @@ test('vectors: has lists the kind, id and revision of every row of a month, kept
     'a rewrite shows at once'
   );
   assert.equal((await vectors.has('g1', '2026-09')).size, 0, 'another month');
-  await vectors.append('g1', [{ meta: meta('p'), vector: randomVector(rng, 8) }], { privateUserId: 'u9' });
-  assert.deepEqual([...(await vectors.has('g1', '2026-10', { privateUserId: 'u9' }))], ['record:p:1']);
+  await vectors.append('dm-u9', [{ meta: meta('p'), vector: randomVector(rng, 8) }]);
+  assert.deepEqual([...(await vectors.has('dm-u9', '2026-10'))], ['record:p:1']);
   assert.equal(
     (await vectors.has('g1', '2026-10')).has('record:p:1'),
     false,

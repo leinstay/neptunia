@@ -2,7 +2,9 @@
 // expiry, dedupe, caps and remove; the live view; the purge of a member; the
 // fold) and src/memory/mentions.ts#tokenIds, plus the store's read path where a
 // rule is about "on read" versus "at the next write".
+import { placeOfCommunity } from '../src/memory/addresses.ts';
 import { after, test } from 'node:test';
+import { keyOfRel, unitText } from './fixtures/store-kit.ts';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import {
@@ -33,7 +35,7 @@ const KIPOS = '900000000000000002';
 /** A stored line as the store holds it. */
 function line(id: number, fields: Record<string, unknown> = {}) {
   const text = (fields.text as string | undefined) ?? `γραμμή ${id}`;
-  return { id, at: NOW - HOUR_MS, addedAt: NOW_ISO, channelId: AGORA, text, who: tokenIds(text), weight: 2, ...fields };
+  return { id, at: NOW - HOUR_MS, addedAt: NOW_ISO, placeId: AGORA, text, who: tokenIds(text), weight: 2, ...fields };
 }
 
 function stored<TLine extends { id: number }>(lines: Array<TLine>, nextId?: number) {
@@ -58,20 +60,20 @@ const memoryOf = (dir: string) =>
 const unitOf = (file: string) => [...MEMORY.keys()].find((dir) => file.startsWith(dir + path.sep)) as string;
 const relOf = (dir: string, file: string) => path.relative(dir, file).split(path.sep).join('/');
 
-function recentFileOf(dir: string, guildId: string) {
-  return path.join(dir, 'guilds', guildId, 'recent.json');
+function recentFileOf(dir: string, placeId: string) {
+  return path.join(dir, 'guilds', placeId, 'recent.json');
 }
 
 /** `value` as the unit `file` stands for, written into its data directory's database (a hand edit). */
 function writeRaw(file: string, value: unknown) {
   const dir = unitOf(file);
-  return memoryOf(dir).writeUnit({ op: 'value', owner: relOf(dir, file), value });
+  return memoryOf(dir).writeUnit({ op: 'value', key: keyOfRel(relOf(dir, file)), value });
 }
 
 /** The unit `file` stands for, as the text of that file, from the database. */
 function readRaw(file: string) {
   const dir = unitOf(file);
-  return unitFile(memoryOf(dir), relOf(dir, file));
+  return unitText(memoryOf(dir), relOf(dir, file));
 }
 
 /** One turn of the event loop: the writes a flush handed to the database have run. */
@@ -124,27 +126,27 @@ test('recent: a new line gets the next id and the member ids of its tokens', () 
   const snapshot = structuredClone(before);
   const text = `<@${ELENI}> χάρισε έναν βάτραχο, <@${NIKOS}> γέλασε και <@${ELENI}> τον ονόμασε`;
 
-  const result = mergeRecent(before, [{ text, at: NOW - 2 * HOUR_MS, channelId: KIPOS, weight: 3 }], { now: NOW });
+  const result = mergeRecent(before, [{ text, at: NOW - 2 * HOUR_MS, placeId: KIPOS, weight: 3 }], { now: NOW });
 
   assert.deepEqual(countsOf(result), counts({ added: 1 }));
   assert.equal(result.value.nextId, 8);
   assert.deepEqual(result.value.lines, [
     line(6),
-    { id: 7, at: NOW - 2 * HOUR_MS, addedAt: NOW_ISO, channelId: KIPOS, text, who: [ELENI, NIKOS], weight: 3 },
+    { id: 7, at: NOW - 2 * HOUR_MS, addedAt: NOW_ISO, placeId: KIPOS, text, who: [ELENI, NIKOS], weight: 3 },
   ]);
   assert.deepEqual(before, snapshot, 'what was stored is never mutated');
 
   // `who` comes from the text alone: an incoming `who` (or `id`, `addedAt`) is never taken
   const told = mergeRecent(
     before,
-    [{ text: `<@${ELENI}> ήρθε`, at: NOW, channelId: KIPOS, who: [NIKOS], id: 99, addedAt: 'χθες' }],
+    [{ text: `<@${ELENI}> ήρθε`, at: NOW, placeId: KIPOS, who: [NIKOS], id: 99, addedAt: 'χθες' }],
     { now: NOW }
   );
   assert.deepEqual(told.value.lines[1], {
     id: 7,
     at: NOW,
     addedAt: NOW_ISO,
-    channelId: KIPOS,
+    placeId: KIPOS,
     text: `<@${ELENI}> ήρθε`,
     who: [ELENI],
     weight: 2,
@@ -155,16 +157,16 @@ test('recent: every stored line records its text, time, channel, weight and memb
   const { value } = mergeRecent(
     emptyRecent(),
     [
-      { text: '  μια   γραμμή\nσε δύο σειρές ', at: NOW - HOUR_MS, channelId: ` ${AGORA} ` },
-      { text: 'βαριά', at: NOW - HOUR_MS, channelId: AGORA, weight: 9 },
-      { text: 'ελαφριά', at: NOW - HOUR_MS, channelId: AGORA, weight: -4 },
-      { text: 'μισή', at: NOW - HOUR_MS, channelId: AGORA, weight: 2.5 },
-      { text: 'χωρίς ώρα', at: 'χθες', channelId: AGORA },
+      { text: '  μια   γραμμή\nσε δύο σειρές ', at: NOW - HOUR_MS, placeId: ` ${AGORA} ` },
+      { text: 'βαριά', at: NOW - HOUR_MS, placeId: AGORA, weight: 9 },
+      { text: 'ελαφριά', at: NOW - HOUR_MS, placeId: AGORA, weight: -4 },
+      { text: 'μισή', at: NOW - HOUR_MS, placeId: AGORA, weight: 2.5 },
+      { text: 'χωρίς ώρα', at: 'χθες', placeId: AGORA },
     ],
     { now: NOW, maxNew: 10 }
   );
   assert.deepEqual(
-    value.lines.map((l) => [l.text, l.at, l.channelId, l.weight, l.who]),
+    value.lines.map((l) => [l.text, l.at, l.placeId, l.weight, l.who]),
     [
       ['μια γραμμή σε δύο σειρές', NOW - HOUR_MS, AGORA, 2, []],
       ['βαριά', NOW - HOUR_MS, AGORA, 3, []],
@@ -181,16 +183,16 @@ test('recent: an add without a source channel, without text or already past the 
     emptyRecent(),
     [
       { text: 'χωρίς κανάλι', at: NOW - HOUR_MS },
-      { text: 'κενό κανάλι', at: NOW - HOUR_MS, channelId: '  ' },
-      { text: 'αριθμός', at: NOW - HOUR_MS, channelId: 900000000000000000 },
-      { text: 'κανάλι null', at: NOW - HOUR_MS, channelId: null },
-      { text: '   ', at: NOW - HOUR_MS, channelId: AGORA },
-      { at: NOW - HOUR_MS, channelId: AGORA },
-      { text: '', channelId: null },
-      { text: 'παλιό', at: NOW - 73 * HOUR_MS, channelId: AGORA },
+      { text: 'κενό κανάλι', at: NOW - HOUR_MS, placeId: '  ' },
+      { text: 'αριθμός', at: NOW - HOUR_MS, placeId: 900000000000000000 },
+      { text: 'κανάλι null', at: NOW - HOUR_MS, placeId: null },
+      { text: '   ', at: NOW - HOUR_MS, placeId: AGORA },
+      { at: NOW - HOUR_MS, placeId: AGORA },
+      { text: '', placeId: null },
+      { text: 'παλιό', at: NOW - 73 * HOUR_MS, placeId: AGORA },
       'σκέτο κείμενο',
       null,
-      { text: 'μένει', at: NOW - HOUR_MS, channelId: AGORA },
+      { text: 'μένει', at: NOW - HOUR_MS, placeId: AGORA },
     ],
     { now: NOW, maxNew: 10 }
   );
@@ -204,7 +206,7 @@ test('recent: an add without a source channel, without text or already past the 
 
 test('recent: a long text is cut at a clean boundary to chars, never inside a token', () => {
   const text = `<@${ELENI}> ${'λέξη '.repeat(60)}`;
-  const { value } = mergeRecent(emptyRecent(), [{ text, at: NOW, channelId: AGORA }], {
+  const { value } = mergeRecent(emptyRecent(), [{ text, at: NOW, placeId: AGORA }], {
     now: NOW,
     chars: 40,
     clampTolerance: 1,
@@ -221,9 +223,9 @@ test('recent: a line with the same folded text as a live one is not stored twice
   const result = mergeRecent(
     before,
     [
-      { text: 'η ελενη   ΕΦΕΡΕ καφε', at: NOW, channelId: KIPOS },
-      { text: 'Ο Νίκος έχασε το κλειδί', at: NOW, channelId: AGORA },
-      { text: 'ο νικος εχασε το κλειδι', at: NOW, channelId: KIPOS },
+      { text: 'η ελενη   ΕΦΕΡΕ καφε', at: NOW, placeId: KIPOS },
+      { text: 'Ο Νίκος έχασε το κλειδί', at: NOW, placeId: AGORA },
+      { text: 'ο νικος εχασε το κλειδι', at: NOW, placeId: KIPOS },
     ],
     { now: NOW }
   );
@@ -253,7 +255,7 @@ test('recent: lines older than recentHours go at the next write, never on read',
   assert.equal(result.value.nextId, 4, 'an expired id is never reused');
 
   // an expired line's text can come back as a new line
-  const again = mergeRecent(stored([old, fresh]), [{ text: 'παλιά', at: NOW, channelId: AGORA }], {
+  const again = mergeRecent(stored([old, fresh]), [{ text: 'παλιά', at: NOW, placeId: AGORA }], {
     now: NOW,
     hours: 72,
   });
@@ -273,24 +275,24 @@ test('recent: lines older than recentHours go at the next write, never on read',
   const raw = readRaw(file);
   const store = createStore({ dataDir: dir, memoryDb: memoryOf(dir) });
   assert.deepEqual(
-    store.getRecent('g1').lines.map((l) => l.id),
+    store.getRecent(placeOfCommunity(store, 'g1')).lines.map((l) => l.id),
     [1, 2, 3]
   );
   assert.deepEqual(
-    liveRecent(store.getRecent('g1').lines, { now: NOW, hours: 24 }).map((l) => l.id),
+    liveRecent(store.getRecent(placeOfCommunity(store, 'g1')).lines, { now: NOW, hours: 24 }).map((l) => l.id),
     [3]
   );
   store.flush();
   await settle();
   assert.equal(readRaw(file), raw, 'a read rewrites nothing');
 
-  const counts = store.applyRecentOps('g1', [], { now: NOW, hours: 72 });
+  const counts = store.applyRecentOps(placeOfCommunity(store, 'g1'), [], { now: NOW, hours: 72 });
   assert.equal(counts.expired, 1);
   store.flush();
   await settle();
   assert.deepEqual(
     createStore({ dataDir: dir, memoryDb: memoryOf(dir) })
-      .getRecent('g1')
+      .getRecent(placeOfCommunity(store, 'g1'))
       .lines.map((l) => l.id),
     [2, 3]
   );
@@ -303,7 +305,7 @@ test('recent: past maxStored the lightest, then the oldest lines go first', () =
     line(3, { weight: 1, at: NOW - 8 * HOUR_MS }),
     line(4, { weight: 3, at: NOW - 20 * HOUR_MS }),
   ]);
-  const result = mergeRecent(before, [{ text: 'νέα', at: NOW - HOUR_MS, channelId: AGORA, weight: 2 }], {
+  const result = mergeRecent(before, [{ text: 'νέα', at: NOW - HOUR_MS, placeId: AGORA, weight: 2 }], {
     now: NOW,
     maxStored: 3,
   });
@@ -316,7 +318,7 @@ test('recent: past maxStored the lightest, then the oldest lines go first', () =
 
   // equal weight and time: the lower id goes first
   const tie = stored([line(1, { at: NOW - HOUR_MS }), line(2, { at: NOW - HOUR_MS })]);
-  const tied = mergeRecent(tie, [{ text: 'τρίτη', at: NOW - HOUR_MS, channelId: AGORA }], { now: NOW, maxStored: 2 });
+  const tied = mergeRecent(tie, [{ text: 'τρίτη', at: NOW - HOUR_MS, placeId: AGORA }], { now: NOW, maxStored: 2 });
   assert.deepEqual(
     tied.value.lines.map((l) => l.id),
     [2, 3]
@@ -328,8 +330,8 @@ test('recent: past maxStored the lightest, then the oldest lines go first', () =
   const bounced = mergeRecent(
     full,
     [
-      { text: 'ελαφριά', at: NOW - 3 * HOUR_MS, channelId: AGORA, weight: 1 },
-      { text: 'βαριά', at: NOW - HOUR_MS, channelId: AGORA, weight: 3 },
+      { text: 'ελαφριά', at: NOW - 3 * HOUR_MS, placeId: AGORA, weight: 1 },
+      { text: 'βαριά', at: NOW - HOUR_MS, placeId: AGORA, weight: 3 },
     ],
     { now: NOW, maxStored: 2 }
   );
@@ -342,7 +344,7 @@ test('recent: past maxStored the lightest, then the oldest lines go first', () =
     ]
   );
   assert.equal(bounced.value.nextId, 4);
-  const only = mergeRecent(full, [{ text: 'ελαφριά', at: NOW - 3 * HOUR_MS, channelId: AGORA, weight: 1 }], {
+  const only = mergeRecent(full, [{ text: 'ελαφριά', at: NOW - 3 * HOUR_MS, placeId: AGORA, weight: 1 }], {
     now: NOW,
     maxStored: 2,
   });
@@ -356,7 +358,7 @@ test('recent: past maxStored the lightest, then the oldest lines go first', () =
   assert.equal(quiet.value.lines.length, 3);
 
   // ... and when one comes, the cap holds again, even if the new line is among those it takes
-  const lowered = mergeRecent(many, [{ text: 'ελαφριά', at: NOW - 2 * HOUR_MS, channelId: AGORA, weight: 1 }], {
+  const lowered = mergeRecent(many, [{ text: 'ελαφριά', at: NOW - 2 * HOUR_MS, placeId: AGORA, weight: 1 }], {
     now: NOW,
     maxStored: 1,
   });
@@ -372,12 +374,12 @@ test('recent: at most maxNew lines are taken from one batch', () => {
     stored([line(1, { text: 'υπάρχει' })]),
     [
       { text: 'χωρίς κανάλι', at: NOW },
-      { text: 'Υπάρχει', at: NOW, channelId: AGORA },
-      { text: 'α', at: NOW, channelId: AGORA },
-      { text: 'β', at: NOW, channelId: AGORA },
-      { text: 'γ', at: NOW, channelId: AGORA },
-      { text: 'δ', at: NOW, channelId: AGORA },
-      { text: 'Α', at: NOW, channelId: AGORA },
+      { text: 'Υπάρχει', at: NOW, placeId: AGORA },
+      { text: 'α', at: NOW, placeId: AGORA },
+      { text: 'β', at: NOW, placeId: AGORA },
+      { text: 'γ', at: NOW, placeId: AGORA },
+      { text: 'δ', at: NOW, placeId: AGORA },
+      { text: 'Α', at: NOW, placeId: AGORA },
     ],
     { now: NOW, maxNew: 3 }
   );
@@ -391,14 +393,14 @@ test('recent: at most maxNew lines are taken from one batch', () => {
     ['υπάρχει', 'α', 'β', 'γ']
   );
 
-  const none = mergeRecent(emptyRecent(), [{ text: 'α', at: NOW, channelId: AGORA }], { now: NOW, maxNew: 0 });
+  const none = mergeRecent(emptyRecent(), [{ text: 'α', at: NOW, placeId: AGORA }], { now: NOW, maxNew: 0 });
   assert.deepEqual(countsOf(none), counts({ overCap: 1 }));
   assert.equal(none.value.lines.length, 0);
 });
 
 test('recent: remove takes stored ids only', () => {
   const before = stored([line(1), line(2), line(3)]);
-  const result = mergeRecent(before, [{ text: 'καινούργια', at: NOW, channelId: AGORA }], {
+  const result = mergeRecent(before, [{ text: 'καινούργια', at: NOW, placeId: AGORA }], {
     now: NOW,
     removeIds: [2, '3', 9, 4, 'x', 1.5, null, { id: 1 }, -1],
   });
@@ -429,24 +431,24 @@ test('recent: a hand-edited unit with a broken line is healed on read and not re
         id: 1,
         at: NOW - HOUR_MS,
         addedAt: NOW_ISO,
-        channelId: AGORA,
+        placeId: AGORA,
         text: `<@${ELENI}> έφερε γλυκά`,
         who: [NIKOS],
         weight: 9,
       },
-      { id: 2, at: 'χθες', channelId: AGORA, text: 'χωρίς ώρα', weight: 2 },
-      { id: 3, at: NOW, channelId: AGORA, text: '   ', weight: 2 },
-      { id: 'τέσσερα', at: NOW, channelId: AGORA, text: 'χωρίς αριθμό', weight: 2 },
+      { id: 2, at: 'χθες', placeId: AGORA, text: 'χωρίς ώρα', weight: 2 },
+      { id: 3, at: NOW, placeId: AGORA, text: '   ', weight: 2 },
+      { id: 'τέσσερα', at: NOW, placeId: AGORA, text: 'χωρίς αριθμό', weight: 2 },
       { id: 5, at: NOW, text: 'χωρίς κανάλι', weight: 2 },
-      { id: 7, at: NOW, channelId: KIPOS, text: 'κανονική\nσε δύο', weight: 1.5 },
-      { id: 7, at: NOW, channelId: KIPOS, text: 'ίδιο αριθμό', weight: 0 },
+      { id: 7, at: NOW, placeId: KIPOS, text: 'κανονική\nσε δύο', weight: 1.5 },
+      { id: 7, at: NOW, placeId: KIPOS, text: 'ίδιο αριθμό', weight: 0 },
       'σκουπίδι',
     ],
   });
   const raw = readRaw(file);
 
   const store = createStore({ dataDir: dir, memoryDb: memoryOf(dir) });
-  const value = store.getRecent('g1');
+  const value = store.getRecent(placeOfCommunity(store, 'g1'));
   assert.deepEqual(value, {
     nextId: 9,
     lines: [
@@ -454,13 +456,13 @@ test('recent: a hand-edited unit with a broken line is healed on read and not re
         id: 1,
         at: NOW - HOUR_MS,
         addedAt: NOW_ISO,
-        channelId: AGORA,
+        placeId: AGORA,
         text: `<@${ELENI}> έφερε γλυκά`,
         who: [ELENI],
         weight: 3,
       },
-      { id: 7, at: NOW, addedAt: null, channelId: KIPOS, text: 'κανονική σε δύο', who: [], weight: 2 },
-      { id: 8, at: NOW, addedAt: null, channelId: KIPOS, text: 'ίδιο αριθμό', who: [], weight: 1 },
+      { id: 7, at: NOW, addedAt: null, placeId: KIPOS, text: 'κανονική σε δύο', who: [], weight: 2 },
+      { id: 8, at: NOW, addedAt: null, placeId: KIPOS, text: 'ίδιο αριθμό', who: [], weight: 1 },
     ],
   });
   store.flush();
@@ -496,7 +498,7 @@ test('store: lines a hand edit broke are logged once as a count on load, never b
     lines: [
       line(1, { text: 'μένει' }),
       { ...line(2, { text: 'ώρα σε λέξεις' }), at: '2026-10-04T10:00:00Z' },
-      { ...line(3, { text: 'χωρίς κανάλι' }), channelId: undefined },
+      { ...line(3, { text: 'χωρίς κανάλι' }), placeId: undefined },
     ],
   });
   writeRaw(recentFileOf(dir, 'g2'), [line(1)]);
@@ -505,9 +507,9 @@ test('store: lines a hand edit broke are logged once as a count on load, never b
   const store = createStore({ dataDir: dir, memoryDb: memoryOf(dir) });
 
   const { result, logs } = await withCapturedLogs(() => [
-    store.getRecent('g1'),
-    store.getRecent('g1'),
-    store.applyRecentOps('g1', [], { now: NOW }),
+    store.getRecent(placeOfCommunity(store, 'g1')),
+    store.getRecent(placeOfCommunity(store, 'g1')),
+    store.applyRecentOps(placeOfCommunity(store, 'g1'), [], { now: NOW }),
   ]);
   assert.deepEqual(
     (result[0] as { lines: Array<{ text: string }> }).lines.map((l) => l.text),
@@ -516,20 +518,20 @@ test('store: lines a hand edit broke are logged once as a count on load, never b
   const dropped = logs.filter((entry) => entry.msg === 'store: recent lines dropped');
   assert.equal(dropped.length, 1, 'logged on the read that loads the file only');
   assert.equal(dropped[0].level, 'warn');
-  assert.equal(dropped[0].guildId, 'g1');
+  assert.equal(dropped[0].placeId, 'discord:server:g1');
   assert.equal(dropped[0].dropped, 2);
   assert.ok(!JSON.stringify(logs).includes('λέξεις') && !JSON.stringify(logs).includes('μένει'), 'counts only');
 
   const { logs: more } = await withCapturedLogs(() =>
-    ['g2', 'g3', 'g4', 'g5'].map((guildId) => store.getRecent(guildId))
+    ['g2', 'g3', 'g4', 'g5'].map((placeId) => store.getRecent(placeOfCommunity(store, placeId)))
   );
   assert.deepEqual(
     more
       .filter((entry) => entry.msg.startsWith('store: recent'))
-      .map((entry) => [entry.msg, entry.guildId, entry.reason ?? entry.dropped]),
+      .map((entry) => [entry.msg, entry.placeId, entry.reason ?? entry.dropped]),
     [
-      ['store: recent store replaced', 'g2', 'malformed'],
-      ['store: recent store replaced', 'g3', 'malformed'],
+      ['store: recent store replaced', 'discord:server:g2', 'malformed'],
+      ['store: recent store replaced', 'discord:server:g3', 'malformed'],
     ],
     'a healed id and a missing file log nothing'
   );
@@ -822,7 +824,7 @@ test('recent view: at most two episodes per member, the focus members first', ()
 });
 
 test('recent view: a line whose channel the audience refuses is hidden and counted; no predicate shows no line', () => {
-  const lines = [line(1, { channelId: AGORA, text: 'ανοιχτή' }), line(2, { channelId: KIPOS, text: 'κλειστή' })];
+  const lines = [line(1, { placeId: AGORA, text: 'ανοιχτή' }), line(2, { placeId: KIPOS, text: 'κλειστή' })];
   const view = recentView({ lines, profiles: [], now: NOW, hours: 72, isShown: (id) => id === AGORA });
   assert.deepEqual(shapeOf(view), [1]);
   assert.equal(view.hidden, 1);
@@ -871,7 +873,7 @@ test('recent: eviction returns the dropped items with their itemId', () => {
   const heavy = line(4, { text: 'βαρύ', weight: 3, itemId: 'rc-heavy' });
   const result = mergeRecent(
     stored([old, removed, light, heavy]),
-    [{ text: 'νέο', at: NOW, channelId: AGORA, weight: 3 }],
+    [{ text: 'νέο', at: NOW, placeId: AGORA, weight: 3 }],
     {
       now: NOW,
       hours: 24,

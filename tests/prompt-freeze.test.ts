@@ -64,7 +64,7 @@ function baseInput(overrides: Record<string, unknown> & { now?: number } = {}) {
     neighbors: [],
     trigger: null,
     triggerKind: null,
-    guildMemory: {},
+    placeMemory: {},
     interlocutor: null,
     otherProfiles: [],
     ...overrides,
@@ -104,13 +104,13 @@ test('freezePerBucket: one value per bucket and signature; no map computes every
 
 test('buildRequest: a memory batch inside one bucket leaves the stable part byte-identical; the next bucket shows the new self fact', () => {
   const stableFreeze = new Map();
-  const before = buildRequest(baseInput({ stableFreeze, guildMemory: { self: ['likes tea'] } }));
+  const before = buildRequest(baseInput({ stableFreeze, placeMemory: { self: ['likes tea'] } }));
   const batch = { self: ['likes tea', 'hates mornings'] };
-  const sameBucket = buildRequest(baseInput({ stableFreeze, guildMemory: batch, now: EDGE + 50 * MINUTE }));
+  const sameBucket = buildRequest(baseInput({ stableFreeze, placeMemory: batch, now: EDGE + 50 * MINUTE }));
   assert.equal(stableText(sameBucket), stableText(before));
   assert.ok(!stableText(sameBucket).includes('hates mornings'));
 
-  const nextBucket = buildRequest(baseInput({ stableFreeze, guildMemory: batch, now: EDGE + HOUR + MINUTE }));
+  const nextBucket = buildRequest(baseInput({ stableFreeze, placeMemory: batch, now: EDGE + HOUR + MINUTE }));
   assert.notEqual(stableText(nextBucket), stableText(before));
   assert.ok(stableText(nextBucket).includes('- hates mornings'));
 });
@@ -118,21 +118,21 @@ test('buildRequest: a memory batch inside one bucket leaves the stable part byte
 // PR 7d: the prompt cache is code, so a request without a holder is the case that follows memory at once.
 test('buildRequest: the self facts follow memory at once without a holder', () => {
   const batch = { self: ['likes tea', 'hates mornings'] };
-  assert.ok(stableText(buildRequest(baseInput({ guildMemory: batch }))).includes('- hates mornings'));
+  assert.ok(stableText(buildRequest(baseInput({ placeMemory: batch }))).includes('- hates mornings'));
 });
 test('buildRequest: with llm.cache.ttl 5m the bucket is five minutes', () => {
   const config = fakeConfig({ cache: { ttl: '5m' } });
   const stableFreeze = new Map();
   const start = EDGE + MINUTE;
-  buildRequest(baseInput({ config, stableFreeze, guildMemory: { self: ['likes tea'] }, now: start }));
+  buildRequest(baseInput({ config, stableFreeze, placeMemory: { self: ['likes tea'] }, now: start }));
   const batch = { self: ['likes tea', 'hates mornings'] };
   assert.ok(
     !stableText(
-      buildRequest(baseInput({ config, stableFreeze, guildMemory: batch, now: start + 3 * MINUTE }))
+      buildRequest(baseInput({ config, stableFreeze, placeMemory: batch, now: start + 3 * MINUTE }))
     ).includes('hates mornings')
   );
   assert.ok(
-    stableText(buildRequest(baseInput({ config, stableFreeze, guildMemory: batch, now: start + 5 * MINUTE }))).includes(
+    stableText(buildRequest(baseInput({ config, stableFreeze, placeMemory: batch, now: start + 5 * MINUTE }))).includes(
       'hates mornings'
     )
   );
@@ -148,7 +148,7 @@ function library(rows: Array<[number, number, number?]>) {
       url: `https://tenor.com/view/gif-${n}`,
       itemId: `k${n}`,
       messageId: `m${n}`,
-      channelId: 'c1',
+      placeId: 'c1',
       count,
       last: EDGE - 24 * HOUR,
       firstSeen: EDGE - 24 * HOUR,

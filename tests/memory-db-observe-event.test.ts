@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ChannelType } from 'discord.js';
-import { toEvent } from '../interfaces/discord/collect.ts';
+import { toEvent } from './fixtures/sdk-shaped.ts';
 import { lineOf as normalizedOf } from '../src/behavior/line-of.ts';
 import { validateEvent } from '../src/protocol/index.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
@@ -78,10 +78,10 @@ function message({
 }) {
   return {
     id,
-    channelId: channel.id,
+    placeId: channel.id,
     channel,
     guild: guild ? { id: GUILD } : null,
-    guildId: guild ? GUILD : null,
+    conversationId: guild ? GUILD : null,
     author: { id: author, bot: author === BOT, globalName: NAMES[author], username: NAMES[author] },
     member: { displayName: NAMES[author] },
     content,
@@ -142,7 +142,7 @@ function day() {
     { event: eventOf(dmLine), direct: true },
     { event: eventOf(dmHers), direct: false },
   ];
-  const stamp = (line: Record<string, Untyped>) => ({ ...line, guildId: GUILD });
+  const stamp = (line: Record<string, Untyped>) => ({ ...line, placeId: GUILD });
   const seen = (
     event: Untyped,
     {
@@ -162,7 +162,7 @@ function day() {
       toRecordLine(
         {
           id: event.message.id,
-          channelId: event.conversation.id,
+          placeId: event.conversation.id,
           content: event.message.content,
           ts: event.message.at,
           replyToId: null,
@@ -371,7 +371,7 @@ test('observationOf: every kind of line goes from toEvent through the envelope c
     assert.equal(
       observationOf(
         eventOf(
-          { id: 'm-9', channelId: CHANNEL, guildId: GUILD, partial: true, author: null },
+          { id: 'm-9', conversationId: CHANNEL, placeId: GUILD, partial: true, author: null },
           { edit: true, now: () => T0 }
         )
       ),

@@ -22,7 +22,7 @@ const OWNER_ONLY = { name: 'bot.pause', rights: { kind: 'write' as const, ownerO
 function withAccounts(body: (handle: Handle) => void): void {
   const handle = openMemoryDb(path.join(tempDir('nep-owner-'), 'memory.db'));
   const insert = dbOf(handle).prepare(
-    "INSERT INTO accounts (id, iface, native_id, native_key, kind) VALUES (?, ?, ?, ?, 'user')"
+    "INSERT INTO accounts (id, iface, native_id, native_key, person_id, kind) VALUES (?, ?, ?, ?, ?, 'user')"
   );
   for (const [iface, native] of [
     ['discord', '111'],
@@ -30,7 +30,8 @@ function withAccounts(body: (handle: Handle) => void): void {
     ['telegram', '111'],
     ['telegram', '555'],
   ] as const) {
-    insert.run(`${iface}:${native}`, iface, native, native);
+    dbOf(handle).prepare('INSERT OR IGNORE INTO people (id) VALUES (?)').run(`person:${iface}:${native}`);
+    insert.run(`${iface}:${native}`, iface, native, native, `person:${iface}:${native}`);
   }
   const stop = useOwnerAccounts(createOwnerAccounts({ database: () => dbOf(handle), home: () => 'discord' }));
   try {
@@ -42,7 +43,7 @@ function withAccounts(body: (handle: Handle) => void): void {
 }
 
 function link(handle: Handle, op: 'bind' | 'unbind', iface: string, native: string, target: object = {}): unknown {
-  return applyMemoryWrite(handle, { kind: 'person-link', op, iface, native, target, now: 1000 });
+  return applyMemoryWrite(handle, { kind: 'person-link', op, accountId: `${iface}:${native}`, target, now: 1000 });
 }
 
 const ownerOn = (iface: string, native: string, config: object): boolean =>
@@ -66,7 +67,7 @@ test('every account bound to the owner person has the owner rights, and an unbou
   // Bug: the owner's second account stays a stranger, or keeps the rights after the owner undid the binding.
   withAccounts((handle) => {
     link(handle, 'bind', 'discord', '111', { owner: true });
-    link(handle, 'bind', 'telegram', '555', { iface: 'discord', native: '111' });
+    link(handle, 'bind', 'telegram', '555', { accountId: 'discord:111' });
     const config = { bot: { ownerPerson: OWNER_PERSON, owners: [] } };
     assert.equal(ownerOn('telegram', '555', config), true);
     assert.equal(

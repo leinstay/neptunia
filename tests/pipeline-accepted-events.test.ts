@@ -70,7 +70,7 @@ for (const sameFamily of [false, true]) {
             await observed.observeLine(
               event,
               false,
-              { guildId: 'community' },
+              { placeId: 'community' },
               context.receipt
                 ? {
                     eventId: context.receipt.eventId,
@@ -148,7 +148,7 @@ test('an observation timeout is unacknowledged until its late writer commit beco
           await observed.observeLine(
             event,
             false,
-            { guildId: 'community' },
+            { placeId: 'community' },
             context.receipt
               ? {
                   eventId: context.receipt.eventId,

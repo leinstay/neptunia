@@ -21,7 +21,7 @@ function desk(skills: SkillsPort | null) {
   const deps: ConsoleDeps = {
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null }),
     ownerReads: { lessons: () => '', aliases: () => '' },
-    guildId: () => 'g1',
+    placeId: () => 'g1',
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] } } },
     privateDir: dir,

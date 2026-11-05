@@ -14,7 +14,7 @@ function historical(): { row: Row; extra: Row } {
     revision: 1,
     occurredAt: '2026-10-23T12:00:00.000Z',
     recordedAt: '2026-10-24T12:00:00.000Z',
-    guildId: 'g1',
+    placeId: 'g1',
     scope: { channel: 'historic-dm-73' },
     by: 'partner-42',
     text: 'Synthetic historical evidence',

@@ -72,7 +72,7 @@ function makeEnv(memoryDb: MemoryDb | null): Rig {
   };
   const client = fakeClient();
   const stores = createErrandStores({ config: () => hot.config, now: () => NOW, log: SILENT, memoryDb });
-  const errands = createErrandService({ client, stores, hot, getGuildId: () => 'g1', now: () => NOW, log: SILENT });
+  const errands = createErrandService({ client, stores, hot, now: () => NOW, log: SILENT });
   const env = createOpsEnv({
     discord: createDiscordInterface().capabilities,
     hot,
@@ -80,7 +80,7 @@ function makeEnv(memoryDb: MemoryDb | null): Rig {
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     errands,
     now: () => NOW,
   });
@@ -93,8 +93,8 @@ const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve)
 async function ask(env: Env, name: string, args: Obj, userId: string = MEMBER): Promise<Answer> {
   const { status, code, summary, data } = await runOp(name, args, {
     env,
-    guildId: 'g1',
-    channelId: 'c1',
+    placeId: 'g1',
+    conversationId: 'c1',
     userId,
     roleIds: [],
   });
@@ -154,7 +154,7 @@ async function inMemory(): Promise<{ memory: Rig; ids: Array<string> }> {
 test('the errand tools answer over the moved errands as they answer over the same errands kept in memory', async () => {
   await withCapturedLogs(async () => {
     const { memory, ids } = await inMemory();
-    const records = [...(memory.stores.get('g1')?.recent(10) ?? [])].reverse();
+    const records = [...(memory.stores.get()?.recent(10) ?? [])].reverse();
     const memoryDb = openedAt('nep-errand-tools-archive-', (file) => writeArchive(file, records));
     const board = makeEnv(memoryDb);
     assert.equal(boardOf(memoryDb).list().length, 3, 'the open moved them to the board');

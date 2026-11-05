@@ -132,7 +132,7 @@ test('v7 migration of an imported database: audiences, DM places, links, her row
       );
     }
     assert.equal(
-      db.prepare("SELECT conversation FROM places WHERE kind = 'guild'").get()!.conversation,
+      db.prepare("SELECT conversation FROM places WHERE kind = 'server'").get()!.conversation,
       null,
       'a server is a container'
     );
@@ -201,7 +201,7 @@ test('v7 migration of an imported database: audiences, DM places, links, her row
         .get(MEMBER)!.node_id,
       personId('discord', MEMBER)
     );
-    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM authorities WHERE id = ?', `discord/guild:${GUILD}`), 1);
+    // The community-local authority this line counted is gone with the partition by community (plan task 5).
 
     // Accounts and sources: authority, native key, author kind, observed time.
     const account = db
@@ -282,9 +282,10 @@ test('v7: a replay of the unit writes re-derives the new columns, keeps links an
     db.prepare(
       "UPDATE account_person_links SET state = 'revoked', valid_to_at = '2026-10-24T00:00:00.000Z' WHERE account_id = ?"
     ).run(`discord:${MEMBER}`);
-    const before = derivedSnapshot(db);
     // @ts-expect-error the test fixture takes no `log` option; the test passes one and the fixture ignores it
     assert.equal(seedUnits(handle, env.data, { log: quiet }).errors, 0);
+    // Taken after the first write: the notes of the server bring its place row, which the imported database lacks.
+    const before = derivedSnapshot(db);
     // @ts-expect-error the test fixture takes no `log` option; the test passes one and the fixture ignores it
     const replay = seedUnits(handle, env.data, { log: quiet });
     assert.equal(replay.errors, 0);

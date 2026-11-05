@@ -161,13 +161,13 @@ test('turn reads: one deduplicated insert per step, rows resolved against the da
     await env.service.tick();
     env.service.recordTurnReads({
       turnId: 'turn-9',
-      guildId: GUILD,
+      placeId: GUILD,
       reads: [
         { kind: 'claim', id: HOT_ITEM },
         { kind: 'claim', id: HOT_ITEM },
         { kind: 'episode', id: 'ep-1' },
         { kind: 'channel', id: CHANNEL },
-        { kind: 'guild_note', id: 'patterns' },
+        { kind: 'place_note', id: 'patterns' },
         { kind: 'lore', id: 'l1' },
         { kind: 'source', id: '400000000000000002' },
         { kind: 'source', id: 'no-such-message' },
@@ -313,20 +313,20 @@ test('turnReadRows: a guild note needs the guild; unknown kinds are ignored', ()
   try {
     assert.deepEqual(
       turnReadRows(dbOf(handle), [
-        { kind: 'guild_note', id: 'patterns' },
+        { kind: 'place_note', id: 'patterns' },
         { kind: 'mystery', id: 'x' },
         { kind: 'claim' },
       ]),
       []
     );
     assert.deepEqual(
-      turnReadRows(dbOf(handle), [{ kind: 'guild_note', id: 'starters', block: 'about_chat', ord: 2 }], {
-        guildId: '5',
+      turnReadRows(dbOf(handle), [{ kind: 'place_note', id: 'starters', block: 'about_chat', ord: 2 }], {
+        placeId: '5',
       }),
       [
         {
           row_kind: 'descriptions',
-          row_id: 'desc:discord:guild:5:starters',
+          row_id: 'desc:5:starters',
           block: 'about_chat',
           ord: 2,
           version_id: null,
@@ -337,7 +337,7 @@ test('turnReadRows: a guild note needs the guild; unknown kinds are ignored', ()
     // the exact version of a description or a claim, the revision of a source, resolved now
     dbOf(handle)
       .prepare(
-        "INSERT INTO descriptions (id, subject_kind, subject_id, field, current_version) VALUES ('desc:discord:guild:5:starters', 'place', 'discord:guild:5', 'starters', 'dv-1')"
+        "INSERT INTO descriptions (id, subject_kind, subject_id, field, current_version) VALUES ('desc:5:starters', 'place', 'discord:guild:5', 'starters', 'dv-1')"
       )
       .run();
     dbOf(handle)
@@ -359,11 +359,11 @@ test('turnReadRows: a guild note needs the guild; unknown kinds are ignored', ()
     const rows = turnReadRows(
       dbOf(handle),
       [
-        { kind: 'guild_note', id: 'starters' },
+        { kind: 'place_note', id: 'starters' },
         { kind: 'claim', id: 'c1' },
         { kind: 'source', id: 'm1' },
       ],
-      { guildId: '5' }
+      { placeId: '5' }
     );
     assert.deepEqual(
       rows.map((row) => [row.row_kind, row.version_id, row.revision, row.ord]),

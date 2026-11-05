@@ -63,7 +63,7 @@ type Start = {
 /** The record of her lines (src/memory/record.ts), as the turn runner and the inner life append to it. */
 type Record_ = {
   lines: Array<unknown>;
-  append(guildId: string, lines: ReadonlyArray<unknown>, options?: unknown): Promise<void>;
+  append(placeId: string, lines: ReadonlyArray<unknown>, options?: unknown): Promise<void>;
   iterate(): Array<unknown>;
 };
 
@@ -199,7 +199,7 @@ async function core(
   world().channel({
     id: 'c1',
     name: 'chan-c1',
-    guildId: GUILD,
+    placeId: GUILD,
     permissions: { send: true },
     historyMessages: [rawMessage({ id: 'm1', ts: T - HOUR, content: 'καλή σας μέρα' })],
   });
@@ -211,7 +211,6 @@ async function core(
   const service = createIntentionService({
     stores: createIntentionStores({ now: () => clock.t, log: SILENT }),
     hot,
-    getGuildId: () => GUILD,
     now: () => clock.t,
     log: SILENT,
   });
@@ -227,7 +226,7 @@ async function core(
       hot,
       store,
       client: CLIENT,
-      getGuildId: () => GUILD,
+      isServedCommunity: (id: unknown) => id === GUILD,
       port,
       reads: world().reads,
     });
@@ -318,7 +317,6 @@ async function core(
       conversationName: (id: string) => `chan-${id}`,
       submit: (event: object) => door.submit(event),
       store: { state: { data: flags } },
-      getGuildId: () => GUILD,
       meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
       memoryDb,
       port: start.port ?? port,
@@ -365,7 +363,7 @@ type Core = Awaited<ReturnType<typeof core>>;
 
 /** A one-off intention of hers in c1 due at `dueAt`, and the id of the wake it gives. */
 function dueIntention(run: Core, dueAt: number): { id: string; wakeId: string } {
-  const made = run.service.set(GUILD, { purpose: 'ask how the trip went', dueAt, channelId: 'c1', scope: 'group' });
+  const made = run.service.set({ purpose: 'ask how the trip went', dueAt, placeId: 'c1', scope: 'group' });
   if (!made.ok) throw new Error(`intention not set: ${made.code}`);
   return { id: made.intention.id, wakeId: `inner.wake:intention_due:${made.intention.id}:${dueAt}` };
 }
@@ -589,7 +587,7 @@ test('a delivery the interface refuses ends failed, her next wake shows it as a 
 test('the stop switch turned on after the completion keeps the deliveries queued and sends nothing', async () => {
   const run = await core({
     answers: ['<msg>καλησπέρα</msg>', '<skip/>'],
-    atCommit: (life) => life.stop(GUILD),
+    atCommit: (life) => life.stop(),
   });
   try {
     dueIntention(run, T - MINUTE);
@@ -657,7 +655,7 @@ test("a wake turn whose calls were not held asks the model what the same turn as
       ...(params.conversation ? { conversation: params.conversation } : {}),
       ...(params.standIn ? { standIn: params.standIn } : {}),
       ...(params.reuseHistory ? { reuseHistory: params.reuseHistory } : {}),
-      guildId: params.guildId,
+      placeId: params.placeId,
       mode: params.mode,
       triggerKind: params.triggerKind,
       journalTurn: params.journalTurn,

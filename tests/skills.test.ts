@@ -863,7 +863,7 @@ test('wake envelope: a skill that posts inside its own operation is refused at t
       ran += 1;
       return { status: 'ok', code: 'ok', summary: 'drawn', data: {} };
     },
-    opContext: { guildId: 'g1', channelId: HERE },
+    opContext: { placeId: 'g1', conversationId: HERE },
     config: { heartbeat: { tools } },
   });
   const refused = await executeCall(
@@ -895,7 +895,7 @@ test('wake envelope: a skill that posts inside its own operation is refused at t
   assert.equal(ran, 2);
   // The posting point of the operations asks again: a send is refused, a read is not a post.
   const context = {
-    channelId: HERE,
+    placeId: HERE,
     ownInitiative: true,
     wakeKind: 'heartbeat',
     env: { hot: { config: { heartbeat: { tools: ['voice.say'] } } } },
@@ -904,8 +904,8 @@ test('wake envelope: a skill that posts inside its own operation is refused at t
     postingConversation({
       client: null,
       discord: DISCORD,
-      guildId: 'g1',
-      channelId: null,
+      placeId: 'g1',
+      conversationId: null,
       context,
       need: 'attach',
     } as unknown as Parameters<typeof postingConversation>[0]),
@@ -915,8 +915,8 @@ test('wake envelope: a skill that posts inside its own operation is refused at t
     await postingConversation({
       client: null,
       discord: DISCORD,
-      guildId: 'g1',
-      channelId: null,
+      placeId: 'g1',
+      conversationId: null,
       context,
       need: 'read',
     } as unknown as Parameters<typeof postingConversation>[0]),
@@ -926,8 +926,8 @@ test('wake envelope: a skill that posts inside its own operation is refused at t
     await postingConversation({
       client: null,
       discord: DISCORD,
-      guildId: 'g1',
-      channelId: null,
+      placeId: 'g1',
+      conversationId: null,
       context: { ...context, ownInitiative: false },
       need: 'send',
     } as unknown as Parameters<typeof postingConversation>[0]),
@@ -1023,8 +1023,8 @@ function makeEnv({ cfg = config(), roles = [] }: Record<string, Untyped> = {}) {
     state: { data: {}, markDirty() {} },
     flush() {},
     getUser: () => null,
-    getGuild: () => ({}),
-    updateGuild() {},
+    getPlace: () => ({}),
+    updatePlace() {},
   };
   // The interface says who the persona is and which groups she holds (`memberInfo`).
   const client = {};
@@ -1046,7 +1046,7 @@ function makeEnv({ cfg = config(), roles = [] }: Record<string, Untyped> = {}) {
     store,
     reads,
     selfId: () => SELF,
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     now: () => Date.UTC(2026, 9, 14, 10, 0, 0),
   } as unknown as Parameters<typeof createOpsEnv>[0]);
   /** `bot.access` as written to the private settings file (canonical persona config/config.json). */
@@ -1059,7 +1059,7 @@ function makeEnv({ cfg = config(), roles = [] }: Record<string, Untyped> = {}) {
 
 test('persona grants: a grant to her user opens a skill by name, owner-only ones included; revoke closes it', async () => {
   const t = makeEnv();
-  const owner = { env: t.env, guildId: 'g1', userId: OWNER, roleIds: [] };
+  const owner = { env: t.env, placeId: 'g1', userId: OWNER, roleIds: [] };
   try {
     for (const name of ['memory.private.read', 'message.edit', 'lore.add']) {
       const result = await runOp('access.grant', { command: name, userId: SELF }, owner);
@@ -1104,7 +1104,7 @@ test('persona grants: a grant to her user opens a skill by name, owner-only ones
 
 test('persona grants: an irreversible or administrative operation is refused for her with a clear message', async () => {
   const t = makeEnv();
-  const owner = { env: t.env, guildId: 'g1', userId: OWNER, roleIds: [] };
+  const owner = { env: t.env, placeId: 'g1', userId: OWNER, roleIds: [] };
   try {
     for (const name of NOT_GRANTABLE_TO_PERSONA) {
       const result = await runOp('access.grant', { command: name, userId: SELF }, owner);
@@ -1119,7 +1119,7 @@ test('persona grants: an irreversible or administrative operation is refused for
 
 test('persona grants: a group or * opens her read skills under it, owner-only reads included, never a write', async () => {
   const t = makeEnv();
-  const owner = { env: t.env, guildId: 'g1', userId: OWNER, roleIds: [] };
+  const owner = { env: t.env, placeId: 'g1', userId: OWNER, roleIds: [] };
   try {
     assert.equal((await runOp('access.grant', { command: '*', userId: SELF }, owner)).status, 'ok');
     const access = t.stored();
@@ -1152,7 +1152,7 @@ test('persona grants: a group or * opens her read skills under it, owner-only re
 
 test('persona grants: she never changes her effective authority -- not herself, not everyone, not a role she holds, not the governed config', async () => {
   const t = makeEnv({ roles: ['r-hers'] });
-  const owner = { env: t.env, guildId: 'g1', userId: OWNER, roleIds: [] };
+  const owner = { env: t.env, placeId: 'g1', userId: OWNER, roleIds: [] };
   const asPersona = { ...owner, actor: 'persona' };
   try {
     for (const [name, args] of [

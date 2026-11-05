@@ -76,7 +76,7 @@ function chatLine(id: string, ts: number, overrides = {}) {
   return {
     id,
     ts,
-    channelId: HERE,
+    placeId: HERE,
     authorId: `a-${id}`,
     authorName: `User${id}`,
     self: false,
@@ -113,7 +113,7 @@ function stored(
   return { id, ts, authorId: self ? SELF : authorId, name: self ? 'Zoë' : name, self, text, replyTo, caption: null };
 }
 
-const episode = (id: string, messages: Array<unknown>) => ({ id, channelId: HERE, continues: null, messages });
+const episode = (id: string, messages: Array<unknown>) => ({ id, placeId: HERE, continues: null, messages });
 
 function input(overrides: Record<string, unknown> = {}) {
   const trigger = chatLine('m1', NOW - MIN, { authorName: 'Nikos', content: 'θυμάσαι;' });
@@ -129,7 +129,7 @@ function input(overrides: Record<string, unknown> = {}) {
     neighbors: [],
     trigger,
     triggerKind: 'mention',
-    guildMemory: {},
+    placeMemory: {},
     interlocutor: null,
     otherProfiles: [],
     channels: [{ id: HERE, name: 'general' }],

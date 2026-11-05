@@ -45,7 +45,7 @@ export function wakeLife(
   }
 ): WakeLife {
   const clock = { t: start };
-  world().channel({ id: 'c1', name: 'chan-c1', guildId: GUILD, permissions: { send: true } });
+  world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
@@ -66,7 +66,6 @@ export function wakeLife(
   const service = createIntentionService({
     stores: createIntentionStores({ dataDir: tempDir('nep-wake-life-'), now: () => clock.t, log: SILENT }),
     hot,
-    getGuildId: () => GUILD,
     now: () => clock.t,
     log: SILENT,
   });
@@ -106,7 +105,6 @@ export function wakeLife(
     conversationName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
-    getGuildId: () => GUILD,
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
     record,
     heartbeat: heartbeatSources,

@@ -1,5 +1,6 @@
 // What a profile write does to an account's link (src/memory/db/map/user.ts): the link is the database's, and a person
 // the link made waits for its first profile. Each scenario runs over the real memory service on the calling thread.
+import { accountOf } from '../src/memory/addresses.ts';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -48,10 +49,10 @@ test('a message keeps the owner as the author of an account link', async () => {
   // Bug: the unit write resets `linked_by`, so the owner's own account loses its rights at his next line.
   const { memoryDb, store } = rig(['111']);
   const one = store();
-  one.touchUser('g1', '111', 'Alice', 1000);
+  one.touchUser(accountOf(one, '111'), 'Alice', 1000);
   await save(one);
-  await memoryDb.personLink({ op: 'bind', iface: 'discord', native: '111', target: { owner: true }, now: 2000 });
-  one.touchUser('g1', '111', 'Alice', 3000);
+  await memoryDb.personLink({ op: 'bind', accountId: 'discord:111', target: { owner: true }, now: 2000 });
+  one.touchUser(accountOf(one, '111'), 'Alice', 3000);
   await save(one);
   const row = memoryDb.readHandle()?.db as ReturnType<typeof dbOf>;
   assert.equal(row.prepare("SELECT linked_by FROM accounts WHERE id = 'discord:111'").get()?.linked_by, 'owner');
@@ -62,17 +63,16 @@ test('a person the link made takes the profile of its account when the account f
   const { memoryDb, store } = rig(['111', '222']);
   await memoryDb.personLink({
     op: 'bind',
-    iface: 'discord',
-    native: '222',
-    target: { iface: 'discord', native: '111' },
+    accountId: 'discord:222',
+    target: { accountId: 'discord:111' },
     now: 2000,
   });
   const one = store();
-  one.touchUser('g1', '111', 'Alice', 3000);
-  one.updateUser('g1', '111', { character: 'chatty' });
+  one.touchUser(accountOf(one, '111'), 'Alice', 3000);
+  one.updateUser(accountOf(one, '111'), { character: 'chatty' });
   await save(one);
   assert.deepEqual(
-    [store().getUser('g1', '111'), store().getUser('g1', '222')].map(
+    [store().getUser('discord:111'), store().getUser('discord:222')].map(
       (profile) => (profile as { character: string } | null)?.character
     ),
     ['chatty', 'chatty']

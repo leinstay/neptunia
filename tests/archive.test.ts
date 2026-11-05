@@ -1,6 +1,7 @@
 // Tests for src/memory/archive.ts: the archive of every memory item that left a hot list, written to the memory
 // database of a temporary directory (never the deployment's data/); the entries waiting for it are JSON lines
 // through a real append store.
+import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -14,6 +15,8 @@ import type { Untyped } from '../src/tools/types.ts';
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
 
 const quiet = { info() {}, warn() {}, error() {} };
+const G1 = legacyServerPlaceId('discord', 'g1');
+const DM_U1 = 'discord:dm:u1';
 const OCT = Date.UTC(2026, 9, 13, 9, 0, 0);
 const NOV = Date.UTC(2026, 10, 2, 9, 0, 0);
 
@@ -131,7 +134,7 @@ test('archive: archiveEntry builds the three ids and never guesses sourceRefs', 
 
   // A recent line knows its channel but no message: still no reference.
   const line = archiveEntry(
-    { id: 4, at: OCT - 1000, channelId: '900000000000000001', text: 'μια γραμμή', weight: 2, itemId: 'rc-1' },
+    { id: 4, at: OCT - 1000, placeId: '900000000000000001', text: 'μια γραμμή', weight: 2, itemId: 'rc-1' },
     { itemKind: 'recent', event: 'expired', scope: { channel: '900000000000000001' }, ...at(OCT) }
   );
   assert.deepEqual(loose(line).sourceRefs, []);
@@ -141,10 +144,10 @@ test('archive: archiveEntry builds the three ids and never guesses sourceRefs', 
     itemKind: 'episode',
     event: 'evicted',
     scope: { user: 'u1' },
-    sourceRefs: [{ channelId: 'c1', messageId: 'm1', revision: 1 }, { messageId: '' }],
+    sourceRefs: [{ placeId: 'c1', messageId: 'm1', revision: 1 }, { messageId: '' }],
     ...at(OCT),
   });
-  assert.deepEqual(loose(given).sourceRefs, [{ channelId: 'c1', messageId: 'm1', revision: 1 }]);
+  assert.deepEqual(loose(given).sourceRefs, [{ placeId: 'c1', messageId: 'm1', revision: 1 }]);
   const fact = archiveEntry('μου αρέσει ο café', {
     itemKind: 'selfFact',
     event: 'replaced',
@@ -169,14 +172,14 @@ test('archive: append dedupes by itemId+revisionId and writes to the month of re
     scope: { user: 'u1' },
     ...at(NOV),
   });
-  assert.deepEqual(await archive.append('g1', [october, november]), { written: 2, duplicates: 0 });
+  assert.deepEqual(await archive.append(G1, [october, november]), { written: 2, duplicates: 0 });
   // The same item and revision again, under another event id: refused.
   const again = archiveEntry(episode(), { itemKind: 'episode', event: 'evicted', scope: { user: 'u1' }, ...at(OCT) });
-  assert.deepEqual(await archive.append('g1', [again]), { written: 0, duplicates: 1 });
+  assert.deepEqual(await archive.append(G1, [again]), { written: 0, duplicates: 1 });
 
   assert.deepEqual(
-    unitLines(memoryDb, 'guilds/g1/archive/2026-10.jsonl').map((e) => [e.itemId, e.guildId]),
-    [['ep-1', 'g1']]
+    unitLines(memoryDb, 'guilds/g1/archive/2026-10.jsonl').map((e) => e.itemId),
+    ['ep-1']
   );
   assert.deepEqual(
     unitLines(memoryDb, 'guilds/g1/archive/2026-11.jsonl').map((e) => e.itemId),
@@ -187,16 +190,17 @@ test('archive: append dedupes by itemId+revisionId and writes to the month of re
   // A fresh instance reads the database and still refuses it.
   // @ts-expect-error: createArchive takes no `uuid` dependency, so the key is ignored
   const reopened = createArchive({ appendStore, dataDir, log: quiet, now: () => OCT, uuid: counter('b-'), memoryDb });
-  assert.deepEqual(await reopened.append('g1', [again]), { written: 0, duplicates: 1 });
+  assert.deepEqual(await reopened.append(G1, [again]), { written: 0, duplicates: 1 });
 
   // A private entry lands under the member's private archive, scoped to them.
   const secret = archiveEntry(episode({ itemId: 'ep-3', what: 'Ένα μυστικό' }), {
     itemKind: 'episode',
     event: 'evicted',
-    scope: { user: 'u1' },
+    // The store names a private item's scope (src/memory/store.ts#memberScope); the archive keeps it.
+    scope: { user: 'u1', private: true },
     ...at(OCT),
   });
-  await archive.append('g1', [secret], { privateUserId: 'u1' });
+  await archive.append(DM_U1, [secret]);
   const privateLines = unitLines(memoryDb, 'guilds/g1/private/u1/archive/2026-10.jsonl');
   assert.deepEqual(
     privateLines.map((e) => [e.itemId, e.scope]),
@@ -205,18 +209,18 @@ test('archive: append dedupes by itemId+revisionId and writes to the month of re
 
   // The readers: iterate by range and kind, find by item id (the private copy included).
   assert.deepEqual(
-    (await collect(archive.iterate('g1', { kinds: ['episode'] }))).map((e) => e.itemId),
+    (await collect(archive.iterate(G1, { kinds: ['episode'] }))).map((e) => e.itemId),
     ['ep-1', 'ep-2']
   );
   assert.deepEqual(
-    (await collect(archive.iterate('g1', { from: '2026-11-01T00:00:00.000Z' }))).map((e) => e.itemId),
+    (await collect(archive.iterate(G1, { from: '2026-11-01T00:00:00.000Z' }))).map((e) => e.itemId),
     ['ep-2']
   );
   assert.deepEqual(
-    (await archive.find('g1', 'ep-3')).map((e) => loose(e).scope.private),
+    (await archive.find('ep-3')).map((e) => loose(e).scope.private),
     [true]
   );
-  assert.deepEqual(await archive.find('g1', 'ep-9'), []);
+  assert.deepEqual(await archive.find('ep-9'), []);
   await done();
 });
 
@@ -230,16 +234,16 @@ test('archive: queuePending and drainPending round-trip and compact', async () =
       ...at(OCT),
     })
   );
-  await archive.queuePending('g1', entries.slice(0, 2));
-  await archive.queuePending('g1', entries.slice(2), { privateUserId: 'u1' });
-  assert.deepEqual(archive.stats('g1'), { pending: 3 });
+  await archive.queuePending(G1, entries.slice(0, 2));
+  await archive.queuePending(DM_U1, entries.slice(2));
+  assert.deepEqual(archive.stats(), { pending: 3 });
 
   // The first entry already reached the archive before a crash: a duplicate, still confirmed.
-  await archive.append('g1', [entries[0]]);
-  const drained = await archive.drainPending('g1');
+  await archive.append(G1, [entries[0]]);
+  const drained = await archive.drainPending();
   assert.deepEqual([drained.archived, drained.left], [3, 0]);
   assert.deepEqual(drained.confirmed.map((e) => loose(e).itemId).sort(), ['ep-1', 'ep-2', 'ep-3']);
-  assert.deepEqual(archive.stats('g1'), { pending: 0 });
+  assert.deepEqual(archive.stats(), { pending: 0 });
   await appendStore.flush();
 
   const base = path.join(dataDir, 'guilds', 'g1', 'archive');
@@ -256,7 +260,7 @@ test('archive: queuePending and drainPending round-trip and compact', async () =
   assert.deepEqual(readLines(path.join(base, 'pending-done.jsonl')), [], 'compacted');
 
   // Nothing queued: nothing to do.
-  assert.deepEqual(await archive.drainPending('g1'), { archived: 0, left: 0, confirmed: [] });
+  assert.deepEqual(await archive.drainPending(), { archived: 0, left: 0, confirmed: [] });
   await done();
 });
 
@@ -272,9 +276,9 @@ test('archive: a DM memory file under private/ is not a private archive layer', 
     scope: { user: 'u1', private: true },
     ...at(OCT),
   });
-  await archive.queuePending('g1', [entry], { privateUserId: 'u1' });
+  await archive.queuePending(DM_U1, [entry]);
 
-  const drained = await archive.drainPending('g1');
+  const drained = await archive.drainPending();
   assert.deepEqual([drained.archived, drained.left], [1, 0], 'the file is skipped, the layer directory is drained');
   await done();
 });

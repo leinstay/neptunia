@@ -40,7 +40,7 @@ const INTERFACES_DIR = join(REPO, 'tests', 'fixtures', 'interfaces');
 /** The private layer of every rig: units mode, the settle wait and typing off. PR 7d: the `features` switches are code
  * or gone with the cut, so the rig no longer turns optional behaviour off. */
 const BASE_CONFIG: Settings = {
-  bot: { timezone: 'UTC', owners: [], guildId: 'g1' },
+  bot: { timezone: 'UTC', owners: [], placeId: 'g1' },
   // No video role, so the start sends no canary probe to YouTube.
   models: { base: { video: false } },
   interfaces: { mode: 'units', drainMs: 2000 },

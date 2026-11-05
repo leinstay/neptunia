@@ -81,7 +81,7 @@ test('participation: missing keys fall back to the defaults, the two settings ar
 test('recordOwnLine: a first line opens an episode with the lines before it, chronological', () => {
   const state = recordOwnLine(
     emptyParticipation(),
-    { channelId: 'c1', own: own('m4', 4), before: [msg('m2', 2), msg('m1', 1), msg('m3', 3)] },
+    { placeId: 'c1', own: own('m4', 4), before: [msg('m2', 2), msg('m1', 1), msg('m3', 3)] },
     S,
     T0 + 5 * MIN
   );
@@ -89,7 +89,7 @@ test('recordOwnLine: a first line opens an episode with the lines before it, chr
   assert.equal(state.episodes.length, 1);
   const [ep] = state.episodes;
   assert.equal(ep.id, 'p1');
-  assert.equal(ep.channelId, 'c1');
+  assert.equal(ep.placeId, 'c1');
   assert.deepEqual(ids(ep), ['m1', 'm2', 'm3', 'm4']);
   assert.deepEqual([ep.startAt, ep.lastAt, ep.lastOwnAt, ep.continues], [T0 + MIN, T0 + 4 * MIN, T0 + 4 * MIN, null]);
   assert.equal(ep.messages[3].self, true);
@@ -109,7 +109,7 @@ test('recordOwnLine: only the last linesBefore lines before are taken', () => {
   const before = [msg('m1', 1), msg('m2', 2), msg('m3', 3), msg('m4', 4), msg('m5', 5)];
   const state = recordOwnLine(
     emptyParticipation(),
-    { channelId: 'c1', own: own('o', 6), before },
+    { placeId: 'c1', own: own('o', 6), before },
     { ...S, linesBefore: 2 },
     T0 + 6 * MIN
   );
@@ -120,14 +120,14 @@ test('recordOwnLine: the parent she replied to is included once', () => {
   const parent = msg('m0', -30, { author: 'u2', name: 'Andrés' });
   const one = recordOwnLine(
     emptyParticipation(),
-    { channelId: 'c1', own: own('o', 2, { replyTo: 'm0' }), before: [msg('m1', 1)], parent },
+    { placeId: 'c1', own: own('o', 2, { replyTo: 'm0' }), before: [msg('m1', 1)], parent },
     S,
     T0
   );
   assert.deepEqual(ids(one.episodes[0]), ['m0', 'm1', 'o']);
   const twice = recordOwnLine(
     emptyParticipation(),
-    { channelId: 'c1', own: own('o', 2), before: [parent, msg('m1', 1)], parent },
+    { placeId: 'c1', own: own('o', 2), before: [parent, msg('m1', 1)], parent },
     S,
     T0
   );
@@ -135,36 +135,31 @@ test('recordOwnLine: the parent she replied to is included once', () => {
 });
 
 test('recordOwnLine: a line within mergeGapMinutes joins the episode, a later one opens a new one', () => {
-  let state = recordOwnLine(
-    emptyParticipation(),
-    { channelId: 'c1', own: own('o1', 0), before: [msg('m1', -1)] },
-    S,
-    T0
-  );
-  state = recordOwnLine(state, { channelId: 'c1', own: own('o2', 9), before: [msg('m2', 8)] }, S, T0 + 9 * MIN);
+  let state = recordOwnLine(emptyParticipation(), { placeId: 'c1', own: own('o1', 0), before: [msg('m1', -1)] }, S, T0);
+  state = recordOwnLine(state, { placeId: 'c1', own: own('o2', 9), before: [msg('m2', 8)] }, S, T0 + 9 * MIN);
   assert.equal(state.episodes.length, 1);
   assert.deepEqual(ids(state.episodes[0]), ['m1', 'o1', 'm2', 'o2']);
   assert.equal(state.episodes[0].lastOwnAt, T0 + 9 * MIN);
-  state = recordOwnLine(state, { channelId: 'c1', own: own('o3', 40), before: [msg('m3', 39)] }, S, T0 + 40 * MIN);
+  state = recordOwnLine(state, { placeId: 'c1', own: own('o3', 40), before: [msg('m3', 39)] }, S, T0 + 40 * MIN);
   assert.equal(state.episodes.length, 2);
   assert.deepEqual(ids(state.episodes[1]), ['m3', 'o3']);
   assert.equal(state.episodes[1].continues, null);
   assert.equal(state.nextId, 3);
-  const other = recordOwnLine(state, { channelId: 'c2', own: own('o4', 41) }, S, T0 + 41 * MIN);
+  const other = recordOwnLine(state, { placeId: 'c2', own: own('o4', 41) }, S, T0 + 41 * MIN);
   assert.equal(other.episodes.length, 3, 'another channel never joins');
 });
 
 test('recordOwnLine: after a long gap a new episode opens even when the before-lines overlap the previous one', () => {
   let state = recordOwnLine(
     emptyParticipation(),
-    { channelId: 'c1', own: own('o1', 3), before: [msg('m1', 1), msg('m2', 2)] },
+    { placeId: 'c1', own: own('o1', 3), before: [msg('m1', 1), msg('m2', 2)] },
     S,
     T0 + 3 * MIN
   );
   const late = 22 * 60;
   state = recordOwnLine(
     state,
-    { channelId: 'c1', own: own('o2', late), before: [msg('m1', 1), msg('m2', 2), own('o1', 3)] },
+    { placeId: 'c1', own: own('o2', late), before: [msg('m1', 1), msg('m2', 2), own('o1', 3)] },
     S,
     T0 + late * MIN
   );
@@ -178,7 +173,7 @@ test('recordOwnLine: before-lines older than contextMinutes are dropped, recent 
   const before = [msg('m1', 10), msg('m2', 50), msg('m3', 55)];
   const state = recordOwnLine(
     emptyParticipation(),
-    { channelId: 'c1', own: own('o', 60, { replyTo: 'm0' }), before, parent },
+    { placeId: 'c1', own: own('o', 60, { replyTo: 'm0' }), before, parent },
     S,
     T0 + 60 * MIN
   );
@@ -188,18 +183,18 @@ test('recordOwnLine: before-lines older than contextMinutes are dropped, recent 
 test('recordOwnLine: messages already held merge by id, never twice', () => {
   let state = recordOwnLine(
     emptyParticipation(),
-    { channelId: 'c1', own: own('o1', 3), before: [msg('m1', 1), msg('m2', 2)] },
+    { placeId: 'c1', own: own('o1', 3), before: [msg('m1', 1), msg('m2', 2)] },
     S,
     T0
   );
   state = recordOwnLine(
     state,
-    { channelId: 'c1', own: own('o2', 5), before: [msg('m2', 2), own('o1', 3), msg('m4', 4)] },
+    { placeId: 'c1', own: own('o2', 5), before: [msg('m2', 2), own('o1', 3), msg('m4', 4)] },
     S,
     T0
   );
   assert.deepEqual(ids(state.episodes[0]), ['m1', 'm2', 'o1', 'm4', 'o2']);
-  const again = recordOwnLine(state, { channelId: 'c1', own: own('o2', 5), before: [msg('m4', 4)] }, S, T0);
+  const again = recordOwnLine(state, { placeId: 'c1', own: own('o2', 5), before: [msg('m4', 4)] }, S, T0);
   assert.equal(again, state, 'nothing new: the same reference');
 });
 
@@ -207,13 +202,13 @@ test('recordOwnLine: past maxMessages a continuation takes what did not fit', ()
   const settings = { ...S, maxMessages: 4 };
   let state = recordOwnLine(
     emptyParticipation(),
-    { channelId: 'c1', own: own('o1', 3), before: [msg('m1', 1), msg('m2', 2)] },
+    { placeId: 'c1', own: own('o1', 3), before: [msg('m1', 1), msg('m2', 2)] },
     settings,
     T0
   );
   state = recordOwnLine(
     state,
-    { channelId: 'c1', own: own('o2', 6), before: [msg('m4', 4), msg('m5', 5)] },
+    { placeId: 'c1', own: own('o2', 6), before: [msg('m4', 4), msg('m5', 5)] },
     settings,
     T0
   );
@@ -223,7 +218,7 @@ test('recordOwnLine: past maxMessages a continuation takes what did not fit', ()
   assert.equal(state.episodes[1].continues, 'p1');
   state = recordOwnLine(
     state,
-    { channelId: 'c1', own: own('o3', 8), before: [msg('m5', 5), msg('m7', 7)] },
+    { placeId: 'c1', own: own('o3', 8), before: [msg('m5', 5), msg('m7', 7)] },
     settings,
     T0
   );
@@ -235,7 +230,7 @@ test('recordOwnLine: texts stay on one line and are cut to maxTextChars at a wor
   const long = 'αλφα βήτα\nγάμμα δέλτα έψιλον';
   const state = recordOwnLine(
     emptyParticipation(),
-    { channelId: 'c1', own: own('o', 1), before: [msg('m', 0, { text: long, caption: ' une\nimage ' })] },
+    { placeId: 'c1', own: own('o', 1), before: [msg('m', 0, { text: long, caption: ' une\nimage ' })] },
     { ...S, maxTextChars: 16 },
     T0
   );
@@ -247,19 +242,19 @@ test('recordOwnLine: texts stay on one line and are cut to maxTextChars at a wor
 test('recordOwnLine: refuses a line without a channel, a malformed line and one past hours', () => {
   const start = emptyParticipation();
   // @ts-expect-error a missing channel, on purpose: the state is left as it was
-  assert.equal(recordOwnLine(start, { channelId: null, own: own('o', 1) }, S, T0), start);
-  assert.equal(recordOwnLine(start, { channelId: '', own: own('o', 1) }, S, T0), start);
-  assert.equal(recordOwnLine(start, { channelId: 'c1', own: { id: 'o', text: 'χωρίς ώρα' } }, S, T0), start);
-  assert.equal(recordOwnLine(start, { channelId: 'c1', own: own('o', 0) }, S, T0 + 73 * HOUR), start);
+  assert.equal(recordOwnLine(start, { placeId: null, own: own('o', 1) }, S, T0), start);
+  assert.equal(recordOwnLine(start, { placeId: '', own: own('o', 1) }, S, T0), start);
+  assert.equal(recordOwnLine(start, { placeId: 'c1', own: { id: 'o', text: 'χωρίς ώρα' } }, S, T0), start);
+  assert.equal(recordOwnLine(start, { placeId: 'c1', own: own('o', 0) }, S, T0 + 73 * HOUR), start);
 });
 
 test('recordOwnLine: inputs are never mutated', () => {
   const state = deepFreeze(
-    recordOwnLine(emptyParticipation(), { channelId: 'c1', own: own('o1', 1), before: [msg('m1', 0)] }, S, T0)
+    recordOwnLine(emptyParticipation(), { placeId: 'c1', own: own('o1', 1), before: [msg('m1', 0)] }, S, T0)
   );
   const before = deepFreeze([msg('m2', 2), msg('m3', 3)]);
   const line = deepFreeze(own('o2', 4));
-  const next = recordOwnLine(state, { channelId: 'c1', own: line, before }, S, T0);
+  const next = recordOwnLine(state, { placeId: 'c1', own: line, before }, S, T0);
   assert.deepEqual(ids(next.episodes[0]), ['m1', 'o1', 'm2', 'm3', 'o2']);
 });
 
@@ -267,25 +262,21 @@ test('recordOwnLine: inputs are never mutated', () => {
 
 test('recordFollowing: a line after hers joins once, only within followMinutes', () => {
   const state = deepFreeze(
-    recordOwnLine(emptyParticipation(), { channelId: 'c1', own: own('o1', 0), before: [msg('m1', -1)] }, S, T0)
+    recordOwnLine(emptyParticipation(), { placeId: 'c1', own: own('o1', 0), before: [msg('m1', -1)] }, S, T0)
   );
-  const joined = recordFollowing(state, { channelId: 'c1', message: msg('m2', 3) }, S, T0 + 3 * MIN);
+  const joined = recordFollowing(state, { placeId: 'c1', message: msg('m2', 3) }, S, T0 + 3 * MIN);
   assert.deepEqual(ids(joined.episodes[0]), ['m1', 'o1', 'm2']);
   assert.equal(joined.episodes[0].lastAt, T0 + 3 * MIN);
   assert.equal(joined.episodes[0].lastOwnAt, T0);
+  assert.equal(recordFollowing(joined, { placeId: 'c1', message: msg('m3', 4) }, S, T0), joined, 'linesAfter reached');
+  assert.equal(recordFollowing(state, { placeId: 'c1', message: msg('m4', 11) }, S, T0), state, 'past followMinutes');
+  assert.equal(recordFollowing(state, { placeId: 'c2', message: msg('m5', 1) }, S, T0), state, 'another channel');
   assert.equal(
-    recordFollowing(joined, { channelId: 'c1', message: msg('m3', 4) }, S, T0),
-    joined,
-    'linesAfter reached'
-  );
-  assert.equal(recordFollowing(state, { channelId: 'c1', message: msg('m4', 11) }, S, T0), state, 'past followMinutes');
-  assert.equal(recordFollowing(state, { channelId: 'c2', message: msg('m5', 1) }, S, T0), state, 'another channel');
-  assert.equal(
-    recordFollowing(state, { channelId: 'c1', message: own('o2', 1) }, S, T0),
+    recordFollowing(state, { placeId: 'c1', message: own('o2', 1) }, S, T0),
     state,
     'her own line goes elsewhere'
   );
-  const two = recordFollowing(joined, { channelId: 'c1', message: msg('m3', 4) }, { ...S, linesAfter: 2 }, T0);
+  const two = recordFollowing(joined, { placeId: 'c1', message: msg('m3', 4) }, { ...S, linesAfter: 2 }, T0);
   assert.deepEqual(ids(two.episodes[0]), ['m1', 'o1', 'm2', 'm3']);
 });
 
@@ -294,7 +285,7 @@ test('recordFollowing: a line after hers joins once, only within followMinutes',
 test('expireEpisodes: drops episodes past hours, then the oldest over maxStored', () => {
   let state = emptyParticipation();
   for (let i = 0; i < 4; i += 1)
-    state = recordOwnLine(state, { channelId: `c${i}`, own: own(`o${i}`, i * 60) }, S, T0 + 4 * HOUR);
+    state = recordOwnLine(state, { placeId: `c${i}`, own: own(`o${i}`, i * 60) }, S, T0 + 4 * HOUR);
   deepFreeze(state);
   const expired = expireEpisodes(state, { ...S, hours: 2 }, T0 + 3 * HOUR + 30 * MIN).state;
   assert.deepEqual(
@@ -314,11 +305,11 @@ test('expireEpisodes: drops episodes past hours, then the oldest over maxStored'
 test('purgeParticipationFor: takes a member out and drops the episodes left without her line', () => {
   let state = recordOwnLine(
     emptyParticipation(),
-    { channelId: 'c1', own: own('o1', 2), before: [msg('m1', 0), msg('m2', 1, { author: 'u2' })] },
+    { placeId: 'c1', own: own('o1', 2), before: [msg('m1', 0), msg('m2', 1, { author: 'u2' })] },
     S,
     T0
   );
-  state = recordOwnLine(state, { channelId: 'c2', own: own('o2', 2), before: [msg('m3', 1)] }, S, T0);
+  state = recordOwnLine(state, { placeId: 'c2', own: own('o2', 2), before: [msg('m3', 1)] }, S, T0);
   state = deepFreeze({
     ...state,
     episodes: [...state.episodes, { ...state.episodes[1], id: 'p9', messages: [msg('m9', 0)] }],
@@ -340,19 +331,15 @@ test('purgeParticipationFor: takes a member out and drops the episodes left with
 test('normalizeParticipation: a broken value reads as empty and broken episodes are dropped', () => {
   assert.deepEqual(normalizeParticipation(null), { episodes: [], nextId: 1 });
   assert.deepEqual(normalizeParticipation({ episodes: 'όχι' }), { episodes: [], nextId: 1 });
-  const good = recordOwnLine(
-    emptyParticipation(),
-    { channelId: 'c1', own: own('o1', 1), before: [msg('m1', 0)] },
-    S,
-    T0
-  ).episodes[0];
+  const good = recordOwnLine(emptyParticipation(), { placeId: 'c1', own: own('o1', 1), before: [msg('m1', 0)] }, S, T0)
+    .episodes[0];
   const value = {
     nextId: 1,
     episodes: [
       good,
       { ...good },
       { ...good, id: 'x' },
-      { ...good, id: 'p5', channelId: null },
+      { ...good, id: 'p5', placeId: null },
       { ...good, id: 'p6', messages: [msg('m1', 0)] },
       7,
       { ...good, id: 'p7', messages: [{ id: 'z' }, own('o7', 2), own('o7', 3)] },
@@ -374,13 +361,13 @@ function threeChannels() {
   let state = emptyParticipation();
   state = recordOwnLine(
     state,
-    { channelId: 'c1', own: own('o1', 0), before: [msg('m1', -1, { text: 'πρώτη ερώτηση' })] },
+    { placeId: 'c1', own: own('o1', 0), before: [msg('m1', -1, { text: 'πρώτη ερώτηση' })] },
     S,
     T0
   );
-  state = recordOwnLine(state, { channelId: 'c2', own: own('o2', 60) }, S, T0);
-  state = recordOwnLine(state, { channelId: 'c3', own: own('o3', 120), before: [msg('m3', 119)] }, S, T0);
-  state = recordOwnLine(state, { channelId: 'c1', own: own('o4', 180), before: [msg('m4', 179)] }, S, T0);
+  state = recordOwnLine(state, { placeId: 'c2', own: own('o2', 60) }, S, T0);
+  state = recordOwnLine(state, { placeId: 'c3', own: own('o3', 120), before: [msg('m3', 119)] }, S, T0);
+  state = recordOwnLine(state, { placeId: 'c1', own: own('o4', 180), before: [msg('m4', 179)] }, S, T0);
   return deepFreeze(state);
 }
 
@@ -394,7 +381,7 @@ test('episodeHeadlines: newest first, skipping the current channel and refused a
   );
   assert.deepEqual(heads[1], {
     id: 'p1',
-    channelId: 'c1',
+    placeId: 'c1',
     lastOwnAt: T0,
     ageMs: 200 * MIN,
     memberLine: 'πρώτη ερώτηση',
@@ -411,7 +398,7 @@ test('episodeHeadlines: newest first, skipping the current channel and refused a
 
 test('episodeHeadlines: lines are cut to 120 characters at a word boundary', () => {
   const long = Array(40).fill('λέξη').join(' ');
-  const state = recordOwnLine(emptyParticipation(), { channelId: 'c1', own: own('o', 1, { text: long }) }, S, T0);
+  const state = recordOwnLine(emptyParticipation(), { placeId: 'c1', own: own('o', 1, { text: long }) }, S, T0);
   const [head] = episodeHeadlines(state, { audience: () => true, now: T0 }, S);
   assert.ok([...head.selfLine].length <= 120);
   assert.ok(head.selfLine.endsWith('λέξη'));
@@ -422,20 +409,20 @@ test('episodeHeadlines: selfLines and memberLines carry every line in order, cut
   const long = Array(40).fill(word).join(' ');
   let state = recordOwnLine(
     emptyParticipation(),
-    { channelId: 'c1', own: own('o1', 1, { text: 'πρώτη' }), before: [msg('m1', 0, { text: 'ερώτηση' })] },
+    { placeId: 'c1', own: own('o1', 1, { text: 'πρώτη' }), before: [msg('m1', 0, { text: 'ερώτηση' })] },
     S,
     T0
   );
   state = recordOwnLine(
     state,
-    { channelId: 'c1', own: own('o2', 2, { text: long }), before: [msg('m2', 1, { text: long })] },
+    { placeId: 'c1', own: own('o2', 2, { text: long }), before: [msg('m2', 1, { text: long })] },
     S,
     T0
   );
   for (let i = 3; i < 12; i += 1)
     state = recordOwnLine(
       state,
-      { channelId: 'c1', own: own(`o${i}`, i, { text: long }), before: [msg(`m${i}`, i - 1, { text: long })] },
+      { placeId: 'c1', own: own(`o${i}`, i, { text: long }), before: [msg(`m${i}`, i - 1, { text: long })] },
       S,
       T0
     );
@@ -450,7 +437,7 @@ test('episodeHeadlines: selfLines and memberLines carry every line in order, cut
 });
 
 test('episodeHeadlines: no member lines gives an empty memberLines', () => {
-  const state = recordOwnLine(emptyParticipation(), { channelId: 'c1', own: own('o1', 1) }, S, T0);
+  const state = recordOwnLine(emptyParticipation(), { placeId: 'c1', own: own('o1', 1) }, S, T0);
   const [head] = episodeHeadlines(state, { audience: () => true, now: T0 }, S);
   assert.equal(head.memberLines, '');
   assert.equal(head.selfLines, 'απάντηση o1');
@@ -462,8 +449,8 @@ test('selectEpisodes: picks first, then recency, at most perChannel, grouped by 
   const state = threeChannels();
   const now = T0 + 200 * MIN;
   const all = () => true;
-  const view = (groups: Array<{ channelId: string; episodes: Array<{ id: string }> }>) =>
-    groups.map((g) => [g.channelId, g.episodes.map((ep) => ep.id)]);
+  const view = (groups: Array<{ placeId: string; episodes: Array<{ id: string }> }>) =>
+    groups.map((g) => [g.placeId, g.episodes.map((ep) => ep.id)]);
 
   assert.deepEqual(view(selectEpisodes(state, { audience: all, now }, { ...S, shown: 2 })), [
     ['c1', ['p4']],
@@ -505,7 +492,7 @@ function longEpisode() {
       i === 4 || i === 8 ? { ...own(`k${i}`, i, { text, replyTo: i === 4 ? 'k1' : null }) } : msg(`k${i}`, i, { text })
     );
   }
-  return deepFreeze({ id: 'p1', channelId: 'c1', messages });
+  return deepFreeze({ id: 'p1', placeId: 'c1', messages });
 }
 
 const shape = (items: Array<Cut>) => items.map((item) => ('skipped' in item ? `-${item.skipped}` : item.message!.id));
@@ -557,7 +544,7 @@ test('cutEpisode: a priority cut keeps her lines, their parents, matched lines, 
 test('participation: eviction returns the dropped items with their itemId', () => {
   let state = emptyParticipation();
   for (let i = 0; i < 4; i += 1)
-    state = recordOwnLine(state, { channelId: `c${i}`, own: own(`o${i}`, i * 60) }, S, T0 + 4 * HOUR);
+    state = recordOwnLine(state, { placeId: `c${i}`, own: own(`o${i}`, i * 60) }, S, T0 + 4 * HOUR);
   state = { ...state, episodes: state.episodes.map((ep) => ({ ...ep, itemId: `pt-${ep.id}` })) };
   deepFreeze(state);
   assert.equal(normalizeParticipation(state).episodes[0].itemId, 'pt-p1', 'normalizing keeps an itemId');
@@ -571,9 +558,9 @@ test('participation: eviction returns the dropped items with their itemId', () =
     ['pt-p1', 'pt-p2'],
     'expired by age, then over the cap'
   );
-  const later = recordFollowing(next, { channelId: 'c3', message: msg('m9', 3 * 60 + 1) }, S, T0 + 3 * HOUR + 2 * MIN);
+  const later = recordFollowing(next, { placeId: 'c3', message: msg('m9', 3 * 60 + 1) }, S, T0 + 3 * HOUR + 2 * MIN);
   assert.equal(
-    later.episodes.find((ep) => ep.channelId === 'c3')!.itemId,
+    later.episodes.find((ep) => ep.placeId === 'c3')!.itemId,
     'pt-p4',
     'a recorded message keeps the episode itemId'
   );
@@ -587,15 +574,15 @@ function earlierState() {
   return deepFreeze({
     nextId: 5,
     episodes: [
-      { id: 'p1', channelId: 'c1', continues: null, messages: [msg('a0', 0), own('a1', 1), msg('a2', 2)] },
+      { id: 'p1', placeId: 'c1', continues: null, messages: [msg('a0', 0), own('a1', 1), msg('a2', 2)] },
       {
         id: 'p2',
-        channelId: 'c1',
+        placeId: 'c1',
         continues: null,
         messages: [msg('b0', 20), own('b1', 21), msg('b2', 22), own('b3', 24)],
       },
-      { id: 'p3', channelId: 'c1', continues: 'p2', messages: [msg('c0', 40), own('c1', 41), msg('c2', 44)] },
-      { id: 'p4', channelId: 'c2', continues: null, messages: [own('d1', 21)] },
+      { id: 'p3', placeId: 'c1', continues: 'p2', messages: [msg('c0', 40), own('c1', 41), msg('c2', 44)] },
+      { id: 'p4', placeId: 'c2', continues: null, messages: [own('d1', 21)] },
     ],
   });
 }
@@ -608,14 +595,14 @@ test('earlierEpisodes: only the channel, only lines older than the window start,
   const now = T0 + 60 * MIN;
   const s = { ...S, earlierHours: 3, earlierShown: 3 };
   // The window starts at minute 22: p3 is whole in the window, p2 is cut at b2, p1 is gone whole.
-  assert.deepEqual(earlierView(earlierEpisodes(state, { channelId: 'c1', before: T0 + 22 * MIN, now }, s)), [
+  assert.deepEqual(earlierView(earlierEpisodes(state, { placeId: 'c1', before: T0 + 22 * MIN, now }, s)), [
     ['p1', ['a0', 'a1', 'a2']],
     ['p2', ['b0', 'b1']],
   ]);
   // A window that starts before every line cuts nothing.
-  assert.deepEqual(earlierEpisodes(state, { channelId: 'c1', before: T0 - MIN, now }, s), []);
+  assert.deepEqual(earlierEpisodes(state, { placeId: 'c1', before: T0 - MIN, now }, s), []);
   // Another channel's episodes never come.
-  assert.deepEqual(earlierView(earlierEpisodes(state, { channelId: 'c2', before: T0 + 60 * MIN, now }, s)), [
+  assert.deepEqual(earlierView(earlierEpisodes(state, { placeId: 'c2', before: T0 + 60 * MIN, now }, s)), [
     ['p4', ['d1']],
   ]);
 });
@@ -626,22 +613,14 @@ test('earlierEpisodes: the age bound drops older lines, the count keeps the newe
   // One hour later, a 1-hour bound keeps lines from minute 30 on (now = minute 90).
   assert.deepEqual(
     earlierView(
-      earlierEpisodes(
-        state,
-        { channelId: 'c1', before, now: T0 + 90 * MIN },
-        { ...S, earlierHours: 1, earlierShown: 3 }
-      )
+      earlierEpisodes(state, { placeId: 'c1', before, now: T0 + 90 * MIN }, { ...S, earlierHours: 1, earlierShown: 3 })
     ),
     [['p3', ['c0', 'c1', 'c2']]]
   );
   // A bound that cuts inside an episode keeps its younger lines (now = minute 81, bound from minute 21).
   assert.deepEqual(
     earlierView(
-      earlierEpisodes(
-        state,
-        { channelId: 'c1', before, now: T0 + 81 * MIN },
-        { ...S, earlierHours: 1, earlierShown: 3 }
-      )
+      earlierEpisodes(state, { placeId: 'c1', before, now: T0 + 81 * MIN }, { ...S, earlierHours: 1, earlierShown: 3 })
     ),
     [
       ['p2', ['b1', 'b2', 'b3']],
@@ -650,11 +629,7 @@ test('earlierEpisodes: the age bound drops older lines, the count keeps the newe
   );
   assert.deepEqual(
     earlierView(
-      earlierEpisodes(
-        state,
-        { channelId: 'c1', before, now: T0 + 60 * MIN },
-        { ...S, earlierHours: 3, earlierShown: 2 }
-      )
+      earlierEpisodes(state, { placeId: 'c1', before, now: T0 + 60 * MIN }, { ...S, earlierHours: 3, earlierShown: 2 })
     ),
     [
       ['p2', ['b0', 'b1', 'b2', 'b3']],
@@ -665,12 +640,12 @@ test('earlierEpisodes: the age bound drops older lines, the count keeps the newe
 
 test('earlierEpisodes: off with earlierHours 0, earlierShown 0, no channel or no window start', () => {
   const state = earlierState();
-  const view = { channelId: 'c1', before: T0 + 60 * MIN, now: T0 + 60 * MIN };
+  const view = { placeId: 'c1', before: T0 + 60 * MIN, now: T0 + 60 * MIN };
   assert.deepEqual(earlierEpisodes(state, view, { ...S, earlierHours: 0, earlierShown: 3 }), []);
   assert.deepEqual(earlierEpisodes(state, view, { ...S, earlierHours: 3, earlierShown: 0 }), []);
   assert.deepEqual(
     // @ts-expect-error a missing channel, on purpose
-    earlierEpisodes(state, { ...view, channelId: null }, { ...S, earlierHours: 3, earlierShown: 3 }),
+    earlierEpisodes(state, { ...view, placeId: null }, { ...S, earlierHours: 3, earlierShown: 3 }),
     []
   );
   assert.deepEqual(
@@ -684,6 +659,6 @@ test('earlierEpisodes: the same store and window start give the same episodes as
   const state = earlierState();
   const s = { ...S, earlierHours: 3, earlierShown: 3 };
   const at = (minute: number) =>
-    earlierEpisodes(state, { channelId: 'c1', before: T0 + 22 * MIN, now: T0 + minute * MIN }, s);
+    earlierEpisodes(state, { placeId: 'c1', before: T0 + 22 * MIN, now: T0 + minute * MIN }, s);
   assert.deepEqual(at(60), at(90));
 });

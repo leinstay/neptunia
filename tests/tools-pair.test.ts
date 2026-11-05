@@ -11,8 +11,8 @@ const M2 = '323456789012345678';
 test('pair: parseTriggers reads channel, trigger and an optional turn id, skipping comments', () => {
   const text = `# the harness set\n${CH} ${M1}\n\n  ${CH}   ${M2} t-9c2e-1  # with its turn\n`;
   assert.deepEqual(parseTriggers(text), [
-    { channelId: CH, triggerId: M1, turnId: null },
-    { channelId: CH, triggerId: M2, turnId: 't-9c2e-1' },
+    { placeId: CH, triggerId: M1, turnId: null },
+    { placeId: CH, triggerId: M2, turnId: 't-9c2e-1' },
   ]);
   assert.throws(() => parseTriggers(`${CH}\n`), /line 1/);
   assert.throws(() => parseTriggers(`${CH} ${M1}\n${CH} abc\n`), /line 2/);

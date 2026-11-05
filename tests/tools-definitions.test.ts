@@ -157,13 +157,13 @@ test('the quirks of the mapping are kept', () => {
   assert.deepStrictEqual(BY_NAME.get('memory.restore')?.toArgs({ id: 'a' }), { itemId: 'a' });
   assert.deepStrictEqual(BY_NAME.get('message.delete')?.toArgs({ message: 'm' }), {
     messageId: 'm',
-    channelId: undefined,
+    placeId: undefined,
   });
   assert.deepStrictEqual(BY_NAME.get('web.read')?.toArgs({ message: 'm' }), { url: undefined, message: 'm' });
   assert.deepStrictEqual(BY_NAME.get('draw.create')?.toArgs({ text: 't', channel: 5 }), {
     text: 't',
     self: false,
-    channelId: '5',
+    placeId: '5',
   });
   assert.deepStrictEqual(BY_NAME.get('errand.read')?.toArgs({ id: 'i' }), { id: 'i', action: 'read', from: undefined });
   assert.deepStrictEqual(BY_NAME.get('media.status')?.toArgs({ kind: 'gifs' }), { kind: 'gifs', action: 'status' });
@@ -171,7 +171,7 @@ test('the quirks of the mapping are kept', () => {
     action: 'add',
     text: 't',
     settle: 0,
-    channelId: '7',
+    placeId: '7',
   });
   assert.equal(BY_NAME.get('intention.set')?.params, INTENT_PARAMS.set);
   assert.equal(BY_NAME.get('intention.update')?.params, INTENT_PARAMS.update);

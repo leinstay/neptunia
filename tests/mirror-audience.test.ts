@@ -78,13 +78,13 @@ async function places(mirrorOn: ReadonlyArray<'fake:d1' | 'fake:d2' | 'fake:d3' 
 /** One diary turn in which she answers `answer`, over the scene's memory: the turn's result and the model's requests. */
 async function writeEntry(scene: Scene, answer: string) {
   freshWorld();
-  world().channel({ id: 'd1', name: 'journal', guildId: GUILD });
+  world().channel({ id: 'd1', name: 'journal', placeId: GUILD });
   const store = createStore({ dataDir: scene.memory.dataDir, memoryDb: scene.memory.memoryDb });
   const model = modelSaying(answer);
   const result = await sceneRunner(model, store).runTurn({
     mode: 'diary',
     diary: { kind: 'status', forced: true },
-    guildId: GUILD,
+    placeId: GUILD,
   });
   await store.flushSettled({});
   return { result, entry: entryOf(result), store, writer: model.calls.at(-1) };
@@ -240,8 +240,8 @@ test('two different audiences in one answer fail closed', async () => {
 
 /** Sets an entry's stored audience through the store, as a later change of the row would. */
 async function narrow(store: Awaited<ReturnType<typeof writeEntry>>['store'], audience: unknown): Promise<void> {
-  const posts = store.getDiary(GUILD).posts.map((post) => ({ ...post, publicationAudience: audience }));
-  store.setDiaryPosts(GUILD, posts);
+  const posts = store.getDiary().posts.map((post) => ({ ...post, publicationAudience: audience }));
+  store.setDiaryPosts(posts);
   await store.flushSettled({});
 }
 
@@ -323,12 +323,12 @@ test('a turn under a trusted restriction that names no audience stays restricted
   // Catches: "omitted means unrestricted" reaching an entry whose source is private.
   const scene = await places(['fake:d1', 'other:d1']);
   freshWorld();
-  world().channel({ id: 'd1', name: 'journal', guildId: GUILD });
+  world().channel({ id: 'd1', name: 'journal', placeId: GUILD });
   const store = createStore({ dataDir: scene.memory.dataDir, memoryDb: scene.memory.memoryDb });
   const result = await sceneRunner(modelSaying(`<msg>${TEXT}</msg>`), store).runTurn({
     mode: 'diary',
     diary: { kind: 'status', forced: true },
-    guildId: GUILD,
+    placeId: GUILD,
     publicationBoundary: BOUNDARY,
   });
   await store.flushSettled({});

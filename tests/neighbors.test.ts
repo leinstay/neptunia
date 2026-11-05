@@ -11,13 +11,13 @@ const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 // PR 7d: the neighbours' measures are constants of src/behavior/neighbors.ts (5 messages, 60 minutes, 8 channels), so
 // fetchNeighbors takes no config.
 
-/** One message `minutesAgo` before NOW in channel `channelId`. */
-function recentMessage(id: string, channelId: string, minutesAgo: number): Raw {
+/** One message `minutesAgo` before NOW in channel `placeId`. */
+function recentMessage(id: string, placeId: string, minutesAgo: number): Raw {
   return {
     id,
-    channelId,
+    placeId,
     guild: { id: 'g1' },
-    channel: { name: channelId },
+    channel: { name: placeId },
     author: { id: 'u1', bot: false, globalName: 'Alice', username: 'alice' },
     member: { displayName: 'Alice' },
     cleanContent: 'καλημέρα',
@@ -63,10 +63,10 @@ test('fetchNeighbors marks a neighbour she cannot write in as readOnly', async (
   neighbour('diary', false, 3);
   const neighbours = await fetchNeighbors(world().reads, await snapshotOfWorld(), here, NOW);
   assert.deepEqual(
-    neighbours.map(({ channelId, readOnly }) => ({ channelId, readOnly })),
+    neighbours.map(({ placeId, readOnly }) => ({ placeId, readOnly })),
     [
-      { channelId: 'diary', readOnly: true },
-      { channelId: 'talk', readOnly: false },
+      { placeId: 'diary', readOnly: true },
+      { placeId: 'talk', readOnly: false },
     ]
   );
   assert.deepEqual(
@@ -93,7 +93,7 @@ test('fetchNeighbors judges accept before the channel cap, so a refused channel 
   };
   const neighbours = await fetchNeighbors(world().reads, snapshot, here, NOW, { accept });
   assert.deepEqual(
-    neighbours.map((n) => n.channelId),
+    neighbours.map((n) => n.placeId),
     others,
     'the slot staff would have taken goes to the next accepted channel'
   );
@@ -101,7 +101,7 @@ test('fetchNeighbors judges accept before the channel cap, so a refused channel 
   assert.deepEqual(judged.sort(), ['staff', ...others].sort(), 'only active channels are judged');
   const all = await fetchNeighbors(world().reads, snapshot, here, NOW);
   assert.deepEqual(
-    all.map((n) => n.channelId),
+    all.map((n) => n.placeId),
     ['staff', ...others.slice(0, 7)],
     'no accept: the eight newest readable channels'
   );

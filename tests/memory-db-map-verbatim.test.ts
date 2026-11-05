@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as verbatim from '../src/memory/db/map/verbatim.ts';
 import * as requests from '../src/memory/db/map/requests.ts';
-import { MAPPERS, classify, kindOfPath } from '../src/memory/db/map/index.ts';
+import { MAPPERS } from '../src/memory/db/map/index.ts';
+import { classify, kindOfPath } from '../src/memory/migration/classify.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
 import { assertRoundTrip, roundTrip } from './fixtures/memory-db/roundtrip.ts';
@@ -42,7 +43,7 @@ test('a whole file is one operational row whose kind says which file it is', () 
     ],
     ['archive/2026-10.ids.json', ['rc-1:rv-1'], 'archive_ids'],
     ['backfill/state.json', { extract: { done: [], windows: 1 } }, 'backfill'],
-    ['backfill/manifest-2026-10.json', { guildId: '3', messages: [{ id: '1', channelId: '2' }] }, 'backfill'],
+    ['backfill/manifest-2026-10.json', { placeId: '3', messages: [{ id: '1', placeId: '2' }] }, 'backfill'],
     ['journal/requests/tools/abcdef.json', [{ type: 'function', function: { name: 'x' } }], 'request_tools'],
     ['private/100000000000000001/record/2026-10/ids.json', [], 'record_ids'],
   ];
@@ -65,7 +66,7 @@ test('a text file and every JSON value come back as they were', () => {
 test('a line of a JSONL file is owned by its path and position', () => {
   const trace = {
     at: '2026-10-20T10:00:00.000Z',
-    channelId: '2',
+    placeId: '2',
     forms: ['x'],
     who: [],
     when: null,
@@ -145,7 +146,7 @@ test('classify names the mapper and format of every memory path', () => {
     ['users/1.json', 'user', 'json'],
     ['private/1.json', 'private', 'json'],
     ['channels/2.json', 'channel', 'json'],
-    ['guild.json', 'guild', 'json'],
+    ['guild.json', 'place', 'json'],
     ['lore.json', 'lore', 'json'],
     ['participation.json', 'participation', 'json'],
     ['recent.json', 'recent', 'json'],

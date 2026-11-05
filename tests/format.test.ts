@@ -554,8 +554,8 @@ test('formatTranscript: mode "memory" for the persona\'s own line omits the id',
 test('formatTranscript: mode "memory" does not repeat the heading while the channel stays the same', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [
-    msg('a', t0, { channelId: 'c1', channelName: 'general' }),
-    msg('b', t0 + MIN, { channelId: 'c1', channelName: 'general' }),
+    msg('a', t0, { placeId: 'c1', channelName: 'general' }),
+    msg('b', t0 + MIN, { placeId: 'c1', channelName: 'general' }),
   ];
   const items = formatTranscript(messages, {
     timezone: TZ,
@@ -571,8 +571,8 @@ test('formatTranscript: mode "memory" does not repeat the heading while the chan
 test('formatTranscript: mode "memory" opens a new heading when the channel changes', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [
-    msg('a', t0, { channelId: 'c1', channelName: 'general' }),
-    msg('b', t0 + MIN, { channelId: 'c2', channelName: 'random' }),
+    msg('a', t0, { placeId: 'c1', channelName: 'general' }),
+    msg('b', t0 + MIN, { placeId: 'c2', channelName: 'random' }),
   ];
   const items = formatTranscript(messages, {
     timezone: TZ,
@@ -589,9 +589,9 @@ test('formatTranscript: mode "memory" opens a new heading when the channel chang
 test('formatTranscript: mode "memory" re-opens a heading when returning to a previously-seen channel', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [
-    msg('a', t0, { channelId: 'c1', channelName: 'general' }),
-    msg('b', t0 + MIN, { channelId: 'c2', channelName: 'random' }),
-    msg('c', t0 + 2 * MIN, { channelId: 'c1', channelName: 'general' }),
+    msg('a', t0, { placeId: 'c1', channelName: 'general' }),
+    msg('b', t0 + MIN, { placeId: 'c2', channelName: 'random' }),
+    msg('c', t0 + 2 * MIN, { placeId: 'c1', channelName: 'general' }),
   ];
   const items = formatTranscript(messages, {
     timezone: TZ,
@@ -607,9 +607,9 @@ test('formatTranscript: mode "memory" re-opens a heading when returning to a pre
 test('formatTranscript: mode "memory" gap markers are computed within a channel run, not across a switch', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [
-    msg('a', t0, { channelId: 'c1', channelName: 'general' }),
+    msg('a', t0, { placeId: 'c1', channelName: 'general' }),
     // Big gap AND a channel switch: must show only the heading, no "passed" marker.
-    msg('b', t0 + 5 * HOUR, { channelId: 'c2', channelName: 'random' }),
+    msg('b', t0 + 5 * HOUR, { placeId: 'c2', channelName: 'random' }),
   ];
   const items = formatTranscript(messages, {
     timezone: TZ,
@@ -626,8 +626,8 @@ test('formatTranscript: mode "memory" gap markers are computed within a channel 
 test('formatTranscript: mode "memory" still marks a gap within the same channel run', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [
-    msg('a', t0, { channelId: 'c1', channelName: 'general' }),
-    msg('b', t0 + 25 * MIN, { channelId: 'c1', channelName: 'general' }),
+    msg('a', t0, { placeId: 'c1', channelName: 'general' }),
+    msg('b', t0 + 25 * MIN, { placeId: 'c1', channelName: 'general' }),
   ];
   const items = formatTranscript(messages, {
     timezone: TZ,
@@ -640,9 +640,9 @@ test('formatTranscript: mode "memory" still marks a gap within the same channel 
   assert.ok(items[1].text.includes('25 min passed'));
 });
 
-test('formatTranscript: chat mode never adds a channel heading, even across a channelId change', () => {
+test('formatTranscript: chat mode never adds a channel heading, even across a placeId change', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const messages = [msg('a', t0, { channelId: 'c1' }), msg('b', t0 + MIN, { channelId: 'c2' })];
+  const messages = [msg('a', t0, { placeId: 'c1' }), msg('b', t0 + MIN, { placeId: 'c2' })];
   const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
   assert.ok(!items[0].text.includes('##'));
   assert.ok(!items[1].text.includes('##'));
@@ -1685,16 +1685,16 @@ const channelNames = new Map([
   ['c1', 'général'],
   ['c9', 'νέα'],
 ]);
-const LINK = (channelId: string, messageId: Untyped) => `https://discord.com/channels/g1/${channelId}/${messageId}`;
+const LINK = (placeId: string, messageId: Untyped) => `https://discord.com/channels/g1/${placeId}/${messageId}`;
 const resolvers = { nameOf: (id: string) => channelNames.get(id) ?? null, linkOf: LINK };
 /** A call that names no message and no conversation. */
-const NO_TARGET = { messageId: null, channelId: null };
+const NO_TARGET = { messageId: null, placeId: null };
 const call = (overrides = {}) => ({
-  channelId: 'c1',
+  placeId: 'c1',
   at: CALL_T0 + 2 * MIN + 10_000,
   skill: 'message.edit',
   status: 'ok',
-  target: { messageId: 'p1', channelId: 'c1' },
+  target: { messageId: 'p1', placeId: 'c1' },
   postedId: null,
   posted: ['p1', 'p2'],
   ...overrides,
@@ -1748,16 +1748,16 @@ test('withCalls: a turn that posted nothing here shows the call as a standalone 
   const early = withCalls(lines, { calls: [call({ posted: [], at: CALL_T0 - MIN })] }, resolvers);
   assert.ok(early.every((message, i) => message === lines[i]));
   // A call made in another channel never lands here.
-  const elsewhere = withCalls(lines, { calls: [call({ channelId: 'c7', posted: [] })] }, resolvers);
+  const elsewhere = withCalls(lines, { calls: [call({ placeId: 'c7', posted: [] })] }, resolvers);
   assert.ok(elsewhere.every((message, i) => message === lines[i]));
 });
 
 test('withCalls: a call that posted in another channel names it and links the post where it was made; the post there says where it came from', () => {
   const here = callScene();
   const there = [
-    msg('z1', CALL_T0 + MIN, { channelId: 'c9', channelName: 'νέα', content: 'salut' }),
+    msg('z1', CALL_T0 + MIN, { placeId: 'c9', channelName: 'νέα', content: 'salut' }),
     msg('x1', CALL_T0 + 2 * MIN + 5000, {
-      channelId: 'c9',
+      placeId: 'c9',
       channelName: 'νέα',
       self: true,
       authorName: 'Nept',
@@ -1768,7 +1768,7 @@ test('withCalls: a call that posted in another channel names it and links the po
     calls: [
       call({
         skill: 'message.create',
-        target: { messageId: null, channelId: 'c9' },
+        target: { messageId: null, placeId: 'c9' },
         postedId: 'x1',
         posted: ['p1', 'p2', 'x1'],
       }),
@@ -1821,7 +1821,7 @@ test("formatTranscript: a call that did not work says why: its argument, its mes
   // A channel she may not write in, named.
   const channel = ended(
     { kind: 'channel-no-permission', code: 'channel-no-permission', arg: null },
-    { target: { messageId: null, channelId: 'c9' } }
+    { target: { messageId: null, placeId: 'c9' } }
   );
   assert.ok(
     channel.endsWith(
@@ -1832,7 +1832,7 @@ test("formatTranscript: a call that did not work says why: its argument, its mes
   // A phrase whose placeholder cannot be filled gives way to the code's reason in tools.result.reasons.
   const unnamed = ended(
     { kind: 'channel-no-permission', code: 'channel-no-permission', arg: null },
-    { target: { messageId: null, channelId: 'c5' } }
+    { target: { messageId: null, placeId: 'c5' } }
   );
   assert.ok(
     unnamed.endsWith(`[called message.edit: ${withReason(labels.tools.result.reasons['channel-no-permission'])}]`),
@@ -1911,21 +1911,21 @@ test('formatTranscript: an errand without its agent says so through tools.refusa
 
 test('formatTranscript: a call target out of view renders as its link, else its channel, else nothing', () => {
   const gone = formatTranscript(
-    withCalls(callScene(), { calls: [call({ target: { messageId: 'old', channelId: 'c9' } })] }, resolvers),
+    withCalls(callScene(), { calls: [call({ target: { messageId: 'old', placeId: 'c9' } })] }, resolvers),
     offsetOptions
   );
   assert.ok(gone[2].text.endsWith(`[called message.edit on ${LINK('c9', 'old')}: done]`), gone[2].text);
   const unlinked = formatTranscript(
     withCalls(
       callScene(),
-      { calls: [call({ target: { messageId: 'old', channelId: 'c9' } })] },
+      { calls: [call({ target: { messageId: 'old', placeId: 'c9' } })] },
       { ...resolvers, linkOf: () => null }
     ),
     offsetOptions
   );
   assert.ok(unlinked[2].text.endsWith('[called message.edit in #νέα: done]'), unlinked[2].text);
   const nameless = formatTranscript(
-    withCalls(callScene(), { calls: [call({ target: { messageId: null, channelId: 'c5' } })] }, resolvers),
+    withCalls(callScene(), { calls: [call({ target: { messageId: null, placeId: 'c5' } })] }, resolvers),
     offsetOptions
   );
   assert.ok(nameless[2].text.endsWith('[called message.edit: done]'), nameless[2].text);

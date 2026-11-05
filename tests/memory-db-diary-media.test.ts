@@ -35,7 +35,7 @@ function setup({ posts, config = {} }: { posts?: Untyped; config?: Record<string
   const handle = openMemoryDb(dbFile);
   seedUnits(handle, data);
   // Stage 3 design, section 5: the posts' place is the diary's mirror (a `mirrors` row of schema v15), no longer
-  // `diary.channelId`; the job asks the interface for the posts in that place.
+  // `diary.placeId`; the job asks the interface for the posts in that place.
   const placeId = channelPlaceId('discord', CHANNEL);
   insertRows(
     handle.db,
@@ -377,7 +377,7 @@ test('a port failure leaves the post and logs a code only', async () => {
 function wholeMessage({ id, content, attachments }: Record<string, Untyped>) {
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     channel: { name: 'general' },
     guild: { id: 'g1' },
     author: { id: 'u1', bot: false, globalName: 'Alice', username: 'alice' },

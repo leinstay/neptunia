@@ -14,7 +14,7 @@ import { channel, rig } from './fixtures/reads-rig.ts';
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const PLACE = channelPlaceId('discord', 'main');
 const args = {
-  guildId: 'g1',
+  placeId: 'g1',
   channel: channel('main'),
   partnerId: null,
   selfId: 'self',
@@ -56,7 +56,7 @@ test('a window without a conversation context returns no configured reader or ev
     // The public window result includes outcome and quotes beyond its broad declared record type.
     const found = (await recall.window({
       ...args,
-      guildId: null,
+      placeId: null,
       channel: null,
       anchor: 'boundary-anchor',
       messages: 1,
@@ -78,7 +78,7 @@ test('prefetch without a conversation context is unavailable and performs no ret
         return [];
       },
     });
-    const found = await recall.prefetch({ ...args, guildId: null, channel: null, lanes });
+    const found = await recall.prefetch({ ...args, placeId: null, channel: null, lanes });
     assert.equal(found?.status, 'unavailable');
     assert.deepEqual(found?.excerpts, []);
     assert.equal(found?.stats?.searches ?? 0, 0);
@@ -143,7 +143,7 @@ for (const hasGuild of [false, true]) {
       // The tool uses only these injected dependencies for a database search.
       const result = await runMemorySearch({
         ...args,
-        guildId: hasGuild ? 'g1' : null,
+        placeId: hasGuild ? 'g1' : null,
         recall,
         store,
         config: hot.config,
@@ -186,7 +186,7 @@ test('an internal summary request without a guild performs no legacy reads when 
   });
   const found = await recall.run({
     ...args,
-    guildId: null,
+    placeId: null,
     memoryContext: issueContext({ kind: 'internal', newId: () => 'ctx:summary-boundary', now: () => NOW }),
     server: { forms: ['rabbit'], who: [], from: null, to: null },
   });

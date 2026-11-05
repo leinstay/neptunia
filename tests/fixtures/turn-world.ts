@@ -18,6 +18,20 @@ import { normalizeOptions, toEvent } from '../../interfaces/discord/index.ts';
 export type Raw = Record<string, unknown>;
 export type Fake = ReturnType<typeof createFakeAdapter>;
 
+/** The test's Discord-shaped message with the SDK's own words: the tests' stand-ins name their channel `placeId`. */
+export function sdkMessage<T>(message: T): T {
+  const raw = message as Record<string, unknown> | null | undefined;
+  if (!raw || typeof raw !== 'object') return message;
+  const reference = raw.reference as Record<string, unknown> | null | undefined;
+  if (raw.channelId === undefined && raw.placeId !== undefined) raw.channelId = raw.placeId;
+  if (reference && reference.channelId === undefined && reference.placeId !== undefined)
+    reference.channelId = reference.placeId;
+  return message;
+}
+
+/** The native id of a spelled top place, as the core's store answers it; any other id as given. */
+const nativeOfSpelled = (placeId: string): string => /^[^:]+:(?:server|guild):(.+)$/.exec(placeId)?.[1] ?? placeId;
+
 /** The persona's id on the worlds' interface; a test file may name another before it builds a world. */
 let SELF = 'self-id';
 export function useSelf(id: string): void {
@@ -37,7 +51,7 @@ export type Posted = {
 export type Channel = {
   id: string;
   name: string | null;
-  guildId: string | null;
+  placeId: string | null;
   info: ConversationInfo;
   /** The messages the persona sent here, as the first tests of the turn read them. */
   sent: Array<Posted>;
@@ -61,7 +75,7 @@ export type ChannelSpec = {
   id?: string;
   name?: string | null;
   /** The community the channel belongs to (g1 by default); `null` for a private chat. */
-  guildId?: string | null;
+  placeId?: string | null;
   dm?: boolean;
   partnerId?: string | null;
   /** The history, oldest first, as discord.js-shaped message stubs of this channel. */
@@ -84,9 +98,9 @@ export type World = {
   selfId: string;
   channel(spec?: ChannelSpec, options?: { keep?: boolean }): Channel;
   /** Puts message stubs into a channel's history, and the ones later added to the array too. */
-  follow(channelId: unknown, messages: unknown): void;
+  follow(placeId: unknown, messages: unknown): void;
   /** Puts message stubs into a channel's history. */
-  seed(channelId: unknown, messages: unknown): void;
+  seed(placeId: unknown, messages: unknown): void;
   member(communityId: string, member: Partial<MemberInfo> & { id: string } & Record<string, unknown>): void;
   /** A message of a conversation is gone (deleted, or never reached the interface). */
   forget(conversationId: unknown, messageId: unknown): void;
@@ -165,18 +179,18 @@ function payloadOf(given: unknown): Posted {
 }
 
 /** The conversation a spec describes: its community (null for a private chat), its name and the interface's info. */
-function infoOf(id: string, spec: ChannelSpec): { guildId: string | null; name: string | null; info: ConversationInfo } {
-  const guildId = spec.dm === true ? null : spec.guildId === undefined ? 'g1' : spec.guildId;
+function infoOf(id: string, spec: ChannelSpec): { placeId: string | null; name: string | null; info: ConversationInfo } {
+  const placeId = spec.dm === true ? null : spec.placeId === undefined ? 'g1' : spec.placeId;
   const name = spec.dm === true ? null : spec.name === undefined ? 'general' : spec.name;
   const info: ConversationInfo = {
     id,
-    kind: spec.kind ?? (guildId === null ? 'dm' : 'channel'),
-    communityId: guildId,
+    kind: spec.kind ?? (placeId === null ? 'dm' : 'channel'),
+    communityId: placeId,
     name,
     topic: null,
     category: spec.category ?? null,
-    chatType: guildId === null ? 'dm' : (spec.kind ?? 'channel'),
-    ...(guildId === null ? { partnerId: spec.partnerId === undefined ? 'u1' : spec.partnerId } : {}),
+    chatType: placeId === null ? 'dm' : (spec.kind ?? 'channel'),
+    ...(placeId === null ? { partnerId: spec.partnerId === undefined ? 'u1' : spec.partnerId } : {}),
     ...(spec.parentId === undefined ? {} : { parentId: spec.parentId }),
     iface: worldIface,
     permissions: { ...ALL, ...spec.permissions },
@@ -184,11 +198,11 @@ function infoOf(id: string, spec: ChannelSpec): { guildId: string | null; name: 
     lastMessageAt: spec.lastMessageAt ?? null,
     voice: spec.voice === true,
     public: spec.public ?? true,
-    audience: spec.audience === undefined ? (guildId === null ? null : EVERYONE) : spec.audience,
+    audience: spec.audience === undefined ? (placeId === null ? null : EVERYONE) : spec.audience,
     ...(spec.viewers === undefined ? {} : { viewers: spec.viewers }),
     ...spec.extra,
   };
-  return { guildId, name, info };
+  return { placeId, name, info };
 }
 
 function create(): World {
@@ -209,7 +223,7 @@ function create(): World {
   });
   // The history of a conversation is what a test seeds, as the arrays it passes were before: her own sends stay out.
   port.showSendsInHistory(false);
-  const reads = createReads(port, quiet);
+  const reads = createReads(port, quiet, nativeOfSpelled);
   // What was seeded, replayed into another adapter a test brings (`adopt`) and applied to it from then on.
   const seeded: Array<(one: Fake) => void> = [];
   const adopted = new Map<Fake, Reads>([[port, reads]]);
@@ -304,14 +318,14 @@ function create(): World {
   }
 
   /** Seeds `messages` into a conversation, and every line a test later pushes or unshifts into the array too. */
-  function follow(channelId: string, messages: ReadonlyArray<Raw>): void {
-    seed(channelId, messages);
+  function follow(placeId: string, messages: ReadonlyArray<Raw>): void {
+    seed(placeId, messages);
     const live = messages as Array<Raw>;
     if (!Array.isArray(live)) return;
     for (const method of ['push', 'unshift'] as const) {
       const original = live[method].bind(live);
       live[method] = (...items: Array<Raw>): number => {
-        seed(channelId, items);
+        seed(placeId, items);
         return original(...items);
       };
     }
@@ -322,10 +336,10 @@ function create(): World {
   const stubs: Array<[string, Raw]> = [];
   let options = normalizeOptions({});
 
-  const seedOne = (channelId: string, raw: Raw): void => {
-    const { raw: dropped, rawPrevious, ...event } = toEvent(raw, SELF, options) as Record<string, unknown>;
+  const seedOne = (placeId: string, raw: Raw): void => {
+    const { raw: dropped, rawPrevious, ...event } = toEvent(sdkMessage(raw), SELF, options) as Record<string, unknown>;
     void [dropped, rawPrevious];
-    const conversation = { ...(event.conversation as object), id: channelId };
+    const conversation = { ...(event.conversation as object), id: placeId };
     // What a read by id lists of its files: each with the type the platform gave it.
     const files = [...((raw.attachments as Map<string, Raw> | undefined)?.values() ?? [])].map((file) => ({
       name: typeof file.name === 'string' ? file.name : 'file',
@@ -336,10 +350,10 @@ function create(): World {
     each((one) => one.seedEvent({ ...event, iface: one.iface, conversation } as never, { attachments: files }));
   };
 
-  const seed = (channelId: string, messages: ReadonlyArray<Raw>): void => {
+  const seed = (placeId: string, messages: ReadonlyArray<Raw>): void => {
     for (const raw of messages) {
-      stubs.push([channelId, raw]);
-      seedOne(channelId, raw);
+      stubs.push([placeId, raw]);
+      seedOne(placeId, raw);
     }
   };
 
@@ -347,12 +361,12 @@ function create(): World {
     const next = normalizeOptions(config as Parameters<typeof normalizeOptions>[0]);
     if (JSON.stringify(next) === JSON.stringify(options)) return;
     options = next;
-    for (const [channelId, raw] of stubs) seedOne(channelId, raw);
+    for (const [placeId, raw] of stubs) seedOne(placeId, raw);
   }
 
   function channel(spec: ChannelSpec = {}, options: { keep?: boolean } = {}): Channel {
     const id = spec.id ?? 'c1';
-    const { guildId, name, info } = infoOf(id, spec);
+    const { placeId, name, info } = infoOf(id, spec);
     // A conversation made again starts over (unless `keep`): no message, no id counted, and the calls before now are
     // not its own.
     if (options.keep !== true) {
@@ -379,7 +393,7 @@ function create(): World {
     return {
       id,
       name,
-      guildId,
+      placeId,
       info,
       get sent() {
         return sentOf(id, first, untilDeliveries);
@@ -422,8 +436,8 @@ function create(): World {
     reads,
     selfId: SELF,
     channel,
-    seed: (channelId, messages) => seed(String(channelId), messages as ReadonlyArray<Raw>),
-    follow: (channelId, messages) => follow(String(channelId), messages as ReadonlyArray<Raw>),
+    seed: (placeId, messages) => seed(String(placeId), messages as ReadonlyArray<Raw>),
+    follow: (placeId, messages) => follow(String(placeId), messages as ReadonlyArray<Raw>),
     failRead,
     knowMembers(communityId, ids) {
       for (const id of ids as Array<string>) this.member(String(communityId), { id, name: id });
@@ -460,7 +474,7 @@ function create(): World {
       if (known !== undefined) return known;
       other.showSendsInHistory(options.sendsInHistory === true);
       for (const op of wrapped) wrapPort(other, op);
-      const made = createReads(other, quiet);
+      const made = createReads(other, quiet, nativeOfSpelled);
       for (const seeding of seeded) seeding(other);
       adopted.set(other, made);
       return made;
@@ -574,7 +588,7 @@ export function syncStub(stub: unknown): Channel {
   return world().channel(
     {
       id: given.id,
-      guildId: given.guild?.id ?? null,
+      placeId: given.guild?.id ?? null,
       dm: !given.guild,
       name: given.name ?? null,
       kind: given.isThread?.() === true ? 'thread' : undefined,
@@ -601,7 +615,7 @@ export function worldChannels(
       id: given.id,
       name: given.name,
       ...(given.category === undefined ? {} : { category: given.category }),
-      guildId: communityId,
+      placeId: communityId,
       extra: { topic: given.topic ?? null },
       lastMessageAt: stubs.reduce((newest, raw) => Math.max(newest, raw.createdTimestamp), 0) || null,
       historyMessages: stubs,
@@ -641,16 +655,16 @@ export function onWorldIface(event: unknown): unknown {
  * discord.js-shaped files, `ts` the time it was written.
  */
 export function seedExisting(
-  channelId: unknown,
+  placeId: unknown,
   id: unknown,
   { authorId = 'u1', ts = Date.now(), attachments = new Map() }: { authorId?: unknown; ts?: number; attachments?: unknown } = {}
 ): void {
-  const conversationId = String(channelId);
+  const conversationId = String(placeId);
   const author = String(authorId);
   world().seed(conversationId, [
     {
       id: String(id),
-      channelId: conversationId,
+      placeId: conversationId,
       author: { id: author, bot: false, globalName: author, username: author },
       member: { displayName: author },
       cleanContent: 'hi',

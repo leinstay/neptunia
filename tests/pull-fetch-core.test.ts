@@ -86,7 +86,7 @@ function rawMessage(id: string, name: string, spec: MessageSpec): Raw {
   const { ts, content = 'καλημέρα σε όλους', authorId = MEMBER.zoe, images = [], mentionsSelf = false } = spec;
   return {
     id: SnowflakeUtil.generate({ timestamp: ts }).toString(),
-    channelId: id,
+    placeId: id,
     channel: { name },
     guild: { id: GUILD_ID },
     author: { id: authorId, bot: false, globalName: 'Zoé', username: 'zoe' },
@@ -152,7 +152,7 @@ function addChannel({
   const handle = world().channel({
     id,
     name,
-    guildId: GUILD_ID,
+    placeId: GUILD_ID,
     permissions,
     ...(kind === undefined ? {} : { kind }),
     ...(held === undefined ? {} : { audience: held }),
@@ -222,7 +222,7 @@ type Ring = NonNullable<Parameters<typeof fetchPull>[0]['pings']>[number];
 function ringEntry(channel: Held, id: string, ts: number, answeredAt?: number, skippedAt?: number): Ring {
   return {
     messageId: id,
-    channelId: channel.id,
+    placeId: channel.id,
     ts,
     ...(answeredAt === undefined ? {} : { answeredAt }),
     ...(skippedAt === undefined ? {} : { skippedAt }),
@@ -231,13 +231,13 @@ function ringEntry(channel: Held, id: string, ts: number, answeredAt?: number, s
 
 type DescriberFake = {
   calls: {
-    cached: Array<{ guildId: string | null; ids: Array<string> }>;
-    many: Array<{ guildId: string | null; ids: Array<string>; options: { maxNew: number } }>;
+    cached: Array<{ placeId: string | null; ids: Array<string> }>;
+    many: Array<{ placeId: string | null; ids: Array<string>; options: { maxNew: number } }>;
   };
   pending: Array<{ id: string; settle(text: string | null): void }>;
-  cachedDescriptions(guildId: string | null, items: ReadonlyArray<{ itemId: string }>): Map<string, string>;
+  cachedDescriptions(placeId: string | null, items: ReadonlyArray<{ itemId: string }>): Map<string, string>;
   describeMany(
-    guildId: string | null,
+    placeId: string | null,
     items: ReadonlyArray<{ itemId: string }>,
     options: { maxNew: number }
   ): Promise<{ descriptions: Map<string, string>; newCount: number }>;
@@ -263,8 +263,8 @@ function fakeDescriber({
   return {
     calls,
     pending,
-    cachedDescriptions(guildId, items) {
-      calls.cached.push({ guildId, ids: items.map((item) => item.itemId) });
+    cachedDescriptions(placeId, items) {
+      calls.cached.push({ placeId, ids: items.map((item) => item.itemId) });
       return new Map(
         items.flatMap((item) => {
           const text = cached[item.itemId];
@@ -272,8 +272,8 @@ function fakeDescriber({
         })
       );
     },
-    describeMany(guildId, items, options) {
-      calls.many.push({ guildId, ids: items.map((item) => item.itemId), options });
+    describeMany(placeId, items, options) {
+      calls.many.push({ placeId, ids: items.map((item) => item.itemId), options });
       const id = items[0]?.itemId ?? '';
       if (fail.includes(id)) return Promise.reject(new Error('provider unavailable'));
       const answer = (text: string | null | undefined) => ({
@@ -353,13 +353,13 @@ function loggedAll(logs: ReadonlyArray<object>, msg: string): Array<Log> {
 type PullOver = Partial<Parameters<typeof fetchPull>[0]> & { viewers?: Array<string> };
 
 /** fetchPull with the usual arguments over the world; `over` replaces any of them. */
-async function pull(channelId: string, over: PullOver = {}): Promise<Result> {
+async function pull(placeId: string, over: PullOver = {}): Promise<Result> {
   const { viewers = [], ...rest } = over;
   const snapshot = rest.snapshot ?? (await takeSnapshot(world().reads, GUILD_ID, viewers));
   return fetchPull({
     reads: world().reads,
-    guildId: GUILD_ID,
-    channelId,
+    placeId: GUILD_ID,
+    conversationId: placeId,
     destination: snapshot?.get(MAIN_ID) ?? null,
     reason: 'mention',
     config: config(),
@@ -398,7 +398,7 @@ test("fetchPull ends the window at the conversation's newest message", async () 
   );
   assert.equal(pulled.olderNotShown, true);
   assert.equal(pulled.messages.at(-1)?.id, diary.idAt(LAST));
-  assert.equal(pulled.channelId, diary.id);
+  assert.equal(pulled.placeId, diary.id);
   assert.equal(pulled.channelName, 'ημερολόγιο');
   assert.equal(pulled.reason, 'mention');
   assert.deepEqual(diary.calls(), [{ limit: 61 }], 'one page, no anchor');
@@ -532,13 +532,13 @@ test('fetchPull skips an unknown, thread or unreadable conversation with its rea
     [thread.id, 'thread'],
     [hidden.id, 'not-readable'],
   ];
-  for (const [channelId, code] of cases) {
-    const { result, logs } = await withCapturedLogs(() => pull(channelId, { config: cfg }));
+  for (const [placeId, code] of cases) {
+    const { result, logs } = await withCapturedLogs(() => pull(placeId, { config: cfg }));
     assert.deepEqual(result, { pulled: null, skip: code }, code);
     const line = logged(logs, 'pull: skipped');
     assert.deepEqual(
       { channel: line.channel, source: line.source, reason: line.reason, pullReason: line.pullReason },
-      { channel: MAIN_ID, source: channelId, reason: code, pullReason: 'mention' }
+      { channel: MAIN_ID, source: placeId, reason: code, pullReason: 'mention' }
     );
   }
   for (const held of [thread, hidden]) assert.deepEqual(held.calls(), [], 'nothing read');
@@ -587,8 +587,8 @@ test('checkPull checks the rails without a request and gives the conversation wh
   const main = mainChannel();
   const diary = addChannel({ id: '760000000000000046', permissions: { send: false }, messages: [{ ts: LAST }] });
   const snapshot = await listing();
-  const check = (channelId: string, destination: ConversationInfo | null, cfg: Config = config()) =>
-    checkPull({ snapshot, channelId, destination, config: cfg, now: NOW });
+  const check = (placeId: string, destination: ConversationInfo | null, cfg: Config = config()) =>
+    checkPull({ snapshot, placeId, destination, config: cfg, now: NOW });
   assert.equal(check(diary.id, main.info).channel?.id, diary.id);
   assert.equal(check(diary.id, main.info).skip, null);
   assert.deepEqual(check(diary.id, null), { channel: null, skip: 'audience' });
@@ -614,12 +614,12 @@ test('checkPull lets a private chat with its partner pass what the partner can v
   const dm = privateChat(MEMBER.iason);
   const snapshot = await listing([MEMBER.iason]);
   const check = (
-    channelId: string,
+    placeId: string,
     over: { destination?: ConversationInfo; partnerId?: string | null; cfg?: Config } = {}
   ) =>
     checkPull({
       snapshot,
-      channelId,
+      placeId,
       destination: over.destination ?? dm,
       partnerId: over.partnerId === undefined ? MEMBER.iason : over.partnerId,
       config: over.cfg ?? config(),
@@ -650,7 +650,7 @@ test('fetchPull in a private chat reads a conversation the partner can view and 
     await pull(open.id, { destination: dm, viewers: [MEMBER.iason] }),
   ]);
   assert.equal(result[0]?.skip, null);
-  assert.equal(result[0]?.pulled?.channelId, open.id);
+  assert.equal(result[0]?.pulled?.placeId, open.id);
   assert.equal(result[0]?.pulled?.messages.length, 3);
   assert.deepEqual(result[1], { pulled: null, skip: 'audience' });
   assert.deepEqual(closed.calls(), []);
@@ -672,7 +672,7 @@ test('checkPull refuses exactly the conversations isReadable refuses', async () 
   for (const channel of held) {
     const { skip } = checkPull({
       snapshot,
-      channelId: channel.id,
+      placeId: channel.id,
       destination: main.info,
       config: config({ bot }),
       now: NOW,
@@ -803,7 +803,7 @@ test('fetchPull reads an unanswered ring ping outside the window and marks it', 
     ringEntry(diary, unansweredId, LAST - 300 * MIN),
     ringEntry(diary, answeredId, LAST - 280 * MIN, LAST - 270 * MIN),
     ringEntry(diary, skippedId, LAST - 260 * MIN, undefined, LAST - 250 * MIN),
-    { messageId: '769999999999999999', channelId: '760000000000000099', ts: LAST - 100 * MIN },
+    { messageId: '769999999999999999', placeId: '760000000000000099', ts: LAST - 100 * MIN },
   ];
   // Only the newest page is served, so the call outside it must be read by id.
   servePageFrom(LAST - 50 * MIN);
@@ -891,12 +891,12 @@ test('fetchPull uses cached captions for every picture and fresh ones only withi
   const pulled = pulledOf(result);
   assert.deepEqual(
     describer.calls.cached,
-    [{ guildId: GUILD_ID, ids: ['p12', 'p11', 'p10', 'p9', 'p8', 'p7', 'p6', 'p5', 'p4', 'p3', 'p2', 'p1'] }],
+    [{ placeId: GUILD_ID, ids: ['p12', 'p11', 'p10', 'p9', 'p8', 'p7', 'p6', 'p5', 'p4', 'p3', 'p2', 'p1'] }],
     'the cache is asked for every picture'
   );
   assert.deepEqual(
     describer.calls.many,
-    newest.map((id) => ({ guildId: GUILD_ID, ids: [id], options: { maxNew: 1 } })),
+    newest.map((id) => ({ placeId: GUILD_ID, ids: [id], options: { maxNew: 1 } })),
     'one request per fresh picture, newest first, none past the eight'
   );
   assert.deepEqual(Object.fromEntries(pulled.descriptions), {
@@ -1022,7 +1022,7 @@ test('captionPulled makes no read and asks only for uncached pictures within the
   const { result, logs } = await withCapturedLogs(async () => {
     const before = pulledOf(await pull(channel.id, { config: cfg, describer }));
     const requests = channel.calls().length;
-    const after = await captionPulled(before, { describer, guildId: GUILD_ID, config: cfg, destination: main.info });
+    const after = await captionPulled(before, { describer, placeId: GUILD_ID, config: cfg, destination: main.info });
     return { before, after, requests };
   });
   const { before, after, requests } = result;
@@ -1063,7 +1063,7 @@ test('captionPulled renders a late caption blind and clears the timer when all a
   const { set, timers } = manualTimers();
   const { result } = await withCapturedLogs(async () => {
     const pulled = pulledOf(await pull(channel.id, { describer }));
-    const late = captionPulled(pulled, { describer, guildId: GUILD_ID, config: config(), timers });
+    const late = captionPulled(pulled, { describer, placeId: GUILD_ID, config: config(), timers });
     await until(() => describer.pending.length === 2);
     assert.equal(set[0]?.unrefed, true, 'the timer never keeps the process alive');
     describer.pending[0]?.settle('νέα p2');
@@ -1071,7 +1071,7 @@ test('captionPulled renders a late caption blind and clears the timer when all a
     set[0]?.fn(); // the timeout: p1 is still out
     const blind = await late;
     describer.pending[1]?.settle('νέα p1'); // too late for this turn
-    const inTime = captionPulled(pulled, { describer, guildId: GUILD_ID, config: config(), timers });
+    const inTime = captionPulled(pulled, { describer, placeId: GUILD_ID, config: config(), timers });
     await until(() => describer.pending.length === 4);
     describer.pending[2]?.settle('νέα p2');
     describer.pending[3]?.settle('νέα p1');
@@ -1195,7 +1195,7 @@ test('fetchPull pulls a read-only conversation where only the persona writes and
   });
   const snapshot = await listing();
   assert.equal(
-    checkPull({ snapshot, channelId: diary.id, destination: main.info, config: config(), now: NOW }).skip,
+    checkPull({ snapshot, placeId: diary.id, destination: main.info, config: config(), now: NOW }).skip,
     null
   );
   const { result } = await withCapturedLogs(() => pull(diary.id));

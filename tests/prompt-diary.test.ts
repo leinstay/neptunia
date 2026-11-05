@@ -87,7 +87,7 @@ function baseInput(overrides = {}) {
     neighbors: [],
     trigger: null,
     triggerKind: null,
-    guildMemory: {},
+    placeMemory: {},
     interlocutor: null,
     otherProfiles: [],
     ...overrides,
@@ -306,7 +306,7 @@ test('buildDiaryPlanRequest: the plan prompt as system, the blocks in order, kin
     now: NOW,
     selfName: 'Nept',
     history: [],
-    guildMemory: { patterns: 'short lines, lots of jokes' },
+    placeMemory: { patterns: 'short lines, lots of jokes' },
     channels,
     loreEntries: [],
     currentChannelId: 'd1',
@@ -364,11 +364,11 @@ test('buildRequest: the server block marks the diary channel', () => {
     topWriters: [],
   });
   const channels = [channel('c-talk', 'agora'), channel('c-diary', 'journal-κ')];
-  const input = { channels, currentChannelId: 'c-talk', neighbors: [{ channelId: 'c-diary', messages: [] }] };
+  const input = { channels, currentChannelId: 'c-talk', neighbors: [{ placeId: 'c-diary', messages: [] }] };
   const mark = fill(labels.server.diary, { channel: 'journal-κ' });
 
   // Stage 3 design, section 5: the places of her diary are its mirrors, which the turn reads from memory and hands the
-  // builder as `diaryChannelIds`; `diary.channelId` is only a seed.
+  // builder as `diaryChannelIds`; `diary.placeId` is only a seed.
   const on = userText(buildRequest(baseInput({ ...input, diaryChannelIds: ['c-diary'] })));
   const entries = on.slice(on.indexOf('<server>'), on.indexOf('</server>')).split('\n\n');
   const diaryEntry = entries.find((entry) => entry.includes('# journal-κ'));

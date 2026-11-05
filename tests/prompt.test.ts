@@ -384,7 +384,7 @@ test('buildRequest: blocks appear in the documented order', () => {
       history: [trigger],
       trigger,
       triggerKind: 'mention',
-      guildMemory: { patterns: 'talks fast', self: ['likes games'] },
+      placeMemory: { patterns: 'talks fast', self: ['likes games'] },
       otherProfiles: [{ id: 'p2', names: ['Carl'], character: 'calm' }],
       neighbors: [{ channelName: 'general', messages: [makeMessage(9, NOW - 5 * MIN)] }],
       channels: [{ id: 'c1', name: 'general', lastMessageAt: NOW, days: {} }],
@@ -471,7 +471,7 @@ function segmentScene({
         name: 'A',
         itemId: 'k1',
         messageId: 'm1',
-        channelId: 'c1',
+        placeId: 'c1',
         count: 4,
         last: NOW - 2 * 86_400_000,
         firstSeen: NOW - 9 * 86_400_000,
@@ -485,7 +485,7 @@ function segmentScene({
         name: 'B',
         itemId: 'k2',
         messageId: 'm2',
-        channelId: 'c1',
+        placeId: 'c1',
         count: 6,
         last: NOW - 2 * HOUR,
         firstSeen: NOW - 9 * 86_400_000,
@@ -502,7 +502,7 @@ function segmentScene({
     trigger,
     triggerKind: 'mention',
     interlocutor,
-    guildMemory: {
+    placeMemory: {
       patterns: 'talks fast',
       self: ['likes games'],
       learned: [
@@ -599,7 +599,7 @@ test('buildRequest: an empty segment is left out, never sent as an empty text pa
   );
   assert.ok(content[0].text.startsWith('<chat>'));
   assert.ok(!content[0].text.endsWith('\n'));
-  const callerOnly = buildRequest(segmentScene({ guildMemory: {}, gifs: null, prompts })).messages[1].content;
+  const callerOnly = buildRequest(segmentScene({ placeMemory: {}, gifs: null, prompts })).messages[1].content;
   assert.deepEqual(
     callerOnly.map((part) => part.cacheSegment ?? null),
     ['profiles', null]
@@ -839,7 +839,7 @@ function cacheScene({
   return segmentScene({
     config: fakeConfig({ private: { enabled: true } }),
     triggerFields: { content: 'ωραίο :pog:', emojis: [{ id: '9', name: 'pog' }], ...triggerFields },
-    guildMemory: {
+    placeMemory: {
       patterns: 'talks fast',
       self: ['likes games'],
       emojiUsage: { 2: { name: 'beta', count: 5, last: NOW - HOUR } },
@@ -970,7 +970,7 @@ test('buildRequest: the stable part is byte-identical across the turns of a day,
     'no server search left': { recallAvailable: false },
     'no emoji in the chat': { triggerFields: { content: 'γεια', emojis: [] } },
     'the emoji ranking moved': {
-      guildMemory: {
+      placeMemory: {
         patterns: 'talks fast',
         self: ['likes games'],
         emojiUsage: { 3: { name: 'gamma', count: 9, last: NOW - MIN } },
@@ -1017,7 +1017,7 @@ test('profileStateFields: the message count is rounded down, to tens from 10 and
 
 test('buildRequest: empty blocks (about_chat, server, self_facts, people, other_channels) are omitted', () => {
   const request = buildRequest(
-    baseInput({ guildMemory: {}, otherProfiles: [], neighbors: [], trigger: null, channels: [] })
+    baseInput({ placeMemory: {}, otherProfiles: [], neighbors: [], trigger: null, channels: [] })
   );
   const user = contentText(request.messages[1].content);
   assert.ok(!user.includes('<about_chat>'));
@@ -1288,7 +1288,7 @@ test('buildRequest: the current channel is first and carries labels.server.curre
     fakeChannel('c1', { name: 'general', lastMessageAt: NOW - 5 * MIN }),
     fakeChannel('c2', { name: 'random', lastMessageAt: NOW }), // more recent, but not the current channel
   ];
-  const neighbors = [{ channelId: 'c2', channelName: 'random', messages: [makeMessage(9, NOW - 5 * MIN)] }];
+  const neighbors = [{ placeId: 'c2', channelName: 'random', messages: [makeMessage(9, NOW - 5 * MIN)] }];
   const request = buildRequest(baseInput({ channels, currentChannelId: 'c1', neighbors }));
   const user = contentText(request.messages[1].content);
   const serverStart = user.indexOf('<server>');
@@ -1304,7 +1304,7 @@ test('buildRequest: <server> shows only the current channel and the neighbours t
     fakeChannel('c2', { name: 'random' }),
     fakeChannel('c3', { name: 'off-topic' }), // never a neighbour this turn -- must not appear
   ];
-  const neighbors = [{ channelId: 'c2', channelName: 'random', messages: [makeMessage(9, NOW - 5 * MIN)] }];
+  const neighbors = [{ placeId: 'c2', channelName: 'random', messages: [makeMessage(9, NOW - 5 * MIN)] }];
   const request = buildRequest(baseInput({ channels, currentChannelId: 'c1', neighbors }));
   const user = contentText(request.messages[1].content);
   assert.ok(user.includes('# general'));
@@ -1319,8 +1319,8 @@ test('buildRequest: several contributing neighbours render in the order given by
     fakeChannel('c3', { name: 'aaa-first-by-name' }),
   ];
   const neighbors = [
-    { channelId: 'c2', channelName: 'zzz-last-by-name', messages: [makeMessage(9, NOW - 5 * MIN)] },
-    { channelId: 'c3', channelName: 'aaa-first-by-name', messages: [makeMessage(10, NOW - 4 * MIN)] },
+    { placeId: 'c2', channelName: 'zzz-last-by-name', messages: [makeMessage(9, NOW - 5 * MIN)] },
+    { placeId: 'c3', channelName: 'aaa-first-by-name', messages: [makeMessage(10, NOW - 4 * MIN)] },
   ];
   const request = buildRequest(baseInput({ channels, currentChannelId: 'c1', neighbors }));
   const user = contentText(request.messages[1].content);
@@ -1333,7 +1333,7 @@ test('buildRequest: several contributing neighbours render in the order given by
 test('buildRequest: a neighbour with no stored channel note is skipped, not synthesized', () => {
   const channels = [fakeChannel('c1', { name: 'general' })];
   const neighbors = [
-    { channelId: 'never-touched', channelName: 'never-touched', messages: [makeMessage(9, NOW - 5 * MIN)] },
+    { placeId: 'never-touched', channelName: 'never-touched', messages: [makeMessage(9, NOW - 5 * MIN)] },
   ];
   const request = buildRequest(baseInput({ channels, currentChannelId: 'c1', neighbors }));
   const user = contentText(request.messages[1].content);
@@ -1347,7 +1347,7 @@ test('buildRequest: a neighbour with no stored channel note is skipped, not synt
 test('buildRequest: with no stored note for the current channel, its Discord facts and activity still render from history', () => {
   const history = [
     makeMessage(1, NOW - MIN, {
-      channelId: 'c1',
+      placeId: 'c1',
       channelName: 'brand-new-channel',
       channelCategory: 'General',
       channelTopic: 'say hi',
@@ -1384,7 +1384,7 @@ test('buildRequest: under a tiny server cap, the map is trimmed but <chat> still
     fakeChannel('c1', { name: 'general', purpose: 'x'.repeat(200), lastMessageAt: NOW }),
     fakeChannel('c2', { name: 'random', purpose: 'y'.repeat(200), lastMessageAt: NOW - MIN }),
   ];
-  const neighbors = [{ channelId: 'c2', channelName: 'random', messages: [makeMessage(20, NOW - MIN)] }];
+  const neighbors = [{ placeId: 'c2', channelName: 'random', messages: [makeMessage(20, NOW - MIN)] }];
   // PR 7d: the fixed sections grew with the always-on senses lines, so the cap leaves 400 tokens, not 360.
   const config = fakeConfig({ llm: { maxRequestTokens: exactly(400) } });
   const request = buildRequest(baseInput({ history, channels, neighbors, currentChannelId: 'c1', config }));
@@ -2238,7 +2238,7 @@ test('buildRequest: <lore> sits after <server>, in the tail after <self_facts>',
   const request = buildRequest(
     baseInput({
       history,
-      guildMemory: { self: ['likes tea'] },
+      placeMemory: { self: ['likes tea'] },
       channels: [{ id: 'c1', name: 'general', lastMessageAt: NOW, days: {} }],
       currentChannelId: 'c1',
       loreEntries: [loreEntry()],
@@ -2415,7 +2415,7 @@ test('profileStateFields: the affinity reason resolves <@id> tokens via nameOf',
 
 test('buildRequest: about_chat/self_facts/lore/server resolve <@id> tokens via input.nameOf', () => {
   const history = [makeMessage(1, NOW - MIN, { content: 'the incident again' })];
-  const guildMemory = {
+  const placeMemory = {
     patterns: 'people quote <@223456789012345678>',
     starters: '<@223456789012345678> starts it',
     injokes: ['<@223456789012345678> did it'],
@@ -2427,7 +2427,7 @@ test('buildRequest: about_chat/self_facts/lore/server resolve <@id> tokens via i
   const request = buildRequest(
     baseInput({
       history,
-      guildMemory,
+      placeMemory,
       channels,
       currentChannelId: 'c1',
       loreEntries: [
@@ -3059,7 +3059,7 @@ test('people: next to a pulled block near the request limit an asked-about membe
   // Lines by someone with no profile: the block only takes room ahead of <people>.
   const messages = [1, 2, 3, 4, 5, 6].map((i) =>
     makeMessage(`q${i}`, NOW - (30 - i) * MIN, {
-      channelId: 'src',
+      placeId: 'src',
       channelName: 'journal',
       authorId: 'x9',
       authorName: 'Léa',
@@ -3073,7 +3073,7 @@ test('people: next to a pulled block near the request limit an asked-about membe
         history: [trigger],
         trigger,
         triggerKind: 'mention',
-        pulled: [{ channelId: 'src', channelName: 'journal', messages }],
+        pulled: [{ placeId: 'src', channelName: 'journal', messages }],
         candidateProfiles: [zoe],
       })
     );
@@ -3121,14 +3121,14 @@ test("people: a private chat shows an asked-about member's episodes like the ser
 test('people: an author of a pulled line asked about through the pulled block shows episodes too', () => {
   const messages = [
     makeMessage('q1', NOW - 20 * MIN, {
-      channelId: 'src',
+      placeId: 'src',
       channelName: 'journal',
       authorId: 'z1',
       authorName: 'Zoé',
       content: 'σελίδα',
     }),
   ];
-  const pulled = [{ channelId: 'src', channelName: 'journal', messages }];
+  const pulled = [{ placeId: 'src', channelName: 'journal', messages }];
   const zoe = { id: 'z1', names: ['Zoé'], character: 'rêveuse', episodes: askedEpisodes() };
   const people = bodyOf(userText(buildRequest(baseInput({ pulled, candidateProfiles: [zoe] }))), 'people');
   assert.ok(people!.includes('## Zoé') && people!.includes('ε5') && !people!.includes('ε2'));
@@ -3172,7 +3172,7 @@ test('buildRequest: a lookup renders <lookup> -- the header with the query, the 
 
 test('buildRequest: <lookup> sits right before <chat>, after the reference blocks', () => {
   const request = buildRequest(
-    baseInput({ config: webConfig(), lookup: LOOKUP, guildMemory: { self: ['likes tea'] } })
+    baseInput({ config: webConfig(), lookup: LOOKUP, placeMemory: { self: ['likes tea'] } })
   );
   const user = contentText(request.messages[1].content);
   const at = user.indexOf('\n<lookup>\n');
@@ -3254,7 +3254,7 @@ test('buildRequest: a stretch follows the summary under labels.lookup.stretch (t
   // 22:30 UTC on 1 October is already 2 October in the bot's zone (Europe/Moscow).
   const startTs = Date.UTC(2026, 9, 1, 22, 30);
   const lines = "[01:30] Ana: le gâteau\n>> [01:31] Élodie: tu l'as fini ?";
-  const stretch = { channelId: 'c9', channelName: 'jardin', startTs, lines };
+  const stretch = { placeId: 'c9', channelName: 'jardin', startTs, lines };
   // The full date, year included: a stretch may be years old.
   const date = zonedDay(startTs, 'Europe/Moscow');
   assert.notEqual(date, zonedDay(startTs, 'UTC'), 'the scene tells the zones apart');
@@ -3283,7 +3283,7 @@ test('buildRequest: an older labels.json without the server keys renders no serv
   // Without the stretch key alone: the summary stays, the stretch is left out.
   const { stretch: _only, ...noStretch } = labels.lookup;
   const stretch = {
-    channelId: 'c9',
+    placeId: 'c9',
     channelName: 'jardin',
     startTs: NOW - 60 * MIN,
     lines: '>> [12:00] Ana: le gâteau',
@@ -3438,7 +3438,7 @@ function aboutChatOf(request: Built) {
 const learnedNameOf = (id: string) => ({ [TEACHER_A]: 'Aurélie', [TEACHER_B]: 'Björn' })[id] ?? null;
 
 test('buildRequest: learned renders after the injokes, ranked, capped, with teachers and unsure marks', () => {
-  const guildMemory = {
+  const placeMemory = {
     patterns: 'short lines',
     injokes: ['the lamp'],
     learned: [
@@ -3449,7 +3449,7 @@ test('buildRequest: learned renders after the injokes, ranked, capped, with teac
       learnedItem('l2', 'pizza with <@322222222222222222> on Fridays', 3, '2026-09-10T00:00:00.000Z'),
     ],
   };
-  const lines = aboutChatOf(buildRequest(baseInput({ guildMemory, nameOf: learnedNameOf })))!.split('\n');
+  const lines = aboutChatOf(buildRequest(baseInput({ placeMemory, nameOf: learnedNameOf })))!.split('\n');
   assert.deepEqual(lines, [
     fill(labels.aboutChat.patterns, { text: 'short lines' }),
     fill(labels.aboutChat.injokes, { text: 'the lamp' }),
@@ -3471,7 +3471,7 @@ test('buildRequest: twenty learned facts render, the lightest of twenty-two are 
   const learned = Array.from({ length: 22 }, (_, i) =>
     learnedItem(`l${i}`, `fact number ${i}`, 30 - i, '2026-09-10T00:00:00.000Z')
   );
-  const text = aboutChatOf(buildRequest(baseInput({ guildMemory: { learned } })));
+  const text = aboutChatOf(buildRequest(baseInput({ placeMemory: { learned } })));
   assert.equal(text!.split('; ').length, 20);
   assert.ok(text!.includes('fact number 19') && !text!.includes('fact number 20'));
 });
@@ -3480,16 +3480,16 @@ test('buildRequest: a recent light fact outranks an old heavy one under the lear
   // PR 7d: memory.learnedHalfLifeDays is the constant 720, so six years age a weight of 3 below a fresh 1.
   const oldHeavy = learnedItem('old', 'ancient heavy fact', 3, '2020-01-01T00:00:00.000Z');
   const recentLight = learnedItem('new', 'recent light fact', 1, '2026-09-01T00:00:00.000Z');
-  const rendered = aboutChatOf(buildRequest(baseInput({ guildMemory: { learned: [oldHeavy, recentLight] } })));
+  const rendered = aboutChatOf(buildRequest(baseInput({ placeMemory: { learned: [oldHeavy, recentLight] } })));
   assert.ok(rendered!.indexOf('recent light fact') < rendered!.indexOf('ancient heavy fact'));
 });
 
 test('buildRequest: learned without nameOf falls back to the no-teacher form', () => {
-  const guildMemory = {
+  const placeMemory = {
     learned: [learnedItem('l1', 'Ἑρμῆς is the cat', 4, '2026-09-10T00:00:00.000Z', `<@${TEACHER_A}>`)],
   };
   const text = aboutChatOf(
-    buildRequest(baseInput({ config: fakeConfig({ memory: { confirmAfter: 2 } }), guildMemory }))
+    buildRequest(baseInput({ config: fakeConfig({ memory: { confirmAfter: 2 } }), placeMemory }))
   );
   assert.equal(
     text,
@@ -3500,25 +3500,25 @@ test('buildRequest: learned without nameOf falls back to the no-teacher form', (
 test('buildRequest: an older labels.json without the learned keys renders nothing for it, never throws', () => {
   const { learned, learnedItem: li, learnedItemNoFrom, unsureMark, ...olderAboutChat } = labels.aboutChat;
   const older = { ...labels, aboutChat: olderAboutChat };
-  const guildMemory = {
+  const placeMemory = {
     patterns: 'short lines',
     learned: [learnedItem('l1', 'café closes at nine', 1, '2026-09-10T00:00:00.000Z', `<@${TEACHER_A}>`)],
   };
   const text = aboutChatOf(
-    buildRequest(baseInput({ prompts: fakePrompts({ labels: older }), guildMemory, nameOf: learnedNameOf }))
+    buildRequest(baseInput({ prompts: fakePrompts({ labels: older }), placeMemory, nameOf: learnedNameOf }))
   );
   assert.equal(text, fill(labels.aboutChat.patterns, { text: 'short lines' }));
 });
 
 test('buildRequest: learned without the unsureMark label appends no mark', () => {
   const { unsureMark, ...noMark } = labels.aboutChat;
-  const guildMemory = { learned: [learnedItem('l1', 'café closes at nine', 1, '2026-09-10T00:00:00.000Z')] };
+  const placeMemory = { learned: [learnedItem('l1', 'café closes at nine', 1, '2026-09-10T00:00:00.000Z')] };
   const text = aboutChatOf(
     buildRequest(
       baseInput({
         config: fakeConfig({ memory: { confirmAfter: 2 } }),
         prompts: fakePrompts({ labels: { ...labels, aboutChat: noMark } }),
-        guildMemory,
+        placeMemory,
       })
     )
   );
@@ -3636,7 +3636,7 @@ function privateScene(overrides: Record<string, unknown> = {}) {
     },
     channels: [{ id: 'c1', name: 'general', lastMessageAt: NOW, days: {} }],
     currentChannelId: 'c1',
-    neighbors: [{ channelId: 'c1', channelName: 'general', messages: [makeMessage(9, NOW - 5 * MIN)] }],
+    neighbors: [{ placeId: 'c1', channelName: 'general', messages: [makeMessage(9, NOW - 5 * MIN)] }],
     ...overrides,
   });
 }
@@ -3798,7 +3798,7 @@ const TZ = 'Europe/Moscow';
 /** A line of the pulled channel (written by Zoé unless overridden). */
 function pulledMessage(id: number | string, ts: number, overrides: Record<string, unknown> = {}) {
   return makeMessage(id, ts, {
-    channelId: SRC,
+    placeId: SRC,
     channelName: 'journal-de-zoé',
     authorId: 'w1',
     authorName: 'Zoé',
@@ -3808,7 +3808,7 @@ function pulledMessage(id: number | string, ts: number, overrides: Record<string
 
 /** A line of the channel the turn posts in. */
 function destMessage(id: number | string, ts: number, overrides: Record<string, unknown> = {}) {
-  return makeMessage(id, ts, { channelId: DEST, channelName: 'général', ...overrides });
+  return makeMessage(id, ts, { placeId: DEST, channelName: 'général', ...overrides });
 }
 
 /** A pulled channel record, the shape interfaces/discord/pull-fetch.ts#fetchPull hands to buildRequest. */
@@ -3818,7 +3818,7 @@ function pulledChannel(overrides: Record<string, unknown> = {}) {
     pulledMessage('p2', NOW - 120 * MIN, { content: 'δεύτερη σελίδα' }),
   ]) as Array<ReturnType<typeof pulledMessage>>;
   return {
-    channelId: SRC,
+    placeId: SRC,
     channelName: 'journal-de-zoé',
     readOnly: false,
     canReact: true,
@@ -3880,7 +3880,7 @@ function routedInput(overrides: Record<string, unknown> = {}) {
     trigger,
     triggerKind: 'mention',
     pulled: [pulled],
-    source: { channelId: SRC, reason: 'routed' },
+    source: { placeId: SRC, reason: 'routed' },
     currentChannelId: DEST,
     ...overrides,
   });
@@ -3888,7 +3888,7 @@ function routedInput(overrides: Record<string, unknown> = {}) {
 
 test('buildRequest: a pulled channel renders as channel_view after other_channels', () => {
   const history = [destMessage(1, NOW - 5 * MIN), destMessage(2, NOW - MIN)];
-  const neighbors = [{ channelId: 'n1', channelName: 'random', messages: [makeMessage(9, NOW - 5 * MIN)] }];
+  const neighbors = [{ placeId: 'n1', channelName: 'random', messages: [makeMessage(9, NOW - 5 * MIN)] }];
   const text = userText(
     buildRequest(baseInput({ history, neighbors, pulled: [pulledChannel()], currentChannelId: DEST }))
   );
@@ -3932,9 +3932,9 @@ test("buildRequest: pulled lines continue the chat's numbering and map back thro
     messages: [pulledMessage('p1', NOW - 30 * MIN), pulledMessage('p2', NOW - 25 * MIN, { replyToId: 'p1' })],
   });
   const second = pulledChannel({
-    channelId: 'other',
+    placeId: 'other',
     channelName: 'carnet-de-björn',
-    messages: [makeMessage('q1', NOW - 50 * MIN, { channelId: 'other', authorName: 'Björn' })],
+    messages: [makeMessage('q1', NOW - 50 * MIN, { placeId: 'other', authorName: 'Björn' })],
   });
   const request = buildRequest(baseInput({ history, pulled: [first, second], currentChannelId: DEST }));
   assert.deepEqual(
@@ -3974,7 +3974,7 @@ test('buildRequest: no pulled input changes nothing', () => {
     triggerKind: 'mention',
     currentChannelId: DEST,
     channels: [fakeChannel(DEST, { name: 'général' })],
-    neighbors: [{ channelId: 'n1', channelName: 'random', messages: [makeMessage(9, NOW - 5 * MIN)] }],
+    neighbors: [{ placeId: 'n1', channelName: 'random', messages: [makeMessage(9, NOW - 5 * MIN)] }],
   };
   const absent = buildRequest(baseInput(scene));
   const empty = buildRequest(
@@ -4054,7 +4054,7 @@ test('buildRequest: the destination is named by the chat, then elsewhereDestinat
 
 test("buildRequest: a pulled record of the turn's own channel is ignored", () => {
   const history = [destMessage('d1', NOW - 5 * MIN), destMessage('d2', NOW - MIN)];
-  const own = pulledChannel({ channelId: DEST, channelName: 'général', messages: history });
+  const own = pulledChannel({ placeId: DEST, channelName: 'général', messages: history });
   const request = buildRequest(baseInput({ history, pulled: [own], currentChannelId: DEST }));
   assert.equal(bodyOf(userText(request), 'channel_view'), null);
   assert.deepEqual(request.pulledIds, new Map());
@@ -4097,7 +4097,7 @@ test('buildRequest: mode elsewhere uses prompts.elsewhere with channel and desti
       history: [destMessage(1, NOW - 50 * MIN)],
       currentChannelId: DEST,
       pulled: [pulledChannel({ reason: 'noticed', readOnly: true })],
-      source: { channelId: SRC, reason: 'noticed' },
+      source: { placeId: SRC, reason: 'noticed' },
       elsewhereDestination: { name: 'général' },
     })
   );
@@ -4242,8 +4242,8 @@ test('buildRequest: server lists the pulled channel and marks read-only channels
     fakeChannel(SRC, { name: 'journal-de-zoé' }),
   ];
   const neighbors = [
-    { channelId: 'n1', channelName: 'random', messages: [makeMessage(8, NOW - 5 * MIN)] },
-    { channelId: 'n2', channelName: 'annonces', messages: [makeMessage(9, NOW - 4 * MIN)] },
+    { placeId: 'n1', channelName: 'random', messages: [makeMessage(8, NOW - 5 * MIN)] },
+    { placeId: 'n2', channelName: 'annonces', messages: [makeMessage(9, NOW - 4 * MIN)] },
   ];
   const request = buildRequest(
     baseInput({
@@ -4267,8 +4267,8 @@ test('buildRequest: server lists the pulled channel and marks read-only channels
 
 test('buildRequest: a pulled channel is left out of other_channels', () => {
   const neighbors = [
-    { channelId: SRC, channelName: 'journal-de-zoé', messages: [pulledMessage('p2', NOW - 120 * MIN)] },
-    { channelId: 'n1', channelName: 'random', messages: [makeMessage(9, NOW - 5 * MIN)] },
+    { placeId: SRC, channelName: 'journal-de-zoé', messages: [pulledMessage('p2', NOW - 120 * MIN)] },
+    { placeId: 'n1', channelName: 'random', messages: [makeMessage(9, NOW - 5 * MIN)] },
   ];
   const text = userText(buildRequest(baseInput({ neighbors, pulled: [pulledChannel()] })));
   const others = bodyOf(text, 'other_channels');
@@ -4398,7 +4398,7 @@ test('buildRequest: ping marks come from pingState', () => {
           pulled: [pulledChannel({ messages, pingState })],
           trigger,
           triggerKind: 'mention',
-          source: { channelId: SRC, reason: 'routed' },
+          source: { placeId: SRC, reason: 'routed' },
         })
       )
     ),
@@ -4465,7 +4465,7 @@ test('buildRequest: earlier calls render under labels.pull.earlierPings ahead of
   assert.ok(view[2].startsWith('#2 [') && view[2].endsWith(`Ana: tu es là ? ${labels.pull.pingUnanswered}`), view[2]);
   assert.ok(view.slice(3).join('\n').includes('#3 ['), 'the window follows, numbered on');
   assert.deepEqual(request.pulledKept, [
-    { channelId: SRC, ids: ['e1', 'p1', 'p2'], newestId: 'p2', newestTs: NOW - 20 * MIN },
+    { placeId: SRC, ids: ['e1', 'p1', 'p2'], newestId: 'p2', newestTs: NOW - 20 * MIN },
   ]);
 });
 
@@ -4572,7 +4572,7 @@ function recentLine(id: string | number, fields: Record<string, unknown> = {}) {
     id,
     at: NOW - HOUR,
     addedAt: new Date(NOW).toISOString(),
-    channelId: HERE,
+    placeId: HERE,
     text,
     who: tokenIds(text),
     weight: 2,
@@ -4620,7 +4620,7 @@ function recentScene({
   const trigger = makeMessage(1, NOW - MIN, {
     authorId: ANA_ID,
     authorName: 'Ana',
-    channelId: HERE,
+    placeId: HERE,
     channelName: 'here',
     content: 'καλημέρα',
   });
@@ -4646,12 +4646,12 @@ function recentOf(request: Built) {
 test('prompt: a line from another channel names its channel', () => {
   const lines = [
     recentLine(1, { at: NOW - 3 * HOUR, text: 'εδώ το πρωί' }),
-    recentLine(2, { at: NOW - 2 * HOUR, channelId: GARDEN, text: `<@${NIKOS_ID}> πότισε τον κήπο` }),
-    recentLine(3, { at: NOW - HOUR, channelId: '700000000000000009', text: 'κάπου αλλού' }),
+    recentLine(2, { at: NOW - 2 * HOUR, placeId: GARDEN, text: `<@${NIKOS_ID}> πότισε τον κήπο` }),
+    recentLine(3, { at: NOW - HOUR, placeId: '700000000000000009', text: 'κάπου αλλού' }),
   ];
   const ana = { id: ANA_ID, names: ['Ana'], character: 'ζωηρή' };
   const request = buildRequest(
-    recentScene({ lines, interlocutor: ana, guildMemory: { self: ['μου αρέσει το τσάι'] } })
+    recentScene({ lines, interlocutor: ana, placeMemory: { self: ['μου αρέσει το τσάι'] } })
   );
   assert.equal(
     recentOf(request),
@@ -4704,14 +4704,14 @@ test('prompt: the recent section is trimmed after chat and before people', () =>
   const said = makeMessage(2, NOW - 3 * MIN, {
     authorId: NIKOS_ID,
     authorName: 'Nikos',
-    channelId: HERE,
+    placeId: HERE,
     channelName: 'here',
     content: 'γεια σας',
   });
   const trigger = makeMessage(1, NOW - MIN, {
     authorId: ANA_ID,
     authorName: 'Ana',
-    channelId: HERE,
+    placeId: HERE,
     channelName: 'here',
     content: 'καλημέρα',
   });
@@ -4840,7 +4840,7 @@ function askedZoeScene({
   const trigger = makeMessage(1, NOW - MIN, {
     authorId: ANA_ID,
     authorName: 'Ana',
-    channelId: HERE,
+    placeId: HERE,
     channelName: 'here',
     content: 'τι έκανε η Zoé χθες;',
   });
@@ -4971,7 +4971,7 @@ test('recent view: the room <recent> frees never costs a member asked about thei
   const trigger = makeMessage(1, NOW - MIN, {
     authorId: ANA_ID,
     authorName: 'Ana',
-    channelId: HERE,
+    placeId: HERE,
     channelName: 'here',
     content: 'τι έκαναν η Zoé, ο Maxime και η Léa;',
   });
@@ -5018,7 +5018,7 @@ test('recent view: the lines about a member asked about come first under a tight
   const trigger = makeMessage(1, NOW - MIN, {
     authorId: ANA_ID,
     authorName: 'Ana',
-    channelId: HERE,
+    placeId: HERE,
     channelName: 'here',
     content: 'τι έκανε η Zoé χθες;',
   });
@@ -5178,7 +5178,7 @@ test('recent view: episodes never crowd out recent lines under the cap', () => {
 test("prompt: a line the audience refuses is not shown; without a predicate only this channel's lines are", () => {
   const lines = [
     recentLine(1, { at: NOW - 2 * HOUR, text: 'εδώ' }),
-    recentLine(2, { channelId: GARDEN, text: 'στον κήπο' }),
+    recentLine(2, { placeId: GARDEN, text: 'στον κήπο' }),
   ];
   const refused = buildRequest(recentScene({ lines, recentAudience: (id: string) => id === HERE }));
   assert.equal(
@@ -5198,7 +5198,7 @@ test("prompt: a line the audience refuses is not shown; without a predicate only
 
 test("prompt: a private chat shows only the lines the audience allows and no other member's episodes", () => {
   const nikos = { id: NIKOS_ID, names: ['Nikos'], episodes: [recentMoment('η στιγμή του Nikos')] };
-  const lines = [recentLine(1, { text: 'δημόσια' }), recentLine(2, { channelId: GARDEN, text: 'κλειστή' })];
+  const lines = [recentLine(1, { text: 'δημόσια' }), recentLine(2, { placeId: GARDEN, text: 'κλειστή' })];
   const dm = (overrides: Record<string, unknown>) =>
     buildRequest(
       privateScene({
@@ -5259,7 +5259,7 @@ test('prompt: the moments of the window show without any line, and a line this t
 
   const hidden = buildRequest(
     recentScene({
-      lines: [recentLine(1, { channelId: GARDEN, text: 'κλειστή' })],
+      lines: [recentLine(1, { placeId: GARDEN, text: 'κλειστή' })],
       recentAudience: (id: string) => id === HERE,
       candidateProfiles: [nikos],
     })
@@ -6335,7 +6335,7 @@ test('buildRequest: people_now -- available: every live field explicit; offline 
   });
   store.voiceUpdate({
     id: 'author-1',
-    channelId: 'vc1',
+    placeId: 'vc1',
     selfDeaf: true,
     selfVideo: true,
     member: { displayName: 'Alice' },
@@ -6467,7 +6467,7 @@ test('buildRequest: people_now -- context.around.maxTokens caps the people in vo
   for (let i = 0; i < 20; i += 1)
     store.voiceUpdate({
       id: `vv${i}`,
-      channelId: 'vc1',
+      placeId: 'vc1',
       member: { displayName: `Ζήνων ${String(i).padStart(2, '0')}` },
     });
   const crowd = buildRequest(

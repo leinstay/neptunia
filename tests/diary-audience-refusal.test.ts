@@ -30,7 +30,7 @@ type Setting = { scene: Scene; store: ReturnType<typeof createStore> };
 /** One diary turn in which her writer answers `answer`, or fails when it is null: the result and the writer's request. */
 async function turn({ store }: Setting, answer: string | null, extra: Record<string, unknown> = {}) {
   freshWorld();
-  world().channel({ id: 'd1', name: 'journal', guildId: GUILD });
+  world().channel({ id: 'd1', name: 'journal', placeId: GUILD });
   const calls: Array<unknown> = [];
   const model = {
     calls,
@@ -47,7 +47,7 @@ async function turn({ store }: Setting, answer: string | null, extra: Record<str
   const result = await sceneRunner(model, store).runTurn({
     mode: 'diary',
     diary: { kind: 'status', forced: true },
-    guildId: GUILD,
+    placeId: GUILD,
     ...extra,
   });
   await store.flushSettled({});

@@ -15,6 +15,8 @@ const loose = (value: unknown): Record<string, Untyped> => value as Record<strin
 const fakeOf = <T>(value: object): T => value as T;
 
 const GUILD = '600000000000000001';
+// A private chat is its own place: its record and its index are that place's, not a layer of the server's.
+const DM = 'place:dm:eleni';
 const ELENI = '411111111111111111';
 const NIKOS = '422222222222222222';
 const T0 = Date.UTC(2026, 9, 12, 10, 0, 0);
@@ -84,27 +86,23 @@ function scene({
   /** Rows already in the index before the scene (`chunkKey`s by layer and month). */
   const preIndexed: Array<Untyped> = [];
   const vectors = fakeOf<Parameters<typeof createEmbedder>[0]['vectors']>({
-    async append(guildId: string, rows: Untyped, opts: Untyped) {
-      appended.push({ guildId, rows, opts });
+    async append(placeId: string, rows: Untyped, opts: Untyped) {
+      appended.push({ placeId, rows, opts });
       return { written: rows.length };
     },
-    async has(guildId: string, month: Untyped, { privateUserId = null } = {}) {
+    async has(placeId: string, month: Untyped) {
       const keys = new Set();
       for (const item of [
         ...preIndexed,
-        ...appended.flatMap((a) =>
-          a.rows.map((row: Untyped) => ({ meta: row.meta, privateUserId: a.opts.privateUserId ?? null }))
-        ),
+        ...appended.flatMap((a) => a.rows.map((row: Untyped) => ({ meta: row.meta, placeId: a.placeId }))),
       ]) {
-        if ((item.privateUserId ?? null) === privateUserId && item.meta.occurredAt.slice(0, 7) === month)
+        if ((item.placeId ?? GUILD) === placeId && item.meta.occurredAt.slice(0, 7) === month)
           keys.add(`${item.meta.kind}:${item.meta.id}:${item.meta.revision}`);
       }
       return keys;
     },
-    async stats(guildId: string, { privateUserId = null } = {}) {
-      const rows = appended
-        .filter((a) => (a.opts.privateUserId ?? null) === privateUserId)
-        .reduce((n, a) => n + a.rows.length, 0);
+    async stats(placeId: string) {
+      const rows = appended.filter((a) => a.placeId === placeId).reduce((n, a) => n + a.rows.length, 0);
       return { months: rows > 0 ? 1 : 0, rows, bytes: 0 };
     },
   });
@@ -124,17 +122,17 @@ function scene({
     memoryDb,
     log,
     now: () => clock.at,
-    nameOf: (guildId, id) => names.get(id) ?? null,
+    nameOf: (placeId, id) => names.get(id) ?? null,
     selfName: () => 'Persona',
     ...(paused ? { paused } : {}),
   });
   /** Record the lines, then queue them, as src/index.ts's wrapper does. */
-  async function write(lines: Untyped, opts = {}) {
-    await record.append(GUILD, lines, opts);
-    return embedder.enqueue(GUILD, lines, opts);
+  async function write(lines: Untyped, placeId = GUILD) {
+    await record.append(placeId, lines);
+    return embedder.enqueue(placeId, lines);
   }
   /** Record the lines only: the queue was down (a stop, a crash, the switches off). */
-  const recordOnly = (lines: Untyped, opts = {}) => record.append(GUILD, lines, opts);
+  const recordOnly = (lines: Untyped, placeId = GUILD) => record.append(placeId, lines);
   return {
     dataDir,
     record,
@@ -168,7 +166,7 @@ test('embedder: a full batch flushes at once: one request, chunks with their cha
   assert.equal(kit.appended.length, 1);
   const { rows, opts } = kit.appended[0];
   assert.equal(opts.model, 'test/embed-model');
-  assert.equal(opts.privateUserId, null);
+  assert.equal(kit.appended[0].placeId, GUILD);
   assert.deepEqual(rows[1].meta.sourceIds, ['m1', 'm2']);
   assert.deepEqual(rows[1].meta.participants, [NIKOS]);
   assert.equal(kit.embedder.stats().queued, 0);
@@ -178,6 +176,9 @@ test('embedder: a full batch flushes at once: one request, chunks with their cha
 test('embedder: the tick flushes once embed.flushSeconds have passed', async () => {
   const kit = scene();
   await kit.write([line('m1', 0, 'a')]);
+  // The first tick runs the catch-up over every place that holds a record, with nothing yet due to flush.
+  await kit.embedder.tick();
+  assert.equal(kit.calls.length, 0);
   assert.equal(kit.embedder.tick(), null);
   kit.clock.at += 179_000;
   assert.equal(kit.embedder.tick(), null);
@@ -257,12 +258,12 @@ test('embedder: the ring is filled from the record on first use', async () => {
 test('embedder: a private line keeps to its own layer and goes to the private index', async () => {
   const kit = scene();
   await kit.write([line('m1', 0, 'public')]);
-  await kit.write([line('m2', 1, 'private', { scope: { channel: 'c1' } })], { privateUserId: ELENI });
+  await kit.write([line('m2', 1, 'private', { scope: { channel: 'c1' } })], DM);
   await kit.embedder.flush();
   assert.deepEqual(kit.calls[0].texts, ['Ελένη: public', 'Ελένη: private']);
   assert.deepEqual(
-    kit.appended.map((a) => a.opts.privateUserId),
-    [null, ELENI]
+    kit.appended.map((a) => a.placeId),
+    [GUILD, DM]
   );
   await kit.close();
 });
@@ -301,9 +302,10 @@ test('embedder: catchUp at start embeds the lines recorded while the queue was d
     line('m2', 1, 'not me'),
     line('m3', 2, 'elsewhere', { scope: { channel: 'c2' } }),
   ]);
-  await kit.recordOnly([line('p1', 3, 'a private word')], { privateUserId: ELENI });
+  await kit.recordOnly([line('p1', 3, 'a private word')], DM);
   kit.clock.at = T0 + 3 * 3_600_000;
-  const pass = await kit.embedder.catchUp(GUILD);
+  // The start's pass names no place: every place that holds a record, the private chat's among them.
+  const pass = await kit.embedder.catchUp();
   assert.equal(loose(pass).queued, 4);
   assert.equal(loose(pass).missing, 4);
   await kit.embedder.flush();
@@ -314,14 +316,18 @@ test('embedder: catchUp at start embeds the lines recorded while the queue was d
     'Ελένη: a private word',
   ]);
   assert.deepEqual(
-    kit.appended.map((a) => a.opts.privateUserId),
-    [null, ELENI]
+    kit.appended.map((a) => a.placeId),
+    [GUILD, DM]
   );
+  // Coverage is logged per place, so one place's gap cannot hide behind another's.
   assert.ok(
-    kit.log.infos.some((i) => i.name === 'embedder: coverage' && i.fields.missing === 4 && i.fields.queued === 4)
+    kit.log.infos.some(
+      (i) =>
+        i.name === 'embedder: coverage' && i.fields.placeId === GUILD && i.fields.missing === 3 && i.fields.queued === 3
+    )
   );
   // A second pass finds nothing left.
-  assert.equal(loose(await kit.embedder.catchUp(GUILD)).queued, 0);
+  assert.equal(loose(await kit.embedder.catchUp()).queued, 0);
   assert.equal(kit.embedder.stats().queued, 0);
   await kit.close();
 });
@@ -375,7 +381,7 @@ test('embedder: no catch-up while paused; the one run on resume queues what the 
   await kit.recordOnly([line('m1', 0, 'before the pause')]);
   kit.clock.at = T0 + 60_000;
   assert.equal(await kit.embedder.catchUp(GUILD), null);
-  await kit.embedder.tick(GUILD);
+  await kit.embedder.tick();
   assert.equal(kit.embedder.stats().queued, 0);
   state.paused = false;
   const pass = await kit.embedder.catchUp(GUILD);
@@ -388,10 +394,10 @@ test('embedder: the periodic pass runs every embed.catchUpEveryMinutes and finds
   await kit.embedder.catchUp(GUILD);
   await kit.recordOnly([line('m1', 5, 'a line the queue never heard of')]);
   kit.clock.at = T0 + 59 * 60_000;
-  await kit.embedder.tick(GUILD);
+  await kit.embedder.tick();
   assert.equal(kit.embedder.stats().queued, 0, 'not yet');
   kit.clock.at = T0 + 60 * 60_000;
-  await kit.embedder.tick(GUILD);
+  await kit.embedder.tick();
   assert.equal(kit.embedder.stats().queued + kit.appended.length, 1, 'the hourly pass found it');
   await kit.close();
 });
@@ -407,7 +413,7 @@ test('embedder: a pass queues at most embed.queueMax; the rest follows once the 
   await drain(kit);
   for (let i = 0; i < 4; i += 1) {
     kit.clock.at += 180_000;
-    await kit.embedder.tick(GUILD);
+    await kit.embedder.tick();
     await drain(kit);
   }
   assert.deepEqual(
@@ -449,12 +455,15 @@ test("embedder: indexSummary gives the index rows and the last pass's missing co
   const kit = scene();
   assert.deepEqual(await kit.embedder.indexSummary(GUILD), { rows: 0, missing: null });
   await kit.recordOnly([line('m1', 0, 'a'), line('m2', 1, 'b')]);
-  await kit.recordOnly([line('p1', 2, 'c')], { privateUserId: ELENI });
+  await kit.recordOnly([line('p1', 2, 'c')], DM);
   kit.clock.at = T0 + 3_600_000;
-  await kit.embedder.catchUp(GUILD);
-  assert.deepEqual(await kit.embedder.indexSummary(GUILD), { rows: 0, missing: 3 });
+  await kit.embedder.catchUp();
+  // Each place answers for its own index: a private chat is its own place.
+  assert.deepEqual(await kit.embedder.indexSummary(GUILD), { rows: 0, missing: 2 });
+  assert.deepEqual(await kit.embedder.indexSummary(DM), { rows: 0, missing: 1 });
   await kit.embedder.flush();
-  await kit.embedder.catchUp(GUILD);
-  assert.deepEqual(await kit.embedder.indexSummary(GUILD), { rows: 3, missing: 0 });
+  await kit.embedder.catchUp();
+  assert.deepEqual(await kit.embedder.indexSummary(GUILD), { rows: 2, missing: 0 });
+  assert.deepEqual(await kit.embedder.indexSummary(DM), { rows: 1, missing: 0 });
   await kit.close();
 });

@@ -87,7 +87,7 @@ export type FakeIntention = {
   dueAt: number | null;
   chainId: string | null;
   destination: string | null;
-  provenance: { kind: string; channelId: string; scope: string };
+  provenance: { kind: string; placeId: string; scope: string };
   createdAt: number;
   updatedAt: number;
   expiresAt: number;
@@ -99,11 +99,11 @@ export function intention(
   id: string,
   {
     dueAt = NOW - MINUTE_MS,
-    channelId = 'c1',
+    placeId = 'c1',
     chainId = null,
     status = 'pending',
     purpose = `purpose ${id}`,
-  }: { dueAt?: number | null; channelId?: string; chainId?: string | null; status?: string; purpose?: string } = {}
+  }: { dueAt?: number | null; placeId?: string; chainId?: string | null; status?: string; purpose?: string } = {}
 ): FakeIntention {
   return {
     id,
@@ -112,7 +112,7 @@ export function intention(
     dueAt,
     chainId,
     destination: null,
-    provenance: { kind: 'self', channelId, scope: 'group' },
+    provenance: { kind: 'self', placeId, scope: 'group' },
     createdAt: NOW - DAY_MS,
     updatedAt: NOW - DAY_MS,
     expiresAt: NOW + 7 * DAY_MS,
@@ -185,7 +185,7 @@ export function fakeClient(
   ids = ['c1', 'c2', 'c3'],
   can: (channel: { id: string }) => boolean = () => true
 ): { reads: ReturnType<typeof world>['reads'] } {
-  for (const id of ids) world().channel({ id, name: `chan-${id}`, guildId: GUILD, permissions: { send: can({ id }) } });
+  for (const id of ids) world().channel({ id, name: `chan-${id}`, placeId: GUILD, permissions: { send: can({ id }) } });
   return { reads: world().reads };
 }
 
@@ -265,7 +265,7 @@ export function setup({
   hot: InnerLifeOptions['hot'];
 } {
   // PR 7d: the daily review is code; a test that is not about it starts on a day whose review is done.
-  const stateFile = path.join(dataDir, 'guilds', GUILD, 'inner.json');
+  const stateFile = path.join(dataDir, 'persona', 'inner.json');
   if (!review && !fs.existsSync(stateFile)) {
     fs.mkdirSync(path.dirname(stateFile), { recursive: true });
     const day = new Date(clock.t).toISOString().slice(0, 10);
@@ -281,14 +281,14 @@ export function setup({
     turns,
     intentions: wrongly<InnerLifeOptions['intentions']>(intentions),
     record,
-    journal: { inner: (guildId, fields) => journal.push(fields) },
+    journal: { inner: (fields) => journal.push(fields) },
     reads: client.reads,
     iface: () => 'fake',
     // The names come from the directory of `conversation.changed` events in the core; the fake client's names stand in for it.
     conversationName: (id) => (id === 'd1' ? 'dm' : `chan-${id}`),
     submit: (event) => door.submit(event),
     store: { state: { data: {} } },
-    getGuildId: () => GUILD,
+    isServedCommunity: (id: unknown) => id === GUILD,
     peopleWaiting,
     meter: meter ?? {
       run: async (fn): Promise<Measured> => ({ result: await fn(), usd: meterUsd, requests: 1, voice: 1 }),

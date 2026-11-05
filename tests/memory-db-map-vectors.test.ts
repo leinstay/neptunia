@@ -15,7 +15,7 @@ const line = (row: number, extra = {}) => ({
   id: `40000000000000000${row}`,
   revision: 1,
   occurredAt: '2026-10-01T00:00:16.011Z',
-  channelId: '200000000000000001',
+  placeId: '200000000000000001',
   by: '100000000000000001',
   participants: ['100000000000000001', '100000000000000002'],
   sourceIds: ['400000000000000001'],
@@ -84,7 +84,7 @@ test('null fields, a different key order and unknown keys keep the file byte-exa
     occurredAt: '2026-10-02T00:00:00.000Z',
     extra: { deep: [1] },
   };
-  const value = month([line(0, { channelId: null, by: null, participants: [] }), odd, line(2, { revision: '3' })], i8);
+  const value = month([line(0, { placeId: null, by: null, participants: [] }), odd, line(2, { revision: '3' })], i8);
   const { back } = roundTrip(mapper, DIR, value);
   assertSame(value, back);
 });

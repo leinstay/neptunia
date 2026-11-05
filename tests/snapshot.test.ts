@@ -119,7 +119,7 @@ test('snapshotOf finds a conversation of its listing by id and none otherwise', 
 });
 
 test('takeSnapshot lists the community once with the audience and the viewers asked for', async () => {
-  world().channel({ id: 'c1', guildId: 'g1', viewers: { [ZOE]: false } });
+  world().channel({ id: 'c1', placeId: 'g1', viewers: { [ZOE]: false } });
   const snapshot = await takeSnapshot(world().reads, 'g1', [ZOE]);
   assert.deepEqual(snapshot?.get('c1')?.viewers, { [ZOE]: false });
   const asked = world().port.calls.filter((call) => call.op === 'conversations');

@@ -65,12 +65,12 @@ function messageEvent(iface: string, { id, authorId = 'u1', authorName = 'Alice'
 }
 
 function normalizedTrigger({ id, authorId = 'u1', authorName = 'Alice', ts = NOW - 1000, content = 'hey bot' }: Line) {
-  return { id, channelId: 'c1', authorId, authorName, self: false, bot: false, content, ts, replyToId: null, attachments: [], stickers: [] };
+  return { id, placeId: 'c1', authorId, authorName, self: false, bot: false, content, ts, replyToId: null, attachments: [], stickers: [] };
 }
 
 function fakeStore() {
   return {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     getPrivate: () => null,
     listChannels: () => [],
@@ -183,7 +183,7 @@ export async function singleScene(
   const hot = sceneHot({ coreTools: true, access });
   const store = fakeStore();
   const llm = sceneLlm({ classifier, answers });
-  const admin = createAdmin({ discord, hot, store, client, getGuildId: () => 'g1', reads, port });
+  const admin = createAdmin({ discord, hot, store, client, isServedCommunity: (id: unknown) => id === 'g1', reads, port });
   const turns = createTurnRunner({
     hot, store, llm, calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} }, port, reads, selfId: () => 'self-id', getSelfName: () => 'Bot',
     memberOf: () => null, membersOf: () => [], conversationName: (id: string) => (id === 'c1' ? 'general' : null),

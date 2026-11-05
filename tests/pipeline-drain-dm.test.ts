@@ -28,12 +28,12 @@ async function drainDm(iface: string, home: string | null, dmCommunity: string |
     list: [
       {
         channel,
-        channelId: channel.id,
+        placeId: channel.id,
         kind: 'private',
         arrivedAt: NOW,
         trigger: {
           id: 'm1',
-          channelId: channel.id,
+          placeId: channel.id,
           authorId: 'u1',
           content: 'hello',
           ts: NOW,
@@ -62,8 +62,7 @@ async function drainDm(iface: string, home: string | null, dmCommunity: string |
     rng: () => 0,
     sleep: () => Promise.resolve(),
     turns,
-    getGuildId: () => home,
-    dmCommunityOf: () => dmCommunity,
+    isServedCommunity: (id: unknown) => id === home,
     pending,
     logPending() {},
     noteUnanswered() {},
@@ -72,18 +71,15 @@ async function drainDm(iface: string, home: string | null, dmCommunity: string |
     requeueBusy: () => false,
     currentOf: (current: typeof channel) => Promise.resolve(current),
     refOf: (current: typeof channel) => ({ iface: current.iface, conversationId: current.id }),
-    routeOf: () => Promise.resolve({ destination: null }),
     heldCallState: () => Promise.resolve(true as const),
-    skipSeenCalls() {},
     afterCallTurn: () => Promise.resolve(),
-    passRoutedCall() {},
-    checkPrivateGate: (_config: unknown, community: string | null, _author: string, name?: string) => {
-      drained.gates.push({ community, iface: name });
+    checkPrivateGate: (_config: unknown, _author: string, name?: string) => {
+      drained.gates.push({ community: null, iface: name });
       return Promise.resolve({ gate: { ok: true }, isOwner: false });
     },
     dropPrivate() {},
-    afterPrivateTurn: (current: typeof channel, community: string | null) => {
-      drained.afterTurns.push({ community, iface: current.iface });
+    afterPrivateTurn: (current: typeof channel) => {
+      drained.afterTurns.push({ community: null, iface: current.iface });
       return Promise.resolve();
     },
     followUpStale: () => null,
@@ -100,23 +96,17 @@ test('a queued DM with no community anywhere runs its turn on its own interface'
     turns.map((turn) => turn.conversation),
     [{ iface: 'other', conversationId: 'd1' }]
   );
-  assert.equal(turns[0]?.guildId ?? null, null);
+  assert.equal(turns[0]?.placeId ?? null, null);
   assert.deepEqual(gates, [{ community: null, iface: 'other' }]);
   assert.deepEqual(afterTurns, [{ community: null, iface: 'other' }]);
 });
 
-test('a queued DM never takes the home community of another interface', async () => {
+test('a queued DM is gated on its own interface whatever another one serves', async () => {
   // Bug: a DM on the second interface is gated and remembered under the first interface's community.
+  // The third test of this file asked for the community of `dmCommunityOf`, which the owner's decision removed: a
+  // private chat is its own place, whichever servers its interface holds.
   const { turns, gates } = await drainDm('other', 'home-of-first', null);
   assert.equal(turns.length, 1);
-  assert.equal(turns[0]?.guildId ?? null, null);
-  assert.equal(gates[0]?.community, null);
-});
-
-test('a queued DM keeps the community the live path gives the same person', async () => {
-  // Bug: the same DM reads one community's profile when answered at once and the home one when it waited.
-  const { turns, gates, afterTurns } = await drainDm('first', 'home-of-first', 'second-community');
-  assert.equal(turns[0]?.guildId, 'second-community');
-  assert.equal(gates[0]?.community, 'second-community');
-  assert.equal(afterTurns[0]?.community, 'second-community');
+  assert.equal(turns[0]?.placeId ?? null, null);
+  assert.equal(gates[0]?.iface, 'other');
 });

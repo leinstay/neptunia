@@ -69,6 +69,7 @@ test('voice.say: a failed pronunciation pass is a failed result with the reason,
     },
   };
   const env = {
+    resolvedPlaceId: () => 'g1',
     hot: { config: { speech: { maxChars: 100 } } },
     speech,
     port: {
@@ -82,7 +83,7 @@ test('voice.say: a failed pronunciation pass is a failed result with the reason,
     resolvedGuildId: () => 'g',
   };
   // The fake env carries only what voice.say reads.
-  const run = getOp('voice.say')?.run({ text: 'hello' }, { env: env as unknown as Env, channelId: 'c1' });
+  const run = getOp('voice.say')?.run({ text: 'hello' }, { env: env as unknown as Env, conversationId: 'c1' });
   const result = asResult(await run);
   assert.equal(result.status, 'failed');
   assert.equal(result.code, CODE.SPEECH_PREPARE_FAILED);

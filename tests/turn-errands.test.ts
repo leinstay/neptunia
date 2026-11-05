@@ -43,7 +43,7 @@ function rawMessage({
 }) {
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     author: { id: authorId, bot: false, globalName: authorName, username: authorName },
     member: { displayName: authorName },
     cleanContent: content,
@@ -57,7 +57,7 @@ function rawMessage({
 function normalizedTrigger(raw: ReturnType<typeof rawMessage>) {
   return {
     id: raw.id,
-    channelId: raw.channelId,
+    placeId: raw.placeId,
     authorId: raw.author.id,
     authorName: raw.author.globalName,
     self: false,
@@ -72,12 +72,12 @@ function normalizedTrigger(raw: ReturnType<typeof rawMessage>) {
 
 /** A channel of guild g1 whose history is `historyMessages`; `fetch(id)` gives one of them. */
 function fakeChannel({ historyMessages = [] }: { historyMessages?: Array<Record<string, unknown>> } = {}) {
-  return world().channel({ id: 'c1', name: 'general', guildId: 'g1', historyMessages });
+  return world().channel({ id: 'c1', name: 'general', placeId: 'g1', historyMessages });
 }
 
 function fakeStore() {
   return {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     listChannels: () => [],
     listUserProfiles: () => [],
@@ -141,18 +141,18 @@ function fakeLlm(responseText: string) {
 
 /** The errand service as the turn sees it: `view` lists `tasks`, `markSeen` is recorded. */
 function fakeErrands(tasks = []) {
-  const seen: Array<{ guildId: string; ids: Array<string> }> = [];
-  const read: Array<{ guildId: string; ids: Array<string> }> = [];
-  const failed: Array<{ guildId: string; ids: Array<string> }> = [];
+  const seen: Array<{ placeId: string; ids: Array<string> }> = [];
+  const read: Array<{ placeId: string; ids: Array<string> }> = [];
+  const failed: Array<{ placeId: string; ids: Array<string> }> = [];
   return {
     tasks,
     seen,
     read,
     failed,
     view: () => tasks,
-    markSeen: ({ guildId, ids }: { guildId: string; ids: Array<string> }) => seen.push({ guildId, ids }),
-    markRead: ({ guildId, ids }: { guildId: string; ids: Array<string> }) => read.push({ guildId, ids }),
-    markResultFailed: ({ guildId, ids }: { guildId: string; ids: Array<string> }) => failed.push({ guildId, ids }),
+    markSeen: ({ ids }: { ids: Array<string> }) => seen.push({ ids }),
+    markRead: ({ ids }: { ids: Array<string> }) => read.push({ ids }),
+    markResultFailed: ({ ids }: { ids: Array<string> }) => failed.push({ ids }),
     budget: () => ({ spent: false }),
     fileOf: () => null,
   };
@@ -164,7 +164,7 @@ const runningTask = {
   goal: `find the release notes of the new version ${'and more '.repeat(20)}`,
   state: 'running',
   createdAt: NOW - 7 * MINUTE,
-  origin: { channelId: 'c1', messageId: 'm1' },
+  origin: { placeId: 'c1', messageId: 'm1' },
   requester: { userId: 'u1', kind: 'member' },
   scope: 'group',
   result: null,
@@ -177,7 +177,7 @@ const doneTask = {
   goal: 'find a meme',
   state: 'done',
   createdAt: NOW - 3 * MINUTE,
-  origin: { channelId: 'c1', messageId: 'm1' },
+  origin: { placeId: 'c1', messageId: 'm1' },
   requester: { userId: 'u1', kind: 'member' },
   scope: 'group',
   result: {
@@ -404,11 +404,11 @@ test('task turns: a finished errand opens her turn where it was asked, with <err
     turns,
     // @ts-expect-error: the fake errand service carries the few members a turn reads
     errands,
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     now: () => NOW,
   });
   const { result } = await withCapturedLogs(() =>
-    taskTurns.onFinished(doneTask as unknown as Parameters<typeof taskTurns.onFinished>[0], 'g1')
+    taskTurns.onFinished(doneTask as unknown as Parameters<typeof taskTurns.onFinished>[0])
   );
   assert.equal(result?.outcome, 'spoke');
   assert.equal(llm.calls.length, 1);
@@ -432,7 +432,7 @@ test('task turns: a finished errand opens her turn where it was asked, with <err
     { iface: 'fake', conversationId: 'c1', messageId: 'm1' },
     'her answer replies to the message that asked'
   );
-  assert.deepEqual(errands.seen.at(-1), { guildId: 'g1', ids: ['tab02'] });
+  assert.deepEqual(errands.seen.at(-1), { ids: ['tab02'] });
 });
 
 test('task turns: held back while the attention is taken, tried again after errands.resultRetrySeconds', async () => {
@@ -459,7 +459,7 @@ test('task turns: held back while the attention is taken, tried again after erra
     setTimer: (fn: () => void, ms: number) => timers.push({ fn, ms }),
   } as unknown as Parameters<typeof createErrandTurns>[0]);
   await withCapturedLogs(async () => {
-    await taskTurns.onFinished(doneTask as unknown as Parameters<typeof taskTurns.onFinished>[0], 'g1');
+    await taskTurns.onFinished(doneTask as unknown as Parameters<typeof taskTurns.onFinished>[0]);
     assert.equal(runs.length, 0, 'nothing runs while a turn holds the attention');
     assert.deepEqual(
       timers.map((t) => t.ms),
@@ -475,7 +475,7 @@ test('task turns: held back while the attention is taken, tried again after erra
   assert.equal(runs[0].trigger.id, 'm1');
   assert.equal(runs[0].taskResult.id, 'tab02');
   assert.deepEqual(runs[0].requester, { id: 'u1' });
-  assert.deepEqual(errands.seen, [{ guildId: 'g1', ids: ['tab02'] }]);
+  assert.deepEqual(errands.seen, [{ ids: ['tab02'] }]);
 });
 
 test('task turns: an errand end enters through the event door as errand.done, once, and opens the same turn', async () => {
@@ -500,27 +500,24 @@ test('task turns: an errand end enters through the event door as errand.done, on
     now: () => NOW,
   });
   const door = createEventDoor({ handlers: { 'errand.done': (event) => taskTurns.onEvent(event) } });
-  const event = errandDoneEvent(doneTask as unknown as Parameters<typeof errandDoneEvent>[0], 'g1', () => NOW);
+  const event = errandDoneEvent(doneTask as unknown as Parameters<typeof errandDoneEvent>[0], () => NOW);
   assert.deepEqual(validateEvent(event), { ok: true });
   assert.deepEqual(
     { ...event, raw: undefined },
-    { kind: 'errand.done', at: NOW, communityId: 'g1', errandId: 'tab02', status: 'done', raw: undefined }
+    { kind: 'errand.done', at: NOW, errandId: 'tab02', status: 'done', raw: undefined }
   );
   const first = await withCapturedLogs(() => door.submit(event));
   assert.equal(first.result.status, 'ok');
   assert.deepEqual(
-    (
-      await door.submit(
-        errandDoneEvent(doneTask as unknown as Parameters<typeof errandDoneEvent>[0], 'g1', () => NOW + 5)
-      )
-    ).status,
+    (await door.submit(errandDoneEvent(doneTask as unknown as Parameters<typeof errandDoneEvent>[0], () => NOW + 5)))
+      .status,
     'duplicate',
     'the same end delivered twice runs no second turn'
   );
   assert.equal(runs.length, 1);
   assert.equal(runs[0].triggerKind, 'errand');
   assert.equal(runs[0].taskResult.id, 'tab02');
-  assert.deepEqual(errands.seen, [{ guildId: 'g1', ids: ['tab02'] }]);
+  assert.deepEqual(errands.seen, [{ ids: ['tab02'] }]);
 });
 
 test("task turns: an event without the task in hand asks the guild's task store; an unknown task opens nothing", async () => {
@@ -536,7 +533,7 @@ test("task turns: an event without the task in hand asks the guild's task store;
   fakeChannel({ historyMessages: [rawMessage({ id: 'm1' })] });
   const errands = {
     ...fakeErrands(),
-    store: (guildId: string) => (guildId === 'g1' ? { get: (id: string) => (id === 'tab02' ? doneTask : null) } : null),
+    store: () => ({ get: (id: string) => (id === 'tab02' ? doneTask : null) }),
   };
   const taskTurns = createErrandTurns({
     hot: fakeHot(),
@@ -548,7 +545,6 @@ test("task turns: an event without the task in hand asks the guild's task store;
   } as unknown as Parameters<typeof createErrandTurns>[0]);
   const { raw: _raw, ...bare } = errandDoneEvent(
     doneTask as unknown as Parameters<typeof errandDoneEvent>[0],
-    'g1',
     () => NOW
   );
   await withCapturedLogs(async () => {
@@ -612,10 +608,10 @@ test('task turns: a result turn that spoke or chose silence marks the task seen 
       setTimer: () => null,
     } as unknown as Parameters<typeof createErrandTurns>[0]);
     await withCapturedLogs(() =>
-      taskTurns.onFinished(doneTask as unknown as Parameters<typeof taskTurns.onFinished>[0], 'g1')
+      taskTurns.onFinished(doneTask as unknown as Parameters<typeof taskTurns.onFinished>[0])
     );
-    assert.deepEqual(errands.seen, [{ guildId: 'g1', ids: ['tab02'] }], outcome);
-    assert.deepEqual(errands.read, [{ guildId: 'g1', ids: ['tab02'] }], outcome);
+    assert.deepEqual(errands.seen, [{ ids: ['tab02'] }], outcome);
+    assert.deepEqual(errands.read, [{ ids: ['tab02'] }], outcome);
   }
 });
 
@@ -643,7 +639,7 @@ test('task turns: a result turn that ended error or refused marks nothing and is
     setTimer: (fn: () => void, ms: number) => timers.push({ fn, ms }),
   } as unknown as Parameters<typeof createErrandTurns>[0]);
   await withCapturedLogs(async () => {
-    await taskTurns.onFinished(doneTask as unknown as Parameters<typeof taskTurns.onFinished>[0], 'g1');
+    await taskTurns.onFinished(doneTask as unknown as Parameters<typeof taskTurns.onFinished>[0]);
     assert.deepEqual(
       [errands.seen.length, errands.read.length, timers.length],
       [0, 0, 1],
@@ -656,7 +652,7 @@ test('task turns: a result turn that ended error or refused marks nothing and is
     await flush();
   });
   assert.equal(runs.length, 3);
-  assert.deepEqual(errands.read, [{ guildId: 'g1', ids: ['tab02'] }], 'the third try spoke: read');
+  assert.deepEqual(errands.read, [{ ids: ['tab02'] }], 'the third try spoke: read');
 });
 
 test('task turns: after the attempts a result that never got its turn stays unread and is noted as failed', async () => {
@@ -674,12 +670,12 @@ test('task turns: after the attempts a result that never got its turn stays unre
     setTimer: (fn: () => void, ms: number) => timers.push({ fn, ms }),
   } as unknown as Parameters<typeof createErrandTurns>[0]);
   await withCapturedLogs(async () => {
-    await taskTurns.onFinished(doneTask as unknown as Parameters<typeof taskTurns.onFinished>[0], 'g1');
+    await taskTurns.onFinished(doneTask as unknown as Parameters<typeof taskTurns.onFinished>[0]);
     for (let i = 0; i < 40 && timers.length > 0; i += 1) {
       timers.shift()?.fn();
       await flush();
     }
   });
   assert.deepEqual([errands.seen, errands.read], [[], []]);
-  assert.deepEqual(errands.failed, [{ guildId: 'g1', ids: ['tab02'] }]);
+  assert.deepEqual(errands.failed, [{ ids: ['tab02'] }]);
 });

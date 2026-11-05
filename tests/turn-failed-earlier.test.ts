@@ -36,7 +36,7 @@ function rawMessage({
 }) {
   return {
     id,
-    channelId: '77',
+    placeId: '77',
     author: { id: authorId, bot: false, globalName: authorName, username: authorName },
     member: { displayName: authorName },
     cleanContent: content,
@@ -50,7 +50,7 @@ function rawMessage({
 function triggerOf(raw: ReturnType<typeof rawMessage>) {
   return {
     id: raw.id,
-    channelId: raw.channelId,
+    placeId: raw.placeId,
     authorId: raw.author.id,
     authorName: raw.author.globalName,
     self: false,
@@ -64,11 +64,11 @@ function triggerOf(raw: ReturnType<typeof rawMessage>) {
 }
 
 function fakeChannel(historyMessages?: Array<Record<string, unknown>>) {
-  return world().channel({ id: '77', name: 'general', guildId: '55', historyMessages });
+  return world().channel({ id: '77', name: 'general', placeId: '55', historyMessages });
 }
 
 const store = {
-  getGuild: () => ({}),
+  getPlace: () => ({}),
   getUser: () => null,
   listChannels: () => [],
   listUserProfiles: () => [],
@@ -259,8 +259,8 @@ test("facts kept for the channel (a drop, a hold) reach an addressed request the
     intentionId: 'i1',
     purpose: 'say hi',
   };
-  source.add('55', { ...dropped, channelId: '77', privateChat: false });
-  source.add('55', {
+  source.add({ ...dropped, placeId: '77', privateChat: false });
+  source.add({
     kind: 'wakeHeld',
     wakeId: 'w2',
     wake: 'intention_due',
@@ -268,11 +268,11 @@ test("facts kept for the channel (a drop, a hold) reach an addressed request the
     intentionId: 'i2',
     purpose: 'later',
     until: NOW + 6 * HOUR,
-    channelId: null,
+    placeId: null,
     privateChat: false,
   });
-  source.add('55', { ...dropped, intentionId: 'i3', purpose: 'in a private chat', channelId: '88', privateChat: true });
-  source.add('55', { ...dropped, intentionId: 'i4', purpose: 'elsewhere', channelId: '99', privateChat: false });
+  source.add({ ...dropped, intentionId: 'i3', purpose: 'in a private chat', placeId: '88', privateChat: true });
+  source.add({ ...dropped, intentionId: 'i4', purpose: 'elsewhere', placeId: '99', privateChat: false });
   await run(first);
   const text = userText(calls[0][1].content);
   const block = /<wake>\n([\s\S]*?)\n<\/wake>/.exec(text)?.[1] ?? '';
@@ -284,15 +284,15 @@ test("facts kept for the channel (a drop, a hold) reach an addressed request the
   ]);
   assert.ok(text.indexOf('<wake>') < text.indexOf('<task>'));
   assert.equal(
-    source.pending(null, { channelId: '88', privateChat: true }).length,
+    source.pending({ placeId: '88', privateChat: true }).length,
     1,
     "the private chat's fact is still waiting for that chat"
   );
-  assert.equal(source.pending(null, { channelId: '99', privateChat: false }).length, 1);
+  assert.equal(source.pending({ placeId: '99', privateChat: false }).length, 1);
   // Told once a completed answer carried them.
   await run(first);
   assert.equal(userText(calls[1][1].content).includes('<wake>'), false);
-  assert.equal(source.pending(null, { channelId: '77', privateChat: false }).length, 0);
+  assert.equal(source.pending({ placeId: '77', privateChat: false }).length, 0);
 });
 
 test('sendHash and settleUnknownSends: the hash covers the start of the text with whitespace folded; only a later line of hers with that hash settles the fact', () => {
@@ -326,7 +326,7 @@ test('a send whose answer never came: her next addressed turn looks for it among
     total: 1,
     unknown: true,
     hash: sendHash(sentText),
-    channelId: '77',
+    placeId: '77',
     privateChat: false,
     at: NOW - 2 * MINUTE,
   };
@@ -341,16 +341,16 @@ test('a send whose answer never came: her next addressed turn looks for it among
   found.fail.on = false;
   const foundSource = createLocalFacts({ now: () => clock.t });
   found.turns.setFactsSource(foundSource);
-  foundSource.add('55', unknownSend);
+  foundSource.add(unknownSend);
   await found.run(first);
   assert.equal(userText(found.calls[0][1].content).includes('<wake>'), false, 'it went out: nothing to tell');
-  assert.equal(foundSource.pending(null, { channelId: '77', privateChat: false }).length, 0, 'and the fact is gone');
+  assert.equal(foundSource.pending({ placeId: '77', privateChat: false }).length, 0, 'and the fact is gone');
 
   const missing = setup({ history: [first] });
   missing.fail.on = false;
   const missingSource = createLocalFacts({ now: () => clock.t });
   missing.turns.setFactsSource(missingSource);
-  missingSource.add('55', unknownSend);
+  missingSource.add(unknownSend);
   await missing.run(first);
   const block = /<wake>\n([\s\S]*?)\n<\/wake>/.exec(userText(missing.calls[0][1].content))?.[1] ?? '';
   assert.deepEqual(block.split('\n').slice(1), [

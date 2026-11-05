@@ -19,7 +19,7 @@ function rig(enabled: boolean) {
       return Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null });
     },
     ownerReads: { lessons: () => '', aliases: () => '' },
-    guildId: () => 'g1',
+    places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: {} },
     privateDir: dir,

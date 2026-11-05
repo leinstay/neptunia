@@ -97,7 +97,7 @@ describe('inner turns with no interface', () => {
 
   // Stage 3, same item: the diary is the `selfreflection` wake. The turn runs with no conversation and records the entry
   // in memory before anything is published: a `diary` row with her full text. No mirror is set up and no reads of an
-  // interface are given to the scheduler, so nothing is sent anywhere, and no `diary.channelId` is set.
+  // interface are given to the scheduler, so nothing is sent anywhere, and no `diary.placeId` is set.
   test('a selfreflection turn leaves its entry in memory with no interface connected', async () => {
     const memory = await openTestMemory({ now: () => START });
     OPEN.push(memory);
@@ -142,7 +142,7 @@ describe('inner turns with no interface', () => {
       // @ts-expect-error: createDiary takes no `iface` dependency, so the key is ignored
       iface: () => 'fake',
       turns: runnerOver({ port, hot, llm, store }),
-      getGuildId: () => GUILD,
+      isServedCommunity: (id: unknown) => id === GUILD,
       now: () => START,
     });
     await diary.force({ kind: 'status' });
@@ -215,7 +215,7 @@ describe('a duplicate wake', () => {
     kind: 'inner.wake',
     at: WAKE_AT,
     id: heartbeatWake(WAKE_AT).id,
-    guildId: GUILD,
+    placeId: GUILD,
     wake: heartbeatWake(WAKE_AT),
   });
 
@@ -253,7 +253,7 @@ describe('a duplicate wake', () => {
 });
 
 describe('a replay after a reconnect', () => {
-  const conversation = { id: 'c1', kind: 'channel', guildId: 'g1', name: 'general', topic: null, category: null };
+  const conversation = { id: 'c1', kind: 'channel', placeId: 'g1', name: 'general', topic: null, category: null };
   const received = (id: string, text: string, redeliver: number) => ({
     kind: 'message.received',
     at: START,
@@ -329,7 +329,7 @@ describe('an adapter that claims the owner', () => {
     const store = Object.assign(fakeStore(), { flush: () => Promise.resolve() });
     const hot = hotWith({ config: { bot: { timezone: 'UTC', owners: [OWNER], access: {} } } });
     const client = { user: { id: 'self-id' }, channels: { cache: new Map() } };
-    const admin = createAdmin({ hot, store, client, getGuildId: () => GUILD });
+    const admin = createAdmin({ hot, store, client, isServedCommunity: (id: unknown) => id === GUILD });
     const ran: Array<string> = [];
     const door = createEventDoor({
       handlers: {
@@ -337,7 +337,7 @@ describe('an adapter that claims the owner', () => {
           const { name, args, requester } = event as { name: string; args: object; requester: { id: string } };
           ran.push(name);
           // PR 7b: the command key map is gone, so the door runs the operation by its name; the link refuses first.
-          return admin.runSkillOp('bot.pause', args, { guildId: GUILD, userId: requester.id });
+          return admin.runSkillOp('bot.pause', args, { placeId: GUILD, userId: requester.id });
         },
       },
       log: SILENT,

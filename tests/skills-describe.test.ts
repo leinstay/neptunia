@@ -38,12 +38,12 @@ function envOf(grants: Record<string, unknown> = {}) {
     hot,
     store,
     selfId: () => 'self-id',
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
   });
 }
 
 const call = (env: ReturnType<typeof envOf>, name: string) =>
-  runOp('tools.describe', { name }, { env, guildId: 'g1', userId: '42', roleIds: [], actor: 'persona' });
+  runOp('tools.describe', { name }, { env, placeId: 'g1', userId: '42', roleIds: [], actor: 'persona' });
 const dataText = (result: { data: unknown }): string => (result.data as { text: string }).text;
 const grant = { everyone: false, roles: [], users: ['self-id'] };
 

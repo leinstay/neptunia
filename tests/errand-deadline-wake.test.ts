@@ -25,7 +25,7 @@ type TurnParams = { inner: { wake: { kind: string; items: Array<Record<string, u
 
 function setup() {
   const clock = { t: START };
-  world().channel({ id: 'c1', name: 'chan-c1', guildId: GUILD, permissions: { send: true } });
+  world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
@@ -48,7 +48,6 @@ function setup() {
     stores: createIntentionStores({ dataDir: tempDir('nep-deadline-'), now: () => clock.t, log: SILENT }),
     hot,
     errands,
-    getGuildId: () => GUILD,
     now: () => clock.t,
     log: SILENT,
   });
@@ -72,13 +71,13 @@ function setup() {
     dataDir: tempDir('nep-deadline-inner-'),
     turns,
     intentions: service,
-    journal: { inner: (_guildId: string, fields: Record<string, unknown>) => Promise.resolve(journal.push(fields)) },
+    journal: { inner: (fields: Record<string, unknown>) => Promise.resolve(journal.push(fields)) },
     reads: world().reads,
     iface: () => 'fake',
     conversationName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
-    getGuildId: () => GUILD,
+    isServedCommunity: (id: unknown) => id === GUILD,
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
     rng: () => 0.5,
     now: () => clock.t,
@@ -89,10 +88,10 @@ function setup() {
 
 /** An intention waiting on the running errand with no due time, its deadline ten minutes ahead. */
 function waitingIntention(service: ReturnType<typeof setup>['service']): string {
-  const made = service.set(GUILD, {
+  const made = service.set({
     purpose: 'tell what the errand found',
     dueAt: null,
-    channelId: 'c1',
+    placeId: 'c1',
     errandId: ERRAND,
     deadline: START + 10 * MINUTE,
   }) as { ok: boolean; intention: { id: string } };
@@ -132,8 +131,8 @@ test('deadlineWakes over a record the reconciliation moved to pending gives the 
   const run = setup();
   const id = waitingIntention(run.service);
   run.clock.t = START + 11 * MINUTE;
-  run.service.reconcile(GUILD);
-  const moved = run.service.list(GUILD, { all: true }) as Array<Record<string, unknown>>;
+  run.service.reconcile();
+  const moved = run.service.list({ all: true }) as Array<Record<string, unknown>>;
   assert.equal(moved[0]?.status, 'pending');
   assert.deepEqual(
     (deadlineWakes(moved) as Array<{ id: string; kind: string; errandId: string }>).map((wake) => [

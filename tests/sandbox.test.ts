@@ -39,7 +39,7 @@ import { ALICE, BRUNO, CHANNEL, NOW, SELF_ID, fakeHot, fakeLlm, fakeStore, twoLi
 
 test('liveView: reads prompts at call time', () => {
   const hot = fakeHot();
-  const view = liveView({ hot, store: fakeStore(), guildId: 'g1' });
+  const view = liveView({ hot, store: fakeStore(), placeId: 'g1' });
   assert.equal(view.prompts.reply, 'Someone called you: {{author}}.');
   hot.prompts = { ...hot.prompts, reply: 'EDITED' };
   hot.config = { ...hot.config, marker: 1 };
@@ -50,20 +50,20 @@ test('liveView: reads prompts at call time', () => {
 test('liveView: memory reads go to the store for the one guild', () => {
   const seen: Array<Array<Untyped>> = [];
   const store = {
-    getGuild: (g: string) => (seen.push(['getGuild', g]), { patterns: 'p' }),
-    getUser: (g: string, id: string) => (seen.push(['getUser', g, id]), { id }),
+    getPlace: (g: string) => (seen.push(['getPlace', g]), { patterns: 'p' }),
+    getUser: (id: string) => (seen.push(['getUser', id]), { id }),
     listUserProfiles: (g: string) => (seen.push(['listUserProfiles', g]), []),
     listChannels: (g: string) => (seen.push(['listChannels', g]), []),
     getLore: (g: string) => (seen.push(['getLore', g]), []),
   };
-  const view = liveView({ hot: fakeHot(), store, guildId: 'g1' });
-  view.memory.getGuild();
+  const view = liveView({ hot: fakeHot(), store, placeId: 'g1' });
+  view.memory.getPlace();
   view.memory.getUser('u9');
   view.memory.listUserProfiles();
   view.memory.listChannels();
   view.memory.getLore();
   assert.deepEqual(seen, [
-    ['getGuild', 'g1'],
+    ['getPlace', 'g1'],
     ['getUser', 'g1', 'u9'],
     ['listUserProfiles', 'g1'],
     ['listChannels', 'g1'],
@@ -74,7 +74,7 @@ test('liveView: memory reads go to the store for the one guild', () => {
 
 test('liveView: the calibrator follows the live ratio and never feeds it', () => {
   const live = createCalibrator(0.8);
-  const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1', calibrator: live });
+  const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1', calibrator: live });
   assert.equal(view.calibrator.ratio, 0.8);
   assert.equal(view.calibrator.apply(1000), live.apply(1000));
 
@@ -89,7 +89,7 @@ test('liveView: the calibrator follows the live ratio and never feeds it', () =>
   assert.equal(view.calibrator.apply(1000), live.apply(1000));
 
   // Without a live calibrator the view measures tokens as they are.
-  const plain = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
+  const plain = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   assert.equal(plain.calibrator.ratio, 1);
   assert.equal(plain.calibrator.apply(123), 123);
   assert.equal(plain.calibrator.observe(1000, 1500), 1);
@@ -102,7 +102,7 @@ test("answerReply: sends the live system prompt and renders the member's profile
   const store = fakeStore({
     userProfiles: { [ALICE]: { id: ALICE, names: ['Alice'], character: 'CHARACTER_MARKER solves chess problems' } },
   });
-  const view = liveView({ hot, store, guildId: 'g1' });
+  const view = liveView({ hot, store, placeId: 'g1' });
   const llm = fakeLlm('<msg reply="#2">δεν ξέρω</msg><react to="#1">👍</react>');
   const result = await answerReply({
     view,
@@ -140,7 +140,7 @@ test("answerReply: sends the live system prompt and renders the member's profile
 /** A real moment: normalized messages, the trigger last. */
 function storedMoment({ replyToSelf = false, mentions = [] }: Record<string, Untyped> = {}) {
   const base = {
-    channelId: CHANNEL.id,
+    placeId: CHANNEL.id,
     channelName: 'general',
     channelCategory: 'Talk',
     channelTopic: null,
@@ -195,7 +195,7 @@ test('situationHistory: a stored moment is replayed as stored, the last message 
 });
 
 test('answerReply: a stored moment is answered from its own messages, reactions included', async () => {
-  const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
+  const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   const llm = fakeLlm('<msg>ok</msg>');
   const result = await answerReply({
     view,
@@ -227,7 +227,7 @@ test('answerReply: a stored moment over the request budget loses its oldest mess
     content: `OLD_${i} ${'x'.repeat(700)}`,
     ts: NOW - 3_600_000 + i * 1000,
   }));
-  const view = liveView({ hot, store: fakeStore(), guildId: 'g1' });
+  const view = liveView({ hot, store: fakeStore(), placeId: 'g1' });
   const llm = fakeLlm('<msg>ok</msg>');
   const result = await answerReply({
     view,
@@ -244,7 +244,7 @@ test('answerReply: a stored moment over the request budget loses its oldest mess
 });
 
 test('answerReply: makes samples requests, none counted against the daily cap', async () => {
-  const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
+  const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   const llm = fakeLlm(['<msg>a</msg>', '<msg>b</msg>', '<skip/>']);
   const result = await answerReply({
     view,
@@ -281,8 +281,8 @@ test('answerReply: a ratio under 1 lets a capped section keep more', async () =>
     hot.config.context.caps.aboutChat = 300;
     const view = liveView({
       hot,
-      store: fakeStore({ guildMemory: { self } }),
-      guildId: 'g1',
+      store: fakeStore({ placeMemory: { self } }),
+      placeId: 'g1',
       calibrator: createCalibrator(ratio),
     });
     const llm = fakeLlm('<skip/>');
@@ -306,7 +306,7 @@ test('answerReply: a ratio under 1 lets a capped section keep more', async () =>
 });
 
 test('answerReply: reports usage through onUsage; the result carries no token count of its own', async () => {
-  const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
+  const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   const llm = fakeLlm('<msg>a</msg>', { usage: { total_tokens: 120 }, estimated: 100 });
   const seen: Array<Array<Untyped>> = [];
   const result = await answerReply({
@@ -328,7 +328,7 @@ test('answerReply: reports usage through onUsage; the result carries no token co
 });
 
 test('answerReply: without usage, onUsage gets null and the estimate (what the budget then charges)', async () => {
-  const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
+  const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   const llm = fakeLlm('<msg>a</msg>', { usage: null, estimated: 70 });
   const seen: Array<Array<Untyped>> = [];
   await answerReply({
@@ -360,7 +360,7 @@ const GIF_LIBRARY = {
       name: 'Danse',
       itemId: 'k1',
       messageId: 'm1',
-      channelId: CHANNEL.id,
+      placeId: CHANNEL.id,
       count: 3,
       last: NOW - 86_400_000,
       firstSeen: NOW - 86_400_000,
@@ -374,7 +374,7 @@ const MEDIA_CACHE = {
 };
 
 test("answerReply: the server's custom emoji and GIF library render as in a live turn, with their cached captions", async () => {
-  const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
+  const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   const result = await answerReply({
     view,
     situation: twoLines(),
@@ -416,7 +416,7 @@ test("answerReply: the server's custom emoji and GIF library render as in a live
 
 test('answerReply: a GIF alone is an action, not silence; with no library or an unknown handle, nothing is left to do', async () => {
   const answer = async (text: string, { features = {}, gifs = GIF_LIBRARY } = {}) => {
-    const view = liveView({ hot: fakeHot(features), store: fakeStore(), guildId: 'g1' });
+    const view = liveView({ hot: fakeHot(features), store: fakeStore(), placeId: 'g1' });
     const result = await answerReply({
       view,
       situation: twoLines(),
@@ -449,7 +449,7 @@ test('answerReply: a GIF alone is an action, not silence; with no library or an 
 
 test('answerReply: an aborted signal stops before the next sample', async () => {
   const controller = new AbortController();
-  const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
+  const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   const llm = fakeLlm('<msg>a</msg>', { onCall: () => controller.abort() });
   const result = await answerReply({
     view,
@@ -470,7 +470,7 @@ test('answerReply: an aborted signal stops before the next sample', async () => 
 
 test('answerReply: an abort during a request returns what was collected', async () => {
   const controller = new AbortController();
-  const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
+  const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   let calls = 0;
   const llm = {
     complete: async () => {
@@ -498,7 +498,7 @@ test('answerReply: an abort during a request returns what was collected', async 
 });
 
 test('answerReply: an llm error other than an abort is thrown to the caller', async () => {
-  const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
+  const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   const llm = {
     complete: async () => {
       throw new Error('provider down');
@@ -525,7 +525,7 @@ test('answerReply: reads everything through the view, so another view of the sam
     prompts: { ...hot.prompts, 'system-prompt': 'OVERLAY_SYSTEM' },
     config: hot.config,
     memory: {
-      getGuild: () => ({}),
+      getPlace: () => ({}),
       getUser: (id: string) => (id === ALICE ? { id: ALICE, names: ['Alice'], character: 'OVERLAY_CHARACTER' } : null),
       listUserProfiles: () => [],
       listChannels: () => [],
@@ -574,7 +574,7 @@ function aliceStore() {
 }
 
 async function replay(situation: unknown, { hot = kindHot(), samples = 1, ...extra }: Record<string, Untyped> = {}) {
-  const view = liveView({ hot, store: aliceStore(), guildId: 'g1' });
+  const view = liveView({ hot, store: aliceStore(), placeId: 'g1' });
   const llm = fakeLlm('<skip/>');
   const result = await answerReply({
     view,
@@ -676,12 +676,12 @@ test('answerReply: a follow-up and an untagged reply are replayed with the follo
 test('answerReply: no other channel is pulled in and no call is routed', async () => {
   const result = await replay({
     ...storedMoment(),
-    pulled: [{ channelId: KITCHEN.id }],
-    source: { channelId: KITCHEN.id, reason: 'routed' },
+    pulled: [{ placeId: KITCHEN.id }],
+    source: { placeId: KITCHEN.id, reason: 'routed' },
   });
   assert.ok(!result.request.user.includes('<channel_view>'));
   const input = sandboxRequestInput({
-    view: liveView({ hot: kindHot(), store: aliceStore(), guildId: 'g1' }),
+    view: liveView({ hot: kindHot(), store: aliceStore(), placeId: 'g1' }),
     situation: storedMoment(),
     selfId: SELF_ID,
     selfName: 'Zoë',
@@ -702,7 +702,7 @@ test('answerReply: the destination of a read-only call reaches <senses>', async 
 
 test('answerReply: the sandbox never runs the server search, so <senses> never offers it', async () => {
   assert.ok(Object.hasOwn(SANDBOX_OMITS, 'recallAvailable'));
-  const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
+  const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   const input = sandboxRequestInput({
     view,
     situation: twoLines(),
@@ -725,7 +725,7 @@ test('answerReply: samples 1 and 2 carry the same marked user part', async () =>
     hot.config.models.base.core = 'anthropic/claude-test';
     return hot;
   };
-  const view = liveView({ hot: cachedHot(), store: fakeStore(), guildId: 'g1' });
+  const view = liveView({ hot: cachedHot(), store: fakeStore(), placeId: 'g1' });
   const llm = fakeLlm('<msg>ok</msg>');
   const result = await answerReply({
     view,
@@ -774,8 +774,8 @@ test("answerReply: every sample is sent as the replay's", async () => {
 const HOUR = 3_600_000;
 
 /** A recent line the way the store hands it over (src/memory/store.ts#getRecent). */
-function recentLine(id: number, text: string, { at = NOW - HOUR, channelId = CHANNEL.id } = {}) {
-  return { id, at, addedAt: new Date(at + 60_000).toISOString(), channelId, text, who: [], weight: 2 };
+function recentLine(id: number, text: string, { at = NOW - HOUR, placeId = CHANNEL.id } = {}) {
+  return { id, at, addedAt: new Date(at + 60_000).toISOString(), placeId, text, who: [], weight: 2 };
 }
 
 /** A store that keeps a recent store too, counting its reads. */
@@ -784,29 +784,29 @@ function recentStore(lines: Untyped) {
   return {
     ...fakeStore(),
     reads,
-    getRecent: (guildId: string) => (reads.push(guildId), { nextId: lines.length + 1, lines }),
+    getRecent: (placeId: string) => (reads.push(placeId), { nextId: lines.length + 1, lines }),
   };
 }
 
 test('liveView: the recent store is read for the one guild; a store without one reads as none', () => {
   const store = recentStore([recentLine(1, 'η αγορά άνοιξε')]);
-  const view = liveView({ hot: fakeHot(), store, guildId: 'g1' });
+  const view = liveView({ hot: fakeHot(), store, placeId: 'g1' });
   assert.deepEqual(
     view.memory.getRecent()?.lines.map((line) => line.text),
     ['η αγορά άνοιξε']
   );
   assert.deepEqual(store.reads, ['g1']);
-  assert.equal(liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' }).memory.getRecent(), null);
+  assert.equal(liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' }).memory.getRecent(), null);
 });
 
 test("answerReply: the channel's recent lines inside the window render as <recent>, as they stood at the turn's time", async () => {
   const lines = [
     recentLine(1, 'RECENT_HERE the café closed early'),
-    recentLine(2, 'RECENT_ELSEWHERE a kitchen rumour', { channelId: KITCHEN.id }),
+    recentLine(2, 'RECENT_ELSEWHERE a kitchen rumour', { placeId: KITCHEN.id }),
     recentLine(3, 'RECENT_OLD the market moved', { at: NOW - 80 * HOUR }),
   ];
   const ask = async (store: unknown, featureOverrides = {}, at = NOW) => {
-    const view = liveView({ hot: fakeHot(featureOverrides), store, guildId: 'g1' });
+    const view = liveView({ hot: fakeHot(featureOverrides), store, placeId: 'g1' });
     const result = await answerReply({
       view,
       situation: twoLines(),
@@ -841,7 +841,7 @@ test('answerReply: a recent store that cannot be read costs the block, never the
       throw new Error('the memory store is read-only here');
     },
   };
-  const view = liveView({ hot: fakeHot(), store, guildId: 'g1' });
+  const view = liveView({ hot: fakeHot(), store, placeId: 'g1' });
   const llm = fakeLlm('<msg>ok</msg>');
   const { result, logs } = await withCapturedLogs(() =>
     answerReply({
@@ -881,7 +881,7 @@ function buildRequestInputs() {
 }
 
 test('sandboxRequestInput: names every input buildRequest reads; what it leaves out is SANDBOX_OMITS, passed as absent', () => {
-  const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
+  const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   const wanted = buildRequestInputs();
   assert.ok(wanted.has('history') && wanted.has('pulled') && wanted.has('gifs'), 'the reader finds both kinds of key');
   for (const situation of [twoLines(), { ...storedMoment(), mode: 'interject' }]) {
@@ -917,7 +917,7 @@ function grantedView(names: Untyped, { tools = {}, features = {} } = {}) {
   const hot = fakeHot(features);
   hot.config.tools = tools;
   hot.config = sandbox.personaGrantsConfig(hot.config, SELF_ID, names);
-  return liveView({ hot, store: fakeStore(), guildId: 'g1' });
+  return liveView({ hot, store: fakeStore(), placeId: 'g1' });
 }
 
 const OK_DATA = (skill: unknown, text = '') => ({
@@ -951,7 +951,7 @@ test('sandboxRequestInput: a skill scenario passes its inventory and her tools s
       .filter((key) => !['skillsInventory', 'toolsGranted', 'toolsBlock', 'toolsTokens'].includes(key))
       .sort()
   );
-  const view = liveView({ hot: fakeHot(), store: fakeStore(), guildId: 'g1' });
+  const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   const wanted = buildRequestInputs();
   const rows = [{ name: 'rule.add', title: 'Add a rule', whenToUse: 'when asked', allowed: true, reason: 'allowed' }];
   const toolset = { names: ['rule.add'], block: 'TOOLS_MARKER', tokens: 321 };
@@ -1231,7 +1231,7 @@ function brunoProfile() {
   };
 }
 
-function guildMemory() {
+function placeMemory() {
   return {
     patterns: 'Short greetings.',
     starters: 'Games.',
@@ -1281,7 +1281,7 @@ function deepFreeze(value: unknown) {
 function baseView() {
   const data = deepFreeze({
     users: { [ALICE]: aliceProfile(), [BRUNO]: brunoProfile() },
-    guild: guildMemory(),
+    guild: placeMemory(),
     lore: loreEntries(),
     channels: [{ id: 'c1', name: 'games' }],
   });
@@ -1297,7 +1297,7 @@ function baseView() {
       },
       calibrator: { ratio: 1, apply: (n: number) => n },
       memory: {
-        getGuild: () => asRecord(data).guild,
+        getPlace: () => asRecord(data).guild,
         getUser: (id: string) => asRecord(data).users[id] ?? null,
         listUserProfiles: () => Object.values(asRecord(data).users),
         listChannels: () => asRecord(data).channels,
@@ -1415,7 +1415,7 @@ test('momentView: learned items and lore entries created at or after the cutoff 
   const { view } = baseView();
   const at = momentView(view as unknown as Parameters<typeof momentView>[0], CUTOFF);
   assert.deepEqual(
-    at.memory.getGuild().learned.map((i: Untyped) => i.text),
+    at.memory.getPlace().learned.map((i: Untyped) => i.text),
     ['answer in one line']
   );
   assert.deepEqual(
@@ -1430,7 +1430,7 @@ test('momentView: recent lines added at or after the cutoff are hidden; a base w
     id,
     at: CUTOFF - 7_200_000,
     addedAt: EARLIER,
-    channelId: 'c1',
+    placeId: 'c1',
     text: `σημείωση ${id}`,
     who: [],
     weight: 2,
@@ -1483,9 +1483,9 @@ test('momentView: undated fields, channels, prompts and config are untouched', (
   ]) {
     assert.deepEqual(asRecord(profile)[key], asRecord(stored)[key], key);
   }
-  const g = at.memory.getGuild();
+  const g = at.memory.getPlace();
   for (const key of ['patterns', 'starters', 'injokes', 'self', 'learnedNextId'])
-    assert.deepEqual(asRecord(g)[key], asRecord(guildMemory())[key], key);
+    assert.deepEqual(asRecord(g)[key], asRecord(placeMemory())[key], key);
   assert.equal(at.memory.listChannels(), view.memory.listChannels());
   assert.equal(at.memory.getUser('333333333333333333'), null);
   assert.equal(at.calibrator, view.calibrator);
@@ -1510,7 +1510,7 @@ test('hiddenLater: counts what the cutoff hides, by kind; nothing for undated me
   const bare = { id: ALICE, names: ['Alice'], character: 'x' };
   const plain = {
     memory: {
-      getGuild: () => ({ patterns: 'p' }),
+      getPlace: () => ({ patterns: 'p' }),
       getUser: () => bare,
       listUserProfiles: () => [bare],
       listChannels: () => [],
@@ -1555,7 +1555,7 @@ function rawMessage(n: number, authorId: string, text: string, extra = {}) {
   const names: Record<string, string> = { [SELF_ID]: 'Zoë', [ALICE]: 'Alice', [BRUNO]: 'Bruno' };
   return {
     id: sf(n),
-    channelId: CHANNEL.id,
+    placeId: CHANNEL.id,
     channel: { name: CHANNEL.name },
     author: { id: authorId, bot: authorId === SELF_ID, globalName: names[authorId], username: names[authorId] },
     member: { displayName: names[authorId] },
@@ -1741,7 +1741,7 @@ test('scripts/replay.ts: replays through src/behavior/sandbox.ts, every name it 
   for (const name of names) assert.notEqual((sandbox as Record<string, unknown>)[name], undefined, name);
   assert.deepEqual([...sandbox.SANDBOX_STORE_READS].sort(), [
     'getGifs',
-    'getGuild',
+    'getPlace',
     'getLore',
     'getMediaCache',
     'getRecent',
@@ -1770,7 +1770,7 @@ function handlesView(features = {}) {
       [SELF_ID]: { id: SELF_ID, names: ['Zoë'], aliases: [] },
     },
   });
-  return liveView({ hot, store, guildId: 'g1' });
+  return liveView({ hot, store, placeId: 'g1' });
 }
 
 test("answerReply: the replay shows the live turn's <directory> and author handles, and resolves @handle as a live turn would", async () => {
@@ -1872,7 +1872,7 @@ test("answerSkillScenario: only a message's text is rendered as a post (message.
 
 test("answerReply: given tools, they are passed to the llm and the completion's tool calls ride on the answer; without them nothing changes", async () => {
   const hot = fakeHot();
-  const view = liveView({ hot, store: fakeStore({ userProfiles: {} }), guildId: 'g1' });
+  const view = liveView({ hot, store: fakeStore({ userProfiles: {} }), placeId: 'g1' });
   const tools = [
     { type: 'function', function: { name: 'draw_create', description: 'd', parameters: { type: 'object' } } },
   ];

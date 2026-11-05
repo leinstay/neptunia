@@ -112,7 +112,7 @@ function runner(env: ReturnType<typeof fixture>) {
     recaller,
     hot,
     args: {
-      guildId: 'g1',
+      placeId: 'g1',
       snapshot,
       channel,
       partnerId: null,
@@ -223,7 +223,7 @@ for (const reader of ['run', 'window', 'prefetch'] as const) {
         ...s.args,
         channel: channelInfo('current-room'),
         historyRef: { iface: 'fake', conversationId: 'current-room' },
-        history: [{ id: 'shared-visible', channelId: 'current-room', content: 'το κουνέλι own-visible-731' }],
+        history: [{ id: 'shared-visible', placeId: 'current-room', content: 'το κουνέλι own-visible-731' }],
         memoryContext: issuedContext({
           kind: 'group',
           iface: 'fake',
@@ -391,7 +391,7 @@ test('trusted ordinary DM history excludes its own visible line without widening
       channel: channelInfo('own-dm', { kind: 'dm', communityId: null, partnerId: 'owner-42', audience: null }),
       partnerId: 'owner-42',
       historyRef: { iface: 'discord', conversationId: 'own-dm' },
-      history: [{ id: 'shared-visible', channelId: 'own-dm', content: 'το κουνέλι own-dm-visible-731' }],
+      history: [{ id: 'shared-visible', placeId: 'own-dm', content: 'το κουνέλι own-dm-visible-731' }],
       memoryContext: issuedContext({
         kind: 'dm',
         iface: 'discord',
@@ -424,11 +424,11 @@ for (const reader of ['prefetch', 'tool'] as const) {
       const s = runner(env);
       const args = {
         ...s.args,
-        guildId: null,
+        placeId: null,
         snapshot: null,
         channel: channelInfo('cli:dm:owner', { kind: 'dm', communityId: null, partnerId: 'owner-42', audience: null }),
         historyRef: { iface: 'cli', conversationId: 'cli:dm:owner' },
-        history: [{ id: 'shared-visible', channelId: 'cli:dm:owner', content: 'το κουνέλι own-cli-visible-731' }],
+        history: [{ id: 'shared-visible', placeId: 'cli:dm:owner', content: 'το κουνέλι own-cli-visible-731' }],
         memoryContext: issuedContext({ kind: 'internal', newId: () => `ctx:exclude-cli-${reader}`, now: () => NOW }),
       };
       const found =
@@ -466,7 +466,7 @@ test('malformed stored history identity does not fall back to excluding its nati
       history: [
         {
           id: 'shared-visible',
-          channelId: 'current-room',
+          placeId: 'current-room',
           content: 'το κουνέλι retained-own-731',
           stored: { sourceId: '', placeId: own.placeId, iface: 'fake' },
         },
@@ -496,7 +496,7 @@ test('ordinary history without an explicit reference uses its validated interfac
     const found = await s.recaller.run({
       ...s.args,
       channel: channelInfo('current-room'),
-      history: [{ id: 'shared-visible', channelId: 'current-room', content: 'το κουνέλι ordinary-own-731' }],
+      history: [{ id: 'shared-visible', placeId: 'current-room', content: 'το κουνέλι ordinary-own-731' }],
       memoryContext: issuedContext({
         kind: 'group',
         iface: 'fake',
@@ -561,10 +561,10 @@ test('the in-turn memory tool derives CLI history scope from its trusted convers
     });
     const handlers = tools.inTurnTools({
       channel: channelInfo('cli:dm:owner', { kind: 'dm', communityId: null, partnerId: 'owner-42', audience: null }),
-      guildId: 'g1',
+      placeId: 'g1',
       selfId: 'self',
       selfName: 'Synthetic persona',
-      history: [{ id: 'shared-visible', channelId: 'cli:dm:owner', content: 'το κουνέλι handler-own-731' }],
+      history: [{ id: 'shared-visible', placeId: 'cli:dm:owner', content: 'το κουνέλι handler-own-731' }],
     });
     const found = await handlers['memory.search']({ terms: 'κουνέλι' });
     assert.equal(JSON.stringify(found).includes('handler-own-731'), false);
@@ -602,13 +602,12 @@ test('lookup prefetch forwards trusted CLI history identity into the real SQLite
     const pending = lookup.startPrefetch({
       config: prefetchConfig(),
       channel: channelInfo('cli:dm:owner', { kind: 'dm', communityId: null, partnerId: 'owner-42', audience: null }),
-      guildId: 'g1',
-      guild: null,
+      placeId: 'g1',
       trigger: { id: 'current-cli-trigger', authorId: 'owner-42' },
       candidate: { content: 'θυμάσαι το "το κουνέλι" από την παλιά συζήτηση;', authorId: 'owner-42' },
       triggerKind: 'private',
       mode: 'reply',
-      history: [{ id: 'shared-visible', channelId: 'cli:dm:owner', content: 'το κουνέλι lookup-own-731' }],
+      history: [{ id: 'shared-visible', placeId: 'cli:dm:owner', content: 'το κουνέλι lookup-own-731' }],
       selfId: 'self',
       selfName: 'Synthetic persona',
       memoryContext,

@@ -41,7 +41,7 @@ const gifEntry = (key: string, extra = {}) => ({
   url: 'https://example.test/g.gif',
   site: 'example',
   messageId: '400000000000000001',
-  channelId: '200000000000000001',
+  placeId: '200000000000000001',
   itemId: `gif-${key}`,
   name: 'dancing cat',
   firstSeen: 1792000000000,

@@ -11,7 +11,7 @@ const NOW = Date.parse('2026-10-24T12:00:00Z');
 const channel = channelInfo('cli:dm:owner', { iface: 'cli', kind: 'dm', communityId: null, partnerId: 'owner' });
 const line = (id: string): Line => ({
   id,
-  channelId: channel.id,
+  placeId: channel.id,
   authorId: 'owner',
   authorName: 'Owner',
   content: `question ${id}`,
@@ -56,7 +56,6 @@ function setup(parts: Array<{ index: number; text: string }> = []) {
       },
     },
     tagHistory: { hit: () => 1 },
-    getGuildId: () => 'g1',
     getSelfName: () => 'Nova',
     itemText: queue.itemText,
     enqueuePending: queue.enqueuePending,
@@ -75,12 +74,10 @@ for (const privileged of ['waiting', 'incoming'] as const) {
       channel,
       line('waiting'),
       'private',
-      null,
-      [],
       NOW,
       privileged === 'waiting' ? readOptions : undefined
     );
-    rig.holdCall(channel, line('incoming'), 'private', null, [], privileged === 'incoming' ? readOptions : undefined);
+    rig.holdCall(channel, line('incoming'), 'private', privileged === 'incoming' ? readOptions : undefined);
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert.deepEqual(
       rig.pending.list.map((ping) => ping.trigger.id),
@@ -101,7 +98,7 @@ for (const privileged of ['waiting', 'incoming'] as const) {
 test('an authenticated query cannot merge into an ordinary active chain', async () => {
   const rig = setup([{ index: 2, text: 'an ordinary part still waiting' }]);
   const memoryContext = issueContext({ kind: 'internal', newId: () => 'ctx:incoming-owner', now: () => NOW });
-  rig.holdCall(channel, line('incoming'), 'private', null, [], { memoryContext });
+  rig.holdCall(channel, line('incoming'), 'private', { memoryContext });
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.deepEqual(rig.folds, []);
   assert.deepEqual(

@@ -282,8 +282,7 @@ test('an unbound account leaves the view while its DM keeps its audience and the
     applyMemoryWrite(handle, {
       kind: 'person-link',
       op: 'unbind',
-      iface: 'discord',
-      native: 'n2',
+      accountId: 'account:a12',
       now: Date.parse('2026-11-03T00:00:00.000Z'),
     });
     const view = person(privateByPerson(db, ANNA, internalContext()));
@@ -300,7 +299,7 @@ test('an unbound account leaves the view while its DM keeps its audience and the
 test('past links are the owner view: a DM context gets none', () => {
   // Bug: a DM partner reads which accounts used to be linked to the person.
   withWorld((db, handle) => {
-    applyMemoryWrite(handle, { kind: 'person-link', op: 'unbind', iface: 'discord', native: 'n2', now: 5000 });
+    applyMemoryWrite(handle, { kind: 'person-link', op: 'unbind', accountId: 'account:a12', now: 5000 });
     const view = person(privateByPerson(db, ANNA, dmOf(db, ANNA, 'discord', 'place:dm-a11')));
     assert.deepEqual(view.pastLinks, []);
   });

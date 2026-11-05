@@ -30,9 +30,9 @@ function setup(options: { reads?: ReadonlyArray<string>; profiles?: Array<Profil
       prompts: { avatar: 'Describe the avatar in at most {{maxChars}} characters.' },
     },
     store: {
-      getUser: (guildId: string, id: string) => (guildId === COMMUNITY ? (profiles.get(id) ?? null) : null),
-      listUserProfiles: (guildId: string) => (guildId === COMMUNITY ? [...profiles.values()] : []),
-      setAvatar(_guildId: string, id: string, avatar: object) {
+      getUser: (id: string) => profiles.get(id) ?? null,
+      listUserProfiles: () => [...profiles.values()],
+      setAvatar(id: string, avatar: object) {
         written.push({ id, avatar });
         return profiles.get(id) ?? null;
       },
@@ -50,7 +50,8 @@ function setup(options: { reads?: ReadonlyArray<string>; profiles?: Array<Profil
         return Promise.resolve({ dataUrl: 'data:image/png;base64,ZmFrZQ==' });
       },
     },
-    getGuildId: () => COMMUNITY,
+    isServedCommunity: (id: unknown) => id === COMMUNITY,
+    servedCommunity: () => COMMUNITY,
     selfId: () => SELF_ID,
     reads: world.reads,
     now: () => NOW,

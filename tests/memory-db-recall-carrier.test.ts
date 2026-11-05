@@ -53,7 +53,7 @@ function runner(env: ReturnType<typeof fixture>) {
     now: () => NOW,
     memoryDb: { database: () => env.db },
   });
-  return { recaller, hot, args: { guildId: 'g1', channel: channelInfo('c1', { name: 'general' }) } };
+  return { recaller, hot, args: { placeId: 'g1', channel: channelInfo('c1', { name: 'general' }) } };
 }
 
 test('the memory tool expands a trusted source carrier even when its ordinary anchor text is empty', async () => {

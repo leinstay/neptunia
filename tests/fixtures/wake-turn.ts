@@ -157,18 +157,17 @@ export async function wakeTurn({
     createIntentionService({
       stores: createIntentionStores({ dataDir: tempDir('nep-wake-turn-'), now: () => WAKE_NOW }),
       hot,
-      getGuildId: () => 'g1',
       now: () => WAKE_NOW,
       log: { info() {}, warn() {} },
     });
   const channel = world().channel({
     id: 'c1',
     name: 'general',
-    guildId: 'g1',
+    placeId: 'g1',
     historyMessages: [
       {
         id: 'm0',
-        channelId: 'c1',
+        placeId: 'c1',
         author: { id: 'u1', bot: false, globalName: 'Alice', username: 'Alice' },
         member: { displayName: 'Alice' },
         cleanContent: ANCHOR_LINE,
@@ -182,7 +181,7 @@ export async function wakeTurn({
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => WAKE_NOW });
   const reads = world().adopt(port);
   const store = {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     getPrivate: () => null,
     listChannels: () => [],
@@ -197,7 +196,7 @@ export async function wakeTurn({
     hot,
     store,
     client: { user: { id: 'self-id', username: 'Bot' } },
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     port,
     reads,
     intentions,
@@ -229,7 +228,7 @@ export async function wakeTurn({
   });
   const inner = { wake, shadow: false, mayAct: () => true, currentChannel: null };
   const { result, logs } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner })
+    turns.runTurn({ channel, placeId: 'g1', mode: 'inner', triggerKind: 'inner', inner })
   );
   const tools = (options[0]?.tools ?? []) as Array<{ function: { name: string } }>;
   const turn = result as { inner?: { actions?: Array<Record<string, string | null | undefined>> } };
@@ -242,6 +241,6 @@ export async function wakeTurn({
       (action) => `${action.skill}:${action.status}:${action.code ?? action.result}`
     ),
     sends: port.calls.filter((one: { op: string }) => one.op === 'send').length,
-    intentions: intentions.list('g1', { all: true, closed: true }),
+    intentions: intentions.list({ all: true, closed: true }),
   };
 }

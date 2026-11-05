@@ -444,7 +444,7 @@ const RECENT_LINES = [
     id: 1,
     at: NOW - 2 * HOUR_MS,
     addedAt: iso(NOW - HOUR_MS),
-    channelId: GARDEN,
+    placeId: GARDEN,
     text: `<@${NIKOS}> planted garlic`,
     who: [NIKOS],
     weight: 2,
@@ -492,7 +492,7 @@ function rawMessage(
   const id = SnowflakeUtil.generate({ timestamp: ts, increment: CHANNEL_INCREMENT[channel.id] ?? 0n }).toString();
   return {
     id,
-    channelId: channel.id,
+    placeId: channel.id,
     channel: {
       name: channel.name,
       parent: channel.category ? { name: channel.category } : null,
@@ -706,7 +706,7 @@ function neighbors() {
     author: PEOPLE[BJORN],
     content: 'les semis sont sortis',
   });
-  return [{ channelId: GARDEN, channelName: 'jardin', readOnly: false, messages: normalize([line]) }];
+  return [{ placeId: GARDEN, channelName: 'jardin', readOnly: false, messages: normalize([line]) }];
 }
 
 /** The input of a server turn in #général answering Ana, every optional block given. */
@@ -731,7 +731,7 @@ async function turnInput(overrides: Record<string, unknown> = {}) {
     neighbors: neighbors(),
     trigger,
     triggerKind: 'mention',
-    guildMemory: GUILD_MEMORY,
+    placeMemory: GUILD_MEMORY,
     interlocutor: PROFILES[ANA],
     otherProfiles: [PROFILES[NIKOS], PROFILES[BJORN]],
     candidateProfiles: Object.values(PROFILES),
@@ -1059,7 +1059,7 @@ function diaryPulled(reason: string, { called = true }: { called?: boolean } = {
   ]);
   const earlier = messages[1];
   return {
-    channelId: DIARY,
+    placeId: DIARY,
     channelName: 'journal',
     readOnly: true,
     canReact: true,
@@ -1081,7 +1081,7 @@ test('buildRequest: a routed call fills the task and renders the pulled channel 
   const input = await turnInput({
     trigger: call,
     pulled: [pulled],
-    source: { channelId: DIARY, reason: 'routed' },
+    source: { placeId: DIARY, reason: 'routed' },
     elsewhereDestination: { name: 'général' },
   });
   const request = buildRequest(input);
@@ -1116,7 +1116,7 @@ test('buildRequest: a noticed turn fills elsewhere.md with the channel it read a
       triggerKind: null,
       interlocutor: null,
       pulled: [pulled],
-      source: { channelId: DIARY, reason: 'noticed' },
+      source: { placeId: DIARY, reason: 'noticed' },
       elsewhereDestination: { name: 'général' },
     })
   );
@@ -1313,7 +1313,7 @@ test('buildRequest: a diary post fills system-prompt, character-card, rules, for
     interlocutor: null,
     currentChannelId: DIARY,
   });
-  input.config = shippedConfig({ selfreflection: { world: true, channelId: DIARY } });
+  input.config = shippedConfig({ selfreflection: { world: true, placeId: DIARY } });
   const plan = { kind: 'selfPicture', brief: 'a pier in the fog', picture: true };
   const request = buildRequest({
     ...input,
@@ -1329,7 +1329,7 @@ test('buildRequest: a diary post fills system-prompt, character-card, rules, for
 });
 
 test('buildDiaryPlanRequest: diary-plan.md and world.md fill the plan request with its blocks', async () => {
-  const config = shippedConfig({ selfreflection: { world: true, channelId: DIARY } });
+  const config = shippedConfig({ selfreflection: { world: true, placeId: DIARY } });
   const seeds = renderSeedsBlock(
     // PR 7d: the seed sets and the kinds are the constants of src/behavior/diary.ts.
     pickSeeds(parseSeedFamilies((SHIPPED.prompts as Record<string, unknown>)['diary-seeds']), SEED_SETS, () => 0.5),
@@ -1342,7 +1342,7 @@ test('buildDiaryPlanRequest: diary-plan.md and world.md fill the plan request wi
     now: NOW,
     selfName: SELF_NAME,
     history: [],
-    guildMemory: GUILD_MEMORY,
+    placeMemory: GUILD_MEMORY,
     channels: CHANNELS,
     loreEntries: LORE,
     currentChannelId: DIARY,
@@ -1462,8 +1462,8 @@ test('createTurnRunner: a reply turn fills the describer and turn requests', asy
   const state = { data: {}, markDirty() {} };
   const store = {
     state,
-    getGuild: () => GUILD_MEMORY,
-    getUser: (guildId: string, id: string) => PROFILES[id] ?? null,
+    getPlace: () => GUILD_MEMORY,
+    getUser: (id: string) => PROFILES[id] ?? null,
     getPrivate: () => null,
     listUserProfiles: () => Object.values(PROFILES),
     listChannels: () => CHANNELS,
@@ -1581,14 +1581,14 @@ test('createChannelRouter: the route classifier fills route-channel.md', async (
     [GARDEN_INFO, []],
     [DIARY_INFO, []],
   ]);
-  const store = { listChannels: () => CHANNELS, getUser: (guildId: string, id: string) => PROFILES[id] ?? null };
+  const store = { listChannels: () => CHANNELS, getUser: (id: string) => PROFILES[id] ?? null };
   const llm = recordingLlm(() => 'none');
   const router = createChannelRouter({ hot, store, llm, now: () => NOW });
   const history = await generalHistory();
   const snapshot = await takeSnapshot(world().reads, GUILD);
   const { result } = await withCapturedLogs(() =>
     router({
-      guildId: GUILD,
+      placeId: GUILD,
       channel: channels[GENERAL].info,
       snapshot,
       // @ts-expect-error the normalized lines stand for the lines the router reads
@@ -1636,7 +1636,7 @@ function participationState() {
     episodes: [
       {
         id: 'p1',
-        channelId: GARDEN,
+        placeId: GARDEN,
         continues: null,
         messages: [
           member('pa1', NOW - 3 * 60 * MINUTE_MS, 'les tomates ont poussé'),
@@ -1645,7 +1645,7 @@ function participationState() {
       },
       {
         id: 'p2',
-        channelId: DIARY,
+        placeId: DIARY,
         continues: null,
         messages: [own('pb1', NOW - 40 * MINUTE_MS, 'je relis mes notes')],
       },
@@ -1667,7 +1667,7 @@ test('createParticipationPicker: the pick classifier fills participation-pick.md
   const snapshot = await takeSnapshot(world().reads, GUILD);
   const { result } = await withCapturedLogs(() =>
     picker({
-      guildId: GUILD,
+      placeId: GUILD,
       channel: channels[GENERAL].info,
       snapshot,
       history,
@@ -1711,7 +1711,7 @@ const SPLIT_LINE =
 function bareStore() {
   return {
     state: { data: {}, markDirty() {} },
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     getPrivate: () => null,
     listUserProfiles: () => [],
@@ -1803,7 +1803,7 @@ test('createTurnRunner: the GIF picker fills gif-pick.md', async () => {
         url: 'https://tenor.com/view/chat-qui-danse-1',
         itemId: 'gif-item-1',
         messageId: 'm1',
-        channelId: GENERAL,
+        placeId: GENERAL,
         count: 3,
         last: NOW - HOUR_MS,
       },
@@ -1813,7 +1813,7 @@ test('createTurnRunner: the GIF picker fills gif-pick.md', async () => {
         url: 'https://tenor.com/view/haussement-2',
         itemId: 'gif-item-2',
         messageId: 'm2',
-        channelId: GENERAL,
+        placeId: GENERAL,
         count: 1,
         last: NOW - DAY_MS,
         ownLast: NOW - HOUR_MS,
@@ -1868,7 +1868,7 @@ test('createMissed: the missed-answer check fills missed.md', async () => {
     turns: { triggerOf: () => null },
     reads: world().reads,
     iface: () => world().port.iface,
-    getGuildId: () => GUILD,
+    isServedCommunity: (id: unknown) => id === GUILD,
     getSelfName: () => SELF_NAME,
     dataDir,
     now: () => candidate!.ts + MINUTE_MS,
@@ -1933,7 +1933,7 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
     spontaneous: { onMessage: () => false },
     memory: { observe() {} },
     tagHistory: createTagHistory(),
-    getGuildId: () => GUILD,
+    isServedCommunity: (id: unknown) => id === GUILD,
     getSelfName: () => SELF_NAME,
     llm,
     rng: () => 0.5,
@@ -1956,9 +1956,9 @@ test('createAvatarQueue: the avatar describer fills avatar.md', async () => {
   const hot = shippedHot();
   const profile: { id: string; names: Array<string>; avatar?: { text: string } } = { id: 'u1', names: ['Ελένη'] };
   const store = {
-    getUser: (guildId: string, id: string) => (id === 'u1' ? profile : null),
+    getUser: (id: string) => (id === 'u1' ? profile : null),
     listUserProfiles: () => [profile],
-    setAvatar: (guildId: string, id: string, avatar: unknown) => Object.assign(profile, { avatar }),
+    setAvatar: (id: string, avatar: unknown) => Object.assign(profile, { avatar }),
   };
   const llm = recordingLlm(() => 'an illustrated fox in a scarf');
   const imageFetcher = {
@@ -1972,7 +1972,7 @@ test('createAvatarQueue: the avatar describer fills avatar.md', async () => {
     llm,
     imageFetcher,
     state,
-    getGuildId: () => GUILD,
+    isServedCommunity: (id: unknown) => id === GUILD,
     selfId: () => SELF_ID,
     // The interface answers `memberInfo` with the member and the hash and address of their avatar.
     reads: {

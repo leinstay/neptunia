@@ -46,18 +46,18 @@ function rawMessage({
   authorName = 'Alice',
   ts = NOW - 1000,
   content = 'hey bot',
-  channelId = 'c1',
+  placeId = 'c1',
 }: {
   id: string;
   authorId?: string;
   authorName?: string;
   ts?: number;
   content?: string;
-  channelId?: string;
+  placeId?: string;
 }) {
   return {
     id,
-    channelId,
+    placeId,
     author: { id: authorId, bot: false, globalName: authorName, username: authorName },
     member: { displayName: authorName },
     cleanContent: content,
@@ -71,7 +71,7 @@ function rawMessage({
 function normalizedTrigger(raw: ReturnType<typeof rawMessage>) {
   return {
     id: raw.id,
-    channelId: raw.channelId,
+    placeId: raw.placeId,
     authorId: raw.author.id,
     authorName: raw.author.globalName,
     self: false,
@@ -94,9 +94,9 @@ function fakeServer(history: Array<Record<string, unknown>>, jardinLive: Array<R
     fetches[(ref as { conversationId: string }).conversationId]?.push(query);
   });
   const channels = new Map([
-    ['c1', world().channel({ id: 'c1', name: 'general', guildId: 'g1', historyMessages: history })],
-    ['c2', world().channel({ id: 'c2', name: 'jardin', guildId: 'g1', historyMessages: jardinLive })],
-    ['c3', world().channel({ id: 'c3', name: 'secret', guildId: 'g1', permissions: { read: false } })],
+    ['c1', world().channel({ id: 'c1', name: 'general', placeId: 'g1', historyMessages: history })],
+    ['c2', world().channel({ id: 'c2', name: 'jardin', placeId: 'g1', historyMessages: jardinLive })],
+    ['c3', world().channel({ id: 'c3', name: 'secret', placeId: 'g1', permissions: { read: false } })],
   ]);
   return { channels, fetches };
 }
@@ -104,8 +104,8 @@ function fakeServer(history: Array<Record<string, unknown>>, jardinLive: Array<R
 function fakeStore() {
   const profiles = [{ id: 'u7', names: ['Éloïse'] }];
   return {
-    getGuild: () => ({}),
-    getUser: (guildId: string, id: string) => profiles.find((profile) => profile.id === id) ?? null,
+    getPlace: () => ({}),
+    getUser: (id: string) => profiles.find((profile) => profile.id === id) ?? null,
     getPrivate: () => null,
     listChannels: () => [],
     listUserProfiles: () => profiles,
@@ -222,14 +222,14 @@ function line(
 }
 
 function fakeRecord(lines: Array<Record<string, unknown>>) {
-  const reads: Array<{ channelIds?: Array<string>; from?: string }> = [];
+  const reads: Array<{ placeIds?: Array<string>; from?: string }> = [];
   return {
     reads,
     append: async () => ({ written: 0, duplicates: 0 }),
-    iterate: async function* iterate(guildId: string, query: { channelIds?: Array<string>; from?: string }) {
+    iterate: async function* iterate(placeId: string, query: { placeIds?: Array<string>; from?: string }) {
       reads.push(query);
       for (const entry of lines) {
-        if (query.channelIds && !query.channelIds.includes((entry.scope as { channel: string }).channel)) continue;
+        if (query.placeIds && !query.placeIds.includes((entry.scope as { channel: string }).channel)) continue;
         if (query.from && Date.parse(entry.occurredAt as string) < Date.parse(query.from)) continue;
         yield entry;
       }
@@ -282,7 +282,14 @@ async function turn({
   for (const seed of seeds) port.seed(seed.conversationId, seed);
   const client = { user: { id: 'self-id', username: 'Bot' } };
   const store = fakeStore();
-  const admin = createAdmin({ hot, store, client, getGuildId: () => 'g1', reads: world().adopt(port), port });
+  const admin = createAdmin({
+    hot,
+    store,
+    client,
+    isServedCommunity: (id: unknown) => id === 'g1',
+    reads: world().adopt(port),
+    port,
+  });
   const llm = sequenceLlm(answers);
   const calibrator = { ratio: 1, apply: (value: number) => value, observe: () => {} };
   const turns = createTurnRunner({
@@ -401,7 +408,7 @@ test('the record lacks the span: the history of the channel is asked and its lin
       authorId: 'u7',
       authorName: 'Éloïse',
       content: 'από το ιστορικό',
-      channelId: 'c2',
+      placeId: 'c2',
     }),
   ];
   const run = await turn({
@@ -440,7 +447,7 @@ test('a channel the pull rail hides is refused channel-not-visible and nothing o
   );
   assert.ok(!text.includes('from conversation.read'), text);
   assert.deepEqual(run.server.fetches.c3, []);
-  assert.ok(run.record.reads.every((query) => !query.channelIds?.includes('c3')));
+  assert.ok(run.record.reads.every((query) => !query.placeIds?.includes('c3')));
   assert.ok(
     run.logs.some(
       (entry) =>
@@ -455,7 +462,7 @@ test('not granted: the call is refused before anything is read', async () => {
     allowed: ['lore.list'],
   });
   assert.ok(
-    run.record.reads.every((query) => !query.channelIds?.includes('c2')),
+    run.record.reads.every((query) => !query.placeIds?.includes('c2')),
     'the record of #jardin was not read'
   );
   assert.deepEqual(run.server.fetches.c2, []);

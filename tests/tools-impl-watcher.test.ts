@@ -37,7 +37,7 @@ function envOf(watcher: ReportReader | null) {
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     board: null,
     watcher,
   });
@@ -48,8 +48,8 @@ async function callOf(watcher: ReportReader | null, args: Record<string, unknown
   const { result } = await withCapturedLogs(() =>
     runOpPrechecked('watcher.read', args, {
       env,
-      guildId: 'g1',
-      channelId: 'c1',
+      placeId: 'g1',
+      conversationId: 'c1',
       userId: null,
       roleIds: [],
       actor: 'persona',

@@ -20,7 +20,7 @@ const intention = (id: string, extra = {}) => ({
   completionCondition: null,
   chainId: null,
   attend: null,
-  provenance: { kind: 'self', turnId: 't-1', channelId: '200000000000000001', scope: 'group' },
+  provenance: { kind: 'self', turnId: 't-1', placeId: '200000000000000001', scope: 'group' },
   history: [{ at: 1792000000000, to: 'open', by: 'persona' }],
   ...extra,
 });
@@ -75,7 +75,7 @@ const task = (id: string, extra = {}) => ({
   agent: 'scout',
   goal: 'look something up',
   requester: { userId: '100000000000000001', kind: 'member' },
-  origin: { channelId: '200000000000000001', messageId: null },
+  origin: { placeId: '200000000000000001', messageId: null },
   scope: 'group',
   state: 'done',
   createdAt: 1792000000000,

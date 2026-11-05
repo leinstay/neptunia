@@ -12,30 +12,33 @@ type AffinityOpts = Parameters<typeof applyDelta>[3];
 function buildStore() {
   const profiles = new Map<string, Rec>();
   const forgotten: Array<Untyped> = [];
-  const privates = new Map<string, Rec>(); // `${guildId}:${userId}` -> private layer
+  const privates = new Map<string, Rec>(); // `${placeId}:${userId}` -> private layer
   const forgottenPrivate: Array<Untyped> = [];
-  const lore = new Map<string, Array<Rec>>(); // guildId -> entries[]
-  const channels = new Map<string, Rec>(); // `${guildId}:${channelId}` -> channel entry
-  const guilds = new Map<string, Rec>(); // guildId -> guild notes
+  const lore = new Map<string, Array<Rec>>(); // placeId -> entries[]
+  const channels = new Map<string, Rec>(); // `${placeId}:${placeId}` -> channel entry
+  const guilds = new Map<string, Rec>(); // placeId -> guild notes
   const store = {
     profiles,
     forgotten,
     lore,
     channels,
     guilds,
-    getChannel(guildId: string, channelId: string) {
-      return channels.get(`${guildId}:${channelId}`) ?? null;
+    getChannel(placeId: string) {
+      return [...channels.entries()].find(([key]) => key.endsWith(`:${placeId}`))?.[1] ?? null;
     },
-    listChannels(guildId: string) {
-      const prefix = `${guildId}:`;
+    listChannels(placeId: string) {
+      const prefix = `${placeId}:`;
       return [...channels.entries()].filter(([key]) => key.startsWith(prefix)).map(([, value]) => value);
     },
-    getGuild(guildId: string) {
-      return guilds.get(guildId) ?? { patterns: '', starters: '', injokes: [], self: [], updatedAt: null };
+    topPlaces() {
+      return ['g1'];
     },
-    recent: new Map<string, Rec>(), // guildId -> { nextId, lines }
-    getRecent(this: { recent: Map<string, Rec> }, guildId: string) {
-      return structuredClone(this.recent.get(guildId) ?? { nextId: 1, lines: [] });
+    getPlace(placeId: string) {
+      return guilds.get(placeId) ?? { patterns: '', starters: '', injokes: [], self: [], updatedAt: null };
+    },
+    recent: new Map<string, Rec>(), // placeId -> { nextId, lines }
+    getRecent(this: { recent: Map<string, Rec> }, placeId: string) {
+      return structuredClone(this.recent.get(placeId) ?? { nextId: 1, lines: [] });
     },
     state: { data: { llmCount: 5, llmDay: '2026-09-20' } as Record<string, Untyped>, markDirty() {} },
     flushCalls: 0,
@@ -55,25 +58,25 @@ function buildStore() {
     validate(this: { validateResult: Array<string> }) {
       return this.validateResult;
     },
-    getUser(guildId: string, userId: string) {
-      return profiles.get(`${guildId}:${userId}`) ?? null;
+    getUser(userId: string) {
+      return profiles.get(`${userId}`) ?? null;
     },
-    getLore(guildId: string) {
-      return lore.get(guildId) ?? [];
+    getLore(placeId: string) {
+      return lore.get(placeId) ?? [];
     },
-    setLore(guildId: string, incoming: unknown, opts: Parameters<typeof upsertLore>[2]) {
-      const { entries, upserted } = upsertLore((lore.get(guildId) ?? []) as Array<LoreEntry>, incoming, opts);
-      lore.set(guildId, entries);
+    setLore(placeId: string, incoming: unknown, opts: Parameters<typeof upsertLore>[2]) {
+      const { entries, upserted } = upsertLore((lore.get(placeId) ?? []) as Array<LoreEntry>, incoming, opts);
+      lore.set(placeId, entries);
       return upserted;
     },
-    removeLore(guildId: string, id: string) {
-      const current = lore.get(guildId) ?? [];
+    removeLore(placeId: string, id: string) {
+      const current = lore.get(placeId) ?? [];
       const next = current.filter((entry) => entry.id !== id);
-      lore.set(guildId, next);
+      lore.set(placeId, next);
       return next.length !== current.length;
     },
-    adjustAffinity(guildId: string, userId: string, delta: number, reason: string, opts: AffinityOpts) {
-      const key = `${guildId}:${userId}`;
+    adjustAffinity(userId: string, delta: number, reason: string, opts: AffinityOpts) {
+      const key = `${userId}`;
       const profile = profiles.get(key) ?? { id: String(userId), affinity: emptyAffinity() };
       profile.affinity = applyDelta(profile.affinity ?? emptyAffinity(), delta, reason, opts);
       profiles.set(key, profile);
@@ -81,23 +84,22 @@ function buildStore() {
     },
     privates,
     forgottenPrivate,
-    getPrivate(guildId: string, userId: string) {
-      return privates.get(`${guildId}:${userId}`) ?? null;
+    getPrivate(userId: string) {
+      return privates.get(`${userId}`) ?? null;
     },
-    listPrivate(guildId: string) {
-      const prefix = `${guildId}:`;
+    listPrivate(placeId: string) {
+      const prefix = `${placeId}:`;
       return [...privates.keys()].filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length));
     },
     countUsers() {
       return profiles.size;
     },
-    listUserProfiles(guildId: string) {
-      const prefix = `${guildId}:`;
-      return [...profiles.entries()].filter(([key]) => key.startsWith(prefix)).map(([, value]) => value);
+    listUserProfiles() {
+      return [...profiles.values()];
     },
-    participation: new Map<string, Rec>(), // guildId -> { episodes, nextId }
-    getParticipation(this: { participation: Map<string, Rec> }, guildId: string) {
-      return structuredClone(this.participation.get(guildId) ?? { episodes: [], nextId: 1 });
+    participation: new Map<string, Rec>(), // placeId -> { episodes, nextId }
+    getParticipation(this: { participation: Map<string, Rec> }, placeId: string) {
+      return structuredClone(this.participation.get(placeId) ?? { episodes: [], nextId: 1 });
     },
     getBuffer() {
       return [];

@@ -31,7 +31,7 @@ function rawMessage({
 }) {
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     author: { id: authorId, bot: false, globalName: authorName, username: authorName },
     member: { displayName: authorName },
     cleanContent: content,
@@ -46,7 +46,7 @@ function rawMessage({
 function normalizedTrigger(raw: ReturnType<typeof rawMessage>) {
   return {
     id: raw.id,
-    channelId: raw.channelId,
+    placeId: raw.placeId,
     authorId: raw.author.id,
     authorName: raw.author.globalName,
     self: false,
@@ -62,16 +62,16 @@ function normalizedTrigger(raw: ReturnType<typeof rawMessage>) {
 function fakeTurnChannel({
   id = 'c1',
   name = 'general',
-  guildId = 'g1',
+  placeId = 'g1',
   historyMessages = [],
   ...more
 }: ChannelSpec = {}) {
-  return world().channel({ id, name, guildId, historyMessages, ...more });
+  return world().channel({ id, name, placeId, historyMessages, ...more });
 }
 
 function fakeStore() {
   return {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     listChannels: () => [],
     listUserProfiles: () => [],
@@ -361,7 +361,7 @@ test('turn: a routed turn marks the destination busy, not the source', async () 
     id: 'c1',
     historyMessages: [rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Bob' })],
   });
-  const call = { ...rawMessage({ id: 'd1', authorName: 'Éloïse', content: '@Bot εδώ;' }), channelId: 'c2' };
+  const call = { ...rawMessage({ id: 'd1', authorName: 'Éloïse', content: '@Bot εδώ;' }), placeId: 'c2' };
   // The source: a readable text channel of the same guild where the bot may not send.
   fakeTurnChannel({ id: 'c2', name: 'diary', historyMessages: [call], permissions: { send: false } });
   const llm = controllableLlm();
@@ -378,7 +378,7 @@ test('turn: a routed turn marks the destination busy, not the source', async () 
       mode: 'reply',
       trigger: normalizedTrigger(call),
       triggerKind: 'mention',
-      source: { channelId: 'c2', reason: 'routed' },
+      source: { placeId: 'c2', reason: 'routed' },
     })
   );
   await waitForCalls(llm, 1);
@@ -399,9 +399,9 @@ test('createTurnRunner: spokeAfterSeeing covers the source lines a routed turn s
   });
   const earlier = {
     ...rawMessage({ id: 'd1', authorId: 'u3', authorName: 'Zoë', ts: Date.now() - 5000, content: 'ο κήπος άνθισε' }),
-    channelId: 'c2',
+    placeId: 'c2',
   };
-  const call = { ...rawMessage({ id: 'd2', authorName: 'Éloïse', content: '@Bot εδώ;' }), channelId: 'c2' };
+  const call = { ...rawMessage({ id: 'd2', authorName: 'Éloïse', content: '@Bot εδώ;' }), placeId: 'c2' };
   fakeTurnChannel({ id: 'c2', name: 'diary', historyMessages: [earlier, call], permissions: { send: false } });
   const turns = createTurnRunner({
     hot: fakeHot({}),
@@ -416,7 +416,7 @@ test('createTurnRunner: spokeAfterSeeing covers the source lines a routed turn s
       mode: 'reply',
       trigger: normalizedTrigger(call),
       triggerKind: 'mention',
-      source: { channelId: 'c2', reason: 'routed' },
+      source: { placeId: 'c2', reason: 'routed' },
     })
   );
 

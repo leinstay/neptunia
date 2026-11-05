@@ -49,7 +49,6 @@ function rig(privateDir: string) {
     hot,
     env: ENV,
     privateDir,
-    getGuildId: () => 'g1',
     log: quiet,
     defer: (fn) => fn(),
   });
@@ -60,7 +59,7 @@ const ask = {
   agent: 'scout',
   goal: 'find the changelog',
   requester: { userId: '7', kind: 'member' },
-  origin: { channelId: 'c1', messageId: 'm1' },
+  origin: { placeId: 'c1', messageId: 'm1' },
   scope: 'group' as const,
 };
 

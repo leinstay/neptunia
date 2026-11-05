@@ -65,7 +65,7 @@ function baseInput(overrides: Record<string, unknown> = {}) {
     neighbors: [],
     trigger: null,
     triggerKind: null,
-    guildMemory: {},
+    placeMemory: {},
     interlocutor: null,
     otherProfiles: [],
     ...overrides,
@@ -82,7 +82,7 @@ function linkEntry(n: number, count: number, last = NOW - DAY) {
     name: `Danse ${n}`,
     itemId: `k${n}`,
     messageId: `m${n}`,
-    channelId: 'c1',
+    placeId: 'c1',
     count,
     last,
     firstSeen: last,
@@ -276,10 +276,10 @@ test('buildRequest: gifs.reactionChars and gifs.actionChars cut a three-field ca
 });
 
 test('buildRequest: <gifs> closes the stable part, right after <about_chat>; <server> and <emoji> follow in the tail', () => {
-  const guildMemory = { patterns: 'short lines' };
-  const history = [{ ...baseInput().history[0], channelId: 'c1', channelName: 'general' }];
+  const placeMemory = { patterns: 'short lines' };
+  const history = [{ ...baseInput().history[0], placeId: 'c1', channelName: 'general' }];
   const customEmoji = [{ id: '1', name: 'alpha' }];
-  const request = buildRequest(baseInput({ gifs: THREE, customEmoji, guildMemory, history, currentChannelId: 'c1' }));
+  const request = buildRequest(baseInput({ gifs: THREE, customEmoji, placeMemory, history, currentChannelId: 'c1' }));
   const text = userText(request);
   const aboutIdx = text.indexOf('<about_chat>');
   const gifsIdx = text.indexOf('<gifs>\n');

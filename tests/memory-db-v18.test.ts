@@ -25,7 +25,7 @@ const STARTED = Date.parse('2026-10-31T09:58:00.000Z');
 const DUE = STARTED - MINUTE;
 
 const RUNNING = wakeOfDue({
-  intention: { id: 'i1', provenance: { scope: 'group', channelId: 'c1' } },
+  intention: { id: 'i1', provenance: { scope: 'group', placeId: 'c1' } },
   reason: 'due',
   at: DUE,
 });
@@ -57,7 +57,7 @@ function innerState(): Record<string, unknown> {
       wakeIds: [RUNNING.id],
       kind: 'intention_due',
       startedAt: STARTED,
-      channelId: 'c1',
+      placeId: 'c1',
       privateChat: false,
       privateUserId: null,
     },

@@ -56,10 +56,10 @@ export function line(
 }
 
 /** A raw API search hit of a stored line. */
-export function rawHit(channelId: string, l: Line): RawHit {
+export function rawHit(placeId: string, l: Line): RawHit {
   return {
     id: l.id,
-    channel_id: channelId,
+    channel_id: placeId,
     timestamp: new Date(l.ts).toISOString(),
     author: { id: l.author, username: l.name.toLowerCase(), global_name: l.name, bot: l.bot },
     content: l.content,

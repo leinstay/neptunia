@@ -110,7 +110,7 @@ for (const replacement of ['author', 'shorter'] as const) {
     const incomingText = 'delayed-followup-evidence';
     const incoming: Line = {
       id: 'late-followup',
-      channelId: 'c1',
+      placeId: 'c1',
       authorId: 'u1',
       authorName: 'Member',
       content: incomingText,
@@ -180,7 +180,6 @@ for (const replacement of ['author', 'shorter'] as const) {
       pending,
       llm: { complete: () => decision.promise },
       tagHistory: { hit: () => 1 },
-      getGuildId: () => 'g1',
       getSelfName: () => 'Persona',
       itemText: queue.itemText,
       enqueuePending: queue.enqueuePending,
@@ -270,7 +269,7 @@ test('a triggerless private inner turn writes its completed turn only to its par
     const channel = fakeTurnChannel({ id: 'private-room', dm: true, partnerId: 'u1' });
     const result = await turns.runTurn({
       channel,
-      guildId: 'g1',
+      placeId: 'g1',
       mode: 'inner',
       triggerKind: 'inner',
       inner: {

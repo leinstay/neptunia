@@ -157,7 +157,7 @@ function scene({
       },
     },
     listUserProfiles: () => profiles,
-    // The other stored memory a test hands over: getLore, getGuild, getRecent, getPrivate.
+    // The other stored memory a test hands over: getLore, getPlace, getRecent, getPrivate.
     ...memory,
   };
   const llmCalls: Array<{ messages: Array<{ role: string; content: string }>; options: Record<string, unknown> }> = [];
@@ -190,7 +190,7 @@ function scene({
   const history = [
     {
       id: 'h1',
-      channelId: 'c1',
+      placeId: 'c1',
       ts: NOW - 30 * MINUTE,
       self: false,
       bot: false,
@@ -199,7 +199,7 @@ function scene({
     },
     {
       id: 'h2',
-      channelId: 'c1',
+      placeId: 'c1',
       ts: NOW - MINUTE,
       self: false,
       bot: false,
@@ -210,7 +210,7 @@ function scene({
   // A private chat with the member u5, as the interface describes it (no community, no audience).
   const dm = channelInfo('dm1', { kind: 'dm', communityId: null, chatType: 'dm', partnerId: 'u5', audience: null });
   const args = {
-    guildId: GUILD,
+    placeId: GUILD,
     channel: infos.c1,
     snapshot,
     partnerId: null,
@@ -252,7 +252,7 @@ test('recall: forms are searched one after another in order; the summary reads t
     "no range asked: the turn's own chat bounds no query"
   );
   assert.equal(result.text, 'Ana did it on October 1.');
-  assert.equal(result.stretch?.channelId, 'c1');
+  assert.equal(result.stretch?.placeId, 'c1');
   assert.equal(result.stretch?.channelName, 'general');
 
   const { messages, options } = s.llmCalls[0];
@@ -429,8 +429,8 @@ test('recall: a private chat with its partner searches the server, keeps only wh
       getRecent: () => ({
         nextId: 3,
         lines: [
-          { id: 1, at: NOW - 2 * HOUR, addedAt: null, channelId: 'c2', text: 'κουνέλι in garden', who: [], weight: 2 },
-          { id: 2, at: NOW - 2 * HOUR, addedAt: null, channelId: 'c4', text: 'μυστικό κουνέλι', who: [], weight: 3 },
+          { id: 1, at: NOW - 2 * HOUR, addedAt: null, placeId: 'c2', text: 'κουνέλι in garden', who: [], weight: 2 },
+          { id: 2, at: NOW - 2 * HOUR, addedAt: null, placeId: 'c4', text: 'μυστικό κουνέλι', who: [], weight: 3 },
         ],
       }),
     },
@@ -438,7 +438,7 @@ test('recall: a private chat with its partner searches the server, keeps only wh
   const history = [
     {
       id: 'p1',
-      channelId: 'dm1',
+      placeId: 'dm1',
       ts: NOW - MINUTE,
       self: false,
       bot: false,
@@ -602,7 +602,7 @@ test('recall: a summary that fails or times out returns the first-ranked window 
     const { result, logs } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
     assert.equal(s.llmCalls.length, 1, kind);
     assert.equal(result.text, null, kind);
-    assert.equal(result.stretch?.channelId, 'c1', `${kind}: the best-matched of the newest three, not the newest`);
+    assert.equal(result.stretch?.placeId, 'c1', `${kind}: the best-matched of the newest three, not the newest`);
     assert.equal(result.stretch?.lines, RANKED_STRETCH, kind);
     assert.equal(result.stretch?.startTs, RABBIT_LINES[0].ts, kind);
     assert.equal(result.stats.summary, kind);
@@ -705,7 +705,7 @@ test('recall: no hit left skips the summary', async () => {
 test('recall: a window shows the cached caption of its picture and asks for no fresh one', async () => {
   const asked: Array<Untyped> = [];
   const describer = {
-    cachedDescriptions: (guildId: string, items: Untyped) => {
+    cachedDescriptions: (placeId: string, items: Untyped) => {
       asked.push(items.map((i: Untyped) => i.itemId));
       return new Map([['p1', 'ένα κουνέλι στο γρασίδι']]);
     },
@@ -726,7 +726,7 @@ test('recall: the stretch is the named window without indices; out of range name
     answer: 'stretch: 2\nÉloïse saw one.',
   });
   const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
-  assert.equal(result.stretch?.channelId, 'c2');
+  assert.equal(result.stretch?.placeId, 'c2');
   assert.equal(result.stretch?.startTs, GARDEN_LINES[0].ts);
   assert.equal(result.stretch?.lines, `${HIT_MARK}[12:44] Éloïse: ένα κουνέλι στον κήπο\n[12:45] Ana: ωραίο`);
 
@@ -850,9 +850,9 @@ test('recall: a recent line from a channel the audience cannot see is left out; 
   const recent = {
     nextId: 4,
     lines: [
-      { id: 1, at, addedAt: null, channelId: 'c1', text: 'κουνέλι in general', who: [], weight: 2 },
-      { id: 2, at: at - HOUR, addedAt: null, channelId: 'c2', text: 'κουνέλι in garden', who: [], weight: 2 },
-      { id: 3, at, addedAt: null, channelId: 'c4', text: 'μυστικό κουνέλι', who: [], weight: 3 },
+      { id: 1, at, addedAt: null, placeId: 'c1', text: 'κουνέλι in general', who: [], weight: 2 },
+      { id: 2, at: at - HOUR, addedAt: null, placeId: 'c2', text: 'κουνέλι in garden', who: [], weight: 2 },
+      { id: 3, at, addedAt: null, placeId: 'c4', text: 'μυστικό κουνέλι', who: [], weight: 3 },
     ],
   };
   const learned = [
@@ -870,7 +870,7 @@ test('recall: a recent line from a channel the audience cannot see is left out; 
     profiles: MEMORY_PROFILES,
     memory: {
       getRecent: () => structuredClone(recent),
-      getGuild: () => ({ learned }),
+      getPlace: () => ({ learned }),
       getPrivate: () => {
         privateReads += 1;
         return { episodes: [{ date: '2026-10-01', what: 'κουνέλι secret', weight: 5 }] };
@@ -940,7 +940,7 @@ test('recall: the summary reads the last six chat lines as <context> right befor
   const routed = [
     {
       id: 'o1',
-      channelId: 'c2',
+      placeId: 'c2',
       ts: NOW - 2 * MINUTE,
       self: true,
       bot: false,
@@ -998,7 +998,7 @@ test('recall: every run appends one trace line with the clusters, the summary an
     assert.equal(rest.length, 0);
     assert.deepEqual(Object.keys(record), [
       'at',
-      'channelId',
+      'placeId',
       'triggerId',
       'forms',
       'who',
@@ -1018,13 +1018,13 @@ test('recall: every run appends one trace line with the clusters, the summary an
     assert.equal(record.meaning, null, 'no meaning search with features.meaningSearch off');
     assert.equal(record.at, new Date(NOW).toISOString());
     assert.deepEqual(
-      [record.channelId, record.triggerId, record.forms, record.who, record.when],
+      [record.placeId, record.triggerId, record.forms, record.who, record.when],
       ['c1', 'h2', RABBIT_SERVER.forms, [], null]
     );
     assert.deepEqual([record.hits, record.inChatDropped], [3, 1]);
     assert.deepEqual(record.clusters, [
       {
-        channelId: 'c1',
+        placeId: 'c1',
         from: new Date(CHAT_LINES.c1[0].ts).toISOString(),
         to: new Date(CHAT_LINES.c1[0].ts).toISOString(),
         // PR 7d: recall.rareHits is the constant 5, so the form of three hits is rare and weighs two.
@@ -1036,7 +1036,7 @@ test('recall: every run appends one trace line with the clusters, the summary an
         kept: true,
       },
       {
-        channelId: 'c2',
+        placeId: 'c2',
         from: new Date(GARDEN_LINES[0].ts).toISOString(),
         to: new Date(GARDEN_LINES[0].ts).toISOString(),
         score: 3,
@@ -1049,7 +1049,7 @@ test('recall: every run appends one trace line with the clusters, the summary an
     assert.deepEqual(record.summary, {
       answer: 'text',
       // PR 7d: with all five clusters kept the windows are numbered in the order of the fetches, c1 first.
-      stretch: { n: 1, channelId: 'c1', channelName: 'general', lines: result.stretch?.lines },
+      stretch: { n: 1, placeId: 'c1', channelName: 'general', lines: result.stretch?.lines },
       text: 'Ana did it on October 1.',
       note: 'stretch: 1\nAna did it on October 1.',
     });
@@ -1130,7 +1130,7 @@ test('recall: one trace line holds every source -- stored memory, record windows
     // PR 7d: recall.recordContext is the constant 3, so the record window and the search hit of #garden are one window.
     assert.deepEqual(line.record, [
       {
-        channelId: 'c2',
+        placeId: 'c2',
         from: new Date(GARDEN_LINES[0].ts).toISOString(),
         to: new Date(NOW - 2 * HOUR).toISOString(),
         hitIds: ['g1', 'r-c2'],
@@ -1173,7 +1173,7 @@ test('recall: a run skipped early still writes its trace line with the reason', 
     const [first, second, ...rest] = t.lines();
     assert.equal(rest.length, 0);
     assert.equal(first.skipped, 'daily-cap');
-    assert.deepEqual([first.channelId, first.triggerId, first.forms], ['c1', 'h2', RABBIT_SERVER.forms]);
+    assert.deepEqual([first.placeId, first.triggerId, first.forms], ['c1', 'h2', RABBIT_SERVER.forms]);
     assert.deepEqual([first.clusters, first.people, first.plan, first.memory, first.record], [[], [], [], [], []]);
     assert.deepEqual(first.summary, { answer: null, stretch: null, text: null, note: null });
     assert.equal(second.skipped, 'no-query');
@@ -1215,13 +1215,13 @@ function recLine(
   id: string,
   ts: number,
   text: string,
-  { channelId = 'c2', by = ANA_ID, owner = null }: Record<string, Untyped> = {}
+  { placeId = 'c2', by = ANA_ID, owner = null }: Record<string, Untyped> = {}
 ) {
   const line = toRecordLine(
-    { id, channelId, authorId: by, content: text, ts },
+    { id, placeId, authorId: by, content: text, ts },
     { now: () => NOW, uuid: () => `x-${id}` }
   );
-  return owner ? { ...line, scope: { user: owner, private: true, channel: channelId } } : line;
+  return owner ? { ...line, scope: { user: owner, private: true, channel: placeId } } : line;
 }
 
 /** An archive entry of `itemKind` (the fields recall reads). */
@@ -1241,7 +1241,7 @@ function archEntry(itemId: string, itemKind: string, text: string, scope: string
     text,
     stored: {},
     recordedAt: '2026-10-05T00:00:00.000Z',
-    guildId: GUILD,
+    placeId: GUILD,
   };
 }
 
@@ -1250,7 +1250,7 @@ function fakeSource(byBase: Untyped) {
   const queries: Array<Record<string, Untyped>> = [];
   return {
     queries,
-    async *iterate(guildId: string, query: Record<string, Untyped> = {}) {
+    async *iterate(placeId: string, query: Record<string, Untyped> = {}) {
       queries.push(query);
       yield* byBase[query.privateUserId ?? 'guild'] ?? [];
     },
@@ -1263,7 +1263,7 @@ test('recall-run: a channel the member cannot read is skipped before matching', 
   const record = fakeSource({
     guild: [
       recLine('r-c2', NOW - 2 * HOUR, 'κουνέλι στον κήπο σήμερα'),
-      recLine('r-c4', NOW - HOUR, 'μυστικό κουνέλι', { channelId: 'c4' }),
+      recLine('r-c4', NOW - HOUR, 'μυστικό κουνέλι', { placeId: 'c4' }),
     ],
   });
   const archive = fakeSource({
@@ -1346,7 +1346,7 @@ test('recall-run: private entries match only for their owner', async () => {
       ],
     }),
     record: fakeSource({
-      u5: [recLine('d1', NOW - HOUR, 'κουνέλι in the dm', { channelId: 'dm1', by: 'u5', owner: 'u5' })],
+      u5: [recLine('d1', NOW - HOUR, 'κουνέλι in the dm', { placeId: 'dm1', by: 'u5', owner: 'u5' })],
     }),
   });
   const ask = async (who: string | null) => {
@@ -1354,7 +1354,7 @@ test('recall-run: private entries match only for their owner', async () => {
     const history = [
       {
         id: 'p1',
-        channelId: 'dm1',
+        placeId: 'dm1',
         ts: NOW - MINUTE,
         self: false,
         bot: false,
@@ -1491,10 +1491,10 @@ test("recall-run: a dated question searches past the visible chat's oldest line;
         : { total_results: 0, messages: [] },
   });
   const history = [
-    { id: 'h1', channelId: 'c1', ts: early, self: false, bot: false, authorName: 'Nikos', content: 'καλημέρα' },
+    { id: 'h1', placeId: 'c1', ts: early, self: false, bot: false, authorName: 'Nikos', content: 'καλημέρα' },
     {
       id: 'h2',
-      channelId: 'c1',
+      placeId: 'c1',
       ts: NOW - MINUTE,
       self: false,
       bot: false,
@@ -1576,19 +1576,19 @@ test("recall-run: the persona's own stored profile never joins the people", asyn
 const DAY = 24 * HOUR;
 const MEANT_AT = NOW - 20 * DAY;
 
-/** A fake record that honours the query's [from, to], `channelIds` and base, and notes each query. */
+/** A fake record that honours the query's [from, to], `placeIds` and base, and notes each query. */
 function rangedSource(byBase: Untyped) {
   const queries: Array<Record<string, Untyped>> = [];
   return {
     queries,
-    async *iterate(guildId: string, query: Record<string, Untyped> = {}) {
+    async *iterate(placeId: string, query: Record<string, Untyped> = {}) {
       queries.push(query);
       const from = query.from ? Date.parse(query.from) : -Infinity;
       const to = query.to ? Date.parse(query.to) : Infinity;
       for (const line of byBase[query.privateUserId ?? 'guild'] ?? []) {
         const at = Date.parse(line.occurredAt);
         if (at < from || at > to) continue;
-        if (Array.isArray(query.channelIds) && !query.channelIds.includes(line.scope?.channel)) continue;
+        if (Array.isArray(query.placeIds) && !query.placeIds.includes(line.scope?.channel)) continue;
         yield line;
       }
     },
@@ -1600,7 +1600,7 @@ function vrow(
   id: string,
   ts: number,
   score: number,
-  { kind = 'record', channelId = 'c2', revision = 1, sourceIds = [id] }: Record<string, Untyped> = {}
+  { kind = 'record', placeId = 'c2', revision = 1, sourceIds = [id] }: Record<string, Untyped> = {}
 ) {
   return {
     meta: {
@@ -1608,7 +1608,7 @@ function vrow(
       id,
       revision,
       occurredAt: new Date(ts).toISOString(),
-      channelId: kind === 'archive' ? null : channelId,
+      placeId: kind === 'archive' ? null : placeId,
       by: null,
       participants: [],
       sourceIds,
@@ -1619,11 +1619,11 @@ function vrow(
 
 /** A fake index: `search` applies the caller's filter to the rows of the base asked and notes each call. */
 function fakeVectors(byBase: Untyped, { fail = null }: Record<string, Untyped> = {}) {
-  const calls: Array<{ guildId: Untyped; query: Untyped; opts: Untyped }> = [];
+  const calls: Array<{ placeId: Untyped; query: Untyped; opts: Untyped }> = [];
   return {
     calls,
-    async search(guildId: string, query: unknown, opts: Record<string, Untyped> = {}) {
-      calls.push({ guildId, query, opts });
+    async search(placeId: string, query: unknown, opts: Record<string, Untyped> = {}) {
+      calls.push({ placeId, query, opts });
       if (fail) throw fail;
       const rows = (byBase[opts.privateUserId ?? 'guild'] ?? []).filter(
         (row: Untyped) => typeof opts.filter !== 'function' || opts.filter(row.meta)
@@ -1650,8 +1650,8 @@ const MEANING_RECORD = {
   guild: [
     recLine('m-ctx', MEANT_AT - MINUTE, 'who invented it?', { by: ELO_ID }),
     recLine('m-old', MEANT_AT, 'he made the whole story up'),
-    recLine('m-hidden', MEANT_AT - 5 * DAY, 'secret meaning', { channelId: 'c4' }),
-    recLine('r-word2', NOW - 30 * HOUR, 'κουνέλι again', { channelId: 'c1' }),
+    recLine('m-hidden', MEANT_AT - 5 * DAY, 'secret meaning', { placeId: 'c4' }),
+    recLine('r-word2', NOW - 30 * HOUR, 'κουνέλι again', { placeId: 'c1' }),
     recLine('r-word', NOW - 2 * HOUR, 'κουνέλι στον κήπο σήμερα'),
   ],
 };
@@ -1660,8 +1660,8 @@ const MEANING_ROWS = {
   guild: [
     vrow('m-old', MEANT_AT, 0.85, { sourceIds: ['m-ctx', 'm-old'] }),
     vrow('m-old', MEANT_AT, 0.8, { revision: 2, sourceIds: ['m-ctx', 'm-old'] }),
-    vrow('m-hidden', MEANT_AT - 5 * DAY, 0.9, { channelId: 'c4' }),
-    vrow('h1', NOW - 30 * MINUTE, 0.95, { channelId: 'c1' }),
+    vrow('m-hidden', MEANT_AT - 5 * DAY, 0.9, { placeId: 'c4' }),
+    vrow('h1', NOW - 30 * MINUTE, 0.95, { placeId: 'c1' }),
     vrow('ep-meant', Date.UTC(2026, 9, 4), 0.7, { kind: 'archive', revision: 'rv-1', sourceIds: [] }),
   ],
 };
@@ -1708,7 +1708,7 @@ test('recall-run: one embedding of the question; meaning rows fused ahead of a w
     assert.equal(s.embed.calls[0].opts.purpose, 'recall-query');
     assert.equal(s.vectors.calls.length, 1, 'the guild index only on a server turn');
     assert.deepEqual(
-      [s.vectors.calls[0].guildId, s.vectors.calls[0].opts.from, s.vectors.calls[0].opts.to, s.vectors.calls[0].opts.k],
+      [s.vectors.calls[0].placeId, s.vectors.calls[0].opts.from, s.vectors.calls[0].opts.to, s.vectors.calls[0].opts.k],
       [GUILD, null, null, 80],
       'no range asked: every month'
     );
@@ -1779,9 +1779,9 @@ test('recall-run: a failed embedding or search logs a warn and the run goes on w
 test("recall-run: a private turn searches its partner's private layer and the guild index", async () => {
   const record = rangedSource({
     ...MEANING_RECORD,
-    u5: [recLine('d-old', MEANT_AT, 'the dm memory', { channelId: 'dm1', by: 'u5', owner: 'u5' })],
+    u5: [recLine('d-old', MEANT_AT, 'the dm memory', { placeId: 'dm1', by: 'u5', owner: 'u5' })],
   });
-  const vectors = fakeVectors({ ...MEANING_ROWS, u5: [vrow('d-old', MEANT_AT, 0.9, { channelId: 'dm1' })] });
+  const vectors = fakeVectors({ ...MEANING_ROWS, u5: [vrow('d-old', MEANT_AT, 0.9, { placeId: 'dm1' })] });
   const embed = fakeEmbed();
   const s = scene({
     features: { meaningSearch: true },
@@ -1795,7 +1795,7 @@ test("recall-run: a private turn searches its partner's private layer and the gu
   const history = [
     {
       id: 'p1',
-      channelId: 'dm1',
+      placeId: 'dm1',
       ts: NOW - MINUTE,
       self: false,
       bot: false,
@@ -1896,7 +1896,7 @@ test('recall-run: a locator whose record reaches past the decay margin sends no 
     'every month of the index'
   );
   assert.deepEqual(
-    meant.record.queries.filter((q) => !q.channelIds).map((q) => [q.from, q.to]),
+    meant.record.queries.filter((q) => !q.placeIds).map((q) => [q.from, q.to]),
     [[new Date(NOW - 3 * DAY).toISOString(), new Date(NOW).toISOString()]],
     'the record over its last days, the named day among them'
   );

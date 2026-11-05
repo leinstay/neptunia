@@ -634,7 +634,7 @@ for (const transport of TRANSPORTS) {
         added = true;
         history.push({
           id: 'm9',
-          channelId: 'c1',
+          placeId: 'c1',
           author: { id: 'u2', bot: false, globalName: 'Zoë', username: 'Zoë' },
           member: { displayName: 'Zoë' },
           cleanContent: 'ωραία νέα',
@@ -865,7 +865,7 @@ test('a line shown to her in a step note counts as seen: the turn that spoke ans
       added = true;
       history.push({
         id: 'm9',
-        channelId: 'c1',
+        placeId: 'c1',
         author: { id: 'u2', bot: false, globalName: 'Zoë', username: 'Zoë' },
         member: { displayName: 'Zoë' },
         cleanContent: 'ωραία νέα',

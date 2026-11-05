@@ -42,7 +42,7 @@ async function wakeRequests(
   const result = await sceneRunner(llm, scene.store).runTurn({
     mode: 'diary',
     diary: { kind: null, forced: false },
-    guildId: GUILD,
+    placeId: GUILD,
   });
   assert.equal((result as { outcome?: unknown }).outcome, 'spoke', 'the scene records an entry');
   assert.equal(llm.calls.length, 2, 'one plan request and one writer request');
@@ -94,7 +94,7 @@ async function wakeChat(
   const result = await historyRunner(llm, scene.store, port).runTurn({
     mode: 'diary',
     diary: { kind: null, forced: false },
-    guildId: GUILD,
+    placeId: GUILD,
   });
   assert.equal((result as { outcome?: unknown }).outcome, 'spoke', 'the scene records an entry');
   return chatBlock(llm);

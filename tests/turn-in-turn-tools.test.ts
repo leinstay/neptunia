@@ -63,7 +63,7 @@ function cacheScene() {
   ];
   const handlers = tools.inTurnTools({
     channel: channel('room'),
-    guildId: 'g1',
+    placeId: 'g1',
     selfId: 'self',
     selfName: 'Synthetic persona',
     history,
@@ -84,7 +84,7 @@ function registerCached(scene: ReturnType<typeof cacheScene>, name: string, nati
   memorySearchText(
     [
       {
-        channelId: 'room',
+        placeId: 'room',
         channelName: 'stored room',
         startTs: NOW,
         lines: name,
@@ -129,7 +129,7 @@ async function cachedCall(scene: ReturnType<typeof cacheScene>, skill: 'web.read
     inTurn: scene.handlers,
     port: { send: () => Promise.reject(new Error('cached reads never send')) },
     refOf: () => ({ iface: 'fake', conversationId: 'room' }),
-    opContext: { guildId: 'g1', channelId: 'room' },
+    opContext: { placeId: 'g1', conversationId: 'room' },
   });
 }
 
@@ -213,7 +213,7 @@ test('repeating one source-free native quote keeps its original handle usable fo
   const refs = searchHandles(scene.draft);
   const firstNumber = refs.next();
   const quote = {
-    channelId: 'quoted-room',
+    placeId: 'quoted-room',
     channelName: 'quoted room',
     startTs: NOW,
     lines: 'quoted link',
@@ -223,7 +223,7 @@ test('repeating one source-free native quote keeps its original handle usable fo
         text: 'quoted link',
         message: {
           id: 'same-native',
-          channelId: 'quoted-room',
+          placeId: 'quoted-room',
           native: { iface: 'fake', conversationId: 'quoted-room', messageId: 'same-native' },
           content: 'https://repeat.example/original',
           attachments: [],

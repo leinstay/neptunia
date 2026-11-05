@@ -4,6 +4,8 @@
 // through `memory-pending/`. A day of writes on a fixture whose memory files are gone and whose directories are
 // read-only leaves no memory file and writes every kind of unit. Synthetic data only (Greek or accented Latin for
 // non-ASCII); the ids are made up.
+import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
+import { accountOf, placeOfCommunity, placeOfConversation } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -12,9 +14,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { importCoreJsonState } from '../src/memory/db/core-state-import.ts';
+import { importCoreJsonState } from '../src/memory/migration/core-state-import.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
-import { isOperational } from '../src/memory/db/paths.ts';
+import { isOperational } from '../src/memory/migration/paths.ts';
 import { createAppendStore } from '../src/memory/append-store.ts';
 import { createRecord } from '../src/memory/record.ts';
 import { createJournal } from '../src/memory/journal.ts';
@@ -28,7 +30,7 @@ import { createUnitOutbox } from '../src/memory/db/unit-outbox.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { BOARD_MIGRATIONS } from '../src/board/schema.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
-import { guildPlaceId } from '../src/memory/db/ids.ts';
+import {} from '../src/memory/db/ids.ts';
 import { listUnits } from '../src/memory/db/storage-units.ts';
 import { keyText, type StorageKey } from '../src/memory/db/storage-keys.ts';
 
@@ -81,7 +83,7 @@ function logs() {
 const configOf = (memoryDb = {}) => ({
   features: { record: true, journal: true, archive: true },
   memoryDb: { session: { mode: 'off' }, ...memoryDb },
-  selfreflection: { channelId: CHANNEL },
+  selfreflection: { placeId: CHANNEL },
 });
 
 /**
@@ -106,7 +108,7 @@ function prepared({ archived = false } = {}) {
   return { root, data };
 }
 
-/** The memory files of a data directory (every file but the database's own and the operational allowlist, src/memory/db/paths.ts), relative. */
+/** The memory files of a data directory (every file but the database's own and the operational allowlist, src/memory/migration/paths.ts), relative. */
 function memoryFiles(data: string, rel = '', out: Array<string> = []): Array<string> {
   for (const entry of fs.readdirSync(path.join(data, rel), { withFileTypes: true })) {
     const child = rel ? `${rel}/${entry.name}` : entry.name;
@@ -178,7 +180,7 @@ async function modules(
     (lazy.intentions ??= createIntentionStore({
       // @ts-expect-error the store takes no dataDir; the test passes one and the store ignores it
       dataDir: data,
-      guildId: GUILD,
+      placeId: GUILD,
       now: () => NOW,
       log,
       memoryDb: service,
@@ -187,7 +189,7 @@ async function modules(
     (lazy.tasks ??= createErrandStore({
       // @ts-expect-error the store takes no dataDir; the test passes one and the store ignores it
       dataDir: data,
-      guildId: GUILD,
+      placeId: GUILD,
       now: () => NOW,
       uuid: counter('task'),
       config: () => hot.config,
@@ -222,7 +224,7 @@ async function day(m: Awaited<ReturnType<typeof modules>>) {
     authorId: MEMBER,
     authorName: 'Ada',
     ts: at(minutes),
-    channelId: CHANNEL,
+    placeId: CHANNEL,
     channelName: 'γενικά',
     channelCategory: null,
     channelTopic: null,
@@ -236,14 +238,18 @@ async function day(m: Awaited<ReturnType<typeof modules>>) {
     ['600000000000000002', 1],
   ] as Array<[string, number]>)
     touchMemory(m.store, GUILD, message(id, minutes), {});
-  m.store.touchPrivateSeen(GUILD, MEMBER, at(5));
-  m.store.decayAffinities(GUILD, NOW + 3 * DAY_MS, { decayPerDay: 0.04, decayPower: 1 });
-  m.store.setLore(GUILD, [{ title: 'Η πλατεία', keys: ['πλατεία'], text: 'The square by the sea.' }], {
-    source: 'owner',
-    now: NOW,
-  });
+  m.store.touchPrivateSeen(accountOf(m.store, MEMBER), at(5));
+  m.store.decayAffinities(NOW + 3 * DAY_MS, { decayPerDay: 0.04, decayPower: 1 });
+  m.store.setLore(
+    placeOfCommunity(m.store, GUILD),
+    [{ title: 'Η πλατεία', keys: ['πλατεία'], text: 'The square by the sea.' }],
+    {
+      source: 'owner',
+      now: NOW,
+    }
+  );
   m.store.applyLearnedOps(
-    GUILD,
+    placeOfCommunity(m.store, GUILD),
     { add: ['the café opens at nine'] },
     {
       maxLearned: 20,
@@ -254,7 +260,13 @@ async function day(m: Awaited<ReturnType<typeof modules>>) {
       seenAt: NOW,
     }
   );
-  m.store.touchChannel(GUILD, CHANNEL, { name: 'γενικά', category: null, topic: 'café' }, at(6), MEMBER, {});
+  m.store.touchChannel(
+    placeOfConversation(m.store, { id: CHANNEL }),
+    { name: 'γενικά', category: null, topic: 'café' },
+    at(6),
+    MEMBER,
+    {}
+  );
   const intentions = m.intentions();
   const added = intentions.add({
     id: 'i2',
@@ -264,7 +276,7 @@ async function day(m: Awaited<ReturnType<typeof modules>>) {
     updatedAt: NOW,
     expiresAt: NOW + DAY_MS,
     dueAt: null,
-    provenance: { kind: 'self', turnId: 't-2', channelId: CHANNEL, scope: 'group' },
+    provenance: { kind: 'self', turnId: 't-2', placeId: CHANNEL, scope: 'group' },
     history: [],
   } as unknown as Intention);
   if (!added.ok) throw new Error(`intention add: ${added.code}`);
@@ -279,7 +291,7 @@ async function day(m: Awaited<ReturnType<typeof modules>>) {
     agent: 'scout',
     goal: 'find the café hours',
     requester: { userId: MEMBER, kind: 'member' },
-    origin: { channelId: CHANNEL, messageId: '600000000000000001' },
+    origin: { placeId: CHANNEL, messageId: '600000000000000001' },
     scope: 'group',
   });
   if (!task.ok) throw new Error(`task add: ${task.code}`);
@@ -380,11 +392,10 @@ test('a day of writes with the memory files gone writes every kind of unit to th
       assert.deepEqual(errandEvents(dbOf(right), 'find the café hours'), ['approved', 'in_progress', 'done']);
       assert.equal(count('SELECT COUNT(*) AS n FROM work') + count('SELECT COUNT(*) AS n FROM work_events'), 0);
       // Runtime ownership follows the catalog's semantic collection, including scope and active/archive selection.
-      const place = guildPlaceId('discord', GUILD);
+      const place = legacyServerPlaceId('discord', GUILD);
       const units = listUnits(dbOf(right), {
         kind: 'intentions',
-        subject: { type: 'place', id: place },
-        scopePlaceId: place,
+        subject: { type: 'persona', id: 'persona:local' },
         selector: { collection: 'active' },
       });
       assert.equal(units.length, 1);
@@ -420,12 +431,16 @@ test('reads: the store, the intentions and the tasks load the database values wi
   const dm = await modules(db.data);
   try {
     await dm.service.tick();
-    assert.equal((dm.store.getUser(GUILD, MEMBER) as Profile | null)?.id, MEMBER);
-    assert.ok(dm.store.getGuild(GUILD), 'the guild');
-    assert.equal(dm.store.getChannel(GUILD, CHANNEL)?.id, CHANNEL);
-    assert.ok(dm.store.getLore(GUILD).length > 0, 'the lore');
-    assert.deepEqual(dm.store.listPrivate(GUILD), [MEMBER]);
-    assert.equal(dm.store.getUser(GUILD, '100000000000000077'), null, 'a member the database does not hold is absent');
+    assert.equal((dm.store.getUser(accountOf(dm.store, MEMBER)) as Profile | null)?.id, MEMBER);
+    assert.ok(dm.store.getPlace(placeOfCommunity(dm.store, GUILD)), 'the guild');
+    assert.equal(dm.store.getChannel(placeOfConversation(dm.store, { id: CHANNEL }))?.id, CHANNEL);
+    assert.ok(dm.store.getLore(placeOfCommunity(dm.store, GUILD)).length > 0, 'the lore');
+    assert.deepEqual(dm.store.listPrivate(), [`discord:${MEMBER}`]);
+    assert.equal(
+      dm.store.getUser(accountOf(dm.store, '100000000000000077')),
+      null,
+      'a member the database does not hold is absent'
+    );
     assert.ok(Array.isArray(dm.intentions().list()));
     assert.deepEqual(
       dm
@@ -479,12 +494,15 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
     };
     const m = await modules(data, { log, memoryDb: down });
     const before = moves(service.readHandle()!);
-    m.store.setLore(GUILD, [{ title: 'Η αποβάθρα', keys: ['αποβάθρα'], text: 'The old pier.' }], {
-      source: 'owner',
-      now: NOW,
-    });
+    m.store.setLore(
+      placeOfCommunity(m.store, GUILD),
+      [{ title: 'Η αποβάθρα', keys: ['αποβάθρα'], text: 'The old pier.' }],
+      {
+        source: 'owner',
+        now: NOW,
+      }
+    );
     m.store.appendDiaryPost(
-      GUILD,
       // @ts-expect-error a post without a picture is null, the shape the diary writes before one is drawn
       { at: NOW, kind: 'day', gist: 'une journée de pluie', picture: null, messageIds: [], search: null },
       { max: 150, now: NOW }
@@ -493,7 +511,7 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
       agent: 'scout',
       goal: 'the pier',
       requester: { userId: MEMBER, kind: 'member' },
-      origin: { channelId: CHANNEL, messageId: null },
+      origin: { placeId: CHANNEL, messageId: null },
       scope: 'group',
     });
     assert.equal(task.ok, true);
@@ -504,8 +522,8 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
     await service.close();
     assert.equal(fs.readdirSync(pendingDir).filter((name) => name.endsWith('.json')).length, 3);
     // Pending runtime writes retain semantic keys rather than legacy filenames.
-    const place = guildPlaceId('discord', GUILD);
-    const loreKey: StorageKey = { kind: 'lore', subject: { type: 'place', id: place }, scopePlaceId: place };
+    const place = legacyServerPlaceId('discord', GUILD);
+    const loreKey: StorageKey = { kind: 'lore', subject: { type: 'place', id: place } };
     const lore = JSON.parse(
       fs.readFileSync(
         path.join(pendingDir, `${createHash('sha1').update(keyText(loreKey)).digest('hex')}.json`),
@@ -629,7 +647,7 @@ test('a task transition or an intention whose write committed and whose answer w
         agent: 'scout',
         goal: 'the pier',
         requester: { userId: MEMBER, kind: 'member' },
-        origin: { channelId: CHANNEL, messageId: null },
+        origin: { placeId: CHANNEL, messageId: null },
         scope: 'group',
       });
       await settle();
@@ -664,7 +682,7 @@ test('a task transition or an intention whose write committed and whose answer w
       updatedAt: NOW,
       expiresAt: NOW + DAY_MS,
       dueAt: null,
-      provenance: { kind: 'self', turnId: 't-1', channelId: null, scope: 'group' },
+      provenance: { kind: 'self', turnId: 't-1', placeId: null, scope: 'group' },
       history: [],
     };
     assert.equal(intentions.add(record as unknown as Intention).ok, true);
@@ -737,24 +755,24 @@ test("her session's attitude move reaches the store's cached profile: a later fl
       });
     };
     // A clean cached profile: the store reads the moved score.
-    const start = (m.store.getUser(GUILD, MEMBER) as Profile).affinity.score;
+    const start = (m.store.getUser(accountOf(m.store, MEMBER)) as Profile).affinity.score;
     await move(2);
     assert.equal(stored(), Math.round((start + 2) * 100) / 100);
     assert.equal(
-      (m.store.getUser(GUILD, MEMBER) as Profile).affinity.score,
+      (m.store.getUser(accountOf(m.store, MEMBER)) as Profile).affinity.score,
       stored(),
       'the cached profile took the move'
     );
     // A profile changed in the cache at the same time (a decay tick stamps it): both count after the flush.
-    const decayed = m.store.decayAffinities(GUILD, NOW, { decayPerDay: 0.5, decayPower: 1 });
+    const decayed = m.store.decayAffinities(NOW, { decayPerDay: 0.5, decayPower: 1 });
     assert.ok(decayed.profiles > 0);
-    const cached = (m.store.getUser(GUILD, MEMBER) as Profile).affinity;
+    const cached = (m.store.getUser(accountOf(m.store, MEMBER)) as Profile).affinity;
     await move(3);
     m.store.flush();
     await m.store.flushSettled({});
     const expected = Math.round(Math.max(-100, Math.min(100, cached.score + 3)) * 100) / 100;
     assert.equal(stored(), expected, 'the move survives the flush of the decayed profile');
-    assert.equal((m.store.getUser(GUILD, MEMBER) as Profile).affinity.score, expected);
+    assert.equal((m.store.getUser(accountOf(m.store, MEMBER)) as Profile).affinity.score, expected);
     assert.equal(
       db()
         .prepare("SELECT COUNT(*) AS n FROM affinity_events WHERE person_id = ? AND reason = 'una charla amable'")
@@ -787,14 +805,14 @@ test('root state and participation, GIF and media caches persist through the wri
     run.store.state.data.paused = true;
     run.store.state.markDirty();
     run.store.setParticipation(
-      GUILD,
+      placeOfCommunity(run.store, GUILD),
       {
         nextId: 10,
         episodes: [
           {
             itemId: 'pt-roundtrip',
             id: 'p-roundtrip',
-            channelId: CHANNEL,
+            placeId: CHANNEL,
             startAt: NOW,
             lastAt: NOW,
             lastOwnAt: NOW,
@@ -805,13 +823,13 @@ test('root state and participation, GIF and media caches persist through the wri
       },
       { now: NOW }
     );
-    run.store.getMediaCache(GUILD).photo = { text: 'a café terrace', ts: NOW };
-    run.store.markMediaCacheDirty(GUILD);
+    run.store.getMediaCache(placeOfCommunity(run.store, GUILD)).photo = { text: 'a café terrace', ts: NOW };
+    run.store.markMediaCacheDirty(placeOfCommunity(run.store, GUILD));
     assert.equal(
-      run.store.recordGifs(GUILD, [
+      run.store.recordGifs(placeOfCommunity(run.store, GUILD), [
         {
           id: 'native-gif',
-          channelId: CHANNEL,
+          placeId: CHANNEL,
           ts: NOW,
           self: false,
           bot: false,
@@ -821,8 +839,8 @@ test('root state and participation, GIF and media caches persist through the wri
       ]),
       1
     );
-    const participation = run.store.getParticipation(GUILD);
-    const gifs = structuredClone(run.store.getGifs(GUILD));
+    const participation = run.store.getParticipation(placeOfCommunity(run.store, GUILD));
+    const gifs = structuredClone(run.store.getGifs(placeOfCommunity(run.store, GUILD)));
     await run.store.flushSettled({ final: true });
     assert.deepEqual(
       files.filter((file) => fs.existsSync(file)),
@@ -839,9 +857,12 @@ test('root state and participation, GIF and media caches persist through the wri
     await run.service.tick();
     assert.equal(run.store.state.data.paused, true);
     assert.equal(run.store.state.data.afterReload, 'persisted after reload');
-    assert.deepEqual(run.store.getParticipation(GUILD), participation);
-    assert.deepEqual(run.store.getGifs(GUILD), gifs);
-    assert.deepEqual(run.store.getMediaCache(GUILD).photo, { text: 'a café terrace', ts: NOW });
+    assert.deepEqual(run.store.getParticipation(placeOfCommunity(run.store, GUILD)), participation);
+    assert.deepEqual(run.store.getGifs(placeOfCommunity(run.store, GUILD)), gifs);
+    assert.deepEqual(run.store.getMediaCache(placeOfCommunity(run.store, GUILD)).photo, {
+      text: 'a café terrace',
+      ts: NOW,
+    });
     assert.deepEqual(
       files.filter((file) => fs.existsSync(file)),
       []

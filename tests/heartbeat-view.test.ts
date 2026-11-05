@@ -27,7 +27,7 @@ const profile = (id: Untyped, score: Untyped, extra = {}) => ({
 /** A journal over `records` (any kind), read by UTC day and kind. */
 function fakeJournal(records: Record<string, Untyped>) {
   return {
-    read: async (guildId: Record<string, Untyped>, { day, kind }: Record<string, Untyped>) =>
+    read: async ({ day, kind }: Record<string, Untyped>) =>
       records.filter((r: Record<string, Untyped>) => r.kind === kind && utcDay(Date.parse(r.occurredAt)) === day),
   };
 }
@@ -52,7 +52,7 @@ const said = (at: Untyped, channel: Untyped, participants: Record<string, Untype
 });
 
 const base = (extra = {}) => ({
-  guildId: 'g1',
+  placeId: 'g1',
   now: NOW,
   since: SINCE,
   placeName: (id: Untyped) => `n-${id}`,
@@ -422,8 +422,8 @@ test("filtered: the missed helper's dismissals (not owed ones, not before the wi
     base({
       journal: fakeJournal(rows),
       addressVerdicts: () => [
-        { at: NOW - MINUTE_MS, channelId: 'c2' },
-        { at: NOW - 9 * HOUR_MS, channelId: 'c2' },
+        { at: NOW - MINUTE_MS, placeId: 'c2' },
+        { at: NOW - 9 * HOUR_MS, placeId: 'c2' },
       ],
     })
   );
@@ -438,7 +438,7 @@ test("filtered: the missed helper's dismissals (not owed ones, not before the wi
           verdict: 'not-addressed',
           messageId: 'm1',
           authorId: 'u1',
-          channelId: 'c2',
+          placeId: 'c2',
           at: iso(NOW - MINUTE_MS),
           occurredAt: iso(NOW - MINUTE_MS),
           scope: { channel: 'c2' },
@@ -620,7 +620,7 @@ test("places: a link another member posted 2.5 hours ago shows in the place and 
   assert.equal(present(person.lastWrote).ref, muzika.previews[0].ref, 'one line, one handle');
   const ref = facts.refs[present(present(person.lastWrote).ref)];
   assert.equal(ref.id, 'm-yt');
-  assert.equal(ref.channelId, 'muzika');
+  assert.equal(ref.placeId, 'muzika');
   assert.equal(ref.authorId, 'vertex');
   assert.equal(ref.self, false);
   assert.equal(ref.message.links[0].url, 'https://youtu.be/abc');
@@ -773,7 +773,7 @@ test('filtered: each line with its author, a preview cut to about 100 characters
       verdict: 'not-addressed',
       messageId: 'f2',
       authorId: 'u8',
-      channelId: 'c2',
+      placeId: 'c2',
       at: iso(NOW - 5 * MINUTE_MS),
       occurredAt: iso(NOW - 5 * MINUTE_MS),
       scope: { channel: 'c2' },

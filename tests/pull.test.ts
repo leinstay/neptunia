@@ -39,7 +39,7 @@ function msg(
   return {
     id,
     ts,
-    channelId: 'ch-there',
+    placeId: 'ch-there',
     authorId: `u-${id}`,
     authorName: `Zoé ${id}`,
     self,
@@ -115,26 +115,26 @@ test('pullTargets: the source comes first and counts toward maxChannels', () => 
   const history = [msg('m1', at(2), { channels: ['ch-diary'] })];
   const trigger = msg('t', at(1), { channels: ['ch-source', 'ch-memes'] });
 
-  assert.deepEqual(targets({ source: { channelId: 'ch-source', reason: 'routed' }, history, trigger }), [
-    { channelId: 'ch-source', reason: 'routed' },
+  assert.deepEqual(targets({ source: { placeId: 'ch-source', reason: 'routed' }, history, trigger }), [
+    { placeId: 'ch-source', reason: 'routed' },
   ]);
   assert.deepEqual(
-    targets({ source: { channelId: 'ch-source', reason: 'noticed' }, history, trigger, maxChannels: 3 }),
+    targets({ source: { placeId: 'ch-source', reason: 'noticed' }, history, trigger, maxChannels: 3 }),
     [
-      { channelId: 'ch-source', reason: 'noticed' },
-      { channelId: 'ch-memes', reason: 'mention' },
-      { channelId: 'ch-diary', reason: 'mention' },
+      { placeId: 'ch-source', reason: 'noticed' },
+      { placeId: 'ch-memes', reason: 'mention' },
+      { placeId: 'ch-diary', reason: 'mention' },
     ],
     'a source also mentioned explicitly is pulled once, as the source'
   );
   assert.deepEqual(
-    targets({ source: { channelId: 'ch-source', reason: 'routed' }, history, trigger, maxChannels: 0 }),
-    [{ channelId: 'ch-source', reason: 'routed' }],
+    targets({ source: { placeId: 'ch-source', reason: 'routed' }, history, trigger, maxChannels: 0 }),
+    [{ placeId: 'ch-source', reason: 'routed' }],
     'the source is the turn itself: it is kept even when maxChannels leaves no slot'
   );
   assert.deepEqual(
-    targets({ source: { channelId: 'ch-source', reason: 'routed' }, isPullable: () => false }),
-    [{ channelId: 'ch-source', reason: 'routed' }],
+    targets({ source: { placeId: 'ch-source', reason: 'routed' }, isPullable: () => false }),
+    [{ placeId: 'ch-source', reason: 'routed' }],
     'isPullable judges mentions and route ids, not the source the caller already chose'
   );
   assert.deepEqual(targets({ history, maxChannels: 0 }), [], 'without a source maxChannels 0 pulls nothing');
@@ -142,10 +142,10 @@ test('pullTargets: the source comes first and counts toward maxChannels', () => 
 
 test('pullTargets: a source in the current channel is dropped, the chat already shows it', () => {
   const trigger = msg('t', at(0), { channels: ['ch-memes'] });
-  assert.deepEqual(targets({ source: { channelId: 'ch-here', reason: 'routed' } }), []);
+  assert.deepEqual(targets({ source: { placeId: 'ch-here', reason: 'routed' } }), []);
   assert.deepEqual(
-    targets({ source: { channelId: 'ch-here', reason: 'noticed' }, trigger }),
-    [{ channelId: 'ch-memes', reason: 'mention' }],
+    targets({ source: { placeId: 'ch-here', reason: 'noticed' }, trigger }),
+    [{ placeId: 'ch-memes', reason: 'mention' }],
     'the slot it would have taken goes to the next candidate'
   );
 });
@@ -161,8 +161,8 @@ test('pullTargets: without isPullable only the source is kept', () => {
     [],
     'a predicate that is not a function counts as missing'
   );
-  assert.deepEqual(pullTargets({ ...base, source: { channelId: 'ch-source', reason: 'routed' } }), [
-    { channelId: 'ch-source', reason: 'routed' },
+  assert.deepEqual(pullTargets({ ...base, source: { placeId: 'ch-source', reason: 'routed' } }), [
+    { placeId: 'ch-source', reason: 'routed' },
   ]);
   assert.deepEqual(pullTargets(), [], 'no arguments at all');
 });
@@ -176,20 +176,20 @@ test('pullTargets: a refused mention leaves its slot to the next candidate', () 
     return id !== 'ch-mod';
   };
   assert.deepEqual(targets({ history, trigger, extra: ['ch-mod', 'ch-route'], maxChannels: 1, isPullable }), [
-    { channelId: 'ch-diary', reason: 'mention' },
+    { placeId: 'ch-diary', reason: 'mention' },
   ]);
   assert.deepEqual(asked, ['ch-mod', 'ch-diary'], 'asked in priority order, never after the slots are full');
 
   asked.length = 0;
   assert.deepEqual(targets({ history, trigger, extra: ['ch-mod', 'ch-route'], maxChannels: 3, isPullable }), [
-    { channelId: 'ch-diary', reason: 'mention' },
-    { channelId: 'ch-route', reason: 'route' },
+    { placeId: 'ch-diary', reason: 'mention' },
+    { placeId: 'ch-route', reason: 'route' },
   ]);
   assert.deepEqual(asked, ['ch-mod', 'ch-diary', 'ch-route'], 'a refused id is asked once, not again as a route id');
 
   asked.length = 0;
   assert.deepEqual(targets({ history, trigger, maxChannels: 1, isPullable: () => (asked.push('x'), true) }), [
-    { channelId: 'ch-mod', reason: 'mention' },
+    { placeId: 'ch-mod', reason: 'mention' },
   ]);
   assert.equal(asked.length, 1, 'a full slot list asks nothing more');
 });
@@ -201,10 +201,10 @@ test("pullTargets: a channel mention in another bot's message does not pull", ()
     msg('s1', at(1), { channels: ['ch-own'], self: true }),
   ];
   const trigger = msg('t', at(0));
-  assert.deepEqual(targets({ history, trigger, maxChannels: 1 }), [{ channelId: 'ch-diary', reason: 'mention' }]);
+  assert.deepEqual(targets({ history, trigger, maxChannels: 1 }), [{ placeId: 'ch-diary', reason: 'mention' }]);
   assert.deepEqual(
     targets({ history, trigger: null, maxChannels: 5 }),
-    [{ channelId: 'ch-diary', reason: 'mention' }],
+    [{ placeId: 'ch-diary', reason: 'mention' }],
     "neither a bot's line nor the persona's own line pulls"
   );
   assert.deepEqual(
@@ -222,11 +222,11 @@ test('pullTargets: the current channel and unpullable ids are skipped', () => {
   ];
   const pullable = (id: string) => id !== 'ch-thread' && id !== 'ch-mirror';
   assert.deepEqual(targets({ history, maxChannels: 5, isPullable: pullable }), [
-    { channelId: 'ch-ok', reason: 'mention' },
+    { placeId: 'ch-ok', reason: 'mention' },
   ]);
   assert.deepEqual(
     targets({ history, maxChannels: 5, isPullable: pullable, extra: ['ch-here', 'ch-mirror'] }),
-    [{ channelId: 'ch-ok', reason: 'mention' }],
+    [{ placeId: 'ch-ok', reason: 'mention' }],
     'route ids pass the same checks'
   );
 });
@@ -234,14 +234,14 @@ test('pullTargets: the current channel and unpullable ids are skipped', () => {
 test('pullTargets: route ids come after explicit mentions', () => {
   const trigger = msg('t', at(0), { channels: ['ch-said'] });
   assert.deepEqual(targets({ trigger, extra: ['ch-route', 'ch-said'], maxChannels: 3 }), [
-    { channelId: 'ch-said', reason: 'mention' },
-    { channelId: 'ch-route', reason: 'route' },
+    { placeId: 'ch-said', reason: 'mention' },
+    { placeId: 'ch-route', reason: 'route' },
   ]);
   assert.deepEqual(targets({ trigger, extra: ['ch-route'], maxChannels: 1 }), [
-    { channelId: 'ch-said', reason: 'mention' },
+    { placeId: 'ch-said', reason: 'mention' },
   ]);
   assert.deepEqual(targets({ extra: ['ch-route', 42, ''], maxChannels: 3 }), [
-    { channelId: 'ch-route', reason: 'route' },
+    { placeId: 'ch-route', reason: 'route' },
   ]);
   assert.deepEqual(targets({ extra: undefined, maxChannels: 3 }), []);
 });
@@ -255,16 +255,16 @@ test('pullTargets: the trigger and the last scanMessages of the history are scan
     trigger,
   ];
   assert.deepEqual(
-    targets({ history, trigger, scanMessages: 2, maxChannels: 5 }).map((t) => t.channelId),
+    targets({ history, trigger, scanMessages: 2, maxChannels: 5 }).map((t) => t.placeId),
     ['ch-trigger', 'ch-mid'],
     'the trigger does not use up one of the scanned history messages'
   );
   assert.deepEqual(
-    targets({ history, trigger, scanMessages: 0, maxChannels: 5 }).map((t) => t.channelId),
+    targets({ history, trigger, scanMessages: 0, maxChannels: 5 }).map((t) => t.placeId),
     ['ch-trigger']
   );
   assert.deepEqual(
-    targets({ history, trigger: null, scanMessages: 20, maxChannels: 5 }).map((t) => t.channelId),
+    targets({ history, trigger: null, scanMessages: 20, maxChannels: 5 }).map((t) => t.placeId),
     ['ch-trigger', 'ch-mid', 'ch-old'],
     'a spontaneous turn scans its history alone'
   );
@@ -275,13 +275,13 @@ test('pullTargets: channelPull off keeps only the source', () => {
   assert.deepEqual(targets({ trigger, extra: ['ch-route'], maxChannels: 3, channelPull: false }), []);
   assert.deepEqual(
     targets({
-      source: { channelId: 'ch-source', reason: 'routed' },
+      source: { placeId: 'ch-source', reason: 'routed' },
       trigger,
       extra: ['ch-route'],
       maxChannels: 3,
       channelPull: false,
     }),
-    [{ channelId: 'ch-source', reason: 'routed' }]
+    [{ placeId: 'ch-source', reason: 'routed' }]
   );
 });
 
@@ -548,15 +548,15 @@ test('pullPictures: only describable pictures, each picture once', () => {
 
 test('pullTargets: kept ids come after mentions and route ids, fill only free slots, reason kept', () => {
   assert.deepEqual(targets({ maxChannels: 2, kept: ['ch-k'], extra: ['ch-r'] }), [
-    { channelId: 'ch-r', reason: 'route' },
-    { channelId: 'ch-k', reason: 'kept' },
+    { placeId: 'ch-r', reason: 'route' },
+    { placeId: 'ch-k', reason: 'kept' },
   ]);
   assert.deepEqual(targets({ maxChannels: 1, kept: ['ch-k'], extra: ['ch-r'] }), [
-    { channelId: 'ch-r', reason: 'route' },
+    { placeId: 'ch-r', reason: 'route' },
   ]);
   assert.deepEqual(
     targets({ maxChannels: 1, kept: ['ch-here', 'ch-k'] }),
-    [{ channelId: 'ch-k', reason: 'kept' }],
+    [{ placeId: 'ch-k', reason: 'kept' }],
     'never the current channel'
   );
 });

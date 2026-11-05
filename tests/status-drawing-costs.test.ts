@@ -53,7 +53,7 @@ function setup() {
   // `dataDir` is a stale option of an earlier store; the options variable keeps it out of the excess property check.
   const storeOptions = {
     dataDir: tempDir('nep-status-drawing-data-'),
-    guildId: 'g1',
+    placeId: 'g1',
     now: () => NOW,
     config: () => config,
   };
@@ -71,12 +71,21 @@ function setup() {
       return { ok: true, status: 200, json: { data: { limit: 30, limit_remaining: 30 } } };
     },
   };
-  const errands = { store: (guildId: string) => (guildId === 'g1' ? tasks : null) };
+  const errands = { store: (placeId: string) => (placeId === 'g1' ? tasks : null) };
   const store = { state: { data: {}, markDirty() {} }, flush() {} };
-  const env = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', llm, errands, usage });
+  const env = createOpsEnv({
+    discord: DISCORD,
+    hot,
+    store,
+    client: {},
+    isServedCommunity: (id: unknown) => id === 'g1',
+    llm,
+    errands,
+    usage,
+  });
   const card = async (field: string) =>
     (
-      (await runOp('status.show', { field }, { env, guildId: 'g1', userId: '42', roleIds: [] })).data as {
+      (await runOp('status.show', { field }, { env, placeId: 'g1', userId: '42', roleIds: [] })).data as {
         fields: Array<{ value: string }>;
       }
     ).fields[0]?.value.split('\n');

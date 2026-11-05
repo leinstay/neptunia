@@ -60,7 +60,7 @@ function baseInput(overrides: Partial<BuildRequestInput> = {}): BuildRequestInpu
     neighbors: [],
     trigger: null,
     triggerKind: null,
-    guildMemory: { self: ['likes tea'] },
+    placeMemory: { self: ['likes tea'] },
     toolsBlock: 'TOOLS_BODY',
     interlocutor: null,
     otherProfiles: [],

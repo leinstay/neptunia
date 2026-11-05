@@ -1,6 +1,7 @@
 // The fixtures of the memory session tests (tests/memory-db-session.test.ts): the ids of the Discord namespace, the
 // prompts and the config of a session, the fake llm, a database with its lines and claims, the context of a sweep and the
 // request a scope gets. Synthetic Greek and accented Latin text only.
+import { legacyServerPlaceId } from '../../../src/memory/migration/paths.ts';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
 import { fillEnvAudiences } from './audiences.ts';
 import { applyMemoryWrite } from '../../../src/memory/db/session-write.ts';
@@ -12,7 +13,7 @@ import type { ClaimArgs, CtxOptions, FakeLlm, Fixture, LlmCall, LlmScript, Rec, 
 // The ids of the Discord namespace the fixtures of this file write.
 export const personOf = (id: string): string => memoryIds.personId('discord', id);
 export const dmPlaceOf = (id: string): string => memoryIds.dmPlaceId('discord', id);
-export const guildPlaceOf = (id: string): string => memoryIds.guildPlaceId('discord', id);
+export const guildPlaceOf = (id: string): string => legacyServerPlaceId('discord', id);
 export const channelPlaceOf = (id: string): string => memoryIds.channelPlaceId('discord', id);
 export const messageSourceOf = (id: string, revision: number, kind: string): string => memoryIds.messageSourceId('discord', id, revision, kind);
 

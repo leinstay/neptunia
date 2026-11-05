@@ -1,9 +1,10 @@
-// She keeps knowing her diary once `diary.channelId` is only a seed (stage 3 design, section 5): with an enabled `diary`
-// mirror on a place and no `diary.channelId` in the config, an ordinary turn treats that place as her diary the way it
+// She keeps knowing her diary once `diary.placeId` is only a seed (stage 3 design, section 5): with an enabled `diary`
+// mirror on a place and no `diary.placeId` in the config, an ordinary turn treats that place as her diary the way it
 // treats the configured channel today. `<server>` marks it with `labels.server.diary`, byte for byte as the recorded
-// block (tests/fixtures/diary-mirror-awareness.json, built on the code before the change with `diary.channelId: 'd1'`),
+// block (tests/fixtures/diary-mirror-awareness.json, built on the code before the change with `diary.placeId: 'd1'`),
 // a turn in it keeps no participation, and every mirrored place carries the mark. Real turn runner, real store over a
 // memory database, fake interface, scripted model. Synthetic text only.
+import { placeOfCommunity } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -19,19 +20,20 @@ function sectionOf(block: string, name: string): string {
   return section;
 }
 
-test('a turn marks the mirrored place as her diary in <server>, byte for byte as diary.channelId did', async () => {
+test('a turn marks the mirrored place as her diary in <server>, byte for byte as diary.placeId did', async () => {
   const { request } = await replyTurn({ here: 'c1', mirrors: ['d1'] });
   const parsed: unknown = JSON.parse(fs.readFileSync(RECORDED_FILE, 'utf8'));
-  // This test's own fixture, recorded from the same scene with `diary.channelId: 'd1'` and no mirror.
+  // This test's own fixture, recorded from the same scene with `diary.placeId: 'd1'` and no mirror.
   assert.equal(serverBlock(request), (parsed as { server: string }).server);
 });
 
 test('a turn in the mirrored place keeps no participation there', async () => {
   const { store } = await replyTurn({ here: 'd1', mirrors: ['d1'] });
   // The store is JS; its participation unit holds the episodes of every channel.
-  const episodes = (store.getParticipation(GUILD) as { episodes: Array<{ channelId: string }> }).episodes;
+  const episodes = (store.getParticipation(placeOfCommunity(store, GUILD)) as { episodes: Array<{ placeId: string }> })
+    .episodes;
   assert.deepEqual(
-    episodes.filter((episode) => episode.channelId === 'd1'),
+    episodes.filter((episode) => episode.placeId === 'd1'),
     []
   );
 });

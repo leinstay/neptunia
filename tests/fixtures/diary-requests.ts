@@ -7,6 +7,7 @@
 // selfreflection wake (recorded with `{ mirror: false }`). With `mirror: true` memory also holds `d1` as a place of the
 // fake interface named `journal` and the diary's one enabled mirror on it, which is what the wake rebuilds the channel's
 // inputs from. Synthetic text only.
+import { placeOfCommunity, placeOfConversation } from '../../src/memory/addresses.ts';
 import { createStore } from '../../src/memory/store.ts';
 import { dbOf, seedMirror, seedPlace } from './diary-mirror.ts';
 import { labels } from './labels.ts';
@@ -27,7 +28,7 @@ export const GUILD = 'g1';
 function ownPost(id: string, ts: number, content: string): Record<string, unknown> {
   return {
     id,
-    channelId: 'd1',
+    placeId: 'd1',
     author: { id: 'self-id', bot: true, globalName: 'Bot', username: 'Bot' },
     member: { displayName: 'Bot' },
     cleanContent: content,
@@ -53,7 +54,7 @@ export function sceneHot(): { config: Record<string, unknown>; prompts: Record<s
       },
       llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
-      selfreflection: { channelId: 'd1', world: true, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
+      selfreflection: { placeId: 'd1', world: true, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
     },
     prompts: {
       'system-prompt': 'SYSTEM for {{name}}',
@@ -92,11 +93,11 @@ export function sceneLlm(): {
  * when `history` is on. The wake's run leaves it empty, so the history it shows can only come from memory.
  */
 export function sceneWorld({ history }: { history: boolean }): void {
-  world().channel({ id: 'c1', name: 'general', guildId: GUILD });
+  world().channel({ id: 'c1', name: 'general', placeId: GUILD });
   world().channel({
     id: 'd1',
     name: 'journal',
-    guildId: GUILD,
+    placeId: GUILD,
     historyMessages: history
       ? [ownPost('m1', NOW - 2 * DAY, 'χθες βράδυ στο λιμάνι'), ownPost('m2', NOW - DAY, 'une journée grise au port')]
       : [],
@@ -134,7 +135,7 @@ async function seedRecord(memoryDb: SceneMemory['memory']['memoryDb']): Promise<
           revision: 1,
           occurredAt,
           recordedAt: occurredAt,
-          guildId: GUILD,
+          placeId: GUILD,
           scope: { channel: 'd1' },
           text: post.text,
           origin: 'live',
@@ -158,21 +159,21 @@ export async function sceneMemory({
   mirror: boolean;
   published?: boolean;
 }): Promise<SceneMemory> {
-  const memory = await openTestMemory({ now: () => NOW });
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'fake' });
   const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
-  store.updateGuild(GUILD, { patterns: 'people greet each other in Greek' });
+  store.updatePlace(placeOfCommunity(store, GUILD), { patterns: 'people greet each other in Greek' });
   for (const [id, name, purpose] of [
     ['d1', 'journal', 'her own diary'],
     ['c1', 'general', 'everyday talk'],
   ] as const) {
-    store.touchChannel(GUILD, id, { name }, NOW - 2 * HOUR);
-    store.updateChannel(GUILD, id, { purpose });
+    store.touchChannel(placeOfConversation(store, { id: id }), { name }, NOW - 2 * HOUR);
+    store.updateChannel(placeOfConversation(store, { id: id }), { purpose });
   }
   store.applyRecentOps(
-    GUILD,
+    placeOfCommunity(store, GUILD),
     [
-      { text: 'Alice is planning a trip to Thessaloniki', at: NOW - 2 * HOUR, channelId: 'c1', weight: 1 },
-      { text: 'a quiet harbour', at: NOW - 2 * HOUR, channelId: 'd1', weight: 1 },
+      { text: 'Alice is planning a trip to Thessaloniki', at: NOW - 2 * HOUR, placeId: 'c1', weight: 1 },
+      { text: 'a quiet harbour', at: NOW - 2 * HOUR, placeId: 'd1', weight: 1 },
     ],
     { now: NOW, hours: 24 }
   );
@@ -186,7 +187,7 @@ export async function sceneMemory({
       messageIds: [post.id],
       search: null,
     };
-    store.appendDiaryPost(GUILD, stored as Parameters<typeof store.appendDiaryPost>[1], { max: 40 });
+    store.appendDiaryPost(stored as Parameters<typeof store.appendDiaryPost>[0], { max: 40 });
   }
   store.flush();
   await store.flushSettled({});
@@ -201,6 +202,12 @@ export async function sceneMemory({
     db.prepare("UPDATE publications SET destination_place_id = ? WHERE row_kind = 'diary'").run(place);
     await seedRecord(memory.memoryDb);
   }
+  // Her channels sit under the server, as the observation of their first lines leaves them.
+  for (const id of ['d1', 'c1'])
+    db.prepare('UPDATE places SET parent_id = ? WHERE id = ?').run(
+      placeOfCommunity(store, GUILD),
+      placeOfConversation(store, { id })
+    );
   return { memory, store };
 }
 

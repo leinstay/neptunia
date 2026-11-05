@@ -392,7 +392,6 @@ test('a diff git cannot read merges nothing', async (t) => {
 async function herNews(world: DevelopmentWorld) {
   const { entries, outbox } = await proposalsOf(world.caller);
   const facts = await buildSelfimprovementFacts({
-    guildId: 'g1',
     now: T0,
     since: null,
     journal: null,

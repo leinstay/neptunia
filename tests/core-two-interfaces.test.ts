@@ -31,7 +31,7 @@ async function withTwoInterfaces(
   writeFileSync(
     join(dataDir, 'config', 'config.json'),
     JSON.stringify({
-      bot: { timezone: 'UTC', owners: ['u1'], guildId: 'g1' },
+      bot: { timezone: 'UTC', owners: ['u1'], placeId: 'g1' },
       private: { enabled: true, minAffinity: 0 },
       models: { base: { video: false } },
       interfaces: { mode: 'units', drainMs: 2000 },

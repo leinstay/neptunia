@@ -19,7 +19,7 @@ function msg(id: string, overrides = {}) {
   return {
     id,
     ts: T0,
-    channelId: 'c1',
+    placeId: 'c1',
     authorId: 'a',
     authorName: 'Zoé',
     self: false,

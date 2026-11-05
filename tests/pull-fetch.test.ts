@@ -207,7 +207,7 @@ function rawMessage(
 ) {
   return {
     id: SnowflakeUtil.generate({ timestamp: ts }).toString(),
-    channelId: channel.id,
+    placeId: channel.id,
     channel: { name: channel.name },
     guild: channel.guild,
     author: { id: authorId, bot: false, globalName: 'Zoé', username: 'zoe' },
@@ -259,27 +259,27 @@ test('checkPull: the rails without a request, the channel when they pass', () =>
   const guild = fakeGuild();
   const main = mainChannel(guild);
   const diary = addChannel(guild, { id: '760000000000000046', granted: [READ], messages: [{ ts: LAST }] });
-  assert.deepEqual(checkPull({ guild, channelId: diary.id, destination: main, config: config(), now: NOW }), {
+  assert.deepEqual(checkPull({ guild, placeId: diary.id, destination: main, config: config(), now: NOW }), {
     channel: diary,
     skip: null,
   });
-  assert.deepEqual(checkPull({ guild, channelId: diary.id, destination: null, config: config(), now: NOW }), {
+  assert.deepEqual(checkPull({ guild, placeId: diary.id, destination: null, config: config(), now: NOW }), {
     channel: null,
     skip: 'audience',
   });
   // @ts-expect-error no channel id, on purpose
-  assert.deepEqual(checkPull({ guild, channelId: undefined, destination: main, config: config(), now: NOW }), {
+  assert.deepEqual(checkPull({ guild, placeId: undefined, destination: main, config: config(), now: NOW }), {
     channel: null,
     skip: 'not-found',
   });
   const privateChat = { id: '790000000000000001', guild: null };
   const railOff = config({ pull: { sameAudience: false } });
   assert.deepEqual(
-    checkPull({ guild, channelId: diary.id, destination: privateChat, config: railOff, now: NOW }),
+    checkPull({ guild, placeId: diary.id, destination: privateChat, config: railOff, now: NOW }),
     { channel: null, skip: 'private-chat' },
     'a private chat never pulls, even with the audience rail off'
   );
-  assert.deepEqual(checkPull({ guild, channelId: diary.id, destination: null, config: railOff, now: NOW }), {
+  assert.deepEqual(checkPull({ guild, placeId: diary.id, destination: null, config: railOff, now: NOW }), {
     channel: diary,
     skip: null,
   });
@@ -327,17 +327,17 @@ test('checkPull: a private chat with its partner passes what the partner can vie
   const iason = fakeMember(guild, MEMBER.iason);
   const dm = privateChat();
   assert.deepEqual(
-    checkPull({ guild, channelId: open.id, destination: dm, partner: iason, config: config(), now: NOW }),
+    checkPull({ guild, placeId: open.id, destination: dm, partner: iason, config: config(), now: NOW }),
     { channel: open, skip: null }
   );
   assert.deepEqual(
-    checkPull({ guild, channelId: closed.id, destination: dm, partner: iason, config: config(), now: NOW }),
+    checkPull({ guild, placeId: closed.id, destination: dm, partner: iason, config: config(), now: NOW }),
     { channel: null, skip: 'audience' }
   );
   assert.deepEqual(
     checkPull({
       guild,
-      channelId: closed.id,
+      placeId: closed.id,
       destination: dm,
       partner: iason,
       config: config({ pull: { sameAudience: false } }),
@@ -346,12 +346,12 @@ test('checkPull: a private chat with its partner passes what the partner can vie
     { channel: null, skip: 'audience' },
     'the partner rule holds with the audience rail off'
   );
-  assert.deepEqual(checkPull({ guild, channelId: open.id, destination: dm, config: config(), now: NOW }), {
+  assert.deepEqual(checkPull({ guild, placeId: open.id, destination: dm, config: config(), now: NOW }), {
     channel: null,
     skip: 'private-chat',
   });
   assert.deepEqual(
-    checkPull({ guild, channelId: '760000000000000059', destination: dm, partner: iason, config: config(), now: NOW }),
+    checkPull({ guild, placeId: '760000000000000059', destination: dm, partner: iason, config: config(), now: NOW }),
     { channel: null, skip: 'not-found' }
   );
 });
@@ -370,7 +370,7 @@ test('checkPull: refuses exactly the channels isReadableChannel refuses', () => 
   ];
   const readableCodes = new Set(['not-text', 'thread', 'dry-run-channel', 'not-readable']);
   for (const channel of channels) {
-    const { skip } = checkPull({ guild, channelId: channel.id, destination: main, config: config({ bot }), now: NOW });
+    const { skip } = checkPull({ guild, placeId: channel.id, destination: main, config: config({ bot }), now: NOW });
     // @ts-expect-error isReadableChannel takes one argument; the test passes the bot settings as a second one
     assert.equal(readableCodes.has(skip as string), !isReadableChannel(channel, bot), `${channel.id}: ${skip}`);
   }

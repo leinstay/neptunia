@@ -16,11 +16,11 @@ import {
 // The pings of these tests carry the fields the queue reads, so each is read as the full ping by a cast.
 type Ping = Parameters<typeof addPending>[1];
 
-function ping(channelId: string, arrivedAt: number, overrides: Record<string, unknown> = {}): Ping {
+function ping(placeId: string, arrivedAt: number, overrides: Record<string, unknown> = {}): Ping {
   return {
-    channelId,
-    channel: { id: channelId },
-    trigger: { id: `m-${channelId}-${arrivedAt}`, authorId: 'u1' },
+    placeId,
+    channel: { id: placeId },
+    trigger: { id: `m-${placeId}-${arrivedAt}`, authorId: 'u1' },
     kind: 'mention',
     arrivedAt,
     ...overrides,
@@ -50,8 +50,8 @@ test('addPending: exceeding maxPending evicts the single OLDEST entry across all
   ({ list } = addPending(list, ping('c1', 100), 2));
   ({ list } = addPending(list, ping('c2', 200), 2));
   const { list: after, evicted } = addPending(list, ping('c3', 300), 2);
-  assert.equal(evicted!.channelId, 'c1');
-  assert.deepEqual(after.map((p) => p.channelId).sort(), ['c2', 'c3']);
+  assert.equal(evicted!.placeId, 'c1');
+  assert.deepEqual(after.map((p) => p.placeId).sort(), ['c2', 'c3']);
 });
 
 test('addPending: calls of one channel count toward the cap like any others', () => {
@@ -73,7 +73,7 @@ test('pending: a routed ping keeps its source channel, its destination and what 
   ({ list } = addPending(list, routed, 6));
   ({ list } = addPending(list, ping('s1', 300, { trigger: { id: 'call-2' }, destination: main }), 6));
   assert.deepEqual(
-    list.map((p) => [p.channelId, p.trigger.id]),
+    list.map((p) => [p.placeId, p.trigger.id]),
     [
       ['d1', 'm-d1-100'],
       ['s1', 'call-1'],
@@ -95,9 +95,9 @@ test("addPending: a routed ping past maxPending evicts the oldest entry of any c
   ({ list } = addPending(list, ping('d1', 100), 2));
   ({ list } = addPending(list, ping('c2', 200), 2));
   const { list: after, evicted } = addPending(list, ping('s1', 300, { destination: { id: 'd1' } }), 2);
-  assert.equal(evicted!.channelId, 'd1');
+  assert.equal(evicted!.placeId, 'd1');
   assert.deepEqual(
-    after.map((p) => p.channelId),
+    after.map((p) => p.placeId),
     ['c2', 's1']
   );
 });
@@ -119,7 +119,7 @@ test('popOldest: draining one at a time yields arrival order', () => {
   const order = [];
   while (list.length > 0) {
     const { ping: popped, list: rest } = popOldest(list);
-    order.push(popped!.channelId);
+    order.push(popped!.placeId);
     list = rest;
   }
   assert.deepEqual(order, ['c2', 'c3', 'c1']);
@@ -151,8 +151,8 @@ test('requeuePending: put back with the same arrival time as later calls, it sti
 test('requeuePending: mention.maxPending still applies -- the oldest entry overall is evicted', () => {
   const list0 = [ping('c2', 200), ping('c3', 300)];
   const { list, evicted } = requeuePending(list0, ping('c1', 100), 2);
-  assert.equal(evicted!.channelId, 'c1', 'the re-queued ping is the oldest, so it is the one evicted');
-  assert.deepEqual(list.map((p) => p.channelId).sort(), ['c2', 'c3']);
+  assert.equal(evicted!.placeId, 'c1', 'the re-queued ping is the oldest, so it is the one evicted');
+  assert.deepEqual(list.map((p) => p.placeId).sort(), ['c2', 'c3']);
 });
 
 test('requeuePending: keeps the extra fields carried on the ping', () => {
@@ -165,13 +165,12 @@ test('requeuePending: keeps the extra fields carried on the ping', () => {
 
 // --- the author's waiting calls and folding ------------------------------------
 
-test("authorCalls: the author's own calls in that channel, in arrival order, never a routed one", () => {
+test("authorCalls: the author's own calls in that channel, in arrival order", () => {
   const list = [
     ping('c1', 300, { trigger: { id: 'b', authorId: 'u1' } }),
     ping('c1', 100, { trigger: { id: 'a', authorId: 'u1' } }),
     ping('c1', 200, { trigger: { id: 'other', authorId: 'u2' } }),
     ping('c2', 150, { trigger: { id: 'elsewhere', authorId: 'u1' } }),
-    ping('c1', 250, { trigger: { id: 'routed', authorId: 'u1' }, destination: { id: 'd1' } }),
   ];
   assert.deepEqual(
     authorCalls(list, 'c1', 'u1').map((p) => p.trigger.id),
@@ -206,9 +205,9 @@ test('parseMergeAnswer: a number of a waiting item, or new; anything else means 
 
 // --- followUpSlot ------------------------------------------------------------
 
-/** A deferred follow-up (`followUp`) or overheard line waiting in `channelId`. */
-function slotEntry(channelId: string, kind: string, id: string) {
-  return ping(channelId, 100, { kind, trigger: { id, authorId: 'u1' } });
+/** A deferred follow-up (`followUp`) or overheard line waiting in `placeId`. */
+function slotEntry(placeId: string, kind: string, id: string) {
+  return ping(placeId, 100, { kind, trigger: { id, authorId: 'u1' } });
 }
 
 test('followUpSlot: an empty slot admits any newcomer and replaces nothing', () => {

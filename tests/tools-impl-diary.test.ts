@@ -43,14 +43,14 @@ async function community({ postsToday = 0 }: { postsToday?: number } = {}) {
   const memory = await openTestMemory({ now: () => NOW });
   OPEN.push(memory);
   freshWorld();
-  const line = (channelId: string) => ({
-    ...rawMessage({ id: `m-${channelId}`, ts: NOW - 30_000, content: 'γεια' }),
-    channelId,
+  const line = (placeId: string) => ({
+    ...rawMessage({ id: `m-${placeId}`, ts: NOW - 30_000, content: 'γεια' }),
+    placeId,
   });
   // Her own earlier post in c1 with a picture: what a media repost takes.
   const ownPicture = {
     ...rawMessage({ id: 'p-own', ts: NOW - 60_000, content: '' }),
-    channelId: 'c1',
+    placeId: 'c1',
     author: { id: 'self-id', bot: true, globalName: 'Bot', username: 'Bot' },
     member: { displayName: 'Bot' },
     attachments: new Map([
@@ -60,9 +60,9 @@ async function community({ postsToday = 0 }: { postsToday?: number } = {}) {
       ],
     ]),
   };
-  world().channel({ id: 'c1', name: 'general', guildId: GUILD, historyMessages: [ownPicture, line('c1')] });
-  world().channel({ id: 'd1', name: 'journal', guildId: GUILD });
-  world().channel({ id: 'd2', name: 'notes', guildId: GUILD });
+  world().channel({ id: 'c1', name: 'general', placeId: GUILD, historyMessages: [ownPicture, line('c1')] });
+  world().channel({ id: 'd1', name: 'journal', placeId: GUILD });
+  world().channel({ id: 'd2', name: 'notes', placeId: GUILD });
   for (const [id, name] of [
     ['d1', 'journal'],
     ['d2', 'notes'],
@@ -131,7 +131,7 @@ async function turnOf(
     hot,
     store: core.store,
     client,
-    getGuildId: () => GUILD,
+    isServedCommunity: (id: unknown) => id === GUILD,
     port: core.port,
     reads: core.reads,
     errands: core.errands,
@@ -171,7 +171,7 @@ async function turnOf(
   const conversation = { iface: 'fake', conversationId: 'c1' };
   const trigger = {
     id: 'm-c1',
-    channelId: 'c1',
+    placeId: 'c1',
     authorId: 'u1',
     authorName: 'Alice',
     self: false,
@@ -189,13 +189,13 @@ async function turnOf(
       ? turns.runTurn({
           conversation,
           memoryContext,
-          guildId: GUILD,
+          placeId: GUILD,
           mode: 'inner',
           triggerKind: 'inner',
           inner: { wake: INTENTION_WAKE, shadow: false, mayAct: () => true },
         })
       : mode === 'diary'
-        ? turns.runTurn({ memoryContext, mode: 'diary', diary: { kind: 'status', forced: true }, guildId: GUILD })
+        ? turns.runTurn({ memoryContext, mode: 'diary', diary: { kind: 'status', forced: true }, placeId: GUILD })
         : turns.runTurn({ memoryContext, conversation, mode: 'reply', triggerKind: 'mention', trigger });
   const { logs } = await withCapturedLogs(run);
   await core.store.flushSettled({});
@@ -268,7 +268,7 @@ function seedRestrictedDiary(core: Community, metadata: unknown = PRIVATE_BOUNDA
     publicationBoundary: metadata,
     send: { messages: [PRIVATE_DIARY], mentions: [[]] },
   };
-  core.store.appendDiaryPost(GUILD, post);
+  core.store.appendDiaryPost(post);
 }
 
 for (const metadata of [PRIVATE_BOUNDARY, null, { kind: 'internal-turn', origin: {} }]) {
@@ -287,7 +287,7 @@ for (const metadata of [PRIVATE_BOUNDARY, null, { kind: 'internal-turn', origin:
     const outward = issueContext({ kind: 'group', iface: 'fake', now: () => NOW });
     assert.deepEqual(walk(db, outward, { from: node.id, maxDepth: 0 }).rows, []);
     const restored = createStore({ dataDir: core.memory.dataDir, memoryDb: core.memory.memoryDb });
-    const post = restored.getDiary(GUILD).posts[0];
+    const post = restored.getDiary().posts[0];
     assert.ok(post && 'publicationBoundary' in post);
     assert.deepEqual(post.publicationBoundary, metadata);
   });
@@ -297,7 +297,7 @@ test('selfreflection history omits restricted stored diary text and retains ordi
   // Catches the raw diary fallback leaking a private entry despite a correct graph audience.
   const core = await community();
   seedRestrictedDiary(core);
-  core.store.appendDiaryPost(GUILD, {
+  core.store.appendDiaryPost({
     at: NOW - 120000,
     kind: 'status',
     gist: PUBLIC_DIARY,
@@ -311,7 +311,6 @@ test('selfreflection history omits restricted stored diary text and retains ordi
     store: core.store,
     conversationInfo: () => Promise.resolve(null),
     iface: 'fake',
-    guildId: GUILD,
     selfId: 'self-id',
     selfName: 'Bot',
     config: { context: { channelMessages: 50 } },
@@ -324,7 +323,7 @@ test('ordinary diary planning and writing omit restricted posts from the store',
   // Catches the second diary history path feeding private gists to an outward planning model.
   const core = await community();
   seedRestrictedDiary(core);
-  core.store.appendDiaryPost(GUILD, {
+  core.store.appendDiaryPost({
     at: NOW - 120000,
     kind: 'status',
     gist: PUBLIC_DIARY,

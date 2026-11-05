@@ -87,7 +87,7 @@ function request(overrides = {}) {
     neighbors: [],
     trigger,
     triggerKind: 'mention',
-    guildMemory: {},
+    placeMemory: {},
     interlocutor: null,
     otherProfiles: [],
     channels: [
@@ -116,7 +116,7 @@ test('memoryReads: the interlocutor profile items carry their itemIds, an item w
 
 test('memoryReads: the channel notes, the guild notes and the lore entries the request kept', () => {
   const result = request({
-    guildMemory: { patterns: 'short messages', starters: 'a greeting', injokes: ['a joke'] },
+    placeMemory: { patterns: 'short messages', starters: 'a greeting', injokes: ['a joke'] },
     loreEntries: [
       {
         id: 'l1',
@@ -130,11 +130,11 @@ test('memoryReads: the channel notes, the guild notes and the lore entries the r
     ],
   });
   assert.ok(has(result.memoryReads, 'channel', HERE));
-  assert.ok(has(result.memoryReads, 'guild_note', 'patterns'));
-  assert.ok(has(result.memoryReads, 'guild_note', 'starters'));
+  assert.ok(has(result.memoryReads, 'place_note', 'patterns'));
+  assert.ok(has(result.memoryReads, 'place_note', 'starters'));
   assert.ok(has(result.memoryReads, 'lore', 'l1'));
   assert.ok(
-    !result.memoryReads.some((read) => read.kind === 'guild_note' && read.id === 'injokes'),
+    !result.memoryReads.some((read) => read.kind === 'place_note' && read.id === 'injokes'),
     'a list without stable item ids is not recorded'
   );
 });
@@ -160,7 +160,7 @@ test('memoryReads: recent lines and moments, participation episodes, prefetched 
         id: 1,
         at: NOW - HOUR,
         addedAt: new Date(NOW).toISOString(),
-        channelId: HERE,
+        placeId: HERE,
         text: 'a note',
         who: [],
         weight: 2,
@@ -174,7 +174,7 @@ test('memoryReads: recent lines and moments, participation episodes, prefetched 
           {
             id: 'p1',
             itemId: 'pe-1',
-            channelId: 'c2',
+            placeId: 'c2',
             continues: null,
             messages: [stored('a1', NOW - 2 * HOUR - MIN, false), stored('a2', NOW - 2 * HOUR, true)],
           },
@@ -192,7 +192,7 @@ test('memoryReads: recent lines and moments, participation episodes, prefetched 
         {
           source: 'history',
           id: 'm7',
-          channelId: 'c2',
+          placeId: 'c2',
           channelName: 'journal',
           startTs: NOW - HOUR,
           hitIds: ['m7', 'm8'],
@@ -244,7 +244,7 @@ test('memoryReads: each read names the block it sat in and its place in the requ
   });
   const result = request({
     interlocutor: profile,
-    guildMemory: { patterns: 'short messages' },
+    placeMemory: { patterns: 'short messages' },
     loreEntries: [
       {
         id: 'l1',
@@ -265,7 +265,7 @@ test('memoryReads: each read names the block it sat in and its place in the requ
         id: 1,
         at: NOW - HOUR,
         addedAt: new Date(NOW).toISOString(),
-        channelId: HERE,
+        placeId: HERE,
         text: 'a note',
         who: [],
         weight: 2,
@@ -279,7 +279,7 @@ test('memoryReads: each read names the block it sat in and its place in the requ
           {
             id: 'p1',
             itemId: 'pe-1',
-            channelId: 'c2',
+            placeId: 'c2',
             continues: null,
             messages: [stored('a1', NOW - 2 * HOUR - MIN, false), stored('a2', NOW - 2 * HOUR, true)],
           },
@@ -306,7 +306,7 @@ test('memoryReads: each read names the block it sat in and its place in the requ
   const blockOf = (kind: string, id: string) => reads.find((read) => read.kind === kind && read.id === id)?.block;
   assert.equal(blockOf('claim', 'in-1'), 'people');
   assert.equal(blockOf('episode', 'ep-1'), 'people');
-  assert.equal(blockOf('guild_note', 'patterns'), 'about_chat');
+  assert.equal(blockOf('place_note', 'patterns'), 'about_chat');
   assert.equal(blockOf('lore', 'l1'), 'lore');
   assert.equal(blockOf('recent_line', 'rc-1'), 'recent');
   assert.equal(blockOf('participation', 'pe-1'), 'participation');

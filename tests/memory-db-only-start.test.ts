@@ -1,9 +1,11 @@
 // The engine's memory starts from the memory database alone: a data directory that holds only `memory.db` and the
-// operational files (src/memory/db/paths.ts), every memory file gone, wired the way src/index.ts wires its memory
+// operational files (src/memory/migration/paths.ts), every memory file gone, wired the way src/index.ts wires its memory
 // (the database service on its writer, the store, the record, the archive with its pending queue, the journal, the
 // meaning index and its queue, the intention and task stores). Everything the fixture held is read back from the
 // database, a day of writes goes into it, and after the shutdown no memory file was written and a fresh start reads the
 // new writes back. Synthetic data only; the ids are made up.
+import { accountOf, placeOfCommunity, placeOfConversation } from '../src/memory/addresses.ts';
+import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { isMemoryPath, isOperational } from '../src/memory/db/paths.ts';
+import { isMemoryPath, isOperational } from '../src/memory/migration/paths.ts';
 import { createAppendStore } from '../src/memory/append-store.ts';
 import { createStore } from '../src/memory/store.ts';
 import { createRecord, toRecordLine } from '../src/memory/record.ts';
@@ -103,8 +105,8 @@ async function engine(data: string, log = quiet) {
     async close() {
       store.flush();
       await store.flushSettled({ final: true });
-      await present(taskStores.get(GUILD)).flush({ final: true });
-      await present(intentionStores.get(GUILD)).flush({ final: true });
+      await present(taskStores.get()).flush({ final: true });
+      await present(intentionStores.get()).flush({ final: true });
       await embedQueue.close?.({ timeoutMs: 100 });
       await archiveAppendStore.close();
       await memoryDb.close();
@@ -133,38 +135,45 @@ test('the memory starts from memory.db and the operational files alone, writes o
     assert.equal(first.memoryDb.status().open, true);
 
     // What the fixture held comes back from the database.
-    assert.equal(wrongly<{ id: string } | null>(first.store.getUser(GUILD, MEMBER))?.id, MEMBER);
-    assert.ok(first.store.getGuild(GUILD), 'the guild memory');
-    assert.equal(first.store.getChannel(GUILD, CHANNEL)?.id, CHANNEL);
-    assert.deepEqual(first.store.listPrivate(GUILD), [MEMBER]);
+    assert.equal(wrongly<{ id: string } | null>(first.store.getUser(accountOf(first.store, MEMBER)))?.id, MEMBER);
+    assert.ok(first.store.getPlace(placeOfCommunity(first.store, GUILD)), 'the guild memory');
+    assert.equal(first.store.getChannel(placeOfConversation(first.store, { id: CHANNEL }))?.id, CHANNEL);
+    assert.deepEqual(first.store.listPrivate(), [`discord:${MEMBER}`]);
     const lines = [];
-    for await (const line of first.record.iterate(GUILD, {
+    for await (const line of first.record.iterate(legacyServerPlaceId('discord', GUILD), {
       from: '2026-10-20T00:00:00.000Z',
       to: '2026-10-20T23:59:59.999Z',
     }))
       lines.push(line);
     assert.ok(lines.length > 0, 'the record day');
-    assert.ok((await first.journal.read(GUILD, { day: '2026-10-20', n: 100 })).length > 0, 'the journal day');
+    assert.ok(
+      (await first.journal.read(legacyServerPlaceId('discord', GUILD), { day: '2026-10-20', n: 100 })).length > 0,
+      'the journal day'
+    );
     // PR 6d, errands on the board: the fixture's errand is read from the board task board v3 made of it (it was read
     // from the errands unit before).
     assert.deepEqual(
-      present(first.taskStores.get(GUILD))
+      present(first.taskStores.get())
         .recent(10)
         .map((task) => task.id),
       ['t1']
     );
-    assert.ok(Array.isArray(present(first.intentionStores.get(GUILD)).list()));
+    assert.ok(Array.isArray(present(first.intentionStores.get()).list()));
     assert.ok((await first.vectors.stats(GUILD)).rows >= 0);
 
     // A day of writes.
-    first.store.touchUser(GUILD, '100000000000000077', 'Zoé', NOW);
-    first.store.setLore(GUILD, [{ title: 'Η πλατεία', keys: ['πλατεία'], text: 'The square by the sea.' }], {
-      source: 'owner',
-      now: NOW,
-    });
+    first.store.touchUser(accountOf(first.store, '100000000000000077'), 'Zoé', NOW);
+    first.store.setLore(
+      placeOfCommunity(first.store, GUILD),
+      [{ title: 'Η πλατεία', keys: ['πλατεία'], text: 'The square by the sea.' }],
+      {
+        source: 'owner',
+        now: NOW,
+      }
+    );
     const said = toRecordLine({
       id: '700000000000000001',
-      channelId: CHANNEL,
+      placeId: CHANNEL,
       authorId: MEMBER,
       authorName: 'Ana',
       content: 'Καλημέρα, café?',
@@ -174,13 +183,16 @@ test('the memory starts from memory.db and the operational files alone, writes o
       stickers: [],
       emojis: [],
     });
-    assert.deepEqual(await first.record.append(GUILD, [said]), { written: 1, duplicates: 0 });
-    await first.journal.system(GUILD, { event: 'pause', by: 'owner' });
-    const task = present(first.taskStores.get(GUILD)).add({
+    assert.deepEqual(await first.record.append(legacyServerPlaceId('discord', GUILD), [said]), {
+      written: 1,
+      duplicates: 0,
+    });
+    await first.journal.system({ event: 'pause', by: 'owner' });
+    const task = present(first.taskStores.get()).add({
       agent: 'scout',
       goal: 'find the café hours',
       requester: { userId: MEMBER, kind: 'member' },
-      origin: { channelId: CHANNEL, messageId: null },
+      origin: { placeId: CHANNEL, messageId: null },
       scope: 'group',
     });
     assert.equal(task.ok, true);
@@ -212,17 +224,29 @@ test('the memory starts from memory.db and the operational files alone, writes o
     await second.memoryDb.tick();
     try {
       assert.equal(
-        wrongly<{ names?: Array<string> } | null>(second.store.getUser(GUILD, '100000000000000077'))?.names?.[0],
+        wrongly<{ names?: Array<string> } | null>(second.store.getUser(accountOf(second.store, '100000000000000077')))
+          ?.names?.[0],
         'Zoé'
       );
-      assert.ok(second.store.getLore(GUILD).some((entry: Record<string, Untyped>) => entry.title === 'Η πλατεία'));
-      assert.equal(await second.record.newestRevision(GUILD, '700000000000000001', new Date(NOW).toISOString()), 1);
       assert.ok(
-        (await second.journal.read(GUILD, { day: '2026-10-24', n: 100 })).some(
+        second.store
+          .getLore(placeOfCommunity(second.store, GUILD))
+          .some((entry: Record<string, Untyped>) => entry.title === 'Η πλατεία')
+      );
+      assert.equal(
+        await second.record.newestRevision(
+          legacyServerPlaceId('discord', GUILD),
+          '700000000000000001',
+          new Date(NOW).toISOString()
+        ),
+        1
+      );
+      assert.ok(
+        (await second.journal.read(null, { day: '2026-10-24', n: 100 })).some(
           (entry: Record<string, Untyped>) => entry.kind === 'system' && entry.event === 'pause'
         )
       );
-      assert.ok(present(second.taskStores.get(GUILD)).get(task.errand.id), 'the task');
+      assert.ok(present(second.taskStores.get()).get(task.errand.id), 'the task');
     } finally {
       await second.close();
     }

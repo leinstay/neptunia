@@ -12,7 +12,7 @@ import { deepMerge } from '../../src/config.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import { labels } from './labels.ts';
 import { wrongly } from './loose-types.ts';
-import { onWorldIface, seedExisting, syncStub, world } from './turn-world.ts';
+import { onWorldIface, seedExisting, syncStub, world, sdkMessage } from './turn-world.ts';
 
 /** A parsed or faked object whose fields the tests read by name. */
 type Rec = Record<string, Untyped>;
@@ -44,7 +44,6 @@ const PINNED = {
     followUpAliases: 5,
   },
   memory: { aliasHalfLifeDays: 365 },
-  elsewhere: { settleSeconds: 90, settleMaxSeconds: 300 },
   media: { prefillPerMessage: 2, video: { prefillPerMessage: 1 } },
   llm: { analyzerTimeoutMs: 30000 },
 };
@@ -94,7 +93,7 @@ export function fakeMessage(overrides: Rec = {}): Rec {
     member: { displayName: 'User' },
     guild,
     channel,
-    channelId: channel.id,
+    placeId: channel.id,
     cleanContent: 'hello there',
     createdTimestamp: Date.now(),
     reference: null,
@@ -195,13 +194,13 @@ export function fakeChannelWithMessage(id: string, guild: unknown, messageId: st
 }
 
 export function fakeStore(profiles: Record<string, unknown> = {}): {
-  getUser(guildId: string, userId: string): unknown;
+  getUser(userId: string): unknown;
   getUserCalls: Array<Array<string>>;
 } {
   const calls: Array<Array<string>> = [];
   return {
-    getUser: (guildId, userId) => {
-      calls.push([guildId, userId]);
+    getUser: (userId) => {
+      calls.push([userId]);
       return profiles[userId] ?? null;
     },
     getUserCalls: calls,
@@ -209,14 +208,14 @@ export function fakeStore(profiles: Record<string, unknown> = {}): {
 }
 
 export function fakeDescriber(): {
-  calls: Array<{ guildId: string; items: Array<Rec> }>;
-  describeMany(guildId: string, items: Array<Rec>): Promise<{ descriptions: Map<string, string>; newCount: number }>;
+  calls: Array<{ placeId: string; items: Array<Rec> }>;
+  describeMany(placeId: string, items: Array<Rec>): Promise<{ descriptions: Map<string, string>; newCount: number }>;
 } {
-  const calls: Array<{ guildId: string; items: Array<Rec> }> = [];
+  const calls: Array<{ placeId: string; items: Array<Rec> }> = [];
   return {
     calls,
-    describeMany: (guildId, items) => {
-      calls.push({ guildId, items });
+    describeMany: (placeId, items) => {
+      calls.push({ placeId, items });
       return Promise.resolve({ descriptions: new Map(), newCount: 0 });
     },
   };
@@ -256,7 +255,7 @@ export type HandlerOptions = {
   sleep?: (ms: never) => Promise<unknown>;
   client?: Rec;
   store?: Rec;
-  getGuildId?: () => string | null;
+  placeIdOfHome?: () => string | null;
   describer?: Rec;
   prompts?: Rec;
   llm?: Rec;
@@ -281,7 +280,7 @@ export function makeHandler({
   sleep,
   client,
   store,
-  getGuildId,
+  placeIdOfHome,
   describer,
   prompts,
   llm,
@@ -314,7 +313,8 @@ export function makeHandler({
       spontaneous: spontaneous ?? fakeSpontaneous(),
       memory: memory ?? fakeMemory(),
       tagHistory: tagHistory ?? createTagHistory(),
-      getGuildId: getGuildId ?? (() => 'g1'),
+      isServedCommunity: (id: unknown) => id === (placeIdOfHome ?? (() => 'g1'))(),
+      communitiesOf: () => [(placeIdOfHome ?? (() => 'g1'))()].filter((id): id is string => id !== null),
       describer,
       llm,
       lookup,
@@ -349,25 +349,23 @@ export function asDiscordEvents(
   onMessageDelete(message: Rec): ReturnType<typeof handler.onMessageDelete>;
   drainPending: ReturnType<typeof createMessageHandler>['drainPending'];
   clearPending: ReturnType<typeof createMessageHandler>['clearPending'];
-  stop: ReturnType<typeof createMessageHandler>['stop'];
 } {
   const options = () => normalizeOptions(hot.config);
   const driven = (message: Rec) => {
     names.self = wrongly<{ guild?: { members?: { me?: { displayName?: string } } } }>(message).guild?.members?.me?.displayName ?? names.self;
-    return handler(wrongly<Handled>(onWorldIface(toEvent(message, client.user.id, options()))));
+    return handler(wrongly<Handled>(onWorldIface(toEvent(sdkMessage(message), client.user.id, options()))));
   };
   return Object.assign(driven, {
     onMessageUpdate: (oldMessage: object | null, newMessage: Rec) =>
       handler.onMessageUpdate(
         wrongly<Handled>(
-          onWorldIface(toEvent(newMessage, client.user.id, { ...options(), edit: true, previous: oldMessage }))
+          onWorldIface(toEvent(sdkMessage(newMessage), client.user.id, { ...options(), edit: true, previous: oldMessage }))
         )
       ),
     onMessageDelete: (message: Rec) =>
-      handler.onMessageDelete(wrongly<Handled>(onWorldIface(toEvent(message, client.user.id, { deleted: true })))),
+      handler.onMessageDelete(wrongly<Handled>(onWorldIface(toEvent(sdkMessage(message), client.user.id, { deleted: true })))),
     drainPending: (...args: Parameters<typeof handler.drainPending>) => handler.drainPending(...args),
     clearPending: (...args: Parameters<typeof handler.clearPending>) => handler.clearPending(...args),
-    stop: (...args: Parameters<typeof handler.stop>) => handler.stop(...args),
   });
 }
 
@@ -395,18 +393,18 @@ export function rawHistoryMessage({
   authorName = 'Alice',
   ts,
   content = 'hi',
-  channelId = 'c1',
+  placeId = 'c1',
 }: {
   id: string;
   authorId?: string;
   authorName?: string;
   ts: number;
   content?: string;
-  channelId?: string;
+  placeId?: string;
 }): Rec {
   return {
     id,
-    channelId,
+    placeId,
     author: { id: authorId, bot: false, globalName: authorName, username: authorName },
     member: { displayName: authorName },
     cleanContent: content,
@@ -488,7 +486,7 @@ export async function openFollowUpWindow(
     member: { displayName: 'Neptunia' },
     guild,
     channel,
-    channelId: channel.id,
+    placeId: channel.id,
     cleanContent: 'here you go',
     createdTimestamp: ts,
     reference: null,

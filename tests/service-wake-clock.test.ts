@@ -43,7 +43,7 @@ async function statusOf(
   const desk = createConsole({
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null }),
     ownerReads: { lessons: () => '', aliases: () => '' },
-    guildId: () => GUILD,
+    placeId: () => GUILD,
     selfId: () => 'self-1',
     hot: { config },
     privateDir: dir,
@@ -70,7 +70,7 @@ async function statusOf(
 /** A real inner life over `sections`, whose turn runner waits for `release` when `held`. */
 function lifeWith(sections: Record<string, unknown>, start: number) {
   const clock = { t: start };
-  world().channel({ id: 'c1', name: 'chan-c1', guildId: GUILD, permissions: { send: true } });
+  world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
@@ -85,7 +85,6 @@ function lifeWith(sections: Record<string, unknown>, start: number) {
   const service = createIntentionService({
     stores: createIntentionStores({ dataDir: tempDir('nep-clock-'), now: () => clock.t, log: SILENT }),
     hot,
-    getGuildId: () => GUILD,
     now: () => clock.t,
     log: SILENT,
   });
@@ -111,7 +110,6 @@ function lifeWith(sections: Record<string, unknown>, start: number) {
     conversationName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
-    getGuildId: () => GUILD,
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
     selfimprovement: {
       granted: () => [],
@@ -150,7 +148,7 @@ function diaryWith(schedule: string, start: number) {
       runTurn: () =>
         Promise.resolve({ outcome: 'spoke', diary: { kind: 'status', picture: false, search: false, messages: 1 } }),
     },
-    getGuildId: () => GUILD,
+    isServedCommunity: (id: unknown) => id === GUILD,
     rng: () => 0.5,
     now: () => clock.t,
   });
@@ -164,7 +162,6 @@ test('a heartbeat that has drawn its moment shows that moment as next due, none 
   await run.life.tick();
   const read = (name: ServiceName) =>
     wakeClockOf(name, {
-      guildId: GUILD,
       now: start,
       inner: run.life,
       diary: { status: () => ({ slots: [], done: [] }) },
@@ -192,7 +189,6 @@ test('a selfimprovement turn in flight shows as running for its own name alone, 
   assert.equal(run.gate.entered, 1, 'the turn started');
   const read = (name: ServiceName) =>
     wakeClockOf(name, {
-      guildId: GUILD,
       now: due,
       inner: run.life,
       diary: { status: () => ({ slots: [], done: [] }) },
@@ -213,10 +209,11 @@ test('a selfimprovement turn in flight shows as running for its own name alone, 
 test('with no community known yet a wake reads unknown, apart from its saved flag', async () => {
   // Catches: a core before its first hello throws on `inner.state(null)`, so status fails in the window it is most read.
   const inner = {
-    state: () => assert.fail('no community, nothing to read'),
+    // The state is the persona's now, read with or without a community; before the first tick it holds nothing.
+    state: () => null,
   };
   const read = (name: ServiceName) =>
-    wakeClockOf(name, { guildId: null, now: 0, inner, diary: { status: () => ({ slots: [], done: [] }) } });
+    wakeClockOf(name, { now: 0, inner, diary: { status: () => ({ slots: [], done: [] }) } });
   const fields = await statusOf('heartbeat', { heartbeat: { enabled: true, schedule: 'every 4h' } }, 0, read);
   assert.equal(fields.get('enabled'), 'true');
   assert.equal(fields.get('running'), 'unknown');
@@ -230,8 +227,7 @@ test('a diary between its slots names the next slot not yet done and the slot th
   run.clock.t = at('2026-11-04T09:05:00Z');
   await run.diary.tick();
   const now = run.clock.t;
-  const read = (name: ServiceName) =>
-    wakeClockOf(name, { guildId: GUILD, now, inner: lifeWith({}, now).life, diary: run.diary });
+  const read = (name: ServiceName) => wakeClockOf(name, { now, inner: lifeWith({}, now).life, diary: run.diary });
   const fields = await statusOf('selfreflection', run.hot.config, now, read);
   assert.equal(fields.get('next due'), iso(at('2026-11-04T10:00:00Z')));
   assert.equal(fields.get('last result'), iso(at('2026-11-04T09:00:00Z')));
@@ -244,8 +240,7 @@ test('a diary past its last slot of the day names the first slot of tomorrow', a
   run.clock.t = at('2026-11-04T09:05:00Z');
   await run.diary.tick();
   const now = run.clock.t;
-  const read = (name: ServiceName) =>
-    wakeClockOf(name, { guildId: GUILD, now, inner: lifeWith({}, now).life, diary: run.diary });
+  const read = (name: ServiceName) => wakeClockOf(name, { now, inner: lifeWith({}, now).life, diary: run.diary });
   const fields = await statusOf('selfreflection', run.hot.config, now, read);
   assert.equal(fields.get('next due'), iso(at('2026-11-05T09:00:00Z')));
 });
@@ -259,8 +254,7 @@ test('a diary slot dropped past its grace is no last result: only a slot that ra
   run.clock.t = at('2026-11-04T15:00:00Z');
   await run.diary.tick();
   const now = run.clock.t;
-  const read = (name: ServiceName) =>
-    wakeClockOf(name, { guildId: GUILD, now, inner: lifeWith({}, now).life, diary: run.diary });
+  const read = (name: ServiceName) => wakeClockOf(name, { now, inner: lifeWith({}, now).life, diary: run.diary });
   const fields = await statusOf('selfreflection', run.hot.config, now, read);
   assert.equal(fields.get('last result'), iso(at('2026-11-04T09:00:00Z')));
 });
@@ -274,8 +268,7 @@ test("a diary's last result survives midnight", async () => {
   run.clock.t = at('2026-11-05T01:00:00Z');
   await run.diary.tick();
   const now = run.clock.t;
-  const read = (name: ServiceName) =>
-    wakeClockOf(name, { guildId: GUILD, now, inner: lifeWith({}, now).life, diary: run.diary });
+  const read = (name: ServiceName) => wakeClockOf(name, { now, inner: lifeWith({}, now).life, diary: run.diary });
   const fields = await statusOf('selfreflection', run.hot.config, now, read);
   assert.equal(fields.get('last result'), iso(at('2026-11-04T22:00:00Z')));
 });

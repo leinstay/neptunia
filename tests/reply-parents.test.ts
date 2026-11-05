@@ -11,7 +11,7 @@ type Raw = Record<string, unknown>;
 function rawMessage(overrides: Raw = {}): Raw {
   return {
     id: 'm1',
-    channelId: 'c1',
+    placeId: 'c1',
     guild: { id: 'g1' },
     channel: { name: 'general' },
     author: { id: 'u1', bot: false, globalName: 'Alice', username: 'alice' },

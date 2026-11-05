@@ -43,7 +43,7 @@ test('lineOf makes the line of a message event with the fields a turn reads, in 
   const line = lineOf(eventWith());
   assert.deepEqual(Object.keys(line).slice(0, 14), [
     'id',
-    'channelId',
+    'placeId',
     'channelName',
     'channelCategory',
     'channelTopic',
@@ -58,7 +58,7 @@ test('lineOf makes the line of a message event with the fields a turn reads, in 
     'mentionedUsers',
   ]);
   assert.deepEqual(
-    [line.id, line.channelId, line.channelName, line.authorId, line.authorName, line.content, line.ts],
+    [line.id, line.placeId, line.channelName, line.authorId, line.authorName, line.content, line.ts],
     ['m1', 'c1', 'general', 'u1', 'Alice', 'hello @Bob', 5000]
   );
   assert.deepEqual(line.mentionedUserIds, ['u2']);

@@ -225,7 +225,7 @@ function input(overrides: Record<string, unknown> = {}): BuildInput {
     neighbors: [],
     trigger: history.at(-1),
     triggerKind: 'mention',
-    guildMemory: {},
+    placeMemory: {},
     interlocutor: null,
     otherProfiles: [],
     candidateProfiles: [author],

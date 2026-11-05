@@ -246,7 +246,7 @@ function innerHarness({
       dueAt: NOW - MINUTE,
       chainId: null,
       destination: null,
-      provenance: { kind: 'self', channelId: 'c1', scope: 'group' },
+      provenance: { kind: 'self', placeId: 'c1', scope: 'group' },
       createdAt: NOW - 86_400_000,
       updatedAt: NOW - 3600_000,
       expiresAt: NOW + 7 * 86_400_000,
@@ -267,7 +267,7 @@ function innerHarness({
       return { outcome, inner: { actions, turnId: 'turn-x' } };
     },
   };
-  world().channel({ id: 'c1', name: 'general', guildId: 'g1' });
+  world().channel({ id: 'c1', name: 'general', placeId: 'g1' });
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
@@ -297,7 +297,6 @@ function innerHarness({
     iface: () => 'fake',
     submit: (event) => door.submit(event),
     store: { state: { data: {} } },
-    getGuildId: () => 'g1',
     meter: { run: async (fn) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
     now: () => NOW,
     uuid: () => `u${(n += 1)}`,

@@ -15,7 +15,7 @@ function message(id: string, authorId: string, ts: number, reactions: Array<Raw>
   const name = authorId === SELF ? 'Persona' : 'Zoé';
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     channel: { name: 'general' },
     guild: { id: GUILD },
     author: { id: authorId, bot: false, globalName: name, username: 'u' },
@@ -48,7 +48,7 @@ function namesOf(store: ReturnType<typeof createReactorStore>): ReactorNames {
 test('historyLines gives the newest lines oldest first', async () => {
   world().channel({
     id: 'c1',
-    guildId: GUILD,
+    placeId: GUILD,
     historyMessages: [message('1', '7', 1000), message('2', '7', 2000), message('3', '7', 3000)],
   });
   const lines = await historyLines(world().reads, refTo({ id: 'c1' }), { limit: 2 });
@@ -59,7 +59,7 @@ test('historyLines gives the newest lines oldest first', async () => {
 });
 
 test('historyLines throws when the interface cannot read the history', async () => {
-  const held = world().channel({ id: 'c1', guildId: GUILD, historyMessages: [message('1', '7', 1000)] });
+  const held = world().channel({ id: 'c1', placeId: GUILD, historyMessages: [message('1', '7', 1000)] });
   held.failHistory();
   await assert.rejects(historyLines(world().reads, refTo({ id: 'c1' }), { limit: 10 }), /history unavailable/);
 });
@@ -68,7 +68,7 @@ test('historyLines reads the missing reactors of her lines once and names them l
   const w = world();
   w.channel({
     id: 'c1',
-    guildId: GUILD,
+    placeId: GUILD,
     historyMessages: [
       message('1', '7', 1000, [{ emoji: { name: '👍' }, count: 1, me: false }]),
       message('2', SELF, 2000, [{ emoji: { id: null, name: '😂' }, count: 2, me: false }]),
@@ -103,7 +103,7 @@ test('historyLines leaves the reactions as counts when no names are asked for', 
   const w = world();
   w.channel({
     id: 'c1',
-    guildId: GUILD,
+    placeId: GUILD,
     historyMessages: [message('2', SELF, 2000, [{ emoji: { id: null, name: '😂' }, count: 2, me: false }])],
   });
   const lines = await historyLines(w.reads, refTo({ id: 'c1' }), { limit: 10 });

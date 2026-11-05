@@ -46,8 +46,8 @@ async function scene({
   const memory = await openTestMemory({ now: () => NOW });
   OPEN.push(memory);
   freshWorld();
-  world().channel({ id: 'd1', name: 'journal', guildId: GUILD });
-  world().channel({ id: 'd2', name: 'notes', guildId: GUILD });
+  world().channel({ id: 'd1', name: 'journal', placeId: GUILD });
+  world().channel({ id: 'd2', name: 'notes', placeId: GUILD });
   const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
   const places = specs.map((spec) => seedMirror(memory.memoryDb, { iface: 'fake', at: NOW, ...spec }).placeId);
   const link = { connected };
@@ -64,13 +64,12 @@ async function scene({
     store,
     reads: null,
     turns,
-    getGuildId: () => GUILD,
     mirrors,
     now: () => NOW,
   });
   /** One diary turn as the wake runs it, its entry recorded and its writes landed. */
   async function record() {
-    const result = await turns.runTurn({ mode: 'diary', diary: { kind: 'status', forced: true }, guildId: GUILD });
+    const result = await turns.runTurn({ mode: 'diary', diary: { kind: 'status', forced: true }, placeId: GUILD });
     await store.flushSettled({});
     return entryOf(result);
   }
@@ -252,7 +251,7 @@ function setAndVoiceTurns(store: Awaited<ReturnType<typeof scene>>['store'], pic
 test('an entry with two pictures and a voice reaches the mirror as the voice, the message, then the pictures', async () => {
   const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
   const turns = setAndVoiceTurns(core.store);
-  const result = await turns.runTurn({ mode: 'diary', diary: { kind: 'photoset', forced: true }, guildId: GUILD });
+  const result = await turns.runTurn({ mode: 'diary', diary: { kind: 'photoset', forced: true }, placeId: GUILD });
   await core.store.flushSettled({});
   assert.deepEqual(world().port.messagesIn('d1'), [], 'the turn itself sends nothing');
   await core.mirrors.publishEntry(entryOf(result));
@@ -280,7 +279,7 @@ test('an entry with pictures and a voice queued before a restart goes out whole 
   const result = await setAndVoiceTurns(core.store).runTurn({
     mode: 'diary',
     diary: { kind: 'photoset', forced: true },
-    guildId: GUILD,
+    placeId: GUILD,
   });
   await core.store.flushSettled({});
   await core.mirrors.publishEntry(entryOf(result));
@@ -318,7 +317,7 @@ test("a publication keeps the port's attachment ids in its receipts and on the e
   const result = await setAndVoiceTurns(core.store).runTurn({
     mode: 'diary',
     diary: { kind: 'photoset', forced: true },
-    guildId: GUILD,
+    placeId: GUILD,
   });
   await core.store.flushSettled({});
   let made = 0;
@@ -368,7 +367,7 @@ test('a picture set sent across two messages keeps every attachment id with the 
   const result = await setAndVoiceTurns(core.store, 4_100_000).runTurn({
     mode: 'diary',
     diary: { kind: 'photoset', forced: true },
-    guildId: GUILD,
+    placeId: GUILD,
   });
   await core.store.flushSettled({});
   const carried: Array<{ messageId: string; attachmentId: string }> = [];
@@ -513,8 +512,8 @@ test('preparePublication keeps the grant rule for a row that is not a diary entr
 const RESTRICTED_ENTRY = { kind: 'internal-turn', origin: { iface: 'cli', conversationId: 'd1' } } as const;
 
 async function restrictStoredEntry(core: Awaited<ReturnType<typeof scene>>, metadata: unknown): Promise<void> {
-  const posts = core.store.getDiary(GUILD).posts.map((post) => ({ ...post, publicationBoundary: metadata }));
-  core.store.setDiaryPosts(GUILD, posts);
+  const posts = core.store.getDiary().posts.map((post) => ({ ...post, publicationBoundary: metadata }));
+  core.store.setDiaryPosts(posts);
   await core.store.flushSettled({});
 }
 
@@ -663,8 +662,8 @@ test('restricting a saved diary entry hides its existing media while independent
   const core = await scene({ mirrors: [] });
   const entry = await core.record();
   const publicId = 'diary:independent-public';
-  const original = core.store.getDiary(GUILD).posts;
-  core.store.setDiaryPosts(GUILD, [...original, { ...original[0], itemId: publicId }]);
+  const original = core.store.getDiary().posts;
+  core.store.setDiaryPosts([...original, { ...original[0], itemId: publicId }]);
   await core.store.flushSettled({});
   for (const id of [entry.id, publicId])
     await core.memory.memoryDb.memoryWrite({
@@ -689,9 +688,8 @@ test('restricting a saved diary entry hides its existing media while independent
     );
   }
   core.store.setDiaryPosts(
-    GUILD,
     core.store
-      .getDiary(GUILD)
+      .getDiary()
       .posts.map((post) => (post.itemId === entry.id ? { ...post, publicationBoundary: RESTRICTED_ENTRY } : post))
   );
   await core.store.flushSettled({});

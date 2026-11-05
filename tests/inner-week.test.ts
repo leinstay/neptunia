@@ -530,7 +530,7 @@ test('inner-week: the live voice reads the scripted chat up to the virtual now, 
     limit: 30,
   });
   assert.deepEqual(
-    out.map((l: Record<string, Untyped>) => [l.authorId, l.self, l.content, l.channelId]),
+    out.map((l: Record<string, Untyped>) => [l.authorId, l.self, l.content, l.placeId]),
     [
       ['u1', false, 'one', '42'],
       ['S', true, 'two', '42'],
@@ -542,7 +542,7 @@ test('inner-week: the live voice reads the scripted chat up to the virtual now, 
 test('inner-week: the stub run keeps its state in its own data directory', async () => {
   const dir = tempDir('nep-week-');
   await runWeek({ fixture: fixture(), dataDir: dir, skills: { effectsOf } });
-  const files = fs.readdirSync(path.join(dir, 'guilds', 'g-week')).sort();
+  const files = fs.readdirSync(path.join(dir, 'persona')).sort();
   assert.deepEqual(
     files.filter((f) => !f.startsWith('.')),
     ['inner.json']
@@ -782,7 +782,7 @@ test('inner-week: in live mode every writable fixture channel is the real channe
   assert.equal(byKey['kept-quiz'].destination, real.id);
   assert.equal(byKey.unwritable.destination, 'c-news');
   assert.ok(run.turns.length > 0);
-  assert.ok(run.turns.every((turn) => turn.channelId === real.id));
+  assert.ok(run.turns.every((turn) => turn.placeId === real.id));
   const drops = run.journal.filter((e) => e.event === 'no-channel');
   assert.deepEqual(
     drops.map((e) => e.wake.intentionIds),
@@ -796,7 +796,7 @@ test("inner-week: the fixture's people join the copied directory with their name
   const at = Date.parse('2026-11-02T00:00:00Z');
   const added = addFixturePeople(store, 'g1', { Ivo: 'u-201', Sanne: 'u-202' }, at);
   assert.deepEqual(added, ['u-201', 'u-202']);
-  const entries = directoryEntries(store.listUserProfiles('g1'), { selfId: 'self' });
+  const entries = directoryEntries(store.listUserProfiles(), { selfId: 'self' });
   assert.deepEqual(
     entries.map((e) => [e.id, e.names, e.aliases]),
     [
@@ -807,7 +807,7 @@ test("inner-week: the fixture's people join the copied directory with their name
   assert.equal(fs.existsSync(path.join(dataDir, 'guilds')), false);
   // Idempotent: the same people again add nothing.
   assert.deepEqual(addFixturePeople(store, 'g1', { Ivo: 'u-201' }, at), []);
-  assert.equal(store.listUserProfiles('g1').length, 2);
+  assert.equal(store.listUserProfiles().length, 2);
 });
 
 // ---- recurring intentions -----------------------------------------------------------

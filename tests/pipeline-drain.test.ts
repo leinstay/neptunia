@@ -15,12 +15,12 @@ for (const privileged of [true, false]) {
       list: [
         {
           channel,
-          channelId: channel.id,
+          placeId: channel.id,
           kind: 'private',
           arrivedAt: NOW,
           trigger: {
             id: 'queued-query',
-            channelId: channel.id,
+            placeId: channel.id,
             authorId: 'owner',
             content: 'read the private evidence',
             ts: NOW,

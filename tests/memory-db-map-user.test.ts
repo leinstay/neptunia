@@ -10,7 +10,10 @@ import { present, wrongly } from './fixtures/loose-types.ts';
 const ID = '100000000000000001';
 const REL = `users/${ID}.json`;
 const PRIVATE_REL = `private/${ID}.json`;
-const CTX = { guildId: '300000000000000001' };
+const CTX = {
+  iface: 'discord',
+  membership: { id: 'mem:discord:1', placeId: 'discord:guild:300000000000000001' },
+};
 const PERSON = `person:discord:${ID}`;
 
 const profile = () => ({

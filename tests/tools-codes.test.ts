@@ -250,15 +250,15 @@ const markText = (labels: unknown, mark: unknown) => {
       authorName: 'Nept',
       self: true,
       content: 'ok',
-      channelId: 'c1',
+      placeId: 'c1',
       channelName: 'general',
     },
   ];
   const call = {
-    channelId: 'c1',
+    placeId: 'c1',
     at: T0 + 70_000,
     skill: 'web.read',
-    target: { messageId: null, channelId: null },
+    target: { messageId: null, placeId: null },
     postedId: null,
     posted: ['p1'],
     ...asRecord(mark),

@@ -159,7 +159,7 @@ function line(
     bot?: boolean;
   } = {}
 ) {
-  return { id, channelId: 'c1', authorId, authorName, self, bot, content: 'text', ts: 1_000 + Number(id), reactions };
+  return { id, placeId: 'c1', authorId, authorName, self, bot, content: 'text', ts: 1_000 + Number(id), reactions };
 }
 
 test('backfillPlan: only her lines, only reactions by others the store lacks, once per message and emoji', () => {
@@ -449,7 +449,7 @@ test('buildRequest: a reactor on her line gets a handle like an author, only in 
     neighbors: [],
     trigger: null,
     triggerKind: null,
-    guildMemory: {},
+    placeMemory: {},
     interlocutor: null,
     otherProfiles: [],
     candidateProfiles: [{ id: author.id, names: [author.name], aliases: [] }],

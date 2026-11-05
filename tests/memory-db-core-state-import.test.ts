@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { importCoreJsonState } from '../src/memory/db/core-state-import.ts';
+import { importCoreJsonState } from '../src/memory/migration/core-state-import.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { MemoryHandle } from '../src/memory/db/types.ts';
@@ -11,7 +11,7 @@ import { unitValue } from '../src/memory/db/readers/common.ts';
 import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
 import { buildDataDir, guildDir, GUILD, writeJson } from './fixtures/memory-db/datadir.ts';
 import { tempDir } from './fixtures/tmp.ts';
-import { legacyStorageKey } from '../src/memory/db/paths.ts';
+import { legacyStorageKey } from '../src/memory/migration/paths.ts';
 
 const ROOTS = ['state.json', 'usage.json', 'metrics.json'];
 const INNER = `guilds/${GUILD}/inner.json`;

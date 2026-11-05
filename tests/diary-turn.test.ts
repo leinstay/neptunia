@@ -68,7 +68,7 @@ function diaryChannel({
       handle ??= world().channel({
         id: 'd1',
         name: 'journal',
-        guildId: 'g1',
+        placeId: 'g1',
         permissions: { attach: attachFiles },
         historyMessages,
       });
@@ -100,7 +100,7 @@ async function published(result: Untyped, channel: Untyped, port = world().port)
 function ownRaw(id: string, ts: number, content: string) {
   return {
     id,
-    channelId: 'd1',
+    placeId: 'd1',
     author: { id: 'self-id', bot: true, globalName: 'Bot', username: 'Bot' },
     member: { displayName: 'Bot' },
     cleanContent: content,
@@ -157,7 +157,7 @@ function fakeStore({ posts = [], data = {} }: { posts?: Array<Rec>; data?: Rec }
   const appended: Array<Untyped> = [];
   return {
     appended,
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     getPrivate: () => null,
     listChannels: () => [],
@@ -165,7 +165,7 @@ function fakeStore({ posts = [], data = {} }: { posts?: Array<Rec>; data?: Rec }
     getLore: () => [],
     getMediaCache: () => ({}),
     getDiary: () => ({ posts, updatedAt: 0 }),
-    appendDiaryPost: (guildId: string, post: Untyped, opts: Untyped) => appended.push({ guildId, post, opts }),
+    appendDiaryPost: (post: Untyped, opts: Untyped) => appended.push({ post, opts }),
     state: { data: { ...data }, markDirty() {} },
   };
 }
@@ -187,8 +187,8 @@ function fakeLookup(result: Untyped) {
   const calls: Array<Untyped> = [];
   return {
     calls,
-    search: async (guildId: string, query: Untyped) => {
-      calls.push({ guildId, query });
+    search: async (placeId: string, query: Untyped) => {
+      calls.push({ placeId, query });
       if (result instanceof Error) throw result;
       return result;
     },
@@ -210,7 +210,7 @@ function fakeHot({ diary = {}, prompts = {} }: { diary?: Untyped; prompts?: Unty
       llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
       image: { maxPromptChars: 1000 },
-      selfreflection: { channelId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000, ...diary },
+      selfreflection: { placeId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000, ...diary },
     },
     prompts: {
       'system-prompt': 'SYSTEM for {{name}}',
@@ -390,7 +390,8 @@ test('diary turn: searches when the plan asks and passes the summary as found', 
   const lookup = fakeLookup({ query: 'comet tonight', text: 'A comet is visible tonight.', sources: [] });
   const store = fakeStore();
   const result = await runner({ llm, lookup, store }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} });
-  assert.deepEqual(lookup.calls, [{ guildId: 'g1', query: 'comet tonight' }]);
+  // Her diary searches under the persona: it belongs to no server.
+  assert.deepEqual(lookup.calls, [{ placeId: 'persona:local', query: 'comet tonight' }]);
   assert.ok(userOf(llm.calls[1]).includes(`<found>\n${labels.diary.found}\nA comet is visible tonight.\n</found>`));
   assert.equal(store.appended[0].post.search, 'comet tonight');
   assert.equal(loose(result).diary.search, true);
@@ -578,8 +579,8 @@ test('diary turn: records the post with gists and message ids', async () => {
   const entry = entryOf(result);
   assert.deepEqual(entry.messages, ['un quai dans la brume, très calme ce soir']);
   assert.equal(store.appended.length, 1);
-  const { guildId, post, opts } = appendedPost(store);
-  assert.equal(guildId, 'g1');
+  const { placeId, post, opts } = appendedPost(store);
+  assert.equal(placeId, 'g1');
   // Stage 3: the post is recorded before anything is sent, so it carries her full text and the entry's id and no
   // message ids (the receipts of its publications hold those); the turn itself sends nothing.
   assert.deepEqual(
@@ -719,7 +720,7 @@ test("diary turn: an ordinary turn's draw.create carries the local time too", as
   // Someone asked: a spontaneous turn has no requester, and the gateway refuses a picture nobody asked for.
   const trigger = {
     id: 'm1',
-    channelId: 'd1',
+    placeId: 'd1',
     authorId: 'u1',
     authorName: 'Alice',
     self: false,

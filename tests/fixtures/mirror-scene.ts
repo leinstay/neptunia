@@ -3,6 +3,7 @@
 // (`createMirrors`) over them as the test wants, each new one standing for a restart or a second writer. A transport
 // wraps the fake adapter, so `posted` reads what reached the platform, whatever the publisher was told. Synthetic data
 // only.
+import { legacyServerPlaceId } from '../../src/memory/migration/paths.ts';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,7 +13,7 @@ import { createMirrors } from '../../src/behavior/mirror.ts';
 import { createConsole } from '../../src/interface/commands/console.ts';
 import type { Answer, ConsoleDeps } from '../../src/interface/commands/console.ts';
 import { createFakeAdapter } from '../../src/interface/fake.ts';
-import { channelPlaceId, guildPlaceId } from '../../src/memory/db/ids.ts';
+import { channelPlaceId, } from '../../src/memory/db/ids.ts';
 import { insertRows } from '../../src/memory/db/rows.ts';
 import type { Content } from '../../src/protocol/actions.ts';
 import type { ConversationRef, Delivery, SendOptions } from '../../src/protocol/adapter.ts';
@@ -183,7 +184,7 @@ export async function mirrorScene({
 
   /** One place row; answers its id. */
   function place({ iface, native, kind = 'channel', parent = null }: PlaceSpec): string {
-    const id = kind === 'guild' ? guildPlaceId(iface, native) : kind === 'dm' ? `${iface}:dm:${native}` : channelPlaceId(iface, native);
+    const id = kind === 'guild' ? legacyServerPlaceId(iface, native) : kind === 'dm' ? `${iface}:dm:${native}` : channelPlaceId(iface, native);
     const scope_kind = kind === 'dm' ? 'dm' : 'group';
     insertRows(
       db,
@@ -252,7 +253,7 @@ export async function mirrorScene({
     const deps: ConsoleDeps = {
       runOp: () => Promise.resolve({ status: 'failed', code: 'no-op', summary: '', data: null }),
       ownerReads: { lessons: () => '', aliases: () => '' },
-      guildId: () => 'g1',
+      placeId: () => 'g1',
       selfId: () => 'self-1',
       hot: { config: { bot: { owners: [] } } },
       privateDir: memory.dataDir,

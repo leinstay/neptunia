@@ -15,7 +15,7 @@ const LINKED_ID = '323456789012345678';
 function rawMessage({ id, content = 'γεια' }: { id: string; content?: string }) {
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     author: { id: 'u1', bot: false, globalName: 'Alice', username: 'Alice' },
     member: { displayName: 'Alice' },
     cleanContent: content,
@@ -29,7 +29,7 @@ function rawMessage({ id, content = 'γεια' }: { id: string; content?: string
 function normalizedTrigger(raw: ReturnType<typeof rawMessage>) {
   return {
     id: raw.id,
-    channelId: raw.channelId,
+    placeId: raw.placeId,
     authorId: raw.author.id,
     authorName: raw.author.globalName,
     self: false,
@@ -45,7 +45,7 @@ function normalizedTrigger(raw: ReturnType<typeof rawMessage>) {
 /** A guild channel whose guild knows one text channel `γενικά`, which she cannot read (no neighbour reads); the non-text `φωνή` is no conversation. */
 function fakeTurnChannel(historyMessages: Array<Record<string, unknown>>) {
   world().channel({ id: LINKED_ID, name: 'γενικά', permissions: { read: false } });
-  return world().channel({ id: 'c1', name: 'chat', guildId: 'g1', historyMessages, permissions: { attach: false } });
+  return world().channel({ id: 'c1', name: 'chat', placeId: 'g1', historyMessages, permissions: { attach: false } });
 }
 
 function fakeLlm(responseText: string) {
@@ -54,7 +54,7 @@ function fakeLlm(responseText: string) {
 
 function fakeStore() {
   return {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     getPrivate: () => null,
     listChannels: () => [],

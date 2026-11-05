@@ -35,7 +35,7 @@ const ASKED = {
   agent: 'scout',
   goal: 'find the opening hours of the library',
   requester: { userId: 'u1', kind: 'member' },
-  origin: { channelId: 'c1', messageId: 'm7' },
+  origin: { placeId: 'c1', messageId: 'm7' },
   scope: 'group' as const,
 };
 
@@ -68,7 +68,6 @@ function setUp(dataDir: string = tempDataDir('nep-errands-board-')): Rig {
 /** A store of the guild over `memoryDb`, as a core started anew builds it. */
 function storeOver(memoryDb: MemoryDb, journal: ReturnType<typeof createJournal> | null = null): ErrandStore {
   return createErrandStore({
-    guildId: GUILD,
     now: () => NOW,
     config: () => CONFIG,
     journal,
@@ -263,11 +262,10 @@ test('an errand.done delivered twice opens one result turn and leaves one closin
     client: {},
     stores,
     hot,
-    getGuildId: () => GUILD,
     log: SILENT,
     now: () => NOW,
   });
-  const store = service.store(GUILD);
+  const store = service.store();
   assert.ok(store);
   const added = store.add(ASKED);
   const id = added.errand?.id ?? '';
@@ -288,7 +286,6 @@ test('an errand.done delivered twice opens one result turn and leaves one closin
       },
     },
     errands: service,
-    getGuildId: () => GUILD,
     now: () => NOW,
     // A retry is never due here: the timer is a stand-in that never runs the retry.
     setTimer: () => setTimeout(() => {}, 0),
@@ -297,7 +294,7 @@ test('an errand.done delivered twice opens one result turn and leaves one closin
   const delivery = (): ReturnType<typeof errandDoneEvent> => {
     const errand = store.get(id);
     assert.ok(errand);
-    return errandDoneEvent(errand, GUILD, () => NOW);
+    return errandDoneEvent(errand, () => NOW);
   };
   await errandTurns.onEvent(delivery());
   await errandTurns.onEvent(delivery());

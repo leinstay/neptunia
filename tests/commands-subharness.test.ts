@@ -127,7 +127,7 @@ function consoleOver(dir: string, subharness: ConsoleDeps['subharness']) {
   const deps: ConsoleDeps = {
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: '', data: null }),
     ownerReads: { lessons: () => '', aliases: () => '' },
-    guildId: () => 'g1',
+    placeId: () => 'g1',
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] } } },
     privateDir: dir,
@@ -183,7 +183,7 @@ function deskOver() {
     facts: () => {
       throw new Error('not used');
     },
-    guildId: () => null,
+    placeId: () => null,
     tasks: {
       command: (_principal: string, name: string) => {
         taskCalls.push(name);

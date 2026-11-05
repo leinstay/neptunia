@@ -46,7 +46,7 @@ type RawMessageSpec = {
 /** A discord.js-shaped message stub of #general. */
 export type RawMessage = {
   id: string;
-  channelId: string;
+  placeId: string;
   author: { id: string; bot: boolean; globalName: string; username: string };
   member: { displayName: string };
   cleanContent: string;
@@ -59,7 +59,7 @@ export type RawMessage = {
 export function rawMessage({ id, authorId = 'u1', authorName = 'Alice', ts = NOW - 1000, content = 'hey bot', attachments = new Map() }: RawMessageSpec): RawMessage {
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     author: { id: authorId, bot: false, globalName: authorName, username: authorName },
     member: { displayName: authorName },
     cleanContent: content,
@@ -73,7 +73,7 @@ export function rawMessage({ id, authorId = 'u1', authorName = 'Alice', ts = NOW
 /** The trigger of a turn as the runner reads it. */
 type Trigger = {
   id: string;
-  channelId: string;
+  placeId: string;
   authorId: string;
   authorName: string;
   self: boolean;
@@ -86,7 +86,7 @@ type Trigger = {
 };
 
 export function normalizedTrigger(raw: RawMessage): Trigger {
-  return { id: raw.id, channelId: raw.channelId, authorId: raw.author.id, authorName: raw.author.globalName, self: false, bot: false, content: raw.cleanContent, ts: raw.createdTimestamp, replyToId: null, attachments: [], stickers: [] };
+  return { id: raw.id, placeId: raw.placeId, authorId: raw.author.id, authorName: raw.author.globalName, self: false, bot: false, content: raw.cleanContent, ts: raw.createdTimestamp, replyToId: null, attachments: [], stickers: [] };
 }
 
 /**
@@ -99,7 +99,7 @@ export function fakeChannel(historyMessages: Array<Record<string, unknown>>, nei
   const held = KNOWN.get(historyMessages);
   if (held && held.world === world()) return held.channel;
   for (const neighbour of neighbours) world().channel({ id: neighbour.id, name: neighbour.name });
-  const channel = world().channel({ id: 'c1', name: 'general', guildId: 'g1', historyMessages });
+  const channel = world().channel({ id: 'c1', name: 'general', placeId: 'g1', historyMessages });
   KNOWN.set(historyMessages, { world: world(), channel });
   return channel;
 }
@@ -110,8 +110,8 @@ type Profile = { id: string } & Record<string, unknown>;
 
 /** A store that holds only the `profiles` it is given. */
 type FakeStore = {
-  getGuild: () => object;
-  getUser: (guildId: string, id: string) => Profile | null;
+  getPlace: () => object;
+  getUser: (id: string) => Profile | null;
   getPrivate: () => null;
   listChannels: () => Array<unknown>;
   listUserProfiles: () => Array<Profile>;
@@ -123,8 +123,9 @@ type FakeStore = {
 
 export function fakeStore({ profiles = [] }: { profiles?: Array<Profile> } = {}): FakeStore {
   return {
-    getGuild: () => ({}),
-    getUser: (_guildId: string, id: string) => profiles.find((profile) => profile.id === id) ?? null,
+    topPlaces: () => ['g1'],
+    getPlace: () => ({}),
+    getUser: (id: string) => profiles.find((profile) => profile.id === id) ?? null,
     getPrivate: () => null,
     listChannels: () => [],
     listUserProfiles: () => profiles,
@@ -343,7 +344,7 @@ export async function coreTurn({
   for (const seed of seeds) port.seed(seed.conversationId, seed);
   if (setup) setup(port);
   const client = { user: { id: 'self-id', username: 'Bot' }, ...clientExtra };
-  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => 'g1', reads: world().adopt(port), port, ...adminExtra });
+  const admin = createAdmin({ discord: DISCORD, hot, store, client, isServedCommunity: (id: unknown) => id === 'g1', reads: world().adopt(port), port, ...adminExtra });
   const runOp = wrapCommand ? wrapCommand(admin.runSkillOp) : admin.runSkillOp;
   const llm = sequenceLlm(answers, classifier, onAnswer ? (n) => onAnswer(n, history, port) : null);
   const calibrator = { ratio: 1, apply: (value: number) => value, observe: () => {} };
@@ -352,7 +353,7 @@ export async function coreTurn({
   const again = spontaneous
     ? () => turns.runTurn({ channel, mode: spontaneous })
     : inner
-    ? () => turns.runTurn({ ...params, channel, guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner: { wake: inner, shadow: false, mayAct: () => true } })
+    ? () => turns.runTurn({ ...params, channel, placeId: 'g1', mode: 'inner', triggerKind: 'inner', inner: { wake: inner, shadow: false, mayAct: () => true } })
     : () => turns.runTurn({ ...params, channel, mode: 'reply', trigger: normalizedTrigger(history[history.length - 1]), triggerKind });
   const { result, logs } = await withCapturedLogs(again);
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: (call.args[0] as { conversationId: string }).conversationId, ...(call.args[1] as object) }));
@@ -396,7 +397,7 @@ export function errandService(hot: { config: Record<string, unknown> }): {
   const runs: Array<RunRequest> = [];
   const client = { configured: () => true, run: (task: RunRequest) => (runs.push(task), new Promise<RunOutcome>(() => {})), cancel: () => true };
   const stores = createErrandStores({ config: () => hot.config });
-  const service = createErrandService({ client, stores, hot, getGuildId: () => 'g1', defer: (fn) => fn() });
+  const service = createErrandService({ client, stores, hot, defer: (fn) => fn() });
   return { service, runs };
 }
 

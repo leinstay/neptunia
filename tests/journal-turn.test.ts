@@ -96,7 +96,7 @@ async function writeTurn(
     postedId,
     oldShape = false,
     call = false,
-    channelId = 'c1',
+    placeId = 'c1',
   }: {
     startMs: number;
     postMs: number;
@@ -105,12 +105,12 @@ async function writeTurn(
     postedId: string;
     oldShape?: boolean;
     call?: boolean;
-    channelId?: string;
+    placeId?: string;
   }
 ) {
   clock.ms = startMs;
   const started = journal.start('g1', {
-    channelId,
+    placeId,
     mode: 'reply',
     trigger: { kind: 'mention', messageId: triggerId, authorId: '7' },
     participants: ['7'],
@@ -122,7 +122,7 @@ async function writeTurn(
     turnId: started.turnId,
     name: 'post',
     by: 'persona',
-    channelId,
+    placeId,
     intent: { replyTo: triggerId, text: 'γεια' },
   });
   await op.started();
@@ -133,7 +133,7 @@ async function writeTurn(
       turnId: started.turnId,
       name: 'skill',
       by: 'persona',
-      channelId,
+      placeId,
       input: { skill: 'memory.profile.read', invocationId: 'inv-1' },
     });
     await skill.proposed({
@@ -148,7 +148,7 @@ async function writeTurn(
     turnId: started.turnId,
     attemptId: started.attemptId,
     startedAt: started.startedAt,
-    channelId,
+    placeId,
     mode: 'reply',
     outcome: 'spoke',
     reason: null,
@@ -173,7 +173,7 @@ function makeAdmin(journal: Record<string, Untyped>) {
   const store = {
     state: { data: {}, markDirty() {} },
     getUser: () => null,
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     isPingsOff: () => false,
   };
   // The interface says when a message was written (`fetchMessages`); the ids of these tests carry their time.
@@ -199,7 +199,7 @@ function makeAdmin(journal: Record<string, Untyped>) {
     reads: wrongly(reads),
     port: { iface: 'fake' },
     selfId: () => SELF,
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     journal,
   });
 }
@@ -313,7 +313,7 @@ test('findTurn: a turn that crossed midnight -- the record of the next day, the 
   assert.equal(await journal.findTurn('g1', { messageId: lateId, at: latePost + 2 * 86_400_000 }), null);
 });
 
-// A bare id is dated by reading the message in the conversation the command runs in (`channelId`), a link names its own.
+// A bare id is dated by reading the message in the conversation the command runs in (`placeId`), a link names its own.
 // PR 7b: admin.run takes the operation's name, the command key map is gone; the expectations are as they were.
 test('memory.journal.read: by message id or link, the turn record whole; not hers or no record is not-found', async () => {
   const clock = { ms: D };
@@ -330,20 +330,24 @@ test('memory.journal.read: by message id or link, the turn record whole; not her
   const admin = makeAdmin(journal);
 
   const byId = String(
-    await admin.run('memory.journal.read', { messageId: postedId }, { guildId: 'g1', channelId: 'c1', userId: OWNER })
+    await admin.run(
+      'memory.journal.read',
+      { messageId: postedId },
+      { placeId: 'g1', conversationId: 'c1', userId: OWNER }
+    )
   );
   assert.ok(byId.includes(THINK), 'the think whole, not its first 80 characters');
   assert.ok(byId.includes(started.turnId));
   const byLink = await admin.run(
     'memory.journal.read',
     { messageId: `https://discord.com/channels/111/222/${postedId}` },
-    { guildId: 'g1', channelId: 'c1', userId: OWNER }
+    { placeId: 'g1', conversationId: 'c1', userId: OWNER }
   );
   assert.equal(byLink, byId);
 
   // Someone else's message (it started the turn), an unknown one, and junk.
   await assert.rejects(
-    admin.run('memory.journal.read', { messageId: triggerId }, { guildId: 'g1', channelId: 'c1', userId: OWNER }),
+    admin.run('memory.journal.read', { messageId: triggerId }, { placeId: 'g1', conversationId: 'c1', userId: OWNER }),
     {
       code: 'not-found',
     }
@@ -352,12 +356,16 @@ test('memory.journal.read: by message id or link, the turn record whole; not her
     admin.run(
       'memory.journal.read',
       { messageId: idAt(D + 4000, 9) },
-      { guildId: 'g1', channelId: 'c1', userId: OWNER }
+      { placeId: 'g1', conversationId: 'c1', userId: OWNER }
     ),
     { code: 'not-found' }
   );
   await assert.rejects(
-    admin.run('memory.journal.read', { messageId: 'not an id' }, { guildId: 'g1', channelId: 'c1', userId: OWNER }),
+    admin.run(
+      'memory.journal.read',
+      { messageId: 'not an id' },
+      { placeId: 'g1', conversationId: 'c1', userId: OWNER }
+    ),
     {
       code: 'unknown-message',
     }
@@ -391,7 +399,7 @@ test('memory.journal.read: the persona names her line #N; it resolves to the mes
       }),
       runOp: admin.runSkillOp,
       runOwnOp: admin.runOwnSkillOp,
-      opContext: { guildId: 'g1', channelId: 'c1' },
+      opContext: { placeId: 'g1', conversationId: 'c1' },
     })
   );
   assert.equal(result.status, 'ok');
@@ -427,7 +435,7 @@ test('turnView: an old skip record with reason null still reads', () => {
 test('journalTurnRecord: format counts and steps are written only when the turn noted them', async () => {
   const draft = {
     started: { turnId: 't-1', attemptId: 1, startedAt: 'x' },
-    channelId: 'c1',
+    placeId: 'c1',
     privateUserId: null,
     participants: [],
     think: null,

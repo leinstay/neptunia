@@ -25,7 +25,7 @@ const participationFile = () => ({
   episodes: [
     {
       id: 'p-1',
-      channelId: '200000000000000001',
+      placeId: '200000000000000001',
       startAt: 1792000000000,
       lastAt: 1792000060000,
       lastOwnAt: 1792000050000,
@@ -38,7 +38,7 @@ const participationFile = () => ({
     },
     {
       id: 'p-2',
-      channelId: '200000000000000002',
+      placeId: '200000000000000002',
       startAt: 1,
       lastAt: 2,
       lastOwnAt: 2,
@@ -86,13 +86,13 @@ const recentFile = () => ({
       id: 1,
       at: 1792000000000,
       addedAt: '2026-10-20T10:00:00.000Z',
-      channelId: '200000000000000001',
+      placeId: '200000000000000001',
       text: 'café',
       who: ['100000000000000001'],
       weight: 0.5,
       itemId: 'rc-1',
     },
-    { id: 2, at: 2, addedAt: 'x', channelId: '200000000000000001', text: '', who: [], weight: 1, itemId: 'rc-2' },
+    { id: 2, at: 2, addedAt: 'x', placeId: '200000000000000001', text: '', who: [], weight: 1, itemId: 'rc-2' },
   ],
 });
 
@@ -115,7 +115,7 @@ test('recent: lines without an itemId, empty files and odd shapes survive', () =
   assertRoundTrip(recent, 'recent.json', file);
   assertRoundTrip(recent, 'recent.json', { nextId: 1, lines: [] });
   assertRoundTrip(recent, 'recent.json', { lines: [1, 'x'] });
-  assertRoundTrip(recent, 'recent.json', { lines: [{ channelId: 5, text: 7 }] });
+  assertRoundTrip(recent, 'recent.json', { lines: [{ placeId: 5, text: 7 }] });
 });
 
 const diaryFile = () => ({

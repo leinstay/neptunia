@@ -59,7 +59,7 @@ const id = (n: number) => `3000000000000${String(n).padStart(5, '0')}`;
 function question(fields = {}) {
   return {
     id: 'q1',
-    channelId: C1,
+    placeId: C1,
     askerId: ASKER,
     question: 'πού είναι το κουνέλι;',
     expected: [id(1)],
@@ -68,15 +68,15 @@ function question(fields = {}) {
   };
 }
 
-/** A record line of `channelId` at `ts` (src/memory/record.ts#toRecordLine). */
+/** A record line of `placeId` at `ts` (src/memory/record.ts#toRecordLine). */
 function recLine(
   n: number,
   ts: number,
   text: string,
-  { channelId = C1, by = ANA, kind = 'seen', revision = 1 }: Record<string, Untyped> = {}
+  { placeId = C1, by = ANA, kind = 'seen', revision = 1 }: Record<string, Untyped> = {}
 ) {
   return toRecordLine(
-    { id: id(n), channelId, authorId: by, content: text, ts },
+    { id: id(n), placeId, authorId: by, content: text, ts },
     { kind, revision, now: () => NOW, uuid: () => `u-${n}-${revision}` }
   );
 }
@@ -98,7 +98,7 @@ test('recall-eval: a valid questions file parses, every problem is named by posi
   const bad = parseQuestions([
     question(),
     question(),
-    question({ id: 'q4', channelId: 'general', kind: 'maybe' }),
+    question({ id: 'q4', placeId: 'general', kind: 'maybe' }),
     question({ id: 'q5', kind: 'none' }),
     question({ id: 'q6', expected: [] }),
     question({ id: 'q7', question: '  ', expected: ['x'] }),
@@ -107,10 +107,7 @@ test('recall-eval: a valid questions file parses, every problem is named by posi
   assert.equal(bad.questions.length, 1);
   assert.equal(bad.errors.length, 6);
   assert.match(bad.errors[0], /^question 2 \(q1\): a duplicate id$/);
-  assert.match(
-    bad.errors[1],
-    /question 3 \(q4\): channelId is not a Discord id; kind is not one of exact, fuzzy, none/
-  );
+  assert.match(bad.errors[1], /question 3 \(q4\): placeId is not a Discord id; kind is not one of exact, fuzzy, none/);
   assert.match(bad.errors[2], /q5\): a none question expects no message/);
   assert.match(bad.errors[3], /q6\): expected is empty/);
   assert.match(bad.errors[4], /q7\): no question text; expected holds a value that is not a Discord id/);
@@ -267,8 +264,8 @@ test('recall-eval: the sample keeps substantive lines of members only, outside t
     recLine(6, NOW - 10 * DAY + 4000, long('το bot γράφει'), { by: SELF }),
     recLine(7, NOW - 10 * DAY + 5000, long('μετά')),
     recLine(8, NOW - DAY, long('πρόσφατο')),
-    recLine(9, NOW - 9 * DAY, long('άλλο κανάλι'), { channelId: C2 }),
-    recLine(10, NOW - 8 * DAY, long('άλλο κανάλι ξανά'), { channelId: C2 }),
+    recLine(9, NOW - 9 * DAY, long('άλλο κανάλι'), { placeId: C2 }),
+    recLine(10, NOW - 8 * DAY, long('άλλο κανάλι ξανά'), { placeId: C2 }),
   ]);
   let seed = 7;
   const rng = () => {
@@ -285,7 +282,7 @@ test('recall-eval: the sample keeps substantive lines of members only, outside t
   });
   assert.deepEqual(all.map((c) => c.id).sort(), [id(2), id(3), id(7), id(9), id(10)]);
   const middle = all.find((c) => c.id === id(3));
-  assert.deepEqual([middle?.channelId, middle?.authorId, middle?.authorName, middle?.self], [C1, ANA, 'Ana', false]);
+  assert.deepEqual([middle?.placeId, middle?.authorId, middle?.authorName, middle?.self], [C1, ANA, 'Ana', false]);
   assert.deepEqual(
     middle?.before.map((l: Untyped) => l.id),
     [id(1), id(2)],
@@ -302,7 +299,7 @@ test('recall-eval: the sample keeps substantive lines of members only, outside t
   for (let s = 1; s < 20; s += 1) {
     seed = s;
     const two = sampleCandidates(lines, { n: 2, days: 30, now: NOW, rng, selfId: SELF });
-    assert.deepEqual(two.map((c) => c.channelId).sort(), [C1, C2]);
+    assert.deepEqual(two.map((c) => c.placeId).sort(), [C1, C2]);
   }
 });
 
@@ -311,10 +308,10 @@ test('recall-eval: the local guild runs the record stage of the real recall, sur
     async *iterate() {
       yield recLine(1, NOW - DAY, 'το κουνέλι κρύφτηκε στον κήπο');
       yield recLine(2, NOW - DAY + 60_000, 'το είδα κι εγώ', { by: ASKER });
-      yield recLine(3, NOW - DAY + 120_000, 'άσχετο', { channelId: C2 });
+      yield recLine(3, NOW - DAY + 120_000, 'άσχετο', { placeId: C2 });
     },
   };
-  const guild = localGuild({ guildId: 'g1', selfId: SELF, channelNameOf: (cid) => (cid === C1 ? 'garden' : null) });
+  const guild = localGuild({ placeId: 'g1', selfId: SELF, channelNameOf: (cid) => (cid === C1 ? 'garden' : null) });
   const channel = asRecord(guild).channels.cache.get(C1);
   assert.equal(channel.name, 'garden');
   assert.equal(asRecord(guild).channels.cache.get(C2).name, C2);
@@ -335,7 +332,7 @@ test('recall-eval: the local guild runs the record stage of the real recall, sur
   };
   const channelNameOf = (cid: unknown) => (cid === C1 ? 'garden' : null);
   const recall = createRecall({
-    reads: localReads({ guildId: 'g1', channelNameOf }),
+    reads: localReads({ placeId: 'g1', channelNameOf }),
     hot: { config, prompts: { 'recall-summary': 'You are {{name}}; {{answerChars}}.', labels } },
     store,
     llm,
@@ -345,7 +342,7 @@ test('recall-eval: the local guild runs the record stage of the real recall, sur
   const windows: Array<Untyped> = [];
   const candidate = {
     id: 'q',
-    channelId: C1,
+    placeId: C1,
     authorId: ASKER,
     authorName: 'Nikos',
     content: 'πού είναι το κουνέλι;',
@@ -355,8 +352,8 @@ test('recall-eval: the local guild runs the record stage of the real recall, sur
   };
   const { result: out } = await withCapturedLogs(() =>
     recall.run({
-      guildId: 'g1',
-      ...localScope({ guildId: 'g1', channelId: C1, channelNameOf }),
+      placeId: 'g1',
+      ...localScope({ placeId: 'g1', conversationId: C1, channelNameOf }),
       selfId: SELF,
       selfName: 'Zoë',
       history: [candidate],
@@ -485,7 +482,7 @@ test('recall-eval: a record line becomes a chat message with its link previews, 
   const line = toRecordLine(
     {
       id: id(1),
-      channelId: C1,
+      placeId: C1,
       authorId: ANA,
       content: 'δες https://example.org/faros',
       ts: NOW - DAY,
@@ -533,7 +530,7 @@ const PREFETCHED = {
   excerpts: [
     {
       source: 'history',
-      channelId: 'c2',
+      placeId: 'c2',
       ids: ['111', '222', '333'],
       hitIds: ['222'],
       startTs: Date.UTC(2026, 9, 1, 9),
@@ -599,12 +596,12 @@ test('comparePrefetch: both paths summed up; which questions only one of them hi
 test('traceAgreement: the same lines or an overlapping kept window is the same; the same channel near it partial; a run that kept nothing n/a', () => {
   const trace = {
     clusters: [
-      { channelId: 'c2', from: '2026-10-01T08:50:00.000Z', to: '2026-10-01T09:30:00.000Z', kept: true },
-      { channelId: 'c3', from: '2026-09-01T00:00:00.000Z', to: '2026-09-01T01:00:00.000Z', kept: false },
+      { placeId: 'c2', from: '2026-10-01T08:50:00.000Z', to: '2026-10-01T09:30:00.000Z', kept: true },
+      { placeId: 'c3', from: '2026-09-01T00:00:00.000Z', to: '2026-09-01T01:00:00.000Z', kept: false },
     ],
     record: [
       {
-        channelId: 'c5',
+        placeId: 'c5',
         from: '2026-08-01T00:00:00.000Z',
         to: '2026-08-01T00:10:00.000Z',
         hitIds: ['999'],
@@ -615,7 +612,7 @@ test('traceAgreement: the same lines or an overlapping kept window is the same; 
   };
   assert.equal(traceAgreement(trace, PREFETCHED.excerpts), 'same', 'overlaps the kept cluster in time');
   assert.equal(
-    traceAgreement(trace, [{ source: 'history', channelId: 'c9', ids: ['999'], startTs: 0 }]),
+    traceAgreement(trace, [{ source: 'history', placeId: 'c9', ids: ['999'], startTs: 0 }]),
     'same',
     'holds a kept record hit'
   );
@@ -623,7 +620,7 @@ test('traceAgreement: the same lines or an overlapping kept window is the same; 
     traceAgreement(trace, [
       {
         source: 'history',
-        channelId: 'c2',
+        placeId: 'c2',
         ids: ['1'],
         startTs: Date.UTC(2026, 9, 1, 20),
         endTs: Date.UTC(2026, 9, 1, 21),
@@ -632,7 +629,7 @@ test('traceAgreement: the same lines or an overlapping kept window is the same; 
     'partial'
   );
   assert.equal(
-    traceAgreement(trace, [{ source: 'history', channelId: 'c3', ids: ['1'], startTs: Date.UTC(2026, 8, 1) }]),
+    traceAgreement(trace, [{ source: 'history', placeId: 'c3', ids: ['1'], startTs: Date.UTC(2026, 8, 1) }]),
     'none',
     'a window the run did not keep'
   );

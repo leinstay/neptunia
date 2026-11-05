@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as channel from '../src/memory/db/map/channel.ts';
-import * as guild from '../src/memory/db/map/guild.ts';
+import * as guild from '../src/memory/db/map/place.ts';
 import * as lore from '../src/memory/db/map/lore.ts';
 import { assertRoundTrip, generated, plain, roundTrip } from './fixtures/memory-db/roundtrip.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
@@ -13,7 +13,13 @@ import { present, sqlOf } from './fixtures/loose-types.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
 const GUILD = '300000000000000001';
-const CTX = { guildId: GUILD };
+const PLACE = `discord:guild:${GUILD}`;
+const CTX = { iface: 'discord', subjectId: PLACE, subjectNativeId: GUILD };
+const CHANNEL_CTX = {
+  iface: 'discord',
+  subjectId: 'discord:channel:200000000000000001',
+  subjectNativeId: '200000000000000001',
+};
 const CHANNEL_ID = '200000000000000001';
 
 const channelFile = () => ({
@@ -37,11 +43,12 @@ const channelFile = () => ({
 });
 
 test('a channel entry becomes a place, three descriptions and an operational row', () => {
-  const rows = assertRoundTrip(channel, `channels/${CHANNEL_ID}.json`, channelFile(), CTX);
+  const rows = assertRoundTrip(channel, `channels/${CHANNEL_ID}.json`, channelFile(), CHANNEL_CTX);
   const [place] = rows.places;
   assert.deepEqual(
     [place.id, place.kind, place.native_id, place.parent_id, place.scope_kind, place.name, place.category, place.topic],
-    [`discord:channel:${CHANNEL_ID}`, 'channel', CHANNEL_ID, `discord:guild:${GUILD}`, 'group', 'général', 'Chat', null]
+    // The parent is what the interface reports (the observation), never the channel file's to invent.
+    [`discord:channel:${CHANNEL_ID}`, 'channel', CHANNEL_ID, null, 'group', 'général', 'Chat', null]
   );
   assert.deepEqual(
     rows.descriptions.map((d) => d.field),
@@ -127,7 +134,7 @@ test('the guild file becomes a place, descriptions, claims of three kinds and an
   const rows = assertRoundTrip(guild, 'guild.json', guildFile(), CTX);
   assert.deepEqual(
     [rows.places[0].id, rows.places[0].kind, rows.places[0].native_id],
-    [`discord:guild:${GUILD}`, 'guild', GUILD]
+    [`discord:guild:${GUILD}`, 'server', GUILD]
   );
   assert.deepEqual(
     rows.descriptions.map((d) => d.field),

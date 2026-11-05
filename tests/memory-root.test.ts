@@ -13,33 +13,16 @@ test('memoryRootOf: keeps the data directory it was given', () => {
   assert.equal(root.dataDir, dataDir);
 });
 
-test('memoryRootOf: guild paths are the joins the stores made by hand', () => {
-  assert.equal(root.guildsDir, path.join(dataDir, 'guilds'));
-  assert.equal(root.guildDir('123'), path.join(dataDir, 'guilds', '123'));
-  assert.equal(root.guildDir(123), path.join(dataDir, 'guilds', '123'));
+// The layout under `guilds/` is gone: a place's folder is named by its id, a DM's like any other, and the persona has its own.
+test('memoryRootOf: the folder of a place is named by its id, and the persona has its own', () => {
+  assert.equal(root.placeDir('discord:server:123'), path.join(dataDir, 'places', 'discord%3Aserver%3A123'));
+  assert.equal(root.placeDir(null), path.join(dataDir, 'persona'));
 });
 
 test('memoryRootOf: the state file and the snapshots root sit at the top of data/', () => {
   assert.equal(root.stateFile, path.join(dataDir, 'state.json'));
   assert.equal(root.snapshotsRoot, path.join(dataDir, SNAPSHOTS_DIR));
   assert.equal(SNAPSHOTS_DIR, 'snapshots');
-});
-
-test('memoryRootOf: the record dir is the guild one unless a private member id is a non-empty string', () => {
-  assert.equal(root.recordDir('123'), path.join(dataDir, 'guilds', '123', 'record'));
-  assert.equal(root.recordDir('123', null), path.join(dataDir, 'guilds', '123', 'record'));
-  assert.equal(root.recordDir('123', ''), path.join(dataDir, 'guilds', '123', 'record'));
-  // @ts-expect-error a number where the id is a string, on purpose
-  assert.equal(root.recordDir('123', 42), path.join(dataDir, 'guilds', '123', 'record'));
-  assert.equal(root.recordDir('123', '42'), path.join(dataDir, 'guilds', '123', 'private', '42', 'record'));
-});
-
-test('memoryRootOf: the private dir, with or without a member', () => {
-  assert.equal(root.privateDir('123'), path.join(dataDir, 'guilds', '123', 'private'));
-  assert.equal(root.privateDir('123', null), path.join(dataDir, 'guilds', '123', 'private'));
-  assert.equal(root.privateDir('123', ''), path.join(dataDir, 'guilds', '123', 'private'));
-  assert.equal(root.privateDir('123', '42'), path.join(dataDir, 'guilds', '123', 'private', '42'));
-  assert.equal(root.privateDir('123', 42), path.join(dataDir, 'guilds', '123', 'private', '42'));
 });
 
 test('memoryRootOf: the vault resolves under data/ by default and keeps an absolute path', () => {
@@ -66,7 +49,7 @@ test('memoryRootOf: relative is forward-slash separated', () => {
 
 test('memoryRootOf: a relative data directory maps the same way', () => {
   const rel = memoryRootOf('data');
-  assert.equal(rel.guildDir('1'), path.join('data', 'guilds', '1'));
+  assert.equal(rel.placeDir('1'), path.join('data', 'places', '1'));
   assert.equal(rel.stateFile, path.join('data', 'state.json'));
   // @ts-expect-error no argument, on purpose: the vault falls back to its default
   assert.equal(rel.vaultDir(), path.resolve('data', 'vault'));

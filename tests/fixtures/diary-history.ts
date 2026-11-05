@@ -7,6 +7,8 @@
 // keeps them: each entry's row with its text and its messages, her lines in the record of `d1`, the picture's and the
 // voice's media rows with their attachment ids, the picture's description in the media cache, and Alice's line in the
 // record. The diary's one enabled mirror is on `d1`. Synthetic text only.
+import { placeOfCommunity, placeOfConversation } from '../../src/memory/addresses.ts';
+import { placeCollection } from '../../src/memory/db/storage-keys.ts';
 import { createStore } from '../../src/memory/store.ts';
 import { dbOf, seedMirror } from './diary-mirror.ts';
 import { GUILD, NOW, sceneHot } from './diary-requests.ts';
@@ -97,7 +99,7 @@ function stub(
     : { id: 'u1', bot: false, globalName: 'Alice', username: 'Alice' };
   return {
     id: post.id,
-    channelId: 'd1',
+    placeId: 'd1',
     author,
     member: { displayName: author.globalName },
     cleanContent: post.text,
@@ -123,7 +125,7 @@ export function historyWorld({
   deleted = false,
   reacted = false,
 }: { history: boolean; alice?: boolean } & Changes): void {
-  world().channel({ id: 'c1', name: 'general', guildId: GUILD });
+  world().channel({ id: 'c1', name: 'general', placeId: GUILD });
   // The channel shows what the platform holds now: an edited message's newest text, no deleted message.
   const own = ENTRIES.flatMap((entry) => entry.posts)
     .filter((post) => !(deleted && post.id === DELETED.id))
@@ -135,7 +137,7 @@ export function historyWorld({
     )
     .map((post) => stub(post, true));
   const lines = alice ? [...own, stub(ALICE, false)].sort((a, b) => a.createdTimestamp - b.createdTimestamp) : own;
-  world().channel({ id: 'd1', name: 'journal', guildId: GUILD, historyMessages: history ? lines : [] });
+  world().channel({ id: 'd1', name: 'journal', placeId: GUILD, historyMessages: history ? lines : [] });
 }
 
 /** The scene's settings: the requests scene's, with the writer seeing `CHANNEL_MESSAGES` messages of a channel. */
@@ -167,7 +169,7 @@ function recordLine(post: { id: string; at: number; text: string; attachments?: 
     revision: 1,
     occurredAt,
     recordedAt: occurredAt,
-    guildId: GUILD,
+    placeId: GUILD,
     scope: { channel: 'd1' },
     ...(self ? {} : { by: 'u1' }),
     text: post.text,
@@ -187,10 +189,10 @@ export type HistoryMemory = {
  * so before schema v15 the scene fails where the turn needs its conversation.
  */
 export async function historyMemory({ edited = false, deleted = false }: Changes = {}): Promise<HistoryMemory> {
-  const memory = await openTestMemory({ now: () => NOW });
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'fake' });
   const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
-  store.touchChannel(GUILD, 'd1', { name: 'journal' }, NOW - DAY);
-  store.touchChannel(GUILD, 'c1', { name: 'general' }, NOW - DAY);
+  store.touchChannel(placeOfConversation(store, { id: 'd1' }), { name: 'journal' }, NOW - DAY);
+  store.touchChannel(placeOfConversation(store, { id: 'c1' }), { name: 'general' }, NOW - DAY);
   for (const entry of ENTRIES) {
     const [first] = entry.posts;
     if (!first) continue;
@@ -205,12 +207,12 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
         messageIds: entry.posts.map((one) => one.id),
         search: null,
       };
-    store.appendDiaryPost(GUILD, entryPost as Parameters<typeof store.appendDiaryPost>[1], { max: 40 });
+    store.appendDiaryPost(entryPost as Parameters<typeof store.appendDiaryPost>[0], { max: 40 });
   }
   // The describer's cache: what she saw in the picture, by its attachment id.
-  const cache = store.getMediaCache(GUILD) as Record<string, unknown>;
+  const cache = store.getMediaCache(placeOfCommunity(store, GUILD)) as Record<string, unknown>;
   cache[PICTURE.id] = { text: PICTURE.description, ts: NOW - 2 * DAY + 5000 };
-  store.markMediaCacheDirty(GUILD);
+  store.markMediaCacheDirty(placeOfCommunity(store, GUILD));
   store.flush();
   await store.flushSettled({});
   for (const post of [...ENTRIES.flatMap((entry) => entry.posts).map((one) => ({ post: one, self: true })), { post: ALICE, self: false }]) {
@@ -218,8 +220,7 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
     await memory.memoryDb.writeUnit({
       kind: 'unit',
       op: 'lines',
-      owner: `guilds/${GUILD}/record/${day.slice(0, 7)}/${day}.jsonl`,
-      iface: 'fake',
+      key: placeCollection('record', placeOfCommunity(store, GUILD), { partition: day }),
       lines: [recordLine(post.post, post.self)],
     });
   }
@@ -229,8 +230,7 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
     return memory.memoryDb.writeUnit({
       kind: 'unit',
       op: 'lines',
-      owner: `guilds/${GUILD}/record/${day.slice(0, 7)}/${day}.jsonl`,
-      iface: 'fake',
+      key: placeCollection('record', placeOfCommunity(store, GUILD), { partition: day }),
       lines: [line],
     });
   };
@@ -251,7 +251,7 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
       kind: 'deleted',
       messageId: DELETED.id,
       occurredAt: new Date(DELETED.at).toISOString(),
-      guildId: GUILD,
+      placeId: GUILD,
       scope: { channel: 'd1' },
     });
   const db = dbOf(memory.memoryDb);
@@ -298,6 +298,10 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
   }
   const hasMirrors = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").all();
   if (hasMirrors.length > 0) seedMirror(memory.memoryDb, { iface: 'fake', conversationId: 'd1', name: 'journal', at: NOW });
+  db.prepare('UPDATE places SET parent_id = ? WHERE id = ?').run(
+    placeOfCommunity(store, GUILD),
+    placeOfConversation(store, { id: 'd1' })
+  );
   return { memory, store };
 }
 
@@ -332,8 +336,8 @@ export function historyRunner(
  * and never describes anything new, as src/memory/describe.ts answers for a picture it already saw.
  */
 function cacheDescriber(store: HistoryMemory['store']) {
-  const cached = (guildId: string, items: ReadonlyArray<{ itemId?: unknown }>) => {
-    const cache = store.getMediaCache(guildId) as Record<string, { text?: unknown } | undefined>;
+  const cached = (placeId: string, items: ReadonlyArray<{ itemId?: unknown }>) => {
+    const cache = store.getMediaCache(placeId) as Record<string, { text?: unknown } | undefined>;
     const found = new Map<string, string>();
     for (const item of items) {
       const entry = typeof item.itemId === 'string' ? cache[item.itemId] : undefined;
@@ -343,8 +347,8 @@ function cacheDescriber(store: HistoryMemory['store']) {
   };
   return {
     cachedDescriptions: cached,
-    describeMany: (guildId: string, items: ReadonlyArray<{ itemId?: unknown }>) =>
-      Promise.resolve({ descriptions: cached(guildId, items), newCount: 0 }),
+    describeMany: (placeId: string, items: ReadonlyArray<{ itemId?: unknown }>) =>
+      Promise.resolve({ descriptions: cached(placeId, items), newCount: 0 }),
   };
 }
 

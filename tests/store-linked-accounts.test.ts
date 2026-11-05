@@ -2,6 +2,7 @@
 // is one record behind every account the owner bound: character, details and the affinity score. What belongs to one
 // account stays with it: its native id, the names it shows, how it is addressed. Each scenario runs over the real memory
 // service on the calling thread, with the links written through its writer.
+import { accountOf } from '../src/memory/addresses.ts';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -55,15 +56,21 @@ async function rigOf(known: ReadonlyArray<readonly [string, string]> = [[IFACE, 
   opened.push(memoryDb);
   const fresh = (): Store => createStore({ dataDir, memoryDb });
   const store = fresh();
-  store.touchUser('g1', '111', 'Alice', 1000);
-  store.updateUser('g1', '111', { character: 'chatty' });
-  store.adjustAffinity('g1', '111', 12, 'nice chat', AFFINITY);
+  store.touchUser(accountOf(store, '111'), 'Alice', 1000);
+  store.updateUser(accountOf(store, '111'), { character: 'chatty' });
+  store.adjustAffinity(accountOf(store, '111'), 12, 'nice chat', AFFINITY);
   await save(store);
   return {
     store,
     fresh,
-    bind: (native, target, iface = IFACE) => memoryDb.personLink({ op: 'bind', iface, native, target, now: 2000 }),
-    unbind: (native) => memoryDb.personLink({ op: 'unbind', iface: IFACE, native, now: 3000 }),
+    bind: (native, target, iface = IFACE) =>
+      memoryDb.personLink({
+        op: 'bind',
+        accountId: `${iface}:${native}`,
+        target: { accountId: `${target.iface}:${target.native}` },
+        now: 2000,
+      }),
+    unbind: (native) => memoryDb.personLink({ op: 'unbind', accountId: `${IFACE}:${native}`, now: 3000 }),
   };
 }
 
@@ -80,7 +87,7 @@ type Profile = {
 
 /** The profile `store` answers for an account, which must have one. */
 function profileOf(store: Store, native: string, guild = 'g1'): Profile {
-  const found = store.getUser(guild, native);
+  const found = store.getUser(accountOf(store, native));
   assert.ok(found, `account ${native} reads no profile`);
   return found as Profile;
 }
@@ -88,12 +95,12 @@ function profileOf(store: Store, native: string, guild = 'g1'): Profile {
 test('a linked account with no profile unit reads the profile of its person', async () => {
   // Bug: the read asks for the account's own unit, so the owner's second account is a stranger to her.
   const { store, bind } = await rigOf();
-  assert.equal(store.getUser('g1', '222'), null);
+  assert.equal(store.getUser(accountOf(store, '222')), null);
   await bind('222', FIRST);
   const profile = profileOf(store, '222');
   assert.equal(profile.character, 'chatty');
   assert.equal(profile.affinity.score, 12);
-  assert.equal(profile.id, '222');
+  assert.equal(profile.id, 'discord:222');
   assert.ok(!profile.names.includes('Alice'), 'the first account shows its own names');
 });
 
@@ -101,7 +108,7 @@ test('an account on another interface with an equal native id reads the person o
   // Bug: `telegram:111` stays a stranger after the link, or reads `discord:111` before anyone linked them.
   const { store, fresh, bind } = await rigOf([['telegram', '111']]);
   assert.equal(
-    withIface('telegram', () => store.getUser('g1', '111')),
+    withIface('telegram', () => store.getUser(accountOf(store, '111'))),
     null
   );
   await bind('111', FIRST, 'telegram');
@@ -113,16 +120,16 @@ test('an account on another interface with an equal native id reads the person o
 test('a linked account with its own unit reads the person and keeps what is its own', async () => {
   // Bug: the unit's own empty description and zero score hide the person, or the first account's names and address leak.
   const { store, fresh, bind } = await rigOf();
-  store.recordAddressUses('g1', '111', [{ name: 'Al', at: 1000 }], { now: 1000 });
-  store.touchUser('g1', '222', 'Bob', 1000);
-  store.recordAddressUses('g1', '222', [{ name: 'Bobby', at: 1000 }], { now: 1000 });
+  store.recordAddressUses(accountOf(store, '111'), [{ name: 'Al', at: 1000 }], { now: 1000 });
+  store.touchUser(accountOf(store, '222'), 'Bob', 1000);
+  store.recordAddressUses(accountOf(store, '222'), [{ name: 'Bobby', at: 1000 }], { now: 1000 });
   await save(store);
   await bind('222', FIRST);
   for (const reader of [store, fresh()]) {
     const second = profileOf(reader, '222');
     assert.equal(second.character, 'chatty');
     assert.equal(second.affinity.score, 12);
-    assert.equal(second.id, '222');
+    assert.equal(second.id, 'discord:222');
     assert.deepEqual(second.names, ['Bob']);
     // Changed: `addressedAs` is a map by name (src/memory/addressed.ts); this test first read it as a list.
     assert.deepEqual(Object.keys(second.addressedAs), ['Bobby']);
@@ -136,7 +143,7 @@ test('a message from the linked account leaves the profile of the person whole',
   // Bug: the first line creates an empty unit whose write replaces the person's character and score.
   const { store, fresh, bind } = await rigOf();
   await bind('222', FIRST);
-  store.touchUser('g1', '222', 'Bob', 2500);
+  store.touchUser(accountOf(store, '222'), 'Bob', 2500);
   await save(store);
   const reader = fresh();
   for (const native of ['111', '222']) {
@@ -153,7 +160,7 @@ test('an affinity change through the linked account moves the one score and both
   // account's next read throws because its rows now belong to the other unit.
   const { store, fresh, bind } = await rigOf();
   await bind('222', FIRST);
-  const moved = store.adjustAffinity('g1', '222', 5, 'kind words', { ...AFFINITY, now: 2500 });
+  const moved = store.adjustAffinity(accountOf(store, '222'), 5, 'kind words', { ...AFFINITY, now: 2500 });
   assert.equal(moved?.score, 17);
   assert.equal(profileOf(store, '111').affinity.score, 17);
   await save(store);
@@ -165,16 +172,16 @@ test('an affinity change through the linked account moves the one score and both
 test('the decay sweep moves the score of a linked person once', async () => {
   // Bug: the sweep walks both accounts, so a person with two accounts cools twice as fast.
   const { store, fresh, bind } = await rigOf();
-  store.touchUser('g1', '222', 'Bob', 1000);
+  store.touchUser(accountOf(store, '222'), 'Bob', 1000);
   await save(store);
   await bind('222', FIRST);
   const day = 24 * 60 * 60 * 1000;
   const start = Date.parse(profileOf(store, '111').lastSeen);
   // The first sweep stamps the score, the second moves it by the days between.
   const sweep = async (one: Store): Promise<void> => {
-    one.decayAffinities('g1', start + day, { decayPerDay: 1 });
+    one.decayAffinities(start + day, { decayPerDay: 1 });
     await save(one);
-    one.decayAffinities('g1', start + 8 * day, { decayPerDay: 1 });
+    one.decayAffinities(start + 8 * day, { decayPerDay: 1 });
     await save(one);
   };
   await sweep(store);
@@ -193,22 +200,22 @@ test('an unlink drops the cached read of an account with no unit of its own', as
   await bind('222', FIRST);
   assert.equal(profileOf(store, '222').character, 'chatty');
   await unbind('222');
-  assert.equal(store.getUser('g1', '222'), null);
+  assert.equal(store.getUser(accountOf(store, '222')), null);
   assert.equal(profileOf(store, '111').character, 'chatty');
 });
 
 test('after an unlink the account has its own score again and changes reach only it', async () => {
   // Bug: the separated account keeps writing into the person it left, or carries the shared score away.
   const { store, fresh, bind, unbind } = await rigOf();
-  store.touchUser('g1', '222', 'Bob', 1000);
+  store.touchUser(accountOf(store, '222'), 'Bob', 1000);
   await save(store);
   await bind('222', FIRST);
-  store.adjustAffinity('g1', '222', 5, 'kind words', { ...AFFINITY, now: 2500 });
+  store.adjustAffinity(accountOf(store, '222'), 5, 'kind words', { ...AFFINITY, now: 2500 });
   await save(store);
   await unbind('222');
   assert.equal(profileOf(store, '222').affinity.score, 0);
   assert.equal(profileOf(store, '222').character, '');
-  store.adjustAffinity('g1', '222', 3, 'a fresh start', { ...AFFINITY, now: 3500 });
+  store.adjustAffinity(accountOf(store, '222'), 3, 'a fresh start', { ...AFFINITY, now: 3500 });
   await save(store);
   const reader = fresh();
   assert.equal(profileOf(reader, '222').affinity.score, 3);

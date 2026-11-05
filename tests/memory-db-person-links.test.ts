@@ -44,9 +44,8 @@ const bind = (handle: Handle, account: [string, string], target: [string, string
   applyMemoryWrite(handle, {
     kind: 'person-link',
     op: 'bind',
-    iface: account[0],
-    native: account[1],
-    target: target === 'self' ? { self: true } : { iface: target[0], native: target[1] },
+    accountId: `${account[0]}:${account[1]}`,
+    target: target === 'self' ? { self: true } : { accountId: `${target[0]}:${target[1]}` },
     now: 1000,
   });
 
@@ -97,7 +96,7 @@ test('an unbound account leaves the person, and the DMs stop being shared', () =
   // Bug: revoking a wrong link keeps exposing the private history through a stale row.
   withDb((handle) => {
     bind(handle, ['discord', '222'], ['discord', '111']);
-    applyMemoryWrite(handle, { kind: 'person-link', op: 'unbind', iface: 'discord', native: '222', now: 2000 });
+    applyMemoryWrite(handle, { kind: 'person-link', op: 'unbind', accountId: 'discord:222', now: 2000 });
     assert.equal(allowed(dmRow('discord', '222'), contextOf(handle, 'discord', '111')), false);
     assert.deepEqual(accountLinks(dbOf(handle), 'discord', '111').accounts, [{ iface: 'discord', native: '111' }]);
   });
@@ -152,9 +151,8 @@ test('a DM context the service issues carries the DMs of the person, and a bind 
   try {
     await service.personLink({
       op: 'bind',
-      iface: 'telegram',
-      native: '222',
-      target: { iface: 'discord', native: '111' },
+      accountId: 'telegram:222',
+      target: { accountId: 'discord:111' },
     });
     const ctx = service.issueContext({ kind: 'dm', iface: 'discord', person: 'person:discord:111' });
     assert.deepEqual(

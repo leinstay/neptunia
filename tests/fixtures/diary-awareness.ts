@@ -1,7 +1,8 @@
 // The scene of tests/diary-mirror-awareness.test.ts: one ordinary reply turn of the real turn runner over a real store
 // and memory database, on a community of the fake interface with `general` (c1), `journal` (d1) and `notes` (d2), and a
 // scripted model. `diary-mirror-awareness.json` beside this file holds the `<server>` block the turn in c1 built with
-// `diaryChannelId: 'd1'` and no mirror, on the code before `diary.channelId` became a seed. Synthetic text only.
+// `diaryChannelId: 'd1'` and no mirror, on the code before `diary.placeId` became a seed. Synthetic text only.
+import { placeOfConversation } from '../../src/memory/addresses.ts';
 import { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { userText } from '../../src/behavior/prompt.ts';
@@ -23,11 +24,11 @@ after(async () => {
   for (const item of OPEN.splice(0)) await item.close();
 });
 
-/** Her own message in `channelId`, ten minutes ago, as discord.js hands it over. */
-function ownLine(id: string, channelId: string): Record<string, unknown> {
+/** Her own message in `placeId`, ten minutes ago, as discord.js hands it over. */
+function ownLine(id: string, placeId: string): Record<string, unknown> {
   return {
     ...rawMessage({ id, ts: NOW - 10 * MINUTE, content: 'σημείωμα' }),
-    channelId,
+    placeId,
     author: { id: 'self-id', bot: true, globalName: 'Bot', username: 'Bot' },
     member: { displayName: 'Bot' },
   };
@@ -45,7 +46,7 @@ export function serverBlock(messages: unknown): string {
 /**
  * One ordinary reply turn to Alice in `here`, on a community with `general` (c1), `journal` (d1) and `notes` (d2),
  * each with notes in memory and her line ten minutes ago in d1 and d2. Memory holds the `diary` mirrors on
- * `mirrors`; the config sets `diary.channelId` only when `diaryChannelId` is given (the recording).
+ * `mirrors`; the config sets `diary.placeId` only when `diaryChannelId` is given (the recording).
  */
 export async function replyTurn({
   here,
@@ -61,8 +62,8 @@ export async function replyTurn({
   const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
   const names = { c1: 'general', d1: 'journal', d2: 'notes' } as const;
   for (const [id, name] of Object.entries(names)) {
-    store.touchChannel(GUILD, id, { name }, NOW - 5 * MINUTE);
-    store.updateChannel(GUILD, id, { purpose: `${name} purpose` });
+    store.touchChannel(placeOfConversation(store, { id: id }), { name }, NOW - 5 * MINUTE);
+    store.updateChannel(placeOfConversation(store, { id: id }), { purpose: `${name} purpose` });
   }
   store.flush();
   await store.flushSettled({});
@@ -75,14 +76,14 @@ export async function replyTurn({
   freshWorld();
   const trigger = rawMessage({ id: 'm1', ts: NOW - 1000, content: 'γεια σου' });
   for (const id of ['d1', 'd2'] as const) {
-    const lines = id === here ? [ownLine(`p-${id}`, id), { ...trigger, channelId: id }] : [ownLine(`p-${id}`, id)];
-    world().channel({ id, name: names[id], guildId: GUILD, historyMessages: lines, lastMessageAt: NOW - 10 * MINUTE });
+    const lines = id === here ? [ownLine(`p-${id}`, id), { ...trigger, placeId: id }] : [ownLine(`p-${id}`, id)];
+    world().channel({ id, name: names[id], placeId: GUILD, historyMessages: lines, lastMessageAt: NOW - 10 * MINUTE });
   }
-  if (here === 'c1') world().channel({ id: 'c1', name: names.c1, guildId: GUILD, historyMessages: [trigger] });
+  if (here === 'c1') world().channel({ id: 'c1', name: names.c1, placeId: GUILD, historyMessages: [trigger] });
   const llm = sequenceLlm(['<msg>γεια</msg>']);
   const turns = worldTurnRunner({
     hot: hotWith({
-      config: diaryChannelId === null ? {} : { selfreflection: { channelId: diaryChannelId } },
+      config: diaryChannelId === null ? {} : { selfreflection: { placeId: diaryChannelId } },
     }),
     store,
     // The memory the runner may read the mirrors from (the store reads the same database).
@@ -97,7 +98,7 @@ export async function replyTurn({
     mode: 'reply',
     trigger: {
       ...trigger,
-      channelId: here,
+      placeId: here,
       authorId: 'u1',
       authorName: 'Alice',
       self: false,

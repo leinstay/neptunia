@@ -1,6 +1,7 @@
 // Tests for src/memory/avatars.ts and src/memory/avatar-queue.ts: which member is due, the hash change, the default avatar
 // without a request, the throttled queue on an injected clock, the stored field's
 // normalisation, and the store's write path for it. Fakes only: no network, no real data/.
+import { accountOf } from '../src/memory/addresses.ts';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -63,9 +64,9 @@ function fakeStore(profiles: Record<string, Untyped> = {}) {
   return {
     users,
     writes,
-    getUser: (guildId: string, id: string) => (guildId === GUILD ? (users.get(id) ?? null) : null),
-    listUserProfiles: (guildId: string) => (guildId === GUILD ? [...users.values()] : []),
-    setAvatar(guildId: string, id: string, avatar: Untyped) {
+    getUser: (id: string) => users.get(id) ?? null,
+    listUserProfiles: () => [...users.values()],
+    setAvatar(id: string, avatar: Untyped) {
       const profile = users.get(id);
       if (!profile) return null;
       profile.avatar = normalizeAvatar(avatar);
@@ -173,7 +174,8 @@ function setup({
     state,
     now,
     log,
-    getGuildId: () => GUILD,
+    isServedCommunity: (id: unknown) => id === GUILD,
+    servedCommunity: () => GUILD,
     selfId: () => SELF,
     paused: () => paused,
     reads: readsOf(members),
@@ -238,7 +240,7 @@ test('offer: only a profiled member of the served guild, never a bot or the pers
   assert.equal(queue.offer(GUILD, view('nobody', 'h4')), 'no-profile');
   assert.equal(queue.offer(GUILD, view(SELF, 'h5')), 'self');
   assert.equal(queue.offer(GUILD, view('b1', 'h6', { bot: true })), 'bot');
-  assert.equal(queue.offer('other', view('u1', 'h1')), 'other-guild');
+  assert.equal(queue.offer('other', view('u1', 'h1')), 'other-place');
   assert.equal(queue.offer(GUILD, null), 'invalid');
   assert.deepEqual(queue.pending(), ['u1', 'u2']);
   assert.equal(store.writes.length, 0, 'an offer never writes');
@@ -449,7 +451,8 @@ test('scan: a member whose read fails is counted gone and does not stop the othe
     state: fakeState(),
     now: clock(),
     log: fakeLog(),
-    getGuildId: () => GUILD,
+    isServedCommunity: (id: unknown) => id === GUILD,
+    servedCommunity: () => GUILD,
     selfId: () => SELF,
     paused: () => false,
     reads: readsOf({ u1: 'failed', u2: view('u2', 'h2') }, resolved),
@@ -468,23 +471,27 @@ test('store.setAvatar: writes the current avatar only into an existing profile, 
   const { dataDir, memoryDb } = mem;
   const store = createStore({ dataDir, memoryDb });
   assert.equal(
-    store.setAvatar(GUILD, 'u1', { hash: 'h1', text: 'fox', describedAt: null }),
+    store.setAvatar(accountOf(store, 'u1'), { hash: 'h1', text: 'fox', describedAt: null }),
     null,
     'never creates a profile'
   );
-  assert.equal(store.getUser(GUILD, 'u1'), null);
-  store.touchUser(GUILD, 'u1', 'Ελένη', NOW);
-  const before = loose(store.getUser(GUILD, 'u1')).updatedAt;
-  store.setAvatar(GUILD, 'u1', { hash: 'h1', text: 'a fox', describedAt: '2026-10-15T12:00:00.000Z' });
-  store.setAvatar(GUILD, 'u1', { hash: 'h2', text: 'a cat', describedAt: '2026-10-16T12:00:00.000Z' });
-  assert.deepEqual(loose(store.getUser(GUILD, 'u1')).avatar, {
+  assert.equal(store.getUser(accountOf(store, 'u1')), null);
+  store.touchUser(accountOf(store, 'u1'), 'Ελένη', NOW);
+  const before = loose(store.getUser(accountOf(store, 'u1'))).updatedAt;
+  store.setAvatar(accountOf(store, 'u1'), { hash: 'h1', text: 'a fox', describedAt: '2026-10-15T12:00:00.000Z' });
+  store.setAvatar(accountOf(store, 'u1'), { hash: 'h2', text: 'a cat', describedAt: '2026-10-16T12:00:00.000Z' });
+  assert.deepEqual(loose(store.getUser(accountOf(store, 'u1'))).avatar, {
     hash: 'h2',
     text: 'a cat',
     describedAt: '2026-10-16T12:00:00.000Z',
   });
-  assert.equal(loose(store.getUser(GUILD, 'u1')).updatedAt, before, 'the portrait version stamp is untouched');
-  store.setAvatar(GUILD, 'u1', { hash: null, default: true });
-  assert.deepEqual(loose(store.getUser(GUILD, 'u1')).avatar, { hash: null, default: true });
+  assert.equal(
+    loose(store.getUser(accountOf(store, 'u1'))).updatedAt,
+    before,
+    'the portrait version stamp is untouched'
+  );
+  store.setAvatar(accountOf(store, 'u1'), { hash: null, default: true });
+  assert.deepEqual(loose(store.getUser(accountOf(store, 'u1'))).avatar, { hash: null, default: true });
   store.flush();
   await store.flushSettled({});
   // A hand-broken field is dropped on read; an absent one stays absent.
@@ -493,6 +500,6 @@ test('store.setAvatar: writes the current avatar only into an existing profile, 
   const raw = JSON.parse(unitFile(memoryDb, owner));
   await memoryDb.writeUnit({ op: 'value', owner, value: { ...raw, avatar: { hash: 'h3' } } });
   const fresh = createStore({ dataDir, memoryDb });
-  assert.equal('avatar' in loose(fresh.getUser(GUILD, 'u1')), false);
+  assert.equal('avatar' in loose(fresh.getUser(accountOf(fresh, 'u1'))), false);
   await mem.close();
 });
