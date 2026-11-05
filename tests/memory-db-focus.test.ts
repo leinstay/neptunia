@@ -417,8 +417,13 @@ test('focus fixture: the reader gives member ids of the interface, close then ex
     }
   };
   walkDir('src');
-  // The browser's catalog classifies every table by name and reads none of these by it.
-  assert.deepEqual(readers.sort(), ['memory/db/focus.ts', 'memory/db/inspection-classes.ts', 'memory/db/schema.ts']);
+  // The browser's catalog classifies every table by name and reads none of these by it; a person merge moves their rows.
+  assert.deepEqual(readers.sort(), [
+    'memory/db/focus.ts',
+    'memory/db/inspection-classes.ts',
+    'memory/db/person-merge.ts',
+    'memory/db/schema.ts',
+  ]);
 });
 
 // ---------- the daily job ----------

@@ -119,7 +119,8 @@ const EXPLANATIONS: Record<string, string> = {
   'interfaces.drainMs': 'Time to allow ongoing actions to finish when disabling a connection, in milliseconds.',
   'interfaces.*.enabled': 'Allow this connection to connect to the core.',
   'bot.owners': 'Owner accounts on the home connection, used until an owner identity is linked with /memory bind.',
-  'bot.ownerPerson': 'The person whose explicitly linked accounts have owner rights. Set this with /memory bind.',
+  'bot.ownerPerson':
+    'The person whose explicitly linked accounts have owner rights. The first line of the command line sets it on a new install, and /memory bind changes it.',
   'bot.placeId': 'Limit the home connection to this community. Detected automatically when there is only one.',
   'bot.access': 'Permissions granted to other people. Manage them with /tools grant and /tools revoke.',
   'models.base.core': 'The model that speaks as the persona.',

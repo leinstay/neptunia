@@ -1,7 +1,8 @@
 // The observation of a message event (stage 8a of spec 2026-10-24-memory-schema-v7): the core maps an interface's
 // normalised `message.received` event (src/protocol/events.ts) to the envelope observe.ts writes. Nothing here knows a
-// platform: the interface is the event's `iface`, its namespace the authority the conversation declares or
-// `<iface>/global`, and every id is the opaque string the adapter gave. Pure, no I/O.
+// platform: the interface is the event's `iface`, its namespace the authority the conversation declares or the
+// interface's native one (src/protocol/identity.ts#nativeAuthorityOf), and every id is the opaque string the adapter
+// gave. Pure, no I/O.
 //
 //   native    the message id, kind `message`, subtype the record's kind of the line (`said` for her own new line,
 //             `seen` for anyone else's and for every edit, hers too, as the record writes them); revision 1 for a new
@@ -18,6 +19,7 @@
 //   times     `occurredAt` the message's time, `observedAt` the event's.
 // Returns null for an event that is no observable line: a deletion, a partial edit, a malformed event.
 
+import { nativeAuthorityOf } from '../../protocol/identity.ts';
 import type { MessageDeletion } from './message-families.ts';
 import { messageLocator } from './message-locator.ts';
 import { OBSERVATION_VERSION } from './observe.ts';
@@ -89,9 +91,9 @@ function attachmentIdsOf(message: EventMessage): Pick<Envelope, 'extra'> {
   return ids.some((id) => id !== null) ? { extra: { attachmentIds: ids } } : {};
 }
 
-/** The authority an event's place is observed under: the one its conversation declares, or the interface's. */
+/** The authority an event's place is observed under: the one its conversation declares, or the interface's native one. */
 const authorityOf = (iface: string, conversation: EventConversation | undefined): string =>
-  filled(conversation?.authorityId) ? conversation.authorityId : `${iface}/global`;
+  filled(conversation?.authorityId) ? conversation.authorityId : nativeAuthorityOf(iface);
 
 /** The native place key of a conversation, the one the observation stores it under. */
 export function conversationPlaceKey(conversation: {
