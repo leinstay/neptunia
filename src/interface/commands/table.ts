@@ -217,6 +217,11 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
     arg('into'),
     flagArg('reason', false),
   ]),
+  sub(
+    'selfreflection.audience.fill',
+    'Give old group selfreflection entries without an audience the unrestricted one: --dry-run counts only',
+    [bareFlagArg('dry-run')]
+  ),
   sub('places.list', 'List places of any kind and depth', [
     flagArg('interface', false),
     flagArg('authority', false),
