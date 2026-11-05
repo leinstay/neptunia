@@ -15,6 +15,7 @@ import { log } from '../../../log.ts';
 import { exposedSkillNames } from '../../../tools/discovery.ts';
 import { buildTools } from '../../../tools/tools-json.ts';
 import { SEARCH_HANDLE_GAP, defaultSkills, searchHandles } from '../../calls.ts';
+import { portMediaPick } from '../../../interface/capabilities.ts';
 import type { SearchRef } from '../../calls.ts';
 import type { Draft } from '../../draft.ts';
 import { droppedSections } from '../../journal.ts';
@@ -157,11 +158,12 @@ export function buildTurnRequest(
     // The search of the server's own history: the value the lookup stage used.
     recallAvailable: serverOn,
     drawOn,
-    // The `<emoji>` block: the index's emoji (ranked by placeMemory.emojiUsage) and their cached captions.
+    // The custom emoji the interface offers, and what it declares for them in the turn.
     customEmoji: emoji ? (emoji.list() ?? []) : [],
-    // The `<gifs>` block and the transcript's GIF handles: the place's library.
-    gifs: typeof store.getGifs === 'function' ? (store.getGifs(libraryPlace) ?? null) : null,
-    // The cached captions of both lists.
+    mediaPickText: portMediaPick(ctx.iface)?.text ?? null,
+    // The transcript's GIF handles: the shared library.
+    gifs: typeof store.getGifs === 'function' ? (store.getGifs() ?? null) : null,
+    // The cached captions of a custom emoji and of a library GIF in the transcript.
     mediaCache: emoji || typeof store.getGifs === 'function' ? (store.getMediaCache(libraryPlace) ?? null) : null,
     // `<channel_view>`: the channels pulled into this turn (each with the last view of it
     // shown in this channel, when one is within context.pull.seenTtlMinutes), the one it is
@@ -247,7 +249,7 @@ export function buildTurnRequest(
         : null,
     // Her one previous think: the latest finished turn tied to this place within the window (an inner turn imports none).
     previousThink: earlierThinkFor({ channel, placeId, isPrivate, draft, mode: finalMode }),
-    // `<self_facts>` and `<gifs>` held per cache bucket, so a memory batch rewrites the cache once at most.
+    // `<self_facts>` held per cache bucket, so a memory batch rewrites the cache once at most.
     stableFreeze: stableFreezeOf(placeId),
   });
   let request = requestOf(requestInput);

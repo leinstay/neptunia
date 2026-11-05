@@ -411,7 +411,7 @@ function fakeStore(gifs = null) {
   };
   if (gifs)
     Object.assign(store, {
-      findGif: (placeId: string, handle: string) => gifs[handle] ?? null,
+      findGif: (handle: string) => gifs[handle] ?? null,
       recordOwnGif: () => {},
     });
   return store;
@@ -1296,22 +1296,10 @@ test('row 9: memory.search that timed out reads as a timeout; one that really fo
   assert.ok(empty.includes(labels.tools.tools.memory.none), 'a real empty result reads as none');
 });
 
-test('row 10: the text goes out and the GIF fails -- the turn is partial, the text is said, and the cause is in her next request (addressed and inner)', async () => {
+// B7: `<gif>` left her output, so the row runs where a GIF after a text remains: her message.create with `gif`. In the
+// media pick a failed post leaves the text as written (tests/media-pick-turn.test.ts).
+test('row 10: the text goes out and the GIF fails -- the call is partial, the text is said, and the cause is in her next request', async () => {
   const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
-  // Addressed: <msg> then <gif>; the second send fails.
-  const chat = makeChat();
-  const run = boot(chat, { dataDir: tempDir('nep-fault-'), gifs });
-  chat.script = ['<msg>γεια</msg><gif>g1</gif>', '<skip/>'];
-  chat.failSend(2);
-  const first: Untyped = await run.ask('c1', 'send me a cat');
-  assert.deepEqual(chat.textsFromSelf('c1'), ['γεια'], 'the text is said');
-  assert.equal(first.partial, true, 'the turn says partial');
-  await run.ask('c1', 'did it work?');
-  assert.ok(wakeBlockOf(requestText(chat, 1)).includes('call message.create'), wakeBlockOf(requestText(chat, 1)));
-  assert.ok(requestText(chat, 1).includes('γεια'), 'the text is among her lines');
-  assertNoSilentFailure(run);
-
-  // Inner: the same tags are two calls; the GIF's fails and no step follows.
   const chat2 = makeChat();
   const records = [intentionRecord('i1')];
   const inner = boot(chat2, {
@@ -1320,7 +1308,7 @@ test('row 10: the text goes out and the GIF fails -- the turn is partial, the te
     gifs,
     hot: hotWith({ grants: ['message.create'] }),
   });
-  chat2.script = ['<msg>γεια</msg><gif>g1</gif>', providerLimit()];
+  chat2.script = [toolAnswer('', [call('message.create', { text: 'γεια', gif: 'g1' })]), providerLimit()];
   chat2.failSend(2);
   await inner.tick();
   assert.deepEqual(chat2.textsFromSelf('c1'), ['γεια']);

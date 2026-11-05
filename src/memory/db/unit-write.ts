@@ -30,6 +30,7 @@ import { dbOf, asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
 import type { MappedPath } from '../migration/classify.ts';
 import { groupScope } from './scope.ts';
+import { writeGifVector } from './gif-vectors.ts';
 import { storageContext } from './map/index.ts';
 
 /** Tables of an owned unit whose rows carry a `position`. */
@@ -772,6 +773,7 @@ export function applyUnitWrite(handle: MemoryHandle, update: Row): unknown {
     value: () => skippedErrandUnit(db, update, () => update.key ?? unitOf(update.owner)) ?? writeValue(db, update, at),
     diary: () => writeDiary(db, update, at),
     vectors: () => writeVectors(db, update, at),
+    'gif-vector': () => writeGifVector(db, update, at),
     errand: () => applyErrandUnit(db, update, at, (closing) => writeLines(db, closing, at)),
   };
   const run = typeof op === 'string' ? runs[op] : undefined;

@@ -1,4 +1,3 @@
-import { placeOfCommunity } from '../src/memory/addresses.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { observe } from '../src/memory/db/observe.ts';
@@ -502,8 +501,8 @@ function gifLibrary(over = {}) {
   return {
     stamped,
     patch: (store: Untyped) => {
-      store.findGif = (placeId: string, handle: string) => entries[handle] ?? null;
-      store.recordOwnGif = (placeId: string, key: string, ts: number) => stamped.push(key);
+      store.findGif = (handle: string) => entries[handle] ?? null;
+      store.recordOwnGif = (_placeId: string, key: string) => stamped.push(key);
       Object.assign(store.state, { markDirty() {} });
     },
     ...over,
@@ -562,9 +561,9 @@ test('message.create gif=: an attached GIF posts a fresh URL of its attachment; 
     ]),
   });
   library.patch(store);
-  const entry = store.findGif(placeOfCommunity(store, 'g1'), 'g2');
+  const entry = store.findGif('g2');
   Object.assign(entry, { messageId: 'm-src', placeId: HERE, itemId: 'item-2' });
-  store.findGif = (placeId: string, handle: string) => (handle === 'g2' ? entry : null);
+  store.findGif = (handle: string) => (handle === 'g2' ? entry : null);
   const result = await executeCall(resolve('message.create', { gif: 'g2' }), deps(admin, port));
   assert.equal(result.status, 'ok');
   assert.equal(

@@ -37,7 +37,7 @@ import { pullSettings } from '../src/behavior/pull.ts';
 import { setSettings } from '../src/behavior/diary.ts';
 import { elsewhereSettings } from '../src/behavior/elsewhere.ts';
 import { splitSettings } from '../src/behavior/split.ts';
-import { gifPickSettings } from '../src/behavior/gif-pick.ts';
+import { mediaPickSettings } from '../src/behavior/media-pick.ts';
 import { innerSettings } from '../src/behavior/inner/settings.ts';
 import { missedSettings } from '../src/behavior/missed.ts';
 import { recallSettings } from '../src/behavior/recall.ts';
@@ -77,7 +77,7 @@ const READERS: Array<[string, (config: Record<string, Untyped>) => unknown]> = [
   ['loopSettings inner', (config) => loopSettings(config, { inner: true })],
   ['audioMapSettings', (config) => audioMapSettings(treeOf(treeOf(treeOf(config).media).video).audioMap)],
   ['setSettings', (config) => setSettings(treeOf(config).selfreflection)],
-  ['gifPickSettings', (config) => gifPickSettings(config)],
+  ['mediaPickSettings', (config) => mediaPickSettings(config)],
   ['loopSettings diary', (config) => loopSettings(config, { diary: true })],
   ['hedgeSettings', (config) => hedgeSettings(config)],
   ['boardSettings', (config) => boardSettings(config)],

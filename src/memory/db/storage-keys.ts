@@ -22,6 +22,7 @@ export type StorageKind =
   | 'vectors'
   | 'media'
   | 'gifs'
+  | 'emoji_rails'
   | 'requests'
   | 'state'
   | 'usage'

@@ -42,7 +42,7 @@ const quiet = { info() {}, warn() {}, error() {} };
 /** A channel of a test: its info as the fake holds it, and what the persona did in it. */
 /** A message the persona posted, as the first tests of the turn read it. */
 export type Posted = {
-  content?: string;
+  content: string | undefined;
   reply?: { messageReference: string | undefined; failIfNotExists: boolean };
   allowedMentions: { parse: Array<string>; users?: Array<string>; repliedUser?: boolean };
   files?: Array<{ attachment: unknown; name: string }>;
@@ -165,7 +165,7 @@ function payloadOf(given: unknown): Posted {
     replyTo?: { messageId?: string };
     mentions?: { users?: Array<string>; repliedUser?: boolean };
   };
-  const payload: Posted = { allowedMentions: { parse: [] } };
+  const payload: Posted = { content: undefined, allowedMentions: { parse: [] } };
   if (typeof content.text === 'string' && content.text !== '') payload.content = content.text;
   if (Array.isArray(content.attachments) && content.attachments.length > 0)
     payload.files = content.attachments.map((file) => ({ attachment: file.data ?? file.url, name: file.name }));

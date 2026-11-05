@@ -13,30 +13,26 @@ const parsed = {
     { text: 'πρώτο', replyTo: 3 },
     { text: 'δεύτερο', replyTo: null },
   ],
-  gif: { id: 'g7', replyTo: null },
   // A leftover picture tag is not lowered: a picture is the draw.create tool.
   draw: { text: 'a boat', self: true, replyTo: 4 },
 };
 
-test('innerOutputCalls: reactions, messages and the GIF, in that order, and no picture, each as the call it stands for', () => {
+// B7: `<gif>` left her output, so an inner turn lowers reactions and messages.
+test('innerOutputCalls: reactions and messages, in that order, and no picture, each as the call it stands for', () => {
   const calls = innerOutputCalls(parsed, { current: 'c1', turnChannel: 'c1' });
   assert.deepEqual(calls, [
     { skill: 'message.react.add', args: { message: '#2', emoji: '👍' } },
     { skill: 'message.react.add', args: { emoji: '🔥' }, refuse: { code: 'target-required', reason: 'react:to' } },
     { skill: 'message.create', args: { reply: '#3', text: 'πρώτο' } },
     { skill: 'message.create', args: { text: 'δεύτερο' } },
-    { skill: 'message.create', args: { gif: 'g7' } },
   ]);
 });
 
 test("innerOutputCalls: a current channel other than the turn's is named by the channel argument", () => {
-  const calls = innerOutputCalls(
-    { messages: [{ text: 'x', replyTo: null }], gif: { id: 'g2', replyTo: null } },
-    { current: 'c9', turnChannel: 'c1' }
-  );
+  const calls = innerOutputCalls({ messages: [{ text: 'x', replyTo: null }] }, { current: 'c9', turnChannel: 'c1' });
   assert.deepEqual(
     calls.map((call) => call.args.channel),
-    ['c9', 'c9']
+    ['c9']
   );
 });
 
@@ -48,7 +44,6 @@ test('innerOutputCalls: with no current channel every post is refused destinatio
     'message.react.add:target-required',
     'message.create:destination-required',
     'message.create:destination-required',
-    'message.create:destination-required',
   ]);
 });
 
@@ -56,7 +51,7 @@ test('innerOutputCalls: nothing written, nothing lowered', () => {
   assert.deepEqual(
     innerOutputCalls(
       // `draw` is not a field the function reads; the test checks that an extra field lowers to nothing.
-      wrongly({ messages: [], reactions: [], gif: null, draw: null }),
+      wrongly({ messages: [], reactions: [], draw: null }),
       { current: 'c1', turnChannel: 'c1' }
     ),
     []

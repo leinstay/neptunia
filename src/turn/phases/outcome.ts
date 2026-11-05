@@ -110,7 +110,7 @@ export function outcomePhase(ctx: PhaseContext, params: PhaseParams, draft: Draf
     mode: finalMode,
     delivered,
     ...recorded,
-    ...(draft.sendFailure || draft.gifFailure ? { partial: true } : {}),
+    ...(draft.sendFailure ? { partial: true } : {}),
   };
 }
 

@@ -619,7 +619,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       }
 
       // 2. Her speech: out after the calls when every one of them worked and needs no reading, else held.
-      // What there is to say now: her messages, reactions and GIF, and a diary post's staged pictures (one item).
+      // What there is to say now: her messages and reactions, and a diary post's staged pictures (one item).
       const heldItems = speechItemsOf(parsed) + (stagedSet() ? 1 : 0);
       let speak =
         records.length === 0
@@ -808,7 +808,6 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         usage: completion.usage,
         messages: answer.parsed.messages.length,
         reactions: answer.parsed.reactions.length,
-        gif: Boolean(answer.parsed.gif),
         final: last,
       });
       const quiet = answer.parsed.skip || speechItemsOf(answer.parsed) === 0;
@@ -855,7 +854,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       draft.innerLoop = { steps: step, cut: draft.loopCut?.reason ?? null, droppedCalls: draft.loopCut?.dropped ?? 0 };
     return { acts, cutOff, delivered, skipped: Boolean(answer.parsed.skip) };
 
-    /** Her speech of a step posted: the messages, reactions, GIF and picture through act, then an inner turn's lowered speech as calls. */
+    /** Her speech of a step posted: the messages, reactions and picture through act, then an inner turn's lowered speech as calls. */
     async function postSpeech({
       parsed,
       loweredCalls,
@@ -879,7 +878,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           return { acted: null, loweredResults: [], deliveries: [] };
         }
       }
-      const spoken = parsed.messages.length > 0 || parsed.reactions.length > 0 || parsed.gif || set;
+      const spoken = parsed.messages.length > 0 || parsed.reactions.length > 0 || set;
       if (spoken) {
         // The arguments the attempt gave, completed with what this step numbers: what act and holdSpeech each take.
         const speech = {
@@ -907,9 +906,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       for (const call of loweredCalls)
         lowered.push(await planToolCall({ call, channel, envelope: envelopeOf(call), draft, view }));
       out.loweredResults = await runCalls(lowered, contextOf(routed, callTimeoutCap));
-      const messagesSent = out.loweredResults.filter(
-        (result, i) => lowered[i].call.skill === 'message.create' && !lowered[i].call.args.gif
-      );
+      const messagesSent = out.loweredResults.filter((result, i) => lowered[i].call.skill === 'message.create');
       const failed = messagesSent.filter((result) => result.status !== 'ok');
       if (failed.length > 0)
         out.deliveries.push({

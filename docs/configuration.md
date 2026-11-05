@@ -31,7 +31,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 |---|---|---|---|---|
 | `models.base.core` | string, boolean | `"anthropic/claude-opus-4.6"` | The persona's model. Purposes: `reply`, `memory-voice` | `src/llm/openrouter.ts` |
 | `models.base.memory` | string, boolean | `"anthropic/claude-opus-4.6"` | Her memory session and description review model. Same default as `core`, not a copy. Its key is `llm.keyByRole.memory` and never falls back | `src/llm/roles.ts` |
-| `models.base.analyzer` | string, boolean | `"openai/gpt-6.1-sol"` | Picks options (address, room, route, split, gif-pick, missed, etc.), plans searches and turns sources into notes. Pin one purpose to another model with `byPurpose` | `src/behavior/mention.ts` |
+| `models.base.analyzer` | string, boolean | `"openai/gpt-6.1-sol"` | Picks options (address, room, route, split, media-pick, missed, etc.), plans searches and turns sources into notes. Pin one purpose to another model with `byPurpose` | `src/behavior/mention.ts` |
 | `models.base.vision` | string, boolean, null | `null` | Describes pictures (describe, relook, avatar). Off while null | `src/behavior/mention.ts` |
 | `models.base.video` | string, boolean, null | `null` | Watches video and GIFs, looks again on questions. Off while null | `src/behavior/mention.ts` |
 | `models.base.embedding` | string, boolean | `"openai/text-embedding-3-large"` | Turns text into vectors for meaning search. `embed.dimensions` sets the width | `src/llm/embed.ts` |
@@ -157,8 +157,6 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `context.caps.neighbors` | number | `3000` | Token cap: neighbour channels | `src/turn/request/sections.ts` |
 | `context.caps.server` | number | `4000` | Token cap: channel map | `src/behavior/prompt.ts` |
 | `context.caps.lore` | number | `1500` | Token cap: lore entries | `src/behavior/prompt.ts` |
-| `context.caps.emoji` | number | `800` | Token cap: custom emoji | `src/turn/request/sections.ts` |
-| `context.caps.gifs` | number | `900` | Token cap: GIF library | `src/turn/request/sections.ts` |
 | `context.caps.pulled` | number | `4000` | Token cap: pulled channel block | `src/behavior/prompt.ts` |
 | `context.caps.recent` | number | `1200` | Token cap: recent block | `src/behavior/prompt.ts` |
 | `context.caps.participation` | number | `6000` | Token cap: the persona's exchanges on other channels | `src/behavior/prompt.ts` |
@@ -241,6 +239,11 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
+| `media.pick.maxOutputTokens` | number | `60` | Max output tokens for the media pick | `src/behavior/media-pick.ts` |
+| `media.pick.candidates` | number | `20` | Most GIFs the search hands the media pick | `src/behavior/media-pick.ts` |
+| `media.pick.emojiCandidates` | number | `20` | Most custom emoji the media pick is offered, the place's most used first | `src/behavior/media-pick.ts` |
+| `media.pick.emojiPerReplies` | number | `5` | At most one appended or replacing emoji per this many of her replies in a place. `0` switches this rail off | `src/behavior/media-pick.ts` |
+| `media.pick.emojiCooldownMinutes` | number | `60` | How long one emoji stays closed in a place after it went out. `0` switches this rail off | `src/behavior/media-pick.ts` |
 | `media.maxOutputTokens` | number | `2000` | Max output tokens per description | `src/memory/avatar-queue.ts` |
 | `media.recacheBefore` | string, null | `null` | ISO date-time, or `null` (off). Descriptions written before it are described again when they come up | `src/memory/describe.ts` |
 | `media.video.provider` | map, null | `{ "order": ["google-ai-studio"], "allow_fallbacks": false }` | Provider routing for the direct-URL path. `null` uses the normal resolution | `src/memory/describe.ts` |
@@ -409,12 +412,6 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 |---|---|---|---|---|
 | `mirrors.claimLeaseMs` | number | `600000` | How long a claimed diary publication stands with no word from its publisher. Past it the publisher counts as gone and the send as uncertain | `src/behavior/mirror.ts` |
 | `mirrors.sendTimeoutMs` | number | `120000` | How long one send of a diary publication may take before its result counts as uncertain, at most `mirrors.claimLeaseMs` | `src/behavior/mirror.ts` |
-
-## gifs
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `gifs.pick.maxOutputTokens` | number | `60` | Max output tokens for the picker | `src/turn/draw-gif.ts` |
 
 ## private
 

@@ -16,6 +16,7 @@ export { createEmbedder } from './embedder.ts';
 export { createMemoryUpdater } from './update.ts';
 export { createEmojiBackfill } from './emoji-backfill.ts';
 export { createGifBackfill } from './gif-backfill.ts';
+export { createGifKeeper } from './gif-keeper.ts';
 export { createGifRecache } from './gif-recache.ts';
 export { createDescriber } from './describe.ts';
 export { createAvatarQueue } from './avatar-queue.ts';

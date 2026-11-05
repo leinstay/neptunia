@@ -61,7 +61,9 @@ test('gifs: entries become gif rows and the counter stays operational', () => {
   const [first] = rows.media;
   assert.equal(first.id, 'media:gif:1#e0');
   assert.equal(first.kind, 'gif');
-  assert.equal(first.path, 'https://example.test/g.gif');
+  // B7: `path` is null or a file under `media/`; the link is in `extra`.
+  assert.equal(first.path, null);
+  assert.equal((JSON.parse(String(first.extra)) as { url: string }).url, 'https://example.test/g.gif');
   assert.equal(first.native_ref, '400000000000000001');
   assert.equal(first.description, 'dancing cat');
   assert.equal(rows.operational[0].kind, 'gifs');

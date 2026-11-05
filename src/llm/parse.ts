@@ -3,11 +3,10 @@
 //   <msg reply="#87">…</msg>   a chat message, optionally a reply to message #87 (at most 3:
 //                              any later one is joined into the third, a line each)
 //   <react to="#87">💀</react> a reaction on message #87 (a custom emoji as :name: too)
-//   <gif reply="#87">g12</gif> a GIF from the library by its handle (first valid one only)
 //   <skip/>                    stay silent
 // Her tool calls are not text any more: native tool calls come with the answer, and the text
 // transport's `<tool_call>` blocks are cut out before this parser sees the text
-// (src/llm/tool-text.ts). A leftover `<call>` or draw tag (her history still holds some; a picture is the `draw.create` tool now) is cut
+// (src/llm/tool-text.ts). A leftover `<call>`, draw or `<gif>` tag (her history still holds some; a picture is the `draw.create` tool, a GIF the media pick's) is cut
 // out wherever it stands outside code, never run, and told as a `retiredTag` diagnostic.
 // `<audience>`, a diary post's alone, is taken out before this parser runs (`takeAudience`, src/turn/phases/response.ts).
 // The parser is forgiving: a missing tag wrapper falls back to a single plain
@@ -24,12 +23,10 @@ const MAX_FALLBACK_CHARS = 600;
 // A reaction body: a short unicode emoji, or a custom one as `:name:` / `<a:name:id>` (src/behavior/emoji.ts).
 const MAX_REACTION_CHARS = 16;
 const CUSTOM_REACTION_RE = /^(?::[A-Za-z0-9_]{2,32}:|<a?:[A-Za-z0-9_]{2,32}:\d{1,25}>)$/;
-// A GIF handle (src/memory/gifs.ts): `g` and digits, any case.
-const GIF_HANDLE_RE = /^g(\d{1,9})$/i;
 
-// A retired tag written out in text: whole (closed or self-closing), or a lone opening. Two kinds, the
-// call tag and the draw tag: both are tool calls now.
-const RETIRED_TAGS = Object.freeze(['call', 'draw']);
+// A retired tag written out in text: whole (closed or self-closing), or a lone opening. The call tag and the draw tag
+// are tool calls now, and a GIF is the media pick's (src/behavior/media-pick.ts).
+const RETIRED_TAGS = Object.freeze(['call', 'draw', 'gif']);
 const RETIRED_TAG_RES = Object.freeze(
   Object.fromEntries(
     RETIRED_TAGS.map((tag) => [
@@ -70,7 +67,7 @@ function withoutRetiredTags(text: string, tags: ReadonlyArray<string>, diagnosti
 }
 
 // What the `<msg>` boundary reads, in order: the marks of code, the two message tags and the tags of other actions.
-const MSG_TOKEN_RE = /```|`|<msg(\s[^>]*)?>|<\/msg\s*>|<(?:react|gif|skip)(?:\s[^>]*)?\/?>/gi;
+const MSG_TOKEN_RE = /```|`|<msg(\s[^>]*)?>|<\/msg\s*>|<(?:react|skip)(?:\s[^>]*)?\/?>/gi;
 const MSG_TAG_RE = /<msg(?:\s[^>]*)?>|<\/msg\s*>/gi;
 
 /**
@@ -176,7 +173,6 @@ export type ParsedOutput = {
   reactions: Array<{ to: number; emoji: string }>;
   untargetedReactions: Array<{ emoji: string }>;
   think: string;
-  gif: { id: string; replyTo: number | null } | null;
   thinkOpen: boolean;
   untagged: boolean;
   diagnostics: Array<Diagnostic>;
@@ -191,7 +187,7 @@ export type ParsedOutput = {
  *   join as a `message-merge` (`where: 'parse'`, `lost`: the messages joined). A message is never
  *   cut for its length: the adapter of the interface splits a long one. `cutOff`: the answer was
  *   cut at the output cap, so a last `<msg>` left open is dropped instead of delivered.
- * @returns `diagnostics`: what the parser did not use, in order -- `{ kind: 'retiredTag', tag: 'call'|'draw' }`
+ * @returns `diagnostics`: what the parser did not use, in order -- `{ kind: 'retiredTag', tag: 'call'|'draw'|'gif' }`
  *   (a retired tag written outside code, cut out), at most one
  *   `{ kind: 'msgMalformed', nested, unclosed, stray }` (message tags out of place, counts only),
  *   `{ kind: 'messagesMerged', count }`, `{ kind: 'thinkUnclosed' }`. `thinkOpen`: a `<think>` was never
@@ -208,7 +204,6 @@ export function parseOutput(
     reactions: [],
     untargetedReactions: [],
     think: '',
-    gif: null,
     thinkOpen: false,
     untagged: false,
     diagnostics: [],
@@ -256,20 +251,7 @@ export function parseOutput(
     else result.untargetedReactions.push({ emoji });
   }
 
-  for (const match of text.matchAll(/<gif(\s[^>]*)?>([\s\S]*?)<\/gif>/gi)) {
-    const handle = GIF_HANDLE_RE.exec(match[2].trim());
-    if (!handle) continue;
-    const reply = /reply\s*=\s*"([^"]*)"/i.exec(match[1] ?? '');
-    result.gif = { id: `g${Number(handle[1])}`, replyTo: reply ? parseIndex(reply[1]) : null };
-    break;
-  }
-
-  if (
-    result.messages.length === 0 &&
-    result.reactions.length === 0 &&
-    result.untargetedReactions.length === 0 &&
-    !result.gif
-  ) {
+  if (result.messages.length === 0 && result.reactions.length === 0 && result.untargetedReactions.length === 0) {
     const leftover = text.replace(/<skip\s*\/?>/gi, '').trim();
     const hasTags = /<\/?(msg|react|skip|draw|gif|call|tool_call)\b/i.test(text);
     if (!hasTags && leftover && leftover.length <= MAX_FALLBACK_CHARS) {

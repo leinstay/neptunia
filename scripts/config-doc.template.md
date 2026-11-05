@@ -152,10 +152,6 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 
 <!-- settings: mirrors -->
 
-## gifs
-
-<!-- settings: gifs -->
-
 ## private
 
 <!-- settings: private -->

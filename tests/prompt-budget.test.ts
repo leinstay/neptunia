@@ -371,8 +371,7 @@ test('buildRequest: a routed call with no room for its line leaves the task with
     'chat',
     'people',
     'neighbors',
-    'emoji',
-    'gifs',
+    // B7 and B8: `<gifs>` and `<emoji>` left the turn, so the budget has no section of either.
   ];
   assert.equal(
     request.stats.used,
