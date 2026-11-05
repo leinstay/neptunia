@@ -498,3 +498,9 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 |---|---|---|---|---|
 | `archive.drainMs` | number | `30000` | How often pending copies are retried (ms) | `src/core.ts` |
 | `archive.holdMaxMs` | number | `5000` | How long the bot waits on shutdown for an archive write (ms) | `src/core.ts` |
+
+## diagnostics
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `diagnostics.loopStallMs` | number | `1000` | A tick of the event loop watch later than this logs a stall with the operations around it (ms, 0 is off) | `src/loop-watch.ts` |

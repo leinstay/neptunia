@@ -120,6 +120,8 @@ import { unitValue } from './db/readers/common.ts';
 
 import { createUnitOutbox } from './db/unit-outbox.ts';
 import type { StoredRecord, MemoryDb, Untyped } from './types.ts';
+import type { Track } from '../loop-watch.ts';
+import { untracked } from '../loop-watch.ts';
 
 const DIARY_HISTORY_POSTS = 150; // selfreflection.historyPosts
 
@@ -1094,6 +1096,8 @@ type StoreDeps = {
   archive?: Untyped;
   archiveOn?: () => boolean;
   memoryDb?: MemoryDb | null;
+  /** The event loop watch's `track` (src/loop-watch.ts); a flush of the cache is a named operation. */
+  track?: Track;
 };
 
 type ProfileOpsOptions = {
@@ -1181,6 +1185,7 @@ function buildStore({
   archive = null,
   archiveOn = () => Boolean(archive),
   memoryDb = null,
+  track = untracked,
 }: StoreDeps) {
   const root = memoryRootOf(dataDir);
   const seam = readSeamOf(memoryDb, log, 'store');
@@ -1789,6 +1794,10 @@ function buildStore({
 
   /** Flush every dirty cache entry (`flushEntry`); returns how many were written, failed and held. */
   function flushAll({ force = false } = {}) {
+    return track('store.flushAll', () => flushAllNow({ force }));
+  }
+
+  function flushAllNow({ force = false } = {}) {
     const counts = { written: 0, failed: 0, held: 0 };
     for (const [file, item] of entries) {
       const outcome = flushEntry(file, item, { force });

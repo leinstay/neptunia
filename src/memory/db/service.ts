@@ -127,6 +127,8 @@ import { mirrorPlaces, readMirrors } from './mirrors.ts';
 import { noteSkipped } from '../../board/errands.ts';
 import type { Config, Db, Log, MemoryHandle, Row } from './types.ts';
 import type { SessionContext } from './session.ts';
+import type { Track } from '../../loop-watch.ts';
+import { untracked } from '../../loop-watch.ts';
 import type { KeyRing } from '../../keys/ring.ts';
 import { dbOf, asText, isFiniteNumber } from './types.ts';
 import type { Context } from './scope.ts';
@@ -624,6 +626,8 @@ export type MemoryDbOptions = {
   commit?: string | null;
   selfName?: () => string | null | undefined;
   sessionLlm?: () => SessionContext['llm'] | null;
+  /** The event loop watch's `track` (src/loop-watch.ts), handed to the memory session. */
+  track?: Track;
   sessionEnv?: () => Row | null;
   /** The core's key ring while `keys.json` exists, else null: the memory key comes from it (see `memoryKeyState`). */
   sessionKeys?: () => KeyRing | null;
@@ -685,6 +689,7 @@ const SESSION_FAILURES = new Set([
   'skipped',
 ]);
 
+// health: allow function-length until 2027-04-01 -- the closure holds its whole operation, grown by the one dependency that names the loop watch
 export function createMemoryDb({
   hot,
   dataDir,
@@ -700,6 +705,7 @@ export function createMemoryDb({
   commit = null,
   selfName = () => '',
   sessionLlm = () => null,
+  track = untracked,
   sessionEnv = () => null,
   sessionKeys = () => null,
   onSessionFailure = null,
@@ -1304,7 +1310,7 @@ export function createMemoryDb({
           commit: typeof commit === 'string' ? commit : engineCommit(),
           configHash: configHash(hot.config),
         };
-        const manifest = await write(update);
+        const manifest = await track('backup', () => write(update));
         fs.renameSync(partial, path.join(dir, name));
         backupState.doneDay = day;
         backupState.lastAt = at;
@@ -1393,8 +1399,8 @@ export function createMemoryDb({
     const ring = sessionKeys();
     if (!llm || !handle || refusalOf(config, env, hot.prompts, ring)) return;
     const db = dbOf(handle);
-    const ctx = { db, write: memoryWrite, llm, hot, env, ring, now, log, selfName: selfName() ?? '' };
-    const due = dueScopes(db, config, at);
+    const ctx = { db, write: memoryWrite, llm, hot, env, ring, now, log, selfName: selfName() ?? '', track };
+    const due = track('session.batch', () => dueScopes(db, config, at));
     if (due.length > 0) {
       const result = await sweep(ctx, { scopes: new Set(due.map((scope) => scope.key)) });
       sessionState.lastAt = at;

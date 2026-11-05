@@ -59,6 +59,8 @@ import type { Intention } from '../../intentions/types.ts';
 import type { KeyRing } from '../../keys/ring.ts';
 import type { Labels, Profile } from '../../turn/request/types.ts';
 import type { Config, Db, Log, Row } from './types.ts';
+import type { Track } from '../../loop-watch.ts';
+import { untracked } from '../../loop-watch.ts';
 import type { Context, Scope } from './scope.ts';
 
 export const SESSION_PURPOSE = 'memory-session';
@@ -1284,6 +1286,8 @@ export type SessionContext = {
   log?: Partial<Log>;
   selfName?: string;
   readCtx?: Context;
+  /** The event loop watch's `track` (src/loop-watch.ts); batch reads and request builds are named operations. */
+  track?: Track;
 };
 
 /** How many sweeps have started on the UTC day of `now`. */
@@ -1429,13 +1433,15 @@ export async function sweep(
     if (options.scopes instanceof Set && !options.scopes.has(scope.key)) continue;
     const key = cursorKey(settings.mode, scope.key);
     const cursor = Number(metaOf(db, key) ?? 0);
-    const batch = batchOf(db, scope.scope, {
-      cursor,
-      since: settings.since,
-      maxMessages,
-      settleBefore: now() - settings.settleMinutes * MINUTE,
-      audienceId: scope.audienceId ?? null,
-    });
+    const batch = (ctx.track ?? untracked)('session.batch', () =>
+      batchOf(db, scope.scope, {
+        cursor,
+        since: settings.since,
+        maxMessages,
+        settleBefore: now() - settings.settleMinutes * MINUTE,
+        audienceId: scope.audienceId ?? null,
+      })
+    );
     if (batch.length < Math.min(settings.minMessages, maxMessages)) {
       runs.push({ scope: scope.key, outcome: 'quiet', lines: batch.length });
       continue;
@@ -1862,16 +1868,18 @@ async function runScope(
 
   let request: SessionRequest;
   try {
-    request = buildSessionRequest({
-      db,
-      scope,
-      batch,
-      config,
-      prompts: hot.prompts,
-      selfName: ctx.selfName ?? '',
-      now: startedAt,
-      page,
-    });
+    request = (ctx.track ?? untracked)('session.request', () =>
+      buildSessionRequest({
+        db,
+        scope,
+        batch,
+        config,
+        prompts: hot.prompts,
+        selfName: ctx.selfName ?? '',
+        now: startedAt,
+        page,
+      })
+    );
   } catch (error) {
     run.errors.push(`build:${codeOf(error)}`);
     return finish('build_error');

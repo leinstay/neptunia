@@ -453,5 +453,8 @@
   "archive": {
     "drainMs": 30000,
     "holdMaxMs": 5000
+  },
+  "diagnostics": {
+    "loopStallMs": 1000
   }
 }
