@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Operations tool: the paired search comparison. The same real queries go through the web
 // lookup's own search step once per engine (Brave, Exa, OpenRouter's web plugin), so the default
-// engine (`web.search.engine`) is chosen by numbers -- answered / empty / failed, latency, cost --
+// engine (`web.quickSearch.engine`) is chosen by numbers -- answered / empty / failed, latency, cost --
 // and by the owner's blind scores, instead of by a few live turns.
 //
 //   cd /opt/neptunia/app && node scripts/search-compare.ts <queries.jsonl> --out <dir>
@@ -12,14 +12,14 @@
 // asked?, note? }`.
 //
 // Each row and engine runs src/web/lookup.ts#createLookup(...).search() under the live config and
-// prompts with `web.search.engine` forced to that engine (through
-// a config view of this process only; `features.webLookup` and `web.search.enabled` forced on,
+// prompts with `web.quickSearch.engine` forced to that engine (through
+// a config view of this process only; `features.webLookup` and `web.quickSearch.enabled` forced on,
 // `web.maxPerDay` forced to 1 over a fresh counter), with the real clients: src/web/brave.ts
 // (the `brave` service key), src/web/exa.ts (the `exa` service key), and the summary on the
 // quick search's own role as production sends it. The cache is bypassed: every search gets a fresh lookup over a
 // fresh in-memory state and a store stub whose media cache is a new empty object, so the cache key
 // (`search:<sha1 of the normalized query>`) never hits and nothing is kept. An engine the lookup
-// cannot run (Brave or Exa without its key, any engine without `web.search.model`) is `skipped` for every row. The tool never retries beyond
+// cannot run (Brave or Exa without its key, any engine without `web.quickSearch.model`) is `skipped` for every row. The tool never retries beyond
 // what the clients do.
 //
 // Timings: the engine's own call (the Brave or Exa client's `search`, or, for `openrouter`, the one
@@ -109,8 +109,8 @@ function enginesOf(value: Untyped, known: Untyped) {
 /** The live config with the engine forced and nothing else that could stop one search: a view, never written back. */
 function forcedConfig(live: Rec, engine: string) {
   const web = (live?.web ?? {}) as Rec;
-  const search = (web.search ?? {}) as Rec;
-  return { ...live, web: { ...web, maxPerDay: 1, search: { ...search, enabled: true, engine } } };
+  const search = (web.quickSearch ?? {}) as Rec;
+  return { ...live, web: { ...web, maxPerDay: 1, quickSearch: { ...search, enabled: true, engine } } };
 }
 
 /** The shape of one model request: model, options (plugins included) and the messages' roles and sizes. */

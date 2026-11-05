@@ -3122,7 +3122,7 @@ test('people: an author of a pulled line asked about through the pulled block sh
 
 function webConfig(web: { links?: object; search?: object } = {}) {
   const config: ReturnType<typeof fakeConfig> & { web?: object } = fakeConfig();
-  config.web = { links: { enabled: true, ...web.links }, search: { enabled: true, ...web.search } };
+  config.web = { links: { enabled: true, ...web.links }, quickSearch: { enabled: true, ...web.search } };
   return config;
 }
 

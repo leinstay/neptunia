@@ -94,7 +94,7 @@ test("webSearchModel: the setting of quick search, apart from the analyzer's mod
   // Changed: quick search has its own model setting (the owner's decision of 2026-11-03); the scout's helper reads it too.
   assert.equal(webSearchModel({}), 'openai/gpt-6.1-sol');
   assert.equal(webSearchModel({ models: { base: { analyzer: 'x/cheap' } } }), 'openai/gpt-6.1-sol');
-  assert.equal(webSearchModel({ web: { search: { model: 'x/quick' } } }), 'x/quick');
+  assert.equal(webSearchModel({ web: { quickSearch: { model: 'x/quick' } } }), 'x/quick');
 });
 
 test('searchResults: the url_citation annotations, http(s) only, each url once, snippet one line and clamped', () => {

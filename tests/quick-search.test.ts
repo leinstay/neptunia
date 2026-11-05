@@ -41,7 +41,7 @@ function rig({
   const searches: Array<SearchCall> = [];
   const requests: Array<Record<string, unknown>> = [];
   const config = {
-    web: { search: { enabled: true, cacheHours: 24, timeoutMs: 1000, ...search } },
+    web: { quickSearch: { enabled: true, cacheHours: 24, timeoutMs: 1000, ...search } },
     llm: { timeoutMs: 1000 },
   };
   const client = (engine: string, answer: Answer) => ({
@@ -108,7 +108,7 @@ test('an engine outside the three is off as an unset one is', async () => {
 test('the openrouter engine with no model is off with its reason, and no request goes out', async () => {
   // Bug: the removed default model still answers, spending on a model nobody chose.
   const { lookup, requests } = rig({ search: { engine: 'openrouter' } });
-  assert.equal(searchModel({ web: { search: {} } }), undefined);
+  assert.equal(searchModel({ web: { quickSearch: {} } }), undefined);
   assert.equal(lookup.hasSearch(), false);
   assert.deepEqual(await lookup.searchResults('g1', QUERY), {
     failed: { code: 'not-configured', reason: 'no-model', engine: 'openrouter' },
@@ -119,10 +119,10 @@ test('the openrouter engine with no model is off with its reason, and no request
 test('the shipped settings name no engine and no model', () => {
   // Bug: an install gets an engine from the tracked layer and setup never asks.
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8')) as {
-    web: { search: Record<string, unknown> };
+    web: { quickSearch: Record<string, unknown> };
   };
-  assert.equal(shipped.web.search.engine ?? null, null);
-  assert.equal(shipped.web.search.model ?? null, null);
+  assert.equal(shipped.web.quickSearch.engine ?? null, null);
+  assert.equal(shipped.web.quickSearch.model ?? null, null);
 });
 
 test('the tool says quick search is off and why, under the name quick-search', async () => {

@@ -321,7 +321,7 @@ export function lookupHot(
       web: {
         maxPerDay: 60,
         links: { enabled: true, maxPerTurn: 2, ...web.links },
-        search: { enabled: true, maxPerTurn: 1, contextMessages: 50, ...web.search },
+        quickSearch: { enabled: true, maxPerTurn: 1, contextMessages: 50, ...web.search },
       },
       ...config,
     }

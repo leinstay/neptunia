@@ -75,7 +75,7 @@ function builder(options: { answer?: string | Error; prompts?: Record<string, un
         bot: { timezone: 'UTC' },
         llm: {},
         models: { base: { analyzer: 'x/analyzer' } },
-        web: { search: { model: 'x/search' } },
+        web: { quickSearch: { model: 'x/search' } },
       },
       prompts: {
         labels,
@@ -209,7 +209,7 @@ test('a web search whose summary answers none gives her no text', async () => {
           web: {
             acceptLanguage: 'el',
             links: { maxOutputTokens: 300, fetchTimeoutMs: 10_000 },
-            search: {
+            quickSearch: {
               enabled: true,
               engine: 'brave',
               model: 'x/search',

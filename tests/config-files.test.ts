@@ -418,7 +418,7 @@ test('an old layer with the retired search keys loads, says so once, and keeps i
   );
   const warned = logs.filter((line) => String(line.msg).startsWith('config: keys of an old name'));
   assert.equal(warned.length, 1);
-  const search = (result[1]?.web as Tree).search as Tree;
+  const search = (result[1]?.web as Tree).quickSearch as Tree;
   assert.equal(search.engine, 'openrouter');
   assert.equal(Object.hasOwn(search, 'fallback'), false);
 });

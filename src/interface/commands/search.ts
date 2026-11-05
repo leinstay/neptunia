@@ -14,7 +14,7 @@ const ENGINES: ReadonlyArray<string> = ['openrouter', 'brave', 'exa'];
 
 function write(dataDir: string, key: string, value: unknown): void {
   const file = localConfigPath(dataDir);
-  writeLocalConfig(file, setPath(readLocalConfig(file), ['web', 'search', key], value));
+  writeLocalConfig(file, setPath(readLocalConfig(file), ['web', 'quickSearch', key], value));
 }
 
 /** Runs one `/search` command. `rootDir` holds the engine's defaults the status line falls back on. */
@@ -48,7 +48,7 @@ export function searchCommand(
         rootDir === undefined
           ? readLocalConfig(localConfigPath(dataDir))
           : readConfig(rootDir, { privateDir: dataDir });
-      const search = objOf(objOf(config).web).search;
+      const search = objOf(objOf(config).web).quickSearch;
       const engine = objOf(search).engine;
       const isOn = objOf(search).enabled !== false && typeof engine === 'string' && engine !== '';
       return {

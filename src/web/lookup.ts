@@ -12,17 +12,17 @@
 //   text, cut at `LINK_EXCERPT_CHARS` -- what a link preview shows -- cached as
 //   `preview:<link id>`, no model request.
 // - search: one web search whose numbered results are condensed through prompts/search-summary.md, sources kept.
-//   `web.search.engine` picks the engine, and it has no default: `brave` (src/web/brave.ts) and `exa` (src/web/exa.ts) each
+//   `web.quickSearch.engine` picks the engine, and it has no default: `brave` (src/web/brave.ts) and `exa` (src/web/exa.ts) each
 //   need their service key, and `openrouter` (OpenRouter's web plugin, its engine `auto`: the summary request itself
-//   searches, one request billed to credits, its sources the answer's `url_citation` annotations) needs `web.search.model`.
+//   searches, one request billed to credits, its sources the answer's `url_citation` annotations) needs `web.quickSearch.model`.
 //   Brave and Exa condense on that model too, so they do not summarise without it. An engine outside the three, or one
 //   without what it needs, leaves quick search off, and when the chosen engine fails nothing answers in its place.
 // - searchResults: the persona's own web.search (src/tools/tools.ts): the same engine, but the results come back raw --
 //   title, url, site, the engine's snippet and date -- with no summary request. Brave and Exa return them as they are;
 //   `openrouter` sends one request with the web plugin and only the query (purpose `quick-search` on quick search's own
-//   role and model, its answer cut at `web.search.rawOutputTokens` and never read), the results being its `url_citation`
+//   role and model, its answer cut at `web.quickSearch.rawOutputTokens` and never read), the results being its `url_citation`
 //   annotations with their content. Cached apart (`results:<sha1 prefix>`), served while younger than
-//   `web.search.cacheHours`. A failure says why: `not-configured` with `no-engine`, `no-model`, `no-key` or `disabled`, and
+//   `web.quickSearch.cacheHours`. A failure says why: `not-configured` with `no-engine`, `no-model`, `no-key` or `disabled`, and
 //   `provider` with the engine and `timeout`, `rate-limited`, `credentials` or the client's own reason.
 // - readPage: the persona's own web.read: one page by url through the same fetcher, its
 //   extracted main text (src/web/readable.ts) cut at `PAGE_READ_CHARS`, with its title
@@ -36,7 +36,7 @@
 // miss `{ miss, ts, reason }` skipped for 6 hours (never for a refusal by
 // `llm.maxRequestsPerDay`); `search:<sha1 prefix of the
 // normalized query>` holds `{ query, text, sources, ts }`, served while younger
-// than `web.search.cacheHours`. Every model call
+// than `web.quickSearch.cacheHours`. Every model call
 // goes through llm.complete (its token cap and daily request cap apply); once
 // that daily request cap is spent (llm.capLeft) no search that needs a request is
 // sent and no web slot is taken.
@@ -201,14 +201,14 @@ const QUERY_CONTROLS = /[\u0000-\u001f\u007f-\u009f]/g;
 // A link to a file, not a page: the reader would only spend an attempt on it.
 const BINARY_PATH = /\.(?:png|jpe?g|gif|webp|avif|svg|mp4|webm|mov|mkv|mp3|ogg|wav|zip|rar|7z|pdf)$/i;
 
-/** The search engines `web.search.engine` may name. */
+/** The search engines `web.quickSearch.engine` may name. */
 export const SEARCH_ENGINES = ['brave', 'exa', 'openrouter'] as const;
 /** The reason of an engine's request that had no key to go out on. */
 const NO_KEY = 'no-key';
 
-/** The engine of the live config: `web.search.engine` when it names one, else none. */
+/** The engine of the live config: `web.quickSearch.engine` when it names one, else none. */
 function engineOf(config: LookupConfig): Engine | null {
-  const engine = config?.web?.search?.engine;
+  const engine = config?.web?.quickSearch?.engine;
   return SEARCH_ENGINES.find((name) => name === engine) ?? null;
 }
 
@@ -327,7 +327,7 @@ export function cleanQuery(query: string): string {
   return out.trim();
 }
 
-/** `web.search.results` as the web plugin's `max_results`: an integer in 1..10, `fallback` (5) when not a number (as the search clients clamp it). */
+/** `web.quickSearch.results` as the web plugin's `max_results`: an integer in 1..10, `fallback` (5) when not a number (as the search clients clamp it). */
 function clampResults(value: unknown, fallback = 5): number {
   const n = Math.floor(Number(value));
   return Number.isFinite(n) ? Math.min(10, Math.max(1, n)) : fallback;
@@ -517,14 +517,14 @@ export function createLookup(deps: LookupDeps): Lookup {
 
   /**
    * One web search on `query`, condensed with its sources, through the shared
-   * cache. Needs the feature, `web.search.enabled`, the search-summary prompt,
+   * cache. Needs the feature, `web.quickSearch.enabled`, the search-summary prompt,
    * a chosen engine that can run (hasSearch), the model the summary goes out on and a non-blank
    * query. No results -> an empty `text` (the caller renders labels.lookup.none). A failure is
    * never cached.
    */
   async function search(placeId: string, query: string): Promise<SearchAnswer> {
     const config = hot.config;
-    const searchCfg: SearchSettings = config.web?.search ?? {};
+    const searchCfg: SearchSettings = config.web?.quickSearch ?? {};
     if (searchCfg.enabled === false) return null;
     const promptText = hot.prompts?.['search-summary'];
     const asked = cleanQuery(query);
@@ -609,7 +609,7 @@ export function createLookup(deps: LookupDeps): Lookup {
    * condenses their results; `openrouter` searches and condenses in one request.
    */
   async function attempt(engine: Engine, asked: string, promptText: string, config: LookupConfig): Promise<Attempt> {
-    const searchCfg: SearchSettings = config.web?.search ?? {};
+    const searchCfg: SearchSettings = config.web?.quickSearch ?? {};
     const summaryChars = SEARCH_SUMMARY_CHARS;
     const { system, options } = summaryRequest(config, promptText, asked, summaryChars, searchCfg);
 
@@ -665,7 +665,7 @@ export function createLookup(deps: LookupDeps): Lookup {
    * The persona's own web.search: one search on `query` whose results come back raw (see the
    * header): `{ query, results: [{ title, url, site, snippet, age? }], cached? }`, `results`
    * empty when nothing was found; `{ failed: { code, reason?, engine?, status? } }` when it did
-   * not search: `not-configured` (`disabled` by `web.search.enabled`, else `no-engine`, `no-model`
+   * not search: `not-configured` (`disabled` by `web.quickSearch.enabled`, else `no-engine`, `no-model`
    * or `no-key`), `empty-query` (the cleaned query is blank), `cap` (the day's web slots are spent,
    * or an `openrouter` request would pass `llm.maxRequestsPerDay`), `provider` (the chosen engine
    * failed: `timeout`, `rate-limited`, `credentials` or its own reason). Never reads the
@@ -673,7 +673,7 @@ export function createLookup(deps: LookupDeps): Lookup {
    */
   async function searchResults(placeId: string, query: string): Promise<RawAnswer> {
     const config = hot.config;
-    const searchCfg = config.web?.search ?? {};
+    const searchCfg = config.web?.quickSearch ?? {};
     if (searchCfg.enabled === false) return { failed: { code: CODE.NOT_CONFIGURED, reason: 'disabled' } };
     const asked = cleanQuery(query);
     if (!asked) return { failed: { code: CODE.EMPTY_QUERY } };
@@ -731,11 +731,11 @@ export function createLookup(deps: LookupDeps): Lookup {
   /**
    * One engine's raw attempt: `{ results }` (possibly empty: nothing found) or `{ failure }`.
    * `openrouter`: one request with the web plugin, the query as its only message, the answer
-   * capped at `web.search.rawOutputTokens` and never read; the results its `url_citation`
+   * capped at `web.quickSearch.rawOutputTokens` and never read; the results its `url_citation`
    * annotations. Brave and Exa: their results as they come.
    */
   async function rawAttempt(engine: Engine, asked: string, config: LookupConfig): Promise<RawAttempt> {
-    const searchCfg: SearchSettings = config.web?.search ?? {};
+    const searchCfg: SearchSettings = config.web?.quickSearch ?? {};
     if (engine === 'openrouter') {
       let completion;
       try {
@@ -856,12 +856,12 @@ export function createLookup(deps: LookupDeps): Lookup {
     return { ok: true, ...read };
   }
 
-  /** Whether the chosen engine (`web.search.engine`, read now) has what it needs. `/status` reports it. */
+  /** Whether the chosen engine (`web.quickSearch.engine`, read now) has what it needs. `/status` reports it. */
   function hasSearch() {
     return whyOff(hot.config) === null;
   }
 
-  /** The chosen engine's name (`web.search.engine`, read now), null while none of the three is set. */
+  /** The chosen engine's name (`web.quickSearch.engine`, read now), null while none of the three is set. */
   function searchEngine() {
     return engineOf(hot.config);
   }

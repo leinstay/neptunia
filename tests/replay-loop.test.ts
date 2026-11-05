@@ -1202,7 +1202,7 @@ test('preTurnLookup: none runs nothing; a failed classifier on a direct call fal
   assert.equal(failed.out.trace.fallback, fallbackOn);
   assert.equal(failed.ran.web.length, 0, 'never the web side');
   // PR 7d: the web lookup switch is code; the web search setting closes the web side.
-  const closed = await preTurn({ answer: 'web: x', recallOn: false, web: { search: { enabled: false } } });
+  const closed = await preTurn({ answer: 'web: x', recallOn: false, web: { quickSearch: { enabled: false } } });
   assert.deepEqual([closed.requests.length, closed.out.trace.asked, closed.out.lookup], [0, false, null]);
 });
 

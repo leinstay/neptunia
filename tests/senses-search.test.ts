@@ -5,7 +5,7 @@ import { renderSenses, sensesWhole } from '../src/turn/request/senses.ts';
 import { labels } from './fixtures/labels.ts';
 
 function linesOf(enabled: boolean, searchAvailable: boolean, toolsGranted: Array<string>): Array<string> {
-  const config = { web: { search: { enabled } } } as Parameters<typeof renderSenses>[0];
+  const config = { web: { quickSearch: { enabled } } } as Parameters<typeof renderSenses>[0];
   return sensesWhole(renderSenses(config, labels, { searchAvailable, toolsGranted })).split('\n');
 }
 

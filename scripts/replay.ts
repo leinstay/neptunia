@@ -443,12 +443,12 @@
 // place (same author, time and lines before it, as with --split):
 // 1. the search classifier's request, once: system = prompts['query-builder'] with
 //    `{{name}}` and `{{today}}` (the trigger's day in `bot.timezone`); user =
-//    the `<transcript>` of the last `web.search.contextMessages` fetched
+//    the `<transcript>` of the last `web.quickSearch.contextMessages` fetched
 //    messages before the trigger (cached captions with
 //    features.mediaDescriptions on, cached video states with video vision on,
 //    cached link reads with features.webLookup and web.links on) and the
 //    `<candidate>` line; on the analyzer model (roleModel) with roleRequestOptions
-//    (role `analyzer`, `web.search.classifierMaxOutputTokens`, purpose
+//    (role `analyzer`, `web.quickSearch.classifierMaxOutputTokens`, purpose
 //    `query-builder`); the answer parsed by src/behavior/query-builder.ts#parseQueryPlan
 //    at the trigger's time;
 // 2. when the answer has a server part, the `run()` of
@@ -488,7 +488,7 @@
 // neighbouring channels or pulled channels, no variety pass (`<worn>`), no
 // owner-forced text, no private chat, no line on where a read-only channel's
 // call is answered. `<senses>` still says whether a web search could run
-// (the lookup's hasSearch() for web.search.engine: `brave` needs
+// (the lookup's hasSearch() for web.quickSearch.engine: `brave` needs
 // BRAVE_SEARCH_API_KEY, `exa` and `openrouter` no key), as a live turn's
 // does; no search is run (but for her own in-turn tools under the tool loop, above).
 //
@@ -1144,7 +1144,7 @@ async function runRecall({
       links.push(...collectReadableLinks(history[i], { videoSites: sites }));
     reads = createLookup({ hot, store: cacheStore, llm: refusing }).cachedReads(placeId, links);
   }
-  const searchCfg = config.web?.search ?? {};
+  const searchCfg = config.web?.quickSearch ?? {};
   const contextMessages = Math.max(0, Math.floor(searchCfg.contextMessages ?? 50));
   const triggerText = [...String(trigger.content ?? '')].slice(0, MAX_MESSAGE_CHARS).join('');
   const context = contextMessages > 0 ? history.filter((m: Rec) => m.id !== trigger.id).slice(-contextMessages) : [];
@@ -1704,7 +1704,7 @@ export function diaryTurnParams(
 
 /**
  * Whether a live turn's web search could run (`<senses>`'s search line): the
- * lookup's own `hasSearch()` for the configured `web.search.engine`, wired as
+ * lookup's own `hasSearch()` for the configured `web.quickSearch.engine`, wired as
  * src/index.js wires it (`brave` needs BRAVE_SEARCH_API_KEY, `exa` and
  * `openrouter` need no key). Builds the lookup only to ask; no search is run
  * and nothing is read or written (its llm and store refuse everything).
@@ -5601,7 +5601,7 @@ const DIRECT_CALL_KINDS = Object.freeze(['mention', 'reply', 'name', 'followUp',
  * with `{{name}}`, `{{today}}` (`at`'s day in `bot.timezone`) and `{{skills}}` (`discovery.index`), the
  * user part lookupClassifierInput builds, on the `analyzer` (roleModel, roleRequestOptions, purpose
  * `lookup`) -- asked when its prompt is there and a side can run: the web side under
- * features.webLookup, web.search.enabled, `web.search.maxPerTurn` >= 1, the lookup's search and its
+ * features.webLookup, web.quickSearch.enabled, `web.quickSearch.maxPerTurn` >= 1, the lookup's search and its
  * daily slots; the server side when the recall runner is available. Its answer (parseQueryPlan) runs
  * a `web` query through `lookup.search` and a `server` part through `recall.run` (the chat as
  * history, the trigger as candidate), in parallel, a failing part counting as nothing; a failed or
@@ -5643,7 +5643,7 @@ export async function preTurnLookup({
     recallSettings,
     fallbackLookupPlan,
   } = deps;
-  const searchCfg = config.web?.search ?? {};
+  const searchCfg = config.web?.quickSearch ?? {};
   const webOn = searchCfg.enabled !== false && typeof lookup?.search === 'function';
   const webCan =
     webOn &&

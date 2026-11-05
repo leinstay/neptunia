@@ -73,7 +73,7 @@ export function grantedSkillNames({
 /** Whether the skill needs a model role that is off: drawing, speech, or both vision and video for `media.look`. */
 function servedByOffRole(config: unknown, name: string): boolean {
   // Quick search switched off: the tool leaves her list, and reading a known page stays.
-  if (name === 'web.search') return objOf(objOf(objOf(config).web).search).enabled === false;
+  if (name === 'web.search') return objOf(objOf(objOf(config).web).quickSearch).enabled === false;
   if (name === 'draw.create') return !roleOn(config, 'drawing');
   if (name === 'voice.say') return !roleOn(config, 'speech');
   if (name === 'media.look') return !roleOn(config, 'vision') && !roleOn(config, 'video');

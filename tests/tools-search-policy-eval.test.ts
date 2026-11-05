@@ -61,7 +61,7 @@ function hotFixture(overrides = {}) {
       features: { tools: false },
       models: { base: { analyzer: 'test/analyzer' } },
       context: { maxMessageChars: 2000 },
-      web: { search: { contextMessages: 50, classifierMaxOutputTokens: 300 } },
+      web: { quickSearch: { contextMessages: 50, classifierMaxOutputTokens: 300 } },
       llm: { analyzerTimeoutMs: 9000 },
       ...overrides,
     },

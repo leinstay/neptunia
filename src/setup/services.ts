@@ -26,7 +26,7 @@ async function youtubeStep(dataDir: string, ask: ServicesStepDeps['ask']): Promi
 
 async function quickSearchStep(dataDir: string, ask: ServicesStepDeps['ask']): Promise<Outcome> {
   const declined: Outcome = { state: 'already', detail: 'quick search is off; /search engine turns it on later' };
-  const search = objOf(objOf(readLocalConfig(localConfigPath(dataDir))).web).search;
+  const search = objOf(objOf(readLocalConfig(localConfigPath(dataDir))).web).quickSearch;
   if (typeof objOf(search).engine === 'string') return { state: 'already', detail: 'quick search has its engine' };
   const engine = (
     await ask('Quick search, one engine: openrouter, brave or exa. Optional, empty leaves it off:', null)

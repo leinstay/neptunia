@@ -432,7 +432,7 @@ function cutWindowLines(value: string, limit: number): { text: string; dropped: 
  * (`invalid-args`) without a query; `failed` with `daily-cap` once the day's web slots are spent,
  * `error` when the search gave nothing back; the lookup's own failures by their code: `not-configured`,
  * `invalid` (`empty-query`), `cap`, `failed` (`provider`, with the last engine status in `values.status`); else `ok` with webSearchText (cut by
- * `web.search.snippetChars` and `web.search.resultsChars`, read now) as its `data.text`. Never
+ * `web.quickSearch.snippetChars` and `web.quickSearch.resultsChars`, read now) as its `data.text`. Never
  * throws.
  */
 export async function runWebSearch({
@@ -452,7 +452,7 @@ export async function runWebSearch({
     const given = objOf(args);
     const query = text(given.query);
     if (!query) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.query:required' };
-    const searchCfg = objOf(objOf(objOf(config).web).search);
+    const searchCfg = objOf(objOf(objOf(config).web).quickSearch);
     const feature = FEATURE.quickSearch;
     if (!lookup || typeof lookup.searchResults !== 'function')
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature, reason: 'no-engine' } };

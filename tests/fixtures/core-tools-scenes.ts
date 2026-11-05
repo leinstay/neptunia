@@ -105,7 +105,7 @@ function sceneHot({ coreTools, access = {} }: { coreTools?: boolean; access?: ob
       features,
       models: { base: { analyzer: 'x/text' } },
       media: { maxPerTurn: 6, filePreviewChars: 500, video: { sites: ['youtube.com'] } },
-      web: { maxPerDay: 60, links: { enabled: true, maxPerTurn: 2 }, search: { enabled: true, maxPerTurn: 1, contextMessages: 50 } },
+      web: { maxPerDay: 60, links: { enabled: true, maxPerTurn: 2 }, quickSearch: { enabled: true, maxPerTurn: 1, contextMessages: 50 } },
       gifs: { maxPerDay: 40 },
       tools: { safeMode: false, resultMaxChars: 2000, loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
     },

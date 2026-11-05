@@ -139,7 +139,7 @@ export function headSections(
   const head: Array<Section> = [
     fixedSection,
     interlocutorSection,
-    // One piece, never split: already bounded by web.search.summaryChars and
+    // One piece, never split: already bounded by web.quickSearch.summaryChars and
     // recall.answerChars / recall.stretchChars, and ahead of the chat so a
     // tight budget trims old messages first.
     { name: 'lookup', items: [lookupItem].filter(Boolean) },
@@ -147,7 +147,7 @@ export function headSections(
     ...(given.prefetch
       ? [{ name: 'prefetch', items: [prefetchText(given.prefetch, labels, timezone)].filter(Boolean) }]
       : []),
-    // A diary post's search result: one piece, bounded by web.search.summaryChars.
+    // A diary post's search result: one piece, bounded by web.quickSearch.summaryChars.
     { name: 'found', items: [foundText].filter(Boolean) },
     // The tool catalogue, asked for: one piece, ahead of the chat like what was looked up.
     { name: 'tool_catalogue', items: [inventoryText].filter(Boolean) },

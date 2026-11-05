@@ -586,7 +586,7 @@ async function buildCore(
     llm,
     state: store.state,
     pageFetcher: createPageFetcher(),
-    // web.search.engine picks one of these, and nothing answers in its place.
+    // web.quickSearch.engine picks one of these, and nothing answers in its place.
     searches: { brave: createBraveSearch(), exa: createExaSearch() },
     keys: { brave: braveApiKey, exa: exaApiKey },
   };

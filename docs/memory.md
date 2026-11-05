@@ -82,7 +82,7 @@ The authenticated owner CLI has a separate internal view across stored memory. T
 
 A search has two steps with a model around it. The query builder (`createQueryBuilder` and `parseQueryPlan` in `src/behavior/query-builder.ts`, purpose `query-builder`, prompt `prompts/query-builder.md`) plans before the search: `web:`, `history:`, `who:`, `when:`, `when-role:` and `recent:`, or `none`. A live turn has no such step, because the persona's own tools search during her reply, so `src/turn/phases/request/lookup.ts` logs `lookup: skipped` with the reason `core-tools` and adds no helper model. Its callers are `scripts/replay.ts`, `scripts/recall-eval.ts` and `scripts/search-policy-eval.ts`.
 
-The summary builder (`createSummaryBuilder` and `parseSummaryNote` in `src/behavior/summary-builder.ts`) condenses what a search found into a note bounded by `maxChars`. Chat evidence reads `prompts/recall-summary.md` under the purpose `recall-summary` on the analyzer, and web evidence reads `prompts/search-summary.md` under the purpose `search-summary` on the `search` role with `web.search.model`. The single word `none` is no note. `src/behavior/recall-run.ts` and `src/web/lookup.ts` both go through it.
+The summary builder (`createSummaryBuilder` and `parseSummaryNote` in `src/behavior/summary-builder.ts`) condenses what a search found into a note bounded by `maxChars`. Chat evidence reads `prompts/recall-summary.md` under the purpose `recall-summary` on the analyzer, and web evidence reads `prompts/search-summary.md` under the purpose `search-summary` on the `search` role with `web.quickSearch.model`. The single word `none` is no note. `src/behavior/recall-run.ts` and `src/web/lookup.ts` both go through it.
 
 ## Searches and backups off the main thread
 

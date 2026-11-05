@@ -4,7 +4,7 @@
 // `agents.<name>.search.provider` (now `searchProvider`), the analyzer timeout `llm.helperTimeoutMs` (now
 // `llm.analyzerTimeoutMs`), the switch `features.innerLife` (now `features.wakes`), and the sections of the wakes and
 // the three ticking mechanics (MECHANIC_MOVES): `innerLife.heartbeat.*` and `innerLife.wakes.heartbeat.*` under
-// `heartbeat`, `diary.*` under `selfreflection`, `selfdev.*` and `innerLife.wakes.selfimprovement.*` under
+// `heartbeat`, `diary.*` under `selfreflection`, `web.search.*` under `web.quickSearch`, `selfdev.*` and `innerLife.wakes.selfimprovement.*` under
 // `selfimprovement`, the other `innerLife.wakes.<kind>.*` under `wakes.kinds`, and the rest of `innerLife.*` under
 // `wakes`, then the old forms of a schedule (`watcher.at`, `selfimprovement.at`, `heartbeat.everyMinutes`) under
 // `<name>.schedule`, a value that is no schedule dropped and reported. A local config written with the old keys keeps its meaning
@@ -253,6 +253,7 @@ function dropKeys(config: Config, report: MovedConfig): void {
  * `wakes`.
  */
 export const MECHANIC_MOVES: ReadonlyArray<{ from: ReadonlyArray<string>; to: ReadonlyArray<string> }> = [
+  { from: ['web', 'search'], to: ['web', 'quickSearch'] },
   { from: ['innerLife', 'heartbeat'], to: ['heartbeat'] },
   { from: ['diary'], to: ['selfreflection'] },
   { from: ['selfdev'], to: ['selfimprovement'] },
