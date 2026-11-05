@@ -37,8 +37,10 @@ test('answerReply drops the fragment of a message cut at the output cap', async 
     samples: 1,
     at: NOW,
   });
-  assert.deepEqual(result.answers[0].messages, []);
-  assert.equal(result.answers[0].skip, true);
+  // R.2: the first answer gets a name, so the assertions read three segments deep at most.
+  const [firstAnswer] = result.answers;
+  assert.deepEqual(firstAnswer.messages, []);
+  assert.equal(firstAnswer.skip, true);
 });
 
 test('answerSkillScenario drops the fragment of a message cut at the output cap', async () => {
