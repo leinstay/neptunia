@@ -45,11 +45,11 @@ type FoundPlace = Extract<PrivatePlaceView, { found: true }>;
 
 function person(view: PrivatePersonView): FoundPerson {
   assert.equal(view.found, true);
-  return view as FoundPerson;
+  return view;
 }
 function place(view: PrivatePlaceView): FoundPlace {
   assert.equal(view.found, true);
-  return view as FoundPlace;
+  return view;
 }
 
 const placeIds = (view: FoundPerson): Array<string> => view.places.map((one) => one.id).sort();
