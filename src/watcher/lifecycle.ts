@@ -40,6 +40,8 @@ export type RunRecord = {
   owner: ProcessIdentity | null;
   code: string | null;
   detail: string | null;
+  /** The answers asked for so far, each counted before it runs; absent on a record from before retries. */
+  attempts?: number;
 };
 
 /** A lock older than this was left by a crash: every holder is done within a few file operations (ms). */
@@ -209,6 +211,15 @@ export function requestCancel(store: RunStore): RunRecord | null {
 }
 
 /** Ends a run. A finished state is final, so a later finish changes nothing; the answer is the record as it stands. */
+/** Counts the attempt about to run, so a crash inside it reads as having started. */
+export function noteAttempt(store: RunStore, runId: string, attempts: number): void {
+  locked(store, () => {
+    const run = readRecord(store, runId);
+    if (run !== null && isOpen(run.state))
+      writeWhole(recordFile(store, runId), JSON.stringify({ ...run, attempts }, null, 2));
+  });
+}
+
 export function finishRun(
   store: RunStore,
   runId: string,

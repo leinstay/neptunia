@@ -202,7 +202,13 @@ export type RunStepsArgs = {
 };
 
 /** What the steps of a turn came to: act's answers in order, whether one was cut off, whether anything was delivered. */
-export type Stepped = { acts: Array<ActOutcome | HeldSpeech>; cutOff: boolean; delivered: boolean };
+export type Stepped = {
+  acts: Array<ActOutcome | HeldSpeech>;
+  cutOff: boolean;
+  delivered: boolean;
+  /** Her last answer was a skip. */
+  skipped: boolean;
+};
 
 type TranscriptOptions = {
   selfName: string;
@@ -830,7 +836,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     // An inner turn's loop end state, for its result (`inner.loop`): the steps made, the bound that cut it with calls dropped, how many.
     if (inner)
       draft.innerLoop = { steps: step, cut: draft.loopCut?.reason ?? null, droppedCalls: draft.loopCut?.dropped ?? 0 };
-    return { acts, cutOff, delivered };
+    return { acts, cutOff, delivered, skipped: Boolean(answer.parsed.skip) };
 
     /** Her speech of a step posted: the messages, reactions, GIF and picture through act, then an inner turn's lowered speech as calls. */
     async function postSpeech({

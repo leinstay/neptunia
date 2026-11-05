@@ -40,8 +40,8 @@ export type MemoryHandle = {
 /** The rows of one unit or one mapping, by table. */
 export type Rows = Record<string, Array<Row & { id?: string }>>;
 
-/** A function that takes a connection takes the handle `openMemoryDb` returns or the raw connection under it. */
-export type Connection = MemoryHandle | Db;
+/** A function that takes a connection takes the handle `openMemoryDb` returns, the raw connection, or a holder of it. */
+export type Connection = MemoryHandle | Db | { db: Db };
 
 /** The raw connection of a handle, or the connection itself. */
 export function dbOf(source: Connection): Db {

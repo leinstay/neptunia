@@ -11,6 +11,8 @@ import { projectRow } from './graph.ts';
 import { deriveMirrorPublication } from './publish.ts';
 import { resolveParticipationSources } from './participation-sources.ts';
 import { sessionHold } from './session-rows.ts';
+import { parseExtra } from './map/common.ts';
+import { hasMessageFamilies } from './message-family-catalog.ts';
 import { asText } from './types.ts';
 import type { Db, Row, Rows } from './types.ts';
 
@@ -391,14 +393,62 @@ export function hotClaimIds(db: Db): Set<string> {
   return ids;
 }
 
-export function linkVectors(db: Db, rows: ReadonlyArray<Row>): void {
+/** The families of protocol message ids, by message id: several when conversations of an interface reuse an id. */
+function familiesOf(db: Db, messageIds: ReadonlyArray<string>): Map<string, Array<Row>> {
+  const out = new Map<string, Array<Row>>();
+  if (messageIds.length === 0 || !hasMessageFamilies(db)) return out;
+  // The catalog's key starts at the interface and a chunk key names none, so one scan answers the whole batch.
+  const rows = prepared(
+    db,
+    'SELECT * FROM message_families WHERE generation = 1 AND message_id IN (SELECT value FROM json_each(?))'
+  ).all(JSON.stringify(messageIds));
   for (const row of rows) {
-    const match = /^(?:private:[^:]+:)?record:(.+):([^:]*?)(?:#\d+)?$/.exec(String(row.chunk_key));
-    if (!match || match[2] === '') continue;
-    const found = prepared(
-      db,
-      "SELECT rowid FROM sources WHERE native_id = ? AND revision = ? AND kind IN ('seen', 'said') ORDER BY kind LIMIT 1"
-    ).get(match[1], Number(match[2]));
-    if (found) row.source_rowid = found.rowid;
+    const id = asText(row.message_id);
+    out.set(id, [...(out.get(id) ?? []), row]);
   }
+  return out;
+}
+
+/** The one family a vector row's message belongs to: narrowed by its channel and interface, none when still ambiguous. */
+function familyOfVector(row: Row, families: ReadonlyArray<Row>): Row | undefined {
+  if (families.length <= 1) return families[0];
+  const channel = parseExtra(row.context).channelId;
+  const narrowed = families.filter(
+    (family) =>
+      (channel === undefined || channel === null || family.conversation_id === channel) &&
+      (row.scope_iface === undefined || row.scope_iface === null || family.iface === row.scope_iface)
+  );
+  return narrowed.length === 1 ? narrowed[0] : undefined;
+}
+
+const CHUNK_KEY = /^(?:private:[^:]+:)?record:(.+):([^:]*?)(?:#\d+)?$/;
+
+/**
+ * Sets each vector row's `source_rowid` from its chunk key, `record:<message id>:<revision>`. An observed line holds its
+ * family's key in `native_id`, so the message id goes through `message_families`; a line with no family holds the id
+ * itself.
+ */
+export function linkVectors(db: Db, rows: ReadonlyArray<Row>): void {
+  const keys = rows.map((row) => CHUNK_KEY.exec(String(row.chunk_key)));
+  const families = familiesOf(db, [...new Set(keys.flatMap((match) => (match && match[2] !== '' ? [match[1]] : [])))]);
+  rows.forEach((row, index) => {
+    const match = keys[index];
+    if (!match || match[2] === '') return;
+    const revision = Number(match[2]);
+    const family = familyOfVector(row, families.get(match[1]) ?? []);
+    const found = family
+      ? prepared(
+          db,
+          `SELECT rowid FROM sources WHERE authority_id = ? AND native_kind = ? AND native_id = ? AND generation = ?
+           AND revision = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY kind LIMIT 1`
+        ).get(family.authority_id, family.native_kind, family.native_key, family.generation, revision)
+      : undefined;
+    const direct =
+      found ??
+      prepared(
+        db,
+        "SELECT rowid FROM sources WHERE native_id = ? AND revision = ? AND kind IN ('seen', 'said') ORDER BY kind LIMIT 1"
+      ).get(match[1], revision);
+    if (direct) row.source_rowid = direct.rowid;
+  });
 }

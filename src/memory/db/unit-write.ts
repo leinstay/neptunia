@@ -13,7 +13,7 @@ import { messageLocator } from './message-locator.ts';
 import type { MessageLocator } from './message-locator.ts';
 import type { MapContext, ResolvedRecordIdentity } from './map/common.ts';
 import { resolveMessageFamily } from './message-families.ts';
-import { familyError } from './message-family-catalog.ts';
+import { familyError, hasMessageFamilies } from './message-family-catalog.ts';
 import { observedSourceId } from './observe.ts';
 import { parseExtra } from './map/common.ts';
 
@@ -202,8 +202,30 @@ function recordLocator(hint: Row, line: Row): MessageLocator {
   return locator;
 }
 
-function recordReference(update: Row, line: Row): { hint: Row; locator: MessageLocator } | undefined {
-  if (update.messages === undefined) return undefined;
+/**
+ * Her own line reaches the record with no descriptor (src/turn/journal-notes.ts#recordSaid and its siblings). Its
+ * interface, its channel and its message id are its address, so it takes the family the echo of the same message took,
+ * or reserves the one the echo will find.
+ */
+function saidReference(db: Db, unit: Unit, update: Row, line: Row): { hint: Row; locator: MessageLocator } | undefined {
+  // A write by a legacy owner is the importer's: it keeps the keys of the rows it brings.
+  if (!update.key || line.kind !== 'said' || line.v !== 1 || !hasMessageFamilies(db)) return undefined;
+  const iface = (unit.key ? storageContext(db, unit.key).iface : null) ?? ifaceOf(update);
+  const conversationId = (line.scope as { channel?: unknown } | undefined)?.channel;
+  const locator = messageLocator(
+    { v: 1, origin: 'record-v1', iface, conversationId, messageId: line.messageId },
+    iface
+  );
+  return locator ? { hint: {}, locator } : undefined;
+}
+
+function recordReference(
+  db: Db,
+  unit: Unit,
+  update: Row,
+  line: Row
+): { hint: Row; locator: MessageLocator } | undefined {
+  if (update.messages === undefined) return saidReference(db, unit, update, line);
   if (!Array.isArray(update.messages)) throw familyError('BAD_NATIVE');
   const matching = update.messages.filter(
     (value: unknown): value is Row =>
@@ -220,8 +242,13 @@ function recordReference(update: Row, line: Row): { hint: Row; locator: MessageL
   return { hint, locator };
 }
 
-function recordIdentity(db: Db, update: Row, line: Row): (ResolvedRecordIdentity & { iface: string }) | undefined {
-  const reference = recordReference(update, line);
+function recordIdentity(
+  db: Db,
+  unit: Unit,
+  update: Row,
+  line: Row
+): (ResolvedRecordIdentity & { iface: string }) | undefined {
+  const reference = recordReference(db, unit, update, line);
   if (!reference) return undefined;
   const { hint, locator } = reference;
   const family = resolveMessageFamily(db, { locator, authority: `${locator.iface}/global` });
@@ -275,6 +302,9 @@ function recordReply(db: Db, source: Row, line: Row, identity: ResolvedRecordIde
   source.extra = JSON.stringify({ ...extra, $messageReply: reply });
 }
 
+/** Whether a `media` column names at least one kind. */
+const holdsMedia = (media: unknown): boolean => typeof media === 'string' && media !== '[]';
+
 function adoptedRecord(source: Row, found: Row): Row {
   const adopted: Row = {
     ...found,
@@ -282,6 +312,9 @@ function adoptedRecord(source: Row, found: Row): Row {
     owner_file: found.owner_file,
     position: source.position,
     origin: source.origin,
+    turn_id: source.turn_id ?? found.turn_id,
+    op_id: source.op_id ?? found.op_id,
+    media: holdsMedia(source.media) ? source.media : found.media,
     extra: JSON.stringify({
       ...parseExtra(source.extra),
       ...parseExtra(found.extra),
@@ -323,7 +356,7 @@ function writeLine(
     archive,
   }: { update: Row; unit: Unit; line: Row; ctx: MapContext; position: number; at: string; archive: boolean }
 ) {
-  const identity = unit.kind === 'record' ? recordIdentity(db, update, line) : undefined;
+  const identity = unit.kind === 'record' ? recordIdentity(db, unit, update, line) : undefined;
   const mapping = unit.mapper.toRows(unit.rel, line, {
     ...ctx,
     position,
