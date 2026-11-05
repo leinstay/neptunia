@@ -62,6 +62,7 @@ export function createSkillsClient(
       return reads()?.active() ?? [];
     },
     problems: () => deps.load().problems,
+    diskHash: (name) => deps.load().skills.find((one) => one.name === name)?.contentHash ?? null,
     async list() {
       await sync();
       return reads()?.list() ?? [];

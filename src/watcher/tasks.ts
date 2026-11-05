@@ -1,13 +1,10 @@
 // The watcher's tasks: the agent ends its answer with one ```tasks block, a JSON array of { kind, title, evidence, done }
 // with an optional `finding`. `splitAnswer` takes the block out of the report and checks it; src/watcher/inspection.ts
-// calls it, and src/watcher/filing.ts files an inspection's drafts with receipts. `fileTasks` is the same filing rule over
-// a plain list of drafts, with no receipt. `normalized` and `herOpenTask` are how both compare evidence.
+// calls it, and src/watcher/filing.ts files the drafts. `normalized` and `herOpenTask` are how filing compares evidence.
 
 import type { TaskRecord } from '../board/board.ts';
 import { SELF } from '../board/fields.ts';
 import { CLOSED } from '../board/machine.ts';
-import { DAY_MS } from '../time.ts';
-import type { BoardCaller } from '../tools/impl/board.ts';
 
 export type TaskDraft = { kind: 'fix' | 'chore'; title: string; evidence: string; done: string; finding?: string };
 export type SplitAnswer =
@@ -86,42 +83,4 @@ const evidenceOf = (row: TaskRecord): string => {
 export function herOpenTask(rows: ReadonlyArray<TaskRecord>, evidence: string): TaskRecord | undefined {
   const wanted = normalized(evidence);
   return rows.find((row) => row.requester === HER && !CLOSED.includes(row.status) && evidenceOf(row) === wanted);
-}
-
-/**
- * Files each draft as `watcher`, skipping one whose evidence matches her open task, a task of the watcher's that is open or
- * was created on the UTC day of `now` or the day before, or an earlier draft of the batch. Nothing here claims, approves or
- * runs a task.
- */
-export async function fileTasks(args: {
-  board: BoardCaller;
-  drafts: ReadonlyArray<TaskDraft>;
-  now: () => number;
-}): Promise<{ filed: Array<{ id: string; title: string }>; skipped: Array<TaskDraft> }> {
-  const { board } = args;
-  const since = Math.floor(args.now() / DAY_MS) * DAY_MS - DAY_MS;
-  const own = await board.call(WATCHER, 'task.list', { requester: WATCHER });
-  const hers = await board.call(WATCHER, 'task.list', { requester: HER });
-  const seen = new Set(
-    own.filter((row) => !CLOSED.includes(row.status) || Date.parse(row.created_at) >= since).map(evidenceOf)
-  );
-  const filed: Array<{ id: string; title: string }> = [];
-  const skipped: Array<TaskDraft> = [];
-  for (const draft of args.drafts) {
-    const key = normalized(draft.evidence);
-    if (seen.has(key) || herOpenTask(hers, draft.evidence) !== undefined) {
-      skipped.push(draft);
-      continue;
-    }
-    seen.add(key);
-    const added = await board.call(WATCHER, 'task.add', {
-      lane: 'dev',
-      title: draft.title,
-      description: draft.evidence,
-      acceptance: draft.done,
-      metadata: { kind: draft.kind, evidence: draft.evidence, origin: WATCHER },
-    });
-    filed.push({ id: added.id, title: draft.title });
-  }
-  return { filed, skipped };
 }

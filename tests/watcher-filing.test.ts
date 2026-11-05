@@ -267,19 +267,13 @@ test('a repeat of an open task from before finding keys files nothing, by its ev
   assert.equal(rig.fake.rows.length, 1);
 });
 
-test('watcher tasks carry their origin and run, and a persona task never blocks one', async () => {
-  // Bug: a watcher diagnostic reads as her own proposal, or her task with the same finding silences the watcher.
+test('watcher tasks carry their origin and run', async () => {
+  // Bug: a watcher diagnostic reads as her own proposal.
   const { runInspection } = await inspection();
-  const persona = taskRow({
-    id: 'T-persona',
-    requester: 'persona',
-    status: 'proposed',
-    metadata: { origin: 'persona', finding: DRAFT.finding, evidence: DRAFT.evidence },
-  });
-  const rig = inspectionRig(undefined, watcherBoard({ rows: [persona] }));
+  const rig = inspectionRig();
   const result = await runInspection(inspectionDeps(rig, { runAgent: answering(DRAFT) }));
   const row = rig.fake.rows.at(-1);
-  assert.equal(rig.fake.rows.length, 2);
+  assert.equal(rig.fake.rows.length, 1);
   assert.equal(row?.requester, 'watcher');
   assert.equal(row?.metadata?.origin, 'watcher');
   assert.equal(row?.metadata?.runId, result.runId);

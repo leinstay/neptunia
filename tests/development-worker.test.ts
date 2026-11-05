@@ -679,7 +679,7 @@ test('her filed fix starts development at the next board event, and a proposal w
   assert.equal(statusOf(world, idea), 'proposed');
 });
 
-test('a skill task ends at the package seam: pending waits for the owner, with no pull request', async (t) => {
+test('a skill task ends at the package seam and is submitted, with no pull request', async (t) => {
   // Catches: a skill task opens a pull request, or the worker binds itself to the activation code.
   const world = developmentWorld(t);
   const id = await herProposal(world, 'skill');

@@ -4,7 +4,8 @@
 // once however many sweeps see it, and a crash before the activation or before the mark recovers on the next sweep.
 //
 // The version is the identity: a later edit is a new candidate and retires the bound one, so the sweep refuses it as
-// `superseded` and the edit stays pending. Nothing here reads a name from a task's title, walks other candidates or
+// `superseded` and the edit stays pending. A folder whose bytes differ from the version a binding would name, as after a
+// revert to an older version, refuses with `version-not-on-disk`. Nothing here reads a name from a task's title, walks other candidates or
 // touches a grant, and a failed, cancelled or watcher's task never reaches the sweep. A closed task keeps its fields, which
 // is why the mark is a comment. The core runs the sweep (src/core.ts), and the worker reaches `bindPackage` over the
 // socket's `skill.pending { name, task }` (agent-commands.ts).
@@ -38,8 +39,11 @@ export async function bindPackage(
   if (problem !== undefined) return { ok: false, code: problem.code };
   const pending = await deps.skills.pending();
   const row = (await deps.skills.list()).find((one) => one.name === name);
-  const versionId = pending.findLast((one) => one.skill === name)?.versionId ?? row?.active?.versionId;
-  if (row?.lifecycle !== 'active' || versionId === undefined) return { ok: false, code: 'no-package' };
+  const version = pending.findLast((one) => one.skill === name) ?? row?.active;
+  if (row?.lifecycle !== 'active' || version === undefined || version === null)
+    return { ok: false, code: 'no-package' };
+  if ((await deps.skills.diskHash(name)) !== version.contentHash) return { ok: false, code: 'version-not-on-disk' };
+  const { versionId } = version;
   for (let tries = 1; ; tries += 1) {
     const { task } = await deps.board.call(deps.principal, 'task.show', { id: taskId });
     try {

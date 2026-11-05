@@ -32,6 +32,8 @@ export type SkillsPort = {
   list(): Array<SkillListRow>;
   /** The skill folders the loader refused, with the reason. */
   problems(): Array<SkillProblem>;
+  /** The content hash of the package the folder holds now, or null when it holds none. */
+  diskHash(name: string): string | null;
   show(name: string): { row: SkillListRow; text: string | null } | null;
   pending(): Array<VersionView & { skill: string }>;
   review(name: string): { active: VersionView | null; candidates: Array<VersionView> } | null;
@@ -141,6 +143,7 @@ export function createSkillsPort(deps: {
       return reads.list();
     },
     problems: () => deps.load().problems,
+    diskHash: (name) => deps.load().skills.find((one) => one.name === name)?.contentHash ?? null,
     show(name) {
       sync();
       return reads.show(name);

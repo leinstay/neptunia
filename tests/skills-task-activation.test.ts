@@ -20,7 +20,6 @@
 // - src/skills/agent-commands.ts: `skillCommandOf(access, caller, 'skill.pending', { name, task }, { board })` binds the
 //   filed package to `task` as `caller.name`. An agent still has no activation command.
 // - src/skills/load.ts: a symlink as `SKILL.md`, `setup.json`, `scripts` or a script is the problem `symlink`.
-// - src/watcher/tasks.ts: `fileTasks` skips a draft whose evidence matches an open task of hers.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -38,7 +37,6 @@ import { snapshotDir } from '../src/skills/package.ts';
 import { createSkillsPort } from '../src/skills/port.ts';
 import { bindPackage, settleSkillTasks } from '../src/skills/task-activation.ts';
 import type { BoardCaller } from '../src/tools/impl/board.ts';
-import { fileTasks } from '../src/watcher/tasks.ts';
 import { skillText, skillsRig } from './fixtures/skills-rig.ts';
 import type { SkillsRig } from './fixtures/skills-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -537,12 +535,13 @@ test("a watcher's task never activates, disables or rewrites a skill", async (t)
   writePackage(r.rig, 'say-it', { script: 'process.stdout.write(\'{"ok":true,"text":"two"}\');\n' });
   const pending = r.rig.port.pending()[0]?.versionId ?? '';
   const text = fs.readFileSync(path.join(r.rig.folders.localDir, 'say-it', 'SKILL.md'), 'utf8');
-  const { filed } = await fileTasks({
-    board: r.world.caller,
-    drafts: [{ kind: 'fix', title: 'say-it misbehaves', evidence: 'say-it failed in t1.', done: 'it stops failing' }],
-    now: () => T0,
+  const { id } = await r.world.caller.call('watcher', 'task.add', {
+    lane: 'dev',
+    title: 'say-it misbehaves',
+    description: 'say-it failed in t1.',
+    acceptance: 'it stops failing',
+    metadata: { kind: 'fix', evidence: 'say-it failed in t1.', origin: 'watcher' },
   });
-  const id = filed[0]?.id ?? '';
   const { task } = await r.world.caller.call(WORKER, 'task.show', { id });
   await claimed(r.world, id, task.revision);
   const { task: held } = await r.world.caller.call(WORKER, 'task.show', { id });
@@ -557,39 +556,6 @@ test("a watcher's task never activates, disables or rewrites a skill", async (t)
   assert.equal(row?.active?.versionId, live.versionId);
   assert.equal(row?.disabled, false);
   assert.equal(fs.readFileSync(path.join(r.rig.folders.localDir, 'say-it', 'SKILL.md'), 'utf8'), text);
-});
-
-test('a watcher draft on the issue of her open task is not filed, so one issue runs once, and both keep their origin', async (t) => {
-  // Bug: the watcher dedupes against its own tasks only, so her task and its draft both reach an executor.
-  const r = rigs(t);
-  const evidence = 'web.read timed out in t1, t2 and t3.';
-  const hers = await r.world.caller.call('persona', 'task.add', {
-    lane: 'dev',
-    title: 'Raise the timeout',
-    description: evidence,
-    requester: 'persona:self',
-    subscriber: 'persona:self',
-  });
-  const answer = await fileTasks({
-    board: r.world.caller,
-    drafts: [
-      { kind: 'fix', title: 'Timeouts', evidence, done: 'none' },
-      { kind: 'fix', title: 'Another', evidence: 'A separate issue in t9.', done: 'none' },
-    ],
-    now: () => T0,
-  });
-  assert.deepEqual(
-    answer.skipped.map((one) => one.title),
-    ['Timeouts']
-  );
-  assert.deepEqual(
-    answer.filed.map((one) => one.title),
-    ['Another']
-  );
-  const { task: mine } = await r.world.caller.call(WORKER, 'task.show', { id: hers.id });
-  assert.equal(mine.requester, 'persona:self');
-  const { task: theirs } = await r.world.caller.call(WORKER, 'task.show', { id: answer.filed[0]?.id ?? '' });
-  assert.equal(theirs.requester, 'watcher');
 });
 
 test('the writer takes the exact version: one activate-version write with its actor, over the client', async (t) => {
