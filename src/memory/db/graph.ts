@@ -17,6 +17,8 @@
 //       kept there), in slices; the key goes once everything is projected. Run by a full sync pass and by the last
 //       slice of the first import.
 //   rebuildGraph(handle)   drops the three tables' rows and projects everything again (the rebuildability contract).
+// Schema v30: an entity is a node seen only through the assertions that name it, and a claim's unit also projects each
+// sealed version's `has_role` edges and the `asserts` or `denies` shortcut of a binary relation.
 // Schema v10: a publication (publish.ts) is its own unit: its node, `published_as` from the entry it publishes and
 // `publication_source` to each stored line its receipts name; the diary unit no longer reads `diary_mirrors`.
 // An edge whose end has no typed row yet gets a placeholder node (the epoch as its time); the row's own projection
@@ -42,6 +44,7 @@ import { canonicalKey } from './ids.ts';
 import { hasMessageFamilies } from './message-family-catalog.ts';
 import { AUD_INTERNAL, audienceParts, audienceWhere, dmAudienceId, groupAudienceId } from './scope.ts';
 import { NODE_KINDS, RELATION_EDGES, UNIT_OF, UNIT_ORDER } from './graph-manifest.ts';
+import { readPredicate } from './semantic-registry.ts';
 import { dbOf, transactionOf, asText, isWholeNumber } from './types.ts';
 import type { Connection, Db, Log, Row } from './types.ts';
 import type { NodeKindSpec } from './graph-manifest.ts';
@@ -65,9 +68,11 @@ export const graphNodeId = (kind: string, rowId: unknown): string => `${kind}:${
 export const projectionKey = (predicate: unknown, src: unknown, dst: unknown, evidence: unknown = null): string =>
   [predicate, src, dst, ...(filled(evidence) ? [evidence] : [])].join(':');
 /** The id of an edge: 32 hex digits of SHA-256 over the edge's tuple (unambiguous, whatever the ids hold). */
-const edgeIdOf = (predicate: unknown, src: unknown, dst: unknown, evidence: unknown): string =>
+const edgeIdOf = (predicate: unknown, src: unknown, dst: unknown, evidence: unknown, qualifier?: string): string =>
   `edge:${createHash('sha256')
-    .update(canonicalKey(predicate, [src, dst, filled(evidence) ? evidence : null]))
+    .update(
+      canonicalKey(predicate, [src, dst, filled(evidence) ? evidence : null, ...(filled(qualifier) ? [qualifier] : [])])
+    )
     .digest('hex')
     .slice(0, 32)}`;
 
@@ -170,6 +175,8 @@ type Edge = {
   to: unknown;
   recorded: unknown;
   retired: unknown;
+  /** What tells this edge from another of one version between the same two nodes: an argument's role and position. */
+  qualifier?: string;
 };
 /** What one unit produces: its nodes, the witnesses of its own rows and its edges. */
 type Produced = { nodes: Array<NodeOut>; own: Array<{ node: string; audience: unknown }>; edges: Array<Edge> };
@@ -373,7 +380,8 @@ const PRODUCERS: Record<string, (db: Db, id: string) => Produced> = {
       id
     );
     let previous = null;
-    for (const version of versions) {
+    const payloads = hasSemanticTables(db);
+    for (const [at, version] of versions.entries()) {
       const retired = version.retired_at ?? claimRetired;
       out.nodes.push(node('claim_version', version));
       if (!retired) out.own.push({ node: graphNodeId('claim_version', version.id), audience });
@@ -404,6 +412,7 @@ const PRODUCERS: Record<string, (db: Db, id: string) => Produced> = {
           })
         );
       }
+      if (payloads) out.edges.push(...semanticEdges(db, version, versions.slice(at + 1), retired));
     }
     const recorded = row ? recordedOf(row.created_at, row.first_seen_at) : EPOCH;
     out.edges.push(
@@ -517,7 +526,65 @@ const PRODUCERS: Record<string, (db: Db, id: string) => Produced> = {
   intentions: ownOnly('intentions', 'intention'),
   work: ownOnly('work', 'work'),
   decisions: ownOnly('decisions', 'decision'),
+  semantic_entities(db: Db, id: string) {
+    // An entity has no audience of its own: only the assertions that name it witness it.
+    const row = one(db, 'SELECT id, created_at FROM semantic_entities WHERE id = ?', id);
+    return row ? { ...empty(), nodes: [node('semantic_entity', row)] } : empty();
+  },
 };
+
+/** Whether this database holds semantic memory (schema v30): a migration of an older one projects without it. */
+const hasSemanticTables = (db: Db): boolean =>
+  one(db, "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'semantic_assertion_versions'") !==
+  undefined;
+
+/** The node kind of a semantic argument's reference. */
+const nodeKindOf = (refKind: unknown): string => (refKind === 'entity' ? 'semantic_entity' : asText(refKind));
+
+/**
+ * The edges of one sealed version: `has_role` from its node to each reference, and for a binary relation one shortcut
+ * between the two, `asserts` or `denies`, in the order of its predicate's roles. Each names the exact version. A version
+ * is witnessed until a later version of its claim follows, and a version with state `retired` witnesses nothing.
+ */
+function semanticEdges(db: Db, version: Row, later: ReadonlyArray<Row>, parentRetired: unknown): Array<Edge> {
+  const id = version.id as string;
+  const payload = one(db, 'SELECT * FROM semantic_assertion_versions WHERE version_id = ?', id);
+  if (!payload || payload.assertion_kind === 'text') return [];
+  const successor = later.find((row) => !row.retired_at);
+  const recorded = recordedOf(version.recorded_at);
+  const ended = payload.truth_state === 'retired' ? recorded : (successor?.recorded_at ?? null);
+  const fields = {
+    audience: payload.audience_id,
+    evidence: id,
+    from: payload.valid_from_at ?? null,
+    to: payload.valid_to_at ?? null,
+    recorded,
+    retired: parentRetired ?? ended,
+  };
+  const refs = all(
+    db,
+    'SELECT role, position, ref_kind, ref_id FROM semantic_arguments WHERE version_id = ? AND ref_id IS NOT NULL ORDER BY role, position',
+    id
+  );
+  const refOf = (row: Row): Ref => [nodeKindOf(row.ref_kind), row.ref_id];
+  const edges = refs.map((row) =>
+    edge('has_role', ['claim_version', id], refOf(row), {
+      ...fields,
+      qualifier: `${asText(row.role)}:${asText(row.position)}`,
+    })
+  );
+  if (payload.assertion_kind !== 'relation' || refs.length !== 2 || payload.truth_state === 'retired') return edges;
+  const definition = readPredicate(db, asText(payload.predicate_id), Number(payload.predicate_version));
+  const order = definition?.roles.map((role) => role.role) ?? [];
+  const [src, dst] = [...refs].sort((a, b) => order.indexOf(asText(a.role)) - order.indexOf(asText(b.role)));
+  edges.push(
+    edge(payload.polarity === 'negative' ? 'denies' : 'asserts', refOf(src), refOf(dst), {
+      ...fields,
+      qualifier: `${asText(src.role)}:${asText(src.position)}>${asText(dst.role)}:${asText(dst.position)}`,
+    })
+  );
+  return edges;
+}
 
 /**
  * The audience a publication is read with: once sent, its destination place's (the entry's own when it names no
@@ -598,6 +665,7 @@ function aboutTarget(kind: unknown, id: unknown): Ref | null {
   if (!filled(id)) return null;
   if (kind === 'person' || kind === 'self') return ['person', id];
   if (kind === 'place') return ['place', id];
+  if (kind === 'entity') return ['semantic_entity', id];
   return null;
 }
 
@@ -672,13 +740,15 @@ function writeUnit(db: Db, table: string, id: string, at: unknown): { nodes: num
       (e.src[0] === 'source' && e.evidence === e.src[1]) || (e.dst[0] === 'source' && e.evidence === e.dst[1])
         ? null
         : e.evidence;
-    const key = projectionKey(e.predicate, src, dst, evidence);
+    const key = [projectionKey(e.predicate, src, dst, evidence), ...(filled(e.qualifier) ? [e.qualifier] : [])].join(
+      ':'
+    );
     if (keys.has(key)) continue;
     keys.add(key);
     placeholder.run(src, e.src[0], String(e.src[1]), EPOCH);
     placeholder.run(dst, e.dst[0], String(e.dst[1]), EPOCH);
     const audience = usableAudience(db, e.audience);
-    const edgeId = edgeIdOf(e.predicate, src, dst, evidence);
+    const edgeId = edgeIdOf(e.predicate, src, dst, evidence, e.qualifier);
     upsertEdge.run(
       edgeId,
       src,
@@ -789,6 +859,7 @@ function unitIds(db: Db, table: string, after: unknown, limit: number): Array<st
     episodes: ['SELECT id FROM episodes', 'SELECT episode_id FROM episode_sources'],
     diary: ['SELECT id FROM diary'],
   };
+  if (table === 'semantic_entities' && !hasSemanticTables(db)) return [];
   const sources = byTable[table] ?? [`SELECT id FROM ${quote(table)}`];
   return db
     .prepare(
