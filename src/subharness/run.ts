@@ -8,7 +8,9 @@
 // PATH on which `sudo` refuses unless the mode is `sudo`: a stand-in named `sudo` in a folder of its own comes first.
 // OpenCode gets one extra key as OPENROUTER_API_KEY and nothing else key-like: the one it logged in with, or with a
 // route the one the task brought (`routeKey`, a run without it fails `route-no-key`); codex and claude bring their own
-// login and get no key. A run with a `route` (src/agent-runner/protocol.ts#TaskRoute) is the runner's: the core decided
+// login and get no key, unless the run has `pathDirs`: an agent with commands of its own (the scout's `web-search`)
+// gets its `routeKey` as OPENROUTER_API_KEY on any backend, and those folders sit on the PATH right after the refusing
+// `sudo` folder (first in `sudo` mode). A run with a `route` (src/agent-runner/protocol.ts#TaskRoute) is the runner's: the core decided
 // the backend, model, effort and mode when it dispatched the task, because a runner unit may hide keys.json. Such a
 // run uses exactly the route and never opens keys.json. A run in `full` or `sudo` writes one log line before it starts, with
 // the agent and the mode and never the brief, so the log shows who worked without a sandbox. A claude whose `--help` lists
@@ -56,6 +58,8 @@ export type AgentRun = {
   route?: TaskRoute;
   /** the key an opencode route spends; it comes with the task and is never read from keys.json */
   routeKey?: string;
+  /** folders of the agent's own commands, put on the child's PATH after the `sudo` stand-in; with any, `routeKey` is also the child's OPENROUTER_API_KEY */
+  pathDirs?: ReadonlyArray<string>;
   /** more of the child's environment; the PATH with its refusing `sudo` and the key the engine sets win over it */
   env?: Readonly<Record<string, string>>;
   /** what the session map ties this run to: the task or the inspection */
@@ -125,18 +129,30 @@ function ensureStandIn(dir: string): void {
 
 const off = (): BackendResult => ({ ok: false, text: '', exitCode: null, error: 'subharness-off' });
 
-/** The environment of the child: its PATH (a refusing `sudo` first unless the mode is `sudo`) and the key OpenCode gets. */
-function envOf(deps: RunDeps, mode: AgentMode, keyValue: string | null): Record<string, string> {
+/** The environment of the child: its PATH (a refusing `sudo` first unless the mode is `sudo`, then the agent's own folders) and its key. */
+function envOf(
+  deps: RunDeps,
+  mode: AgentMode,
+  keyValue: string | null,
+  pathDirs: ReadonlyArray<string> = []
+): Record<string, string> {
   const host = deps.hostEnv ?? process.env;
   const env: Record<string, string> = {};
+  const hostPath = host.PATH === undefined || host.PATH === '' ? [] : [host.PATH];
   if (mode === 'sudo') {
-    if (host.PATH !== undefined) env.PATH = host.PATH;
+    if (pathDirs.length > 0 || host.PATH !== undefined) env.PATH = [...pathDirs, ...hostPath].join(':');
   } else {
     ensureStandIn(deps.denyDir);
-    env.PATH = host.PATH === undefined || host.PATH === '' ? deps.denyDir : `${deps.denyDir}:${host.PATH}`;
+    env.PATH = [deps.denyDir, ...pathDirs, ...hostPath].join(':');
   }
   if (keyValue !== null) env.OPENROUTER_API_KEY = keyValue;
   return env;
+}
+
+/** The key the child gets: the backend's own, else the task's when the agent has commands of its own that need it. */
+function childKeyOf(run: AgentRun, keyValue: string | null): string | null {
+  if (keyValue !== null) return keyValue;
+  return (run.pathDirs?.length ?? 0) > 0 && run.routeKey ? run.routeKey : null;
 }
 
 /** opencode has no step flag: its agent's `steps` comes in through its inline config. */
@@ -230,7 +246,7 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
   const settled = run.route === undefined ? pathFromStore(run, deps) : pathFromRoute(run, run.route);
   if ('ok' in settled) return settled;
   const { name, mode, model, effort, keyValue } = settled;
-  const env = { ...run.env, ...envOf(deps, mode, keyValue) };
+  const env = { ...run.env, ...envOf(deps, mode, childKeyOf(run, keyValue), run.pathDirs) };
   if (mode === 'full' || mode === 'sudo') log.info('subharness: run without a sandbox', { agent: run.agent, mode });
   const options: BackendRunOptions = {
     cwd: run.cwd,

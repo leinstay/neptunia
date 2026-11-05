@@ -152,9 +152,11 @@ test('the openrouter request carries the plugin engine auto under the purpose qu
     complete: () => Promise.resolve({ text: 'unread', usage: {}, estimated: 1, annotations }),
   });
   assert.equal(lookup.hasSearch(), true);
-  assert.deepEqual(webSearchPlugins(5), [{ id: 'web', engine: 'auto', max_results: 5 }]);
+  // OpenRouter refuses `auto`, measured 2026-11-05
+  assert.deepEqual(webSearchPlugins(5), [{ id: 'web', max_results: 5 }]);
   const found = await lookup.searchResults('g1', QUERY);
-  assert.deepEqual(requests[0]?.plugins, [{ id: 'web', engine: 'auto', max_results: 5 }]);
+  // OpenRouter refuses `auto`, measured 2026-11-05
+  assert.deepEqual(requests[0]?.plugins, [{ id: 'web', max_results: 5 }]);
   assert.equal(requests[0]?.purpose, 'quick-search');
   assert.equal(requests[0]?.role, 'search');
   assert.deepEqual(found, {

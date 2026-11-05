@@ -272,7 +272,8 @@ test('search-compare: two queries x three engines -> results, summary, blind she
   assert.equal(summaryCall.origin, 'search-compare');
   assert.equal(summaryCall.countAgainstDailyCap, false);
   const pluginCall = asRecord(calls.llm.find((c) => asRecord(c).options.plugins))?.options;
-  assert.deepEqual(pluginCall.plugins, [{ id: 'web', engine: 'auto', max_results: 5 }]);
+  // OpenRouter refuses `auto`, measured 2026-11-05
+  assert.deepEqual(pluginCall.plugins, [{ id: 'web', max_results: 5 }]);
   assert.equal(pluginCall.isRoleRequest, false);
   assert.equal(pluginCall.countAgainstDailyCap, false);
 
