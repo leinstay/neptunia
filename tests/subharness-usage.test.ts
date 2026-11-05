@@ -236,7 +236,7 @@ function deskWith(backendUsage: () => Promise<ReadonlyArray<BackendUsage>>) {
   const desk = createConsole({
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: '', data: null }),
     ownerReads: { lessons: () => '', aliases: () => '' },
-    guildId: () => 'g1',
+    places: () => [],
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] } } },
     privateDir,

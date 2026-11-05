@@ -770,7 +770,7 @@ test('inner: a dropped wake of a recurring intention (no channel, overflow, stal
   const run = setup({ service, hot: wrongly(hot), turns, dataDir });
   const first = NOW - MINUTE_MS;
   // No usable conversation: dropped, missed, advanced.
-  const nowhere = service.set(GUILD, {
+  const nowhere = service.set({
     purpose: 'nowhere',
     dueAt: first,
     every: { period: '12h', at: null },
@@ -781,21 +781,21 @@ test('inner: a dropped wake of a recurring intention (no channel, overflow, stal
   await settle();
   assert.equal(run.turns.calls.length, 0);
   assert.ok(run.journal.some((r) => r.event === 'no-channel'));
-  let record = present(service.store(GUILD)).get(nowhere.id);
+  let record = present(service.store()).get(nowhere.id);
   assert.equal(present(record.history.at(-1)).code, 'missed');
   assert.equal(present(record).dueAt, first + 12 * HOUR_MS);
   // The queue full: the overflowing wake is handled, its intention advanced.
   run.turns.busy = true;
-  const held = recordOf(service.set(GUILD, { purpose: 'held', dueAt: first, placeId: 'c1', scope: 'group' }));
+  const held = recordOf(service.set({ purpose: 'held', dueAt: first, placeId: 'c1', scope: 'group' }));
   const fillers = [...Array(19).keys()].map((n) =>
-    recordOf(service.set(GUILD, { purpose: `filler ${n}`, dueAt: first, placeId: `c-q${n}`, scope: 'group' }))
+    recordOf(service.set({ purpose: `filler ${n}`, dueAt: first, placeId: `c-q${n}`, scope: 'group' }))
   );
   await run.inner.tick();
   assert.deepEqual(
     run.inner.state().queue.map((w) => w.intentionIds[0]),
     [held, ...fillers].map((r) => r.id)
   );
-  const over = service.set(GUILD, {
+  const over = service.set({
     purpose: 'over',
     dueAt: first,
     every: { period: 'day', at: null },
@@ -805,17 +805,17 @@ test('inner: a dropped wake of a recurring intention (no channel, overflow, stal
   await run.inner.tick();
   await settle();
   assert.ok(run.journal.some((r) => r.event === 'overflow'));
-  assert.equal(present(service.store(GUILD).get(over.id).history.at(-1)).code, 'missed');
-  assert.ok(present(service.store(GUILD).get(over.id).dueAt) > clock.t);
+  assert.equal(present(service.store().get(over.id).history.at(-1)).code, 'missed');
+  assert.ok(present(service.store().get(over.id).dueAt) > clock.t);
   // Stale: the intention closed meanwhile is cancelled, nothing to advance; the others are untouched.
-  for (const r of [held, ...fillers]) service.cancel(GUILD, r.id);
+  for (const r of [held, ...fillers]) service.cancel(r.id);
   run.turns.busy = false;
   await run.inner.tick();
   await settle();
   assert.ok(run.journal.some((r) => r.event === 'stale'));
   assert.equal(run.turns.calls.length, 0);
   // The last occurrence before the expiry: the wake carries the note; after it the expiry wins.
-  const last = service.set(GUILD, {
+  const last = service.set({
     purpose: 'last one',
     dueAt: first,
     every: { period: 'day', at: null },
@@ -827,12 +827,12 @@ test('inner: a dropped wake of a recurring intention (no channel, overflow, stal
   await settle();
   assert.equal(run.turns.calls.length, 1);
   assert.deepEqual(run.turns.calls[0].inner.wake.notes, { [last.id]: 'last-occurrence' });
-  record = present(service.store(GUILD)).get(last.id);
+  record = present(service.store()).get(last.id);
   assert.ok(present(record.dueAt) > present(record).expiresAt, 'the next occurrence lies past the expiry');
   clock.t = NOW + 12 * HOUR_MS;
   await run.inner.tick();
   await settle();
-  assert.equal(present(service.store(GUILD).get(last.id)).status, 'expired');
+  assert.equal(present(service.store().get(last.id)).status, 'expired');
   assert.equal(run.turns.calls.length, 1, 'no wake past the expiry');
   // The three drops reached her in the wake of the one turn that ran.
   assert.deepEqual(
@@ -1122,7 +1122,7 @@ test("inner: an attention wakes her on the place's settled lines since her last 
   ];
   const run = attentionSetup({
     lines,
-    nameOf: (_g: string, id: string) =>
+    nameOf: (id: string) =>
       new Map([
         ['u1', 'Ana'],
         ['u2', 'Nikos'],
@@ -1567,7 +1567,7 @@ test('inner: the turn is given the current channel and the wake says where and w
 /** The facts of the state as `kind:code:why`, oldest first. */
 const factLines = (run: Record<string, Untyped>) =>
   run.inner
-    .state(GUILD)
+    .state()
     .facts.map((fact: Record<string, Untyped>) => [fact.kind, fact.code, fact.why].filter(Boolean).join(':'));
 
 test('inner: a wake of hers dropped no-channel is a fact at that moment (where, why), shown in the wake of her next turn and told once that turn completed; no feedback wake is needed', async () => {
@@ -2342,7 +2342,8 @@ test('inner: an unfinished mark with the journal off is interrupted without repl
   const dataDir = tempDir('nep-inner-flight-');
   const records = [intention('i1')];
   const wake = wakeOfDue({ intention: records[0], reason: 'due', at: present(records[0].dueAt) });
-  const dir = path.join(dataDir, 'persona');
+  // A file of an earlier release: the wake import reads this layout and spelling, and only this one.
+  const dir = path.join(dataDir, 'guilds', GUILD);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, 'inner.json'),
@@ -2354,7 +2355,7 @@ test('inner: an unfinished mark with the journal off is interrupted without repl
         wakeIds: [wake.id],
         kind: 'intention_due',
         startedAt: NOW - MINUTE_MS,
-        placeId: 'c1',
+        channelId: 'c1',
         privateChat: false,
         privateUserId: null,
       },

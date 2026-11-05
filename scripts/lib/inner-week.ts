@@ -581,7 +581,7 @@ export async function runWeek({
       ...(perDay !== undefined ? { perDay: Number(perDay) } : {}),
     });
     if (call.skill === 'intention.set') {
-      const created = intentions.set(placeId, {
+      const created = intentions.set({
         purpose: String(args.purpose ?? args.attend ?? ''),
         dueAt: args.due ? when(args.due) : null,
         every: everyOf(args.every) ?? null,
@@ -607,11 +607,11 @@ export async function runWeek({
       if (args.errand) patch.errandId = args.errand;
       if (args.deadline) patch.deadline = when(args.deadline);
       if (Object.keys(attendOf()).length > 0) patch.attend = attendOf();
-      const moved = intentions.update(placeId, String(args.id ?? ''), patch);
+      const moved = intentions.update(String(args.id ?? ''), patch);
       return moved.ok ? { ok: true } : { ok: false, code: moved.code };
     }
     if (call.skill === 'intention.cancel') {
-      const cancelled = intentions.cancel(placeId, String(args.id ?? ''), { by: 'persona' });
+      const cancelled = intentions.cancel(String(args.id ?? ''), { by: 'persona' });
       return cancelled.ok ? { ok: true } : { ok: false, code: cancelled.code };
     }
     if (call.skill === 'errand.run') {
@@ -626,7 +626,7 @@ export async function runWeek({
         createdAt: at,
       });
       if (typeof args.wait === 'string' && typeof args.id === 'string' && args.id) {
-        const waited = intentions.update(placeId, args.id, {
+        const waited = intentions.update(args.id, {
           errandId: id,
           deadline: at + (parseDuration(args.wait) ?? 2 * HOUR_MS),
           by: 'persona',
@@ -695,7 +695,7 @@ export async function runWeek({
     });
     inner = life;
     // At start, as src/index.ts does: the waits reconciled with the errands as they stand.
-    intentions.reconcile(placeId);
+    intentions.reconcile();
     onReady?.({ clock, intentions });
   }
 
@@ -721,7 +721,7 @@ export async function runWeek({
       taskId = item.wait.task;
       deadline = item.wait.deadline;
     }
-    const created = intentions.set(placeId, {
+    const created = intentions.set({
       purpose: item.purpose,
       dueAt: item.dueAt,
       every: item.every,
@@ -740,7 +740,7 @@ export async function runWeek({
     });
     // The week writes the self line's text in as the record's quote, so her <intentions> block and her memory of the week agree.
     if (created.ok && line && item.span)
-      intentions.store(placeId)?.update(created.intention.id, (record: Rec) => ({
+      intentions.store()?.update(created.intention.id, (record: Rec) => ({
         ok: true,
         changed: true,
         intention: { ...record, provenance: { ...record.provenance, span: item.span } },
@@ -784,19 +784,19 @@ export async function runWeek({
       const task = world.tasks.get(event.task) ?? { id: event.task, agent: 'scout', origin: {}, createdAt: at };
       const ended = { ...task, state: event.state, endedAt: at, usage: { usd: event.usd } };
       world.tasks.set(event.task, ended);
-      intentions.onErrandFinished(ended, placeId);
-      if (inner.onTaskFinished(ended, placeId)) errandCosts.push({ at, taskId: event.task, usd: event.usd });
+      intentions.onErrandFinished(ended);
+      if (inner.onTaskFinished(ended)) errandCosts.push({ at, taskId: event.task, usd: event.usd });
       // The turn its end opens holds the attention like a people's turn.
       world.busyUntil = Math.max(world.busyUntil, at) + fixture.turnSeconds * 1000;
     } else if (event.kind === 'restart') {
       journal.push({ at, event: 'harness-restart' });
       build();
     } else if (event.kind === 'stop') {
-      inner.stop(placeId, { by: event.by });
+      inner.stop({ by: event.by });
       world.stopped = true;
       world.stopSpans.push({ from: at, to: null });
     } else if (event.kind === 'start') {
-      inner.start(placeId, { by: event.by });
+      inner.start({ by: event.by });
       world.stopped = false;
       const open = world.stopSpans.find((span: Rec) => span.to === null);
       if (open) open.to = at;
@@ -805,7 +805,7 @@ export async function runWeek({
 
   /** The due items at `now`, as the scheduler would name them (for the dispositions gate). */
   function observeDue(now: number) {
-    const store = intentions.store(placeId);
+    const store = intentions.store();
     const records = store ? store.list() : [];
     for (const entry of dueList(records, now)) {
       const wake = wakeOfDue(entry);
@@ -827,7 +827,7 @@ export async function runWeek({
           intentionId: wake.intentionIds[0],
           seenAt: now,
         });
-    const review = inner.state(placeId).review;
+    const review = inner.state().review;
     if (review && Number.isFinite(review.at) && review.at <= now) {
       const wake = reviewWake(review.day, review.at);
       if (!dueSeen.has(wake.id))
@@ -838,7 +838,7 @@ export async function runWeek({
   /** The moments the next tick may be needed at. */
   function tickCandidates(now: number, lastDrain: Untyped) {
     const out = [];
-    const store = intentions.store(placeId);
+    const store = intentions.store();
     for (const record of store ? store.list() : []) {
       if (!isOpen(record.status)) continue;
       // A time already past was listed at its tick (and stays listed, handled): no tick for it.
@@ -851,7 +851,7 @@ export async function runWeek({
       const newest = (world.chat.get(record.attend.place) ?? []).filter((line: Untyped) => !line.self).at(-1);
       if (newest && newest.ts + record.attend.settle * 1000 > now) out.push(newest.ts + record.attend.settle * 1000);
     }
-    const state = inner.state(placeId);
+    const state = inner.state();
     if (state.review && !state.review.done && Number.isFinite(state.review.at) && state.review.at > now)
       out.push(state.review.at);
     out.push(zonedEpoch(addDays(dayOf(now), 1), 0, 0, fixture.timezone));
@@ -909,8 +909,8 @@ export async function runWeek({
       });
   }
 
-  const finalState = inner.state(placeId);
-  const store = intentions.store(placeId);
+  const finalState = inner.state();
+  const store = intentions.store();
   return {
     fixture: fixture.name,
     mode,

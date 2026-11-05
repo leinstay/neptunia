@@ -492,7 +492,7 @@ function rawMessage(
   const id = SnowflakeUtil.generate({ timestamp: ts, increment: CHANNEL_INCREMENT[channel.id] ?? 0n }).toString();
   return {
     id,
-    placeId: channel.id,
+    channelId: channel.id,
     channel: {
       name: channel.name,
       parent: channel.category ? { name: channel.category } : null,
@@ -635,12 +635,14 @@ function generalRaws() {
 }
 
 const normalize = (raws: Array<ReturnType<typeof rawMessage>>) =>
-  raws.map((raw) =>
-    normalizeMessage(raw as Parameters<typeof normalizeMessage>[0], SELF_ID, {
+  raws.map((raw) => {
+    const line = normalizeMessage(raw as Parameters<typeof normalizeMessage>[0], SELF_ID, {
       embedTextChars: 200,
       videoSites: SHIPPED.config.media.video.sites,
-    })
-  );
+    });
+    // The interface's line names its channel natively; the core reads the same line under its place.
+    return { ...line, placeId: line.channelId };
+  });
 
 /** A fetch stand-in for text attachment previews: every file reads the same short text. */
 const previewFetch = async () => ({
@@ -1973,6 +1975,7 @@ test('createAvatarQueue: the avatar describer fills avatar.md', async () => {
     imageFetcher,
     state,
     isServedCommunity: (id: unknown) => id === GUILD,
+    servedCommunity: () => GUILD,
     selfId: () => SELF_ID,
     // The interface answers `memberInfo` with the member and the hash and address of their avatar.
     reads: {

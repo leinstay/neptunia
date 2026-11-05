@@ -234,8 +234,8 @@ test("errands service: a task carries context.recent, the origin channel's last 
   ];
   // The channel's newest lines with text, oldest first, as src/index.ts reads them from the memory database.
   const memory = {
-    recentLines: (placeId: string, conversationId: string, count: number) =>
-      (placeId === 'g1' ? buffer : [])
+    recentLines: (conversationId: string, count: number) =>
+      buffer
         .filter((line) => line.placeId === conversationId && line.content)
         .map((line) => ({ author: line.authorName, text: line.content }))
         .slice(-count),
@@ -557,7 +557,7 @@ test('errands service: at start the finished errands whose result turn never ran
       isServedCommunity: (id: unknown) => id === 'g1',
       log: fakeLog(),
       defer: (fn) => fn(),
-      onFinished: (task) => reopened.push([task.id]),
+      onFinished: (task) => reopened.push([task.id, task.origin?.placeId]),
     });
     assert.equal(errands.start(), 1);
     await new Promise((resolve) => setImmediate(resolve));
@@ -566,8 +566,9 @@ test('errands service: at start the finished errands whose result turn never ran
       [running, unseen].sort(),
       'the restart-failed task and the unseen one'
     );
+    // The callback takes no community since places: each reopened task names the place it was asked in.
     assert.equal(
-      reopened.every(([, placeId]) => placeId === 'g1'),
+      reopened.every(([, placeId]) => placeId === 'c1'),
       true
     );
   } finally {

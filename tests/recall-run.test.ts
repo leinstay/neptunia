@@ -970,7 +970,7 @@ test('recall: the summary reads the last six chat lines as <context> right befor
 function tempStore() {
   const dataDir = tempDir('recall-trace-');
   const store = createStore({ dataDir });
-  const file = path.join(dataDir, 'guilds', GUILD, 'recall-trace.jsonl');
+  const file = path.join(dataDir, 'places', GUILD, 'recall-trace.jsonl');
   const lines = () =>
     fs.existsSync(file)
       ? fs

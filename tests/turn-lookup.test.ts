@@ -13,7 +13,7 @@ for (const direction of ['ordinary-first', 'internal-first'] as const) {
     const contexts: Array<unknown> = [];
     const lookup = createLookup({
       hot: { prompts: { labels } },
-      store: {},
+      store: { listUserProfiles: () => [] },
       llm: {
         complete: () => Promise.reject(new Error('prefetch does not classify')),
       },
@@ -42,6 +42,7 @@ for (const direction of ['ordinary-first', 'internal-first'] as const) {
         config: config(),
         channel: { id: 'same-room', communityId: 'g1' },
         placeId: 'g1',
+        place: { id: 'g1' },
         trigger: { id: 'same-trigger', authorId: 'asker' },
         candidate: { content: 'θυμάσαι το κουνέλι στον κήπο', authorId: 'asker' },
         triggerKind: 'mention',
@@ -78,7 +79,7 @@ test('prefetch memoization retains qualified history identity as well as the iss
   const loaded: Array<unknown> = [];
   const lookup = createLookup({
     hot: { prompts: { labels } },
-    store: {},
+    store: { listUserProfiles: () => [] },
     llm: { complete: () => Promise.reject(new Error('prefetch does not classify')) },
     clock: () => NOW,
     recall: {
@@ -102,6 +103,7 @@ test('prefetch memoization retains qualified history identity as well as the iss
       config: config(),
       channel: { id: 'same-room', communityId: 'g1' },
       placeId: 'g1',
+      place: { id: 'g1' },
       trigger: { id: 'same-trigger', authorId: 'asker' },
       candidate: { content: 'θυμάσαι το κουνέλι στον κήπο', authorId: 'asker' },
       triggerKind: 'mention',
@@ -131,7 +133,7 @@ test('the owner chat fetches no partner from the community', async () => {
   const asked: Array<unknown> = [];
   const lookup = createLookup({
     hot: { prompts: { labels } },
-    store: {},
+    store: { listUserProfiles: () => [] },
     llm: { complete: () => Promise.reject(new Error('no model here')) },
     clock: () => NOW,
     recall: null,
