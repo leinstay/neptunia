@@ -1,36 +1,60 @@
 # Setup
 
-`neptunia setup` configures the installation belonging to the current user. Run it at a terminal to answer questions. A full run starts the core; when restoring a persona, restore its files before that step. Follow [getting started](getting-started.md#first-run) for the client tokens and interface startup that setup does not create for you.
+`neptunia setup` configures the installation belonging to the current user, with no core running. Run it at a terminal to answer questions. It starts the core at its end, so restore a persona's files before running it. [Getting started](getting-started.md#first-run) walks through a first run.
 
 Interactive setup uses a keyboard selector for `on` or `off` and `yes` or `no` questions. Other answers use a text field with the offered default. Secret fields are masked, and Esc cancels setup. Run it again to continue. The owner chat also provides a `/setup` panel for later configuration.
 
-## Individual steps
+## One flow and its steps
 
-Run `neptunia setup <step>` to repeat one part without starting the rest. The `selfimprovement`, `mechanics` and `watcher` steps run in a full setup alone, and `neptunia setup` with one of those words exits `2`. To repeat them, use `neptunia services <name> setup`, `enable` and `disable` from [the CLI](cli.md#scheduled-services), which write the same settings with the same validation. The repository check runs again in a full setup.
+`neptunia setup` takes `--system` and `--node <path>` and no other word. Each step below checks whether its work is done and skips it, so running the command again resumes after a failure and adds what an earlier run left out. A step's name exits `2` and runs nothing. `neptunia setup subharness <backend>` exits `2` and names `neptunia subharness <backend> login`. To repeat the mechanics or the watcher alone, use `neptunia services <name> setup`, `enable` and `disable` from [the CLI](cli.md#scheduled-services), which write the same settings with the same validation.
 
 | Step | Purpose |
 |---|---|
 | `folders` | Create the persona directories with private permissions |
 | `keys-file` | Create or secure the key store |
-| `interfaces` | Ask the installed interfaces' setup questions |
+| `interfaces` | Ask the installed interfaces' setup questions, register each chosen interface's client with its token, and start its unit |
 | `services` | Offer the optional YouTube metadata key and optional quick search |
-| `subharness` | Install agent backends and wait for their logins |
+| `subharness` | Install the chosen agent backends and run their logins |
 | `selfimprovement` | Select and check the development repository |
 | `mechanics` | Switch heartbeat and reflection, switch and schedule the development wake |
 | `watcher` | Switch the watcher, choose its schedule, backend and model |
-| `units` | Render service and timer files, and make the clients `watcher` and `development` with their tokens |
+| `units` | Render service and timer files, and make the clients `cli`, `watcher` and `development` with their tokens |
 | `linger` | Let user services continue without an interactive login |
 | `core` | Enable and start the core service |
 
-A failure stops later steps. Without a terminal, interactive questions are skipped. Inspect the report instead of assuming that a noninteractive setup configured your credentials.
+A failure stops later steps. Without a terminal, interactive questions are skipped and no chat opens. Inspect the report instead of assuming that a noninteractive setup configured your credentials.
+
+The `interfaces` step on a clean install writes `interfaces.mode: units`, because the shipped `inprocess` default runs only the interface built into the core. A local config that names a mode, or already enables an interface, is left as it is. An `inprocess` deployment gets no client and no unit from this step. A repeat keeps a client and a token that hold a value, and replaces an empty token file. An interface missing a required value is neither registered nor started, and the report names an interface as running only after the service manager accepted it.
+
+The `subharness` step takes none, one, several or `all`. A backend that can run already is left alone, so naming it again repeats no login, and reopening the step to add another keeps the accounts and the model choices of the first. No role moves.
+
+## Chat readiness
+
+`neptunia` with no arguments reads its readiness before it opens a chat. `gatherHealth` in `src/setup/readiness.ts` reads the files of the data folder, the unit folder and one `status.readiness` command of the core, which sends no model request, and waits 5 seconds for it. `evaluateReadiness` checks these requirements in order, and a failure carries the repair it prints:
+
+| Requirement | Blocks when |
+|---|---|
+| `cli-identity` | `clients.json` has no `cli` client of kind `cli`, or its token file is empty |
+| `local-config` | `config/config.json` of the data folder does not parse. A missing file blocks nothing |
+| `services` | the core's unit is absent from the unit folder of the scope |
+| `core-running` | nothing listens on the core's socket, or the core does not answer in time |
+| `cli-link` | the core refuses the token or there is no token to offer it |
+| `core-model` | the core role has no model, or the check recorded for that selection is missing, stale or failed |
+| `memory` | the memory database is closed, or the last probe of the memory writer failed |
+
+Search, media, mirrors and subharnesses never block. The check of the core model comes from `/model set core`, `/keys check core` and the first `/keys core add`, which `src/setup/model-check.ts` keeps in `setup/core-check.json` of the data folder. It answers for the selection it tested, so a changed model reads as stale and a key revoked since shows at the next `/keys check core`. A `/model set core` the provider refuses saves nothing and leaves the record of the selection in force.
+
+At a terminal a gap enters the setup flow of `src/setup/flow.ts` at the first incomplete requirement, runs only what is incomplete and opens the chat when nothing is left. It starts a stopped core and leaves the rest of the install untouched. Cancelling a step stops the flow, and answers given so far wait in `setup/answers.json` for the next launch. When a step says it finished while its gap stays open, the flow stops as failed, so a provider that keeps refusing costs one check. Broken config, a refused token and a failing memory end with their repair, since no step can mend them for the owner.
+
+With `NEPTUNIA_PLAIN_CHAT=1` and no terminal, a gap prints `setup-required` with every repair and exits `1`. Without that variable a chat with no terminal explains itself and exits `2` before reading anything. Every other command stays reachable, and `neptunia doctor` reports the same result as its `readiness` check. `neptunia doctor live` leaves that check out.
 
 ## Services
 
 The default is user units under `~/.config/systemd/user` or the directory selected by `XDG_CONFIG_HOME`. Manage these with `systemctl --user`. `neptunia setup --system` installs system units through sudo, running them as the installing user. Manage those with `sudo systemctl`.
 
-Use `--node /absolute/path/to/node` to select the executable written into units. See [the unit templates](../deploy/README.md) for the processes and timers. Changing a stored setting does not rewrite an installed unit: rerun `neptunia setup units` when changing a backend mode. `neptunia services watcher setup` renders the watcher's timer itself, and a `watcher.schedule` changed through `/config` reaches the timer at the next render.
+Use `--node /absolute/path/to/node` to select the executable written into units. See [the unit templates](../deploy/README.md) for the processes and timers. Changing a stored setting does not rewrite an installed unit: rerun `neptunia setup` when changing a backend mode. `neptunia services watcher setup` renders the watcher's timer itself, and a `watcher.schedule` changed through `/config` reaches the timer at the next render.
 
-Setup starts the core only. Enable the interface and chosen timers explicitly, the watcher's with `neptunia services watcher enable`. `neptunia services` follows the scope: `NEPTUNIA_UNIT_SCOPE` when it says `user` or `system`, else the user manager when the watcher's timer lies under `$XDG_CONFIG_HOME/systemd/user/`, otherwise the system manager. `/logs` addresses the system journal, so use `journalctl --user` for a user installation.
+Setup starts the core and the interfaces you chose. Enable the chosen timers explicitly, the watcher's with `neptunia services watcher enable`. `neptunia services`, `/logs` and a chat's readiness follow one scope (`unitScope` in `src/service/manager.ts`): `NEPTUNIA_UNIT_SCOPE` when it says `user` or `system`, else the user manager when the core's unit or the watcher's timer lies under `$XDG_CONFIG_HOME/systemd/user/`, otherwise the system manager. `/logs` adds `--user` to `journalctl` in the user scope, and a manager that refuses or cannot run exits `1` with the scope and the reason (`src/service/journal.ts`).
 
 ## Optional modules
 
@@ -52,19 +76,12 @@ neptunia subharness codex login
 neptunia subharness opencode login --key <extra-key-name>
 ```
 
-A backend is available when it is installed and its login works: `sourceState` in `src/subharness/sources.ts` reads both at each look and stores neither, so there is no separate switch to turn on. `login` offers to install an absent backend, and on a yes the same command goes on to the login. Declining changes nothing. With no terminal it exits `1` and says what is needed, installing nothing and starting no vendor login. The login runs under the persona's backend home. For Claude Code the command comes from what the installed binary lists first in its `--help`, `auth login` or `login`, and a help that lists neither fails the login with an explanation. Logging into your own separate CLI does not authenticate hers. OpenCode has no vendor login here: `--key` names the extra key it runs on, and the name must be in the store. `neptunia setup subharness opencode --from /absolute/path/to/opencode` copies the executable in, or `login` copies it from `errands.opencodePath`.
+A backend is available when it is installed and its login works: `sourceState` in `src/subharness/sources.ts` reads both at each look and stores neither, so there is no separate switch to turn on. `login` offers to install an absent backend, and on a yes the same command goes on to the login. Declining changes nothing. With no terminal it exits `1` and says what is needed, installing nothing and starting no vendor login. The login runs under the persona's backend home. For Claude Code the command comes from what the installed binary lists first in its `--help`, `auth login` or `login`, and a help that lists neither fails the login with an explanation. Logging into your own separate CLI does not authenticate hers. OpenCode has no vendor login here: `--key` names the extra key it runs on, and the name must be in the store. `login` copies the executable from `errands.opencodePath`, and the `subharness` step of setup asks for its path.
 
 `neptunia subharness <backend> status` asks the vendor's own status command, sends no model request and exits `1` when the backend is absent or not logged in. `neptunia subharness <backend> logout` removes that login and exits `1` with `busy` while an agent or the memory writer runs through the backend, in any process. All three run with no core, so they can repair a core that does not start. The same words work in the chat as `/subharness <backend> status`, and there a vendor's login answers the shell command to type.
 
 Login and logout change availability alone. No role moves, no model is chosen, and a role whose source logged out stays on it, shown `unavailable` by `/subharness status`, with no fallback to another source. Model and source are chosen with `/model set <role> <model> --via <backend>` and execution permissions with `/agent mode <agent> [<mode>]`. See [keys and models](keys.md#model-sources).
 
-Versions are recorded in `version.json`. A normal setup preserves the recorded choice. Updating is explicit:
-
-```bash
-neptunia setup subharness codex --version VERSION
-neptunia setup subharness codex --rollback
-```
-
-The installer preserves the backend home when replacing or rolling back its binary. Keep that home in persona backups so native sessions remain available for later inspection. Pinning does not guarantee that a provider will continue accepting an old client.
+Versions are recorded in `version.json`, and a normal setup preserves the recorded choice. The installer preserves the backend home when replacing its binary. Keep that home in persona backups so native sessions remain available for later inspection. Pinning does not guarantee that a provider will continue accepting an old client.
 
 Read the implementation in [setup steps](../src/setup/run.ts), [module settings](../src/setup/modules.ts) and [backend installation](../src/subharness/install.ts).

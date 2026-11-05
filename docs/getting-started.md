@@ -22,31 +22,15 @@ Settings live in `data/config/config.json`. Personal prompt files live in `data/
 
 ## First run
 
-Create the folders:
-
-```bash
-./bin/neptunia.ts setup folders
-```
-
 Write the following to `data/config/config.json`, substituting your server ID:
 
 ```json
 {
-  "interfaces": { "mode": "units" },
   "bot": { "guildId": "YOUR_SERVER_ID" }
 }
 ```
 
-The core still needs this home community setting. The Discord setup also accepts a list of servers. `units` runs the interface separately from the core and permits the owner CLI to connect through its own client identity.
-
-Create the socket clients:
-
-```bash
-node scripts/client-token.ts add cli --kind cli
-node scripts/client-token.ts add discord --kind interface --iface discord
-```
-
-These commands write token files and their registry entries without printing the tokens. They are separate from your Discord and model credentials.
+The core still needs this home community setting. The Discord setup also accepts a list of servers.
 
 Run the interactive setup:
 
@@ -54,17 +38,16 @@ Run the interactive setup:
 ./bin/neptunia.ts setup
 ```
 
-Choose Discord, enter its bot token and servers, then select the optional services and agent backends you need. Setup installs user units and starts the core. At the end it opens the owner chat with `/keys core add` ready. Add an OpenRouter key there; the dialog checks the selected models before saving it.
+Choose Discord, enter its bot token and servers, then select the optional services and agent backends you need. Setup sets `interfaces.mode` to `units`, writes the private tokens of the owner CLI and of Discord without printing them, installs user units, and starts Discord and the core. These tokens are separate from your Discord and model credentials. At the end it opens the owner chat with `/keys core add` ready. Add an OpenRouter key there; the dialog checks the selected models before saving it.
 
-Start Discord and check the installation:
+Check the installation:
 
 ```bash
-systemctl --user enable --now neptunia-interface@discord.service
 ./bin/neptunia.ts doctor
 ./bin/neptunia.ts
 ```
 
-In the chat, `/status` shows the core and its connections. Ordinary text talks to the persona; slash commands administer the installation. [CLI](cli.md) covers daily use and [setup](setup.md) covers system units and individual setup steps.
+In the chat, `/status` shows the core and its connections. Ordinary text talks to the persona; slash commands administer the installation. [CLI](cli.md) covers daily use and [setup](setup.md) covers system units, the setup flow and what a chat needs to open.
 
 ## Make it your persona
 
