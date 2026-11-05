@@ -71,8 +71,8 @@ const SAFE_NAMES = "json_each(CASE WHEN json_valid(a.names) THEN a.names ELSE '[
 
 // The tables whose rows are about a person, and the column that says which one.
 const SUBJECT_TABLES = [
-  { table: 'claims', where: "t.subject_kind = 'person' AND t.subject_id" },
-  { table: 'descriptions', where: "t.subject_kind = 'person' AND t.subject_id" },
+  { table: 'claims', where: "t.subject_kind IN ('person', 'self') AND t.subject_id" },
+  { table: 'descriptions', where: "t.subject_kind IN ('person', 'self') AND t.subject_id" },
   { table: 'episodes', where: 't.subject_id' },
   { table: 'affinity_events', where: 't.person_id' },
 ] as const;

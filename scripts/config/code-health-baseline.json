@@ -412,7 +412,7 @@
     },
     "src/memory/db/observe.ts": {
       "checkEnvelope": {
-        "complexity": 102
+        "complexity": 99
       },
       "participantOf": {
         "complexity": 25
@@ -450,9 +450,6 @@
     "src/memory/db/session.ts": {
       "buildSessionRequest": {
         "complexity": 29
-      },
-      "peopleOf": {
-        "complexity": 24
       },
       "runBatch": {
         "complexity": 25

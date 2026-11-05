@@ -28,6 +28,7 @@ import { createHandleMessage } from '../pipeline/handle-message.ts';
 import { createMediaPrefill } from '../pipeline/media-prefill.ts';
 import { createMerge } from '../pipeline/merge.ts';
 import { createObserve } from '../pipeline/observe.ts';
+import type { OwnerPerson } from '../pipeline/observe.ts';
 import { createPauseNotice } from '../pipeline/pause-notice.ts';
 import { createPendingQueue, turnBlocked as isTurnBlocked } from '../pipeline/pending-queue.ts';
 import { createPrivateGate } from '../pipeline/private-gate.ts';
@@ -146,6 +147,7 @@ export function createMessageHandler({
   memoryDb = null,
   stemmer = null,
   selfNames = null,
+  ownerPerson = null,
   port,
 }: {
   // The live config and prompts. A test hands in a stand-in whose config holds only what it reads, so the modules
@@ -173,6 +175,8 @@ export function createMessageHandler({
   activity?: { note: (placeId: string, authorId: string, at: number) => void } | null;
   record?: { append: (...args: Array<Untyped>) => Untyped } | null;
   memoryDb?: Parameters<typeof createObserve>[0]['memoryDb'];
+  /** The owner's person for the lines of his command line (src/pipeline/observe.ts#OwnerPerson). */
+  ownerPerson?: OwnerPerson | null;
   missed?: (PipelineMissed & { setPrivateRecovery?: (recovery: object) => void }) | null;
   /** The memory's learned stemmer for the alias gate, read at each line; null or absent leaves whole-word matching. */
   stemmer?: (() => { stem: (word: string) => string } | null) | null;
@@ -185,7 +189,7 @@ export function createMessageHandler({
     reads,
     memoryDb,
   });
-  const { observeLine, deleteLine } = createObserve({ hot, memoryDb, selfIdOf, timers });
+  const { observeLine, deleteLine } = createObserve({ hot, memoryDb, selfIdOf, timers, ownerPerson });
   const turnBlocked = () => isTurnBlocked(turns);
   const { warmMediaCache, cachedFollowUpMedia } = createMediaPrefill({
     hot,

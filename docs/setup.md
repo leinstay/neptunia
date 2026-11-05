@@ -48,6 +48,10 @@ At a terminal a gap enters the setup flow of `src/setup/flow.ts` at the first in
 
 With `NEPTUNIA_PLAIN_CHAT=1` and no terminal, a gap prints `setup-required` with every repair and exits `1`. Without that variable a chat with no terminal explains itself and exits `2` before reading anything. Every other command stays reachable, and `neptunia doctor` reports the same result as its `readiness` check. `neptunia doctor live` leaves that check out.
 
+## The owner's person
+
+Setup names no owner person. The owner's first line in the chat makes one. The core mints a person, and one write links the chat's account and the accounts `bot.owners` lists on the home interface to it. Then the core writes `bot.ownerPerson` to `config/config.json` of the data folder (`src/pipeline/observe.ts`). An install that already has `bot.ownerPerson` links the chat to that person. `/memory bind <iface> <account> owner` names another person later, as [Owner identity](memory.md#owner-identity) describes.
+
 ## Services
 
 The default is user units under `~/.config/systemd/user` or the directory selected by `XDG_CONFIG_HOME`. Manage these with `systemctl --user`. `neptunia setup --system` installs system units through sudo, running them as the installing user. Manage those with `sudo systemctl`.

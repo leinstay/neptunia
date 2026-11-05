@@ -48,7 +48,7 @@ import { memoryPathText } from '../../subharness/memory-path.ts';
 import type { MemoryPath } from '../../subharness/memory-path.ts';
 import { storageValue } from './export.ts';
 import { accountCollection } from './storage-keys.ts';
-import { SELF_PERSON, nativeOf, shortHash } from './ids.ts';
+import { SELF_PERSON, shortHash } from './ids.ts';
 import { contextRow, issueContext, scopeWhere } from './scope.ts';
 import { scopesOf } from './session-scopes.ts';
 import type { SweepScope } from './session-scopes.ts';
@@ -58,6 +58,8 @@ import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.ts';
 import { ASSERTION_HOW } from './semantic-registry.ts';
 import { validateSemanticAnswer } from './semantic-answer.ts';
 import { episodeLinesOf, intentionLinesOf } from './session-blocks.ts';
+import { peopleOf } from './session-people.ts';
+import type { BatchAccount, BatchAuthor, BatchPerson } from './session-people.ts';
 import { readRetrieved, requestCapOf, retrievedLines } from './session-retrieved.ts';
 import type { MemoryPage } from './semantic-types.ts';
 import { asText, isFiniteNumber, isWholeNumber } from './types.ts';
@@ -403,88 +405,6 @@ const foldName = (text: unknown): string =>
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
-
-/**
- * The names and ids of the accounts and people a batch touches, and its authors: every account and participant (schema
- * v8) that wrote a line of it apart from her, in order of their first line, each with a handle `aN` (`authors`: handle ->
- * `{ kind: 'account' | 'participant', id, hasPerson }`). The handles are what `people:add` names; the request does not
- * render them yet (docs/prompt-contract.md).
- */
-/** An account a batch touches: its person, its native id and its first name. */
-type BatchAccount = { personId: unknown; native: string; name: string };
-/** An author of a batch who may be added as a person: an account or a participant. */
-export type BatchAuthor = { kind: 'account' | 'participant'; id: string; hasPerson: boolean };
-/** A person a batch touches: the id, the native id and the name, with the count of lines. */
-export type BatchPerson = { id: string; native: string; name: string; count: number };
-
-function peopleOf(
-  db: Db,
-  batch: ReadonlyArray<Row>,
-  selfName: unknown
-): {
-  accounts: Map<string, BatchAccount>;
-  participants: Map<string, { name: string }>;
-  authors: Map<string, BatchAuthor>;
-  people: Array<BatchPerson>;
-  selfName: unknown;
-} {
-  const accountIds = [...new Set(batch.map((line) => line.author_account as string).filter(Boolean))];
-  const accounts = new Map<string, BatchAccount>();
-  for (const id of accountIds) {
-    const row = db.prepare('SELECT id, person_id, native_id, names FROM accounts WHERE id = ?').get(id);
-    if (!row) continue;
-    const names = parseJson(row.names);
-    accounts.set(id, {
-      personId: row.person_id,
-      native: (row.native_id ?? nativeOf(id)) as string,
-      name:
-        Array.isArray(names) && typeof names[0] === 'string' && names[0] ? names[0] : ((row.native_id ?? id) as string),
-    });
-  }
-  const participants = new Map<string, { name: string }>();
-  for (const id of new Set(batch.map((line) => line.author_participant as string).filter(Boolean))) {
-    const row = db.prepare('SELECT id, display FROM participants WHERE id = ?').get(id);
-    if (row) participants.set(id, { name: (row.display as string) || '?' });
-  }
-  const authors = new Map<string, BatchAuthor>();
-  const handled = new Set<string>();
-  for (const line of batch) {
-    if (line.kind === 'said') continue;
-    const entry: { kind: 'account' | 'participant'; id: string } | null =
-      line.author_participant && participants.has(line.author_participant as string)
-        ? { kind: 'participant', id: line.author_participant as string }
-        : line.author_account && accounts.has(line.author_account as string)
-          ? { kind: 'account', id: line.author_account as string }
-          : null;
-    if (!entry || handled.has(entry.id)) continue;
-    handled.add(entry.id);
-    authors.set(`a${authors.size + 1}`, {
-      ...entry,
-      hasPerson: entry.kind === 'account' ? Boolean(accounts.get(entry.id)?.personId) : false,
-    });
-  }
-  const byPerson = new Map<unknown, BatchPerson>();
-  for (const line of batch) {
-    if (line.kind === 'said') continue;
-    const account = accounts.get(line.author_account as string);
-    if (!account?.personId) continue;
-    const entry: BatchPerson = byPerson.get(account.personId) ?? {
-      id: account.personId as string,
-      native: account.native,
-      name: account.name,
-      count: 0,
-    };
-    entry.count += 1;
-    byPerson.set(account.personId, entry);
-  }
-  return {
-    accounts,
-    participants,
-    authors,
-    people: [...byPerson.values()].sort((a, b) => b.count - a.count || a.id.localeCompare(b.id)),
-    selfName,
-  };
-}
 
 /** One line of the batch: `#n [time] [pN] name: text`, a line addressed to her led by `→ `, her own under her self label. */
 function lineText(

@@ -33,6 +33,7 @@ import { setInterfaceToken } from './interface-token.ts';
 import { DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../../llm/roles.ts';
 import { backupInWorker, backupName, backupSettings, backupsIn, partialOf } from '../../memory/db/backup.ts';
 import { grantedSkillNames } from '../../tools/discovery.ts';
+import { ownerPersonOf } from '../../tools/impl/grants.ts';
 import { ownValueAt, splitPath } from '../../tools/impl/shared.ts';
 import { skillRegistry } from '../../tools/registry.ts';
 import type { SkillsAccess } from '../../skills/port.ts';
@@ -152,7 +153,7 @@ function ownCommand(
     return Promise.resolve({ text: JSON.stringify(read), status: 'ok' });
   }
   if (name.startsWith('search.')) return Promise.resolve(searchCommand(dataDir, name, args, ENGINE_ROOT));
-  if (name === 'memory.bind') return personLinkCommand(memoryDb, runOp, args);
+  if (name === 'memory.bind') return personLinkCommand({ memoryDb, runOp, hot }, args);
   if ((name === 'memory.users.names.add' || name === 'memory.users.names.remove') && personWord(args.user))
     return ownerNameCommand(memoryDb, name, args);
   const action = moduleActionOf(name);
@@ -178,10 +179,30 @@ async function ownerNameCommand(memoryDb: unknown, name: string, args: Record<st
   }
 }
 
+/** The codes of a merge that has nothing to do: the earlier owner person is unknown or already the new one. */
+const MERGE_NOTHING = new Set(['SAME_PERSON', 'UNKNOWN_PERSON', 'MERGE_CYCLE']);
+
+/**
+ * The person named owner before a bind merges into the person the bind names, so the command line and every account
+ * of the earlier one follow the owner (src/memory/db/person-merge.ts).
+ */
+async function mergeEarlierOwner(memoryDb: unknown, earlier: string | null, person: unknown): Promise<void> {
+  if (earlier === null || typeof person !== 'string' || earlier === person) return;
+  try {
+    await (callMethod(memoryDb, 'personMerge', {
+      from: earlier,
+      into: person,
+      by: 'owner',
+      reason: 'the owner bound another account',
+    }) as Promise<unknown>);
+  } catch (err) {
+    if (!MERGE_NOTHING.has(String((err as { code?: unknown }).code))) throw err;
+  }
+}
+
 /** `/memory bind`: accounts by their native words come to share a person, the persona or the owner. */
 async function personLinkCommand(
-  memoryDb: unknown,
-  runOp: ConsoleDeps['runOp'],
+  { memoryDb, runOp, hot }: Pick<ConsoleDeps, 'memoryDb' | 'runOp' | 'hot'>,
   args: Record<string, unknown>
 ): Promise<Answer> {
   const word = (key: string) => (typeof args[key] === 'string' ? args[key] : '');
@@ -215,6 +236,7 @@ async function personLinkCommand(
       target: 'native' in target ? { accountId: other } : target,
     }) as Promise<unknown>)) as { person?: unknown } | null;
     if ('owner' in target) {
+      await mergeEarlierOwner(memoryDb, ownerPersonOf(objOf(hot).config), written?.person);
       const set = await runOp('config.set', { path: 'bot.ownerPerson', value: written?.person }, { asOwner: true });
       if (set.status !== 'ok') return { text: `the owner person was not set: ${set.summary}`, status: 'failed' };
     }

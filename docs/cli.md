@@ -154,7 +154,7 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Choose credentials and models | `/keys`, `/model`, `/search` |
 | Configure a chat platform | `/interfaces` |
 | Choose which providers serve a model | `/routes` |
-| Link a person's accounts | `/memory bind`, `/memory users link`, `/memory users unlink` |
+| Link a person's accounts, or merge two people | `/memory bind`, `/memory users link`, `/memory users unlink`, `/memory users merge` |
 | Give her or a person a name the door and the classifier know | `/memory users names add person:self NAME`, `/memory users names remove person:self NAME` |
 | Browse people, places, the graph and each memory family, and read every stored row | `/memory users`, `/memory places`, `/memory graph`, `/memory inspect`, `/memory claims` and the other families. See [The memory browser](#the-memory-browser) |
 | Choose where the diary is published | `/mirror` |
@@ -179,6 +179,7 @@ A page holds at most `memoryDb.inspection.pageRows` rows, whatever `--limit` ask
 |---|---|
 | `/memory users list`, `show`, `accounts`, `names`, `relationship`, `private` | People, unlinked accounts and anonymous participants, by `--name`, `--interface` and `--authority`. A name is a search term and links nothing |
 | `/memory users link <person> <account>`, `unlink <person> <account>` | The writes of an account's link, through the memory writer, by typed ids |
+| `/memory users merge <from> <into> [--reason <text>]` | The owner's merge of one person into another, through the memory writer. Everything about `<from>` moves to `<into>` and keeps its audience. A person nobody stored answers `PERSON_NOT_FOUND` ([Merging people](memory.md#merging-people)) |
 | `/memory users names add <user> <name>`, `remove <user> <name>` | The owner's confirmation of a member's alias |
 | `/memory places list`, `tree`, `show`, `lore` | Places of any kind and depth, with `--roots`. `show --include-children` adds every descendant and its descriptions. An orphan is a root, and a cycle ends with an explicit reference |
 | `/memory places lore add <place> <title> <keys> <text>`, `list <place>`, `show <place> <id>`, `remove <place> <id>` | The lore of a place |
