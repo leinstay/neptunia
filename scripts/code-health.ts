@@ -4,6 +4,8 @@
 //
 //   size       a file over its line limit (2,000 unless its `scripts/config/structure.json` entry says otherwise) and a function
 //              over 300 lines, nesting 6 or cyclomatic complexity 20
+//   chains     a property chain of four or more segments (`a.b.c.d`) and a name repeated in a row (`scope.scope`), counted
+//              per file; a chain under `hot.config`, `process` or `import.meta` is exempt from depth
 //   structure  a tracked file that matches no entry of `scripts/config/structure.json`, a tracked file in the local layer, an
 //              import its entry does not allow, a module of a `required` entry without a test
 //
@@ -53,8 +55,10 @@ type Entry = { path: string; purpose: string; layer: string; imports: Array<stri
 type Baseline = {
   files: Record<string, number>;
   functions: Record<string, Record<string, Record<string, number>>>;
+  chains: Record<string, ChainCounts>;
   structure: { imports: Record<string, Array<string>>; tests: Array<string> };
 };
+export type ChainCounts = { deep: number; repeated: number };
 type Change = { key: string; was: number; now: number };
 
 /** @param fileName Its extension picks the script kind. */
@@ -355,6 +359,65 @@ export function findOffenders(
   return result;
 }
 
+type Segment = { name?: string };
+
+/** The expression under a chain link, looking through a non-null `!`. */
+function stripNonNull(node: ts.Expression): ts.Expression {
+  return ts.isNonNullExpression(node) ? stripNonNull(node.expression) : node;
+}
+
+/** Whether a chain is exempt from the depth rule: settings under `hot.config`, `process`, `import.meta`. */
+function isDepthExempt(root: ts.Expression, segments: Array<Segment>) {
+  if (ts.isMetaProperty(root)) return true;
+  if (!ts.isIdentifier(root)) return false;
+  return root.text === 'process' || (root.text === 'hot' && segments[1]?.name === 'config');
+}
+
+/**
+ * Counts the property chains of a source. A chain is a run of property and element accesses; its root identifier or
+ * `this` is its first segment, an element access is a segment, and a call, a parenthesis or a cast ends it (the
+ * accesses after it are a new chain without a root segment). A chain of four or more segments is `deep`, unless it
+ * starts at `hot.config`, `process` or `import.meta`. Every adjacent pair of equal names is a `repeated`, exempt
+ * chains included. Qualified names in type positions are not chains.
+ */
+export function countChains(source: string, fileName: string): ChainCounts {
+  const sf = parse(source, fileName);
+  const counts: ChainCounts = { deep: 0, repeated: 0 };
+  const isLink = (n: ts.Node): n is ts.PropertyAccessExpression | ts.ElementAccessExpression =>
+    ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n);
+
+  function chain(top: ts.PropertyAccessExpression | ts.ElementAccessExpression) {
+    const reversed: Array<Segment> = [];
+    let node: ts.Expression = top;
+    while (isLink(node)) {
+      if (ts.isPropertyAccessExpression(node)) reversed.push({ name: node.name.text });
+      else {
+        reversed.push({});
+        visit(node.argumentExpression);
+      }
+      node = stripNonNull(node.expression);
+    }
+    const root = node;
+    if (ts.isIdentifier(root)) reversed.push({ name: root.text });
+    else if (root.kind === ts.SyntaxKind.ThisKeyword) reversed.push({ name: 'this' });
+    else if (root.kind === ts.SyntaxKind.SuperKeyword) reversed.push({ name: 'super' });
+    else if (!ts.isMetaProperty(root)) visit(root);
+    const segments = reversed.reverse();
+    if (segments.length >= 4 && !isDepthExempt(root, segments)) counts.deep += 1;
+    for (let i = 1; i < segments.length; i += 1) {
+      if (segments[i].name !== undefined && segments[i].name === segments[i - 1].name) counts.repeated += 1;
+    }
+  }
+
+  function visit(node: ts.Node) {
+    if (isLink(node)) chain(node);
+    else ts.forEachChild(node, visit);
+  }
+
+  visit(sf);
+  return counts;
+}
+
 /** Flattens a baseline to one number per recorded fact, so two baselines compare by key. */
 function flatten(baseline: Baseline): Map<string, number> {
   const flat: Map<string, number> = new Map();
@@ -363,6 +426,10 @@ function flatten(baseline: Baseline): Map<string, number> {
     for (const [fn, rules] of Object.entries(fns)) {
       for (const [rule, value] of Object.entries(rules)) flat.set(`${rule} ${file} ${fn}`, value);
     }
+  }
+  for (const [file, found] of Object.entries(baseline.chains)) {
+    flat.set(`chain-depth ${file}`, found.deep);
+    flat.set(`chain-repeat ${file}`, found.repeated);
   }
   for (const [file, targets] of Object.entries(baseline.structure.imports)) {
     for (const target of targets) flat.set(`import ${file} imports ${target}`, 1);
@@ -627,13 +694,15 @@ function main(args: Array<string>) {
     files[p] = { source: CODE_FILE.test(p) ? fs.readFileSync(path.join(root, p), 'utf8') : '' };
   }
 
-  const current: Baseline = { files: {}, functions: {}, structure: { imports: {}, tests: [] } };
+  const current: Baseline = { files: {}, functions: {}, chains: {}, structure: { imports: {}, tests: [] } };
   const failures: Array<string> = [];
   for (const p of paths.filter((f) => CODE_FILE.test(f))) {
     const entry = matchEntry(entries, p);
     const found = findOffenders(files[p].source, p, now, { maxLines: entry?.maxLines });
     if (found.lines !== undefined) current.files[p] = found.lines;
     if (Object.keys(found.functions).length > 0) current.functions[p] = found.functions;
+    const chains = countChains(files[p].source, p);
+    if (chains.deep > 0 || chains.repeated > 0) current.chains[p] = chains;
     for (const problem of found.problems) failures.push(`${p}:${problem.line}: ${problem.message}`);
   }
   const structure = checkStructure(entries, files);
@@ -648,7 +717,7 @@ function main(args: Array<string>) {
 
   const baseline = loadBaseline();
   const { grew, shrank } = compareToBaseline(
-    baseline ?? { files: {}, functions: {}, structure: { imports: {}, tests: [] } },
+    baseline ?? { files: {}, functions: {}, chains: {}, structure: { imports: {}, tests: [] } },
     current
   );
   if (args.includes('--update')) {
@@ -681,7 +750,9 @@ function main(args: Array<string>) {
 function summary(b: Baseline) {
   const fns = Object.values(b.functions).reduce((n, f) => n + Object.keys(f).length, 0);
   const imports = Object.values(b.structure.imports).reduce((n, t) => n + t.length, 0);
-  return `${Object.keys(b.files).length} long files, ${fns} offending functions, ${imports} import breaches, ${b.structure.tests.length} modules without a test`;
+  const deep = Object.values(b.chains).reduce((n, c) => n + c.deep, 0);
+  const repeated = Object.values(b.chains).reduce((n, c) => n + c.repeated, 0);
+  return `${Object.keys(b.files).length} long files, ${fns} offending functions, ${deep} deep chains, ${repeated} repeated names, ${imports} import breaches, ${b.structure.tests.length} modules without a test`;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

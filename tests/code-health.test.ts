@@ -251,7 +251,8 @@ test('judgeWaivers: ordinary comments and a source with no waiver give no proble
 
 // ---- baseline comparison ----
 
-const emptyBaseline = { files: {}, functions: {}, structure: { imports: {}, tests: [] } };
+// `chains` is covered by tests/chain-health.test.ts (R.2); the baseline shape needs the field.
+const emptyBaseline = { files: {}, functions: {}, chains: {}, structure: { imports: {}, tests: [] } };
 
 test('compareToBaseline: equal baselines give neither growth nor shrinkage', () => {
   const b = { ...emptyBaseline, files: { 'src/a.js': 2100 }, functions: { 'src/a.js': { f: { complexity: 25 } } } };
