@@ -101,7 +101,7 @@ async function herFix(
   risk: string | null,
   reason = 'One constant in one reader.'
 ): Promise<string> {
-  const answer = await herCalls(world.caller)('board.propose', { ...FIX_REQUEST, kind: 'fix' });
+  const answer = await herCalls(world.caller)('task.propose', { ...FIX_REQUEST, kind: 'fix' });
   assert.equal(answer.status, 'ok', answer.summary ?? '');
   const id = String((answer.data as { task: { id: string } }).task.id);
   world.scripts.thinker = (_run, turn) => {

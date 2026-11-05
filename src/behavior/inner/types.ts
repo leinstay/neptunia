@@ -155,6 +155,8 @@ export type Inflight = {
   placeId: string | null;
   privateChat: boolean;
   privateAccountId: string | null;
+  /** The interface the turn's conversation belongs to; absent in a mark written before it was recorded. */
+  iface?: string;
 };
 
 /** The state of one place's inner life (`data/places/<id>/inner.json`). */
@@ -273,7 +275,13 @@ export type InnerIntentions = {
 /** The journal as the inner life writes and reads it. */
 export type InnerJournal = {
   inner?(fields: Obj): unknown;
-  turnOperations?(query: { turnId: string; days: Array<string>; privateAccountId: string | null }): unknown;
+  turnOperations?(query: {
+    turnId: string;
+    days: Array<string>;
+    privateAccountId: string | null;
+    /** The interface of the turn, which a DM's place is resolved under; absent means the home interface. */
+    iface?: string;
+  }): unknown;
   read?(query: { day: string; kind: string; n: number }): unknown;
   /** One operation of a turn (src/memory/journal.ts#op): a wake's held post is a `post` around its send. */
   op?(base: Obj): InnerJournalOp;

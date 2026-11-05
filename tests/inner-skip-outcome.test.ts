@@ -1,5 +1,5 @@
 // How an inner turn ends when its calls changed nothing (src/turn/phases/outcome.ts, src/turn/outcome.ts): a selfimprovement
-// wake that only read `board.status` and answered `<skip/>` was recorded in `wake_runs` as `spoke` with nothing said. Calls
+// wake that only read `task.status` and answered `<skip/>` was recorded in `wake_runs` as `spoke` with nothing said. Calls
 // with no outward effect and a last answer of skip end `skip`, on every inner kind; a call with an outward or durable
 // effect stays as it is. Over a real admin and the fake interface, with a fake model answering from a script.
 import { after, test } from 'node:test';
@@ -57,7 +57,7 @@ type Result = {
 async function innerTurn({
   answers,
   kind = 'selfimprovement',
-  allowed = ['lore.list', 'board.status'],
+  allowed = ['lore.list', 'task.status'],
   shadow = false,
   withIntentions = false,
   errands = false,
@@ -219,20 +219,16 @@ for (const kind of Object.keys(WAKES)) {
   });
 }
 
-test('the read that production saw, board.status, ends skip whether or not it could answer', async () => {
+test('the read that production saw, task.status, ends skip whether or not it could answer', async () => {
   // Bug: a read that came back failed counts as an effect, because its status is not `executed`.
-  const run = await innerTurn({ answers: [toolAnswer('', [call('board.status')]), '<skip/>'] });
+  const run = await innerTurn({ answers: [toolAnswer('', [call('task.status')]), '<skip/>'] });
   assert.equal(run.result.outcome, 'skip');
 });
 
 test('several reads over several steps end skip too', async () => {
   // Bug: only the first step is looked at, and a longer look around still reads as speech.
   const run = await innerTurn({
-    answers: [
-      toolAnswer('', [call('lore.list')]),
-      toolAnswer('', [call('lore.list'), call('board.status')]),
-      '<skip/>',
-    ],
+    answers: [toolAnswer('', [call('lore.list')]), toolAnswer('', [call('lore.list'), call('task.status')]), '<skip/>'],
   });
   assert.equal(run.result.outcome, 'skip');
 });

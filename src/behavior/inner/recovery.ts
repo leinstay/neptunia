@@ -47,6 +47,7 @@ export async function resolveInflight(life: InnerContext): Promise<void> {
         turnId: mark.turnId,
         days: [...new Set([utcDay(mark.startedAt), utcDay(at)])],
         privateAccountId: mark.privateAccountId,
+        ...(mark.iface === undefined ? {} : { iface: mark.iface }),
       });
       ops = listOf(read).map(objOf);
     } catch (err) {
@@ -111,6 +112,7 @@ function cutOffMarks(rows: ReadonlyArray<StoredWake>): Array<Inflight> {
       placeId: row.turn?.placeId ?? null,
       privateChat: row.turn?.privateChat === true,
       privateAccountId: row.turn?.privateAccountId ?? null,
+      ...(row.turn?.iface === undefined ? {} : { iface: row.turn.iface }),
     });
   }
   return [...marks.values()];

@@ -1388,23 +1388,28 @@ async function buildCore(
     directPath: (role) => {
       if (role === 'memory') clearMemoryPath(paths.privateDir);
     },
+    // `keys check memory` proves the path the writer runs on: the probe through the backend while keys.json names one.
+    memoryPath: () => memoryPath(paths.privateDir),
+    probeMemory: () => probeMemoryRaw(clock()),
   });
   // The memory probe (src/subharness/memory-probe.ts): its sleep `memory-down` goes through the same pause. While the
   // session is off there is no writer to probe, and the probe passes.
   let lastMemoryProbe: ProbeResult | null = null;
+  const probeMemoryRaw = (now: number) =>
+    memoryProbe(
+      {
+        privateDir: paths.privateDir,
+        route: memoryRoute,
+        fetch: (input, init) => globalThis.fetch(input, init),
+        baseUrl: String(objOf(objOf(hot.config).llm).baseUrl),
+        model: () => roleModel(hot.config, 'memory') ?? '',
+        runBackend: runSubharnessBackend,
+      },
+      now
+    );
   const probeMemoryWriter = (now: number) =>
     objOf(objOf(objOf(hot.config).memoryDb).session).mode === 'apply'
-      ? memoryProbe(
-          {
-            privateDir: paths.privateDir,
-            route: memoryRoute,
-            fetch: (input, init) => globalThis.fetch(input, init),
-            baseUrl: String(objOf(objOf(hot.config).llm).baseUrl),
-            model: () => roleModel(hot.config, 'memory') ?? '',
-            runBackend: runSubharnessBackend,
-          },
-          now
-        )
+      ? probeMemoryRaw(now)
       : Promise.resolve<ProbeResult>({ ok: true, at: now });
   memoryWatch = createMemoryWatch({
     probe: async (now) => {

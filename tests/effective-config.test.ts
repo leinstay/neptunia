@@ -121,7 +121,8 @@ const ERRAND_ERA = {
     owners: ['o1'],
     access: {
       'task.run': grant,
-      'task.status': grant,
+      // T.1: `task.status` is the board tool now, so the old errand move is retired.
+      'errand.status': grant,
       'task.read': grant,
       'intent.set': grant,
       'intent.update': grant,

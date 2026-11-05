@@ -574,6 +574,7 @@ async function beginTurn(
     placeId: String(channel.id),
     privateChat: channel.rootId === null,
     privateAccountId: channel.rootId !== null ? null : idOrNull(channel.partnerId),
+    iface: channel.iface,
   };
   for (const wake of group) life.running.add(wake.id);
   const claim = await claimTurn(life, group, { at, turn: { kind, ...where } });

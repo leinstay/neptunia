@@ -2889,7 +2889,7 @@
    }
   },
   {
-   "tool": "board.propose",
+   "tool": "task.propose",
    "effect": "write",
    "costClass": "free",
    "feature": null,
@@ -2900,8 +2900,8 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:board.propose",
-    "off": "unknown-skill:board.propose"
+    "on": "unknown-skill:task.propose",
+    "off": "unknown-skill:task.propose"
    },
    "rights": {
     "owner": "ok",
@@ -2923,8 +2923,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "ok",
-    "ungranted-owner-here": "not-allowed:board.propose",
-    "shipped-owner-here": "not-allowed:board.propose",
+    "ungranted-owner-here": "not-allowed:task.propose",
+    "shipped-owner-here": "not-allowed:task.propose",
     "no-requester": "no-requester:no-requester",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -2944,7 +2944,7 @@
    }
   },
   {
-   "tool": "board.status",
+   "tool": "task.status",
    "effect": "read",
    "costClass": "free",
    "feature": null,
@@ -2955,8 +2955,8 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:board.status",
-    "off": "unknown-skill:board.status"
+    "on": "unknown-skill:task.status",
+    "off": "unknown-skill:task.status"
    },
    "rights": {
     "owner": "ok",
@@ -2978,8 +2978,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "ok",
-    "ungranted-owner-here": "not-allowed:board.status",
-    "shipped-owner-here": "not-allowed:board.status",
+    "ungranted-owner-here": "not-allowed:task.status",
+    "shipped-owner-here": "not-allowed:task.status",
     "no-requester": "ok",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -2999,7 +2999,7 @@
    }
   },
   {
-   "tool": "board.cancel",
+   "tool": "task.cancel",
    "effect": "write",
    "costClass": "free",
    "feature": null,
@@ -3010,8 +3010,8 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:board.cancel",
-    "off": "unknown-skill:board.cancel"
+    "on": "unknown-skill:task.cancel",
+    "off": "unknown-skill:task.cancel"
    },
    "rights": {
     "owner": "ok",
@@ -3033,8 +3033,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "requester-denied:not-granted",
-    "ungranted-owner-here": "not-allowed:board.cancel",
-    "shipped-owner-here": "not-allowed:board.cancel",
+    "ungranted-owner-here": "not-allowed:task.cancel",
+    "shipped-owner-here": "not-allowed:task.cancel",
     "no-requester": "no-requester:no-requester",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3054,7 +3054,7 @@
    }
   },
   {
-   "tool": "board.comment",
+   "tool": "task.comment",
    "effect": "write",
    "costClass": "free",
    "feature": null,
@@ -3065,8 +3065,8 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:board.comment",
-    "off": "unknown-skill:board.comment"
+    "on": "unknown-skill:task.comment",
+    "off": "unknown-skill:task.comment"
    },
    "rights": {
     "owner": "ok",
@@ -3088,8 +3088,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "requester-denied:not-granted",
-    "ungranted-owner-here": "not-allowed:board.comment",
-    "shipped-owner-here": "not-allowed:board.comment",
+    "ungranted-owner-here": "not-allowed:task.comment",
+    "shipped-owner-here": "not-allowed:task.comment",
     "no-requester": "no-requester:no-requester",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3109,7 +3109,7 @@
    }
   },
   {
-   "tool": "board.answer",
+   "tool": "task.answer",
    "effect": "write",
    "costClass": "free",
    "feature": null,
@@ -3120,8 +3120,8 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:board.answer",
-    "off": "unknown-skill:board.answer"
+    "on": "unknown-skill:task.answer",
+    "off": "unknown-skill:task.answer"
    },
    "rights": {
     "owner": "ok",
@@ -3143,8 +3143,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "requester-denied:not-granted",
-    "ungranted-owner-here": "not-allowed:board.answer",
-    "shipped-owner-here": "not-allowed:board.answer",
+    "ungranted-owner-here": "not-allowed:task.answer",
+    "shipped-owner-here": "not-allowed:task.answer",
     "no-requester": "no-requester:no-requester",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3164,7 +3164,7 @@
    }
   },
   {
-   "tool": "board.unblock",
+   "tool": "task.unblock",
    "effect": "write",
    "costClass": "free",
    "feature": null,
@@ -3175,8 +3175,8 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:board.unblock",
-    "off": "unknown-skill:board.unblock"
+    "on": "unknown-skill:task.unblock",
+    "off": "unknown-skill:task.unblock"
    },
    "rights": {
     "owner": "ok",
@@ -3198,8 +3198,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "requester-denied:not-granted",
-    "ungranted-owner-here": "not-allowed:board.unblock",
-    "shipped-owner-here": "not-allowed:board.unblock",
+    "ungranted-owner-here": "not-allowed:task.unblock",
+    "shipped-owner-here": "not-allowed:task.unblock",
     "no-requester": "no-requester:no-requester",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:wakes.kinds.intention_due.tools",

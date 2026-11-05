@@ -60,10 +60,10 @@ test('the committed table holds a row per tool of the registry and a verdict per
     contexts.filter((name) => row.verdicts[name] === undefined).map((name) => `${row.tool}:${name}`)
   );
   assert.deepEqual(gaps, []);
-  // Two more since the board tools board.propose and board.status (PR 6c).
+  // Two more since the board tools task.propose and task.status (PR 6c).
   // PR 7e: two more, skill.read and skill.disable (the committed table gained their rows).
   // The tool watcher.read of the daily watcher is the 72nd, and skill.run of the executable skills the 73rd.
-  // `board.unblock` joined the registry with the task-started development run.
+  // `task.unblock` joined the registry with the task-started development run.
   // `inner.stop` and `inner.start` left with `/wakes`.
   assert.equal(committed.tools.length, 75);
 });

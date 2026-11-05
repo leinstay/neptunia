@@ -1,7 +1,7 @@
 // What a heartbeat and a selfimprovement wake accept and offer (docs/inner-life.md "Heartbeat and selfimprovement"). Both
 // let her read her memory first and end in one decision: a heartbeat records one intention or a skip, a selfimprovement
 // wake files one task or a skip. A call outside the wake's set is refused with the wake's own code, and the model is
-// offered the same set. `board.cancel`, `board.comment`, `board.answer` and `board.unblock` belong to the selfimprovement wake alone, on
+// offered the same set. `task.cancel`, `task.comment`, `task.answer` and `task.unblock` belong to the selfimprovement wake alone, on
 // every other turn too. Pure: the kind comes from the turn, the names from the registry.
 
 import { CODE } from './codes.ts';
@@ -26,13 +26,13 @@ export const HEARTBEAT_READ_SKILLS = Object.freeze([
 ]);
 /** Her answers on a task of hers: they do not end the wake, and only this wake has them. */
 const TASK_ANSWER_SKILLS: ReadonlyArray<string> = Object.freeze([
-  'board.cancel',
-  'board.comment',
-  'board.answer',
-  'board.unblock',
+  'task.cancel',
+  'task.comment',
+  'task.answer',
+  'task.unblock',
 ]);
 /** The call a selfimprovement wake decides with. */
-const FILING = 'board.propose';
+const FILING = 'task.propose';
 
 type WakeRule = { accepts: ReadonlyArray<string>; decides: ReadonlyArray<string>; refusal: string };
 
@@ -43,7 +43,7 @@ const RULES: Readonly<Record<string, WakeRule>> = Object.freeze({
     refusal: CODE.HEARTBEAT_ONLY,
   },
   selfimprovement: {
-    accepts: [...HEARTBEAT_READ_SKILLS, 'board.status', ...TASK_ANSWER_SKILLS, FILING],
+    accepts: [...HEARTBEAT_READ_SKILLS, 'task.status', ...TASK_ANSWER_SKILLS, FILING],
     decides: [FILING],
     refusal: CODE.SELFIMPROVEMENT_ONLY,
   },
@@ -76,7 +76,7 @@ export function endsWake(kind: unknown, skill: string): boolean {
 
 /**
  * The key of a call a restarted turn of the same wake must not repeat: a heartbeat's `intention.set` and a
- * selfimprovement wake's `board.propose`, by the wake's chain, which is one wake's alone. Null for any other call.
+ * selfimprovement wake's `task.propose`, by the wake's chain, which is one wake's alone. Null for any other call.
  */
 export function wakeCallKey(kind: unknown, chainId: unknown, skill: string): string | null {
   if (typeof chainId !== 'string' || chainId === '') return null;

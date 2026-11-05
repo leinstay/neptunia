@@ -1,7 +1,7 @@
 // The `selfimprovement` wake: on `selfimprovement.schedule` (by default once a day, after the watcher's run),
 // and with a cause when one chain shape fails
 // `selfimprovement.failuresPerShape` times in a UTC day, at most one such cause a day. Its turn carries
-// the facts of src/behavior/selfimprovement-view.ts, and she answers with one `board.propose` or a skip. The clock is
+// the facts of src/behavior/selfimprovement-view.ts, and she answers with one `task.propose` or a skip. The clock is
 // `state.selfimprovement = { lastAt, raisedAt, schedule }`: `schedule` is what the clock counts for, `lastAt` moves when a wake's completion committed, to the moment its view was read (and the outbox rows
 // it showed are marked delivered, exactly those), `raisedAt` when a failure cause raised a wake. The tick (src/behavior/inner.ts) asks
 // `selfimprovementDue`; the drain (src/behavior/inner/drain.ts) asks `selfimprovementFacts` for its turn and

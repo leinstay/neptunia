@@ -320,9 +320,9 @@
     "whenToUse": "Mark resolved; leaves errands block.",
     "whenNotToUse": "Not needed once you report its result."
   },
-  "board.propose": {
+  "task.propose": {
     "title": "Propose a change to your code",
-    "whenToUse": "Something in how you work keeps going wrong, an ability is missing, or a chain of calls you keep repeating deserves a skill, and only a change would fix it. Files a proposal on the task board. The owner decides whether it gets built. board.status shows where it stands.",
+    "whenToUse": "Something in how you work keeps going wrong, an ability is missing, or a chain of calls you keep repeating deserves a skill, and only a change would fix it. Files a proposal on the task board. The owner decides whether it gets built. task.status shows where it stands.",
     "whenNotToUse": "Not for a one-off slip or for an errand.",
     "args": {
       "title": "The change, in a few words.",
@@ -335,29 +335,29 @@
       "evaluation": "With a kind: a case that shows the change works."
     }
   },
-  "board.status": {
+  "task.status": {
     "title": "Check your proposals",
     "whenToUse": "Your proposals with their state, the questions put to you and the reviews."
   },
-  "board.cancel": {
+  "task.cancel": {
     "title": "Cancel a task of yours",
     "whenToUse": "You filed this task and no longer want it built.",
     "whenNotToUse": "Not to reword it: comment on it instead.",
     "args": {
-      "id": "The task's id as your wake or board.status names it.",
+      "id": "The task's id as your wake or task.status names it.",
       "reason": "Why you no longer want it, in a sentence."
     }
   },
-  "board.comment": {
+  "task.comment": {
     "title": "Comment on a task of yours",
     "whenToUse": "You have something to add to a task you filed: a correction, a narrower scope, a case you just saw. The task stays where it is.",
-    "whenNotToUse": "Not for a question put to you: board.answer lets the work go on.",
+    "whenNotToUse": "Not for a question put to you: task.answer lets the work go on.",
     "args": {
-      "id": "The task's id as your wake or board.status names it.",
+      "id": "The task's id as your wake or task.status names it.",
       "text": "What you want the people working on it to read."
     }
   },
-  "board.answer": {
+  "task.answer": {
     "title": "Answer a question put to you on a task",
     "whenToUse": "A task waits on a question or a proposal addressed to you. Your answer lets its holder go on.",
     "whenNotToUse": "Not for a question put to the owner, which stays his.",
@@ -366,12 +366,12 @@
       "text": "Your answer or your decision on the proposal."
     }
   },
-  "board.unblock": {
+  "task.unblock": {
     "title": "Let a blocked task of yours go on",
     "whenToUse": "A task of yours is blocked, your wake shows why, and you know what it needs or what you decided.",
-    "whenNotToUse": "Not while the reason still holds, and not for a task you no longer want: board.cancel ends that one.",
+    "whenNotToUse": "Not while the reason still holds, and not for a task you no longer want: task.cancel ends that one.",
     "args": {
-      "id": "The task's id as your wake or board.status names it.",
+      "id": "The task's id as your wake or task.status names it.",
       "note": "What changed or what you decided, for whoever goes on."
     }
   },

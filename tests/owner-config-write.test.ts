@@ -56,7 +56,14 @@ const accessOf = (config: Settings): Settings => (config.bot as Settings).access
 const run = <T>(fn: () => Promise<T>) => withCapturedLogs(fn);
 
 test('settles the grants of an old name in the file when a command writes another grant, and her grants survive the reload', async () => {
-  const world = deployment({ bot: { access: { 'task.run': grant, 'task.status': grant } } });
+  const world = deployment({
+    bot: {
+      access: {
+        'task.run': grant, // T.1: `task.status` is the board tool now, so the old errand move is retired.
+        'errand.status': grant,
+      },
+    },
+  });
   await run(() => world.admin.run('access.grant', { command: 'status.show', accountId: 'u9' }, {}));
   const access = accessOf(world.written());
   assert.deepEqual(Object.keys(access).sort(), ['errand.run', 'errand.status', 'status.show']);

@@ -63,9 +63,9 @@ function samplesOf(definition: Untyped) {
 }
 
 test('the table holds every operation, in the operations registry order', () => {
-  // Two more since the board tools board.propose and board.status (PR 6c).
-  // And skill.run of the executable skills, and board.cancel, board.comment and board.answer of her wake.
-  // Changed: board.unblock is the 77th tool.
+  // Two more since the board tools task.propose and task.status (PR 6c).
+  // And skill.run of the executable skills, and task.cancel, task.comment and task.answer of her wake.
+  // Changed: task.unblock is the 77th tool.
   assert.equal(SKILL_DEFINITIONS.length, 75);
   assert.deepEqual(
     SKILL_DEFINITIONS.map((definition) => definition.name),
@@ -189,9 +189,9 @@ test('the result of a skill: job for the two background ones, data for a read, e
 });
 
 test('the API names: 75, well-formed, unique, a round trip, no longer than 64', () => {
-  // Two more since the board tools board.propose and board.status (PR 6c).
+  // Two more since the board tools task.propose and task.status (PR 6c).
   const apis = SKILL_DEFINITIONS.map((definition) => definition.api);
-  // Changed: board.unblock is the 77th tool.
+  // Changed: task.unblock is the 77th tool.
   assert.equal(apis.length, 75);
   assert.equal(new Set(apis).size, 75);
   assert.equal(Object.keys(API_NAMES).length, 75);

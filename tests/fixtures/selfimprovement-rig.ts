@@ -1,5 +1,5 @@
 // The world of the self-development tests (src/selfimprovement/): a real task board over a memory database in memory, her
-// `board.propose` as the operations run it, and fakes for everything outside the process: the subharness runner,
+// `task.propose` as the operations run it, and fakes for everything outside the process: the subharness runner,
 // `git`, `gh` and the test runner. Each fake records what it was asked, in `order` when the order matters, and answers
 // from `world`, which a test edits before the step it checks. Nothing here touches the network, a provider or a
 // remote. Synthetic data only.
@@ -181,14 +181,14 @@ export const FIX_REQUEST = {
   evaluation: 'A page that answers in 8 seconds is read, not reported as a timeout.',
 } as const;
 
-/** Her scripted `board.propose` of kind `fix`; returns the task id. */
+/** Her scripted `task.propose` of kind `fix`; returns the task id. */
 export async function proposeFix(
   world: SelfimprovementWorld,
   over: Partial<Record<string, unknown>> = {}
 ): Promise<string> {
   const her = herCalls(world.caller);
-  const answer = await her('board.propose', { ...FIX_REQUEST, kind: 'fix', ...over });
-  if (answer.status !== 'ok') throw new Error(`board.propose: ${answer.status} ${answer.summary ?? ''}`);
+  const answer = await her('task.propose', { ...FIX_REQUEST, kind: 'fix', ...over });
+  if (answer.status !== 'ok') throw new Error(`task.propose: ${answer.status} ${answer.summary ?? ''}`);
   return String((answer.data as { task: { id: string } }).task.id);
 }
 

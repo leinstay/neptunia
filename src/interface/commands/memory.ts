@@ -85,10 +85,15 @@ function detail(name: string, view: { found: boolean; code?: string }): Answer {
 /** The live bounds of `memoryDb.inspection`, read at each use. */
 function boundsOf(hot: unknown): InspectionBounds {
   const inspection = objOf(objOf(objOf(hot).config).memoryDb).inspection;
-  const { pageRows, snapshotIdleSeconds, snapshotMaxSeconds } = objOf(inspection);
-  if (typeof pageRows !== 'number' || typeof snapshotIdleSeconds !== 'number' || typeof snapshotMaxSeconds !== 'number')
+  const { pageRows, snapshotIdleSeconds, snapshotMaxSeconds, maxSnapshots } = objOf(inspection);
+  if (
+    typeof pageRows !== 'number' ||
+    typeof snapshotIdleSeconds !== 'number' ||
+    typeof snapshotMaxSeconds !== 'number' ||
+    typeof maxSnapshots !== 'number'
+  )
     throw new Error('memoryDb.inspection is not set');
-  return { pageRows, snapshotIdleSeconds, snapshotMaxSeconds };
+  return { pageRows, snapshotIdleSeconds, snapshotMaxSeconds, maxSnapshots };
 }
 
 /** The whole number of a flag; what is no number comes back as NaN for the reader's own bound check to refuse. */

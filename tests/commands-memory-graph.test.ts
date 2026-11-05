@@ -66,7 +66,7 @@ function rig(memoryClosed = false): Rig {
       config: {
         memoryDb: {
           file: 'memory.db',
-          inspection: { pageRows: PAGE_ROWS, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300 },
+          inspection: { pageRows: PAGE_ROWS, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300, maxSnapshots: 8 },
         },
       },
     },

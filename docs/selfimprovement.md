@@ -34,22 +34,22 @@ When green checks in `auto` leave her task waiting, the worker sends her an outb
 
 ## What comes back to her
 
-A question addressed to `persona:self`, a proposal from the thinker, a block and a merged change reach her in her next selfimprovement wake, whoever filed the task. She answers with `board.answer`, and the thinker resumes on its branch with her answer in its brief. On a task she filed, `board.unblock` lets it go on and `board.cancel` stops it, along with its running agents and its dev tasks. The branch and the worktree stay for inspection.
+A question addressed to `persona:self`, a proposal from the thinker, a block and a merged change reach her in her next selfimprovement wake, whoever filed the task. She answers with `task.answer`, and the thinker resumes on its branch with her answer in its brief. On a task she filed, `task.unblock` lets it go on and `task.cancel` stops it, along with its running agents and its dev tasks. The branch and the worktree stay for inspection.
 
 ## Grant her tools
 
-The tracked `bot.access` is empty, so the persona holds no board tool until the deployment grants it. Without `board.propose` the wake can only skip, and without `board.answer` she reads a question she cannot answer. Grant them with `/tools grant`:
+The tracked `bot.access` is empty, so the persona holds no board tool until the deployment grants it. Without `task.propose` the wake can only skip, and without `task.answer` she reads a question she cannot answer. Grant them with `/tools grant`:
 
 ```text
-/tools grant board.propose
-/tools grant board.status
-/tools grant board.cancel
-/tools grant board.comment
-/tools grant board.answer
-/tools grant board.unblock
+/tools grant task.propose
+/tools grant task.status
+/tools grant task.cancel
+/tools grant task.comment
+/tools grant task.answer
+/tools grant task.unblock
 ```
 
-A grant lets her call the tool, and the wake still limits where each one runs. `board.cancel`, `board.comment`, `board.answer` and `board.unblock` run only in the selfimprovement wake.
+A grant lets her call the tool, and the wake still limits where each one runs. `task.cancel`, `task.comment`, `task.answer` and `task.unblock` run only in the selfimprovement wake.
 
 ## Configure
 

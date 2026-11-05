@@ -13,7 +13,7 @@ type PlaceRecord = {
 };
 type PlaceStore = {
   rootPlaceOf?(placeId: string): string | null;
-  placeOfConversation?(conversation: { kind: string; partnerId: string }): string;
+  placeOfConversation?(conversation: { kind: string; partnerId: string }, iface?: string): string;
   holdsSharedConversation?(conversationId: string): boolean;
 };
 
@@ -83,7 +83,7 @@ export function personaJournal(journal: Journal, places: () => Array<string>, st
     },
     async turnOperations(query) {
       const partner = query.privateAccountId;
-      const dm = partner ? placeOfConversation(store, { kind: 'dm', partnerId: partner }) : null;
+      const dm = partner ? placeOfConversation(store, { kind: 'dm', partnerId: partner }, query.iface) : null;
       const holders = new Set([...places(), PERSONA_ID, ...(dm ? [dm] : [])]);
       const found: Array<unknown> = [];
       for (const placeId of holders) {

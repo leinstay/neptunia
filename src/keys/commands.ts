@@ -128,7 +128,17 @@ export type KeysDeps = {
   recordCheck?(role: string, check: { selection: string; ok: boolean; code: string | null }): void;
   /** Returns `role` to its direct path: called after a direct model of `memory` is checked and saved. */
   directPath?(role: string): void;
+  /** The path her memory writer runs on now (keys.json, src/subharness/memory-path.ts), read at every check. */
+  memoryPath?: () => MemoryCheckPath | null;
+  /** One probe through the subharness path of the memory writer (src/subharness/memory-probe.ts#memoryProbe). */
+  probeMemory?: () => Promise<MemoryCheckProbe>;
 };
+
+/** The path `keys check memory` is asked about: the direct request, or one backend and model. */
+export type MemoryCheckPath = { kind: 'direct' } | { kind: 'subharness'; backend: string; model: string };
+
+/** What the probe of a subharness path answers: a pass, or a failure with its code. */
+export type MemoryCheckProbe = { ok: true; at: number } | { ok: false; code: string; at: number };
 
 /** What a legacy import moved, by name: the answer of the command that triggered it starts with it. */
 const importedLine = (report: ImportReport): string => {
@@ -178,6 +188,17 @@ function checkLine(result: CheckResult): string {
   return result.ok
     ? `${head}: answered, ${byok}, ${money(result.cost)}`
     : `${head}: failed${result.status === null ? '' : ` (HTTP ${result.status})`}: ${result.error ?? 'no reason given'}`;
+}
+
+/** `keys check memory` while the writer runs through a backend: the probe, with no request on the memory key. */
+async function checkMemoryBackend(
+  name: string,
+  path: Extract<MemoryCheckPath, { kind: 'subharness' }>,
+  probe: NonNullable<KeysDeps['probeMemory']>
+): Promise<Answer> {
+  const head = `memory via ${path.backend} ${path.model}`;
+  const result = await probe();
+  return result.ok ? { text: `${head}: answered`, status: 'ok' } : failed(name, `${head}: failed: ${result.code}`);
 }
 
 /** The `--provider` and `--effort` of one model set, by name. */
@@ -398,6 +419,9 @@ export function createKeysCommands(deps: KeysDeps): {
   }
 
   async function checkOne(name: string, role: string): Promise<Answer> {
+    const path = role === 'memory' ? (deps.memoryPath?.() ?? null) : null;
+    if (path?.kind === 'subharness' && deps.probeMemory !== undefined)
+      return checkMemoryBackend(name, path, deps.probeMemory);
     const model = deps.currentModel(role);
     if (model === '' || voiceOf(deps, role).voice === '')
       return {
@@ -418,7 +442,8 @@ export function createKeysCommands(deps: KeysDeps): {
     });
     if (result.capability === 'unsupported') return { text: unsupportedLine(role), status: 'unsupported' };
     deps.recordCheck?.(role, checkRecord(result));
-    return { text: checkLine(result), status: result.ok ? 'ok' : 'failed' };
+    const line = path?.kind === 'direct' ? `${checkLine(result)} (direct path)` : checkLine(result);
+    return { text: line, status: result.ok ? 'ok' : 'failed' };
   }
 
   async function setModel(name: string, args: Record<string, unknown>, dialog: Dialog | null): Promise<Answer> {

@@ -89,7 +89,8 @@
     "inspection": {
       "pageRows": 100,
       "snapshotIdleSeconds": 60,
-      "snapshotMaxSeconds": 300
+      "snapshotMaxSeconds": 300,
+      "maxSnapshots": 4
     },
     "backup": {
       "enabled": false,

@@ -50,7 +50,7 @@ import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const T0 = Date.parse('2026-11-05T12:00:00.000Z');
-const BOUNDS: InspectionBounds = { pageRows: 100, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300 };
+const BOUNDS: InspectionBounds = { pageRows: 100, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300, maxSnapshots: 8 };
 const OWNER = 'owner-1';
 const SIX_MIB = 6 * 1024 * 1024;
 

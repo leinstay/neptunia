@@ -1,6 +1,6 @@
 // A chain she repeated becomes a skill she uses, end to end (PR 7e's done-criterion), over the real pieces and no
 // network: three turns of hers call web.search, web.read and message.create; the `selfimprovement` view lists that
-// shape with the count 3; her scripted answer files `board.propose` of kind `skill` with the example turns; a fake
+// shape with the count 3; her scripted answer files `task.propose` of kind `skill` with the example turns; a fake
 // agent principal claims the task, writes `skills.local/<name>/SKILL.md` and submits, the owner activates the version
 // (his decision of 2026-11-04: an agent never does); `/skills` shows the activation; a later turn of the same shape carries the skill in `<skills>`, her
 // `skill.read` returns its text, and `skill_uses` holds discovered, read, tried and succeeded. Then the guards: a
@@ -188,8 +188,8 @@ test('a chain she repeated becomes a skill she uses: view, proposal, agent, acti
     ['web.search', 'web.read', 'message.create']
   );
 
-  // 2. Her scripted answer files `board.propose` of kind skill; the task holds the shape and the example turns.
-  const proposed = await her('board.propose', {
+  // 2. Her scripted answer files `task.propose` of kind skill; the task holds the shape and the example turns.
+  const proposed = await her('task.propose', {
     title: 'A skill for the fact lookup',
     evidence: `Chain ${shape?.steps.map((step) => step.tool).join(', ')} seen ${shape?.count} times.`,
     kind: 'skill',

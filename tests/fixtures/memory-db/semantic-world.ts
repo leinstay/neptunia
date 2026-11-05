@@ -6,13 +6,11 @@ import path from 'node:path';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
 import { groupsContext, internalContext, issueContext } from '../../../src/memory/db/scope.ts';
 import type { Context } from '../../../src/memory/db/scope.ts';
-import { applySemanticWrite, validateSemanticCandidate } from '../../../src/memory/db/semantic-write.ts';
+import { commitViaSession as commit, everythingRead } from './semantic-session-commit.ts';
 import type {
   SemanticArgument,
   SemanticCandidate,
   SemanticEntityCandidate,
-  SemanticReadSet,
-  SemanticWriteResult,
 } from '../../../src/memory/db/semantic-types.ts';
 import { dbOf } from '../../../src/memory/db/types.ts';
 import type { Db, MemoryHandle } from '../../../src/memory/db/types.ts';
@@ -103,35 +101,7 @@ export function addSource(world: World, where: Where, text: string): string {
   return id;
 }
 
-/** Every stored source and claim version: the read set of a writer that was shown all of them. */
-export function everythingRead(world: World): SemanticReadSet {
-  return {
-    sourceIds: world.db.prepare('SELECT id FROM sources').all().map((row) => String(row.id)),
-    versionIds: world.db.prepare('SELECT id FROM claim_versions').all().map((row) => String(row.id)),
-  };
-}
-
-const rejected = (result: object): string | null =>
-  'ok' in result && result.ok === false && 'code' in result ? String(result.code) : null;
-
-/** Validates and applies one candidate in `ctx`; a rejection throws, so a seed that fails stops the test at its cause. */
-export function commit(
-  world: World,
-  candidate: SemanticCandidate | SemanticEntityCandidate,
-  ctx: Context = world.contexts.group,
-  read: SemanticReadSet = everythingRead(world)
-): SemanticWriteResult {
-  const checked = validateSemanticCandidate(world.db, ctx, candidate, read);
-  if (!checked.ok) throw new Error(`the seed was refused: ${checked.code}`);
-  const result = applySemanticWrite(world.handle, checked.resolved, {
-    now: world.now,
-    uuid: world.uuid,
-    runId: `run:${world.uuid()}`,
-  });
-  const code = rejected(result);
-  if (code !== null) throw new Error(`the seed was refused at apply: ${code}`);
-  return result as SemanticWriteResult;
-}
+export { commit, everythingRead };
 
 export const supports = (...sources: Array<string>): SemanticCandidate['evidence'] =>
   sources.map((sourceId) => ({ sourceId, role: 'supports' as const }));
